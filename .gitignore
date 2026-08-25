@@ -1,0 +1,8 @@
+target/
+node_modules/
+dist/
+pkg/
+*.log
+.DS_Store
+packages/occlude-studio/sketches/
+.playwright-cli/

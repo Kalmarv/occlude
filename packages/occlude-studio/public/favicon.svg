@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- occlude: the later pen hides what's beneath it -->
+  <rect width="32" height="32" rx="7" fill="#1a1c1f"/>
+  <defs>
+    <!-- back circle minus front circle: exactly what stays visible -->
+    <mask id="behind">
+      <rect width="32" height="32" fill="black"/>
+      <circle cx="12" cy="16" r="8.6" fill="white"/>
+      <circle cx="20.5" cy="16" r="8.6" fill="black"/>
+    </mask>
+    <clipPath id="front">
+      <circle cx="20.5" cy="16" r="8.6"/>
+    </clipPath>
+  </defs>
+  <!-- back pen: cream, 45° hatch (x+y = c), occluded by the front circle -->
+  <g mask="url(#behind)" stroke="#f6f2ea" stroke-width="1.1">
+    <line x1="-21" y1="40" x2="27" y2="-8"/>
+    <line x1="-18" y1="40" x2="30" y2="-8"/>
+    <line x1="-15" y1="40" x2="33" y2="-8"/>
+    <line x1="-12" y1="40" x2="36" y2="-8"/>
+    <line x1="-9" y1="40" x2="39" y2="-8"/>
+    <line x1="-6" y1="40" x2="42" y2="-8"/>
+    <line x1="-3" y1="40" x2="45" y2="-8"/>
+  </g>
+  <circle cx="12" cy="16" r="8.6" fill="none" stroke="#f6f2ea" stroke-width="1.5" mask="url(#behind)"/>
+  <!-- front pen: red, opposite hatch (y-x = d), complete -->
+  <g clip-path="url(#front)" stroke="#e0604a" stroke-width="1.1">
+    <line x1="-8" y1="-21.5" x2="40" y2="26.5"/>
+    <line x1="-8" y1="-18.5" x2="40" y2="29.5"/>
+    <line x1="-8" y1="-15.5" x2="40" y2="32.5"/>
+    <line x1="-8" y1="-12.5" x2="40" y2="35.5"/>
+    <line x1="-8" y1="-9.5" x2="40" y2="38.5"/>
+    <line x1="-8" y1="-6.5" x2="40" y2="41.5"/>
+    <line x1="-8" y1="-3.5" x2="40" y2="44.5"/>
+  </g>
+  <circle cx="20.5" cy="16" r="8.6" fill="none" stroke="#e0604a" stroke-width="1.5"/>
+</svg>

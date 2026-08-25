@@ -1,0 +1,323 @@
+//! WASM boundary. One call per render with the whole recording buffer — no
+//! per-shape FFI (spec, Layer 1).
+//!
+//! ## Buffer protocol (all little-endian typed arrays from JS)
+//!
+//! `prims: Float64Array`, stride 9 per primitive:
+//!   [kind, ...8 params]
+//!   kind 0 line:  p0x p0y p1x p1y  _ _ _ _
+//!   kind 1 arc:   cx cy r start sweep  _ _ _
+//!   kind 2 cubic: p0x p0y c0x c0y c1x c1y p1x p1y
+//!
+//! `contours: Uint32Array`, stride 2: [prim_start, prim_count]
+//!
+//! `shapes_u32: Uint32Array`, stride 10:
+//!   [contour_start, contour_count, flags, stroke_pen+1, fill_pen+1,
+//!    fill_kind, clip_start, clip_count, fill_start, fill_count]
+//!   flags: bit0 closed, bit1 convex, bit2 even-odd winding
+//!   fill_kind: 0 none, 1 hatch, 2 stipple, 3 custom
+//!   hatch:   fill params = fill_count triplets (angle°, spacing, offset)
+//!            starting at fill_params[fill_start]
+//!   stipple: fill params = (density, min_dist)
+//!   custom:  [fill_start, fill_start+fill_count) is a range of PRIMS
+//!            (custom fill geometry recorded straight into the prim table)
+//!
+//! `shapes_f64: Float64Array`, stride 1: [z]
+//!
+//! `clip_list: Uint32Array`: clip region indices, sliced per shape by
+//!   clip_start/clip_count.
+//!
+//! `clips_u32: Uint32Array`, stride 3: [contour_start, contour_count, flags]
+//!
+//! Output `frags: Float64Array`, stride 6:
+//!   [origin_prim, t0, t1, pen, shape, flags(bit0 dot)]
+//! plus the full primitive table (input prims + generated fill prims) in the
+//! same stride-9 encoding, so the preview can draw exact curves.
+
+use crate::bbox::BBox;
+use crate::fill::{FillKind, HatchPass};
+use crate::gcode::{export_gcode, MachineProfile};
+use crate::pipeline::{render, ClipDef, Pen, RenderInput, ShapeRec};
+use crate::primitive::{Arc, Cubic, Line, Primitive};
+use crate::region::WindingRule;
+use crate::svg::{to_svg, SvgOptions};
+use crate::vec2::v;
+use wasm_bindgen::prelude::*;
+
+pub const PRIM_STRIDE: usize = 9;
+pub const FRAG_STRIDE: usize = 6;
+pub const SHAPE_U32_STRIDE: usize = 10;
+
+fn decode_prim(row: &[f64]) -> Primitive {
+    match row[0] as u32 {
+        0 => Primitive::Line(Line::new(v(row[1], row[2]), v(row[3], row[4]))),
+        1 => Primitive::Arc(Arc::new(v(row[1], row[2]), row[3], row[4], row[5])),
+        _ => Primitive::Cubic(Cubic::new(
+            v(row[1], row[2]),
+            v(row[3], row[4]),
+            v(row[5], row[6]),
+            v(row[7], row[8]),
+        )),
+    }
+}
+
+fn encode_prim(p: &Primitive, out: &mut Vec<f64>) {
+    match p {
+        Primitive::Line(l) => {
+            out.extend_from_slice(&[0.0, l.p0.x, l.p0.y, l.p1.x, l.p1.y, 0.0, 0.0, 0.0, 0.0])
+        }
+        Primitive::Arc(a) => out.extend_from_slice(&[
+            1.0, a.center.x, a.center.y, a.r, a.start, a.sweep, 0.0, 0.0, 0.0,
+        ]),
+        Primitive::Cubic(c) => out.extend_from_slice(&[
+            2.0, c.p0.x, c.p0.y, c.c0.x, c.c0.y, c.c1.x, c.c1.y, c.p1.x, c.p1.y,
+        ]),
+    }
+}
+
+fn decode_prims(prims: &[f64]) -> Vec<Primitive> {
+    prims.chunks_exact(PRIM_STRIDE).map(decode_prim).collect()
+}
+
+fn contours_of(
+    contour_start: usize,
+    contour_count: usize,
+    contours: &[u32],
+    table: &[Primitive],
+) -> Vec<Vec<Primitive>> {
+    (contour_start..contour_start + contour_count)
+        .map(|ci| {
+            let ps = contours[ci * 2] as usize;
+            let pc = contours[ci * 2 + 1] as usize;
+            table[ps..ps + pc].to_vec()
+        })
+        .collect()
+}
+
+#[wasm_bindgen]
+pub struct RenderResult {
+    prims: Vec<f64>,
+    frags: Vec<f64>,
+    stats: Vec<f64>,
+}
+
+#[wasm_bindgen]
+impl RenderResult {
+    #[wasm_bindgen(getter)]
+    pub fn prims(&self) -> Vec<f64> {
+        self.prims.clone()
+    }
+    #[wasm_bindgen(getter)]
+    pub fn frags(&self) -> Vec<f64> {
+        self.frags.clone()
+    }
+    /// [shapes_in, culled_off_paper, culled_contained, clean, fragments,
+    ///  fill_prims]
+    #[wasm_bindgen(getter)]
+    pub fn stats(&self) -> Vec<f64> {
+        self.stats.clone()
+    }
+}
+
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub fn wasm_render(
+    prims: &[f64],
+    contours: &[u32],
+    shapes_u32: &[u32],
+    shapes_f64: &[f64],
+    fill_params: &[f64],
+    clip_list: &[u32],
+    clips_u32: &[u32],
+    pens_json: &str,
+    paper: &[f64],
+    seed: u32,
+    coarsen: f64,
+) -> Result<RenderResult, JsValue> {
+    let table = decode_prims(prims);
+    let pens: Vec<Pen> = serde_json::from_str(pens_json)
+        .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
+
+    let n = shapes_u32.len() / SHAPE_U32_STRIDE;
+    let mut shapes = Vec::with_capacity(n);
+    for i in 0..n {
+        let s = &shapes_u32[i * SHAPE_U32_STRIDE..(i + 1) * SHAPE_U32_STRIDE];
+        let flags = s[2];
+        let closed = flags & 1 != 0;
+        let winding = if flags & 4 != 0 {
+            WindingRule::EvenOdd
+        } else {
+            WindingRule::NonZero
+        };
+        let fill = match s[5] {
+            1 => {
+                let start = s[8] as usize;
+                let count = s[9] as usize;
+                let passes = (0..count)
+                    .map(|k| HatchPass {
+                        angle: fill_params[start + k * 3],
+                        spacing: fill_params[start + k * 3 + 1],
+                        offset: fill_params[start + k * 3 + 2],
+                    })
+                    .collect();
+                Some((s[4] - 1, FillKind::Hatch(passes)))
+            }
+            2 => {
+                let start = s[8] as usize;
+                Some((
+                    s[4] - 1,
+                    FillKind::Stipple {
+                        density: fill_params[start],
+                        min_dist: fill_params[start + 1],
+                    },
+                ))
+            }
+            3 => {
+                let start = s[8] as usize;
+                let count = s[9] as usize;
+                Some((
+                    s[4] - 1,
+                    FillKind::Custom(table[start..start + count].to_vec()),
+                ))
+            }
+            4 => Some((s[4] - 1, FillKind::Mask)),
+            _ => None,
+        };
+        shapes.push(ShapeRec {
+            contours: contours_of(s[0] as usize, s[1] as usize, contours, &table),
+            closed,
+            convex: flags & 2 != 0,
+            winding,
+            stroke: if s[3] > 0 { Some(s[3] - 1) } else { None },
+            fill,
+            z: shapes_f64[i],
+            clips: clip_list[s[6] as usize..(s[6] + s[7]) as usize].to_vec(),
+        });
+    }
+
+    let clips: Vec<ClipDef> = clips_u32
+        .chunks_exact(3)
+        .map(|c| ClipDef {
+            contours: contours_of(c[0] as usize, c[1] as usize, contours, &table),
+            winding: if c[2] & 4 != 0 {
+                WindingRule::EvenOdd
+            } else {
+                WindingRule::NonZero
+            },
+            convex: c[2] & 2 != 0,
+        })
+        .collect();
+
+    let paper_box = if paper.len() == 4 {
+        Some(BBox::new(v(paper[0], paper[1]), v(paper[2], paper[3])))
+    } else {
+        None
+    };
+
+    let out = render(&RenderInput {
+        shapes,
+        clips,
+        pens,
+        paper: paper_box,
+        seed: seed as u64,
+        coarsen,
+    });
+
+    let mut prims_out = Vec::with_capacity(out.prims.len() * PRIM_STRIDE);
+    for p in &out.prims {
+        encode_prim(p, &mut prims_out);
+    }
+    let mut frags_out = Vec::with_capacity(out.frags.len() * FRAG_STRIDE);
+    for f in &out.frags {
+        frags_out.extend_from_slice(&[
+            f.origin as f64,
+            f.t0,
+            f.t1,
+            f.pen as f64,
+            f.shape as f64,
+            if f.dot { 1.0 } else { 0.0 },
+        ]);
+    }
+    let s = &out.stats;
+    Ok(RenderResult {
+        prims: prims_out,
+        frags: frags_out,
+        stats: vec![
+            s.shapes_in as f64,
+            s.culled_off_paper as f64,
+            s.culled_contained as f64,
+            s.clean as f64,
+            s.fragments as f64,
+            s.fill_prims as f64,
+        ],
+    })
+}
+
+fn decode_frags(prims: &[f64], frags: &[f64]) -> Vec<crate::fragment::Frag> {
+    let table = decode_prims(prims);
+    frags
+        .chunks_exact(FRAG_STRIDE)
+        .map(|f| {
+            let origin = f[0] as u32;
+            let whole = table[origin as usize];
+            crate::fragment::Frag {
+                origin,
+                t0: f[1],
+                t1: f[2],
+                pen: f[3] as u32,
+                shape: f[4] as u32,
+                dot: f[5] as u32 & 1 != 0,
+                geom: whole.sub(f[1], f[2]),
+            }
+        })
+        .collect()
+}
+
+/// G-code export. Returns a JSON array of jobs:
+/// [{pen, penName, gcode, inkMm, travelMm, estSeconds}]
+#[wasm_bindgen]
+pub fn wasm_export_gcode(
+    prims: &[f64],
+    frags: &[f64],
+    pens_json: &str,
+    profile_json: &str,
+    tour_budget: u32,
+) -> Result<String, JsValue> {
+    let pens: Vec<Pen> = serde_json::from_str(pens_json)
+        .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
+    let profile: MachineProfile = serde_json::from_str(profile_json)
+        .map_err(|e| JsValue::from_str(&format!("bad profile json: {e}")))?;
+    let frags = decode_frags(prims, frags);
+    let jobs = export_gcode(&frags, &pens, &profile, tour_budget as usize);
+    serde_json::to_string(&jobs).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+/// SVG export (exact curves, no flattening).
+#[wasm_bindgen]
+pub fn wasm_export_svg(
+    prims: &[f64],
+    frags: &[f64],
+    pens_json: &str,
+    width: f64,
+    height: f64,
+    background: Option<String>,
+    only_pen: i32,
+) -> Result<String, JsValue> {
+    let pens: Vec<Pen> = serde_json::from_str(pens_json)
+        .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
+    let frags = decode_frags(prims, frags);
+    Ok(to_svg(
+        &frags,
+        &pens,
+        &SvgOptions {
+            width,
+            height,
+            background,
+            only_pen: if only_pen >= 0 {
+                Some(only_pen as u32)
+            } else {
+                None
+            },
+        },
+    ))
+}

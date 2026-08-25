@@ -1,0 +1,197 @@
+/** occlude studio: wire editor → runner → render worker → preview → panels. */
+
+import './style.css';
+import { clearRuntimeMarkers, createEditor, setRuntimeMarker } from './editor.js';
+import { buildRail } from './panels.js';
+import { Preview } from './preview.js';
+import { currentSeed, runSketch } from './runner.js';
+import {
+  download, loadPens, loadSettings, loadSketch, loadSketchName,
+  saveSketch, saveSketchName,
+} from './store.js';
+import { RenderClient } from './workerClient.js';
+import type { RenderResult } from 'occlude';
+
+const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
+
+async function boot(): Promise<void> {
+  const statusMsg = $('status-msg');
+  const statusStats = $('status-stats');
+  const statusSeed = $('status-seed');
+  const titleEl = $('sketch-title');
+
+  const pens = await loadPens();
+  const settings = loadSettings();
+  const client = new RenderClient();
+  const editor = createEditor($('editor'), loadSketch());
+  const preview = new Preview($('preview') as HTMLCanvasElement);
+  let lastResult: RenderResult | null = null;
+  let pending: number | null = null;
+  let sketchName = loadSketchName();
+
+  function setTitle(): void {
+    titleEl.textContent = sketchName || 'untitled sketch';
+  }
+  setTitle();
+
+  function renderSeedControls(): void {
+    statusSeed.innerHTML = '';
+    const seed = currentSeed();
+    const label = document.createElement('span');
+    label.textContent = `seed ${seed}`;
+    const reroll = document.createElement('button');
+    reroll.textContent = 'reroll';
+    reroll.title = 'New random seed';
+    reroll.onclick = () => {
+      const url = new URL(location.href);
+      url.searchParams.set('seed', String(Math.floor(Math.random() * 2 ** 31)));
+      history.replaceState(null, '', url);
+      void run();
+    };
+    const share = document.createElement('button');
+    share.textContent = 'copy url';
+    share.title = 'Copy a shareable URL with this seed';
+    share.onclick = () => {
+      const url = new URL(location.href);
+      url.searchParams.set('seed', seed);
+      void navigator.clipboard.writeText(url.toString());
+    };
+    statusSeed.append(label, reroll, share);
+  }
+
+  async function run(): Promise<void> {
+    try {
+      await runInner();
+    } catch (err) {
+      statusMsg.className = 'status-err';
+      statusMsg.textContent = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function runInner(): Promise<void> {
+    saveSketch(editor.getValue());
+    const emitted = await editor.emit();
+    if (!emitted.js) {
+      statusMsg.className = 'status-err';
+      statusMsg.textContent = emitted.errors[0] ?? 'syntax error';
+      return;
+    }
+    clearRuntimeMarkers(editor.model);
+    // Execute + encode on the main thread (cheap); geometry in the worker.
+    const outcome = runSketch(emitted.js, {
+      pens,
+      paper: settings.paper,
+      landscape: settings.landscape,
+      defaultMarginPct: settings.defaultMarginPct,
+      coarsen: 1,
+    });
+    if (outcome.error || !outcome.scene) {
+      statusMsg.className = 'status-err';
+      statusMsg.textContent =
+        outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
+      setRuntimeMarker(editor.model, outcome.error);
+      return;
+    }
+    statusMsg.className = 'status-ok';
+    statusMsg.textContent = 'rendering…';
+    let result: RenderResult | null;
+    try {
+      result = await client.render(outcome.scene);
+    } catch (err) {
+      statusMsg.className = 'status-err';
+      statusMsg.textContent = err instanceof Error ? err.message : String(err);
+      return;
+    }
+    if (result === null) return; // superseded by a newer run
+    lastResult = result;
+    statusMsg.className = 'status-ok';
+    statusMsg.textContent = 'ok';
+    const s = result.stats;
+    statusStats.textContent =
+      `${s.fragments} frags · ${s.fillPrims} fill prims · ` +
+      `${s.clean} clean · ${s.culledContained + s.culledOffPaper} culled · ` +
+      `${s.renderMs.toFixed(1)}ms`;
+    preview.setResult(result);
+    renderSeedControls();
+  }
+
+  function scheduleRun(): void {
+    if (pending !== null) clearTimeout(pending);
+    pending = window.setTimeout(() => {
+      pending = null;
+      void run();
+    }, 150);
+  }
+
+  editor.onChange(scheduleRun);
+
+  const rail = buildRail($('rail'), {
+    pens,
+    settings,
+    client,
+    onChanged: () => void run(),
+    lastResult: () => lastResult,
+    getSource: () => editor.getValue(),
+    openSketch: (name, source) => {
+      sketchName = name;
+      saveSketchName(name);
+      setTitle();
+      editor.setValue(source); // triggers a run via onChange
+    },
+    currentName: () => sketchName,
+    setName: (name) => {
+      sketchName = name;
+      saveSketchName(name);
+      setTitle();
+    },
+  });
+
+  // Ctrl/Cmd+S saves to the server-side sketch library, not the web page.
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        rail
+          .saveCurrent()
+          .then((name) => {
+            if (name) {
+              statusMsg.className = 'status-ok';
+              statusMsg.textContent = `saved '${name}'`;
+            } else {
+              statusMsg.className = 'status-err';
+              statusMsg.textContent = 'name the sketch to save it (Sketches panel)';
+            }
+          })
+          .catch((err: unknown) => {
+            statusMsg.className = 'status-err';
+            statusMsg.textContent = `save failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`;
+          });
+      }
+    },
+    true,
+  );
+
+  $('btn-fit').onclick = () => preview.fit();
+  ($('debug-toggle') as HTMLInputElement).onchange = (e) => {
+    preview.debug = (e.target as HTMLInputElement).checked;
+    preview.draw();
+  };
+  $('btn-export-sketch').onclick = () =>
+    download(`${sketchName || 'sketch'}.ts`, editor.getValue());
+  $('btn-import').onclick = () => {
+    const input = $('file-input') as HTMLInputElement;
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (file) editor.setValue(await file.text());
+      input.value = '';
+    };
+    input.click();
+  };
+
+  void run();
+}
+
+void boot();

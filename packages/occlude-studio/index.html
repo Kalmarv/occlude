@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>occlude studio</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="app">
+      <header id="topbar">
+        <span class="wordmark">occlude<span class="wordmark-dot">·</span>studio</span>
+        <span id="sketch-title" class="sketch-title">untitled sketch</span>
+        <div class="topbar-actions">
+          <a class="topbar-link" href="/docs.html" target="_blank" rel="noopener">Docs</a>
+          <button id="btn-import" title="Import a .ts sketch file">Import</button>
+          <button id="btn-export-sketch" title="Download the sketch as .ts">Save .ts</button>
+        </div>
+      </header>
+      <main id="workbench">
+        <section id="editor-pane">
+          <div id="editor"></div>
+        </section>
+        <section id="bench">
+          <canvas id="preview"></canvas>
+          <div id="bench-hud">
+            <button id="btn-fit" title="Fit paper to view">Fit</button>
+            <label class="hud-toggle"
+              ><input type="checkbox" id="debug-toggle" /> Debug</label
+            >
+          </div>
+        </section>
+        <aside id="rail"></aside>
+      </main>
+      <footer id="statusbar">
+        <span id="status-msg" class="status-ok">ready</span>
+        <span id="status-stats"></span>
+        <span id="status-seed"></span>
+      </footer>
+    </div>
+    <input type="file" id="file-input" accept=".ts,.js,.txt" hidden />
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
