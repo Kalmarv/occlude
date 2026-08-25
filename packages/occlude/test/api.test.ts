@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  bounds, chance, circle, clip, exportGcode, exportSvg, hatch, initOcclude,
-  line, margin, mm, path, pen, pick, polygon, push, rect, render, rnd, sketch,
-  stipple, stream, w,
+  bounds, chance, circle, clip, evalPrim, exportGcode, exportSvg, hatch,
+  initOcclude, line, margin, mm, path, pen, pick, polygon, push, rect, render,
+  rnd, sketch, stipple, stream, w,
 } from '../src/index.js';
 import type { Fragment, Prim } from '../src/index.js';
 
@@ -101,6 +101,72 @@ describe('occlude end to end', () => {
       }),
     );
     expect(centers.size).toBe(1);
+  });
+
+  it('rotation pivots around the user origin, not the paper corner', () => {
+    sketch({ aspect: [1, 1], seed: 1, origin: 'center' });
+    for (const deg of [0, 30, 45, 137]) {
+      push({ rotate: deg }, () => rect(-10, -4, 20, 8));
+    }
+    const out = render({ paper: 'Square20' });
+    // Every rotated rect's bbox centre must stay at the paper centre (100,100).
+    for (let shape = 0; shape < 4; shape++) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const f of out.frags.filter((f) => f.shape === shape)) {
+        for (const t of [0, 0.5, 1]) {
+          const [x, y] = evalPrim(f.geom, t);
+          x0 = Math.min(x0, x); y0 = Math.min(y0, y);
+          x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+        }
+      }
+      expect((x0 + x1) / 2).toBeCloseTo(100, 1);
+      expect((y0 + y1) / 2).toBeCloseTo(100, 1);
+    }
+  });
+
+  it('yUp keeps circles as exact arcs (reflection, not cubics)', () => {
+    sketch({ seed: 1, yUp: true });
+    circle(50, 25, 10);
+    const out = render({ paper: 'Square20' });
+    const arcs = out.frags.filter((f) => f.geom.t === 'arc');
+    expect(arcs.length).toBe(2);
+    const a = arcs[0].geom as Extract<Prim, { t: 'arc' }>;
+    expect(a.cx).toBeCloseTo(100, 6);
+    expect(a.cy).toBeCloseTo(150, 6); // y=25 from the bottom of a 200mm square
+  });
+
+  it('stipples stay inside rotated rounded rects (seed 556023384)', () => {
+    sketch({ aspect: [1, 1], seed: 556023384, origin: 'center' });
+    margin(6);
+    for (let i = 0; i < 100; i++) {
+      push({ rotate: i }, () => {
+        rect(-10, -4, 20, 8, 10).fill(stipple(1), 'stabilo-88-red');
+      });
+    }
+    const out = render({ paper: 'Square20' });
+    const dots = out.frags.filter((f) => f.dot);
+    expect(dots.length).toBeGreaterThan(50);
+    // Independent check: inverse-rotate each dot into its shape's local user
+    // units and evaluate the rounded-box SDF (half 10×4, radius 4 → stadium).
+    const unit = 176 / 100; // Square20 with 6% margin: drawable 176mm, short side %
+    let worst = -Infinity;
+    for (const d of dots) {
+      const [dx, dy] = evalPrim(d.geom, 0);
+      const px = (dx - 100) / unit;
+      const py = (dy - 100) / unit;
+      const a = (-d.shape * Math.PI) / 180;
+      const lx = px * Math.cos(a) - py * Math.sin(a);
+      const ly = px * Math.sin(a) + py * Math.cos(a);
+      const r = 4;
+      const qx = Math.abs(lx) - (10 - r);
+      const qy = Math.abs(ly) - (4 - r);
+      const sdf =
+        Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) +
+        Math.min(Math.max(qx, qy), 0) -
+        r;
+      worst = Math.max(worst, sdf);
+    }
+    expect(worst).toBeLessThanOrEqual(0.05); // ≤ ~0.09mm outside allowed (snap noise)
   });
 
   it('letterboxes a square aspect onto A4 and margins inset', () => {

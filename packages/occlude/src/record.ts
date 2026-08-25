@@ -63,32 +63,40 @@ class Resolver {
     return resolveLen(v, this.frame.inner);
   }
 
-  /** Position → drawable-space mm (before transforms). */
+  /**
+   * Position in USER space mm (origin/yUp are NOT applied here — they form
+   * the outermost matrix, so transforms pivot around the user's origin:
+   * `push({ rotate })` with origin 'center' spins in place, not around the
+   * paper corner).
+   */
   pos(x: L, y: L): [number, number] {
-    const f = this.frame;
-    let px = this.len(x);
-    let py = this.len(y);
-    if (f.origin === 'center') {
-      px = f.inner.innerW / 2 + px;
-      py = f.yUp ? f.inner.innerH / 2 - py : f.inner.innerH / 2 + py;
-    } else if (f.yUp) {
-      py = f.inner.innerH - py;
-    }
-    return [px, py];
+    return [this.len(x), this.len(y)];
   }
+}
 
-  /** Sign of the y axis for size extents. */
-  get dirY(): number {
-    return this.frame.yUp ? -1 : 1;
+/** User space → drawable space: the origin/yUp convention as a matrix. */
+function userFrameMatrix(frame: Frame): Mat {
+  const { innerW, innerH } = frame.inner;
+  let m =
+    frame.origin === 'center'
+      ? translate(innerW / 2, innerH / 2)
+      : frame.yUp
+        ? translate(0, innerH)
+        : IDENTITY;
+  if (frame.yUp) {
+    m = mul(m, mscale(1, -1));
   }
+  return m;
 }
 
 function composeChain(chain: TransformOp[], rz: Resolver): Mat {
   let m = IDENTITY;
   for (const op of chain) {
     if (op.translate) {
+      // User space: with yUp the outer frame matrix flips the axis, so a
+      // positive dy here moves "up" exactly as the user's coordinates do.
       const dx = rz.len(op.translate[0]);
-      const dy = rz.dirY * rz.len(op.translate[1]);
+      const dy = rz.len(op.translate[1]);
       m = mul(m, translate(dx, dy));
     }
     if (op.rotate !== undefined && op.rotate !== 0) {
@@ -115,14 +123,21 @@ function transformPrim(p: Prim, m: Mat): Prim[] {
     const [x1, y1] = apply(m, p.x1, p.y1);
     return [{ t: 'cubic', x0, y0, c0x, c0y, c1x, c1y, x1, y1 }];
   }
-  // Arc: stays an arc under conformal, orientation-preserving transforms;
-  // otherwise lower to cubics first (exactness of "arcs are arcs" only holds
-  // when circles map to circles).
-  if (isConformal(m) && det(m) > 0) {
+  // Arc: stays an arc under any conformal transform (rotation, uniform
+  // scale, and reflection — the yUp frame is a reflection); only non-uniform
+  // scale lowers to cubics, because only then do circles stop being circles.
+  if (isConformal(m)) {
     const [cx, cy] = apply(m, p.cx, p.cy);
     const s = conformalScale(m);
-    const theta = Math.atan2(m.b, m.a);
-    return [{ t: 'arc', cx, cy, r: p.r * s, start: p.start + theta, sweep: p.sweep }];
+    const [px, py] = apply(
+      m,
+      p.cx + p.r * Math.cos(p.start),
+      p.cy + p.r * Math.sin(p.start),
+    );
+    const start = Math.atan2(py - cy, px - cx);
+    // Reflections reverse the angular direction of travel.
+    const sweep = det(m) > 0 ? p.sweep : -p.sweep;
+    return [{ t: 'arc', cx, cy, r: p.r * s, start, sweep }];
   }
   return arcToCubics(p).flatMap((c) => transformPrim(c, m));
 }
@@ -181,7 +196,7 @@ function lowerGeom(geom: ShapeGeom, rz: Resolver): Prim[][] {
     case 'rect': {
       const [ax, ay] = rz.pos(geom.x, geom.y);
       const w = rz.len(geom.w);
-      const h = rz.len(geom.h) * rz.dirY;
+      const h = rz.len(geom.h);
       // Normalise to positive extents; contour orientation doesn't matter to
       // the nonzero winding rule.
       const x0 = Math.min(ax, ax + w);
@@ -363,7 +378,12 @@ export interface LoweredShape {
 /** Full lowering of one shape into snapped paper-space primitives. */
 export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
   const rz = new Resolver(frame);
-  const m = mul(translate(frame.offsetX, frame.offsetY), composeChain(shape.transform, rz));
+  // paper offset ∘ user frame (origin/yUp) ∘ transform chain: the chain acts
+  // in user coordinates, so its rotations pivot around the user's origin.
+  const m = mul(
+    translate(frame.offsetX, frame.offsetY),
+    mul(userFrameMatrix(frame), composeChain(shape.transform, rz)),
+  );
   const contours = lowerGeom(shape.geom, rz).map((contour) =>
     contour.flatMap((p) => transformPrim(p, m)).map(snapPrim),
   );
