@@ -354,7 +354,15 @@ pub fn render(input: &RenderInput) -> RenderOutput {
                 }
             }
             FillKind::Stipple { density, min_dist } => {
-                let pts = stipple_region(region, *density, *min_dist * coarsen, input.seed);
+                // Decorrelate per shape: with one global seed, shapes with
+                // similar bboxes generate nearly identical Poisson patterns
+                // in paper space, and occlusion slivers then reveal
+                // near-duplicate dots from neighbouring shapes (clumpy,
+                // structured borders). Still fully deterministic per sketch
+                // seed; shape 0 keeps the unmixed seed.
+                let shape_seed =
+                    input.seed ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+                let pts = stipple_region(region, *density, *min_dist * coarsen, shape_seed);
                 for p in pts {
                     if point_visible(p, &shape_clips, &ctx, &mut query_buf) {
                         let origin = GEN_FLAG | so.gen_prims.len() as u32;
