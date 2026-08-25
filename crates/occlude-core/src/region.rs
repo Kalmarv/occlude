@@ -7,7 +7,7 @@
 //! tangent rays then resolve by construction rather than by epsilon fudging.
 
 use crate::bbox::BBox;
-use crate::intersect::{intersect_pair, project_point_cubic};
+use crate::intersect::project_point_cubic;
 use crate::primitive::{Arc, Primitive, EPS};
 use crate::vec2::Vec2;
 
@@ -236,32 +236,21 @@ impl Region {
         if let (Some((c1, r1)), Some((c2, r2))) = (self.as_circle(), other.as_circle()) {
             return c1.dist(c2) + r2 <= r1 + EPS;
         }
+        // other ⊆ self iff no piece of other's boundary lies strictly
+        // outside self. Split each boundary primitive at its crossings with
+        // self's boundary and midpoint-classify the pieces — the same
+        // machinery as the clip layer. (Testing crossing POINTS is useless:
+        // a crossing point lies on self's boundary by definition.)
         for op in other.boundary() {
-            for sp in self.boundary() {
-                if !op.bbox().expanded(1e-9).overlaps(&sp.bbox()) {
-                    continue;
-                }
-                for (to, _) in intersect_pair(op, sp) {
-                    // A genuine crossing strictly inside the primitive means
-                    // the boundary pokes out; endpoint grazing does not.
-                    if to > 1e-7 && to < 1.0 - 1e-7 {
-                        let pt = op.eval(to);
-                        if !self.on_boundary(pt, 1e-9) {
-                            return false;
-                        }
-                        // Coincident-boundary hit: keep checking others.
-                        let _ = pt;
-                    }
+            let ts = self.crossings(op, &op.bbox());
+            for (_, _, piece) in op.split_at(&ts) {
+                let mid = piece.eval(0.5);
+                if !self.inside(mid) && !self.on_boundary(mid, 1e-9) {
+                    return false;
                 }
             }
         }
-        // No crossings: containment decided by any sample point.
-        let sample = other
-            .boundary()
-            .next()
-            .map(|p| p.eval(0.5))
-            .unwrap_or(other.bbox.center());
-        self.inside(sample) || self.on_boundary(sample, 1e-9)
+        true
     }
 }
 

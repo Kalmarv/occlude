@@ -518,3 +518,52 @@ fn rotated_stadium_inside_matches_sdf() {
         assert!(checked > 4000);
     }
 }
+
+#[test]
+fn containment_rejects_near_covers_and_accepts_twins() {
+    // Regression: contains_region degenerated to a one-point sample because
+    // crossing points always lie on the outer boundary. A rect is NOT
+    // contained by its 1°-rotated copy, but IS contained by its exact
+    // 180°-rotated twin (identical region).
+    use occlude_core::snap::snap_primitive;
+    let stadium = |deg: f64| -> Region {
+        let a = deg.to_radians();
+        let rot = |x: f64, y: f64| v(x * a.cos() - y * a.sin(), x * a.sin() + y * a.cos());
+        let quarter = std::f64::consts::FRAC_PI_2;
+        let contour: Vec<Primitive> = vec![
+            Primitive::Line(Line::new(rot(-1.5, -10.0), rot(1.5, -10.0))),
+            Primitive::Arc(Arc::new(rot(1.5, -9.0), 1.0, -quarter + a, quarter)),
+            Primitive::Line(Line::new(rot(2.5, -9.0), rot(2.5, 9.0))),
+            Primitive::Arc(Arc::new(rot(1.5, 9.0), 1.0, a, quarter)),
+            Primitive::Line(Line::new(rot(1.5, 10.0), rot(-1.5, 10.0))),
+            Primitive::Arc(Arc::new(rot(-1.5, 9.0), 1.0, quarter + a, quarter)),
+            Primitive::Line(Line::new(rot(-2.5, 9.0), rot(-2.5, -9.0))),
+            Primitive::Arc(Arc::new(rot(-1.5, -9.0), 1.0, std::f64::consts::PI + a, quarter)),
+        ]
+        .iter()
+        .map(snap_primitive)
+        .collect();
+        Region::from_contour(contour)
+    };
+    let base = stadium(0.0);
+    let bbox_rect = Region::from_contour(vec![
+        Primitive::Line(line(-2.5, -10., 2.5, -10.)),
+        Primitive::Line(line(2.5, -10., 2.5, 10.)),
+        Primitive::Line(line(2.5, 10., -2.5, 10.)),
+        Primitive::Line(line(-2.5, 10., -2.5, -10.)),
+    ]);
+    // Near covers must NOT claim containment of the bbox rect or the shape.
+    for deg in [1.0, 2.0, 5.0, 17.0, 91.0] {
+        let cover = stadium(deg);
+        assert!(
+            !cover.contains_region(&bbox_rect),
+            "{deg}° cover wrongly contains the bbox rect"
+        );
+        assert!(
+            !cover.contains_region(&base),
+            "{deg}° cover wrongly contains the base stadium"
+        );
+    }
+    // The exact 180° twin IS the same region: containment holds.
+    assert!(stadium(180.0).contains_region(&base));
+}

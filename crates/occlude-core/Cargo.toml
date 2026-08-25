@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 default = ["parallel"]
 parallel = ["rayon"]
 wasm = ["wasm-bindgen"]
+cull-debug = []
 
 [dependencies]
 wasm-bindgen = { version = "0.2", optional = true }

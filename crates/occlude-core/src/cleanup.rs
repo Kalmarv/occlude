@@ -1,8 +1,12 @@
 //! Cleanup: the one place tolerance exists, and it is physical — the pen nib.
 //!
-//! 1. Pieces shorter than the nib: both neighbours visible → bridge (merge
-//!    across), both hidden → delete, mixed → delete. The ends of a primitive
-//!    count as hidden neighbours.
+//! 1. Coalesce at nib resolution: a hidden gap shorter than the nib cannot
+//!    be plotted as a gap (the pen bridges it physically), so it is inked.
+//!    This is done by run-merging, not per-piece rules: grazing-incidence
+//!    occlusion cuts an edge into alternating sub-nib visible/hidden slivers,
+//!    and per-piece "mixed neighbours → delete" would erase a zone that a
+//!    real pen renders as a solid line. After bridging, a visible run still
+//!    shorter than the nib is a dot, and is dropped.
 //! 2. Merge consecutive visible spans of the same origin primitive.
 //! 3. Drop coincident duplicate fragments from different shapes (seams drawn
 //!    twice because "on boundary = outside" keeps both).
@@ -34,38 +38,38 @@ pub fn spans_to_fragments(
             _ => (t1 - t0) * total_len,
         }
     };
-    // Resolve tiny pieces by the neighbour rule.
-    let mut visible: Vec<bool> = spans.iter().map(|s| s.visible).collect();
     let n = spans.len();
-    for i in 0..n {
-        let len = span_len(spans[i].t0, spans[i].t1);
-        if len >= threshold {
-            continue;
-        }
-        let prev = if i > 0 { visible[i - 1] } else { false };
-        let next = if i + 1 < n {
-            spans[i + 1].visible
-        } else {
-            false
-        };
-        visible[i] = prev && next; // bridge iff both neighbours visible
-    }
-    // Merge consecutive visible spans.
+    // A hidden span is bridgeable when it is too short to plot as a gap.
+    let bridgeable = |s: &Span| !s.visible && span_len(s.t0, s.t1) < threshold;
+
+    // Build maximal runs that start and end on a VISIBLE span and cross only
+    // visible spans or bridgeable hidden gaps. Order-independent by
+    // construction: membership depends only on the original span states.
     let mut i = 0;
     while i < n {
-        if !visible[i] {
+        if !spans[i].visible {
             i += 1;
             continue;
         }
         let start = spans[i].t0;
         let mut end = spans[i].t1;
-        while i + 1 < n && visible[i + 1] {
-            i += 1;
-            end = spans[i].t1;
+        let mut j = i;
+        // Extend: consume [bridgeable gaps]* followed by a visible span.
+        loop {
+            let mut k = j + 1;
+            while k < n && bridgeable(&spans[k]) {
+                k += 1;
+            }
+            if k < n && spans[k].visible {
+                end = spans[k].t1;
+                j = k;
+            } else {
+                break;
+            }
         }
-        i += 1;
+        i = j + 1;
         if span_len(start, end) < threshold {
-            continue; // merged run still below the nib → a dot, drop it
+            continue; // whole run below the nib → a dot, drop it
         }
         out.push(Frag {
             origin,

@@ -240,6 +240,8 @@ pub fn render(input: &RenderInput) -> RenderOutput {
             any_later = true;
             // Containment cull: fully inside one later opaque region.
             if o.region.bbox.contains_box(b) && region_contains_bbox(&o.region, b) {
+                #[cfg(feature = "cull-debug")]
+                eprintln!("CULL shape {} by occluder rank {}", i, o.rank);
                 contained = true;
                 break;
             }
