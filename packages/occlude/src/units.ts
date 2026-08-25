@@ -20,7 +20,13 @@ export type L = number | Len;
 export const w = (n: number): Len => new Len('w', n);
 /** Percent of drawable height. */
 export const h = (n: number): Len => new Len('h', n);
-/** Percent of the long side. */
+/**
+ * Percent of the long side ("scale"): isotropic, so it works for sizes AND
+ * coordinates — s(100) spans the long axis; the short axis ends at
+ * s(100 × short/long).
+ */
+export const s = (n: number): Len => new Len('long', n);
+/** Alias of `s(n)`. */
 export const long = (n: number): Len => new Len('long', n);
 /** Real millimetres — for anything physical. */
 export const mm = (n: number): Len => new Len('mm', n);

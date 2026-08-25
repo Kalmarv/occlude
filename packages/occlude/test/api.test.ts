@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  bounds, chance, circle, clip, evalPrim, exportGcode, exportSvg, hatch,
+  bounds, chance, circle, clip, evalPrim, exportGcode, exportSvg, grid, hatch,
   initOcclude, line, margin, mm, path, pen, pick, polygon, push, rect, render,
-  rnd, sketch, stipple, stream, w,
+  rnd, s, sketch, stipple, stream, w,
 } from '../src/index.js';
 import type { Fragment, Prim } from '../src/index.js';
 
@@ -193,6 +193,24 @@ describe('occlude end to end', () => {
     const g1 = out.frags.find((f) => f.shape === 1)!.geom as Extract<Prim, { t: 'line' }>;
     expect(Math.abs(g0.x1 - g0.x0)).toBeCloseTo(210, 3);
     expect(Math.abs(g1.x1 - g1.x0)).toBeCloseTo(50, 3);
+  });
+
+  it('s() is long-side percent and grid() tiles the whole drawable', () => {
+    sketch({ aspect: [2, 1], seed: 1 });
+    line(0, 0, s(100), 0); // full long axis
+    line(0, 0, s(50), 0); // half of it — the short axis's full extent
+    const cells = grid({ cols: 4, rows: 2 });
+    const b = bounds();
+    // Cells cover the whole drawable in bare units, not just 0–100.
+    const maxX = Math.max(...cells.map((c) => c.x + c.w));
+    const maxY = Math.max(...cells.map((c) => c.y + c.h));
+    expect(maxX).toBeCloseTo(b.w, 9); // 200 on a 2:1 aspect
+    expect(maxY).toBeCloseTo(b.h, 9); // 100
+    const out = render({ paper: { paper: { w: 200, h: 100 } } });
+    const g0 = out.frags.find((f) => f.shape === 0)!.geom as Extract<Prim, { t: 'line' }>;
+    const g1 = out.frags.find((f) => f.shape === 1)!.geom as Extract<Prim, { t: 'line' }>;
+    expect(Math.abs(g0.x1 - g0.x0)).toBeCloseTo(200, 3); // s(100) = long side
+    expect(Math.abs(g1.x1 - g1.x0)).toBeCloseTo(100, 3); // s(50) = short side
   });
 
   it('seeded randomness and stipple are deterministic', () => {

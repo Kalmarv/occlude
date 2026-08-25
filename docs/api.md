@@ -3,6 +3,19 @@
 Everything a sketch imports comes from `'occlude'`. Shapes record immediately;
 nothing is clipped until `render()`.
 
+The occlusion contract, in four rules:
+
+1. **Later wins.** Filled (opaque) shapes hide everything drawn before them;
+   draw order is the default stacking, `.z(n)` overrides it, ties break by
+   draw order.
+2. **Only fills occlude.** Strokes never hide anything, and stroke width
+   never dilates an occluder.
+3. **On the boundary counts as visible.** Ink lying exactly on an occluder's
+   edge survives (shared edges draw once — duplicates are removed).
+4. **The nib is the only tolerance.** Visible detail shorter than the pen
+   width is dropped; hidden gaps shorter than the pen width are inked (a pen
+   can't plot either one).
+
 ## Sketch setup
 
 ```ts
@@ -15,28 +28,38 @@ pen({ name: 'wide', width: 0.7, color: '#223388' });  // ad-hoc pen, this sketch
 - `aspect`: `[w, h]` | `'square'` | `'paper'` (default). Fixed aspects are
   letterboxed onto whatever paper is selected at render/export.
 - `seed`: `'url'` reads `?seed=` (falls back to random and logs it), or pass a
-  number/string directly. One stream drives `rnd`, `noise`, and stipple.
+  number/string directly. Everything derives from it — `rnd`, `noise`, named
+  `stream()`s, and stipple placement (decorrelated per shape, but still fully
+  determined by the sketch seed).
 - `origin`: `'topLeft'` (default) or `'center'`. `yUp` flips the y axis.
 
 ## Units
 
-A bare number is **percent of the short side** of the drawable area.
-Tagged wrappers resolve when paper is known:
+There are two kinds of numbers, and mixing them up is the classic mistake:
 
-| Wrapper | Meaning |
-|---|---|
-| `w(n)` | percent of drawable width |
-| `h(n)` | percent of drawable height |
-| `long(n)` | percent of the long side |
-| `mm(n)` | real millimetres — for anything physical |
+- **Positions** want to be axis-relative — "80% across the page" is per-axis.
+- **Sizes and distances** (radii, spacing, offsets) want to be **isotropic** —
+  the same number must mean the same millimetres in x and y, or circles
+  squash and "square" cells stretch.
+
+| Wrapper | Reference | Use for |
+|---|---|---|
+| bare number | percent of the **short side** | sizes, and coordinates on square aspects |
+| `w(n)` | percent of drawable width — `w(0)` left edge, `w(100)` right edge | x positions |
+| `h(n)` | percent of drawable height — `h(0)` top, `h(100)` bottom | y positions |
+| `s(n)` | percent of the **long side** (isotropic) — `s(100)` spans the long axis; the short axis ends at `s(100·short/long)` | sizes that scale with the sheet; coordinates |
+| `mm(n)` | real millimetres | anything physical (hatch spacing, nib-relative things) |
+
+`long(n)` is an alias of `s(n)`. On a square aspect all of bare/`w`/`h`/`s`
+coincide, so none of this matters until the drawable isn't square.
 
 Bare-number pitfall: percent-of-short-side means the **long axis runs past
 100** whenever the drawable isn't square (A4 portrait: y runs 0→~141).
-`bounds()` gives the real extent in the same bare units:
+`bounds()` gives the real extent in bare units, and `grid()` tiles it:
 
 ```ts
 const b = bounds();          // { w, h, cx, cy } — short side is always 100
-rect(0, 0, b.w, b.h);        // true full-bleed rect
+rect(0, 0, b.w, b.h);        // true full-bleed rect (or: rect(0, 0, w(100), h(100)))
 circle(b.cx, b.cy, 40);      // truly centred
 ```
 
@@ -94,6 +117,10 @@ hatch(angle = 0, spacing = mm(3 × penWidth), offset = 0)   // parallel lines
 crosshatch(angles = [0, 90], spacing?, offset = 0)          // n hatch passes
 stipple(density = 0.5, minDist = mm(2 × penWidth))          // Poisson-disk dots
 ```
+
+Stipple density scales the Poisson disk: dot spacing ≈ `minDist / density`,
+so `stipple(1)` is the tightest packing at `minDist` and lower densities
+spread dots out.
 
 Every fill also takes an object form, so you can set one option without
 spelling out the ones before it:
@@ -171,7 +198,8 @@ clip(circle(50, 50, 40), () => { ... });
 - `push` scopes a transform to the callback; nesting composes; no unbalanced
   push/pop is possible. Within one op the order is translate → rotate → scale.
 - `clip` restricts everything created inside to the region. The clip shape is
-  not drawn and does not occlude.
+  not drawn and does not occlude. Nested clips intersect — a shape inside two
+  clips draws only where both regions overlap.
 - Rotation/uniform scale keep arcs exact; non-uniform scale lowers arcs to
   cubics automatically.
 
@@ -219,10 +247,15 @@ const svg  = exportSvg({ paper: 'A4', background: '#f6f2ea', onlyPen: 0 });
 - `render` options: `paper` (preset name or `{ paper, landscape }`),
   `coarsen` (hatch/stipple coarsening for preview; 1 = exact),
   `stretch` (fill the paper, non-uniform), `unbounded` (skip the paper clip).
-- `exportPng({ scale })` rasterises to PNG bytes (default 4 px/mm; 11.81 ≈ 300 dpi). The studio has a matching download button, and `pnpm --filter occlude render <sketch.ts> --seed N --out x.png` renders headlessly from the CLI.
 - `exportGcode` returns one job per pen:
   `{ pen, penName, gcode, inkMm, travelMm, estSeconds }`. `optimize` sets the
   2-opt tour budget (`false` disables, a number overrides).
+- `exportSvg` writes exact curves (no flattening); `background` and `onlyPen`
+  as in the example above.
+- `exportPng({ scale })` rasterises to PNG bytes (default 4 px/mm; 11.81 ≈
+  300 dpi). The studio has a matching download button, and
+  `pnpm --filter occlude render <sketch.ts> --seed N --out x.png` renders
+  headlessly from the CLI.
 - A `Fragment` is `{ origin, t0, t1, pen, shape, dot, geom }` — a sub-range of
   an original primitive with exact geometry in paper mm. `drawFragments(ctx,
   frags, pens)` paints them on a Canvas 2D context scaled to 1 unit = 1 mm.

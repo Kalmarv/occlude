@@ -1,7 +1,7 @@
 /** Layout helpers. */
 
 import { path, type Shape } from './shapes.js';
-import { getState, noise } from './state.js';
+import { bounds, getState, noise } from './state.js';
 import { Len, resolveLen, type L } from './units.js';
 
 export interface GridCell {
@@ -21,18 +21,16 @@ export interface GridOptions {
 }
 
 /**
- * Cell rectangles covering the drawable area (0–100 in default units per
- * axis via w()/h() semantics). Returned coordinates are in `w`/`h` percent
- * wrapped as unit values so they resolve exactly at render.
- *
- * Note: cells are computed in percent space; pass the values straight to
- * shape functions.
+ * Cell rectangles covering the WHOLE drawable area, in bare units (percent
+ * of the short side — the long axis runs past 100 on non-square drawables,
+ * exactly like `bounds()`). Pass the values straight to shape functions.
  */
 export function grid(opts: GridOptions): GridCell[] {
   const { cols, rows, gap = 0 } = opts;
+  const b = bounds();
   const cells: GridCell[] = [];
-  const cw = (100 - gap * (cols - 1)) / cols;
-  const ch = (100 - gap * (rows - 1)) / rows;
+  const cw = (b.w - gap * (cols - 1)) / cols;
+  const ch = (b.h - gap * (rows - 1)) / rows;
   for (let j = 0; j < rows; j++) {
     for (let i = 0; i < cols; i++) {
       cells.push({

@@ -14,7 +14,7 @@ export { mapRange as map, normRange as norm, invertRange as invert } from './ran
 export { circle, ellipse, rect, line, polygon, path, Shape, PathBuilder } from './shapes.js';
 export { hatch, crosshatch, stipple, customFill } from './fills.js';
 export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fills.js';
-export { w, h, long, mm, Len } from './units.js';
+export { w, h, s, long, mm, Len } from './units.js';
 export type { L } from './units.js';
 export { grid, noisyLine } from './layout.js';
 export {
