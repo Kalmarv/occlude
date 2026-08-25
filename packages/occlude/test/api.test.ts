@@ -220,7 +220,7 @@ describe('occlude end to end', () => {
     expect(out.frags.filter((f) => f.shape === 1)).toHaveLength(3);
   });
 
-  it('mask() and fill(false) occlude without drawing', () => {
+  it('fill(), mask() and fill(false) semantics', () => {
     sketch({ seed: 1 });
     line(0, 50, 100, 50);
     circle(50, 50, 25).mask(); // no stroke, no ink, still opaque
@@ -228,14 +228,25 @@ describe('occlude end to end', () => {
     expect(out.frags.every((f) => f.shape === 0)).toBe(true);
     expect(totalLen(out.frags)).toBeCloseTo(100, 4); // 200mm line minus 100mm diameter
 
-    // fill(false) keeps the stroke.
+    // Bare fill(): opaque with only the stroke drawn — a mask with a border.
     sketch({ seed: 1 });
     line(0, 50, 100, 50);
-    circle(50, 50, 25).fill(false);
+    circle(50, 50, 25).fill();
     const out2 = render({ paper: 'Square20' });
     expect(out2.frags.some((f) => f.shape === 1 && f.geom.t === 'arc')).toBe(true);
+    expect(out2.stats.fillPrims).toBe(0); // no texture ink
     const lineLen = totalLen(out2.frags.filter((f) => f.shape === 0));
     expect(lineLen).toBeCloseTo(100, 4);
+
+    // fill(false) CLEARS the fill: transparent again, stops occluding —
+    // symmetric with stroke(false).
+    sketch({ seed: 1 });
+    line(0, 50, 100, 50);
+    circle(50, 50, 25).fill(hatch()).fill(false);
+    const out3 = render({ paper: 'Square20' });
+    expect(out3.stats.fillPrims).toBe(0); // hatch gone
+    const lineLen3 = totalLen(out3.frags.filter((f) => f.shape === 0));
+    expect(lineLen3).toBeCloseTo(200, 4); // nothing occludes the line
   });
 
   it('bounds() reports the drawable extent in bare units', () => {

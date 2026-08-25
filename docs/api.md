@@ -66,9 +66,10 @@ Chainable methods (mutate in place, return the shape):
 
 | Method | Effect |
 |---|---|
-| `.fill(spec?, pen?)` | Makes the shape opaque — it now hides what's beneath it. Throws on open paths. Pen defaults to the current pen. |
-| `.fill(false)` | Opaque with **zero ink**: occludes, draws no fill; the stroke stays. |
-| `.mask()` | Occludes and draws *nothing* — no fill, no stroke. The hidden-line renderer's workhorse. |
+| `.fill(spec, pen?)` | Makes the shape opaque — it now hides what's beneath it — and draws the fill texture. Throws on open paths. Pen defaults to the current pen. |
+| `.fill()` | Filled, no texture: occludes, only the stroke draws — a mask with a border. |
+| `.fill(false)` | **Clears** the fill: transparent again, stops occluding (symmetric with `.stroke(false)`). |
+| `.mask()` | `.fill().noStroke()`: occludes and draws *nothing*. The hidden-line renderer's workhorse. |
 | `.stroke(pen \| false)` | Outline pen; `false` for fill-only. |
 | `.noStroke()` | Alias for `.stroke(false)`. |
 | `.pen(p)` | Sets stroke and fill pen together. |

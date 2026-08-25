@@ -71,18 +71,26 @@ export class Shape {
   }
 
   /**
-   * Make the shape opaque. Throws on open paths — fill needs a region.
-   * `fill(false)` is opaque with zero ink (occludes, no fill drawn); the
-   * stroke is unaffected.
+   * Make the shape opaque — it now hides what's beneath it. Throws on open
+   * paths (fill needs a region).
+   *
+   * - `.fill()` — filled, no texture: occludes, only the stroke draws.
+   * - `.fill(spec, pen?)` — occludes and draws the fill texture.
+   * - `.fill(false)` — clears the fill: transparent again, stops occluding
+   *   (symmetric with `.stroke(false)`).
    */
   fill(spec?: FillSpec | CustomFillFn | false, penName?: string): this {
+    if (spec === false) {
+      this.fillSpec = null;
+      this.fillPen = null;
+      return this;
+    }
     if (!this.closed) {
       throw new Error('.fill() on an open path — close() it first (fill requires a closed region)');
     }
     const s = getState();
-    if (spec === false) spec = { type: 'mask' };
     if (typeof spec === 'function') spec = customFill(spec);
-    this.fillSpec = spec ?? { type: 'hatch', passes: [{ angle: 0, spacing: undefined, offset: 0 }] };
+    this.fillSpec = spec ?? { type: 'mask' };
     const p = penName ?? s.currentPen;
     if (!s.penLib.has(p)) {
       throw new Error(`unknown pen '${p}'`);
@@ -96,7 +104,7 @@ export class Shape {
    * ink, no stroke. The hidden-line renderer's workhorse.
    */
   mask(): this {
-    return this.fill(false).noStroke();
+    return this.fill().noStroke();
   }
 
   /** Outline pen, or `false` for fill-only. */
