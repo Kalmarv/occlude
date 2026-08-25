@@ -137,7 +137,7 @@ describe('occlude end to end', () => {
 
   it('stipples stay inside rotated rounded rects (reported seeds)', () => {
     // Every seed here escaped the stadium before the seam-weld fix.
-    for (const seed of [556023384, 1026822258, 376656802, 219337517, 2058254706]) {
+    for (const seed of [556023384, 1026822258, 376656802, 219337517, 2058254706, 600858359, 1592708539, 1788219583, 1635323682, 1718006969, 2056267948]) {
       sketch({ aspect: [1, 1], seed, origin: 'center' });
       margin(6);
       for (let i = 0; i < 100; i++) {

@@ -102,6 +102,10 @@ pub fn hatch_region(region: &Region, pass: &HatchPass) -> Vec<Primitive> {
 /// Bridson Poisson-disk stipple inside a region. `density` ∈ (0, 1] scales
 /// the disk radius: r = min_dist / density, so 1.0 is the tightest packing
 /// and lower densities spread points out. Deterministic for a given seed.
+///
+/// Containment is point-based, consistent with the rest of the system: ink
+/// width is never taken into account (a dot centred on the boundary is kept,
+/// exactly as a stroke is cut at the boundary regardless of its nib).
 pub fn stipple_region(region: &Region, density: f64, min_dist: f64, seed: u64) -> Vec<Vec2> {
     let r = (min_dist / density.clamp(0.05, 1.0)).max(1e-3);
     let b = &region.bbox;
