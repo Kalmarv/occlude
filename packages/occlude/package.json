@@ -15,7 +15,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "occlude-core": "file:../../crates/occlude-core/pkg"
+    "occlude-core": "link:../../crates/occlude-core/pkg"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

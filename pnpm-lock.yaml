@@ -11,8 +11,8 @@ importers:
   packages/occlude:
     dependencies:
       occlude-core:
-        specifier: file:../../crates/occlude-core/pkg
-        version: file:crates/occlude-core/pkg
+        specifier: link:../../crates/occlude-core/pkg
+        version: link:../../crates/occlude-core/pkg
     devDependencies:
       tsx:
         specifier: ^4.19.0
@@ -36,8 +36,8 @@ importers:
         specifier: workspace:*
         version: link:../occlude
       occlude-core:
-        specifier: file:../../crates/occlude-core/pkg
-        version: file:crates/occlude-core/pkg
+        specifier: link:../../crates/occlude-core/pkg
+        version: link:../../crates/occlude-core/pkg
     devDependencies:
       typescript:
         specifier: ^5.6.0
@@ -598,9 +598,6 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  occlude-core@file:crates/occlude-core/pkg:
-    resolution: {directory: crates/occlude-core/pkg, type: directory}
-
   pathe@1.1.2:
     resolution: {integrity: sha512-whLdWMYL2TwI08hn8/ZqAbrVemu0LNaNNJZX73O6qaIdCTfXutsLhMkjdENX0qhsQ9uIimo4/aQOmXkoon2nDQ==}
 
@@ -1097,8 +1094,6 @@ snapshots:
   ms@2.1.3: {}
 
   nanoid@3.3.18: {}
-
-  occlude-core@file:crates/occlude-core/pkg: {}
 
   pathe@1.1.2: {}
 

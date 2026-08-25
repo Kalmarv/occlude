@@ -14,7 +14,7 @@
     "marked": "^14.1.0",
     "monaco-editor": "^0.52.0",
     "occlude": "workspace:*",
-    "occlude-core": "file:../../crates/occlude-core/pkg"
+    "occlude-core": "link:../../crates/occlude-core/pkg"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
