@@ -452,3 +452,69 @@ fn coincident_seam_deduped() {
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].shape, 0, "earlier shape wins");
 }
+
+#[test]
+fn rotated_stadium_inside_matches_sdf() {
+    // Regression: rotated rounded-rects (stadium: r = h/2) misclassified
+    // points because snapped arc/line seam endpoints disagreed by more than
+    // the old weld tolerance. Compare inside() against the exact SDF on a
+    // dense grid for many rotations.
+    use occlude_core::snap::snap_primitive;
+    let (hw, hh, r) = (17.6, 7.04, 7.04); // mm-ish stadium like the repro
+    for rot_deg in [0.0f64, 13.0, 29.5, 47.0, 61.0, 88.0, 173.0] {
+        let a = rot_deg.to_radians();
+        let (cos, sin) = (a.cos(), a.sin());
+        let rot = |x: f64, y: f64| v(x * cos - y * sin + 100.0, x * sin + y * cos + 100.0);
+        // Contour: top edge, right cap (2 arcs + degenerate side), bottom
+        // edge, left cap — mirroring the TS rect lowering with radius = h/2.
+        let quarter = std::f64::consts::FRAC_PI_2;
+        let arc = |cx: f64, cy: f64, start: f64| {
+            let c = rot(cx, cy);
+            Primitive::Arc(Arc::new(c, r, start + a, quarter))
+        };
+        let lineseg = |x0: f64, y0: f64, x1: f64, y1: f64| {
+            Primitive::Line(Line::new(rot(x0, y0), rot(x1, y1)))
+        };
+        let contour: Vec<Primitive> = vec![
+            lineseg(-hw + r, -hh, hw - r, -hh),
+            arc(hw - r, -hh + r, -quarter),
+            lineseg(hw, -hh + r, hw, hh - r), // zero length: r == hh
+            arc(hw - r, hh - r, 0.0),
+            lineseg(hw - r, hh, -hw + r, hh),
+            arc(-hw + r, hh - r, quarter),
+            lineseg(-hw, hh - r, -hw, -hh + r), // zero length
+            arc(-hw + r, -hh + r, std::f64::consts::PI),
+        ]
+        .iter()
+        .map(snap_primitive)
+        .collect();
+        let region = Region::from_contour(contour);
+        let sdf = |px: f64, py: f64| -> f64 {
+            // Un-rotate into local space, rounded-box SDF.
+            let (dx, dy) = (px - 100.0, py - 100.0);
+            let lx = dx * cos + dy * sin;
+            let ly = -dx * sin + dy * cos;
+            let qx = lx.abs() - (hw - r);
+            let qy = ly.abs() - (hh - r);
+            (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - r
+        };
+        let mut checked = 0;
+        for iy in 0..80 {
+            for ix in 0..80 {
+                let px = 100.0 - 25.0 + 50.0 * ix as f64 / 79.0;
+                let py = 100.0 - 25.0 + 50.0 * iy as f64 / 79.0;
+                let d = sdf(px, py);
+                if d.abs() < 0.1 {
+                    continue; // snap/weld ambiguity band
+                }
+                checked += 1;
+                assert_eq!(
+                    region.inside(v(px, py)),
+                    d < 0.0,
+                    "rot {rot_deg}°: point ({px:.3},{py:.3}) sdf {d:.4} misclassified"
+                );
+            }
+        }
+        assert!(checked > 4000);
+    }
+}

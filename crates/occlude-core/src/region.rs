@@ -57,14 +57,18 @@ impl Region {
                 }
             }
             // Weld the chain: adjacent pieces meet at the same geometric
-            // vertex but may disagree by float ulps (sin(2π) ≠ sin(0)), which
-            // breaks the half-open edge rule for rays passing exactly through
-            // the seam y. Forcing exact continuity restores "each crossing
-            // counted exactly once by construction".
+            // vertex but may disagree — by float ulps (sin(2π) ≠ sin(0)), or
+            // by up to ~2× the snap grid when arc endpoints (recomputed from
+            // a snapped centre/radius) meet independently-snapped line
+            // endpoints on rotated contours. Either way the half-open edge
+            // rule breaks for rays through the seam band. Forcing exact
+            // continuity restores "each crossing counted exactly once by
+            // construction"; the tolerance is far below the pen nib.
+            const WELD_TOL: f64 = 4.0 * crate::snap::GRID;
             let n = chain.len();
             for i in 0..n {
                 let next_y0 = chain[(i + 1) % n].y0;
-                if (chain[i].y1 - next_y0).abs() < 1e-7 {
+                if (chain[i].y1 - next_y0).abs() < WELD_TOL {
                     chain[i].y1 = next_y0;
                 }
             }
@@ -294,8 +298,10 @@ impl MonoPiece {
     fn x_at(&self, y: f64) -> Option<f64> {
         match &self.prim {
             Primitive::Line(l) => {
-                let dy = l.p1.y - l.p0.y;
-                let t = (y - l.p0.y) / dy;
+                // Interpolate on the WELDED span, not the geometric one:
+                // seam-adjusted (and near-horizontal) edges stay finite and
+                // exactly continuous with their neighbours.
+                let t = (y - self.y0) / (self.y1 - self.y0);
                 Some(l.p0.x + (l.p1.x - l.p0.x) * t)
             }
             Primitive::Arc(a) => {
@@ -306,7 +312,17 @@ impl MonoPiece {
                         return Some(a.center.x + a.r * cand.cos());
                     }
                 }
-                None
+                // Welding can put y a hair past the arc's geometric range —
+                // and near a horizontal tangent a tiny y overshoot is a LARGE
+                // angle overshoot, so the candidates miss. The crossing is at
+                // the endpoint whose height is nearest.
+                let e0 = a.eval(0.0);
+                let e1 = a.eval(1.0);
+                Some(if (e0.y - y).abs() <= (e1.y - y).abs() {
+                    e0.x
+                } else {
+                    e1.x
+                })
             }
             Primitive::Cubic(c) => {
                 // Monotone in y: bisect.
