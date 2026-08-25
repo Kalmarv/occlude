@@ -134,8 +134,12 @@ export function saveSettings(s: Settings): void {
   localStorage.setItem(KEYS.settings, JSON.stringify(s));
 }
 
-export function download(filename: string, content: string, type = 'text/plain'): void {
-  const url = URL.createObjectURL(new Blob([content], { type }));
+export function download(
+  filename: string,
+  content: string | Uint8Array,
+  type = 'text/plain',
+): void {
+  const url = URL.createObjectURL(new Blob([content as BlobPart], { type }));
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;

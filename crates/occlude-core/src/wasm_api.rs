@@ -292,6 +292,39 @@ pub fn wasm_export_gcode(
     serde_json::to_string(&jobs).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+/// PNG export: rasterise fragments at `scale` px/mm. Returns encoded PNG
+/// bytes. `background` is a hex colour like "#f6f2ea" (empty = white).
+#[wasm_bindgen]
+pub fn wasm_export_png(
+    prims: &[f64],
+    frags: &[f64],
+    pens_json: &str,
+    width_mm: f64,
+    height_mm: f64,
+    scale: f64,
+    background: Option<String>,
+) -> Result<Vec<u8>, JsValue> {
+    let pens: Vec<Pen> = serde_json::from_str(pens_json)
+        .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
+    let frags = decode_frags(prims, frags);
+    let bg = background.as_deref().filter(|s| !s.is_empty()).map(|s| {
+        let c = s.trim_start_matches('#');
+        u32::from_str_radix(c, 16)
+            .map(|v| [(v >> 16) as u8, (v >> 8) as u8, v as u8])
+            .unwrap_or([255, 255, 255])
+    });
+    Ok(crate::raster::to_png(
+        &frags,
+        &pens,
+        &crate::raster::RasterOptions {
+            width_mm,
+            height_mm,
+            scale,
+            background: bg,
+        },
+    ))
+}
+
 /// SVG export (exact curves, no flattening).
 #[wasm_bindgen]
 pub fn wasm_export_svg(

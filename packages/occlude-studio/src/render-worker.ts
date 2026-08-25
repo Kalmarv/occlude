@@ -29,7 +29,16 @@ interface SvgMsg {
   onlyPen: number;
 }
 
-type Msg = RenderMsg | GcodeMsg | SvgMsg;
+interface PngMsg {
+  type: 'png';
+  id: number;
+  width: number;
+  height: number;
+  scale: number;
+  background: string | undefined;
+}
+
+type Msg = RenderMsg | GcodeMsg | SvgMsg | PngMsg;
 
 const ready = initCore();
 const mod = core as unknown as WasmModule;
@@ -69,6 +78,20 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
           msg.budget,
         );
         self.postMessage({ type: 'gcode', id: msg.id, json });
+        break;
+      }
+      case 'png': {
+        if (!last) throw new Error('nothing rendered yet');
+        const png = (core as unknown as WasmModule).wasm_export_png(
+          last.prims,
+          last.frags,
+          last.pensJson,
+          msg.width,
+          msg.height,
+          msg.scale,
+          msg.background,
+        );
+        self.postMessage({ type: 'png', id: msg.id, png }, { transfer: [png.buffer] });
         break;
       }
       case 'svg': {

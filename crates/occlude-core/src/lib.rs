@@ -15,6 +15,7 @@ pub mod intersect;
 pub mod pipeline;
 pub mod poly;
 pub mod primitive;
+pub mod raster;
 pub mod region;
 pub mod rng;
 pub mod snap;

@@ -18,7 +18,7 @@ export { w, h, long, mm, Len } from './units.js';
 export type { L } from './units.js';
 export { grid, noisyLine } from './layout.js';
 export {
-  render, exportGcode, exportSvg,
+  render, exportGcode, exportSvg, exportPng,
   encodeScene, decodeRender, renderEncoded, sceneTransferables,
   pensToJson, profileToJson, tourBudget,
 } from './render.js';

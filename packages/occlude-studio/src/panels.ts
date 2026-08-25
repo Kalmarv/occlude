@@ -399,7 +399,16 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
     download('occlude.svg', svg, 'image/svg+xml');
   });
   svgAll.className = 'primary';
-  body.append(table, svgAll);
+  const pngBtn = button('Download PNG (300 dpi)', async () => {
+    const r = hooks.lastResult();
+    if (!r) return;
+    const png = await hooks.client.exportPng(r.paper.w, r.paper.h, 11.81, '#f6f2ea');
+    download('occlude.png', png, 'image/png');
+  });
+  const exportRow = document.createElement('div');
+  exportRow.className = 'row';
+  exportRow.append(svgAll, pngBtn);
+  body.append(table, exportRow);
 
   let refreshing = false;
   return function refresh(): void {

@@ -107,6 +107,22 @@ export class RenderClient {
     return this.request({ type: 'svg', width, height, background, onlyPen }, 'svg');
   }
 
+  exportPng(
+    width: number,
+    height: number,
+    scale: number,
+    background: string | undefined,
+  ): Promise<Uint8Array> {
+    return new Promise((resolve, reject) => {
+      const id = this.nextId++;
+      this.pending.set(id, {
+        resolve: (msg) => resolve((msg as { png: Uint8Array }).png),
+        reject,
+      });
+      this.worker.postMessage({ type: 'png', id, width, height, scale, background });
+    });
+  }
+
   private request(body: Record<string, unknown>, field: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;

@@ -218,6 +218,7 @@ const svg  = exportSvg({ paper: 'A4', background: '#f6f2ea', onlyPen: 0 });
 - `render` options: `paper` (preset name or `{ paper, landscape }`),
   `coarsen` (hatch/stipple coarsening for preview; 1 = exact),
   `stretch` (fill the paper, non-uniform), `unbounded` (skip the paper clip).
+- `exportPng({ scale })` rasterises to PNG bytes (default 4 px/mm; 11.81 ≈ 300 dpi). The studio has a matching download button, and `pnpm --filter occlude render <sketch.ts> --seed N --out x.png` renders headlessly from the CLI.
 - `exportGcode` returns one job per pen:
   `{ pen, penName, gcode, inkMm, travelMm, estSeconds }`. `optimize` sets the
   2-opt tour budget (`false` disables, a number overrides).

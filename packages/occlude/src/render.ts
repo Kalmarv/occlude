@@ -104,6 +104,15 @@ export interface WasmModule {
     background: string | undefined,
     only_pen: number,
   ): string;
+  wasm_export_png(
+    prims: Float64Array,
+    frags: Float64Array,
+    pens_json: string,
+    width_mm: number,
+    height_mm: number,
+    scale: number,
+    background: string | undefined,
+  ): Uint8Array;
 }
 
 let wasm: WasmModule | null = null;
@@ -562,6 +571,27 @@ export interface SvgOptions extends RenderOptions {
   background?: string;
   /** Restrict to one pen index. */
   onlyPen?: number;
+}
+
+export interface PngOptions extends RenderOptions {
+  background?: string;
+  /** Pixels per millimetre (default 4 ≈ 100 dpi; 12 ≈ 300 dpi). */
+  scale?: number;
+}
+
+/** Render exactly and rasterise to PNG bytes (synchronous). */
+export function exportPng(opts: PngOptions = {}): Uint8Array {
+  const mod = requireWasm();
+  const result = render({ ...opts, coarsen: 1 });
+  return mod.wasm_export_png(
+    result.raw.prims,
+    result.raw.frags,
+    pensToJson(result.pens),
+    result.paper.w,
+    result.paper.h,
+    opts.scale ?? 4,
+    opts.background,
+  );
 }
 
 /** Render exactly and export SVG (exact curves, no flattening; synchronous). */
