@@ -17,6 +17,7 @@ import { flattenPrim, subPrim, type Prim } from './prims.js';
 import { lowerShape, makeFrame, type Frame } from './record.js';
 import { Rng } from './random.js';
 import { getState, type Winding } from './state.js';
+import { compileSketch, isSketch, type SketchDef } from './api.js';
 import { resolveLen } from './units.js';
 
 /** Build the region object handed to custom fill functions. `contains` and
@@ -507,10 +508,21 @@ export function renderEncoded(mod: WasmModule, scene: EncodedScene): RawRender {
   return raw;
 }
 
-/** Render the recorded sketch synchronously on this thread. */
-export function render(opts: RenderOptions = {}): RenderResult {
+function renderState(opts: RenderOptions = {}): RenderResult {
   const scene = encodeScene(opts);
   return decodeRender(scene, renderEncoded(requireWasm(), scene));
+}
+
+/** Render a sketch synchronously on this thread. */
+export function render(def: SketchDef, opts?: RenderOptions): RenderResult;
+/** Render whatever is currently compiled (host use, after compileSketch). */
+export function render(opts?: RenderOptions): RenderResult;
+export function render(a?: SketchDef | RenderOptions, b?: RenderOptions): RenderResult {
+  if (isSketch(a)) {
+    compileSketch(a);
+    return renderState(b ?? {});
+  }
+  return renderState(a ?? {});
 }
 
 export interface MachineProfileTS {
@@ -554,9 +566,12 @@ export function tourBudget(optimize: ExportOptions['optimize']): number {
 }
 
 /** Render exactly and export per-pen G-code jobs (synchronous). */
-export function exportGcode(opts: ExportOptions = {}): GcodeJob[] {
+export function exportGcode(def: SketchDef, opts?: ExportOptions): GcodeJob[];
+export function exportGcode(opts?: ExportOptions): GcodeJob[];
+export function exportGcode(a?: SketchDef | ExportOptions, b?: ExportOptions): GcodeJob[] {
+  const opts = isSketch(a) ? (compileSketch(a), b ?? {}) : (a ?? {});
   const mod = requireWasm();
-  const result = render({ ...opts, coarsen: 1 });
+  const result = renderState({ ...opts, coarsen: 1 });
   const json = mod.wasm_export_gcode(
     result.raw.prims,
     result.raw.frags,
@@ -580,9 +595,12 @@ export interface PngOptions extends RenderOptions {
 }
 
 /** Render exactly and rasterise to PNG bytes (synchronous). */
-export function exportPng(opts: PngOptions = {}): Uint8Array {
+export function exportPng(def: SketchDef, opts?: PngOptions): Uint8Array;
+export function exportPng(opts?: PngOptions): Uint8Array;
+export function exportPng(a?: SketchDef | PngOptions, b?: PngOptions): Uint8Array {
+  const opts = isSketch(a) ? (compileSketch(a), b ?? {}) : (a ?? {});
   const mod = requireWasm();
-  const result = render({ ...opts, coarsen: 1 });
+  const result = renderState({ ...opts, coarsen: 1 });
   return mod.wasm_export_png(
     result.raw.prims,
     result.raw.frags,
@@ -595,9 +613,12 @@ export function exportPng(opts: PngOptions = {}): Uint8Array {
 }
 
 /** Render exactly and export SVG (exact curves, no flattening; synchronous). */
-export function exportSvg(opts: SvgOptions = {}): string {
+export function exportSvg(def: SketchDef, opts?: SvgOptions): string;
+export function exportSvg(opts?: SvgOptions): string;
+export function exportSvg(a?: SketchDef | SvgOptions, b?: SvgOptions): string {
+  const opts = isSketch(a) ? (compileSketch(a), b ?? {}) : (a ?? {});
   const mod = requireWasm();
-  const result = render({ ...opts, coarsen: 1 });
+  const result = renderState({ ...opts, coarsen: 1 });
   return mod.wasm_export_svg(
     result.raw.prims,
     result.raw.frags,

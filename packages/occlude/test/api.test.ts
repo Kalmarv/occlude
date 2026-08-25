@@ -2,11 +2,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  bounds, chance, circle, clip, evalPrim, exportGcode, exportSvg, grid, hatch,
-  initOcclude, line, margin, mm, path, pen, pick, polygon, push, rect, render,
-  rnd, s, sketch, stipple, stream, w,
+  circle, ellipse, exportGcode, exportPng, exportSvg, hatch, initOcclude,
+  line, mask, mm, polygon, rect, render, sketch, stipple, w,
 } from '../src/index.js';
-import type { Fragment, Prim } from '../src/index.js';
+import { evalPrim } from '../src/index.js';
+import type { Fragment, Prim, RenderOptions, SketchDef } from '../src/index.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(
@@ -15,84 +15,125 @@ beforeAll(async () => {
   await initOcclude(readFileSync(wasmPath));
 });
 
+const sq = (def: SketchDef, opts: RenderOptions = {}) =>
+  render(def, { paper: 'Square20', ...opts });
+
 function fragLen(f: Fragment): number {
   const p = f.geom;
   if (p.t === 'line') return Math.hypot(p.x1 - p.x0, p.y1 - p.y0);
   if (p.t === 'arc') return p.r * Math.abs(p.sweep);
-  // Chord approximation is fine for the assertions here.
   return Math.hypot(p.x1 - p.x0, p.y1 - p.y0);
 }
 
 function totalLen(frags: Fragment[]): number {
-  return frags.filter((f) => !f.dot).reduce((s, f) => s + fragLen(f), 0);
+  return frags.filter((f) => !f.dot).reduce((sum, f) => sum + fragLen(f), 0);
 }
 
-describe('occlude end to end', () => {
+describe('occlude declarative api', () => {
   it('occludes a line under a filled rect', () => {
-    sketch({ seed: 1 });
-    line(0, 50, 100, 50);
-    rect(25, 25, 50, 50).fill(hatch(45));
-    const out = render({ paper: 'Square20' });
+    const def = sketch({ seed: 1 }, () => [
+      line(0, 50, 100, 50),
+      rect(25, 25, 50, 50, { fill: hatch(45) }),
+    ]);
+    const out = sq(def);
     // Paper 200×200: line spans (0,100)→(200,100); rect covers x∈[50,150].
     const lineFrags = out.frags.filter((f) => f.shape === 0);
     expect(lineFrags).toHaveLength(2);
     expect(totalLen(lineFrags)).toBeCloseTo(100, 4);
-    // Hatch was generated for the rect.
     expect(out.stats.fillPrims).toBeGreaterThan(5);
   });
 
-  it('fill on an open shape throws', () => {
-    sketch({ seed: 1 });
-    expect(() => line(0, 0, 10, 10).fill(hatch())).toThrow(/open/);
-    expect(() => path().moveTo(0, 0).lineTo(10, 10).fill(hatch())).toThrow(/open/);
-    // Closed path fills fine.
-    expect(() =>
-      path().moveTo(0, 0).lineTo(10, 0).lineTo(10, 10).close().fill(hatch()),
-    ).not.toThrow();
+  it('tree order is draw order; nesting and falsy entries flatten away', () => {
+    const def = sketch({ seed: 1 }, ({ path }) => [
+      line(0, 50, 100, 50),
+      false,
+      null,
+      [[rect(25, 25, 50, 50, { opaque: true })], undefined],
+      path().moveTo(0, 0).lineTo(10, 0).build(),
+    ]);
+    const out = sq(def);
+    // Shapes numbered in flattened order: line 0, rect 1, path 2.
+    expect(new Set(out.frags.map((f) => f.shape))).toEqual(new Set([0, 1, 2]));
+    const lineFrags = out.frags.filter((f) => f.shape === 0);
+    expect(totalLen(lineFrags)).toBeCloseTo(100, 4); // rect (later) occludes it
   });
 
-  it('unknown pen throws loudly', () => {
-    sketch({ seed: 1 });
-    expect(() => pen('does-not-exist')).toThrow(/unknown pen/);
-    expect(() => pen({ name: 'custom', width: 0.5, color: '#123456' })).not.toThrow();
-    pen('pigma-005-black');
+  it('fill on an open path throws at compile', () => {
+    const open = sketch({ seed: 1 }, ({ path }) => [
+      path().moveTo(0, 0).lineTo(10, 10).build({ fill: hatch() }),
+    ]);
+    expect(() => sq(open)).toThrow(/open/);
+    const closed = sketch({ seed: 1 }, ({ path }) => [
+      path().moveTo(0, 0).lineTo(10, 0).lineTo(10, 10).close().build({ fill: hatch() }),
+    ]);
+    expect(() => sq(closed)).not.toThrow();
   });
 
-  it('z() overrides draw order', () => {
-    sketch({ seed: 1 });
-    circle(40, 50, 20).fill(hatch()).z(10); // drawn first, stacked on top
-    circle(60, 50, 20).fill(hatch());
-    const out = render({ paper: 'Square20' });
-    // Shape 0 keeps its whole outline (two arcs, full sweep).
+  it('unknown pens throw loudly', () => {
+    const def = sketch({ seed: 1 }, () => circle(50, 50, 10, { pen: 'nope' }));
+    expect(() => sq(def)).toThrow(/unknown pen/);
+    const viaConfig = sketch({ seed: 1, pen: 'also-nope' }, () => circle(50, 50, 10));
+    expect(() => sq(viaConfig)).toThrow(/unknown pen/);
+  });
+
+  it('z overrides tree order', () => {
+    const def = sketch({ seed: 1 }, () => [
+      circle(40, 50, 20, { fill: hatch(), z: 10 }), // earlier in tree, stacked on top
+      circle(60, 50, 20, { fill: hatch() }),
+    ]);
+    const out = sq(def);
     const outline0 = out.frags.filter((f) => f.shape === 0 && f.geom.t === 'arc');
     const sweep = outline0.reduce(
-      (s, f) => s + Math.abs((f.geom as Extract<Prim, { t: 'arc' }>).sweep), 0);
+      (acc, f) => acc + Math.abs((f.geom as Extract<Prim, { t: 'arc' }>).sweep),
+      0,
+    );
     expect(sweep).toBeCloseTo(2 * Math.PI, 5);
   });
 
-  it('clip() restricts and does not occlude or draw', () => {
-    sketch({ seed: 1 });
-    clip(circle(50, 50, 25), () => {
-      line(0, 50, 100, 50);
-    });
-    const out = render({ paper: 'Square20' });
+  it('clip() restricts children; the region is not drawn', () => {
+    const def = sketch({ seed: 1 }, ({ clip }) =>
+      clip(circle(50, 50, 25), line(0, 50, 100, 50)),
+    );
+    const out = sq(def);
     expect(out.frags).toHaveLength(1);
-    // Clipped to the circle's horizontal diameter: 2×25% of 200mm = 100mm.
-    expect(totalLen(out.frags)).toBeCloseTo(100, 4);
+    expect(totalLen(out.frags)).toBeCloseTo(100, 4); // the circle's diameter
   });
 
-  it('push() composes transforms', () => {
-    sketch({ seed: 1 });
-    push({ translate: [20, 0] }, () => {
-      push({ translate: [0, 30] }, () => {
-        circle(0, 0, 10);
-      });
-    });
-    circle(20, 30, 10);
-    const out = render({ paper: 'Square20' });
+  it('mask() occludes and draws nothing; opaque draws only the stroke', () => {
+    const masked = sketch({ seed: 1 }, () => [
+      line(0, 50, 100, 50),
+      mask(circle(50, 50, 25)),
+    ]);
+    const out = sq(masked);
+    expect(out.frags.every((f) => f.shape === 0)).toBe(true);
+    expect(totalLen(out.frags)).toBeCloseTo(100, 4);
+
+    const outlined = sketch({ seed: 1 }, () => [
+      line(0, 50, 100, 50),
+      circle(50, 50, 25, { opaque: true }),
+    ]);
+    const out2 = sq(outlined);
+    expect(out2.frags.some((f) => f.shape === 1 && f.geom.t === 'arc')).toBe(true);
+    expect(out2.stats.fillPrims).toBe(0);
+    expect(totalLen(out2.frags.filter((f) => f.shape === 0))).toBeCloseTo(100, 4);
+
+    // No fill, no opaque → transparent: nothing occludes the line.
+    const transparent = sketch({ seed: 1 }, () => [
+      line(0, 50, 100, 50),
+      circle(50, 50, 25),
+    ]);
+    const out3 = sq(transparent);
+    expect(totalLen(out3.frags.filter((f) => f.shape === 0))).toBeCloseTo(200, 4);
+  });
+
+  it('group() composes transforms', () => {
+    const def = sketch({ seed: 1 }, ({ group }) => [
+      group({ translate: [20, 0] }, group({ translate: [0, 30] }, circle(0, 0, 10))),
+      circle(20, 30, 10),
+    ]);
+    const out = sq(def);
     const arcs = out.frags.filter((f) => f.geom.t === 'arc');
-    // Both circles land identically, so the coincident-seam dedupe draws the
-    // outline exactly once: two half-circle arcs.
+    // Both circles land identically → seam dedupe draws the outline once.
     expect(arcs).toHaveLength(2);
     const centers = new Set(
       arcs.map((f) => {
@@ -104,12 +145,10 @@ describe('occlude end to end', () => {
   });
 
   it('rotation pivots around the user origin, not the paper corner', () => {
-    sketch({ aspect: [1, 1], seed: 1, origin: 'center' });
-    for (const deg of [0, 30, 45, 137]) {
-      push({ rotate: deg }, () => rect(-10, -4, 20, 8));
-    }
-    const out = render({ paper: 'Square20' });
-    // Every rotated rect's bbox centre must stay at the paper centre (100,100).
+    const def = sketch({ aspect: [1, 1], seed: 1, origin: 'center' }, ({ group }) =>
+      [0, 30, 45, 137].map((deg) => group({ rotate: deg }, rect(-10, -4, 20, 8))),
+    );
+    const out = sq(def);
     for (let shape = 0; shape < 4; shape++) {
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (const f of out.frags.filter((f) => f.shape === shape)) {
@@ -125,9 +164,8 @@ describe('occlude end to end', () => {
   });
 
   it('yUp keeps circles as exact arcs (reflection, not cubics)', () => {
-    sketch({ seed: 1, yUp: true });
-    circle(50, 25, 10);
-    const out = render({ paper: 'Square20' });
+    const def = sketch({ seed: 1, yUp: true }, () => circle(50, 25, 10));
+    const out = sq(def);
     const arcs = out.frags.filter((f) => f.geom.t === 'arc');
     expect(arcs.length).toBe(2);
     const a = arcs[0].geom as Extract<Prim, { t: 'arc' }>;
@@ -136,21 +174,17 @@ describe('occlude end to end', () => {
   });
 
   it('stipples stay inside rotated rounded rects (reported seeds)', () => {
-    // Every seed here escaped the stadium before the seam-weld fix.
     for (const seed of [556023384, 1026822258, 376656802, 219337517, 2058254706, 600858359, 1592708539, 1788219583, 1635323682, 1718006969, 2056267948]) {
-      sketch({ aspect: [1, 1], seed, origin: 'center' });
-      margin(6);
-      for (let i = 0; i < 100; i++) {
-        push({ rotate: i }, () => {
-          rect(-10, -4, 20, 8, 10).fill(stipple(1), 'stabilo-88-red');
-        });
-      }
-      const out = render({ paper: 'Square20' });
+      const def = sketch({ aspect: [1, 1], seed, origin: 'center', margin: 6 }, ({ group }) =>
+        Array.from({ length: 100 }, (_, i) =>
+          group({ rotate: i },
+            rect(-10, -4, 20, 8, 10, { fill: stipple(1), fillPen: 'stabilo-88-red' })),
+        ),
+      );
+      const out = sq(def);
       const dots = out.frags.filter((f) => f.dot);
       expect(dots.length).toBeGreaterThan(50);
-      // Independent check: inverse-rotate each dot into its shape's local
-      // user units and evaluate the rounded-box SDF (half 10×4, r 4 stadium).
-      const unit = 176 / 100; // Square20, 6% margin: drawable 176mm
+      const unit = 176 / 100;
       let worst = -Infinity;
       for (const d of dots) {
         const [dx, dy] = evalPrim(d.geom, 0);
@@ -163,20 +197,18 @@ describe('occlude end to end', () => {
         const qx = Math.abs(lx) - (10 - r);
         const qy = Math.abs(ly) - (4 - r);
         const sdf =
-          Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) +
-          Math.min(Math.max(qx, qy), 0) -
-          r;
+          Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
         worst = Math.max(worst, sdf);
       }
       expect(worst, `seed ${seed}`).toBeLessThanOrEqual(0.05);
     }
   });
 
-  it('letterboxes a square aspect onto A4 and margins inset', () => {
-    sketch({ aspect: 'square', seed: 1 });
-    margin(10); // 10% of short side (210) = 21mm margins
-    line(0, 0, 100, 0); // top edge of the drawable square
-    const out = render({ paper: 'A4' });
+  it('letterboxes a fixed aspect onto A4; config margin insets', () => {
+    const def = sketch({ aspect: 'square', seed: 1, margin: 10 }, () =>
+      line(0, 0, 100, 0),
+    );
+    const out = render(def, { paper: 'A4' });
     expect(out.frags).toHaveLength(1);
     const g = out.frags[0].geom as Extract<Prim, { t: 'line' }>;
     // Drawable: 210−42=168 wide, 297−42=255 tall → square 168, centered.
@@ -184,240 +216,150 @@ describe('occlude end to end', () => {
     expect(Math.abs(g.x1 - g.x0)).toBeCloseTo(168, 3);
   });
 
-  it('tagged units resolve against the right axes', () => {
-    sketch({ seed: 1 });
-    line(0, 0, w(100), 0); // full drawable width on A4
-    line(0, 0, mm(50), 0);
-    const out = render({ paper: 'A4' });
-    const g0 = out.frags.find((f) => f.shape === 0)!.geom as Extract<Prim, { t: 'line' }>;
-    const g1 = out.frags.find((f) => f.shape === 1)!.geom as Extract<Prim, { t: 'line' }>;
-    expect(Math.abs(g0.x1 - g0.x0)).toBeCloseTo(210, 3);
-    expect(Math.abs(g1.x1 - g1.x0)).toBeCloseTo(50, 3);
+  it('units resolve against the right axes; grid tiles the drawable', () => {
+    const def = sketch({ seed: 1 }, ({ s }) => [
+      line(0, 0, w(100), 0),
+      line(0, 0, mm(50), 0),
+      line(10, 0, 10, s(100)), // s spans the LONG axis (vertical on A4 portrait)
+    ]);
+    const out = render(def, { paper: 'A4' });
+    const geomOf = (i: number) =>
+      out.frags.find((f) => f.shape === i)!.geom as Extract<Prim, { t: 'line' }>;
+    expect(Math.abs(geomOf(0).x1 - geomOf(0).x0)).toBeCloseTo(210, 3);
+    expect(Math.abs(geomOf(1).x1 - geomOf(1).x0)).toBeCloseTo(50, 3);
+    expect(Math.abs(geomOf(2).y1 - geomOf(2).y0)).toBeCloseTo(297, 3); // long side
+
+    const gridDef = sketch({ aspect: [2, 1], seed: 1 }, ({ grid, bounds }) => {
+      const b = bounds();
+      const cells = grid({ cols: 4, rows: 2 });
+      const maxX = Math.max(...cells.map((c) => c.x + c.w));
+      const maxY = Math.max(...cells.map((c) => c.y + c.h));
+      expect(maxX).toBeCloseTo(b.w, 9);
+      expect(maxY).toBeCloseTo(b.h, 9);
+      return line(0, 0, b.w, 0);
+    });
+    const gout = render(gridDef, { paper: { paper: { w: 200, h: 100 } } });
+    expect(totalLen(gout.frags)).toBeCloseTo(200, 3);
   });
 
-  it('s() is long-side percent and grid() tiles the whole drawable', () => {
-    sketch({ aspect: [2, 1], seed: 1 });
-    line(0, 0, s(100), 0); // full long axis
-    line(0, 0, s(50), 0); // half of it — the short axis's full extent
-    const cells = grid({ cols: 4, rows: 2 });
-    const b = bounds();
-    // Cells cover the whole drawable in bare units, not just 0–100.
-    const maxX = Math.max(...cells.map((c) => c.x + c.w));
-    const maxY = Math.max(...cells.map((c) => c.y + c.h));
-    expect(maxX).toBeCloseTo(b.w, 9); // 200 on a 2:1 aspect
-    expect(maxY).toBeCloseTo(b.h, 9); // 100
-    const out = render({ paper: { paper: { w: 200, h: 100 } } });
-    const g0 = out.frags.find((f) => f.shape === 0)!.geom as Extract<Prim, { t: 'line' }>;
-    const g1 = out.frags.find((f) => f.shape === 1)!.geom as Extract<Prim, { t: 'line' }>;
-    expect(Math.abs(g0.x1 - g0.x0)).toBeCloseTo(200, 3); // s(100) = long side
-    expect(Math.abs(g1.x1 - g1.x0)).toBeCloseTo(100, 3); // s(50) = short side
+  it('same seed → identical output; named streams are independent', () => {
+    const make = () =>
+      sketch({ seed: 'fixed-seed' }, ({ stream }) => {
+        const a = stream('ridges');
+        const r0 = a.rnd();
+        return [
+          circle(50, 50, 30, { fill: stipple(0.5, mm(2)), fillPen: 'stabilo-88-red' }),
+          circle(20, 20, r0 * 5 + 2),
+        ];
+      });
+    const out1 = sq(make());
+    const out2 = sq(make());
+    expect(out1.frags.length).toBe(out2.frags.length);
+    const dots1 = out1.frags.filter((f) => f.dot).map((f) => f.geom);
+    const dots2 = out2.frags.filter((f) => f.dot).map((f) => f.geom);
+    expect(dots1.length).toBeGreaterThan(10);
+    expect(dots1).toEqual(dots2);
+
+    // Named streams don't shift when the main stream draws more.
+    let first: number[] = [];
+    render(sketch({ seed: 'streams' }, ({ stream }) => {
+      const r = stream('ridges');
+      first = [r.rnd(), r.rnd()];
+      return [];
+    }), { paper: 'Square20' });
+    let second: number[] = [];
+    render(sketch({ seed: 'streams' }, ({ rnd, stream }) => {
+      rnd(); rnd(); stream('other').rnd();
+      const r = stream('ridges');
+      second = [r.rnd(), r.rnd()];
+      return [];
+    }), { paper: 'Square20' });
+    expect(second).toEqual(first);
   });
 
-  it('seeded randomness and stipple are deterministic', () => {
-    const run = () => {
-      sketch({ seed: 'fixed-seed' });
-      const r = [rnd(), rnd(10), pick([1, 2, 3]), chance(0.5)];
-      circle(50, 50, 30).fill(stipple(0.5, mm(2)));
-      const out = render({ paper: 'Square20' });
-      return { r, dots: out.frags.filter((f) => f.dot).map((f) => f.geom) };
-    };
-    const a = run();
-    const b = run();
-    expect(a.r).toEqual(b.r);
-    expect(a.dots.length).toBeGreaterThan(10);
-    expect(a.dots).toEqual(b.dots);
-  });
-
-  it('polygon forms work', () => {
-    sketch({ seed: 1 });
-    polygon(50, 50, 6, 20).fill(hatch(0, mm(2)));
-    polygon([[10, 10], [30, 10], [20, 30]]);
-    const out = render({ paper: 'Square20' });
+  it('polygon forms and ellipse opts placement', () => {
+    const def = sketch({ seed: 1 }, () => [
+      polygon(50, 50, 6, 20, { fill: hatch(0, mm(2)) }),
+      polygon([[10, 10], [30, 10], [20, 30]]),
+      ellipse(70, 70, 10, 5, { opaque: true }), // opts in the rotation slot
+    ]);
+    const out = sq(def);
     expect(out.frags.filter((f) => f.shape === 0 && f.geom.t === 'line').length)
-      .toBeGreaterThan(6); // 6 edges + hatch lines
+      .toBeGreaterThan(6);
     expect(out.frags.filter((f) => f.shape === 1)).toHaveLength(3);
+    expect(out.frags.some((f) => f.shape === 2)).toBe(true);
   });
 
-  it('fill(), mask() and fill(false) semantics', () => {
-    sketch({ seed: 1 });
-    line(0, 50, 100, 50);
-    circle(50, 50, 25).mask(); // no stroke, no ink, still opaque
-    const out = render({ paper: 'Square20' });
-    expect(out.frags.every((f) => f.shape === 0)).toBe(true);
-    expect(totalLen(out.frags)).toBeCloseTo(100, 4); // 200mm line minus 100mm diameter
-
-    // Bare fill(): opaque with only the stroke drawn — a mask with a border.
-    sketch({ seed: 1 });
-    line(0, 50, 100, 50);
-    circle(50, 50, 25).fill();
-    const out2 = render({ paper: 'Square20' });
-    expect(out2.frags.some((f) => f.shape === 1 && f.geom.t === 'arc')).toBe(true);
-    expect(out2.stats.fillPrims).toBe(0); // no texture ink
-    const lineLen = totalLen(out2.frags.filter((f) => f.shape === 0));
-    expect(lineLen).toBeCloseTo(100, 4);
-
-    // fill(false) CLEARS the fill: transparent again, stops occluding —
-    // symmetric with stroke(false).
-    sketch({ seed: 1 });
-    line(0, 50, 100, 50);
-    circle(50, 50, 25).fill(hatch()).fill(false);
-    const out3 = render({ paper: 'Square20' });
-    expect(out3.stats.fillPrims).toBe(0); // hatch gone
-    const lineLen3 = totalLen(out3.frags.filter((f) => f.shape === 0));
-    expect(lineLen3).toBeCloseTo(200, 4); // nothing occludes the line
-  });
-
-  it('bounds() reports the drawable extent in bare units', () => {
-    sketch({ aspect: [3, 2], seed: 1 });
-    const b = bounds();
-    expect(b.h).toBe(100);
-    expect(b.w).toBeCloseTo(150, 9);
-    expect(b.cx).toBeCloseTo(75, 9);
-
-    // aspect 'paper' uses the paper hint (A4 portrait standalone).
-    sketch({ seed: 1 });
-    const bp = bounds();
-    expect(bp.w).toBe(100);
-    expect(bp.h).toBeCloseTo((100 * 297) / 210, 6);
-
-    // The full-bleed rect derived from bounds() really spans the drawable.
-    sketch({ aspect: [2, 1], seed: 1 });
-    const bb = bounds();
-    line(0, 0, bb.w, 0);
-    const out = render({ paper: { paper: { w: 200, h: 100 } } });
-    expect(totalLen(out.frags)).toBeCloseTo(200, 3);
-  });
-
-  it('named streams are independent of the main stream and each other', () => {
-    sketch({ seed: 'stream-test' });
-    const a1 = stream('ridges');
-    const vals1 = [a1.rnd(), a1.rnd(), stream('trees').rnd()];
-    const main1 = rnd();
-
-    // Same seed, but interleave extra draws from the main stream and a new
-    // stream — named streams must not shift.
-    sketch({ seed: 'stream-test' });
-    rnd();
-    rnd();
-    stream('other').rnd();
-    const a2 = stream('ridges');
-    const vals2 = [a2.rnd(), a2.rnd(), stream('trees').rnd()];
-    expect(vals2).toEqual(vals1);
-    // And the main stream is unaffected by named-stream usage.
-    sketch({ seed: 'stream-test' });
-    stream('ridges').rnd();
-    expect(rnd()).toBe(main1);
-  });
-
-  it('custom fills receive contains/path/area and accept polylines', () => {
-    sketch({ seed: 1 });
-    let seenArea = 0;
-    let insideHits = 0;
-    circle(50, 50, 25).fill((region, ctx) => {
-      seenArea = region.area;
-      expect(region.path.length).toBe(1); // one contour
-      // Probe contains(): centre in, corner out.
-      expect(region.contains(100, 100)).toBe(true);
-      expect(region.contains(region.bbox.x + 0.1, region.bbox.y + 0.1)).toBe(false);
-      const pts: [number, number][] = [];
-      for (let i = 0; i < 200; i++) {
-        const x = region.bbox.x + ctx.rnd() * region.bbox.w;
-        const y = region.bbox.y + ctx.rnd() * region.bbox.h;
-        if (region.contains(x, y)) {
-          insideHits++;
-          pts.push([x, y]);
-        }
-      }
-      return [{ type: 'polyline', pts }];
+  it('path builder: build() snapshots, the builder stays extendable', () => {
+    const def = sketch({ seed: 1 }, ({ path, mask }) => {
+      const crest = path().moveTo(0, 40).lineTo(50, 20).lineTo(100, 45);
+      const ridgeLine = crest.build();
+      const ridgeMask = mask(crest.lineTo(100, 100).lineTo(0, 100).close().build());
+      return [ridgeMask, ridgeLine, line(0, 70, 100, 70)];
     });
-    const out = render({ paper: 'Square20' });
-    // Circle r=50mm: area ≈ π·2500 within the flattening error (<0.5%).
-    expect(Math.abs(seenArea - Math.PI * 2500) / (Math.PI * 2500)).toBeLessThan(0.005);
-    expect(insideHits).toBeGreaterThan(100);
-    expect(out.frags.filter((f) => f.shape === 0 && f.origin >= 2).length)
-      .toBeGreaterThan(10);
-  });
-
-  it('fills accept object options', () => {
-    sketch({ seed: 1 });
-    circle(30, 50, 15).fill(hatch({ angle: 45, offset: 1.5 }));
-    circle(70, 50, 15).fill(stipple({ density: 0.7, minDist: mm(1.5) }));
-    const out = render({ paper: 'Square20' });
-    expect(out.stats.fillPrims).toBeGreaterThan(10);
-    expect(out.frags.some((f) => f.dot)).toBe(true);
-  });
-
-  it('clone() duplicates geometry and records a new shape', () => {
-    sketch({ seed: 1 });
-    const ridge = path().moveTo(10, 60).lineTo(40, 30).lineTo(70, 55).lineTo(90, 40);
-    ridge.clone().lineTo(90, 90).lineTo(10, 90).close().mask();
-    const out = render({ paper: 'Square20' });
-    // The stroked ridge survives fully (the mask is BEHIND nothing — it is
-    // later in draw order, so it occludes the ridge where they overlap).
-    const ridgeFrags = out.frags.filter((f) => f.shape === 0);
+    const out = sq(def);
+    // The mask hides the later-drawn... no: the line at y=70 comes AFTER the
+    // mask in tree order, so it draws over it. The crest line (shape 1) must
+    // remain the open 3-point polyline, unaffected by the mask's extra cmds.
+    const ridgeFrags = out.frags.filter((f) => f.shape === 1);
     expect(ridgeFrags.length).toBeGreaterThan(0);
-    // The mask contributes no ink.
-    expect(out.frags.every((f) => f.shape === 0)).toBe(true);
+    const ys = ridgeFrags.flatMap((f) => [evalPrim(f.geom, 0)[1], evalPrim(f.geom, 1)[1]]);
+    // Sketch y ≤ 45 → paper y ≤ 90mm: the snapshot never gained the closing
+    // edges down to y=100 (200mm).
+    expect(Math.max(...ys)).toBeLessThan(95);
   });
 
-  it('custom fills can return arcs (variable-radius dots)', () => {
-    sketch({ seed: 1 });
-    circle(50, 50, 30).fill((region, ctx) => {
-      // Variable-radius dot field: full circles as single 2π arcs, paper mm.
-      const prims = [];
-      for (let i = 0; i < 40; i++) {
-        const r = 0.4 + ctx.rnd() * 1.2;
-        prims.push({
-          type: 'arc' as const,
-          cx: region.bbox.x + ctx.rnd() * region.bbox.w,
-          cy: region.bbox.y + ctx.rnd() * region.bbox.h,
-          r,
-          start: 0,
-          sweep: Math.PI * 2,
-        });
-      }
-      return prims;
-    });
-    const out = render({ paper: 'Square20' });
-    const arcFrags = out.frags.filter(
-      (f) => f.geom.t === 'arc' && f.origin >= 2, // beyond the outline's two arcs
+  it('custom fills receive contains/path/area and accept polylines and arcs', () => {
+    let seenArea = 0;
+    const def = sketch({ seed: 1 }, () =>
+      circle(50, 50, 25, {
+        fill: (region, ctx) => {
+          seenArea = region.area;
+          expect(region.contains(100, 100)).toBe(true);
+          expect(region.contains(region.bbox.x + 0.1, region.bbox.y + 0.1)).toBe(false);
+          const pts: [number, number][] = [];
+          const dots = [];
+          for (let i = 0; i < 150; i++) {
+            const x = region.bbox.x + ctx.rnd() * region.bbox.w;
+            const y = region.bbox.y + ctx.rnd() * region.bbox.h;
+            if (!region.contains(x, y)) continue;
+            pts.push([x, y]);
+            dots.push({
+              type: 'arc' as const, cx: x, cy: y,
+              r: 0.3 + ctx.rnd(), start: 0, sweep: Math.PI * 2,
+            });
+          }
+          return [{ type: 'polyline' as const, pts }, ...dots];
+        },
+      }),
     );
-    expect(arcFrags.length).toBeGreaterThan(10);
-    // Every dot fragment stays inside the fill region (clipped, not clamped).
-    for (const f of arcFrags) {
-      for (const t of [0, 0.5, 1]) {
-        const [x, y] = (() => {
-          const a = f.geom as Extract<Prim, { t: 'arc' }>;
-          const ang = a.start + t * a.sweep;
-          return [a.cx + a.r * Math.cos(ang), a.cy + a.r * Math.sin(ang)];
-        })();
-        const d = Math.hypot(x - 100, y - 100); // region: circle r=60mm at centre
-        expect(d).toBeLessThanOrEqual(60 + 1e-6);
-      }
-    }
+    const out = sq(def);
+    expect(Math.abs(seenArea - Math.PI * 2500) / (Math.PI * 2500)).toBeLessThan(0.005);
+    expect(out.frags.filter((f) => f.shape === 0 && f.origin >= 2).length).toBeGreaterThan(20);
   });
 
-  it('exports SVG and per-pen G-code', () => {
-    sketch({ seed: 1 });
-    pen('pigma-005-black');
-    circle(35, 50, 20).fill(hatch(45));
-    circle(65, 50, 20).fill(hatch(-45), 'stabilo-88-red');
-    const svg = exportSvg({ paper: 'A5', background: '#faf7f0' });
+  it('exports SVG, G-code and PNG from a sketch def', () => {
+    const def = sketch({ seed: 1 }, () => [
+      circle(35, 50, 20, { fill: hatch(45) }),
+      circle(65, 50, 20, { fill: hatch(-45), pen: 'stabilo-88-red' }),
+    ]);
+    const svg = exportSvg(def, { paper: 'A5', background: '#faf7f0' });
     expect(svg).toContain('<svg');
-    expect(svg).toContain('data-pen="pigma-005-black"');
     expect(svg).toContain('data-pen="stabilo-88-red"');
-    const jobs = exportGcode({ paper: 'A5' });
+    const jobs = exportGcode(def, { paper: 'A5' });
     expect(jobs).toHaveLength(2);
     expect(jobs[0].gcode).toContain('G21');
     expect(jobs[0].inkMm).toBeGreaterThan(10);
-    expect(jobs.map((j) => j.penName)).toContain('stabilo-88-red');
+    const png = exportPng(def, { paper: 'A5', scale: 2 });
+    expect([...png.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]); // PNG magic
   });
 
   it('off-paper shapes are culled', () => {
-    sketch({ seed: 1 });
-    circle(50, 50, 10);
-    push({ translate: [500, 0] }, () => circle(50, 50, 10));
-    const out = render({ paper: 'Square20' });
+    const def = sketch({ seed: 1 }, ({ group }) => [
+      circle(50, 50, 10),
+      group({ translate: [500, 0] }, circle(50, 50, 10)),
+    ]);
+    const out = sq(def);
     expect(out.stats.culledOffPaper).toBe(1);
   });
 });

@@ -37,31 +37,32 @@ export const DEFAULT_SETTINGS: Settings = {
   },
 };
 
-export const DEFAULT_SKETCH = `import {
-  sketch, margin, pen, circle, rect, line, path,
-  hatch, crosshatch, stipple, mm, w, h,
-  rnd, pick, chance, noise, push, clip, grid,
-} from 'occlude';
+export const DEFAULT_SKETCH = `import { sketch, mm } from 'occlude';
 
-sketch({ aspect: [3, 2], seed: 'url' });
-margin(6);
-pen('pigma-005-black');
+// A sketch is a pure function: toolkit in, tree of shapes out.
+// Tree order is draw order — filled shapes hide what's beneath them.
+export default sketch({ aspect: [3, 2], margin: 6 }, (t) => {
+  const { circle, rect, line, hatch, stipple, grid, rnd, chance, bounds } = t;
+  const b = bounds();
 
-// Filled shapes hide what's beneath them — later wins.
-for (const cell of grid({ cols: 6, rows: 4, gap: 2 })) {
-  const cx = cell.x + cell.w / 2;
-  const cy = cell.y + cell.h / 2;
-  const r = cell.w * rnd(0.28, 0.5);
-  if (chance(0.7)) {
-    circle(cx, cy, r).fill(hatch(rnd(0, 180), mm(rnd(0.8, 2))));
-  } else {
-    rect(cell.x + 2, cell.y + 2, cell.w - 4, cell.h - 4, 2)
-      .fill(stipple(0.6), 'stabilo-88-red');
-  }
-}
+  return [
+    // A horizon line, drawn first so everything above occludes it.
+    line(0, b.cy, b.w, b.cy),
 
-// A horizon line, occluded by everything above it.
-line(0, 50, 100, 50).z(-1);
+    grid({ cols: 6, rows: 4, gap: 2 }).map((cell) => {
+      const cx = cell.x + cell.w / 2;
+      const cy = cell.y + cell.h / 2;
+      return chance(0.7)
+        ? circle(cx, cy, cell.w * rnd(0.28, 0.5), {
+            fill: hatch(rnd(180), mm(rnd(0.8, 2))),
+          })
+        : rect(cell.x + 2, cell.y + 2, cell.w - 4, cell.h - 4, 2, {
+            fill: stipple(0.6),
+            fillPen: 'stabilo-88-red',
+          });
+    }),
+  ];
+});
 `;
 
 export function loadSketch(): string {

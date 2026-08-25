@@ -5,12 +5,19 @@
  *
  *   pnpm --filter occlude render <sketch.ts> [--seed N] [--paper A4]
  *        [--landscape] [--scale 8] [--out out.png] [--svg out.svg]
+ *
+ * The sketch must export a `sketch(config, fn)` definition (default export
+ * preferred, else the first exported definition found).
  */
 
+import { transformSync } from 'esbuild';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
-import { exportPng, exportSvg, initOcclude, paperSize, setPaperHint } from '../src/index.js';
+import {
+  compileSketch, exportPng, exportSvg, initOcclude, isSketch, paperSize,
+  setPaperHint, type SketchDef,
+} from '../src/index.js';
 
 const args = process.argv.slice(2);
 const sketchFile = args.find((a) => !a.startsWith('--'));
@@ -44,13 +51,27 @@ await initOcclude(readFileSync(wasmPath));
 const size = paperSize({ paper: paper as never, landscape });
 setPaperHint(size.w, size.h);
 
-// Execute the sketch: strip its `import … from 'occlude'` and expose the
-// whole API as bare names (sketches are plain JS-compatible TS).
-const src = readFileSync(sketchFile, 'utf8').replace(
-  /import\s*\{[\s\S]*?\}\s*from\s*['"]occlude['"];?/g,
-  '',
-);
-new Function('occlude', `with (occlude) { ${src} }`)(occlude);
+// Transpile the sketch to CommonJS (exactly like the studio runner) and
+// collect its exports.
+const js = transformSync(readFileSync(sketchFile, 'utf8'), {
+  loader: 'ts',
+  format: 'cjs',
+}).code;
+const module = { exports: {} as Record<string, unknown> };
+const requireShim = (name: string): unknown => {
+  if (name === 'occlude') return occlude;
+  throw new Error(`sketches can only import from 'occlude' (tried '${name}')`);
+};
+new Function('require', 'exports', 'module', js)(requireShim, module.exports, module);
+const exp = module.exports;
+const def = (isSketch(exp.default)
+  ? exp.default
+  : Object.values(exp).find(isSketch)) as SketchDef | undefined;
+if (!def) {
+  console.error('no sketch exported — write `export default sketch({ … }, (toolkit) => tree)`');
+  process.exit(1);
+}
+compileSketch(def);
 
 const paperOpt = { paper: paper as never, landscape };
 writeFileSync(out, exportPng({ paper: paperOpt, scale, background: '#f6f2ea' }));

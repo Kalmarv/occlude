@@ -8,6 +8,7 @@ import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 
 // Raw sources of the occlude package become Monaco extra libs.
+import apiSrc from 'occlude/src/api.ts?raw';
 import drawSrc from 'occlude/src/draw.ts?raw';
 import fillsSrc from 'occlude/src/fills.ts?raw';
 import indexSrc from 'occlude/src/index.ts?raw';
@@ -58,6 +59,7 @@ export function createEditor(container: HTMLElement, initial: string): Editor {
 
   const libs: Record<string, string> = {
     'index.ts': indexSrc,
+    'api.ts': apiSrc,
     'units.ts': unitsSrc,
     'matrix.ts': matrixSrc,
     'random.ts': randomSrc,
