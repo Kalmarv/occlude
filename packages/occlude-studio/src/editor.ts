@@ -7,23 +7,14 @@ import * as monaco from 'monaco-editor';
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 
-// Raw sources of the occlude package become Monaco extra libs.
-import apiSrc from 'occlude/src/api.ts?raw';
-import drawSrc from 'occlude/src/draw.ts?raw';
-import fillsSrc from 'occlude/src/fills.ts?raw';
-import indexSrc from 'occlude/src/index.ts?raw';
-import initSrc from 'occlude/src/init.ts?raw';
-import layoutSrc from 'occlude/src/layout.ts?raw';
-import matrixSrc from 'occlude/src/matrix.ts?raw';
-import paperSrc from 'occlude/src/paper.ts?raw';
-import pensSrc from 'occlude/src/pens.ts?raw';
-import primsSrc from 'occlude/src/prims.ts?raw';
-import randomSrc from 'occlude/src/random.ts?raw';
-import recordSrc from 'occlude/src/record.ts?raw';
-import renderSrc from 'occlude/src/render.ts?raw';
-import shapesSrc from 'occlude/src/shapes.ts?raw';
-import stateSrc from 'occlude/src/state.ts?raw';
-import unitsSrc from 'occlude/src/units.ts?raw';
+// EVERY source file of the occlude package becomes a Monaco extra lib —
+// globbed, so a new module (ease.ts once, memorably) can never be left
+// out of the editor's type universe again.
+const libSources = import.meta.glob('../../occlude/src/*.ts', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>;
 
 self.MonacoEnvironment = {
   getWorker(_workerId: string, label: string) {
@@ -59,25 +50,8 @@ export function createEditor(container: HTMLElement, initial: string): Editor {
   });
   ts.setEagerModelSync(true);
 
-  const libs: Record<string, string> = {
-    'index.ts': indexSrc,
-    'api.ts': apiSrc,
-    'units.ts': unitsSrc,
-    'matrix.ts': matrixSrc,
-    'random.ts': randomSrc,
-    'fills.ts': fillsSrc,
-    'pens.ts': pensSrc,
-    'paper.ts': paperSrc,
-    'prims.ts': primsSrc,
-    'record.ts': recordSrc,
-    'render.ts': renderSrc,
-    'shapes.ts': shapesSrc,
-    'state.ts': stateSrc,
-    'layout.ts': layoutSrc,
-    'draw.ts': drawSrc,
-    'init.ts': initSrc,
-  };
-  for (const [name, src] of Object.entries(libs)) {
+  for (const [path, src] of Object.entries(libSources)) {
+    const name = path.split('/').pop()!;
     ts.addExtraLib(src, `file:///node_modules/occlude/src/${name}`);
   }
   ts.addExtraLib(
