@@ -899,8 +899,19 @@ fn subdivide_map<F: Fn(Vec2) -> Vec2>(
     let chord = (fb.x - fa.x).hypot(fb.y - fa.y);
     let dev = (fm.x - (fa.x + fb.x) / 2.0).hypot(fm.y - (fa.y + fb.y) / 2.0);
     if chord <= target && dev <= SAG_TOL {
-        out.push(fa);
-        return;
+        // An S-curve is point-symmetric about its midpoint and fools the
+        // single-sample test (folding maps produce exactly those); confirm
+        // with the quarter points before accepting the chord.
+        let q1 = v((a.x + m.x) / 2.0, (a.y + m.y) / 2.0);
+        let q3 = v((m.x + b.x) / 2.0, (m.y + b.y) / 2.0);
+        let fq1 = f(q1);
+        let fq3 = f(q3);
+        let d1 = (fq1.x - (fa.x + fm.x) / 2.0).hypot(fq1.y - (fa.y + fm.y) / 2.0);
+        let d3 = (fq3.x - (fm.x + fb.x) / 2.0).hypot(fq3.y - (fm.y + fb.y) / 2.0);
+        if d1 <= SAG_TOL && d3 <= SAG_TOL {
+            out.push(fa);
+            return;
+        }
     }
     subdivide_map(f, a, m, fa, fm, target, depth - 1, out);
     subdivide_map(f, m, b, fm, fb, target, depth - 1, out);

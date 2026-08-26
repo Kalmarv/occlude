@@ -107,25 +107,52 @@ pub struct FieldGrid {
 }
 
 impl FieldGrid {
+    /// Catmull-Rom bicubic (clamped edges). C1 continuity matters: deform
+    /// geometry follows this raster directly, and bilinear's derivative
+    /// jumps at cell boundaries draw as visible facets wherever the
+    /// displacement is large.
     pub fn sample(&self, x: f64, y: f64) -> f64 {
         if self.w == 0 || self.h == 0 || self.samples.len() < self.w * self.h {
             return 0.0;
         }
         let gx = ((x - self.x0) / self.dx).clamp(0.0, (self.w - 1) as f64);
         let gy = ((y - self.y0) / self.dy).clamp(0.0, (self.h - 1) as f64);
-        let ix = (gx.floor() as usize).min(self.w.saturating_sub(2));
-        let iy = (gy.floor() as usize).min(self.h.saturating_sub(2));
+        let ix = (gx.floor() as isize).min(self.w as isize - 2).max(0);
+        let iy = (gy.floor() as isize).min(self.h as isize - 2).max(0);
         let (tx, ty) = (gx - ix as f64, gy - iy as f64);
-        let at = |xx: usize, yy: usize| self.samples[yy * self.w + xx];
-        if self.w == 1 || self.h == 1 {
-            return at(ix.min(self.w - 1), iy.min(self.h - 1));
+        let at = |xx: isize, yy: isize| {
+            let cx = xx.clamp(0, self.w as isize - 1) as usize;
+            let cy = yy.clamp(0, self.h as isize - 1) as usize;
+            self.samples[cy * self.w + cx]
+        };
+        if self.w < 4 || self.h < 4 {
+            // Tiny grids: bilinear.
+            let a = at(ix, iy);
+            let b = at(ix + 1, iy);
+            let c = at(ix, iy + 1);
+            let d = at(ix + 1, iy + 1);
+            let top = a + (b - a) * tx;
+            let bot = c + (d - c) * tx;
+            return top + (bot - top) * ty;
         }
-        let a = at(ix, iy);
-        let b = at(ix + 1, iy);
-        let c = at(ix, iy + 1);
-        let d = at(ix + 1, iy + 1);
-        let top = a + (b - a) * tx;
-        let bot = c + (d - c) * tx;
-        top + (bot - top) * ty
+        let cr = |p0: f64, p1: f64, p2: f64, p3: f64, t: f64| {
+            let t2 = t * t;
+            let t3 = t2 * t;
+            0.5 * ((2.0 * p1)
+                + (p2 - p0) * t
+                + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+                + (3.0 * p1 - 3.0 * p2 + p3 - p0) * t3)
+        };
+        let mut rows = [0.0; 4];
+        for (k, o) in (-1..=2).enumerate() {
+            rows[k] = cr(
+                at(ix - 1, iy + o),
+                at(ix, iy + o),
+                at(ix + 1, iy + o),
+                at(ix + 2, iy + o),
+                tx,
+            );
+        }
+        cr(rows[0], rows[1], rows[2], rows[3], ty)
     }
 }
