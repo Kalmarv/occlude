@@ -80,7 +80,7 @@ async function boot(): Promise<void> {
     // Execute + encode on the main thread (cheap); geometry in the worker.
     const outcome = runSketch(emitted.js, {
       pens,
-      paper: settings.paper,
+      paper: settings.paper === 'Custom' ? settings.customPaper : settings.paper,
       landscape: settings.landscape,
       defaultMarginPct: settings.defaultMarginPct,
       coarsen: 1,

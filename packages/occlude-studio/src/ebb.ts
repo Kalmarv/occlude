@@ -50,8 +50,16 @@ export interface PlotProgress {
 export interface EbbOptions {
   stepsPerMm: number;
   travelFeed: number; // mm/min
-  flipX: boolean;
-  flipY: boolean;
+  /** Paper→machine axis mapping. The iDraw's axes are ROTATED relative to
+   * the page (verified by drawing): machine +dx = up the page, machine
+   * +dy = right. Defaults express that as swap + invert. */
+  swapXY: boolean;
+  invertX: boolean;
+  invertY: boolean;
+  /** Servo positions (SC,4 / SC,5 — write-only on the board, persisted in
+   * the app). Verified working: down 10000, up 16000 (~5mm lift). */
+  servoDown: number;
+  servoUp: number;
 }
 
 const MAX_MOTOR_STEPS_PER_MS = 25; // verified: 25k steps/s per motor
@@ -83,7 +91,7 @@ export class Ebb {
   private plotPause = false;
   plotting = false;
 
-  async connect(): Promise<string> {
+  async connect(o?: { servoDown: number; servoUp: number }): Promise<string> {
     const serial = (navigator as unknown as { serial: SerialLike }).serial;
     const port = await serial.requestPort({
       filters: [{ usbVendorId: 0x04d8, usbProductId: 0xfd92 }],
@@ -98,8 +106,20 @@ export class Ebb {
     const v = await this.cmd('V', false);
     this.version = v[0] ?? '';
     await this.cmd('SR,0');
-    await this.cmd('EM,1,1');
+    if (o) {
+      await this.cmd(`SC,4,${Math.round(o.servoDown)}`);
+      await this.cmd(`SC,5,${Math.round(o.servoUp)}`);
+    }
     await this.penUp(0);
+    await this.cmd('EM,1,1');
+    // Motor supply check: QC's second value is V+; ~zero = power unplugged.
+    try {
+      const qc = await this.cmd('QC');
+      const vplus = parseInt(qc[0]?.split(',')[1] ?? '0', 10);
+      if (vplus < 100) this.version += ' — MOTOR POWER UNPLUGGED?';
+    } catch {
+      // non-fatal
+    }
     return this.version;
   }
 
@@ -207,8 +227,11 @@ export class Ebb {
    * accumulates into drift. Duration from feed, clamped to the per-motor
    * step-rate ceiling (CoreXY: a diagonal doubles one motor's rate). */
   private async moveTo(xMm: number, yMm: number, feed: number, o: EbbOptions): Promise<void> {
-    const sx = Math.round(xMm * o.stepsPerMm) * (o.flipX ? -1 : 1);
-    const sy = Math.round(yMm * o.stepsPerMm) * (o.flipY ? -1 : 1);
+    // Paper (x right, y down, mm) → machine axes, then absolute steps.
+    const mx = (o.swapXY ? yMm : xMm) * (o.invertX ? -1 : 1);
+    const my = (o.swapXY ? xMm : yMm) * (o.invertY ? -1 : 1);
+    const sx = Math.round(mx * o.stepsPerMm);
+    const sy = Math.round(my * o.stepsPerMm);
     const dx = sx - this.stepX;
     const dy = sy - this.stepY;
     if (dx === 0 && dy === 0) return;
@@ -232,8 +255,12 @@ export class Ebb {
   }
 
   async jog(dxMm: number, dyMm: number, o: EbbOptions): Promise<void> {
-    const x = (this.stepX * (o.flipX ? -1 : 1)) / o.stepsPerMm + dxMm;
-    const y = (this.stepY * (o.flipY ? -1 : 1)) / o.stepsPerMm + dyMm;
+    // Invert the paper→machine mapping to recover current paper position.
+    const mx = (this.stepX / o.stepsPerMm) * (o.invertX ? -1 : 1);
+    const my = (this.stepY / o.stepsPerMm) * (o.invertY ? -1 : 1);
+    const x = (o.swapXY ? my : mx) + dxMm;
+    const y = (o.swapXY ? mx : my) + dyMm;
+    await this.cmd('EM,1,1');
     await this.moveTo(x, y, o.travelFeed, o);
   }
 
@@ -307,7 +334,7 @@ export class Ebb {
             (Math.hypot(c.pts[k] - c.pts[k - 2], c.pts[k + 1] - c.pts[k - 1]) / feed) * 60_000;
           total += 1;
         }
-        totalMs += 2 * (pen?.penDelay ?? 100) + 300;
+        totalMs += 2 * Math.max(pen?.penDelay ?? 100, 500) + 300;
         px = c.pts[c.pts.length - 2];
         py = c.pts[c.pts.length - 1];
       }
@@ -316,6 +343,7 @@ export class Ebb {
     this.plotAbort = false;
     this.plotPause = false;
     this.plotting = true;
+    await this.cmd('EM,1,1');
     let sent = 0;
     let elapsedMs = 0;
     const report = (state: PlotProgress['state'], penName = ''): void =>
@@ -325,7 +353,7 @@ export class Ebb {
       for (const c of chains) {
         const pen = pens[c.pen];
         const feed = pen?.feed ?? 3000;
-        const settle = pen?.penDelay ?? 100;
+        const settle = Math.max(pen?.penDelay ?? 100, 500);
         // Travel (pen is up between chains).
         await this.waitIfPaused(report, pen?.name ?? '');
         if (this.plotAbort) break;
@@ -353,6 +381,7 @@ export class Ebb {
       if (!this.plotAbort) {
         await this.penUp();
         await this.home();
+        await this.cmd('EM,0,0'); // release motors so the sheet swap is easy
         report('done');
       } else {
         report('stopped');

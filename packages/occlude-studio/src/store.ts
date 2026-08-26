@@ -32,6 +32,10 @@ export function saveUi(ui: UiPrefs): void {
 
 export interface Settings {
   paper: string;
+  /** Used when paper === 'Custom' — always stored in mm. */
+  customPaper: { w: number; h: number };
+  /** Display unit for the custom size inputs. */
+  paperUnit: 'mm' | 'in';
   landscape: boolean;
   defaultMarginPct: number;
   machine: {
@@ -44,13 +48,18 @@ export interface Settings {
   };
   ebb: {
     stepsPerMm: number;
-    flipX: boolean;
-    flipY: boolean;
+    swapXY: boolean;
+    invertX: boolean;
+    invertY: boolean;
+    servoDown: number;
+    servoUp: number;
   };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   paper: 'A4',
+  customPaper: { w: 200, h: 200 },
+  paperUnit: 'mm',
   landscape: false,
   defaultMarginPct: 5,
   machine: {
@@ -61,10 +70,16 @@ export const DEFAULT_SETTINGS: Settings = {
     arcSupport: false,
     resolution: 0.025,
   },
+  // Measured on the physical iDraw (EBB 2.8.1, 2026-08-26): 100 steps/mm
+  // at 1/16 microstep; axes rotated 90° vs the page (swap + invert X);
+  // servo SC positions verified.
   ebb: {
-    stepsPerMm: 80,
-    flipX: false,
-    flipY: false,
+    stepsPerMm: 100,
+    swapXY: true,
+    invertX: true,
+    invertY: false,
+    servoDown: 10000,
+    servoUp: 16000,
   },
 };
 
@@ -161,7 +176,12 @@ export function loadSettings(): Settings {
         ...DEFAULT_SETTINGS,
         ...parsed,
         machine: { ...DEFAULT_SETTINGS.machine, ...(parsed.machine ?? {}) },
-        ebb: { ...DEFAULT_SETTINGS.ebb, ...(parsed.ebb ?? {}) },
+        // Migration: the pre-measurement shape had flipX/flipY and a wrong
+        // steps/mm guess — discard it entirely for the measured defaults.
+        ebb:
+          parsed.ebb && 'swapXY' in parsed.ebb
+            ? { ...DEFAULT_SETTINGS.ebb, ...parsed.ebb }
+            : { ...DEFAULT_SETTINGS.ebb },
       };
     }
   } catch {

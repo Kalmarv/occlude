@@ -336,16 +336,69 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
   };
 
   const paperSel = document.createElement('select');
-  for (const name of ['A3', 'A4', 'A5', 'A6', 'Letter', 'Square20']) {
+  for (const name of ['A3', 'A4', 'A5', 'A6', 'Letter', 'Square20', 'Custom']) {
     const o = document.createElement('option');
     o.value = name;
     o.textContent = name;
     paperSel.append(o);
   }
   paperSel.value = s.paper;
+
+  // Custom size: inputs display in the chosen unit, storage is always mm.
+  const MM_PER_IN = 25.4;
+  const toUnit = (mm: number): number => (s.paperUnit === 'in' ? mm / MM_PER_IN : mm);
+  const fromUnit = (v: number): number => (s.paperUnit === 'in' ? v * MM_PER_IN : v);
+  const fmt = (mm: number): string =>
+    s.paperUnit === 'in' ? String(+toUnit(mm).toFixed(3)) : String(+mm.toFixed(1));
+  const cw = document.createElement('input');
+  const ch = document.createElement('input');
+  for (const el of [cw, ch]) {
+    el.type = 'number';
+    el.step = 'any';
+    el.style.width = '4.5em';
+  }
+  const unitSel = document.createElement('select');
+  for (const u of ['mm', 'in']) {
+    const o = document.createElement('option');
+    o.value = u;
+    o.textContent = u;
+    unitSel.append(o);
+  }
+  unitSel.value = s.paperUnit;
+  const syncCustom = (): void => {
+    cw.value = fmt(s.customPaper.w);
+    ch.value = fmt(s.customPaper.h);
+  };
+  syncCustom();
+  const readCustom = (): void => {
+    const w = fromUnit(parseFloat(cw.value));
+    const h = fromUnit(parseFloat(ch.value));
+    if (Number.isFinite(w) && w > 10 && Number.isFinite(h) && h > 10) {
+      s.customPaper = { w: Math.min(w, 5000), h: Math.min(h, 5000) };
+      persist();
+    }
+  };
+  cw.onchange = readCustom;
+  ch.onchange = readCustom;
+  unitSel.onchange = () => {
+    s.paperUnit = unitSel.value as 'mm' | 'in';
+    persist();
+    syncCustom();
+  };
+  const customWrap = document.createElement('div');
+  customWrap.className = 'row';
+  const times = document.createElement('span');
+  times.textContent = '\u00d7';
+  customWrap.append(cw, times, ch, unitSel);
+  const customRow = row('Size', customWrap);
+  const syncVisible = (): void => {
+    customRow.style.display = s.paper === 'Custom' ? '' : 'none';
+  };
+  syncVisible();
   paperSel.onchange = () => {
     s.paper = paperSel.value;
     persist();
+    syncVisible();
   };
 
   const landscape = checkbox('Landscape', s.landscape, (v) => {
@@ -360,6 +413,7 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
 
   body.append(
     row('Paper', paperSel),
+    customRow,
     landscape,
     row('Margin %', marginInput, 'Used when the sketch does not call margin()'),
   );
@@ -411,11 +465,14 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   status.className = 'panel-hint';
   status.textContent = 'not connected';
 
-  const opts = (): { stepsPerMm: number; travelFeed: number; flipX: boolean; flipY: boolean } => ({
+  const opts = (): import('./ebb.js').EbbOptions => ({
     stepsPerMm: s.ebb.stepsPerMm,
     travelFeed: s.machine.travelFeed,
-    flipX: s.ebb.flipX,
-    flipY: s.ebb.flipY,
+    swapXY: s.ebb.swapXY,
+    invertX: s.ebb.invertX,
+    invertY: s.ebb.invertY,
+    servoDown: s.ebb.servoDown,
+    servoUp: s.ebb.servoUp,
   });
   const persist = (): void => saveSettings(s);
 
@@ -427,7 +484,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         status.textContent = 'not connected';
         return;
       }
-      const v = await ebb.connect();
+      const v = await ebb.connect({ servoDown: s.ebb.servoDown, servoUp: s.ebb.servoUp });
       connectBtn.textContent = 'Disconnect';
       status.textContent = v || 'connected';
     } catch (e) {
@@ -463,18 +520,35 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     s.ebb.stepsPerMm = v;
     persist();
   });
+  // Axis mapping (measured: the iDraw's axes are rotated 90° vs the page —
+  // defaults are swap + invert X; only touch these for a different machine).
   const flips = document.createElement('div');
   flips.className = 'row';
   flips.append(
-    checkbox('Flip X', s.ebb.flipX, (v) => {
-      s.ebb.flipX = v;
+    checkbox('Swap XY', s.ebb.swapXY, (v) => {
+      s.ebb.swapXY = v;
       persist();
     }),
-    checkbox('Flip Y', s.ebb.flipY, (v) => {
-      s.ebb.flipY = v;
+    checkbox('Inv X', s.ebb.invertX, (v) => {
+      s.ebb.invertX = v;
+      persist();
+    }),
+    checkbox('Inv Y', s.ebb.invertY, (v) => {
+      s.ebb.invertY = v;
       persist();
     }),
   );
+  const servoRow = document.createElement('div');
+  servoRow.className = 'row';
+  const servoDownIn = numberInput(s.ebb.servoDown, 100, (v) => {
+    s.ebb.servoDown = v;
+    persist();
+  });
+  const servoUpIn = numberInput(s.ebb.servoUp, 100, (v) => {
+    s.ebb.servoUp = v;
+    persist();
+  });
+  servoRow.append(servoDownIn, servoUpIn);
 
   // Plot controls.
   const bar = document.createElement('progress');
@@ -529,8 +603,9 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     status,
     jogRow,
     penRow,
-    row('Steps/mm', spm, 'AxiDraw default 80; verify with the 100mm ruler on the cal sheet'),
+    row('Steps/mm', spm, 'Measured 100 on this iDraw; verify any new machine with the cal-sheet ruler'),
     flips,
+    row('Servo dn/up', servoRow, 'SC,4 / SC,5 positions — write-only on the board, so tuned values live here'),
     plotRow,
     bar,
     progressText,

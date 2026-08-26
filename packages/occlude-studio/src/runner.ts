@@ -19,7 +19,7 @@ export interface RunOutcome {
 
 export interface RunConfig {
   pens: PenDef[];
-  paper: string;
+  paper: string | { w: number; h: number };
   landscape: boolean;
   defaultMarginPct: number;
   /** Preview coarsening (1 = exact). */
