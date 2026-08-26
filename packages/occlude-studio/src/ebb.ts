@@ -272,32 +272,29 @@ export class Ebb {
     };
     let remaining = pts;
     while (remaining.length > 0 && !this.plotAbort) {
-      // Subdivide long segments so the ramp has waypoints.
+      // Flatten the run to a polyline with cumulative arc length (long
+      // segments split so interpolation stays local).
       const [cx, cy] = curPaper();
-      const dense: [number, number][] = [];
-      let px = cx;
-      let py = cy;
-      for (const [x, y] of remaining) {
-        const d = Math.hypot(x - px, y - py);
-        const chunks = Math.max(1, Math.ceil(d / 4));
-        for (let c = 1; c <= chunks; c++) {
-          dense.push([px + ((x - px) * c) / chunks, py + ((y - py) * c) / chunks]);
-        }
-        px = x;
-        py = y;
-      }
-      // Trapezoid over the run's arc length.
-      const cum: number[] = [0];
+      const poly: [number, number][] = [[cx, cy]];
       {
-        let ax = cx;
-        let ay = cy;
-        for (const [x, y] of dense) {
-          cum.push(cum[cum.length - 1] + Math.hypot(x - ax, y - ay));
-          ax = x;
-          ay = y;
+        let px = cx;
+        let py = cy;
+        for (const [x, y] of remaining) {
+          const d = Math.hypot(x - px, y - py);
+          const chunks = Math.max(1, Math.ceil(d / 4));
+          for (let c = 1; c <= chunks; c++) {
+            poly.push([px + ((x - px) * c) / chunks, py + ((y - py) * c) / chunks]);
+          }
+          px = x;
+          py = y;
         }
+      }
+      const cum: number[] = [0];
+      for (let i = 1; i < poly.length; i++) {
+        cum.push(cum[i - 1] + Math.hypot(poly[i][0] - poly[i - 1][0], poly[i][1] - poly[i - 1][1]));
       }
       const L = cum[cum.length - 1];
+      if (L <= 1e-9) return;
       const vt = Math.max(1, feedMmMin / 60);
       const v0 = Math.min(V_START_MM_S, vt);
       const vAt = (s: number): number =>
@@ -306,20 +303,45 @@ export class Ebb {
           Math.sqrt(v0 * v0 + 2 * ACCEL_MM_S2 * s),
           Math.sqrt(v0 * v0 + 2 * ACCEL_MM_S2 * Math.max(0, L - s)),
         );
+      const pointAt = (s: number): [number, number] => {
+        let lo = 0;
+        let hi = cum.length - 1;
+        while (lo + 1 < hi) {
+          const mid = (lo + hi) >> 1;
+          if (cum[mid] <= s) lo = mid;
+          else hi = mid;
+        }
+        const span = cum[hi] - cum[lo];
+        const t = span > 1e-12 ? (s - cum[lo]) / span : 0;
+        return [
+          poly[lo][0] + (poly[hi][0] - poly[lo][0]) * t,
+          poly[lo][1] + (poly[hi][1] - poly[lo][1]) * t,
+        ];
+      };
+      // Emit TIME-quantised chunks (~25ms) so the ramp is realised: the
+      // first moves genuinely creep at v0 instead of averaging half the
+      // ramp into one constant-velocity jump.
+      let s = 0;
       let paused = false;
-      for (let i = 0; i < dense.length; i++) {
+      while (s < L - 1e-9) {
         if (this.plotAbort) return;
         if (this.plotPause && onPause) {
           await onPause();
-          remaining = dense.slice(i);
+          // Replan the rest from rest: rebuild the remaining point list.
+          let j = 1;
+          while (j < cum.length && cum[j] <= s + 1e-9) j++;
+          remaining = poly.slice(j) as [number, number][];
           paused = true;
           break;
         }
-        const ds = cum[i + 1] - cum[i];
-        if (ds <= 1e-9) continue;
-        const vAvg = Math.max(1e-3, (vAt(cum[i]) + vAt(cum[i + 1])) / 2);
-        await this.stepTo(dense[i][0], dense[i][1], (ds / vAvg) * 1000, o);
+        const vHere = vAt(s);
+        const ds = Math.min(L - s, Math.max(0.3, Math.min(4, vHere * 0.025)));
+        const s2 = s + ds;
+        const vAvg = Math.max(1e-3, (vHere + vAt(s2)) / 2);
+        const [x, y] = pointAt(s2);
+        await this.stepTo(x, y, (ds / vAvg) * 1000, o);
         onSegment?.(ds);
+        s = s2;
       }
       if (!paused) return;
     }
