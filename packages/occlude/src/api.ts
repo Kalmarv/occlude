@@ -54,6 +54,11 @@ export interface ShapeOpts {
    * applies to everything; { stroke, fill } sets outline and fill ink
    * separately (e.g. { fill: 0.5 } erodes the texture, keeps the outline). */
   decimate?: number | { stroke?: number; fill?: number };
+  /** Hand-tremor: displace final strokes with seeded smooth noise, AFTER
+   * occlusion (line quality only). A length (bare units or mm()), or
+   * { amount, wavelength } to also set the noise wavelength (default
+   * mm(25)). */
+  wobble?: L | { amount: L; wavelength?: L };
   /** Per-shape transform — identical to wrapping the shape in a group. */
   translate?: [L, L];
   /** Degrees; pivots around the user origin. */
@@ -70,6 +75,8 @@ export interface ShapeValue {
 export interface GroupOpts {
   /** Decimation default for children that don't set their own. */
   decimate?: number | { stroke?: number; fill?: number };
+  /** Wobble default for children that don't set their own. */
+  wobble?: L | { amount: L; wavelength?: L };
   translate?: [L, L];
   /** Degrees. */
   rotate?: number;
@@ -237,6 +244,18 @@ export function clip(region: ShapeValue, ...children: Tree[]): ClipValue {
 }
 
 /**
+ * Hand-tremor for the children's final strokes: seeded smooth-noise
+ * displacement, applied AFTER occlusion so the hidden-line result is exact
+ * and only the ink trembles.
+ */
+export function wobble(
+  amount: L | { amount: L; wavelength?: L },
+  ...children: Tree[]
+): GroupValue {
+  return { __occludeGroup: true, opts: { wobble: amount }, children };
+}
+
+/**
  * Drop `p` (0…1) of the children's final visible strokes — computed AFTER
  * occlusion, seeded by the sketch seed. The distressed-plot modifier.
  */
@@ -311,6 +330,7 @@ export interface Toolkit {
   clip: typeof clip;
   mask: typeof mask;
   decimate: typeof decimate;
+  wobble: typeof wobble;
   hatch: typeof hatch;
   crosshatch: typeof crosshatch;
   stipple: typeof stipple;
@@ -368,7 +388,7 @@ export function sketch(
 }
 
 const TOOLKIT_BASE = {
-  circle, ellipse, rect, line, polygon, path, group, clip, mask, decimate,
+  circle, ellipse, rect, line, polygon, path, group, clip, mask, decimate, wobble,
   hatch, crosshatch, stipple,
   rnd, pick, chance, prob, noise, stream,
   map: mapRange, norm: normRange, invert: invertRange,
@@ -381,6 +401,7 @@ interface EmitCtx {
   pen: string | undefined;
   z: number | undefined;
   decimate: number | { stroke?: number; fill?: number } | undefined;
+  wobble: L | { amount: L; wavelength?: L } | undefined;
 }
 
 /**
@@ -410,7 +431,7 @@ export function compileSketch(
     cy: b.cy,
   };
   const tree = def.fn(toolkit);
-  emit(tree, { pen: cfg.pen, z: undefined, decimate: undefined });
+  emit(tree, { pen: cfg.pen, z: undefined, decimate: undefined, wobble: undefined });
 }
 
 function emit(tree: Tree, ctx: EmitCtx): void {
@@ -425,6 +446,7 @@ function emit(tree: Tree, ctx: EmitCtx): void {
       pen: g.opts.pen ?? ctx.pen,
       z: g.opts.z ?? ctx.z,
       decimate: g.opts.decimate ?? ctx.decimate,
+      wobble: g.opts.wobble ?? ctx.wobble,
     };
     const { translate, rotate, scale } = g.opts;
     if (translate || rotate !== undefined || scale !== undefined) {
@@ -477,6 +499,15 @@ function emitShape(sv: ShapeValue, ctx: EmitCtx): void {
     } else {
       sh.decimateStroke = clamp(dec.stroke ?? 0);
       sh.decimateFill = clamp(dec.fill ?? 0);
+    }
+  }
+  const wob = o.wobble ?? ctx.wobble;
+  if (wob !== undefined) {
+    if (typeof wob === 'object' && !(wob instanceof Len) && 'amount' in wob) {
+      sh.wobbleAmp = wob.amount;
+      sh.wobbleWavelength = wob.wavelength;
+    } else {
+      sh.wobbleAmp = wob;
     }
   }
 }

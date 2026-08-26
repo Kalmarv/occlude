@@ -18,7 +18,7 @@ import { lowerShape, makeFrame, type Frame } from './record.js';
 import { Rng } from './random.js';
 import { getState, type Winding } from './state.js';
 import { compileSketch, isSketch, type SketchDef } from './api.js';
-import { resolveLen } from './units.js';
+import { mm, resolveLen } from './units.js';
 
 /** Build the region object handed to custom fill functions. `contains` and
  * `area` work on a 0.05 mm flattening — plenty for fill generation; the
@@ -410,7 +410,13 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
       cStart, cCount, flags, strokePen, fillPen, fillKind,
       clipStart, shape.clips.length, fillStart, fillCount,
     );
-    shapesF64.push(shape.zIndex, shape.decimateStroke, shape.decimateFill);
+    shapesF64.push(
+      shape.zIndex,
+      shape.decimateStroke,
+      shape.decimateFill,
+      resolveLen(shape.wobbleAmp, frame.inner),
+      resolveLen(shape.wobbleWavelength ?? mm(25), frame.inner),
+    );
   }
 
   return {

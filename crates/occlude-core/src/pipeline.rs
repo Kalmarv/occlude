@@ -72,6 +72,12 @@ pub struct ShapeRec {
     pub decimate_stroke: f64,
     /// Same, for fill ink (hatch lines, stipple dots, custom fill strokes).
     pub decimate_fill: f64,
+    /// Hand-tremor amplitude in mm (0 = off): final strokes are flattened
+    /// and displaced by seeded smooth noise AFTER occlusion — line quality
+    /// only, the hidden-line result is unchanged.
+    pub wobble_amp: f64,
+    /// Noise wavelength in mm (default-ish 25 supplied by callers).
+    pub wobble_wavelength: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -460,12 +466,108 @@ pub fn render(input: &RenderInput) -> RenderOutput {
             (h as f64 / u64::MAX as f64) >= p.min(1.0)
         })
         .collect();
+    // Wobble: flatten wobbled shapes' final strokes and displace the
+    // vertices with seeded smooth noise. Post-occlusion by design — the
+    // hidden-line computation stays exact; only the ink trembles.
+    let mut frags = frags;
+    if input.shapes.iter().any(|s| s.wobble_amp > 0.0) {
+        let mut out: Vec<Frag> = Vec::with_capacity(frags.len());
+        let mut pts: Vec<Vec2> = Vec::new();
+        let mut dense: Vec<Vec2> = Vec::new();
+        for f in frags.drain(..) {
+            let s = &input.shapes[f.shape as usize];
+            let amp = s.wobble_amp;
+            if amp <= 0.0 {
+                out.push(f);
+                continue;
+            }
+            let wl = s.wobble_wavelength.max(1.0);
+            let freq = 1.0 / wl;
+            let jiggle = |p: Vec2| -> Vec2 {
+                v(
+                    p.x + amp * value_noise(input.seed ^ 0x570B_B1E5, p.x * freq, p.y * freq),
+                    p.y + amp * value_noise(input.seed ^ 0x0135_E2A7, p.x * freq, p.y * freq),
+                )
+            };
+            if f.dot {
+                let p = jiggle(f.geom.start());
+                let dotp = Primitive::Line(Line::new(p, p));
+                let origin = prim_table.len() as u32;
+                prim_table.push(dotp);
+                out.push(Frag { origin, t0: 0.0, t1: 1.0, geom: dotp, ..f });
+                continue;
+            }
+            pts.clear();
+            // Flatten for curvature, then resample by arc length: the noise
+            // needs a vertex every ~wl/8 along the stroke, and a straight
+            // span flattens to a single segment that would carry no tremor
+            // between its endpoints.
+            f.geom.flatten(0.02, &mut pts);
+            let step = (wl / 8.0).clamp(0.2, 5.0);
+            dense.clear();
+            for w2 in pts.windows(2) {
+                let (a, b) = (w2[0], w2[1]);
+                let len = (b.x - a.x).hypot(b.y - a.y);
+                let n = (len / step).ceil().max(1.0) as usize;
+                for k in 0..n {
+                    let t = k as f64 / n as f64;
+                    dense.push(v(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+                }
+            }
+            if let Some(&tail) = pts.last() {
+                dense.push(tail);
+            }
+            for w2 in dense.windows(2) {
+                let a = jiggle(w2[0]);
+                let b = jiggle(w2[1]);
+                let seg = Primitive::Line(Line::new(a, b));
+                let origin = prim_table.len() as u32;
+                prim_table.push(seg);
+                out.push(Frag {
+                    origin,
+                    t0: 0.0,
+                    t1: 1.0,
+                    geom: seg,
+                    ..f.clone()
+                });
+            }
+        }
+        frags = out;
+    }
+
     stats.fragments = frags.len();
     RenderOutput {
         prims: prim_table,
         frags,
         stats,
     }
+}
+
+/// Seeded smooth 2D value noise in [-1, 1]: hashed lattice + smoothstep
+/// bilinear. Deterministic; good enough for hand-tremor.
+fn value_noise(seed: u64, x: f64, y: f64) -> f64 {
+    let xf = x.floor();
+    let yf = y.floor();
+    let (tx, ty) = (x - xf, y - yf);
+    let sx = tx * tx * (3.0 - 2.0 * tx);
+    let sy = ty * ty * (3.0 - 2.0 * ty);
+    let lattice = |ix: i64, iy: i64| -> f64 {
+        let mut h = seed
+            .wrapping_add((ix as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15))
+            .wrapping_add((iy as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F));
+        h = (h ^ (h >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        h = (h ^ (h >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        h ^= h >> 31;
+        (h as f64 / u64::MAX as f64) * 2.0 - 1.0
+    };
+    let (x0, y0) = (xf as i64, yf as i64);
+    let a = lattice(x0, y0);
+    let b = lattice(x0 + 1, y0);
+    let c = lattice(x0, y0 + 1);
+    let d = lattice(x0 + 1, y0 + 1);
+    let top = a + (b - a) * sx;
+    let bot = c + (d - c) * sx;
+    top + (bot - top) * sy
 }
 
 /// Clip a single primitive through clip regions (keep inside) then occluders

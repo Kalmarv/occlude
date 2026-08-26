@@ -36,6 +36,8 @@ fn main() {
                 clips: vec![],
                 decimate_stroke: 0.0,
                 decimate_fill: 0.0,
+                wobble_amp: 0.0,
+                wobble_wavelength: 25.0,
             }
         })
         .collect();

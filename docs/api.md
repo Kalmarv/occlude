@@ -75,6 +75,7 @@ Every shape takes a trailing opts object:
 | `mode` | rect only: anchor (x, y) at the `'corner'` (default) or the `'center'` — p5's rectMode, per shape. The config's `rectMode` sets the sketch-wide default. Circles, ellipses and n-gons are always centre-anchored. |
 | `translate`, `rotate`, `scale` | Per-shape transform, identical to wrapping the shape in a `group` with the same op (order within the op: translate → rotate → scale). |
 | `decimate` | Drop this fraction (0…1) of the shape's final visible strokes, after occlusion — seeded, deterministic. A number applies to everything; `{ stroke, fill }` targets outline and fill ink separately (`{ fill: 0.5 }` erodes the texture, keeps the outline crisp). |
+| `wobble` | Hand-tremor: displace the shape's final visible strokes with seeded smooth noise, after occlusion. A length is the amplitude (`wobble: mm(0.8)`); `{ amount, wavelength }` also sets the tremor scale (default wavelength `mm(25)` — smaller = jitterier). |
 
 ```ts
 circle(x, y, r, opts?)
@@ -107,6 +108,8 @@ group(opts, ...children)       // transform / pen / z defaults for children
 clip(shape, ...children)       // children restricted to shape's region
 decimate(p, ...children)       // drop p (0…1) of the FINAL visible strokes
 decimate({ fill: p }, ...)     // erode only fill ink; { stroke: p } only outlines
+wobble(amount, ...children)    // hand-tremor on the FINAL visible strokes
+wobble({ amount, wavelength }, ...children)
 ```
 
 - `mask(shape)` occludes and draws **nothing** — the hidden-line renderer's
@@ -122,6 +125,15 @@ decimate({ fill: p }, ...)     // erode only fill ink; { stroke: p } only outlin
   deleted — the distressed-plot modifier. Deterministic per sketch seed;
   also available per shape as `{ decimate: p }` (which overrides the
   combinator's default).
+- `wobble(amount, …)` also runs AFTER occlusion: hidden-line removal stays
+  exact, then the surviving ink is flattened and each vertex is displaced by
+  seeded smooth noise — straight lines tremble, circles go organic.
+  `amount` is a length (try `mm(0.3)`–`mm(1.5)`); pass
+  `{ amount, wavelength }` to change the tremor scale (default `mm(25)`;
+  shorter wavelength = nervous scribble, longer = lazy drift). Deterministic
+  per sketch seed; per shape as `{ wobble: mm(1) }` or
+  `{ wobble: { amount, wavelength } }`. Composes with `decimate` — decimate
+  deletes first, wobble shakes what's left.
 
 Hidden-line terrain in a few lines:
 

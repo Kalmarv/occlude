@@ -37,6 +37,8 @@ fn stroke_shape(contours: Vec<Vec<Primitive>>, closed: bool) -> ShapeRec {
         clips: vec![],
                 decimate_stroke: 0.0,
                 decimate_fill: 0.0,
+                wobble_amp: 0.0,
+                wobble_wavelength: 25.0,
     }
 }
 
@@ -52,6 +54,8 @@ fn filled_shape(contours: Vec<Vec<Primitive>>, kind: FillKind) -> ShapeRec {
         clips: vec![],
                 decimate_stroke: 0.0,
                 decimate_fill: 0.0,
+                wobble_amp: 0.0,
+                wobble_wavelength: 25.0,
     }
 }
 

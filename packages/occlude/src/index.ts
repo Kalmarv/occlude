@@ -19,7 +19,7 @@
 export {
   sketch, compileSketch, isSketch,
   circle, ellipse, rect, line, polygon, path, PathValue,
-  group, clip, mask, decimate, times, range,
+  group, clip, mask, decimate, wobble, times, range,
 } from './api.js';
 export type {
   SketchDef, SketchConfig, Toolkit, Tree,

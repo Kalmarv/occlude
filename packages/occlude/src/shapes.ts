@@ -38,6 +38,9 @@ export class Shape {
   decimateStroke = 0;
   /** Post-occlusion fragment drop probability for fill ink. */
   decimateFill = 0;
+  /** Hand-tremor amplitude (L; 0 = off) and noise wavelength (L). */
+  wobbleAmp: import('./units.js').L = 0;
+  wobbleWavelength: import('./units.js').L | undefined;
   /** Draw order index — the z tiebreak and default z. */
   readonly order: number;
 

@@ -37,6 +37,8 @@ fn filled_circle(cx: f64, cy: f64, r: f64) -> ShapeRec {
         clips: vec![],
                 decimate_stroke: 0.0,
                 decimate_fill: 0.0,
+                wobble_amp: 0.0,
+                wobble_wavelength: 25.0,
     }
 }
 
@@ -102,6 +104,8 @@ fn bench_render(c: &mut Criterion) {
                 clips: vec![],
                 decimate_stroke: 0.0,
                 decimate_fill: 0.0,
+                wobble_amp: 0.0,
+                wobble_wavelength: 25.0,
             },
         );
     }

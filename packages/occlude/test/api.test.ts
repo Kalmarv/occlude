@@ -509,3 +509,35 @@ describe('decimate', () => {
     expect(out3.frags.filter((f) => f.origin >= 4)).toHaveLength(0);
     expect(out3.frags.filter((f) => f.origin < 4)).toHaveLength(4);
   });
+
+describe('wobble', () => {
+  it('displaces final strokes deterministically, bounded by amplitude', async () => {
+    const { wobble } = await import('../src/index.js');
+    const make = () =>
+      sketch({ seed: 5 }, () => wobble(mm(1.5), line(10, 50, 90, 50)));
+    const out = sq(make());
+    expect(out.frags.length).toBeGreaterThan(20); // straight line → segments
+    let maxDev = 0;
+    for (const f of out.frags) {
+      for (const t of [0, 1]) {
+        maxDev = Math.max(maxDev, Math.abs(evalPrim(f.geom, t)[1] - 100));
+      }
+    }
+    expect(maxDev).toBeGreaterThan(0.1);
+    expect(maxDev).toBeLessThan(2.5);
+    const out2 = sq(make());
+    expect(out2.frags.map((f) => f.geom)).toEqual(out.frags.map((f) => f.geom));
+    // Occlusion is computed on exact geometry: a wobbled hidden line stays hidden.
+    const hidden = sketch({ seed: 5 }, () =>
+      wobble(mm(1), [line(0, 50, 100, 50), rect(25, 25, 50, 50, { opaque: true })]),
+    );
+    const outH = sq(hidden);
+    let inkLen = 0;
+    for (const f of outH.frags.filter((f) => f.shape === 0)) {
+      const g = f.geom as Extract<Prim, { t: 'line' }>;
+      inkLen += Math.hypot(g.x1 - g.x0, g.y1 - g.y0);
+    }
+    expect(inkLen).toBeGreaterThan(90);
+    expect(inkLen).toBeLessThan(115);
+  });
+});

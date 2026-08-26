@@ -131,6 +131,8 @@ fn to_rec(g: &GenShape) -> ShapeRec {
         clips: vec![],
                 decimate_stroke: 0.0,
                 decimate_fill: 0.0,
+                wobble_amp: 0.0,
+                wobble_wavelength: 25.0,
     }
 }
 
@@ -267,6 +269,8 @@ proptest! {
                 clips: vec![],
                 decimate_stroke: 0.0,
                 decimate_fill: 0.0,
+                wobble_amp: 0.0,
+                wobble_wavelength: 25.0,
             },
             to_rec(&GenShape::Circle { x, y: 0.0, r, filled: true }),
             to_rec(&GenShape::Circle { x, y: r, r: r * 2.0, filled: true }),
