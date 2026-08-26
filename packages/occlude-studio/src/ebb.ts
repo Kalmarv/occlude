@@ -334,7 +334,7 @@ export class Ebb {
             (Math.hypot(c.pts[k] - c.pts[k - 2], c.pts[k + 1] - c.pts[k - 1]) / feed) * 60_000;
           total += 1;
         }
-        totalMs += 2 * Math.max(pen?.penDelay ?? 100, 500) + 300;
+        totalMs += 2 * Math.max(pen?.penDelay ?? 300, 150) + 300;
         px = c.pts[c.pts.length - 2];
         py = c.pts[c.pts.length - 1];
       }
@@ -353,7 +353,12 @@ export class Ebb {
       for (const c of chains) {
         const pen = pens[c.pen];
         const feed = pen?.feed ?? 3000;
-        const settle = Math.max(pen?.penDelay ?? 100, 500);
+        // Settle = time for the servo to physically travel before motion
+        // resumes. Too short: strokes start faint (pen still descending)
+        // or travels drag (pen still lifting). Too long: the pen dwells
+        // inked-and-stationary at every stroke start — wet pens bleed a
+        // dot. Tune per pen via penDelay; 150 is a hard physical floor.
+        const settle = Math.max(pen?.penDelay ?? 300, 150);
         // Travel (pen is up between chains).
         await this.waitIfPaused(report, pen?.name ?? '');
         if (this.plotAbort) break;
