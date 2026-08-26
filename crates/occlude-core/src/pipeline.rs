@@ -66,10 +66,12 @@ pub struct ShapeRec {
     pub z: f64,
     /// Indices into `RenderInput::clips` active for this shape.
     pub clips: Vec<u32>,
-    /// Post-occlusion decimation: each FINAL fragment of this shape is
-    /// dropped with this probability (0 = keep all). Deterministic from the
-    /// sketch seed — the distressed-plot modifier.
-    pub decimate: f64,
+    /// Post-occlusion decimation: each FINAL outline fragment is dropped
+    /// with this probability (0 = keep all). Deterministic from the sketch
+    /// seed — the distressed-plot modifier.
+    pub decimate_stroke: f64,
+    /// Same, for fill ink (hatch lines, stipple dots, custom fill strokes).
+    pub decimate_fill: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -434,7 +436,14 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     let frags: Vec<Frag> = frags
         .into_iter()
         .filter(|f| {
-            let p = input.shapes[f.shape as usize].decimate;
+            let shape = &input.shapes[f.shape as usize];
+            let (p0, p1) = outline_range[f.shape as usize];
+            let is_stroke = (f.origin as usize) >= p0 && (f.origin as usize) < p1;
+            let p = if is_stroke {
+                shape.decimate_stroke
+            } else {
+                shape.decimate_fill
+            };
             if p <= 0.0 {
                 return true;
             }

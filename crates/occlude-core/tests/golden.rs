@@ -42,7 +42,8 @@ fn scene() -> RenderInput {
         fill,
         z,
         clips: vec![],
-                decimate: 0.0,
+                decimate_stroke: 0.0,
+                decimate_fill: 0.0,
     };
     RenderInput {
         shapes: vec![

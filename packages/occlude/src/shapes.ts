@@ -34,8 +34,10 @@ export class Shape {
   fillSpec: FillSpec | null = null;
   fillPen: string | null = null;
   zIndex: number;
-  /** Post-occlusion fragment drop probability (0 = keep all). */
-  decimate = 0;
+  /** Post-occlusion fragment drop probability for outline strokes. */
+  decimateStroke = 0;
+  /** Post-occlusion fragment drop probability for fill ink. */
+  decimateFill = 0;
   /** Draw order index — the z tiebreak and default z. */
   readonly order: number;
 

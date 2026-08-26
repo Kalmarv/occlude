@@ -49,9 +49,11 @@ export interface ShapeOpts {
   /** rect only: anchor (x, y) at the 'corner' (default) or the 'center'
    * (p5 rectMode). The sketch config's `rectMode` sets the default. */
   mode?: 'corner' | 'center';
-  /** Drop this fraction of the shape's FINAL visible strokes (0…1),
-   * after occlusion and cleanup. Seeded — the distressed-plot modifier. */
-  decimate?: number;
+  /** Drop this fraction of the shape's FINAL visible strokes (0…1), after
+   * occlusion and cleanup. Seeded — the distressed-plot modifier. A number
+   * applies to everything; { stroke, fill } sets outline and fill ink
+   * separately (e.g. { fill: 0.5 } erodes the texture, keeps the outline). */
+  decimate?: number | { stroke?: number; fill?: number };
   /** Per-shape transform — identical to wrapping the shape in a group. */
   translate?: [L, L];
   /** Degrees; pivots around the user origin. */
@@ -67,7 +69,7 @@ export interface ShapeValue {
 
 export interface GroupOpts {
   /** Decimation default for children that don't set their own. */
-  decimate?: number;
+  decimate?: number | { stroke?: number; fill?: number };
   translate?: [L, L];
   /** Degrees. */
   rotate?: number;
@@ -238,7 +240,10 @@ export function clip(region: ShapeValue, ...children: Tree[]): ClipValue {
  * Drop `p` (0…1) of the children's final visible strokes — computed AFTER
  * occlusion, seeded by the sketch seed. The distressed-plot modifier.
  */
-export function decimate(p: number, ...children: Tree[]): GroupValue {
+export function decimate(
+  p: number | { stroke?: number; fill?: number },
+  ...children: Tree[]
+): GroupValue {
   return { __occludeGroup: true, opts: { decimate: p }, children };
 }
 
@@ -375,7 +380,7 @@ const TOOLKIT_BASE = {
 interface EmitCtx {
   pen: string | undefined;
   z: number | undefined;
-  decimate: number | undefined;
+  decimate: number | { stroke?: number; fill?: number } | undefined;
 }
 
 /**
@@ -464,5 +469,14 @@ function emitShape(sv: ShapeValue, ctx: EmitCtx): void {
   const z = o.z ?? ctx.z;
   if (z !== undefined) sh.z(z);
   const dec = o.decimate ?? ctx.decimate;
-  if (dec !== undefined) sh.decimate = Math.min(1, Math.max(0, dec));
+  if (dec !== undefined) {
+    const clamp = (v: number): number => Math.min(1, Math.max(0, v));
+    if (typeof dec === 'number') {
+      sh.decimateStroke = clamp(dec);
+      sh.decimateFill = clamp(dec);
+    } else {
+      sh.decimateStroke = clamp(dec.stroke ?? 0);
+      sh.decimateFill = clamp(dec.fill ?? 0);
+    }
+  }
 }

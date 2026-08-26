@@ -74,7 +74,7 @@ Every shape takes a trailing opts object:
 | `z` | Stacking override; default is tree order. |
 | `mode` | rect only: anchor (x, y) at the `'corner'` (default) or the `'center'` — p5's rectMode, per shape. The config's `rectMode` sets the sketch-wide default. Circles, ellipses and n-gons are always centre-anchored. |
 | `translate`, `rotate`, `scale` | Per-shape transform, identical to wrapping the shape in a `group` with the same op (order within the op: translate → rotate → scale). |
-| `decimate` | Drop this fraction (0…1) of the shape's final visible strokes, after occlusion — seeded, deterministic. |
+| `decimate` | Drop this fraction (0…1) of the shape's final visible strokes, after occlusion — seeded, deterministic. A number applies to everything; `{ stroke, fill }` targets outline and fill ink separately (`{ fill: 0.5 }` erodes the texture, keeps the outline crisp). |
 
 ```ts
 circle(x, y, r, opts?)
@@ -106,6 +106,7 @@ mask(shape)                    // { ...shape, opaque: true, stroke: false }
 group(opts, ...children)       // transform / pen / z defaults for children
 clip(shape, ...children)       // children restricted to shape's region
 decimate(p, ...children)       // drop p (0…1) of the FINAL visible strokes
+decimate({ fill: p }, ...)     // erode only fill ink; { stroke: p } only outlines
 ```
 
 - `mask(shape)` occludes and draws **nothing** — the hidden-line renderer's

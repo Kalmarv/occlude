@@ -35,7 +35,8 @@ fn filled_circle(cx: f64, cy: f64, r: f64) -> ShapeRec {
         )),
         z: 0.0,
         clips: vec![],
-                decimate: 0.0,
+                decimate_stroke: 0.0,
+                decimate_fill: 0.0,
     }
 }
 
@@ -99,7 +100,8 @@ fn bench_render(c: &mut Criterion) {
                 fill: None,
                 z: -1.0,
                 clips: vec![],
-                decimate: 0.0,
+                decimate_stroke: 0.0,
+                decimate_fill: 0.0,
             },
         );
     }

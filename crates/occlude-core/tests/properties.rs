@@ -129,7 +129,8 @@ fn to_rec(g: &GenShape) -> ShapeRec {
         },
         z: 0.0,
         clips: vec![],
-                decimate: 0.0,
+                decimate_stroke: 0.0,
+                decimate_fill: 0.0,
     }
 }
 
@@ -264,7 +265,8 @@ proptest! {
                 fill: None,
                 z: 0.0,
                 clips: vec![],
-                decimate: 0.0,
+                decimate_stroke: 0.0,
+                decimate_fill: 0.0,
             },
             to_rec(&GenShape::Circle { x, y: 0.0, r, filled: true }),
             to_rec(&GenShape::Circle { x, y: r, r: r * 2.0, filled: true }),

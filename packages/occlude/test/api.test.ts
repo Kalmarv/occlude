@@ -482,3 +482,30 @@ describe('decimate', () => {
     expect((svg.match(/A[0-9.]+ /g) ?? []).length).toBeGreaterThan(0); // circle arcs present
   });
 });
+
+  it('decimates fill and stroke independently', async () => {
+    const { decimate } = await import('../src/index.js');
+    // fill: 1 → hatch fully erased, outline intact.
+    const fillOnly = sketch({ seed: 7 }, () => [
+      rect(20, 20, 60, 60, { fill: hatch(45, mm(2)), decimate: { fill: 1 } }),
+    ]);
+    const out = sq(fillOnly);
+    expect(out.frags.filter((f) => f.origin >= 4)).toHaveLength(0); // no fill ink
+    expect(out.frags.filter((f) => f.origin < 4)).toHaveLength(4); // all 4 sides
+
+    // stroke: 1 → outline gone, hatch intact.
+    const strokeOnly = sketch({ seed: 7 }, () => [
+      rect(20, 20, 60, 60, { fill: hatch(45, mm(2)), decimate: { stroke: 1 } }),
+    ]);
+    const out2 = sq(strokeOnly);
+    expect(out2.frags.filter((f) => f.origin < 4)).toHaveLength(0);
+    expect(out2.frags.filter((f) => f.origin >= 4).length).toBeGreaterThan(10);
+
+    // Combinator accepts the object form too.
+    const viaCombinator = sketch({ seed: 7 }, () =>
+      decimate({ fill: 1 }, rect(20, 20, 60, 60, { fill: hatch(45, mm(2)) })),
+    );
+    const out3 = sq(viaCombinator);
+    expect(out3.frags.filter((f) => f.origin >= 4)).toHaveLength(0);
+    expect(out3.frags.filter((f) => f.origin < 4)).toHaveLength(4);
+  });
