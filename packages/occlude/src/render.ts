@@ -353,7 +353,9 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     if (ids) return ids;
     const unit = Math.min(frame.inner.innerW, frame.inner.innerH) / 100;
     const ySign = frame.yUp ? -1 : 1;
-    const step = Math.max(0.5, Math.min(2, Math.max(paperW, paperH) / 128));
+    // Finer than scalar fields: deform geometry follows this raster
+    // directly, and vortex-like fields turn fast near their cores.
+    const step = Math.max(0.25, Math.min(1, Math.max(paperW, paperH) / 256));
     const gw = Math.max(2, Math.ceil(paperW / step) + 1);
     const gh = Math.max(2, Math.ceil(paperH / step) + 1);
     for (const axis of [0, 1] as const) {

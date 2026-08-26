@@ -734,13 +734,41 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, input: &RenderInput) -> ShapeRec {
                 }
             }
             Modifier::Deform { dx, dy, detail } => {
+                let target = detail.max(0.2);
+                let map = |p: Vec2| {
+                    v(
+                        p.x + dx.at(fields, p.x, p.y),
+                        p.y + dy.at(fields, p.x, p.y),
+                    )
+                };
                 for poly in &mut polys {
-                    resample_polyline(poly, detail.max(0.2), closed);
-                    for p in poly.iter_mut() {
-                        let ox = dx.at(fields, p.x, p.y);
-                        let oy = dy.at(fields, p.x, p.y);
-                        *p = v(p.x + ox, p.y + oy);
+                    // Adaptive floor: small shapes need proportionally finer
+                    // source sampling — guarantee ≥64 segments per contour.
+                    let len: f64 = poly
+                        .windows(2)
+                        .map(|w| (w[1].x - w[0].x).hypot(w[1].y - w[0].y))
+                        .sum();
+                    let step = target.min(len / 64.0).max(0.2);
+                    resample_polyline(poly, step, closed);
+                    // Displace with OUTPUT-adaptive subdivision: the field
+                    // can stretch space (a vortex core stretches tangent
+                    // spacing many-fold), so bisect source edges until the
+                    // displaced neighbours sit within `detail` — the drawn
+                    // polyline's spacing is bounded regardless of stretch.
+                    let n = poly.len();
+                    if n < 2 {
+                        continue;
                     }
+                    let edges = if closed { n } else { n - 1 };
+                    let mut out: Vec<Vec2> = Vec::with_capacity(n * 2);
+                    for i in 0..edges {
+                        let (a, b) = (poly[i], poly[(i + 1) % n]);
+                        subdivide_map(&map, a, b, map(a), map(b), target, 7, &mut out);
+                    }
+                    if !closed {
+                        out.push(map(poly[n - 1]));
+                    }
+                    *poly = out;
                 }
             }
             _ => {}
@@ -842,6 +870,30 @@ fn chaikin(poly: &mut Vec<Vec2>, passes: u32, closed: bool) {
         }
         *poly = out;
     }
+}
+
+/// Emit the image of source edge (a, b) under `f`, bisecting in SOURCE
+/// space until displaced neighbours are within `target` — adaptive
+/// sampling of a nonlinear map. Pushes f(a) and refined interior points;
+/// the caller's next edge (or explicit tail) supplies f(b).
+fn subdivide_map<F: Fn(Vec2) -> Vec2>(
+    f: &F,
+    a: Vec2,
+    b: Vec2,
+    fa: Vec2,
+    fb: Vec2,
+    target: f64,
+    depth: u32,
+    out: &mut Vec<Vec2>,
+) {
+    if depth == 0 || (fb.x - fa.x).hypot(fb.y - fa.y) <= target {
+        out.push(fa);
+        return;
+    }
+    let m = v((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
+    let fm = f(m);
+    subdivide_map(f, a, m, fa, fm, target, depth - 1, out);
+    subdivide_map(f, m, b, fm, fb, target, depth - 1, out);
 }
 
 /// Merge chain vertices so no segment falls below `min_seg`. Endpoints of
