@@ -197,12 +197,12 @@ export function path(opts: { winding?: Winding } = {}): PathValue {
 // ---- sequence helpers ----
 
 /**
- * Call `fn(k, t)` n times and collect the results — the loop idiom of the
- * tree model. `k` is the index (0…n−1); `t` is normalised 0…1 across the
+ * Call `fn(i, t)` n times and collect the results — the loop idiom of the
+ * tree model. `i` is the index (0…n−1); `t` is normalised 0…1 across the
  * sequence (0 when n === 1), so interpolating along the run is one
- * expression: `repeat(40, (k, t) => rect(0, t * height, …))`.
+ * expression: `times(40, (k, t) => rect(0, t * height, …))`.
  */
-export function repeat<T>(n: number, fn: (k: number, t: number) => T): T[] {
+export function times<T>(n: number, fn: (k: number, t: number) => T): T[] {
   const out: T[] = [];
   for (let k = 0; k < n; k++) out.push(fn(k, n > 1 ? k / (n - 1) : 0));
   return out;
@@ -304,7 +304,7 @@ export interface Toolkit {
   map: typeof mapRange;
   norm: typeof normRange;
   invert: typeof invertRange;
-  repeat: typeof repeat;
+  times: typeof times;
   range: typeof range;
   bounds: typeof bounds;
   /** Drawable extent in bare units — the same numbers `bounds()` returns. */
@@ -353,7 +353,7 @@ const TOOLKIT_BASE = {
   hatch, crosshatch, stipple,
   rnd, pick, chance, prob, noise, stream,
   map: mapRange, norm: normRange, invert: invertRange,
-  repeat, range,
+  times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue,
   mm, w, h, s, long,
 };

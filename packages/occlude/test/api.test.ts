@@ -431,19 +431,19 @@ describe('occlude declarative api', () => {
 });
 
 describe('sequence helpers', () => {
-  it('repeat provides index and normalised t; range covers both forms', async () => {
-    const { repeat, range } = await import('../src/index.js');
-    expect(repeat(4, (k, t) => [k, t])).toEqual([
+  it('times provides index and normalised t; range covers both forms', async () => {
+    const { times, range } = await import('../src/index.js');
+    expect(times(4, (i, t) => [i, t])).toEqual([
       [0, 0], [1, 1 / 3], [2, 2 / 3], [3, 1],
     ]);
-    expect(repeat(1, (k, t) => t)).toEqual([0]); // no divide-by-zero
+    expect(times(1, (_i, t) => t)).toEqual([0]); // no divide-by-zero
     expect(range(4)).toEqual([0, 1, 2, 3]);
     expect(range(2, 8, 2)).toEqual([2, 4, 6]);
     expect(range(3, 0, -1)).toEqual([3, 2, 1]);
 
     // The loop idiom end to end: 12 rects down the sheet.
-    const def = sketch({ aspect: [1, 1], seed: 1 }, ({ repeat, height }) =>
-      repeat(12, (_, t) => rect(10, t * (height - 10), 80, 4)),
+    const def = sketch({ aspect: [1, 1], seed: 1 }, ({ times, height }) =>
+      times(12, (_, t) => rect(10, t * (height - 10), 80, 4)),
     );
     const out = sq(def);
     expect(new Set(out.frags.map((f) => f.shape)).size).toBe(12);

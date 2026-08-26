@@ -230,7 +230,7 @@ rnd()            // [0, 1)        rnd(n) → [0, n)      rnd(a, b) → [a, b)
 pick(arr)        chance(p)       prob(p, fn, elseFn?)
 noise(x, y?, z?) // seeded simplex, ~[-1, 1]
 map(v, a, b, c, d); norm(v, a, b); invert(v, max, min = 0)
-repeat(n, (k, t) => shape)   // the loop idiom: n results; t runs 0…1
+times(n, (i, t) => shape)    // the loop idiom: n results; t runs 0…1
 range(n) / range(a, b, step?)  // integer sequences for mapping/nesting
 bounds()         // drawable extent in bare units
 grid({ cols, rows, gap? })   // cells tiling the whole drawable
@@ -247,11 +247,11 @@ const ridges = stream('ridges');
 ridges.rnd(); ridges.noise(x, y);
 ```
 
-`repeat` is the tree model's `for` loop — the normalised `t` makes
+`times` is the tree model's `for` loop — the normalised `t` makes
 interpolating along the run one expression:
 
 ```ts
-repeat(40, (k, t) =>
+times(40, (k, t) =>
   rect(0, 0, 200, 20, 1, { translate: [width * 0.4, t * height], rotate: -t * 25 }))
 ```
 
