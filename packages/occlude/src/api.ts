@@ -194,6 +194,31 @@ export function path(opts: { winding?: Winding } = {}): PathValue {
   return new PathValue(opts.winding ?? 'nonzero');
 }
 
+// ---- sequence helpers ----
+
+/**
+ * Call `fn(k, t)` n times and collect the results — the loop idiom of the
+ * tree model. `k` is the index (0…n−1); `t` is normalised 0…1 across the
+ * sequence (0 when n === 1), so interpolating along the run is one
+ * expression: `repeat(40, (k, t) => rect(0, t * height, …))`.
+ */
+export function repeat<T>(n: number, fn: (k: number, t: number) => T): T[] {
+  const out: T[] = [];
+  for (let k = 0; k < n; k++) out.push(fn(k, n > 1 ? k / (n - 1) : 0));
+  return out;
+}
+
+/** Integers [0, n) — or [a, b) with an optional step — for mapping/nesting. */
+export function range(n: number): number[];
+export function range(a: number, b: number, step?: number): number[];
+export function range(a: number, b?: number, step = 1): number[] {
+  const [lo, hi] = b === undefined ? [0, a] : [a, b];
+  const out: number[] = [];
+  if (step > 0) for (let v = lo; v < hi; v += step) out.push(v);
+  else if (step < 0) for (let v = lo; v > hi; v += step) out.push(v);
+  return out;
+}
+
 // ---- combinators ----
 
 export function group(opts: GroupOpts, ...children: Tree[]): GroupValue {
@@ -279,6 +304,8 @@ export interface Toolkit {
   map: typeof mapRange;
   norm: typeof normRange;
   invert: typeof invertRange;
+  repeat: typeof repeat;
+  range: typeof range;
   bounds: typeof bounds;
   /** Drawable extent in bare units — the same numbers `bounds()` returns. */
   width: number;
@@ -326,6 +353,7 @@ const TOOLKIT_BASE = {
   hatch, crosshatch, stipple,
   rnd, pick, chance, prob, noise, stream,
   map: mapRange, norm: normRange, invert: invertRange,
+  repeat, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue,
   mm, w, h, s, long,
 };

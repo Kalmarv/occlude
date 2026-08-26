@@ -12,14 +12,14 @@
  * Filled/opaque shapes hide what is beneath them; `render()` computes the
  * exact visible strokes and `exportGcode()` emits per-pen G-code.
  *
- * The old imperative surface lives in 'occlude/src/legacy' and still runs.
+ * The imperative machinery underneath is internal — this is the only API.
  */
 
 // The declarative API.
 export {
   sketch, compileSketch, isSketch,
   circle, ellipse, rect, line, polygon, path, PathValue,
-  group, clip, mask,
+  group, clip, mask, repeat, range,
 } from './api.js';
 export type {
   SketchDef, SketchConfig, Toolkit, Tree,
