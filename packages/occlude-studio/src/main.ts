@@ -130,6 +130,8 @@ async function boot(): Promise<void> {
   }
 
   editor.onChange(scheduleRun);
+  // Debug/automation handle (used by headless driving; harmless otherwise).
+  (window as unknown as Record<string, unknown>).__occlude = { editor };
 
   const rail = buildRail($('rail'), {
     pens,
@@ -158,8 +160,9 @@ async function boot(): Promise<void> {
     (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
-        rail
-          .saveCurrent()
+        editor
+          .format()
+          .then(() => rail.saveCurrent())
           .then((name) => {
             if (name) {
               statusMsg.className = 'status-ok';

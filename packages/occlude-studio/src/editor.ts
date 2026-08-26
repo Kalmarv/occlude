@@ -42,6 +42,8 @@ export interface Editor {
   onChange(fn: () => void): void;
   setValue(src: string): void;
   getValue(): string;
+  /** Format the document with Prettier (no-op on parse errors). */
+  format(): Promise<void>;
 }
 
 export function createEditor(container: HTMLElement, initial: string): Editor {
@@ -105,6 +107,25 @@ export function createEditor(container: HTMLElement, initial: string): Editor {
     },
   });
 
+  // Prettier as the document formatter (lazy-loaded): Shift+Alt+F, the
+  // context menu's Format Document, and format-on-save all route through it.
+  monaco.languages.registerDocumentFormattingEditProvider('typescript', {
+    async provideDocumentFormattingEdits(m) {
+      const [prettier, ts, estree] = await Promise.all([
+        import('prettier/standalone'),
+        import('prettier/plugins/typescript'),
+        import('prettier/plugins/estree'),
+      ]);
+      const text = await prettier.format(m.getValue(), {
+        parser: 'typescript',
+        plugins: [ts.default, estree.default],
+        singleQuote: true,
+        printWidth: 90,
+      });
+      return [{ range: m.getFullModelRange(), text }];
+    },
+  });
+
   const model = monaco.editor.createModel(initial, 'typescript', SKETCH_URI);
   const editor = monaco.editor.create(container, {
     model,
@@ -153,6 +174,13 @@ export function createEditor(container: HTMLElement, initial: string): Editor {
     },
     onChange(fn) {
       model.onDidChangeContent(() => fn());
+    },
+    async format() {
+      try {
+        await editor.getAction('editor.action.formatDocument')?.run();
+      } catch {
+        // unparseable source — leave it as typed
+      }
     },
     setValue(src) {
       model.setValue(src);
