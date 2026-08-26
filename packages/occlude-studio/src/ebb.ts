@@ -63,6 +63,12 @@ export interface EbbOptions {
 }
 
 const MAX_MOTOR_STEPS_PER_MS = 25; // verified: 25k steps/s per motor
+// XM is constant-velocity: without host-side ramps every stroke start
+// commands the steppers from standstill to cruise instantly, which skips
+// steps above modest feeds (open-loop — each skip is a permanent offset;
+// found as position drift after pause/resume). Trapezoidal profiles fix it.
+const ACCEL_MM_S2 = 1000;
+const V_START_MM_S = 8; // safe start-stop speed for these steppers
 
 interface QueuedCmd {
   line: string;
@@ -222,11 +228,11 @@ export class Ebb {
 
   // ---- motion ----
 
-  /** Move to absolute mm position (in the user's origin frame). Steps are
+  /** Move to an absolute mm position over an explicit duration. Steps are
    * derived by rounding the ABSOLUTE position, so float error never
-   * accumulates into drift. Duration from feed, clamped to the per-motor
-   * step-rate ceiling (CoreXY: a diagonal doubles one motor's rate). */
-  private async moveTo(xMm: number, yMm: number, feed: number, o: EbbOptions): Promise<void> {
+   * accumulates into drift; duration is clamped to the per-motor step-rate
+   * ceiling (CoreXY: a diagonal doubles one motor's rate). */
+  private async stepTo(xMm: number, yMm: number, ms: number, o: EbbOptions): Promise<void> {
     // Paper (x right, y down, mm) → machine axes, then absolute steps.
     const mx = (o.swapXY ? yMm : xMm) * (o.invertX ? -1 : 1);
     const my = (o.swapXY ? xMm : yMm) * (o.invertY ? -1 : 1);
@@ -235,13 +241,88 @@ export class Ebb {
     const dx = sx - this.stepX;
     const dy = sy - this.stepY;
     if (dx === 0 && dy === 0) return;
-    const distMm = Math.hypot(dx, dy) / o.stepsPerMm;
-    let ms = Math.ceil((distMm / Math.max(1, feed)) * 60_000);
     const motor = Math.max(Math.abs(dx + dy), Math.abs(dx - dy));
-    ms = Math.max(ms, Math.ceil(motor / MAX_MOTOR_STEPS_PER_MS), 2);
-    await this.cmd(`XM,${ms},${dx},${dy}`);
+    const clamped = Math.max(Math.ceil(ms), Math.ceil(motor / MAX_MOTOR_STEPS_PER_MS), 2);
+    await this.cmd(`XM,${clamped},${dx},${dy}`);
     this.stepX = sx;
     this.stepY = sy;
+  }
+
+  /**
+   * Drive a polyline with a trapezoidal velocity profile: accelerate from
+   * V_START to the feed, cruise, decelerate back — the steppers never see
+   * a velocity step they can't follow. Long segments are subdivided so
+   * the ramp has resolution. `onPause` (when provided) is awaited between
+   * segments when a pause is requested; after it returns, the profile is
+   * REPLANNED from rest for the remaining points — a resume is a fresh
+   * ramp, not a cold start at cruise speed.
+   */
+  private async moveRun(
+    pts: [number, number][],
+    feedMmMin: number,
+    o: EbbOptions,
+    onPause?: () => Promise<void>,
+    onSegment?: (segMm: number) => void,
+  ): Promise<void> {
+    // Current logical paper position (invert the axis mapping).
+    const curPaper = (): [number, number] => {
+      const mx = (this.stepX / o.stepsPerMm) * (o.invertX ? -1 : 1);
+      const my = (this.stepY / o.stepsPerMm) * (o.invertY ? -1 : 1);
+      return o.swapXY ? [my, mx] : [mx, my];
+    };
+    let remaining = pts;
+    while (remaining.length > 0 && !this.plotAbort) {
+      // Subdivide long segments so the ramp has waypoints.
+      const [cx, cy] = curPaper();
+      const dense: [number, number][] = [];
+      let px = cx;
+      let py = cy;
+      for (const [x, y] of remaining) {
+        const d = Math.hypot(x - px, y - py);
+        const chunks = Math.max(1, Math.ceil(d / 4));
+        for (let c = 1; c <= chunks; c++) {
+          dense.push([px + ((x - px) * c) / chunks, py + ((y - py) * c) / chunks]);
+        }
+        px = x;
+        py = y;
+      }
+      // Trapezoid over the run's arc length.
+      const cum: number[] = [0];
+      {
+        let ax = cx;
+        let ay = cy;
+        for (const [x, y] of dense) {
+          cum.push(cum[cum.length - 1] + Math.hypot(x - ax, y - ay));
+          ax = x;
+          ay = y;
+        }
+      }
+      const L = cum[cum.length - 1];
+      const vt = Math.max(1, feedMmMin / 60);
+      const v0 = Math.min(V_START_MM_S, vt);
+      const vAt = (s: number): number =>
+        Math.min(
+          vt,
+          Math.sqrt(v0 * v0 + 2 * ACCEL_MM_S2 * s),
+          Math.sqrt(v0 * v0 + 2 * ACCEL_MM_S2 * Math.max(0, L - s)),
+        );
+      let paused = false;
+      for (let i = 0; i < dense.length; i++) {
+        if (this.plotAbort) return;
+        if (this.plotPause && onPause) {
+          await onPause();
+          remaining = dense.slice(i);
+          paused = true;
+          break;
+        }
+        const ds = cum[i + 1] - cum[i];
+        if (ds <= 1e-9) continue;
+        const vAvg = Math.max(1e-3, (vAt(cum[i]) + vAt(cum[i + 1])) / 2);
+        await this.stepTo(dense[i][0], dense[i][1], (ds / vAvg) * 1000, o);
+        onSegment?.(ds);
+      }
+      if (!paused) return;
+    }
   }
 
   async penUp(settleMs = 300): Promise<void> {
@@ -261,7 +342,7 @@ export class Ebb {
     const x = (o.swapXY ? my : mx) + dxMm;
     const y = (o.swapXY ? mx : my) + dyMm;
     await this.cmd('EM,1,1');
-    await this.moveTo(x, y, o.travelFeed, o);
+    await this.moveRun([[x, y]], o.travelFeed, o);
   }
 
   /** Zero the board's step counters here — "this is the paper origin". */
@@ -304,6 +385,12 @@ export class Ebb {
     pens: PenDef[],
     o: EbbOptions,
     onProgress: (p: PlotProgress) => void,
+    /** Resolve the CURRENT pen definition by name — lets feed/penDelay
+     * edits made mid-plot (paused or not) apply from the next chain. */
+    livePen?: (name: string) => PenDef | undefined,
+    /** Current servo positions — re-sent on resume so pause → adjust →
+     * resume also covers pen height. */
+    liveServo?: () => { servoDown: number; servoUp: number },
   ): Promise<void> {
     interface Chain {
       pen: number;
@@ -325,7 +412,8 @@ export class Ebb {
       let px = 0;
       let py = 0;
       for (const c of chains) {
-        const pen = pens[c.pen];
+        const base = pens[c.pen];
+        const pen = (base && livePen?.(base.name)) ?? base;
         const feed = pen?.feed ?? 3000;
         totalMs += (Math.hypot(c.pts[0] - px, c.pts[1] - py) / o.travelFeed) * 60_000;
         total += 3; // travel + pen down + pen up
@@ -351,7 +439,8 @@ export class Ebb {
 
     try {
       for (const c of chains) {
-        const pen = pens[c.pen];
+        const base = pens[c.pen];
+        const pen = (base && livePen?.(base.name)) ?? base;
         const feed = pen?.feed ?? 3000;
         // Settle = time for the servo to physically travel before motion
         // resumes. Too short: strokes start faint (pen still descending)
@@ -359,29 +448,46 @@ export class Ebb {
         // inked-and-stationary at every stroke start — wet pens bleed a
         // dot. Tune per pen via penDelay; 150 is a hard physical floor.
         const settle = Math.max(pen?.penDelay ?? 300, 150);
-        // Travel (pen is up between chains).
-        await this.waitIfPaused(report, pen?.name ?? '');
+        const penName = pen?.name ?? '';
+        // Pause dance: raise, wait, re-lower (drawing only). The run
+        // replans its ramp from rest afterwards.
+        const pauseUp = async (): Promise<void> => {
+          const wasUp = this.penIsUp;
+          if (!wasUp) await this.penUp(settle);
+          report('paused', penName);
+          while (this.plotPause && !this.plotAbort) {
+            await new Promise((r) => setTimeout(r, 150));
+          }
+          if (!this.plotAbort) {
+            if (liveServo) {
+              const sv = liveServo();
+              await this.cmd(`SC,4,${Math.round(sv.servoDown)}`);
+              await this.cmd(`SC,5,${Math.round(sv.servoUp)}`);
+            }
+            if (!wasUp) await this.penDown(settle);
+          }
+        };
         if (this.plotAbort) break;
-        await this.moveTo(c.pts[0], c.pts[1], o.travelFeed, o);
+        // Travel (pen up), ramped.
+        await this.moveRun([[c.pts[0], c.pts[1]]], o.travelFeed, o, pauseUp);
         sent += 1;
+        if (this.plotAbort) break;
         await this.penDown(settle);
         sent += 1;
         if (!c.dot) {
-          for (let k = 2; k < c.pts.length; k += 2) {
-            await this.waitIfPaused(report, pen?.name ?? '');
-            if (this.plotAbort) break;
-            const segMm = Math.hypot(c.pts[k] - c.pts[k - 2], c.pts[k + 1] - c.pts[k - 1]);
-            await this.moveTo(c.pts[k], c.pts[k + 1], feed, o);
+          const run: [number, number][] = [];
+          for (let k = 2; k < c.pts.length; k += 2) run.push([c.pts[k], c.pts[k + 1]]);
+          await this.moveRun(run, feed, o, pauseUp, (segMm) => {
             sent += 1;
             elapsedMs += (segMm / feed) * 60_000;
-            if (sent % 10 === 0) report('plotting', pen?.name ?? '');
-          }
+            if (sent % 25 === 0) report('plotting', penName);
+          });
         }
         if (this.plotAbort) break;
         await this.penUp(settle);
         sent += 1;
         elapsedMs += 2 * settle;
-        report('plotting', pen?.name ?? '');
+        report('plotting', penName);
       }
       if (!this.plotAbort) {
         await this.penUp();
@@ -396,19 +502,4 @@ export class Ebb {
     }
   }
 
-  private async waitIfPaused(
-    report: (s: PlotProgress['state'], pen: string) => void,
-    pen: string,
-  ): Promise<void> {
-    if (!this.plotPause) return;
-    const wasUp = this.penIsUp;
-    await this.penUp();
-    report('paused', pen);
-    while (this.plotPause && !this.plotAbort) {
-      await new Promise((r) => setTimeout(r, 150));
-    }
-    if (!this.plotAbort && !wasUp) {
-      await this.penDown();
-    }
-  }
 }

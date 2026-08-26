@@ -580,7 +580,14 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     try {
       const tol = Math.max(s.machine.resolution, 0.1);
       const plan = await hooks.client.exportToolpath(200_000, tol);
-      await ebb.plot(plan, r.pens, opts(), onProgress);
+      await ebb.plot(
+        plan,
+        r.pens,
+        opts(),
+        onProgress,
+        (name) => hooks.pens.find((p) => p.name === name),
+        () => ({ servoDown: s.ebb.servoDown, servoUp: s.ebb.servoUp }),
+      );
     } catch (e) {
       showErr(e);
     }

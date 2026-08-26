@@ -79,7 +79,7 @@ export const DEFAULT_SETTINGS: Settings = {
     invertX: true,
     invertY: false,
     servoDown: 10000,
-    servoUp: 16000,
+    servoUp: 14200,
   },
 };
 
