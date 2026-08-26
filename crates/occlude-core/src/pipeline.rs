@@ -873,9 +873,12 @@ fn chaikin(poly: &mut Vec<Vec2>, passes: u32, closed: bool) {
 }
 
 /// Emit the image of source edge (a, b) under `f`, bisecting in SOURCE
-/// space until displaced neighbours are within `target` — adaptive
-/// sampling of a nonlinear map. Pushes f(a) and refined interior points;
-/// the caller's next edge (or explicit tail) supplies f(b).
+/// space until the displaced chord is both short enough (`target`) and
+/// FLAT enough — the midpoint's image must sit within `SAG_TOL` of the
+/// chord midpoint. The flatness test is what catches tight curls: near a
+/// vortex core the curve can turn sharply between samples that are well
+/// within the length bound. Pushes f(a) and refined interior points; the
+/// caller's next edge (or explicit tail) supplies f(b).
 fn subdivide_map<F: Fn(Vec2) -> Vec2>(
     f: &F,
     a: Vec2,
@@ -886,12 +889,19 @@ fn subdivide_map<F: Fn(Vec2) -> Vec2>(
     depth: u32,
     out: &mut Vec<Vec2>,
 ) {
-    if depth == 0 || (fb.x - fa.x).hypot(fb.y - fa.y) <= target {
+    const SAG_TOL: f64 = 0.05;
+    if depth == 0 {
         out.push(fa);
         return;
     }
     let m = v((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
     let fm = f(m);
+    let chord = (fb.x - fa.x).hypot(fb.y - fa.y);
+    let dev = (fm.x - (fa.x + fb.x) / 2.0).hypot(fm.y - (fa.y + fb.y) / 2.0);
+    if chord <= target && dev <= SAG_TOL {
+        out.push(fa);
+        return;
+    }
     subdivide_map(f, a, m, fa, fm, target, depth - 1, out);
     subdivide_map(f, m, b, fm, fb, target, depth - 1, out);
 }
