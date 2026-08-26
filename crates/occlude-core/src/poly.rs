@@ -53,6 +53,12 @@ pub fn roots_cubic(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
     let p = p1 - p2 * p2 / 3.0;
     let q = 2.0 * p2 * p2 * p2 / 27.0 - p2 * p1 / 3.0 + p0;
     let disc = (q / 2.0) * (q / 2.0) + (p / 3.0) * (p / 3.0) * (p / 3.0);
+    // Classification tolerance must be scale-invariant: p and q come from
+    // the NORMALISED cubic, so measure disc against its own constituents —
+    // comparing against the raw coefficient magnitude picked the wrong
+    // Cardano branch when all coefficients were scaled by e.g. 1e20.
+    let disc_tol =
+        1e-14 * ((q / 2.0) * (q / 2.0) + (p / 3.0).abs().powi(3)).max(f64::MIN_POSITIVE);
 
     let f = |t: f64| ((a * t + b) * t + c) * t + d;
     let df = |t: f64| (3.0 * a * t + 2.0 * b) * t + c;
@@ -73,13 +79,13 @@ pub fn roots_cubic(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
     };
 
     let mut out = Vec::with_capacity(3);
-    if disc > 1e-14 * scale.max(1.0) {
+    if disc > disc_tol {
         // One real root.
         let sq = disc.sqrt();
         let u = (-q / 2.0 + sq).cbrt();
         let vv = (-q / 2.0 - sq).cbrt();
         out.push(polish(u + vv - off));
-    } else if disc >= -1e-14 * scale.max(1.0) && p.abs() < 1e-9 {
+    } else if disc >= -disc_tol && p.abs() < 1e-9 {
         // Triple-ish root.
         out.push(polish(-off + (-q).cbrt()));
     } else {

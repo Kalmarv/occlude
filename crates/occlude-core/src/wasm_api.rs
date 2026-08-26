@@ -109,7 +109,7 @@ fn decode_modifiers(mods: &[f64], start: usize, count: usize) -> Result<Vec<Modi
                 offset: lit(2, "dash offset")?,
             },
             4 => Modifier::Smooth {
-                passes: lit(0, "smooth passes")? as u32,
+                passes: (lit(0, "smooth passes")? as u32).min(8),
             },
             5 => Modifier::Roughen {
                 amp: param(0)?,
@@ -189,12 +189,18 @@ fn contours_of(
     contour_count: usize,
     contours: &[u32],
     table: &[Primitive],
-) -> Vec<Vec<Primitive>> {
-    (contour_start..contour_start + contour_count)
+) -> Result<Vec<Vec<Primitive>>, String> {
+    let end = contour_start
+        .checked_add(contour_count)
+        .filter(|&e| e * 2 <= contours.len())
+        .ok_or("contour range out of bounds")?;
+    (contour_start..end)
         .map(|ci| {
             let ps = contours[ci * 2] as usize;
             let pc = contours[ci * 2 + 1] as usize;
-            table[ps..ps + pc].to_vec()
+            let pe = ps.checked_add(pc).filter(|&e| e <= table.len())
+                .ok_or("contour primitive range out of bounds")?;
+            Ok(table[ps..pe].to_vec())
         })
         .collect()
 }
@@ -241,12 +247,31 @@ pub fn wasm_render(
     seed: u32,
     coarsen: f64,
 ) -> Result<RenderResult, JsValue> {
+    let err = |m: &str| JsValue::from_str(m);
+    if prims.len() % PRIM_STRIDE != 0 {
+        return Err(err("prims buffer not a multiple of the stride"));
+    }
+    if shapes_u32.len() % SHAPE_U32_STRIDE != 0 {
+        return Err(err("shapes_u32 buffer not a multiple of the stride"));
+    }
+    if clips_u32.len() % 3 != 0 || contours.len() % 2 != 0 {
+        return Err(err("clip/contour buffer not a multiple of the stride"));
+    }
+    if prims.iter().any(|v| !v.is_finite()) {
+        return Err(err("non-finite value in prims buffer"));
+    }
+    if paper.iter().any(|v| !v.is_finite()) {
+        return Err(err("non-finite paper bounds"));
+    }
     let table = decode_prims(prims);
     let pens: Vec<Pen> = serde_json::from_str(pens_json)
         .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
     let fields = decode_fields(field_data).map_err(|e| JsValue::from_str(&e))?;
 
     let n = shapes_u32.len() / SHAPE_U32_STRIDE;
+    if shapes_f64.len() < n {
+        return Err(err("shapes_f64 shorter than shape count"));
+    }
     let mut shapes = Vec::with_capacity(n);
     for i in 0..n {
         let s = &shapes_u32[i * SHAPE_U32_STRIDE..(i + 1) * SHAPE_U32_STRIDE];
@@ -257,10 +282,19 @@ pub fn wasm_render(
         } else {
             WindingRule::NonZero
         };
+        if s[4] == 0 && (1..=3).contains(&s[5]) {
+            return Err(err("fill kind set without a fill pen"));
+        }
         let fill = match s[5] {
             1 => {
                 let start = s[8] as usize;
                 let count = s[9] as usize;
+                if start.checked_add(count.checked_mul(3).ok_or(err("hatch params overflow"))?)
+                    .filter(|&e| e <= fill_params.len())
+                    .is_none()
+                {
+                    return Err(err("hatch params out of bounds"));
+                }
                 let passes = (0..count)
                     .map(|k| HatchPass {
                         angle: fill_params[start + k * 3],
@@ -272,6 +306,9 @@ pub fn wasm_render(
             }
             2 => {
                 let start = s[8] as usize;
+                if start + 2 > fill_params.len() {
+                    return Err(err("stipple params out of bounds"));
+                }
                 Some((
                     s[4] - 1,
                     FillKind::Stipple {
@@ -283,23 +320,27 @@ pub fn wasm_render(
             3 => {
                 let start = s[8] as usize;
                 let count = s[9] as usize;
-                Some((
-                    s[4] - 1,
-                    FillKind::Custom(table[start..start + count].to_vec()),
-                ))
+                let end = start.checked_add(count).filter(|&e| e <= table.len())
+                    .ok_or(err("custom fill prims out of bounds"))?;
+                Some((s[4] - 1, FillKind::Custom(table[start..end].to_vec())))
             }
             4 => Some((s[4] - 1, FillKind::Mask)),
             _ => None,
         };
+        let clip_end = (s[6] as usize)
+            .checked_add(s[7] as usize)
+            .filter(|&e| e <= clip_list.len())
+            .ok_or(err("clip list range out of bounds"))?;
         shapes.push(ShapeRec {
-            contours: contours_of(s[0] as usize, s[1] as usize, contours, &table),
+            contours: contours_of(s[0] as usize, s[1] as usize, contours, &table)
+                .map_err(|e| JsValue::from_str(&e))?,
             closed,
             convex: flags & 2 != 0,
             winding,
             stroke: if s[3] > 0 { Some(s[3] - 1) } else { None },
             fill,
             z: shapes_f64[i],
-            clips: clip_list[s[6] as usize..(s[6] + s[7]) as usize].to_vec(),
+            clips: clip_list[s[6] as usize..clip_end].to_vec(),
             modifiers: decode_modifiers(mods, s[10] as usize, s[11] as usize)
                 .map_err(|e| JsValue::from_str(&e))?,
         });
@@ -307,16 +348,19 @@ pub fn wasm_render(
 
     let clips: Vec<ClipDef> = clips_u32
         .chunks_exact(3)
-        .map(|c| ClipDef {
-            contours: contours_of(c[0] as usize, c[1] as usize, contours, &table),
-            winding: if c[2] & 4 != 0 {
-                WindingRule::EvenOdd
-            } else {
-                WindingRule::NonZero
-            },
-            convex: c[2] & 2 != 0,
+        .map(|c| {
+            Ok(ClipDef {
+                contours: contours_of(c[0] as usize, c[1] as usize, contours, &table)?,
+                winding: if c[2] & 4 != 0 {
+                    WindingRule::EvenOdd
+                } else {
+                    WindingRule::NonZero
+                },
+                convex: c[2] & 2 != 0,
+            })
         })
-        .collect();
+        .collect::<Result<_, String>>()
+        .map_err(|e| JsValue::from_str(&e))?;
 
     let paper_box = if paper.len() == 4 {
         Some(BBox::new(v(paper[0], paper[1]), v(paper[2], paper[3])))
@@ -364,14 +408,19 @@ pub fn wasm_render(
     })
 }
 
-fn decode_frags(prims: &[f64], frags: &[f64]) -> Vec<crate::fragment::Frag> {
+fn decode_frags(prims: &[f64], frags: &[f64]) -> Result<Vec<crate::fragment::Frag>, JsValue> {
+    if prims.len() % PRIM_STRIDE != 0 || frags.len() % FRAG_STRIDE != 0 {
+        return Err(JsValue::from_str("prim/frag buffer not a multiple of the stride"));
+    }
     let table = decode_prims(prims);
     frags
         .chunks_exact(FRAG_STRIDE)
         .map(|f| {
             let origin = f[0] as u32;
-            let whole = table[origin as usize];
-            crate::fragment::Frag {
+            let whole = *table
+                .get(origin as usize)
+                .ok_or_else(|| JsValue::from_str("fragment origin out of bounds"))?;
+            Ok(crate::fragment::Frag {
                 origin,
                 t0: f[1],
                 t1: f[2],
@@ -379,7 +428,7 @@ fn decode_frags(prims: &[f64], frags: &[f64]) -> Vec<crate::fragment::Frag> {
                 shape: f[4] as u32,
                 dot: f[5] as u32 & 1 != 0,
                 geom: whole.sub(f[1], f[2]),
-            }
+            })
         })
         .collect()
 }
@@ -398,7 +447,7 @@ pub fn wasm_export_gcode(
         .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
     let profile: MachineProfile = serde_json::from_str(profile_json)
         .map_err(|e| JsValue::from_str(&format!("bad profile json: {e}")))?;
-    let frags = decode_frags(prims, frags);
+    let frags = decode_frags(prims, frags)?;
     let jobs = export_gcode(&frags, &pens, &profile, tour_budget as usize);
     serde_json::to_string(&jobs).map_err(|e| JsValue::from_str(&e.to_string()))
 }
@@ -417,7 +466,17 @@ pub fn wasm_export_png(
 ) -> Result<Vec<u8>, JsValue> {
     let pens: Vec<Pen> = serde_json::from_str(pens_json)
         .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
-    let frags = decode_frags(prims, frags);
+    if !(width_mm.is_finite() && height_mm.is_finite() && scale.is_finite())
+        || width_mm <= 0.0
+        || height_mm <= 0.0
+        || scale <= 0.0
+    {
+        return Err(JsValue::from_str("png dimensions/scale must be finite and positive"));
+    }
+    if (width_mm * scale) * (height_mm * scale) > 268.0e6 {
+        return Err(JsValue::from_str("png too large (over ~256 megapixels)"));
+    }
+    let frags = decode_frags(prims, frags)?;
     let bg = background.as_deref().filter(|s| !s.is_empty()).map(|s| {
         let c = s.trim_start_matches('#');
         u32::from_str_radix(c, 16)
@@ -449,7 +508,7 @@ pub fn wasm_export_svg(
 ) -> Result<String, JsValue> {
     let pens: Vec<Pen> = serde_json::from_str(pens_json)
         .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
-    let frags = decode_frags(prims, frags);
+    let frags = decode_frags(prims, frags)?;
     Ok(to_svg(
         &frags,
         &pens,
@@ -482,7 +541,7 @@ pub fn wasm_export_toolpath(
 ) -> Result<Vec<f64>, JsValue> {
     let pens: Vec<Pen> = serde_json::from_str(pens_json)
         .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
-    let frags = decode_frags(prims, frags);
+    let frags = decode_frags(prims, frags)?;
     let mut out: Vec<f64> = Vec::new();
     let mut pts: Vec<crate::vec2::Vec2> = Vec::new();
     for pi in 0..pens.len() {

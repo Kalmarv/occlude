@@ -1,4 +1,5 @@
 use occlude_core::cleanup::{dedupe_seams, spans_to_fragments};
+use occlude_core::pipeline::{Pen, RenderInput, ShapeRec};
 use occlude_core::clip::{clip_spans, fully_hidden};
 use occlude_core::fragment::{Frag, Span};
 use occlude_core::intersect::*;
@@ -566,4 +567,100 @@ fn containment_rejects_near_covers_and_accepts_twins() {
     }
     // The exact 180° twin IS the same region: containment holds.
     assert!(stadium(180.0).contains_region(&base));
+}
+
+// ---- review regressions (2026-08-26) ----
+
+#[test]
+fn roots_cubic_scale_invariant() {
+    // Root exactly t = 0.9 for t³ + t − 1.629; scaling every coefficient
+    // must not change the answer (the old discriminant tolerance used the
+    // raw coefficient magnitude and picked the wrong Cardano branch).
+    for k in [1e-18, 1e-9, 1.0, 1e9, 1e20] {
+        let r = roots_cubic(k, 0.0, k, -1.629 * k);
+        assert_eq!(r.len(), 1, "k={k}: expected one real root, got {r:?}");
+        assert!((r[0] - 0.9).abs() < 1e-9, "k={k}: root {} != 0.9", r[0]);
+    }
+    // Property: random cubics agree with their scaled versions.
+    let mut s = 0x9e3779b97f4a7c15u64;
+    let mut rnd = || {
+        s = s.wrapping_mul(6364136223846793005).wrapping_add(1);
+        ((s >> 33) as f64 / (1u64 << 31) as f64) - 1.0
+    };
+    for _ in 0..500 {
+        let (a, b, c, d) = (rnd() + 1.5, rnd(), rnd(), rnd());
+        for k in [1e-12, 1e12] {
+            let base = roots_cubic(a, b, c, d);
+            let scaled = roots_cubic(k * a, k * b, k * c, k * d);
+            assert_eq!(base.len(), scaled.len(), "count differs at k={k}");
+            for (x, y) in base.iter().zip(scaled.iter()) {
+                assert!((x - y).abs() < 1e-6, "root {x} vs {y} at k={k}");
+            }
+        }
+    }
+}
+
+#[test]
+fn mirrored_s_cubics_are_not_deduped() {
+    use occlude_core::primitive::Cubic;
+    // Identical endpoints AND identical midpoint, entirely different curves:
+    // both must survive as ink.
+    let up = Primitive::Cubic(Cubic::new(v(0., 0.), v(0., 20.), v(20., -20.), v(20., 0.)));
+    let dn = Primitive::Cubic(Cubic::new(v(0., 0.), v(0., -20.), v(20., 20.), v(20., 0.)));
+    let input = RenderInput {
+        shapes: vec![
+            ShapeRec {
+                contours: vec![vec![up]],
+                closed: false,
+                convex: false,
+                winding: WindingRule::NonZero,
+                stroke: Some(0),
+                fill: None,
+                z: 0.0,
+                clips: vec![],
+                modifiers: Vec::new(),
+            },
+            ShapeRec {
+                contours: vec![vec![dn]],
+                closed: false,
+                convex: false,
+                winding: WindingRule::NonZero,
+                stroke: Some(0),
+                fill: None,
+                z: 1.0,
+                clips: vec![],
+                modifiers: Vec::new(),
+            },
+        ],
+        clips: vec![],
+        pens: vec![Pen::default()],
+        paper: None,
+        seed: 1,
+        coarsen: 1.0,
+        fields: Vec::new(),
+    };
+    let out = occlude_core::pipeline::render(&input);
+    assert_eq!(out.frags.len(), 2, "both S-curves must draw");
+}
+
+#[test]
+fn stipple_zero_min_dist_is_bounded() {
+    use occlude_core::fill::stipple_region;
+    use occlude_core::region::Region;
+    use occlude_core::primitive::Line;
+    // A 100×100mm square with min_dist = 0 must complete quickly on a
+    // budgeted grid rather than attempting a gigabyte allocation.
+    let sq = Region::new(
+        vec![vec![
+            Primitive::Line(Line::new(v(0., 0.), v(100., 0.))),
+            Primitive::Line(Line::new(v(100., 0.), v(100., 100.))),
+            Primitive::Line(Line::new(v(100., 100.), v(0., 100.))),
+            Primitive::Line(Line::new(v(0., 100.), v(0., 0.))),
+        ]],
+        WindingRule::NonZero,
+        true,
+    );
+    let pts = stipple_region(&sq, 1.0, 0.0, 7);
+    assert!(!pts.is_empty());
+    assert!(pts.len() < 5_000_000);
 }

@@ -127,9 +127,18 @@ pub fn dedupe_seams(frags: Vec<Frag>, threshold: f64) -> Vec<Frag> {
 
 /// Same endpoints (either orientation) and same midpoint within tol.
 fn coincident(a: &Primitive, b: &Primitive, tol: f64) -> bool {
-    let (a0, a1, am) = (a.start(), a.end(), a.eval(0.5));
-    let (b0, b1, bm) = (b.start(), b.end(), b.eval(0.5));
+    let (a0, a1) = (a.start(), a.end());
+    let (b0, b1) = (b.start(), b.end());
     let fwd = a0.dist(b0) <= tol && a1.dist(b1) <= tol;
     let rev = a0.dist(b1) <= tol && a1.dist(b0) <= tol;
-    (fwd || rev) && am.dist(bm) <= tol
+    if !fwd && !rev {
+        return false;
+    }
+    // Interior samples under the matching orientation: endpoints plus one
+    // midpoint cannot distinguish mirrored S-cubics (identical ends AND
+    // midpoint, entirely different curves). Reversal is an exact 1−t
+    // reparameterisation for every primitive kind, so u = 1−t is valid.
+    let same = |t: f64, u: f64| a.eval(t).dist(b.eval(u)) <= tol;
+    (fwd && same(0.25, 0.25) && same(0.5, 0.5) && same(0.75, 0.75))
+        || (rev && same(0.25, 0.75) && same(0.5, 0.5) && same(0.75, 0.25))
 }

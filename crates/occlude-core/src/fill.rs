@@ -39,7 +39,10 @@ pub enum FillKind {
 /// Generate hatch lines for a region, already clipped to the region.
 /// Returns exact line primitives.
 pub fn hatch_region(region: &Region, pass: &HatchPass) -> Vec<Primitive> {
-    let spacing = pass.spacing.max(1e-3);
+    // Physical floor, then a hard line budget against the bbox diagonal —
+    // a near-zero spacing must not request hundreds of thousands of lines.
+    let diag = region.bbox.width().hypot(region.bbox.height());
+    let spacing = pass.spacing.max(0.02).max(diag / 100_000.0);
     let theta = pass.angle.to_radians();
     let dir = Vec2::from_angle(theta);
     let nrm = dir.perp();
@@ -107,12 +110,17 @@ pub fn hatch_region(region: &Region, pass: &HatchPass) -> Vec<Primitive> {
 /// width is never taken into account (a dot centred on the boundary is kept,
 /// exactly as a stroke is cut at the boundary regardless of its nib).
 pub fn stipple_region(region: &Region, density: f64, min_dist: f64, seed: u64) -> Vec<Vec2> {
-    let r = (min_dist / density.clamp(0.05, 1.0)).max(1e-3);
     let b = &region.bbox;
     let (w, h) = (b.width(), b.height());
-    if w <= 0.0 || h <= 0.0 {
+    if w <= 0.0 || h <= 0.0 || !w.is_finite() || !h.is_finite() {
         return Vec::new();
     }
+    // Physical floor and a hard grid budget: the Poisson grid is ≈2wh/r²
+    // cells, so a zero/tiny min_dist must not request gigabytes.
+    const MAX_CELLS: f64 = 4_000_000.0;
+    let r = (min_dist / density.clamp(0.05, 1.0))
+        .max(0.05)
+        .max((2.0 * w * h / MAX_CELLS).sqrt());
     let cell = r / std::f64::consts::SQRT_2;
     let cols = (w / cell).ceil() as usize + 1;
     let rows = (h / cell).ceil() as usize + 1;

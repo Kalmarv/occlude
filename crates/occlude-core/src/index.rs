@@ -13,7 +13,7 @@ impl SpatialIndex {
     pub fn build(boxes: &[BBox]) -> SpatialIndex {
         if boxes.len() >= 8 {
             let mut areas: Vec<f64> = boxes.iter().map(|b| b.area()).collect();
-            areas.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            areas.sort_by(|a, b| a.total_cmp(b));
             let median = areas[areas.len() / 2].max(1e-12);
             let max = *areas.last().unwrap();
             if max / median > 64.0 {
@@ -170,7 +170,7 @@ impl Bvh {
             let ca = self.boxes[a as usize].center();
             let cb = self.boxes[b as usize].center();
             let (va, vb) = if wide_x { (ca.x, cb.x) } else { (ca.y, cb.y) };
-            va.partial_cmp(&vb).unwrap()
+            va.total_cmp(&vb)
         });
         let mid = order.len() / 2;
         self.nodes.push(BvhNode {

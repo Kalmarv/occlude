@@ -264,6 +264,14 @@ pub fn export_gcode(
     jobs
 }
 
+/// Pen names go into G-code comment lines: strip newlines (line
+/// injection) and characters G-code comments can't hold.
+fn comment_safe(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_control() || c == '(' || c == ')' || c == ';' { '_' } else { c })
+        .collect()
+}
+
 fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) -> GcodeJob {
     let tol = (profile.resolution).min(pen.width / 4.0).max(1e-4);
     let mut g = String::new();
@@ -285,7 +293,7 @@ fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) 
         }
     };
 
-    let _ = writeln!(g, "; occlude — pen {} ({})", pi, pen.name);
+    let _ = writeln!(g, "; occlude — pen {} ({})", pi, comment_safe(&pen.name));
     let _ = writeln!(g, "G21 ; mm");
     let _ = writeln!(g, "G90 ; absolute");
     up(&mut g);
@@ -336,6 +344,8 @@ fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) 
         pos = chain.end();
         up(&mut g);
     }
+    // The return-home move is real travel: count it in the stats.
+    travel += pos.dist(Vec2::ZERO);
     let _ = writeln!(g, "G0 X0 Y0 F{:.0}", profile.travel_feed);
     let _ = writeln!(g, "; end pen {}", pi);
 

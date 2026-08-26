@@ -677,7 +677,7 @@ impl PostInterp<'_> {
         let (base, eff_len, eff_period) = if let Some((c_start, c_total)) =
             self.contour_pos(si, f.origin as usize)
         {
-            let along = c_start + frag_start_len(&f);
+            let along = c_start + prefix_len(&self.prim_table[f.origin as usize], f.t0);
             if closed && c_total > period {
                 // Fit the period to the contour so the seam disappears.
                 let count = (c_total / period).round().max(1.0);
@@ -792,16 +792,17 @@ impl PostInterp<'_> {
     }
 }
 
-/// Arc length from a fragment's primitive start to the fragment's t0.
-/// Lines and arcs are uniform-speed in t; cubics use the linear
-/// approximation (dash phase shifts slightly on cubic outlines — the
-/// cut positions themselves stay arc-length exact).
-fn frag_start_len(f: &Frag) -> f64 {
-    if f.t0 == 0.0 {
+/// Arc length from a primitive's start to parameter t0. Lines and arcs
+/// are uniform-speed in t; cubics measure the actual sub-curve, so dash
+/// phase stays exact on strongly non-uniform cubics too.
+fn prefix_len(origin: &Primitive, t0: f64) -> f64 {
+    if t0 <= 0.0 {
         return 0.0;
     }
-    let whole = f.geom.length() / (f.t1 - f.t0).max(1e-12);
-    whole * f.t0
+    match origin {
+        Primitive::Cubic(_) => origin.sub(0.0, t0).length(),
+        _ => origin.length() * t0,
+    }
 }
 
 // ---- Pre-stage geometry ops -------------------------------------------

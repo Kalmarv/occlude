@@ -15,6 +15,23 @@ pub struct SvgOptions {
     pub only_pen: Option<u32>,
 }
 
+/// Escape arbitrary text for use inside an XML attribute value.
+fn xml_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            c if c.is_control() => out.push(' '),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 pub fn to_svg(frags: &[Frag], pens: &[Pen], opts: &SvgOptions) -> String {
     let mut s = String::new();
     let _ = write!(
@@ -27,7 +44,9 @@ pub fn to_svg(frags: &[Frag], pens: &[Pen], opts: &SvgOptions) -> String {
         let _ = write!(
             s,
             r#"<rect width="{}" height="{}" fill="{}"/>"#,
-            opts.width, opts.height, bg
+            opts.width,
+            opts.height,
+            xml_escape(bg)
         );
     }
     for (pi, pen) in pens.iter().enumerate() {
@@ -43,7 +62,9 @@ pub fn to_svg(frags: &[Frag], pens: &[Pen], opts: &SvgOptions) -> String {
         let _ = write!(
             s,
             r#"<g fill="none" stroke="{}" stroke-width="{}" stroke-linecap="round" data-pen="{}">"#,
-            pen.color, pen.width, pen.name
+            xml_escape(&pen.color),
+            pen.width,
+            xml_escape(&pen.name)
         );
         let mut path = String::new();
         for f in mine {
@@ -55,7 +76,7 @@ pub fn to_svg(frags: &[Frag], pens: &[Pen], opts: &SvgOptions) -> String {
                     p.x,
                     p.y,
                     pen.width * 0.5,
-                    pen.color
+                    xml_escape(&pen.color)
                 );
                 continue;
             }
