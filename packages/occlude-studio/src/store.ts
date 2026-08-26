@@ -42,6 +42,11 @@ export interface Settings {
     arcSupport: boolean;
     resolution: number;
   };
+  ebb: {
+    stepsPerMm: number;
+    flipX: boolean;
+    flipY: boolean;
+  };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -55,6 +60,11 @@ export const DEFAULT_SETTINGS: Settings = {
     zMode: true,
     arcSupport: false,
     resolution: 0.025,
+  },
+  ebb: {
+    stepsPerMm: 80,
+    flipX: false,
+    flipY: false,
   },
 };
 
@@ -145,7 +155,15 @@ export function savePens(pens: PenDef[]): void {
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEYS.settings);
-    if (raw) return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) };
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<Settings>;
+      return {
+        ...DEFAULT_SETTINGS,
+        ...parsed,
+        machine: { ...DEFAULT_SETTINGS.machine, ...(parsed.machine ?? {}) },
+        ebb: { ...DEFAULT_SETTINGS.ebb, ...(parsed.ebb ?? {}) },
+      };
+    }
   } catch {
     // fall through
   }

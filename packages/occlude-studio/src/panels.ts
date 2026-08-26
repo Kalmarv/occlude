@@ -14,6 +14,7 @@ import {
   deleteSketchByName, listSketches, loadSketchByName, saveSketchByName,
 } from './sketchApi.js';
 import { download, savePens, saveSettings, type Settings } from './store.js';
+import { Ebb, serialSupported, type PlotProgress } from './ebb.js';
 import type { RenderClient } from './workerClient.js';
 
 export interface PanelHooks {
@@ -41,12 +42,14 @@ export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
   const sketchesPanel = panel('Sketches', true);
   const pensPanel = panel('Pens', true);
   const paperPanel = panel('Paper & machine', false);
+  const plotPanel = panel('Plot (serial)', false);
   const exportPanel = panel('Export', false);
-  rail.append(sketchesPanel.root, pensPanel.root, paperPanel.root, exportPanel.root);
+  rail.append(sketchesPanel.root, pensPanel.root, paperPanel.root, plotPanel.root, exportPanel.root);
 
   const sketches = buildSketchesPanel(sketchesPanel.body, hooks);
   buildPensPanel(pensPanel.body, hooks);
   buildPaperPanel(paperPanel.body, hooks);
+  buildPlotPanel(plotPanel.body, hooks);
   const refreshExport = buildExportPanel(exportPanel.body, hooks);
   exportPanel.root.addEventListener('toggle', () => {
     if ((exportPanel.root as HTMLDetailsElement).open) refreshExport();
@@ -384,6 +387,153 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
       m.arcSupport = v;
       persist();
     }),
+  );
+}
+
+// ---- plot: EBB (AxiDraw-family) over Web Serial ----
+
+function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
+  const s = hooks.settings;
+  const hint = document.createElement('div');
+  hint.className = 'panel-hint';
+  if (!serialSupported()) {
+    hint.textContent = window.isSecureContext
+      ? 'Web Serial needs Chrome or Edge.'
+      : 'Web Serial needs a secure context — open the studio over HTTPS (or localhost).';
+    body.append(hint);
+    return;
+  }
+  hint.textContent =
+    'EBB/iDraw over USB. Flow: Connect → jog the pen to the paper\u2019s top-left → Set origin → Plot.';
+
+  const ebb = new Ebb();
+  const status = document.createElement('div');
+  status.className = 'panel-hint';
+  status.textContent = 'not connected';
+
+  const opts = (): { stepsPerMm: number; travelFeed: number; flipX: boolean; flipY: boolean } => ({
+    stepsPerMm: s.ebb.stepsPerMm,
+    travelFeed: s.machine.travelFeed,
+    flipX: s.ebb.flipX,
+    flipY: s.ebb.flipY,
+  });
+  const persist = (): void => saveSettings(s);
+
+  const connectBtn = button('Connect', async () => {
+    try {
+      if (ebb.connected) {
+        await ebb.disconnect();
+        connectBtn.textContent = 'Connect';
+        status.textContent = 'not connected';
+        return;
+      }
+      const v = await ebb.connect();
+      connectBtn.textContent = 'Disconnect';
+      status.textContent = v || 'connected';
+    } catch (e) {
+      status.textContent = e instanceof Error ? e.message : String(e);
+    }
+  });
+  connectBtn.className = 'primary';
+
+  // Jog pad.
+  const jogStep = numberInput(10, 1, () => undefined);
+  jogStep.title = 'jog distance, mm';
+  jogStep.style.width = '3.5em';
+  const jog = (dx: number, dy: number) =>
+    button(dx === 0 ? (dy < 0 ? '\u2191' : '\u2193') : dx < 0 ? '\u2190' : '\u2192', async () => {
+      const d = Math.abs(parseFloat(jogStep.value) || 10);
+      await ebb.jog(dx * d, dy * d, opts()).catch(showErr);
+    });
+  const jogRow = document.createElement('div');
+  jogRow.className = 'row';
+  jogRow.append(jog(-1, 0), jog(0, -1), jog(0, 1), jog(1, 0), jogStep);
+
+  const penRow = document.createElement('div');
+  penRow.className = 'row';
+  penRow.append(
+    button('Pen up', () => void ebb.penUp().catch(showErr)),
+    button('Pen down', () => void ebb.penDown().catch(showErr)),
+    button('Set origin', () => void ebb.setOrigin().catch(showErr)),
+    button('Home', () => void ebb.home().catch(showErr)),
+  );
+
+  // Calibration + orientation.
+  const spm = numberInput(s.ebb.stepsPerMm, 0.1, (v) => {
+    s.ebb.stepsPerMm = v;
+    persist();
+  });
+  const flips = document.createElement('div');
+  flips.className = 'row';
+  flips.append(
+    checkbox('Flip X', s.ebb.flipX, (v) => {
+      s.ebb.flipX = v;
+      persist();
+    }),
+    checkbox('Flip Y', s.ebb.flipY, (v) => {
+      s.ebb.flipY = v;
+      persist();
+    }),
+  );
+
+  // Plot controls.
+  const bar = document.createElement('progress');
+  bar.max = 1;
+  bar.value = 0;
+  bar.style.width = '100%';
+  const progressText = document.createElement('div');
+  progressText.className = 'panel-hint';
+
+  function showErr(e: unknown): void {
+    status.textContent = e instanceof Error ? e.message : String(e);
+  }
+  function onProgress(p: PlotProgress): void {
+    bar.value = p.totalMs > 0 ? Math.min(1, p.elapsedMs / p.totalMs) : 0;
+    const eta = Math.max(0, (p.totalMs - p.elapsedMs) / 60000);
+    progressText.textContent =
+      p.state === 'done'
+        ? 'done'
+        : p.state === 'stopped'
+          ? 'stopped'
+          : `${p.state} \u00b7 ${p.penName} \u00b7 ~${eta.toFixed(1)} min left`;
+    pauseBtn.textContent = p.state === 'paused' ? 'Resume' : 'Pause';
+  }
+
+  const plotBtn = button('\u25b6 Plot', async () => {
+    if (!ebb.connected || ebb.plotting) return;
+    const r = hooks.lastResult();
+    if (!r) return;
+    try {
+      const tol = Math.max(s.machine.resolution, 0.1);
+      const plan = await hooks.client.exportToolpath(200_000, tol);
+      await ebb.plot(plan, r.pens, opts(), onProgress);
+    } catch (e) {
+      showErr(e);
+    }
+  });
+  plotBtn.className = 'primary';
+  const pauseBtn = button('Pause', () => {
+    if (ebb.plotting) {
+      if (pauseBtn.textContent === 'Pause') ebb.pause();
+      else ebb.resume();
+    }
+  });
+  const stopBtn = button('\u25a0 Stop', () => void ebb.stop().catch(showErr));
+  const plotRow = document.createElement('div');
+  plotRow.className = 'row';
+  plotRow.append(plotBtn, pauseBtn, stopBtn);
+
+  body.append(
+    hint,
+    connectBtn,
+    status,
+    jogRow,
+    penRow,
+    row('Steps/mm', spm, 'AxiDraw default 80; verify with the 100mm ruler on the cal sheet'),
+    flips,
+    plotRow,
+    bar,
+    progressText,
   );
 }
 
