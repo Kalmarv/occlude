@@ -394,6 +394,32 @@ describe('occlude declarative api', () => {
     expect(box2(1)).toBeCloseTo(100, 6); // corner: left edge at x=50 → 100mm
   });
 
+  it('per-shape transforms match group transforms; toolkit exposes width/height', () => {
+    // A rotated rect via shape opts must land exactly where the group form does.
+    const def = sketch({ aspect: [1, 1], seed: 1, origin: 'center' }, ({ group }) => [
+      rect(-10, -4, 20, 8, { rotate: 30, translate: [5, 0] }),
+      group({ rotate: 30, translate: [5, 0] }, rect(-10, -4, 20, 8)),
+    ]);
+    const out = sq(def);
+    // Identical geometry → seam dedupe leaves exactly one drawn copy.
+    expect(out.frags.every((f) => f.shape === 0)).toBe(true);
+    expect(out.frags.length).toBeGreaterThan(0);
+
+    // Toolkit width/height/cx/cy are the same numbers bounds() returns.
+    const def2 = sketch({ aspect: [3, 2], seed: 1, margin: 5 }, (t) => {
+      expect(t.width).toBeCloseTo(150, 9);
+      expect(t.height).toBe(100);
+      expect(t.cx).toBeCloseTo(75, 9);
+      expect(t.cy).toBe(50);
+      const b = t.bounds();
+      expect([b.w, b.h]).toEqual([t.width, t.height]);
+      return line(0, 0, t.width, 0);
+    });
+    const out2 = render(def2, { paper: { paper: { w: 300, h: 200 } } });
+    // avail 280×180 after 10mm margins; 3:2 letterboxes to 270×180.
+    expect(totalLen(out2.frags)).toBeCloseTo(270, 3);
+  });
+
   it('off-paper shapes are culled', () => {
     const def = sketch({ seed: 1 }, ({ group }) => [
       circle(50, 50, 10),

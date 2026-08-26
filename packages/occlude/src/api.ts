@@ -49,6 +49,11 @@ export interface ShapeOpts {
   /** rect only: anchor (x, y) at the 'corner' (default) or the 'center'
    * (p5 rectMode). The sketch config's `rectMode` sets the default. */
   mode?: 'corner' | 'center';
+  /** Per-shape transform — identical to wrapping the shape in a group. */
+  translate?: [L, L];
+  /** Degrees; pivots around the user origin. */
+  rotate?: number;
+  scale?: number | [number, number];
 }
 
 export interface ShapeValue {
@@ -275,6 +280,11 @@ export interface Toolkit {
   norm: typeof normRange;
   invert: typeof invertRange;
   bounds: typeof bounds;
+  /** Drawable extent in bare units — the same numbers `bounds()` returns. */
+  width: number;
+  height: number;
+  cx: number;
+  cy: number;
   grid: (opts: GridOptions) => GridCell[];
   noisyLine: typeof noisyLineValue;
   mm: typeof mm;
@@ -311,7 +321,7 @@ export function sketch(
   return { __occludeSketch: true, config, fn };
 }
 
-const TOOLKIT: Toolkit = {
+const TOOLKIT_BASE = {
   circle, ellipse, rect, line, polygon, path, group, clip, mask,
   hatch, crosshatch, stipple,
   rnd, pick, chance, prob, noise, stream,
@@ -343,7 +353,15 @@ export function compileSketch(
     rectMode: cfg.rectMode,
   });
   margin(cfg.margin ?? hostDefaults.marginPct ?? 0);
-  const tree = def.fn(TOOLKIT);
+  const b = bounds();
+  const toolkit: Toolkit = {
+    ...TOOLKIT_BASE,
+    width: b.w,
+    height: b.h,
+    cx: b.cx,
+    cy: b.cy,
+  };
+  const tree = def.fn(toolkit);
   emit(tree, { pen: cfg.pen, z: undefined });
 }
 
@@ -382,6 +400,13 @@ function emit(tree: Tree, ctx: EmitCtx): void {
 
 function emitShape(sv: ShapeValue, ctx: EmitCtx): void {
   const o = sv.opts;
+  if (o.translate || o.rotate !== undefined || o.scale !== undefined) {
+    const { translate, rotate, scale } = o;
+    push({ translate, rotate, scale }, () =>
+      emitShape({ ...sv, opts: { ...o, translate: undefined, rotate: undefined, scale: undefined } }, ctx),
+    );
+    return;
+  }
   const sh = new Shape(sv.geom);
   const basePen = o.pen ?? ctx.pen ?? getState().currentPen;
   const strokePen = o.stroke === false ? null : typeof o.stroke === 'string' ? o.stroke : basePen;

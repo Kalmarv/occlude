@@ -51,6 +51,10 @@ fully determined by the seed).
 
 The `fn` receives the whole toolkit and returns the tree. Export the
 definition (`export default` preferred); the studio and CLI render it.
+Alongside the functions, the toolkit carries the drawable extent as plain
+numbers — `width`, `height`, `cx`, `cy` (the same values `bounds()`
+returns), so `({ rect, width, height }) => rect(0, 0, width, height)` is a
+full-bleed rect with no ceremony.
 
 ## Shapes
 
@@ -69,6 +73,7 @@ Every shape takes a trailing opts object:
 | `stroke: false` | No outline. A pen name instead overrides the stroke pen. |
 | `z` | Stacking override; default is tree order. |
 | `mode` | rect only: anchor (x, y) at the `'corner'` (default) or the `'center'` — p5's rectMode, per shape. The config's `rectMode` sets the sketch-wide default. Circles, ellipses and n-gons are always centre-anchored. |
+| `translate`, `rotate`, `scale` | Per-shape transform, identical to wrapping the shape in a `group` with the same op (order within the op: translate → rotate → scale). |
 
 ```ts
 circle(x, y, r, opts?)
