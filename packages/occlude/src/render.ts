@@ -332,11 +332,13 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
           for (let i = 0; i < gw; i++) {
             const [ux, uy] = toUser(i * step, j * step);
             const raw = v(ux, uy);
-            fieldData.push(
+            const val =
               kind === 'p01'
                 ? Math.min(1, Math.max(0, Number(raw)))
-                : resolveLen(raw, frame.inner),
-            );
+                : resolveLen(raw, frame.inner);
+            // Fail open on a non-finite field sample: draw normally rather
+            // than silently deleting or teleporting ink.
+            fieldData.push(Number.isFinite(val) ? val : 0);
           }
         }
         slots[kind] = fieldCount++;
@@ -364,7 +366,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
         for (let i = 0; i < gw; i++) {
           const [ux, uy] = toUser(i * step, j * step);
           const d = fn(ux, uy)[axis] * unit;
-          fieldData.push(axis === 1 ? d * ySign : d);
+          fieldData.push(Number.isFinite(d) ? (axis === 1 ? d * ySign : d) : 0);
         }
       }
     }
