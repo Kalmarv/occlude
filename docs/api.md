@@ -182,6 +182,19 @@ Fielded params: `decimate` probabilities, `wobble` amount, `roughen`
 amount. A field on `{ decimate: { fill } }` over a stipple fill is a
 halftone — image-driven density through composition.
 
+### Modifier reference
+
+| Modifier | Stage | Parameters (defaults) | Fielded |
+|---|---|---|---|
+| `decimate(p)` | post | `p` 0…1, or `{ stroke, fill }` | both probabilities |
+| `wobble(amount)` | post | amount (length); `{ amount, wavelength: mm(25) }` | amount |
+| `dash(len, gap)` | post | lengths; `gap` defaults to `len` | — |
+| `smooth(passes)` | pre | `passes = 2` | — |
+| `roughen(amount, detail?)` | pre | jitter length; resample `detail = mm(1.5)` | amount |
+| `deform(field)` | pre | `(x, y) => [dx, dy]` user units, or `{ field, detail: mm(2) }` | the field itself |
+
+The [guide](guide.md) walks through each with a runnable example.
+
 Hidden-line terrain in a few lines:
 
 ```ts

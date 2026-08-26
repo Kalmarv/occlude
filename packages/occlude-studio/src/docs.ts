@@ -7,9 +7,11 @@ import './style.css';
 import { marked } from 'marked';
 import apiMd from '../../../docs/api.md?raw';
 import architectureMd from '../../../docs/architecture.md?raw';
+import guideMd from '../../../docs/guide.md?raw';
 import readmeMd from '../../../README.md?raw';
 
 const PAGES: { slug: string; title: string; md: string }[] = [
+  { slug: 'guide', title: 'Guide', md: guideMd },
   { slug: 'api', title: 'API reference', md: apiMd },
   { slug: 'architecture', title: 'Architecture', md: architectureMd },
   { slug: 'readme', title: 'README', md: readmeMd },
@@ -20,7 +22,7 @@ const content = document.getElementById('docs-content')!;
 
 function currentSlug(): string {
   const slug = location.hash.replace(/^#\/?/, '').split('#')[0];
-  return PAGES.some((p) => p.slug === slug) ? slug : 'api';
+  return PAGES.some((p) => p.slug === slug) ? slug : 'guide';
 }
 
 async function show(slug: string): Promise<void> {
