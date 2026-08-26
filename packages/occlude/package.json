@@ -12,7 +12,8 @@
   "scripts": {
     "test": "vitest run",
     "render": "tsx tools/render-png.ts",
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "qa": "tsx tools/qa-sweep.ts"
   },
   "dependencies": {
     "occlude-core": "link:../../crates/occlude-core/pkg"

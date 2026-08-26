@@ -937,10 +937,17 @@ fn simplify_polyline(poly: &mut Vec<Vec2>, min_seg: f64, closed: bool) {
             *out.last_mut().unwrap() = p;
         }
     }
-    if closed && out.len() > 2 {
+    // Closed: keep popping while the wrap segment is sub-nib — a single
+    // pop can leave the NEXT point still crowding the start (found by the
+    // qa sweep: a dropped 0.13mm closing edge broke the loop). Points
+    // pairwise ≥ min_seg can't stack near the start, so this pops at most
+    // a handful.
+    while closed && out.len() > 2 {
         let (a, b) = (out[0], *out.last().unwrap());
         if (a.x - b.x).hypot(a.y - b.y) < min_seg {
             out.pop();
+        } else {
+            break;
         }
     }
     *poly = out;
