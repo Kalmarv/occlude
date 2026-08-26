@@ -228,6 +228,49 @@ async function boot(): Promise<void> {
     saveUi(ui);
   });
 
+  // ---- animated plot preview ----
+  const plotBtn = $('btn-plot') as HTMLButtonElement;
+  const speedSel = $('plot-speed') as HTMLSelectElement;
+  const fmtTime = (s: number): string => {
+    const m = Math.floor(s / 60);
+    return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  };
+  speedSel.onchange = () => preview.setPlotSpeed(parseFloat(speedSel.value));
+  plotBtn.onclick = async () => {
+    if (preview.plotting) {
+      preview.stopPlot();
+      plotBtn.textContent = '▶ Plot';
+      statusMsg.className = 'status-ok';
+      statusMsg.textContent = 'ok';
+      return;
+    }
+    if (!lastResult) return;
+    plotBtn.textContent = '■ Stop';
+    try {
+      const plan = await client.exportToolpath(50_000, 0.1);
+      preview.startPlot(
+        plan,
+        lastResult.pens,
+        settings.machine.travelFeed,
+        parseFloat(speedSel.value),
+        (elapsed, total, pen) => {
+          statusMsg.className = 'status-ok';
+          statusMsg.textContent =
+            `plotting ${fmtTime(elapsed)} / ${fmtTime(total)}` + (pen ? ` · ${pen}` : '');
+        },
+        () => {
+          plotBtn.textContent = '▶ Plot';
+          statusMsg.className = 'status-ok';
+          statusMsg.textContent = 'plot complete';
+        },
+      );
+    } catch (err) {
+      plotBtn.textContent = '▶ Plot';
+      statusMsg.className = 'status-err';
+      statusMsg.textContent = err instanceof Error ? err.message : String(err);
+    }
+  };
+
   $('btn-fit').onclick = () => preview.fit();
   ($('debug-toggle') as HTMLInputElement).onchange = (e) => {
     preview.debug = (e.target as HTMLInputElement).checked;

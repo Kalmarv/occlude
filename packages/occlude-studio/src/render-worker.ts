@@ -29,6 +29,13 @@ interface SvgMsg {
   onlyPen: number;
 }
 
+interface ToolpathMsg {
+  type: 'toolpath';
+  id: number;
+  budget: number;
+  tolerance: number;
+}
+
 interface PngMsg {
   type: 'png';
   id: number;
@@ -38,7 +45,7 @@ interface PngMsg {
   background: string | undefined;
 }
 
-type Msg = RenderMsg | GcodeMsg | SvgMsg | PngMsg;
+type Msg = RenderMsg | GcodeMsg | SvgMsg | PngMsg | ToolpathMsg;
 
 const ready = initCore();
 const mod = core as unknown as WasmModule;
@@ -78,6 +85,16 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
           msg.budget,
         );
         self.postMessage({ type: 'gcode', id: msg.id, json });
+        break;
+      }
+      case 'toolpath': {
+        if (!last) throw new Error('nothing rendered yet');
+        const plan = (core as unknown as {
+          wasm_export_toolpath(
+            p: Float64Array, f: Float64Array, pens: string, budget: number, tol: number,
+          ): Float64Array;
+        }).wasm_export_toolpath(last.prims, last.frags, last.pensJson, msg.budget, msg.tolerance);
+        self.postMessage({ type: 'toolpath', id: msg.id, plan }, { transfer: [plan.buffer] });
         break;
       }
       case 'png': {

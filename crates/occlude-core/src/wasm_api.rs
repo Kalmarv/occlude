@@ -354,3 +354,58 @@ pub fn wasm_export_svg(
         },
     ))
 }
+
+/// Toolpath export for the animated plot preview: chains in ACTUAL plot
+/// order (per pen, toured), flattened to polylines.
+///
+/// Layout: [pen, dot_flag, n_points, x0, y0, x1, y1, …] per chain,
+/// concatenated. Travel moves are implicit (gap between one chain's end and
+/// the next chain's start).
+#[wasm_bindgen]
+pub fn wasm_export_toolpath(
+    prims: &[f64],
+    frags: &[f64],
+    pens_json: &str,
+    tour_budget: u32,
+    tolerance: f64,
+) -> Result<Vec<f64>, JsValue> {
+    let pens: Vec<Pen> = serde_json::from_str(pens_json)
+        .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
+    let frags = decode_frags(prims, frags);
+    let mut out: Vec<f64> = Vec::new();
+    let mut pts: Vec<crate::vec2::Vec2> = Vec::new();
+    for pi in 0..pens.len() {
+        let chains = crate::gcode::merge_chains(&frags, pi as u32);
+        if chains.is_empty() {
+            continue;
+        }
+        let chains = crate::gcode::tour(chains, tour_budget as usize);
+        for chain in chains {
+            out.push(pi as f64);
+            out.push(if chain.dot { 1.0 } else { 0.0 });
+            pts.clear();
+            if chain.dot {
+                let p = chain.start();
+                out.push(1.0);
+                out.push(p.x);
+                out.push(p.y);
+                continue;
+            }
+            // Flatten the whole chain; consecutive primitives share endpoints,
+            // so drop each primitive's duplicated first point.
+            let mut all: Vec<crate::vec2::Vec2> = Vec::new();
+            for prim in &chain.prims {
+                pts.clear();
+                prim.flatten(tolerance.max(0.01), &mut pts);
+                let skip = usize::from(!all.is_empty());
+                all.extend(pts.iter().skip(skip));
+            }
+            out.push(all.len() as f64);
+            for p in &all {
+                out.push(p.x);
+                out.push(p.y);
+            }
+        }
+    }
+    Ok(out)
+}

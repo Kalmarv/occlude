@@ -4,7 +4,37 @@
  * outlines occluder bounds, and marks fragment endpoints.
  */
 
-import { drawFragments, evalPrim, tracePrim, type RenderResult } from 'occlude';
+import { drawFragments, evalPrim, tracePrim, type PenDef, type RenderResult } from 'occlude';
+
+interface PlanChain {
+  pen: number;
+  dot: boolean;
+  /** Flattened points, paper mm. */
+  pts: Float64Array;
+  /** Ink length, mm. */
+  inkLen: number;
+}
+
+interface PlotSim {
+  chains: PlanChain[];
+  pens: PenDef[];
+  /** Cumulative sim time (s) at the START of each chain (after its travel). */
+  chainStart: number[];
+  /** Duration (s) of each chain's drawing (incl. dot dwell). */
+  chainDur: number[];
+  totalSeconds: number;
+  simTime: number;
+  lastFrame: number;
+  speed: number;
+  /** Index of the first chain not yet fully committed to the offscreen. */
+  committed: number;
+  layer: OffscreenCanvas | HTMLCanvasElement;
+  lctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+  pxPerMm: number;
+  raf: number;
+  onProgress: (elapsed: number, total: number, pen: string) => void;
+  onDone: () => void;
+}
 
 export class Preview {
   private ctx: CanvasRenderingContext2D;
@@ -15,6 +45,7 @@ export class Preview {
   private panY = 0;
   private fitted = false;
   debug = false;
+  private sim: PlotSim | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -36,9 +67,166 @@ export class Preview {
 
   setResult(r: RenderResult): void {
     this.result = r;
+    this.stopPlot();
     if (!this.fitted) this.fit();
     this.draw();
   }
+
+  get plotting(): boolean {
+    return this.sim !== null;
+  }
+
+  /**
+   * Animate the plot: chains in real tour order, timed by pen feed and
+   * travel feed (mm/min), scaled by `speed`.
+   */
+  startPlot(
+    plan: Float64Array,
+    pens: PenDef[],
+    travelFeed: number,
+    speed: number,
+    onProgress: (elapsed: number, total: number, pen: string) => void,
+    onDone: () => void,
+  ): void {
+    this.stopPlot();
+    if (!this.result) return;
+    // Parse [pen, dot, n, x0, y0, …] chains.
+    const chains: PlanChain[] = [];
+    for (let i = 0; i < plan.length; ) {
+      const pen = plan[i++];
+      const dot = plan[i++] === 1;
+      const n = plan[i++];
+      const pts = plan.subarray(i, i + n * 2);
+      i += n * 2;
+      let inkLen = 0;
+      for (let k = 2; k < pts.length; k += 2) {
+        inkLen += Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]);
+      }
+      chains.push({ pen, dot, pts, inkLen });
+    }
+    if (chains.length === 0) return;
+    // Timing: travel to each chain start, then draw at the pen's feed.
+    const chainStart: number[] = [];
+    const chainDur: number[] = [];
+    let t = 0;
+    let px = 0;
+    let py = 0;
+    const travelPerSec = Math.max(1, travelFeed / 60);
+    for (const c of chains) {
+      const pdef = pens[c.pen];
+      const feedPerSec = Math.max(1, (pdef?.feed ?? 3000) / 60);
+      const dwell = ((pdef?.penDelay ?? 100) / 1000) * 2 + 0.15; // down+up+settle
+      t += Math.hypot(c.pts[0] - px, c.pts[1] - py) / travelPerSec;
+      chainStart.push(t);
+      const dur = c.dot ? dwell : dwell + c.inkLen / feedPerSec;
+      chainDur.push(dur);
+      t += dur;
+      px = c.pts[c.pts.length - 2];
+      py = c.pts[c.pts.length - 1];
+    }
+    // Offscreen accumulation layer in paper space.
+    const { w, h } = this.result.paper;
+    const pxPerMm = Math.min(8, 4096 / Math.max(w, h));
+    const layer = document.createElement('canvas');
+    layer.width = Math.ceil(w * pxPerMm);
+    layer.height = Math.ceil(h * pxPerMm);
+    const lctx = layer.getContext('2d')!;
+    lctx.scale(pxPerMm, pxPerMm);
+    lctx.lineCap = 'round';
+    lctx.lineJoin = 'round';
+    this.sim = {
+      chains, pens, chainStart, chainDur,
+      totalSeconds: t,
+      simTime: 0,
+      lastFrame: performance.now(),
+      speed,
+      committed: 0,
+      layer, lctx, pxPerMm,
+      raf: 0,
+      onProgress, onDone,
+    };
+    this.tick();
+  }
+
+  setPlotSpeed(speed: number): void {
+    if (this.sim) this.sim.speed = speed;
+  }
+
+  stopPlot(): void {
+    if (this.sim) {
+      cancelAnimationFrame(this.sim.raf);
+      this.sim = null;
+      this.draw();
+    }
+  }
+
+  private drawChainInto(
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    c: PlanChain,
+    upToLen: number,
+  ): { x: number; y: number } {
+    const pen = this.sim!.pens[c.pen];
+    ctx.strokeStyle = pen?.color ?? '#111';
+    ctx.fillStyle = pen?.color ?? '#111';
+    ctx.lineWidth = pen?.width ?? 0.3;
+    if (c.dot) {
+      ctx.beginPath();
+      ctx.arc(c.pts[0], c.pts[1], (pen?.width ?? 0.3) / 2, 0, Math.PI * 2);
+      ctx.fill();
+      return { x: c.pts[0], y: c.pts[1] };
+    }
+    ctx.beginPath();
+    ctx.moveTo(c.pts[0], c.pts[1]);
+    let remaining = upToLen;
+    let hx = c.pts[0];
+    let hy = c.pts[1];
+    for (let k = 2; k < c.pts.length; k += 2) {
+      const dx = c.pts[k] - c.pts[k - 2];
+      const dy = c.pts[k + 1] - c.pts[k - 1];
+      const seg = Math.hypot(dx, dy);
+      if (remaining >= seg) {
+        ctx.lineTo(c.pts[k], c.pts[k + 1]);
+        hx = c.pts[k];
+        hy = c.pts[k + 1];
+        remaining -= seg;
+      } else {
+        const f = seg > 0 ? remaining / seg : 0;
+        hx = c.pts[k - 2] + dx * f;
+        hy = c.pts[k - 1] + dy * f;
+        ctx.lineTo(hx, hy);
+        break;
+      }
+    }
+    ctx.stroke();
+    return { x: hx, y: hy };
+  }
+
+  private tick = (): void => {
+    const sim = this.sim;
+    if (!sim) return;
+    const now = performance.now();
+    sim.simTime += ((now - sim.lastFrame) / 1000) * sim.speed;
+    sim.lastFrame = now;
+
+    // Commit fully-elapsed chains to the offscreen layer.
+    while (
+      sim.committed < sim.chains.length &&
+      sim.simTime >= sim.chainStart[sim.committed] + sim.chainDur[sim.committed]
+    ) {
+      this.drawChainInto(sim.lctx, sim.chains[sim.committed], Infinity);
+      sim.committed++;
+    }
+
+    if (sim.committed >= sim.chains.length) {
+      const total = sim.totalSeconds;
+      sim.onProgress(total, total, '');
+      sim.onDone();
+      this.stopPlot(); // final draw() shows the exact vector render
+      return;
+    }
+    this.draw();
+    sim.raf = requestAnimationFrame(this.tick);
+  };
 
   fit(): void {
     if (!this.result) return;
@@ -115,6 +303,55 @@ export class Preview {
     ctx.fillStyle = '#f6f2ea';
     ctx.fillRect(0, 0, w, h);
     ctx.restore();
+
+    if (this.sim) {
+      const sim = this.sim;
+      // Committed ink.
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(sim.layer as CanvasImageSource, 0, 0, w, h);
+      ctx.restore();
+      // Current chain in progress + travel line + pen head.
+      const i = sim.committed;
+      const c = sim.chains[i];
+      const pdef = sim.pens[c.pen];
+      const into = sim.simTime - sim.chainStart[i];
+      let head = { x: c.pts[0], y: c.pts[1] };
+      if (into >= 0) {
+        const feedPerSec = Math.max(1, (pdef?.feed ?? 3000) / 60);
+        const drawn = Math.max(0, into - (((pdef?.penDelay ?? 100) / 1000) * 2 + 0.15) / 2) * feedPerSec;
+        head = this.drawChainInto(ctx, c, c.dot ? Infinity : drawn);
+      } else {
+        // Travelling to this chain: show the pen-up move.
+        const prev = i > 0 ? sim.chains[i - 1] : null;
+        const sx = prev ? prev.pts[prev.pts.length - 2] : c.pts[0];
+        const sy = prev ? prev.pts[prev.pts.length - 1] : c.pts[1];
+        const tt = 1 + into / Math.max(1e-6, sim.chainStart[i] - (i > 0 ? sim.chainStart[i - 1] + sim.chainDur[i - 1] : 0));
+        head = { x: sx + (c.pts[0] - sx) * tt, y: sy + (c.pts[1] - sy) * tt };
+        ctx.save();
+        ctx.strokeStyle = 'rgba(91, 139, 217, 0.7)';
+        ctx.lineWidth = 0.15;
+        ctx.setLineDash([1.2, 1.2]);
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(head.x, head.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+      // Pen head.
+      ctx.save();
+      ctx.fillStyle = pdef?.color ?? '#111';
+      ctx.strokeStyle = 'rgba(91, 139, 217, 0.9)';
+      ctx.lineWidth = 0.3;
+      ctx.beginPath();
+      ctx.arc(head.x, head.y, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      sim.onProgress(Math.max(0, sim.simTime), sim.totalSeconds, pdef?.name ?? '');
+      ctx.restore();
+      return;
+    }
 
     if (this.debug) {
       // Ghost the full primitive table — everything that was recorded or
