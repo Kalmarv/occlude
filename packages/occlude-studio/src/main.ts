@@ -108,6 +108,12 @@ async function boot(): Promise<void> {
       statusMsg.className = 'status-err';
       statusMsg.textContent =
         'sketch returned an empty tree — no shapes (check for undefined returns or empty arrays)';
+    } else if (result.stats.fragments === 0) {
+      statusMsg.className = 'status-err';
+      statusMsg.textContent =
+        `${result.stats.shapesIn} shape(s) but zero visible strokes — everything is ` +
+        'off-paper, fully occluded, or sub-nib (with origin: \'center\', coordinates run ' +
+        '±50, so radii/half-sizes belong in 0–50)';
     } else {
       statusMsg.className = 'status-ok';
       statusMsg.textContent = 'ok';
