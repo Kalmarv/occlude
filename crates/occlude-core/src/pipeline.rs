@@ -158,7 +158,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
             .shapes
             .iter()
             .enumerate()
-            .map(|(i, s)| apply_pre(s, i, input.seed, &input.fields))
+            .map(|(i, s)| apply_pre(s, i, input))
             .collect();
         &pre_shapes
     } else {
@@ -695,10 +695,11 @@ impl PostInterp<'_> {
 /// Contours flatten to polylines once (0.05 mm), the ops transform points,
 /// and line primitives are rebuilt at the end. Convexity is conservatively
 /// dropped — deformed geometry makes no promises.
-fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &[FieldGrid]) -> ShapeRec {
+fn apply_pre(s: &ShapeRec, shape_idx: usize, input: &RenderInput) -> ShapeRec {
     if !s.modifiers.iter().any(|m| m.stage() == Stage::Pre) {
         return s.clone();
     }
+    let (seed, fields) = (input.seed, &input.fields[..]);
     let closed = s.closed;
     let mut polys: Vec<Vec<Vec2>> = s
         .contours
@@ -744,6 +745,19 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &[FieldGrid]) ->
             }
             _ => {}
         }
+    }
+    // Never emit a segment shorter than the stroke nib: the clip layer's
+    // nib rule drops sub-nib primitives individually, which would punch
+    // holes in a connected chain. Merging to the nib introduces error
+    // below the nib — invisible by the system's own tolerance.
+    let min_seg = s
+        .stroke
+        .and_then(|p| input.pens.get(p as usize))
+        .map(|p| p.width)
+        .unwrap_or(0.3)
+        .max(0.05);
+    for poly in &mut polys {
+        simplify_polyline(poly, min_seg, closed);
     }
     let contours: Vec<Vec<Primitive>> = polys
         .iter()
@@ -828,6 +842,35 @@ fn chaikin(poly: &mut Vec<Vec2>, passes: u32, closed: bool) {
         }
         *poly = out;
     }
+}
+
+/// Merge chain vertices so no segment falls below `min_seg`. Endpoints of
+/// open chains are preserved (the final point replaces the last kept one
+/// when it lands too close); closed chains drop a last point that crowds
+/// the start.
+fn simplify_polyline(poly: &mut Vec<Vec2>, min_seg: f64, closed: bool) {
+    if poly.len() < 3 || min_seg <= 0.0 {
+        return;
+    }
+    let mut out: Vec<Vec2> = Vec::with_capacity(poly.len());
+    out.push(poly[0]);
+    let last_idx = poly.len() - 1;
+    for (i, &p) in poly.iter().enumerate().skip(1) {
+        let l = *out.last().unwrap();
+        let d = (p.x - l.x).hypot(p.y - l.y);
+        if d >= min_seg {
+            out.push(p);
+        } else if !closed && i == last_idx && out.len() > 1 {
+            *out.last_mut().unwrap() = p;
+        }
+    }
+    if closed && out.len() > 2 {
+        let (a, b) = (out[0], *out.last().unwrap());
+        if (a.x - b.x).hypot(a.y - b.y) < min_seg {
+            out.pop();
+        }
+    }
+    *poly = out;
 }
 
 fn polyline_prims(poly: &[Vec2], closed: bool) -> Vec<Primitive> {
