@@ -21,6 +21,7 @@ export interface Frame {
   offsetY: number;
   origin: 'topLeft' | 'center';
   yUp: boolean;
+  rectMode: 'corner' | 'center';
   /** Paper size, mm. */
   paperW: number;
   paperH: number;
@@ -50,6 +51,7 @@ export function makeFrame(
     offsetY: m + (availH - innerH) / 2,
     origin: state.origin,
     yUp: state.yUp,
+    rectMode: state.rectMode,
     paperW,
     paperH,
   };
@@ -57,6 +59,10 @@ export function makeFrame(
 
 class Resolver {
   constructor(private frame: Frame) {}
+
+  get rectMode(): 'corner' | 'center' {
+    return this.frame.rectMode;
+  }
 
   /** Scalar length in mm. */
   len(v: L): number {
@@ -194,9 +200,13 @@ function lowerGeom(geom: ShapeGeom, rz: Resolver): Prim[][] {
       return [prims];
     }
     case 'rect': {
-      const [ax, ay] = rz.pos(geom.x, geom.y);
+      let [ax, ay] = rz.pos(geom.x, geom.y);
       const w = rz.len(geom.w);
       const h = rz.len(geom.h);
+      if ((geom.anchor ?? rz.rectMode) === 'center') {
+        ax -= w / 2;
+        ay -= h / 2;
+      }
       // Normalise to positive extents; contour orientation doesn't matter to
       // the nonzero winding rule.
       const x0 = Math.min(ax, ax + w);

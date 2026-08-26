@@ -354,6 +354,46 @@ describe('occlude declarative api', () => {
     expect([...png.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]); // PNG magic
   });
 
+  it('rect center mode: per-shape and via config rectMode', () => {
+    // Per-shape: mode 'center' anchors (x, y) at the rect centre.
+    const def = sketch({ seed: 1 }, () => [
+      rect(50, 50, 20, 10, { mode: 'center' }),
+      rect(40, 45, 20, 10), // same rect, corner-anchored
+    ]);
+    const out = sq(def);
+    const box = (shape: number) => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const f of out.frags.filter((f) => f.shape === shape)) {
+        for (const t of [0, 1]) {
+          const [x, y] = evalPrim(f.geom, t);
+          x0 = Math.min(x0, x); y0 = Math.min(y0, y);
+          x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+        }
+      }
+      return { x0, y0, x1, y1 };
+    };
+    // Identical geometry → seam dedupe leaves one copy; both boxes match.
+    const b0 = box(0);
+    expect((b0.x0 + b0.x1) / 2).toBeCloseTo(100, 6); // centred at (100,100)mm
+    expect((b0.y0 + b0.y1) / 2).toBeCloseTo(100, 6);
+
+    // Config default applies to all rects; per-shape 'corner' overrides.
+    const def2 = sketch({ seed: 1, rectMode: 'center' }, () => [
+      rect(50, 50, 20, 10),
+      rect(50, 50, 20, 10, { mode: 'corner' }),
+    ]);
+    const out2 = sq(def2);
+    const box2 = (shape: number) => {
+      let x0 = Infinity;
+      for (const f of out2.frags.filter((f) => f.shape === shape)) {
+        for (const t of [0, 1]) x0 = Math.min(x0, evalPrim(f.geom, t)[0]);
+      }
+      return x0;
+    };
+    expect(box2(0)).toBeCloseTo(80, 6); // centred: left edge at 100−20mm
+    expect(box2(1)).toBeCloseTo(100, 6); // corner: left edge at x=50 → 100mm
+  });
+
   it('off-paper shapes are culled', () => {
     const def = sketch({ seed: 1 }, ({ group }) => [
       circle(50, 50, 10),

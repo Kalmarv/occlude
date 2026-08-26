@@ -46,6 +46,9 @@ export interface ShapeOpts {
   stroke?: string | false;
   /** Stacking override; default is tree order. */
   z?: number;
+  /** rect only: anchor (x, y) at the 'corner' (default) or the 'center'
+   * (p5 rectMode). The sketch config's `rectMode` sets the default. */
+  mode?: 'corner' | 'center';
 }
 
 export interface ShapeValue {
@@ -114,8 +117,9 @@ export function rect(
   radius?: L | ShapeOpts,
   opts?: ShapeOpts,
 ): ShapeValue {
-  if (isOpts(radius)) return shape({ kind: 'rect', x, y, w, h, radius: 0 }, radius);
-  return shape({ kind: 'rect', x, y, w, h, radius: radius ?? 0 }, opts);
+  const o = isOpts(radius) ? radius : opts;
+  const r = isOpts(radius) ? 0 : (radius ?? 0);
+  return shape({ kind: 'rect', x, y, w, h, radius: r, anchor: o?.mode }, o);
 }
 
 export function line(x1: L, y1: L, x2: L, y2: L, opts?: ShapeOpts): ShapeValue {
@@ -336,6 +340,7 @@ export function compileSketch(
     seed: cfg.seed ?? 'url',
     origin: cfg.origin,
     yUp: cfg.yUp,
+    rectMode: cfg.rectMode,
   });
   margin(cfg.margin ?? hostDefaults.marginPct ?? 0);
   const tree = def.fn(TOOLKIT);

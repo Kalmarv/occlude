@@ -23,6 +23,8 @@ export interface SketchOptions {
   seed?: 'url' | number | string;
   origin?: 'topLeft' | 'center';
   yUp?: boolean;
+  /** Default rect anchoring: 'corner' (default) or 'center' (p5 rectMode). */
+  rectMode?: 'corner' | 'center';
 }
 
 /** One clip region recorded by `clip()`. */
@@ -44,6 +46,7 @@ export interface State {
   aspect: [number, number] | 'square' | 'paper';
   origin: 'topLeft' | 'center';
   yUp: boolean;
+  rectMode: 'corner' | 'center';
   rng: Rng;
   seedUsed: number | string;
   drawIndex: number;
@@ -86,6 +89,7 @@ function freshState(opts: SketchOptions = {}): State {
     aspect: opts.aspect ?? 'paper',
     origin: opts.origin ?? 'topLeft',
     yUp: opts.yUp ?? false,
+    rectMode: opts.rectMode ?? 'corner',
     rng: new Rng(seed),
     seedUsed: seed,
     drawIndex: 0,

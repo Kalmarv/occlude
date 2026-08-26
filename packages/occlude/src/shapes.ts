@@ -18,7 +18,7 @@ export type PathCmd =
 export type ShapeGeom =
   | { kind: 'circle'; x: L; y: L; r: L }
   | { kind: 'ellipse'; x: L; y: L; rx: L; ry: L; rotation: number }
-  | { kind: 'rect'; x: L; y: L; w: L; h: L; radius: L }
+  | { kind: 'rect'; x: L; y: L; w: L; h: L; radius: L; anchor?: 'corner' | 'center' }
   | { kind: 'line'; x1: L; y1: L; x2: L; y2: L }
   | { kind: 'ngon'; x: L; y: L; sides: number; r: L; rotation: number }
   | { kind: 'points'; pts: [L, L][] }

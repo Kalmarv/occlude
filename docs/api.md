@@ -40,6 +40,7 @@ sketch({
   pen: 'pigma-005-black',// default pen for shapes that don't set one
   origin: 'topLeft',     // or 'center'
   yUp: false,
+  rectMode: 'corner',    // or 'center' — p5-style rect anchoring default
 }, (toolkit) => tree)
 ```
 
@@ -67,11 +68,12 @@ Every shape takes a trailing opts object:
 | `opaque: true` | Hides what's beneath with **no texture** — only the stroke draws. |
 | `stroke: false` | No outline. A pen name instead overrides the stroke pen. |
 | `z` | Stacking override; default is tree order. |
+| `mode` | rect only: anchor (x, y) at the `'corner'` (default) or the `'center'` — p5's rectMode, per shape. The config's `rectMode` sets the sketch-wide default. Circles, ellipses and n-gons are always centre-anchored. |
 
 ```ts
 circle(x, y, r, opts?)
 ellipse(x, y, rx, ry, rotation?, opts?)     // rotation in degrees
-rect(x, y, w, h, radius?, opts?)            // radius rounds the corners
+rect(x, y, w, h, radius?, opts?)            // radius rounds the corners; opts.mode anchors
 line(x1, y1, x2, y2, opts?)
 polygon(x, y, sides, r, rotation?, opts?)   // regular n-gon
 polygon([[x, y], ...], opts?)               // explicit points
