@@ -148,6 +148,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     // occlusion, fills and culling all follow the modified contours. This is
     // the conscious-choice stage: curves shatter into polylines here, and
     // only wrapped shapes pay for it.
+    let _z = crate::profile::zone("1 pre-modifiers");
     let pre_shapes: Vec<ShapeRec>;
     let shapes: &[ShapeRec] = if input
         .shapes
@@ -165,6 +166,8 @@ pub fn render(input: &RenderInput) -> RenderOutput {
         &input.shapes
     };
 
+    drop(_z);
+    let _z = crate::profile::zone("2 sort+prim-tables");
     // ---- Layer 2: sort by z (stable on draw index) ----
     let mut order: Vec<usize> = (0..n).collect();
     order.sort_by(|&a, &b| {
@@ -201,6 +204,8 @@ pub fn render(input: &RenderInput) -> RenderOutput {
         shape_bbox.push(b);
     }
 
+    drop(_z);
+    let _z = crate::profile::zone("3 region-build");
     // Opaque regions, built once and shared with the fill layer.
     let mut shape_region: Vec<Option<Arc<Region>>> = vec![None; n];
     let mut occluders: Vec<Occluder> = Vec::new();
@@ -243,6 +248,8 @@ pub fn render(input: &RenderInput) -> RenderOutput {
         )
     });
 
+    drop(_z);
+    let _z = crate::profile::zone("4 cull");
     // ---- Cull ----
     let mut alive = vec![true; n];
     let mut clean = vec![false; n];
@@ -262,7 +269,11 @@ pub fn render(input: &RenderInput) -> RenderOutput {
             }
         }
         // Later opaque regions overlapping this shape.
-        occ_index.query(b, &mut query_buf);
+        {
+            let _q = crate::profile::zone("4a cull-query");
+            occ_index.query(b, &mut query_buf);
+        }
+        let _c = crate::profile::zone("4b cull-contains");
         let mut any_later = false;
         let mut contained = false;
         for &oi in query_buf.iter() {
@@ -331,6 +342,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
         let mut query_buf: Vec<u32> = Vec::new();
 
         // Stroke outline.
+        let _sz = crate::profile::zone("5a outline-clip");
         if let Some(stroke_pen) = s.stroke {
             let (p0, p1) = outline_range[i];
             let threshold = pen_width(stroke_pen);
@@ -351,6 +363,8 @@ pub fn render(input: &RenderInput) -> RenderOutput {
             }
         }
 
+        drop(_sz);
+        let _sz = crate::profile::zone("5b fills");
         // Fill.
         let Some((fill_pen, kind)) = &s.fill else {
             return so;
@@ -438,6 +452,8 @@ pub fn render(input: &RenderInput) -> RenderOutput {
         so
     };
 
+    drop(_z);
+    let _z = crate::profile::zone("5 clip+fills");
     #[cfg(feature = "parallel")]
     let outputs: Vec<ShapeOut> = (0..n).into_par_iter().map(process).collect();
     #[cfg(not(feature = "parallel"))]
@@ -457,7 +473,11 @@ pub fn render(input: &RenderInput) -> RenderOutput {
         }));
     }
 
+    drop(_z);
+    let _z = crate::profile::zone("6 dedupe");
     let frags = dedupe_seams(frags, min_pen_width.max(1e-6));
+    drop(_z);
+    let _z = crate::profile::zone("7 post-modifiers");
     // ---- Post-stage modifiers: each shape's ordered program runs over its
     // final ink, AFTER occlusion and cleanup, so what a modifier touches is
     // final visible strokes. One frag at a time through the whole program
@@ -498,6 +518,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
         frags = out;
     }
 
+    drop(_z);
     stats.fragments = frags.len();
     RenderOutput {
         prims: prim_table,
@@ -1147,7 +1168,10 @@ fn clip_one(
     }
     // Per-primitive index query: only occluders near THIS primitive.
     let pb = prim.bbox();
-    ctx.occ_index.query(&pb, query_buf);
+    {
+        let _q = crate::profile::zone("5q clip-query");
+        ctx.occ_index.query(&pb, query_buf);
+    }
     // Fast path: nothing in front of this primitive and no clips — the
     // common case for long polylines where only a few segments cross an
     // occluder. No span allocation at all.
@@ -1172,6 +1196,7 @@ fn clip_one(
         }
     }
     // Ascending ids = ascending rank; reverse = front-to-back.
+    let _s = crate::profile::zone("5s clip-spans-loop");
     for k in (0..query_buf.len()).rev() {
         let occ = &ctx.occluders[query_buf[k] as usize];
         if occ.rank <= ctx.my_rank {
@@ -1180,6 +1205,26 @@ fn clip_one(
         if let Primitive::Line(l) = prim {
             if !occ.region.bbox.intersects_segment(l.p0, l.p1) {
                 continue; // diagonal's bbox overlapped, the segment doesn't
+            }
+        }
+        if let Primitive::Arc(a) = prim {
+            // An occluder entirely INSIDE the arc's circle can never touch
+            // the stroke: the stroke lives at distance exactly r from the
+            // centre, and every point of the region is strictly closer.
+            // This is what makes stacks of concentric rings O(n) instead
+            // of O(n²) — each ring skips all the smaller ones in front.
+            let bb = &occ.region.bbox;
+            let far = [
+                v(bb.min.x, bb.min.y),
+                v(bb.max.x, bb.min.y),
+                v(bb.min.x, bb.max.y),
+                v(bb.max.x, bb.max.y),
+            ]
+            .iter()
+            .map(|p| p.dist(a.center))
+            .fold(0.0, f64::max);
+            if far < a.r {
+                continue;
             }
         }
         clip_spans(prim, &mut spans, &occ.region, false);
@@ -1211,7 +1256,22 @@ fn point_visible(p: Vec2, clips: &[&Region], ctx: &ClipCtx, query_buf: &mut Vec<
 }
 
 /// Does the region contain the whole bbox? Exact: the bbox as a rect region.
+/// A cheap corner test rejects the overwhelmingly common "no" first — the
+/// exact split-at-crossings check (and its rect-Region construction) only
+/// runs for near-positives.
 fn region_contains_bbox(region: &Region, b: &BBox) -> bool {
+    let corners = [
+        v(b.min.x, b.min.y),
+        v(b.max.x, b.min.y),
+        v(b.max.x, b.max.y),
+        v(b.min.x, b.max.y),
+    ];
+    if !corners
+        .iter()
+        .all(|&p| region.inside(p) || region.on_boundary(p, crate::clip::ON_BOUNDARY_EPS))
+    {
+        return false;
+    }
     let pts = [
         v(b.min.x, b.min.y),
         v(b.max.x, b.min.y),

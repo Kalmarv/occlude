@@ -19,6 +19,32 @@ impl SpatialIndex {
             if max / median > 64.0 {
                 return SpatialIndex::Bvh(Bvh::build(boxes));
             }
+            // Overlap-depth heuristic: fat boxes that each span many grid
+            // cells make every cell list huge and every query re-scan (and
+            // sort) the same candidates hundreds of times — 1500 stacked
+            // concentric rings turned queries into 99% of a render. When
+            // the average box would occupy many cells, the BVH's
+            // O(log n + k) wins regardless of size variance.
+            let mut bounds = BBox::EMPTY;
+            for b in boxes {
+                bounds = bounds.union(b);
+            }
+            if !bounds.is_empty() {
+                let n = boxes.len();
+                let target = ((n as f64 / 2.0).sqrt().ceil()).clamp(1.0, 256.0);
+                let cell_w = (bounds.width() / target).max(1e-9);
+                let cell_h = (bounds.height() / target).max(1e-9);
+                let avg_cells: f64 = boxes
+                    .iter()
+                    .map(|b| {
+                        ((b.width() / cell_w).ceil() + 1.0) * ((b.height() / cell_h).ceil() + 1.0)
+                    })
+                    .sum::<f64>()
+                    / n as f64;
+                if avg_cells > 8.0 {
+                    return SpatialIndex::Bvh(Bvh::build(boxes));
+                }
+            }
         }
         SpatialIndex::Grid(UniformGrid::build(boxes))
     }

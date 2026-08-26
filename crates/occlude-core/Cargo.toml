@@ -13,6 +13,7 @@ default = ["parallel"]
 parallel = ["rayon"]
 wasm = ["wasm-bindgen"]
 cull-debug = []
+profile = []
 
 [dependencies]
 wasm-bindgen = { version = "0.2", optional = true }

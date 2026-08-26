@@ -23,5 +23,6 @@ pub mod svg;
 pub mod vec2;
 
 pub mod modifier;
+pub mod profile;
 #[cfg(feature = "wasm")]
 pub mod wasm_api;
