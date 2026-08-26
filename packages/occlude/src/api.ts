@@ -49,6 +49,9 @@ export interface ShapeOpts {
   /** rect only: anchor (x, y) at the 'corner' (default) or the 'center'
    * (p5 rectMode). The sketch config's `rectMode` sets the default. */
   mode?: 'corner' | 'center';
+  /** Drop this fraction of the shape's FINAL visible strokes (0…1),
+   * after occlusion and cleanup. Seeded — the distressed-plot modifier. */
+  decimate?: number;
   /** Per-shape transform — identical to wrapping the shape in a group. */
   translate?: [L, L];
   /** Degrees; pivots around the user origin. */
@@ -63,6 +66,8 @@ export interface ShapeValue {
 }
 
 export interface GroupOpts {
+  /** Decimation default for children that don't set their own. */
+  decimate?: number;
   translate?: [L, L];
   /** Degrees. */
   rotate?: number;
@@ -229,6 +234,14 @@ export function clip(region: ShapeValue, ...children: Tree[]): ClipValue {
   return { __occludeClip: true, region, children };
 }
 
+/**
+ * Drop `p` (0…1) of the children's final visible strokes — computed AFTER
+ * occlusion, seeded by the sketch seed. The distressed-plot modifier.
+ */
+export function decimate(p: number, ...children: Tree[]): GroupValue {
+  return { __occludeGroup: true, opts: { decimate: p }, children };
+}
+
 /** Occludes everything beneath it and draws nothing at all. */
 export function mask(sv: ShapeValue): ShapeValue {
   return { ...sv, opts: { ...sv.opts, opaque: true, stroke: false, fill: undefined } };
@@ -292,6 +305,7 @@ export interface Toolkit {
   group: typeof group;
   clip: typeof clip;
   mask: typeof mask;
+  decimate: typeof decimate;
   hatch: typeof hatch;
   crosshatch: typeof crosshatch;
   stipple: typeof stipple;
@@ -349,7 +363,7 @@ export function sketch(
 }
 
 const TOOLKIT_BASE = {
-  circle, ellipse, rect, line, polygon, path, group, clip, mask,
+  circle, ellipse, rect, line, polygon, path, group, clip, mask, decimate,
   hatch, crosshatch, stipple,
   rnd, pick, chance, prob, noise, stream,
   map: mapRange, norm: normRange, invert: invertRange,
@@ -361,6 +375,7 @@ const TOOLKIT_BASE = {
 interface EmitCtx {
   pen: string | undefined;
   z: number | undefined;
+  decimate: number | undefined;
 }
 
 /**
@@ -390,7 +405,7 @@ export function compileSketch(
     cy: b.cy,
   };
   const tree = def.fn(toolkit);
-  emit(tree, { pen: cfg.pen, z: undefined });
+  emit(tree, { pen: cfg.pen, z: undefined, decimate: undefined });
 }
 
 function emit(tree: Tree, ctx: EmitCtx): void {
@@ -404,6 +419,7 @@ function emit(tree: Tree, ctx: EmitCtx): void {
     const inner: EmitCtx = {
       pen: g.opts.pen ?? ctx.pen,
       z: g.opts.z ?? ctx.z,
+      decimate: g.opts.decimate ?? ctx.decimate,
     };
     const { translate, rotate, scale } = g.opts;
     if (translate || rotate !== undefined || scale !== undefined) {
@@ -447,4 +463,6 @@ function emitShape(sv: ShapeValue, ctx: EmitCtx): void {
   }
   const z = o.z ?? ctx.z;
   if (z !== undefined) sh.z(z);
+  const dec = o.decimate ?? ctx.decimate;
+  if (dec !== undefined) sh.decimate = Math.min(1, Math.max(0, dec));
 }

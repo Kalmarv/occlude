@@ -34,6 +34,7 @@ fn main() {
                 )),
                 z: 0.0,
                 clips: vec![],
+                decimate: 0.0,
             }
         })
         .collect();

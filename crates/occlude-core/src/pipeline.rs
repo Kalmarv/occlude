@@ -66,6 +66,10 @@ pub struct ShapeRec {
     pub z: f64,
     /// Indices into `RenderInput::clips` active for this shape.
     pub clips: Vec<u32>,
+    /// Post-occlusion decimation: each FINAL fragment of this shape is
+    /// dropped with this probability (0 = keep all). Deterministic from the
+    /// sketch seed — the distressed-plot modifier.
+    pub decimate: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -425,6 +429,28 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     }
 
     let frags = dedupe_seams(frags, min_pen_width.max(1e-6));
+    // Decimation: seeded per-fragment coin flip AFTER occlusion and cleanup,
+    // so what disappears is final visible ink.
+    let frags: Vec<Frag> = frags
+        .into_iter()
+        .filter(|f| {
+            let p = input.shapes[f.shape as usize].decimate;
+            if p <= 0.0 {
+                return true;
+            }
+            let mut h = input
+                .seed
+                .wrapping_add((f.shape as u64) << 32)
+                .wrapping_add((f.origin as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15))
+                ^ f.t0.to_bits().rotate_left(17);
+            // splitmix64 finalizer
+            h = h.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            h = (h ^ (h >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            h = (h ^ (h >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            h ^= h >> 31;
+            (h as f64 / u64::MAX as f64) >= p.min(1.0)
+        })
+        .collect();
     stats.fragments = frags.len();
     RenderOutput {
         prims: prim_table,

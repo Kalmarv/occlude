@@ -74,6 +74,7 @@ Every shape takes a trailing opts object:
 | `z` | Stacking override; default is tree order. |
 | `mode` | rect only: anchor (x, y) at the `'corner'` (default) or the `'center'` — p5's rectMode, per shape. The config's `rectMode` sets the sketch-wide default. Circles, ellipses and n-gons are always centre-anchored. |
 | `translate`, `rotate`, `scale` | Per-shape transform, identical to wrapping the shape in a `group` with the same op (order within the op: translate → rotate → scale). |
+| `decimate` | Drop this fraction (0…1) of the shape's final visible strokes, after occlusion — seeded, deterministic. |
 
 ```ts
 circle(x, y, r, opts?)
@@ -104,6 +105,7 @@ path({ winding? })
 mask(shape)                    // { ...shape, opaque: true, stroke: false }
 group(opts, ...children)       // transform / pen / z defaults for children
 clip(shape, ...children)       // children restricted to shape's region
+decimate(p, ...children)       // drop p (0…1) of the FINAL visible strokes
 ```
 
 - `mask(shape)` occludes and draws **nothing** — the hidden-line renderer's
@@ -114,6 +116,11 @@ clip(shape, ...children)       // children restricted to shape's region
   keep arcs exact; non-uniform scale lowers arcs to cubics.
 - `clip` restricts children to the region; the region itself is not drawn
   and does not occlude. Nested clips intersect.
+- `decimate(p, …)` runs AFTER occlusion and cleanup: the hidden-line result
+  is computed in full, then a seeded fraction of the surviving strokes is
+  deleted — the distressed-plot modifier. Deterministic per sketch seed;
+  also available per shape as `{ decimate: p }` (which overrides the
+  combinator's default).
 
 Hidden-line terrain in a few lines:
 

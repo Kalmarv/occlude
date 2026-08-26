@@ -410,7 +410,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
       cStart, cCount, flags, strokePen, fillPen, fillKind,
       clipStart, shape.clips.length, fillStart, fillCount,
     );
-    shapesF64.push(shape.zIndex);
+    shapesF64.push(shape.zIndex, shape.decimate);
   }
 
   return {

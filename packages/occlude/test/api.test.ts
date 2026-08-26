@@ -449,3 +449,36 @@ describe('sequence helpers', () => {
     expect(new Set(out.frags.map((f) => f.shape)).size).toBe(12);
   });
 });
+
+describe('decimate', () => {
+  it('drops the requested fraction of final strokes, deterministically', async () => {
+    const { decimate } = await import('../src/index.js');
+    const make = (p: number) =>
+      sketch({ seed: 42 }, ({ times }) =>
+        decimate(p, times(60, (_, t) => line(5, 5 + t * 90, 95, 5 + t * 90))),
+      );
+    const full = sq(make(0));
+    const half = sq(make(0.5));
+    const half2 = sq(make(0.5));
+    expect(full.frags.length).toBe(60);
+    // ~50% survive (seeded binomial; wide tolerance).
+    expect(half.frags.length).toBeGreaterThan(15);
+    expect(half.frags.length).toBeLessThan(45);
+    // Deterministic: identical survivors both runs.
+    expect(half2.frags.map((f) => f.origin)).toEqual(half.frags.map((f) => f.origin));
+    // decimate(1) deletes everything.
+    expect(sq(make(1)).frags.length).toBe(0);
+
+    // Per-shape opt overrides the combinator default; exports see it too.
+    const mixed = sketch({ seed: 42 }, ({ times }) =>
+      decimate(1, [
+        times(10, (_, t) => line(5, 5 + t * 20, 95, 5 + t * 20)),
+        circle(50, 70, 10, { decimate: 0 }), // opts out
+      ]),
+    );
+    const out = sq(mixed);
+    expect(out.frags.every((f) => f.shape === 10)).toBe(true);
+    const svg = exportSvg(mixed, { paper: 'Square20' });
+    expect((svg.match(/A[0-9.]+ /g) ?? []).length).toBeGreaterThan(0); // circle arcs present
+  });
+});

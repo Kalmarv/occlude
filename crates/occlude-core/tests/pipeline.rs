@@ -35,6 +35,7 @@ fn stroke_shape(contours: Vec<Vec<Primitive>>, closed: bool) -> ShapeRec {
         fill: None,
         z: 0.0,
         clips: vec![],
+                decimate: 0.0,
     }
 }
 
@@ -48,6 +49,7 @@ fn filled_shape(contours: Vec<Vec<Primitive>>, kind: FillKind) -> ShapeRec {
         fill: Some((0, kind)),
         z: 0.0,
         clips: vec![],
+                decimate: 0.0,
     }
 }
 

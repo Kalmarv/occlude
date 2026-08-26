@@ -34,6 +34,8 @@ export class Shape {
   fillSpec: FillSpec | null = null;
   fillPen: string | null = null;
   zIndex: number;
+  /** Post-occlusion fragment drop probability (0 = keep all). */
+  decimate = 0;
   /** Draw order index — the z tiebreak and default z. */
   readonly order: number;
 

@@ -22,7 +22,7 @@
 //!   custom:  [fill_start, fill_start+fill_count) is a range of PRIMS
 //!            (custom fill geometry recorded straight into the prim table)
 //!
-//! `shapes_f64: Float64Array`, stride 1: [z]
+//! `shapes_f64: Float64Array`, stride 2: [z, decimate]
 //!
 //! `clip_list: Uint32Array`: clip region indices, sliced per shape by
 //!   clip_start/clip_count.
@@ -190,8 +190,9 @@ pub fn wasm_render(
             winding,
             stroke: if s[3] > 0 { Some(s[3] - 1) } else { None },
             fill,
-            z: shapes_f64[i],
+            z: shapes_f64[i * 2],
             clips: clip_list[s[6] as usize..(s[6] + s[7]) as usize].to_vec(),
+            decimate: shapes_f64[i * 2 + 1],
         });
     }
 
