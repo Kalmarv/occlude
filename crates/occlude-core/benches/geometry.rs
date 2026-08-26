@@ -35,10 +35,7 @@ fn filled_circle(cx: f64, cy: f64, r: f64) -> ShapeRec {
         )),
         z: 0.0,
         clips: vec![],
-                decimate_stroke: 0.0,
-                decimate_fill: 0.0,
-                wobble_amp: 0.0,
-                wobble_wavelength: 25.0,
+                modifiers: Vec::new(),
     }
 }
 
@@ -50,6 +47,7 @@ fn input(shapes: Vec<ShapeRec>) -> RenderInput {
         paper: None,
         seed: 1,
         coarsen: 1.0,
+        fields: Vec::new(),
     }
 }
 
@@ -102,10 +100,7 @@ fn bench_render(c: &mut Criterion) {
                 fill: None,
                 z: -1.0,
                 clips: vec![],
-                decimate_stroke: 0.0,
-                decimate_fill: 0.0,
-                wobble_amp: 0.0,
-                wobble_wavelength: 25.0,
+                modifiers: Vec::new(),
             },
         );
     }

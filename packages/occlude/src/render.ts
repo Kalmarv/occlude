@@ -14,7 +14,8 @@ import {
 import { paperSize, type PaperChoice } from './paper.js';
 import type { PenDef } from './pens.js';
 import { flattenPrim, subPrim, type Prim } from './prims.js';
-import { lowerShape, makeFrame, type Frame } from './record.js';
+import { lowerShape, makeFrame, paperToUser, type Frame } from './record.js';
+import type { FieldFn, VectorFieldFn } from './shapes.js';
 import { Rng } from './random.js';
 import { getState, type Winding } from './state.js';
 import { compileSketch, isSketch, type SketchDef } from './api.js';
@@ -81,6 +82,8 @@ export interface WasmModule {
     contours: Uint32Array,
     shapes_u32: Uint32Array,
     shapes_f64: Float64Array,
+    mods: Float64Array,
+    field_data: Float64Array,
     fill_params: Float64Array,
     clip_list: Uint32Array,
     clips_u32: Uint32Array,
@@ -188,6 +191,10 @@ export interface EncodedScene {
   contours: Uint32Array;
   shapesU32: Uint32Array;
   shapesF64: Float64Array;
+  /** Modifier tape: [opcode, field_mask, ...params] per instruction. */
+  mods: Float64Array;
+  /** Concatenated field rasters: [w, h, x0, y0, dx, dy, ...samples] each. */
+  fieldData: Float64Array;
   fillParams: Float64Array;
   clipList: Uint32Array;
   clipsU32: Uint32Array;
@@ -208,6 +215,8 @@ export function sceneTransferables(s: EncodedScene): ArrayBuffer[] {
     s.contours.buffer,
     s.shapesU32.buffer,
     s.shapesF64.buffer,
+    s.mods.buffer,
+    s.fieldData.buffer,
     s.fillParams.buffer,
     s.clipList.buffer,
     s.clipsU32.buffer,
@@ -295,7 +304,73 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
   const contours: number[] = [];
   const shapesU32: number[] = [];
   const shapesF64: number[] = [];
+  const modsBuf: number[] = [];
+  const fieldData: number[] = [];
   const fillParams: number[] = [];
+
+  // Field rasterisation: sample the user's function over the paper on a
+  // coarse mm grid (the core interpolates bilinearly). Sampled in user
+  // coordinates, stored per value kind — 'p01' clamps to a probability,
+  // 'len' resolves lengths (bare units or Len) to mm. One raster per
+  // (function, kind), shared across shapes.
+  const toUser = paperToUser(frame);
+  const fieldIndex = new Map<FieldFn, { p01?: number; len?: number }>();
+  let fieldCount = 0;
+  const fieldParam = (
+    v: number | import('./units.js').L | FieldFn,
+    kind: 'p01' | 'len',
+  ): [number, number] => {
+    if (typeof v === 'function') {
+      let slots = fieldIndex.get(v);
+      if (!slots) fieldIndex.set(v, (slots = {}));
+      if (slots[kind] === undefined) {
+        const step = Math.max(0.5, Math.min(2, Math.max(paperW, paperH) / 128));
+        const gw = Math.max(2, Math.ceil(paperW / step) + 1);
+        const gh = Math.max(2, Math.ceil(paperH / step) + 1);
+        fieldData.push(gw, gh, 0, 0, step, step);
+        for (let j = 0; j < gh; j++) {
+          for (let i = 0; i < gw; i++) {
+            const [ux, uy] = toUser(i * step, j * step);
+            const raw = v(ux, uy);
+            fieldData.push(
+              kind === 'p01'
+                ? Math.min(1, Math.max(0, Number(raw)))
+                : resolveLen(raw, frame.inner),
+            );
+          }
+        }
+        slots[kind] = fieldCount++;
+      }
+      return [slots[kind], 1];
+    }
+    return [kind === 'len' ? resolveLen(v, frame.inner) : (v as number), 0];
+  };
+  // Vector fields (deform): two scalar rasters per function — dx then dy —
+  // converted from user-unit displacement to paper mm (yUp flips dy).
+  const vectorIndex = new Map<VectorFieldFn, [number, number]>();
+  const vectorField = (fn: VectorFieldFn): [number, number] => {
+    let ids = vectorIndex.get(fn);
+    if (ids) return ids;
+    const unit = Math.min(frame.inner.innerW, frame.inner.innerH) / 100;
+    const ySign = frame.yUp ? -1 : 1;
+    const step = Math.max(0.5, Math.min(2, Math.max(paperW, paperH) / 128));
+    const gw = Math.max(2, Math.ceil(paperW / step) + 1);
+    const gh = Math.max(2, Math.ceil(paperH / step) + 1);
+    for (const axis of [0, 1] as const) {
+      fieldData.push(gw, gh, 0, 0, step, step);
+      for (let j = 0; j < gh; j++) {
+        for (let i = 0; i < gw; i++) {
+          const [ux, uy] = toUser(i * step, j * step);
+          const d = fn(ux, uy)[axis] * unit;
+          fieldData.push(axis === 1 ? d * ySign : d);
+        }
+      }
+    }
+    ids = [fieldCount, fieldCount + 1];
+    fieldCount += 2;
+    vectorIndex.set(fn, ids);
+    return ids;
+  };
   const clipList: number[] = [];
   const clipsU32: number[] = [];
 
@@ -406,17 +481,53 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     const clipStart = clipList.length;
     for (const c of shape.clips) clipList.push(c);
 
+    // Modifier tape: [opcode, field_mask, ...params] per instruction, in
+    // program order. Opcodes: 1 decimate [stroke_p, fill_p]; 2 wobble
+    // [amp_mm, wavelength_mm]. A field-valued param sets its mask bit and
+    // stores a field index instead of a literal.
+    const modStart = modsBuf.length;
+    for (const m of shape.modifiers) {
+      switch (m.kind) {
+        case 'decimate': {
+          const [s0, m0] = fieldParam(m.stroke, 'p01');
+          const [s1, m1] = fieldParam(m.fill, 'p01');
+          modsBuf.push(1, m0 | (m1 << 1), s0, s1);
+          break;
+        }
+        case 'wobble': {
+          const [a, ma] = fieldParam(m.amount, 'len');
+          modsBuf.push(2, ma, a, resolveLen(m.wavelength ?? mm(25), frame.inner));
+          break;
+        }
+        case 'dash':
+          modsBuf.push(
+            3, 0,
+            resolveLen(m.len, frame.inner),
+            resolveLen(m.gap, frame.inner),
+          );
+          break;
+        case 'smooth':
+          modsBuf.push(4, 0, Math.max(1, Math.round(m.passes)));
+          break;
+        case 'roughen': {
+          const [a, ma] = fieldParam(m.amount, 'len');
+          modsBuf.push(5, ma, a, resolveLen(m.detail ?? mm(1.5), frame.inner));
+          break;
+        }
+        case 'deform': {
+          const [dx, dy] = vectorField(m.field);
+          modsBuf.push(6, 0b11, dx, dy, resolveLen(m.detail ?? mm(2), frame.inner));
+          break;
+        }
+      }
+    }
+
     shapesU32.push(
       cStart, cCount, flags, strokePen, fillPen, fillKind,
       clipStart, shape.clips.length, fillStart, fillCount,
+      modStart, shape.modifiers.length,
     );
-    shapesF64.push(
-      shape.zIndex,
-      shape.decimateStroke,
-      shape.decimateFill,
-      resolveLen(shape.wobbleAmp, frame.inner),
-      resolveLen(shape.wobbleWavelength ?? mm(25), frame.inner),
-    );
+    shapesF64.push(shape.zIndex);
   }
 
   return {
@@ -424,6 +535,8 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     contours: new Uint32Array(contours),
     shapesU32: new Uint32Array(shapesU32),
     shapesF64: new Float64Array(shapesF64),
+    mods: new Float64Array(modsBuf),
+    fieldData: new Float64Array(fieldData),
     fillParams: new Float64Array(fillParams),
     clipList: new Uint32Array(clipList),
     clipsU32: new Uint32Array(clipsU32),
@@ -496,6 +609,8 @@ export function renderEncoded(mod: WasmModule, scene: EncodedScene): RawRender {
     scene.contours,
     scene.shapesU32,
     scene.shapesF64,
+    scene.mods,
+    scene.fieldData,
     scene.fillParams,
     scene.clipList,
     scene.clipsU32,

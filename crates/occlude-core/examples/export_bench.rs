@@ -36,10 +36,7 @@ fn main() {
                 )),
                 z: 0.0,
                 clips: vec![],
-                decimate_stroke: 0.0,
-                decimate_fill: 0.0,
-                wobble_amp: 0.0,
-                wobble_wavelength: 25.0,
+                modifiers: Vec::new(),
             }
         })
         .collect();
@@ -50,6 +47,7 @@ fn main() {
         paper: None,
         seed: 1,
         coarsen: 1.0,
+        fields: Vec::new(),
     };
     let out = render(&input);
     println!("fragments: {}", out.frags.len());

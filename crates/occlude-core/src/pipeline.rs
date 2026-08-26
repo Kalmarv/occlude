@@ -15,6 +15,7 @@ use crate::clip::{clip_spans, fully_hidden};
 use crate::fill::{hatch_region, stipple_region, FillKind};
 use crate::fragment::{Frag, Span};
 use crate::index::SpatialIndex;
+use crate::modifier::{FieldGrid, Modifier, Param, Stage};
 use crate::primitive::{Line, Primitive};
 use crate::region::{Region, WindingRule};
 use crate::vec2::{v, Vec2};
@@ -66,18 +67,9 @@ pub struct ShapeRec {
     pub z: f64,
     /// Indices into `RenderInput::clips` active for this shape.
     pub clips: Vec<u32>,
-    /// Post-occlusion decimation: each FINAL outline fragment is dropped
-    /// with this probability (0 = keep all). Deterministic from the sketch
-    /// seed — the distressed-plot modifier.
-    pub decimate_stroke: f64,
-    /// Same, for fill ink (hatch lines, stipple dots, custom fill strokes).
-    pub decimate_fill: f64,
-    /// Hand-tremor amplitude in mm (0 = off): final strokes are flattened
-    /// and displaced by seeded smooth noise AFTER occlusion — line quality
-    /// only, the hidden-line result is unchanged.
-    pub wobble_amp: f64,
-    /// Noise wavelength in mm (default-ish 25 supplied by callers).
-    pub wobble_wavelength: f64,
+    /// Ordered modifier program. Post-stage entries run over this shape's
+    /// final fragments after occlusion and cleanup, in list order.
+    pub modifiers: Vec<Modifier>,
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +90,9 @@ pub struct RenderInput {
     /// Coarsening factor for preview (multiplies hatch spacing / stipple
     /// distance). 1.0 = exact.
     pub coarsen: f64,
+    /// Rasterised scalar fields referenced by `Param::Field` modifier
+    /// parameters (paper-mm grids).
+    pub fields: Vec<FieldGrid>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -149,12 +144,33 @@ pub fn render(input: &RenderInput) -> RenderOutput {
         ..Default::default()
     };
 
+    // ---- Pre-stage modifiers: deform shape geometry BEFORE the solve, so
+    // occlusion, fills and culling all follow the modified contours. This is
+    // the conscious-choice stage: curves shatter into polylines here, and
+    // only wrapped shapes pay for it.
+    let pre_shapes: Vec<ShapeRec>;
+    let shapes: &[ShapeRec] = if input
+        .shapes
+        .iter()
+        .any(|s| s.modifiers.iter().any(|m| m.stage() == Stage::Pre))
+    {
+        pre_shapes = input
+            .shapes
+            .iter()
+            .enumerate()
+            .map(|(i, s)| apply_pre(s, i, input.seed, &input.fields))
+            .collect();
+        &pre_shapes
+    } else {
+        &input.shapes
+    };
+
     // ---- Layer 2: sort by z (stable on draw index) ----
     let mut order: Vec<usize> = (0..n).collect();
     order.sort_by(|&a, &b| {
-        input.shapes[a]
+        shapes[a]
             .z
-            .partial_cmp(&input.shapes[b].z)
+            .partial_cmp(&shapes[b].z)
             .unwrap()
             .then(a.cmp(&b))
     });
@@ -167,7 +183,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     let mut prim_table: Vec<Primitive> = Vec::new();
     let mut outline_range: Vec<(usize, usize)> = Vec::with_capacity(n);
     let mut shape_bbox: Vec<BBox> = Vec::with_capacity(n);
-    for s in &input.shapes {
+    for s in shapes {
         let start = prim_table.len();
         let mut b = BBox::EMPTY;
         for c in &s.contours {
@@ -184,7 +200,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     let mut shape_region: Vec<Option<Arc<Region>>> = vec![None; n];
     let mut occluders: Vec<Occluder> = Vec::new();
     for &i in &order {
-        let s = &input.shapes[i];
+        let s = &shapes[i];
         if s.fill.is_some() && s.closed {
             let region = Arc::new(Region::new(s.contours.clone(), s.winding, s.convex));
             shape_region[i] = Some(region.clone());
@@ -265,7 +281,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
         }
         // Clean: no later occluder overlap, no clips, fully on paper.
         let on_paper = input.paper.map(|p| p.contains_box(b)).unwrap_or(true);
-        if !any_later && input.shapes[i].clips.is_empty() && on_paper {
+        if !any_later && shapes[i].clips.is_empty() && on_paper {
             clean[i] = true;
             stats.clean += 1;
         }
@@ -293,7 +309,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
         if !alive[i] {
             return so;
         }
-        let s = &input.shapes[i];
+        let s = &shapes[i];
         let pen_width =
             |pen: u32| -> f64 { input.pens.get(pen as usize).map(|p| p.width).unwrap_or(0.3) };
         let ctx = ClipCtx {
@@ -437,100 +453,39 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     }
 
     let frags = dedupe_seams(frags, min_pen_width.max(1e-6));
-    // Decimation: seeded per-fragment coin flip AFTER occlusion and cleanup,
-    // so what disappears is final visible ink.
-    let frags: Vec<Frag> = frags
-        .into_iter()
-        .filter(|f| {
-            let shape = &input.shapes[f.shape as usize];
-            let (p0, p1) = outline_range[f.shape as usize];
-            let is_stroke = (f.origin as usize) >= p0 && (f.origin as usize) < p1;
-            let p = if is_stroke {
-                shape.decimate_stroke
-            } else {
-                shape.decimate_fill
-            };
-            if p <= 0.0 {
-                return true;
-            }
-            let mut h = input
-                .seed
-                .wrapping_add((f.shape as u64) << 32)
-                .wrapping_add((f.origin as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15))
-                ^ f.t0.to_bits().rotate_left(17);
-            // splitmix64 finalizer
-            h = h.wrapping_add(0x9E37_79B9_7F4A_7C15);
-            h = (h ^ (h >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            h = (h ^ (h >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-            h ^= h >> 31;
-            (h as f64 / u64::MAX as f64) >= p.min(1.0)
-        })
-        .collect();
-    // Wobble: flatten wobbled shapes' final strokes and displace the
-    // vertices with seeded smooth noise. Post-occlusion by design — the
-    // hidden-line computation stays exact; only the ink trembles.
+    // ---- Post-stage modifiers: each shape's ordered program runs over its
+    // final ink, AFTER occlusion and cleanup, so what a modifier touches is
+    // final visible strokes. One frag at a time through the whole program
+    // preserves global frag order (and therefore plot order).
     let mut frags = frags;
-    if input.shapes.iter().any(|s| s.wobble_amp > 0.0) {
+    let has_post = input
+        .shapes
+        .iter()
+        .any(|s| s.modifiers.iter().any(|m| m.stage() == Stage::Post));
+    if has_post {
+        let mut interp = PostInterp {
+            seed: input.seed,
+            fields: &input.fields,
+            prim_table: &mut prim_table,
+            cur: Vec::new(),
+            next: Vec::new(),
+            pts: Vec::new(),
+            dense: Vec::new(),
+        };
         let mut out: Vec<Frag> = Vec::with_capacity(frags.len());
-        let mut pts: Vec<Vec2> = Vec::new();
-        let mut dense: Vec<Vec2> = Vec::new();
         for f in frags.drain(..) {
-            let s = &input.shapes[f.shape as usize];
-            let amp = s.wobble_amp;
-            if amp <= 0.0 {
+            let si = f.shape as usize;
+            let prog = &shapes[si].modifiers;
+            if prog.iter().all(|m| m.stage() != Stage::Post) {
                 out.push(f);
                 continue;
             }
-            let wl = s.wobble_wavelength.max(1.0);
-            let freq = 1.0 / wl;
-            let jiggle = |p: Vec2| -> Vec2 {
-                v(
-                    p.x + amp * value_noise(input.seed ^ 0x570B_B1E5, p.x * freq, p.y * freq),
-                    p.y + amp * value_noise(input.seed ^ 0x0135_E2A7, p.x * freq, p.y * freq),
-                )
-            };
-            if f.dot {
-                let p = jiggle(f.geom.start());
-                let dotp = Primitive::Line(Line::new(p, p));
-                let origin = prim_table.len() as u32;
-                prim_table.push(dotp);
-                out.push(Frag { origin, t0: 0.0, t1: 1.0, geom: dotp, ..f });
-                continue;
-            }
-            pts.clear();
-            // Flatten for curvature, then resample by arc length: the noise
-            // needs a vertex every ~wl/8 along the stroke, and a straight
-            // span flattens to a single segment that would carry no tremor
-            // between its endpoints.
-            f.geom.flatten(0.02, &mut pts);
-            let step = (wl / 8.0).clamp(0.2, 5.0);
-            dense.clear();
-            for w2 in pts.windows(2) {
-                let (a, b) = (w2[0], w2[1]);
-                let len = (b.x - a.x).hypot(b.y - a.y);
-                let n = (len / step).ceil().max(1.0) as usize;
-                for k in 0..n {
-                    let t = k as f64 / n as f64;
-                    dense.push(v(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
-                }
-            }
-            if let Some(&tail) = pts.last() {
-                dense.push(tail);
-            }
-            for w2 in dense.windows(2) {
-                let a = jiggle(w2[0]);
-                let b = jiggle(w2[1]);
-                let seg = Primitive::Line(Line::new(a, b));
-                let origin = prim_table.len() as u32;
-                prim_table.push(seg);
-                out.push(Frag {
-                    origin,
-                    t0: 0.0,
-                    t1: 1.0,
-                    geom: seg,
-                    ..f.clone()
-                });
-            }
+            // Stroke-vs-fill is a property of the ORIGINAL fragment; a
+            // wobbled segment of an outline is still outline ink even
+            // though its origin now points at a generated primitive.
+            let (p0, p1) = outline_range[si];
+            let is_stroke = (f.origin as usize) >= p0 && (f.origin as usize) < p1;
+            interp.run(f, prog, is_stroke, &mut out);
         }
         frags = out;
     }
@@ -541,6 +496,364 @@ pub fn render(input: &RenderInput) -> RenderOutput {
         frags,
         stats,
     }
+}
+
+/// Post-stage modifier interpreter: threads one fragment through a shape's
+/// program, op by op. Ops may drop the fragment (decimate) or replace it
+/// with many (wobble); generated geometry is appended to the prim table.
+struct PostInterp<'a> {
+    seed: u64,
+    fields: &'a [FieldGrid],
+    prim_table: &'a mut Vec<Primitive>,
+    cur: Vec<Frag>,
+    next: Vec<Frag>,
+    pts: Vec<Vec2>,
+    dense: Vec<Vec2>,
+}
+
+impl PostInterp<'_> {
+    fn run(&mut self, f: Frag, prog: &[Modifier], is_stroke: bool, out: &mut Vec<Frag>) {
+        self.cur.clear();
+        self.cur.push(f);
+        for m in prog {
+            if m.stage() != Stage::Post {
+                continue;
+            }
+            self.next.clear();
+            let mut cur = std::mem::take(&mut self.cur);
+            for f in cur.drain(..) {
+                match m {
+                    Modifier::Decimate { stroke, fill } => {
+                        let p = if is_stroke { stroke } else { fill };
+                        if self.keep_decimated(&f, p) {
+                            self.next.push(f);
+                        }
+                    }
+                    Modifier::Wobble { amp, wavelength } => self.wobble(f, amp, *wavelength),
+                    Modifier::Dash { len, gap } => self.dash(f, *len, *gap),
+                    // Pre-stage ops already ran on the contours.
+                    Modifier::Smooth { .. }
+                    | Modifier::Roughen { .. }
+                    | Modifier::Deform { .. } => unreachable!("pre-stage op in post interpreter"),
+                }
+            }
+            self.cur = cur;
+            std::mem::swap(&mut self.cur, &mut self.next);
+        }
+        out.append(&mut self.cur);
+    }
+
+    /// Seeded per-fragment coin flip; deterministic from the sketch seed.
+    fn keep_decimated(&self, f: &Frag, p: &Param) -> bool {
+        let mid = f.geom.eval(0.5);
+        let p = p.at(self.fields, mid.x, mid.y);
+        if p <= 0.0 {
+            return true;
+        }
+        let mut h = self
+            .seed
+            .wrapping_add((f.shape as u64) << 32)
+            .wrapping_add((f.origin as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15))
+            ^ f.t0.to_bits().rotate_left(17);
+        // splitmix64 finalizer
+        h = h.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        h = (h ^ (h >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        h = (h ^ (h >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        h ^= h >> 31;
+        (h as f64 / u64::MAX as f64) >= p.min(1.0)
+    }
+
+    /// Flatten the fragment's final stroke and displace the vertices with
+    /// seeded smooth noise — hand tremor on the surviving ink.
+    fn wobble(&mut self, f: Frag, amp: &Param, wavelength: f64) {
+        let wl = wavelength.max(1.0);
+        let freq = 1.0 / wl;
+        let seed = self.seed;
+        let fields = self.fields;
+        let jiggle = |p: Vec2| -> Vec2 {
+            let a = amp.at(fields, p.x, p.y);
+            v(
+                p.x + a * value_noise(seed ^ 0x570B_B1E5, p.x * freq, p.y * freq),
+                p.y + a * value_noise(seed ^ 0x0135_E2A7, p.x * freq, p.y * freq),
+            )
+        };
+        if amp.literal().is_some_and(|a| a <= 0.0) {
+            self.next.push(f);
+            return;
+        }
+        if f.dot {
+            let p = jiggle(f.geom.start());
+            let dotp = Primitive::Line(Line::new(p, p));
+            let origin = self.prim_table.len() as u32;
+            self.prim_table.push(dotp);
+            self.next.push(Frag { origin, t0: 0.0, t1: 1.0, geom: dotp, ..f });
+            return;
+        }
+        self.pts.clear();
+        // Flatten for curvature, then resample by arc length: the noise
+        // needs a vertex every ~wl/8 along the stroke, and a straight
+        // span flattens to a single segment that would carry no tremor
+        // between its endpoints.
+        f.geom.flatten(0.02, &mut self.pts);
+        let step = (wl / 8.0).clamp(0.2, 5.0);
+        self.dense.clear();
+        for w2 in self.pts.windows(2) {
+            let (a, b) = (w2[0], w2[1]);
+            let len = (b.x - a.x).hypot(b.y - a.y);
+            let n = (len / step).ceil().max(1.0) as usize;
+            for k in 0..n {
+                let t = k as f64 / n as f64;
+                self.dense.push(v(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+            }
+        }
+        if let Some(&tail) = self.pts.last() {
+            self.dense.push(tail);
+        }
+        for w2 in self.dense.windows(2) {
+            let a = jiggle(w2[0]);
+            let b = jiggle(w2[1]);
+            let seg = Primitive::Line(Line::new(a, b));
+            let origin = self.prim_table.len() as u32;
+            self.prim_table.push(seg);
+            self.next.push(Frag {
+                origin,
+                t0: 0.0,
+                t1: 1.0,
+                geom: seg,
+                ..f.clone()
+            });
+        }
+    }
+}
+
+impl PostInterp<'_> {
+    /// Chop the fragment into dashes by physical length. The cuts are exact
+    /// t-sub-ranges of the original primitive — curves stay curves; the prim
+    /// table does not grow.
+    fn dash(&mut self, f: Frag, len: f64, gap: f64) {
+        if f.dot || len <= 0.0 {
+            self.next.push(f);
+            return;
+        }
+        let total = f.geom.length();
+        if total <= 1e-9 {
+            self.next.push(f);
+            return;
+        }
+        // Arc-length → local-t: lines and arcs are uniform-speed in t; a
+        // cubic gets a sampled cumulative-length table.
+        let table: Option<Vec<f64>> = match f.geom {
+            Primitive::Cubic(_) => {
+                const N: usize = 32;
+                let mut cum = Vec::with_capacity(N + 1);
+                cum.push(0.0);
+                let mut prev = f.geom.start();
+                for k in 1..=N {
+                    let p = f.geom.eval(k as f64 / N as f64);
+                    cum.push(cum[k - 1] + (p.x - prev.x).hypot(p.y - prev.y));
+                    prev = p;
+                }
+                Some(cum)
+            }
+            _ => None,
+        };
+        let t_of = |s: f64| -> f64 {
+            match &table {
+                None => s / total,
+                Some(cum) => {
+                    let target = s / total * cum[cum.len() - 1];
+                    let n = cum.len() - 1;
+                    let i = cum.partition_point(|&c| c < target).clamp(1, n);
+                    let (c0, c1) = (cum[i - 1], cum[i]);
+                    let frac = if c1 > c0 { (target - c0) / (c1 - c0) } else { 0.0 };
+                    ((i - 1) as f64 + frac) / n as f64
+                }
+            }
+        };
+        let period = len + gap.max(0.0);
+        let mut s0 = 0.0;
+        while s0 < total - 1e-9 {
+            let s1 = (s0 + len).min(total);
+            let (ta, tb) = (t_of(s0), t_of(s1));
+            let g0 = f.t0 + ta * (f.t1 - f.t0);
+            let g1 = f.t0 + tb * (f.t1 - f.t0);
+            self.next.push(Frag {
+                origin: f.origin,
+                t0: g0,
+                t1: g1,
+                geom: f.geom.sub(ta, tb),
+                ..f.clone()
+            });
+            s0 += period;
+        }
+    }
+}
+
+// ---- Pre-stage geometry ops -------------------------------------------
+
+/// Apply a shape's pre-stage modifiers to its contours, in program order.
+/// Contours flatten to polylines once (0.05 mm), the ops transform points,
+/// and line primitives are rebuilt at the end. Convexity is conservatively
+/// dropped — deformed geometry makes no promises.
+fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &[FieldGrid]) -> ShapeRec {
+    if !s.modifiers.iter().any(|m| m.stage() == Stage::Pre) {
+        return s.clone();
+    }
+    let closed = s.closed;
+    let mut polys: Vec<Vec<Vec2>> = s
+        .contours
+        .iter()
+        .map(|c| contour_polyline(c, 0.05, closed))
+        .collect();
+    for m in &s.modifiers {
+        match m {
+            Modifier::Smooth { passes } => {
+                for poly in &mut polys {
+                    chaikin(poly, *passes, closed);
+                }
+            }
+            Modifier::Roughen { amp, detail } => {
+                for (ci, poly) in polys.iter_mut().enumerate() {
+                    resample_polyline(poly, detail.max(0.2), closed);
+                    let n = poly.len();
+                    let (lo, hi) = if closed { (0, n) } else { (1, n.saturating_sub(1)) };
+                    for (i, p) in poly.iter_mut().enumerate().take(hi).skip(lo) {
+                        let a = amp.at(fields, p.x, p.y);
+                        if a <= 0.0 {
+                            continue;
+                        }
+                        let key = seed
+                            .wrapping_add((shape_idx as u64) << 40)
+                            .wrapping_add((ci as u64) << 24)
+                            .wrapping_add(i as u64);
+                        let jx = hash01(key.wrapping_mul(2)) * 2.0 - 1.0;
+                        let jy = hash01(key.wrapping_mul(2) + 1) * 2.0 - 1.0;
+                        *p = v(p.x + jx * a, p.y + jy * a);
+                    }
+                }
+            }
+            Modifier::Deform { dx, dy, detail } => {
+                for poly in &mut polys {
+                    resample_polyline(poly, detail.max(0.2), closed);
+                    for p in poly.iter_mut() {
+                        let ox = dx.at(fields, p.x, p.y);
+                        let oy = dy.at(fields, p.x, p.y);
+                        *p = v(p.x + ox, p.y + oy);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let contours: Vec<Vec<Primitive>> = polys
+        .iter()
+        .map(|poly| polyline_prims(poly, closed))
+        .filter(|c| !c.is_empty())
+        .collect();
+    ShapeRec {
+        contours,
+        convex: false,
+        ..s.clone()
+    }
+}
+
+/// Flatten a contour to a polyline. Closed contours arrive with the last
+/// point duplicating the first; drop it so the polyline is cyclic.
+fn contour_polyline(contour: &[Primitive], tol: f64, closed: bool) -> Vec<Vec2> {
+    let mut pts: Vec<Vec2> = Vec::new();
+    let mut buf: Vec<Vec2> = Vec::new();
+    for p in contour {
+        buf.clear();
+        p.flatten(tol, &mut buf);
+        let skip = usize::from(!pts.is_empty());
+        pts.extend(buf.iter().copied().skip(skip));
+    }
+    if closed && pts.len() > 1 {
+        let (a, b) = (pts[0], pts[pts.len() - 1]);
+        if (a.x - b.x).hypot(a.y - b.y) < 1e-9 {
+            pts.pop();
+        }
+    }
+    pts
+}
+
+/// Insert vertices so no edge (including a closed polyline's implicit
+/// closing edge) exceeds `step`.
+fn resample_polyline(poly: &mut Vec<Vec2>, step: f64, closed: bool) {
+    let n = poly.len();
+    if n < 2 {
+        return;
+    }
+    let mut out: Vec<Vec2> = Vec::with_capacity(n * 2);
+    let edges = if closed { n } else { n - 1 };
+    for i in 0..edges {
+        let a = poly[i];
+        let b = poly[(i + 1) % n];
+        let len = (b.x - a.x).hypot(b.y - a.y);
+        let k = (len / step).ceil().max(1.0) as usize;
+        for j in 0..k {
+            let t = j as f64 / k as f64;
+            out.push(v(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+        }
+    }
+    if !closed {
+        out.push(poly[n - 1]);
+    }
+    *poly = out;
+}
+
+/// Chaikin corner cutting; converges to a quadratic B-spline. Open
+/// polylines keep their endpoints.
+fn chaikin(poly: &mut Vec<Vec2>, passes: u32, closed: bool) {
+    for _ in 0..passes {
+        let n = poly.len();
+        if n < 3 {
+            return;
+        }
+        let mut out: Vec<Vec2> = Vec::with_capacity(n * 2);
+        let cut = |a: Vec2, b: Vec2, out: &mut Vec<Vec2>| {
+            out.push(v(a.x * 0.75 + b.x * 0.25, a.y * 0.75 + b.y * 0.25));
+            out.push(v(a.x * 0.25 + b.x * 0.75, a.y * 0.25 + b.y * 0.75));
+        };
+        if closed {
+            for i in 0..n {
+                cut(poly[i], poly[(i + 1) % n], &mut out);
+            }
+        } else {
+            out.push(poly[0]);
+            for i in 0..n - 1 {
+                cut(poly[i], poly[i + 1], &mut out);
+            }
+            out.push(poly[n - 1]);
+        }
+        *poly = out;
+    }
+}
+
+fn polyline_prims(poly: &[Vec2], closed: bool) -> Vec<Primitive> {
+    let n = poly.len();
+    let mut prims = Vec::with_capacity(n);
+    if n < 2 {
+        return prims;
+    }
+    let edges = if closed { n } else { n - 1 };
+    for i in 0..edges {
+        let a = poly[i];
+        let b = poly[(i + 1) % n];
+        if (b.x - a.x).hypot(b.y - a.y) > 1e-9 {
+            prims.push(Primitive::Line(Line::new(a, b)));
+        }
+    }
+    prims
+}
+
+/// splitmix64 finalizer → [0, 1).
+fn hash01(mut h: u64) -> f64 {
+    h = h.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    h = (h ^ (h >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    h = (h ^ (h >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    h ^= h >> 31;
+    h as f64 / (u64::MAX as f64 + 1.0)
 }
 
 /// Seeded smooth 2D value noise in [-1, 1]: hashed lattice + smoothstep

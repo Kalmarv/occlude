@@ -129,10 +129,7 @@ fn to_rec(g: &GenShape) -> ShapeRec {
         },
         z: 0.0,
         clips: vec![],
-                decimate_stroke: 0.0,
-                decimate_fill: 0.0,
-                wobble_amp: 0.0,
-                wobble_wavelength: 25.0,
+                modifiers: Vec::new(),
     }
 }
 
@@ -144,6 +141,7 @@ fn run(shapes: Vec<ShapeRec>) -> occlude_core::pipeline::RenderOutput {
         paper: None,
         seed: 7,
         coarsen: 1.0,
+        fields: Vec::new(),
     })
 }
 
@@ -267,10 +265,7 @@ proptest! {
                 fill: None,
                 z: 0.0,
                 clips: vec![],
-                decimate_stroke: 0.0,
-                decimate_fill: 0.0,
-                wobble_amp: 0.0,
-                wobble_wavelength: 25.0,
+                modifiers: Vec::new(),
             },
             to_rec(&GenShape::Circle { x, y: 0.0, r, filled: true }),
             to_rec(&GenShape::Circle { x, y: r, r: r * 2.0, filled: true }),

@@ -74,8 +74,9 @@ Every shape takes a trailing opts object:
 | `z` | Stacking override; default is tree order. |
 | `mode` | rect only: anchor (x, y) at the `'corner'` (default) or the `'center'` — p5's rectMode, per shape. The config's `rectMode` sets the sketch-wide default. Circles, ellipses and n-gons are always centre-anchored. |
 | `translate`, `rotate`, `scale` | Per-shape transform, identical to wrapping the shape in a `group` with the same op (order within the op: translate → rotate → scale). |
-| `decimate` | Drop this fraction (0…1) of the shape's final visible strokes, after occlusion — seeded, deterministic. A number applies to everything; `{ stroke, fill }` targets outline and fill ink separately (`{ fill: 0.5 }` erodes the texture, keeps the outline crisp). |
-| `wobble` | Hand-tremor: displace the shape's final visible strokes with seeded smooth noise, after occlusion. A length is the amplitude (`wobble: mm(0.8)`); `{ amount, wavelength }` also sets the tremor scale (default wavelength `mm(25)` — smaller = jitterier). |
+| `decimate` | Drop this fraction (0…1) of the shape's final visible strokes, after occlusion — seeded, deterministic. A number applies to everything; `{ stroke, fill }` targets outline and fill ink separately (`{ fill: 0.5 }` erodes the texture, keeps the outline crisp). Accepts a field. |
+| `wobble` | Hand-tremor: displace the shape's final visible strokes with seeded smooth noise, after occlusion. A length is the amplitude (`wobble: mm(0.8)`); `{ amount, wavelength }` also sets the tremor scale (default wavelength `mm(25)` — smaller = jitterier). Amount accepts a field. |
+| `modifiers` | Ordered modifier stack (see **Modifiers**): `{ modifiers: [smooth(2), wobble(mm(1)), decimate(0.2)] }` — entries run first-to-last. |
 
 ```ts
 circle(x, y, r, opts?)
@@ -106,10 +107,7 @@ path({ winding? })
 mask(shape)                    // { ...shape, opaque: true, stroke: false }
 group(opts, ...children)       // transform / pen / z defaults for children
 clip(shape, ...children)       // children restricted to shape's region
-decimate(p, ...children)       // drop p (0…1) of the FINAL visible strokes
-decimate({ fill: p }, ...)     // erode only fill ink; { stroke: p } only outlines
-wobble(amount, ...children)    // hand-tremor on the FINAL visible strokes
-wobble({ amount, wavelength }, ...children)
+modify([...mods], ...children) // ordered modifier stack for the subtree
 ```
 
 - `mask(shape)` occludes and draws **nothing** — the hidden-line renderer's
@@ -120,20 +118,69 @@ wobble({ amount, wavelength }, ...children)
   keep arcs exact; non-uniform scale lowers arcs to cubics.
 - `clip` restricts children to the region; the region itself is not drawn
   and does not occlude. Nested clips intersect.
-- `decimate(p, …)` runs AFTER occlusion and cleanup: the hidden-line result
-  is computed in full, then a seeded fraction of the surviving strokes is
-  deleted — the distressed-plot modifier. Deterministic per sketch seed;
-  also available per shape as `{ decimate: p }` (which overrides the
-  combinator's default).
-- `wobble(amount, …)` also runs AFTER occlusion: hidden-line removal stays
-  exact, then the surviving ink is flattened and each vertex is displaced by
-  seeded smooth noise — straight lines tremble, circles go organic.
-  `amount` is a length (try `mm(0.3)`–`mm(1.5)`); pass
-  `{ amount, wavelength }` to change the tremor scale (default `mm(25)`;
-  shorter wavelength = nervous scribble, longer = lazy drift). Deterministic
-  per sketch seed; per shape as `{ wobble: mm(1) }` or
-  `{ wobble: { amount, wavelength } }`. Composes with `decimate` — decimate
-  deletes first, wobble shakes what's left.
+
+## Modifiers
+
+Every shape carries an ordered **modifier stack**, applied around the
+occlusion solve. The solve is the fixed point: **pre-stage** modifiers
+deform the shape's geometry before it (they change *what is hidden* — the
+modified silhouette occludes, and fills follow it); **post-stage**
+modifiers distress the surviving ink afterwards (the scene is unchanged,
+only the drawing changes). All are seeded and deterministic.
+
+Each modifier is a plain value with a dual form: called bare it returns a
+stack entry; called with children it wraps the subtree.
+
+```ts
+// post-stage: run on the FINAL visible strokes, after occlusion
+decimate(p)                    // drop fraction p (0…1); { stroke, fill } targets ink kinds
+wobble(amount)                 // hand-tremor; { amount, wavelength } sets tremor scale
+dash(len, gap = len)           // chop strokes by physical length — curves stay exact curves
+
+// pre-stage: deform the geometry BEFORE the solve
+smooth(passes = 2)             // Chaikin corner-rounding (→ spline as passes grow)
+roughen(amount, detail?)       // midpoint fracture: jagged edges (vs wobble's smooth tremor)
+deform(vectorField)            // displace geometry by a field — occluded shapes peek through
+
+// stacks
+modify([dash(mm(2)), decimate(0.3)], ...shapes)   // order is authored: first-to-last
+rect(…, { modifiers: [smooth(2), wobble(mm(1))] }) // per shape
+```
+
+Order matters and is yours: `smooth → wobble` reads as a careful hand,
+`wobble → smooth` as lazy flowing ink; two `wobble`s at different
+wavelengths layer into natural hand-drawn line quality; `dash` then
+`decimate` deletes individual dashes (broken, stippled lines) while
+`decimate` then `dash` deletes whole strokes first. Stacks compose in
+function-application order — a shape's own list runs first, then `modify()`
+ancestors inside-out. The `{ decimate }` / `{ wobble }` shorthand opts and
+their combinator forms still work (nearest declaration wins, decimate
+before wobble) and run after any explicit stack.
+
+Pre-stage is the conscious performance choice: wrapped shapes' curves
+flatten into polylines entering the solve, so only they pay for the heavier
+solve. `deform` takes `(x, y) => [dx, dy]` in user units — write your own
+or use `noiseField(amount, wavelength?)` for trembling *forms* (compare
+post-`wobble`, which trembles only the ink and never reveals anything).
+
+### Fields
+
+Any scalar modifier parameter marked "accepts a field" also takes
+`(x, y) => number` — called in user coordinates and rasterised over the
+page at encode time, so the value varies spatially. Deterministic and
+plotter-reproducible; anything goes inside (math, `noise`, image lookups).
+
+```ts
+decimate((x, y) => y / 100, ...shapes)             // dissolves toward the bottom
+wobble({ amount: (x, y) => 2 * noise(x / 30, y / 30) }, ...shapes)
+// halftone: dash chops the hatch, a field erodes it by position
+modify([dash(mm(1.2), mm(0.8)), decimate((x, y) => brightness(x, y))],
+  rect(0, 0, 100, 100, { fill: hatch(45, mm(1.2)) }))
+```
+
+Fielded params: `decimate` probabilities, `wobble` amount, `roughen`
+amount. A field on `{ decimate: { fill } }` over a stipple fill is a
+halftone — image-driven density through composition.
 
 Hidden-line terrain in a few lines:
 

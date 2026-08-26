@@ -42,10 +42,7 @@ fn scene() -> RenderInput {
         fill,
         z,
         clips: vec![],
-                decimate_stroke: 0.0,
-                decimate_fill: 0.0,
-                wobble_amp: 0.0,
-                wobble_wavelength: 25.0,
+                modifiers: Vec::new(),
     };
     RenderInput {
         shapes: vec![
@@ -99,6 +96,7 @@ fn scene() -> RenderInput {
         paper: Some(occlude_core::bbox::BBox::new(v(0., 0.), v(105., 148.))),
         seed: 1234,
         coarsen: 1.0,
+        fields: Vec::new(),
     }
 }
 

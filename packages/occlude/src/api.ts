@@ -22,7 +22,7 @@
 
 import { crosshatch, hatch, stipple, type CustomFillFn, type FillSpec } from './fills.js';
 import { grid as gridCells, type GridCell, type GridOptions } from './layout.js';
-import { Shape, type PathCmd, type ShapeGeom } from './shapes.js';
+import { Shape, type FieldFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
 import {
   bounds, chance, clip as legacyClip, margin, noise, pick, prob, push, rnd,
   sketch as legacySketch, stream, getState,
@@ -53,17 +53,22 @@ export interface ShapeOpts {
    * occlusion and cleanup. Seeded — the distressed-plot modifier. A number
    * applies to everything; { stroke, fill } sets outline and fill ink
    * separately (e.g. { fill: 0.5 } erodes the texture, keeps the outline). */
-  decimate?: number | { stroke?: number; fill?: number };
+  decimate?: number | FieldFn | { stroke?: number | FieldFn; fill?: number | FieldFn };
   /** Hand-tremor: displace final strokes with seeded smooth noise, AFTER
    * occlusion (line quality only). A length (bare units or mm()), or
    * { amount, wavelength } to also set the noise wavelength (default
    * mm(25)). */
-  wobble?: L | { amount: L; wavelength?: L };
+  wobble?: L | FieldFn | { amount: L | FieldFn; wavelength?: L };
   /** Per-shape transform — identical to wrapping the shape in a group. */
   translate?: [L, L];
   /** Degrees; pivots around the user origin. */
   rotate?: number;
   scale?: number | [number, number];
+  /** Ordered modifier stack, applied first-to-last. Stacks compose in
+   * function-application order: this list runs first, then `modify()`
+   * ancestors inside-out; the `decimate`/`wobble` shorthand opts run last,
+   * in that fixed order. */
+  modifiers?: ModifierValue[];
 }
 
 export interface ShapeValue {
@@ -74,9 +79,12 @@ export interface ShapeValue {
 
 export interface GroupOpts {
   /** Decimation default for children that don't set their own. */
-  decimate?: number | { stroke?: number; fill?: number };
+  decimate?: number | FieldFn | { stroke?: number | FieldFn; fill?: number | FieldFn };
   /** Wobble default for children that don't set their own. */
-  wobble?: L | { amount: L; wavelength?: L };
+  wobble?: L | FieldFn | { amount: L | FieldFn; wavelength?: L };
+  /** Modifier stack for the subtree; nesting concatenates in
+   * function-application order — inner stacks run before outer ones. */
+  modifiers?: ModifierValue[];
   translate?: [L, L];
   /** Degrees. */
   rotate?: number;
@@ -243,27 +251,147 @@ export function clip(region: ShapeValue, ...children: Tree[]): ClipValue {
   return { __occludeClip: true, region, children };
 }
 
+const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
+
+type DecimateArg =
+  | number
+  | FieldFn
+  | { stroke?: number | FieldFn; fill?: number | FieldFn };
+type WobbleArg = L | FieldFn | { amount: L | FieldFn; wavelength?: L };
+
+function decimateValue(p: DecimateArg): ModifierValue {
+  const [stroke, fill] =
+    typeof p === 'number' || typeof p === 'function' ? [p, p] : [p.stroke ?? 0, p.fill ?? 0];
+  const c = (v: number | FieldFn): number | FieldFn => (typeof v === 'number' ? clamp01(v) : v);
+  return { __occludeModifier: true, kind: 'decimate', stroke: c(stroke), fill: c(fill) };
+}
+
+function wobbleValue(a: WobbleArg): ModifierValue {
+  if (typeof a === 'object' && !(a instanceof Len) && 'amount' in a) {
+    return { __occludeModifier: true, kind: 'wobble', amount: a.amount, wavelength: a.wavelength };
+  }
+  return { __occludeModifier: true, kind: 'wobble', amount: a };
+}
+
 /**
- * Hand-tremor for the children's final strokes: seeded smooth-noise
- * displacement, applied AFTER occlusion so the hidden-line result is exact
- * and only the ink trembles.
+ * Hand-tremor: seeded smooth-noise displacement of final strokes, applied
+ * AFTER occlusion so the hidden-line result is exact and only the ink
+ * trembles. With children it wraps the subtree; with no children it
+ * returns a modifier value for a `modifiers: [...]` stack.
  */
-export function wobble(
-  amount: L | { amount: L; wavelength?: L },
-  ...children: Tree[]
-): GroupValue {
+export function wobble(amount: WobbleArg): ModifierValue;
+export function wobble(amount: WobbleArg, ...children: [Tree, ...Tree[]]): GroupValue;
+export function wobble(amount: WobbleArg, ...children: Tree[]): GroupValue | ModifierValue {
+  if (children.length === 0) return wobbleValue(amount);
   return { __occludeGroup: true, opts: { wobble: amount }, children };
 }
 
 /**
- * Drop `p` (0…1) of the children's final visible strokes — computed AFTER
- * occlusion, seeded by the sketch seed. The distressed-plot modifier.
+ * Drop `p` (0…1) of the final visible strokes — computed AFTER occlusion,
+ * seeded by the sketch seed. The distressed-plot modifier. With children
+ * it wraps the subtree; with no children it returns a modifier value for a
+ * `modifiers: [...]` stack.
  */
-export function decimate(
-  p: number | { stroke?: number; fill?: number },
-  ...children: Tree[]
-): GroupValue {
+export function decimate(p: DecimateArg): ModifierValue;
+export function decimate(p: DecimateArg, ...children: [Tree, ...Tree[]]): GroupValue;
+export function decimate(p: DecimateArg, ...children: Tree[]): GroupValue | ModifierValue {
+  if (children.length === 0) return decimateValue(p);
   return { __occludeGroup: true, opts: { decimate: p }, children };
+}
+
+const isLen = (v: unknown): v is L => typeof v === 'number' || v instanceof Len;
+
+/**
+ * Chop final strokes into dashes by physical length, AFTER occlusion. The
+ * cuts are exact sub-ranges — curves stay curves. `gap` defaults to `len`.
+ * With children it wraps the subtree; alone it returns a modifier value.
+ */
+export function dash(len: L, gap?: L): ModifierValue;
+export function dash(len: L, gap: L, ...children: [Tree, ...Tree[]]): GroupValue;
+export function dash(len: L, gap?: L, ...children: Tree[]): GroupValue | ModifierValue {
+  const value: ModifierValue = { __occludeModifier: true, kind: 'dash', len, gap: gap ?? len };
+  if (children.length === 0) return value;
+  return { __occludeGroup: true, opts: { modifiers: [value] }, children };
+}
+
+/**
+ * Chaikin corner-rounding on the shape's geometry, BEFORE occlusion — the
+ * smoothed outline is what occludes. Each pass rounds every corner; a few
+ * passes approach a spline. Curves flatten to polylines here.
+ */
+export function smooth(passes?: number): ModifierValue;
+export function smooth(passes: number, ...children: [Tree, ...Tree[]]): GroupValue;
+export function smooth(passes = 2, ...children: Tree[]): GroupValue | ModifierValue {
+  const value: ModifierValue = { __occludeModifier: true, kind: 'smooth', passes };
+  if (children.length === 0) return value;
+  return { __occludeGroup: true, opts: { modifiers: [value] }, children };
+}
+
+/**
+ * Midpoint-displacement fracture, BEFORE occlusion: contours are resampled
+ * at `detail` spacing (default mm(1.5)) and vertices jittered by up to
+ * `amount` — jagged edges (coastlines, stone), vs wobble's smooth tremor.
+ */
+export function roughen(amount: L | FieldFn, detail?: L): ModifierValue;
+export function roughen(
+  amount: L | FieldFn,
+  detail: L | undefined,
+  ...children: [Tree, ...Tree[]]
+): GroupValue;
+export function roughen(
+  amount: L | FieldFn,
+  detail?: L,
+  ...children: Tree[]
+): GroupValue | ModifierValue {
+  const value: ModifierValue = { __occludeModifier: true, kind: 'roughen', amount, detail };
+  if (children.length === 0) return value;
+  return { __occludeGroup: true, opts: { modifiers: [value] }, children };
+}
+
+/**
+ * Displace shape geometry by a vector field, BEFORE occlusion — the
+ * deformed silhouette is what hides things (occluded shapes peek through).
+ * The conscious-choice stage: wrapped shapes' curves shatter into
+ * polylines entering the solve, and only they pay for it. Pass
+ * `{ field, detail }` to control the resampling step (default mm(2)).
+ */
+export function deform(
+  field: VectorFieldFn | { field: VectorFieldFn; detail?: L },
+): ModifierValue;
+export function deform(
+  field: VectorFieldFn | { field: VectorFieldFn; detail?: L },
+  ...children: [Tree, ...Tree[]]
+): GroupValue;
+export function deform(
+  field: VectorFieldFn | { field: VectorFieldFn; detail?: L },
+  ...children: Tree[]
+): GroupValue | ModifierValue {
+  const cfg = typeof field === 'function' ? { field } : field;
+  const value: ModifierValue = {
+    __occludeModifier: true, kind: 'deform', field: cfg.field, detail: cfg.detail,
+  };
+  if (children.length === 0) return value;
+  return { __occludeGroup: true, opts: { modifiers: [value] }, children };
+}
+
+/**
+ * A ready-made tremor vector field for `deform`: seeded simplex noise,
+ * `amount` and `wavelength` in user units.
+ */
+export function noiseField(amount: number, wavelength = 25): VectorFieldFn {
+  return (x, y) => [
+    amount * noise(x / wavelength, y / wavelength),
+    amount * noise(x / wavelength + 213.7, y / wavelength - 118.3),
+  ];
+}
+
+/**
+ * Apply an ordered modifier stack to the subtree: `modify([smooth(2),
+ * wobble(mm(1)), decimate(0.2)], ...shapes)` — entries run first-to-last
+ * on each shape's final program; nested stacks compose inner-first.
+ */
+export function modify(mods: ModifierValue[], ...children: Tree[]): GroupValue {
+  return { __occludeGroup: true, opts: { modifiers: mods }, children };
 }
 
 /** Occludes everything beneath it and draws nothing at all. */
@@ -331,6 +459,12 @@ export interface Toolkit {
   mask: typeof mask;
   decimate: typeof decimate;
   wobble: typeof wobble;
+  modify: typeof modify;
+  dash: typeof dash;
+  smooth: typeof smooth;
+  roughen: typeof roughen;
+  deform: typeof deform;
+  noiseField: typeof noiseField;
   hatch: typeof hatch;
   crosshatch: typeof crosshatch;
   stipple: typeof stipple;
@@ -388,7 +522,8 @@ export function sketch(
 }
 
 const TOOLKIT_BASE = {
-  circle, ellipse, rect, line, polygon, path, group, clip, mask, decimate, wobble,
+  circle, ellipse, rect, line, polygon, path, group, clip, mask, decimate, wobble, modify,
+  dash, smooth, roughen, deform, noiseField,
   hatch, crosshatch, stipple,
   rnd, pick, chance, prob, noise, stream,
   map: mapRange, norm: normRange, invert: invertRange,
@@ -400,8 +535,10 @@ const TOOLKIT_BASE = {
 interface EmitCtx {
   pen: string | undefined;
   z: number | undefined;
-  decimate: number | { stroke?: number; fill?: number } | undefined;
-  wobble: L | { amount: L; wavelength?: L } | undefined;
+  decimate: DecimateArg | undefined;
+  wobble: WobbleArg | undefined;
+  /** Inherited modifier stack, deepest ancestors first. */
+  modifiers: ModifierValue[];
 }
 
 /**
@@ -431,7 +568,7 @@ export function compileSketch(
     cy: b.cy,
   };
   const tree = def.fn(toolkit);
-  emit(tree, { pen: cfg.pen, z: undefined, decimate: undefined, wobble: undefined });
+  emit(tree, { pen: cfg.pen, z: undefined, decimate: undefined, wobble: undefined, modifiers: [] });
 }
 
 function emit(tree: Tree, ctx: EmitCtx): void {
@@ -440,6 +577,13 @@ function emit(tree: Tree, ctx: EmitCtx): void {
     for (const child of tree) emit(child, ctx);
     return;
   }
+  if ((tree as unknown as ModifierValue).__occludeModifier) {
+    const m = tree as unknown as ModifierValue;
+    throw new Error(
+      `${m.kind}(…) with no children is a modifier value, not a drawable — ` +
+        `wrap shapes (${m.kind}(…, ...shapes)) or pass it via { modifiers: [...] } / modify()`,
+    );
+  }
   if ((tree as GroupValue).__occludeGroup) {
     const g = tree as GroupValue;
     const inner: EmitCtx = {
@@ -447,6 +591,8 @@ function emit(tree: Tree, ctx: EmitCtx): void {
       z: g.opts.z ?? ctx.z,
       decimate: g.opts.decimate ?? ctx.decimate,
       wobble: g.opts.wobble ?? ctx.wobble,
+      // Function-application order: deeper stacks run before shallower.
+      modifiers: g.opts.modifiers ? [...g.opts.modifiers, ...ctx.modifiers] : ctx.modifiers,
     };
     const { translate, rotate, scale } = g.opts;
     if (translate || rotate !== undefined || scale !== undefined) {
@@ -490,24 +636,14 @@ function emitShape(sv: ShapeValue, ctx: EmitCtx): void {
   }
   const z = o.z ?? ctx.z;
   if (z !== undefined) sh.z(z);
+  // The shape's final program, function-application order: own stack, then
+  // inherited modify() stacks inside-out, then the legacy kind-keyed
+  // shorthand (decimate before wobble — the old fixed pipeline order; the
+  // nearest declaration overrides, exactly as before).
+  const program: ModifierValue[] = [...(o.modifiers ?? []), ...ctx.modifiers];
   const dec = o.decimate ?? ctx.decimate;
-  if (dec !== undefined) {
-    const clamp = (v: number): number => Math.min(1, Math.max(0, v));
-    if (typeof dec === 'number') {
-      sh.decimateStroke = clamp(dec);
-      sh.decimateFill = clamp(dec);
-    } else {
-      sh.decimateStroke = clamp(dec.stroke ?? 0);
-      sh.decimateFill = clamp(dec.fill ?? 0);
-    }
-  }
+  if (dec !== undefined) program.push(decimateValue(dec));
   const wob = o.wobble ?? ctx.wobble;
-  if (wob !== undefined) {
-    if (typeof wob === 'object' && !(wob instanceof Len) && 'amount' in wob) {
-      sh.wobbleAmp = wob.amount;
-      sh.wobbleWavelength = wob.wavelength;
-    } else {
-      sh.wobbleAmp = wob;
-    }
-  }
+  if (wob !== undefined) program.push(wobbleValue(wob));
+  sh.modifiers = program;
 }

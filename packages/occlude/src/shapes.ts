@@ -15,6 +15,53 @@ export type PathCmd =
   | { op: 'arc'; x: L; y: L; r: L }
   | { op: 'close' };
 
+/**
+ * A field: a scalar that varies over the page. Called with user coordinates
+ * (the same bare units the sketch draws in) at encode time and rasterised —
+ * any parameter that accepts one samples it by position instead of using
+ * one constant everywhere.
+ */
+export type FieldFn = (x: number, y: number) => number;
+
+/**
+ * A vector field: a displacement (in user units) that varies over the page.
+ * Drives `deform` — sampled at encode time in user coordinates.
+ */
+export type VectorFieldFn = (x: number, y: number) => [number, number];
+
+/**
+ * One entry of a shape's modifier stack — a plain value made by the
+ * modifier constructors (`decimate(p)`, `wobble(amt)`, …). Post-stage
+ * entries run over the shape's final ink after occlusion, in stack order.
+ */
+export type ModifierValue =
+  | {
+      readonly __occludeModifier: true;
+      readonly kind: 'decimate';
+      stroke: number | FieldFn;
+      fill: number | FieldFn;
+    }
+  | {
+      readonly __occludeModifier: true;
+      readonly kind: 'wobble';
+      amount: L | FieldFn;
+      wavelength?: L;
+    }
+  | { readonly __occludeModifier: true; readonly kind: 'dash'; len: L; gap: L }
+  | { readonly __occludeModifier: true; readonly kind: 'smooth'; passes: number }
+  | {
+      readonly __occludeModifier: true;
+      readonly kind: 'roughen';
+      amount: L | FieldFn;
+      detail?: L;
+    }
+  | {
+      readonly __occludeModifier: true;
+      readonly kind: 'deform';
+      field: VectorFieldFn;
+      detail?: L;
+    };
+
 export type ShapeGeom =
   | { kind: 'circle'; x: L; y: L; r: L }
   | { kind: 'ellipse'; x: L; y: L; rx: L; ry: L; rotation: number }
@@ -34,13 +81,8 @@ export class Shape {
   fillSpec: FillSpec | null = null;
   fillPen: string | null = null;
   zIndex: number;
-  /** Post-occlusion fragment drop probability for outline strokes. */
-  decimateStroke = 0;
-  /** Post-occlusion fragment drop probability for fill ink. */
-  decimateFill = 0;
-  /** Hand-tremor amplitude (L; 0 = off) and noise wavelength (L). */
-  wobbleAmp: import('./units.js').L = 0;
-  wobbleWavelength: import('./units.js').L | undefined;
+  /** Ordered modifier stack; post-stage entries run after occlusion. */
+  modifiers: ModifierValue[] = [];
   /** Draw order index — the z tiebreak and default z. */
   readonly order: number;
 

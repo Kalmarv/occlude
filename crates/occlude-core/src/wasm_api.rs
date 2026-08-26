@@ -11,9 +11,10 @@
 //!
 //! `contours: Uint32Array`, stride 2: [prim_start, prim_count]
 //!
-//! `shapes_u32: Uint32Array`, stride 10:
+//! `shapes_u32: Uint32Array`, stride 12:
 //!   [contour_start, contour_count, flags, stroke_pen+1, fill_pen+1,
-//!    fill_kind, clip_start, clip_count, fill_start, fill_count]
+//!    fill_kind, clip_start, clip_count, fill_start, fill_count,
+//!    mod_start, mod_count]
 //!   flags: bit0 closed, bit1 convex, bit2 even-odd winding
 //!   fill_kind: 0 none, 1 hatch, 2 stipple, 3 custom
 //!   hatch:   fill params = fill_count triplets (angle°, spacing, offset)
@@ -21,9 +22,27 @@
 //!   stipple: fill params = (density, min_dist)
 //!   custom:  [fill_start, fill_start+fill_count) is a range of PRIMS
 //!            (custom fill geometry recorded straight into the prim table)
+//!   mod_start/mod_count: this shape's modifier program — mod_count
+//!            instructions starting at f64 offset mod_start in `mods`.
 //!
-//! `shapes_f64: Float64Array`, stride 5:
-//!   [z, decimate_stroke, decimate_fill, wobble_amp, wobble_wavelength]
+//! `shapes_f64: Float64Array`, stride 1: [z]
+//!
+//! `mods: Float64Array` — the modifier tape. Each instruction is
+//!   [opcode, field_mask, ...params] with a fixed param count per opcode;
+//!   field_mask bit k set means param k is an index into `fields` instead
+//!   of a literal. Opcodes (post-stage):
+//!     1 decimate: params [stroke_p, fill_p]
+//!     2 wobble:   params [amp_mm, wavelength_mm] (wavelength never a field)
+//!     3 dash:     params [len_mm, gap_mm]
+//!   Opcodes (pre-stage — deform contours before the solve):
+//!     4 smooth:   params [passes]
+//!     5 roughen:  params [amp_mm, detail_mm]
+//!     6 deform:   params [dx_field, dy_field, detail_mm] (dx/dy always
+//!                 field refs; mask bits 0 and 1 must be set)
+//!
+//! `fields: Float64Array` — rasterised scalar fields, concatenated:
+//!   each field is [w, h, x0, y0, dx, dy, ...w*h row-major samples] in
+//!   paper mm; `Param::Field(i)` refers to the i-th field in order.
 //!
 //! `clip_list: Uint32Array`: clip region indices, sliced per shape by
 //!   clip_start/clip_count.
@@ -38,6 +57,7 @@
 use crate::bbox::BBox;
 use crate::fill::{FillKind, HatchPass};
 use crate::gcode::{export_gcode, MachineProfile};
+use crate::modifier::{FieldGrid, Modifier, Param};
 use crate::pipeline::{render, ClipDef, Pen, RenderInput, ShapeRec};
 use crate::primitive::{Arc, Cubic, Line, Primitive};
 use crate::region::WindingRule;
@@ -47,7 +67,90 @@ use wasm_bindgen::prelude::*;
 
 pub const PRIM_STRIDE: usize = 9;
 pub const FRAG_STRIDE: usize = 6;
-pub const SHAPE_U32_STRIDE: usize = 10;
+pub const SHAPE_U32_STRIDE: usize = 12;
+
+/// Decode one shape's modifier program from the tape. Fails loudly on an
+/// unknown opcode — a positional misread must never render as garbage.
+fn decode_modifiers(mods: &[f64], start: usize, count: usize) -> Result<Vec<Modifier>, String> {
+    let mut out = Vec::with_capacity(count);
+    let mut i = start;
+    for _ in 0..count {
+        let op = *mods.get(i).ok_or("modifier tape truncated")? as u32;
+        let mask = *mods.get(i + 1).ok_or("modifier tape truncated")? as u32;
+        let nparams = match op {
+            1 | 2 | 3 | 5 => 2,
+            4 => 1,
+            6 => 3,
+            _ => return Err(format!("unknown modifier opcode {op}")),
+        };
+        let param = |k: usize| -> Result<Param, String> {
+            let raw = *mods.get(i + 2 + k).ok_or("modifier tape truncated")?;
+            Ok(if mask & (1 << k) != 0 {
+                Param::Field(raw as u32)
+            } else {
+                Param::Lit(raw)
+            })
+        };
+        let lit = |k: usize, what: &str| -> Result<f64, String> {
+            param(k)?.literal().ok_or(format!("{what} cannot be a field"))
+        };
+        out.push(match op {
+            1 => Modifier::Decimate {
+                stroke: param(0)?,
+                fill: param(1)?,
+            },
+            2 => Modifier::Wobble {
+                amp: param(0)?,
+                wavelength: lit(1, "wobble wavelength")?,
+            },
+            3 => Modifier::Dash {
+                len: lit(0, "dash length")?,
+                gap: lit(1, "dash gap")?,
+            },
+            4 => Modifier::Smooth {
+                passes: lit(0, "smooth passes")? as u32,
+            },
+            5 => Modifier::Roughen {
+                amp: param(0)?,
+                detail: lit(1, "roughen detail")?,
+            },
+            _ => Modifier::Deform {
+                dx: param(0)?,
+                dy: param(1)?,
+                detail: lit(2, "deform detail")?,
+            },
+        });
+        i += 2 + nparams;
+    }
+    Ok(out)
+}
+
+/// Decode the concatenated field rasters buffer.
+fn decode_fields(fields: &[f64]) -> Result<Vec<FieldGrid>, String> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < fields.len() {
+        if i + 6 > fields.len() {
+            return Err("field buffer truncated".into());
+        }
+        let (w, h) = (fields[i] as usize, fields[i + 1] as usize);
+        let n = w * h;
+        if i + 6 + n > fields.len() {
+            return Err("field samples truncated".into());
+        }
+        out.push(FieldGrid {
+            w,
+            h,
+            x0: fields[i + 2],
+            y0: fields[i + 3],
+            dx: fields[i + 4],
+            dy: fields[i + 5],
+            samples: fields[i + 6..i + 6 + n].to_vec(),
+        });
+        i += 6 + n;
+    }
+    Ok(out)
+}
 
 fn decode_prim(row: &[f64]) -> Primitive {
     match row[0] as u32 {
@@ -127,6 +230,8 @@ pub fn wasm_render(
     contours: &[u32],
     shapes_u32: &[u32],
     shapes_f64: &[f64],
+    mods: &[f64],
+    field_data: &[f64],
     fill_params: &[f64],
     clip_list: &[u32],
     clips_u32: &[u32],
@@ -138,6 +243,7 @@ pub fn wasm_render(
     let table = decode_prims(prims);
     let pens: Vec<Pen> = serde_json::from_str(pens_json)
         .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
+    let fields = decode_fields(field_data).map_err(|e| JsValue::from_str(&e))?;
 
     let n = shapes_u32.len() / SHAPE_U32_STRIDE;
     let mut shapes = Vec::with_capacity(n);
@@ -191,12 +297,10 @@ pub fn wasm_render(
             winding,
             stroke: if s[3] > 0 { Some(s[3] - 1) } else { None },
             fill,
-            z: shapes_f64[i * 5],
+            z: shapes_f64[i],
             clips: clip_list[s[6] as usize..(s[6] + s[7]) as usize].to_vec(),
-            decimate_stroke: shapes_f64[i * 5 + 1],
-            decimate_fill: shapes_f64[i * 5 + 2],
-            wobble_amp: shapes_f64[i * 5 + 3],
-            wobble_wavelength: shapes_f64[i * 5 + 4],
+            modifiers: decode_modifiers(mods, s[10] as usize, s[11] as usize)
+                .map_err(|e| JsValue::from_str(&e))?,
         });
     }
 
@@ -226,6 +330,7 @@ pub fn wasm_render(
         paper: paper_box,
         seed: seed as u64,
         coarsen,
+        fields,
     });
 
     let mut prims_out = Vec::with_capacity(out.prims.len() * PRIM_STRIDE);

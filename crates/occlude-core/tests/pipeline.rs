@@ -35,10 +35,7 @@ fn stroke_shape(contours: Vec<Vec<Primitive>>, closed: bool) -> ShapeRec {
         fill: None,
         z: 0.0,
         clips: vec![],
-                decimate_stroke: 0.0,
-                decimate_fill: 0.0,
-                wobble_amp: 0.0,
-                wobble_wavelength: 25.0,
+                modifiers: Vec::new(),
     }
 }
 
@@ -52,10 +49,7 @@ fn filled_shape(contours: Vec<Vec<Primitive>>, kind: FillKind) -> ShapeRec {
         fill: Some((0, kind)),
         z: 0.0,
         clips: vec![],
-                decimate_stroke: 0.0,
-                decimate_fill: 0.0,
-                wobble_amp: 0.0,
-                wobble_wavelength: 25.0,
+                modifiers: Vec::new(),
     }
 }
 
@@ -75,6 +69,7 @@ fn input(shapes: Vec<ShapeRec>) -> RenderInput {
         paper: None,
         seed: 42,
         coarsen: 1.0,
+        fields: Vec::new(),
     }
 }
 

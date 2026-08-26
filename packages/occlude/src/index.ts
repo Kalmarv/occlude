@@ -19,12 +19,14 @@
 export {
   sketch, compileSketch, isSketch,
   circle, ellipse, rect, line, polygon, path, PathValue,
-  group, clip, mask, decimate, wobble, times, range,
+  group, clip, mask, decimate, wobble, modify, dash, smooth, roughen, deform, noiseField,
+  times, range,
 } from './api.js';
 export type {
   SketchDef, SketchConfig, Toolkit, Tree,
   ShapeValue, ShapeOpts, GroupValue, GroupOpts, ClipValue,
 } from './api.js';
+export type { ModifierValue, FieldFn, VectorFieldFn } from './shapes.js';
 
 // Fills are already pure specs.
 export { hatch, crosshatch, stipple, customFill } from './fills.js';

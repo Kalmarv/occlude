@@ -95,6 +95,28 @@ function userFrameMatrix(frame: Frame): Mat {
   return m;
 }
 
+/**
+ * Inverse of the user→paper mapping (frame origin/yUp, no transform chain):
+ * paper mm → user coordinates in bare units. Used to sample field functions
+ * over the page in the coordinates the sketch was written in.
+ */
+export function paperToUser(frame: Frame): (x: number, y: number) => [number, number] {
+  const { innerW, innerH } = frame.inner;
+  const unit = Math.min(innerW, innerH) / 100;
+  return (px, py) => {
+    let lx = px - frame.offsetX;
+    let ly = py - frame.offsetY;
+    if (frame.origin === 'center') {
+      lx -= innerW / 2;
+      ly -= innerH / 2;
+    } else if (frame.yUp) {
+      ly -= innerH;
+    }
+    if (frame.yUp) ly = -ly;
+    return [lx / unit, ly / unit];
+  };
+}
+
 function composeChain(chain: TransformOp[], rz: Resolver): Mat {
   let m = IDENTITY;
   for (const op of chain) {

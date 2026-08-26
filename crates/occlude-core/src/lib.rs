@@ -22,5 +22,6 @@ pub mod snap;
 pub mod svg;
 pub mod vec2;
 
+pub mod modifier;
 #[cfg(feature = "wasm")]
 pub mod wasm_api;

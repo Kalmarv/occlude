@@ -541,3 +541,167 @@ describe('wobble', () => {
     expect(inkLen).toBeLessThan(115);
   });
 });
+
+describe('modifier stack', () => {
+  it('modify() applies an ordered stack; order is authored', async () => {
+    const { modify, decimate, wobble, times } = await import('../src/index.js');
+    const lines = () => times(20, (_, t) => line(5, 5 + t * 90, 95, 5 + t * 90));
+    // wobble → decimate deletes individual segments: many short survivors.
+    const wd = sq(sketch({ seed: 9 }, () => modify([wobble(mm(1)), decimate(0.5)], lines())));
+    // decimate → wobble deletes whole strokes first: segment count is a
+    // multiple of surviving lines. Same ink budget, different structure.
+    const dw = sq(sketch({ seed: 9 }, () => modify([decimate(0.5), wobble(mm(1))], lines())));
+    expect(wd.frags.length).toBeGreaterThan(50);
+    expect(dw.frags.length).toBeGreaterThan(50);
+    expect(wd.frags.length).not.toBe(dw.frags.length);
+    // decimate(1) at the end of any stack deletes everything.
+    const gone = sq(sketch({ seed: 9 }, () => modify([wobble(mm(1)), decimate(1)], lines())));
+    expect(gone.frags.length).toBe(0);
+  });
+
+  it('stacks concatenate through nesting, inner-first; repetition works', async () => {
+    const { modify, wobble } = await import('../src/index.js');
+    // Two wobbles at different wavelengths layer (multi-octave tremor).
+    const layered = sq(sketch({ seed: 3 }, () =>
+      modify([wobble({ amount: mm(1), wavelength: mm(40) })],
+        modify([wobble({ amount: mm(0.3), wavelength: mm(5) })],
+          line(10, 50, 90, 50)))));
+    expect(layered.frags.length).toBeGreaterThan(40);
+    // Nested modify with per-shape modifiers also composes.
+    const perShape = sq(sketch({ seed: 3 }, () =>
+      modify([wobble(mm(0.5))],
+        line(10, 20, 90, 20, { modifiers: [wobble(mm(0.5))] }))));
+    expect(perShape.frags.length).toBeGreaterThan(20);
+  });
+
+  it('rejects a bare modifier value in the tree with a helpful error', async () => {
+    const { decimate } = await import('../src/index.js');
+    const bad = sketch({ seed: 1 }, () => [decimate(0.5) as never, line(0, 0, 10, 10)]);
+    expect(() => sq(bad)).toThrow(/modifier value/);
+  });
+});
+
+describe('fields', () => {
+  it('field-driven decimate varies over the page', async () => {
+    const { decimate, times } = await import('../src/index.js');
+    // Dissolve toward the bottom: p = y/100 (top row y=5 → ~0, bottom → ~0.95).
+    const out = sq(sketch({ seed: 11 }, () =>
+      decimate((_x, y) => y / 100, times(40, (_, t) => line(5, 2 + t * 96, 95, 2 + t * 96)))));
+    const yOf = (f: (typeof out.frags)[number]): number =>
+      (f.geom as Extract<Prim, { t: 'line' }>).y0;
+    const top = out.frags.filter((f) => yOf(f) < 60).length;    // user y < 30
+    const bottom = out.frags.filter((f) => yOf(f) > 160).length; // user y > 80
+    expect(top).toBeGreaterThan(8);
+    expect(bottom).toBeLessThan(top / 2);
+  });
+
+  it('field-driven wobble amplitude varies over the page', async () => {
+    const { wobble } = await import('../src/index.js');
+    // Calm left half, wild right half.
+    const out = sq(sketch({ seed: 4 }, () =>
+      wobble({ amount: (x) => (x < 50 ? 0 : 3), wavelength: mm(10) },
+        line(5, 50, 95, 50))));
+    let devLeft = 0;
+    let devRight = 0;
+    for (const f of out.frags) {
+      for (const t of [0, 1]) {
+        const [px, py] = evalPrim(f.geom, t);
+        const dev = Math.abs(py - 100);
+        if (px < 80) devLeft = Math.max(devLeft, dev);
+        if (px > 120) devRight = Math.max(devRight, dev);
+      }
+    }
+    expect(devLeft).toBeLessThan(0.5);
+    expect(devRight).toBeGreaterThan(1);
+  });
+
+  it('one field function rasterises once and is shared across shapes', async () => {
+    const { encodeScene, compileSketch, times } = await import('../src/index.js');
+    const f = (_x: number, y: number): number => y / 100;
+    const def = sketch({ seed: 1 }, () =>
+      times(10, (k) => line(0, k * 10, 100, k * 10, { decimate: f })));
+    compileSketch(def);
+    const scene = encodeScene({ paper: 'Square20' });
+    // One raster header (w,h,x0,y0,dx,dy) + samples — not ten.
+    const w = scene.fieldData[0];
+    const h = scene.fieldData[1];
+    expect(scene.fieldData.length).toBe(6 + w * h);
+  });
+});
+
+describe('phase-3 modifiers', () => {
+  it('dash chops final strokes by physical length, curves stay curves', async () => {
+    const { dash } = await import('../src/index.js');
+    const out = sq(sketch({ seed: 2 }, () => dash(mm(4), mm(4), line(0, 50, 100, 50))));
+    // 200mm line → 8mm period → 25 dashes of ~4mm.
+    expect(out.frags.length).toBe(25);
+    expect(totalLen(out.frags)).toBeGreaterThan(90);
+    expect(totalLen(out.frags)).toBeLessThan(105);
+    // A dashed circle stays made of exact arcs.
+    const c = sq(sketch({ seed: 2 }, () => dash(mm(3), mm(3), circle(50, 50, 30))));
+    expect(c.frags.length).toBeGreaterThan(10);
+    expect(c.frags.every((f) => f.geom.t === 'arc')).toBe(true);
+  });
+
+  it('smooth rounds corners before the solve (perimeter shrinks)', async () => {
+    const { smooth } = await import('../src/index.js');
+    const sharp = sq(sketch({ seed: 2 }, () => rect(20, 20, 60, 60)));
+    const smoothed = sq(sketch({ seed: 2 }, () => smooth(3, rect(20, 20, 60, 60))));
+    const lenSharp = totalLen(sharp.frags);
+    const lenSmooth = totalLen(smoothed.frags);
+    expect(lenSmooth).toBeLessThan(lenSharp - 5); // corner cutting shrinks
+    expect(lenSmooth).toBeGreaterThan(lenSharp * 0.8);
+  });
+
+  it('roughen fractures edges deterministically, bounded by amplitude', async () => {
+    const { roughen } = await import('../src/index.js');
+    const make = () => sketch({ seed: 8 }, () => roughen(mm(1.2), mm(2), rect(20, 20, 60, 60)));
+    const out = sq(make());
+    expect(out.frags.length).toBeGreaterThan(50);
+    let maxDev = 0;
+    for (const f of out.frags) {
+      const g = f.geom as Extract<Prim, { t: 'line' }>;
+      for (const [x, y] of [[g.x0, g.y0], [g.x1, g.y1]]) {
+        // distance outside the crisp rect (40..160 mm square)
+        const dx = Math.max(40 - x, x - 160, 0);
+        const dy = Math.max(40 - y, y - 160, 0);
+        maxDev = Math.max(maxDev, Math.hypot(dx, dy));
+      }
+    }
+    expect(maxDev).toBeGreaterThan(0.2);
+    expect(maxDev).toBeLessThan(1.3);
+    expect(sq(make()).frags.length).toBe(out.frags.length);
+  });
+
+  it('deform changes occlusion (pre-solve); wobble does not', async () => {
+    const { deform, wobble, noiseField } = await import('../src/index.js');
+    const behind = (def: SketchDef): number =>
+      totalLen(sq(def).frags.filter((f) => f.shape === 0));
+    // Crisp circle r=15 hides exactly its diameter of the line.
+    const crisp = behind(sketch({ seed: 6 }, () => [
+      line(0, 50, 100, 50), circle(50, 50, 15, { opaque: true }),
+    ]));
+    expect(crisp).toBeCloseTo(200 - 60, 3);
+    // Post-wobble: trembling ink, same hidden span.
+    const wob = behind(sketch({ seed: 6 }, () => [
+      line(0, 50, 100, 50), wobble(mm(2), circle(50, 50, 15, { opaque: true })),
+    ]));
+    expect(wob).toBeCloseTo(crisp, 3);
+    // Pre-deform: the deformed silhouette is what hides.
+    const def = behind(sketch({ seed: 6 }, ({ }) => [
+      line(0, 50, 100, 50),
+      deform(noiseField(3, 20), circle(50, 50, 15, { opaque: true })),
+    ]));
+    expect(Math.abs(def - crisp)).toBeGreaterThan(0.5);
+    // The line itself stays perfectly straight — only the occluder deformed.
+    const outD = sq(sketch({ seed: 6 }, () => [
+      line(0, 50, 100, 50),
+      deform(noiseField(3, 20), circle(50, 50, 15, { opaque: true })),
+    ]));
+    for (const f of outD.frags.filter((f) => f.shape === 0)) {
+      const g = f.geom as Extract<Prim, { t: 'line' }>;
+      expect(g.y0).toBeCloseTo(100, 6);
+      expect(g.y1).toBeCloseTo(100, 6);
+    }
+  });
+});
