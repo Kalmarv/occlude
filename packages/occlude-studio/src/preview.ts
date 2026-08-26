@@ -124,16 +124,8 @@ export class Preview {
       px = c.pts[c.pts.length - 2];
       py = c.pts[c.pts.length - 1];
     }
-    // Offscreen accumulation layer in paper space.
-    const { w, h } = this.result.paper;
-    const pxPerMm = Math.min(8, 4096 / Math.max(w, h));
-    const layer = document.createElement('canvas');
-    layer.width = Math.ceil(w * pxPerMm);
-    layer.height = Math.ceil(h * pxPerMm);
-    const lctx = layer.getContext('2d')!;
-    lctx.scale(pxPerMm, pxPerMm);
-    lctx.lineCap = 'round';
-    lctx.lineJoin = 'round';
+    // Offscreen accumulation layer in paper space — resolution follows the
+    // current zoom (see rebuildLayer) so committed ink stays crisp.
     this.sim = {
       chains, pens, chainStart, chainDur,
       totalSeconds: t,
@@ -141,11 +133,45 @@ export class Preview {
       lastFrame: performance.now(),
       speed,
       committed: 0,
-      layer, lctx, pxPerMm,
+      layer: document.createElement('canvas'),
+      lctx: null as unknown as CanvasRenderingContext2D,
+      pxPerMm: 0,
       raf: 0,
       onProgress, onDone,
     };
+    this.rebuildLayer(this.desiredPxPerMm());
     this.tick();
+  }
+
+  /** Layer resolution the current zoom deserves: enough px/mm to match the
+   * screen (dpr-aware), bounded by a total-pixel budget so an A3 sheet at
+   * high zoom can't allocate a monster canvas. */
+  private desiredPxPerMm(): number {
+    const { w, h } = this.result!.paper;
+    const dpr = window.devicePixelRatio || 1;
+    const areaCap = Math.sqrt(16e6 / (w * h)); // ≤ ~16M px total
+    return Math.max(2, Math.min(this.scale * dpr, 24, areaCap));
+  }
+
+  /** (Re)create the accumulation layer at `pxPerMm` and replay the chains
+   * committed so far. Called once per plot start and again when the zoom
+   * moves far enough that the old raster would show. */
+  private rebuildLayer(pxPerMm: number): void {
+    const sim = this.sim!;
+    const { w, h } = this.result!.paper;
+    const layer = document.createElement('canvas');
+    layer.width = Math.max(1, Math.ceil(w * pxPerMm));
+    layer.height = Math.max(1, Math.ceil(h * pxPerMm));
+    const lctx = layer.getContext('2d')!;
+    lctx.scale(pxPerMm, pxPerMm);
+    lctx.lineCap = 'round';
+    lctx.lineJoin = 'round';
+    sim.layer = layer;
+    sim.lctx = lctx;
+    sim.pxPerMm = pxPerMm;
+    for (let i = 0; i < sim.committed; i++) {
+      this.drawChainInto(lctx, sim.chains[i], Infinity);
+    }
   }
 
   setPlotSpeed(speed: number): void {
@@ -306,6 +332,13 @@ export class Preview {
 
     if (this.sim) {
       const sim = this.sim;
+      // Re-render the committed-ink layer when the zoom has moved far
+      // enough that its raster would show (hysteresis avoids churn while
+      // wheel-zooming; each rebuild replays only committed chains once).
+      const want = this.desiredPxPerMm();
+      if (want > sim.pxPerMm * 1.4 || want < sim.pxPerMm / 2) {
+        this.rebuildLayer(want);
+      }
       // Committed ink.
       ctx.save();
       ctx.imageSmoothingEnabled = true;
