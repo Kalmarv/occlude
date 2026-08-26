@@ -303,13 +303,32 @@ const isLen = (v: unknown): v is L => typeof v === 'number' || v instanceof Len;
 
 /**
  * Chop final strokes into dashes by physical length, AFTER occlusion. The
- * cuts are exact sub-ranges — curves stay curves. `gap` defaults to `len`.
- * With children it wraps the subtree; alone it returns a modifier value.
+ * pattern is phase-continuous along each outline (occlusion cuts and arc
+ * joints never reset it), and on closed shapes the period is snapped to
+ * divide the contour length so the pattern meets itself seamlessly.
+ * `gap` defaults to `len`; `offset` shifts the pattern. The cuts are
+ * exact sub-ranges — curves stay curves. With children it wraps the
+ * subtree; alone it returns a modifier value.
  */
-export function dash(len: L, gap?: L): ModifierValue;
+export function dash(len: L, gap?: L, offset?: L): ModifierValue;
 export function dash(len: L, gap: L, ...children: [Tree, ...Tree[]]): GroupValue;
-export function dash(len: L, gap?: L, ...children: Tree[]): GroupValue | ModifierValue {
-  const value: ModifierValue = { __occludeModifier: true, kind: 'dash', len, gap: gap ?? len };
+export function dash(
+  len: L, gap: L, offset: L, ...children: [Tree, ...Tree[]]
+): GroupValue;
+export function dash(
+  len: L,
+  ...rest: (L | Tree)[]
+): GroupValue | ModifierValue {
+  const lens: L[] = [];
+  let i = 0;
+  while (i < rest.length && lens.length < 2 && isLen(rest[i])) {
+    lens.push(rest[i] as L);
+    i++;
+  }
+  const children = rest.slice(i) as Tree[];
+  const value: ModifierValue = {
+    __occludeModifier: true, kind: 'dash', len, gap: lens[0] ?? len, offset: lens[1],
+  };
   if (children.length === 0) return value;
   return { __occludeGroup: true, opts: { modifiers: [value] }, children };
 }

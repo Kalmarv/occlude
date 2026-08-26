@@ -33,7 +33,7 @@
 //!   of a literal. Opcodes (post-stage):
 //!     1 decimate: params [stroke_p, fill_p]
 //!     2 wobble:   params [amp_mm, wavelength_mm] (wavelength never a field)
-//!     3 dash:     params [len_mm, gap_mm]
+//!     3 dash:     params [len_mm, gap_mm, offset_mm]
 //!   Opcodes (pre-stage — deform contours before the solve):
 //!     4 smooth:   params [passes]
 //!     5 roughen:  params [amp_mm, detail_mm]
@@ -78,9 +78,9 @@ fn decode_modifiers(mods: &[f64], start: usize, count: usize) -> Result<Vec<Modi
         let op = *mods.get(i).ok_or("modifier tape truncated")? as u32;
         let mask = *mods.get(i + 1).ok_or("modifier tape truncated")? as u32;
         let nparams = match op {
-            1 | 2 | 3 | 5 => 2,
+            1 | 2 | 5 => 2,
             4 => 1,
-            6 => 3,
+            3 | 6 => 3,
             _ => return Err(format!("unknown modifier opcode {op}")),
         };
         let param = |k: usize| -> Result<Param, String> {
@@ -106,6 +106,7 @@ fn decode_modifiers(mods: &[f64], start: usize, count: usize) -> Result<Vec<Modi
             3 => Modifier::Dash {
                 len: lit(0, "dash length")?,
                 gap: lit(1, "dash gap")?,
+                offset: lit(2, "dash offset")?,
             },
             4 => Modifier::Smooth {
                 passes: lit(0, "smooth passes")? as u32,

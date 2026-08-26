@@ -705,3 +705,53 @@ describe('phase-3 modifiers', () => {
     }
   });
 });
+
+describe('seamless dash', () => {
+  it('dashes a circle with uniform lengths and no seam', async () => {
+    const { dash } = await import('../src/index.js');
+    const out = sq(sketch({ seed: 2 }, () => dash(mm(3), mm(3), circle(50, 50, 30))));
+    const lens = out.frags.map(fragLen).sort((a, b) => a - b);
+    // Period snapped to circumference: every dash the same length, none
+    // doubled or halved at the arc seams.
+    expect(lens[lens.length - 1] - lens[0]).toBeLessThan(1e-6);
+    const C = 2 * Math.PI * 60; // r=30 user units → 60mm on Square20
+    expect(out.frags.length).toBe(Math.round(C / 6));
+    // Gaps between consecutive dashes are uniform too (pattern meets itself).
+    expect(lens[0]).toBeGreaterThan(2.9);
+    expect(lens[0]).toBeLessThan(3.1);
+  });
+
+  it('dash phase survives occlusion cuts', async () => {
+    const { dash } = await import('../src/index.js');
+    // A dashed line partly hidden by a disc: surviving dashes must sit at
+    // the same absolute positions as in the unoccluded render.
+    const bare = sq(sketch({ seed: 2 }, () => dash(mm(4), mm(4), line(0, 50, 100, 50))));
+    const occ = sq(sketch({ seed: 2 }, () => [
+      dash(mm(4), mm(4), line(0, 50, 100, 50)),
+      circle(50, 50, 15, { opaque: true }),
+    ]));
+    const starts = (frags: typeof bare.frags): number[] =>
+      frags.filter((f) => f.shape === 0).map((f) => (f.geom as Extract<Prim, { t: 'line' }>).x0);
+    const bareStarts = new Set(starts(bare.frags).map((x) => x.toFixed(6)));
+    for (const x of starts(occ.frags)) {
+      const g = occ.frags.find((f) => f.shape === 0 && (f.geom as Extract<Prim, { t: 'line' }>).x0 === x)!;
+      const gl = g.geom as Extract<Prim, { t: 'line' }>;
+      // Every surviving dash either starts at a pattern position or at the
+      // occluder's edge (a truncated dash) — never at a re-phased position.
+      const atPattern = bareStarts.has(x.toFixed(6));
+      const atEdge = Math.abs(Math.hypot(gl.x0 - 100, 100 - 100) - 30) < 4.1;
+      expect(atPattern || atEdge).toBe(true);
+    }
+  });
+
+  it('dash offset shifts the pattern', async () => {
+    const { dash } = await import('../src/index.js');
+    const a = sq(sketch({ seed: 2 }, () => dash(mm(4), mm(4), line(0, 50, 100, 50))));
+    const b = sq(sketch({ seed: 2 }, () => dash(mm(4), mm(4), mm(2), line(0, 50, 100, 50))));
+    // The first dash may cover s=0 in both; the SECOND dash's start shows
+    // the shift.
+    const second = (out: typeof a): number =>
+      out.frags.map((f) => (f.geom as Extract<Prim, { t: 'line' }>).x0).sort((p, q) => p - q)[1];
+    expect(Math.abs(second(a) - second(b))).toBeCloseTo(2, 4); // shifted by the 2mm offset
+  });
+});

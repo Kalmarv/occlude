@@ -47,7 +47,7 @@ export type ModifierValue =
       amount: L | FieldFn;
       wavelength?: L;
     }
-  | { readonly __occludeModifier: true; readonly kind: 'dash'; len: L; gap: L }
+  | { readonly __occludeModifier: true; readonly kind: 'dash'; len: L; gap: L; offset?: L }
   | { readonly __occludeModifier: true; readonly kind: 'smooth'; passes: number }
   | {
       readonly __occludeModifier: true;

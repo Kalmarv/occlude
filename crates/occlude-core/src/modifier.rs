@@ -19,10 +19,11 @@ pub enum Modifier {
     /// Post: flatten final strokes and displace vertices with seeded
     /// smooth noise. `amp` in mm; `wavelength` = noise lattice spacing.
     Wobble { amp: Param, wavelength: f64 },
-    /// Post: chop final strokes into dashes by physical length (mm). The
-    /// cuts are exact sub-ranges of the original primitives — curves stay
-    /// curves.
-    Dash { len: f64, gap: f64 },
+    /// Post: chop final strokes into dashes by physical length (mm),
+    /// phase-continuous along the outline (period snapped to closed
+    /// contours so the pattern meets itself). `offset` shifts the pattern.
+    /// The cuts are exact sub-ranges — curves stay curves.
+    Dash { len: f64, gap: f64, offset: f64 },
     /// Pre: Chaikin corner-cutting on the shape's contours — each pass
     /// rounds every corner; the result converges to a quadratic B-spline.
     Smooth { passes: u32 },

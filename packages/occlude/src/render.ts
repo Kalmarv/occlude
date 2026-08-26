@@ -508,6 +508,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
             3, 0,
             resolveLen(m.len, frame.inner),
             resolveLen(m.gap, frame.inner),
+            resolveLen(m.offset ?? 0, frame.inner),
           );
           break;
         case 'smooth':

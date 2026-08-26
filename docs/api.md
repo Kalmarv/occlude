@@ -135,7 +135,7 @@ stack entry; called with children it wraps the subtree.
 // post-stage: run on the FINAL visible strokes, after occlusion
 decimate(p)                    // drop fraction p (0…1); { stroke, fill } targets ink kinds
 wobble(amount)                 // hand-tremor; { amount, wavelength } sets tremor scale
-dash(len, gap = len)           // chop strokes by physical length — curves stay exact curves
+dash(len, gap = len, offset?)  // chop strokes by length — phase-continuous, seamless on closed shapes
 
 // pre-stage: deform the geometry BEFORE the solve
 smooth(passes = 2)             // Chaikin corner-rounding (→ spline as passes grow)
@@ -188,7 +188,7 @@ halftone — image-driven density through composition.
 |---|---|---|---|
 | `decimate(p)` | post | `p` 0…1, or `{ stroke, fill }` | both probabilities |
 | `wobble(amount)` | post | amount (length); `{ amount, wavelength: mm(25) }` | amount |
-| `dash(len, gap)` | post | lengths; `gap` defaults to `len` | — |
+| `dash(len, gap, offset?)` | post | lengths; `gap` defaults to `len`; pattern is phase-continuous along outlines and period-snapped on closed contours (no seam); `offset` shifts it | — |
 | `smooth(passes)` | pre | `passes = 2` | — |
 | `roughen(amount, detail?)` | pre | jitter length; resample `detail = mm(1.5)` | amount |
 | `deform(field)` | pre | `(x, y) => [dx, dy]` user units, or `{ field, detail: mm(2) }` | the field itself |

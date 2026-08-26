@@ -182,17 +182,22 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     // Shape outline bboxes and global primitive ids.
     let mut prim_table: Vec<Primitive> = Vec::new();
     let mut outline_range: Vec<(usize, usize)> = Vec::with_capacity(n);
+    let mut contour_ranges: Vec<Vec<(usize, usize)>> = Vec::with_capacity(n);
     let mut shape_bbox: Vec<BBox> = Vec::with_capacity(n);
     for s in shapes {
         let start = prim_table.len();
         let mut b = BBox::EMPTY;
+        let mut ranges = Vec::with_capacity(s.contours.len());
         for c in &s.contours {
+            let cs = prim_table.len();
             for p in c {
                 b = b.union(&p.bbox());
                 prim_table.push(*p);
             }
+            ranges.push((cs, prim_table.len()));
         }
         outline_range.push((start, prim_table.len()));
+        contour_ranges.push(ranges);
         shape_bbox.push(b);
     }
 
@@ -467,6 +472,9 @@ pub fn render(input: &RenderInput) -> RenderOutput {
             seed: input.seed,
             fields: &input.fields,
             prim_table: &mut prim_table,
+            contour_ranges: &contour_ranges,
+            dash_tables: std::collections::HashMap::new(),
+            dash_chains: std::collections::HashMap::new(),
             cur: Vec::new(),
             next: Vec::new(),
             pts: Vec::new(),
@@ -485,7 +493,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
             // though its origin now points at a generated primitive.
             let (p0, p1) = outline_range[si];
             let is_stroke = (f.origin as usize) >= p0 && (f.origin as usize) < p1;
-            interp.run(f, prog, is_stroke, &mut out);
+            interp.run(f, prog, is_stroke, input.shapes[si].closed, &mut out);
         }
         frags = out;
     }
@@ -505,17 +513,32 @@ struct PostInterp<'a> {
     seed: u64,
     fields: &'a [FieldGrid],
     prim_table: &'a mut Vec<Primitive>,
+    contour_ranges: &'a [Vec<(usize, usize)>],
+    /// Per-shape outline arc-length tables for phase-continuous dashing.
+    dash_tables: std::collections::HashMap<u32, Vec<ContourLens>>,
+    /// Streaming dash phase for generated (non-outline) chains, keyed by
+    /// (shape, op slot): (chain end point, accumulated arc length).
+    dash_chains: std::collections::HashMap<(u32, usize), (Vec2, f64)>,
     cur: Vec<Frag>,
     next: Vec<Frag>,
     pts: Vec<Vec2>,
     dense: Vec<Vec2>,
 }
 
+/// One contour's primitive arc lengths: prim range, cumulative lengths
+/// (cum[k] = length before the k-th prim of the contour), and total.
+struct ContourLens {
+    start: usize,
+    end: usize,
+    cum: Vec<f64>,
+    total: f64,
+}
+
 impl PostInterp<'_> {
-    fn run(&mut self, f: Frag, prog: &[Modifier], is_stroke: bool, out: &mut Vec<Frag>) {
+    fn run(&mut self, f: Frag, prog: &[Modifier], is_stroke: bool, closed: bool, out: &mut Vec<Frag>) {
         self.cur.clear();
         self.cur.push(f);
-        for m in prog {
+        for (slot, m) in prog.iter().enumerate() {
             if m.stage() != Stage::Post {
                 continue;
             }
@@ -530,7 +553,9 @@ impl PostInterp<'_> {
                         }
                     }
                     Modifier::Wobble { amp, wavelength } => self.wobble(f, amp, *wavelength),
-                    Modifier::Dash { len, gap } => self.dash(f, *len, *gap),
+                    Modifier::Dash { len, gap, offset } => {
+                        self.dash(f, *len, *gap, *offset, slot, closed)
+                    }
                     // Pre-stage ops already ran on the contours.
                     Modifier::Smooth { .. }
                     | Modifier::Roughen { .. }
@@ -627,10 +652,13 @@ impl PostInterp<'_> {
 }
 
 impl PostInterp<'_> {
-    /// Chop the fragment into dashes by physical length. The cuts are exact
-    /// t-sub-ranges of the original primitive — curves stay curves; the prim
-    /// table does not grow.
-    fn dash(&mut self, f: Frag, len: f64, gap: f64) {
+    /// Chop the fragment into dashes by physical length, phase-continuous
+    /// along the outline: the pattern position is the ABSOLUTE arc length
+    /// from the contour's start, so occlusion cuts and arc joints never
+    /// reset it. On closed contours the period is snapped to divide the
+    /// contour length, so the pattern meets itself seamlessly. The cuts
+    /// stay exact t-sub-ranges — curves stay curves.
+    fn dash(&mut self, f: Frag, len: f64, gap: f64, offset: f64, slot: usize, closed: bool) {
         if f.dot || len <= 0.0 {
             self.next.push(f);
             return;
@@ -640,8 +668,42 @@ impl PostInterp<'_> {
             self.next.push(f);
             return;
         }
-        // Arc-length → local-t: lines and arcs are uniform-speed in t; a
-        // cubic gets a sampled cumulative-length table.
+        let period = len + gap.max(0.0);
+
+        // Pattern base: arc length of this fragment's start within its
+        // contour (outline frags), or streaming continuity for generated
+        // chains (e.g. dash after wobble); standalone strokes start at 0.
+        let si = f.shape;
+        let (base, eff_len, eff_period) = if let Some((c_start, c_total)) =
+            self.contour_pos(si, f.origin as usize)
+        {
+            let along = c_start + frag_start_len(&f);
+            if closed && c_total > period {
+                // Fit the period to the contour so the seam disappears.
+                let count = (c_total / period).round().max(1.0);
+                let r = c_total / (count * period);
+                (along, len * r, period * r)
+            } else {
+                (along, len, period)
+            }
+        } else {
+            let start_pt = f.geom.start();
+            let key = (si, slot);
+            let base = match self.dash_chains.get(&key) {
+                Some(&(end_pt, phase))
+                    if (end_pt.x - start_pt.x).hypot(end_pt.y - start_pt.y) < 1e-9 =>
+                {
+                    phase
+                }
+                _ => 0.0,
+            };
+            self.dash_chains
+                .insert(key, (f.geom.end(), base + total));
+            (base, len, period)
+        };
+
+        // Arc-length → local t (lines and arcs are uniform-speed; cubics
+        // get a sampled table).
         let table: Option<Vec<f64>> = match f.geom {
             Primitive::Cubic(_) => {
                 const N: usize = 32;
@@ -670,23 +732,76 @@ impl PostInterp<'_> {
                 }
             }
         };
-        let period = len + gap.max(0.0);
-        let mut s0 = 0.0;
-        while s0 < total - 1e-9 {
-            let s1 = (s0 + len).min(total);
-            let (ta, tb) = (t_of(s0), t_of(s1));
-            let g0 = f.t0 + ta * (f.t1 - f.t0);
-            let g1 = f.t0 + tb * (f.t1 - f.t0);
-            self.next.push(Frag {
-                origin: f.origin,
-                t0: g0,
-                t1: g1,
-                geom: f.geom.sub(ta, tb),
-                ..f.clone()
-            });
-            s0 += period;
+
+        // The fragment covers pattern positions [base, base+total). Emit
+        // every dash interval [k*p - offset, k*p - offset + len) ∩ that.
+        let first = ((base + offset - eff_len) / eff_period).floor() as i64;
+        let mut k = first;
+        loop {
+            let ds = k as f64 * eff_period - offset;
+            if ds >= base + total {
+                break;
+            }
+            let de = ds + eff_len;
+            let s0 = ds.max(base);
+            let s1 = de.min(base + total);
+            if s1 - s0 > 1e-9 {
+                let (ta, tb) = (t_of(s0 - base), t_of(s1 - base));
+                let g0 = f.t0 + ta * (f.t1 - f.t0);
+                let g1 = f.t0 + tb * (f.t1 - f.t0);
+                self.next.push(Frag {
+                    origin: f.origin,
+                    t0: g0,
+                    t1: g1,
+                    geom: f.geom.sub(ta, tb),
+                    ..f.clone()
+                });
+            }
+            k += 1;
         }
     }
+
+    /// For an outline primitive: (arc length from its contour's start to
+    /// the primitive's start, contour total length). Lazily builds the
+    /// per-shape table. None for generated primitives.
+    fn contour_pos(&mut self, shape: u32, origin: usize) -> Option<(f64, f64)> {
+        let ranges = self.contour_ranges.get(shape as usize)?;
+        if !ranges.iter().any(|&(s, e)| origin >= s && origin < e) {
+            return None;
+        }
+        let prim_table = &self.prim_table;
+        let tables = self.dash_tables.entry(shape).or_insert_with(|| {
+            ranges
+                .iter()
+                .map(|&(s, e)| {
+                    let mut cum = Vec::with_capacity(e - s + 1);
+                    cum.push(0.0);
+                    for p in &prim_table[s..e] {
+                        let last = *cum.last().unwrap();
+                        cum.push(last + p.length());
+                    }
+                    let total = *cum.last().unwrap();
+                    ContourLens { start: s, end: e, cum, total }
+                })
+                .collect()
+        });
+        let c = tables
+            .iter()
+            .find(|c| origin >= c.start && origin < c.end)?;
+        Some((c.cum[origin - c.start], c.total))
+    }
+}
+
+/// Arc length from a fragment's primitive start to the fragment's t0.
+/// Lines and arcs are uniform-speed in t; cubics use the linear
+/// approximation (dash phase shifts slightly on cubic outlines — the
+/// cut positions themselves stay arc-length exact).
+fn frag_start_len(f: &Frag) -> f64 {
+    if f.t0 == 0.0 {
+        return 0.0;
+    }
+    let whole = f.geom.length() / (f.t1 - f.t0).max(1e-12);
+    whole * f.t0
 }
 
 // ---- Pre-stage geometry ops -------------------------------------------
