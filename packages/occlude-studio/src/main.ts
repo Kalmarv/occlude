@@ -104,8 +104,14 @@ async function boot(): Promise<void> {
     }
     if (result === null) return; // superseded by a newer run
     lastResult = result;
-    statusMsg.className = 'status-ok';
-    statusMsg.textContent = 'ok';
+    if (result.stats.shapesIn === 0) {
+      statusMsg.className = 'status-err';
+      statusMsg.textContent =
+        'sketch returned an empty tree — no shapes (check for undefined returns or empty arrays)';
+    } else {
+      statusMsg.className = 'status-ok';
+      statusMsg.textContent = 'ok';
+    }
     const s = result.stats;
     statusStats.textContent =
       `${s.fragments} frags · ${s.fillPrims} fill prims · ` +
