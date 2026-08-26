@@ -74,14 +74,47 @@ body {
 
 /* ---- workbench ---- */
 #workbench {
+  --editor-w: 34%;
+  --rail-w: 280px;
   display: grid;
-  grid-template-columns: minmax(360px, 34%) 1fr 280px;
+  grid-template-columns: minmax(300px, var(--editor-w)) 6px 1fr var(--rail-w);
   flex: 1;
   min-height: 0;
 }
 
+#workbench.rail-collapsed {
+  --rail-w: 0px;
+}
+
+#workbench.rail-collapsed #rail {
+  display: none;
+}
+
+#editor-resizer {
+  cursor: col-resize;
+  background: var(--panel-edge);
+  width: 6px;
+  position: relative;
+  transition: background 120ms;
+}
+
+#editor-resizer:hover,
+#editor-resizer.dragging {
+  background: var(--toolpath);
+}
+
+#editor-resizer::after {
+  /* widen the hit target without widening the visual strip */
+  content: '';
+  position: absolute;
+  inset: 0 -4px;
+}
+
+#btn-rail[aria-pressed='false'] {
+  color: var(--ink-faint);
+}
+
 #editor-pane {
-  border-right: 1px solid var(--panel-edge);
   min-width: 0;
 }
 
@@ -563,7 +596,7 @@ button.primary {
 
 @media (max-width: 1100px) {
   #workbench {
-    grid-template-columns: minmax(300px, 40%) 1fr;
+    grid-template-columns: minmax(260px, var(--editor-w)) 6px 1fr;
   }
   #rail {
     display: none;

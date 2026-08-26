@@ -7,7 +7,28 @@ const KEYS = {
   sketchName: 'occlude.sketchName',
   pens: 'occlude.pens',
   settings: 'occlude.settings',
+  ui: 'occlude.ui',
 };
+
+export interface UiPrefs {
+  /** Editor pane width, CSS px; null = default (34%). */
+  editorW: number | null;
+  railOpen: boolean;
+}
+
+export function loadUi(): UiPrefs {
+  try {
+    const raw = localStorage.getItem(KEYS.ui);
+    if (raw) return { editorW: null, railOpen: true, ...(JSON.parse(raw) as Partial<UiPrefs>) };
+  } catch {
+    // fall through
+  }
+  return { editorW: null, railOpen: true };
+}
+
+export function saveUi(ui: UiPrefs): void {
+  localStorage.setItem(KEYS.ui, JSON.stringify(ui));
+}
 
 export interface Settings {
   paper: string;

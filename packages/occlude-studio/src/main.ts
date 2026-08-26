@@ -6,8 +6,8 @@ import { buildRail } from './panels.js';
 import { Preview } from './preview.js';
 import { currentSeed, runSketch } from './runner.js';
 import {
-  download, loadPens, loadSettings, loadSketch, loadSketchName,
-  saveSketch, saveSketchName,
+  download, loadPens, loadSettings, loadSketch, loadSketchName, loadUi,
+  saveSketch, saveSketchName, saveUi,
 } from './store.js';
 import { RenderClient } from './workerClient.js';
 import type { RenderResult } from 'occlude';
@@ -173,6 +173,51 @@ async function boot(): Promise<void> {
     },
     true,
   );
+
+  // ---- layout: resizable editor + collapsible rail ----
+  const ui = loadUi();
+  const workbench = $('workbench');
+  const railBtn = $('btn-rail') as HTMLButtonElement;
+  const applyUi = (): void => {
+    if (ui.editorW !== null) {
+      workbench.style.setProperty('--editor-w', `${ui.editorW}px`);
+    } else {
+      workbench.style.removeProperty('--editor-w');
+    }
+    workbench.classList.toggle('rail-collapsed', !ui.railOpen);
+    railBtn.setAttribute('aria-pressed', String(ui.railOpen));
+  };
+  applyUi();
+  railBtn.onclick = () => {
+    ui.railOpen = !ui.railOpen;
+    applyUi();
+    saveUi(ui);
+  };
+  const resizer = $('editor-resizer');
+  resizer.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    resizer.setPointerCapture(e.pointerId);
+    resizer.classList.add('dragging');
+    const move = (ev: PointerEvent): void => {
+      const max = Math.max(320, window.innerWidth * 0.75);
+      ui.editorW = Math.min(max, Math.max(260, ev.clientX));
+      applyUi();
+    };
+    const up = (): void => {
+      resizer.classList.remove('dragging');
+      resizer.removeEventListener('pointermove', move);
+      resizer.removeEventListener('pointerup', up);
+      saveUi(ui);
+    };
+    resizer.addEventListener('pointermove', move);
+    resizer.addEventListener('pointerup', up);
+  });
+  // Double-click resets to the default width.
+  resizer.addEventListener('dblclick', () => {
+    ui.editorW = null;
+    applyUi();
+    saveUi(ui);
+  });
 
   $('btn-fit').onclick = () => preview.fit();
   ($('debug-toggle') as HTMLInputElement).onchange = (e) => {
