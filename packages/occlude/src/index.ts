@@ -40,6 +40,7 @@ export type { L } from './units.js';
 // come through the toolkit — they belong to a sketch run, not the module.
 export type { RandomStream } from './state.js';
 export { mapRange as map, normRange as norm, invertRange as invert } from './random.js';
+export { ease } from './ease.js';
 
 // Render & export (accept a SketchDef, or operate on legacy recorded state).
 export {

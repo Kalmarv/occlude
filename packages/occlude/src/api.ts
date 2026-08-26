@@ -21,6 +21,7 @@
  */
 
 import { crosshatch, hatch, stipple, type CustomFillFn, type FillSpec } from './fills.js';
+import { ease } from './ease.js';
 import { grid as gridCells, type GridCell, type GridOptions } from './layout.js';
 import { Shape, type FieldFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
 import {
@@ -496,6 +497,7 @@ export interface Toolkit {
   map: typeof mapRange;
   norm: typeof normRange;
   invert: typeof invertRange;
+  ease: typeof ease;
   times: typeof times;
   range: typeof range;
   bounds: typeof bounds;
@@ -545,7 +547,7 @@ const TOOLKIT_BASE = {
   dash, smooth, roughen, deform, noiseField,
   hatch, crosshatch, stipple,
   rnd, pick, chance, prob, noise, stream,
-  map: mapRange, norm: normRange, invert: invertRange,
+  map: mapRange, norm: normRange, invert: invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue,
   mm, w, h, s, long,

@@ -310,6 +310,8 @@ rnd()            // [0, 1)        rnd(n) → [0, n)      rnd(a, b) → [a, b)
 pick(arr)        chance(p)       prob(p, fn, elseFn?)
 noise(x, y?, z?) // seeded simplex, ~[-1, 1]
 map(v, a, b, c, d); norm(v, a, b); invert(v, max, min = 0)
+ease.cubicIn(t) …    // easing curves for t: quad/cubic/quint/sin/expo/circ In|Out|InOut,
+                     // back/elastic/bounce, smooth(er)step, powIn(t, p)
 times(n, (i, t) => shape)    // the loop idiom: n results; t runs 0…1
 range(n) / range(a, b, step?)  // integer sequences for mapping/nesting
 bounds()         // drawable extent in bare units

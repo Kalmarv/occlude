@@ -755,3 +755,29 @@ describe('seamless dash', () => {
     expect(Math.abs(second(a) - second(b))).toBeCloseTo(2, 4); // shifted by the 2mm offset
   });
 });
+
+describe('ease', () => {
+  it('all curves hit both endpoints; non-overshoot curves stay monotone in [0,1]', async () => {
+    const { ease } = await import('../src/index.js');
+    const monotone = [
+      'linear', 'quadIn', 'quadOut', 'quadInOut', 'cubicIn', 'cubicOut', 'cubicInOut',
+      'quartIn', 'quartOut', 'quartInOut', 'quintIn', 'quintOut', 'quintInOut', 'sinIn', 'sinOut', 'sinInOut',
+      'expoIn', 'expoOut', 'expoInOut', 'circIn', 'circOut', 'circInOut',
+      'smooth', 'smoother',
+    ] as const;
+    for (const [name, fn] of Object.entries(ease)) {
+      expect(fn(0), `${name}(0)`).toBeCloseTo(0, 9);
+      expect(fn(1), `${name}(1)`).toBeCloseTo(1, 9);
+    }
+    for (const name of monotone) {
+      const fn = ease[name];
+      let prev = -1e-9;
+      for (let i = 0; i <= 100; i++) {
+        const v = fn(i / 100);
+        expect(v, `${name} monotone at ${i / 100}`).toBeGreaterThanOrEqual(prev - 1e-12);
+        prev = v;
+      }
+    }
+    expect(ease.powIn(0.5, 3)).toBeCloseTo(ease.cubicIn(0.5), 12);
+  });
+});
