@@ -55,8 +55,9 @@ export default sketch({ aspect: [3, 2], margin: 6, seed: 41 }, ({ path, mask, bo
 
 The trick in the middle: `build()` snapshots the path *and the builder
 stays extendable*, so the same crest becomes both the drawn line and (after
-closing it down to the bottom edge) the invisible occluder. `.reverse()`
-puts the nearest ridge last in the tree — later wins.
+closing it down to the bottom edge) the invisible occluder. Far ridges
+come first in the tree, so each nearer ridge (later — later wins) hides
+what's behind it.
 
 ## 3. Units, in practice
 
@@ -382,7 +383,24 @@ export default sketch({ aspect: 'square', margin: 8, seed: 30 }, ({ stream, circ
 ```
 
 `times(n, (i, t) => …)` is the loop idiom — `t` runs 0…1 across the run,
-so interpolating anything along a sequence is one expression. `range(n)` /
+so interpolating anything along a sequence is one expression. And because
+`t` is normalised, the whole world of shaping functions plugs into it:
+`ease` carries the easings.net catalog, and the thing to know is that
+**spacing is the curve's slope** — where the easing is flat, elements
+crowd; where it's steep, they spread.
+
+```ts
+import { sketch } from 'occlude';
+
+export default sketch({ aspect: 'square', margin: 10, origin: 'center', seed: 9 }, ({ circle, times, map, ease }) => [
+  times(40, (k, t) => circle(-26, 0, map(ease.quintOut(t), 0, 1, 4, 22))),  // dense rim
+  times(40, (k, t) => circle(26, 0, map(ease.smooth(t), 0, 1, 4, 22))),    // dense both edges
+]);
+```
+
+All curves pin (0,0) and (1,1), so mapped endpoints are hit exactly;
+`back`/`elastic` overshoot in between by design (rings past the target
+radius that settle back — a look, not a bug). `range(n)` /
 `range(a, b, step)` give integer sequences for nesting. In the studio,
 press the dice to re-roll `?seed=` — the URL is the reproduction recipe.
 
