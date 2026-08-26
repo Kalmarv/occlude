@@ -246,6 +246,30 @@ async function boot(): Promise<void> {
   };
 
   void run();
+
+  // Stale-tab guard: the server reports its build id; when a deploy changes
+  // it, say so instead of letting the tab run old code silently.
+  void (async () => {
+    const fetchBuild = async (): Promise<string | null> => {
+      try {
+        const res = await fetch('/api/version', { cache: 'no-store' });
+        if (!res.ok) return null;
+        return ((await res.json()) as { build: string }).build;
+      } catch {
+        return null; // dev server has no /api/version
+      }
+    };
+    const initial = await fetchBuild();
+    if (initial === null) return;
+    setInterval(() => {
+      void fetchBuild().then((build) => {
+        if (build !== null && build !== initial) {
+          statusMsg.className = 'status-err';
+          statusMsg.textContent = 'a new studio build was deployed — reload to pick it up (Ctrl+Shift+R)';
+        }
+      });
+    }, 30_000);
+  })();
 }
 
 void boot();

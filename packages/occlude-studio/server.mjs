@@ -44,8 +44,16 @@ const MIME = {
   '.map': 'application/json',
 };
 
+const buildId = String(statSync(join(dist, 'index.html')).mtimeMs);
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
+  if (url.pathname === '/api/version') {
+    res.setHeader('content-type', 'application/json');
+    res.setHeader('cache-control', 'no-store');
+    res.end(JSON.stringify({ build: buildId }));
+    return;
+  }
   if (url.pathname.startsWith('/api/')) {
     void sketchApi(req, res);
     return;
