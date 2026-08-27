@@ -30,6 +30,8 @@ export type { ModifierValue, FieldFn, VectorFieldFn } from './shapes.js';
 
 // Fills are already pure specs.
 export { hatch, crosshatch, stipple, customFill } from './fills.js';
+export { label } from './font.js';
+export type { LabelOpts } from './font.js';
 export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fills.js';
 
 // Units.

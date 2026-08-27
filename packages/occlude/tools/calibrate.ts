@@ -26,7 +26,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  circle, exportGcode, exportPng, exportSvg, initOcclude, line, mm, path,
+  circle, exportGcode, exportPng, exportSvg, initOcclude, label, line, mm, path,
   paperSize, rect, render, setPaperHint, setPenLibrary, sketch, stipple,
   type PenDef, type Tree,
 } from '../src/index.js';
@@ -67,57 +67,6 @@ const pens: PenDef[] = [
 ];
 setPenLibrary(pens);
 
-// ---- a minimal stroke font (seven-segment digits + the letters we need) ----
-
-type Seg = [number, number][];
-const S = {
-  A: [[0, 0], [0.6, 0]], B: [[0.6, 0], [0.6, 0.5]], C: [[0.6, 0.5], [0.6, 1]],
-  D: [[0, 1], [0.6, 1]], E: [[0, 0.5], [0, 1]], F: [[0, 0], [0, 0.5]],
-  G: [[0, 0.5], [0.6, 0.5]],
-} as const;
-const seg = (...ks: (keyof typeof S)[]): Seg[] => ks.map((k) => S[k] as unknown as Seg);
-const GLYPHS: Record<string, Seg[]> = {
-  '0': seg('A', 'B', 'C', 'D', 'E', 'F'),
-  '1': [[[0.3, 0], [0.3, 1]]],
-  '2': seg('A', 'B', 'G', 'E', 'D'),
-  '3': seg('A', 'B', 'G', 'C', 'D'),
-  '4': seg('F', 'G', 'B', 'C'),
-  '5': seg('A', 'F', 'G', 'C', 'D'),
-  '6': seg('A', 'F', 'E', 'D', 'C', 'G'),
-  '7': seg('A', 'B', 'C'),
-  '8': seg('A', 'B', 'C', 'D', 'E', 'F', 'G'),
-  '9': seg('A', 'B', 'C', 'D', 'F', 'G'),
-  F: seg('A', 'F', 'E', 'G'),
-  Z: [...seg('A', 'D'), [[0.6, 0], [0, 1]]],
-  P: seg('A', 'B', 'F', 'E', 'G'),
-  H: seg('F', 'E', 'B', 'C', 'G'),
-  X: [[[0, 0], [0.6, 1]], [[0.6, 0], [0, 1]]],
-  '-': seg('G'),
-  '.': [[[0.25, 1], [0.38, 1]]],
-};
-
-function text(str: string, x: number, y: number, h: number, pen: string): Tree[] {
-  const shapes: Tree[] = [];
-  let cx = x;
-  for (const ch of str) {
-    const glyph = GLYPHS[ch.toUpperCase()];
-    if (glyph) {
-      for (const stroke of glyph) {
-        const p = path();
-        stroke.forEach(([gx, gy], i) => {
-          const px = mm(cx + gx * h * 0.6);
-          const py = mm(y + gy * h);
-          if (i === 0) p.moveTo(px, py);
-          else p.lineTo(px, py);
-        });
-        shapes.push(p.build({ pen }));
-      }
-    }
-    cx += ch === '.' ? h * 0.4 : h * 0.75;
-  }
-  return shapes;
-}
-
 // ---- the sheet ----
 
 const { w: PW, h: PH } = paperSize({ paper: paper as never });
@@ -153,7 +102,7 @@ const def = sketch({ aspect: 'paper', margin: 0, seed: 1, pen: name }, () => {
   for (let k = 0; k <= 10; k++) {
     out.push(line(L(15 + k * 10), L(16), L(15 + k * 10), L(16 + (k % 5 === 0 ? 4 : 2))));
   }
-  out.push(...text('0', 13, 22, 3, name), ...text('100', 111, 22, 3, name));
+  out.push(label('0', 13, 22, 3, { pen: name, unit: 'mm' }), label('100', 111, 22, 3, { pen: name, unit: 'mm' }));
   out.push(line(L(15), L(20), L(15), L(120)));
   for (let k = 1; k <= 10; k++) {
     out.push(line(L(15), L(20 + k * 10), L(15 + (k % 5 === 0 ? 4 : 2)), L(20 + k * 10)));
@@ -164,7 +113,7 @@ const def = sketch({ aspect: 'paper', margin: 0, seed: 1, pen: name }, () => {
     rect(L(135), L(20), L(60), L(60)),
     line(L(135), L(20), L(195), L(80)),
     line(L(195), L(20), L(135), L(80)),
-    ...text('X60', 158, 84, 3, name),
+    label('X60', 158, 84, 3, { pen: name, unit: 'mm' }),
   );
 
   // Speed ladder.
@@ -186,14 +135,14 @@ const def = sketch({ aspect: 'paper', margin: 0, seed: 1, pen: name }, () => {
   };
   let y = 100;
   for (const f of feeds) {
-    out.push(...text(`F${f}`, 12, y - 2, 3.6, name), ...stroke(y, fPen(f)));
+    out.push(label(`F${f}`, 12, y - 2, 3.6, { pen: name, unit: 'mm' }), ...stroke(y, fPen(f)));
     y += 9;
   }
 
   // Z / pressure ladder.
   y += 4;
   for (const o of zOffsets) {
-    out.push(...text(`Z${o >= 0 ? '' : '-'}${Math.abs(o)}`, 12, y - 2, 3.6, name));
+    out.push(label(`Z${o >= 0 ? '' : '-'}${Math.abs(o)}`, 12, y - 2, 3.6, { pen: name, unit: 'mm' }));
     out.push(
       line(L(42), L(y), L(110), L(y), { pen: zPen(o) }),
       circle(L(120), L(y), L(2.2), { pen: zPen(o) }),
@@ -205,7 +154,7 @@ const def = sketch({ aspect: 'paper', margin: 0, seed: 1, pen: name }, () => {
   // Dot dwell rows: stipple grids (dots = pen taps at this delay).
   y += 4;
   for (const d of delays) {
-    out.push(...text(`P${d}`, 12, y - 2, 3.6, name));
+    out.push(label(`P${d}`, 12, y - 2, 3.6, { pen: name, unit: 'mm' }));
     out.push(rect(L(42), L(y - 2.2), L(154), L(4.4), {
       stroke: false, fill: stipple(1, mm(3.5)), fillPen: pPen(d),
     }));
@@ -220,7 +169,7 @@ const def = sketch({ aspect: 'paper', margin: 0, seed: 1, pen: name }, () => {
     out.push(rect(L(x), L(y), L(24), L(24), {
       fill: { type: 'hatch', passes: [{ angle: 45, spacing: mm(sp), offset: 0 }] } as never,
     }));
-    out.push(...text(`H${sp}`, x + 4, y + 27, 3, name));
+    out.push(label(`H${sp}`, x + 4, y + 27, 3, { pen: name, unit: 'mm' }));
   });
 
   return out;

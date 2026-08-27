@@ -318,6 +318,8 @@ range(n) / range(a, b, step?)  // integer sequences for mapping/nesting
 bounds()         // drawable extent in bare units
 grid({ cols, rows, gap? })   // cells tiling the whole drawable
 noisyLine(x1, y1, x2, y2, { points, scale, amplitude, offset }, opts?)
+label('0.45mm', x, y, h, opts?)  // single-stroke text (A-Z 0-9 .,:-+=/()); plots with the
+                     // pen's own line; opts.unit: 'mm' for physical placement
 stream(name)     // independent random stream keyed off the master seed
 ```
 

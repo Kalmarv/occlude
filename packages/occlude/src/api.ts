@@ -22,6 +22,7 @@
 
 import { crosshatch, hatch, stipple, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
+import { label } from './font.js';
 import { grid as gridCells, type GridCell, type GridOptions } from './layout.js';
 import { Shape, type FieldFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
 import {
@@ -485,6 +486,7 @@ export interface Toolkit {
   roughen: typeof roughen;
   deform: typeof deform;
   noiseField: typeof noiseField;
+  label: typeof label;
   hatch: typeof hatch;
   crosshatch: typeof crosshatch;
   stipple: typeof stipple;
@@ -544,7 +546,7 @@ export function sketch(
 
 const TOOLKIT_BASE = {
   circle, ellipse, rect, line, polygon, path, group, clip, mask, decimate, wobble, modify,
-  dash, smooth, roughen, deform, noiseField,
+  dash, smooth, roughen, deform, noiseField, label,
   hatch, crosshatch, stipple,
   rnd, pick, chance, prob, noise, stream,
   map: mapRange, norm: normRange, invert: invertRange, ease,
