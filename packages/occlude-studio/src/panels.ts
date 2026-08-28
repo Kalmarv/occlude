@@ -15,6 +15,9 @@ import {
 } from './sketchApi.js';
 import { download, savePens, saveSettings, type Settings } from './store.js';
 import { Ebb, serialSupported, type PlotProgress } from './ebb.js';
+import {
+  backlashSquares, cornerRinging, registrationProbe, type Diagnostic,
+} from './diagnostics.js';
 import type { RenderClient } from './workerClient.js';
 
 export interface PanelHooks {
@@ -650,6 +653,45 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   plotRow.className = 'row';
   plotRow.append(plotBtn, pauseBtn, stopBtn);
 
+  // Machine diagnostics: the cal sheet characterizes pens; these
+  // characterize the machine. They run through the normal plot pipeline,
+  // so Pause/Stop, progress, and the QS drift check all apply. Position
+  // the origin bottom-left of a clear area first; footprints are in hints.
+  const diag = document.createElement('details');
+  const diagSummary = document.createElement('summary');
+  diagSummary.textContent = 'Machine diagnostics';
+  diag.append(diagSummary);
+  const addDiag = (label: string, hint: string, build: () => Diagnostic): void => {
+    const b = button(label, async () => {
+      if (!ebb.connected || ebb.plotting) return;
+      try {
+        const d = build();
+        await ebb.plot(d.plan, d.pens, opts(), onProgress);
+      } catch (e) {
+        showErr(e);
+      }
+    });
+    const h = document.createElement('div');
+    h.className = 'panel-hint';
+    h.textContent = hint;
+    diag.append(b, h);
+  };
+  addDiag(
+    'Registration probe (~120\u00d764mm)',
+    '+ drawn first, \u2715 drawn last at the same spot, heavy fast travel between. Offset between their centers = steps lost during the run; direction says which motor.',
+    registrationProbe,
+  );
+  addDiag(
+    'Backlash squares (~45\u00d720mm)',
+    'Left square repeats every edge in the same direction; right square goes there-and-back. Doubled edges on the right square only = backlash at direction reversals.',
+    backlashSquares,
+  );
+  addDiag(
+    'Corner ringing (~66\u00d770mm)',
+    'The same right-angle comb at 2000/4000/6000 mm/min, 1\u20133 tick marks. The first row whose corners wiggle is the cornering ceiling \u2014 tune junction deviation just below it.',
+    cornerRinging,
+  );
+
   body.append(
     hint,
     connectBtn,
@@ -671,6 +713,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     plotRow,
     bar,
     progressText,
+    diag,
   );
 }
 
