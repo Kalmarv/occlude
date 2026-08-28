@@ -473,6 +473,9 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     invertY: s.ebb.invertY,
     servoDown: s.ebb.servoDown,
     servoUp: s.ebb.servoUp,
+    acceleration: s.ebb.acceleration,
+    junctionDeviation: s.ebb.junctionDeviation,
+    minimumCruiseRatio: s.ebb.minimumCruiseRatio,
   });
   const persist = (): void => saveSettings(s);
 
@@ -549,6 +552,18 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     persist();
   });
   servoRow.append(servoDownIn, servoUpIn);
+  const acceleration = numberInput(s.ebb.acceleration, 50, (v) => {
+    s.ebb.acceleration = Math.max(1, v);
+    persist();
+  });
+  const junctionDeviation = numberInput(s.ebb.junctionDeviation, 0.005, (v) => {
+    s.ebb.junctionDeviation = Math.max(0, v);
+    persist();
+  });
+  const minimumCruiseRatio = numberInput(s.ebb.minimumCruiseRatio, 0.05, (v) => {
+    s.ebb.minimumCruiseRatio = Math.max(0, Math.min(0.99, v));
+    persist();
+  });
 
   // Plot controls.
   const bar = document.createElement('progress');
@@ -616,6 +631,9 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     row('Steps/mm', spm, 'Measured 100 on this iDraw; verify any new machine with the cal-sheet ruler'),
     flips,
     row('Servo dn/up', servoRow, 'SC,4 / SC,5 positions — write-only on the board, so tuned values live here'),
+    row('Acceleration', acceleration, 'mm/s²; lower is gentler, higher reaches the pen feed sooner'),
+    row('Junction dev', junctionDeviation, 'mm; cornering tolerance used for Marlin/Klipper-style look-ahead'),
+    row('Min cruise', minimumCruiseRatio, '0–0.99; suppresses vibration-producing speed spikes on short moves'),
     plotRow,
     bar,
     progressText,
@@ -745,7 +763,11 @@ function numberInput(value: number, step: number, onchange: (v: number) => void)
   input.type = 'number';
   input.step = String(step);
   input.value = String(value);
-  input.onchange = () => onchange(parseFloat(input.value));
+  input.onchange = () => {
+    const next = parseFloat(input.value);
+    if (Number.isFinite(next)) onchange(next);
+    else input.value = String(value);
+  };
   return input;
 }
 

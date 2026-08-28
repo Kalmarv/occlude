@@ -18,6 +18,7 @@
  */
 
 import type { PenDef } from 'occlude';
+import { planPolyline, type Point } from './motion.js';
 
 // Minimal Web Serial typings (lib.dom doesn't ship them everywhere).
 interface SerialPortLike {
@@ -60,6 +61,10 @@ export interface EbbOptions {
    * the app). Verified working: down 10000, up 16000 (~5mm lift). */
   servoDown: number;
   servoUp: number;
+  /** Host-side look-ahead limits. Pen feed remains the per-stroke maximum. */
+  acceleration: number; // mm/s²
+  junctionDeviation: number; // mm
+  minimumCruiseRatio: number;
 }
 
 const MAX_MOTOR_STEPS_PER_MS = 25; // verified: 25k steps/s per motor
@@ -67,8 +72,6 @@ const MAX_MOTOR_STEPS_PER_MS = 25; // verified: 25k steps/s per motor
 // commands the steppers from standstill to cruise instantly, which skips
 // steps above modest feeds (open-loop — each skip is a permanent offset;
 // found as position drift after pause/resume). Trapezoidal profiles fix it.
-const ACCEL_MM_S2 = 1000;
-const V_START_MM_S = 8; // safe start-stop speed for these steppers
 
 interface QueuedCmd {
   line: string;
@@ -273,79 +276,69 @@ export class Ebb {
     };
     let remaining = pts;
     while (remaining.length > 0 && !this.plotAbort) {
-      // Flatten the run to a polyline with cumulative arc length (long
-      // segments split so interpolation stays local).
       const [cx, cy] = curPaper();
-      const poly: [number, number][] = [[cx, cy]];
-      {
-        let px = cx;
-        let py = cy;
-        for (const [x, y] of remaining) {
-          const d = Math.hypot(x - px, y - py);
-          const chunks = Math.max(1, Math.ceil(d / 4));
-          for (let c = 1; c <= chunks; c++) {
-            poly.push([px + ((x - px) * c) / chunks, py + ((y - py) * c) / chunks]);
-          }
-          px = x;
-          py = y;
-        }
-      }
-      const cum: number[] = [0];
-      for (let i = 1; i < poly.length; i++) {
-        cum.push(cum[i - 1] + Math.hypot(poly[i][0] - poly[i - 1][0], poly[i][1] - poly[i - 1][1]));
-      }
-      const L = cum[cum.length - 1];
-      if (L <= 1e-9) return;
       const vt = Math.max(1, feedMmMin / 60);
-      const v0 = Math.min(V_START_MM_S, vt);
-      const vAt = (s: number): number =>
-        Math.min(
-          vt,
-          Math.sqrt(v0 * v0 + 2 * ACCEL_MM_S2 * s),
-          Math.sqrt(v0 * v0 + 2 * ACCEL_MM_S2 * Math.max(0, L - s)),
-        );
-      const pointAt = (s: number): [number, number] => {
-        let lo = 0;
-        let hi = cum.length - 1;
-        while (lo + 1 < hi) {
-          const mid = (lo + hi) >> 1;
-          if (cum[mid] <= s) lo = mid;
-          else hi = mid;
-        }
-        const span = cum[hi] - cum[lo];
-        const t = span > 1e-12 ? (s - cum[lo]) / span : 0;
-        return [
-          poly[lo][0] + (poly[hi][0] - poly[lo][0]) * t,
-          poly[lo][1] + (poly[hi][1] - poly[lo][1]) * t,
-        ];
-      };
-      // Emit TIME-quantised chunks (~25ms) so the ramp is realised. Never
-      // step across a source-polyline vertex: doing so cuts inside tight
-      // curves (a 2mm circle used to collapse from 15 chords to only 6).
-      let s = 0;
-      let nextVertex = 1;
+      const accel = Math.max(1, o.acceleration);
+      const poly: Point[] = [[cx, cy], ...remaining];
+      const planned = planPolyline(poly, {
+        maxVelocity: vt,
+        acceleration: accel,
+        junctionDeviation: Math.max(0, o.junctionDeviation),
+        minimumCruiseRatio: o.minimumCruiseRatio,
+        startVelocity: 0,
+        endVelocity: 0,
+      });
       let paused = false;
-      while (s < L - 1e-9) {
-        if (this.plotAbort) return;
-        if (this.plotPause && onPause) {
-          await onPause();
-          // Replan the rest from rest: rebuild the remaining point list.
-          let j = 1;
-          while (j < cum.length && cum[j] <= s + 1e-9) j++;
-          remaining = poly.slice(j) as [number, number][];
-          paused = true;
-          break;
+      for (let i = 0; i < planned.length; i++) {
+        const segment = planned[i];
+        let s = 0;
+        const vAt = (at: number): number =>
+          Math.min(
+            segment.cruiseVelocity,
+            Math.sqrt(segment.startVelocity ** 2 + 2 * accel * at),
+            Math.sqrt(segment.endVelocity ** 2 + 2 * accel * Math.max(0, segment.length - at)),
+          );
+        const accelEnd = Math.max(
+          0,
+          (segment.cruiseVelocity ** 2 - segment.startVelocity ** 2) / (2 * accel),
+        );
+        const decelStart = Math.min(
+          segment.length,
+          segment.length - (segment.cruiseVelocity ** 2 - segment.endVelocity ** 2) / (2 * accel),
+        );
+        while (s < segment.length - 1e-9) {
+          if (this.plotAbort) return;
+          if (this.plotPause && onPause) {
+            await onPause();
+            // The current machine position is implicit; retain this segment's
+            // endpoint and every following source waypoint for replanning.
+            remaining = planned.slice(i).map((p) => p.end);
+            paused = true;
+            break;
+          }
+          const vHere = vAt(s);
+          // About 25ms per EBB constant-velocity command. Unlike the old
+          // arc-length sampler, source waypoints and trapezoid phase changes
+          // are hard boundaries, making average endpoint velocity exact.
+          let phaseEnd = segment.length;
+          if (accelEnd > s + 1e-9) phaseEnd = accelEnd;
+          else if (decelStart > s + 1e-9) phaseEnd = decelStart;
+          // Also bound the velocity change per packet. In particular, the
+          // packets touching a corner should be close to the planned junction
+          // speed instead of averaging a large part of the deceleration ramp.
+          const maxDv = 1;
+          const velocityDs = Math.max(0.005, (2 * vHere * maxDv + maxDv * maxDv) / (2 * accel));
+          const ds = Math.min(phaseEnd - s, 4, Math.max(0.005, Math.min(vHere * 0.025, velocityDs)));
+          const s2 = s + ds;
+          const vAvg = Math.max(1e-3, (vHere + vAt(s2)) / 2);
+          const t = s2 / segment.length;
+          const x = segment.start[0] + (segment.end[0] - segment.start[0]) * t;
+          const y = segment.start[1] + (segment.end[1] - segment.start[1]) * t;
+          await this.stepTo(x, y, (ds / vAvg) * 1000, o);
+          onSegment?.(ds);
+          s = s2;
         }
-        const vHere = vAt(s);
-        while (nextVertex < cum.length && cum[nextVertex] <= s + 1e-9) nextVertex++;
-        const toVertex = nextVertex < cum.length ? cum[nextVertex] - s : L - s;
-        const ds = Math.min(L - s, toVertex, Math.max(0.3, Math.min(4, vHere * 0.025)));
-        const s2 = s + ds;
-        const vAvg = Math.max(1e-3, (vHere + vAt(s2)) / 2);
-        const [x, y] = pointAt(s2);
-        await this.stepTo(x, y, (ds / vAvg) * 1000, o);
-        onSegment?.(ds);
-        s = s2;
+        if (paused) break;
       }
       if (!paused) return;
     }

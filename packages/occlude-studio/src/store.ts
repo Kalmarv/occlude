@@ -53,6 +53,9 @@ export interface Settings {
     invertY: boolean;
     servoDown: number;
     servoUp: number;
+    acceleration: number;
+    junctionDeviation: number;
+    minimumCruiseRatio: number;
   };
 }
 
@@ -80,6 +83,9 @@ export const DEFAULT_SETTINGS: Settings = {
     invertY: false,
     servoDown: 10000,
     servoUp: 14200,
+    acceleration: 1000,
+    junctionDeviation: 0.02,
+    minimumCruiseRatio: 0.5,
   },
 };
 
