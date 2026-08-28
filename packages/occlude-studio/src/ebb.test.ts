@@ -193,4 +193,33 @@ describe('Ebb motor lifecycle', () => {
     expect(moves.length).toBeLessThan(100);
     expect(actualMs).toBeLessThan(1900);
   });
+
+  test('deceleration-specific spacing preserves timing while adding tail packets', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, swapXY: false, invertX: false };
+    const ebb = new Ebb();
+    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.plot(
+      new Float64Array([0, 0, 2, 0, 0, 100, 0]),
+      [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
+      direct,
+      () => undefined,
+    );
+
+    const down = port.commands.indexOf('SP,0,150');
+    const up = port.commands.indexOf('SP,1,150', down);
+    const drawMoves = port.commands
+      .slice(down + 1, up)
+      .filter((command) => command.startsWith('XM,'));
+    const actualMs = drawMoves.reduce((sum, command) => sum + Number(command.split(',')[1]), 0);
+
+    // The deceleration-specific distance term adds three tail packets without
+    // changing the 2ms-quantized duration of this 100mm stroke.
+    expect(drawMoves.length).toBe(96);
+    expect(actualMs).toBe(1737);
+  });
 });

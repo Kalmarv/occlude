@@ -324,14 +324,19 @@ export class Ebb {
           if (accelEnd > s + 1e-9) phaseEnd = accelEnd;
           else if (decelStart > s + 1e-9) phaseEnd = decelStart;
           // Use the time quantum at cruise. During accel/decel, also cap the
-          // speed change to the empirically safe 8mm/s launch step; applying
-          // that cap to cruise created ~1ms packets that the EBB rounded to
-          // 2ms, roughly halving feed and flooding the serial command stream.
+          // speed change to 4mm/s, half the empirically safe 8mm/s launch
+          // step; applying that cap to cruise created ~1ms packets that the
+          // EBB rounded to 2ms, roughly halving feed and flooding the serial
+          // command stream.
           const timeDs = Math.max(0.005, vHere * 0.025);
-          const accelerating = s < accelEnd - 1e-9 || s >= decelStart - 1e-9;
+          const inAccel = s < accelEnd - 1e-9;
+          const inDecel = s >= decelStart - 1e-9;
           const maxDv = 4;
-          const velocityDs = (2 * vHere * maxDv + maxDv * maxDv) / (2 * accel);
-          const ds = Math.min(phaseEnd - s, 4, accelerating ? Math.min(timeDs, velocityDs) : timeDs);
+          const velocityDs = inDecel
+            ? Math.max(0.005, (2 * vHere * maxDv - maxDv * maxDv) / (2 * accel))
+            : (2 * vHere * maxDv + maxDv * maxDv) / (2 * accel);
+          const ramping = inAccel || inDecel;
+          const ds = Math.min(phaseEnd - s, 4, ramping ? Math.min(timeDs, velocityDs) : timeDs);
           const s2 = s + ds;
           const vAvg = Math.max(1e-3, (vHere + vAt(s2)) / 2);
           const t = s2 / segment.length;
