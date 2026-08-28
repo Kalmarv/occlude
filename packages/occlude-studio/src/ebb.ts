@@ -63,6 +63,10 @@ export interface EbbOptions {
   servoUp: number;
   /** Host-side look-ahead limits. Pen feed remains the per-stroke maximum. */
   acceleration: number; // mm/s²
+  /** Pen-up moves have no ink physics or line quality to protect — only the
+   * skip-step ceiling. A higher travel accel cuts most of the ramp time on
+   * stroke-dense plots, where short hops never reach cruise. */
+  travelAcceleration: number; // mm/s²
   junctionDeviation: number; // mm
   minimumCruiseRatio: number;
 }
@@ -293,7 +297,8 @@ export class Ebb {
       this.pendingMs = 0;
       const [cx, cy] = curPaper();
       const vt = Math.max(1, feedMmMin / 60);
-      const accel = Math.max(1, o.acceleration);
+      // The pen state IS the tooling profile: raised means travel/jog.
+      const accel = Math.max(1, this.penIsUp ? o.travelAcceleration : o.acceleration);
       const poly: Point[] = [[cx, cy], ...remaining];
       const planned = planPolyline(poly, {
         maxVelocity: vt,

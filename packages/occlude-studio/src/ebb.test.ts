@@ -11,6 +11,7 @@ const opts = {
   servoDown: 10_000,
   servoUp: 14_200,
   acceleration: 1000,
+  travelAcceleration: 1000,
   junctionDeviation: 0.02,
   minimumCruiseRatio: 0.5,
 };
@@ -257,6 +258,36 @@ describe('Ebb motor lifecycle', () => {
       const [ms, dx, dy] = first.split(',').slice(1).map(Number);
       expect((Math.hypot(dx, dy) / stepsPerMm / ms) * 1000, `${stepsPerMm} steps/mm`).toBeLessThan(5);
     }
+  });
+
+  test('pen-up moves use the travel acceleration profile', async () => {
+    // Same 60mm travel at 100mm/s: t = L/v + v/a, so 4× travel accel should
+    // save ~75ms of ramp time while the draw stroke is planned identically.
+    const travelMs = async (travelAcceleration: number): Promise<number> => {
+      const port = new FakePort();
+      Object.defineProperty(globalThis, 'navigator', {
+        configurable: true,
+        value: { serial: { requestPort: async () => port } },
+      });
+      const direct = { ...opts, swapXY: false, invertX: false, travelAcceleration };
+      const ebb = new Ebb();
+      await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+      await ebb.plot(
+        new Float64Array([0, 0, 2, 60, 0, 70, 0]),
+        [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
+        direct,
+        () => undefined,
+      );
+      const down = port.commands.indexOf('SP,0,150');
+      return port.commands
+        .slice(0, down)
+        .filter((command) => command.startsWith('XM,'))
+        .reduce((sum, command) => sum + Number(command.split(',')[1]), 0);
+    };
+
+    const shared = await travelMs(1000);
+    const fast = await travelMs(4000);
+    expect(fast + 40).toBeLessThan(shared);
   });
 
   test('onlyPen plots just the selected pen’s chains', async () => {

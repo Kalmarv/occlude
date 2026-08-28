@@ -474,6 +474,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     servoDown: s.ebb.servoDown,
     servoUp: s.ebb.servoUp,
     acceleration: s.ebb.acceleration,
+    travelAcceleration: s.ebb.travelAcceleration,
     junctionDeviation: s.ebb.junctionDeviation,
     minimumCruiseRatio: s.ebb.minimumCruiseRatio,
   });
@@ -554,6 +555,10 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   servoRow.append(servoDownIn, servoUpIn);
   const acceleration = numberInput(s.ebb.acceleration, 50, (v) => {
     s.ebb.acceleration = Math.max(1, v);
+    persist();
+  });
+  const travelAcceleration = numberInput(s.ebb.travelAcceleration, 50, (v) => {
+    s.ebb.travelAcceleration = Math.max(1, v);
     persist();
   });
   const junctionDeviation = numberInput(s.ebb.junctionDeviation, 0.005, (v) => {
@@ -653,6 +658,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     flips,
     row('Servo dn/up', servoRow, 'SC,4 / SC,5 positions — write-only on the board, so tuned values live here'),
     row('Acceleration', acceleration, 'mm/s²; lower is gentler, higher reaches the pen feed sooner'),
+    row('Travel accel', travelAcceleration, 'mm/s² for pen-up moves — no ink or line quality at stake, so it can run harder than drawing'),
     row('Junction dev', junctionDeviation, 'mm; cornering tolerance used for Marlin/Klipper-style look-ahead'),
     row('Min cruise', minimumCruiseRatio, '0–0.99; suppresses vibration-producing speed spikes on short moves'),
     row('Plot pen', penSelect, 'Plots this pen only — for multi-pen sketches: plot, swap the pen, pick the next, plot again'),

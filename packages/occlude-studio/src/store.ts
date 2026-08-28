@@ -54,6 +54,7 @@ export interface Settings {
     servoDown: number;
     servoUp: number;
     acceleration: number;
+    travelAcceleration: number;
     junctionDeviation: number;
     minimumCruiseRatio: number;
   };
@@ -84,6 +85,7 @@ export const DEFAULT_SETTINGS: Settings = {
     servoDown: 10000,
     servoUp: 14200,
     acceleration: 1000,
+    travelAcceleration: 2000,
     junctionDeviation: 0.02,
     minimumCruiseRatio: 0.5,
   },
