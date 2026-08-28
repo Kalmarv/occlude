@@ -76,21 +76,26 @@ body {
 #workbench {
   --editor-w: 34%;
   --rail-w: 280px;
+  --rail-split: 6px;
   display: grid;
-  grid-template-columns: minmax(300px, var(--editor-w)) 6px 1fr var(--rail-w);
+  grid-template-columns:
+    minmax(300px, var(--editor-w)) 6px 1fr var(--rail-split) var(--rail-w);
   flex: 1;
   min-height: 0;
 }
 
 #workbench.rail-collapsed {
   --rail-w: 0px;
+  --rail-split: 0px;
 }
 
-#workbench.rail-collapsed #rail {
+#workbench.rail-collapsed #rail,
+#workbench.rail-collapsed #rail-resizer {
   display: none;
 }
 
-#editor-resizer {
+#editor-resizer,
+#rail-resizer {
   cursor: col-resize;
   background: var(--panel-edge);
   width: 6px;
@@ -99,11 +104,14 @@ body {
 }
 
 #editor-resizer:hover,
-#editor-resizer.dragging {
+#editor-resizer.dragging,
+#rail-resizer:hover,
+#rail-resizer.dragging {
   background: var(--toolpath);
 }
 
-#editor-resizer::after {
+#editor-resizer::after,
+#rail-resizer::after {
   /* widen the hit target without widening the visual strip */
   content: '';
   position: absolute;
@@ -598,7 +606,8 @@ button.primary {
   #workbench {
     grid-template-columns: minmax(260px, var(--editor-w)) 6px 1fr;
   }
-  #rail {
+  #rail,
+  #rail-resizer {
     display: none;
   }
 }

@@ -14,16 +14,19 @@ export interface UiPrefs {
   /** Editor pane width, CSS px; null = default (34%). */
   editorW: number | null;
   railOpen: boolean;
+  /** Rail width, CSS px; null = default (280px). */
+  railW: number | null;
 }
 
 export function loadUi(): UiPrefs {
+  const defaults: UiPrefs = { editorW: null, railOpen: true, railW: null };
   try {
     const raw = localStorage.getItem(KEYS.ui);
-    if (raw) return { editorW: null, railOpen: true, ...(JSON.parse(raw) as Partial<UiPrefs>) };
+    if (raw) return { ...defaults, ...(JSON.parse(raw) as Partial<UiPrefs>) };
   } catch {
     // fall through
   }
-  return { editorW: null, railOpen: true };
+  return defaults;
 }
 
 export function saveUi(ui: UiPrefs): void {

@@ -199,6 +199,11 @@ async function boot(): Promise<void> {
     } else {
       workbench.style.removeProperty('--editor-w');
     }
+    if (ui.railW !== null) {
+      workbench.style.setProperty('--rail-w', `${ui.railW}px`);
+    } else {
+      workbench.style.removeProperty('--rail-w');
+    }
     workbench.classList.toggle('rail-collapsed', !ui.railOpen);
     railBtn.setAttribute('aria-pressed', String(ui.railOpen));
   };
@@ -208,31 +213,55 @@ async function boot(): Promise<void> {
     applyUi();
     saveUi(ui);
   };
-  const resizer = $('editor-resizer');
-  resizer.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    resizer.setPointerCapture(e.pointerId);
-    resizer.classList.add('dragging');
-    const move = (ev: PointerEvent): void => {
+  // Drag to resize, double-click to reset to the default width.
+  const attachResizer = (
+    el: HTMLElement,
+    resize: (ev: PointerEvent) => void,
+    reset: () => void,
+  ): void => {
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      el.setPointerCapture(e.pointerId);
+      el.classList.add('dragging');
+      const move = (ev: PointerEvent): void => {
+        resize(ev);
+        applyUi();
+      };
+      const up = (): void => {
+        el.classList.remove('dragging');
+        el.removeEventListener('pointermove', move);
+        el.removeEventListener('pointerup', up);
+        saveUi(ui);
+      };
+      el.addEventListener('pointermove', move);
+      el.addEventListener('pointerup', up);
+    });
+    el.addEventListener('dblclick', () => {
+      reset();
+      applyUi();
+      saveUi(ui);
+    });
+  };
+  attachResizer(
+    $('editor-resizer'),
+    (ev) => {
       const max = Math.max(320, window.innerWidth * 0.75);
       ui.editorW = Math.min(max, Math.max(260, ev.clientX));
-      applyUi();
-    };
-    const up = (): void => {
-      resizer.classList.remove('dragging');
-      resizer.removeEventListener('pointermove', move);
-      resizer.removeEventListener('pointerup', up);
-      saveUi(ui);
-    };
-    resizer.addEventListener('pointermove', move);
-    resizer.addEventListener('pointerup', up);
-  });
-  // Double-click resets to the default width.
-  resizer.addEventListener('dblclick', () => {
-    ui.editorW = null;
-    applyUi();
-    saveUi(ui);
-  });
+    },
+    () => {
+      ui.editorW = null;
+    },
+  );
+  attachResizer(
+    $('rail-resizer'),
+    (ev) => {
+      const max = Math.max(320, window.innerWidth * 0.5);
+      ui.railW = Math.min(max, Math.max(220, window.innerWidth - ev.clientX));
+    },
+    () => {
+      ui.railW = null;
+    },
+  );
 
   // ---- animated plot preview ----
   const plotBtn = $('btn-plot') as HTMLButtonElement;
