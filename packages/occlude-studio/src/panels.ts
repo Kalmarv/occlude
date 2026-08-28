@@ -627,7 +627,11 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       // ceiling, with nib/4 avoiding needless points for broad pens.
       const penTol = (r.pens[penIndex]?.width ?? Infinity) / 4;
       const tol = Math.max(0.0001, Math.min(s.machine.resolution, penTol));
-      const plan = await hooks.client.exportToolpath(200_000, tol);
+      // Strict (0.05mm) joins only genuinely-touching strokes; "join fills"
+      // extends to sub-nib gaps (clamped to nib/2 per pen in the core), so
+      // fills route through outline junctions instead of lifting — at the
+      // cost of fills visibly touching outlines at the junction points.
+      const plan = await hooks.client.exportToolpath(200_000, tol, s.ebb.joinFills ? 1 : 0.05);
       await ebb.plot(
         plan,
         r.pens,
@@ -707,6 +711,10 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     row('Min cruise', minimumCruiseRatio, '0–0.99; suppresses vibration-producing speed spikes on short moves'),
     checkbox('LM motion (hardware-interpolated ramps; uncheck to fall back to XM packets)', s.ebb.lmMotion, (v) => {
       s.ebb.lmMotion = v;
+      persist();
+    }),
+    checkbox('Join fills to outlines (routes through junctions, far fewer pen lifts — fills will touch outlines)', s.ebb.joinFills, (v) => {
+      s.ebb.joinFills = v;
       persist();
     }),
     row('Plot pen', penSelect, 'Plots this pen only — for multi-pen sketches: plot, swap the pen, pick the next, plot again'),

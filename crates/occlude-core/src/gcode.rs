@@ -259,6 +259,10 @@ pub fn export_gcode(
             continue;
         }
         let chains = tour(chains, tour_budget);
+        // Sub-nib gaps between consecutive chains draw through instead of
+        // lifting. (Euler routing is toolpath-only: it flattens, and the
+        // G-code path keeps arcs for G2/G3.)
+        let chains = crate::route::bridge_chains(chains, pen.width.max(0.05) * 0.5);
         jobs.push(emit_pen_job(pi as u32, pen, &chains, profile));
     }
     jobs

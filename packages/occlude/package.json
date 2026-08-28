@@ -14,7 +14,8 @@
     "render": "tsx tools/render-png.ts",
     "build": "tsc -p tsconfig.json",
     "qa": "tsx tools/qa-sweep.ts",
-    "calibrate": "tsx tools/calibrate.ts"
+    "calibrate": "tsx tools/calibrate.ts",
+    "plotstats": "tsx tools/plotstats.ts"
   },
   "dependencies": {
     "occlude-core": "link:../../crates/occlude-core/pkg"

@@ -538,6 +538,7 @@ pub fn wasm_export_toolpath(
     pens_json: &str,
     tour_budget: u32,
     tolerance: f64,
+    join_eps: f64,
 ) -> Result<Vec<f64>, JsValue> {
     let pens: Vec<Pen> = serde_json::from_str(pens_json)
         .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
@@ -549,7 +550,13 @@ pub fn wasm_export_toolpath(
         if chains.is_empty() {
             continue;
         }
+        // Junction routing before the tour (strokes that meet become one),
+        // sub-nib gap bridging after it (consecutive near-misses join).
+        let nib = pens[pi].width.max(0.05);
+        let chains =
+            crate::route::euler_chains(chains, join_eps.min(nib * 0.5), tolerance.max(0.01));
         let chains = crate::gcode::tour(chains, tour_budget as usize);
+        let chains = crate::route::bridge_chains(chains, nib * 0.5);
         for chain in chains {
             out.push(pi as f64);
             out.push(if chain.dot { 1.0 } else { 0.0 });
