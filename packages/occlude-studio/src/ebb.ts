@@ -95,6 +95,10 @@ export class Ebb {
   // Dead-reckoned position in STEPS (integers — error-diffused from mm).
   private stepX = 0;
   private stepY = 0;
+  // Planned time carried by trajectory chunks too small to cross a step
+  // boundary — folded into the next emitted packet so quantization never
+  // shortens the profile. Only meaningful within one continuous run.
+  private pendingMs = 0;
 
   private plotAbort = false;
   private plotPause = false;
@@ -244,9 +248,17 @@ export class Ebb {
     const sy = Math.round(my * o.stepsPerMm);
     const dx = sx - this.stepX;
     const dy = sy - this.stepY;
-    if (dx === 0 && dy === 0) return;
+    if (dx === 0 && dy === 0) {
+      this.pendingMs += ms;
+      return;
+    }
     const motor = Math.max(Math.abs(dx + dy), Math.abs(dx - dy));
-    const clamped = Math.max(Math.ceil(ms), Math.ceil(motor / MAX_MOTOR_STEPS_PER_MS), 2);
+    const clamped = Math.max(
+      Math.ceil(ms + this.pendingMs),
+      Math.ceil(motor / MAX_MOTOR_STEPS_PER_MS),
+      2,
+    );
+    this.pendingMs = 0;
     await this.cmd(`XM,${clamped},${dx},${dy}`);
     this.stepX = sx;
     this.stepY = sy;
@@ -276,6 +288,9 @@ export class Ebb {
     };
     let remaining = pts;
     while (remaining.length > 0 && !this.plotAbort) {
+      // Each pass plans from rest; sub-step time from before this boundary
+      // (a previous run, or motion preceding a pause) has no profile here.
+      this.pendingMs = 0;
       const [cx, cy] = curPaper();
       const vt = Math.max(1, feedMmMin / 60);
       const accel = Math.max(1, o.acceleration);
@@ -406,7 +421,9 @@ export class Ebb {
 
   /**
    * Plot a toolpath plan (`wasm_export_toolpath` layout: [pen, dot, n,
-   * x0, y0, …] per chain, paper mm, already in tour order).
+   * x0, y0, …] per chain, paper mm, already in tour order). There is no
+   * physical pen changer: multi-pen sketches are plotted one pen per run
+   * (`onlyPen` selects which), swapping the pen by hand in between.
    */
   async plot(
     plan: Float64Array,
@@ -419,13 +436,15 @@ export class Ebb {
     /** Current servo positions — re-sent on resume so pause → adjust →
      * resume also covers pen height. */
     liveServo?: () => { servoDown: number; servoUp: number },
+    /** Plot only this pen's chains (index into `pens`); omit for all. */
+    onlyPen?: number,
   ): Promise<void> {
     interface Chain {
       pen: number;
       dot: boolean;
       pts: Float64Array;
     }
-    const chains: Chain[] = [];
+    let chains: Chain[] = [];
     for (let i = 0; i < plan.length; ) {
       const pen = plan[i++];
       const dot = plan[i++] === 1;
@@ -433,6 +452,7 @@ export class Ebb {
       chains.push({ pen, dot, pts: plan.subarray(i, i + n * 2) });
       i += n * 2;
     }
+    if (onlyPen !== undefined) chains = chains.filter((c) => c.pen === onlyPen);
     // Totals for progress: commands and machine-time estimate.
     let total = 0;
     let totalMs = 0;

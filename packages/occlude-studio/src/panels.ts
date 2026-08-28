@@ -565,6 +565,24 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     persist();
   });
 
+  // Pen to plot. No physical pen changer: a multi-pen sketch is plotted one
+  // pen per run — plot, swap the pen by hand, pick the next, plot again.
+  // Options mirror the last render, rebuilt on open so they never go stale.
+  const penSelect = document.createElement('select');
+  const refreshPenSelect = (): void => {
+    const prev = penSelect.selectedOptions[0]?.textContent ?? '';
+    penSelect.innerHTML = '';
+    (hooks.lastResult()?.pens ?? []).forEach((pen, i) => {
+      const option = document.createElement('option');
+      option.value = String(i);
+      option.textContent = pen.name;
+      option.selected = pen.name === prev;
+      penSelect.append(option);
+    });
+  };
+  penSelect.addEventListener('pointerdown', refreshPenSelect);
+  refreshPenSelect();
+
   // Plot controls.
   const bar = document.createElement('progress');
   bar.max = 1;
@@ -593,9 +611,11 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     const r = hooks.lastResult();
     if (!r) return;
     try {
+      refreshPenSelect();
+      const penIndex = Math.min(parseInt(penSelect.value, 10) || 0, r.pens.length - 1);
       // Match G-code export: machine resolution is the geometric error
       // ceiling, with nib/4 avoiding needless points for broad pens.
-      const penTol = r.pens.reduce((tol, pen) => Math.min(tol, pen.width / 4), Infinity);
+      const penTol = (r.pens[penIndex]?.width ?? Infinity) / 4;
       const tol = Math.max(0.0001, Math.min(s.machine.resolution, penTol));
       const plan = await hooks.client.exportToolpath(200_000, tol);
       await ebb.plot(
@@ -605,6 +625,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         onProgress,
         (name) => hooks.pens.find((p) => p.name === name),
         () => ({ servoDown: s.ebb.servoDown, servoUp: s.ebb.servoUp }),
+        penIndex,
       );
     } catch (e) {
       showErr(e);
@@ -634,6 +655,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     row('Acceleration', acceleration, 'mm/s²; lower is gentler, higher reaches the pen feed sooner'),
     row('Junction dev', junctionDeviation, 'mm; cornering tolerance used for Marlin/Klipper-style look-ahead'),
     row('Min cruise', minimumCruiseRatio, '0–0.99; suppresses vibration-producing speed spikes on short moves'),
+    row('Plot pen', penSelect, 'Plots this pen only — for multi-pen sketches: plot, swap the pen, pick the next, plot again'),
     plotRow,
     bar,
     progressText,

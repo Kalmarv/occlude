@@ -222,4 +222,71 @@ describe('Ebb motor lifecycle', () => {
     expect(drawMoves.length).toBe(96);
     expect(actualMs).toBe(1737);
   });
+
+  test('sub-step launch chunks bank their time into the first physical packet', async () => {
+    // The first 5µm launch chunk can round to zero motion, leaving only its
+    // TIME. Dropped instead of banked, the first physical packet covers both
+    // chunks' distance in half the planned time and launches at double speed.
+    // At 80 steps/mm (AxiDraw) 5µm is 0.4 steps — always sub-step. At this
+    // machine's 100 steps/mm it is exactly half a step, and whether the
+    // rounded target crosses depends on the float error of the start
+    // coordinate: 4.995·100 = 499.5000…06 rounds back UP to the current
+    // step, so a −x stroke from x=5 deterministically drops its launch chunk.
+    const cases: [number, number[]][] = [
+      [100, [0, 0, 2, 5, 0, 0, 0]],
+      [80, [0, 0, 2, 0, 0, 10, 0]],
+    ];
+    for (const [stepsPerMm, plan] of cases) {
+      const port = new FakePort();
+      Object.defineProperty(globalThis, 'navigator', {
+        configurable: true,
+        value: { serial: { requestPort: async () => port } },
+      });
+      const direct = { ...opts, swapXY: false, invertX: false, stepsPerMm };
+      const ebb = new Ebb();
+      await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+      await ebb.plot(
+        new Float64Array(plan),
+        [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
+        direct,
+        () => undefined,
+      );
+
+      const down = port.commands.indexOf('SP,0,150');
+      const first = port.commands.slice(down + 1).find((command) => command.startsWith('XM,'))!;
+      const [ms, dx, dy] = first.split(',').slice(1).map(Number);
+      expect((Math.hypot(dx, dy) / stepsPerMm / ms) * 1000, `${stepsPerMm} steps/mm`).toBeLessThan(5);
+    }
+  });
+
+  test('onlyPen plots just the selected pen’s chains', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, swapXY: false, invertX: false };
+    const plan = new Float64Array([
+      0, 0, 2, 0, 0, 5, 0, // pen 0: stroke along x
+      1, 0, 2, 10, 10, 10, 15, // pen 1: stroke starting at (10,10)
+    ]);
+    const pens = [
+      { name: 'a', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 },
+      { name: 'b', width: 0.2, color: '#f00', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 },
+    ];
+    const ebb = new Ebb();
+    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.plot(plan, pens, direct, () => undefined, undefined, undefined, 1);
+
+    const downs = port.commands.filter((command) => command === 'SP,0,150');
+    expect(downs).toHaveLength(1);
+    // The single travel ends at pen 1's chain start, (10,10) → 1000,1000 steps.
+    const down = port.commands.indexOf('SP,0,150');
+    const travelled = port.commands
+      .slice(0, down)
+      .filter((command) => command.startsWith('XM,'))
+      .map((command) => command.split(',').slice(2).map(Number))
+      .reduce(([x, y], [dx, dy]) => [x + dx, y + dy], [0, 0]);
+    expect(travelled).toEqual([1000, 1000]);
+  });
 });
