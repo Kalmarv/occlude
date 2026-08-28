@@ -31,7 +31,7 @@ import {
 const args = process.argv.slice(2);
 const optValues = new Set<number>();
 args.forEach((a, i) => {
-  if (a.startsWith('--') && ['seed', 'paper', 'tolerance', 'eps', 'join'].includes(a.slice(2))) optValues.add(i + 1);
+  if (a.startsWith('--') && ['seed', 'paper', 'tolerance', 'eps'].includes(a.slice(2))) optValues.add(i + 1);
 });
 const files = args.filter((a, i) => !a.startsWith('--') && !optValues.has(i));
 const opt = (name: string): string | undefined => {
@@ -49,7 +49,6 @@ const paper = (opt('paper') ?? 'A4') as never;
 const landscape = args.includes('--landscape');
 const tolerance = parseFloat(opt('tolerance') ?? '0.025');
 const eps = parseFloat(opt('eps') ?? '0.05');
-const joinEps = parseFloat(opt('join') ?? '0.05');
 if (seed !== undefined) {
   (globalThis as Record<string, unknown>).location = { search: `?seed=${seed}` };
 }
@@ -348,9 +347,9 @@ for (const file of files) {
     const r = render({ paper, landscape });
     const plan = (core as unknown as {
       wasm_export_toolpath(
-        p: Float64Array, f: Float64Array, pens: string, budget: number, tol: number, j: number,
+        p: Float64Array, f: Float64Array, pens: string, budget: number, tol: number,
       ): Float64Array;
-    }).wasm_export_toolpath(r.raw.prims, r.raw.frags, pensToJson(r.pens), 200_000, tolerance, joinEps);
+    }).wasm_export_toolpath(r.raw.prims, r.raw.frags, pensToJson(r.pens), 200_000, tolerance);
     rows.push(analyze(basename(file, '.ts'), parsePlan(plan), r.pens));
   } catch (e) {
     console.error(`${basename(file)}: ${e instanceof Error ? e.message : String(e)}`);

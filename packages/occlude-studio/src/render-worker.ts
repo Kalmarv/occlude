@@ -34,7 +34,6 @@ interface ToolpathMsg {
   id: number;
   budget: number;
   tolerance: number;
-  joinEps: number;
 }
 
 interface PngMsg {
@@ -93,11 +92,8 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         const plan = (core as unknown as {
           wasm_export_toolpath(
             p: Float64Array, f: Float64Array, pens: string, budget: number, tol: number,
-            joinEps: number,
           ): Float64Array;
-        }).wasm_export_toolpath(
-          last.prims, last.frags, last.pensJson, msg.budget, msg.tolerance, msg.joinEps,
-        );
+        }).wasm_export_toolpath(last.prims, last.frags, last.pensJson, msg.budget, msg.tolerance);
         self.postMessage({ type: 'toolpath', id: msg.id, plan }, { transfer: [plan.buffer] });
         break;
       }

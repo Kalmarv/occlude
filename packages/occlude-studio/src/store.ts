@@ -61,9 +61,6 @@ export interface Settings {
     junctionDeviation: number;
     minimumCruiseRatio: number;
     lmMotion: boolean;
-    /** Route fills through outline junctions across sub-nib gaps (fills
-     * will touch outlines at junction points). Off = strict touches only. */
-    joinFills: boolean;
   };
 }
 
@@ -96,7 +93,6 @@ export const DEFAULT_SETTINGS: Settings = {
     junctionDeviation: 0.02,
     minimumCruiseRatio: 0.5,
     lmMotion: true,
-    joinFills: false,
   },
 };
 

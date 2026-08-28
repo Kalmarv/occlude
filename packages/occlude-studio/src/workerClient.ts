@@ -107,14 +107,14 @@ export class RenderClient {
     return this.request({ type: 'svg', width, height, background, onlyPen }, 'svg');
   }
 
-  exportToolpath(budget: number, tolerance: number, joinEps: number): Promise<Float64Array> {
+  exportToolpath(budget: number, tolerance: number): Promise<Float64Array> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
       this.pending.set(id, {
         resolve: (msg) => resolve((msg as { plan: Float64Array }).plan),
         reject,
       });
-      this.worker.postMessage({ type: 'toolpath', id, budget, tolerance, joinEps });
+      this.worker.postMessage({ type: 'toolpath', id, budget, tolerance });
     });
   }
 

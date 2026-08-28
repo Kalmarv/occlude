@@ -284,7 +284,7 @@ async function boot(): Promise<void> {
     try {
       const penTol = lastResult.pens.reduce((tol, pen) => Math.min(tol, pen.width / 4), Infinity);
       const tol = Math.max(0.0001, Math.min(settings.machine.resolution, penTol));
-      const plan = await client.exportToolpath(50_000, tol, settings.ebb.joinFills ? 1 : 0.05);
+      const plan = await client.exportToolpath(50_000, tol);
       preview.startPlot(
         plan,
         lastResult.pens,
