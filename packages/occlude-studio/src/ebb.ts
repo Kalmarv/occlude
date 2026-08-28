@@ -323,12 +323,15 @@ export class Ebb {
           let phaseEnd = segment.length;
           if (accelEnd > s + 1e-9) phaseEnd = accelEnd;
           else if (decelStart > s + 1e-9) phaseEnd = decelStart;
-          // Also bound the velocity change per packet. In particular, the
-          // packets touching a corner should be close to the planned junction
-          // speed instead of averaging a large part of the deceleration ramp.
-          const maxDv = 1;
-          const velocityDs = Math.max(0.005, (2 * vHere * maxDv + maxDv * maxDv) / (2 * accel));
-          const ds = Math.min(phaseEnd - s, 4, Math.max(0.005, Math.min(vHere * 0.025, velocityDs)));
+          // Use the time quantum at cruise. During accel/decel, also cap the
+          // speed change to the empirically safe 8mm/s launch step; applying
+          // that cap to cruise created ~1ms packets that the EBB rounded to
+          // 2ms, roughly halving feed and flooding the serial command stream.
+          const timeDs = Math.max(0.005, vHere * 0.025);
+          const accelerating = s < accelEnd - 1e-9 || s >= decelStart - 1e-9;
+          const maxDv = 4;
+          const velocityDs = (2 * vHere * maxDv + maxDv * maxDv) / (2 * accel);
+          const ds = Math.min(phaseEnd - s, 4, accelerating ? Math.min(timeDs, velocityDs) : timeDs);
           const s2 = s + ds;
           const vAvg = Math.max(1e-3, (vHere + vAt(s2)) / 2);
           const t = s2 / segment.length;
