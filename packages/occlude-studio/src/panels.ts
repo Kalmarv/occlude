@@ -458,7 +458,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     return;
   }
   hint.textContent =
-    'EBB/iDraw over USB. Flow: Connect → jog the pen to the paper\u2019s top-left → Set origin → Plot.';
+    'EBB/iDraw over USB. Connect leaves the rails free: position the pen by hand → Set origin → Plot.';
 
   const ebb = new Ebb();
   const status = document.createElement('div');
@@ -578,7 +578,10 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     const r = hooks.lastResult();
     if (!r) return;
     try {
-      const tol = Math.max(s.machine.resolution, 0.1);
+      // Match G-code export: machine resolution is the geometric error
+      // ceiling, with nib/4 avoiding needless points for broad pens.
+      const penTol = r.pens.reduce((tol, pen) => Math.min(tol, pen.width / 4), Infinity);
+      const tol = Math.max(0.0001, Math.min(s.machine.resolution, penTol));
       const plan = await hooks.client.exportToolpath(200_000, tol);
       await ebb.plot(
         plan,

@@ -253,7 +253,9 @@ async function boot(): Promise<void> {
     if (!lastResult) return;
     plotBtn.textContent = '■ Stop';
     try {
-      const plan = await client.exportToolpath(50_000, 0.1);
+      const penTol = lastResult.pens.reduce((tol, pen) => Math.min(tol, pen.width / 4), Infinity);
+      const tol = Math.max(0.0001, Math.min(settings.machine.resolution, penTol));
+      const plan = await client.exportToolpath(50_000, tol);
       preview.startPlot(
         plan,
         lastResult.pens,

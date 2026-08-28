@@ -574,3 +574,21 @@ fn flatten_cubic(c: &Cubic, tol: f64, depth: usize, out: &mut Vec<Vec2>) {
     out.push(l.p1);
     flatten_cubic(&r, tol, depth + 1, out);
 }
+
+#[cfg(test)]
+mod flatten_tests {
+    use super::*;
+
+    #[test]
+    fn two_mm_circle_respects_plotter_resolution() {
+        let circle = Primitive::Arc(Arc::new(Vec2::ZERO, 1.0, 0.0, std::f64::consts::TAU));
+        let mut points = Vec::new();
+        circle.flatten(0.025, &mut points);
+
+        assert!(points.len() >= 16, "got only {} points", points.len());
+        for pair in points.windows(2) {
+            let midpoint = (pair[0] + pair[1]) * 0.5;
+            assert!(1.0 - midpoint.len() <= 0.025 + 1e-12);
+        }
+    }
+}

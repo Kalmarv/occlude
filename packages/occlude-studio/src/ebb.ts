@@ -11,9 +11,9 @@
  * - CoreXY: XM,<ms>,<dx>,<dy> takes XY-space step deltas and mixes
  *   internally; per-MOTOR limit is 25k steps/s and a diagonal puts 2·d on
  *   one motor — durations are clamped in motor space.
- * - No homing switches: user jogs to origin, CS zeroes the counters,
- *   HM,<rate> returns to logical 0,0. SR,0 on connect or the servo powers
- *   off after idle and the pen sags onto the paper.
+ * - No homing switches: user positions by hand while motors are released,
+ *   CS zeroes the counters, and HM,<rate> returns to logical 0,0. SR,0 on
+ *   connect or the servo powers off after idle and the pen sags onto paper.
  * - Never send: BL, R/RB, CU,1,0.
  */
 
@@ -107,17 +107,18 @@ export class Ebb {
     this.writer = port.writable!.getWriter();
     this.readAbort = new AbortController();
     void this.readLoop();
-    // No reset on open, no warmup (verified). Configure:
-    // SR,0 — disable servo idle power-off (pen sag); EM,1,1 — 1/16 µstep.
+    // No reset on open, no warmup (verified). Configure the servo, but leave
+    // the steppers released so the carriage can be positioned by hand. Jog,
+    // Home, and Plot enable them immediately before their first motion.
     const v = await this.cmd('V', false);
     this.version = v[0] ?? '';
+    await this.cmd('EM,0,0');
     await this.cmd('SR,0');
     if (o) {
       await this.cmd(`SC,4,${Math.round(o.servoDown)}`);
       await this.cmd(`SC,5,${Math.round(o.servoUp)}`);
     }
     await this.penUp(0);
-    await this.cmd('EM,1,1');
     // Motor supply check: QC's second value is V+; ~zero = power unplugged.
     try {
       const qc = await this.cmd('QC');
@@ -318,10 +319,11 @@ export class Ebb {
           poly[lo][1] + (poly[hi][1] - poly[lo][1]) * t,
         ];
       };
-      // Emit TIME-quantised chunks (~25ms) so the ramp is realised: the
-      // first moves genuinely creep at v0 instead of averaging half the
-      // ramp into one constant-velocity jump.
+      // Emit TIME-quantised chunks (~25ms) so the ramp is realised. Never
+      // step across a source-polyline vertex: doing so cuts inside tight
+      // curves (a 2mm circle used to collapse from 15 chords to only 6).
       let s = 0;
+      let nextVertex = 1;
       let paused = false;
       while (s < L - 1e-9) {
         if (this.plotAbort) return;
@@ -335,7 +337,9 @@ export class Ebb {
           break;
         }
         const vHere = vAt(s);
-        const ds = Math.min(L - s, Math.max(0.3, Math.min(4, vHere * 0.025)));
+        while (nextVertex < cum.length && cum[nextVertex] <= s + 1e-9) nextVertex++;
+        const toVertex = nextVertex < cum.length ? cum[nextVertex] - s : L - s;
+        const ds = Math.min(L - s, toVertex, Math.max(0.3, Math.min(4, vHere * 0.025)));
         const s2 = s + ds;
         const vAvg = Math.max(1e-3, (vHere + vAt(s2)) / 2);
         const [x, y] = pointAt(s2);
@@ -376,6 +380,7 @@ export class Ebb {
 
   async home(): Promise<void> {
     await this.penUp();
+    await this.cmd('EM,1,1');
     await this.cmd('HM,2000');
     this.stepX = 0;
     this.stepY = 0;
