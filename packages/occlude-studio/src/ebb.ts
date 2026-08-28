@@ -46,6 +46,8 @@ export interface PlotProgress {
   totalMs: number;
   penName: string;
   state: 'plotting' | 'paused' | 'done' | 'stopped';
+  /** Anomaly report, e.g. a position-drift correction. Sticky per plot. */
+  warning?: string;
 }
 
 export interface EbbOptions {
@@ -115,6 +117,13 @@ export class Ebb {
   private plotAbort = false;
   private plotPause = false;
   plotting = false;
+  // Set when the user jogs or re-origins during a pause: the coordinate
+  // frame moved, so resuming must NOT re-lower the pen — continuing the
+  // interrupted stroke from a shifted position would draw a stray line.
+  // The current stroke's remainder is traced pen-up; the next chain's own
+  // pen-down resumes inking. This is the drift-recovery flow: pause → jog
+  // the pen onto the paper origin → Set origin → resume.
+  private pauseAdjusted = false;
 
   async connect(o?: { servoDown: number; servoUp: number }): Promise<string> {
     const serial = (navigator as unknown as { serial: SerialLike }).serial;
@@ -146,7 +155,41 @@ export class Ebb {
     } catch {
       // non-fatal
     }
+    // Adopt the board's step counters instead of assuming zero: after a
+    // reconnect (tab reload) they still hold the position relative to the
+    // last Set origin, so the session resumes registered. Fresh power-up
+    // reads 0,0 — identical to the old behavior.
+    const pos = await this.queryPosition().catch(() => null);
+    if (pos) {
+      this.stepX = pos[0];
+      this.stepY = pos[1];
+    }
     return this.version;
+  }
+
+  /** Board step counters via QS, inverted from CoreXY motor space to
+   * machine XY steps. Null if the response doesn't parse. */
+  private async queryPosition(): Promise<[number, number] | null> {
+    const qs = await this.cmd('QS');
+    const m = /(-?\d+),(-?\d+)/.exec(qs[0] ?? '');
+    if (!m) return null;
+    const m1 = parseInt(m[1], 10);
+    const m2 = parseInt(m[2], 10);
+    return [(m1 + m2) / 2, (m1 - m2) / 2];
+  }
+
+  /** Wait until queued motion has physically finished (FIFO depth 2 means
+   * an OK acknowledges queueing, not completion). Polls QM; gives up after
+   * `timeoutMs` and reports false so callers skip rather than misread. */
+  private async drainMotion(timeoutMs = 3000): Promise<boolean> {
+    const start = Date.now();
+    for (;;) {
+      const qm = await this.cmd('QM', false);
+      const parts = (qm[0] ?? '').split(',').slice(1).map(Number);
+      if (parts.length >= 3 && parts.every((p) => p === 0)) return true;
+      if (Date.now() - start > timeoutMs) return false;
+      await new Promise((r) => setTimeout(r, 50));
+    }
   }
 
   async disconnect(): Promise<void> {
@@ -464,6 +507,7 @@ export class Ebb {
   }
 
   async jog(dxMm: number, dyMm: number, o: EbbOptions): Promise<void> {
+    if (this.plotting && this.plotPause) this.pauseAdjusted = true;
     // Invert the paper→machine mapping to recover current paper position.
     const mx = (this.stepX / o.stepsPerMm) * (o.invertX ? -1 : 1);
     const my = (this.stepY / o.stepsPerMm) * (o.invertY ? -1 : 1);
@@ -475,6 +519,7 @@ export class Ebb {
 
   /** Zero the board's step counters here — "this is the paper origin". */
   async setOrigin(): Promise<void> {
+    if (this.plotting && this.plotPause) this.pauseAdjusted = true;
     await this.cmd('CS');
     this.stepX = 0;
     this.stepY = 0;
@@ -568,11 +613,29 @@ export class Ebb {
     await this.cmd('EM,1,1');
     let sent = 0;
     let elapsedMs = 0;
+    let warning: string | undefined;
     const report = (state: PlotProgress['state'], penName = ''): void =>
-      onProgress({ sent, total, elapsedMs, totalMs, penName, state });
+      onProgress({ sent, total, elapsedMs, totalMs, penName, state, warning });
+    // Dead-reckoning vs the board's own counters. A mismatch means commands
+    // were lost or mangled in flight (open loop: PHYSICAL skips are invisible
+    // to both sides — that's what the pause→jog to origin→Set origin→resume
+    // flow is for). Adopt the board's truth so later moves replan from where
+    // the machine actually is instead of compounding the divergence.
+    const verifyPosition = async (): Promise<void> => {
+      if (!(await this.drainMotion())) return;
+      const pos = await this.queryPosition().catch(() => null);
+      if (!pos) return;
+      const dx = pos[0] - this.stepX;
+      const dy = pos[1] - this.stepY;
+      if (dx !== 0 || dy !== 0) {
+        this.stepX = pos[0];
+        this.stepY = pos[1];
+        warning = `drift ${dx},${dy} steps — adopted board counters`;
+      }
+    };
 
     try {
-      for (const c of chains) {
+      for (const [chainIndex, c] of chains.entries()) {
         const base = pens[c.pen];
         const pen = (base && livePen?.(base.name)) ?? base;
         const feed = pen?.feed ?? 3000;
@@ -584,10 +647,14 @@ export class Ebb {
         const settle = Math.max(pen?.penDelay ?? 300, 150);
         const penName = pen?.name ?? '';
         // Pause dance: raise, wait, re-lower (drawing only). The run
-        // replans its ramp from rest afterwards.
+        // replans its ramp from rest afterwards. If the user jogged or
+        // re-origined while paused (drift recovery), the pen stays UP —
+        // the coordinate frame moved, so finishing the interrupted stroke
+        // inked would draw a stray line; the next chain re-inks normally.
         const pauseUp = async (): Promise<void> => {
           const wasUp = this.penIsUp;
           if (!wasUp) await this.penUp(settle);
+          this.pauseAdjusted = false;
           report('paused', penName);
           while (this.plotPause && !this.plotAbort) {
             await new Promise((r) => setTimeout(r, 150));
@@ -598,7 +665,7 @@ export class Ebb {
               await this.cmd(`SC,4,${Math.round(sv.servoDown)}`);
               await this.cmd(`SC,5,${Math.round(sv.servoUp)}`);
             }
-            if (!wasUp) await this.penDown(settle);
+            if (!wasUp && !this.pauseAdjusted) await this.penDown(settle);
           }
         };
         if (this.plotAbort) break;
@@ -621,10 +688,13 @@ export class Ebb {
         await this.penUp(settle);
         sent += 1;
         elapsedMs += 2 * settle;
+        // Cheap health check while the pen is already up between chains.
+        if (chainIndex % 25 === 24) await verifyPosition();
         report('plotting', penName);
       }
       if (!this.plotAbort) {
         await this.penUp();
+        await verifyPosition(); // before home() zeroes the counters
         await this.home();
         await this.cmd('EM,0,0'); // release motors so the sheet swap is easy
         report('done');

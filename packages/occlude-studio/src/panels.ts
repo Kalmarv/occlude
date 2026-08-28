@@ -603,12 +603,13 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   function onProgress(p: PlotProgress): void {
     bar.value = p.totalMs > 0 ? Math.min(1, p.elapsedMs / p.totalMs) : 0;
     const eta = Math.max(0, (p.totalMs - p.elapsedMs) / 60000);
-    progressText.textContent =
+    const base =
       p.state === 'done'
         ? 'done'
         : p.state === 'stopped'
           ? 'stopped'
           : `${p.state} \u00b7 ${p.penName} \u00b7 ~${eta.toFixed(1)} min left`;
+    progressText.textContent = p.warning ? `${base} \u00b7 \u26a0 ${p.warning}` : base;
     pauseBtn.textContent = p.state === 'paused' ? 'Resume' : 'Pause';
   }
 

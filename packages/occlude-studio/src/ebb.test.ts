@@ -20,6 +20,8 @@ const opts = {
 
 class FakePort {
   readonly commands: string[] = [];
+  /** Board step counters reported by QS — override to simulate drift. */
+  qs: () => [number, number] = () => [0, 0];
   private input!: ReadableStreamDefaultController<Uint8Array>;
   constructor(private version = 'EBBv2.8.1') {}
   readonly readable = new ReadableStream<Uint8Array>({
@@ -32,7 +34,15 @@ class FakePort {
       const command = new TextDecoder().decode(chunk).replace(/\r$/, '');
       this.commands.push(command);
       const response =
-        command === 'V' ? `${this.version}\r` : command === 'QC' ? '0,500\rOK\r' : 'OK\r';
+        command === 'V'
+          ? `${this.version}\r`
+          : command === 'QC'
+            ? '0,500\rOK\r'
+            : command === 'QS'
+              ? `${this.qs().join(',')}\rOK\r`
+              : command === 'QM'
+                ? 'QM,0,0,0,0\r'
+                : 'OK\r';
       this.input.enqueue(new TextEncoder().encode(response));
     },
   });
@@ -463,5 +473,71 @@ describe('LM motion', () => {
     const port = await run(new Float64Array([0, 0, 2, 0, 0, 20, 0]), lmOpts, 'EBBv2.4.5');
     expect(port.commands.some((c) => c.startsWith('LM,'))).toBe(false);
     expect(port.commands.some((c) => c.startsWith('XM,'))).toBe(true);
+  });
+});
+
+describe('position integrity (QS)', () => {
+  const direct = { ...opts, swapXY: false, invertX: false };
+  const pen = [
+    { name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 },
+  ];
+
+  function setup(port: FakePort): Ebb {
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    return new Ebb();
+  }
+
+  test('connect adopts the board counters, so a reconnect stays registered', async () => {
+    const port = new FakePort();
+    port.qs = () => [200, 0]; // motor space → machine (100, 100) steps = (1, 1)mm
+    const ebb = setup(port);
+    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.plot(new Float64Array([0, 0, 2, 1, 1, 2, 1]), pen, direct, () => undefined);
+    // The chain starts exactly where the board says we are: no travel move.
+    const down = port.commands.indexOf('SP,0,150');
+    const travel = port.commands
+      .slice(0, down)
+      .filter((c) => c.startsWith('XM,') || c.startsWith('LM,'));
+    expect(travel).toEqual([]);
+  });
+
+  test('end-of-plot drift is reported and the board counters adopted', async () => {
+    const port = new FakePort();
+    let calls = 0;
+    port.qs = () => (++calls <= 1 ? [0, 0] : [1100, 1100]); // machine (1100, 0)
+    const ebb = setup(port);
+    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    const reports: (string | undefined)[] = [];
+    await ebb.plot(new Float64Array([0, 0, 2, 0, 0, 10, 0]), pen, direct, (p) =>
+      reports.push(p.warning),
+    );
+    // Host dead-reckons (1000, 0); the board claims (1100, 0).
+    expect(reports.at(-1)).toContain('drift 100,0');
+  });
+
+  test('jog or Set origin during a pause keeps the pen up on resume', async () => {
+    const port = new FakePort();
+    const ebb = setup(port);
+    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    let state = '';
+    const plotting = ebb.plot(
+      new Float64Array([0, 0, 2, 0, 0, 30, 0, 0, 0, 2, 5, 5, 6, 5]),
+      pen,
+      direct,
+      (p) => {
+        state = p.state;
+      },
+    );
+    ebb.pause(); // lands at the first draw block of chain 1
+    while (state !== 'paused') await new Promise((r) => setTimeout(r, 20));
+    await ebb.setOrigin(); // drift recovery: re-true the coordinate frame
+    ebb.resume();
+    await plotting;
+    // Chain 1's initial pen-down and chain 2's — but NO re-lower at resume:
+    // the frame moved, so the interrupted stroke's remainder stays inkless.
+    expect(port.commands.filter((c) => c === 'SP,0,150')).toHaveLength(2);
   });
 });
