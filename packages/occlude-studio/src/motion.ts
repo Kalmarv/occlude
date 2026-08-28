@@ -23,6 +23,86 @@ export interface PlannedSegment {
   endVelocity: number;
 }
 
+/** One constant-acceleration motion block — the shape the EBB's LM command
+ * executes natively. Consecutive blocks are velocity-continuous. */
+export interface MotionBlock {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  /** Cartesian entry/exit speeds, mm/s. */
+  v0: number;
+  v1: number;
+  /** Index of the source PlannedSegment (pause/resume replans from here). */
+  seg: number;
+}
+
+/**
+ * Slice planned segments into accel/cruise/decel blocks, each capped at
+ * `maxBlockS` seconds. The cap bounds pause latency (the FIFO holds at most
+ * one queued block) and keeps progress reporting granular; a whole cruise
+ * leg would otherwise be one multi-second command.
+ */
+export function segmentsToBlocks(
+  planned: PlannedSegment[],
+  accel: number,
+  maxBlockS = 0.25,
+): MotionBlock[] {
+  const a = Math.max(1e-6, accel);
+  const blocks: MotionBlock[] = [];
+  planned.forEach((segment, seg) => {
+    const { length } = segment;
+    const vs = segment.startVelocity;
+    const vc = segment.cruiseVelocity;
+    const ve = segment.endVelocity;
+    let dAccel = Math.max(0, (vc * vc - vs * vs) / (2 * a));
+    let dDecel = Math.max(0, (vc * vc - ve * ve) / (2 * a));
+    // The planner guarantees reachability; rescale only float overshoot.
+    if (dAccel + dDecel > length) {
+      const k = length / (dAccel + dDecel);
+      dAccel *= k;
+      dDecel *= k;
+    }
+    const at = (s: number): Point => [
+      segment.start[0] + ((segment.end[0] - segment.start[0]) * s) / length,
+      segment.start[1] + ((segment.end[1] - segment.start[1]) * s) / length,
+    ];
+    const phases: { s0: number; s1: number; v0: number; v1: number }[] = [
+      { s0: 0, s1: dAccel, v0: vs, v1: vc },
+      { s0: dAccel, s1: length - dDecel, v0: vc, v1: vc },
+      { s0: length - dDecel, s1: length, v0: vc, v1: ve },
+    ];
+    for (const phase of phases) {
+      if (phase.s1 - phase.s0 < 1e-9) continue;
+      const phaseA = (phase.v1 ** 2 - phase.v0 ** 2) / (2 * (phase.s1 - phase.s0));
+      let s = phase.s0;
+      let v = phase.v0;
+      while (s < phase.s1 - 1e-9) {
+        // Remaining phase time; finish the phase in one block when it fits
+        // the cap, otherwise advance by exactly the cap. (Accel/decel phases
+        // last (Δv)/a — usually under the cap; splitting is for cruise.)
+        const tEnd =
+          phaseA !== 0 ? (phase.v1 - v) / phaseA : (phase.s1 - s) / Math.max(v, 1e-9);
+        let s2: number;
+        let v2: number;
+        if (tEnd <= maxBlockS + 1e-9) {
+          s2 = phase.s1;
+          v2 = phase.v1;
+        } else {
+          v2 = v + phaseA * maxBlockS;
+          s2 = s + ((v + v2) / 2) * maxBlockS;
+        }
+        const [x0, y0] = at(s);
+        const [x1, y1] = at(s2);
+        blocks.push({ x0, y0, x1, y1, v0: v, v1: v2, seg });
+        s = s2;
+        v = v2;
+      }
+    }
+  });
+  return blocks;
+}
+
 /**
  * Plan an exact polyline using GRBL/Marlin junction deviation and Klipper's
  * whole-run reverse/forward look-ahead. Speeds are kept squared while

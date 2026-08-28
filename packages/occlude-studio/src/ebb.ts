@@ -18,7 +18,7 @@
  */
 
 import type { PenDef } from 'occlude';
-import { planPolyline, type Point } from './motion.js';
+import { planPolyline, segmentsToBlocks, type MotionBlock, type Point } from './motion.js';
 
 // Minimal Web Serial typings (lib.dom doesn't ship them everywhere).
 interface SerialPortLike {
@@ -69,6 +69,10 @@ export interface EbbOptions {
   travelAcceleration: number; // mm/s²
   junctionDeviation: number; // mm
   minimumCruiseRatio: number;
+  /** Use the LM command (firmware ≥2.5.3): true constant-acceleration ramps
+   * interpolated at 25kHz in hardware, vs the XM fallback's ~40Hz staircase
+   * of constant-velocity packets. */
+  lmMotion: boolean;
 }
 
 const MAX_MOTOR_STEPS_PER_MS = 25; // verified: 25k steps/s per motor
@@ -102,7 +106,11 @@ export class Ebb {
   // Planned time carried by trajectory chunks too small to cross a step
   // boundary — folded into the next emitted packet so quantization never
   // shortens the profile. Only meaningful within one continuous run.
+  // (XM fallback path only; the LM path uses lmCarryV0 instead.)
   private pendingMs = 0;
+  // LM path: entry speed of the first skipped sub-step block since the last
+  // emitted one, so the eventual emitting block spans the full profile.
+  private lmCarryV0: number | null = null;
 
   private plotAbort = false;
   private plotPause = false;
@@ -240,16 +248,27 @@ export class Ebb {
 
   // ---- motion ----
 
-  /** Move to an absolute mm position over an explicit duration. Steps are
-   * derived by rounding the ABSOLUTE position, so float error never
-   * accumulates into drift; duration is clamped to the per-motor step-rate
-   * ceiling (CoreXY: a diagonal doubles one motor's rate). */
-  private async stepTo(xMm: number, yMm: number, ms: number, o: EbbOptions): Promise<void> {
-    // Paper (x right, y down, mm) → machine axes, then absolute steps.
+  /** Paper (x right, y down, mm) → machine axes → absolute steps. Rounding
+   * the ABSOLUTE position means float error never accumulates into drift. */
+  private toSteps(xMm: number, yMm: number, o: EbbOptions): [number, number] {
     const mx = (o.swapXY ? yMm : xMm) * (o.invertX ? -1 : 1);
     const my = (o.swapXY ? xMm : yMm) * (o.invertY ? -1 : 1);
-    const sx = Math.round(mx * o.stepsPerMm);
-    const sy = Math.round(my * o.stepsPerMm);
+    return [Math.round(mx * o.stepsPerMm), Math.round(my * o.stepsPerMm)];
+  }
+
+  /** LM available from firmware 2.5.3. */
+  private lmSupported(): boolean {
+    const m = /(\d+)\.(\d+)\.(\d+)/.exec(this.version);
+    if (!m) return false;
+    const [maj, min, pat] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    return maj > 2 || (maj === 2 && (min > 5 || (min === 5 && pat >= 3)));
+  }
+
+  /** Move to an absolute mm position over an explicit duration. Duration is
+   * clamped to the per-motor step-rate ceiling (CoreXY: a diagonal doubles
+   * one motor's rate). XM fallback path for firmware without LM. */
+  private async stepTo(xMm: number, yMm: number, ms: number, o: EbbOptions): Promise<void> {
+    const [sx, sy] = this.toSteps(xMm, yMm, o);
     const dx = sx - this.stepX;
     const dy = sy - this.stepY;
     if (dx === 0 && dy === 0) {
@@ -264,6 +283,50 @@ export class Ebb {
     );
     this.pendingMs = 0;
     await this.cmd(`XM,${clamped},${dx},${dy}`);
+    this.stepX = sx;
+    this.stepY = sy;
+  }
+
+  /**
+   * Emit one constant-acceleration block as an LM command. The board adds
+   * Accel to Rate and Rate to a 32-bit accumulator every 40µs, stepping on
+   * overflow — a continuous ramp, not a velocity staircase. Conventions per
+   * EBB ≥2.5.3 (verified against saxi's source): steps carry the sign,
+   * rates are magnitudes. Per-axis rates are the cartesian rate projected
+   * onto the step vector then CoreXY-mixed, so both axes derive the same
+   * duration and finish together.
+   */
+  private async lmBlock(block: MotionBlock, o: EbbOptions): Promise<void> {
+    const [sx, sy] = this.toSteps(block.x1, block.y1, o);
+    const dx = sx - this.stepX;
+    const dy = sy - this.stepY;
+    if (dx === 0 && dy === 0) {
+      // Sub-step block: remember its entry speed so the eventual emitting
+      // block spans the whole profile since the last physical step.
+      this.lmCarryV0 = this.lmCarryV0 ?? block.v0;
+      return;
+    }
+    const v0 = (this.lmCarryV0 ?? block.v0) * o.stepsPerMm; // cartesian steps/s
+    // Floor the exit rate at 1 step/s: a decel block commanded to exactly 0
+    // can stall with steps outstanding if deltaR rounding crosses zero early.
+    const v1 = Math.max(block.v1 * o.stepsPerMm, 1);
+    this.lmCarryV0 = null;
+    const steps1 = dx + dy;
+    const steps2 = dx - dy;
+    const norm = Math.hypot(dx, dy);
+    const axisRate = (steps: number, share: number): [number, number] => {
+      if (steps === 0) return [0, 0];
+      const r0 = (v0 * share) / norm;
+      const r1 = (v1 * share) / norm;
+      const initialRate = Math.round(r0 * (0x80000000 / 25000));
+      const finalRate = Math.round(r1 * (0x80000000 / 25000));
+      const moveTime = (2 * Math.abs(steps)) / (r0 + r1);
+      const deltaR = Math.round((finalRate - initialRate) / (moveTime * 25000));
+      return [initialRate, deltaR];
+    };
+    const [rate1, accel1] = axisRate(steps1, Math.abs(dx + dy));
+    const [rate2, accel2] = axisRate(steps2, Math.abs(dx - dy));
+    await this.cmd(`LM,${rate1},${steps1},${accel1},${rate2},${steps2},${accel2}`);
     this.stepX = sx;
     this.stepY = sy;
   }
@@ -309,6 +372,24 @@ export class Ebb {
         endVelocity: 0,
       });
       let paused = false;
+      if (o.lmMotion && this.lmSupported()) {
+        this.lmCarryV0 = null;
+        for (const block of segmentsToBlocks(planned, accel)) {
+          if (this.plotAbort) return;
+          if (this.plotPause && onPause) {
+            await onPause();
+            // Position is implicit; keep the current segment's endpoint and
+            // every following waypoint for the replan-from-rest.
+            remaining = planned.slice(block.seg).map((p) => p.end);
+            paused = true;
+            break;
+          }
+          await this.lmBlock(block, o);
+          onSegment?.(Math.hypot(block.x1 - block.x0, block.y1 - block.y0));
+        }
+        if (!paused) return;
+        continue;
+      }
       for (let i = 0; i < planned.length; i++) {
         const segment = planned[i];
         let s = 0;

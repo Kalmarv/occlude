@@ -477,6 +477,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     travelAcceleration: s.ebb.travelAcceleration,
     junctionDeviation: s.ebb.junctionDeviation,
     minimumCruiseRatio: s.ebb.minimumCruiseRatio,
+    lmMotion: s.ebb.lmMotion,
   });
   const persist = (): void => saveSettings(s);
 
@@ -661,6 +662,10 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     row('Travel accel', travelAcceleration, 'mm/s² for pen-up moves — no ink or line quality at stake, so it can run harder than drawing'),
     row('Junction dev', junctionDeviation, 'mm; cornering tolerance used for Marlin/Klipper-style look-ahead'),
     row('Min cruise', minimumCruiseRatio, '0–0.99; suppresses vibration-producing speed spikes on short moves'),
+    checkbox('LM motion (hardware-interpolated ramps; uncheck to fall back to XM packets)', s.ebb.lmMotion, (v) => {
+      s.ebb.lmMotion = v;
+      persist();
+    }),
     row('Plot pen', penSelect, 'Plots this pen only — for multi-pen sketches: plot, swap the pen, pick the next, plot again'),
     plotRow,
     bar,

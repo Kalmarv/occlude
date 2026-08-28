@@ -57,6 +57,7 @@ export interface Settings {
     travelAcceleration: number;
     junctionDeviation: number;
     minimumCruiseRatio: number;
+    lmMotion: boolean;
   };
 }
 
@@ -88,6 +89,7 @@ export const DEFAULT_SETTINGS: Settings = {
     travelAcceleration: 2000,
     junctionDeviation: 0.02,
     minimumCruiseRatio: 0.5,
+    lmMotion: true,
   },
 };
 

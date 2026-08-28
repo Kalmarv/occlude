@@ -14,11 +14,14 @@ const opts = {
   travelAcceleration: 1000,
   junctionDeviation: 0.02,
   minimumCruiseRatio: 0.5,
+  // The XM tests pin exact packet streams; LM has its own suite below.
+  lmMotion: false,
 };
 
 class FakePort {
   readonly commands: string[] = [];
   private input!: ReadableStreamDefaultController<Uint8Array>;
+  constructor(private version = 'EBBv2.8.1') {}
   readonly readable = new ReadableStream<Uint8Array>({
     start: (controller) => {
       this.input = controller;
@@ -29,13 +32,77 @@ class FakePort {
       const command = new TextDecoder().decode(chunk).replace(/\r$/, '');
       this.commands.push(command);
       const response =
-        command === 'V' ? 'EBBv2.8.1\r' : command === 'QC' ? '0,500\rOK\r' : 'OK\r';
+        command === 'V' ? `${this.version}\r` : command === 'QC' ? '0,500\rOK\r' : 'OK\r';
       this.input.enqueue(new TextEncoder().encode(response));
     },
   });
 
   async open(): Promise<void> {}
   async close(): Promise<void> {}
+}
+
+/**
+ * Firmware-faithful LM simulator: per 40µs tick and axis, Rate += Accel,
+ * accumulator += Rate, step on 2³¹ overflow; initial rate is adjusted by
+ * −Accel/2 (firmware ≥2.7); accumulators persist across commands; a command
+ * ends when both axes reach their step counts. Positions come back through
+ * the CoreXY inverse, so this verifies the actual trajectory the board
+ * would execute — not the shape of the command stream.
+ */
+function simulateLm(commands: string[]): {
+  x: number;
+  y: number;
+  seconds: number;
+  stalled: boolean;
+  perCmdSeconds: number[];
+} {
+  let a1 = 0;
+  let a2 = 0;
+  let acc1 = 0;
+  let acc2 = 0;
+  let ticks = 0;
+  let stalled = false;
+  const perCmdSeconds: number[] = [];
+  for (const cmd of commands.filter((c) => c.startsWith('LM,'))) {
+    const [r1, s1, d1, r2, s2, d2] = cmd.split(',').slice(1).map(Number);
+    let rate1 = r1 - d1 / 2;
+    let rate2 = r2 - d2 / 2;
+    let taken1 = 0;
+    let taken2 = 0;
+    const t1 = Math.abs(s1);
+    const t2 = Math.abs(s2);
+    let cmdTicks = 0;
+    const cap = 25000 * 60;
+    while ((taken1 < t1 || taken2 < t2) && cmdTicks < cap) {
+      cmdTicks += 1;
+      if (taken1 < t1) {
+        rate1 += d1;
+        acc1 += rate1;
+        if (acc1 >= 0x80000000) {
+          acc1 -= 0x80000000;
+          taken1 += 1;
+        }
+      }
+      if (taken2 < t2) {
+        rate2 += d2;
+        acc2 += rate2;
+        if (acc2 >= 0x80000000) {
+          acc2 -= 0x80000000;
+          taken2 += 1;
+        }
+      }
+    }
+    if (cmdTicks >= cap) {
+      stalled = true;
+      break;
+    }
+    a1 += Math.sign(s1) * taken1;
+    a2 += Math.sign(s2) * taken2;
+    ticks += cmdTicks;
+    perCmdSeconds.push(cmdTicks / 25000);
+  }
+  // CoreXY inverse: motor1 = x + y, motor2 = x − y.
+  return { x: (a1 + a2) / 2, y: (a1 - a2) / 2, seconds: ticks / 25000, stalled, perCmdSeconds };
 }
 
 describe('Ebb motor lifecycle', () => {
@@ -319,5 +386,82 @@ describe('Ebb motor lifecycle', () => {
       .map((command) => command.split(',').slice(2).map(Number))
       .reduce(([x, y], [dx, dy]) => [x + dx, y + dy], [0, 0]);
     expect(travelled).toEqual([1000, 1000]);
+  });
+});
+
+describe('LM motion', () => {
+  const lmOpts = { ...opts, lmMotion: true, swapXY: false, invertX: false };
+  const pen = [
+    { name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 },
+  ];
+
+  async function run(plan: Float64Array, o = lmOpts, version?: string): Promise<FakePort> {
+    const port = new FakePort(version);
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const ebb = new Ebb();
+    await ebb.connect({ servoDown: o.servoDown, servoUp: o.servoUp });
+    await ebb.plot(plan, pen, o, () => undefined);
+    return port;
+  }
+
+  test('drives a straight stroke to the exact position in the planned time', async () => {
+    const port = await run(new Float64Array([0, 0, 2, 0, 0, 100, 0]));
+    const lm = port.commands.filter((c) => c.startsWith('LM,'));
+    const sim = simulateLm(lm);
+    expect(sim.stalled).toBe(false);
+    expect([sim.x, sim.y]).toEqual([10000, 0]);
+    // Trapezoid: L/v + v/a at 60mm/s, 1000mm/s² = 1.727s.
+    expect(sim.seconds).toBeGreaterThan(1.7);
+    expect(sim.seconds).toBeLessThan(1.8);
+    // The same stroke costs ~96 XM packets.
+    expect(lm.length).toBeLessThan(15);
+  });
+
+  test('negative and diagonal strokes land exactly', async () => {
+    const port = await run(new Float64Array([0, 0, 2, 10, 7, 0, 0]));
+    const down = port.commands.indexOf('SP,0,150');
+    const travel = simulateLm(port.commands.slice(0, down));
+    expect([travel.x, travel.y]).toEqual([1000, 700]);
+    const all = simulateLm(port.commands);
+    expect(all.stalled).toBe(false);
+    expect([all.x, all.y]).toEqual([0, 0]);
+  });
+
+  test('sub-step waypoints complete exactly without stalling', async () => {
+    const n = 100;
+    const points = Array.from({ length: n }, (_, i) => [(i + 1) * 0.005, 0]).flat();
+    const port = await run(new Float64Array([0, 0, n, ...points]));
+    const sim = simulateLm(port.commands);
+    expect(sim.stalled).toBe(false);
+    expect([sim.x, sim.y]).toEqual([50, 0]);
+  });
+
+  test('blocks respect the duration cap', async () => {
+    const port = await run(new Float64Array([0, 0, 2, 0, 0, 400, 0]));
+    const sim = simulateLm(port.commands);
+    expect(sim.stalled).toBe(false);
+    expect(Math.max(...sim.perCmdSeconds)).toBeLessThan(0.3);
+  });
+
+  test('travel uses the pen-up acceleration profile', async () => {
+    const travelSeconds = async (travelAcceleration: number): Promise<number> => {
+      const port = await run(
+        new Float64Array([0, 0, 2, 60, 0, 70, 0]),
+        { ...lmOpts, travelAcceleration },
+      );
+      const down = port.commands.indexOf('SP,0,150');
+      return simulateLm(port.commands.slice(0, down)).seconds;
+    };
+    // t = L/v + v/a over 60mm at 100mm/s: 700ms at 1000, 625ms at 4000.
+    expect((await travelSeconds(1000)) - (await travelSeconds(4000))).toBeGreaterThan(0.05);
+  });
+
+  test('falls back to XM below firmware 2.5.3', async () => {
+    const port = await run(new Float64Array([0, 0, 2, 0, 0, 20, 0]), lmOpts, 'EBBv2.4.5');
+    expect(port.commands.some((c) => c.startsWith('LM,'))).toBe(false);
+    expect(port.commands.some((c) => c.startsWith('XM,'))).toBe(true);
   });
 });

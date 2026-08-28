@@ -121,3 +121,50 @@ describe('polyline look-ahead planner', () => {
     }
   });
 });
+
+import { segmentsToBlocks } from './motion.js';
+
+describe('segmentsToBlocks', () => {
+  const plan = planPolyline(
+    [
+      [0, 0],
+      [100, 0],
+      [100, 80],
+      [100.01, 80],
+    ],
+    { ...limits, startVelocity: 0, endVelocity: 0 },
+  );
+
+  test('blocks are velocity-continuous and conserve length', () => {
+    const blocks = segmentsToBlocks(plan, limits.acceleration);
+    for (let i = 1; i < blocks.length; i++) {
+      expect(blocks[i].v0).toBeCloseTo(blocks[i - 1].v1, 6);
+    }
+    const total = blocks.reduce(
+      (sum, b) => sum + Math.hypot(b.x1 - b.x0, b.y1 - b.y0),
+      0,
+    );
+    const planned = plan.reduce((sum, s) => sum + s.length, 0);
+    expect(total).toBeCloseTo(planned, 6);
+    // Endpoints chain exactly — no positional gaps between blocks.
+    for (let i = 1; i < blocks.length; i++) {
+      expect(blocks[i].x0).toBeCloseTo(blocks[i - 1].x1, 9);
+      expect(blocks[i].y0).toBeCloseTo(blocks[i - 1].y1, 9);
+    }
+  });
+
+  test('segment junction velocities survive into the block chain', () => {
+    const blocks = segmentsToBlocks(plan, limits.acceleration);
+    const corner = blocks.findIndex((b) => b.seg === 1);
+    expect(blocks[corner].v0).toBeCloseTo(plan[1].startVelocity, 6);
+  });
+
+  test('no block exceeds the duration cap', () => {
+    const blocks = segmentsToBlocks(plan, limits.acceleration, 0.25);
+    for (const b of blocks) {
+      const d = Math.hypot(b.x1 - b.x0, b.y1 - b.y0);
+      const t = (2 * d) / Math.max(1e-9, b.v0 + b.v1);
+      expect(t).toBeLessThanOrEqual(0.2501);
+    }
+  });
+});
