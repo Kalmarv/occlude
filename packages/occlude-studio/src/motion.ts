@@ -37,6 +37,23 @@ export interface MotionBlock {
   seg: number;
 }
 
+/** Exact duration of a planned profile, ms: per segment, the trapezoid
+ * accel/cruise/decel times — not the "always at full feed" fiction. */
+export function planDurationMs(planned: PlannedSegment[], accel: number): number {
+  const a = Math.max(1e-6, accel);
+  let seconds = 0;
+  for (const s of planned) {
+    const dAccel = Math.max(0, (s.cruiseVelocity ** 2 - s.startVelocity ** 2) / (2 * a));
+    const dDecel = Math.max(0, (s.cruiseVelocity ** 2 - s.endVelocity ** 2) / (2 * a));
+    seconds += (s.cruiseVelocity - s.startVelocity) / a;
+    seconds += (s.cruiseVelocity - s.endVelocity) / a;
+    if (s.cruiseVelocity > 1e-9) {
+      seconds += Math.max(0, s.length - dAccel - dDecel) / s.cruiseVelocity;
+    }
+  }
+  return seconds * 1000;
+}
+
 /**
  * Slice planned segments into accel/cruise/decel blocks, each capped at
  * `maxBlockS` seconds. The cap bounds pause latency (the FIFO holds at most

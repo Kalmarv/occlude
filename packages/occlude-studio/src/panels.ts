@@ -605,7 +605,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   }
   function onProgress(p: PlotProgress): void {
     bar.value = p.totalMs > 0 ? Math.min(1, p.elapsedMs / p.totalMs) : 0;
-    const eta = Math.max(0, (p.totalMs - p.elapsedMs) / 60000);
+    const eta = Math.max(0, p.etaMs / 60000);
     const base =
       p.state === 'done'
         ? 'done'

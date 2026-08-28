@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { Ebb } from './ebb.js';
+import { Ebb, type PlotProgress } from './ebb.js';
 
 const opts = {
   stepsPerMm: 100,
@@ -473,6 +473,37 @@ describe('LM motion', () => {
     const port = await run(new Float64Array([0, 0, 2, 0, 0, 20, 0]), lmOpts, 'EBBv2.4.5');
     expect(port.commands.some((c) => c.startsWith('LM,'))).toBe(false);
     expect(port.commands.some((c) => c.startsWith('XM,'))).toBe(true);
+  });
+});
+
+describe('progress estimation', () => {
+  test('totals come from planner trapezoids and elapsed converges to them', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, swapXY: false, invertX: false };
+    const ebb = new Ebb();
+    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    let last: PlotProgress | undefined;
+    await ebb.plot(
+      new Float64Array([0, 0, 2, 0, 0, 100, 0]),
+      [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
+      direct,
+      (p) => {
+        last = p;
+      },
+    );
+    // 100mm at 60mm/s with 1000mm/s² ramps: 1727ms of motion (the naive
+    // full-feed figure is 1667) + settle overheads. Elapsed accumulates the
+    // emitter's commanded durations, so both sides are planner-derived and
+    // must agree.
+    expect(last?.state).toBe('done');
+    expect(last!.totalMs).toBeGreaterThan(2200);
+    expect(last!.totalMs).toBeLessThan(2500);
+    expect(Math.abs(last!.elapsedMs - last!.totalMs)).toBeLessThan(0.05 * last!.totalMs);
+    expect(last!.etaMs).toBeLessThan(150);
   });
 });
 

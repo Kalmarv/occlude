@@ -18,7 +18,9 @@
  */
 
 import type { PenDef } from 'occlude';
-import { planPolyline, segmentsToBlocks, type MotionBlock, type Point } from './motion.js';
+import {
+  planDurationMs, planPolyline, segmentsToBlocks, type MotionBlock, type Point,
+} from './motion.js';
 
 // Minimal Web Serial typings (lib.dom doesn't ship them everywhere).
 interface SerialPortLike {
@@ -46,6 +48,9 @@ export interface PlotProgress {
   totalMs: number;
   penName: string;
   state: 'plotting' | 'paused' | 'done' | 'stopped';
+  /** Remaining-time estimate: the planner model blended toward measured
+   * wall-clock throughput as the plot progresses (pauses excluded). */
+  etaMs: number;
   /** Anomaly report, e.g. a position-drift correction. Sticky per plot. */
   warning?: string;
 }
@@ -388,7 +393,9 @@ export class Ebb {
     feedMmMin: number,
     o: EbbOptions,
     onPause?: () => Promise<void>,
-    onSegment?: (segMm: number) => void,
+    /** Called per emitted packet/block with its COMMANDED duration, ms —
+     * elapsed time accounting is exact by construction. */
+    onSegment?: (ms: number) => void,
   ): Promise<void> {
     // Current logical paper position (invert the axis mapping).
     const curPaper = (): [number, number] => {
@@ -428,7 +435,8 @@ export class Ebb {
             break;
           }
           await this.lmBlock(block, o);
-          onSegment?.(Math.hypot(block.x1 - block.x0, block.y1 - block.y0));
+          const blockMm = Math.hypot(block.x1 - block.x0, block.y1 - block.y0);
+          onSegment?.((2 * blockMm * 1000) / Math.max(1e-9, block.v0 + block.v1));
         }
         if (!paused) return;
         continue;
@@ -487,7 +495,7 @@ export class Ebb {
           const x = segment.start[0] + (segment.end[0] - segment.start[0]) * t;
           const y = segment.start[1] + (segment.end[1] - segment.start[1]) * t;
           await this.stepTo(x, y, (ds / vAvg) * 1000, o);
-          onSegment?.(ds);
+          onSegment?.((ds / vAvg) * 1000);
           s = s2;
         }
         if (paused) break;
@@ -584,22 +592,41 @@ export class Ebb {
       i += n * 2;
     }
     if (onlyPen !== undefined) chains = chains.filter((c) => c.pen === onlyPen);
-    // Totals for progress: commands and machine-time estimate.
+    // Totals for progress: the machine-time estimate sums the planner's
+    // actual trapezoids per move — a stroke that never reaches feed (dense
+    // corners, short segments) is counted at its planned speed, not the
+    // "always at full feed" fiction that undershot on exactly the plots
+    // that take longest.
     let total = 0;
     let totalMs = 0;
     {
+      const drawAccel = Math.max(1, o.acceleration);
+      const travelAccel = Math.max(1, o.travelAcceleration);
+      const limits = (maxVelocity: number, acceleration: number) => ({
+        maxVelocity: Math.max(1, maxVelocity),
+        acceleration,
+        junctionDeviation: Math.max(0, o.junctionDeviation),
+        minimumCruiseRatio: o.minimumCruiseRatio,
+        startVelocity: 0,
+        endVelocity: 0,
+      });
       let px = 0;
       let py = 0;
       for (const c of chains) {
         const base = pens[c.pen];
         const pen = (base && livePen?.(base.name)) ?? base;
         const feed = pen?.feed ?? 3000;
-        totalMs += (Math.hypot(c.pts[0] - px, c.pts[1] - py) / o.travelFeed) * 60_000;
+        const travel: Point[] = [[px, py], [c.pts[0], c.pts[1]]];
+        totalMs += planDurationMs(
+          planPolyline(travel, limits(o.travelFeed / 60, travelAccel)),
+          travelAccel,
+        );
         total += 3; // travel + pen down + pen up
-        for (let k = 2; k < c.pts.length; k += 2) {
-          totalMs +=
-            (Math.hypot(c.pts[k] - c.pts[k - 2], c.pts[k + 1] - c.pts[k - 1]) / feed) * 60_000;
-          total += 1;
+        if (!c.dot) {
+          const poly: Point[] = [];
+          for (let k = 0; k < c.pts.length; k += 2) poly.push([c.pts[k], c.pts[k + 1]]);
+          totalMs += planDurationMs(planPolyline(poly, limits(feed / 60, drawAccel)), drawAccel);
+          total += poly.length - 1;
         }
         totalMs += 2 * Math.max(pen?.penDelay ?? 300, 150) + 300;
         px = c.pts[c.pts.length - 2];
@@ -614,8 +641,24 @@ export class Ebb {
     let sent = 0;
     let elapsedMs = 0;
     let warning: string | undefined;
-    const report = (state: PlotProgress['state'], penName = ''): void =>
-      onProgress({ sent, total, elapsedMs, totalMs, penName, state, warning });
+    // ETA: pure planner model early, blended toward measured wall-clock
+    // throughput once there is real data (>5s of drawing, past 5% —
+    // serial overhead and settle waits make wall time run above commanded
+    // machine time by a plot-specific factor the model can't know).
+    const wallStart = Date.now();
+    let pausedWallMs = 0;
+    const report = (state: PlotProgress['state'], penName = ''): void => {
+      const modelRemaining = Math.max(0, totalMs - elapsedMs);
+      let etaMs = modelRemaining;
+      const wall = Date.now() - wallStart - pausedWallMs;
+      if (totalMs > 0 && elapsedMs > 0 && wall > 5000) {
+        const rate = Math.min(3, Math.max(0.5, wall / elapsedMs));
+        const progress = elapsedMs / totalMs;
+        const w = Math.min(0.85, Math.max(0, (progress - 0.05) * 4));
+        etaMs = modelRemaining * (1 - w + w * rate);
+      }
+      onProgress({ sent, total, elapsedMs, totalMs, penName, state, etaMs, warning });
+    };
     // Dead-reckoning vs the board's own counters. A mismatch means commands
     // were lost or mangled in flight (open loop: PHYSICAL skips are invisible
     // to both sides — that's what the pause→jog to origin→Set origin→resume
@@ -656,9 +699,11 @@ export class Ebb {
           if (!wasUp) await this.penUp(settle);
           this.pauseAdjusted = false;
           report('paused', penName);
+          const pauseWall0 = Date.now();
           while (this.plotPause && !this.plotAbort) {
             await new Promise((r) => setTimeout(r, 150));
           }
+          pausedWallMs += Date.now() - pauseWall0;
           if (!this.plotAbort) {
             if (liveServo) {
               const sv = liveServo();
@@ -670,7 +715,9 @@ export class Ebb {
         };
         if (this.plotAbort) break;
         // Travel (pen up), ramped.
-        await this.moveRun([[c.pts[0], c.pts[1]]], o.travelFeed, o, pauseUp);
+        await this.moveRun([[c.pts[0], c.pts[1]]], o.travelFeed, o, pauseUp, (ms) => {
+          elapsedMs += ms;
+        });
         sent += 1;
         if (this.plotAbort) break;
         await this.penDown(settle);
@@ -678,16 +725,16 @@ export class Ebb {
         if (!c.dot) {
           const run: [number, number][] = [];
           for (let k = 2; k < c.pts.length; k += 2) run.push([c.pts[k], c.pts[k + 1]]);
-          await this.moveRun(run, feed, o, pauseUp, (segMm) => {
+          await this.moveRun(run, feed, o, pauseUp, (ms) => {
             sent += 1;
-            elapsedMs += (segMm / feed) * 60_000;
+            elapsedMs += ms;
             if (sent % 25 === 0) report('plotting', penName);
           });
         }
         if (this.plotAbort) break;
         await this.penUp(settle);
         sent += 1;
-        elapsedMs += 2 * settle;
+        elapsedMs += 2 * settle + 300; // mirrors the totals' pen-cycle term
         // Cheap health check while the pen is already up between chains.
         if (chainIndex % 25 === 24) await verifyPosition();
         report('plotting', penName);
