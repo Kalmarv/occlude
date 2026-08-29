@@ -45,7 +45,15 @@ interface PngMsg {
   background: string | undefined;
 }
 
-type Msg = RenderMsg | GcodeMsg | SvgMsg | PngMsg | ToolpathMsg;
+interface OptimizePlanMsg {
+  type: 'optimizeplan';
+  id: number;
+  plan: Float64Array;
+  pensJson: string;
+  budget: number;
+}
+
+type Msg = RenderMsg | GcodeMsg | SvgMsg | PngMsg | ToolpathMsg | OptimizePlanMsg;
 
 const ready = initCore();
 const mod = core as unknown as WasmModule;
@@ -85,6 +93,13 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
           msg.budget,
         );
         self.postMessage({ type: 'gcode', id: msg.id, json });
+        break;
+      }
+      case 'optimizeplan': {
+        const plan = (core as unknown as {
+          wasm_optimize_plan(p: Float64Array, pens: string, budget: number): Float64Array;
+        }).wasm_optimize_plan(msg.plan, msg.pensJson, msg.budget);
+        self.postMessage({ type: 'optimizeplan', id: msg.id, plan }, { transfer: [plan.buffer] });
         break;
       }
       case 'toolpath': {

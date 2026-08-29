@@ -582,3 +582,124 @@ pub fn wasm_export_toolpath(
     }
     Ok(out)
 }
+
+/// Optimize an EXTERNALLY-built plan (same layout as wasm_export_toolpath:
+/// [pen, dot, n, x0, y0, …] per chain): per pen, tour (NN + 2-opt with
+/// reversal) then sub-nib gap bridging. For imported SVGs — geometry that
+/// never went through the render pipeline.
+#[wasm_bindgen]
+pub fn wasm_optimize_plan(
+    plan: &[f64],
+    pens_json: &str,
+    tour_budget: u32,
+) -> Result<Vec<f64>, JsValue> {
+    let pens: Vec<Pen> = serde_json::from_str(pens_json)
+        .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
+    // Decode into per-pen chain lists.
+    let mut by_pen: Vec<Vec<crate::gcode::Chain>> = (0..pens.len()).map(|_| Vec::new()).collect();
+    let mut i = 0usize;
+    while i < plan.len() {
+        if i + 3 > plan.len() {
+            return Err(JsValue::from_str("truncated plan"));
+        }
+        let pen = plan[i] as usize;
+        let dot = plan[i + 1] == 1.0;
+        let n = plan[i + 2] as usize;
+        i += 3;
+        if pen >= pens.len() || n == 0 || i + n * 2 > plan.len() {
+            return Err(JsValue::from_str("bad plan chain header"));
+        }
+        let pts: Vec<crate::vec2::Vec2> = (0..n)
+            .map(|k| crate::vec2::v(plan[i + k * 2], plan[i + k * 2 + 1]))
+            .collect();
+        i += n * 2;
+        let prims: Vec<Primitive> = if dot || n == 1 {
+            vec![Primitive::Line(crate::primitive::Line::new(pts[0], pts[0]))]
+        } else {
+            pts.windows(2)
+                .filter(|w| w[0].dist(w[1]) > 1e-9)
+                .map(|w| Primitive::Line(crate::primitive::Line::new(w[0], w[1])))
+                .collect()
+        };
+        if prims.is_empty() {
+            continue;
+        }
+        by_pen[pen].push(crate::gcode::Chain { prims, dot: dot || n == 1, pen: pen as u32 });
+    }
+    // Tour + bridge per pen, re-encode.
+    let mut out: Vec<f64> = Vec::new();
+    for (pi, chains) in by_pen.into_iter().enumerate() {
+        if chains.is_empty() {
+            continue;
+        }
+        let chains = crate::gcode::tour(chains, tour_budget as usize);
+        let chains = crate::route::bridge_chains(chains, pens[pi].width.max(0.05) * 0.5);
+        for chain in chains {
+            out.push(pi as f64);
+            out.push(if chain.dot { 1.0 } else { 0.0 });
+            if chain.dot {
+                let p = chain.start();
+                out.push(1.0);
+                out.push(p.x);
+                out.push(p.y);
+                continue;
+            }
+            let mut pts: Vec<crate::vec2::Vec2> = vec![chain.start()];
+            for prim in &chain.prims {
+                pts.push(prim.end());
+            }
+            out.push(pts.len() as f64);
+            for p in &pts {
+                out.push(p.x);
+                out.push(p.y);
+            }
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+
+    #[test]
+    fn optimize_plan_reorders_reverses_and_bridges() {
+        // Three chains in pessimal order for pen 0: far stroke first, and
+        // the middle one directed away. NN+reversal should yield a left-to-
+        // right sweep; the 0.1mm gap pair should bridge into one chain.
+        let plan: Vec<f64> = vec![
+            0.0, 0.0, 2.0, 50.0, 0.0, 60.0, 0.0, // far right
+            0.0, 0.0, 2.0, 20.0, 0.0, 10.0, 0.0, // middle, reversed
+            0.0, 0.0, 2.0, 0.0, 0.0, 5.0, 0.0, // near origin
+            0.0, 0.0, 2.0, 60.1, 0.0, 70.0, 0.0, // 0.1mm past far → bridges
+        ];
+        let pens = r##"[{"name":"p","width":0.3,"color":"#000","feed":3000,"penDown":0,"penUp":5,"penDelay":300}]"##;
+        let out = wasm_optimize_plan(&plan, pens, 10_000).unwrap();
+        // Decode chain starts in order.
+        let mut starts: Vec<(f64, f64)> = Vec::new();
+        let mut chains = 0;
+        let mut i = 0;
+        while i < out.len() {
+            let n = out[i + 2] as usize;
+            starts.push((out[i + 3], out[i + 4]));
+            chains += 1;
+            i += 3 + n * 2;
+        }
+        // 4 input chains → 3 after bridging; ordered near→far.
+        assert_eq!(chains, 3);
+        assert!(starts[0].0 < starts[1].0 && starts[1].0 < starts[2].0);
+        // Total ink includes the 0.1mm bridge.
+        let mut ink = 0.0;
+        let mut i = 0;
+        while i < out.len() {
+            let n = out[i + 2] as usize;
+            for k in 1..n {
+                let (x0, y0) = (out[i + 3 + (k - 1) * 2], out[i + 4 + (k - 1) * 2]);
+                let (x1, y1) = (out[i + 3 + k * 2], out[i + 4 + k * 2]);
+                ink += ((x1 - x0).powi(2) + (y1 - y0).powi(2)).sqrt();
+            }
+            i += 3 + n * 2;
+        }
+        assert!((ink - (10.0 + 10.0 + 5.0 + 0.1 + 9.9)).abs() < 1e-6);
+    }
+}

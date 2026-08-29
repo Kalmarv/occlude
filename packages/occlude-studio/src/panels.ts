@@ -7,9 +7,10 @@
  */
 
 import {
-  profileToJson,
+  pensToJson, profileToJson,
   type GcodeJob, type PenDef, type RenderResult,
 } from 'occlude';
+import { buildPlan, parseSvg, type ParsedSvg } from './svgImport.js';
 import {
   deleteSketchByName, listSketches, loadSketchByName, saveSketchByName,
 } from './sketchApi.js';
@@ -668,6 +669,97 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   plotRow.className = 'row';
   plotRow.append(plotBtn, pauseBtn, stopBtn);
 
+  // Import SVG: plot externally-generated line art (splotter et al) with
+  // the full driver stack — tour + bridging via wasm, LM ramps, pen-per-run.
+  // Coordinates land as mm from the current origin, y down, same as paper.
+  const svgSection = document.createElement('details');
+  const svgSummary = document.createElement('summary');
+  svgSummary.textContent = 'Import SVG';
+  svgSection.append(svgSummary);
+  const svgHint = document.createElement('div');
+  svgHint.className = 'panel-hint';
+  svgHint.textContent = 'Polylines/straight paths only, one layer per top-level group. Scaled to the width below, plotted from the current origin.';
+  const svgState: { svg: ParsedSvg | null; name: string } = { svg: null, name: '' };
+  const svgInfo = document.createElement('div');
+  svgInfo.className = 'panel-hint';
+  const layerMap = document.createElement('div');
+  const widthIn = numberInput(150, 5, () => refreshSvgInfo());
+  widthIn.title = 'target width on paper, mm';
+  const refreshSvgInfo = (): void => {
+    if (!svgState.svg) return;
+    const s = parseFloat(widthIn.value) / svgState.svg.width;
+    const chains = svgState.svg.layers.reduce((n, l) => n + l.chains.length, 0);
+    svgInfo.textContent =
+      `${svgState.name}: ${chains} strokes, ${svgState.svg.layers.length} layer(s) → ` +
+      `${parseFloat(widthIn.value).toFixed(0)}×${(svgState.svg.height * s).toFixed(0)}mm on paper`;
+  };
+  const layerPens: HTMLSelectElement[] = [];
+  const fileBtn = button('Choose SVG…', async () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.svg,image/svg+xml';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        svgState.svg = parseSvg(await file.text());
+        svgState.name = file.name;
+        layerMap.innerHTML = '';
+        layerPens.length = 0;
+        for (const layer of svgState.svg.layers) {
+          const sel = document.createElement('select');
+          hooks.pens.forEach((pen, i) => {
+            const option = document.createElement('option');
+            option.value = String(i);
+            option.textContent = pen.name;
+            sel.append(option);
+          });
+          layerPens.push(sel);
+          layerMap.append(row(layer.name, sel, 'physical pen for this layer'));
+        }
+        refreshSvgInfo();
+      } catch (e) {
+        svgState.svg = null;
+        svgInfo.textContent = e instanceof Error ? e.message : String(e);
+      }
+    };
+    input.click();
+  });
+  const svgPlotBtn = button('▶ Plot SVG', async () => {
+    if (!ebb.connected || ebb.plotting || !svgState.svg) return;
+    try {
+      const scale = parseFloat(widthIn.value) / svgState.svg.width;
+      if (!Number.isFinite(scale) || scale <= 0) throw new Error('bad target width');
+      // Map layers onto a deduplicated pen list so identical pens share one
+      // plot run; distinct pens follow the usual pen-per-run swap flow.
+      const penIdx = layerPens.map((sel) => parseInt(sel.value, 10) || 0);
+      const usedPens = [...new Set(penIdx)];
+      if (usedPens.length > 1) {
+        // One physical pen per run (no pen changer): map the layers you
+        // want NOW to one pen, plot, re-map the rest, plot again.
+        throw new Error('layers map to different pens — plot one pen per run: map, plot, re-map, plot');
+      }
+      const pens = [hooks.pens[usedPens[0]]];
+      const raw = buildPlan(svgState.svg, penIdx.map(() => 0), scale);
+      const plan = await hooks.client.optimizePlan(raw, pensToJson(pens), 200_000);
+      await ebb.plot(
+        plan,
+        pens,
+        opts(),
+        onProgress,
+        (name) => hooks.pens.find((p) => p.name === name),
+        () => ({ servoDown: s.ebb.servoDown, servoUp: s.ebb.servoUp }),
+      );
+    } catch (e) {
+      showErr(e);
+    }
+  });
+  svgPlotBtn.className = 'primary';
+  const svgRow = document.createElement('div');
+  svgRow.className = 'row';
+  svgRow.append(fileBtn, svgPlotBtn);
+  svgSection.append(svgHint, svgRow, row('Width mm', widthIn, 'output width on paper; height scales proportionally'), svgInfo, layerMap);
+
   // Machine diagnostics: the cal sheet characterizes pens; these
   // characterize the machine. They run through the normal plot pipeline,
   // so Pause/Stop, progress, and the QS drift check all apply. Position
@@ -741,6 +833,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     bar,
     progressText,
     logRow,
+    svgSection,
     diag,
   );
 }
