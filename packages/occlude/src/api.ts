@@ -23,6 +23,7 @@
 import { crosshatch, hatch, stipple, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
 import { finiteCount } from './guard.js';
+import { svg as svgValue } from './svgin.js';
 import { label } from './font.js';
 import { grid as gridCells, type GridCell, type GridOptions } from './layout.js';
 import { Shape, type FieldFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
@@ -513,6 +514,7 @@ export interface Toolkit {
   cy: number;
   grid: (opts: GridOptions) => GridCell[];
   noisyLine: typeof noisyLineValue;
+  svg: typeof svgValue;
   mm: typeof mm;
   w: typeof w;
   h: typeof h;
@@ -554,7 +556,7 @@ const TOOLKIT_BASE = {
   rnd, pick, chance, prob, noise, stream,
   map: mapRange, norm: normRange, invert: invertRange, ease,
   times, range,
-  bounds, grid: gridCells, noisyLine: noisyLineValue,
+  bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
   mm, w, h, s, long,
 };
 

@@ -138,21 +138,6 @@ export class RenderClient {
     return this.request({ type: 'svg', width, height, background, onlyPen }, 'svg');
   }
 
-  /** Tour + bridge an externally-built plan (SVG import). */
-  optimizePlan(plan: Float64Array, pensJson: string, budget: number): Promise<Float64Array> {
-    return new Promise((resolve, reject) => {
-      const id = this.nextId++;
-      this.pending.set(id, {
-        resolve: (msg) => resolve((msg as { plan: Float64Array }).plan),
-        reject,
-      });
-      this.worker.postMessage(
-        { type: 'optimizeplan', id, plan, pensJson, budget },
-        { transfer: [plan.buffer] },
-      );
-    });
-  }
-
   exportToolpath(budget: number, tolerance: number): Promise<Float64Array> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;

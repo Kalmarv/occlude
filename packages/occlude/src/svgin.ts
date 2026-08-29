@@ -1,28 +1,32 @@
 /**
- * Minimal SVG import for plotting externally-generated line art (splotter
- * et al). Deliberately not a general SVG engine: it reads polylines,
- * lines, and straight-segment paths from top-level groups, in document
- * units, ignoring styling. Transforms are NOT applied — files carrying
- * transform attributes are rejected loudly rather than plotted wrong.
- * Regex-based so it runs identically in the browser and in node tests.
+ * SVG as a shape source: `svg(text, opts)` turns machine-generated line art
+ * (splotter et al) into ordinary open-path shapes — placed in sketch units,
+ * drawn with library pens, occluded, modifiable (wrap with `modify([...])`
+ * for wobble and friends), exported and plotted like anything else.
+ *
+ * Deliberately not a general SVG engine: polylines, lines, and
+ * straight-segment paths (M/L/H/V/Z, absolute + relative), one layer per
+ * top-level `<g>`. Transforms and curves are rejected loudly rather than
+ * drawn wrong. Regex-based so it parses identically in browser and node.
  */
 
-export interface SvgLayer {
+import { group, path, type GroupValue, type ShapeOpts } from './api.js';
+
+export interface SvgShapesOptions extends ShapeOpts {
+  /** Position of the artwork's top-left, sketch units (default 0,0). */
+  x?: number;
+  y?: number;
+  /** Target width in sketch units (bare = percent of the drawable's short
+   * side, like every coordinate). Height follows the aspect. Default 100. */
+  width?: number;
+  /** Only these layers (top-level group ids); default all. */
+  layers?: string[];
+}
+
+interface SvgLayer {
   name: string;
   /** Flat [x0,y0,x1,y1,…] per chain, document units. */
   chains: number[][];
-  /** The group's stroke-width in document units, if declared. Cosmetic in
-   * SVG terms — a plotted line is always nib-wide — but it records the
-   * relative weight the author designed for, so the importer can report
-   * how the physical pen compares at the chosen scale. */
-  strokeWidth?: number;
-}
-
-export interface ParsedSvg {
-  layers: SvgLayer[];
-  /** Document size in its own units (viewBox preferred, else width/height). */
-  width: number;
-  height: number;
 }
 
 function parsePoints(points: string): number[] {
@@ -35,7 +39,7 @@ function parsePoints(points: string): number[] {
 }
 
 /** Straight-segment path data (M/L/H/V, absolute and relative, Z closes). */
-function parsePath(d: string): number[][] {
+function parsePathData(d: string): number[][] {
   const chains: number[][] = [];
   let cur: number[] = [];
   let x = 0;
@@ -91,8 +95,9 @@ function parsePath(d: string): number[][] {
       else y = rel ? y + nv : nv;
       cur.push(x, y);
     } else {
-      // Curves and arcs are out of scope: fail the whole path loudly.
-      throw new Error(`SVG import: unsupported path command '${cmd}' — only straight segments (M/L/H/V/Z)`);
+      throw new Error(
+        `svg(): unsupported path command '${cmd}' — only straight segments (M/L/H/V/Z)`,
+      );
     }
   }
   flush();
@@ -112,14 +117,14 @@ function elementChains(fragment: string): number[][] {
     if ([x1, y1, x2, y2].every(Number.isFinite)) chains.push([x1, y1, x2, y2]);
   }
   for (const m of fragment.matchAll(/<path\b[^>]*\bd="([^"]*)"/g)) {
-    chains.push(...parsePath(m[1]));
+    chains.push(...parsePathData(m[1]));
   }
   return chains;
 }
 
-export function parseSvg(text: string): ParsedSvg {
+function parseSvgText(text: string): { layers: SvgLayer[]; width: number; height: number } {
   if (/\btransform="/.test(text)) {
-    throw new Error('SVG import: transform attributes are not supported — flatten transforms before export');
+    throw new Error('svg(): transform attributes are not supported — flatten transforms before export');
   }
   const svgTag = /<svg\b[^>]*>/.exec(text)?.[0] ?? '';
   const viewBox = /\bviewBox="([^"]*)"/.exec(svgTag)?.[1].trim().split(/[\s,]+/).map(Number);
@@ -128,41 +133,50 @@ export function parseSvg(text: string): ParsedSvg {
   const width = viewBox && viewBox.length === 4 ? viewBox[2] : attr('width');
   const height = viewBox && viewBox.length === 4 ? viewBox[3] : attr('height');
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    throw new Error('SVG import: no usable viewBox or width/height');
+    throw new Error('svg(): no usable viewBox or width/height');
   }
-
-  // Top-level groups become layers; loose elements become an implicit one.
   const layers: SvgLayer[] = [];
-  const groupRe = /<g\b([^>]*)>([\s\S]*?)<\/g>/g;
   let consumed = text;
   let gi = 0;
-  for (const m of text.matchAll(groupRe)) {
+  for (const m of text.matchAll(/<g\b([^>]*)>([\s\S]*?)<\/g>/g)) {
     const name = /\bid="([^"]*)"/.exec(m[1])?.[1] ?? `layer-${gi}`;
-    const sw = parseFloat(/\bstroke-width="([^"]*)"/.exec(m[1])?.[1] ?? 'NaN');
     const chains = elementChains(m[2]);
-    if (chains.length > 0) {
-      layers.push({ name, chains, ...(Number.isFinite(sw) ? { strokeWidth: sw } : {}) });
-    }
+    if (chains.length > 0) layers.push({ name, chains });
     consumed = consumed.replace(m[0], '');
     gi += 1;
   }
   const loose = elementChains(consumed);
   if (loose.length > 0) layers.push({ name: 'ungrouped', chains: loose });
-  if (layers.length === 0) throw new Error('SVG import: no polylines, lines, or straight paths found');
+  if (layers.length === 0) {
+    throw new Error('svg(): no polylines, lines, or straight paths found');
+  }
   return { layers, width, height };
 }
 
 /**
- * Build an ebb.plot()/wasm_optimize_plan plan from parsed layers.
- * `penOf[i]` maps layer i → pen index; `scale` = mm per document unit.
+ * Parse SVG text into a group of open-path shapes. `opts` beyond
+ * placement/size are ordinary ShapeOpts (pen, z, …) applied to every path;
+ * wrap the result with `modify([...])` for modifiers, or `mask`/`clip` it —
+ * it is a normal subtree.
  */
-export function buildPlan(svg: ParsedSvg, penOf: number[], scale: number): Float64Array {
-  const out: number[] = [];
-  svg.layers.forEach((layer, li) => {
-    for (const chain of layer.chains) {
-      out.push(penOf[li], 0, chain.length / 2);
-      for (const c of chain) out.push(c * scale);
-    }
-  });
-  return new Float64Array(out);
+export function svg(text: string, opts: SvgShapesOptions = {}): GroupValue {
+  const { x = 0, y = 0, width = 100, layers: only, ...shapeOpts } = opts;
+  const parsed = parseSvgText(text);
+  const s = width / parsed.width;
+  const shapes = parsed.layers
+    .filter((l) => !only || only.includes(l.name))
+    .flatMap((l) =>
+      l.chains.map((chain) => {
+        const p = path();
+        p.moveTo(x + chain[0] * s, y + chain[1] * s);
+        for (let k = 2; k < chain.length; k += 2) {
+          p.lineTo(x + chain[k] * s, y + chain[k + 1] * s);
+        }
+        return p.build(shapeOpts);
+      }),
+    );
+  if (shapes.length === 0) {
+    throw new Error(`svg(): layer filter matched nothing (layers: ${parsed.layers.map((l) => l.name).join(', ')})`);
+  }
+  return group({}, ...shapes);
 }

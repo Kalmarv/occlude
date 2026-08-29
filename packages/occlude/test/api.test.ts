@@ -808,3 +808,38 @@ describe('live-coding guards', () => {
     expect(hatch(45, mm(0.05))).toBeTruthy(); // small-but-real stays legal
   });
 });
+
+describe('svg() shape source', () => {
+  const fixture = readFileSync(
+    fileURLToPath(new URL('./fixtures/splotter-strokes.svg', import.meta.url)),
+    'utf8',
+  );
+
+  it('renders an imported SVG like any other shapes, sized in sketch units', () => {
+    const def = sketch({ aspect: [1, 1] }, (t) => t.svg(fixture, { x: 5, y: 5, width: 90 }));
+    const r = sq(def);
+    // 77 strokes survive as drawable fragments (nothing occludes them).
+    expect(r.frags.length).toBeGreaterThanOrEqual(77);
+    expect(r.stats.shapesIn).toBe(77);
+  });
+
+  it('composes with modifiers and layer filtering', async () => {
+    const { modify, wobble } = await import('../src/index.js');
+    const def = sketch({ aspect: [1, 1] }, (t) =>
+      modify([wobble(mm(0.4))], t.svg(fixture, { width: 80, layers: ['silhouettes'] })),
+    );
+    const r = sq(def);
+    expect(r.frags.length).toBeGreaterThan(0);
+    expect(() =>
+      sketch({ aspect: [1, 1] }, (t) => t.svg(fixture, { layers: ['nope'] })) && sq(
+        sketch({ aspect: [1, 1] }, (t) => t.svg(fixture, { layers: ['nope'] })),
+      ),
+    ).toThrow(/layer filter/);
+  });
+
+  it('rejects transforms and curves loudly', () => {
+    const bad = '<svg viewBox="0 0 10 10"><g transform="scale(2)"><line x1="0" y1="0" x2="1" y2="1"/></g></svg>';
+    const def = sketch({ aspect: [1, 1] }, (t) => t.svg(bad));
+    expect(() => sq(def)).toThrow(/transform/);
+  });
+});

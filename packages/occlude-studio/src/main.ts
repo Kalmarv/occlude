@@ -152,25 +152,6 @@ async function boot(): Promise<void> {
       setTitle();
       editor.setValue(source); // triggers a run via onChange
     },
-    previewPlan: (plan, planPens) => {
-      // Same animation as the toolbar Plot button; strokes render at each
-      // pen's true nib width regardless of any source-SVG styling.
-      preview.startPlot(
-        plan,
-        planPens,
-        settings.machine.travelFeed,
-        parseFloat(($('plot-speed') as HTMLSelectElement).value),
-        (elapsed, total, pen) => {
-          statusMsg.className = 'status-ok';
-          statusMsg.textContent =
-            `previewing ${fmtTime(elapsed)} / ${fmtTime(total)}` + (pen ? ` · ${pen}` : '');
-        },
-        () => {
-          statusMsg.className = 'status-ok';
-          statusMsg.textContent = 'preview complete';
-        },
-      );
-    },
     currentName: () => sketchName,
     setName: (name) => {
       sketchName = name;
