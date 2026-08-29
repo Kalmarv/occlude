@@ -119,6 +119,22 @@ export class Ebb {
   // emitted one, so the eventual emitting block spans the full profile.
   private lmCarryV0: number | null = null;
 
+  // Full serial transcript (both directions, ms timestamps) — the ground
+  // truth for "what did the board actually receive/say" when a session
+  // misbehaves. Ring-buffered; download via the panel.
+  private log: string[] = [];
+  private logStart = Date.now();
+
+  private logLine(dir: '>' | '<', text: string): void {
+    if (this.log.length >= 20_000) this.log.splice(0, 10_000);
+    this.log.push(`${String(Date.now() - this.logStart).padStart(8)} ${dir} ${text}`);
+  }
+
+  /** The session's serial transcript as text. */
+  transcript(): string {
+    return this.log.join('\n');
+  }
+
   private plotAbort = false;
   private plotPause = false;
   plotting = false;
@@ -242,6 +258,7 @@ export class Ebb {
   }
 
   private onLine(line: string): void {
+    this.logLine('<', line);
     const cur = this.inFlight;
     if (!cur) return;
     if (line.startsWith('!')) {
@@ -277,6 +294,7 @@ export class Ebb {
     const next = this.queue.shift()!;
     this.inFlight = next;
     this.collected = [];
+    this.logLine('>', next.line);
     const bytes = new TextEncoder().encode(next.line + '\r');
     this.writer.write(bytes).catch((e: unknown) => {
       this.inFlight = null;
@@ -354,9 +372,11 @@ export class Ebb {
       this.lmCarryV0 = this.lmCarryV0 ?? block.v0;
       return;
     }
-    const v0 = (this.lmCarryV0 ?? block.v0) * o.stepsPerMm; // cartesian steps/s
-    // Floor the exit rate at 1 step/s: a decel block commanded to exactly 0
-    // can stall with steps outstanding if deltaR rounding crosses zero early.
+    // Floor BOTH rates at 1 step/s (0.01mm/s — imperceptible): a rate at
+    // exactly 0 plus rounding (and the firmware's −Accel/2 initial-rate
+    // adjustment) can leave the accumulator unable to fire the remaining
+    // steps — a move that never completes wedges the board's FIFO hard.
+    const v0 = Math.max((this.lmCarryV0 ?? block.v0) * o.stepsPerMm, 1);
     const v1 = Math.max(block.v1 * o.stepsPerMm, 1);
     this.lmCarryV0 = null;
     const steps1 = dx + dy;
@@ -541,13 +561,36 @@ export class Ebb {
     this.stepY = 0;
   }
 
-  /** Emergency stop: abort motion, clear the FIFO, raise the pen. */
+  /** Emergency stop: abort motion, clear the FIFO, raise the pen. ES is
+   * written RAW, bypassing the command queue — the queue may be wedged
+   * behind a motion command whose OK the board is withholding (full FIFO),
+   * in which case a queued ES would never send and every later command
+   * (Home included) would silently wait forever. After the raw write the
+   * host pipeline is reset and given a moment to drain orphan replies. */
   async stop(): Promise<void> {
     this.plotAbort = true;
-    // ES jumps the queue conceptually; fine to send through it — the board
-    // aborts current+queued motion on receipt.
-    await this.cmd('ES', true).catch(() => undefined);
+    this.logLine('>', 'ES (raw, queue bypassed)');
+    try {
+      await this.writer?.write(new TextEncoder().encode('\rES\r'));
+    } catch {
+      // port gone
+    }
+    const err = new Error('stopped');
+    const stranded = [this.inFlight, ...this.queue].filter(
+      (c): c is QueuedCmd => c !== null,
+    );
+    this.inFlight = null;
+    this.queue = [];
+    this.collected = [];
+    for (const c of stranded) c.reject(err);
+    // Late replies (the aborted command's OK, ES's own response) arrive
+    // with nothing in flight and are dropped by onLine; give them time to
+    // flush so they can't be attributed to the next queued command.
+    await new Promise((r) => setTimeout(r, 300));
     await this.penUp().catch(() => undefined);
+    // Unlock the gantry: after an abort the next step is usually a manual
+    // re-park, and held steppers fight the hand.
+    await this.cmd('EM,0,0').catch(() => undefined);
   }
 
   pause(): void {

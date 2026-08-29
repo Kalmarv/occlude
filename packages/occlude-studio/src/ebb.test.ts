@@ -29,10 +29,13 @@ class FakePort {
       this.input = controller;
     },
   });
+  /** When true, motion commands get no reply — a wedged board. */
+  muteMotion = false;
   readonly writable = new WritableStream<Uint8Array>({
     write: (chunk) => {
       const command = new TextDecoder().decode(chunk).replace(/\r$/, '');
       this.commands.push(command);
+      if (this.muteMotion && /^(XM|LM|HM)/.test(command)) return;
       const response =
         command === 'V'
           ? `${this.version}\r`
@@ -473,6 +476,42 @@ describe('LM motion', () => {
     const port = await run(new Float64Array([0, 0, 2, 0, 0, 20, 0]), lmOpts, 'EBBv2.4.5');
     expect(port.commands.some((c) => c.startsWith('LM,'))).toBe(false);
     expect(port.commands.some((c) => c.startsWith('XM,'))).toBe(true);
+  });
+});
+
+describe('stop robustness', () => {
+  test('stop bypasses a wedged queue, releases motors, and Home still works', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, swapXY: false, invertX: false };
+    const ebb = new Ebb();
+    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    // The board goes silent on a motion command mid-plot (full FIFO or a
+    // stalled move): the old stop() queued ES behind it and nothing —
+    // including Home — could ever send again.
+    port.muteMotion = true;
+    const plotting = ebb
+      .plot(
+        new Float64Array([0, 0, 2, 0, 0, 50, 0]),
+        [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
+        direct,
+        () => undefined,
+      )
+      .catch(() => undefined); // rejected in-flight command surfaces here
+    await new Promise((r) => setTimeout(r, 50)); // let a motion cmd wedge
+    port.muteMotion = false;
+    await ebb.stop();
+    expect(port.commands.some((c) => c.includes('ES'))).toBe(true);
+    expect(port.commands.at(-1)).toBe('EM,0,0'); // gantry unlocked
+    await ebb.home();
+    expect(port.commands.at(-1)).toBe('HM,2000'); // pipeline alive again
+    await plotting;
+    // The transcript captured both directions for the postmortem.
+    expect(ebb.transcript()).toContain('> ES (raw, queue bypassed)');
+    expect(ebb.transcript()).toContain('< OK');
   });
 });
 

@@ -521,6 +521,14 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     button('Pen down', () => void ebb.penDown().catch(showErr)),
     button('Set origin', () => void ebb.setOrigin().catch(showErr)),
     button('Home', () => void ebb.home().catch(showErr)),
+    button('Release', () => void ebb.cmd('EM,0,0').catch(showErr)),
+  );
+  const logRow = document.createElement('div');
+  logRow.className = 'row';
+  logRow.append(
+    button('Download serial log', () =>
+      download('ebb-log.txt', ebb.transcript() || '(no traffic yet)', 'text/plain'),
+    ),
   );
 
   // Calibration + orientation.
@@ -730,6 +738,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     plotRow,
     bar,
     progressText,
+    logRow,
     diag,
   );
 }
