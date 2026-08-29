@@ -86,7 +86,10 @@ export const DEFAULT_SETTINGS: Settings = {
     swapXY: true,
     invertX: true,
     invertY: false,
-    servoDown: 10000,
+    // The pen mechanism applies no pressure — the pen writes under its own
+    // weight — so "down" is simply the bottom of the servo range (iDraw:
+    // 7500–28000): the holder fully drops and the pen floats. Not a tune.
+    servoDown: 7500,
     servoUp: 14200,
     acceleration: 1000,
     travelAcceleration: 2000,
@@ -180,6 +183,13 @@ export function savePens(pens: PenDef[]): void {
   });
 }
 
+/** Stored values beat defaults, so default changes need explicit
+ * migrations: servoDown 10000 was the old untouched default — pen-down is
+ * "holder fully dropped" (weight-only mechanism), now 7500. */
+function migrateEbb(ebb: Settings['ebb']): Settings['ebb'] {
+  return ebb.servoDown === 10000 ? { ...ebb, servoDown: 7500 } : ebb;
+}
+
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEYS.settings);
@@ -191,10 +201,11 @@ export function loadSettings(): Settings {
         machine: { ...DEFAULT_SETTINGS.machine, ...(parsed.machine ?? {}) },
         // Migration: the pre-measurement shape had flipX/flipY and a wrong
         // steps/mm guess — discard it entirely for the measured defaults.
-        ebb:
+        ebb: migrateEbb(
           parsed.ebb && 'swapXY' in parsed.ebb
             ? { ...DEFAULT_SETTINGS.ebb, ...parsed.ebb }
             : { ...DEFAULT_SETTINGS.ebb },
+        ),
       };
     }
   } catch {
