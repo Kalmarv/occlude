@@ -22,6 +22,7 @@
 
 import { crosshatch, hatch, stipple, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
+import { finiteCount } from './guard.js';
 import { label } from './font.js';
 import { grid as gridCells, type GridCell, type GridOptions } from './layout.js';
 import { Shape, type FieldFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
@@ -227,8 +228,9 @@ export function path(opts: { winding?: Winding } = {}): PathValue {
  * expression: `times(40, (k, t) => rect(0, t * height, …))`.
  */
 export function times<T>(n: number, fn: (k: number, t: number) => T): T[] {
+  const count = finiteCount('times', n);
   const out: T[] = [];
-  for (let k = 0; k < n; k++) out.push(fn(k, n > 1 ? k / (n - 1) : 0));
+  for (let k = 0; k < count; k++) out.push(fn(k, count > 1 ? k / (count - 1) : 0));
   return out;
 }
 
@@ -237,6 +239,7 @@ export function range(n: number): number[];
 export function range(a: number, b: number, step?: number): number[];
 export function range(a: number, b?: number, step = 1): number[] {
   const [lo, hi] = b === undefined ? [0, a] : [a, b];
+  finiteCount('range', step === 0 ? Infinity : Math.abs(hi - lo) / Math.abs(step));
   const out: number[] = [];
   if (step > 0) for (let v = lo; v < hi; v += step) out.push(v);
   else if (step < 0) for (let v = lo; v > hi; v += step) out.push(v);

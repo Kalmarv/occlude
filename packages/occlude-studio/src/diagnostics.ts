@@ -29,14 +29,18 @@ interface Chain {
   pts: [number, number][];
 }
 
-const pen = (name: string, feed: number): PenDef => ({
+/** Synthetic pen for a pattern, inheriting the PHYSICAL pen's tuning —
+ * penDelay especially: diagnostics are dominated by short strokes, and a
+ * settle shorter than the servo's real travel time means the pen is
+ * ordered back up before it ever reaches the paper. */
+const pen = (name: string, feed: number, base?: PenDef): PenDef => ({
   name,
-  width: 0.3,
+  width: base?.width ?? 0.3,
   color: '#000',
   feed,
-  penDown: 0,
-  penUp: 5,
-  penDelay: 300,
+  penDown: base?.penDown ?? 0,
+  penUp: base?.penUp ?? 5,
+  penDelay: Math.max(base?.penDelay ?? 300, 300),
 });
 
 function encode(chains: Chain[]): Float64Array {
@@ -47,7 +51,7 @@ function encode(chains: Chain[]): Float64Array {
 
 /** "+" first, stress travels, "✕" last — centers coincide iff no steps were
  * lost. Footprint ~120×64mm from the origin. */
-export function registrationProbe(): Diagnostic {
+export function registrationProbe(base?: PenDef): Diagnostic {
   const chains: Chain[] = [];
   const c = 6; // shared center of + and ✕
   chains.push({ pen: 0, pts: [[c - 4, c], [c + 4, c]] });
@@ -61,12 +65,12 @@ export function registrationProbe(): Diagnostic {
   }
   chains.push({ pen: 0, pts: [[c - 3, c - 3], [c + 3, c + 3]] });
   chains.push({ pen: 0, pts: [[c - 3, c + 3], [c + 3, c - 3]] });
-  return { plan: encode(chains), pens: [pen('probe', 3000)] };
+  return { plan: encode(chains), pens: [pen('probe', base?.feed ?? 3000, base)] };
 }
 
 /** Left square: every edge drawn twice from the same end. Right square:
  * every edge there-and-back in one stroke. Footprint ~45×20mm. */
-export function backlashSquares(): Diagnostic {
+export function backlashSquares(base?: PenDef): Diagnostic {
   const chains: Chain[] = [];
   const square = (x: number, bidirectional: boolean): void => {
     const s = 15;
@@ -86,13 +90,13 @@ export function backlashSquares(): Diagnostic {
   };
   square(5, false);
   square(30, true);
-  return { plan: encode(chains), pens: [pen('backlash', 3000)] };
+  return { plan: encode(chains), pens: [pen('backlash', base?.feed ?? 3000, base)] };
 }
 
 /** The same 8-tooth right-angle comb at three feeds, slow to fast bottom to
  * top, 1–3 tick marks on the left counting the row. Footprint ~66×70mm. */
-export function cornerRinging(): Diagnostic {
-  const feeds = [2000, 4000, 6000];
+export function cornerRinging(base?: PenDef): Diagnostic {
+  const feeds = [2000, 4000, 6000]; // the sweep IS the diagnostic — no base feed
   const chains: Chain[] = [];
   feeds.forEach((_, row) => {
     const y0 = 5 + row * 25;
@@ -108,6 +112,6 @@ export function cornerRinging(): Diagnostic {
   });
   return {
     plan: encode(chains),
-    pens: feeds.map((f) => pen(`comb-${f}`, f)),
+    pens: feeds.map((f) => pen(`comb-${f}`, f, base)),
   };
 }

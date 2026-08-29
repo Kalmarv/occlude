@@ -15,14 +15,23 @@ interface Pending {
   scene?: EncodedScene;
 }
 
+/** A render that takes this long is a runaway (sub-mm spacings, huge
+ * counts): kill the worker rather than let it eat the tab's memory. */
+const RENDER_TIMEOUT_MS = 20_000;
+
 export class RenderClient {
-  private worker: Worker;
+  private worker!: Worker;
   private nextId = 1;
   private pending = new Map<number, Pending>();
   private inFlightRender = false;
   private queuedRender: { scene: EncodedScene; p: Pending } | null = null;
+  private watchdog: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
+    this.spawn();
+  }
+
+  private spawn(): void {
     this.worker = new Worker(new URL('./render-worker.ts', import.meta.url), {
       type: 'module',
     });
@@ -34,6 +43,22 @@ export class RenderClient {
     };
   }
 
+  /** Watchdog fired: the worker is wedged (or allocating without end).
+   * Terminate it — wasm state and all — and start fresh. */
+  private respawnStuckWorker(): void {
+    this.worker.terminate();
+    const err = new Error(
+      `render timed out after ${RENDER_TIMEOUT_MS / 1000}s — likely a runaway ` +
+        'parameter (tiny spacing/step or a huge count); the renderer was restarted',
+    );
+    for (const p of this.pending.values()) p.reject(err);
+    this.pending.clear();
+    this.inFlightRender = false;
+    this.queuedRender?.p.resolve(null as never);
+    this.queuedRender = null;
+    this.spawn();
+  }
+
   private onMessage(msg: {
     type: string;
     id: number;
@@ -43,6 +68,10 @@ export class RenderClient {
     if (!p) return;
     this.pending.delete(msg.id);
     if (msg.type === 'render' || (msg.type === 'error' && p.scene)) {
+      if (this.watchdog) {
+        clearTimeout(this.watchdog);
+        this.watchdog = null;
+      }
       this.inFlightRender = false;
       if (this.queuedRender) {
         const { scene, p: qp } = this.queuedRender;
@@ -62,6 +91,8 @@ export class RenderClient {
     p.scene = scene;
     this.pending.set(id, p);
     this.inFlightRender = true;
+    if (this.watchdog) clearTimeout(this.watchdog);
+    this.watchdog = setTimeout(() => this.respawnStuckWorker(), RENDER_TIMEOUT_MS);
     // Only the wasm-call arguments transfer; decode metadata (pens, frame)
     // stays on this side inside `scene`.
     this.worker.postMessage(

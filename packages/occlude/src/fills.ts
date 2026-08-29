@@ -6,6 +6,7 @@
  */
 
 import type { Prim } from './prims.js';
+import { positiveLength } from './guard.js';
 import { Len, mm, type L } from './units.js';
 
 export interface HatchPassSpec {
@@ -65,6 +66,7 @@ export interface HatchOptions {
 export function hatch(angle?: number, spacing?: L, offset?: number): FillSpec;
 export function hatch(opts: HatchOptions): FillSpec;
 export function hatch(a: number | HatchOptions = 0, spacing?: L, offset = 0): FillSpec {
+  positiveLength('hatch', typeof a === 'object' ? a.spacing : spacing);
   if (typeof a === 'object') {
     return {
       type: 'hatch',
@@ -89,6 +91,7 @@ export function crosshatch(
   offset = 0,
 ): FillSpec {
   const opts: CrosshatchOptions = Array.isArray(a) ? { angles: a, spacing, offset } : a;
+  positiveLength('crosshatch', opts.spacing);
   return {
     type: 'hatch',
     passes: (opts.angles ?? [0, 90]).map((angle) => ({
@@ -108,6 +111,7 @@ export interface StippleOptions {
 export function stipple(density?: number, minDist?: L): FillSpec;
 export function stipple(opts: StippleOptions): FillSpec;
 export function stipple(a: number | StippleOptions = 0.5, minDist?: L): FillSpec {
+  positiveLength('stipple', typeof a === 'object' ? a.minDist : minDist);
   if (typeof a === 'object') {
     return { type: 'stipple', density: a.density ?? 0.5, minDist: a.minDist };
   }

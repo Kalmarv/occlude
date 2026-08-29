@@ -1,5 +1,6 @@
 /** Layout helpers. */
 
+import { finiteCount } from './guard.js';
 import { path, type Shape } from './shapes.js';
 import { bounds, getState, noise } from './state.js';
 import { Len, resolveLen, type L } from './units.js';
@@ -27,6 +28,7 @@ export interface GridOptions {
  */
 export function grid(opts: GridOptions): GridCell[] {
   const { cols, rows, gap = 0 } = opts;
+  finiteCount('grid', cols * rows);
   const b = bounds();
   const cells: GridCell[] = [];
   const cw = (b.w - gap * (cols - 1)) / cols;

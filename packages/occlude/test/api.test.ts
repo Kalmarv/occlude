@@ -781,3 +781,30 @@ describe('ease', () => {
     expect(ease.powIn(0.5, 3)).toBeCloseTo(ease.cubicIn(0.5), 12);
   });
 });
+
+describe('live-coding guards', () => {
+  it('rejects infinite and absurd repetition counts with clear errors', async () => {
+    const { times, range, grid } = await import('../src/index.js');
+    // The freeze that motivated this: STEP typed as "0.0" on the way to
+    // "0.05" makes (MAX - MIN) / STEP + 1 === Infinity.
+    expect(() => times(Infinity, () => null)).toThrow(/zero step/);
+    expect(() => times(NaN, () => null)).toThrow(/count is NaN/);
+    expect(() => times(1e9, () => null)).toThrow(/cap/);
+    expect(() => range(0, 10, 0)).toThrow(/zero step/);
+    expect(times(3, (k) => k)).toEqual([0, 1, 2]);
+    expect(range(0, 3)).toEqual([0, 1, 2]);
+    // grid needs sketch state for bounds(): validate via a render.
+    const def = sketch({ aspect: [1, 1] }, (t) =>
+      t.grid({ cols: 1e6, rows: 1e6 }).map((c) => rect(c.x, c.y, c.w, c.h)),
+    );
+    expect(() => sq(def)).toThrow(/grid.*cap/);
+  });
+
+  it('rejects zero or negative fill spacings', () => {
+    expect(() => hatch(45, 0)).toThrow(/positive length/);
+    expect(() => hatch(45, mm(0))).toThrow(/positive length/);
+    expect(() => hatch({ angle: 45, spacing: mm(-1) })).toThrow(/positive length/);
+    expect(() => stipple(0.5, mm(0))).toThrow(/positive length/);
+    expect(hatch(45, mm(0.05))).toBeTruthy(); // small-but-real stays legal
+  });
+});

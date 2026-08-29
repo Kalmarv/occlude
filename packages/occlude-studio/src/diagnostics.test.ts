@@ -24,6 +24,24 @@ const mid = (pts: [number, number][]): [number, number] => [
 ];
 
 describe('machine diagnostics', () => {
+  test('patterns inherit the physical pen’s tuning', () => {
+    const base = {
+      name: 'micron-03', width: 0.35, color: '#111', feed: 3500,
+      penDown: 0, penUp: 5, penDelay: 500,
+    };
+    for (const d of [registrationProbe(base), backlashSquares(base), cornerRinging(base)]) {
+      for (const p of d.pens) {
+        expect(p.penDelay).toBe(500);
+        expect(p.width).toBe(0.35);
+      }
+    }
+    // The ringing feeds stay a fixed sweep — that IS the diagnostic.
+    expect(cornerRinging(base).pens.map((p) => p.feed)).toEqual([2000, 4000, 6000]);
+    expect(registrationProbe(base).pens[0].feed).toBe(3500);
+    // Bases with a settle below the physical floor are floored, not obeyed.
+    expect(registrationProbe({ ...base, penDelay: 100 }).pens[0].penDelay).toBe(300);
+  });
+
   test('registration probe draws + first and ✕ last on the same center', () => {
     const d = registrationProbe();
     const chains = parse(d.plan);

@@ -548,13 +548,18 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   );
   const servoRow = document.createElement('div');
   servoRow.className = 'row';
+  // SC positions are board state: apply edits immediately when connected —
+  // they otherwise only took effect on the next connect (or pause-resume),
+  // which reads as "pen doesn't reach the paper" after tuning.
   const servoDownIn = numberInput(s.ebb.servoDown, 100, (v) => {
     s.ebb.servoDown = v;
     persist();
+    if (ebb.connected) void ebb.cmd(`SC,4,${Math.round(v)}`).catch(showErr);
   });
   const servoUpIn = numberInput(s.ebb.servoUp, 100, (v) => {
     s.ebb.servoUp = v;
     persist();
+    if (ebb.connected) void ebb.cmd(`SC,5,${Math.round(v)}`).catch(showErr);
   });
   servoRow.append(servoDownIn, servoUpIn);
   const acceleration = numberInput(s.ebb.acceleration, 50, (v) => {
@@ -661,11 +666,23 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   const diagSummary = document.createElement('summary');
   diagSummary.textContent = 'Machine diagnostics';
   diag.append(diagSummary);
-  const addDiag = (label: string, hint: string, build: () => Diagnostic): void => {
+  // Patterns inherit the PHYSICAL pen's tuning (penDelay especially — the
+  // patterns are short strokes, so a too-short settle reads as "the pen
+  // never reaches the paper"): the Plot-pen selection resolved to its
+  // library definition, else the first library pen.
+  const diagBasePen = (): import('occlude').PenDef | undefined => {
+    const name = penSelect.selectedOptions[0]?.textContent ?? '';
+    return hooks.pens.find((p) => p.name === name) ?? hooks.pens[0];
+  };
+  const addDiag = (
+    label: string,
+    hint: string,
+    build: (base?: import('occlude').PenDef) => Diagnostic,
+  ): void => {
     const b = button(label, async () => {
       if (!ebb.connected || ebb.plotting) return;
       try {
-        const d = build();
+        const d = build(diagBasePen());
         await ebb.plot(d.plan, d.pens, opts(), onProgress);
       } catch (e) {
         showErr(e);
