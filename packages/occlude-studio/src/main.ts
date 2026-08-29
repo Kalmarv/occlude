@@ -199,7 +199,9 @@ async function boot(): Promise<void> {
     } else {
       workbench.style.removeProperty('--editor-w');
     }
-    if (ui.railW !== null) {
+    // Inline style would beat .rail-collapsed's `--rail-w: 0` — only pin
+    // the custom width while the rail is open (grey-column regression).
+    if (ui.railW !== null && ui.railOpen) {
       workbench.style.setProperty('--rail-w', `${ui.railW}px`);
     } else {
       workbench.style.removeProperty('--rail-w');
