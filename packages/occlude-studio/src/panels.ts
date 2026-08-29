@@ -461,7 +461,9 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     return;
   }
   hint.textContent =
-    'EBB/iDraw over USB. Connect leaves the rails free: position the pen by hand → Set origin → Plot.';
+    'EBB/iDraw over USB. Connect leaves the rails free: position the carriage by hand → Set origin → Plot. ' +
+    'PEN CONTACT IS MECHANICAL — the servo only lifts, it cannot press. With Pen down, seat the pen low ' +
+    'in the clamp so its tip preloads into the sheet; dropped-out lines mean seating depth, not firmware.';
 
   const ebb = new Ebb();
   const status = document.createElement('div');

@@ -86,10 +86,11 @@ export const DEFAULT_SETTINGS: Settings = {
     swapXY: true,
     invertX: true,
     invertY: false,
-    // The pen mechanism applies no pressure — the pen writes under its own
-    // weight — so "down" is simply the bottom of the servo range (iDraw:
-    // 7500–28000): the holder fully drops and the pen floats. Not a tune.
-    servoDown: 7500,
+    // Verified on hardware (2026-08-26 integration report): 10000 IS fully
+    // down — the arm is clear of the pen, which rests under its own weight.
+    // Lower values only move the arm further away; pen-to-paper contact is
+    // MECHANICAL (seat the pen low in the clamp so it preloads the sheet).
+    servoDown: 10000,
     servoUp: 14200,
     acceleration: 1000,
     travelAcceleration: 2000,
@@ -184,10 +185,10 @@ export function savePens(pens: PenDef[]): void {
 }
 
 /** Stored values beat defaults, so default changes need explicit
- * migrations: servoDown 10000 was the old untouched default — pen-down is
- * "holder fully dropped" (weight-only mechanism), now 7500. */
+ * migrations: 7500 was a briefly-deployed mistake (the extension's range
+ * floor) — the hardware-verified fully-down value is 10000. */
 function migrateEbb(ebb: Settings['ebb']): Settings['ebb'] {
-  return ebb.servoDown === 10000 ? { ...ebb, servoDown: 7500 } : ebb;
+  return ebb.servoDown === 7500 ? { ...ebb, servoDown: 10000 } : ebb;
 }
 
 export function loadSettings(): Settings {
