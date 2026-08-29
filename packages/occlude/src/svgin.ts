@@ -17,8 +17,13 @@ export interface SvgShapesOptions extends ShapeOpts {
   x?: number;
   y?: number;
   /** Target width in sketch units (bare = percent of the drawable's short
-   * side, like every coordinate). Height follows the aspect. Default 100. */
+   * side, like every coordinate). Height follows the aspect. Default 100.
+   * Measured on the artwork BEFORE rotation — rotate 90 makes `width` the
+   * vertical extent on paper. */
   width?: number;
+  /** Rotate the artwork clockwise about its own top-left corner, degrees.
+   * x/y always place that corner. */
+  rotate?: number;
   /** Only these layers (top-level group ids); default all. */
   layers?: string[];
 }
@@ -160,17 +165,24 @@ function parseSvgText(text: string): { layers: SvgLayer[]; width: number; height
  * it is a normal subtree.
  */
 export function svg(text: string, opts: SvgShapesOptions = {}): GroupValue {
-  const { x = 0, y = 0, width = 100, layers: only, ...shapeOpts } = opts;
+  const { x = 0, y = 0, width = 100, rotate = 0, layers: only, ...shapeOpts } = opts;
   const parsed = parseSvgText(text);
   const s = width / parsed.width;
+  const a = (rotate * Math.PI) / 180;
+  const [cos, sin] = [Math.cos(a), Math.sin(a)];
+  const map = (px: number, py: number): [number, number] => {
+    const sx = px * s;
+    const sy = py * s;
+    return [x + sx * cos - sy * sin, y + sx * sin + sy * cos];
+  };
   const shapes = parsed.layers
     .filter((l) => !only || only.includes(l.name))
     .flatMap((l) =>
       l.chains.map((chain) => {
         const p = path();
-        p.moveTo(x + chain[0] * s, y + chain[1] * s);
+        p.moveTo(...map(chain[0], chain[1]));
         for (let k = 2; k < chain.length; k += 2) {
-          p.lineTo(x + chain[k] * s, y + chain[k + 1] * s);
+          p.lineTo(...map(chain[k], chain[k + 1]));
         }
         return p.build(shapeOpts);
       }),

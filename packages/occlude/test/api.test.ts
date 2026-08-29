@@ -843,3 +843,23 @@ describe('svg() shape source', () => {
     expect(() => sq(def)).toThrow(/transform/);
   });
 });
+
+describe('svg() rotate', () => {
+  it('rotates about the placement corner', () => {
+    const src = '<svg viewBox="0 0 100 50"><polyline points="0,0 100,0"/></svg>';
+    // 90° CW: the (100,0) end of a width-50 artwork lands 50 BELOW the corner.
+    const def = sketch({ aspect: [1, 1] }, (t) =>
+      t.svg(src, { x: 30, y: 10, width: 50, rotate: 90 }),
+    );
+    const r = sq(def);
+    const line = r.frags[0].geom;
+    expect(line.t).toBe('line');
+    if (line.t === 'line') {
+      // Paper mm: Square20 drawable maps 100 units → drawable size; check
+      // direction rather than absolute mm — start and end share x, end is
+      // lower on the page.
+      expect(Math.abs(line.x1 - line.x0)).toBeLessThan(1e-6);
+      expect(line.y1).toBeGreaterThan(line.y0);
+    }
+  });
+});
