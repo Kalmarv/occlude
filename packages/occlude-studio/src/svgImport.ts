@@ -11,6 +11,11 @@ export interface SvgLayer {
   name: string;
   /** Flat [x0,y0,x1,y1,…] per chain, document units. */
   chains: number[][];
+  /** The group's stroke-width in document units, if declared. Cosmetic in
+   * SVG terms — a plotted line is always nib-wide — but it records the
+   * relative weight the author designed for, so the importer can report
+   * how the physical pen compares at the chosen scale. */
+  strokeWidth?: number;
 }
 
 export interface ParsedSvg {
@@ -133,8 +138,11 @@ export function parseSvg(text: string): ParsedSvg {
   let gi = 0;
   for (const m of text.matchAll(groupRe)) {
     const name = /\bid="([^"]*)"/.exec(m[1])?.[1] ?? `layer-${gi}`;
+    const sw = parseFloat(/\bstroke-width="([^"]*)"/.exec(m[1])?.[1] ?? 'NaN');
     const chains = elementChains(m[2]);
-    if (chains.length > 0) layers.push({ name, chains });
+    if (chains.length > 0) {
+      layers.push({ name, chains, ...(Number.isFinite(sw) ? { strokeWidth: sw } : {}) });
+    }
     consumed = consumed.replace(m[0], '');
     gi += 1;
   }

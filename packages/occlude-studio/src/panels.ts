@@ -31,6 +31,8 @@ export interface PanelHooks {
   openSketch(name: string, source: string): void;
   currentName(): string;
   setName(name: string): void;
+  /** Animate a plan on the canvas at true nib widths (SVG import preview). */
+  previewPlan(plan: Float64Array, pens: PenDef[]): void;
 }
 
 export interface Rail {
@@ -689,9 +691,21 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     if (!svgState.svg) return;
     const s = parseFloat(widthIn.value) / svgState.svg.width;
     const chains = svgState.svg.layers.reduce((n, l) => n + l.chains.length, 0);
-    svgInfo.textContent =
+    let text =
       `${svgState.name}: ${chains} strokes, ${svgState.svg.layers.length} layer(s) → ` +
       `${parseFloat(widthIn.value).toFixed(0)}×${(svgState.svg.height * s).toFixed(0)}mm on paper`;
+    // Line-weight reality check: the plotted width is always the NIB, so
+    // compare it to what the SVG designed for at this scale. Off by 2× on
+    // sparse line art just reads bolder; on hatching it floods or thins.
+    const sw = svgState.svg.layers[0]?.strokeWidth;
+    const nib = hooks.pens[parseInt(layerPens[0]?.value ?? '0', 10) || 0]?.width;
+    if (sw !== undefined && nib !== undefined) {
+      const designed = sw * s;
+      const ratio = nib / designed;
+      text += ` · designed line ${designed.toFixed(2)}mm, pen draws ${nib.toFixed(2)}mm (${ratio.toFixed(1)}×`;
+      text += ratio > 1.5 || ratio < 0.67 ? ' — consider adjusting width or pen)' : ')';
+    }
+    svgInfo.textContent = text;
   };
   const layerPens: HTMLSelectElement[] = [];
   const fileBtn = button('Choose SVG…', async () => {
@@ -714,6 +728,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
             option.textContent = pen.name;
             sel.append(option);
           });
+          sel.onchange = () => refreshSvgInfo();
           layerPens.push(sel);
           layerMap.append(row(layer.name, sel, 'physical pen for this layer'));
         }
@@ -725,23 +740,32 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     };
     input.click();
   });
+  // One physical pen per run (no pen changer): all layers must map to one
+  // pen — map, plot, re-map, plot for multi-pen work.
+  const optimizedSvgPlan = async (): Promise<{ plan: Float64Array; pens: PenDef[] }> => {
+    if (!svgState.svg) throw new Error('no SVG loaded');
+    const scale = parseFloat(widthIn.value) / svgState.svg.width;
+    if (!Number.isFinite(scale) || scale <= 0) throw new Error('bad target width');
+    const penIdx = layerPens.map((sel) => parseInt(sel.value, 10) || 0);
+    if (new Set(penIdx).size > 1) {
+      throw new Error('layers map to different pens — plot one pen per run: map, plot, re-map, plot');
+    }
+    const pens = [hooks.pens[penIdx[0] ?? 0]];
+    const raw = buildPlan(svgState.svg, penIdx.map(() => 0), scale);
+    return { plan: await hooks.client.optimizePlan(raw, pensToJson(pens), 200_000), pens };
+  };
+  const svgPreviewBtn = button('Preview', async () => {
+    try {
+      const { plan, pens } = await optimizedSvgPlan();
+      hooks.previewPlan(plan, pens);
+    } catch (e) {
+      svgInfo.textContent = e instanceof Error ? e.message : String(e);
+    }
+  });
   const svgPlotBtn = button('▶ Plot SVG', async () => {
     if (!ebb.connected || ebb.plotting || !svgState.svg) return;
     try {
-      const scale = parseFloat(widthIn.value) / svgState.svg.width;
-      if (!Number.isFinite(scale) || scale <= 0) throw new Error('bad target width');
-      // Map layers onto a deduplicated pen list so identical pens share one
-      // plot run; distinct pens follow the usual pen-per-run swap flow.
-      const penIdx = layerPens.map((sel) => parseInt(sel.value, 10) || 0);
-      const usedPens = [...new Set(penIdx)];
-      if (usedPens.length > 1) {
-        // One physical pen per run (no pen changer): map the layers you
-        // want NOW to one pen, plot, re-map the rest, plot again.
-        throw new Error('layers map to different pens — plot one pen per run: map, plot, re-map, plot');
-      }
-      const pens = [hooks.pens[usedPens[0]]];
-      const raw = buildPlan(svgState.svg, penIdx.map(() => 0), scale);
-      const plan = await hooks.client.optimizePlan(raw, pensToJson(pens), 200_000);
+      const { plan, pens } = await optimizedSvgPlan();
       await ebb.plot(
         plan,
         pens,
@@ -757,7 +781,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   svgPlotBtn.className = 'primary';
   const svgRow = document.createElement('div');
   svgRow.className = 'row';
-  svgRow.append(fileBtn, svgPlotBtn);
+  svgRow.append(fileBtn, svgPreviewBtn, svgPlotBtn);
   svgSection.append(svgHint, svgRow, row('Width mm', widthIn, 'output width on paper; height scales proportionally'), svgInfo, layerMap);
 
   // Machine diagnostics: the cal sheet characterizes pens; these
