@@ -83,6 +83,20 @@ const GLYPHS: Record<string, Stroke[]> = {
 export interface LabelOpts extends ShapeOpts {
   /** 'user' (default): coordinates/height in sketch units. 'mm': physical. */
   unit?: 'user' | 'mm';
+  /** Horizontal anchor of x: 'left' (default), 'center', or 'right'. */
+  align?: 'left' | 'center' | 'right';
+}
+
+/** Advance width of one character at cap height h. */
+function advance(ch: string, h: number): number {
+  return (ch === '.' || ch === ',' || ch === ':' ? 0.45 : 0.78) * h;
+}
+
+/** Rendered width of a string at cap height h (same units as h). */
+export function labelWidth(str: string, h: number): number {
+  let w = 0;
+  for (const ch of str) w += advance(ch, h);
+  return w;
 }
 
 /**
@@ -92,10 +106,11 @@ export interface LabelOpts extends ShapeOpts {
  * spaces. Width is roughly 0.75·h per character.
  */
 export function label(str: string, x: number, y: number, h: number, opts: LabelOpts = {}): Tree {
-  const { unit = 'user', ...shapeOpts } = opts;
+  const { unit = 'user', align = 'left', ...shapeOpts } = opts;
   const U = unit === 'mm' ? mm : (n: number): number => n;
+  const w = labelWidth(str, h);
   const out: Tree[] = [];
-  let cx = x;
+  let cx = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
   for (const ch of str) {
     const glyph = GLYPHS[ch.toUpperCase()];
     if (glyph) {
@@ -108,7 +123,7 @@ export function label(str: string, x: number, y: number, h: number, opts: LabelO
         out.push(p.build(shapeOpts));
       }
     }
-    cx += (ch === '.' || ch === ',' || ch === ':' ? 0.45 : 0.78) * h;
+    cx += advance(ch, h);
   }
   return out;
 }
