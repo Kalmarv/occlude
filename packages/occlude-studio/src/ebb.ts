@@ -143,6 +143,12 @@ export class Ebb {
   private plotAbort = false;
   private plotPause = false;
   plotting = false;
+  // Quick-hop board-state tracking: if a plot dies mid-hop (stop, crash),
+  // the board would RETAIN the reduced SC,4 lift forever — stop() uses
+  // these to restore it. (A retained hop register was the "pen hovers,
+  // settings don't matter, reconnect fixes it" field bug.)
+  private hopLiftActive = false;
+  private fullUpPulse = 0;
   // Set when the user jogs or re-origins during a pause: the coordinate
   // frame moved, so resuming must NOT re-lower the pen — continuing the
   // interrupted stroke from a shifted position would draw a stray line.
@@ -164,8 +170,19 @@ export class Ebb {
     // No reset on open, no warmup (verified). Configure the servo, but leave
     // the steppers released so the carriage can be positioned by hand. Jog,
     // Home, and Plot enable them immediately before their first motion.
+    // Fresh power-up can leave stale bytes (a lone OK) in the CDC buffer;
+    // consumed by V's no-OK reply handling they shift every later reply by
+    // one and silently corrupt the version (log-verified: LM fell back to
+    // XM a whole session because version read "OK"). Drain first — lines
+    // with nothing in flight are dropped — and retry V once if it still
+    // doesn't look like a banner.
+    await new Promise((r) => setTimeout(r, 60));
     const v = await this.cmd('V', false);
     this.version = v[0] ?? '';
+    if (!/\d+\.\d+\.\d+/.test(this.version)) {
+      const v2 = await this.cmd('V', false);
+      this.version = v2[0] ?? this.version;
+    }
     await this.cmd('EM,0,0');
     await this.cmd('SR,0');
     if (o) {
@@ -592,6 +609,11 @@ export class Ebb {
     // with nothing in flight and are dropped by onLine; give them time to
     // flush so they can't be attributed to the next queued command.
     await new Promise((r) => setTimeout(r, 300));
+    if (this.hopLiftActive && this.fullUpPulse > 0) {
+      // A stopped hop plot must not leave the reduced lift on the board.
+      this.hopLiftActive = false;
+      await this.cmd(`SC,4,${this.fullUpPulse}`).catch(() => undefined);
+    }
     await this.penUp().catch(() => undefined);
     // Unlock the gantry: after an abort the next step is usually a manual
     // re-park, and held steppers fight the hand.
@@ -739,6 +761,12 @@ export class Ebb {
     // only ~40% height with proportionally shorter settles — on hatch- and
     // stipple-dense plots the pen cycle is ~95% of plot time. Full lift is
     // always restored for long travels, pauses, aborts, and the plot end.
+    // REGISTER SEMANTICS (learned the hard way, serial log 2026-08-30):
+    // SP,0 (pen DOWN) drives the servo to SC,5; SP,1 (UP) to SC,4 —
+    // standard EBB, the opposite of our integration notes' labels. Setting
+    // both as a pair hid the inversion; hop must therefore adjust SC,4
+    // (the true UP target) and NEVER touch SC,5, or it lowers the pen's
+    // DOWN position and strokes hover above the paper.
     const HOP = 0.4;
     let hopMode = false;
     const servo = (): { servoDown: number; servoUp: number } =>
@@ -747,8 +775,12 @@ export class Ebb {
       if (hop === hopMode) return;
       hopMode = hop;
       const sv = servo();
-      const up = hop ? sv.servoDown + (sv.servoUp - sv.servoDown) * HOP : sv.servoUp;
-      await this.cmd(`SC,5,${Math.round(up)}`);
+      // settings.servoDown feeds SC,4 (full-up pulse), settings.servoUp
+      // feeds SC,5 (down pulse). Hop = rise only 40% of the way up.
+      const up = hop ? sv.servoUp + (sv.servoDown - sv.servoUp) * HOP : sv.servoDown;
+      this.fullUpPulse = Math.round(sv.servoDown);
+      this.hopLiftActive = hop;
+      await this.cmd(`SC,4,${Math.round(up)}`);
     };
     // Asymmetric on purpose: pen-DOWN must physically complete before ink
     // matters (a truncated fall reads as "pen not all the way down" on

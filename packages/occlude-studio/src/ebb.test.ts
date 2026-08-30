@@ -25,10 +25,11 @@ class FakePort {
   /** Board step counters reported by QS — override to simulate drift. */
   qs: () => [number, number] = () => [0, 0];
   private input!: ReadableStreamDefaultController<Uint8Array>;
-  constructor(private version = 'EBBv2.8.1') {}
+  constructor(private version = 'EBBv2.8.1', private bootNoise = '') {}
   readonly readable = new ReadableStream<Uint8Array>({
     start: (controller) => {
       this.input = controller;
+      if (this.bootNoise) controller.enqueue(new TextEncoder().encode(this.bootNoise));
     },
   });
   /** When true, motion commands get no reply — a wedged board. */
@@ -640,21 +641,48 @@ describe('quick-hop lifts', () => {
     );
 
     const c = port.commands;
-    // Hop height: 10000 + 4200×0.4 = 11680. Asymmetric settles: up 0.4×500
-    // = 200 (travel may start a hair early, harmless); down 0.5×500 = 250
-    // (the fall must COMPLETE before ink matters).
-    const hopSet = c.indexOf('SC,5,11680');
+    // REGISTER SEMANTICS: SP,1 (up) targets SC,4; SP,0 (down) targets SC,5.
+    // Hop adjusts SC,4 ONLY — touching SC,5 would lower the pen-DOWN
+    // target and strokes would hover (the 2026-08-30 field bug). Hop
+    // pulse: 14200 + (10000−14200)×0.4 = 12520. Asymmetric settles: up
+    // 0.4×500 = 200; down 0.5×500 = 250 (the fall must COMPLETE).
+    const hopSet = c.indexOf('SC,4,12520');
     expect(hopSet).toBeGreaterThan(-1);
+    expect(c.filter((cmd) => cmd.startsWith('SC,5')).length).toBe(1); // connect only
     expect(c.indexOf('SP,1,200', hopSet)).toBeGreaterThan(hopSet);
     expect(c.indexOf('SP,0,250', hopSet)).toBeGreaterThan(hopSet);
     // Before the 75mm travel to the last chain, full lift is restored and
     // the full settle returns.
-    const restore = c.indexOf('SC,5,14200', hopSet);
+    const restore = c.indexOf('SC,4,10000', hopSet);
     expect(restore).toBeGreaterThan(hopSet);
     expect(c.indexOf('SP,1,500', restore)).toBeGreaterThan(restore);
     // The final full-lift restore never leaves the board in hop mode.
-    expect(c.lastIndexOf('SC,5,14200')).toBeGreaterThan(c.lastIndexOf('SC,5,11680'));
+    expect(c.lastIndexOf('SC,4,10000')).toBeGreaterThan(c.lastIndexOf('SC,4,12520'));
     // First chain's pen-down (before any hop decision) uses the full settle.
-    expect(c.indexOf('SP,0,500')).toBeLessThan(c.indexOf('SC,5,11680'));
+    expect(c.indexOf('SP,0,500')).toBeLessThan(c.indexOf('SC,4,12520'));
+  });
+});
+
+describe('connect resilience', () => {
+  test('stale bytes at power-up cannot corrupt the version or disable LM', async () => {
+    // A lone OK left in the CDC buffer used to be consumed as V's reply:
+    // version read "OK", the firmware check failed, and LM silently fell
+    // back to XM for the whole session (log-verified field bug).
+    const port = new FakePort('EBBv13_and_above EB Firmware Version 2.8.1', 'OK\r');
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const ebb = new Ebb();
+    const v = await ebb.connect({ servoDown: 10_000, servoUp: 14_200 });
+    expect(v).toMatch(/\d+\.\d+\.\d+/);
+    const direct = { ...opts, swapXY: false, invertX: false, lmMotion: true };
+    await ebb.plot(
+      new Float64Array([0, 0, 2, 0, 0, 20, 0]),
+      [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
+      direct,
+      () => undefined,
+    );
+    expect(port.commands.some((c) => c.startsWith('LM,'))).toBe(true);
   });
 });

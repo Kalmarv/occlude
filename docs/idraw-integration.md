@@ -78,6 +78,15 @@ send(`XM,${Math.max(ms, Math.ceil(minMs))},${mdx},${mdy}\r`);
 ## 7. Pen — servo via SP, and pressure is NOT software-controllable ⚠️
 
 - SP,1 = UP, SP,0 = DOWN. QP reads back (1=up, 0=down). QG bit 4 (0x10): D0=up, C0=down.
+- ⚠️ **CORRECTION (2026-08-30, serial-log-verified): SP,1 (up) drives the servo to the
+  SC,4 position; SP,0 (down) drives it to SC,5 — standard EBB register semantics,
+  the OPPOSITE of the labels below.** The original session never noticed because both
+  registers were always set as a pair, which behaves identically under either reading.
+  Field bug that exposed it: code adjusting "SC,5 = up" mid-plot actually raised the
+  pen-DOWN target and strokes hovered ~2.4mm above paper. On this machine the HIGHER
+  pulse (16000/14200) is pen-down; the LOWER (10000) is pen-up. The app's servoDown/
+  servoUp setting NAMES remain as-is (paired writes keep behavior consistent) — but
+  any code touching ONE register must use the true mapping.
 - `SP,<state>,<ms>` queues a settle delay in the FIFO; OK returns immediately (~53 ms). Use
   `SP,0,700` rather than a host sleep.
 - ⚠️ **The servo only lifts. It applies no downforce — the pen rests under its own weight.
