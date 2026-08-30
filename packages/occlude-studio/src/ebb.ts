@@ -860,8 +860,12 @@ export class Ebb {
         await this.penUp(upSettle);
         sent += 1;
         elapsedMs += downSettle + upSettle + 300; // mirrors the totals' pen-cycle term
-        // Cheap health check while the pen is already up between chains.
-        if (chainIndex % 25 === 24) await verifyPosition();
+        // Position health check while the pen is already up between chains.
+        // Sparse on purpose: each check drains the FIFO (waits out queued
+        // settles, ~0.1-1s) — every 25 chains cost minutes on 30k-chain
+        // plots and visible hitching. Lost-command drift is rare and also
+        // caught at plot end; ~every 8 minutes is plenty.
+        if (chainIndex % 500 === 499) await verifyPosition();
         report('plotting', penName);
       }
       await setLift(false).catch(() => undefined); // never leave hop height behind
