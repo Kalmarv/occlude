@@ -597,7 +597,18 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   const refreshPenSelect = (): void => {
     const prev = penSelect.selectedOptions[0]?.textContent ?? '';
     penSelect.innerHTML = '';
-    (hooks.lastResult()?.pens ?? []).forEach((pen, i) => {
+    const pens = hooks.lastResult()?.pens ?? [];
+    if (pens.length > 1) {
+      // All logical pens in one pass with the installed physical pen —
+      // each chain still uses its own pen's feed and penDelay (how the
+      // settle-sweep card plots per-column settles in a single run).
+      const all = document.createElement('option');
+      all.value = '-1';
+      all.textContent = 'all pens (one run)';
+      all.selected = prev === all.textContent;
+      penSelect.append(all);
+    }
+    pens.forEach((pen, i) => {
       const option = document.createElement('option');
       option.value = String(i);
       option.textContent = pen.name;
@@ -638,10 +649,14 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     if (!r) return;
     try {
       refreshPenSelect();
-      const penIndex = Math.min(parseInt(penSelect.value, 10) || 0, r.pens.length - 1);
+      const raw = parseInt(penSelect.value, 10);
+      const allPens = raw === -1;
+      const penIndex = allPens ? undefined : Math.min(raw || 0, r.pens.length - 1);
       // Match G-code export: machine resolution is the geometric error
       // ceiling, with nib/4 avoiding needless points for broad pens.
-      const penTol = (r.pens[penIndex]?.width ?? Infinity) / 4;
+      const penTol = allPens
+        ? r.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)
+        : (r.pens[penIndex!]?.width ?? Infinity) / 4;
       const tol = Math.max(0.0001, Math.min(s.machine.resolution, penTol));
       const plan = await hooks.client.exportToolpath(200_000, tol);
       await ebb.plot(

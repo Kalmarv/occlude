@@ -48,6 +48,12 @@ const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
 );
 await initOcclude(readFileSync(wasmPath));
+try {
+  const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
+  occlude.setPenLibrary(JSON.parse(readFileSync(pensPath, 'utf8')));
+} catch {
+  // default pens
+}
 const size = paperSize({ paper: paper as never, landscape });
 setPaperHint(size.w, size.h);
 
