@@ -25,7 +25,11 @@
 //!   mod_start/mod_count: this shape's modifier program — mod_count
 //!            instructions starting at f64 offset mod_start in `mods`.
 //!
-//! `shapes_f64: Float64Array`, stride 1: [z]
+//! `shapes_f64: Float64Array`, stride 2: [z, bridge_mm]
+//!   bridge_mm: endpoint-join tolerance in paper mm; 0 = shape not opted
+//!   into bridging. Opted shapes' strokes are joined pen-down across gaps
+//!   up to this size after occlusion (per pen); connector frags carry
+//!   flags bit1.
 //!
 //! `mods: Float64Array` — the modifier tape. Each instruction is
 //!   [opcode, field_mask, ...params] with a fixed param count per opcode;
@@ -50,7 +54,7 @@
 //! `clips_u32: Uint32Array`, stride 3: [contour_start, contour_count, flags]
 //!
 //! Output `frags: Float64Array`, stride 6:
-//!   [origin_prim, t0, t1, pen, shape, flags(bit0 dot)]
+//!   [origin_prim, t0, t1, pen, shape, flags(bit0 dot, bit1 bridge)]
 //! plus the full primitive table (input prims + generated fill prims) in the
 //! same stride-9 encoding, so the preview can draw exact curves.
 
@@ -269,7 +273,7 @@ pub fn wasm_render(
     let fields = decode_fields(field_data).map_err(|e| JsValue::from_str(&e))?;
 
     let n = shapes_u32.len() / SHAPE_U32_STRIDE;
-    if shapes_f64.len() < n {
+    if shapes_f64.len() < n * 2 {
         return Err(err("shapes_f64 shorter than shape count"));
     }
     let mut shapes = Vec::with_capacity(n);
@@ -339,7 +343,8 @@ pub fn wasm_render(
             winding,
             stroke: if s[3] > 0 { Some(s[3] - 1) } else { None },
             fill,
-            z: shapes_f64[i],
+            z: shapes_f64[i * 2],
+            bridge_mm: shapes_f64[i * 2 + 1],
             clips: clip_list[s[6] as usize..clip_end].to_vec(),
             modifiers: decode_modifiers(mods, s[10] as usize, s[11] as usize)
                 .map_err(|e| JsValue::from_str(&e))?,
@@ -390,7 +395,7 @@ pub fn wasm_render(
             f.t1,
             f.pen as f64,
             f.shape as f64,
-            if f.dot { 1.0 } else { 0.0 },
+            (if f.dot { 1.0 } else { 0.0 }) + (if f.bridge { 2.0 } else { 0.0 }),
         ]);
     }
     let s = &out.stats;
@@ -427,6 +432,7 @@ fn decode_frags(prims: &[f64], frags: &[f64]) -> Result<Vec<crate::fragment::Fra
                 pen: f[3] as u32,
                 shape: f[4] as u32,
                 dot: f[5] as u32 & 1 != 0,
+                bridge: false,
                 geom: whole.sub(f[1], f[2]),
             })
         })

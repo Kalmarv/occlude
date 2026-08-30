@@ -905,3 +905,41 @@ describe('image assets', () => {
     expect(() => image('test.png')).toThrow(/unknown asset/);
   });
 });
+
+describe('bridge opt', () => {
+  it('joins opted strokes across gaps; excluded shapes stay separate', async () => {
+    // Three parallel 1mm-gapped lines opted in + one border rect NOT opted.
+    const def = sketch({ seed: 1 }, ({ group }) => [
+      group({ bridge: mm(1.5) },
+        line(10, 10, 90, 10),
+        line(90, 10.6, 10, 10.6),   // ends near line 1's end → joins
+        line(10, 11.2, 90, 11.2),   // chains on
+      ),
+      rect(2, 2, 96, 96),           // border: no opt, never joined
+    ]);
+    const out = sq(def);
+    const bridges = out.frags.filter((f) => f.bridge);
+    expect(bridges).toHaveLength(2); // serpentine: 3 lines, 2 connectors
+    // Connectors are tiny (~the gap), pen-matched, and span blank paper.
+    for (const b of bridges) expect(fragLen(b)).toBeLessThan(3.2);
+    // The border contributes no bridge frags and stays 4 clean edges.
+    const borderFrags = out.frags.filter((f) => f.shape === 3 && !f.bridge);
+    expect(borderFrags.length).toBeGreaterThan(0);
+    // Toolpath check: the three opted lines + connectors merge into ONE
+    // chain (shared exact endpoints), so lifts drop 3 → 1.
+    const core = (await import('occlude-core')) as unknown as {
+      wasm_export_toolpath(
+        p: Float64Array, f: Float64Array, pens: string, b: number, t: number,
+      ): Float64Array;
+    };
+    const plan = core.wasm_export_toolpath(
+      out.raw.prims, out.raw.frags, JSON.stringify(out.pens), 10_000, 0.05,
+    );
+    let chains = 0;
+    for (let i = 0; i < plan.length; ) {
+      chains += 1;
+      i += 3 + plan[i + 2] * 2;
+    }
+    expect(chains).toBe(2); // one serpentine + one border loop
+  });
+});

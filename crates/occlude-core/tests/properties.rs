@@ -128,6 +128,7 @@ fn to_rec(g: &GenShape) -> ShapeRec {
             None
         },
         z: 0.0,
+        bridge_mm: 0.0,
         clips: vec![],
                 modifiers: Vec::new(),
     }
@@ -264,6 +265,7 @@ proptest! {
                 stroke: Some(0),
                 fill: None,
                 z: 0.0,
+                bridge_mm: 0.0,
                 clips: vec![],
                 modifiers: Vec::new(),
             },

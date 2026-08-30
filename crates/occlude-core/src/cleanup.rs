@@ -78,6 +78,7 @@ pub fn spans_to_fragments(
             pen,
             shape,
             dot: false,
+            bridge: false,
             geom: prim.sub(start, end),
         });
     }

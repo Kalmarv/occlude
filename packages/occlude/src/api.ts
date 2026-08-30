@@ -63,6 +63,13 @@ export interface ShapeOpts {
    * { amount, wavelength } to also set the noise wavelength (default
    * mm(25)). */
   wobble?: L | FieldFn | { amount: L | FieldFn; wavelength?: L };
+  /** Endpoint-join tolerance (a length; mm() recommended): after occlusion,
+   * strokes of shapes that OPT IN are joined pen-down across gaps up to
+   * this size — hatch rows serpentine into single strokes, trading tiny
+   * visible connectors for most of the plot's pen lifts. Opt-in per shape
+   * or group; borders/text simply don't set it. Debug view highlights the
+   * connectors. */
+  bridge?: L;
   /** Per-shape transform — identical to wrapping the shape in a group. */
   translate?: [L, L];
   /** Degrees; pivots around the user origin. */
@@ -86,6 +93,8 @@ export interface GroupOpts {
   decimate?: number | FieldFn | { stroke?: number | FieldFn; fill?: number | FieldFn };
   /** Wobble default for children that don't set their own. */
   wobble?: L | FieldFn | { amount: L | FieldFn; wavelength?: L };
+  /** Bridge default for children that don't set their own (opt-in join). */
+  bridge?: L;
   /** Modifier stack for the subtree; nesting concatenates in
    * function-application order — inner stacks run before outer ones. */
   modifiers?: ModifierValue[];
@@ -565,6 +574,7 @@ interface EmitCtx {
   z: number | undefined;
   decimate: DecimateArg | undefined;
   wobble: WobbleArg | undefined;
+  bridge: L | undefined;
   /** Inherited modifier stack, deepest ancestors first. */
   modifiers: ModifierValue[];
 }
@@ -596,7 +606,7 @@ export function compileSketch(
     cy: b.cy,
   };
   const tree = def.fn(toolkit);
-  emit(tree, { pen: cfg.pen, z: undefined, decimate: undefined, wobble: undefined, modifiers: [] });
+  emit(tree, { pen: cfg.pen, z: undefined, decimate: undefined, wobble: undefined, bridge: undefined, modifiers: [] });
 }
 
 function emit(tree: Tree, ctx: EmitCtx): void {
@@ -619,6 +629,7 @@ function emit(tree: Tree, ctx: EmitCtx): void {
       z: g.opts.z ?? ctx.z,
       decimate: g.opts.decimate ?? ctx.decimate,
       wobble: g.opts.wobble ?? ctx.wobble,
+      bridge: g.opts.bridge ?? ctx.bridge,
       // Function-application order: deeper stacks run before shallower.
       modifiers: g.opts.modifiers ? [...g.opts.modifiers, ...ctx.modifiers] : ctx.modifiers,
     };
@@ -674,4 +685,6 @@ function emitShape(sv: ShapeValue, ctx: EmitCtx): void {
   const wob = o.wobble ?? ctx.wobble;
   if (wob !== undefined) program.push(wobbleValue(wob));
   sh.modifiers = program;
+  const bridge = o.bridge ?? ctx.bridge;
+  if (bridge !== undefined) sh.bridge = bridge;
 }

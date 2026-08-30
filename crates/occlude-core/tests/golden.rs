@@ -41,6 +41,7 @@ fn scene() -> RenderInput {
         stroke: Some(0),
         fill,
         z,
+        bridge_mm: 0.0,
         clips: vec![],
                 modifiers: Vec::new(),
     };

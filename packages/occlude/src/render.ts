@@ -142,6 +142,8 @@ export interface Fragment {
   /** Shape draw index. */
   shape: number;
   dot: boolean;
+  /** Bridge connector inserted by the endpoint-join pass. */
+  bridge: boolean;
   /** Exact sub-primitive geometry in paper mm. */
   geom: Prim;
 }
@@ -533,6 +535,8 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
       modStart, shape.modifiers.length,
     );
     shapesF64.push(shape.zIndex);
+    // Bridge opt-in: endpoint-join tolerance in paper mm (0 = off).
+    shapesF64.push(shape.bridge !== undefined ? resolveLen(shape.bridge, frame.inner) : 0);
   }
 
   return {
@@ -583,6 +587,7 @@ export function decodeRender(scene: EncodedScene, raw: RawRender): RenderResult 
       pen: raw.frags[off + 3],
       shape: raw.frags[off + 4],
       dot: (raw.frags[off + 5] & 1) !== 0,
+      bridge: (raw.frags[off + 5] & 2) !== 0,
       geom: subPrim(outPrims[origin], t0f, t1f),
     });
   }

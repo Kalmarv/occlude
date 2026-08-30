@@ -14,6 +14,8 @@ pub struct Frag {
     pub shape: u32,
     /// Stipple dot: zero-length, plotted as pen-down/delay/pen-up.
     pub dot: bool,
+    /// Bridge connector inserted by the endpoint-join pass (debug-visible).
+    pub bridge: bool,
     /// Exact geometry of this sub-range (not a polyline).
     pub geom: Primitive,
 }
@@ -27,6 +29,7 @@ impl Frag {
             pen,
             shape,
             dot: false,
+            bridge: false,
             geom,
         }
     }

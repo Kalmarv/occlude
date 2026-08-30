@@ -401,6 +401,21 @@ export class Preview {
     drawFragments(ctx, r.frags, r.pens);
 
     if (this.debug) {
+      // Bridge connectors: the pen-down joins the bridge opt inserted —
+      // highlighted so the tolerance's visual cost is inspectable.
+      ctx.save();
+      ctx.strokeStyle = 'rgba(217, 82, 82, 0.95)';
+      ctx.lineWidth = 0.5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (const f of r.frags) {
+        if (f.bridge) tracePrim(ctx, f.geom);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (this.debug) {
       // Fragment endpoints.
       ctx.save();
       ctx.fillStyle = 'rgba(217, 161, 61, 0.9)';

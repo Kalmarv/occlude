@@ -33,6 +33,7 @@ fn main() {
                     }]),
                 )),
                 z: 0.0,
+                bridge_mm: 0.0,
                 clips: vec![],
                 modifiers: Vec::new(),
             }

@@ -48,6 +48,7 @@ fn shape(contours: Vec<Vec<Primitive>>, closed: bool, convex: bool) -> ShapeRec 
         stroke: Some(0),
         fill: None,
         z: 0.0,
+        bridge_mm: 0.0,
         clips: vec![],
         modifiers: Vec::new(),
     }

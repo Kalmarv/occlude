@@ -81,6 +81,8 @@ export class Shape {
   fillSpec: FillSpec | null = null;
   fillPen: string | null = null;
   zIndex: number;
+  /** Endpoint-join tolerance (unresolved length); undefined = no bridging. */
+  bridge?: import('./units.js').L;
   /** Ordered modifier stack; post-stage entries run after occlusion. */
   modifiers: ModifierValue[] = [];
   /** Draw order index — the z tiebreak and default z. */

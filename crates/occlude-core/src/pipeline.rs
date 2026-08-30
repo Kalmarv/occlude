@@ -65,6 +65,8 @@ pub struct ShapeRec {
     /// Fill pen + spec; Some = this shape is opaque and occludes.
     pub fill: Option<(u32, FillKind)>,
     pub z: f64,
+    /// Endpoint-join tolerance, paper mm; 0 = not opted into bridging.
+    pub bridge_mm: f64,
     /// Indices into `RenderInput::clips` active for this shape.
     pub clips: Vec<u32>,
     /// Ordered modifier program. Post-stage entries run over this shape's
@@ -424,6 +426,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
                             pen: *fill_pen,
                             shape: i as u32,
                             dot: true,
+                            bridge: false,
                             geom: dotp,
                         });
                     }
@@ -519,11 +522,145 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     }
 
     drop(_z);
+    // ---- Bridge pass: shapes that OPT IN (bridge_mm > 0) get their stroke
+    // endpoints greedily joined pen-down across gaps up to their tolerance
+    // (per pen). Connectors are real fragments (debug-visible, flagged) and
+    // share exact endpoints with the strokes they join, so downstream chain
+    // merging assembles the long serpentines automatically. On hatch-dense
+    // work this converts most pen lifts into tiny drawn connectors — the
+    // artistic trade the per-sketch tolerance controls. Connectors span
+    // GAPS only: never along existing ink (the no-double-draw rule).
+    if input.shapes.iter().any(|s| s.bridge_mm > 0.0) {
+        let _z = crate::profile::zone("8 bridge");
+        bridge_pass(input, &mut frags, &mut prim_table);
+    }
     stats.fragments = frags.len();
     RenderOutput {
         prims: prim_table,
         frags,
         stats,
+    }
+}
+
+/// Greedy endpoint matching within per-shape tolerances. Each fragment end
+/// joins at most one connector; pairs need dist ≤ min(tolA, tolB) and > the
+/// snap grid (exact touches already merge downstream).
+fn bridge_pass(input: &RenderInput, frags: &mut Vec<Frag>, prims: &mut Vec<Primitive>) {
+    #[derive(Clone, Copy)]
+    struct End {
+        frag: usize,
+        pos: Vec2,
+        tol: f64,
+        pen: u32,
+    }
+    let mut ends: Vec<End> = Vec::new();
+    for (fi, f) in frags.iter().enumerate() {
+        if f.dot || f.bridge {
+            continue;
+        }
+        let tol = input.shapes[f.shape as usize].bridge_mm;
+        if tol <= 0.0 {
+            continue;
+        }
+        for pos in [f.geom.eval(f.t0), f.geom.eval(f.t1)] {
+            ends.push(End { frag: fi, pos, tol, pen: f.pen });
+        }
+    }
+    if ends.is_empty() {
+        return;
+    }
+    let max_tol = ends.iter().fold(0.0f64, |m, e| m.max(e.tol));
+    let cell = max_tol.max(1e-3);
+    let key = |p: Vec2| ((p.x / cell).floor() as i64, (p.y / cell).floor() as i64);
+    let mut grid: std::collections::HashMap<(i64, i64), Vec<usize>> =
+        std::collections::HashMap::new();
+    for (i, e) in ends.iter().enumerate() {
+        grid.entry(key(e.pos)).or_default().push(i);
+    }
+    // Union-find over fragments, seeded with EXACT-endpoint connectivity
+    // (strokes already chained by shared endpoints count as one component),
+    // so no pair of joins can ever close a loop or double-connect two
+    // already-linked runs — the greedy match stays a forest of open trails.
+    let mut parent: Vec<usize> = (0..frags.len()).collect();
+    fn find(parent: &mut Vec<usize>, mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    {
+        let mut by_exact: std::collections::HashMap<(i64, i64), usize> =
+            std::collections::HashMap::new();
+        let q = 1e-4;
+        for e in &ends {
+            let k = ((e.pos.x / q).round() as i64, (e.pos.y / q).round() as i64);
+            match by_exact.get(&k) {
+                Some(&other) => {
+                    let (a, b) = (find(&mut parent, e.frag), find(&mut parent, other));
+                    if a != b {
+                        parent[a] = b;
+                    }
+                }
+                None => {
+                    by_exact.insert(k, e.frag);
+                }
+            }
+        }
+    }
+    let mut used = vec![false; ends.len()];
+    // Deterministic order: iterate ends as built (frag order = plot order).
+    for i in 0..ends.len() {
+        if used[i] {
+            continue;
+        }
+        let a = ends[i];
+        let (kx, ky) = key(a.pos);
+        let mut best: Option<(f64, usize)> = None;
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                let Some(cellv) = grid.get(&(kx + dx, ky + dy)) else { continue };
+                for &j in cellv {
+                    if j == i || used[j] {
+                        continue;
+                    }
+                    let b = ends[j];
+                    if b.frag == a.frag || b.pen != a.pen {
+                        continue;
+                    }
+                    if find(&mut parent, a.frag) == find(&mut parent, b.frag) {
+                        continue; // already connected — a join would loop
+                    }
+                    let d = a.pos.dist(b.pos);
+                    if d > a.tol.min(b.tol) || d <= 2e-4 {
+                        continue; // out of tolerance, or already an exact touch
+                    }
+                    if best.map_or(true, |(bd, _)| d < bd) {
+                        best = Some((d, j));
+                    }
+                }
+            }
+        }
+        if let Some((_, j)) = best {
+            used[i] = true;
+            used[j] = true;
+            let b = ends[j];
+            let (ra, rb) = (find(&mut parent, a.frag), find(&mut parent, b.frag));
+            parent[ra] = rb;
+            let origin = prims.len() as u32;
+            let geom = Primitive::Line(crate::primitive::Line::new(a.pos, b.pos));
+            prims.push(geom);
+            frags.push(Frag {
+                origin,
+                t0: 0.0,
+                t1: 1.0,
+                pen: a.pen,
+                shape: frags[a.frag].shape,
+                dot: false,
+                bridge: true,
+                geom,
+            });
+        }
     }
 }
 
