@@ -483,6 +483,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     junctionDeviation: s.ebb.junctionDeviation,
     minimumCruiseRatio: s.ebb.minimumCruiseRatio,
     lmMotion: s.ebb.lmMotion,
+    quickHopMm: s.ebb.quickHopMm,
   });
   const persist = (): void => saveSettings(s);
 
@@ -732,6 +733,10 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     row('Travel accel', travelAcceleration, 'mm/s² for pen-up moves — no ink or line quality at stake, so it can run harder than drawing'),
     row('Junction dev', junctionDeviation, 'mm; cornering tolerance used for Marlin/Klipper-style look-ahead'),
     row('Min cruise', minimumCruiseRatio, '0–0.99; suppresses vibration-producing speed spikes on short moves'),
+    row('Quick hop mm', numberInput(s.ebb.quickHopMm, 5, (v) => {
+      s.ebb.quickHopMm = Math.max(0, v);
+      persist();
+    }), 'Travels shorter than this lift the pen only ~40% with shorter settles — the big lever on hatch/stipple plots. 0 disables'),
     checkbox('LM motion (hardware-interpolated ramps; uncheck to fall back to XM packets)', s.ebb.lmMotion, (v) => {
       s.ebb.lmMotion = v;
       persist();

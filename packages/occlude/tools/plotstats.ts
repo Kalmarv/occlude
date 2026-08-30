@@ -25,7 +25,7 @@ import * as core from 'occlude-core';
 import * as occlude from '../src/index.js';
 import {
   compileSketch, initOcclude, isSketch, paperSize, pensToJson, render,
-  setPaperHint, type SketchDef,
+  setPaperHint, setPenLibrary, type SketchDef,
 } from '../src/index.js';
 
 const args = process.argv.slice(2);
@@ -57,6 +57,13 @@ const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
 );
 await initOcclude(readFileSync(wasmPath));
+// Use the studio's shared pen library so sketches naming real pens work.
+try {
+  const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
+  setPenLibrary(JSON.parse(readFileSync(pensPath, 'utf8')));
+} catch {
+  // defaults
+}
 const size = paperSize({ paper, landscape });
 setPaperHint(size.w, size.h);
 
@@ -304,7 +311,19 @@ function analyze(name: string, chains: Chain[], pens: occlude.PenDef[]): Stats {
     const len = chainLength(c);
     drawMm += len;
     minutes += len / (pen?.feed ?? 3000) + gap / 6000;
-    minutes += (2 * Math.max(pen?.penDelay ?? 300, 150)) / 60000;
+    // Pen-cycle cost mirrors the studio driver's quick-hop rule (default
+    // 15mm threshold, 40% lift/settle, 150ms floor): short hops between
+    // nearby strokes pay the reduced settle.
+    const settle = Math.max(pen?.penDelay ?? 300, 150);
+    const hopSettle = Math.max(150, Math.round(settle * 0.4));
+    const nxt = chains[i + 1];
+    const gapOut = nxt
+      ? dist(c.pts[c.pts.length - 2], c.pts[c.pts.length - 1], nxt.pts[0], nxt.pts[1])
+      : Infinity;
+    const hop = (g: number): boolean => g <= 15;
+    const down = i > 0 && hop(gap) ? hopSettle : settle;
+    const up = hop(gapOut) ? hopSettle : settle;
+    minutes += (down + up) / 60000;
     const prev = chains[i - 1];
     if (prev && prev.pen === c.pen && !c.dot && !prev.dot && gap <= (pen?.width ?? 0.3) / 2) {
       bridgeable += 1;

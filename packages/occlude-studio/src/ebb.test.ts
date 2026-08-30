@@ -16,6 +16,8 @@ const opts = {
   minimumCruiseRatio: 0.5,
   // The XM tests pin exact packet streams; LM has its own suite below.
   lmMotion: false,
+  // Off: existing tests pin exact settle values; quick-hop has its own test.
+  quickHopMm: 0,
 };
 
 class FakePort {
@@ -609,5 +611,49 @@ describe('position integrity (QS)', () => {
     // Chain 1's initial pen-down and chain 2's — but NO re-lower at resume:
     // the frame moved, so the interrupted stroke's remainder stays inkless.
     expect(port.commands.filter((c) => c === 'SP,0,150')).toHaveLength(2);
+  });
+});
+
+describe('quick-hop lifts', () => {
+  test('short gaps hop at reduced height and settle; long gaps restore full', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, swapXY: false, invertX: false, quickHopMm: 15 };
+    // Chains at x 0-5, 10-15, 20-25 (5mm gaps → hop), then 100-105 (far →
+    // full), all on y 0.
+    const plan = new Float64Array([
+      0, 0, 2, 0, 0, 5, 0,
+      0, 0, 2, 10, 0, 15, 0,
+      0, 0, 2, 20, 0, 25, 0,
+      0, 0, 2, 100, 0, 105, 0,
+    ]);
+    const ebb = new Ebb();
+    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.plot(
+      plan,
+      [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 500 }],
+      direct,
+      () => undefined,
+    );
+
+    const c = port.commands;
+    // Hop height: 10000 + 4200×0.4 = 11680; hop settle: 500×0.4 = 200.
+    const hopSet = c.indexOf('SC,5,11680');
+    expect(hopSet).toBeGreaterThan(-1);
+    // After entering hop mode, ups and downs use the short settle.
+    expect(c.indexOf('SP,1,200', hopSet)).toBeGreaterThan(hopSet);
+    expect(c.indexOf('SP,0,200', hopSet)).toBeGreaterThan(hopSet);
+    // Before the 75mm travel to the last chain, full lift is restored and
+    // the full settle returns.
+    const restore = c.indexOf('SC,5,14200', hopSet);
+    expect(restore).toBeGreaterThan(hopSet);
+    expect(c.indexOf('SP,1,500', restore)).toBeGreaterThan(restore);
+    // The final full-lift restore never leaves the board in hop mode.
+    expect(c.lastIndexOf('SC,5,14200')).toBeGreaterThan(c.lastIndexOf('SC,5,11680'));
+    // First chain's pen-down (before any hop decision) uses the full settle.
+    expect(c.indexOf('SP,0,500')).toBeLessThan(c.indexOf('SC,5,11680'));
   });
 });

@@ -76,6 +76,11 @@ export interface EbbOptions {
   travelAcceleration: number; // mm/s²
   junctionDeviation: number; // mm
   minimumCruiseRatio: number;
+  /** Quick-hop: for travels shorter than this (mm), lift the pen to only
+   * ~40% height with proportionally shorter settles. On hatch/stipple-dense
+   * plots the pen cycle is ~95% of plot time, so this is the big lever.
+   * 0 disables. */
+  quickHopMm: number;
   /** Use the LM command (firmware ≥2.5.3): true constant-acceleration ramps
    * interpolated at 25kHz in hardware, vs the XM fallback's ~40Hz staircase
    * of constant-velocity packets. */
@@ -655,7 +660,7 @@ export class Ebb {
       });
       let px = 0;
       let py = 0;
-      for (const c of chains) {
+      chains.forEach((c, i) => {
         const base = pens[c.pen];
         const pen = (base && livePen?.(base.name)) ?? base;
         const feed = pen?.feed ?? 3000;
@@ -671,10 +676,21 @@ export class Ebb {
           totalMs += planDurationMs(planPolyline(poly, limits(feed / 60, drawAccel)), drawAccel);
           total += poly.length - 1;
         }
-        totalMs += 2 * Math.max(pen?.penDelay ?? 300, 150) + 300;
+        // Pen-cycle cost mirrors the quick-hop rule the plot loop applies:
+        // down at the height set by the travel INTO this chain, up at the
+        // height chosen for the travel OUT of it.
+        const settle = Math.max(pen?.penDelay ?? 300, 150);
+        const hopSettle = Math.max(150, Math.round(settle * 0.4));
+        const gapIn = Math.hypot(c.pts[0] - px, c.pts[1] - py);
+        const nxt = chains[i + 1];
         px = c.pts[c.pts.length - 2];
         py = c.pts[c.pts.length - 1];
-      }
+        const gapOut = nxt ? Math.hypot(nxt.pts[0] - px, nxt.pts[1] - py) : Infinity;
+        const hop = (g: number): boolean => o.quickHopMm > 0 && g <= o.quickHopMm;
+        const down = i > 0 && hop(gapIn) ? hopSettle : settle;
+        const up = hop(gapOut) ? hopSettle : settle;
+        totalMs += down + up + 300;
+      });
     }
 
     this.plotAbort = false;
@@ -720,6 +736,23 @@ export class Ebb {
       }
     };
 
+    // Quick-hop lift state: between close-together strokes the pen rises to
+    // only ~40% height with proportionally shorter settles — on hatch- and
+    // stipple-dense plots the pen cycle is ~95% of plot time. Full lift is
+    // always restored for long travels, pauses, aborts, and the plot end.
+    const HOP = 0.4;
+    let hopMode = false;
+    const servo = (): { servoDown: number; servoUp: number } =>
+      liveServo?.() ?? { servoDown: o.servoDown, servoUp: o.servoUp };
+    const setLift = async (hop: boolean): Promise<void> => {
+      if (hop === hopMode) return;
+      hopMode = hop;
+      const sv = servo();
+      const up = hop ? sv.servoDown + (sv.servoUp - sv.servoDown) * HOP : sv.servoUp;
+      await this.cmd(`SC,5,${Math.round(up)}`);
+    };
+    const hopSettleOf = (settle: number): number => Math.max(150, Math.round(settle * HOP));
+
     try {
       for (const [chainIndex, c] of chains.entries()) {
         const base = pens[c.pen];
@@ -739,6 +772,7 @@ export class Ebb {
         // inked would draw a stray line; the next chain re-inks normally.
         const pauseUp = async (): Promise<void> => {
           const wasUp = this.penIsUp;
+          await setLift(false); // pauses always get the full, safe lift
           if (!wasUp) await this.penUp(settle);
           this.pauseAdjusted = false;
           report('paused', penName);
@@ -763,7 +797,8 @@ export class Ebb {
         });
         sent += 1;
         if (this.plotAbort) break;
-        await this.penDown(settle);
+        const downSettle = hopMode ? hopSettleOf(settle) : settle;
+        await this.penDown(downSettle);
         sent += 1;
         if (!c.dot) {
           const run: [number, number][] = [];
@@ -775,13 +810,25 @@ export class Ebb {
           });
         }
         if (this.plotAbort) break;
-        await this.penUp(settle);
+        // Lift height for the NEXT travel: hop when the next chain starts
+        // nearby, full otherwise (and always full for the last chain).
+        const next = chains[chainIndex + 1];
+        const gapOut = next
+          ? Math.hypot(
+              next.pts[0] - c.pts[c.pts.length - 2],
+              next.pts[1] - c.pts[c.pts.length - 1],
+            )
+          : Infinity;
+        await setLift(o.quickHopMm > 0 && gapOut <= o.quickHopMm);
+        const upSettle = hopMode ? hopSettleOf(settle) : settle;
+        await this.penUp(upSettle);
         sent += 1;
-        elapsedMs += 2 * settle + 300; // mirrors the totals' pen-cycle term
+        elapsedMs += downSettle + upSettle + 300; // mirrors the totals' pen-cycle term
         // Cheap health check while the pen is already up between chains.
         if (chainIndex % 25 === 24) await verifyPosition();
         report('plotting', penName);
       }
+      await setLift(false).catch(() => undefined); // never leave hop height behind
       if (!this.plotAbort) {
         await this.penUp();
         await verifyPosition(); // before home() zeroes the counters

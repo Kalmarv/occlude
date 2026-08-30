@@ -61,6 +61,7 @@ export interface Settings {
     junctionDeviation: number;
     minimumCruiseRatio: number;
     lmMotion: boolean;
+    quickHopMm: number;
   };
 }
 
@@ -97,6 +98,7 @@ export const DEFAULT_SETTINGS: Settings = {
     junctionDeviation: 0.02,
     minimumCruiseRatio: 0.5,
     lmMotion: true,
+    quickHopMm: 15,
   },
 };
 
