@@ -640,12 +640,13 @@ describe('quick-hop lifts', () => {
     );
 
     const c = port.commands;
-    // Hop height: 10000 + 4200×0.4 = 11680; hop settle: 500×0.4 = 200.
+    // Hop height: 10000 + 4200×0.4 = 11680. Asymmetric settles: up 0.4×500
+    // = 200 (travel may start a hair early, harmless); down 0.5×500 = 250
+    // (the fall must COMPLETE before ink matters).
     const hopSet = c.indexOf('SC,5,11680');
     expect(hopSet).toBeGreaterThan(-1);
-    // After entering hop mode, ups and downs use the short settle.
     expect(c.indexOf('SP,1,200', hopSet)).toBeGreaterThan(hopSet);
-    expect(c.indexOf('SP,0,200', hopSet)).toBeGreaterThan(hopSet);
+    expect(c.indexOf('SP,0,250', hopSet)).toBeGreaterThan(hopSet);
     // Before the 75mm travel to the last chain, full lift is restored and
     // the full settle returns.
     const restore = c.indexOf('SC,5,14200', hopSet);

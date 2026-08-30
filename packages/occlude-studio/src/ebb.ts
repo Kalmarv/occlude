@@ -680,15 +680,14 @@ export class Ebb {
         // down at the height set by the travel INTO this chain, up at the
         // height chosen for the travel OUT of it.
         const settle = Math.max(pen?.penDelay ?? 300, 150);
-        const hopSettle = Math.max(150, Math.round(settle * 0.4));
         const gapIn = Math.hypot(c.pts[0] - px, c.pts[1] - py);
         const nxt = chains[i + 1];
         px = c.pts[c.pts.length - 2];
         py = c.pts[c.pts.length - 1];
         const gapOut = nxt ? Math.hypot(nxt.pts[0] - px, nxt.pts[1] - py) : Infinity;
         const hop = (g: number): boolean => o.quickHopMm > 0 && g <= o.quickHopMm;
-        const down = i > 0 && hop(gapIn) ? hopSettle : settle;
-        const up = hop(gapOut) ? hopSettle : settle;
+        const down = i > 0 && hop(gapIn) ? Math.max(200, Math.round(settle * 0.5)) : settle;
+        const up = hop(gapOut) ? Math.max(150, Math.round(settle * 0.4)) : settle;
         totalMs += down + up + 300;
       });
     }
@@ -751,7 +750,12 @@ export class Ebb {
       const up = hop ? sv.servoDown + (sv.servoUp - sv.servoDown) * HOP : sv.servoUp;
       await this.cmd(`SC,5,${Math.round(up)}`);
     };
-    const hopSettleOf = (settle: number): number => Math.max(150, Math.round(settle * HOP));
+    // Asymmetric on purpose: pen-DOWN must physically complete before ink
+    // matters (a truncated fall reads as "pen not all the way down" on
+    // dense strokes), so it keeps more margin; pen-UP can start the travel
+    // a hair early harmlessly.
+    const hopDownSettleOf = (settle: number): number => Math.max(200, Math.round(settle * 0.5));
+    const hopUpSettleOf = (settle: number): number => Math.max(150, Math.round(settle * HOP));
 
     try {
       for (const [chainIndex, c] of chains.entries()) {
@@ -797,7 +801,7 @@ export class Ebb {
         });
         sent += 1;
         if (this.plotAbort) break;
-        const downSettle = hopMode ? hopSettleOf(settle) : settle;
+        const downSettle = hopMode ? hopDownSettleOf(settle) : settle;
         await this.penDown(downSettle);
         sent += 1;
         if (!c.dot) {
@@ -820,7 +824,7 @@ export class Ebb {
             )
           : Infinity;
         await setLift(o.quickHopMm > 0 && gapOut <= o.quickHopMm);
-        const upSettle = hopMode ? hopSettleOf(settle) : settle;
+        const upSettle = hopMode ? hopUpSettleOf(settle) : settle;
         await this.penUp(upSettle);
         sent += 1;
         elapsedMs += downSettle + upSettle + 300; // mirrors the totals' pen-cycle term

@@ -315,14 +315,13 @@ function analyze(name: string, chains: Chain[], pens: occlude.PenDef[]): Stats {
     // 15mm threshold, 40% lift/settle, 150ms floor): short hops between
     // nearby strokes pay the reduced settle.
     const settle = Math.max(pen?.penDelay ?? 300, 150);
-    const hopSettle = Math.max(150, Math.round(settle * 0.4));
     const nxt = chains[i + 1];
     const gapOut = nxt
       ? dist(c.pts[c.pts.length - 2], c.pts[c.pts.length - 1], nxt.pts[0], nxt.pts[1])
       : Infinity;
     const hop = (g: number): boolean => g <= 15;
-    const down = i > 0 && hop(gap) ? hopSettle : settle;
-    const up = hop(gapOut) ? hopSettle : settle;
+    const down = i > 0 && hop(gap) ? Math.max(200, Math.round(settle * 0.5)) : settle;
+    const up = hop(gapOut) ? Math.max(150, Math.round(settle * 0.4)) : settle;
     minutes += (down + up) / 60000;
     const prev = chains[i - 1];
     if (prev && prev.pen === c.pen && !c.dot && !prev.dot && gap <= (pen?.width ?? 0.3) / 2) {
