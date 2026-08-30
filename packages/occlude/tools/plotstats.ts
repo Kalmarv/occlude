@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as core from 'occlude-core';
+import { preloadAssetsFromDisk } from './asset-preload.js';
 import * as occlude from '../src/index.js';
 import {
   compileSketch, initOcclude, isSketch, paperSize, pensToJson, render,
@@ -350,6 +351,7 @@ const rows: Stats[] = [];
 for (const file of files) {
   try {
     const js = transformSync(readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs' }).code;
+    preloadAssetsFromDisk(js);
     const module = { exports: {} as Record<string, unknown> };
     const requireShim = (name: string): unknown => {
       if (name === 'occlude') return occlude;

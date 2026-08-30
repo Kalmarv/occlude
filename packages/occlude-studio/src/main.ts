@@ -5,6 +5,7 @@ import { clearRuntimeMarkers, createEditor, setRuntimeMarker } from './editor.js
 import { buildRail } from './panels.js';
 import { Preview } from './preview.js';
 import { currentSeed, runSketch } from './runner.js';
+import { preloadAssets } from './assetLoader.js';
 import {
   download, loadPens, loadSettings, loadSketch, loadSketchName, loadUi,
   saveSketch, saveSketchName, saveUi,
@@ -77,6 +78,15 @@ async function boot(): Promise<void> {
       return;
     }
     clearRuntimeMarkers(editor.model);
+    // Assets referenced by literal name must be fetched/decoded before the
+    // synchronous sketch executes.
+    try {
+      await preloadAssets(emitted.js);
+    } catch (err) {
+      statusMsg.className = 'status-err';
+      statusMsg.textContent = err instanceof Error ? err.message : String(err);
+      return;
+    }
     // Execute + encode on the main thread (cheap); geometry in the worker.
     const outcome = runSketch(emitted.js, {
       pens,

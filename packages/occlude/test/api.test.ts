@@ -861,3 +861,47 @@ describe('svg() with the generic transform opts', () => {
     }
   });
 });
+
+describe('image assets', () => {
+  it('samples points, area averages, bands, and edges from registered pixels', async () => {
+    const { registerImageAsset, image, clearAssets, scanAssetNames, asset, registerTextAsset } =
+      await import('../src/index.js');
+    clearAssets();
+    // 4×2: left half black, right half white.
+    const w = 4, h = 2;
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const v = x < 2 ? 0 : 255;
+        data.set([v, v, v, 255], (y * w + x) * 4);
+      }
+    registerImageAsset('test.png', { width: w, height: h, data });
+    const img = image('test.png', { x: 10, y: 10, width: 40 }); // 40×20 units
+    expect(img.height).toBe(20);
+    // Pixel centers: left half ~0, right half ~1.
+    expect(img.lum(15, 15)).toBeCloseTo(0, 5);
+    expect(img.lum(45, 15)).toBeCloseTo(1, 5);
+    // Area average over the WHOLE placed rect = 0.5 exactly (SAT).
+    expect(img.lum(30, 20, 25)).toBeCloseTo(0.5, 5);
+    // Outside → 0.
+    expect(img.lum(0, 0)).toBe(0);
+    expect(img.lum(60, 15)).toBe(0);
+    // Bands: 4 levels → 0 on black, 3 on white.
+    expect(img.bands(15, 15, 4)).toBe(0);
+    expect(img.bands(45, 15, 4)).toBe(3);
+    // Edge peaks at the boundary, quiet in flat regions; dir points +x.
+    expect(img.edge(30, 15)).toBeGreaterThan(img.edge(15, 15) + 0.1);
+    expect(Math.cos(img.dir(30, 15))).toBeGreaterThan(0.7);
+    // rgb/alpha shape.
+    expect(img.rgb(45, 15)).toEqual([1, 1, 1]);
+    expect(img.a(45, 15)).toBe(1);
+    // Text assets + literal scanning.
+    registerTextAsset('x.svg', '<svg/>');
+    expect(asset('x.svg')).toBe('<svg/>');
+    expect(() => asset('test.png')).toThrow(/is an image/);
+    expect(scanAssetNames(`image('a.png'); asset("b.svg"); image('a.png')`))
+      .toEqual(['a.png', 'b.svg']);
+    clearAssets();
+    expect(() => image('test.png')).toThrow(/unknown asset/);
+  });
+});

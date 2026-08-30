@@ -31,6 +31,10 @@ export type { ModifierValue, FieldFn, VectorFieldFn } from './shapes.js';
 // Fills are already pure specs.
 export { hatch, crosshatch, stipple, customFill } from './fills.js';
 export { svg } from './svgin.js';
+export {
+  asset, image, scanAssetNames, registerTextAsset, registerImageAsset, clearAssets,
+  type ImageSampler, type ImagePlacement, type AssetPixels,
+} from './imageAsset.js';
 export { label, labelWidth } from './font.js';
 export type { LabelOpts } from './font.js';
 export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fills.js';

@@ -2,16 +2,21 @@ import { resolve } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 // @ts-expect-error plain-JS module shared with the production server
 import { createSketchHandler } from './sketch-store.mjs';
+// @ts-expect-error same
+import { createAssetHandler } from './asset-store.mjs';
 
 /** Sketch-store API in dev/preview; server.mjs hosts the same handler in prod. */
 function sketchStore(): Plugin {
   const handler = createSketchHandler(resolve(__dirname, 'sketches'));
+  const assets = createAssetHandler(resolve(__dirname, 'assets'));
   return {
     name: 'occlude-sketch-store',
     configureServer(server) {
+      server.middlewares.use(assets);
       server.middlewares.use(handler);
     },
     configurePreviewServer(server) {
+      server.middlewares.use(assets);
       server.middlewares.use(handler);
     },
   };
