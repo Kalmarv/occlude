@@ -12,7 +12,8 @@
 import { existsSync, mkdirSync, promises as fs } from 'node:fs';
 import { extname, join } from 'node:path';
 
-const safe = (name) => (/^[a-zA-Z0-9 ._-]{1,80}$/.test(name) && !name.includes('..') ? name : null);
+const safe = (name) =>
+  /^[a-zA-Z0-9 ._()[\]&+'@-]{1,80}$/.test(name) && !name.includes('..') ? name : null;
 
 const MIME = {
   '.svg': 'image/svg+xml',

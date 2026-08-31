@@ -5,7 +5,9 @@
  */
 
 import './style.css';
-import { deleteAsset, listAssets, uploadAsset, type AssetInfo } from './assetApi.js';
+import {
+  deleteAsset, listAssets, renameAsset, uploadAsset, type AssetInfo,
+} from './assetApi.js';
 
 const grid = document.getElementById('assets-grid')!;
 
@@ -70,6 +72,18 @@ async function refresh(): Promise<void> {
 
     const actions = document.createElement('div');
     actions.className = 'asset-actions';
+    const rename = document.createElement('button');
+    rename.textContent = 'rename';
+    rename.onclick = async () => {
+      const to = prompt('New name (extension included):', a.name)?.trim();
+      if (!to || to === a.name) return;
+      try {
+        await renameAsset(a.name, to);
+        await refresh();
+      } catch (e) {
+        alert(e instanceof Error ? e.message : String(e));
+      }
+    };
     const copy = document.createElement('button');
     copy.textContent = 'copy ref';
     copy.title = snippetFor(a.name);
@@ -85,7 +99,7 @@ async function refresh(): Promise<void> {
       await deleteAsset(a.name);
       await refresh();
     };
-    actions.append(copy, del);
+    actions.append(rename, copy, del);
     card.append(actions);
 
     grid.append(card);
