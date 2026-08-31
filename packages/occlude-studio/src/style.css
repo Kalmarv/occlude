@@ -696,3 +696,48 @@ body.dropping {
   outline: 3px dashed var(--toolpath, #5b8bd9);
   outline-offset: -6px;
 }
+
+/* ---- live docs examples ---- */
+.live-example {
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 14px 0 22px;
+}
+
+.live-example pre {
+  margin: 0;
+  border-radius: 0;
+}
+
+.live-output {
+  position: relative;
+  border-top: 1px solid var(--panel-edge);
+  background: #f6f2ea;
+  min-height: 40px;
+}
+
+.live-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.live-output .live-open {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0.35;
+  transition: opacity 120ms;
+}
+
+.live-output:hover .live-open {
+  opacity: 1;
+}
+
+.live-error {
+  padding: 10px;
+  color: var(--warn);
+  font-family: var(--mono);
+  font-size: 12px;
+}

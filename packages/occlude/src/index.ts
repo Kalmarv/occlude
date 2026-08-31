@@ -36,6 +36,7 @@ export {
   type ImageSampler, type ImagePlacement, type AssetPixels,
 } from './imageAsset.js';
 export { label, labelWidth } from './font.js';
+export { liveExampleToJs } from './docsExamples.js';
 export type { LabelOpts } from './font.js';
 export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fills.js';
 

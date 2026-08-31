@@ -15,7 +15,8 @@
     "build": "tsc -p tsconfig.json",
     "qa": "tsx tools/qa-sweep.ts",
     "calibrate": "tsx tools/calibrate.ts",
-    "plotstats": "tsx tools/plotstats.ts"
+    "plotstats": "tsx tools/plotstats.ts",
+    "docs:check": "tsx tools/check-docs-examples.ts"
   },
   "dependencies": {
     "occlude-core": "link:../../crates/occlude-core/pkg"
