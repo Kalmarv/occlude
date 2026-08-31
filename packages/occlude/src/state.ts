@@ -126,6 +126,28 @@ export function setPaperHint(wMm: number, hMm: number): void {
  * the long side is 100 × aspect ratio. For aspect 'paper' this uses the
  * host's paper hint (A4 portrait when standalone).
  */
+/** mm per user unit for the CURRENT aspect + paper hint — lets sketch-time
+ * helpers (scatter spacing) resolve mm() before render. */
+export function unitScaleMm(): number {
+  const s = getState();
+  const m = (s.marginPct / 100) * Math.min(paperHint.w, paperHint.h);
+  const innerW = paperHint.w - 2 * m;
+  const innerH = paperHint.h - 2 * m;
+  let aw: number;
+  let ah: number;
+  if (s.aspect === 'square') {
+    aw = 1;
+    ah = 1;
+  } else if (s.aspect === 'paper') {
+    aw = innerW;
+    ah = innerH;
+  } else {
+    [aw, ah] = s.aspect;
+  }
+  const scale = Math.min(innerW / aw, innerH / ah);
+  return (Math.min(aw, ah) * scale) / 100;
+}
+
 export function bounds(): { w: number; h: number; cx: number; cy: number } {
   const s = getState();
   let aw: number;

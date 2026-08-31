@@ -693,6 +693,79 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) =>
 );
 ```
 
+## Points
+
+Point distributions as composable values. `t.scatter` makes them,
+refinement verbs reshape them, and the geometric duals turn them into
+drawable structure. The named algorithms are recipes, not API:
+`scatter(field).settle(n)` **is** weighted Linde-Buzo-Gray stippling.
+Everything is seeded; `relax`/`settle` return new sets.
+
+### scatter
+
+`t.scatter(field?, { spacing })` — field-modulated Poisson-disk points:
+local spacing tightens where the field (0–1) is high, empty where it's 0.
+Returns an array-like set of `{ x, y, w }` (w ≈ local demand).
+
+```ts live
+import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
+  const field = (x, y) => Math.max(0, 1 - Math.hypot(x - 50, (y - 25) * 2) / 45);
+  return t.scatter(field, { spacing: 1.7 }).map((p) => circle(p.x, p.y, 0.35 + p.w * 0.45));
+});
+```
+
+### relax / settle
+
+`.relax(n)` — Lloyd relaxation toward field-weighted cell centroids:
+spacing evens out, count stays fixed. `.settle(n)` adds population
+control — overloaded cells split their point, starved ones lose theirs —
+so the count converges to the field's ink budget (the LBG stipple).
+Verbs work on ANY lifted array via `t.points(arr, { field?, spacing? })`
+— here a plain grid reorganises itself into tone-following blue noise:
+
+```ts live
+import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
+  const dark = (x, y) => Math.max(0.03, 1 - Math.hypot(x - 55, (y - 24) * 1.8) / 50);
+  const gridPts = t.grid({ cols: 30, rows: 15 }).map((c) => [c.x + c.w / 2, c.y + c.h / 2]);
+  return t
+    .points(gridPts, { field: dark, spacing: 2.4 })
+    .settle(12)
+    .map((p) => circle(p.x, p.y, 0.35 + p.w * 0.4));
+});
+```
+
+### cells / mesh
+
+`.cells()` — the Voronoi cells of the set (one polygon per point, clipped
+to the drawable); `.mesh()` — the Delaunay triangulation. Both return
+plain data to edit, filter, and stamp however you like; both also exist
+as pure imports (`voronoi(points, bounds)`, `triangulate(points)`) over
+arbitrary arrays.
+
+```ts live
+import { sketch, polygon, hatch, mm } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
+  const pts = t.scatter({ spacing: 7 }).relax(3);
+  return pts.cells().map((c) =>
+    polygon(c.poly, t.chance(0.25) ? { fill: hatch(t.rnd(180), mm(1.1)) } : {}),
+  );
+});
+```
+
+```ts live
+import { sketch, polygon } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
+  const field = (x, y) => Math.max(0.05, 1 - Math.hypot(x - 50, (y - 25) * 2) / 48);
+  return t.scatter(field, { spacing: 4.2 }).mesh().map((tri) => polygon(tri));
+});
+```
+
 ### ui
 
 `ui(value, { min?, max?, step?, label? })` — a tweakable value. In the
@@ -760,8 +833,10 @@ functions, the toolkit carries the drawable extent as plain numbers —
 modifiers, units, `map`/`ease`, `ui`, `svg` — is importable from
 `'occlude'` (and therefore usable in helper files). Everything that
 depends on the *running sketch* lives only on the toolkit: randomness
-(`rnd`/`noise`/`pick`/`chance`/`stream` read the seed) and layout
-(`bounds`/`grid`/`times` need the resolved paper). The toolkit also
+(`rnd`/`noise`/`pick`/`chance`/`stream` read the seed), layout
+(`bounds`/`grid`/`times` need the resolved paper), and point
+distributions (`scatter`/`points` need both; their pure duals
+`voronoi`/`triangulate` are imports). The toolkit also
 carries the pure functions, so destructuring `({ circle, rnd }) => …` is
 an equivalent style.
 

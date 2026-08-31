@@ -70,6 +70,10 @@ export type { PenDef } from './pens.js';
 export type { Prim } from './prims.js';
 export { subPrim, evalPrim } from './prims.js';
 
+// Point-distribution duals: pure, so they take arbitrary point arrays.
+export { voronoi, triangulate, Points } from './points.js';
+export type { ScatterPoint, ScatterOpts } from './points.js';
+
 // Tweakable values (identity at runtime; the studio scans + builds sliders).
 export { ui, scanUiControls } from './ui.js';
 export type { UiOpts, UiControl } from './ui.js';

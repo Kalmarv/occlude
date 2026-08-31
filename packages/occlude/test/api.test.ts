@@ -807,6 +807,57 @@ describe('tap dots decode at their true position', () => {
   });
 });
 
+describe('points: scatter / relax / settle / cells / mesh', () => {
+  const field = (x: number, y: number) => (x < 50 ? 1 : 0.08);
+
+  it('scatter follows the field and is deterministic per seed', () => {
+    let a: number[] = [];
+    let b: number[] = [];
+    const run = () =>
+      sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+        const pts = t.scatter(field, { spacing: 3 });
+        const left = pts.filter((p) => p.x < 50).length;
+        const right = pts.length - left;
+        a = b;
+        b = [pts.length, left, right, pts[0]?.x ?? 0];
+        expect(left).toBeGreaterThan(right * 2); // dense side dominates
+        return circle(50, 50, 10);
+      });
+    sq(run());
+    sq(run());
+    expect(b).toEqual(a); // same seed, same distribution
+  });
+
+  it('relax keeps count; settle adapts it toward the ink budget', () => {
+    const def = sketch({ aspect: [1, 1], seed: 9 }, (t) => {
+      const pts = t.scatter(field, { spacing: 3 });
+      expect(pts.relax(2).length).toBe(pts.length);
+      const settled = pts.settle(12);
+      expect(settled.length).toBeGreaterThan(10);
+      // settled points still respect the field
+      const left = settled.filter((p) => p.x < 50).length;
+      expect(left).toBeGreaterThan((settled.length - left) * 2);
+      // verbs work on arbitrary lifted arrays too
+      const gridPts = [];
+      for (let i = 5; i < 100; i += 10) for (let j = 5; j < 100; j += 10) gridPts.push([i, j]);
+      const lifted = t.points(gridPts, { field, spacing: 3 });
+      expect(lifted.relax(1).length).toBe(gridPts.length);
+      expect(() => t.points(gridPts).settle(2)).toThrow(/spacing/);
+      return circle(50, 50, 10);
+    });
+    sq(def);
+  });
+
+  it('voronoi and triangulate are pure imports over bare arrays', async () => {
+    const { voronoi, triangulate } = await import('../src/index.js');
+    const pts = [[10, 10], [90, 10], [50, 80], [30, 40]] as [number, number][];
+    const cells = voronoi(pts, { x: 0, y: 0, w: 100, h: 100 });
+    expect(cells.length).toBe(4);
+    for (const c of cells) expect(c.poly.length).toBeGreaterThanOrEqual(3);
+    expect(triangulate(pts).length).toBe(3); // one interior point -> 3 triangles
+  });
+});
+
 describe('seed stability', () => {
   it('URL-less seed is sticky across compiles (re-renders never reshuffle)', () => {
     const def = () => sketch({ aspect: [1, 1] }, (t) => circle(t.rnd(100), 50, 5));

@@ -29,11 +29,14 @@ import { grid as gridCells, type GridCell, type GridOptions } from './layout.js'
 import { Shape, type FieldFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
 import {
   bounds, chance, clip as legacyClip, margin, noise, pick, prob, push, rnd,
-  sketch as legacySketch, stream, getState,
+  sketch as legacySketch, stream, getState, unitScaleMm,
   type SketchOptions, type Winding,
 } from './state.js';
 import { invertRange, mapRange, normRange } from './random.js';
-import { h, long, mm, s, w, Len, type L } from './units.js';
+import {
+  liftPoints, scatterPoints, type FieldFn2, type ScatterOpts,
+} from './points.js';
+import { h, long, mm, s, w, resolveLen, Len, type L } from './units.js';
 
 // ---- values ----
 
@@ -558,6 +561,45 @@ export function sketch(
   return { __occludeSketch: true, config, fn };
 }
 
+/** Environment handed to the points module: seeded stream, drawable
+ * bounds, and sketch-time length resolution (mm via the paper hint). */
+function pointsEnv(): import('./points.js').PointsEnv {
+  const b = bounds();
+  const st = stream('__points');
+  return {
+    rnd: () => st.rnd(),
+    bounds: { x: 0, y: 0, w: b.w, h: b.h },
+    len: (l) => {
+      if (typeof l === 'object' && l !== null && (l as Len).kind === 'mm') {
+        return (l as Len).value / unitScaleMm();
+      }
+      return resolveLen(l, { innerW: b.w, innerH: b.h });
+    },
+  };
+}
+
+/** Field-modulated Poisson-disk points; `.settle(n)` refines toward the
+ * weighted Linde-Buzo-Gray distribution. */
+function scatter(field: FieldFn2 | undefined, opts: ScatterOpts): import('./points.js').Points;
+function scatter(opts: ScatterOpts): import('./points.js').Points;
+function scatter(
+  a: FieldFn2 | ScatterOpts | undefined,
+  b?: ScatterOpts,
+): import('./points.js').Points {
+  const field = typeof a === 'function' ? a : undefined;
+  const opts = (typeof a === 'function' || a === undefined ? b : a) as ScatterOpts;
+  if (!opts?.spacing) throw new Error('scatter: { spacing } is required');
+  return scatterPoints(pointsEnv(), field, opts);
+}
+
+/** Lift any point array into the Points vocabulary (relax/settle/cells/mesh). */
+function pointsOf(
+  raw: readonly ({ x: number; y: number } | [number, number])[],
+  opts: { field?: FieldFn2; spacing?: L; resolution?: number } = {},
+): import('./points.js').Points {
+  return liftPoints(pointsEnv(), raw, opts);
+}
+
 const TOOLKIT_BASE = {
   circle, ellipse, rect, line, polygon, path, group, clip, mask, decimate, wobble, modify,
   dash, smooth, roughen, deform, noiseField, label,
@@ -566,6 +608,7 @@ const TOOLKIT_BASE = {
   map: mapRange, norm: normRange, invert: invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
+  scatter, points: pointsOf,
   mm, w, h, s, long,
 };
 

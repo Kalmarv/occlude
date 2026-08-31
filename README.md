@@ -108,6 +108,24 @@ cargo run --release -p occlude-core --example profile5000    # 5000-shape render
 UPDATE_GOLDEN=1 cargo test -p occlude-core --test golden     # regenerate fixtures (deliberate only)
 ```
 
+## Credits & prior art
+
+Occlude implements its own engine, but it stands on published work and
+open projects. Where a license is copyleft, we used **ideas, protocol
+facts, and papers — never code**:
+
+| Project / work | What we took | License |
+|---|---|---|
+| [saxi](https://github.com/alexrudd2/saxi) | EBB `LM` rate math conventions (steps·2³¹/25kHz, ΔR derivation) verified against its source; formulas are EBB protocol facts. No code. | AGPL-3.0 |
+| [EBB / EggBot](https://github.com/evil-mad/EggBot) (Evil Mad Scientist, Brian Schmalz) | The EBB command set our Web Serial driver speaks, via its protocol documentation. No code. | GPL-3.0 |
+| [Marlin](https://github.com/MarlinFirmware/Marlin) & [Klipper](https://github.com/Klipper3d/klipper) | Motion-planning concepts: junction deviation, minimum cruise ratio, look-ahead structure. Ideas only. | GPL-3.0 |
+| Deussen, Spicker et al., *Weighted Linde-Buzo-Gray Stippling* (SIGGRAPH Asia 2017); [reference impl](https://github.com/MarcSpicker/LindeBuzoGrayStippling) | `scatter(...).settle(n)` implements the paper's algorithm from the paper. No code from the LGPL reference. | paper / LGPL-3.0 |
+| Bridson, *Fast Poisson Disk Sampling* (2007) | `scatter` and the stipple fill's blue-noise placement. | paper |
+| [d3-delaunay](https://github.com/d3/d3-delaunay) (Mike Bostock) | Bundled dependency powering `voronoi`/`triangulate`/`settle`; his weighted-stippling notebook showed the `delaunay.find` accumulation walk. | ISC |
+| [plotterbench](https://github.com/plotterbench) | Inverse-kinematics golden-test idea (backlog). Ideas only — PolyForm forbids code reuse. | PolyForm Shield |
+| Robert Penner / [easings.net](https://easings.net) | The `ease.*` curve catalog (standard formulas). | formulas |
+| [p5.js](https://p5js.org), [vpype](https://github.com/abey79/vpype) | API ergonomics and plotter-workflow inspiration, respectively. | — |
+
 ## How it works, briefly
 
 - All input geometry is snapped to a 0.005 mm grid at record time, so shared
