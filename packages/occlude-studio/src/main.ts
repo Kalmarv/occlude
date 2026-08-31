@@ -30,14 +30,17 @@ async function boot(): Promise<void> {
   const statusMsg = $('status-msg');
   const statusStats = $('status-stats');
   const statusSeed = $('status-seed');
-  const titleEl = $('sketch-title');
+  const titleEl = $('sketch-title') as HTMLInputElement;
 
   let crashed = localStorage.getItem(RUN_SENTINEL) !== null;
   localStorage.removeItem(RUN_SENTINEL);
   let renderOn = !crashed;
   const renderToggle = $('render-toggle') as HTMLButtonElement;
   function syncRenderToggle(): void {
-    renderToggle.textContent = renderOn ? '⏸ pause' : '▶ render';
+    renderToggle.textContent = renderOn ? '⏸ live' : '▶ render';
+    renderToggle.title = renderOn
+      ? 'Preview is live — click to pause re-rendering while you edit'
+      : 'Preview is paused — click to render the sketch';
     renderToggle.classList.toggle('paused', !renderOn);
   }
   syncRenderToggle();
@@ -52,9 +55,13 @@ async function boot(): Promise<void> {
   let sketchName = loadSketchName();
 
   function setTitle(): void {
-    titleEl.textContent = sketchName || 'untitled sketch';
+    titleEl.value = sketchName;
   }
   setTitle();
+  titleEl.onchange = () => {
+    sketchName = titleEl.value.trim();
+    saveSketchName(sketchName);
+  };
 
   function renderSeedControls(): void {
     statusSeed.innerHTML = '';
@@ -214,6 +221,16 @@ async function boot(): Promise<void> {
       saveSketchName(name);
       setTitle();
     },
+    importSketchFile: () => {
+      const input = $('file-input') as HTMLInputElement;
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (file) editor.setValue(await file.text());
+        input.value = '';
+      };
+      input.click();
+    },
+    downloadSketchFile: () => download(`${sketchName || 'sketch'}.ts`, editor.getValue()),
   });
 
   // Ctrl/Cmd+S saves to the server-side sketch library, not the web page.
@@ -370,17 +387,6 @@ async function boot(): Promise<void> {
   ($('debug-toggle') as HTMLInputElement).onchange = (e) => {
     preview.debug = (e.target as HTMLInputElement).checked;
     preview.draw();
-  };
-  $('btn-export-sketch').onclick = () =>
-    download(`${sketchName || 'sketch'}.ts`, editor.getValue());
-  $('btn-import').onclick = () => {
-    const input = $('file-input') as HTMLInputElement;
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (file) editor.setValue(await file.text());
-      input.value = '';
-    };
-    input.click();
   };
 
   void run();

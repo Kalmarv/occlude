@@ -30,6 +30,8 @@ export interface PanelHooks {
   openSketch(name: string, source: string): void;
   currentName(): string;
   setName(name: string): void;
+  importSketchFile(): void;
+  downloadSketchFile(): void;
 }
 
 export interface Rail {
@@ -42,10 +44,10 @@ export interface Rail {
 
 export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
   rail.innerHTML = '';
-  const sketchesPanel = panel('Sketches', true);
+  const sketchesPanel = panel('Sketch', true);
   const pensPanel = panel('Pens', true);
-  const paperPanel = panel('Paper & machine', false);
-  const plotPanel = panel('Plot (serial)', false);
+  const paperPanel = panel('Paper', false);
+  const plotPanel = panel('Plot', false);
   const exportPanel = panel('Export', false);
   rail.append(
     sketchesPanel.root, pensPanel.root, paperPanel.root,
@@ -79,24 +81,31 @@ function panel(title: string, open: boolean): { root: HTMLDetailsElement; body: 
   return { root, body };
 }
 
+/** Collapsed sub-section inside a panel — the home of set-once controls. */
+function sub(title: string): { root: HTMLDetailsElement; body: HTMLDivElement } {
+  const root = document.createElement('details');
+  root.className = 'subpanel';
+  const summary = document.createElement('summary');
+  summary.textContent = title;
+  const body = document.createElement('div');
+  body.className = 'subpanel-body';
+  root.append(summary, body);
+  return { root, body };
+}
+
 // ---- sketch library (server-side store, shared across devices) ----
 
 function buildSketchesPanel(
   body: HTMLElement,
   hooks: PanelHooks,
 ): { refresh(): void; save(): Promise<string | null> } {
-  const nameRow = document.createElement('div');
-  nameRow.className = 'row';
-  const nameInput = document.createElement('input');
-  nameInput.placeholder = 'sketch name';
-  nameInput.value = hooks.currentName();
-  nameInput.onchange = () => hooks.setName(nameInput.value.trim());
+  // The sketch's name lives in the topbar title input; this panel saves,
+  // lists, and moves .ts files in and out.
+  const actionRow = document.createElement('div');
+  actionRow.className = 'row';
   async function save(): Promise<string | null> {
-    const name = nameInput.value.trim();
-    if (!name) {
-      nameInput.focus();
-      return null;
-    }
+    const name = hooks.currentName().trim();
+    if (!name) return null;
     if (!/^[a-zA-Z0-9 _-]{1,64}$/.test(name)) {
       alert('Names: letters, digits, spaces, - and _ (max 64).');
       return null;
@@ -108,16 +117,20 @@ function buildSketchesPanel(
   }
   const saveBtn = button('Save', async () => {
     try {
-      if ((await save()) === null && !nameInput.value.trim()) {
-        alert('Give the sketch a name first.');
+      if ((await save()) === null) {
+        alert('Name the sketch first — the title field in the top bar.');
       }
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
     }
   });
   saveBtn.className = 'primary';
-  saveBtn.style.flex = 'none';
-  nameRow.append(nameInput, saveBtn);
+  saveBtn.title = 'Save to the studio server under the title-bar name (Ctrl+S)';
+  const importBtn2 = button('Import .ts', hooks.importSketchFile);
+  importBtn2.title = 'Load a .ts sketch file into the editor';
+  const dlBtn = button('Download .ts', hooks.downloadSketchFile);
+  dlBtn.title = 'Download the current sketch as a .ts file';
+  actionRow.append(saveBtn, importBtn2, dlBtn);
 
   const list = document.createElement('div');
   const hint = document.createElement('div');
@@ -162,7 +175,6 @@ function buildSketchesPanel(
         try {
           const src = await loadSketchByName(s.name);
           hooks.openSketch(s.name, src);
-          nameInput.value = s.name;
           await refresh();
         } catch (err) {
           alert(err instanceof Error ? err.message : String(err));
@@ -172,7 +184,7 @@ function buildSketchesPanel(
     }
   }
 
-  body.append(nameRow, list, hint);
+  body.append(actionRow, list, hint);
   void refresh();
   return { refresh: () => void refresh(), save };
 }
@@ -423,31 +435,6 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
     landscape,
     row('Margin %', marginInput, 'Used when the sketch does not call margin()'),
   );
-
-  const m = s.machine;
-  body.append(
-    row('Bed mm', pairInput(m.bedW, m.bedH, (a, b) => {
-      m.bedW = a;
-      m.bedH = b;
-      persist();
-    })),
-    row('Travel', numberInput(m.travelFeed, 100, (v) => {
-      m.travelFeed = v;
-      persist();
-    })),
-    row('Resolution', numberInput(m.resolution, 0.005, (v) => {
-      m.resolution = v;
-      persist();
-    })),
-    checkbox('Pen via Z axis (off = M3/M5)', m.zMode, (v) => {
-      m.zMode = v;
-      persist();
-    }),
-    checkbox('Emit G2/G3 arcs', m.arcSupport, (v) => {
-      m.arcSupport = v;
-      persist();
-    }),
-  );
 }
 
 // ---- plot: EBB (AxiDraw-family) over Web Serial ----
@@ -464,9 +451,11 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     return;
   }
   hint.textContent =
-    'EBB/iDraw over USB. Connect leaves the rails free: position the carriage by hand → Set origin → Plot. ' +
-    'PEN CONTACT IS MECHANICAL — the servo only lifts, it cannot press. With Pen down, seat the pen low ' +
-    'in the clamp so its tip preloads into the sheet; dropped-out lines mean seating depth, not firmware.';
+    'EBB/iDraw over USB — position the carriage by hand, Set origin (Manual control), then Plot.';
+  hint.title =
+    'Connect leaves the rails free. PEN CONTACT IS MECHANICAL — the servo only lifts, it cannot ' +
+    'press: with Pen down, seat the pen low in the clamp so its tip preloads into the sheet; ' +
+    'dropped-out lines mean seating depth, not firmware. Full chapter: Docs → Plotting from the studio.';
 
   const ebb = new Ebb();
   const status = document.createElement('div');
@@ -522,9 +511,14 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
 
   const penRow = document.createElement('div');
   penRow.className = 'row';
+  penRow.style.flexWrap = 'wrap';
+  const penDownBtn = button('Pen down', () => void ebb.penDown().catch(showErr));
+  penDownBtn.title =
+    'Servo contact is mechanical — with the pen down, seat it low in the clamp so the tip ' +
+    'preloads into the sheet';
   penRow.append(
     button('Pen up', () => void ebb.penUp().catch(showErr)),
-    button('Pen down', () => void ebb.penDown().catch(showErr)),
+    penDownBtn,
     button('Set origin', () => void ebb.setOrigin().catch(showErr)),
     button('Home', () => void ebb.home().catch(showErr)),
     button('Release', () => void ebb.cmd('EM,0,0').catch(showErr)),
@@ -675,7 +669,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       showErr(e);
     }
   });
-  plotBtn.className = 'primary';
+  plotBtn.className = 'primary danger';
+  plotBtn.title = 'Plot on the connected machine — pen and paper, for real';
   const pauseBtn = button('Pause', () => {
     if (ebb.plotting) {
       if (pauseBtn.textContent === 'Pause') ebb.pause();
@@ -692,6 +687,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   // so Pause/Stop, progress, and the QS drift check all apply. Position
   // the origin bottom-left of a clear area first; footprints are in hints.
   const diag = document.createElement('details');
+  diag.className = 'subpanel';
   const diagSummary = document.createElement('summary');
   diagSummary.textContent = 'Machine diagnostics';
   diag.append(diagSummary);
@@ -738,32 +734,51 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     cornerRinging,
   );
 
-  body.append(
-    hint,
-    connectBtn,
-    status,
-    jogRow,
-    penRow,
-    row('Steps/mm', spm, 'Measured 100 on this iDraw; verify any new machine with the cal-sheet ruler'),
-    flips,
-    row('Servo dn/up', servoRow, 'SC,4 / SC,5 positions — write-only on the board, so tuned values live here'),
-    row('Acceleration', acceleration, 'mm/s²; lower is gentler, higher reaches the pen feed sooner'),
-    row('Travel accel', travelAcceleration, 'mm/s² for pen-up moves — no ink or line quality at stake, so it can run harder than drawing'),
-    row('Junction dev', junctionDeviation, 'mm; cornering tolerance used for Marlin/Klipper-style look-ahead'),
+  const lmCheck = checkbox('LM motion (hardware ramps)', s.ebb.lmMotion, (v) => {
+    s.ebb.lmMotion = v;
+    persist();
+  });
+  lmCheck.title =
+    'Hardware-interpolated constant-acceleration moves (25 kHz firmware ramps). ' +
+    'Uncheck to fall back to XM packets (firmware < 2.5.3).';
+
+  // Daily controls up top; set-once bands collapsed beneath.
+  const manual = sub('Manual control');
+  manual.body.append(jogRow, penRow);
+
+  const tuning = sub('Motion tuning');
+  tuning.body.append(
+    row('Accel mm/s²', acceleration, 'Drawing acceleration — lower is gentler, higher reaches the pen feed sooner'),
+    row('Travel mm/s²', travelAcceleration, 'Acceleration for pen-up moves — no ink at stake, so it can run harder'),
+    row('Junction mm', junctionDeviation, 'Cornering tolerance for Marlin/Klipper-style look-ahead'),
     row('Min cruise', minimumCruiseRatio, '0–0.99; suppresses vibration-producing speed spikes on short moves'),
     row('Quick hop mm', numberInput(s.ebb.quickHopMm, 5, (v) => {
       s.ebb.quickHopMm = Math.max(0, v);
       persist();
     }), 'Travels shorter than this lift the pen only ~40% with shorter settles — the big lever on hatch/stipple plots. 0 disables'),
-    checkbox('LM motion (hardware-interpolated ramps; uncheck to fall back to XM packets)', s.ebb.lmMotion, (v) => {
-      s.ebb.lmMotion = v;
-      persist();
-    }),
+    lmCheck,
+  );
+
+  const setup = sub('Machine setup');
+  setup.body.append(
+    row('Steps/mm', spm, 'Measured 100 on this iDraw; verify any new machine with the cal-sheet ruler'),
+    flips,
+    row('Servo dn/up', servoRow, 'SC,4 / SC,5 positions — write-only on the board, so tuned values live here'),
+  );
+
+  diag.append(logRow);
+
+  body.append(
+    hint,
+    connectBtn,
+    status,
     row('Plot pen', penSelect, 'Plots this pen only — for multi-pen sketches: plot, swap the pen, pick the next, plot again'),
     plotRow,
     bar,
     progressText,
-    logRow,
+    manual.root,
+    tuning.root,
+    setup.root,
     diag,
   );
 }
@@ -771,6 +786,39 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
 // ---- export (runs in the render worker on the last rendered buffers) ----
 
 function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
+  const s = hooks.settings;
+  const m = s.machine;
+  const persistProfile = (): void => {
+    saveSettings(s);
+    hooks.onChanged();
+  };
+  // The machine profile only shapes G-code output (EBB plotting ignores it),
+  // so it lives with the export it configures.
+  const profile = sub('G-code profile');
+  profile.body.append(
+    row('Bed mm', pairInput(m.bedW, m.bedH, (a, b) => {
+      m.bedW = a;
+      m.bedH = b;
+      persistProfile();
+    })),
+    row('Travel mm/min', numberInput(m.travelFeed, 100, (v) => {
+      m.travelFeed = v;
+      persistProfile();
+    })),
+    row('Resolution mm', numberInput(m.resolution, 0.005, (v) => {
+      m.resolution = v;
+      persistProfile();
+    }), 'Flattening error ceiling for exported toolpaths'),
+    checkbox('Pen via Z axis (off = M3/M5)', m.zMode, (v) => {
+      m.zMode = v;
+      persistProfile();
+    }),
+    checkbox('Emit G2/G3 arcs', m.arcSupport, (v) => {
+      m.arcSupport = v;
+      persistProfile();
+    }),
+  );
+
   const table = document.createElement('table');
   table.className = 'export-table';
   const svgAll = button('Download SVG (all pens)', async () => {
@@ -789,7 +837,7 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
   const exportRow = document.createElement('div');
   exportRow.className = 'row';
   exportRow.append(svgAll, pngBtn);
-  body.append(table, exportRow);
+  body.append(table, exportRow, profile.root);
 
   let refreshing = false;
   return function refresh(): void {

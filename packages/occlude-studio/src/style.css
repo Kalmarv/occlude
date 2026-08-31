@@ -64,6 +64,22 @@ body {
 .sketch-title {
   color: var(--ink-dim);
   font-size: 12px;
+  font-family: var(--mono);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 3px 8px;
+  width: 16em;
+}
+
+.sketch-title:hover {
+  border-color: var(--panel-edge);
+}
+
+.sketch-title:focus {
+  color: var(--ink);
+  border-color: var(--ink-dim);
+  outline: none;
 }
 
 .topbar-actions {
@@ -430,6 +446,50 @@ select:focus-visible,
 summary:focus-visible {
   outline: 2px solid var(--toolpath);
   outline-offset: 1px;
+}
+
+button.danger {
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+}
+
+button.danger:hover {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.subpanel {
+  margin-top: 6px;
+  border-top: 1px solid var(--panel-edge);
+  padding-top: 4px;
+}
+
+.subpanel > summary {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+  cursor: pointer;
+  padding: 3px 0;
+  user-select: none;
+}
+
+.subpanel > summary:hover {
+  color: var(--ink);
+}
+
+.subpanel-body,
+.subpanel > button,
+.subpanel > .row,
+.subpanel > .panel-hint {
+  margin-left: 8px;
+}
+
+.subpanel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0 4px 0;
 }
 
 button.primary {
