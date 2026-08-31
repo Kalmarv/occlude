@@ -34,8 +34,11 @@ import {
 } from './state.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
-  liftPoints, scatterPoints, type FieldFn2, type ScatterOpts,
+  liftPoints, scatterPoints, triangulate, voronoi,
+  type FieldFn2, type ScatterOpts,
 } from './points.js';
+import { solid } from './fills.js';
+import { ui } from './ui.js';
 import { h, long, mm, s, w, resolveLen, Len, type L } from './units.js';
 
 // ---- values ----
@@ -506,6 +509,8 @@ export interface Toolkit {
   hatch: typeof hatch;
   crosshatch: typeof crosshatch;
   stipple: typeof stipple;
+  solid: typeof solid;
+  ui: typeof ui;
   rnd: typeof rnd;
   pick: typeof pick;
   chance: typeof chance;
@@ -525,6 +530,10 @@ export interface Toolkit {
   cx: number;
   cy: number;
   grid: (opts: GridOptions) => GridCell[];
+  scatter: typeof scatter;
+  points: typeof pointsOf;
+  voronoi: typeof voronoi;
+  triangulate: typeof triangulate;
   noisyLine: typeof noisyLineValue;
   svg: typeof svgValue;
   mm: typeof mm;
@@ -603,12 +612,12 @@ function pointsOf(
 const TOOLKIT_BASE = {
   circle, ellipse, rect, line, polygon, path, group, clip, mask, decimate, wobble, modify,
   dash, smooth, roughen, deform, noiseField, label,
-  hatch, crosshatch, stipple,
+  hatch, crosshatch, stipple, solid, ui,
   rnd, pick, chance, prob, noise, stream,
   map: mapRange, norm: normRange, invert: invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, points: pointsOf,
+  scatter, points: pointsOf, voronoi, triangulate,
   mm, w, h, s, long,
 };
 
