@@ -1,9 +1,11 @@
 # occlude
 
-A TypeScript drawing library for pen plotters where **`fill` means fill**.
-Filled shapes hide what is beneath them — the library computes the exact
-visible strokes (painter's algorithm on vectors, cut at true intersection
-parameters, in a Rust/WASM core) and emits per-pen G-code, SVG, and PNG.
+A TypeScript studio for pen-plotter art, built around one idea: **the pen
+is the medium, not a renderer of last resort**. On paper every stroke is
+real ink — there is no painting over mistakes — so occlude makes `fill`
+mean *occlude*: filled shapes hide what lies beneath them, and the engine
+computes the exact visible strokes (hidden-line removal on true vectors,
+in a Rust/WASM core) instead of simulating a canvas.
 
 A sketch is a pure function from a toolkit to a tree of shapes:
 
@@ -18,17 +20,65 @@ export default sketch({ aspect: 'square', margin: 8 }, ({ circle, line, hatch, t
 ]);
 ```
 
-Beyond the occlusion solve: an ordered **modifier stack** runs around it —
-`smooth`, `roughen`, and `deform` reshape geometry *before* the solve (they
-change what is hidden), while `dash`, `decimate`, and `wobble` distress the
-surviving ink *after* it. Any scalar parameter can be a **field**
-(`(x, y) => number`) that varies over the page. Everything is seeded and
-deterministic: the same seed plots the same drawing.
+## What separates it from other drawing libraries
 
-Start with the [reference](docs/reference.md) — every feature as a live
-example, with the full API prose at the bottom. The
+Creative-coding libraries (p5, paper.js, canvas-sketch) think in pixels:
+fill paints over what came before, and a plotter export is an
+afterthought that draws every line, hidden or not. Plotter toolchains
+(vpype, vsketch) optimise paths but leave the hidden-line problem to you.
+Occlude is plotter-native end to end:
+
+- **Fill means occlude.** The painter's algorithm runs on vectors, cut at
+  true intersection parameters — what plots is exactly what a physical
+  layering of opaque shapes would leave visible. `mask()` gives you
+  hidden-line drawing (terrain ridges, overlapping forms) in one word.
+- **The nib is the only tolerance.** Visible detail finer than the pen
+  width is dropped, hidden gaps finer than the pen width are inked —
+  physical reasoning, not epsilon tuning. Pens are real objects with
+  width, feed, and settle time.
+- **Line character is part of the model.** An ordered modifier stack runs
+  *around* the occlusion solve: `smooth`/`roughen`/`deform` reshape
+  geometry before it (changing what is hidden), `dash`/`decimate`/`wobble`
+  distress the surviving ink after it, and any scalar parameter can be a
+  field `(x, y) => number` that varies over the page.
+- **Deterministic to the plot.** Every random value derives from the
+  sketch seed — the same seed produces the same drawing on screen,
+  in SVG, and on paper, every time.
+- **Curves stay exact.** Arcs and béziers are never flattened until
+  export; SVG output keeps true curves.
+- **Plot time is a design dimension.** Chained tours, opt-in `bridge`
+  joining (hatch rows serpentine into single strokes — hours off a dense
+  plot), plot-time stats, and a full EBB/iDraw Web Serial driver with
+  look-ahead motion planning, drift recovery, and machine diagnostics —
+  the browser plots directly, no export round-trip required.
+
+## Getting started
+
+Prerequisites: rust (stable), [wasm-pack](https://rustwasm.github.io/wasm-pack/),
+pnpm.
+
+```sh
+pnpm run build:wasm    # build the wasm core — required before install
+pnpm install
+cd packages/occlude-studio
+pnpm dev               # the studio, http://localhost:5173
+```
+
+Write sketches in the studio's editor (Ctrl+S saves to the server-side
+library); the preview re-renders live, the Plot panel drives an
+EBB-family machine over Web Serial, and per-pen SVG/G-code/PNG export is
+a click. The **docs** tab serves the [reference](docs/reference.md) —
+every feature as a live example rendered by the real engine in your
+browser, with the full API prose at the bottom. The
 [architecture notes](docs/architecture.md) cover the engine;
 [`plan.md`](./plan.md) is the original design document.
+
+Headless rendering, for CI or batch work:
+
+```sh
+pnpm --filter occlude render sketch.ts --seed 7 --paper A4 --out out.png
+pnpm --filter occlude plotstats sketch.ts --seed 7   # lifts, ink/travel mm, plot ETA
+```
 
 ## Layout
 
@@ -41,23 +91,13 @@ example, with the full API prose at the bottom. The
 ## Development
 
 ```sh
-# prerequisites: rust (stable), wasm-pack, pnpm
-pnpm run build:wasm         # build the wasm package (crates/occlude-core/pkg) — required before install
-pnpm install
-
 cargo test                  # core: unit + pipeline + property + golden tests
 pnpm -r test                # TS end-to-end tests (drive the real wasm)
 pnpm --filter occlude qa    # property-based seed sweep + adversarial corpus
+pnpm --filter occlude docs:check   # every reference example must render
 
 cd packages/occlude-studio
-pnpm dev                    # the studio, http://localhost:5173
 pnpm build && node server.mjs   # production build, http://localhost:4173
-```
-
-Headless rendering:
-
-```sh
-pnpm --filter occlude render sketch.ts --seed 7 --paper A4 --out out.png
 ```
 
 Benchmarks and golden fixtures:
