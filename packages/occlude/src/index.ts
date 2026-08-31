@@ -70,5 +70,9 @@ export type { PenDef } from './pens.js';
 export type { Prim } from './prims.js';
 export { subPrim, evalPrim } from './prims.js';
 
+// Tweakable values (identity at runtime; the studio scans + builds sliders).
+export { ui, scanUiControls } from './ui.js';
+export type { UiOpts, UiControl } from './ui.js';
+
 // Host integration.
 export { setPenLibrary, setPaperHint, getState } from './state.js';

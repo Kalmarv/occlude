@@ -10,6 +10,7 @@ import {
   download, loadPens, loadSettings, loadSketch, loadSketchName, loadUi,
   saveSketch, saveSketchName, saveUi,
 } from './store.js';
+import { UiPanel } from './uiPanel.js';
 import { RenderClient } from './workerClient.js';
 import type { RenderResult } from 'occlude';
 
@@ -184,6 +185,9 @@ async function boot(): Promise<void> {
     void run();
   };
 
+  const uiPanel = new UiPanel($('bench'), editor);
+  uiPanel.sync();
+  editor.onChange(() => uiPanel.sync());
   editor.onChange(scheduleRun);
   // Debug/automation handle (used by headless driving; harmless otherwise).
   (window as unknown as Record<string, unknown>).__occlude = { editor };

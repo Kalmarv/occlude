@@ -669,6 +669,26 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) =>
 );
 ```
 
+### ui
+
+`ui(value, { min?, max?, step?, label? })` — a tweakable value. In the
+studio, every `ui()` call with a **literal** number or boolean gets a
+slider in a panel over the preview; dragging it **edits the literal in
+your code** (highlighted while you drag), so the tuned sketch saves,
+shares, and replots exactly as seen. The label defaults to the assigned
+name (`const rows = ui(12)` → "rows"). At render time `ui()` just returns
+its value — headless tools and this page see the literal.
+
+```ts live
+import { sketch, circle, ui } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const rings = ui(9, { min: 1, max: 30, step: 1 });
+  const spread = ui(0.6);
+  return t.times(rings, (k, u) => circle(50, 25, 3 + u * 20 * (1 + spread)));
+});
+```
+
 ## Units
 
 Bare numbers are percent of the drawable's short side — sketches stay

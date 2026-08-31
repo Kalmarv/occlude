@@ -782,6 +782,49 @@ describe('ease', () => {
   });
 });
 
+describe('ui() tweakable values', () => {
+  it('is an identity at runtime', async () => {
+    const { ui } = await import('../src/index.js');
+    expect(ui(12)).toBe(12);
+    expect(ui(0.5, { min: 0, max: 2 })).toBe(0.5);
+    expect(ui(true)).toBe(true);
+  });
+
+  it('scans literal calls with spans, opts, and inferred labels', async () => {
+    const { scanUiControls } = await import('../src/index.js');
+    const src = [
+      "const rows = ui(12);",
+      "const amp = ui(0.5, { min: 0, max: 2, step: 0.05 });",
+      "const flip = ui(true);",
+      "circle(50, 50, ui(-8, { label: 'radius' }));",
+    ].join('\n');
+    const cs = scanUiControls(src);
+    expect(cs.map((c) => [c.label, c.value])).toEqual([
+      ['rows', 12],
+      ['amp', 0.5],
+      ['flip', true],
+      ['radius', -8],
+    ]);
+    expect(cs[1].opts).toEqual({ min: 0, max: 2, step: 0.05 });
+    // The span is exactly the literal — replacing it retunes the sketch.
+    for (const c of cs) expect(src.slice(c.valueStart, c.valueEnd)).toBe(String(c.value));
+  });
+
+  it('ignores non-literals, strings, comments, and other identifiers', async () => {
+    const { scanUiControls } = await import('../src/index.js');
+    const src = [
+      "const a = ui(rnd(10));           // computed — not a control",
+      "// ui(99) in a comment",
+      "const s = 'call ui(7) maybe';",
+      "const t = `also ui(3) ${gui(4)}`;",
+      "myui(5); obj.ui(6);",
+      "const real = ui(2);",
+    ].join('\n');
+    const cs = scanUiControls(src);
+    expect(cs.map((c) => [c.label, c.value])).toEqual([['real', 2]]);
+  });
+});
+
 describe('live-coding guards', () => {
   it('rejects infinite and absurd repetition counts with clear errors', async () => {
     const { times, range, grid } = await import('../src/index.js');
