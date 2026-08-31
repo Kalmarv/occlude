@@ -287,7 +287,10 @@ export function estimatePlanMs(
     const hop = (g: number): boolean => o.quickHopMm > 0 && g <= o.quickHopMm;
     const down = i > 0 && hop(gapIn) ? Math.max(200, Math.round(settle * 0.5)) : settle;
     const up = hop(gapOut) ? Math.max(150, Math.round(settle * 0.4)) : settle;
-    est.cycleMs += down + up + 300;
+    // No per-chain overhead term: the four-card motion calibration (LM,
+    // 2026-08-31) measured cycle cost = the commanded settles alone — the
+    // board times SP durations exactly and the pump adds only milliseconds.
+    est.cycleMs += down + up;
   });
   est.totalMs = est.drawMs + est.travelMs + est.cycleMs;
   return est;
