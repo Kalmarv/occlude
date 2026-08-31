@@ -55,6 +55,9 @@ export interface EbbSettings {
   minimumCruiseRatio: number;
   lmMotion: boolean;
   quickHopMm: number;
+  /** Chains between mid-plot QS drift checks (each one drains the FIFO —
+   * a deliberate ~0.5s pause). 0 = check only at plot end. */
+  driftCheckEvery: number;
 }
 
 /** A machine profile: everything physical about one machine (or one REGIME
@@ -117,6 +120,7 @@ export const DEFAULT_PROFILE: MachineProfile = {
     minimumCruiseRatio: 0.5,
     lmMotion: true,
     quickHopMm: 15,
+    driftCheckEvery: 1000,
   },
 };
 
@@ -174,6 +178,11 @@ export async function loadProfiles(): Promise<MachineProfile[]> {
     if (res.ok) {
       const profiles = (await res.json()) as MachineProfile[];
       if (Array.isArray(profiles) && profiles.length > 0) {
+        // Forward-compat: fill fields added after a profile was saved.
+        for (const pp of profiles) {
+          pp.machine = { ...DEFAULT_PROFILE.machine, ...pp.machine };
+          pp.ebb = { ...DEFAULT_PROFILE.ebb, ...pp.ebb };
+        }
         localStorage.setItem('occlude.profiles', JSON.stringify(profiles));
         return profiles;
       }

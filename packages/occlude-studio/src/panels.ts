@@ -514,6 +514,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     minimumCruiseRatio: prof().ebb.minimumCruiseRatio,
     lmMotion: prof().ebb.lmMotion,
     quickHopMm: prof().ebb.quickHopMm,
+    driftCheckEvery: prof().ebb.driftCheckEvery,
   });
   const persist = (): void => saveProfiles(hooks.profiles);
 
@@ -848,6 +849,10 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         e.quickHopMm = Math.max(0, v);
         persist();
       }), 'Travels shorter than this lift the pen only ~40% with shorter settles. 0 disables — the large-format setting, where gantry deflection needs the full lift'),
+      row('Drift check', numberInput(e.driftCheckEvery, 100, (v) => {
+        e.driftCheckEvery = Math.max(0, Math.round(v));
+        persist();
+      }), 'Chains between mid-plot QS position checks — each drains the FIFO (a deliberate ~0.5s pause). 0 = check only at plot end'),
       lmCheck,
     );
   }

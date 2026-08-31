@@ -132,6 +132,8 @@ export class Preview {
     this.draw();
   }
 
+  private liveRaf = 0;
+
   liveProgress(chain: number): void {
     const live = this.live;
     if (!live) return;
@@ -142,10 +144,20 @@ export class Preview {
       this.drawLiveChain(live.lctx, live.chains[live.committed], live.pens);
       live.committed++;
     }
-    this.draw();
+    // Repaint on the next animation frame, coalesced: this is called from
+    // the serial pump's progress callback, and a synchronous full redraw
+    // there starves the motion FIFO (the every-25-strokes stutter).
+    if (this.liveRaf === 0) {
+      this.liveRaf = requestAnimationFrame(() => {
+        this.liveRaf = 0;
+        this.draw();
+      });
+    }
   }
 
   endLive(): void {
+    if (this.liveRaf !== 0) cancelAnimationFrame(this.liveRaf);
+    this.liveRaf = 0;
     this.live = null;
     this.draw();
   }

@@ -856,7 +856,8 @@ export class Ebb {
         // settles, ~0.1-1s) — every 25 chains cost minutes on 30k-chain
         // plots and visible hitching. Lost-command drift is rare and also
         // caught at plot end; ~every 8 minutes is plenty.
-        if (chainIndex % 500 === 499) await verifyPosition();
+        const every = o.driftCheckEvery ?? 1000;
+        if (every > 0 && chainIndex % every === every - 1) await verifyPosition();
         report('plotting', penName);
       }
       await setLift(false).catch(() => undefined); // never leave hop height behind
