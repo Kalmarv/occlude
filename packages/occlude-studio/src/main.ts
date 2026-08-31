@@ -133,7 +133,7 @@ async function boot(): Promise<void> {
       landscape: settings.landscape,
       defaultMarginPct: settings.defaultMarginPct,
       coarsen: 1,
-      debugGhost: preview.debug,
+      debugGhost: preview.debug.occluded,
     });
     localStorage.removeItem(RUN_SENTINEL);
     if (outcome.error || !outcome.scene) {
@@ -391,11 +391,18 @@ async function boot(): Promise<void> {
   };
 
   $('btn-fit').onclick = () => preview.fit();
-  ($('debug-toggle') as HTMLInputElement).onchange = (e) => {
-    preview.debug = (e.target as HTMLInputElement).checked;
-    // The ghost is computed by the engine — re-render to get (or drop) it.
-    void run();
+  const dbgWire = (id: string, key: 'occluded' | 'bridges' | 'cuts'): void => {
+    ($(id) as HTMLInputElement).onchange = (e) => {
+      preview.debug[key] = (e.target as HTMLInputElement).checked;
+      // The ghost is engine-computed — re-render to get (or drop) it; the
+      // other layers just repaint.
+      if (key === 'occluded') void run();
+      else preview.draw();
+    };
   };
+  dbgWire('dbg-occluded', 'occluded');
+  dbgWire('dbg-bridges', 'bridges');
+  dbgWire('dbg-cuts', 'cuts');
 
   void run();
 

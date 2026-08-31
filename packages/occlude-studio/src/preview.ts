@@ -44,7 +44,8 @@ export class Preview {
   private panX = 0;
   private panY = 0;
   private fitted = false;
-  debug = false;
+  /** Debug layers: each pass answers a different question. */
+  debug = { occluded: false, bridges: false, cuts: false };
   private sim: PlotSim | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -548,7 +549,7 @@ export class Preview {
       return;
     }
 
-    if (this.debug) {
+    if (this.debug.occluded) {
       // Ghost everything recorded or generated, including what occlusion
       // removed. The engine's ghost geometry is post-modified (wobbles and
       // dashes exactly like the ink); the raw prim table is the fallback
@@ -564,7 +565,7 @@ export class Preview {
 
     drawFragments(ctx, r.frags, r.pens);
 
-    if (this.debug) {
+    if (this.debug.bridges) {
       // Bridge connectors: the pen-down joins the bridge opt inserted —
       // highlighted so the tolerance's visual cost is inspectable.
       ctx.save();
@@ -579,20 +580,27 @@ export class Preview {
       ctx.restore();
     }
 
-    if (this.debug) {
-      // Fragment endpoints.
+    if (this.debug.cuts) {
+      // Fragment endpoints — where occlusion (and dashing) cut the ink.
+      // Marker size follows zoom so dash-heavy sketches stay readable.
       ctx.save();
       ctx.fillStyle = 'rgba(217, 161, 61, 0.9)';
+      const rad = Math.min(0.35, 2.5 / this.scale);
       for (const f of r.frags) {
         if (f.dot) continue;
         for (const t of [0, 1]) {
           const [x, y] = evalPrim(f.geom, t);
           ctx.beginPath();
-          ctx.arc(x, y, 0.35, 0, Math.PI * 2);
+          ctx.arc(x, y, rad, 0, Math.PI * 2);
           ctx.fill();
         }
       }
+      ctx.restore();
+    }
+
+    if (this.debug.occluded || this.debug.bridges || this.debug.cuts) {
       // Drawable frame.
+      ctx.save();
       ctx.strokeStyle = 'rgba(91, 139, 217, 0.6)';
       ctx.lineWidth = 0.15;
       ctx.setLineDash([1, 1]);
