@@ -190,7 +190,10 @@ async function boot(): Promise<void> {
   editor.onChange(() => uiPanel.sync());
   editor.onChange(scheduleRun);
   // Debug/automation handle (used by headless driving; harmless otherwise).
-  (window as unknown as Record<string, unknown>).__occlude = { editor };
+  (window as unknown as Record<string, unknown>).__occlude = {
+    editor,
+    result: () => lastResult,
+  };
 
   const rail = buildRail($('rail'), {
     pens,

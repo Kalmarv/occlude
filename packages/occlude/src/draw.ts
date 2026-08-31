@@ -4,7 +4,7 @@
  */
 
 import type { PenDef } from './pens.js';
-import type { Prim } from './prims.js';
+import { evalPrim, type Prim } from './prims.js';
 import type { Fragment } from './render.js';
 
 /** Append one primitive to the current canvas path. */
@@ -55,9 +55,10 @@ export function drawFragments(
     if (dots) {
       ctx.beginPath();
       for (const f of dots) {
-        const p = f.geom;
-        const x = p.t === 'line' ? p.x0 : 0;
-        const y = p.t === 'line' ? p.y0 : 0;
+        // Dot geometry is zero-length but can be ANY primitive kind — a tap
+        // on an arc origin decodes as a zero-sweep arc. Evaluate, don't
+        // assume line (that drew every arc-origin tap at 0,0).
+        const [x, y] = evalPrim(f.geom, 0);
         ctx.moveTo(x + pen.width / 2, y);
         ctx.arc(x, y, pen.width / 2, 0, 2 * Math.PI);
       }
