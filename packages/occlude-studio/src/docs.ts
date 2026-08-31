@@ -79,7 +79,11 @@ async function hydrateLiveExamples(): Promise<void> {
       const w = Math.max(10, x1 - x0 + pad * 2);
       const h = Math.max(10, y1 - y0 + pad * 2);
       const canvas = document.createElement('canvas');
-      const px = Math.min(4, 1400 / w); // crisp, bounded
+      // Render at the element's on-screen width × devicePixelRatio so
+      // hiDPI screens get true-resolution strokes (bounded for huge crops).
+      const dpr = window.devicePixelRatio || 1;
+      const cssW = Math.min(760, el.clientWidth || 760);
+      const px = Math.min(12, (cssW * dpr) / w);
       canvas.width = Math.round(w * px);
       canvas.height = Math.round(h * px);
       canvas.className = 'live-canvas';
