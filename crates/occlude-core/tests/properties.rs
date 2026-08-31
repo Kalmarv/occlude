@@ -130,7 +130,7 @@ fn to_rec(g: &GenShape) -> ShapeRec {
         z: 0.0,
         bridge_mm: 0.0,
         clips: vec![],
-                modifiers: Vec::new(),
+        modifiers: Vec::new(),
     }
 }
 

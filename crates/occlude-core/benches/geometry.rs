@@ -35,7 +35,7 @@ fn filled_circle(cx: f64, cy: f64, r: f64) -> ShapeRec {
         )),
         z: 0.0,
         clips: vec![],
-                modifiers: Vec::new(),
+        modifiers: Vec::new(),
     }
 }
 

@@ -96,7 +96,9 @@ fn decode_modifiers(mods: &[f64], start: usize, count: usize) -> Result<Vec<Modi
             })
         };
         let lit = |k: usize, what: &str| -> Result<f64, String> {
-            param(k)?.literal().ok_or(format!("{what} cannot be a field"))
+            param(k)?
+                .literal()
+                .ok_or(format!("{what} cannot be a field"))
         };
         out.push(match op {
             1 => Modifier::Decimate {
@@ -202,7 +204,9 @@ fn contours_of(
         .map(|ci| {
             let ps = contours[ci * 2] as usize;
             let pc = contours[ci * 2 + 1] as usize;
-            let pe = ps.checked_add(pc).filter(|&e| e <= table.len())
+            let pe = ps
+                .checked_add(pc)
+                .filter(|&e| e <= table.len())
                 .ok_or("contour primitive range out of bounds")?;
             Ok(table[ps..pe].to_vec())
         })
@@ -293,7 +297,8 @@ pub fn wasm_render(
             1 => {
                 let start = s[8] as usize;
                 let count = s[9] as usize;
-                if start.checked_add(count.checked_mul(3).ok_or(err("hatch params overflow"))?)
+                if start
+                    .checked_add(count.checked_mul(3).ok_or(err("hatch params overflow"))?)
                     .filter(|&e| e <= fill_params.len())
                     .is_none()
                 {
@@ -324,7 +329,9 @@ pub fn wasm_render(
             3 => {
                 let start = s[8] as usize;
                 let count = s[9] as usize;
-                let end = start.checked_add(count).filter(|&e| e <= table.len())
+                let end = start
+                    .checked_add(count)
+                    .filter(|&e| e <= table.len())
                     .ok_or(err("custom fill prims out of bounds"))?;
                 Some((s[4] - 1, FillKind::Custom(table[start..end].to_vec())))
             }
@@ -415,7 +422,9 @@ pub fn wasm_render(
 
 fn decode_frags(prims: &[f64], frags: &[f64]) -> Result<Vec<crate::fragment::Frag>, JsValue> {
     if prims.len() % PRIM_STRIDE != 0 || frags.len() % FRAG_STRIDE != 0 {
-        return Err(JsValue::from_str("prim/frag buffer not a multiple of the stride"));
+        return Err(JsValue::from_str(
+            "prim/frag buffer not a multiple of the stride",
+        ));
     }
     let table = decode_prims(prims);
     frags
@@ -477,7 +486,9 @@ pub fn wasm_export_png(
         || height_mm <= 0.0
         || scale <= 0.0
     {
-        return Err(JsValue::from_str("png dimensions/scale must be finite and positive"));
+        return Err(JsValue::from_str(
+            "png dimensions/scale must be finite and positive",
+        ));
     }
     if (width_mm * scale) * (height_mm * scale) > 268.0e6 {
         return Err(JsValue::from_str("png too large (over ~256 megapixels)"));

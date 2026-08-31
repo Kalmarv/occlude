@@ -57,8 +57,7 @@ pub fn roots_cubic(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
     // the NORMALISED cubic, so measure disc against its own constituents —
     // comparing against the raw coefficient magnitude picked the wrong
     // Cardano branch when all coefficients were scaled by e.g. 1e20.
-    let disc_tol =
-        1e-14 * ((q / 2.0) * (q / 2.0) + (p / 3.0).abs().powi(3)).max(f64::MIN_POSITIVE);
+    let disc_tol = 1e-14 * ((q / 2.0) * (q / 2.0) + (p / 3.0).abs().powi(3)).max(f64::MIN_POSITIVE);
 
     let f = |t: f64| ((a * t + b) * t + c) * t + d;
     let df = |t: f64| (3.0 * a * t + 2.0 * b) * t + c;

@@ -43,7 +43,7 @@ fn scene() -> RenderInput {
         z,
         bridge_mm: 0.0,
         clips: vec![],
-                modifiers: Vec::new(),
+        modifiers: Vec::new(),
     };
     RenderInput {
         shapes: vec![

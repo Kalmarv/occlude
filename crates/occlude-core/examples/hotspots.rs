@@ -19,7 +19,9 @@ use std::f64::consts::PI;
 use std::time::{Duration, Instant};
 
 fn lcg(seed: &mut u64) -> f64 {
-    *seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *seed = seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     ((*seed >> 33) as f64) / (1u64 << 31) as f64
 }
 
@@ -71,7 +73,11 @@ fn input(shapes: Vec<ShapeRec>, fields: Vec<FieldGrid>) -> RenderInput {
 }
 
 fn hatch(spacing: f64) -> FillKind {
-    FillKind::Hatch(vec![HatchPass { angle: 45.0, spacing, offset: 0.0 }])
+    FillKind::Hatch(vec![HatchPass {
+        angle: 45.0,
+        spacing,
+        offset: 0.0,
+    }])
 }
 
 /// scale-cull mirror: 1500 concentric opaque circles + 1200 disjoint hatch
@@ -123,7 +129,13 @@ fn scene_comb() -> RenderInput {
     }
     for k in 0..4 {
         let mut sh = shape(circle(50.0 + k as f64 * 30.0, 170.0, 14.0), true, true);
-        sh.fill = Some((0, FillKind::Stipple { density: 0.8, min_dist: 0.9 }));
+        sh.fill = Some((
+            0,
+            FillKind::Stipple {
+                density: 0.8,
+                min_dist: 0.9,
+            },
+        ));
         shapes.push(sh);
     }
     input(shapes, vec![])
@@ -141,7 +153,15 @@ fn scene_rings() -> RenderInput {
                 samples.push(f(i as f64 * step, j as f64 * step));
             }
         }
-        FieldGrid { x0: 0.0, y0: 0.0, dx: step, dy: step, w, h, samples }
+        FieldGrid {
+            x0: 0.0,
+            y0: 0.0,
+            dx: step,
+            dy: step,
+            w,
+            h,
+            samples,
+        }
     };
     let swirl = |x: f64, y: f64| -> (f64, f64) {
         let (dx, dy) = (x - 100.0, y - 100.0);
@@ -156,13 +176,24 @@ fn scene_rings() -> RenderInput {
         let t = k as f64 / 119.0;
         let mut sh = shape(circle(100.0, 100.0, 30.0 + t * 65.0), true, true);
         sh.modifiers = vec![
-            Modifier::Dash { len: 1.0 + t * 8.0, gap: 0.5 + t * 2.0, offset: k as f64 },
-            Modifier::Wobble { amp: Param::Lit(1.5), wavelength: 12.0 },
+            Modifier::Dash {
+                len: 1.0 + t * 8.0,
+                gap: 0.5 + t * 2.0,
+                offset: k as f64,
+            },
+            Modifier::Wobble {
+                amp: Param::Lit(1.5),
+                wavelength: 12.0,
+            },
         ];
         if k % 3 == 0 {
             sh.modifiers.insert(
                 0,
-                Modifier::Deform { dx: Param::Field(0), dy: Param::Field(1), detail: 2.0 },
+                Modifier::Deform {
+                    dx: Param::Field(0),
+                    dy: Param::Field(1),
+                    detail: 2.0,
+                },
             );
         }
         shapes.push(sh);
@@ -188,7 +219,10 @@ fn scene_hatch() -> RenderInput {
 }
 
 fn main() {
-    let iters: usize = std::env::args().nth(1).and_then(|a| a.parse().ok()).unwrap_or(50);
+    let iters: usize = std::env::args()
+        .nth(1)
+        .and_then(|a| a.parse().ok())
+        .unwrap_or(50);
     let scenes: Vec<(&str, RenderInput)> = vec![
         ("cull-2800", scene_cull()),
         ("comb", scene_comb()),
@@ -224,7 +258,10 @@ fn main() {
         );
         for (zone, d) in rows {
             let pct = 100.0 * d.as_secs_f64() / total.as_secs_f64();
-            println!("  {zone:<22} {:>8.1}ms {pct:>5.1}%", d.as_secs_f64() * 1000.0 / iters as f64);
+            println!(
+                "  {zone:<22} {:>8.1}ms {pct:>5.1}%",
+                d.as_secs_f64() * 1000.0 / iters as f64
+            );
         }
     }
 }

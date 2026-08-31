@@ -6,20 +6,26 @@
 //!    occlusion cuts an edge into alternating sub-nib visible/hidden slivers,
 //!    and per-piece "mixed neighbours → delete" would erase a zone that a
 //!    real pen renders as a solid line. After bridging, a visible run still
-//!    shorter than the nib rounds to the nearest plottable ink: a whole
-//!    small primitive always taps a dot; an occlusion remnant taps when it
-//!    is at least half a nib and rounds to nothing below that.
+//!    shorter than the nib becomes a TAP CANDIDATE: the pen can't draw it as
+//!    a line, but it can tap a dot there. Whether it should is a coverage
+//!    question — `resolve_taps` keeps a candidate only when its ink is not
+//!    already laid down by neighbouring kept strokes of the same pen
+//!    (exact nib-distance queries, no rasterising). One rule replaces the
+//!    old drop heuristics: covered ink is redundant, uncovered ink is owed.
 //! 2. Merge consecutive visible spans of the same origin primitive.
 //! 3. Drop coincident duplicate fragments from different shapes (seams drawn
 //!    twice because "on boundary = outside" keeps both).
 
+use crate::bbox::BBox;
 use crate::fragment::{Frag, Span};
+use crate::index::SpatialIndex;
 use crate::primitive::{Line, Primitive};
+use crate::vec2::{v, Vec2};
 use std::collections::HashMap;
 
 /// A visible run too short to draw as a line is still ink the pen can make:
-/// a tap. Whole small primitives always tap; occlusion remnants tap only
-/// when at least half a nib survives (see `spans_to_fragments`).
+/// a tap. Candidates are resolved against actual ink coverage by
+/// `resolve_taps`.
 pub fn dot_frag(origin: u32, prim: &Primitive, pen: u32, shape: u32) -> Frag {
     dot_frag_at(origin, prim, 0.5, pen, shape)
 }
@@ -48,6 +54,7 @@ pub fn spans_to_fragments(
     pen: u32,
     shape: u32,
     out: &mut Vec<Frag>,
+    taps: &mut Vec<Frag>,
 ) {
     if spans.is_empty() {
         return;
@@ -91,19 +98,10 @@ pub fn spans_to_fragments(
             }
         }
         i = j + 1;
-        let run_len = span_len(start, end);
-        if run_len < threshold {
-            // A visible run below the nib can't be a line, but the pen can
-            // still tap it. Round to the nearest plottable ink unit:
-            //  - the run IS the whole primitive (a deliberately small mark,
-            //    e.g. a sub-nib circle or hatch chord): always a dot;
-            //  - an occlusion-truncated remnant: a dot when ≥ half a nib
-            //    (it's visible blank paper otherwise — deep overlaps used
-            //    to hollow out the exposed crescent), dropped below that
-            //    (rounds to nothing; keeps grazing cuts from spraying dots).
-            if (start == 0.0 && end == 1.0) || run_len >= threshold * 0.5 {
-                out.push(dot_frag_at(origin, prim, (start + end) * 0.5, pen, shape));
-            }
+        if span_len(start, end) < threshold {
+            // Visible ink the pen can only tap — a coverage question, not a
+            // length rule. Deferred to `resolve_taps`.
+            taps.push(dot_frag_at(origin, prim, (start + end) * 0.5, pen, shape));
             continue;
         }
         out.push(Frag {
@@ -159,6 +157,63 @@ pub fn dedupe_seams(frags: Vec<Frag>, threshold: f64) -> Vec<Frag> {
         .zip(keep)
         .filter_map(|(f, k)| if k { Some(f) } else { None })
         .collect()
+}
+
+/// Resolve tap candidates against actual ink coverage: a candidate is kept
+/// (as a dot) only when its point is NOT within the ink band of any kept
+/// stroke of the same pen — covered ink is redundant, uncovered ink is owed.
+/// Exact nib-distance queries against the kept geometry; accepted taps join
+/// the coverage so clusters of candidates collapse to one dot (a vanished
+/// circle's two arcs tap once, not twice). Candidate order is the shape/
+/// primitive emission order, so the result is deterministic.
+pub fn resolve_taps(frags: &mut Vec<Frag>, taps: Vec<Frag>, pen_widths: &[f64]) {
+    if taps.is_empty() {
+        return;
+    }
+    let boxes: Vec<BBox> = frags.iter().map(|f| f.geom.bbox()).collect();
+    let index = SpatialIndex::build(&boxes);
+    let max_half = pen_widths.iter().cloned().fold(0.0, f64::max) * 0.5;
+    let mut query = Vec::new();
+    // Accepted taps, bucketed on a coarse grid so dense candidate fields
+    // stay linear. Cell = the largest ink band; neighbours cover the reach.
+    let cell = (max_half * 2.0).max(1e-6);
+    let mut accepted: HashMap<(i64, i64), Vec<(Vec2, u32)>> = HashMap::new();
+    let key = |p: Vec2| ((p.x / cell).floor() as i64, (p.y / cell).floor() as i64);
+    let width = |pen: u32| pen_widths.get(pen as usize).copied().unwrap_or(0.3);
+
+    for tap in taps {
+        let p = tap.geom.start();
+        let band = |pen: u32| width(pen) * 0.5;
+        let qb = BBox::from_points(&[
+            v(p.x - max_half, p.y - max_half),
+            v(p.x + max_half, p.y + max_half),
+        ]);
+        index.query(&qb, &mut query);
+        let mut covered = query.iter().any(|&i| {
+            let f = &frags[i as usize];
+            f.pen == tap.pen && f.geom.dist_to(p) <= band(f.pen)
+        });
+        if !covered {
+            let (kx, ky) = key(p);
+            'grid: for dx in -1..=1 {
+                for dy in -1..=1 {
+                    if let Some(bucket) = accepted.get(&(kx + dx, ky + dy)) {
+                        if bucket
+                            .iter()
+                            .any(|&(q, pen)| pen == tap.pen && p.dist(q) <= band(pen))
+                        {
+                            covered = true;
+                            break 'grid;
+                        }
+                    }
+                }
+            }
+        }
+        if !covered {
+            accepted.entry(key(p)).or_default().push((p, tap.pen));
+            frags.push(tap);
+        }
+    }
 }
 
 /// Same endpoints (either orientation) and same midpoint within tol.

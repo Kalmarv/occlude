@@ -396,6 +396,74 @@ impl Primitive {
         }
     }
 
+    /// Exact distance from a point to this primitive (endpoint-clamped).
+    /// Lines and arcs are closed-form; cubics use coarse parameter seeding
+    /// plus Newton refinement of (B(t)−p)·B′(t) = 0 — no flattening.
+    pub fn dist_to(&self, p: Vec2) -> f64 {
+        match self {
+            Primitive::Line(l) => {
+                let d = l.dir();
+                let len2 = d.dot(d);
+                let t = if len2 > 0.0 {
+                    ((p - l.p0).dot(d) / len2).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                l.eval(t).dist(p)
+            }
+            Primitive::Arc(a) => {
+                let rel = p - a.center;
+                let end_min = p.dist(a.eval(0.0)).min(p.dist(a.eval(1.0)));
+                if rel.len() < 1e-12 {
+                    return a.r.min(end_min);
+                }
+                // Nearest point on the full circle; keep it only if its
+                // angle falls inside the arc's swept interval.
+                let ang = rel.y.atan2(rel.x);
+                let tau = std::f64::consts::TAU;
+                let (from, sweep) = if a.sweep >= 0.0 {
+                    (a.start, a.sweep)
+                } else {
+                    (a.start + a.sweep, -a.sweep)
+                };
+                let delta = ((ang - from) % tau + tau) % tau;
+                if delta <= sweep {
+                    (rel.len() - a.r).abs().min(end_min)
+                } else {
+                    end_min
+                }
+            }
+            Primitive::Cubic(c) => {
+                let mut best_t = 0.0;
+                let mut best = f64::INFINITY;
+                for k in 0..=16 {
+                    let t = k as f64 / 16.0;
+                    let d = c.eval(t).dist2(p);
+                    if d < best {
+                        best = d;
+                        best_t = t;
+                    }
+                }
+                // Newton on g(t) = (B(t)−p)·B′(t); g′ ≈ |B′|² dominates.
+                let mut t = best_t;
+                for _ in 0..8 {
+                    let e = c.eval(t) - p;
+                    let d1 = c.deriv(t);
+                    let denom = d1.dot(d1);
+                    if denom < 1e-18 {
+                        break;
+                    }
+                    let step = e.dot(d1) / denom;
+                    t = (t - step).clamp(0.0, 1.0);
+                    if step.abs() < 1e-10 {
+                        break;
+                    }
+                }
+                c.eval(t).dist(p).min(c.eval(best_t).dist(p))
+            }
+        }
+    }
+
     pub fn bbox(&self) -> BBox {
         match self {
             Primitive::Line(l) => l.bbox(),

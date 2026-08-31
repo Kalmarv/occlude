@@ -137,6 +137,8 @@ const GEN_FLAG: u32 = 1 << 31;
 struct ShapeOut {
     gen_prims: Vec<Primitive>,
     frags: Vec<Frag>,
+    /// Sub-nib tap candidates, resolved against ink coverage after merge.
+    taps: Vec<Frag>,
 }
 
 pub fn render(input: &RenderInput) -> RenderOutput {
@@ -361,6 +363,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
                     clean[i],
                     &mut query_buf,
                     &mut so.frags,
+                    &mut so.taps,
                 );
             }
         }
@@ -392,6 +395,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
                 clean[i],
                 query_buf,
                 &mut so.frags,
+                &mut so.taps,
             );
         };
         match kind {
@@ -411,8 +415,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
                 // near-duplicate dots from neighbouring shapes (clumpy,
                 // structured borders). Still fully deterministic per sketch
                 // seed; shape 0 keeps the unmixed seed.
-                let shape_seed =
-                    input.seed ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+                let shape_seed = input.seed ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
                 let pts = stipple_region(region, *density, *min_dist * coarsen, shape_seed);
                 for p in pts {
                     if point_visible(p, &shape_clips, &ctx, &mut query_buf) {
@@ -464,21 +467,29 @@ pub fn render(input: &RenderInput) -> RenderOutput {
 
     // Deterministic merge in input order: rebase generated origins.
     let mut frags: Vec<Frag> = Vec::new();
+    let mut taps: Vec<Frag> = Vec::new();
     for so in outputs {
         let base = prim_table.len() as u32;
         stats.fill_prims += so.gen_prims.len();
         prim_table.extend(so.gen_prims);
-        frags.extend(so.frags.into_iter().map(|mut f| {
+        let rebase = |mut f: Frag| {
             if f.origin & GEN_FLAG != 0 {
                 f.origin = base + (f.origin & !GEN_FLAG);
             }
             f
-        }));
+        };
+        frags.extend(so.frags.into_iter().map(rebase));
+        taps.extend(so.taps.into_iter().map(rebase));
     }
 
     drop(_z);
     let _z = crate::profile::zone("6 dedupe");
-    let frags = dedupe_seams(frags, min_pen_width.max(1e-6));
+    let mut frags = dedupe_seams(frags, min_pen_width.max(1e-6));
+    // Sub-nib candidates become dots only where their ink is not already
+    // laid down by kept strokes — the coverage half of the nib rule.
+    let pen_widths: Vec<f64> = input.pens.iter().map(|p| p.width).collect();
+    crate::cleanup::resolve_taps(&mut frags, taps, &pen_widths);
+    let frags = frags;
     drop(_z);
     let _z = crate::profile::zone("7 post-modifiers");
     // ---- Post-stage modifiers: each shape's ordered program runs over its
@@ -563,7 +574,12 @@ fn bridge_pass(input: &RenderInput, frags: &mut Vec<Frag>, prims: &mut Vec<Primi
             continue;
         }
         for pos in [f.geom.eval(f.t0), f.geom.eval(f.t1)] {
-            ends.push(End { frag: fi, pos, tol, pen: f.pen });
+            ends.push(End {
+                frag: fi,
+                pos,
+                tol,
+                pen: f.pen,
+            });
         }
     }
     if ends.is_empty() {
@@ -619,7 +635,9 @@ fn bridge_pass(input: &RenderInput, frags: &mut Vec<Frag>, prims: &mut Vec<Primi
         let mut best: Option<(f64, usize)> = None;
         for dx in -1..=1 {
             for dy in -1..=1 {
-                let Some(cellv) = grid.get(&(kx + dx, ky + dy)) else { continue };
+                let Some(cellv) = grid.get(&(kx + dx, ky + dy)) else {
+                    continue;
+                };
                 for &j in cellv {
                     if j == i || used[j] {
                         continue;
@@ -693,7 +711,14 @@ struct ContourLens {
 }
 
 impl PostInterp<'_> {
-    fn run(&mut self, f: Frag, prog: &[Modifier], is_stroke: bool, closed: bool, out: &mut Vec<Frag>) {
+    fn run(
+        &mut self,
+        f: Frag,
+        prog: &[Modifier],
+        is_stroke: bool,
+        closed: bool,
+        out: &mut Vec<Frag>,
+    ) {
         self.cur.clear();
         self.cur.push(f);
         for (slot, m) in prog.iter().enumerate() {
@@ -769,7 +794,13 @@ impl PostInterp<'_> {
             let dotp = Primitive::Line(Line::new(p, p));
             let origin = self.prim_table.len() as u32;
             self.prim_table.push(dotp);
-            self.next.push(Frag { origin, t0: 0.0, t1: 1.0, geom: dotp, ..f });
+            self.next.push(Frag {
+                origin,
+                t0: 0.0,
+                t1: 1.0,
+                geom: dotp,
+                ..f
+            });
             return;
         }
         self.pts.clear();
@@ -786,7 +817,8 @@ impl PostInterp<'_> {
             let n = (len / step).ceil().max(1.0) as usize;
             for k in 0..n {
                 let t = k as f64 / n as f64;
-                self.dense.push(v(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+                self.dense
+                    .push(v(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
             }
         }
         if let Some(&tail) = self.pts.last() {
@@ -832,33 +864,31 @@ impl PostInterp<'_> {
         // contour (outline frags), or streaming continuity for generated
         // chains (e.g. dash after wobble); standalone strokes start at 0.
         let si = f.shape;
-        let (base, eff_len, eff_period) = if let Some((c_start, c_total)) =
-            self.contour_pos(si, f.origin as usize)
-        {
-            let along = c_start + prefix_len(&self.prim_table[f.origin as usize], f.t0);
-            if closed && c_total > period {
-                // Fit the period to the contour so the seam disappears.
-                let count = (c_total / period).round().max(1.0);
-                let r = c_total / (count * period);
-                (along, len * r, period * r)
-            } else {
-                (along, len, period)
-            }
-        } else {
-            let start_pt = f.geom.start();
-            let key = (si, slot);
-            let base = match self.dash_chains.get(&key) {
-                Some(&(end_pt, phase))
-                    if (end_pt.x - start_pt.x).hypot(end_pt.y - start_pt.y) < 1e-9 =>
-                {
-                    phase
+        let (base, eff_len, eff_period) =
+            if let Some((c_start, c_total)) = self.contour_pos(si, f.origin as usize) {
+                let along = c_start + prefix_len(&self.prim_table[f.origin as usize], f.t0);
+                if closed && c_total > period {
+                    // Fit the period to the contour so the seam disappears.
+                    let count = (c_total / period).round().max(1.0);
+                    let r = c_total / (count * period);
+                    (along, len * r, period * r)
+                } else {
+                    (along, len, period)
                 }
-                _ => 0.0,
+            } else {
+                let start_pt = f.geom.start();
+                let key = (si, slot);
+                let base = match self.dash_chains.get(&key) {
+                    Some(&(end_pt, phase))
+                        if (end_pt.x - start_pt.x).hypot(end_pt.y - start_pt.y) < 1e-9 =>
+                    {
+                        phase
+                    }
+                    _ => 0.0,
+                };
+                self.dash_chains.insert(key, (f.geom.end(), base + total));
+                (base, len, period)
             };
-            self.dash_chains
-                .insert(key, (f.geom.end(), base + total));
-            (base, len, period)
-        };
 
         // Arc-length → local t (lines and arcs are uniform-speed; cubics
         // get a sampled table).
@@ -885,7 +915,11 @@ impl PostInterp<'_> {
                     let n = cum.len() - 1;
                     let i = cum.partition_point(|&c| c < target).clamp(1, n);
                     let (c0, c1) = (cum[i - 1], cum[i]);
-                    let frac = if c1 > c0 { (target - c0) / (c1 - c0) } else { 0.0 };
+                    let frac = if c1 > c0 {
+                        (target - c0) / (c1 - c0)
+                    } else {
+                        0.0
+                    };
                     ((i - 1) as f64 + frac) / n as f64
                 }
             }
@@ -939,7 +973,12 @@ impl PostInterp<'_> {
                         cum.push(last + p.length());
                     }
                     let total = *cum.last().unwrap();
-                    ContourLens { start: s, end: e, cum, total }
+                    ContourLens {
+                        start: s,
+                        end: e,
+                        cum,
+                        total,
+                    }
                 })
                 .collect()
         });
@@ -991,7 +1030,11 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, input: &RenderInput) -> ShapeRec {
                 for (ci, poly) in polys.iter_mut().enumerate() {
                     resample_polyline(poly, detail.max(0.2), closed);
                     let n = poly.len();
-                    let (lo, hi) = if closed { (0, n) } else { (1, n.saturating_sub(1)) };
+                    let (lo, hi) = if closed {
+                        (0, n)
+                    } else {
+                        (1, n.saturating_sub(1))
+                    };
                     for (i, p) in poly.iter_mut().enumerate().take(hi).skip(lo) {
                         let a = amp.at(fields, p.x, p.y);
                         if a <= 0.0 {
@@ -1009,12 +1052,7 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, input: &RenderInput) -> ShapeRec {
             }
             Modifier::Deform { dx, dy, detail } => {
                 let target = detail.max(0.2);
-                let map = |p: Vec2| {
-                    v(
-                        p.x + dx.at(fields, p.x, p.y),
-                        p.y + dy.at(fields, p.x, p.y),
-                    )
-                };
+                let map = |p: Vec2| v(p.x + dx.at(fields, p.x, p.y), p.y + dy.at(fields, p.x, p.y));
                 for poly in &mut polys {
                     // Adaptive floor: small shapes need proportionally finer
                     // source sampling — guarantee ≥64 segments per contour.
@@ -1294,15 +1332,16 @@ fn clip_one(
     clean: bool,
     query_buf: &mut Vec<u32>,
     out: &mut Vec<Frag>,
+    taps: &mut Vec<Frag>,
 ) {
     if clean {
-        // The nib-width rule applies on the fast path too: a whole primitive
-        // below one nib is a dot, not a line (tiny hatch chords at region
-        // corners, sub-nib circles) — and being fully visible, it taps.
+        // The nib rule applies on the fast path too: a whole primitive below
+        // one nib can only be tapped — whether it should be is a coverage
+        // question, deferred to resolve_taps.
         if prim.length() >= threshold {
             out.push(Frag::whole(origin, *prim, pen, shape));
         } else {
-            out.push(crate::cleanup::dot_frag(origin, prim, pen, shape));
+            taps.push(crate::cleanup::dot_frag(origin, prim, pen, shape));
         }
         return;
     }
@@ -1322,7 +1361,7 @@ fn clip_one(
         if prim.length() >= threshold {
             out.push(Frag::whole(origin, *prim, pen, shape));
         } else {
-            out.push(crate::cleanup::dot_frag(origin, prim, pen, shape));
+            taps.push(crate::cleanup::dot_frag(origin, prim, pen, shape));
         }
         return;
     }
@@ -1374,7 +1413,7 @@ fn clip_one(
             return;
         }
     }
-    spans_to_fragments(origin, prim, &spans, threshold, pen, shape, out);
+    spans_to_fragments(origin, prim, &spans, threshold, pen, shape, out, taps);
 }
 
 fn point_visible(p: Vec2, clips: &[&Region], ctx: &ClipCtx, query_buf: &mut Vec<u32>) -> bool {

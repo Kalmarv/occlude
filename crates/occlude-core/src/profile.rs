@@ -32,7 +32,10 @@ mod imp {
     }
 
     pub fn zone(name: &'static str) -> Zone {
-        Zone { name, start: Instant::now() }
+        Zone {
+            name,
+            start: Instant::now(),
+        }
     }
 
     pub fn take() -> Vec<(&'static str, Duration)> {

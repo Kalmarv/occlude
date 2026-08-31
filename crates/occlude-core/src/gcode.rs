@@ -272,7 +272,13 @@ pub fn export_gcode(
 /// injection) and characters G-code comments can't hold.
 fn comment_safe(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_control() || c == '(' || c == ')' || c == ';' { '_' } else { c })
+        .map(|c| {
+            if c.is_control() || c == '(' || c == ')' || c == ';' {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect()
 }
 

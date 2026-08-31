@@ -36,7 +36,7 @@ fn stroke_shape(contours: Vec<Vec<Primitive>>, closed: bool) -> ShapeRec {
         z: 0.0,
         bridge_mm: 0.0,
         clips: vec![],
-                modifiers: Vec::new(),
+        modifiers: Vec::new(),
     }
 }
 
@@ -51,7 +51,7 @@ fn filled_shape(contours: Vec<Vec<Primitive>>, kind: FillKind) -> ShapeRec {
         z: 0.0,
         bridge_mm: 0.0,
         clips: vec![],
-                modifiers: Vec::new(),
+        modifiers: Vec::new(),
     }
 }
 
@@ -361,5 +361,8 @@ fn mask_occludes_without_ink() {
     assert_eq!(out.stats.fill_prims, 0);
     // …but the line is still cut by it.
     let total: f64 = out.frags.iter().map(|f| f.geom.length()).sum();
-    assert!((total - 30.0).abs() < 1e-6, "hidden-line cut missing: {total}");
+    assert!(
+        (total - 30.0).abs() < 1e-6,
+        "hidden-line cut missing: {total}"
+    );
 }

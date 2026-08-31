@@ -1,8 +1,8 @@
 use occlude_core::cleanup::{dedupe_seams, spans_to_fragments};
-use occlude_core::pipeline::{Pen, RenderInput, ShapeRec};
 use occlude_core::clip::{clip_spans, fully_hidden};
 use occlude_core::fragment::{Frag, Span};
 use occlude_core::intersect::*;
+use occlude_core::pipeline::{Pen, RenderInput, ShapeRec};
 use occlude_core::poly::{roots_cubic, roots_in_unit};
 use occlude_core::primitive::{Arc, Cubic, Line, Primitive};
 use occlude_core::region::{Region, WindingRule};
@@ -369,7 +369,7 @@ fn tangent_line_draws_through() {
     }];
     clip_spans(&subject, &mut spans, &region, false);
     let mut frags = Vec::new();
-    spans_to_fragments(0, &subject, &spans, 0.2, 0, 0, &mut frags);
+    spans_to_fragments(0, &subject, &spans, 0.2, 0, 0, &mut frags, &mut Vec::new());
     assert_eq!(frags.len(), 1, "{frags:?}");
     assert!((frags[0].t0 - 0.0).abs() < 1e-9 && (frags[0].t1 - 1.0).abs() < 1e-9);
 }
@@ -417,36 +417,15 @@ fn tiny_hidden_gap_bridges() {
         },
     ];
     let mut frags = Vec::new();
-    spans_to_fragments(0, &prim, &spans, 0.3, 0, 0, &mut frags);
+    spans_to_fragments(0, &prim, &spans, 0.3, 0, 0, &mut frags, &mut Vec::new());
     assert_eq!(frags.len(), 1);
     assert!((frags[0].t1 - frags[0].t0 - 1.0).abs() < 1e-12);
 }
 
 #[test]
-fn tiny_visible_tick_deleted() {
-    let prim = Primitive::Line(line(0., 0., 100., 0.));
-    let spans = vec![
-        Span {
-            t0: 0.0,
-            t1: 0.001,
-            visible: true,
-        }, // 0.1 mm tick at the end
-        Span {
-            t0: 0.001,
-            t1: 1.0,
-            visible: false,
-        },
-    ];
-    let mut frags = Vec::new();
-    spans_to_fragments(0, &prim, &spans, 0.3, 0, 0, &mut frags);
-    assert!(frags.is_empty(), "{frags:?}");
-}
-
-#[test]
-fn sub_nib_whole_primitive_taps_a_dot() {
-    // A FULLY VISIBLE primitive shorter than the nib is a small shape, not
-    // occlusion residue — the pen can still tap it. (Sub-nib circles used
-    // to vanish; sub-nib hatch chords left voids at small paper sizes.)
+fn sub_nib_runs_become_tap_candidates() {
+    // Any visible run below the nib is a tap CANDIDATE — never a line frag,
+    // never silently gone at this level. Coverage decides its fate.
     let prim = Primitive::Line(line(0., 0., 0.2, 0.));
     let spans = vec![Span {
         t0: 0.0,
@@ -454,36 +433,58 @@ fn sub_nib_whole_primitive_taps_a_dot() {
         visible: true,
     }];
     let mut frags = Vec::new();
-    spans_to_fragments(0, &prim, &spans, 0.38, 0, 0, &mut frags);
-    assert_eq!(frags.len(), 1, "{frags:?}");
-    assert!(frags[0].dot);
-    let p = frags[0].geom.start();
-    assert!((p.x - 0.1).abs() < 1e-9 && p.y.abs() < 1e-9, "dot at midpoint");
-    // But the same length surviving as a REMNANT of occlusion stays dropped
-    // (tiny_visible_tick_deleted pins that side).
+    let mut taps = Vec::new();
+    spans_to_fragments(0, &prim, &spans, 0.38, 0, 0, &mut frags, &mut taps);
+    assert!(frags.is_empty(), "{frags:?}");
+    assert_eq!(taps.len(), 1, "{taps:?}");
+    assert!(taps[0].dot);
+    let p = taps[0].geom.start();
+    assert!(
+        (p.x - 0.1).abs() < 1e-9 && p.y.abs() < 1e-9,
+        "dot at midpoint"
+    );
 }
 
 #[test]
-fn occlusion_remnant_rounds_to_nearest_ink() {
-    // A visible remnant left by a deep occlusion cut rounds to the nearest
-    // plottable ink: ≥ half a nib → tap a dot (it is visible blank paper,
-    // not covered detail); below half a nib → nothing.
-    let prim = Primitive::Line(line(0., 0., 100., 0.));
-    let cut = |t: f64| {
-        vec![
-            Span { t0: 0.0, t1: t, visible: true },
-            Span { t0: t, t1: 1.0, visible: false },
-        ]
+fn tap_coverage_owed_vs_redundant() {
+    // The one rule: a candidate whose ink is already laid down by a kept
+    // stroke of the same pen is redundant; an uncovered one is owed a dot.
+    let cand = |x: f64, y: f64, pen: u32| {
+        let prim = Primitive::Line(line(x, y, x, y));
+        occlude_core::cleanup::dot_frag(9, &prim, pen, 0)
     };
-    let mut frags = Vec::new();
-    spans_to_fragments(0, &prim, &cut(0.0025), 0.3, 0, 0, &mut frags);
-    // 0.25 long ≥ 0.15 (half of 0.3 nib) → one dot at the remnant's middle
-    assert_eq!(frags.len(), 1, "{frags:?}");
-    assert!(frags[0].dot);
-    assert!((frags[0].geom.start().x - 0.125).abs() < 1e-9);
-    let mut none = Vec::new();
-    spans_to_fragments(0, &prim, &cut(0.001), 0.3, 0, 0, &mut none);
-    assert!(none.is_empty(), "0.1 < half nib rounds to nothing: {none:?}");
+    let kept = Frag::whole(0, Primitive::Line(line(0., 0., 10., 0.)), 0, 0);
+    let widths = [0.3];
+
+    // Candidate ON the kept stroke's centreline: covered, dropped.
+    let mut frags = vec![kept.clone()];
+    occlude_core::cleanup::resolve_taps(&mut frags, vec![cand(5.0, 0.0, 0)], &widths);
+    assert_eq!(frags.len(), 1, "covered tap must drop: {frags:?}");
+
+    // Candidate outside the ink band (0.15 half-width): owed, taps.
+    let mut frags = vec![kept.clone()];
+    occlude_core::cleanup::resolve_taps(&mut frags, vec![cand(5.0, 0.4, 0)], &widths);
+    assert_eq!(frags.len(), 2, "uncovered tap must land: {frags:?}");
+    assert!(frags[1].dot);
+
+    // Different pen never covers (different ink).
+    let mut frags = vec![kept.clone()];
+    occlude_core::cleanup::resolve_taps(&mut frags, vec![cand(5.0, 0.0, 1)], &[0.3, 0.3]);
+    assert_eq!(frags.len(), 2, "other-pen ink must not cover: {frags:?}");
+
+    // Accepted taps join the coverage: a cluster collapses to ONE dot
+    // (a vanished circle's two arcs tap once, not twice).
+    let mut frags = vec![];
+    occlude_core::cleanup::resolve_taps(
+        &mut frags,
+        vec![cand(50.0, 0.0, 0), cand(50.1, 0.0, 0), cand(53.0, 0.0, 0)],
+        &widths,
+    );
+    assert_eq!(
+        frags.len(),
+        2,
+        "cluster collapses, distant tap survives: {frags:?}"
+    );
 }
 
 #[test]
@@ -583,7 +584,12 @@ fn containment_rejects_near_covers_and_accepts_twins() {
             Primitive::Line(Line::new(rot(1.5, 10.0), rot(-1.5, 10.0))),
             Primitive::Arc(Arc::new(rot(-1.5, 9.0), 1.0, quarter + a, quarter)),
             Primitive::Line(Line::new(rot(-2.5, 9.0), rot(-2.5, -9.0))),
-            Primitive::Arc(Arc::new(rot(-1.5, -9.0), 1.0, std::f64::consts::PI + a, quarter)),
+            Primitive::Arc(Arc::new(
+                rot(-1.5, -9.0),
+                1.0,
+                std::f64::consts::PI + a,
+                quarter,
+            )),
         ]
         .iter()
         .map(snap_primitive)
@@ -692,8 +698,8 @@ fn mirrored_s_cubics_are_not_deduped() {
 #[test]
 fn stipple_zero_min_dist_is_bounded() {
     use occlude_core::fill::stipple_region;
-    use occlude_core::region::Region;
     use occlude_core::primitive::Line;
+    use occlude_core::region::Region;
     // A 100×100mm square with min_dist = 0 must complete quickly on a
     // budgeted grid rather than attempting a gigabyte allocation.
     let sq = Region::new(
