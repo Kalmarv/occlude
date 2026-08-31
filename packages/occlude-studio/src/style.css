@@ -430,6 +430,17 @@ button.primary {
   overflow: hidden;
 }
 
+#render-toggle {
+  font-family: var(--mono);
+  font-size: 11px;
+  flex: none;
+}
+
+#render-toggle.paused {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
 .status-ok {
   color: var(--ink-dim);
 }

@@ -15,11 +15,31 @@ import type { RenderResult } from 'occlude';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
+/**
+ * Crash recovery: the sketch executes synchronously on the main thread, so a
+ * runaway loop (`x += 0` mid-edit) freezes or OOM-kills the tab before any
+ * error can surface. The sentinel is set just before that dangerous window
+ * and cleared right after — if a page load finds it still set, the last run
+ * never finished, and rendering starts paused so the bad code can be edited
+ * without instantly re-executing.
+ */
+const RUN_SENTINEL = 'occlude.run-in-progress';
+
 async function boot(): Promise<void> {
   const statusMsg = $('status-msg');
   const statusStats = $('status-stats');
   const statusSeed = $('status-seed');
   const titleEl = $('sketch-title');
+
+  let crashed = localStorage.getItem(RUN_SENTINEL) !== null;
+  localStorage.removeItem(RUN_SENTINEL);
+  let renderOn = !crashed;
+  const renderToggle = $('render-toggle') as HTMLButtonElement;
+  function syncRenderToggle(): void {
+    renderToggle.textContent = renderOn ? '⏸ pause' : '▶ render';
+    renderToggle.classList.toggle('paused', !renderOn);
+  }
+  syncRenderToggle();
 
   const pens = await loadPens();
   const settings = loadSettings();
@@ -70,7 +90,15 @@ async function boot(): Promise<void> {
   }
 
   async function runInner(): Promise<void> {
-    saveSketch(editor.getValue());
+    saveSketch(editor.getValue()); // persist BEFORE executing — survives a crash
+    if (!renderOn) {
+      statusMsg.className = 'status-err';
+      statusMsg.textContent = crashed
+        ? 'last run never finished (runaway loop / out of memory?) — rendering is ' +
+          'paused so you can fix the sketch; press ▶ render when ready'
+        : 'rendering paused — press ▶ render to run the sketch';
+      return;
+    }
     const emitted = await editor.emit();
     if (!emitted.js) {
       statusMsg.className = 'status-err';
@@ -88,6 +116,9 @@ async function boot(): Promise<void> {
       return;
     }
     // Execute + encode on the main thread (cheap); geometry in the worker.
+    // This synchronous window is where a runaway loop hangs the tab — the
+    // sentinel brackets it so a reload after a crash starts paused.
+    localStorage.setItem(RUN_SENTINEL, '1');
     const outcome = runSketch(emitted.js, {
       pens,
       paper: settings.paper === 'Custom' ? settings.customPaper : settings.paper,
@@ -95,6 +126,7 @@ async function boot(): Promise<void> {
       defaultMarginPct: settings.defaultMarginPct,
       coarsen: 1,
     });
+    localStorage.removeItem(RUN_SENTINEL);
     if (outcome.error || !outcome.scene) {
       statusMsg.className = 'status-err';
       statusMsg.textContent =
@@ -144,6 +176,13 @@ async function boot(): Promise<void> {
       void run();
     }, 150);
   }
+
+  renderToggle.onclick = () => {
+    renderOn = !renderOn;
+    if (renderOn) crashed = false; // the crash notice served its purpose
+    syncRenderToggle();
+    void run();
+  };
 
   editor.onChange(scheduleRun);
   // Debug/automation handle (used by headless driving; harmless otherwise).
