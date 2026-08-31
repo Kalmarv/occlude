@@ -58,6 +58,11 @@ let externalPenLib: PenDef[] | null = null;
  * (studio) before running, survives sketch() resets. Default A4 portrait. */
 let paperHint: { w: number; h: number } = { w: 210, h: 297 };
 
+/** URL-less 'url' seed: rolled ONCE per session and reused, so re-renders
+ * (debug toggles, keystrokes, settings) never reshuffle the drawing —
+ * only an explicit reroll (?seed=) changes it. */
+let sessionSeed: number | null = null;
+
 function freshState(opts: SketchOptions = {}): State {
   let seed: number | string;
   if (opts.seed === 'url' || opts.seed === undefined) {
@@ -68,10 +73,13 @@ function freshState(opts: SketchOptions = {}): State {
     if (fromUrl !== null && fromUrl !== '') {
       seed = fromUrl;
     } else {
-      seed = Math.floor(Math.random() * 2 ** 31);
-      if (opts.seed === 'url') {
-        console.info(`occlude: seed=${seed}`);
+      if (sessionSeed === null) {
+        sessionSeed = Math.floor(Math.random() * 2 ** 31);
+        if (opts.seed === 'url') {
+          console.info(`occlude: seed=${sessionSeed}`);
+        }
       }
+      seed = sessionSeed;
     }
   } else {
     seed = opts.seed;

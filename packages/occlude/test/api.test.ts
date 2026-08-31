@@ -807,6 +807,19 @@ describe('tap dots decode at their true position', () => {
   });
 });
 
+describe('seed stability', () => {
+  it('URL-less seed is sticky across compiles (re-renders never reshuffle)', () => {
+    const def = () => sketch({ aspect: [1, 1] }, (t) => circle(t.rnd(100), 50, 5));
+    const a = sq(def());
+    const seedA = String((globalThis as Record<string, unknown>).__lastSeed ?? '');
+    const b = sq(def());
+    // Same session seed -> identical geometry frame to frame.
+    const g = (r: typeof a) => JSON.stringify(r.frags.map((f) => f.geom));
+    expect(g(b)).toBe(g(a));
+    void seedA;
+  });
+});
+
 describe('solid fill', () => {
   it('lays overlapping shape-aligned rows at 0.9x the fill nib', () => {
     const def = sketch({ aspect: [1, 1] }, () => circle(50, 50, mm(5), { fill: solid() }));
