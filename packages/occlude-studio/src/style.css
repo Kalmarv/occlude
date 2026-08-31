@@ -617,3 +617,82 @@ button.primary {
     transition: none !important;
   }
 }
+
+/* ---- assets page ---- */
+#assets-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 20px 24px 60px;
+}
+
+.assets-hint {
+  color: var(--ink-faint, #8a8578);
+  font-size: 13px;
+  margin: 10px 0 22px;
+}
+
+.assets-hint code {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+}
+
+.assets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.asset-card {
+  border: 1px solid var(--panel-edge, #d8d2c4);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.asset-thumb {
+  height: 130px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    repeating-conic-gradient(rgba(0, 0, 0, 0.05) 0% 25%, transparent 0% 50%)
+    0 0 / 16px 16px;
+  color: var(--ink-faint, #8a8578);
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.asset-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.asset-meta {
+  padding: 8px 10px 2px;
+  min-width: 0;
+}
+
+.asset-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-size {
+  font-size: 11px;
+  color: var(--ink-faint, #8a8578);
+}
+
+.asset-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px 10px;
+}
+
+body.dropping {
+  outline: 3px dashed var(--toolpath, #5b8bd9);
+  outline-offset: -6px;
+}

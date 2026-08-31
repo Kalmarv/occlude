@@ -13,8 +13,6 @@ import {
 import {
   deleteSketchByName, listSketches, loadSketchByName, saveSketchByName,
 } from './sketchApi.js';
-import { deleteAsset, listAssets, uploadAsset } from './assetApi.js';
-import { invalidateAsset } from './assetLoader.js';
 import { download, savePens, saveSettings, type Settings } from './store.js';
 import { Ebb, serialSupported, type PlotProgress } from './ebb.js';
 import {
@@ -45,18 +43,16 @@ export interface Rail {
 export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
   rail.innerHTML = '';
   const sketchesPanel = panel('Sketches', true);
-  const assetsPanel = panel('Assets', false);
   const pensPanel = panel('Pens', true);
   const paperPanel = panel('Paper & machine', false);
   const plotPanel = panel('Plot (serial)', false);
   const exportPanel = panel('Export', false);
   rail.append(
-    sketchesPanel.root, assetsPanel.root, pensPanel.root, paperPanel.root,
+    sketchesPanel.root, pensPanel.root, paperPanel.root,
     plotPanel.root, exportPanel.root,
   );
 
   const sketches = buildSketchesPanel(sketchesPanel.body, hooks);
-  buildAssetsPanel(assetsPanel.body, hooks);
   buildPensPanel(pensPanel.body, hooks);
   buildPaperPanel(paperPanel.body, hooks);
   buildPlotPanel(plotPanel.body, hooks);
@@ -187,78 +183,6 @@ function ago(mtime: number): string {
   if (s < 3600) return `${Math.round(s / 60)}m ago`;
   if (s < 86400) return `${Math.round(s / 3600)}h ago`;
   return `${Math.round(s / 86400)}d ago`;
-}
-
-// ---- assets (uploaded SVGs/images, server-side like sketches) ----
-
-function buildAssetsPanel(body: HTMLElement, hooks: PanelHooks): void {
-  const hint = document.createElement('div');
-  hint.className = 'panel-hint';
-  hint.textContent =
-    "Reference by literal name: svg(asset('church.svg'), …) for vectors, " +
-    "image('photo.jpg', { x, y, width }) to sample pixels (never drawn).";
-  const list = document.createElement('div');
-
-  async function refresh(): Promise<void> {
-    let assets;
-    try {
-      assets = await listAssets();
-    } catch {
-      list.textContent = 'asset store unavailable';
-      return;
-    }
-    list.innerHTML = '';
-    if (assets.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'panel-hint';
-      empty.textContent = 'No assets yet — upload an SVG or image.';
-      list.append(empty);
-      return;
-    }
-    for (const a of assets) {
-      const row = document.createElement('div');
-      row.className = 'sketch-row';
-      const name = document.createElement('span');
-      name.className = 'sketch-name';
-      name.textContent = a.name;
-      name.title = `${(a.size / 1024).toFixed(0)} KB`;
-      const del = button('×', async () => {
-        if (!confirm(`Delete asset '${a.name}' from the server?`)) return;
-        await deleteAsset(a.name);
-        invalidateAsset(a.name);
-        await refresh();
-        hooks.onChanged(); // re-run: sketches referencing it now error loudly
-      });
-      del.title = `Delete ${a.name}`;
-      del.className = 'sketch-del';
-      row.append(name, del);
-      list.append(row);
-    }
-  }
-
-  const upload = button('Upload…', () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.svg,.png,.jpg,.jpeg,.webp,.gif';
-    input.multiple = true;
-    input.onchange = async () => {
-      try {
-        for (const file of input.files ?? []) {
-          await uploadAsset(file);
-          invalidateAsset(file.name);
-        }
-        await refresh();
-        hooks.onChanged(); // a sketch may reference the fresh upload
-      } catch (e) {
-        alert(e instanceof Error ? e.message : String(e));
-      }
-    };
-    input.click();
-  });
-  upload.className = 'primary';
-
-  body.append(upload, list, hint);
-  void refresh();
 }
 
 // ---- pens ----
