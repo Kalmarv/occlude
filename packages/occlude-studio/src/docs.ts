@@ -113,6 +113,7 @@ async function hydrateLiveExamples(): Promise<void> {
 }
 
 const nav = document.getElementById('docs-nav')!;
+const toc = document.getElementById('docs-toc')!;
 const content = document.getElementById('docs-content')!;
 
 function currentSlug(): string {
@@ -120,7 +121,69 @@ function currentSlug(): string {
   return PAGES.some((p) => p.slug === slug) ? slug : 'guide';
 }
 
+function currentAnchor(): string | undefined {
+  return location.hash.replace(/^#\/?/, '').split('#')[1];
+}
+
+// ---- jump-to sidebar: h2/h3 outline of the current page, scroll-spied ----
+
+function slugifyHeading(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function buildToc(slug: string): void {
+  const heads = [...content.querySelectorAll<HTMLElement>('h2, h3')];
+  toc.replaceChildren();
+  toc.hidden = heads.length < 3;
+  for (const h of heads) {
+    if (!h.id) h.id = slugifyHeading(h.textContent ?? '');
+    const a = document.createElement('a');
+    a.textContent = h.textContent;
+    a.className = h.tagName === 'H2' ? 'toc-h2' : 'toc-h3';
+    a.dataset.target = h.id;
+    a.href = `#/${slug}#${h.id}`;
+    a.onclick = (e) => {
+      e.preventDefault();
+      h.scrollIntoView();
+      history.replaceState(null, '', `#/${slug}#${h.id}`);
+      updateTocActive();
+    };
+    toc.append(a);
+  }
+  updateTocActive();
+}
+
+function updateTocActive(): void {
+  let active: string | null = null;
+  for (const h of content.querySelectorAll<HTMLElement>('h2, h3')) {
+    if (h.getBoundingClientRect().top <= 80) active = h.id;
+    else break;
+  }
+  let current: HTMLAnchorElement | null = null;
+  for (const a of toc.querySelectorAll<HTMLAnchorElement>('a')) {
+    a.classList.toggle('active', a.dataset.target === active);
+    if (a.dataset.target === active) current = a;
+  }
+  // Keep the active link in view when the outline itself scrolls.
+  if (current) {
+    const t = toc.getBoundingClientRect();
+    const c = current.getBoundingClientRect();
+    if (c.top < t.top || c.bottom > t.bottom) current.scrollIntoView({ block: 'center' });
+  }
+}
+
+window.addEventListener('scroll', updateTocActive, { passive: true });
+
+let shownSlug = '';
+
 async function show(slug: string): Promise<void> {
+  // Back/forward between anchors on the same page: just scroll, don't
+  // re-render (hydrating every live example again is expensive).
+  if (slug === shownSlug) {
+    document.getElementById(currentAnchor() ?? '')?.scrollIntoView();
+    return;
+  }
+  shownSlug = slug;
   const page = PAGES.find((p) => p.slug === slug) ?? PAGES[0];
   content.innerHTML = await marked.parse(page.md);
   document.title = `occlude docs — ${page.title}`;
@@ -140,7 +203,10 @@ async function show(slug: string): Promise<void> {
       }
     }
   }
-  window.scrollTo(0, 0);
+  buildToc(page.slug);
+  const anchor = document.getElementById(currentAnchor() ?? '');
+  if (anchor) anchor.scrollIntoView();
+  else window.scrollTo(0, 0);
   void hydrateLiveExamples();
 }
 
