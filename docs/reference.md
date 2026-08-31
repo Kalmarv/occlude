@@ -336,12 +336,13 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) =>
 
 ### custom fills
 
-A custom fill is a plain function passed as `fill:`; it goes through the
-normal occlusion path. **Coordinates are paper millimetres**, and
-`ctx.rnd()` is seeded per-shape from the sketch seed — use it instead of
-`Math.random()`. Every built-in fill also takes an object form:
-`hatch({ angle: 45, offset: 3 })`, `stipple({ density: 0.7, minDist })` —
-stipple dot spacing ≈ `minDist / density`.
+A custom fill is a plain function passed as `fill:`. It runs inside the
+render for the shape being filled, and it returns **raw ink strokes, not
+shapes** — no pens, opacity, or z at this level, because the output *is*
+the fill ink of that one shape: drawn with the fill pen, clipped exactly
+to the region (overshooting is fine), and occluded like the built-in
+fills. **Coordinates are paper millimetres**, and `ctx.rnd()` is seeded
+per-shape from the sketch seed — use it instead of `Math.random()`.
 
 ```ts
 (region, ctx) => {
@@ -354,15 +355,20 @@ stipple dot spacing ≈ `minDist / density`.
 }
 ```
 
-Primitives it may return (overshooting the region is fine — everything is
-clipped exactly to the boundary):
+Strokes are records of the engine's stroke vocabulary — everything in the
+pipeline lowers to lines, arcs, and cubics, so any drawable mark is
+expressible (`polyline` is just a compact form for a connected line run):
 
 ```ts
 { type: 'line',  x1, y1, x2, y2 }
 { type: 'arc',   cx, cy, r, start, sweep }        // full circle: start 0, sweep 2π
 { type: 'cubic', x1, y1, cx1, cy1, cx2, cy2, x2, y2 }
-{ type: 'polyline', pts: [[x, y], ...] }          // one entry instead of n-1 lines
+{ type: 'polyline', pts: [[x, y], ...] }
 ```
+
+Every built-in fill also takes an object form: `hatch({ angle: 45,
+offset: 3 })`, `stipple({ density: 0.7, minDist })` — stipple dot spacing
+≈ `minDist / density`.
 
 Variable-radius dot shading — tiny full circles as single arcs, sized by
 distance from a light source:
