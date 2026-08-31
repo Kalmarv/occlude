@@ -334,6 +334,61 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) =>
 );
 ```
 
+### custom fills
+
+A custom fill is a plain function passed as `fill:`; it goes through the
+normal occlusion path. **Coordinates are paper millimetres**, and
+`ctx.rnd()` is seeded per-shape from the sketch seed — use it instead of
+`Math.random()`. Every built-in fill also takes an object form:
+`hatch({ angle: 45, offset: 3 })`, `stipple({ density: 0.7, minDist })` —
+stipple dot spacing ≈ `minDist / density`.
+
+```ts
+(region, ctx) => {
+  region.bbox              // { x, y, w, h } in mm
+  region.contains(x, y)    // point test (respects the winding rule)
+  region.path              // the actual outline: contours of exact primitives
+  region.area              // mm², holes subtracted
+  ctx.penWidth             // fill pen nib, mm
+  ctx.rnd()                // seeded [0, 1)
+}
+```
+
+Primitives it may return (overshooting the region is fine — everything is
+clipped exactly to the boundary):
+
+```ts
+{ type: 'line',  x1, y1, x2, y2 }
+{ type: 'arc',   cx, cy, r, start, sweep }        // full circle: start 0, sweep 2π
+{ type: 'cubic', x1, y1, cx1, cy1, cx2, cy2, x2, y2 }
+{ type: 'polyline', pts: [[x, y], ...] }          // one entry instead of n-1 lines
+```
+
+Variable-radius dot shading — tiny full circles as single arcs, sized by
+distance from a light source:
+
+```ts live
+import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 3 }, () =>
+  circle(50, 25, 20, {
+    fill: (region, ctx) => {
+      const b = region.bbox;
+      const dots = [];
+      while (dots.length < 400) {
+        const x = b.x + ctx.rnd() * b.w;
+        const y = b.y + ctx.rnd() * b.h;
+        if (!region.contains(x, y)) continue;
+        const shade = Math.hypot(x - (b.x + b.w * 0.35), y - (b.y + b.h * 0.3)) / (b.w * 0.8);
+        dots.push({ type: 'arc', cx: x, cy: y, r: 0.1 + shade * shade * 1.8,
+                    start: 0, sweep: Math.PI * 2 });
+      }
+      return dots;
+    },
+  }),
+);
+```
+
 ## SVG & assets
 
 ### svg
@@ -704,42 +759,19 @@ called in user coordinates and rasterised over the page at encode time, so
 the value varies spatially. Deterministic and plotter-reproducible;
 anything goes inside (math, `noise`, image lookups).
 
-```ts
-decimate((x, y) => y / 100, ...shapes)             // dissolves toward the bottom
-wobble({ amount: (x, y) => 2 * noise(x / 30, y / 30) }, ...shapes)
-// halftone: dash chops the hatch, an image field erodes it by position
-modify([dash(mm(1.2), mm(0.8)), decimate((x, y) => img.lum(x, y))],
-  rect(0, 0, 100, 100, { fill: hatch(45, mm(1.2)) }))
-```
+Fielded params: `decimate` probabilities, `wobble` amount, `roughen`
+amount. A field on a fill's decimate is a halftone — here `dash` chops the
+hatch into cells and a radial field erodes them away from the centre:
 
-## Custom fills
+```ts live
+import { sketch, rect, hatch, modify, dash, decimate, mm } from 'occlude';
 
-A custom fill is a plain function passed as `fill:`; it goes through the
-normal occlusion path. **Coordinates are paper millimetres**, and
-`ctx.rnd()` is seeded per-shape from the sketch seed — use it instead of
-`Math.random()`. Every built-in fill also takes an object form:
-`hatch({ angle: 45, offset: 3 })`, `stipple({ density: 0.7, minDist })` —
-stipple dot spacing ≈ `minDist / density`.
-
-```ts
-(region, ctx) => {
-  region.bbox              // { x, y, w, h } in mm
-  region.contains(x, y)    // point test (respects the winding rule)
-  region.path              // the actual outline: contours of exact primitives
-  region.area              // mm², holes subtracted
-  ctx.penWidth             // fill pen nib, mm
-  ctx.rnd()                // seeded [0, 1)
-}
-```
-
-Primitives it may return (overshooting the region is fine — everything is
-clipped exactly to the boundary):
-
-```ts
-{ type: 'line',  x1, y1, x2, y2 }
-{ type: 'arc',   cx, cy, r, start, sweep }        // full circle: start 0, sweep 2π
-{ type: 'cubic', x1, y1, cx1, cy1, cx2, cy2, x2, y2 }
-{ type: 'polyline', pts: [[x, y], ...] }          // one entry instead of n-1 lines
+export default sketch({ aspect: [2, 1], seed: 5 }, () =>
+  modify(
+    [dash(mm(1.2), mm(0.8)), decimate((x, y) => Math.hypot(x - 50, (y - 25) * 2.1) / 52)],
+    rect(2, 3, 96, 44, { fill: hatch(45, mm(1.1)), stroke: false }),
+  ),
+);
 ```
 
 ## Render & export
