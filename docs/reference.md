@@ -295,7 +295,12 @@ pen defaults to the shape's pen; `fillPen` overrides.
 ### hatch
 
 `hatch(angle?, spacing?, offset?)` — parallel lines. Spacing is a length
-(`mm()` for physical).
+(`mm()` for physical). The ruling is **paper-anchored by default**: one
+paper-wide grid that every same-spec fill samples, so adjacent shapes
+tile into continuous texture. For many small shapes (halftone dots) that
+makes each shape's marks depend on where it sits — pass the object form
+`hatch({ angle, spacing, align: 'shape' })` to centre the ruling on each
+shape instead: identical marks wherever the shape lands.
 
 ```ts live
 import { sketch, circle, hatch, mm } from 'occlude';

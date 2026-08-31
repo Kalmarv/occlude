@@ -28,6 +28,7 @@ fn scene() -> RenderInput {
             angle,
             spacing: 2.0,
             offset: 0.0,
+            shape_anchor: false,
         }])
     };
     let shape = |contours: Vec<Vec<Primitive>>,

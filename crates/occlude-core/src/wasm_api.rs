@@ -298,7 +298,7 @@ pub fn wasm_render(
                 let start = s[8] as usize;
                 let count = s[9] as usize;
                 if start
-                    .checked_add(count.checked_mul(3).ok_or(err("hatch params overflow"))?)
+                    .checked_add(count.checked_mul(4).ok_or(err("hatch params overflow"))?)
                     .filter(|&e| e <= fill_params.len())
                     .is_none()
                 {
@@ -306,9 +306,10 @@ pub fn wasm_render(
                 }
                 let passes = (0..count)
                     .map(|k| HatchPass {
-                        angle: fill_params[start + k * 3],
-                        spacing: fill_params[start + k * 3 + 1],
-                        offset: fill_params[start + k * 3 + 2],
+                        angle: fill_params[start + k * 4],
+                        spacing: fill_params[start + k * 4 + 1],
+                        offset: fill_params[start + k * 4 + 2],
+                        shape_anchor: fill_params[start + k * 4 + 3] != 0.0,
                     })
                     .collect();
                 Some((s[4] - 1, FillKind::Hatch(passes)))

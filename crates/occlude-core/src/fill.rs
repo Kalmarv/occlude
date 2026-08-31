@@ -18,6 +18,11 @@ pub struct HatchPass {
     pub spacing: f64,
     /// Phase offset in mm along the hatch normal.
     pub offset: f64,
+    /// Anchor the ruling to the shape instead of the paper: a line passes
+    /// through the region's bbox centre (plus `offset`), so every shape
+    /// gets identical marks wherever it sits — the halftone case. Paper-
+    /// anchored (false, default) keeps adjacent same-spec fills aligned.
+    pub shape_anchor: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -62,14 +67,20 @@ pub fn hatch_region(region: &Region, pass: &HatchPass) -> Vec<Primitive> {
         dmin = dmin.min(c.dot(dir));
         dmax = dmax.max(c.dot(dir));
     }
-    // Global phase: offsets are multiples of spacing (plus offset) in paper
-    // space, so hatches of adjacent shapes with the same spec align.
-    let k0 = ((omin - pass.offset) / spacing).ceil() as i64;
-    let k1 = ((omax - pass.offset) / spacing).floor() as i64;
+    // Phase: paper-anchored rulings are multiples of spacing in paper space
+    // (adjacent same-spec fills align); shape-anchored ones centre the
+    // ruling on the region, so small shapes render identically anywhere.
+    let phase = if pass.shape_anchor {
+        pass.offset + (b.min + (b.max - b.min) * 0.5).dot(nrm)
+    } else {
+        pass.offset
+    };
+    let k0 = ((omin - phase) / spacing).ceil() as i64;
+    let k1 = ((omax - phase) / spacing).floor() as i64;
     let pad = spacing * 0.5;
     let mut out = Vec::new();
     for k in k0..=k1 {
-        let o = k as f64 * spacing + pass.offset;
+        let o = k as f64 * spacing + phase;
         let a = nrm * o + dir * (dmin - pad);
         let bpt = nrm * o + dir * (dmax + pad);
         let span = Primitive::Line(Line::new(a, bpt));

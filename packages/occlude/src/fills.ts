@@ -14,6 +14,10 @@ export interface HatchPassSpec {
   /** mm (resolved). */
   spacing: L | undefined;
   offset: number;
+  /** 'paper' (default): one paper-wide ruling — adjacent same-spec fills
+   * align. 'shape': the ruling is centred on each shape, so small shapes
+   * get identical marks wherever they sit (halftones). */
+  align: 'paper' | 'shape';
 }
 
 export type FillSpec =
@@ -60,6 +64,9 @@ export interface HatchOptions {
   angle?: number;
   spacing?: L;
   offset?: number;
+  /** 'paper' (default) aligns the ruling across shapes; 'shape' centres it
+   * on each shape — identical marks regardless of position. */
+  align?: 'paper' | 'shape';
 }
 
 /** Parallel lines. Spacing defaults to 3× the fill pen's width (mm). */
@@ -70,16 +77,22 @@ export function hatch(a: number | HatchOptions = 0, spacing?: L, offset = 0): Fi
   if (typeof a === 'object') {
     return {
       type: 'hatch',
-      passes: [{ angle: a.angle ?? 0, spacing: a.spacing, offset: a.offset ?? 0 }],
+      passes: [{
+        angle: a.angle ?? 0,
+        spacing: a.spacing,
+        offset: a.offset ?? 0,
+        align: a.align ?? 'paper',
+      }],
     };
   }
-  return { type: 'hatch', passes: [{ angle: a, spacing, offset }] };
+  return { type: 'hatch', passes: [{ angle: a, spacing, offset, align: 'paper' }] };
 }
 
 export interface CrosshatchOptions {
   angles?: number[];
   spacing?: L;
   offset?: number;
+  align?: 'paper' | 'shape';
 }
 
 /** n hatch passes. */
@@ -98,6 +111,7 @@ export function crosshatch(
       angle,
       spacing: opts.spacing,
       offset: opts.offset ?? 0,
+      align: opts.align ?? 'paper',
     })),
   };
 }

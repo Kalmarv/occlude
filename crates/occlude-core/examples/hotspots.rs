@@ -76,6 +76,7 @@ fn hatch(spacing: f64) -> FillKind {
     FillKind::Hatch(vec![HatchPass {
         angle: 45.0,
         spacing,
+        shape_anchor: false,
         offset: 0.0,
     }])
 }

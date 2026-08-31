@@ -60,6 +60,7 @@ fn hatch() -> FillKind {
         angle: 45.0,
         spacing: 1.0,
         offset: 0.0,
+        shape_anchor: false,
     }])
 }
 

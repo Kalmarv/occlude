@@ -782,6 +782,42 @@ describe('ease', () => {
   });
 });
 
+describe('hatch align', () => {
+  it("align: 'shape' gives identical marks regardless of position", () => {
+    // Two identical small circles at different paper positions. Paper-
+    // anchored hatch samples one global ruling, so their chord patterns
+    // differ; shape-anchored centres the ruling on each circle, so the
+    // fills are congruent (same chord lengths at the same relative spots).
+    const chords = (align: 'paper' | 'shape') => {
+      const def = sketch({ aspect: [1, 1] }, () => [
+        circle(30, 30, mm(2.9), { fill: hatch({ angle: 0, spacing: mm(4), align }) }),
+        circle(70, 51.3, mm(2.9), { fill: hatch({ angle: 0, spacing: mm(4), align }) }),
+      ]);
+      const r = sq(def);
+      // Collect per-circle sorted chord lengths (line frags only).
+      const per: number[][] = [[], []];
+      for (const f of r.frags) {
+        if (f.geom.t !== 'line' || f.dot) continue;
+        const len = Math.hypot(f.geom.x1 - f.geom.x0, f.geom.y1 - f.geom.y0);
+        per[f.shape === 0 ? 0 : 1].push(len);
+      }
+      return per.map((l) => l.sort((x, y) => x - y));
+    };
+    const paper = chords('paper');
+    const shape = chords('shape');
+    // Shape-anchored: congruent fills (same count, same lengths).
+    expect(shape[0].length).toBe(shape[1].length);
+    shape[0].forEach((len, k) => expect(len).toBeCloseTo(shape[1][k], 6));
+    // And the centre chord exists: longest chord ≈ the diameter.
+    expect(shape[0][shape[0].length - 1]).toBeCloseTo(5.8, 1);
+    // Paper-anchored differs for these positions (the phase demo).
+    const same =
+      paper[0].length === paper[1].length &&
+      paper[0].every((len, k) => Math.abs(len - paper[1][k]) < 1e-6);
+    expect(same).toBe(false);
+  });
+});
+
 describe('ui() tweakable values', () => {
   it('is an identity at runtime', async () => {
     const { ui } = await import('../src/index.js');

@@ -430,7 +430,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
             pass.spacing ?? defaultHatchSpacing(penDef.width),
             frame.inner,
           );
-          fillParams.push(pass.angle, spacing, pass.offset);
+          fillParams.push(pass.angle, spacing, pass.offset, pass.align === 'shape' ? 1 : 0);
         }
       } else if (spec.type === 'stipple') {
         fillKind = 2;

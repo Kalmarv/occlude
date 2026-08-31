@@ -89,6 +89,7 @@ fn to_rec(g: &GenShape) -> ShapeRec {
         angle: 45.0,
         spacing: 2.0,
         offset: 0.0,
+        shape_anchor: false,
     }]);
     let (contours, closed, convex, filled) = match g {
         GenShape::Circle { x, y, r, filled } => (circle_contour(*x, *y, *r), true, true, *filled),

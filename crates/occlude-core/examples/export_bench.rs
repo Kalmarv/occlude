@@ -31,6 +31,7 @@ fn main() {
                     FillKind::Hatch(vec![HatchPass {
                         angle: 45.0,
                         spacing: 0.4,
+                        shape_anchor: false,
                         offset: 0.0,
                     }]),
                 )),
