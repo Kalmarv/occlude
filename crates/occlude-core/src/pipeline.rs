@@ -1296,10 +1296,13 @@ fn clip_one(
     out: &mut Vec<Frag>,
 ) {
     if clean {
-        // The nib-width rule applies on the fast path too: detail below one
-        // nib is a dot, not a line (tiny hatch chords at region corners).
+        // The nib-width rule applies on the fast path too: a whole primitive
+        // below one nib is a dot, not a line (tiny hatch chords at region
+        // corners, sub-nib circles) — and being fully visible, it taps.
         if prim.length() >= threshold {
             out.push(Frag::whole(origin, *prim, pen, shape));
+        } else {
+            out.push(crate::cleanup::dot_frag(origin, prim, pen, shape));
         }
         return;
     }
@@ -1318,6 +1321,8 @@ fn clip_one(
     if !any_later && clips.is_empty() {
         if prim.length() >= threshold {
             out.push(Frag::whole(origin, *prim, pen, shape));
+        } else {
+            out.push(crate::cleanup::dot_frag(origin, prim, pen, shape));
         }
         return;
     }

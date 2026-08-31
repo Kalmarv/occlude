@@ -33,8 +33,8 @@ Occlude is plotter-native end to end:
   layering of opaque shapes would leave visible. `mask()` gives you
   hidden-line drawing (terrain ridges, overlapping forms) in one word.
 - **The nib is the only tolerance.** Visible detail finer than the pen
-  width is dropped, hidden gaps finer than the pen width are inked —
-  physical reasoning, not epsilon tuning. Pens are real objects with
+  width rounds to a pen tap or to nothing, hidden gaps finer than the pen
+  width are inked — physical reasoning, not epsilon tuning. Pens are real objects with
   width, feed, and settle time.
 - **Line character is part of the model.** An ordered modifier stack runs
   *around* the occlusion solve: `smooth`/`roughen`/`deform` reshape
@@ -120,7 +120,7 @@ UPDATE_GOLDEN=1 cargo test -p occlude-core --test golden     # regenerate fixtur
   shapes, cuts every primitive against the opaque regions in front of it,
   then runs each shape's post-stage modifier program over the final ink.
   Fragments shorter than the pen nib are the system's single tolerance:
-  bridged or dropped by physical reasoning.
+  bridged, tapped as dots, or dropped by physical reasoning.
 - Export merges fragments into chains, orders them (nearest-neighbour +
   2-opt), bridges sub-nib gaps (plus opt-in `bridge` joining at artistic
   tolerances), flattens adaptively, and emits GRBL-flavoured G-code per pen

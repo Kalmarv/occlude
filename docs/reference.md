@@ -740,9 +740,11 @@ The occlusion contract, in four rules:
    width never dilates an occluder.
 3. **On the boundary counts as visible.** Ink lying exactly on an occluder's
    edge survives (shared edges draw once — duplicates are removed).
-4. **The nib is the only tolerance.** Visible detail shorter than the pen
-   width is dropped; hidden gaps shorter than the pen width are inked (a
-   pen can't plot either one).
+4. **The nib is the only tolerance.** Visible ink rounds to the nearest
+   plottable mark: detail shorter than the pen width becomes a pen tap (a
+   whole small shape always; an occlusion remnant only when at least half
+   a nib survives), and hidden gaps shorter than the pen width are inked —
+   a pen can't plot a line or a gap finer than its own nib.
 
 ## Shape options
 

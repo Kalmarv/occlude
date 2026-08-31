@@ -6,14 +6,37 @@
 //!    occlusion cuts an edge into alternating sub-nib visible/hidden slivers,
 //!    and per-piece "mixed neighbours → delete" would erase a zone that a
 //!    real pen renders as a solid line. After bridging, a visible run still
-//!    shorter than the nib is a dot, and is dropped.
+//!    shorter than the nib rounds to the nearest plottable ink: a whole
+//!    small primitive always taps a dot; an occlusion remnant taps when it
+//!    is at least half a nib and rounds to nothing below that.
 //! 2. Merge consecutive visible spans of the same origin primitive.
 //! 3. Drop coincident duplicate fragments from different shapes (seams drawn
 //!    twice because "on boundary = outside" keeps both).
 
 use crate::fragment::{Frag, Span};
-use crate::primitive::Primitive;
+use crate::primitive::{Line, Primitive};
 use std::collections::HashMap;
+
+/// A visible run too short to draw as a line is still ink the pen can make:
+/// a tap. Whole small primitives always tap; occlusion remnants tap only
+/// when at least half a nib survives (see `spans_to_fragments`).
+pub fn dot_frag(origin: u32, prim: &Primitive, pen: u32, shape: u32) -> Frag {
+    dot_frag_at(origin, prim, 0.5, pen, shape)
+}
+
+pub fn dot_frag_at(origin: u32, prim: &Primitive, t: f64, pen: u32, shape: u32) -> Frag {
+    let mid = prim.eval(t);
+    Frag {
+        origin,
+        t0: t,
+        t1: t,
+        pen,
+        shape,
+        dot: true,
+        bridge: false,
+        geom: Primitive::Line(Line::new(mid, mid)),
+    }
+}
 
 /// Apply rules 1–2 to one origin primitive's final span partition and emit
 /// fragments. `threshold` is the nib width of the pen drawing this primitive.
@@ -68,8 +91,20 @@ pub fn spans_to_fragments(
             }
         }
         i = j + 1;
-        if span_len(start, end) < threshold {
-            continue; // whole run below the nib → a dot, drop it
+        let run_len = span_len(start, end);
+        if run_len < threshold {
+            // A visible run below the nib can't be a line, but the pen can
+            // still tap it. Round to the nearest plottable ink unit:
+            //  - the run IS the whole primitive (a deliberately small mark,
+            //    e.g. a sub-nib circle or hatch chord): always a dot;
+            //  - an occlusion-truncated remnant: a dot when ≥ half a nib
+            //    (it's visible blank paper otherwise — deep overlaps used
+            //    to hollow out the exposed crescent), dropped below that
+            //    (rounds to nothing; keeps grazing cuts from spraying dots).
+            if (start == 0.0 && end == 1.0) || run_len >= threshold * 0.5 {
+                out.push(dot_frag_at(origin, prim, (start + end) * 0.5, pen, shape));
+            }
+            continue;
         }
         out.push(Frag {
             origin,

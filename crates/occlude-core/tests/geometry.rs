@@ -443,6 +443,50 @@ fn tiny_visible_tick_deleted() {
 }
 
 #[test]
+fn sub_nib_whole_primitive_taps_a_dot() {
+    // A FULLY VISIBLE primitive shorter than the nib is a small shape, not
+    // occlusion residue — the pen can still tap it. (Sub-nib circles used
+    // to vanish; sub-nib hatch chords left voids at small paper sizes.)
+    let prim = Primitive::Line(line(0., 0., 0.2, 0.));
+    let spans = vec![Span {
+        t0: 0.0,
+        t1: 1.0,
+        visible: true,
+    }];
+    let mut frags = Vec::new();
+    spans_to_fragments(0, &prim, &spans, 0.38, 0, 0, &mut frags);
+    assert_eq!(frags.len(), 1, "{frags:?}");
+    assert!(frags[0].dot);
+    let p = frags[0].geom.start();
+    assert!((p.x - 0.1).abs() < 1e-9 && p.y.abs() < 1e-9, "dot at midpoint");
+    // But the same length surviving as a REMNANT of occlusion stays dropped
+    // (tiny_visible_tick_deleted pins that side).
+}
+
+#[test]
+fn occlusion_remnant_rounds_to_nearest_ink() {
+    // A visible remnant left by a deep occlusion cut rounds to the nearest
+    // plottable ink: ≥ half a nib → tap a dot (it is visible blank paper,
+    // not covered detail); below half a nib → nothing.
+    let prim = Primitive::Line(line(0., 0., 100., 0.));
+    let cut = |t: f64| {
+        vec![
+            Span { t0: 0.0, t1: t, visible: true },
+            Span { t0: t, t1: 1.0, visible: false },
+        ]
+    };
+    let mut frags = Vec::new();
+    spans_to_fragments(0, &prim, &cut(0.0025), 0.3, 0, 0, &mut frags);
+    // 0.25 long ≥ 0.15 (half of 0.3 nib) → one dot at the remnant's middle
+    assert_eq!(frags.len(), 1, "{frags:?}");
+    assert!(frags[0].dot);
+    assert!((frags[0].geom.start().x - 0.125).abs() < 1e-9);
+    let mut none = Vec::new();
+    spans_to_fragments(0, &prim, &cut(0.001), 0.3, 0, 0, &mut none);
+    assert!(none.is_empty(), "0.1 < half nib rounds to nothing: {none:?}");
+}
+
+#[test]
 fn coincident_seam_deduped() {
     let g = Primitive::Line(line(0., 0., 10., 0.));
     let frags = vec![
