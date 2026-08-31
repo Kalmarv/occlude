@@ -7,8 +7,8 @@ import { Preview } from './preview.js';
 import { currentSeed, runSketch } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
 import {
-  download, loadPens, loadSettings, loadSketch, loadSketchName, loadUi,
-  saveSketch, saveSketchName, saveUi,
+  download, loadPens, loadProfiles, loadSettings, loadSketch, loadSketchName,
+  loadUi, saveSketch, saveSketchName, saveUi,
 } from './store.js';
 import { UiPanel } from './uiPanel.js';
 import { RenderClient } from './workerClient.js';
@@ -46,7 +46,11 @@ async function boot(): Promise<void> {
   syncRenderToggle();
 
   const pens = await loadPens();
+  const profiles = await loadProfiles();
   const settings = loadSettings();
+  if (!profiles.some((p) => p.name === settings.activeProfile)) {
+    settings.activeProfile = profiles[0].name;
+  }
   const client = new RenderClient();
   const editor = createEditor($('editor'), loadSketch());
   const preview = new Preview($('preview') as HTMLCanvasElement);
@@ -206,6 +210,7 @@ async function boot(): Promise<void> {
 
   const rail = buildRail($('rail'), {
     pens,
+    profiles,
     settings,
     client,
     onChanged: () => void run(),
@@ -365,12 +370,13 @@ async function boot(): Promise<void> {
     plotBtn.textContent = '■ Stop';
     try {
       const penTol = lastResult.pens.reduce((tol, pen) => Math.min(tol, pen.width / 4), Infinity);
-      const tol = Math.max(0.0001, Math.min(settings.machine.resolution, penTol));
+      const activeProf = profiles.find((p) => p.name === settings.activeProfile) ?? profiles[0];
+      const tol = Math.max(0.0001, Math.min(activeProf.machine.resolution, penTol));
       const plan = await client.exportToolpath(50_000, tol);
       preview.startPlot(
         plan,
         lastResult.pens,
-        settings.machine.travelFeed,
+        (profiles.find((p) => p.name === settings.activeProfile) ?? profiles[0]).machine.travelFeed,
         parseFloat(speedSel.value),
         (elapsed, total, pen) => {
           statusMsg.className = 'status-ok';

@@ -13,7 +13,10 @@ import {
 import {
   deleteSketchByName, listSketches, loadSketchByName, saveSketchByName,
 } from './sketchApi.js';
-import { download, savePens, saveSettings, type Settings } from './store.js';
+import {
+  download, savePens, saveProfiles, saveSettings,
+  type MachineProfile, type Settings,
+} from './store.js';
 import { Ebb, serialSupported, type PlotProgress } from './ebb.js';
 import {
   backlashSquares, calDots, calHatch, calLines, calSegments, cornerRinging,
@@ -24,6 +27,8 @@ import type { RenderClient } from './workerClient.js';
 export interface PanelHooks {
   pens: PenDef[];
   settings: Settings;
+  /** Server-shared machine profiles; settings.activeProfile picks one. */
+  profiles: MachineProfile[];
   onChanged(): void;
   lastResult(): RenderResult | null;
   client: RenderClient;
@@ -49,7 +54,29 @@ export interface Rail {
   saveCurrent(): Promise<string | null>;
 }
 
+/** Extent of a toolpath plan in paper mm (origin = plot origin). */
+function planBbox(plan: Float64Array): { x: number; y: number; w: number; h: number } {
+  let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
+  for (let i = 0; i < plan.length; ) {
+    i += 2; // pen, dot
+    const n = plan[i++];
+    for (let k = 0; k < n; k++) {
+      const x = plan[i++];
+      const y = plan[i++];
+      x0 = Math.min(x0, x); y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+    }
+  }
+  if (!Number.isFinite(x0)) return { x: 0, y: 0, w: 0, h: 0 };
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/** Callbacks re-rendering profile-bound controls after a profile switch —
+ * the single mechanism keeping the UI and the active profile in lockstep. */
+const onProfileSwitch: (() => void)[] = [];
+
 export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
+  onProfileSwitch.length = 0;
   rail.innerHTML = '';
   const sketchesPanel = panel('Sketch', true);
   const pensPanel = panel('Pens', true);
@@ -448,6 +475,10 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
 
 function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   const s = hooks.settings;
+  /** The ACTIVE profile — always read through this, never captured, so
+   * every control and estimate follows a profile switch instantly. */
+  const prof = (): MachineProfile =>
+    hooks.profiles.find((pp) => pp.name === s.activeProfile) ?? hooks.profiles[0];
   const hint = document.createElement('div');
   hint.className = 'panel-hint';
   if (!serialSupported()) {
@@ -470,21 +501,21 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   status.textContent = 'not connected';
 
   const opts = (): import('./ebb.js').EbbOptions => ({
-    stepsPerMm: s.ebb.stepsPerMm,
-    travelFeed: s.machine.travelFeed,
-    swapXY: s.ebb.swapXY,
-    invertX: s.ebb.invertX,
-    invertY: s.ebb.invertY,
-    servoDown: s.ebb.servoDown,
-    servoUp: s.ebb.servoUp,
-    acceleration: s.ebb.acceleration,
-    travelAcceleration: s.ebb.travelAcceleration,
-    junctionDeviation: s.ebb.junctionDeviation,
-    minimumCruiseRatio: s.ebb.minimumCruiseRatio,
-    lmMotion: s.ebb.lmMotion,
-    quickHopMm: s.ebb.quickHopMm,
+    stepsPerMm: prof().ebb.stepsPerMm,
+    travelFeed: prof().machine.travelFeed,
+    swapXY: prof().ebb.swapXY,
+    invertX: prof().ebb.invertX,
+    invertY: prof().ebb.invertY,
+    servoDown: prof().ebb.servoDown,
+    servoUp: prof().ebb.servoUp,
+    acceleration: prof().ebb.acceleration,
+    travelAcceleration: prof().ebb.travelAcceleration,
+    junctionDeviation: prof().ebb.junctionDeviation,
+    minimumCruiseRatio: prof().ebb.minimumCruiseRatio,
+    lmMotion: prof().ebb.lmMotion,
+    quickHopMm: prof().ebb.quickHopMm,
   });
-  const persist = (): void => saveSettings(s);
+  const persist = (): void => saveProfiles(hooks.profiles);
 
   const connectBtn = button('Connect', async () => {
     try {
@@ -494,7 +525,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         status.textContent = 'not connected';
         return;
       }
-      const v = await ebb.connect({ servoDown: s.ebb.servoDown, servoUp: s.ebb.servoUp });
+      const v = await ebb.connect({ servoDown: prof().ebb.servoDown, servoUp: prof().ebb.servoUp });
       connectBtn.textContent = 'Disconnect';
       status.textContent = v || 'connected';
     } catch (e) {
@@ -538,61 +569,6 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     ),
   );
 
-  // Calibration + orientation.
-  const spm = numberInput(s.ebb.stepsPerMm, 0.1, (v) => {
-    s.ebb.stepsPerMm = v;
-    persist();
-  });
-  // Axis mapping (measured: the iDraw's axes are rotated 90° vs the page —
-  // defaults are swap + invert X; only touch these for a different machine).
-  const flips = document.createElement('div');
-  flips.className = 'row';
-  flips.append(
-    checkbox('Swap XY', s.ebb.swapXY, (v) => {
-      s.ebb.swapXY = v;
-      persist();
-    }),
-    checkbox('Inv X', s.ebb.invertX, (v) => {
-      s.ebb.invertX = v;
-      persist();
-    }),
-    checkbox('Inv Y', s.ebb.invertY, (v) => {
-      s.ebb.invertY = v;
-      persist();
-    }),
-  );
-  const servoRow = document.createElement('div');
-  servoRow.className = 'row';
-  // SC positions are board state: apply edits immediately when connected —
-  // they otherwise only took effect on the next connect (or pause-resume),
-  // which reads as "pen doesn't reach the paper" after tuning.
-  const servoDownIn = numberInput(s.ebb.servoDown, 100, (v) => {
-    s.ebb.servoDown = v;
-    persist();
-    if (ebb.connected) void ebb.cmd(`SC,4,${Math.round(v)}`).catch(showErr);
-  });
-  const servoUpIn = numberInput(s.ebb.servoUp, 100, (v) => {
-    s.ebb.servoUp = v;
-    persist();
-    if (ebb.connected) void ebb.cmd(`SC,5,${Math.round(v)}`).catch(showErr);
-  });
-  servoRow.append(servoDownIn, servoUpIn);
-  const acceleration = numberInput(s.ebb.acceleration, 50, (v) => {
-    s.ebb.acceleration = Math.max(1, v);
-    persist();
-  });
-  const travelAcceleration = numberInput(s.ebb.travelAcceleration, 50, (v) => {
-    s.ebb.travelAcceleration = Math.max(1, v);
-    persist();
-  });
-  const junctionDeviation = numberInput(s.ebb.junctionDeviation, 0.005, (v) => {
-    s.ebb.junctionDeviation = Math.max(0, v);
-    persist();
-  });
-  const minimumCruiseRatio = numberInput(s.ebb.minimumCruiseRatio, 0.05, (v) => {
-    s.ebb.minimumCruiseRatio = Math.max(0, Math.min(0.99, v));
-    persist();
-  });
 
   // Pen to plot. No physical pen changer: a multi-pen sketch is plotted one
   // pen per run — plot, swap the pen by hand, pick the next, plot again.
@@ -651,11 +627,11 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
           modelMs: Math.round(p.totalMs),
           estimate: p.estimate,
           settings: {
-            quickHopMm: s.ebb.quickHopMm,
-            travelFeed: s.machine.travelFeed,
-            acceleration: s.ebb.acceleration,
-            travelAcceleration: s.ebb.travelAcceleration,
-            lmMotion: s.ebb.lmMotion,
+            quickHopMm: prof().ebb.quickHopMm,
+            travelFeed: prof().machine.travelFeed,
+            acceleration: prof().ebb.acceleration,
+            travelAcceleration: prof().ebb.travelAcceleration,
+            lmMotion: prof().ebb.lmMotion,
           },
         }),
       }).catch(() => undefined);
@@ -686,8 +662,19 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       const penTol = allPens
         ? r.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)
         : (r.pens[penIndex!]?.width ?? Infinity) / 4;
-      const tol = Math.max(0.0001, Math.min(s.machine.resolution, penTol));
+      const tol = Math.max(0.0001, Math.min(prof().machine.resolution, penTol));
       const plan = await hooks.client.exportToolpath(200_000, tol);
+      // Physical fit: refuse extents the bed cannot hold (placement is the
+      // operator's via Set origin — the Frame button verifies that part).
+      const bb = planBbox(plan);
+      const bed = prof().machine;
+      if (bb.x + bb.w > bed.bedW + 0.5 || bb.y + bb.h > bed.bedH + 0.5) {
+        showErr(
+          `plan needs ${(bb.x + bb.w).toFixed(0)}×${(bb.y + bb.h).toFixed(0)}mm from origin — ` +
+          `exceeds the ${prof().name} bed (${bed.bedW}×${bed.bedH}mm); not plotting`,
+        );
+        return;
+      }
       hooks.livePlot.start(plan, r.pens);
       await ebb.plot(
         plan,
@@ -695,7 +682,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         opts(),
         onProgress,
         (name) => hooks.pens.find((p) => p.name === name),
-        () => ({ servoDown: s.ebb.servoDown, servoUp: s.ebb.servoUp }),
+        () => ({ servoDown: prof().ebb.servoDown, servoUp: prof().ebb.servoUp }),
         penIndex,
       );
     } catch (e) {
@@ -713,9 +700,29 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     }
   });
   const stopBtn = button('\u25a0 Stop', () => void ebb.stop().catch(showErr));
+  const frameBtn = button('Frame', async () => {
+    if (!ebb.connected || ebb.plotting) return;
+    const r = hooks.lastResult();
+    if (!r) return;
+    try {
+      const tol = Math.max(0.0001, prof().machine.resolution);
+      const plan = await hooks.client.exportToolpath(200_000, tol);
+      const bb = planBbox(plan);
+      // Pen-up perimeter of the plan's bounding box: the placement check no
+      // model can do — the machine shows you where the piece will land.
+      const legs: [number, number][] = [
+        [bb.x, bb.y], [bb.w, 0], [0, bb.h], [-bb.w, 0], [0, -bb.h], [-bb.x, -bb.y],
+      ];
+      for (const [dx, dy] of legs) await ebb.jog(dx, dy, opts());
+    } catch (e) {
+      showErr(e);
+    }
+  });
+  frameBtn.title =
+    "Trace the plan's bounding box pen-up from the origin — verify placement physically before committing ink";
   const plotRow = document.createElement('div');
   plotRow.className = 'row';
-  plotRow.append(plotBtn, pauseBtn, stopBtn);
+  plotRow.append(plotBtn, pauseBtn, stopBtn, frameBtn);
 
   // Machine diagnostics: the cal sheet characterizes pens; these
   // characterize the machine. They run through the normal plot pipeline,
@@ -804,42 +811,148 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     cornerRinging,
   );
 
-  const lmCheck = checkbox('LM motion (hardware ramps)', s.ebb.lmMotion, (v) => {
-    s.ebb.lmMotion = v;
-    persist();
-  });
-  lmCheck.title =
-    'Hardware-interpolated constant-acceleration moves (25 kHz firmware ramps). ' +
-    'Uncheck to fall back to XM packets (firmware < 2.5.3).';
-
-  // Daily controls up top; set-once bands collapsed beneath.
+  // Daily controls up top; set-once bands collapsed beneath. Band contents
+  // are RENDER FUNCTIONS over the active profile — a profile switch rebuilds
+  // them, so what you see is always the profile you're editing.
   const manual = sub('Manual control');
   manual.body.append(jogRow, penRow);
 
   const tuning = sub('Motion tuning');
-  tuning.body.append(
-    row('Accel mm/s²', acceleration, 'Drawing acceleration — lower is gentler, higher reaches the pen feed sooner'),
-    row('Travel mm/s²', travelAcceleration, 'Acceleration for pen-up moves — no ink at stake, so it can run harder'),
-    row('Junction mm', junctionDeviation, 'Cornering tolerance for Marlin/Klipper-style look-ahead'),
-    row('Min cruise', minimumCruiseRatio, '0–0.99; suppresses vibration-producing speed spikes on short moves'),
-    row('Quick hop mm', numberInput(s.ebb.quickHopMm, 5, (v) => {
-      s.ebb.quickHopMm = Math.max(0, v);
+  function renderTuning(): void {
+    const e = prof().ebb;
+    const lmCheck = checkbox('LM motion (hardware ramps)', e.lmMotion, (v) => {
+      e.lmMotion = v;
       persist();
-    }), 'Travels shorter than this lift the pen only ~40% with shorter settles — the big lever on hatch/stipple plots. 0 disables'),
-    lmCheck,
-  );
+    });
+    lmCheck.title =
+      'Hardware-interpolated constant-acceleration moves (25 kHz firmware ramps). ' +
+      'Uncheck to fall back to XM packets (firmware < 2.5.3).';
+    tuning.body.replaceChildren(
+      row('Accel mm/s²', numberInput(e.acceleration, 50, (v) => {
+        e.acceleration = Math.max(1, v);
+        persist();
+      }), 'Drawing acceleration — lower is gentler, higher reaches the pen feed sooner'),
+      row('Travel mm/s²', numberInput(e.travelAcceleration, 50, (v) => {
+        e.travelAcceleration = Math.max(1, v);
+        persist();
+      }), 'Acceleration for pen-up moves — no ink at stake, so it can run harder'),
+      row('Junction mm', numberInput(e.junctionDeviation, 0.005, (v) => {
+        e.junctionDeviation = Math.max(0, v);
+        persist();
+      }), 'Cornering tolerance for Marlin/Klipper-style look-ahead'),
+      row('Min cruise', numberInput(e.minimumCruiseRatio, 0.05, (v) => {
+        e.minimumCruiseRatio = Math.max(0, Math.min(0.99, v));
+        persist();
+      }), '0–0.99; suppresses vibration-producing speed spikes on short moves'),
+      row('Quick hop mm', numberInput(e.quickHopMm, 5, (v) => {
+        e.quickHopMm = Math.max(0, v);
+        persist();
+      }), 'Travels shorter than this lift the pen only ~40% with shorter settles. 0 disables — the large-format setting, where gantry deflection needs the full lift'),
+      lmCheck,
+    );
+  }
 
   const setup = sub('Machine setup');
-  setup.body.append(
-    row('Steps/mm', spm, 'Measured 100 on this iDraw; verify any new machine with the cal-sheet ruler'),
-    flips,
-    row('Servo dn/up', servoRow, 'SC,4 / SC,5 positions — write-only on the board, so tuned values live here'),
-  );
+  function renderSetup(): void {
+    const e = prof().ebb;
+    const flips = document.createElement('div');
+    flips.className = 'row';
+    flips.append(
+      checkbox('Swap XY', e.swapXY, (v) => {
+        e.swapXY = v;
+        persist();
+      }),
+      checkbox('Inv X', e.invertX, (v) => {
+        e.invertX = v;
+        persist();
+      }),
+      checkbox('Inv Y', e.invertY, (v) => {
+        e.invertY = v;
+        persist();
+      }),
+    );
+    const servoRow = document.createElement('div');
+    servoRow.className = 'row';
+    // SC positions are board state: apply edits immediately when connected.
+    servoRow.append(
+      numberInput(e.servoDown, 100, (v) => {
+        e.servoDown = v;
+        persist();
+        if (ebb.connected) void ebb.cmd(`SC,4,${Math.round(v)}`).catch(showErr);
+      }),
+      numberInput(e.servoUp, 100, (v) => {
+        e.servoUp = v;
+        persist();
+        if (ebb.connected) void ebb.cmd(`SC,5,${Math.round(v)}`).catch(showErr);
+      }),
+    );
+    setup.body.replaceChildren(
+      row('Steps/mm', numberInput(e.stepsPerMm, 0.1, (v) => {
+        e.stepsPerMm = v;
+        persist();
+      }), 'Verify a new machine with the cal-sheet ruler'),
+      flips,
+      row('Servo dn/up', servoRow, 'SC,4 / SC,5 positions — write-only on the board, so tuned values live here'),
+    );
+  }
+
+  // Machine profile selector: the one switch everything above follows.
+  const profileSelect = document.createElement('select');
+  function renderProfiles(): void {
+    profileSelect.innerHTML = '';
+    for (const pp of hooks.profiles) {
+      const o = document.createElement('option');
+      o.value = pp.name;
+      o.textContent = pp.name;
+      o.selected = pp.name === s.activeProfile;
+      profileSelect.append(o);
+    }
+    tuning.root.querySelector('summary')!.textContent = `Motion tuning — ${prof().name}`;
+    setup.root.querySelector('summary')!.textContent = `Machine setup — ${prof().name}`;
+    renderTuning();
+    renderSetup();
+    for (const fn of onProfileSwitch) fn();
+  }
+  profileSelect.onchange = () => {
+    s.activeProfile = profileSelect.value;
+    saveSettings(s);
+    renderProfiles();
+    hooks.onChanged(); // estimates follow the machine
+  };
+  const dupBtn = button('⧉', () => {
+    const name = prompt('New profile name', `${prof().name} copy`)?.trim();
+    if (!name || hooks.profiles.some((pp) => pp.name === name)) return;
+    hooks.profiles.push({ ...structuredClone(prof()), name });
+    s.activeProfile = name;
+    saveSettings(s);
+    persist();
+    renderProfiles();
+  });
+  dupBtn.title = 'Duplicate the active profile (e.g. an A3 regime with quick hop off)';
+  const delBtn = button('×', () => {
+    if (hooks.profiles.length <= 1) return;
+    if (!confirm(`Delete machine profile '${prof().name}'?`)) return;
+    const i = hooks.profiles.findIndex((pp) => pp.name === s.activeProfile);
+    hooks.profiles.splice(i, 1);
+    s.activeProfile = hooks.profiles[0].name;
+    saveSettings(s);
+    persist();
+    renderProfiles();
+    hooks.onChanged();
+  });
+  delBtn.title = 'Delete the active profile';
+  const profileRow = document.createElement('div');
+  profileRow.className = 'row';
+  const profileLabel = document.createElement('label');
+  profileLabel.textContent = 'Machine';
+  profileRow.append(profileLabel, profileSelect, dupBtn, delBtn);
+  renderProfiles();
 
   diag.append(logRow);
 
   body.append(
     hint,
+    profileRow,
     connectBtn,
     status,
     row('Plot pen', penSelect, 'Plots this pen only — for multi-pen sketches: plot, swap the pen, pick the next, plot again'),
@@ -858,37 +971,43 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
 
 function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
   const s = hooks.settings;
-  const m = s.machine;
+  const prof = (): MachineProfile =>
+    hooks.profiles.find((pp) => pp.name === s.activeProfile) ?? hooks.profiles[0];
   const persistProfile = (): void => {
-    saveSettings(s);
+    saveProfiles(hooks.profiles);
     hooks.onChanged();
   };
-  // The machine profile only shapes G-code output (EBB plotting ignores it),
-  // so it lives with the export it configures.
+  // G-code export settings are part of the MACHINE PROFILE (they describe
+  // the machine the file targets); rebuilt whenever the profile changes.
   const profile = sub('G-code profile');
-  profile.body.append(
-    row('Bed mm', pairInput(m.bedW, m.bedH, (a, b) => {
-      m.bedW = a;
-      m.bedH = b;
-      persistProfile();
-    })),
-    row('Travel mm/min', numberInput(m.travelFeed, 100, (v) => {
-      m.travelFeed = v;
-      persistProfile();
-    })),
-    row('Resolution mm', numberInput(m.resolution, 0.005, (v) => {
-      m.resolution = v;
-      persistProfile();
-    }), 'Flattening error ceiling for exported toolpaths'),
-    checkbox('Pen via Z axis (off = M3/M5)', m.zMode, (v) => {
-      m.zMode = v;
-      persistProfile();
-    }),
-    checkbox('Emit G2/G3 arcs', m.arcSupport, (v) => {
-      m.arcSupport = v;
-      persistProfile();
-    }),
-  );
+  function renderGcodeProfile(): void {
+    const m = prof().machine;
+    profile.body.replaceChildren(
+      row('Bed mm', pairInput(m.bedW, m.bedH, (a, b) => {
+        m.bedW = a;
+        m.bedH = b;
+        persistProfile();
+      })),
+      row('Travel mm/min', numberInput(m.travelFeed, 100, (v) => {
+        m.travelFeed = v;
+        persistProfile();
+      })),
+      row('Resolution mm', numberInput(m.resolution, 0.005, (v) => {
+        m.resolution = v;
+        persistProfile();
+      }), 'Flattening error ceiling for exported toolpaths'),
+      checkbox('Pen via Z axis (off = M3/M5)', m.zMode, (v) => {
+        m.zMode = v;
+        persistProfile();
+      }),
+      checkbox('Emit G2/G3 arcs', m.arcSupport, (v) => {
+        m.arcSupport = v;
+        persistProfile();
+      }),
+    );
+  }
+  renderGcodeProfile();
+  onProfileSwitch.push(renderGcodeProfile);
 
   const table = document.createElement('table');
   table.className = 'export-table';
@@ -919,11 +1038,11 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
     refreshing = true;
     const profileJson = profileToJson(
       {
-        bed: [m.bedW, m.bedH],
-        travelFeed: s.machine.travelFeed,
-        zMode: s.machine.zMode,
-        arcSupport: s.machine.arcSupport,
-        resolution: s.machine.resolution,
+        bed: [prof().machine.bedW, prof().machine.bedH],
+        travelFeed: prof().machine.travelFeed,
+        zMode: prof().machine.zMode,
+        arcSupport: prof().machine.arcSupport,
+        resolution: prof().machine.resolution,
       },
       r.paper,
     );
@@ -931,7 +1050,7 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
     // the CURRENT machine settings), per pen as if plotted alone — the
     // G-code jobs' own estimates assume a generic G-code machine and were
     // the source of wildly divergent numbers.
-    const tol = Math.max(0.0001, s.machine.resolution);
+    const tol = Math.max(0.0001, prof().machine.resolution);
     const planPromise = hooks.client.exportToolpath(200_000, tol).then((plan) => {
       const chains: { pen: number; dot: boolean; pts: Float64Array }[] = [];
       for (let i = 0; i < plan.length; ) {
@@ -968,12 +1087,12 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
               return pd ? { feed: pd.feed, penDelay: pd.penDelay } : undefined;
             },
             {
-              travelFeed: s.machine.travelFeed,
-              acceleration: s.ebb.acceleration,
-              travelAcceleration: s.ebb.travelAcceleration,
-              junctionDeviation: s.ebb.junctionDeviation,
-              minimumCruiseRatio: s.ebb.minimumCruiseRatio,
-              quickHopMm: s.ebb.quickHopMm,
+              travelFeed: prof().machine.travelFeed,
+              acceleration: prof().ebb.acceleration,
+              travelAcceleration: prof().ebb.travelAcceleration,
+              junctionDeviation: prof().ebb.junctionDeviation,
+              minimumCruiseRatio: prof().ebb.minimumCruiseRatio,
+              quickHopMm: prof().ebb.quickHopMm,
             },
           );
           const mins = est.totalMs / 60000;

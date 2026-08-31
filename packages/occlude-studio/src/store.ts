@@ -33,7 +33,44 @@ export function saveUi(ui: UiPrefs): void {
   localStorage.setItem(KEYS.ui, JSON.stringify(ui));
 }
 
+export interface MachineSettings {
+  bedW: number;
+  bedH: number;
+  travelFeed: number;
+  zMode: boolean;
+  arcSupport: boolean;
+  resolution: number;
+}
+
+export interface EbbSettings {
+  stepsPerMm: number;
+  swapXY: boolean;
+  invertX: boolean;
+  invertY: boolean;
+  servoDown: number;
+  servoUp: number;
+  acceleration: number;
+  travelAcceleration: number;
+  junctionDeviation: number;
+  minimumCruiseRatio: number;
+  lmMotion: boolean;
+  quickHopMm: number;
+}
+
+/** A machine profile: everything physical about one machine (or one REGIME
+ * of a machine — 'iDraw A3 (large)' with quick-hop off is a profile of the
+ * same hardware). Profiles live on the studio server, shared across
+ * devices; the ACTIVE choice is per-browser (Settings.activeProfile). */
+export interface MachineProfile {
+  name: string;
+  driver: 'ebb' | 'gcode';
+  machine: MachineSettings;
+  ebb: EbbSettings;
+}
+
 export interface Settings {
+  /** Name of the active machine profile. */
+  activeProfile: string;
   paper: string;
   /** Used when paper === 'Custom' — always stored in mm. */
   customPaper: { w: number; h: number };
@@ -41,36 +78,24 @@ export interface Settings {
   paperUnit: 'mm' | 'in';
   landscape: boolean;
   defaultMarginPct: number;
-  machine: {
-    bedW: number;
-    bedH: number;
-    travelFeed: number;
-    zMode: boolean;
-    arcSupport: boolean;
-    resolution: number;
-  };
-  ebb: {
-    stepsPerMm: number;
-    swapXY: boolean;
-    invertX: boolean;
-    invertY: boolean;
-    servoDown: number;
-    servoUp: number;
-    acceleration: number;
-    travelAcceleration: number;
-    junctionDeviation: number;
-    minimumCruiseRatio: number;
-    lmMotion: boolean;
-    quickHopMm: number;
-  };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
+  activeProfile: 'iDraw',
   paper: 'A4',
   customPaper: { w: 200, h: 200 },
   paperUnit: 'mm',
   landscape: false,
   defaultMarginPct: 5,
+};
+
+/** The measured iDraw (EBB 2.8.1, 2026-08-26): 100 steps/mm at 1/16
+ * microstep; axes rotated 90° vs the page (swap + invert X); servo SC
+ * positions verified on hardware — 10000 IS fully down (the arm clears
+ * the pen, which rests under its own weight; contact is mechanical). */
+export const DEFAULT_PROFILE: MachineProfile = {
+  name: 'iDraw',
+  driver: 'ebb',
   machine: {
     bedW: 300,
     bedH: 218,
@@ -79,18 +104,11 @@ export const DEFAULT_SETTINGS: Settings = {
     arcSupport: false,
     resolution: 0.025,
   },
-  // Measured on the physical iDraw (EBB 2.8.1, 2026-08-26): 100 steps/mm
-  // at 1/16 microstep; axes rotated 90° vs the page (swap + invert X);
-  // servo SC positions verified.
   ebb: {
     stepsPerMm: 100,
     swapXY: true,
     invertX: true,
     invertY: false,
-    // Verified on hardware (2026-08-26 integration report): 10000 IS fully
-    // down — the arm is clear of the pen, which rests under its own weight.
-    // Lower values only move the arm further away; pen-to-paper contact is
-    // MECHANICAL (seat the pen low in the clamp so it preloads the sheet).
     servoDown: 10000,
     servoUp: 14200,
     acceleration: 1000,
@@ -150,6 +168,55 @@ export function saveSketchName(name: string): void {
  * Pens live on the studio server (shared across devices); localStorage is
  * only the offline fallback.
  */
+export async function loadProfiles(): Promise<MachineProfile[]> {
+  try {
+    const res = await fetch('/api/profiles');
+    if (res.ok) {
+      const profiles = (await res.json()) as MachineProfile[];
+      if (Array.isArray(profiles) && profiles.length > 0) {
+        localStorage.setItem('occlude.profiles', JSON.stringify(profiles));
+        return profiles;
+      }
+    }
+  } catch {
+    // server unreachable — fall through
+  }
+  try {
+    const raw = localStorage.getItem('occlude.profiles');
+    if (raw) {
+      const profiles = JSON.parse(raw) as MachineProfile[];
+      if (Array.isArray(profiles) && profiles.length > 0) return profiles;
+    }
+  } catch {
+    // corrupt cache
+  }
+  // Migration: the pre-profile settings blob carried one implicit machine.
+  const migrated: MachineProfile = structuredClone(DEFAULT_PROFILE);
+  try {
+    const raw = localStorage.getItem(KEYS.settings);
+    if (raw) {
+      const old = JSON.parse(raw) as { machine?: MachineSettings; ebb?: EbbSettings };
+      if (old.machine) migrated.machine = { ...migrated.machine, ...old.machine };
+      if (old.ebb) migrated.ebb = { ...migrated.ebb, ...migrateEbb(old.ebb) };
+    }
+  } catch {
+    // defaults stand
+  }
+  saveProfiles([migrated]);
+  return [migrated];
+}
+
+export function saveProfiles(profiles: MachineProfile[]): void {
+  localStorage.setItem('occlude.profiles', JSON.stringify(profiles));
+  void fetch('/api/profiles', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(profiles),
+  }).catch(() => {
+    // server unreachable — local cache still holds it
+  });
+}
+
 export async function loadPens(): Promise<PenDef[]> {
   try {
     const res = await fetch('/api/pens');
@@ -189,7 +256,7 @@ export function savePens(pens: PenDef[]): void {
 /** Stored values beat defaults, so default changes need explicit
  * migrations: 7500 was a briefly-deployed mistake (the extension's range
  * floor) — the hardware-verified fully-down value is 10000. */
-function migrateEbb(ebb: Settings['ebb']): Settings['ebb'] {
+function migrateEbb(ebb: EbbSettings): EbbSettings {
   return ebb.servoDown === 7500 ? { ...ebb, servoDown: 10000 } : ebb;
 }
 
@@ -197,19 +264,11 @@ export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEYS.settings);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<Settings>;
-      return {
-        ...DEFAULT_SETTINGS,
-        ...parsed,
-        machine: { ...DEFAULT_SETTINGS.machine, ...(parsed.machine ?? {}) },
-        // Migration: the pre-measurement shape had flipX/flipY and a wrong
-        // steps/mm guess — discard it entirely for the measured defaults.
-        ebb: migrateEbb(
-          parsed.ebb && 'swapXY' in parsed.ebb
-            ? { ...DEFAULT_SETTINGS.ebb, ...parsed.ebb }
-            : { ...DEFAULT_SETTINGS.ebb },
-        ),
+      const parsed = JSON.parse(raw) as Partial<Settings> & {
+        machine?: unknown; ebb?: unknown; // pre-profile blobs carry these
       };
+      const { machine: _m, ebb: _e, ...rest } = parsed;
+      return { ...DEFAULT_SETTINGS, ...rest };
     }
   } catch {
     // fall through

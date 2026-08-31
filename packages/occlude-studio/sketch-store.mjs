@@ -46,8 +46,9 @@ export function createSketchHandler(dir) {
   return async function handler(req, res, next) {
     const url = new URL(req.url ?? '/', 'http://x');
     const isPens = url.pathname === '/api/pens';
+    const isProfiles = url.pathname === '/api/profiles';
     const isPlotLog = url.pathname === '/api/plotlog';
-    if (!url.pathname.startsWith('/api/sketches') && !isPens && !isPlotLog) {
+    if (!url.pathname.startsWith('/api/sketches') && !isPens && !isProfiles && !isPlotLog) {
       if (next) return next();
       res.statusCode = 404;
       return res.end('{"error":"not found"}');
@@ -70,6 +71,23 @@ export function createSketchHandler(dir) {
           const body = Buffer.concat(chunks).toString('utf8');
           JSON.parse(body); // one valid JSON record per line
           await fs.appendFile(file, body.trimEnd() + '\n');
+          return send(200, '{"ok":true}');
+        }
+        return send(405, '{"error":"method"}');
+      }
+      if (isProfiles) {
+        const file = join(dir, 'profiles.json');
+        if (req.method === 'GET') {
+          const src = await fs.readFile(file, 'utf8').catch(() => null);
+          if (src === null) return send(404, '{"error":"no profiles saved yet"}');
+          return send(200, src);
+        }
+        if (req.method === 'PUT') {
+          const chunks = [];
+          for await (const c of req) chunks.push(c);
+          const body = Buffer.concat(chunks).toString('utf8');
+          JSON.parse(body);
+          await fs.writeFile(file, body);
           return send(200, '{"ok":true}');
         }
         return send(405, '{"error":"method"}');
