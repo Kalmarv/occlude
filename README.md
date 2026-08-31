@@ -35,8 +35,8 @@ then the [API reference](docs/api.md). The
 | Package | What it is |
 |---|---|
 | `crates/occlude-core` | Rust geometry core (→ wasm): intersections, winding, clip, cull, fills, the modifier interpreter, SVG/G-code/PNG export |
-| `packages/occlude` | The TS API: the declarative surface, units, transforms, seeded randomness, fields, wasm bridge |
-| `packages/occlude-studio` | Browser studio: Monaco editor with live worker-rendered preview, animated plot simulation, pen library, per-pen export |
+| `packages/occlude` | The TS API: the declarative surface, units, transforms, seeded randomness, fields, SVG import (`svg()`), image sampling (`image()`), wasm bridge |
+| `packages/occlude-studio` | Browser studio: Monaco editor with live worker-rendered preview, animated plot simulation, pen library, asset store, per-pen export, and a full EBB/iDraw Web Serial driver (look-ahead planning, LM hardware ramps, quick-hop lifts, drift recovery, machine diagnostics) |
 
 ## Development
 
@@ -82,6 +82,8 @@ UPDATE_GOLDEN=1 cargo test -p occlude-core --test golden     # regenerate fixtur
   Fragments shorter than the pen nib are the system's single tolerance:
   bridged or dropped by physical reasoning.
 - Export merges fragments into chains, orders them (nearest-neighbour +
-  2-opt), flattens adaptively, and emits GRBL-flavoured G-code per pen.
+  2-opt), bridges sub-nib gaps (plus opt-in `bridge` joining at artistic
+  tolerances), flattens adaptively, and emits GRBL-flavoured G-code per pen
+  — or plots directly over Web Serial.
 - Native builds parallelise the clip layers with rayon; the wasm build is
   single-threaded.

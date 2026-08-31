@@ -77,6 +77,7 @@ Every shape takes a trailing opts object:
 | `decimate` | Drop this fraction (0…1) of the shape's final visible strokes, after occlusion — seeded, deterministic. A number applies to everything; `{ stroke, fill }` targets outline and fill ink separately (`{ fill: 0.5 }` erodes the texture, keeps the outline crisp). Accepts a field. |
 | `wobble` | Hand-tremor: displace the shape's final visible strokes with seeded smooth noise, after occlusion. A length is the amplitude (`wobble: mm(0.8)`); `{ amount, wavelength }` also sets the tremor scale (default wavelength `mm(25)` — smaller = jitterier). Amount accepts a field. |
 | `modifiers` | Ordered modifier stack (see **Modifiers**): `{ modifiers: [smooth(2), wobble(mm(1)), decimate(0.2)] }` — entries run first-to-last. |
+| `bridge` | Opt-in endpoint joining: after occlusion, strokes of shapes that set it are joined **pen-down** across gaps up to this length (`bridge: mm(1)`), per pen — hatch rows serpentine into single strokes, trading tiny visible connectors for most of a plot's pen lifts. Connectors span blank gaps only (never retrace ink; crossing inked lines is fine) and can never form loops. Shapes without the opt (borders, labels) are untouched. The preview's Debug view highlights connectors in red — tune the tolerance by looking. Group-inheritable. |
 
 ```ts
 circle(x, y, r, opts?)
@@ -99,6 +100,55 @@ path({ winding? })
   .arcTo(x, y, r)              // minor arc; sign of r picks the side
   .close()
   .build(opts?)                // → Shape value
+```
+
+## SVG import & assets
+
+```ts
+svg(text, { x?, y?, width?, layers?, ...shapeOpts })  // SVG → open-path shapes
+asset('name.svg')                                     // uploaded asset's text
+```
+
+`svg()` turns machine-generated line art (polylines, `<line>`s, and
+straight-segment paths — curves and transforms are rejected loudly) into
+ordinary shapes: placed in sketch units (`width` scales, height follows the
+aspect), drawn with library pens, occluded, clipped, masked, and modified
+like anything else — `rotate`/`translate`/`scale` are the same generic
+transform opts every shape has (`{ translate: [X, Y], rotate: 90 }` pivots
+at `[X, Y]`). One layer per top-level `<g>`; `layers: ['silhouettes']`
+filters by group id. Pair with `bridge` for plot-time wins on hatch-dense
+imports.
+
+Assets live in the server-side store (the **Assets** page in the studio
+topbar: upload, rename, delete, copy-ref). Sketches reference them by
+**string literal** — the studio preloads every `asset('…')`/`image('…')`
+literal before the sketch runs, so names can't be computed.
+
+## Images (pixel sampling)
+
+```ts
+const img = image('photo.jpg', { x, y, width, height? });  // NEVER drawn
+img.lum(x, y)         // 0–1 luminance, bilinear point sample
+img.lum(x, y, area)   // box average over ±area (sketch units) — O(1) at any size
+img.rgb(x, y, area?)  // [r, g, b] 0–1        img.a(x, y, area?)   // alpha
+img.bands(x, y, n, area?)  // posterized tone 0 (dark) … n−1 (light)
+img.edge(x, y, area?)      // gradient magnitude   img.dir(x, y)  // gradient angle
+```
+
+Images are data, not geometry: placement only maps pixels into sketch
+coordinates so samples can drive real features — circle sizes, densities,
+pen choices, deform fields (`(x, y) => img.lum(x, y)` is already a field).
+The `area` argument answers "what's the average over the region this shape
+covers": for a circle of radius r at (cx, cy), `img.lum(cx, cy, r)`.
+Outside the placed rect every sample is 0. Headless tools decode PNG/JPEG
+from the store too.
+
+```ts
+// The canonical demo: a circle-size halftone.
+t.grid({ cols: 20, rows: 20 }).map((c) => {
+  const d = 1 - img.lum(c.x + c.w / 2, c.y + c.h / 2, c.w / 2);
+  return d > 0.05 ? circle(c.x + c.w / 2, c.y + c.h / 2, d * c.w * 0.45) : null;
+});
 ```
 
 ## Combinators
@@ -319,6 +369,8 @@ bounds()         // drawable extent in bare units
 grid({ cols, rows, gap? })   // cells tiling the whole drawable
 noisyLine(x1, y1, x2, y2, { points, scale, amplitude, offset }, opts?)
 label('0.45mm', x, y, h, opts?)  // single-stroke text (A-Z 0-9 .,:-+=/()); plots with the
+                                 // opts.align: 'left' (default) | 'center' | 'right' anchors x;
+                                 // labelWidth(str, h) measures for custom layout
                      // pen's own line; opts.unit: 'mm' for physical placement
 stream(name)     // independent random stream keyed off the master seed
 ```
@@ -358,10 +410,14 @@ const png  = exportPng(def, { paper: 'A4', scale: 11.81 });  // ≈ 300 dpi
   the 2-opt tour budget (`false` disables, a number overrides).
 - Headless CLI: `pnpm --filter occlude render <sketch.ts> --seed N --paper A4
   --out x.png [--svg x.svg]`.
-- A `Fragment` is `{ origin, t0, t1, pen, shape, dot, geom }` — a sub-range
-  of an original primitive with exact geometry in paper mm.
+- A `Fragment` is `{ origin, t0, t1, pen, shape, dot, bridge, geom }` — a
+  sub-range of an original primitive with exact geometry in paper mm
+  (`bridge` marks connectors inserted by the bridge opt).
   `drawFragments(ctx, frags, pens)` paints them on a Canvas 2D context
   scaled to 1 unit = 1 mm.
+- Plot statistics: `pnpm --filter occlude plotstats <sketch.ts…> [--seed N]`
+  reports pen lifts, ink/travel mm, estimated plot time, and optimization
+  bounds per sketch — the before/after oracle for toolpath changes.
 
 ## Pens & paper
 

@@ -429,3 +429,81 @@ const jobs = exportGcode(def, { paper: 'A4', profile: { zMode: true } });
 
 Headless, from the repo: `pnpm --filter occlude render sketch.ts --seed 7
 --paper A4 --out out.png`.
+
+## 10. Assets: imported SVGs and sampled images
+
+Upload files on the **Assets** page (studio topbar) and reference them by
+literal name. Two kinds, two verbs:
+
+**`svg(asset('name.svg'))` draws.** The file's polylines become ordinary
+open-path shapes — occluded, clipped, masked, modified, pen-assigned like
+anything you drew in code. A splotter export, a plotted-typography file,
+anything made of straight segments:
+
+```ts
+const church = svg(asset('church.svg'), {
+  x: 0, y: 0, width: b.w,
+  pen: 'micron-01',
+  bridge: mm(0.7),   // see below
+});
+return [clip(rect(0, 0, b.w, b.h, 5), church), rect(0, 0, b.w, b.h, 5)];
+```
+
+**`image('name.jpg')` samples — it never draws.** Placement maps pixels
+into sketch coordinates; the sampler answers questions your code asks
+while generating geometry. The third argument averages over an area, which
+matters whenever a mark covers more paper than a pixel:
+
+```ts
+const img = image('portrait.jpg', { x: 0, y: 0, width: b.w });
+t.grid({ cols: 24, rows: 32 }).map((c) => {
+  const dark = 1 - img.lum(c.x + c.w / 2, c.y + c.h / 2, c.w / 2);
+  return circle(c.x + c.w / 2, c.y + c.h / 2, dark * c.w * 0.45);
+});
+```
+
+`lum`, `rgb`, `a`, `bands(n)` (posterized tone — gate stacked hatch layers
+with it), `edge`, and `dir` (gradient angle — feed it to `deform` or hatch
+directions). Every sampler is a field the moment you wrap it in a closure.
+
+### Bridging: buying plot hours with sub-millimetre connectors
+
+Dense hatching pays a pen lift per line — tens of thousands on a shaded
+piece, and lifts, not drawing, dominate plot time. `bridge: mm(0.7)` on a
+shape (or group) joins its strokes' endpoints pen-down across gaps up to
+the tolerance: hatch rows serpentine into single strokes. It is opt-in per
+shape — borders and labels stay pristine — connectors only ever span blank
+paper (never retracing ink), and the preview's **Debug** toggle paints
+them red so the visual cost of each tolerance is a look, not a guess.
+Real numbers from a shaded A4 piece: no bridge ≈ 34,000 lifts / ~11 h;
+`mm(0.5)` ≈ 4.4 h; `mm(0.7)` ≈ 2.9 h; `mm(1)` ≈ 2.3 h.
+
+## 11. Plotting from the studio (EBB/iDraw over Web Serial)
+
+The Plot panel drives an EBB-family (AxiDraw/iDraw) machine directly from
+the browser. What's under the hood, briefly, so its knobs make sense:
+
+- **Motion**: host-side look-ahead planning (junction deviation, min-cruise)
+  emitted as hardware-interpolated constant-acceleration `LM` commands
+  (25 kHz ramps in firmware; falls back to `XM` packets below firmware
+  2.5.3 or via the checkbox). Separate acceleration for pen-up travel.
+- **Pen cycles**: per-pen `feed` and `penDelay` (settle). **Quick hop**
+  lifts the pen only ~40% for short travels with shorter settles — the
+  big lever on hatch/stipple plots; 0 disables (needed on machines whose
+  gantry sags at one side).
+- **Position integrity**: the board's step counters are checked against
+  dead reckoning at connect, every 500 chains, and at plot end — lost
+  commands are healed automatically and flagged. Visible drift mid-plot:
+  Pause → jog the pen onto the origin mark → Set origin → Resume (the
+  interrupted stroke's remainder stays pen-up; the next chain re-inks).
+- **Pen changes**: no changer — multi-pen sketches plot one pen per run
+  via the Plot-pen select; "all pens (one run)" runs a whole multi-pen
+  plan with the installed pen, each chain using its own logical pen's
+  feed/settle (how the settle-sweep card works).
+- **Diagnostics** (in the panel): registration probe (step loss),
+  backlash squares, corner ringing at three feeds (junction-deviation
+  tuning), plus the settle × travel sweep sketch for finding a pen's true
+  `penDelay` floor. **Download serial log** exports the full timestamped
+  command transcript — the first artifact to grab when anything misbehaves.
+- **ETA**: totals come from the planner's actual trapezoids and blend
+  toward measured throughput as the plot runs — the number is honest.
