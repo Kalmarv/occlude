@@ -339,6 +339,25 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) =>
 );
 ```
 
+### solid
+
+`solid(angle?)` — unbroken ink: shape-aligned hatch at 0.9× the fill
+pen's nib, so rows overlap into full coverage and every shape fills
+identically wherever it sits. The texture default (`hatch`) is airy on
+purpose; `solid` is the "just make it black" fill. Rows follow `angle`
+(plot direction); pair with `bridge` to serpentine them.
+
+```ts live
+import { sketch, circle, solid, hatch, mm } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) =>
+  t.times(4, (k, u) => [
+    circle(14 + u * 72, 15, 7, { fill: hatch(0, mm(1)) }),  // texture
+    circle(14 + u * 72, 35, 7, { fill: solid(u * 90) }),    // ink
+  ]),
+);
+```
+
 ### custom fills
 
 A custom fill is a plain function passed as `fill:`. It runs inside the

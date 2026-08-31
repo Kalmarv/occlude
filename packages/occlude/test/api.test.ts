@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   circle, ellipse, exportGcode, exportPng, exportSvg, hatch, initOcclude,
-  line, mask, mm, polygon, rect, render, sketch, stipple, w,
+  line, mask, mm, polygon, rect, render, sketch, solid, stipple, w,
 } from '../src/index.js';
 import { evalPrim } from '../src/index.js';
 import type { Fragment, Prim, RenderOptions, SketchDef } from '../src/index.js';
@@ -804,6 +804,19 @@ describe('tap dots decode at their true position', () => {
       const cy = r.frame.offsetY + 50 * (r.frame.inner.innerW / 100);
       expect(Math.hypot(x - cx, y - cy)).toBeLessThan(0.2);
     }
+  });
+});
+
+describe('solid fill', () => {
+  it('lays overlapping shape-aligned rows at 0.9x the fill nib', () => {
+    const def = sketch({ aspect: [1, 1] }, () => circle(50, 50, mm(5), { fill: solid() }));
+    const r = sq(def);
+    // 10mm circle, default 0.2mm pen -> 0.18mm rows: ~55 chords.
+    expect(r.stats.fillPrims).toBeGreaterThan(50);
+    expect(r.stats.fillPrims).toBeLessThan(60);
+    // shape-aligned: the same circle elsewhere fills identically
+    const def2 = sketch({ aspect: [1, 1] }, () => circle(23.7, 71.2, mm(5), { fill: solid() }));
+    expect(sq(def2).stats.fillPrims).toBe(r.stats.fillPrims);
   });
 });
 

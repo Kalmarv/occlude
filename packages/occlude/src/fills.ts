@@ -14,6 +14,9 @@ export interface HatchPassSpec {
   /** mm (resolved). */
   spacing: L | undefined;
   offset: number;
+  /** Solid coverage: spacing defaults to 0.9× the fill pen's nib so rows
+   * overlap into unbroken ink (instead of the airy 3× texture default). */
+  solid?: boolean;
   /** 'paper' (default): one paper-wide ruling — adjacent same-spec fills
    * align. 'shape': the ruling is centred on each shape, so small shapes
    * get identical marks wherever they sit (halftones). */
@@ -86,6 +89,37 @@ export function hatch(a: number | HatchOptions = 0, spacing?: L, offset = 0): Fi
     };
   }
   return { type: 'hatch', passes: [{ angle: a, spacing, offset, align: 'paper' }] };
+}
+
+export interface SolidOptions {
+  /** Row direction in degrees; barely visible once solid, but it sets the
+   * plot direction. */
+  angle?: number;
+  /** Override the 0.9×nib row spacing (tighter = wetter). */
+  spacing?: L;
+}
+
+/**
+ * Solid ink: shape-aligned hatch at 0.9× the fill pen's nib width — rows
+ * overlap into unbroken coverage, and the ruling centres on each shape so
+ * small shapes fill identically wherever they sit. Pair with `bridge` to
+ * serpentine the rows into few strokes.
+ */
+export function solid(angle?: number): FillSpec;
+export function solid(opts: SolidOptions): FillSpec;
+export function solid(a: number | SolidOptions = 0): FillSpec {
+  const opts: SolidOptions = typeof a === 'object' ? a : { angle: a };
+  positiveLength('solid', opts.spacing);
+  return {
+    type: 'hatch',
+    passes: [{
+      angle: opts.angle ?? 0,
+      spacing: opts.spacing,
+      offset: 0,
+      align: 'shape',
+      solid: true,
+    }],
+  };
 }
 
 export interface CrosshatchOptions {

@@ -29,7 +29,7 @@ export type {
 export type { ModifierValue, FieldFn, VectorFieldFn } from './shapes.js';
 
 // Fills are already pure specs.
-export { hatch, crosshatch, stipple, customFill } from './fills.js';
+export { hatch, crosshatch, stipple, solid, customFill } from './fills.js';
 export { svg } from './svgin.js';
 export {
   asset, image, scanAssetNames, registerTextAsset, registerImageAsset, clearAssets,

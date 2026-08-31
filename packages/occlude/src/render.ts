@@ -427,7 +427,8 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
         fillCount = spec.passes.length;
         for (const pass of spec.passes) {
           const spacing = resolveLen(
-            pass.spacing ?? defaultHatchSpacing(penDef.width),
+            pass.spacing ??
+              (pass.solid ? mm(penDef.width * 0.9) : defaultHatchSpacing(penDef.width)),
             frame.inner,
           );
           fillParams.push(pass.angle, spacing, pass.offset, pass.align === 'shape' ? 1 : 0);
