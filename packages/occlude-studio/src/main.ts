@@ -200,6 +200,7 @@ async function boot(): Promise<void> {
   (window as unknown as Record<string, unknown>).__occlude = {
     editor,
     result: () => lastResult,
+    preview,
   };
 
   const rail = buildRail($('rail'), {
@@ -231,6 +232,11 @@ async function boot(): Promise<void> {
       input.click();
     },
     downloadSketchFile: () => download(`${sketchName || 'sketch'}.ts`, editor.getValue()),
+    livePlot: {
+      start: (plan, pens) => preview.startLive(plan, pens),
+      progress: (chain) => preview.liveProgress(chain),
+      end: () => preview.endLive(),
+    },
   });
 
   // Ctrl/Cmd+S saves to the server-side sketch library, not the web page.

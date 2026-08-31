@@ -80,17 +80,8 @@ export class Preview {
    * Animate the plot: chains in real tour order, timed by pen feed and
    * travel feed (mm/min), scaled by `speed`.
    */
-  startPlot(
-    plan: Float64Array,
-    pens: PenDef[],
-    travelFeed: number,
-    speed: number,
-    onProgress: (elapsed: number, total: number, pen: string) => void,
-    onDone: () => void,
-  ): void {
-    this.stopPlot();
-    if (!this.result) return;
-    // Parse [pen, dot, n, x0, y0, …] chains.
+  /** Parse a [pen, dot, n, x0, y0, …] toolpath plan into chains. */
+  private parsePlan(plan: Float64Array): PlanChain[] {
     const chains: PlanChain[] = [];
     for (let i = 0; i < plan.length; ) {
       const pen = plan[i++];
@@ -104,6 +95,129 @@ export class Preview {
       }
       chains.push({ pen, dot, pts, inkLen });
     }
+    return chains;
+  }
+
+  /** Live plot view: while the MACHINE plots, mirror its progress — every
+   * chain ghosted in toolpath blue, the upcoming few as a fading gradient,
+   * drawn chains in real ink. Driven by chain indices from the EBB driver
+   * instead of a clock. */
+  private live: {
+    chains: PlanChain[];
+    pens: PenDef[];
+    committed: number;
+    index: number;
+    layer: HTMLCanvasElement;
+    lctx: CanvasRenderingContext2D;
+    ghost: HTMLCanvasElement;
+    pxPerMm: number;
+  } | null = null;
+
+  startLive(plan: Float64Array, pens: PenDef[]): void {
+    this.stopPlot();
+    if (!this.result) return;
+    const chains = this.parsePlan(plan);
+    if (chains.length === 0) return;
+    this.live = {
+      chains, pens,
+      committed: 0,
+      index: 0,
+      layer: document.createElement('canvas'),
+      lctx: null as unknown as CanvasRenderingContext2D,
+      ghost: document.createElement('canvas'),
+      pxPerMm: 0,
+    };
+    this.rebuildLiveLayers(this.desiredPxPerMm());
+    this.draw();
+  }
+
+  liveProgress(chain: number): void {
+    const live = this.live;
+    if (!live) return;
+    live.index = Math.min(chain, live.chains.length - 1);
+    // The active chain draws in full ink immediately — at chain granularity
+    // the view leads the pen by less than one stroke.
+    while (live.committed <= live.index) {
+      this.drawLiveChain(live.lctx, live.chains[live.committed], live.pens);
+      live.committed++;
+    }
+    this.draw();
+  }
+
+  endLive(): void {
+    this.live = null;
+    this.draw();
+  }
+
+  private drawLiveChain(
+    ctx: CanvasRenderingContext2D,
+    c: PlanChain,
+    pens: PenDef[],
+  ): void {
+    const pen = pens[c.pen];
+    ctx.strokeStyle = pen?.color ?? '#111';
+    ctx.fillStyle = pen?.color ?? '#111';
+    ctx.lineWidth = pen?.width ?? 0.3;
+    if (c.dot) {
+      ctx.beginPath();
+      ctx.arc(c.pts[0], c.pts[1], (pen?.width ?? 0.3) / 2, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    ctx.beginPath();
+    ctx.moveTo(c.pts[0], c.pts[1]);
+    for (let k = 2; k < c.pts.length; k += 2) ctx.lineTo(c.pts[k], c.pts[k + 1]);
+    ctx.stroke();
+  }
+
+  private rebuildLiveLayers(pxPerMm: number): void {
+    const live = this.live;
+    if (!live || !this.result) return;
+    const { w, h } = this.result.paper;
+    live.pxPerMm = pxPerMm;
+    for (const cv of [live.layer, live.ghost]) {
+      cv.width = Math.max(1, Math.ceil(w * pxPerMm));
+      cv.height = Math.max(1, Math.ceil(h * pxPerMm));
+    }
+    const g = live.ghost.getContext('2d')!;
+    g.scale(pxPerMm, pxPerMm);
+    g.lineCap = 'round';
+    g.strokeStyle = 'rgba(91, 139, 217, 0.4)';
+    g.fillStyle = 'rgba(91, 139, 217, 0.4)';
+    g.lineWidth = 0.14;
+    g.beginPath();
+    for (const c of live.chains) {
+      if (c.dot) {
+        g.moveTo(c.pts[0] + 0.15, c.pts[1]);
+        g.arc(c.pts[0], c.pts[1], 0.15, 0, Math.PI * 2);
+        continue;
+      }
+      g.moveTo(c.pts[0], c.pts[1]);
+      for (let k = 2; k < c.pts.length; k += 2) g.lineTo(c.pts[k], c.pts[k + 1]);
+    }
+    g.stroke();
+    const l = live.layer.getContext('2d')!;
+    l.scale(pxPerMm, pxPerMm);
+    l.lineCap = 'round';
+    l.lineJoin = 'round';
+    live.lctx = l;
+    for (let i = 0; i < live.committed; i++) {
+      this.drawLiveChain(l, live.chains[i], live.pens);
+    }
+  }
+
+  startPlot(
+    plan: Float64Array,
+    pens: PenDef[],
+    travelFeed: number,
+    speed: number,
+    onProgress: (elapsed: number, total: number, pen: string) => void,
+    onDone: () => void,
+  ): void {
+    if (this.live) return; // the machine owns the preview right now
+    this.stopPlot();
+    if (!this.result) return;
+    const chains = this.parsePlan(plan);
     if (chains.length === 0) return;
     // Timing: travel to each chain start, then draw at the pen's feed.
     const chainStart: number[] = [];
@@ -329,6 +443,54 @@ export class Preview {
     ctx.fillStyle = '#f6f2ea';
     ctx.fillRect(0, 0, w, h);
     ctx.restore();
+
+    if (this.live) {
+      const live = this.live;
+      const want = this.desiredPxPerMm();
+      if (want > live.pxPerMm * 1.4 || want < live.pxPerMm / 2) {
+        this.rebuildLiveLayers(want);
+      }
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      // Everything still to draw, ghosted in toolpath blue.
+      ctx.drawImage(live.ghost as CanvasImageSource, 0, 0, w, h);
+      // The next stretch of chains, fading with queue distance.
+      const AHEAD = 40;
+      ctx.lineCap = 'round';
+      for (let k = live.committed; k < Math.min(live.chains.length, live.committed + AHEAD); k++) {
+        const c = live.chains[k];
+        const a = 0.55 * (1 - (k - live.committed) / AHEAD);
+        ctx.strokeStyle = `rgba(91, 139, 217, ${a.toFixed(3)})`;
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.lineWidth = 0.3;
+        if (c.dot) {
+          ctx.beginPath();
+          ctx.arc(c.pts[0], c.pts[1], 0.3, 0, Math.PI * 2);
+          ctx.fill();
+          continue;
+        }
+        ctx.beginPath();
+        ctx.moveTo(c.pts[0], c.pts[1]);
+        for (let m = 2; m < c.pts.length; m += 2) ctx.lineTo(c.pts[m], c.pts[m + 1]);
+        ctx.stroke();
+      }
+      // Ink so far.
+      ctx.drawImage(live.layer as CanvasImageSource, 0, 0, w, h);
+      // Pen head at the end of the active chain.
+      const cur = live.chains[live.index];
+      const hx = cur.pts[cur.pts.length - 2];
+      const hy = cur.pts[cur.pts.length - 1];
+      ctx.fillStyle = live.pens[cur.pen]?.color ?? '#111';
+      ctx.strokeStyle = 'rgba(217, 161, 61, 0.95)';
+      ctx.lineWidth = 0.35;
+      ctx.beginPath();
+      ctx.arc(hx, hy, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      ctx.restore();
+      return;
+    }
 
     if (this.sim) {
       const sim = this.sim;

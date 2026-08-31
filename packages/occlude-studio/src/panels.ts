@@ -32,6 +32,12 @@ export interface PanelHooks {
   setName(name: string): void;
   importSketchFile(): void;
   downloadSketchFile(): void;
+  /** Live plot view: mirror the machine's progress in the preview. */
+  livePlot: {
+    start(plan: Float64Array, pens: PenDef[]): void;
+    progress(chain: number): void;
+    end(): void;
+  };
 }
 
 export interface Rail {
@@ -628,6 +634,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     status.textContent = e instanceof Error ? e.message : String(e);
   }
   function onProgress(p: PlotProgress): void {
+    if (p.chain !== undefined) hooks.livePlot.progress(p.chain);
+    if (p.state === 'done' || p.state === 'stopped') hooks.livePlot.end();
     bar.value = p.totalMs > 0 ? Math.min(1, p.elapsedMs / p.totalMs) : 0;
     const eta = Math.max(0, p.etaMs / 60000);
     const base =
@@ -656,6 +664,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         : (r.pens[penIndex!]?.width ?? Infinity) / 4;
       const tol = Math.max(0.0001, Math.min(s.machine.resolution, penTol));
       const plan = await hooks.client.exportToolpath(200_000, tol);
+      hooks.livePlot.start(plan, r.pens);
       await ebb.plot(
         plan,
         r.pens,
@@ -667,6 +676,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       );
     } catch (e) {
       showErr(e);
+    } finally {
+      hooks.livePlot.end();
     }
   });
   plotBtn.className = 'primary danger';
@@ -708,9 +719,12 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       if (!ebb.connected || ebb.plotting) return;
       try {
         const d = build(diagBasePen());
+        hooks.livePlot.start(d.plan, d.pens);
         await ebb.plot(d.plan, d.pens, opts(), onProgress);
       } catch (e) {
         showErr(e);
+      } finally {
+        hooks.livePlot.end();
       }
     });
     const h = document.createElement('div');

@@ -53,6 +53,10 @@ export interface PlotProgress {
   etaMs: number;
   /** Anomaly report, e.g. a position-drift correction. Sticky per plot. */
   warning?: string;
+  /** Chain currently being drawn (plan order) / total — drives the live
+   * plot view in the preview. */
+  chain?: number;
+  chainTotal?: number;
 }
 
 export interface EbbOptions {
@@ -727,6 +731,7 @@ export class Ebb {
     // machine time by a plot-specific factor the model can't know).
     const wallStart = Date.now();
     let pausedWallMs = 0;
+    let curChain = 0;
     const report = (state: PlotProgress['state'], penName = ''): void => {
       const modelRemaining = Math.max(0, totalMs - elapsedMs);
       let etaMs = modelRemaining;
@@ -737,7 +742,10 @@ export class Ebb {
         const w = Math.min(0.85, Math.max(0, (progress - 0.05) * 4));
         etaMs = modelRemaining * (1 - w + w * rate);
       }
-      onProgress({ sent, total, elapsedMs, totalMs, penName, state, etaMs, warning });
+      onProgress({
+        sent, total, elapsedMs, totalMs, penName, state, etaMs, warning,
+        chain: curChain, chainTotal: chains.length,
+      });
     };
     // Dead-reckoning vs the board's own counters. A mismatch means commands
     // were lost or mangled in flight (open loop: PHYSICAL skips are invisible
@@ -791,6 +799,7 @@ export class Ebb {
 
     try {
       for (const [chainIndex, c] of chains.entries()) {
+        curChain = chainIndex;
         const base = pens[c.pen];
         const pen = (base && livePen?.(base.name)) ?? base;
         const feed = pen?.feed ?? 3000;
