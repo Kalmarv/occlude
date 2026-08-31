@@ -17,6 +17,25 @@ import { join } from 'node:path';
 
 const safe = (name) => (/^[a-zA-Z0-9 _-]{1,64}$/.test(name) ? name : null);
 
+/** Keep the last versions per sketch under ./sketches/.history — a save
+ * that overwrites different content (or a delete) snapshots the old file
+ * first, so one reflexive Ctrl+S can never destroy work. Capped per name. */
+const HISTORY_KEEP = 20;
+async function keepHistory(dir, name, file, newBody) {
+  const prev = await fs.readFile(file, 'utf8').catch(() => null);
+  if (prev === null || prev === newBody) return;
+  const hist = join(dir, '.history');
+  if (!existsSync(hist)) mkdirSync(hist, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  await fs.writeFile(join(hist, `${name}@${stamp}.ts`), prev);
+  const old = (await fs.readdir(hist))
+    .filter((f) => f.startsWith(`${name}@`))
+    .sort();
+  for (const f of old.slice(0, Math.max(0, old.length - HISTORY_KEEP))) {
+    await fs.unlink(join(hist, f)).catch(() => undefined);
+  }
+}
+
 /**
  * Returns a connect-style handler: (req, res, next) => void.
  * Calls next() (when given) for non-/api/sketches paths, else 404s.
@@ -81,10 +100,15 @@ export function createSketchHandler(dir) {
       if (req.method === 'PUT') {
         const chunks = [];
         for await (const c of req) chunks.push(c);
-        await fs.writeFile(file, Buffer.concat(chunks));
+        const body = Buffer.concat(chunks);
+        await keepHistory(dir, name, file, body.toString('utf8'));
+        await fs.writeFile(file, body);
         return send(200, '{"ok":true}');
       }
       if (req.method === 'DELETE') {
+        // Deletes go to history too — nothing in the store is ever lost.
+        const prev = await fs.readFile(file, 'utf8').catch(() => null);
+        if (prev !== null) await keepHistory(dir, name, file, null);
         await fs.unlink(file).catch(() => undefined);
         return send(200, '{"ok":true}');
       }
