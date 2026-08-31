@@ -345,26 +345,37 @@ pub fn render(input: &RenderInput) -> RenderOutput {
             .collect();
         let mut query_buf: Vec<u32> = Vec::new();
 
-        // Stroke outline.
+        // Stroke outline. Sub-nib judgement is per CONTOUR for closed
+        // shapes: a tiny circle's arcs are each below the nib, but drawing
+        // the whole ring lays a solid dot of diameter 2r + nib — legitimate
+        // ink with better tone than a bare tap. Only a contour whose TOTAL
+        // length is sub-nib degrades to a tap.
         let _sz = crate::profile::zone("5a outline-clip");
         if let Some(stroke_pen) = s.stroke {
-            let (p0, p1) = outline_range[i];
             let threshold = pen_width(stroke_pen);
-            for local in 0..(p1 - p0) {
-                let prim = prim_table[p0 + local];
-                clip_one(
-                    (p0 + local) as u32,
-                    &prim,
-                    threshold,
-                    stroke_pen,
-                    i as u32,
-                    &shape_clips,
-                    &ctx,
-                    clean[i],
-                    &mut query_buf,
-                    &mut so.frags,
-                    &mut so.taps,
-                );
+            for &(cs, ce) in &contour_ranges[i] {
+                let judge = if s.closed {
+                    prim_table[cs..ce].iter().map(|p| p.length()).sum::<f64>()
+                } else {
+                    f64::NAN // per-primitive below
+                };
+                for gi in cs..ce {
+                    let prim = prim_table[gi];
+                    clip_one(
+                        gi as u32,
+                        &prim,
+                        threshold,
+                        if judge.is_nan() { prim.length() } else { judge },
+                        stroke_pen,
+                        i as u32,
+                        &shape_clips,
+                        &ctx,
+                        clean[i],
+                        &mut query_buf,
+                        &mut so.frags,
+                        &mut so.taps,
+                    );
+                }
             }
         }
 
@@ -388,6 +399,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
                 origin,
                 &prim,
                 threshold,
+                prim.length(),
                 *fill_pen,
                 i as u32,
                 &shape_clips,
@@ -468,9 +480,46 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     // Deterministic merge in input order: rebase generated origins.
     let mut frags: Vec<Frag> = Vec::new();
     let mut taps: Vec<Frag> = Vec::new();
-    for so in outputs {
+    for (i, so) in outputs.into_iter().enumerate() {
         let base = prim_table.len() as u32;
         stats.fill_prims += so.gen_prims.len();
+        let mut shape_taps = so.taps;
+        // A closed contour that collapsed ENTIRELY (every primitive tapped,
+        // nothing kept) is one mark, not one per lowered primitive — a
+        // sub-nib circle's two arcs must tap once at the centre, not twice
+        // as a peanut. Replace such a contour's taps with a single
+        // length-weighted centroid tap; partially-kept contours keep their
+        // per-primitive candidates (coverage handles those).
+        for &(cs, ce) in &contour_ranges[i] {
+            let in_range =
+                |o: u32| o & GEN_FLAG == 0 && (o as usize) >= cs && (o as usize) < ce;
+            if so.frags.iter().any(|f| in_range(f.origin)) {
+                continue;
+            }
+            let idxs: Vec<usize> = shape_taps
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| in_range(t.origin))
+                .map(|(k, _)| k)
+                .collect();
+            if idxs.len() < 2 {
+                continue;
+            }
+            let (mut cx, mut cy, mut wsum) = (0.0, 0.0, 0.0);
+            for &k in &idxs {
+                let p = shape_taps[k].geom.start();
+                let w = prim_table[shape_taps[k].origin as usize].length().max(1e-9);
+                cx += p.x * w;
+                cy += p.y * w;
+                wsum += w;
+            }
+            let c = v(cx / wsum, cy / wsum);
+            let first = idxs[0];
+            shape_taps[first].geom = Primitive::Line(Line::new(c, c));
+            for &k in idxs.iter().skip(1).rev() {
+                shape_taps.remove(k);
+            }
+        }
         prim_table.extend(so.gen_prims);
         let rebase = |mut f: Frag| {
             if f.origin & GEN_FLAG != 0 {
@@ -479,7 +528,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
             f
         };
         frags.extend(so.frags.into_iter().map(rebase));
-        taps.extend(so.taps.into_iter().map(rebase));
+        taps.extend(shape_taps.into_iter().map(rebase));
     }
 
     drop(_z);
@@ -1325,6 +1374,10 @@ fn clip_one(
     origin: u32,
     prim: &Primitive,
     threshold: f64,
+    // Length judged against the nib for the fully-visible keep/tap decision:
+    // the whole contour's length for closed outlines (a ring of sub-nib arcs
+    // is still plottable ink), the primitive's own length otherwise.
+    judge_len: f64,
     pen: u32,
     shape: u32,
     clips: &[&Region],
@@ -1335,10 +1388,10 @@ fn clip_one(
     taps: &mut Vec<Frag>,
 ) {
     if clean {
-        // The nib rule applies on the fast path too: a whole primitive below
-        // one nib can only be tapped — whether it should be is a coverage
-        // question, deferred to resolve_taps.
-        if prim.length() >= threshold {
+        // The nib rule applies on the fast path too — judged per contour
+        // for closed outlines: only ink that is sub-nib AS A WHOLE degrades
+        // to a tap candidate (coverage decides its fate in resolve_taps).
+        if judge_len >= threshold {
             out.push(Frag::whole(origin, *prim, pen, shape));
         } else {
             taps.push(crate::cleanup::dot_frag(origin, prim, pen, shape));
@@ -1358,7 +1411,7 @@ fn clip_one(
         .iter()
         .any(|&oi| ctx.occluders[oi as usize].rank > ctx.my_rank);
     if !any_later && clips.is_empty() {
-        if prim.length() >= threshold {
+        if judge_len >= threshold {
             out.push(Frag::whole(origin, *prim, pen, shape));
         } else {
             taps.push(crate::cleanup::dot_frag(origin, prim, pen, shape));

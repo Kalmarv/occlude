@@ -784,13 +784,20 @@ describe('ease', () => {
 
 describe('tap dots decode at their true position', () => {
   it('a sub-nib circle taps where the circle is, whatever geometry kind', () => {
-    // Taps on ARC origins decode as zero-sweep arcs; the preview painter
-    // once assumed dots were lines and drew every arc-origin tap at (0,0).
-    // Pin: evaluating the dot geometry lands at the circle, not the origin.
-    const def = sketch({ aspect: [1, 1] }, () => circle(50, 50, mm(0.05)));
-    const r = sq(def);
+    // Closed contours are judged WHOLE against the nib (default pen 0.3mm):
+    // circumference above it draws the ring (a solid dot of 2r + nib, so
+    // dot sizes stay continuous); below it, ONE centred tap — never a
+    // per-arc peanut. Taps on arc origins decode as zero-sweep arcs; the
+    // preview painter once assumed lines and drew them at (0,0), so also
+    // pin that evaluating the geometry lands at the circle.
+    const ring = sq(sketch({ aspect: [1, 1] }, () => circle(50, 50, mm(0.08))));
+    expect(ring.frags.filter((f) => f.dot)).toHaveLength(0); // 0.50mm ring kept
+    expect(ring.frags.length).toBeGreaterThan(0);
+
+    const r = sq(sketch({ aspect: [1, 1] }, () => circle(50, 50, mm(0.03))));
     const dots = r.frags.filter((f) => f.dot);
-    expect(dots.length).toBeGreaterThan(0);
+    expect(r.frags).toHaveLength(1); // 0.19mm circumference → one tap, only
+    expect(dots).toHaveLength(1);
     for (const f of dots) {
       const [x, y] = evalPrim(f.geom, 0);
       const cx = r.frame.offsetX + 50 * (r.frame.inner.innerW / 100);

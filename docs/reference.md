@@ -746,11 +746,13 @@ The occlusion contract, in four rules:
 3. **On the boundary counts as visible.** Ink lying exactly on an occluder's
    edge survives (shared edges draw once — duplicates are removed).
 4. **The nib is the only tolerance.** Visible ink rounds to the nearest
-   plottable mark: detail shorter than the pen width becomes a pen tap —
-   unless that ink is already laid down by a neighbouring stroke of the
-   same pen, in which case it's redundant and dropped. Hidden gaps shorter
-   than the pen width are inked — a pen can't plot a line or a gap finer
-   than its own nib.
+   plottable mark. Closed outlines are judged whole: a tiny circle whose
+   circumference still exceeds the nib is drawn as a ring (a solid dot of
+   diameter 2r + nib — dot sizes stay continuous); below that it becomes a
+   single pen tap — unless that ink is already laid down by a neighbouring
+   stroke of the same pen, in which case it's redundant and dropped.
+   Hidden gaps shorter than the pen width are inked — a pen can't plot a
+   line or a gap finer than its own nib.
 
 ## Shape options
 
