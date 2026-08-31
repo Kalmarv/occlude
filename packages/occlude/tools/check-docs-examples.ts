@@ -18,6 +18,7 @@ import {
   DEFAULT_PENS, paperSize, type SketchDef,
 } from '../src/index.js';
 import { liveExampleToJs } from '../src/docsExamples.js';
+import { preloadAssetsFromDisk } from './asset-preload.js';
 
 const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
@@ -43,6 +44,7 @@ fences.forEach((src, i) => {
   const head = src.split('\n').find((l) => l.trim() && !l.startsWith('import')) ?? `#${i}`;
   try {
     const js = liveExampleToJs(src);
+    preloadAssetsFromDisk(js);
     const module = { exports: {} as Record<string, unknown> };
     new Function('require', 'exports', 'module', js)(
       (name: string) => {

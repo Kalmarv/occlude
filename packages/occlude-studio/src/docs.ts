@@ -8,6 +8,7 @@ import { marked } from 'marked';
 import {
   DEFAULT_PENS, drawFragments, evalPrim, liveExampleToJs, setPenLibrary,
 } from 'occlude';
+import { preloadAssets } from './assetLoader.js';
 import { runSketch } from './runner.js';
 import { RenderClient } from './workerClient.js';
 import apiMd from '../../../docs/api.md?raw';
@@ -55,7 +56,9 @@ async function hydrateLiveExamples(): Promise<void> {
   for (const el of outputs) {
     const src = liveSources[Number(el.dataset.live)];
     try {
-      const outcome = runSketch(liveExampleToJs(src), {
+      const js = liveExampleToJs(src);
+      await preloadAssets(js);
+      const outcome = runSketch(js, {
         pens: structuredClone(DEFAULT_PENS),
         paper: 'Square20',
         landscape: false,
