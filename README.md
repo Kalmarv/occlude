@@ -25,8 +25,8 @@ surviving ink *after* it. Any scalar parameter can be a **field**
 (`(x, y) => number`) that varies over the page. Everything is seeded and
 deterministic: the same seed plots the same drawing.
 
-Start with the [guide](docs/guide.md) (worked, render-verified examples),
-then the [API reference](docs/api.md). The
+Start with the [reference](docs/reference.md) — every feature as a live
+example, with the full API prose at the bottom. The
 [architecture notes](docs/architecture.md) cover the engine;
 [`plan.md`](./plan.md) is the original design document.
 

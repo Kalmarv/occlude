@@ -620,3 +620,199 @@ export default sketch({ aspect: [2, 1] }, () => [
   label('BARE', 3, 27.5, 3), label('W()', 36, 27.5, 3), label('MM', 3, 44, 3),
 ]);
 ```
+
+## The sketch function
+
+A sketch is a pure function from a toolkit to a tree of shape values —
+nothing draws until it renders. The tree may nest arrays arbitrarily; it
+is flattened, **tree order is draw order**, and falsy entries are skipped
+(so `cond && shape` composes).
+
+```ts
+sketch({
+  aspect: [3, 2],        // [w, h] | 'square' | 'paper' (default)
+  margin: 6,             // percent inset from the paper edge
+  seed: 'url',           // 'url' reads ?seed= (default); or a number/string
+  pen: 'pigma-005-black',// default pen for shapes that don't set one
+  origin: 'topLeft',     // or 'center'
+  yUp: false,
+  rectMode: 'corner',    // or 'center' — p5-style rect anchoring default
+}, (toolkit) => tree)
+```
+
+Fixed aspects are letterboxed onto whatever paper is selected at
+render/export. Everything random derives from the seed. Alongside its
+functions, the toolkit carries the drawable extent as plain numbers —
+`width`, `height`, `cx`, `cy` (the same values `bounds()` returns).
+
+The occlusion contract, in four rules:
+
+1. **Later wins.** Opaque shapes hide everything before them in the tree;
+   `z` overrides the ordering, ties break by tree order.
+2. **Only fills/opacity occlude.** Strokes never hide anything, and stroke
+   width never dilates an occluder.
+3. **On the boundary counts as visible.** Ink lying exactly on an occluder's
+   edge survives (shared edges draw once — duplicates are removed).
+4. **The nib is the only tolerance.** Visible detail shorter than the pen
+   width is dropped; hidden gaps shorter than the pen width are inked (a
+   pen can't plot either one).
+
+## Shape options
+
+Every shape takes a trailing opts object:
+
+| Opt | Meaning |
+|---|---|
+| `pen` | Pen for the stroke and (by default) the fill texture. |
+| `fill` | Fill texture — **implies opaque** (the shape hides what's beneath). |
+| `fillPen` | Pen for the fill, when different from `pen`. |
+| `opaque: true` | Hides what's beneath with **no texture** — only the stroke draws. |
+| `stroke: false` | No outline. A pen name instead overrides the stroke pen. |
+| `z` | Stacking override; default is tree order. |
+| `mode` | rect only: anchor (x, y) at the `'corner'` (default) or `'center'`. The config's `rectMode` sets the sketch-wide default; circles, ellipses and n-gons are always centre-anchored. |
+| `translate`, `rotate`, `scale` | Per-shape transform, identical to wrapping the shape in a `group` with the same op (order within the op: translate → rotate → scale). |
+| `decimate`, `wobble` | Shorthand for the [modifiers](#decimate) of the same name — `{ wobble: mm(0.8) }`, `{ decimate: { fill: 0.5 } }`. |
+| `modifiers` | Ordered [modifier stack](#modify): `{ modifiers: [smooth(2), wobble(mm(1)), decimate(0.2)] }` — entries run first-to-last. |
+| `bridge` | Opt-in pen-down [endpoint joining](#bridge) across gaps up to this length. Group-inheritable. |
+
+## Modifier stages
+
+Modifiers apply around the occlusion solve: **pre-stage** deforms geometry
+before it (the modified silhouette occludes; fills follow it), **post-stage**
+distresses the surviving ink afterwards. All are seeded and deterministic.
+Stacks compose in function-application order — a shape's own list first,
+then `modify()` ancestors inside-out; shorthand opts run after any explicit
+stack (nearest declaration wins, decimate before wobble).
+
+| Modifier | Stage | Parameters (defaults) | Fielded |
+|---|---|---|---|
+| `decimate(p)` | post | `p` 0…1, or `{ stroke, fill }` | both probabilities |
+| `wobble(amount)` | post | amount (length); `{ amount, wavelength: mm(25) }` | amount |
+| `dash(len, gap, offset?)` | post | lengths; `gap` defaults to `len`; phase-continuous along outlines and period-snapped on closed contours (no seam); `offset` shifts it | — |
+| `smooth(passes)` | pre | `passes = 2` | — |
+| `roughen(amount, detail?)` | pre | jitter length; resample `detail = mm(1.5)` | amount |
+| `deform(field)` | pre | `(x, y) => [dx, dy]` user units, or `{ field, detail: mm(2) }` | the field itself |
+
+Pre-stage is the conscious performance choice: wrapped shapes' curves
+flatten into polylines entering the solve, so only they pay for the
+heavier solve.
+
+## Fields
+
+Any scalar parameter marked "fielded" also takes `(x, y) => number` —
+called in user coordinates and rasterised over the page at encode time, so
+the value varies spatially. Deterministic and plotter-reproducible;
+anything goes inside (math, `noise`, image lookups).
+
+```ts
+decimate((x, y) => y / 100, ...shapes)             // dissolves toward the bottom
+wobble({ amount: (x, y) => 2 * noise(x / 30, y / 30) }, ...shapes)
+// halftone: dash chops the hatch, an image field erodes it by position
+modify([dash(mm(1.2), mm(0.8)), decimate((x, y) => img.lum(x, y))],
+  rect(0, 0, 100, 100, { fill: hatch(45, mm(1.2)) }))
+```
+
+## Custom fills
+
+A custom fill is a plain function passed as `fill:`; it goes through the
+normal occlusion path. **Coordinates are paper millimetres**, and
+`ctx.rnd()` is seeded per-shape from the sketch seed — use it instead of
+`Math.random()`. Every built-in fill also takes an object form:
+`hatch({ angle: 45, offset: 3 })`, `stipple({ density: 0.7, minDist })` —
+stipple dot spacing ≈ `minDist / density`.
+
+```ts
+(region, ctx) => {
+  region.bbox              // { x, y, w, h } in mm
+  region.contains(x, y)    // point test (respects the winding rule)
+  region.path              // the actual outline: contours of exact primitives
+  region.area              // mm², holes subtracted
+  ctx.penWidth             // fill pen nib, mm
+  ctx.rnd()                // seeded [0, 1)
+}
+```
+
+Primitives it may return (overshooting the region is fine — everything is
+clipped exactly to the boundary):
+
+```ts
+{ type: 'line',  x1, y1, x2, y2 }
+{ type: 'arc',   cx, cy, r, start, sweep }        // full circle: start 0, sweep 2π
+{ type: 'cubic', x1, y1, cx1, cy1, cx2, cy2, x2, y2 }
+{ type: 'polyline', pts: [[x, y], ...] }          // one entry instead of n-1 lines
+```
+
+## Render & export
+
+```ts
+await initOcclude();                         // once, before the first render
+const out  = render(def, { paper: 'A4' });   // out.frags, out.prims, out.stats
+const jobs = exportGcode(def, { paper: 'A4', profile: { zMode: true } });
+const svg  = exportSvg(def, { paper: 'A4', background: '#f6f2ea', onlyPen: 0 });
+const png  = exportPng(def, { paper: 'A4', scale: 11.81 });  // ≈ 300 dpi
+```
+
+- `render` options: `paper` (preset name or `{ paper, landscape }`),
+  `coarsen` (preview coarsening; 1 = exact), `stretch` (fill the paper,
+  non-uniform), `unbounded` (skip the paper clip).
+- `exportGcode` returns one job per pen:
+  `{ pen, penName, gcode, inkMm, travelMm, estSeconds }`. `optimize` sets
+  the 2-opt tour budget (`false` disables, a number overrides).
+- Headless CLI: `pnpm --filter occlude render <sketch.ts> --seed N --paper A4
+  --out x.png [--svg x.svg]`.
+- A `Fragment` is `{ origin, t0, t1, pen, shape, dot, bridge, geom }` — a
+  sub-range of an original primitive with exact geometry in paper mm
+  (`bridge` marks connectors inserted by the bridge opt).
+  `drawFragments(ctx, frags, pens)` paints them on a Canvas 2D context
+  scaled to 1 unit = 1 mm.
+- Plot statistics: `pnpm --filter occlude plotstats <sketch.ts…> [--seed N]`
+  reports pen lifts, ink/travel mm, estimated plot time, and optimization
+  bounds per sketch — the before/after oracle for toolpath changes.
+
+## Pens & paper
+
+- Pens: `{ name, width, color, feed, penDown, penUp, penDelay }` — width in
+  mm is the system's one tolerance. Unknown pen names throw, so shared
+  sketches fail loudly. `DEFAULT_PENS` ships a starter set; the studio
+  persists its own library server-side and injects it via
+  `setPenLibrary(pens)`.
+- Papers: `PAPERS` has A3–A6, Letter, Square20; custom sizes via
+  `{ paper: { w, h } }`.
+
+## Plotting from the studio
+
+The Plot panel drives an EBB-family (AxiDraw/iDraw) machine over Web
+Serial. What's under the hood, briefly, so its knobs make sense:
+
+- **Motion**: host-side look-ahead planning (junction deviation, min-cruise)
+  emitted as hardware-interpolated constant-acceleration `LM` commands
+  (25 kHz ramps in firmware; falls back to `XM` packets below firmware
+  2.5.3 or via the checkbox). Separate acceleration for pen-up travel.
+- **Pen cycles**: per-pen `feed` and `penDelay` (settle). **Quick hop**
+  lifts the pen only ~40% for short travels with shorter settles — the
+  big lever on hatch/stipple plots; 0 disables (needed on machines whose
+  gantry sags at one side).
+- **Position integrity**: the board's step counters are checked against
+  dead reckoning at connect, every 500 chains, and at plot end — lost
+  commands are healed automatically and flagged. Visible drift mid-plot:
+  Pause → jog the pen onto the origin mark → Set origin → Resume (the
+  interrupted stroke's remainder stays pen-up; the next chain re-inks).
+- **Pen changes**: no changer — multi-pen sketches plot one pen per run
+  via the Plot-pen select; "all pens (one run)" runs a whole multi-pen
+  plan with the installed pen, each chain using its own logical pen's
+  feed/settle.
+- **Diagnostics** (in the panel): registration probe (step loss),
+  backlash squares, corner ringing at three feeds (junction-deviation
+  tuning), plus the settle × travel sweep sketch for finding a pen's true
+  `penDelay` floor. **Download serial log** exports the full timestamped
+  command transcript — the first artifact to grab when anything misbehaves.
+- **ETA**: totals come from the planner's actual trapezoids and blend
+  toward measured throughput as the plot runs — the number is honest.
+- **Draft plots**: `decimate(0.7, everything)` makes a fast structural
+  test plot with a fraction of the ink budget; the seed keeps it
+  reproducible when you re-plot the full version.
+
+Real bridge numbers from a shaded A4 piece, for calibration: no bridge
+≈ 34,000 lifts / ~11 h; `bridge: mm(0.5)` ≈ 4.4 h; `mm(0.7)` ≈ 2.9 h;
+`mm(1)` ≈ 2.3 h — the Debug view's red connectors show what each
+tolerance costs visually.

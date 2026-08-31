@@ -11,16 +11,12 @@ import {
 import { preloadAssets } from './assetLoader.js';
 import { runSketch } from './runner.js';
 import { RenderClient } from './workerClient.js';
-import apiMd from '../../../docs/api.md?raw';
 import architectureMd from '../../../docs/architecture.md?raw';
-import guideMd from '../../../docs/guide.md?raw';
 import referenceMd from '../../../docs/reference.md?raw';
 import readmeMd from '../../../README.md?raw';
 
 const PAGES: { slug: string; title: string; md: string }[] = [
-  { slug: 'guide', title: 'Guide', md: guideMd },
   { slug: 'reference', title: 'Reference', md: referenceMd },
-  { slug: 'api', title: 'API reference', md: apiMd },
   { slug: 'architecture', title: 'Architecture', md: architectureMd },
   { slug: 'readme', title: 'README', md: readmeMd },
 ];
@@ -118,7 +114,7 @@ const content = document.getElementById('docs-content')!;
 
 function currentSlug(): string {
   const slug = location.hash.replace(/^#\/?/, '').split('#')[0];
-  return PAGES.some((p) => p.slug === slug) ? slug : 'guide';
+  return PAGES.some((p) => p.slug === slug) ? slug : PAGES[0].slug;
 }
 
 function currentAnchor(): string | undefined {
@@ -201,6 +197,10 @@ async function show(slug: string): Promise<void> {
       } else {
         a.replaceWith(...a.childNodes);
       }
+    } else if (href.startsWith('#') && !href.startsWith('#/')) {
+      // In-page anchor: route through the page slug so the hash router
+      // doesn't mistake it for a page name and bounce to the default.
+      a.href = `#/${page.slug}${href}`;
     }
   }
   buildToc(page.slug);
