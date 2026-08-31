@@ -78,5 +78,14 @@ export type { ScatterPoint, ScatterOpts } from './points.js';
 export { ui, scanUiControls } from './ui.js';
 export type { UiOpts, UiControl } from './ui.js';
 
+// Motion planning + the plot-time ground-truth model (shared by the EBB
+// driver, plotstats, and the export panel).
+export {
+  planPolyline, planDurationMs, segmentsToBlocks, estimatePlanMs,
+} from './motion.js';
+export type {
+  MotionLimits, PlannedSegment, MotionBlock, Point, PlanEstimate, EstimateOpts,
+} from './motion.js';
+
 // Host integration.
 export { setPenLibrary, setPaperHint, getState } from './state.js';

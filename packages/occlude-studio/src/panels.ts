@@ -7,7 +7,7 @@
  */
 
 import {
-  profileToJson,
+  estimatePlanMs, profileToJson,
   type GcodeJob, type PenDef, type RenderResult,
 } from 'occlude';
 import {
@@ -16,7 +16,8 @@ import {
 import { download, savePens, saveSettings, type Settings } from './store.js';
 import { Ebb, serialSupported, type PlotProgress } from './ebb.js';
 import {
-  backlashSquares, cornerRinging, registrationProbe, type Diagnostic,
+  backlashSquares, calDots, calHatch, calLines, calSegments, cornerRinging,
+  registrationProbe, type Diagnostic,
 } from './diagnostics.js';
 import type { RenderClient } from './workerClient.js';
 
@@ -636,6 +637,29 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   function onProgress(p: PlotProgress): void {
     if (p.chain !== undefined) hooks.livePlot.progress(p.chain);
     if (p.state === 'done' || p.state === 'stopped') hooks.livePlot.end();
+    if (p.state === 'done' && p.wallMs && p.estimate) {
+      // Calibration record: model breakdown vs measured wall time. The log
+      // accumulates on the server; `plotstats --fit` learns correction
+      // coefficients from it.
+      void fetch('/api/plotlog', {
+        method: 'POST',
+        body: JSON.stringify({
+          ts: new Date().toISOString(),
+          sketch: hooks.currentName() || null,
+          pen: p.penName || null,
+          wallMs: Math.round(p.wallMs),
+          modelMs: Math.round(p.totalMs),
+          estimate: p.estimate,
+          settings: {
+            quickHopMm: s.ebb.quickHopMm,
+            travelFeed: s.machine.travelFeed,
+            acceleration: s.ebb.acceleration,
+            travelAcceleration: s.ebb.travelAcceleration,
+            lmMotion: s.ebb.lmMotion,
+          },
+        }),
+      }).catch(() => undefined);
+    }
     bar.value = p.totalMs > 0 ? Math.min(1, p.elapsedMs / p.totalMs) : 0;
     const eta = Math.max(0, p.etaMs / 60000);
     const base =
@@ -732,6 +756,38 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     h.textContent = hint;
     diag.append(b, h);
   };
+  const cal = document.createElement('details');
+  cal.className = 'subpanel';
+  const calSummary = document.createElement('summary');
+  calSummary.textContent = 'Calibration plots';
+  cal.append(calSummary);
+  const calHint = document.createElement('div');
+  calHint.className = 'panel-hint';
+  calHint.textContent =
+    'Small single-primitive plots — each isolates one cost axis. Completed ' +
+    'plots log model-vs-wall time on the server; plotstats --fit learns the ' +
+    'correction. Origin bottom-left of a clear ~70\u00d770mm area.';
+  cal.append(calHint);
+  const addCal = (label: string, build: (base?: PenDef) => Diagnostic): void => {
+    const b = button(label, async () => {
+      if (!ebb.connected || ebb.plotting) return;
+      try {
+        const d = build(diagBasePen());
+        hooks.livePlot.start(d.plan, d.pens);
+        await ebb.plot(d.plan, d.pens, opts(), onProgress);
+      } catch (e) {
+        showErr(e);
+      } finally {
+        hooks.livePlot.end();
+      }
+    });
+    cal.append(b);
+  };
+  addCal('Dots \u00d7120 (taps)', calDots);
+  addCal('Long lines \u00d740 (feed+travel)', calLines);
+  addCal('Dense zigzags (serial overhead)', calSegments);
+  addCal('Hatch square (mixed)', calHatch);
+
   addDiag(
     'Registration probe (~120\u00d764mm)',
     '+ drawn first, \u2715 drawn last at the same spot, heavy fast travel between. Offset between their centers = steps lost during the run; direction says which motor.',
@@ -793,6 +849,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     manual.root,
     tuning.root,
     setup.root,
+    cal,
     diag,
   );
 }
@@ -860,10 +917,9 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
     table.innerHTML = '';
     if (!r) return;
     refreshing = true;
-    const s = hooks.settings;
     const profileJson = profileToJson(
       {
-        bed: [s.machine.bedW, s.machine.bedH],
+        bed: [m.bedW, m.bedH],
         travelFeed: s.machine.travelFeed,
         zMode: s.machine.zMode,
         arcSupport: s.machine.arcSupport,
@@ -871,9 +927,24 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
       },
       r.paper,
     );
-    hooks.client
-      .exportGcode(profileJson, 200_000)
-      .then((json) => {
+    // Times come from THE ground-truth model (the EBB planner's math with
+    // the CURRENT machine settings), per pen as if plotted alone — the
+    // G-code jobs' own estimates assume a generic G-code machine and were
+    // the source of wildly divergent numbers.
+    const tol = Math.max(0.0001, s.machine.resolution);
+    const planPromise = hooks.client.exportToolpath(200_000, tol).then((plan) => {
+      const chains: { pen: number; dot: boolean; pts: Float64Array }[] = [];
+      for (let i = 0; i < plan.length; ) {
+        const pen = plan[i++];
+        const dot = plan[i++] === 1;
+        const n = plan[i++];
+        chains.push({ pen, dot, pts: plan.subarray(i, i + n * 2) });
+        i += n * 2;
+      }
+      return chains;
+    });
+    Promise.all([hooks.client.exportGcode(profileJson, 200_000), planPromise])
+      .then(([json, chains]) => {
         const jobs = JSON.parse(json) as GcodeJob[];
         table.innerHTML = '';
         for (const job of jobs) {
@@ -890,9 +961,25 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
           stats.textContent = `${frags} frags`;
           const time = tr.insertCell();
           time.className = 'num';
-          const mins = job.estSeconds / 60;
+          const est = estimatePlanMs(
+            chains.filter((c) => c.pen === job.pen),
+            () => {
+              const pd = hooks.pens.find((pp) => pp.name === job.penName) ?? pen;
+              return pd ? { feed: pd.feed, penDelay: pd.penDelay } : undefined;
+            },
+            {
+              travelFeed: s.machine.travelFeed,
+              acceleration: s.ebb.acceleration,
+              travelAcceleration: s.ebb.travelAcceleration,
+              junctionDeviation: s.ebb.junctionDeviation,
+              minimumCruiseRatio: s.ebb.minimumCruiseRatio,
+              quickHopMm: s.ebb.quickHopMm,
+            },
+          );
+          const mins = est.totalMs / 60000;
+          time.title = 'Plot-time estimate: the EBB planner model with current machine settings';
           time.textContent =
-            mins >= 1 ? `~${mins.toFixed(1)}min` : `~${Math.ceil(job.estSeconds)}s`;
+            mins >= 1 ? `~${mins.toFixed(1)}min` : `~${Math.ceil(est.totalMs / 1000)}s`;
           const dl = tr.insertCell();
           const gBtn = button('gcode', () =>
             download(`occlude-${job.penName}.gcode`, job.gcode),

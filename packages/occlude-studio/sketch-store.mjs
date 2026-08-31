@@ -46,7 +46,8 @@ export function createSketchHandler(dir) {
   return async function handler(req, res, next) {
     const url = new URL(req.url ?? '/', 'http://x');
     const isPens = url.pathname === '/api/pens';
-    if (!url.pathname.startsWith('/api/sketches') && !isPens) {
+    const isPlotLog = url.pathname === '/api/plotlog';
+    if (!url.pathname.startsWith('/api/sketches') && !isPens && !isPlotLog) {
       if (next) return next();
       res.statusCode = 404;
       return res.end('{"error":"not found"}');
@@ -57,6 +58,22 @@ export function createSketchHandler(dir) {
       res.end(body);
     };
     try {
+      if (isPlotLog) {
+        const file = join(dir, 'plots.jsonl');
+        if (req.method === 'GET') {
+          const src = await fs.readFile(file, 'utf8').catch(() => '');
+          return send(200, src, 'text/plain');
+        }
+        if (req.method === 'POST') {
+          const chunks = [];
+          for await (const c of req) chunks.push(c);
+          const body = Buffer.concat(chunks).toString('utf8');
+          JSON.parse(body); // one valid JSON record per line
+          await fs.appendFile(file, body.trimEnd() + '\n');
+          return send(200, '{"ok":true}');
+        }
+        return send(405, '{"error":"method"}');
+      }
       if (isPens) {
         const file = join(dir, 'pens.json');
         if (req.method === 'GET') {

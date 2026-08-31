@@ -19,8 +19,9 @@
 
 import type { PenDef } from 'occlude';
 import {
-  planDurationMs, planPolyline, segmentsToBlocks, type MotionBlock, type Point,
-} from './motion.js';
+  estimatePlanMs, planDurationMs, planPolyline, segmentsToBlocks,
+  type MotionBlock, type PlanEstimate, type Point,
+} from 'occlude';
 
 // Minimal Web Serial typings (lib.dom doesn't ship them everywhere).
 interface SerialPortLike {
@@ -57,6 +58,10 @@ export interface PlotProgress {
    * plot view in the preview. */
   chain?: number;
   chainTotal?: number;
+  /** Final report only: measured wall time (pauses excluded) and the model
+   * breakdown — the calibration record. */
+  wallMs?: number;
+  estimate?: PlanEstimate;
 }
 
 export interface EbbOptions {
@@ -671,52 +676,26 @@ export class Ebb {
     // corners, short segments) is counted at its planned speed, not the
     // "always at full feed" fiction that undershot on exactly the plots
     // that take longest.
-    let total = 0;
-    let totalMs = 0;
-    {
-      const drawAccel = Math.max(1, o.acceleration);
-      const travelAccel = Math.max(1, o.travelAcceleration);
-      const limits = (maxVelocity: number, acceleration: number) => ({
-        maxVelocity: Math.max(1, maxVelocity),
-        acceleration,
-        junctionDeviation: Math.max(0, o.junctionDeviation),
-        minimumCruiseRatio: o.minimumCruiseRatio,
-        startVelocity: 0,
-        endVelocity: 0,
-      });
-      let px = 0;
-      let py = 0;
-      chains.forEach((c, i) => {
-        const base = pens[c.pen];
+    // Totals for progress: THE shared ground-truth model (estimatePlanMs) —
+    // the same numbers plotstats and the export panel show.
+    const estimate: PlanEstimate = estimatePlanMs(
+      chains,
+      (pi) => {
+        const base = pens[pi];
         const pen = (base && livePen?.(base.name)) ?? base;
-        const feed = pen?.feed ?? 3000;
-        const travel: Point[] = [[px, py], [c.pts[0], c.pts[1]]];
-        totalMs += planDurationMs(
-          planPolyline(travel, limits(o.travelFeed / 60, travelAccel)),
-          travelAccel,
-        );
-        total += 3; // travel + pen down + pen up
-        if (!c.dot) {
-          const poly: Point[] = [];
-          for (let k = 0; k < c.pts.length; k += 2) poly.push([c.pts[k], c.pts[k + 1]]);
-          totalMs += planDurationMs(planPolyline(poly, limits(feed / 60, drawAccel)), drawAccel);
-          total += poly.length - 1;
-        }
-        // Pen-cycle cost mirrors the quick-hop rule the plot loop applies:
-        // down at the height set by the travel INTO this chain, up at the
-        // height chosen for the travel OUT of it.
-        const settle = Math.max(pen?.penDelay ?? 300, 150);
-        const gapIn = Math.hypot(c.pts[0] - px, c.pts[1] - py);
-        const nxt = chains[i + 1];
-        px = c.pts[c.pts.length - 2];
-        py = c.pts[c.pts.length - 1];
-        const gapOut = nxt ? Math.hypot(nxt.pts[0] - px, nxt.pts[1] - py) : Infinity;
-        const hop = (g: number): boolean => o.quickHopMm > 0 && g <= o.quickHopMm;
-        const down = i > 0 && hop(gapIn) ? Math.max(200, Math.round(settle * 0.5)) : settle;
-        const up = hop(gapOut) ? Math.max(150, Math.round(settle * 0.4)) : settle;
-        totalMs += down + up + 300;
-      });
-    }
+        return pen ? { feed: pen.feed, penDelay: pen.penDelay } : undefined;
+      },
+      {
+        travelFeed: o.travelFeed,
+        acceleration: o.acceleration,
+        travelAcceleration: o.travelAcceleration,
+        junctionDeviation: o.junctionDeviation,
+        minimumCruiseRatio: o.minimumCruiseRatio,
+        quickHopMm: o.quickHopMm,
+      },
+    );
+    const total = estimate.commands;
+    const totalMs = estimate.totalMs;
 
     this.plotAbort = false;
     this.plotPause = false;
@@ -745,6 +724,9 @@ export class Ebb {
       onProgress({
         sent, total, elapsedMs, totalMs, penName, state, etaMs, warning,
         chain: curChain, chainTotal: chains.length,
+        ...(state === 'done' || state === 'stopped'
+          ? { wallMs: Date.now() - wallStart - pausedWallMs, estimate }
+          : {}),
       });
     };
     // Dead-reckoning vs the board's own counters. A mismatch means commands

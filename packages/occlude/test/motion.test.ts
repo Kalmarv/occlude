@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { planPolyline } from './motion.js';
+import { planPolyline } from '../src/motion.js';
 
 const limits = {
   maxVelocity: 60,
@@ -122,7 +122,7 @@ describe('polyline look-ahead planner', () => {
   });
 });
 
-import { segmentsToBlocks } from './motion.js';
+import { segmentsToBlocks } from '../src/motion.js';
 
 describe('segmentsToBlocks', () => {
   const plan = planPolyline(

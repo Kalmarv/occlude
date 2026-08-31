@@ -195,3 +195,100 @@ export function planPolyline(points: Point[], limits: MotionLimits): PlannedSegm
     };
   });
 }
+
+
+// ---- plot-time ground truth ------------------------------------------------
+
+export interface PlanChainLike {
+  pen: number;
+  dot: boolean;
+  pts: ArrayLike<number>;
+}
+
+export interface EstimateOpts {
+  /** mm/min. */
+  travelFeed: number;
+  /** mm/s². */
+  acceleration: number;
+  travelAcceleration: number;
+  junctionDeviation: number;
+  minimumCruiseRatio: number;
+  /** Quick-hop threshold, mm; 0 disables (full lifts everywhere). */
+  quickHopMm: number;
+}
+
+export interface PenTiming {
+  feed: number;
+  penDelay: number;
+}
+
+export interface PlanEstimate {
+  totalMs: number;
+  /** Breakdown — the calibration features: wall ≈ Σ aᵢ·featureᵢ. */
+  drawMs: number;
+  travelMs: number;
+  cycleMs: number;
+  commands: number;
+  chains: number;
+  dots: number;
+}
+
+/** THE plot-time model — the same math the EBB driver's progress totals and
+ * ETA use. plotstats and the export panel estimate through this too, so
+ * every number the user sees shares one source of truth. Trapezoid-planned
+ * per move (short dense segments never reach feed and are priced at their
+ * planned speed), pen cycles follow the quick-hop rule exactly. */
+export function estimatePlanMs(
+  chains: readonly PlanChainLike[],
+  penOf: (penIndex: number) => PenTiming | undefined,
+  o: EstimateOpts,
+): PlanEstimate {
+  const drawAccel = Math.max(1, o.acceleration);
+  const travelAccel = Math.max(1, o.travelAcceleration);
+  const limits = (maxVelocity: number, acceleration: number) => ({
+    maxVelocity: Math.max(1, maxVelocity),
+    acceleration,
+    junctionDeviation: Math.max(0, o.junctionDeviation),
+    minimumCruiseRatio: o.minimumCruiseRatio,
+    startVelocity: 0,
+    endVelocity: 0,
+  });
+  const est: PlanEstimate = {
+    totalMs: 0, drawMs: 0, travelMs: 0, cycleMs: 0,
+    commands: 0, chains: chains.length, dots: 0,
+  };
+  let px = 0;
+  let py = 0;
+  chains.forEach((c, i) => {
+    const pen = penOf(c.pen);
+    const feed = pen?.feed ?? 3000;
+    const travel: Point[] = [[px, py], [c.pts[0], c.pts[1]]];
+    est.travelMs += planDurationMs(
+      planPolyline(travel, limits(o.travelFeed / 60, travelAccel)),
+      travelAccel,
+    );
+    est.commands += 3; // travel + pen down + pen up
+    if (c.dot) {
+      est.dots += 1;
+    } else {
+      const poly: Point[] = [];
+      for (let k = 0; k < c.pts.length; k += 2) poly.push([c.pts[k], c.pts[k + 1]]);
+      est.drawMs += planDurationMs(planPolyline(poly, limits(feed / 60, drawAccel)), drawAccel);
+      est.commands += poly.length - 1;
+    }
+    // Pen-cycle cost mirrors the plot loop's quick-hop rule: down height set
+    // by the travel INTO the chain, up height by the travel OUT of it.
+    const settle = Math.max(pen?.penDelay ?? 300, 150);
+    const gapIn = Math.hypot(c.pts[0] - px, c.pts[1] - py);
+    const nxt = chains[i + 1];
+    px = c.pts[c.pts.length - 2] as number;
+    py = c.pts[c.pts.length - 1] as number;
+    const gapOut = nxt ? Math.hypot((nxt.pts[0] as number) - px, (nxt.pts[1] as number) - py) : Infinity;
+    const hop = (g: number): boolean => o.quickHopMm > 0 && g <= o.quickHopMm;
+    const down = i > 0 && hop(gapIn) ? Math.max(200, Math.round(settle * 0.5)) : settle;
+    const up = hop(gapOut) ? Math.max(150, Math.round(settle * 0.4)) : settle;
+    est.cycleMs += down + up + 300;
+  });
+  est.totalMs = est.drawMs + est.travelMs + est.cycleMs;
+  return est;
+}

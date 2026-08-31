@@ -49,6 +49,58 @@ function encode(chains: Chain[]): Float64Array {
   return new Float64Array(out);
 }
 
+function encodeDots(pts: [number, number][]): number[] {
+  const out: number[] = [];
+  for (const p of pts) out.push(0, 1, 1, p[0], p[1]);
+  return out;
+}
+
+/**
+ * Timing-calibration plots: each isolates ONE cost axis, so the recorded
+ * (model breakdown, wall time) pairs form a well-conditioned system for
+ * fitting correction coefficients (plotstats --fit). ~1–3 min each.
+ *
+ * - dots: 120 taps → pen-cycle truth (settle + tap overhead).
+ * - lines: 40 long parallel strokes → draw feed + full-lift travel truth.
+ * - segments: dense zigzags → per-command serial overhead (many short
+ *   segments, little ink).
+ * - hatch: a tightly hatched square → the mixed regime real fills live in.
+ */
+export function calDots(base?: PenDef): Diagnostic {
+  const pts: [number, number][] = [];
+  for (let j = 0; j < 10; j++) for (let i = 0; i < 12; i++) pts.push([4 + i * 4, 4 + j * 4]);
+  return { plan: new Float64Array(encodeDots(pts)), pens: [pen('cal-dots', 3000, base)] };
+}
+
+export function calLines(base?: PenDef): Diagnostic {
+  const chains: Chain[] = [];
+  for (let i = 0; i < 40; i++) {
+    const y = 4 + i * 1.5;
+    chains.push({ pen: 0, pts: i % 2 ? [[64, y], [4, y]] : [[4, y], [64, y]] });
+  }
+  return { plan: encode(chains), pens: [pen('cal-lines', 3000, base)] };
+}
+
+export function calSegments(base?: PenDef): Diagnostic {
+  const chains: Chain[] = [];
+  for (let i = 0; i < 12; i++) {
+    const y = 4 + i * 4;
+    const pts: [number, number][] = [];
+    for (let x = 0; x <= 60; x += 1) pts.push([4 + x, y + (x % 2 ? 1.2 : 0)]);
+    chains.push({ pen: 0, pts });
+  }
+  return { plan: encode(chains), pens: [pen('cal-segments', 3000, base)] };
+}
+
+export function calHatch(base?: PenDef): Diagnostic {
+  const chains: Chain[] = [];
+  for (let i = 0; i < 50; i++) {
+    const y = 4 + i * 0.8;
+    chains.push({ pen: 0, pts: i % 2 ? [[44, y], [4, y]] : [[4, y], [44, y]] });
+  }
+  return { plan: encode(chains), pens: [pen('cal-hatch', 3000, base)] };
+}
+
 /** "+" first, stress travels, "✕" last — centers coincide iff no steps were
  * lost. Footprint ~120×64mm from the origin. */
 export function registrationProbe(base?: PenDef): Diagnostic {
