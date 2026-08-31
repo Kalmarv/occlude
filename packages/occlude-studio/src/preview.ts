@@ -549,13 +549,15 @@ export class Preview {
     }
 
     if (this.debug) {
-      // Ghost the full primitive table — everything that was recorded or
-      // generated, including what occlusion removed.
+      // Ghost everything recorded or generated, including what occlusion
+      // removed. The engine's ghost geometry is post-modified (wobbles and
+      // dashes exactly like the ink); the raw prim table is the fallback
+      // for renders made before debug was toggled on.
       ctx.save();
       ctx.strokeStyle = 'rgba(91, 139, 217, 0.35)';
       ctx.lineWidth = 0.1;
       ctx.beginPath();
-      for (const p of r.prims) tracePrim(ctx, p);
+      for (const p of r.ghost ?? r.prims) tracePrim(ctx, p);
       ctx.stroke();
       ctx.restore();
     }

@@ -24,6 +24,8 @@ export interface RunConfig {
   defaultMarginPct: number;
   /** Preview coarsening (1 = exact). */
   coarsen: number;
+  /** Compute the debug ghost (post-modified pre-occlusion geometry). */
+  debugGhost?: boolean;
 }
 
 export function runSketch(js: string, cfg: RunConfig): RunOutcome {
@@ -52,6 +54,7 @@ export function runSketch(js: string, cfg: RunConfig): RunOutcome {
     const scene = occlude.encodeScene({
       paper: { paper: cfg.paper as never, landscape: cfg.landscape },
       coarsen: cfg.coarsen,
+      debugGhost: cfg.debugGhost,
     });
     return { scene, error: null };
   } catch (error) {

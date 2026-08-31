@@ -68,6 +68,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
             id: msg.id,
             prims: raw.prims.slice(),
             frags: raw.frags.slice(),
+            ghost: raw.ghost?.slice(),
             stats: raw.stats,
             renderMs: raw.renderMs,
           },

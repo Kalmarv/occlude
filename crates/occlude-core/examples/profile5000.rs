@@ -47,7 +47,7 @@ fn main() {
         paper: None,
         seed: 1,
         coarsen: 1.0,
-        fields: Vec::new(),
+        debug_ghost: false, fields: Vec::new(),
     };
     for _ in 0..5 {
         let t = std::time::Instant::now();

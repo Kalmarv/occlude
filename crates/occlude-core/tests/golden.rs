@@ -98,6 +98,7 @@ fn scene() -> RenderInput {
         paper: Some(occlude_core::bbox::BBox::new(v(0., 0.), v(105., 148.))),
         seed: 1234,
         coarsen: 1.0,
+        debug_ghost: false,
         fields: Vec::new(),
     }
 }

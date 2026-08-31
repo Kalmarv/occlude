@@ -218,6 +218,7 @@ pub struct RenderResult {
     prims: Vec<f64>,
     frags: Vec<f64>,
     stats: Vec<f64>,
+    ghost: Vec<f64>,
 }
 
 #[wasm_bindgen]
@@ -235,6 +236,12 @@ impl RenderResult {
     #[wasm_bindgen(getter)]
     pub fn stats(&self) -> Vec<f64> {
         self.stats.clone()
+    }
+    /// Debug-ghost geometry (post-modified, pre-occlusion); empty unless
+    /// requested. Same PRIM encoding as `prims`.
+    #[wasm_bindgen(getter)]
+    pub fn ghost(&self) -> Vec<f64> {
+        self.ghost.clone()
     }
 }
 
@@ -254,6 +261,7 @@ pub fn wasm_render(
     paper: &[f64],
     seed: u32,
     coarsen: f64,
+    debug_ghost: u32,
 ) -> Result<RenderResult, JsValue> {
     let err = |m: &str| JsValue::from_str(m);
     if prims.len() % PRIM_STRIDE != 0 {
@@ -389,6 +397,7 @@ pub fn wasm_render(
         seed: seed as u64,
         coarsen,
         fields,
+        debug_ghost: debug_ghost != 0,
     });
 
     let mut prims_out = Vec::with_capacity(out.prims.len() * PRIM_STRIDE);
@@ -407,9 +416,14 @@ pub fn wasm_render(
         ]);
     }
     let s = &out.stats;
+    let mut ghost_out = Vec::with_capacity(out.ghost.len() * PRIM_STRIDE);
+    for p in &out.ghost {
+        encode_prim(p, &mut ghost_out);
+    }
     Ok(RenderResult {
         prims: prims_out,
         frags: frags_out,
+        ghost: ghost_out,
         stats: vec![
             s.shapes_in as f64,
             s.culled_off_paper as f64,

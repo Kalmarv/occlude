@@ -49,7 +49,7 @@ fn input(shapes: Vec<ShapeRec>) -> RenderInput {
         paper: None,
         seed: 1,
         coarsen: 1.0,
-        fields: Vec::new(),
+        debug_ghost: false, fields: Vec::new(),
     }
 }
 

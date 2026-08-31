@@ -133,6 +133,7 @@ async function boot(): Promise<void> {
       landscape: settings.landscape,
       defaultMarginPct: settings.defaultMarginPct,
       coarsen: 1,
+      debugGhost: preview.debug,
     });
     localStorage.removeItem(RUN_SENTINEL);
     if (outcome.error || !outcome.scene) {
@@ -392,7 +393,8 @@ async function boot(): Promise<void> {
   $('btn-fit').onclick = () => preview.fit();
   ($('debug-toggle') as HTMLInputElement).onchange = (e) => {
     preview.debug = (e.target as HTMLInputElement).checked;
-    preview.draw();
+    // The ghost is computed by the engine — re-render to get (or drop) it.
+    void run();
   };
 
   void run();

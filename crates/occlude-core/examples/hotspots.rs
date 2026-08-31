@@ -68,6 +68,7 @@ fn input(shapes: Vec<ShapeRec>, fields: Vec<FieldGrid>) -> RenderInput {
         paper: Some(BBox::new(v(0.0, 0.0), v(200.0, 200.0))),
         seed: 7,
         coarsen: 1.0,
+        debug_ghost: false,
         fields,
     }
 }

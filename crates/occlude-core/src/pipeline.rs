@@ -95,6 +95,10 @@ pub struct RenderInput {
     /// Rasterised scalar fields referenced by `Param::Field` modifier
     /// parameters (paper-mm grids).
     pub fields: Vec<FieldGrid>,
+    /// Debug: also return every shape's full pre-occlusion geometry run
+    /// through its post-stage program (decimate skipped) — ghosts that
+    /// wobble and dash exactly like the surviving ink.
+    pub debug_ghost: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -114,6 +118,9 @@ pub struct RenderOutput {
     pub prims: Vec<Primitive>,
     pub frags: Vec<Frag>,
     pub stats: RenderStats,
+    /// Post-modified pre-occlusion geometry for the debug ghost view;
+    /// empty unless `debug_ghost` was requested.
+    pub ghost: Vec<Primitive>,
 }
 
 /// Occluders are stored in ascending z-rank order, so an index query result
@@ -480,9 +487,11 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     // Deterministic merge in input order: rebase generated origins.
     let mut frags: Vec<Frag> = Vec::new();
     let mut taps: Vec<Frag> = Vec::new();
+    let mut gen_range: Vec<(usize, usize)> = vec![(0, 0); n];
     for (i, so) in outputs.into_iter().enumerate() {
         let base = prim_table.len() as u32;
         stats.fill_prims += so.gen_prims.len();
+        gen_range[i] = (base as usize, base as usize + so.gen_prims.len());
         let mut shape_taps = so.taps;
         // A closed contour that collapsed ENTIRELY (every primitive tapped,
         // nothing kept) is one mark, not one per lowered primitive — a
@@ -594,11 +603,56 @@ pub fn render(input: &RenderInput) -> RenderOutput {
         let _z = crate::profile::zone("8 bridge");
         bridge_pass(input, &mut frags, &mut prim_table);
     }
+    // ---- Debug ghost: full pre-occlusion geometry through each shape's
+    // post program (decimate skipped so deleted strokes stay inspectable).
+    // Wobble displaces by position, so ghosts align exactly with the
+    // surviving ink's tremor; hidden portions get the same treatment the
+    // visible ones did.
+    let ghost: Vec<Primitive> = if input.debug_ghost {
+        let mut gtable = prim_table.clone();
+        let mut interp = PostInterp {
+            seed: input.seed,
+            fields: &input.fields,
+            prim_table: &mut gtable,
+            contour_ranges: &contour_ranges,
+            dash_tables: std::collections::HashMap::new(),
+            dash_chains: std::collections::HashMap::new(),
+            cur: Vec::new(),
+            next: Vec::new(),
+            pts: Vec::new(),
+            dense: Vec::new(),
+        };
+        let mut gfrags: Vec<Frag> = Vec::new();
+        for (i, s) in shapes.iter().enumerate() {
+            let prog: Vec<Modifier> = s
+                .modifiers
+                .iter()
+                .filter(|m| m.stage() == Stage::Post && !matches!(m, Modifier::Decimate { .. }))
+                .cloned()
+                .collect();
+            let (p0, p1) = outline_range[i];
+            let (g0, g1) = gen_range[i];
+            for id in (p0..p1).chain(g0..g1) {
+                let f = Frag::whole(id as u32, prim_table[id], 0, i as u32);
+                if prog.is_empty() {
+                    gfrags.push(f);
+                } else {
+                    let is_stroke = id >= p0 && id < p1;
+                    interp.run(f, &prog, is_stroke, s.closed, &mut gfrags);
+                }
+            }
+        }
+        gfrags.into_iter().map(|f| f.geom).collect()
+    } else {
+        Vec::new()
+    };
+
     stats.fragments = frags.len();
     RenderOutput {
         prims: prim_table,
         frags,
         stats,
+        ghost,
     }
 }
 

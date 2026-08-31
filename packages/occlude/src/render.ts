@@ -91,7 +91,8 @@ export interface WasmModule {
     paper: Float64Array,
     seed: number,
     coarsen: number,
-  ): { prims: Float64Array; frags: Float64Array; stats: Float64Array; free?(): void };
+    debug_ghost: number,
+  ): { prims: Float64Array; frags: Float64Array; stats: Float64Array; ghost: Float64Array; free?(): void };
   wasm_export_gcode(
     prims: Float64Array,
     frags: Float64Array,
@@ -163,6 +164,9 @@ export interface RenderResult {
   frags: Fragment[];
   /** Full primitive table (outlines + generated fills), paper mm. */
   prims: Prim[];
+  /** Debug ghost: post-modified pre-occlusion geometry (wobbles/dashes
+   * like the ink). Present only when the render asked for it. */
+  ghost?: Prim[];
   pens: PenDef[];
   stats: RenderStats;
   paper: { w: number; h: number };
@@ -175,6 +179,8 @@ export interface RenderOptions {
   paper?: PaperChoice | string;
   /** Hatch/stipple coarsening for preview; 1 = exact. */
   coarsen?: number;
+  /** Also compute the debug ghost: post-modified pre-occlusion geometry. */
+  debugGhost?: boolean;
   /** Stretch the sketch aspect to fill the paper (non-uniform). */
   stretch?: boolean;
   /** Skip the paper clip (useful for tests of raw geometry). */
@@ -556,6 +562,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
       : new Float64Array([0, 0, paperW, paperH]),
     seed: state.rng.seed32,
     coarsen: opts.coarsen ?? 1,
+    debugGhost: opts.debugGhost ?? false,
     pens,
     frame,
     paper: { w: paperW, h: paperH },
@@ -567,6 +574,7 @@ export interface RawRender {
   prims: Float64Array;
   frags: Float64Array;
   stats: Float64Array;
+  ghost?: Float64Array;
   renderMs: number;
 }
 
@@ -592,10 +600,18 @@ export function decodeRender(scene: EncodedScene, raw: RawRender): RenderResult 
       geom: subPrim(outPrims[origin], t0f, t1f),
     });
   }
+  let ghost: Prim[] | undefined;
+  if (raw.ghost && raw.ghost.length > 0) {
+    ghost = [];
+    for (let off = 0; off < raw.ghost.length; off += PRIM_STRIDE) {
+      ghost.push(decodePrim(raw.ghost, off));
+    }
+  }
   const s = raw.stats;
   return {
     frags,
     prims: outPrims,
+    ghost,
     pens: scene.pens,
     stats: {
       shapesIn: s[0],
@@ -629,11 +645,13 @@ export function renderEncoded(mod: WasmModule, scene: EncodedScene): RawRender {
     scene.paperArr,
     scene.seed,
     scene.coarsen,
+    scene.debugGhost ? 1 : 0,
   );
   const raw: RawRender = {
     prims: result.prims,
     frags: result.frags,
     stats: result.stats,
+    ghost: result.ghost,
     renderMs: performance.now() - t0,
   };
   result.free?.();
