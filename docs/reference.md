@@ -737,6 +737,15 @@ render/export. Everything random derives from the seed. Alongside its
 functions, the toolkit carries the drawable extent as plain numbers —
 `width`, `height`, `cx`, `cy` (the same values `bounds()` returns).
 
+**Imports vs the toolkit:** everything pure — shape constructors, fills,
+modifiers, units, `map`/`ease`, `ui`, `svg` — is importable from
+`'occlude'` (and therefore usable in helper files). Everything that
+depends on the *running sketch* lives only on the toolkit: randomness
+(`rnd`/`noise`/`pick`/`chance`/`stream` read the seed) and layout
+(`bounds`/`grid`/`times` need the resolved paper). The toolkit also
+carries the pure functions, so destructuring `({ circle, rnd }) => …` is
+an equivalent style.
+
 The occlusion contract, in four rules:
 
 1. **Later wins.** Opaque shapes hide everything before them in the tree;
