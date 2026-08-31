@@ -366,6 +366,12 @@ expressible (`polyline` is just a compact form for a connected line run):
 { type: 'polyline', pts: [[x, y], ...] }
 ```
 
+This is deliberately the low-level escape hatch, not the tool for
+arbitrary content in a region: to bound real shapes — with their own
+fills, modifiers, and occlusion among themselves — use
+[`clip`](#clip)`(region, ...children)` instead ("fill this blob with
+little hatched circles" is a clip, not a custom fill).
+
 Every built-in fill also takes an object form: `hatch({ angle: 45,
 offset: 3 })`, `stipple({ density: 0.7, minDist })` — stipple dot spacing
 ≈ `minDist / density`.
