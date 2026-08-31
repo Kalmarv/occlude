@@ -143,7 +143,7 @@ fn scene_comb() -> RenderInput {
     input(shapes, vec![])
 }
 
-/// Caleb's rings: 120 concentric circles with dash+wobble programs, plus a
+/// Ring stack: 120 concentric circles with dash+wobble programs, plus a
 /// deform field (rasterised swirl) on a third of them.
 fn scene_rings() -> RenderInput {
     // Rasterise a swirl into a FieldGrid pair the way the TS side would.

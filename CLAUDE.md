@@ -2,15 +2,15 @@
 
 Occlude is a plotter-native creative-coding system: the pen is the medium,
 not a renderer of last resort. These laws were earned, mostly the hard way.
-When a proposal conflicts with one, the law wins until Caleb says otherwise.
+When a proposal conflicts with one, the law wins until the artist says otherwise.
 
 ## Design laws
 
 1. **Physical truth beats formal convenience.** Ink cannot be erased,
    overlays cannot erode strokes beneath them, and a pen CAN tap a dot.
-   Every abstraction must survive contact with paper. When Caleb's material
-   intuition says the physics is wrong, it has always been right — re-derive
-   instead of defending.
+   Every abstraction must survive contact with paper. When the artist's
+   material intuition says the physics is wrong, it has always been right —
+   re-derive instead of defending.
 2. **Fill means occlude.** Filled shapes hide what's beneath; the engine
    computes exact visible strokes. Strokes never occlude (stroke-footprint
    is a backlogged opt-in, not a default).
@@ -63,7 +63,7 @@ When a proposal conflicts with one, the law wins until Caleb says otherwise.
 - **Evidence before diagnosis.** Reproduce before theorizing; measure
   instead of estimating (settle iterations, plot times, void scans). The
   "stale tab" diagnosis may be played at most once per issue.
-- **When patches stack, stop and rearchitect.** Caleb will call "don't
+- **When patches stack, stop and rearchitect.** The artist will call "don't
   layer small fixes on small fixes" — ideally get there first.
 - **Definition of done:** tests (Rust + TS) + live reference entry
   (`pnpm --filter occlude docs:check`) + studio build + wasm md5 match
