@@ -44,25 +44,28 @@ export interface ScatterOpts {
 const asXY = (p: ScatterPoint | { x: number; y: number } | [number, number]): [number, number] =>
   Array.isArray(p) ? [p[0], p[1]] : [p.x, p.y];
 
-/** Voronoi cells of arbitrary points, clipped to a rect. Pure. */
-export function voronoi(
-  points: readonly (ScatterPoint | { x: number; y: number } | [number, number])[],
+/** Voronoi cells of arbitrary points, clipped to a rect. Pure. `site` is
+ * the INPUT point itself — identity and metadata (e.g. a scatter point's
+ * demand weight) ride along untouched; tuples exist only inside the
+ * boundary loop, where vertices are anonymous. */
+export function voronoi<P extends ScatterPoint | { x: number; y: number } | [number, number]>(
+  points: readonly P[],
   bounds: { x: number; y: number; w: number; h: number },
-): { site: [number, number]; poly: [number, number][] }[] {
+): { site: P; pts: [number, number][] }[] {
   if (points.length === 0) return [];
   const flat = points.map(asXY);
   const d = Delaunay.from(flat);
   const v = d.voronoi([bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h]);
-  const out: { site: [number, number]; poly: [number, number][] }[] = [];
+  const out: { site: P; pts: [number, number][] }[] = [];
   for (let i = 0; i < flat.length; i++) {
-    const poly = v.cellPolygon(i) as [number, number][] | null;
-    if (!poly || poly.length < 3) continue;
+    const pts = v.cellPolygon(i) as [number, number][] | null;
+    if (!pts || pts.length < 3) continue;
     // d3 closes the ring with a duplicate vertex; drop it (a zero-length
     // closing segment would otherwise reach the engine).
-    const [fx, fy] = poly[0];
-    const [lx, ly] = poly[poly.length - 1];
-    if (fx === lx && fy === ly) poly.pop();
-    if (poly.length >= 3) out.push({ site: flat[i], poly });
+    const [fx, fy] = pts[0];
+    const [lx, ly] = pts[pts.length - 1];
+    if (fx === lx && fy === ly) pts.pop();
+    if (pts.length >= 3) out.push({ site: points[i], pts });
   }
   return out;
 }
@@ -113,8 +116,9 @@ export class Points extends Array<ScatterPoint> {
     return Points.make(pts, this.env, this.field, this.spacingU, this.resolution);
   }
 
-  /** Voronoi cells of this set, clipped to the drawable (or given) bounds. */
-  cells(bounds = this.env.bounds): { site: [number, number]; poly: [number, number][] }[] {
+  /** Voronoi cells of this set, clipped to the drawable (or given) bounds.
+   * Each cell's `site` is the scatter point itself (with its `w`). */
+  cells(bounds = this.env.bounds): { site: ScatterPoint; pts: [number, number][] }[] {
     return voronoi(this, bounds);
   }
 

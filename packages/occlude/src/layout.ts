@@ -10,6 +10,9 @@ export interface GridCell {
   y: number;
   w: number;
   h: number;
+  /** Cell centre — the point most stamps actually want. */
+  cx: number;
+  cy: number;
   i: number;
   j: number;
 }
@@ -35,11 +38,15 @@ export function grid(opts: GridOptions): GridCell[] {
   const ch = (b.h - gap * (rows - 1)) / rows;
   for (let j = 0; j < rows; j++) {
     for (let i = 0; i < cols; i++) {
+      const x = i * (cw + gap);
+      const y = j * (ch + gap);
       cells.push({
-        x: i * (cw + gap),
-        y: j * (ch + gap),
+        x,
+        y,
         w: cw,
         h: ch,
+        cx: x + cw / 2,
+        cy: y + ch / 2,
         i,
         j,
       });

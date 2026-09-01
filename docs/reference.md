@@ -103,6 +103,25 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) =>
 );
 ```
 
+### region
+
+`region(loops, opts?)` — one area from several `[x, y][]` boundary loops:
+a single **evenodd** shape, so nested loops are holes regardless of
+orientation. This is the engine's Region concept as a value — it clips,
+fills, masks, and stamps as one thing. Strictly loops: wrapper records
+expose theirs (`region(blobs.map((c) => c.pts))`).
+
+```ts live
+import { sketch, region, circle } from 'occlude';
+
+// One region from a whole level set — dots survive only inside the blobs.
+export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
+  const blobs = t.isolines((x, y) => t.noise(x / 14, y / 14), 0.1, { close: true });
+  return t.clip(region(blobs.map((c) => c.pts)), t.grid({ cols: 40, rows: 20 }).map((c) =>
+    circle(c.cx, c.cy, 1)));
+});
+```
+
 ### label
 
 `label(str, x, y, h, opts?)` — single-stroke plotter text (A–Z 0–9 and
@@ -642,8 +661,8 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 ### grid
 
 `grid({ cols, rows, gap? })` — cell rectangles covering the whole drawable
-(`{ x, y, w, h, i, j }` each). The workhorse of specimen sheets and
-halftones.
+(`{ x, y, w, h, cx, cy, i, j }` each; `cx`/`cy` is the centre). The
+workhorse of specimen sheets and halftones.
 
 ```ts live
 import { sketch, circle, rect, hatch, mm } from 'occlude';
@@ -651,7 +670,7 @@ import { sketch, circle, rect, hatch, mm } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 18 }, (t) =>
   t.grid({ cols: 9, rows: 4, gap: 2 }).map((c) =>
     t.chance(0.5)
-      ? circle(c.x + c.w / 2, c.y + c.h / 2, Math.min(c.w, c.h) * 0.42, { fill: hatch(t.rnd(180), mm(1)) })
+      ? circle(c.cx, c.cy, Math.min(c.w, c.h) * 0.42, { fill: hatch(t.rnd(180), mm(1)) })
       : rect(c.x + 1, c.y + 1, c.w - 2, c.h - 2, 2),
   ),
 );
@@ -740,11 +759,12 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
 
 ### cells / mesh
 
-`.cells()` — the Voronoi cells of the set (one polygon per point, clipped
-to the drawable); `.mesh()` — the Delaunay triangulation. Both return
-plain data to edit, filter, and stamp however you like; both also exist
-as pure imports (`voronoi(points, bounds)`, `triangulate(points)`) over
-arbitrary arrays.
+`.cells()` — the Voronoi cells of the set (one `{ site, pts }` per
+point, clipped to the drawable); `.mesh()` — the Delaunay triangulation.
+`site` is the input point itself (a scatter point keeps its `w`); `pts`
+is the cell's boundary loop. Both return plain data to edit, filter, and
+stamp however you like; both also exist as pure imports
+(`voronoi(points, bounds)`, `triangulate(points)`) over arbitrary arrays.
 
 ```ts live
 import { sketch, polygon, hatch, mm } from 'occlude';
@@ -752,7 +772,7 @@ import { sketch, polygon, hatch, mm } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const pts = t.scatter({ spacing: 7 }).relax(3);
   return pts.cells().map((c) =>
-    polygon(c.poly, t.chance(0.25) ? { fill: hatch(t.rnd(180), mm(1.1)) } : {}),
+    polygon(c.pts, t.chance(0.25) ? { fill: hatch(t.rnd(180), mm(1.1)) } : {}),
   );
 });
 ```
@@ -772,9 +792,9 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
 marching squares over the drawable: the bridge from scalar fields to
 stampable geometry (noise blobs, metaballs via SDF fields, tonal bands
 from `image()` samplers). Returns plain contour data `{ pts, closed }`:
-stamp with `polygon`, or assemble several contours into one **evenodd**
-`path()` when a region has holes — evenodd never looks at orientation, so
-nesting just works. A contour that exits the drawable edge comes back
+`polygon(c.pts)` stamps one loop; `region(blobs.map((c) => c.pts))`
+lifts a whole level set into ONE shape (holes respected) for
+`clip`/`mask`/fills. A contour that exits the drawable edge comes back
 open (`closed: false`); pass `close: true` to close every region along
 the edge — the form `clip` and fills want. An array of levels marches
 them all over one shared field sampling. The step defaults to ~mm(1);

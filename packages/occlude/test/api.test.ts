@@ -853,7 +853,9 @@ describe('points: scatter / relax / settle / cells / mesh', () => {
     const pts = [[10, 10], [90, 10], [50, 80], [30, 40]] as [number, number][];
     const cells = voronoi(pts, { x: 0, y: 0, w: 100, h: 100 });
     expect(cells.length).toBe(4);
-    for (const c of cells) expect(c.poly.length).toBeGreaterThanOrEqual(3);
+    for (const c of cells) expect(c.pts.length).toBeGreaterThanOrEqual(3);
+    // site is the INPUT point itself — identity preserved, metadata rides.
+    for (const c of cells) expect(pts).toContain(c.site);
     expect(triangulate(pts).length).toBe(3); // one interior point -> 3 triangles
   });
 });

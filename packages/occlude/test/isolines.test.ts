@@ -133,19 +133,13 @@ describe('isolines: toolkit + engine integration', () => {
     expect(capture[0].length).toBeGreaterThan(0);
   });
 
-  it('annulus contours assemble into one evenodd region whose hole stays empty', () => {
+  it('region() lifts annulus loops into one evenodd shape whose hole stays empty', () => {
     const def = sketch({ seed: 1 }, (t) => {
       const band = t.isolines(
         (x, y) => 20 - Math.abs(Math.hypot(x - 50, y - 50) - 25),
         10,
       );
-      const p = t.path({ winding: 'evenodd' });
-      for (const c of band) {
-        p.moveTo(c.pts[0][0], c.pts[0][1]);
-        for (const [x, y] of c.pts.slice(1)) p.lineTo(x, y);
-        p.close();
-      }
-      return [p.build({ fill: t.hatch(0, t.mm(1.5)) })];
+      return [t.region(band.map((c) => c.pts), { fill: t.hatch(0, t.mm(1.5)) })];
     });
     const out = sq(def);
     // Paper 200×200mm, user units ×2: band radii 30–70mm around (100,100).

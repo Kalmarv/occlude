@@ -173,6 +173,28 @@ export function line(x1: L, y1: L, x2: L, y2: L, opts?: ShapeOpts): ShapeValue {
   return shape({ kind: 'line', x1, y1, x2, y2 }, opts);
 }
 
+/**
+ * One area from several boundary loops — the engine's Region concept as a
+ * value. Lifts naked `[x, y][]` loops into a single evenodd shape, so
+ * nesting is holes regardless of loop orientation; the result clips,
+ * fills, masks, and stamps as one thing. Strictly loops: wrapper records
+ * expose theirs (`region(blobs.map((c) => c.pts))`). No geometry is
+ * computed; open loops get their closing chord. Nonzero exotica stays
+ * with `path({ winding })`.
+ */
+export function region(loops: [L, L][][], opts?: ShapeOpts): ShapeValue {
+  const cmds: PathCmd[] = [];
+  for (const loop of loops) {
+    if (loop.length < 2) continue;
+    cmds.push({ op: 'move', x: loop[0][0], y: loop[0][1] });
+    for (let k = 1; k < loop.length; k++) {
+      cmds.push({ op: 'line', x: loop[k][0], y: loop[k][1] });
+    }
+    cmds.push({ op: 'close' });
+  }
+  return shape({ kind: 'path', cmds, winding: 'evenodd' }, opts);
+}
+
 export function polygon(points: [L, L][], opts?: ShapeOpts): ShapeValue;
 export function polygon(
   x: L, y: L, sides: number, r: L, rotation?: number | ShapeOpts, opts?: ShapeOpts,
@@ -494,6 +516,7 @@ export interface Toolkit {
   rect: typeof rect;
   line: typeof line;
   polygon: typeof polygon;
+  region: typeof region;
   path: typeof path;
   group: typeof group;
   clip: typeof clip;
@@ -637,7 +660,7 @@ function pointsOf(
 }
 
 const TOOLKIT_BASE = {
-  circle, ellipse, rect, line, polygon, path, group, clip, mask, decimate, wobble, modify,
+  circle, ellipse, rect, line, polygon, region, path, group, clip, mask, decimate, wobble, modify,
   dash, smooth, roughen, deform, noiseField, label,
   hatch, crosshatch, stipple, solid, ui,
   rnd, pick, chance, prob, noise, stream,
