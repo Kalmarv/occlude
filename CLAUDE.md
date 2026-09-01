@@ -53,7 +53,8 @@ When a proposal conflicts with one, the law wins until the artist says otherwise
 - `TOOLKIT_BASE` (object) and `Toolkit` (interface) in api.ts are
   maintained SEPARATELY — update both or Monaco flags the new function.
 - Wasm protocol changes (strides, flags) must land on both sides in the
-  same commit; buffer strides are documented at the top of wasm_api.rs.
+  same commit; buffer strides are documented at the top of scene.rs
+  (wasm_api.rs is a thin bindgen wrapper over it).
 - Machine state lives in named MachineProfiles (server-side, like pens) —
   never re-grow flat settings.machine/ebb. Controls read the active
   profile at event time; profile-bound UI rebuilds on switch.

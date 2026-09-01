@@ -4,6 +4,7 @@
 
 use crate::bbox::BBox;
 
+#[derive(Debug, Clone)]
 pub enum SpatialIndex {
     Grid(UniformGrid),
     Bvh(Bvh),
@@ -61,6 +62,7 @@ impl SpatialIndex {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct UniformGrid {
     bounds: BBox,
     cols: usize,
@@ -144,12 +146,14 @@ impl UniformGrid {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Bvh {
     nodes: Vec<BvhNode>,
     boxes: Vec<BBox>,
     order: Vec<u32>,
 }
 
+#[derive(Debug, Clone)]
 struct BvhNode {
     bbox: BBox,
     /// Leaf: (start, count) into `order`; internal: children are

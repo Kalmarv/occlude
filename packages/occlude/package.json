@@ -16,7 +16,8 @@
     "qa": "tsx tools/qa-sweep.ts",
     "calibrate": "tsx tools/calibrate.ts",
     "plotstats": "tsx tools/plotstats.ts",
-    "docs:check": "tsx tools/check-docs-examples.ts"
+    "docs:check": "tsx tools/check-docs-examples.ts",
+    "dump-scene": "tsx tools/dump-scene.ts"
   },
   "dependencies": {
     "d3-delaunay": "^6.0.4",

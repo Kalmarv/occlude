@@ -7,9 +7,15 @@
 //! tangent rays then resolve by construction rather than by epsilon fudging.
 
 use crate::bbox::BBox;
+use crate::index::SpatialIndex;
 use crate::intersect::project_point_cubic;
 use crate::primitive::{Arc, Primitive, EPS};
 use crate::vec2::Vec2;
+
+/// Boundary sizes below this stay on the plain linear scans: the scan wins
+/// on tiny regions (circles, rects), and the cull layer builds throwaway
+/// 4-prim rect regions where index construction would be pure overhead.
+const INDEX_MIN: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindingRule {
@@ -33,6 +39,14 @@ pub struct Region {
     mono: Vec<MonoPiece>,
     boundary_flat: Vec<Primitive>,
     boundary_bbox: Vec<BBox>,
+    /// Bbox index over `boundary_flat` (None below INDEX_MIN). Queries prune
+    /// to the primitives near the subject; results are exact supersets of the
+    /// linear scans' passing sets, so outputs are bit-identical.
+    boundary_index: Option<SpatialIndex>,
+    /// Bbox index over `mono` for the winding ray cast (None below
+    /// INDEX_MIN). Boxes are conservative: the prim bbox unioned with the
+    /// WELDED y-span, so seam-adjusted pieces are never pruned wrongly.
+    mono_index: Option<SpatialIndex>,
     /// Cached single-circle detection: (centre, r). Makes inside/on_boundary
     /// O(1) for the most common occluder in plotter sketches.
     circle: Option<(Vec2, f64)>,
@@ -76,7 +90,24 @@ impl Region {
         }
         let convex = convex_hint || is_convex_polygon(&contours);
         let boundary_flat: Vec<Primitive> = contours.iter().flatten().copied().collect();
-        let boundary_bbox = boundary_flat.iter().map(|p| p.bbox()).collect();
+        let boundary_bbox: Vec<BBox> = boundary_flat.iter().map(|p| p.bbox()).collect();
+        let boundary_index = (boundary_flat.len() >= INDEX_MIN)
+            .then(|| SpatialIndex::build(&boundary_bbox));
+        let mono_index = (mono.len() >= INDEX_MIN).then(|| {
+            let boxes: Vec<BBox> = mono
+                .iter()
+                .map(|m| {
+                    // Conservative: welding may push y0/y1 past the prim's
+                    // geometric bbox; a piece pruned here must be one whose
+                    // `crossing()` provably returns 0.
+                    let mut b = m.prim.bbox();
+                    b.grow_point(Vec2 { x: b.min.x, y: m.y0.min(m.y1) });
+                    b.grow_point(Vec2 { x: b.min.x, y: m.y0.max(m.y1) });
+                    b
+                })
+                .collect();
+            SpatialIndex::build(&boxes)
+        });
         let mut region = Region {
             contours,
             winding,
@@ -85,6 +116,8 @@ impl Region {
             mono,
             boundary_flat,
             boundary_bbox,
+            boundary_index,
+            mono_index,
             circle: None,
         };
         region.circle = region.as_circle();
@@ -96,12 +129,27 @@ impl Region {
     pub fn crossings(&self, subject: &Primitive, subject_bbox: &BBox) -> Vec<f64> {
         let sb = subject_bbox.expanded(1e-9);
         let mut ts: Vec<f64> = Vec::new();
-        for (prim, pb) in self.boundary_flat.iter().zip(&self.boundary_bbox) {
-            if !sb.overlaps(pb) {
-                continue;
+        // Index candidates come back in ascending order — the same order the
+        // linear scan visits — and `query` applies the identical inclusive
+        // overlaps test, so the two paths push identical crossing lists.
+        if let Some(idx) = &self.boundary_index {
+            let mut buf: Vec<u32> = Vec::new();
+            idx.query(&sb, &mut buf);
+            for &i in &buf {
+                for (t, _) in
+                    crate::intersect::intersect_pair(subject, &self.boundary_flat[i as usize])
+                {
+                    ts.push(t);
+                }
             }
-            for (t, _) in crate::intersect::intersect_pair(subject, prim) {
-                ts.push(t);
+        } else {
+            for (prim, pb) in self.boundary_flat.iter().zip(&self.boundary_bbox) {
+                if !sb.overlaps(pb) {
+                    continue;
+                }
+                for (t, _) in crate::intersect::intersect_pair(subject, prim) {
+                    ts.push(t);
+                }
             }
         }
         ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -169,19 +217,45 @@ impl Region {
         }
     }
 
+    /// Mono pieces the rightward ray from `p` could cross. A piece the index
+    /// prunes contributes exactly 0: its (welded) y-span misses p.y, or its
+    /// whole x-range is left of p.x — integer sums over any superset of the
+    /// contributors are identical, so containment stays bit-exact.
+    fn ray_candidates(&self, p: Vec2) -> Option<Vec<u32>> {
+        let idx = self.mono_index.as_ref()?;
+        let ray = BBox::new(p, Vec2 { x: self.bbox.max.x, y: p.y });
+        let mut buf: Vec<u32> = Vec::new();
+        idx.query(&ray, &mut buf);
+        Some(buf)
+    }
+
     fn winding_number(&self, p: Vec2) -> i32 {
         let mut w = 0;
-        for piece in &self.mono {
-            w += piece.crossing(p);
+        if let Some(cands) = self.ray_candidates(p) {
+            for &i in &cands {
+                w += self.mono[i as usize].crossing(p);
+            }
+        } else {
+            for piece in &self.mono {
+                w += piece.crossing(p);
+            }
         }
         w
     }
 
     fn crossing_count(&self, p: Vec2) -> u32 {
         let mut n = 0;
-        for piece in &self.mono {
-            if piece.crossing(p) != 0 {
-                n += 1;
+        if let Some(cands) = self.ray_candidates(p) {
+            for &i in &cands {
+                if self.mono[i as usize].crossing(p) != 0 {
+                    n += 1;
+                }
+            }
+        } else {
+            for piece in &self.mono {
+                if piece.crossing(p) != 0 {
+                    n += 1;
+                }
             }
         }
         n
@@ -192,38 +266,52 @@ impl Region {
         if let Some((c, r)) = self.circle {
             return (p.dist(c) - r).abs() <= eps;
         }
+        // "Any prim within eps" is order-independent, and the index query
+        // (inclusive overlaps against p±eps) admits exactly the prims the
+        // linear scan's `pb.expanded(eps).contains_point(p)` gate passes.
+        if let Some(idx) = &self.boundary_index {
+            let q = BBox::new(p, p).expanded(eps);
+            let mut buf: Vec<u32> = Vec::new();
+            idx.query(&q, &mut buf);
+            return buf
+                .iter()
+                .any(|&i| self.dist_to_prim(p, &self.boundary_flat[i as usize]) <= eps);
+        }
         for (prim, pb) in self.boundary_flat.iter().zip(&self.boundary_bbox) {
             if !pb.expanded(eps).contains_point(p) {
                 continue;
             }
-            let d = match prim {
-                Primitive::Line(l) => {
-                    let dir = l.dir();
-                    let len2 = dir.len2();
-                    if len2 < EPS * EPS {
-                        l.p0.dist(p)
-                    } else {
-                        let t = ((p - l.p0).dot(dir) / len2).clamp(0.0, 1.0);
-                        l.eval(t).dist(p)
-                    }
-                }
-                Primitive::Arc(a) => {
-                    let to = p - a.center;
-                    match a.t_of_angle(to.angle()) {
-                        Some(_) => (to.len() - a.r).abs(),
-                        None => a.eval(0.0).dist(p).min(a.eval(1.0).dist(p)),
-                    }
-                }
-                Primitive::Cubic(c) => {
-                    let t = project_point_cubic(p, c);
-                    c.eval(t).dist(p)
-                }
-            };
-            if d <= eps {
+            if self.dist_to_prim(p, prim) <= eps {
                 return true;
             }
         }
         false
+    }
+
+    fn dist_to_prim(&self, p: Vec2, prim: &Primitive) -> f64 {
+        match prim {
+            Primitive::Line(l) => {
+                let dir = l.dir();
+                let len2 = dir.len2();
+                if len2 < EPS * EPS {
+                    l.p0.dist(p)
+                } else {
+                    let t = ((p - l.p0).dot(dir) / len2).clamp(0.0, 1.0);
+                    l.eval(t).dist(p)
+                }
+            }
+            Primitive::Arc(a) => {
+                let to = p - a.center;
+                match a.t_of_angle(to.angle()) {
+                    Some(_) => (to.len() - a.r).abs(),
+                    None => a.eval(0.0).dist(p).min(a.eval(1.0).dist(p)),
+                }
+            }
+            Primitive::Cubic(c) => {
+                let t = project_point_cubic(p, c);
+                c.eval(t).dist(p)
+            }
+        }
     }
 
     /// Exact containment of another region: bbox check, then no boundary

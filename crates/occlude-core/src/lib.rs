@@ -25,5 +25,6 @@ pub mod vec2;
 
 pub mod modifier;
 pub mod profile;
+pub mod scene;
 #[cfg(feature = "wasm")]
 pub mod wasm_api;
