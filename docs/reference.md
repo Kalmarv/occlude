@@ -842,6 +842,45 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 });
 ```
 
+### distanceTo
+
+`distanceTo(loops)` — the bridge back from stampable geometry to scalar
+fields: a signed distance field from boundary loops. POSITIVE inside,
+zero on the boundary, negative outside — so `isolines(d, 2)` traces a
+ring 2 units deep (inset/offset IS this recipe; there is no `offset()`),
+and `isolines(d, -2)` traces a halo 2 units out. Insideness is even-odd
+over the loops like `region()`: nesting makes holes, orientation never
+matters; open loops get their closing chord. Strictly loops — wrapper
+records expose theirs (`distanceTo(blobs.map((c) => c.pts))`). Pure and
+deterministic; distances come back in the units of the input points, and
+it composes anywhere a field goes: scatter densities, decimate/deform
+params, not just contours.
+
+```ts live
+import { sketch, region, path, distanceTo } from 'occlude';
+
+// A blob filled with its own echo: rings every 2.5 units, plus a halo.
+// Contours that exit the drawable come back open — stamp those as open
+// paths (region() would close them with a chord across the page).
+export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
+  const stamp = (c) => {
+    if (c.closed) return region([c.pts]);
+    const p = path().moveTo(...c.pts[0]);
+    for (const pt of c.pts.slice(1)) p.lineTo(...pt);
+    return p.build();
+  };
+  const blob = t.isolines((x, y) => t.noise(x / 14, y / 14), 0.3, {
+    close: true, step: 1,
+  });
+  const d = distanceTo(blob.map((c) => c.pts));
+  return [
+    region(blob.map((c) => c.pts)),
+    t.isolines(d, [2.5, 5, 7.5, 10, 12.5], { step: 0.7 }).flat().map(stamp),
+    t.isolines(d, -2.5, { step: 0.7 }).map(stamp),
+  ];
+});
+```
+
 ### ui
 
 `ui(value, { min?, max?, step?, label? })` — a tweakable value. In the

@@ -38,6 +38,7 @@ import {
   type FieldFn2, type ScatterOpts,
 } from './points.js';
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
+import { distanceTo } from './distance.js';
 import { solid } from './fills.js';
 import { ui } from './ui.js';
 import { h, long, mm, s, w, resolveLen, Len, type L } from './units.js';
@@ -581,6 +582,7 @@ export interface Toolkit {
   grid: (opts: GridOptions) => GridCell[];
   scatter: typeof scatter;
   isolines: typeof isolines;
+  distanceTo: typeof distanceTo;
   points: typeof pointsOf;
   voronoi: typeof voronoi;
   triangulate: typeof triangulate;
@@ -692,7 +694,7 @@ const TOOLKIT_BASE = {
   map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, isolines, points: pointsOf, voronoi, triangulate,
+  scatter, isolines, distanceTo, points: pointsOf, voronoi, triangulate,
   mm, w, h, s, long,
 };
 

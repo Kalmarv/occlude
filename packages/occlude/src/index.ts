@@ -74,6 +74,10 @@ export { subPrim, evalPrim } from './prims.js';
 export { voronoi, triangulate, Points } from './points.js';
 export type { ScatterPoint, ScatterOpts } from './points.js';
 export type { IsoContour, IsoOpts } from './isolines.js';
+// Loops → signed distance field (positive inside): pure, composes with
+// isolines (offsetting is a recipe), scatter, decimate, deform.
+export { distanceTo } from './distance.js';
+export type { DistanceField } from './distance.js';
 
 // Tweakable values (identity at runtime; the studio scans + builds sliders).
 export { ui, scanUiControls } from './ui.js';
