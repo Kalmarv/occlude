@@ -160,6 +160,23 @@ describe('isolines: toolkit + engine integration', () => {
     expect(mids.filter((d) => d > 32 && d < 68).length).toBeGreaterThan(10); // the band inked
   });
 
+  it('a filled region() from zero contours is a no-op, not an error', () => {
+    // A cutoff above the field's range yields no contours — the empty
+    // region is trivially closed: it fills nothing, occludes nothing.
+    const def = sketch({ seed: 1 }, (t) => [
+      t.region(
+        t.isolines((x, y) => t.noise(x / 20, y / 20), 2, { close: true }).map((c) => c.pts),
+        { fill: t.stipple() },
+      ),
+      t.circle(50, 50, 10),
+    ]);
+    const out = sq(def);
+    const circleInk = out.frags.filter((f) => !f.dot).reduce((s, f) => s + fragLenOf(f), 0);
+    // Full circumference survives: nothing occluded it, nothing stippled.
+    expect(Math.abs(circleInk - 2 * Math.PI * 20)).toBeLessThan(1);
+    expect(out.frags.filter((f) => f.dot)).toHaveLength(0);
+  });
+
   it('clip(invert(region)) keeps ink outside; the two polarities tile the ink', () => {
     const mk = (kind: 'in' | 'out' | 'all'): SketchDef =>
       sketch({ seed: 3 }, (t) => {

@@ -117,7 +117,10 @@ export class Shape {
     const g = this.geom;
     if (g.kind === 'line') return false;
     if (g.kind === 'points') return true;
-    if (g.kind === 'path') return g.cmds.some((c) => c.op === 'close');
+    // An empty path is the empty region: trivially closed (no boundary), so
+    // a generator that produced nothing (isolines above the field max, say)
+    // still fills/clips as a no-op instead of throwing.
+    if (g.kind === 'path') return g.cmds.length === 0 || g.cmds.some((c) => c.op === 'close');
     return true;
   }
 
