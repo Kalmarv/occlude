@@ -210,6 +210,7 @@ export interface EncodedScene {
   paperArr: Float64Array;
   seed: number;
   coarsen: number;
+  debugGhost: boolean;
   // decode metadata (plain data)
   pens: PenDef[];
   frame: Frame;
