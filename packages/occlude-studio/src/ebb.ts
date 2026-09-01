@@ -711,6 +711,7 @@ export class Ebb {
     const wallStart = Date.now();
     let pausedWallMs = 0;
     let curChain = 0;
+    let inkedMm = 0; // drawn mm since the last re-ink pause (pen.reinkMm)
     const report = (state: PlotProgress['state'], penName = ''): void => {
       const modelRemaining = Math.max(0, totalMs - elapsedMs);
       let etaMs = modelRemaining;
@@ -850,7 +851,28 @@ export class Ebb {
         const upSettle = hopMode ? hopUpSettleOf(settle) : settle;
         await this.penUp(upSettle);
         sent += 1;
-        elapsedMs += downSettle + upSettle + 300; // mirrors the totals' pen-cycle term
+        elapsedMs += downSettle + upSettle; // mirrors the totals' pen-cycle term
+        // Re-ink pause (pen.reinkMm): pump markers and dip-style pens run
+        // lean after a bounded length of ink. At the stroke boundary the pen
+        // is already up — park at the paper origin (the gantry's stiffest
+        // corner, clear of wet ink) and wait for Resume; the next chain's
+        // travel returns from there naturally. Steppers stay energized
+        // throughout, holding position against the handling.
+        if (!c.dot) {
+          for (let k = 2; k < c.pts.length; k += 2) {
+            inkedMm += Math.hypot(c.pts[k] - c.pts[k - 2], c.pts[k + 1] - c.pts[k - 1]);
+          }
+        }
+        const reinkAt = pen?.reinkMm ?? 0;
+        if (reinkAt > 0 && inkedMm >= reinkAt && chainIndex < chains.length - 1 && !this.plotAbort) {
+          await setLift(false);
+          await this.moveRun([[0, 0]], o.travelFeed, o);
+          warning = `re-ink ${penName}: ${Math.round(inkedMm)}mm drawn — pump/refill, then Resume`;
+          this.plotPause = true;
+          await pauseUp();
+          warning = undefined;
+          inkedMm = 0;
+        }
         // Position health check while the pen is already up between chains.
         // Sparse on purpose: each check drains the FIFO (waits out queued
         // settles, ~0.1-1s) — every 25 chains cost minutes on 30k-chain

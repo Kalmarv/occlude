@@ -16,6 +16,10 @@ export interface PenDef {
   penUp: number;
   /** Settle delay after pen down/up, ms. */
   penDelay: number;
+  /** Pause the plot for a manual re-ink (pump a paint marker, dip, refill)
+   * after this many mm of drawn ink; 0/absent = never. The plot parks at
+   * the paper origin and waits for Resume. */
+  reinkMm?: number;
 }
 
 export const DEFAULT_PENS: PenDef[] = [

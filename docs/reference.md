@@ -948,8 +948,8 @@ const png  = exportPng(def, { paper: 'A4', scale: 11.81 });  // ≈ 300 dpi
 
 ## Pens & paper
 
-- Pens: `{ name, width, color, feed, penDown, penUp, penDelay }` — width in
-  mm is the system's one tolerance. Unknown pen names throw, so shared
+- Pens: `{ name, width, color, feed, penDown, penUp, penDelay, reinkMm? }` —
+  width in mm is the system's one tolerance. Unknown pen names throw, so shared
   sketches fail loudly. `DEFAULT_PENS` ships a starter set; the studio
   persists its own library server-side and injects it via
   `setPenLibrary(pens)`.
@@ -969,6 +969,13 @@ Serial. What's under the hood, briefly, so its knobs make sense:
   lifts the pen only ~40% for short travels with shorter settles — the
   big lever on hatch/stipple plots; 0 disables (needed on machines whose
   gantry sags at one side).
+- **Re-ink pauses**: pens with a `reinkMm` budget (paint markers that need
+  pumping, dip pens, brushes) auto-pause at the first stroke boundary past
+  that many drawn mm: the carriage parks at the paper origin — the
+  gantry's stiffest corner, clear of wet ink — and waits for Resume.
+  Steppers stay energized while parked, so handling the pen won't shift
+  registration; pump against a scrap sheet, or unclamp the pen and mark
+  its clamp depth with a tape collar so it re-seats identically. 0 = off.
 - **Position integrity**: the board's step counters are checked against
   dead reckoning at connect, every 500 chains, and at plot end — lost
   commands are healed automatically and flagged. Visible drift mid-plot:

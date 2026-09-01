@@ -254,6 +254,51 @@ describe('Ebb motor lifecycle', () => {
     expect((Math.hypot(dx, dy) / direct.stepsPerMm / ms) * 1000).toBeLessThan(5);
   });
 
+  test('re-ink threshold parks at origin, pauses once, and resumes to finish', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, swapXY: false, invertX: false };
+    // Two 20mm chains with a 10mm re-ink budget: exactly one pause between
+    // them (never after the last chain).
+    const plan = new Float64Array([0, 0, 2, 5, 5, 25, 5, 0, 0, 2, 25, 15, 5, 15]);
+    const ebb = new Ebb();
+    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    const pauses: string[] = [];
+    await ebb.plot(
+      plan,
+      [{ name: 'posca', width: 1, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150, reinkMm: 10 }],
+      direct,
+      (p: PlotProgress) => {
+        if (p.state === 'paused') {
+          pauses.push(p.warning ?? '');
+          ebb.resume();
+        }
+      },
+    );
+    expect(pauses).toHaveLength(1);
+    expect(pauses[0]).toContain('re-ink posca');
+    expect(pauses[0]).toContain('20mm');
+    // The park travel returns the carriage exactly to the paper origin
+    // between the first chain's pen-up and the second chain's pen-down —
+    // a direct (25,5)→(25,15) travel would never pass through (0,0).
+    const upIdx = port.commands.indexOf('SP,1,150');
+    const down2 = port.commands.indexOf('SP,0,150', upIdx);
+    let x = 0;
+    let y = 0;
+    let parked = false;
+    for (const [i, command] of port.commands.entries()) {
+      if (!command.startsWith('XM,')) continue;
+      const [, dx, dy] = command.split(',').slice(1).map(Number);
+      x += dx;
+      y += dy;
+      if (i > upIdx && i < down2 && x === 0 && y === 0) parked = true;
+    }
+    expect(parked).toBe(true);
+  });
+
   test('long cruise strokes retain their requested feed without packet explosion', async () => {
     const port = new FakePort();
     Object.defineProperty(globalThis, 'navigator', {
@@ -538,12 +583,13 @@ describe('progress estimation', () => {
       },
     );
     // 100mm at 60mm/s with 1000mm/s² ramps: 1727ms of motion (the naive
-    // full-feed figure is 1667) + settle overheads. Elapsed accumulates the
-    // emitter's commanded durations, so both sides are planner-derived and
-    // must agree.
+    // full-feed figure is 1667) + the two settles — nothing else: the 2026-08
+    // calibration measured per-chain overhead at zero. Elapsed accumulates
+    // the emitter's commanded durations, so both sides are planner-derived
+    // and must agree.
     expect(last?.state).toBe('done');
-    expect(last!.totalMs).toBeGreaterThan(2200);
-    expect(last!.totalMs).toBeLessThan(2500);
+    expect(last!.totalMs).toBeGreaterThan(1900);
+    expect(last!.totalMs).toBeLessThan(2200);
     expect(Math.abs(last!.elapsedMs - last!.totalMs)).toBeLessThan(0.05 * last!.totalMs);
     expect(last!.etaMs).toBeLessThan(150);
   });

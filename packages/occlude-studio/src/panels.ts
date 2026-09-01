@@ -322,6 +322,7 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
       ['Pen down', 'penDown', 'number'],
       ['Pen up', 'penUp', 'number'],
       ['Delay ms', 'penDelay', 'number'],
+      ['Re-ink mm', 'reinkMm', 'number'],
     ];
     for (const [label, key, type] of fields) {
       const l = document.createElement('label');
@@ -329,7 +330,7 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
       const input = document.createElement('input');
       input.type = type;
       if (type === 'number') input.step = key === 'width' ? '0.05' : '10';
-      input.value = String(pen[key]);
+      input.value = String(pen[key] ?? (type === 'number' ? 0 : ''));
       input.onchange = () => {
         const v: string | number = type === 'number' ? parseFloat(input.value) : input.value;
         (pen as unknown as Record<string, string | number>)[key] = v;
