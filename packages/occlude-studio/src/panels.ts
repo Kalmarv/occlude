@@ -14,6 +14,7 @@ import {
   deleteSketchByName, listSketches, loadSketchByName, saveSketchByName,
 } from './sketchApi.js';
 import {
+  DEFAULT_SKETCH, NEW_SKETCH,
   download, savePens, saveProfiles, saveSettings,
   type MachineProfile, type Settings,
 } from './store.js';
@@ -164,7 +165,23 @@ function buildSketchesPanel(
   importBtn2.title = 'Load a .ts sketch file into the editor';
   const dlBtn = button('Download .ts', hooks.downloadSketchFile);
   dlBtn.title = 'Download the current sketch as a .ts file';
-  actionRow.append(saveBtn, importBtn2, dlBtn);
+  const newBtn = button('New', async () => {
+    // Losing work needs a prompt; losing nothing shouldn't. Named sketches
+    // are dirty when the editor drifted from the server copy; unnamed ones
+    // when they aren't just a pristine starter.
+    const src = hooks.getSource();
+    const name = hooks.currentName().trim();
+    const dirty = name
+      ? await loadSketchByName(name).then((saved) => saved !== src, () => true)
+      : src !== DEFAULT_SKETCH && src !== NEW_SKETCH;
+    if (dirty && !confirm('Replace the editor with a fresh sketch? Unsaved changes are lost.')) {
+      return;
+    }
+    hooks.openSketch('', NEW_SKETCH);
+    await refresh();
+  });
+  newBtn.title = 'Start a fresh sketch — name it in the top bar, then Save';
+  actionRow.append(newBtn, saveBtn, importBtn2, dlBtn);
 
   const list = document.createElement('div');
   const hint = document.createElement('div');

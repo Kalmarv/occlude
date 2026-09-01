@@ -152,6 +152,17 @@ export default sketch({ aspect: [3, 2], margin: 6 }, (t) => {
 });
 `;
 
+/** Blank-slate starter for the New button: one visible mark, no tutorial. */
+export const NEW_SKETCH = `import { sketch } from 'occlude';
+
+export default sketch({ aspect: [3, 2], margin: 6 }, (t) => {
+  const { circle, bounds } = t;
+  const b = bounds();
+
+  return [circle(b.cx, b.cy, b.h / 4)];
+});
+`;
+
 export function loadSketch(): string {
   return localStorage.getItem(KEYS.sketch) ?? DEFAULT_SKETCH;
 }
