@@ -54,7 +54,7 @@ export class RenderClient {
     for (const p of this.pending.values()) p.reject(err);
     this.pending.clear();
     this.inFlightRender = false;
-    this.queuedRender?.p.resolve(null as never);
+    this.queuedRender?.p.resolve(null);
     this.queuedRender = null;
     this.spawn();
   }
@@ -106,6 +106,10 @@ export class RenderClient {
     return new Promise((resolve, reject) => {
       const p: Pending = {
         resolve: (msg) => {
+          if (msg === null) {
+            resolve(null); // superseded by a newer request
+            return;
+          }
           const m = msg as {
             prims: Float64Array;
             frags: Float64Array;
@@ -117,7 +121,7 @@ export class RenderClient {
         reject,
       };
       if (this.inFlightRender) {
-        this.queuedRender?.p.resolve(null as never);
+        this.queuedRender?.p.resolve(null);
         this.queuedRender = { scene, p };
         return;
       }
