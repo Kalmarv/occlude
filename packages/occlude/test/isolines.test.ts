@@ -123,6 +123,23 @@ describe('isolines: marching squares core', () => {
   });
 });
 
+describe('isolines: grid sizing', () => {
+  it('fine steps past the old 100k combinator cap sample fine', () => {
+    // 100×100 at step 0.25 → 401² ≈ 161k cells: legal now.
+    const cs = isolinesOf(env, (x, y) => Math.hypot(x - 50, y - 50) - 20, 0, {
+      step: 0.25,
+    });
+    expect(cs.length).toBe(1);
+  });
+
+  it('absurd grids still fail fast (memory ceiling, zero step)', () => {
+    expect(() =>
+      isolinesOf(env, () => 0, 0, { step: 0.02 }),
+    ).toThrow(/grid cells/);
+    expect(() => isolinesOf(env, () => 0, 0, { step: 0 })).toThrow();
+  });
+});
+
 describe('isolines: toolkit + engine integration', () => {
   it('is deterministic through the toolkit', () => {
     const capture: PublicIsoContour[][] = [];

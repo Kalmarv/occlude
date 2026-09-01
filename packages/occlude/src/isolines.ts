@@ -18,7 +18,7 @@
  * want.
  */
 
-import { finiteCount, positiveLength } from './guard.js';
+import { positiveLength } from './guard.js';
 import type { FieldFn } from './shapes.js';
 import { mm, type L } from './units.js';
 
@@ -75,7 +75,19 @@ export function isolinesOf(
       : Math.max(env.len(mm(1)), Math.max(b.w, b.h) / 256);
   const gw = Math.max(2, Math.ceil(b.w / stepU) + 1);
   const gh = Math.max(2, Math.ceil(b.h / stepU) + 1);
-  finiteCount('isolines', gw * gh);
+  // Grid cells are O(1) samples, not shape repetitions, so the combinator
+  // cap doesn't apply — only memory sanity does. 2^24 cells is a 128MB
+  // sample buffer (4096², step 0.05mm on 200mm paper — far sub-nib);
+  // beyond that is a mid-edit transient, not a sketch.
+  const cells = gw * gh;
+  if (!Number.isFinite(cells)) {
+    throw new Error(`isolines: grid is ${cells} — check for a zero step`);
+  }
+  if (cells > 16_777_216) {
+    throw new Error(
+      `isolines: ${Math.floor(cells)} grid cells (step too fine) — capped at 16.7M (~128MB of samples)`,
+    );
+  }
   const sx = b.w / (gw - 1);
   const sy = b.h / (gh - 1);
 
