@@ -375,6 +375,44 @@ fn tangent_line_draws_through() {
 }
 
 #[test]
+fn arc_tangent_to_boundary_classifies_by_its_body() {
+    // An arc wholly INSIDE the square except for one grazing touch of the
+    // top edge: the tangency point is exactly the arc's midpoint sample,
+    // and "on = outside" must not leak from that single point to the whole
+    // span (found in the wild: grid dots tangent to an isolines region's
+    // clamped border run lost an entire half-circle under clip()).
+    let arc = Primitive::Arc(Arc::new(v(5.0, 9.0), 1.0, 0.0, PI)); // apex (5,10)
+    let region = square_region(0., 0., 10., 10.);
+
+    // clip (keep inside): the arc's body is inside — ALL of it stays.
+    let mut spans = vec![Span { t0: 0.0, t1: 1.0, visible: true }];
+    clip_spans(&arc, &mut spans, &region, true);
+    let total: f64 = spans.iter().filter(|s| s.visible).map(|s| s.t1 - s.t0).sum();
+    assert!((total - 1.0).abs() < 1e-6, "clip dropped a tangent arc: {spans:?}");
+
+    // occlusion (keep outside): the same arc is hidden entirely.
+    let mut spans = vec![Span { t0: 0.0, t1: 1.0, visible: true }];
+    clip_spans(&arc, &mut spans, &region, false);
+    assert!(fully_hidden(&spans), "occluder let a tangent arc through: {spans:?}");
+
+    // And the mirror case: an arc wholly OUTSIDE grazing the same edge.
+    let arc_out = Primitive::Arc(Arc::new(v(5.0, 11.0), 1.0, PI, PI)); // apex (5,10)
+    let mut spans = vec![Span { t0: 0.0, t1: 1.0, visible: true }];
+    clip_spans(&arc_out, &mut spans, &region, true);
+    assert!(fully_hidden(&spans), "clip kept an outside tangent arc: {spans:?}");
+
+    // The wild parameterization (start=π): apex at angle 3π/2 grazing the
+    // region's MIN-y edge from inside — the exact case grid dots hit
+    // against an isolines border run (snapped tangency, root at -π/2).
+    let region2 = square_region(20.0, 10.0, 20.0, 10.0);
+    let arc_top = Primitive::Arc(Arc::new(v(30.0, 11.8), 1.8, PI, PI)); // apex (30,10)
+    let mut spans = vec![Span { t0: 0.0, t1: 1.0, visible: true }];
+    clip_spans(&arc_top, &mut spans, &region2, true);
+    let total: f64 = spans.iter().filter(|s| s.visible).map(|s| s.t1 - s.t0).sum();
+    assert!((total - 1.0).abs() < 1e-6, "clip dropped the start=π tangent arc: {spans:?}");
+}
+
+#[test]
 fn stroke_on_boundary_stays_visible() {
     // A line lying exactly on the square's edge: "on = outside".
     let subject = Primitive::Line(line(0., 0., 10., 0.));

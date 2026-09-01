@@ -42,20 +42,37 @@ pub fn clip_spans(prim: &Primitive, spans: &mut Vec<Span>, region: &Region, keep
         // Even with no intersections we still run the midpoint test —
         // the span may be fully inside, fully outside, or enclose the region.
         for (u0, u1, sub) in piece.split_at(&ts) {
-            let mid = sub.eval(0.5);
-            let inside = if region.on_boundary(mid, ON_BOUNDARY_EPS) {
-                false // on = outside
-            } else {
-                region.inside(mid)
-            };
             out.push(Span {
                 t0: span.t0 + u0 * width,
                 t1: span.t0 + u1 * width,
-                visible: inside == keep_inside,
+                visible: classify_sub(region, &sub) == keep_inside,
             });
         }
     }
     *spans = out;
+}
+
+/// Inside-ness of one crossing-free sub-span. The midpoint decides — except
+/// when it lies ON the boundary, which means one of two things: the span runs
+/// along the boundary (classify outside — the spec rule, so an edge-riding
+/// stroke stays visible), or a point-tangency the root finder missed (an
+/// epsilon-negative discriminant yields no crossing, and the untouched span's
+/// midpoint IS the grazing point — found in the wild as grid dots tangent to
+/// an isolines border run losing a whole half-circle under clip()). Probing
+/// off-centre distinguishes them: the first off-boundary sample decides; all
+/// samples on the boundary means the span genuinely rides it.
+fn classify_sub(region: &Region, sub: &Primitive) -> bool {
+    let mid = sub.eval(0.5);
+    if !region.on_boundary(mid, ON_BOUNDARY_EPS) {
+        return region.inside(mid);
+    }
+    for t in [0.25, 0.75, 0.125, 0.875] {
+        let p = sub.eval(t);
+        if !region.on_boundary(p, ON_BOUNDARY_EPS) {
+            return region.inside(p);
+        }
+    }
+    false // on = outside
 }
 
 /// True once nothing is left visible — the early-out in the clip loop.
