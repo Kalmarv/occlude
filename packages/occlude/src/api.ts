@@ -124,7 +124,16 @@ export interface GroupValue {
 export interface ClipValue {
   readonly __occludeClip: true;
   readonly region: ShapeValue;
+  /** Complement: children keep the OUTSIDE of the region. */
+  readonly invert: boolean;
   readonly children: Tree[];
+}
+
+/** Region complement marker made by `invert()` — legal only where a region
+ * is consumed (clip's first argument). */
+export interface InvertValue {
+  readonly __occludeInvert: true;
+  readonly shape: ShapeValue;
 }
 
 /** Falsy entries are skipped, so conditional composition reads naturally. */
@@ -291,8 +300,23 @@ export function group(opts: GroupOpts, ...children: Tree[]): GroupValue {
   return { __occludeGroup: true, opts, children };
 }
 
-export function clip(region: ShapeValue, ...children: Tree[]): ClipValue {
-  return { __occludeClip: true, region, children };
+export function clip(region: ShapeValue | InvertValue, ...children: Tree[]): ClipValue {
+  const inv = (region as InvertValue).__occludeInvert === true;
+  return {
+    __occludeClip: true,
+    region: inv ? (region as InvertValue).shape : (region as ShapeValue),
+    invert: inv,
+    children,
+  };
+}
+
+/**
+ * Complement a region: `clip(invert(shape), ...children)` keeps the
+ * children's ink OUTSIDE the shape instead of inside. A region annotation,
+ * not a drawable — returning it in the tree fails loudly.
+ */
+export function invert(shape: ShapeValue): InvertValue {
+  return { __occludeInvert: true, shape };
 }
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
@@ -543,7 +567,8 @@ export interface Toolkit {
   stream: typeof stream;
   map: typeof mapRange;
   norm: typeof normRange;
-  invert: typeof invertRange;
+  invert: typeof invert;
+  invertRange: typeof invertRange;
   ease: typeof ease;
   times: typeof times;
   range: typeof range;
@@ -664,7 +689,7 @@ const TOOLKIT_BASE = {
   dash, smooth, roughen, deform, noiseField, label,
   hatch, crosshatch, stipple, solid, ui,
   rnd, pick, chance, prob, noise, stream,
-  map: mapRange, norm: normRange, invert: invertRange, ease,
+  map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
   scatter, isolines, points: pointsOf, voronoi, triangulate,
@@ -748,10 +773,19 @@ function emit(tree: Tree, ctx: EmitCtx): void {
   if ((tree as ClipValue).__occludeClip) {
     const c = tree as ClipValue;
     const regionShape = new Shape(c.region.geom);
-    legacyClip(regionShape, () => {
-      for (const child of c.children) emit(child, ctx);
-    });
+    legacyClip(
+      regionShape,
+      () => {
+        for (const child of c.children) emit(child, ctx);
+      },
+      c.invert,
+    );
     return;
+  }
+  if ((tree as unknown as InvertValue).__occludeInvert) {
+    throw new Error(
+      'invert() is a region annotation, not a drawable — use it as clip(invert(shape), ...)',
+    );
   }
   emitShape(tree as ShapeValue, ctx);
 }

@@ -52,6 +52,8 @@
 //!   clip_start/clip_count.
 //!
 //! `clips_u32: Uint32Array`, stride 3: [contour_start, contour_count, flags]
+//!   clip flags: bit1 convex, bit2 even-odd winding, bit3 INVERT (children
+//!   keep the region's OUTSIDE — clip(invert(shape), …))
 //!
 //! Output `frags: Float64Array`, stride 6:
 //!   [origin_prim, t0, t1, pen, shape, flags(bit0 dot, bit1 bridge)]
@@ -378,6 +380,7 @@ pub fn wasm_render(
                     WindingRule::NonZero
                 },
                 convex: c[2] & 2 != 0,
+                invert: c[2] & 8 != 0,
             })
         })
         .collect::<Result<_, String>>()

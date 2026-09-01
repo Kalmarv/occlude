@@ -406,7 +406,9 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     }
     const lowered = lowerShape(clipRec.shape, frame);
     const [cStart, cCount] = pushContours(lowered.contours);
-    const flags = lowered.convex ? 2 : 0;
+    const cgeom = clipRec.shape.geom;
+    const cwinding = cgeom.kind === 'path' && cgeom.winding === 'evenodd' ? 4 : 0;
+    const flags = (lowered.convex ? 2 : 0) | cwinding | (clipRec.invert ? 8 : 0);
     clipsU32.push(cStart, cCount, flags);
   }
 

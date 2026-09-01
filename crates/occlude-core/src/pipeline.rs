@@ -79,6 +79,8 @@ pub struct ClipDef {
     pub contours: Vec<Vec<Primitive>>,
     pub winding: WindingRule,
     pub convex: bool,
+    /// Complement: clipped shapes keep the region's OUTSIDE.
+    pub invert: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -235,10 +237,12 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     let occ_index = SpatialIndex::build(&occ_boxes);
 
     // Clip regions.
-    let clip_regions: Vec<Region> = input
+    // (region, keep_inside): a normal clip keeps inside, an inverted one
+    // keeps outside — the same polarity bit clip_spans already speaks.
+    let clip_regions: Vec<(Region, bool)> = input
         .clips
         .iter()
-        .map(|c| Region::new(c.contours.clone(), c.winding, c.convex))
+        .map(|c| (Region::new(c.contours.clone(), c.winding, c.convex), !c.invert))
         .collect();
     let paper_region: Option<Region> = input.paper.map(|p| {
         let pts = [
@@ -344,11 +348,12 @@ pub fn render(input: &RenderInput) -> RenderOutput {
             occ_index: &occ_index,
             my_rank: rank[i],
         };
-        let shape_clips: Vec<&Region> = s
+        let shape_clips: Vec<(&Region, bool)> = s
             .clips
             .iter()
             .filter_map(|&c| clip_regions.get(c as usize))
-            .chain(paper_region.iter().filter(|_| !clean[i]))
+            .map(|(r, keep)| (r, *keep))
+            .chain(paper_region.iter().filter(|_| !clean[i]).map(|r| (r, true)))
             .collect();
         let mut query_buf: Vec<u32> = Vec::new();
 
@@ -1434,7 +1439,7 @@ fn clip_one(
     judge_len: f64,
     pen: u32,
     shape: u32,
-    clips: &[&Region],
+    clips: &[(&Region, bool)],
     ctx: &ClipCtx,
     clean: bool,
     query_buf: &mut Vec<u32>,
@@ -1477,8 +1482,8 @@ fn clip_one(
         t1: 1.0,
         visible: true,
     }];
-    for clip in clips {
-        clip_spans(prim, &mut spans, clip, true);
+    for (clip, keep_inside) in clips {
+        clip_spans(prim, &mut spans, clip, *keep_inside);
         if fully_hidden(&spans) {
             return;
         }
@@ -1523,9 +1528,9 @@ fn clip_one(
     spans_to_fragments(origin, prim, &spans, threshold, pen, shape, out, taps);
 }
 
-fn point_visible(p: Vec2, clips: &[&Region], ctx: &ClipCtx, query_buf: &mut Vec<u32>) -> bool {
-    for clip in clips {
-        if !clip.inside(p) {
+fn point_visible(p: Vec2, clips: &[(&Region, bool)], ctx: &ClipCtx, query_buf: &mut Vec<u32>) -> bool {
+    for (clip, keep_inside) in clips {
+        if clip.inside(p) != *keep_inside {
             return false;
         }
     }

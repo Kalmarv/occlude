@@ -31,6 +31,8 @@ export interface SketchOptions {
 export interface ClipRecord {
   /** The shape whose region clips; removed from the drawable list. */
   shape: import('./shapes.js').Shape;
+  /** Complement: children keep the OUTSIDE of the region. */
+  invert: boolean;
 }
 
 export interface State {
@@ -221,13 +223,17 @@ export function push(t: TransformOp, fn: () => void): void {
  * Restrict everything created inside `fn` to the region of `shape`. The clip
  * shape itself is not drawn and does not occlude.
  */
-export function clip(shape: import('./shapes.js').Shape, fn: () => void): void {
+export function clip(
+  shape: import('./shapes.js').Shape,
+  fn: () => void,
+  invert = false,
+): void {
   const s = getState();
   // The shape was recorded on construction; a clip region is not a drawable.
   const idx = s.shapes.indexOf(shape);
   if (idx >= 0) s.shapes.splice(idx, 1);
   const clipId = s.clips.length;
-  s.clips.push({ shape });
+  s.clips.push({ shape, invert });
   s.clipStack.push(clipId);
   try {
     fn();

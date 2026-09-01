@@ -19,12 +19,12 @@
 export {
   sketch, compileSketch, isSketch,
   circle, ellipse, rect, line, polygon, region, path, PathValue,
-  group, clip, mask, decimate, wobble, modify, dash, smooth, roughen, deform, noiseField,
+  group, clip, mask, invert, decimate, wobble, modify, dash, smooth, roughen, deform, noiseField,
   times, range,
 } from './api.js';
 export type {
   SketchDef, SketchConfig, Toolkit, Tree,
-  ShapeValue, ShapeOpts, GroupValue, GroupOpts, ClipValue,
+  ShapeValue, ShapeOpts, GroupValue, GroupOpts, ClipValue, InvertValue,
 } from './api.js';
 export type { ModifierValue, FieldFn, VectorFieldFn } from './shapes.js';
 
@@ -47,7 +47,7 @@ export type { L } from './units.js';
 // Pure helpers. Randomness (rnd/noise/stream/…) and layout (bounds/grid)
 // come through the toolkit — they belong to a sketch run, not the module.
 export type { RandomStream } from './state.js';
-export { mapRange as map, normRange as norm, invertRange as invert } from './random.js';
+export { mapRange as map, normRange as norm, invertRange } from './random.js';
 export { ease } from './ease.js';
 
 // Render & export (accept a SketchDef, or operate on legacy recorded state).

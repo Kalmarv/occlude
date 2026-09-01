@@ -161,6 +161,7 @@ export default sketch({ aspect: [1, 1] }, (t) =>
 
 `clip(shape, ...children)` — children restricted to the shape's region; the
 region itself is neither drawn nor occluding. Nested clips intersect.
+Wrap the region in `invert()` to keep the OUTSIDE instead.
 
 ```ts live
 import { sketch, clip, circle, line } from 'occlude';
@@ -169,6 +170,28 @@ export default sketch({ aspect: [2, 1] }, (t) => [
   clip(circle(50, 25, 20), t.times(19, (k, u) => line(0, u * 50, 100, u * 50))),
   circle(50, 25, 20),
 ]);
+```
+
+### invert
+
+`invert(shape)` — complement a clip region: `clip(invert(shape), ...)`
+splits the children's ink along the shape's boundary and keeps the
+outside. A region annotation, not a drawable — it fails loudly anywhere
+else. With `region()` this is the full split-and-keep-either-side pair:
+same boundary, pick a side.
+
+```ts live
+import { sketch, clip, invert, region, circle } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
+  const blobs = t.isolines((x, y) => t.noise(x / 14, y / 14), 0.1, { close: true });
+  const r = region(blobs.map((c) => c.pts));
+  const dots = (rr) => t.grid({ cols: 40, rows: 20 }).map((c) => circle(c.cx, c.cy, rr));
+  return [
+    clip(r, dots(1.1)),           // inside: fat dots
+    clip(invert(r), dots(0.45)),  // outside: fine dots
+  ];
+});
 ```
 
 ### mask
@@ -622,9 +645,11 @@ export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
 });
 ```
 
-### map / norm / invert & ease
+### map / norm / invertRange & ease
 
-`map(v, a, b, c, d)` remaps ranges; `norm` to 0–1; `invert` flips.
+`map(v, a, b, c, d)` remaps ranges; `norm` to 0–1; `invertRange(v, max,
+min?)` mirrors a value within a range (`invert` now complements clip
+regions — see Combinators).
 `ease.*` reshapes a normalised t — when t drives spacing, local density is
 the curve's slope.
 

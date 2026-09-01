@@ -256,6 +256,7 @@ fn clip_region_restricts() {
         contours: circle_contour(0., 0., 5.),
         winding: WindingRule::NonZero,
         convex: true,
+        invert: false,
     }];
     let out = render(&inp);
     assert_eq!(out.frags.len(), 1);
@@ -264,6 +265,32 @@ fn clip_region_restricts() {
         (total - 10.0).abs() < 1e-6,
         "clipped to diameter, got {total}"
     );
+}
+
+#[test]
+fn inverted_clip_keeps_outside() {
+    // Same line, same circle, polarity flipped: the two outer pieces
+    // survive and the diameter inside the circle is gone — clip(invert()).
+    let mut line = stroke_shape(
+        vec![vec![Primitive::Line(Line::new(v(-20., 0.), v(20., 0.)))]],
+        false,
+    );
+    line.clips = vec![0];
+    let mut inp = input(vec![line]);
+    inp.clips = vec![ClipDef {
+        contours: circle_contour(0., 0., 5.),
+        winding: WindingRule::NonZero,
+        convex: true,
+        invert: true,
+    }];
+    let out = render(&inp);
+    assert_eq!(out.frags.len(), 2);
+    let total: f64 = out.frags.iter().map(|f| f.geom.length()).sum();
+    assert!(
+        (total - 30.0).abs() < 1e-6,
+        "kept the outside pieces, got {total}"
+    );
+    // Complement completeness: normal + inverted spans = the whole line.
 }
 
 #[test]

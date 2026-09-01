@@ -21,6 +21,12 @@ const env: IsoEnv = {
   len: (l) => (typeof l === 'number' ? l : l.value),
 };
 
+const fragLenOf = (f: import('../src/index.js').Fragment): number => {
+  const g = f.geom as { t: string; [k: string]: number | string };
+  if (g.t === 'arc') return (g.r as number) * Math.abs(g.sweep as number);
+  return Math.hypot((g.x1 as number) - (g.x0 as number), (g.y1 as number) - (g.y0 as number));
+};
+
 const perimeter = (c: IsoContour): number => {
   let sum = 0;
   const n = c.pts.length;
@@ -152,5 +158,48 @@ describe('isolines: toolkit + engine integration', () => {
     expect(mids.length).toBeGreaterThan(20);
     expect(mids.filter((d) => d < 28)).toHaveLength(0); // the hole
     expect(mids.filter((d) => d > 32 && d < 68).length).toBeGreaterThan(10); // the band inked
+  });
+
+  it('clip(invert(region)) keeps ink outside; the two polarities tile the ink', () => {
+    const mk = (kind: 'in' | 'out' | 'all'): SketchDef =>
+      sketch({ seed: 3 }, (t) => {
+        const album = t.grid({ cols: 12, rows: 12 }).map((c) => t.circle(c.cx, c.cy, 2));
+        if (kind === 'all') return album;
+        const r = t.region(
+          t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1, { close: true }).map((c) => c.pts),
+        );
+        return [kind === 'in' ? t.clip(r, album) : t.clip(t.invert(r), album)];
+      });
+    const ink = (def: SketchDef): number =>
+      sq(def).frags.filter((f) => !f.dot).reduce((s, f) => s + fragLenOf(f), 0);
+    const inside = ink(mk('in'));
+    const outside = ink(mk('out'));
+    const all = ink(mk('all'));
+    expect(inside).toBeGreaterThan(0);
+    expect(outside).toBeGreaterThan(0);
+    // Complementarity (sub-nib boundary slivers allowed).
+    expect(Math.abs(inside + outside - all)).toBeLessThan(all * 0.01);
+  });
+
+  it('invert() in the tree fails loudly', () => {
+    const def = sketch({ seed: 1 }, (t) => [t.invert(t.circle(50, 50, 10)) as never]);
+    expect(() => sq(def)).toThrow(/region annotation/);
+  });
+
+  it('an evenodd region used as clip respects holes', () => {
+    // Annulus region clipping a line: only the band crossings survive —
+    // the hole is OUTSIDE the clip (winding now crosses the protocol).
+    const def = sketch({ seed: 1 }, (t) => {
+      const band = t.isolines(
+        (x, y) => 20 - Math.abs(Math.hypot(x - 50, y - 50) - 25),
+        10,
+      );
+      return [t.clip(t.region(band.map((c) => c.pts)), t.line(0, 50, 100, 50))];
+    });
+    const out = sq(def);
+    const lens = out.frags.filter((f) => !f.dot).map(fragLenOf).sort((a, b) => a - b);
+    // Two band crossings, each ≈ (35−15)·2mm = 40mm; nothing in the hole.
+    expect(lens.length).toBe(2);
+    for (const l of lens) expect(Math.abs(l - 40)).toBeLessThan(1.5);
   });
 });
