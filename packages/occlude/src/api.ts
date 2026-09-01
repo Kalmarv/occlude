@@ -37,6 +37,7 @@ import {
   liftPoints, scatterPoints, triangulate, voronoi,
   type FieldFn2, type ScatterOpts,
 } from './points.js';
+import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { solid } from './fills.js';
 import { ui } from './ui.js';
 import { h, long, mm, s, w, resolveLen, Len, type L } from './units.js';
@@ -531,6 +532,7 @@ export interface Toolkit {
   cy: number;
   grid: (opts: GridOptions) => GridCell[];
   scatter: typeof scatter;
+  isolines: typeof isolines;
   points: typeof pointsOf;
   voronoi: typeof voronoi;
   triangulate: typeof triangulate;
@@ -570,6 +572,17 @@ export function sketch(
   return { __occludeSketch: true, config, fn };
 }
 
+/** Sketch-time length resolution against the drawable (mm via the paper
+ * hint) — shared by the points and isolines environments. */
+function sketchLen(b: { w: number; h: number }): (l: L) => number {
+  return (l) => {
+    if (typeof l === 'object' && l !== null && (l as Len).kind === 'mm') {
+      return (l as Len).value / unitScaleMm();
+    }
+    return resolveLen(l, { innerW: b.w, innerH: b.h });
+  };
+}
+
 /** Environment handed to the points module: seeded stream, drawable
  * bounds, and sketch-time length resolution (mm via the paper hint). */
 function pointsEnv(): import('./points.js').PointsEnv {
@@ -578,12 +591,7 @@ function pointsEnv(): import('./points.js').PointsEnv {
   return {
     rnd: () => st.rnd(),
     bounds: { x: 0, y: 0, w: b.w, h: b.h },
-    len: (l) => {
-      if (typeof l === 'object' && l !== null && (l as Len).kind === 'mm') {
-        return (l as Len).value / unitScaleMm();
-      }
-      return resolveLen(l, { innerW: b.w, innerH: b.h });
-    },
+    len: sketchLen(b),
   };
 }
 
@@ -599,6 +607,25 @@ function scatter(
   const opts = (typeof a === 'function' || a === undefined ? b : a) as ScatterOpts;
   if (!opts?.spacing) throw new Error('scatter: { spacing } is required');
   return scatterPoints(pointsEnv(), field, opts);
+}
+
+/** Contours of `{ field ≥ at }` via marching squares over the drawable —
+ * plain data: stamp with `polygon(c.pts)`, or assemble into one evenodd
+ * `path()` for holes, and clip/fill from there. Open at the drawable edge
+ * by default; `{ close: true }` closes regions along it. An `at` array
+ * marches every level over one shared field sampling. */
+function isolines(field: FieldFn2, at: number, opts?: IsoOpts): IsoContour[];
+function isolines(field: FieldFn2, at: number[], opts?: IsoOpts): IsoContour[][];
+function isolines(
+  field: FieldFn2,
+  at: number | number[],
+  opts: IsoOpts = {},
+): IsoContour[] | IsoContour[][] {
+  const b = bounds();
+  const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: sketchLen(b) };
+  return Array.isArray(at)
+    ? isolinesOf(env, field, at, opts)
+    : isolinesOf(env, field, at, opts);
 }
 
 /** Lift any point array into the Points vocabulary (relax/settle/cells/mesh). */
@@ -617,7 +644,7 @@ const TOOLKIT_BASE = {
   map: mapRange, norm: normRange, invert: invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, points: pointsOf, voronoi, triangulate,
+  scatter, isolines, points: pointsOf, voronoi, triangulate,
   mm, w, h, s, long,
 };
 

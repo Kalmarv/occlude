@@ -766,6 +766,34 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
 });
 ```
 
+### isolines
+
+`isolines(field, at, { step?, close? })` — contours of `field ≥ at` by
+marching squares over the drawable: the bridge from scalar fields to
+stampable geometry (noise blobs, metaballs via SDF fields, tonal bands
+from `image()` samplers). Returns plain contour data `{ pts, closed }`:
+stamp with `polygon`, or assemble several contours into one **evenodd**
+`path()` when a region has holes — evenodd never looks at orientation, so
+nesting just works. A contour that exits the drawable edge comes back
+open (`closed: false`); pass `close: true` to close every region along
+the edge — the form `clip` and fills want. An array of levels marches
+them all over one shared field sampling. The step defaults to ~mm(1);
+crossings are edge-interpolated, so positional accuracy is far finer
+than the grid.
+
+```ts live
+import { sketch, polygon, hatch, mm } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
+  const field = (x, y) => t.noise(x / 16, y / 16);
+  return [
+    t.isolines(field, 0.2, { close: true }).map((c) =>
+      polygon(c.pts, { fill: hatch(30, mm(1.2)) })),
+    t.isolines(field, 0.5, { close: true }).map((c) => polygon(c.pts)),
+  ];
+});
+```
+
 ### ui
 
 `ui(value, { min?, max?, step?, label? })` — a tweakable value. In the
