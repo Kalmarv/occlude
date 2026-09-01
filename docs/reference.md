@@ -784,12 +784,15 @@ than the grid.
 ```ts live
 import { sketch, polygon, hatch, mm } from 'occlude';
 
+// Posterized tone: each level is opaque, so the denser inner hatch
+// REPLACES the coarse one where they overlap — fill means occlude.
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const field = (x, y) => t.noise(x / 16, y / 16);
   return [
-    t.isolines(field, 0.2, { close: true }).map((c) =>
-      polygon(c.pts, { fill: hatch(30, mm(1.2)) })),
-    t.isolines(field, 0.5, { close: true }).map((c) => polygon(c.pts)),
+    t.isolines(field, 0.15, { close: true }).map((c) =>
+      polygon(c.pts, { fill: hatch(30, mm(1.6)) })),
+    t.isolines(field, 0.5, { close: true }).map((c) =>
+      polygon(c.pts, { fill: hatch(120, mm(0.7)) })),
   ];
 });
 ```
