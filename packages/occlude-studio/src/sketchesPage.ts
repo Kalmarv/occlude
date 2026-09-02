@@ -157,12 +157,18 @@ function sketchCard(info: SketchInfo, all: SketchInfo[], refresh: () => Promise<
   nm.className = 'asset-name';
   nm.textContent = info.name;
   const forks = all.filter((s) => s.parent === info.name);
+  // Counts include every descendant: a snapshot on a fork of a fork is
+  // still this sketch's history, and the root card must say so.
+  const descendants = (name: string): SketchInfo[] =>
+    all.filter((s) => s.parent === name).flatMap((f) => [f, ...descendants(f.name)]);
+  const tree = descendants(info.name);
+  const totalSnaps = info.snapshots + tree.reduce((n, s) => n + s.snapshots, 0);
   const sub = document.createElement('div');
   sub.className = 'asset-size';
   sub.textContent =
     `${ago(info.mtime)}` +
-    (forks.length ? ` · ${forks.length} fork${forks.length === 1 ? '' : 's'}` : '') +
-    (info.snapshots ? ` · ${info.snapshots} snapshot${info.snapshots === 1 ? '' : 's'}` : '') +
+    (tree.length ? ` · ${tree.length} fork${tree.length === 1 ? '' : 's'}` : '') +
+    (totalSnaps ? ` · ${totalSnaps} snapshot${totalSnaps === 1 ? '' : 's'}` : '') +
     (info.parent ? ` · fork of ${info.parent}` : '');
   meta.append(nm, sub);
   const actions = document.createElement('div');
@@ -185,21 +191,38 @@ function sketchCard(info: SketchInfo, all: SketchInfo[], refresh: () => Promise<
   card.append(detail);
   const fill = async (): Promise<void> => {
     detail.replaceChildren();
+    // Snapshots first — this sketch's own, then every descendant's, each
+    // labelled with the fork it belongs to — so nothing hides two levels
+    // down. Forks follow as cards (open them for their own detail).
+    const [own, hist, ...nested] = await Promise.all([
+      listSnapshots(info.name),
+      sketchHistory(info.name),
+      ...tree.map((f) => listSnapshots(f.name)),
+    ]);
+    const snaps = [...own, ...nested.flat()];
+    if (snaps.length) {
+      const h = document.createElement('h4');
+      h.textContent = 'snapshots';
+      const g = document.createElement('div');
+      g.className = 'assets-grid sketch-children';
+      for (const s of snaps) {
+        const card = snapshotCard(s, refresh);
+        if (s.name !== info.name) {
+          const of = document.createElement('div');
+          of.className = 'asset-size';
+          of.textContent = `on ${s.name}`;
+          card.querySelector('.asset-meta')?.append(of);
+        }
+        g.append(card);
+      }
+      detail.append(h, g);
+    }
     if (forks.length) {
       const h = document.createElement('h4');
       h.textContent = 'forks';
       const g = document.createElement('div');
       g.className = 'assets-grid sketch-children';
       for (const f of forks) g.append(sketchCard(f, all, refresh));
-      detail.append(h, g);
-    }
-    const [snaps, hist] = await Promise.all([listSnapshots(info.name), sketchHistory(info.name)]);
-    if (snaps.length) {
-      const h = document.createElement('h4');
-      h.textContent = 'snapshots';
-      const g = document.createElement('div');
-      g.className = 'assets-grid sketch-children';
-      for (const s of snaps) g.append(snapshotCard(s, refresh));
       detail.append(h, g);
     }
     if (hist.commits.length) {
