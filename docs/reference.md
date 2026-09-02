@@ -885,6 +885,7 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
     t.isolines(f, [0.1, 0.35, 0.6], { step: 0.4 }).flat().map((c) => {
       const p = path().moveTo(...c.pts[0]);
       for (const pt of c.pts.slice(1)) p.lineTo(...pt);
+      if (c.closed) p.close(); // closed contours imply the seam segment
       return p.build();
     }),
   ];
