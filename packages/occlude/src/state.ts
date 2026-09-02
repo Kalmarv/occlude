@@ -51,6 +51,8 @@ export interface State {
   rectMode: 'corner' | 'center';
   rng: Rng;
   seedUsed: number | string;
+  /** `t.probe(label, value)` readouts, reset per compile. */
+  probes: Map<string, ProbeAccumulator>;
   drawIndex: number;
 }
 
@@ -114,7 +116,80 @@ function freshState(opts: SketchOptions = {}): State {
     rng: new Rng(seed),
     seedUsed: seed,
     drawIndex: 0,
+    probes: new Map(),
   };
+}
+
+/** Running stats for one probe label plus a deterministic thinned sample
+ * (every stride-th value; the stride doubles when the reservoir fills) —
+ * enough for a histogram without storing every value. */
+export interface ProbeAccumulator {
+  count: number;
+  nonFinite: number;
+  min: number;
+  max: number;
+  sum: number;
+  stride: number;
+  samples: number[];
+}
+
+const PROBE_RESERVOIR = 2048;
+
+/** Record one value under `label`. Identity on the value; numbers only
+ * count toward the stats (anything else is a "non-finite" tick). */
+export function recordProbe(label: string, value: unknown): void {
+  const s = getState();
+  let p = s.probes.get(label);
+  if (!p) {
+    p = { count: 0, nonFinite: 0, min: Infinity, max: -Infinity, sum: 0, stride: 1, samples: [] };
+    s.probes.set(label, p);
+  }
+  p.count++;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    p.nonFinite++;
+    return;
+  }
+  if (value < p.min) p.min = value;
+  if (value > p.max) p.max = value;
+  p.sum += value;
+  if (p.count % p.stride === 0) {
+    if (p.samples.length >= PROBE_RESERVOIR) {
+      p.samples = p.samples.filter((_, i) => i % 2 === 0);
+      p.stride *= 2;
+      if (p.count % p.stride !== 0) return;
+    }
+    p.samples.push(value);
+  }
+}
+
+/** One probe's summary as posted to the studio. */
+export interface ProbeSummary {
+  count: number;
+  nonFinite: number;
+  min: number;
+  max: number;
+  mean: number;
+  /** Deterministically thinned values, for a histogram. */
+  samples: number[];
+}
+
+/** Every probe of the current run, in first-seen order. */
+export function getProbeStats(): Record<string, ProbeSummary> {
+  const out: Record<string, ProbeSummary> = {};
+  const s = state;
+  if (!s) return out;
+  for (const [label, p] of s.probes) {
+    const finite = p.count - p.nonFinite;
+    out[label] = {
+      count: p.count,
+      nonFinite: p.nonFinite,
+      min: finite > 0 ? p.min : NaN,
+      max: finite > 0 ? p.max : NaN,
+      mean: finite > 0 ? p.sum / finite : NaN,
+      samples: p.samples.slice(),
+    };
+  }
+  return out;
 }
 
 /** Start (or restart) a sketch. Clears all recorded shapes. */

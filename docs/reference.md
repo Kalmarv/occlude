@@ -1066,6 +1066,23 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
+### probe
+
+`t.probe(label, value)` — the variable inspector. Returns `value`
+unchanged and records it, so after the render the studio's controls
+panel shows what the label actually ran through: count, min, mean, max,
+and a small histogram. Wrap any number anywhere — a field's return, a
+loop variable, something inside a fill — to learn the range before you
+ease or map it. Deterministic and free to leave in: it never changes a
+value.
+
+```ts
+const density = (x, y) => {
+  const s = t.probe('s', d(x, y));                 // read the range, then choose the falloff
+  return s <= 0 ? 0 : t.probe('p', ease.smooth(1 - s / 12));
+};
+```
+
 ## Units
 
 Bare numbers are percent of the drawable's short side — sketches stay

@@ -9,7 +9,7 @@
  */
 
 import initCore, * as core from 'occlude-core';
-import { renderEncoded, type WasmModule } from 'occlude';
+import { getProbeStats, renderEncoded, type WasmModule } from 'occlude';
 import { currentSeed, runSketch, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
 import { preloadFills } from './fillLoader.js';
@@ -110,6 +110,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
             frame: scene.frame,
             paper: scene.paper,
             seedUsed: currentSeed(),
+            probes: getProbeStats(),
           },
           { transfer },
         );

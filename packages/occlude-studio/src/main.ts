@@ -168,6 +168,7 @@ async function boot(): Promise<void> {
       `${s.clean} clean · ${s.culledContained + s.culledOffPaper} culled · ` +
       `${s.renderMs.toFixed(1)}ms`;
     preview.setResult(result);
+    uiPanel.setProbes(reply.probes);
     renderSeedControls(reply.seedUsed);
   }
 

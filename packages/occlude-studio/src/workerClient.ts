@@ -7,7 +7,7 @@
  * the worker's perspective; the watchdog is the only hard interruption.
  */
 
-import { decodeRender, type EncodedScene, type RenderResult } from 'occlude';
+import { decodeRender, type EncodedScene, type ProbeSummary, type RenderResult } from 'occlude';
 import type { RunConfig } from './runner.js';
 
 export interface RenderRequest {
@@ -20,6 +20,8 @@ export interface RenderRequest {
 export interface RenderReply {
   result: RenderResult;
   seedUsed: string;
+  /** `t.probe()` readouts from this run. */
+  probes: Record<string, ProbeSummary>;
 }
 
 /** Worker errors carry the sketch flag when execution (not geometry)
@@ -140,10 +142,11 @@ export class RenderClient {
             frame: EncodedScene['frame'];
             paper: EncodedScene['paper'];
             seedUsed: string;
+            probes: Record<string, ProbeSummary>;
           };
           // decodeRender reads only pens/frame/paper from the scene half.
           const meta = { pens: m.pens, frame: m.frame, paper: m.paper } as EncodedScene;
-          resolve({ result: decodeRender(meta, m), seedUsed: m.seedUsed });
+          resolve({ result: decodeRender(meta, m), seedUsed: m.seedUsed, probes: m.probes ?? {} });
         },
         reject,
       };

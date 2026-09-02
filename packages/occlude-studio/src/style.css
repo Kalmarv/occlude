@@ -194,6 +194,35 @@ body {
   user-select: none;
 }
 
+.ui-probes:empty {
+  display: none;
+}
+
+.ui-probes {
+  padding: 4px 10px 8px;
+  border-top: 1px solid var(--panel-edge);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ui-probe {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-dim);
+}
+
+.ui-probe-hist {
+  letter-spacing: -1px;
+  color: var(--toolpath);
+  white-space: pre;
+}
+
+#ui-panel.collapsed .ui-probes,
 #ui-panel.collapsed .ui-panel-body {
   display: none;
 }

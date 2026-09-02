@@ -103,7 +103,8 @@ export type {
 } from './motion.js';
 
 // Host integration.
-export { setPenLibrary, setPaperHint, setSeedHint, getState } from './state.js';
+export { setPenLibrary, setPaperHint, setSeedHint, getState, getProbeStats } from './state.js';
+export type { ProbeSummary } from './state.js';
 
 // A fill file's `import … from 'occlude'` resolves to this very module: the
 // registry hands loaded fills the package's own namespace (self-import is

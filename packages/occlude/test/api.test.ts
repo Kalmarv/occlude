@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
+  compileSketch, getProbeStats,
   fill,
   circle, ellipse, exportGcode, exportPng, exportSvg, initOcclude,
   line, mask, mm, polygon, rect, render, sketch, w,
@@ -1152,5 +1153,37 @@ describe('fill polyline chains', () => {
     const fillFrags = out.frags.filter((f) => f.shape === 0 && f.origin >= 2 && !f.dot);
     expect(fillFrags.length).toBeGreaterThan(1000);
     expect(totalLen(fillFrags)).toBeGreaterThan(25);
+  });
+});
+
+describe('probe: the variable inspector', () => {
+  it('is the identity and records count/min/max/mean per label, reset per compile', async () => {
+    const def = sketch({ seed: 1 }, (t) => {
+      for (let i = 0; i < 10; i++) t.probe('i', i);
+      expect(t.probe('x', 42)).toBe(42);
+      t.probe('bad', NaN);
+      return circle(50, 50, 10, { fill: (region, ctx) => { t.probe('fill', ctx.penWidth); return []; } });
+    });
+    sq(def);
+    const p = getProbeStats();
+    expect(p.i).toMatchObject({ count: 10, min: 0, max: 9, mean: 4.5, nonFinite: 0 });
+    expect(p.i.samples).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(p.bad).toMatchObject({ count: 1, nonFinite: 1 });
+    expect(p.fill.count).toBe(1); // fill code probes too — same runtime
+    compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 10)));
+    expect(Object.keys(getProbeStats())).toEqual([]);
+  });
+
+  it('thins deterministically past the reservoir', () => {
+    const def = sketch({ seed: 1 }, (t) => {
+      for (let i = 0; i < 10000; i++) t.probe('big', i);
+      return circle(50, 50, 10);
+    });
+    sq(def);
+    const p = getProbeStats().big;
+    expect(p.count).toBe(10000);
+    expect(p.samples.length).toBeLessThanOrEqual(2048);
+    expect(p.samples.length).toBeGreaterThan(1000);
+    expect(p.max).toBe(9999);
   });
 });

@@ -6,7 +6,7 @@
  * drag, and the normal change→re-run pipeline picks the new value up.
  */
 
-import { scanUiControls, type UiControl } from 'occlude';
+import { scanUiControls, type ProbeSummary, type UiControl } from 'occlude';
 import type { Editor } from './editor.js';
 
 interface Row {
@@ -22,6 +22,9 @@ export class UiPanel {
   private signature = '';
   private selfEdit = false;
   private decorations: string[] = [];
+  private probes: HTMLElement;
+  private controlCount = 0;
+  private probeCount = 0;
 
   constructor(host: HTMLElement, private ed: Editor) {
     this.root = document.createElement('div');
@@ -40,15 +43,50 @@ export class UiPanel {
     setHead();
     this.body = document.createElement('div');
     this.body.className = 'ui-panel-body';
-    this.root.append(head, this.body);
+    this.probes = document.createElement('div');
+    this.probes.className = 'ui-probes';
+    this.probes.title = 't.probe(label, value) readouts from the last render';
+    this.root.append(head, this.body, this.probes);
     host.append(this.root);
+  }
+
+  /** The variable inspector: after each render, what every `t.probe()`
+   * label ran through — count, min, mean, max, and a 16-bin histogram. */
+  setProbes(stats: Record<string, ProbeSummary>): void {
+    this.probes.replaceChildren();
+    const labels = Object.keys(stats);
+    this.probeCount = labels.length;
+    this.root.hidden = this.controlCount === 0 && this.probeCount === 0;
+    for (const label of labels) {
+      const p = stats[label];
+      const row = document.createElement('div');
+      row.className = 'ui-probe';
+      const name = document.createElement('span');
+      name.className = 'ui-label';
+      name.textContent = label;
+      const nums = document.createElement('span');
+      nums.className = 'ui-probe-nums';
+      const finite = p.count - p.nonFinite;
+      nums.textContent =
+        finite > 0
+          ? `n=${p.count}  min ${fmt(p.min)}  mean ${fmt(p.mean)}  max ${fmt(p.max)}` +
+            (p.nonFinite ? `  (${p.nonFinite} non-finite)` : '')
+          : `n=${p.count}  no finite values`;
+      const hist = document.createElement('span');
+      hist.className = 'ui-probe-hist';
+      hist.textContent = sparkline(p);
+      hist.title = 'histogram, min → max';
+      row.append(name, nums, hist);
+      this.probes.append(row);
+    }
   }
 
   /** Rescan the source; rebuild rows on structural change, else refresh. */
   sync(): void {
     if (this.selfEdit) return; // our own literal edit — offsets kept manually
     const controls = scanUiControls(this.ed.getValue());
-    this.root.hidden = controls.length === 0;
+    this.controlCount = controls.length;
+    this.root.hidden = controls.length === 0 && this.probeCount === 0;
     const signature = controls
       .map((c) => `${c.label}|${typeof c.value}|${c.opts.min}|${c.opts.max}|${c.opts.step}`)
       .join(';');
@@ -236,4 +274,25 @@ function niceStep(x: number): number {
   const p = 10 ** Math.floor(Math.log10(x));
   for (const m of [1, 2, 5]) if (m * p >= x) return m * p;
   return 10 * p;
+}
+
+function fmt(v: number): string {
+  if (!Number.isFinite(v)) return '—';
+  const a = Math.abs(v);
+  if (a === 0) return '0';
+  if (a >= 1000 || a < 0.001) return v.toExponential(2);
+  return v.toPrecision(3).replace(/\.?0+$/, '');
+}
+
+/** 16 bins between min and max, drawn with block characters. */
+function sparkline(p: ProbeSummary): string {
+  if (p.samples.length === 0 || !(p.max > p.min)) return '';
+  const bins = new Array<number>(16).fill(0);
+  for (const v of p.samples) {
+    const k = Math.min(15, Math.floor(((v - p.min) / (p.max - p.min)) * 16));
+    bins[k]++;
+  }
+  const peak = Math.max(...bins);
+  const blocks = ' ▁▂▃▄▅▆▇█';
+  return bins.map((b) => blocks[b === 0 ? 0 : 1 + Math.floor((b / peak) * 7.999)]).join('');
 }

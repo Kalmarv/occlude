@@ -30,7 +30,7 @@ import { type FieldAlign, Shape, type FieldFn, type ModifierValue, type PathCmd,
 import {
   bounds, chance, clip as legacyClip, margin, noise, pick, prob, push, rnd,
   sketch as legacySketch, stream, getState, unitScaleMm,
-  type SketchOptions, type Winding,
+  type SketchOptions, type Winding, recordProbe,
 } from './state.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
@@ -628,6 +628,7 @@ export interface Toolkit {
   scatter: typeof scatter;
   isolines: typeof isolines;
   loops: typeof loops;
+  probe: typeof probe;
   distanceTo: typeof distanceTo;
   within: typeof within;
   rotate: typeof rotateField;
@@ -751,6 +752,18 @@ function loops(shape: ShapeValue, opts: { tolerance?: L } = {}): [number, number
   ).map((loop) => loop.map(([x, y]) => [x / unit, y / unit] as [number, number]));
 }
 
+/**
+ * A variable inspector: returns `value` unchanged and records it under
+ * `label`, so the studio can show what a number actually ran through —
+ * count, min, max, mean, a histogram — after the render. Works anywhere in
+ * sketch or fill code (both run in the same runtime), never changes a
+ * value, costs nothing to leave in.
+ */
+function probe<T>(label: string, value: T): T {
+  recordProbe(label, value);
+  return value;
+}
+
 /** Lift any point array into the Points vocabulary (relax/settle/cells/mesh). */
 function pointsOf(
   raw: readonly ({ x: number; y: number } | [number, number])[],
@@ -767,7 +780,7 @@ const TOOLKIT_BASE = {
   map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, isolines, loops, distanceTo, points: pointsOf, voronoi, triangulate,
+  scatter, isolines, loops, probe, distanceTo, points: pointsOf, voronoi, triangulate,
   within, rotate: rotateField, translate: translateField, scale: scaleField,
   vectorField: vectorFieldMark,
   mm, w, h, s, long,
