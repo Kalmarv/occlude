@@ -985,6 +985,28 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
 });
 ```
 
+### loops
+
+`t.loops(shape, { tolerance? })` — any shape value as plain point loops in
+sketch coordinates, through the one lowerer (rectMode, arc commands, the
+shape's own `translate`/`rotate`/`scale`, curves flattened at `tolerance`,
+default 0.05 mm) — so the loops are exactly what the shape inks. The
+bridge from shapes to everything that eats loops: `distanceTo`, `region`,
+`polygon`, `points`. Closed shapes give closed loops; an open path gives an
+open polyline.
+
+```ts live
+import { sketch, circle, rect, trace } from 'occlude';
+
+// Rings around a rotated rect: the rect's own outline as loops, then
+// distanceTo, then isolines — no geometry written by hand.
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const box = rect(50, 25, 26, 14, { rotate: 20, mode: 'center' });
+  const d = t.distanceTo(t.loops(box));
+  return [box, t.isolines(d, [-3, -6, -9, -12], { step: 0.5 }).flat().map((c) => trace(c))];
+});
+```
+
 ### distanceTo
 
 `distanceTo(loops)` — the bridge back from stampable geometry to scalar

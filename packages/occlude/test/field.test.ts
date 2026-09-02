@@ -295,6 +295,41 @@ describe('engine field uses: exact domains, shape anchoring, shared grids', () =
   });
 });
 
+describe('loops: any shape as plain point loops', () => {
+  it('is the lowerer in sketch coordinates — a circle at its radius, a rect on its mode', () => {
+    let circ: [number, number][][] = [];
+    let rc: [number, number][][] = [];
+    let open: [number, number][][] = [];
+    compileSketch(sketch({ rectMode: 'center' }, (t) => {
+      circ = t.loops(circle(50, 25, 15));
+      rc = t.loops(rect(50, 50, 20, 10, { rotate: 0 }));
+      open = t.loops(trace({ pts: [[0, 0], [10, 0], [10, 10]], closed: false }));
+      return circle(0, 0, 1);
+    }));
+    expect(circ).toHaveLength(1);
+    expect(circ[0].length).toBeGreaterThan(50);
+    for (const [x, y] of circ[0]) expect(Math.hypot(x - 50, y - 25)).toBeCloseTo(15, 1);
+    const xs = rc[0].map((p) => p[0]);
+    const ys = rc[0].map((p) => p[1]);
+    expect(Math.min(...xs)).toBeCloseTo(40, 6);
+    expect(Math.max(...xs)).toBeCloseTo(60, 6);
+    expect(Math.min(...ys)).toBeCloseTo(45, 6);
+    expect(Math.max(...ys)).toBeCloseTo(55, 6);
+    expect(open[0][0]).toEqual([0, 0]);
+    expect(open[0][open[0].length - 1]).toEqual([10, 10]);
+  });
+
+  it('composes: distanceTo(t.loops(circle)) is the circle\'s signed distance', () => {
+    let seen = NaN;
+    compileSketch(sketch({}, (t) => {
+      const d = t.distanceTo(t.loops(circle(50, 50, 25)));
+      seen = d(50, 50);
+      return circle(0, 0, 1);
+    }));
+    expect(seen).toBeCloseTo(25, 1);
+  });
+});
+
 describe('align: shape-anchored fills follow the motif', () => {
   const rowAngles = (def: SketchDef): number[] => {
     const out = sq(def);

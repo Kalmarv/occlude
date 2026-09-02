@@ -24,9 +24,9 @@
 import type { FieldFn, VectorFieldFn } from './shapes.js';
 import type { ShapeValue } from './api.js';
 import { IDENTITY, invert, mul, rotate as mrotate, scale as mscale, translate as mtranslate, type Mat } from './matrix.js';
-import { lowerToUserLoops, makeFrame, userPointMm, type Frame } from './record.js';
+import { lowerToUserLoops, sketchFrame, userPointMm } from './record.js';
 import { geomClosed } from './shapes.js';
-import { bounds, getPaperHint, getState, unitScaleMm } from './state.js';
+import { bounds, unitScaleMm } from './state.js';
 import { resolveLen, Len, type L } from './units.js';
 
 /** A `within()` bound as the encoder sees it: the shape, and the map from
@@ -246,11 +246,6 @@ function indexLoops(loops: [number, number][][]): LoopIndex {
 }
 
 const BOUND_LOOPS = new WeakMap<ShapeValue, LoopIndex>();
-
-function sketchFrame(): Frame {
-  const { w, h } = getPaperHint();
-  return makeFrame(getState(), w, h, false);
-}
 
 /** Point-in-shape in user units, through the one lowerer (rectMode, arc
  * commands, curve flattening, transform opts — exactly what the shape

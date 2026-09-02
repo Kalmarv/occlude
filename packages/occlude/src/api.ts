@@ -38,6 +38,7 @@ import {
   type FieldFn2, type ScatterOpts,
 } from './points.js';
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
+import { lowerToUserLoops, sketchFrame, unitMm } from './record.js';
 import { distanceTo } from './distance.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
@@ -626,6 +627,7 @@ export interface Toolkit {
   grid: (opts: GridOptions) => GridCell[];
   scatter: typeof scatter;
   isolines: typeof isolines;
+  loops: typeof loops;
   distanceTo: typeof distanceTo;
   within: typeof within;
   rotate: typeof rotateField;
@@ -727,6 +729,28 @@ function isolines(
     : isolinesOf(env, field, at, opts);
 }
 
+/**
+ * A shape's outline as plain point loops in sketch coordinates — the bridge
+ * from any shape value to everything that eats loops: `distanceTo`,
+ * `region`, `polygon`, scatter bounds. Lowered by THE lowerer (rectMode,
+ * arc commands, the shape's own transform opts, curves flattened at
+ * `tolerance`, default 0.05 mm), so the loops are what the shape inks.
+ * Closed shapes give closed loops; a line or open path gives an open
+ * polyline (loop consumers treat it as chord-closed, like `region`).
+ */
+function loops(shape: ShapeValue, opts: { tolerance?: L } = {}): [number, number][][] {
+  const frame = sketchFrame();
+  const unit = unitMm(frame);
+  const tol = opts.tolerance !== undefined ? resolveLen(opts.tolerance, frame.inner) : 0.05;
+  const o = shape.opts;
+  return lowerToUserLoops(
+    shape.geom,
+    { translate: o.translate, rotate: o.rotate, scale: o.scale },
+    frame,
+    tol,
+  ).map((loop) => loop.map(([x, y]) => [x / unit, y / unit] as [number, number]));
+}
+
 /** Lift any point array into the Points vocabulary (relax/settle/cells/mesh). */
 function pointsOf(
   raw: readonly ({ x: number; y: number } | [number, number])[],
@@ -743,7 +767,7 @@ const TOOLKIT_BASE = {
   map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, isolines, distanceTo, points: pointsOf, voronoi, triangulate,
+  scatter, isolines, loops, distanceTo, points: pointsOf, voronoi, triangulate,
   within, rotate: rotateField, translate: translateField, scale: scaleField,
   vectorField: vectorFieldMark,
   mm, w, h, s, long,

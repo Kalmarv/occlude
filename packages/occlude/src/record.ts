@@ -10,7 +10,7 @@
 import { apply, conformalScale, det, IDENTITY, isConformal, mul, rotate, scale as mscale, translate, type Mat } from './matrix.js';
 import { arcToCubics, flattenPrim, snapPrim, type Prim } from './prims.js';
 import type { Shape, ShapeGeom, PathCmd } from './shapes.js';
-import type { State, TransformOp } from './state.js';
+import { getPaperHint, getState, type State, type TransformOp } from './state.js';
 import { resolveLen, type L, type UnitCtx } from './units.js';
 
 export interface Frame {
@@ -447,6 +447,13 @@ export function lowerToUserLoops(
     }
     return pts;
   });
+}
+
+/** The frame a sketch-time consumer lowers against: the current sketch
+ * state on the paper the host said it will render. */
+export function sketchFrame(): Frame {
+  const { w, h } = getPaperHint();
+  return makeFrame(getState(), w, h, false);
 }
 
 /** A bare user-space point in the mm space `lowerToUserLoops` produces —
