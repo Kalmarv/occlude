@@ -1047,6 +1047,90 @@ body.dropping {
   outline-offset: -6px;
 }
 
+/* ---- sketches page ---- */
+#sketches-main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 18px 24px 40px;
+}
+
+.sketch-thumb {
+  background: #f6f2ea;
+  font-size: 11px;
+  text-align: center;
+  padding: 0 10px;
+}
+
+.sketch-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.sketch-card {
+  cursor: pointer;
+}
+
+.sketch-card.expanded {
+  grid-column: 1 / -1;
+  cursor: default;
+}
+
+.sketch-card.expanded > .asset-thumb {
+  height: 220px;
+}
+
+.sketch-detail {
+  padding: 4px 10px 12px;
+  border-top: 1px solid var(--panel-edge);
+}
+
+.sketch-detail h4 {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+  margin: 12px 0 8px;
+}
+
+.sketch-children .asset-thumb {
+  height: 110px;
+}
+
+.git-rail-wrap {
+  overflow-x: auto;
+}
+
+.git-rail {
+  width: 100%;
+  max-width: 640px;
+  display: block;
+}
+
+.git-line {
+  stroke: var(--panel-edge);
+  stroke-width: 2;
+}
+
+.git-dot {
+  fill: var(--ink-dim);
+}
+
+.git-dot.fork {
+  fill: var(--toolpath);
+}
+
+.git-text {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  fill: var(--ink-dim);
+}
+
+.git-snap {
+  fill: var(--warn);
+}
+
 /* ---- fills page ---- */
 #fills-main {
   max-width: 1180px;

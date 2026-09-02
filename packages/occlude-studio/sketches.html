@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>occlude assets</title>
+    <title>occlude sketches</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -14,23 +14,22 @@
   </head>
   <body class="docs-body">
     <header id="topbar">
-      <span class="wordmark">occlude<span class="wordmark-dot">·</span>assets</span>
+      <span class="wordmark">occlude<span class="wordmark-dot">·</span>sketches</span>
       <div class="topbar-actions">
-        <button id="btn-upload" title="Upload SVGs or images">Upload</button>
         <a class="topbar-link" href="/" rel="noopener">Studio</a>
-        <a class="topbar-link" href="/sketches.html" rel="noopener">Sketches</a>
         <a class="topbar-link" href="/fills.html" rel="noopener">Fills</a>
+        <a class="topbar-link" href="/assets.html" rel="noopener">Assets</a>
         <a class="topbar-link" href="/docs.html" rel="noopener">Docs</a>
       </div>
     </header>
-    <main id="assets-main">
-      <p id="assets-hint" class="assets-hint">
-        Drop files anywhere or press Upload. Reference by literal name in a sketch:
-        <code>svg(asset('name.svg'), …)</code> for vectors,
-        <code>image('name.png', { x, y, width })</code> to sample pixels (never drawn).
+    <main id="sketches-main">
+      <p class="assets-hint">
+        Every save is a commit. <b>Fork</b> a sketch to keep iterating on a copy that stays
+        its own; <b>snapshot</b> one to freeze a seed you like with the source as it was, without
+        starting a new sketch. Open a card to see its forks, snapshots, and history.
       </p>
-      <div id="assets-grid" class="assets-grid"></div>
+      <div id="sketches-grid" class="assets-grid"></div>
     </main>
-    <script type="module" src="/src/assetsPage.ts"></script>
+    <script type="module" src="/src/sketchesPage.ts"></script>
   </body>
 </html>

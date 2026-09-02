@@ -10,9 +10,7 @@ import {
   estimatePlanMs, profileToJson,
   type GcodeJob, type PenDef, type RenderResult,
 } from 'occlude';
-import {
-  deleteSketchByName, listSketches, loadSketchByName, saveSketchByName,
-} from './sketchApi.js';
+import { loadSketchByName, saveSketchByName } from './sketchApi.js';
 import {
   DEFAULT_SKETCH, NEW_SKETCH,
   download, savePens, saveProfiles, saveSettings,
@@ -39,6 +37,8 @@ export interface PanelHooks {
   setName(name: string): void;
   importSketchFile(): void;
   downloadSketchFile(): void;
+  /** A save landed: the studio uploads the finished render as the thumb. */
+  afterSave(name: string): void;
   /** Live plot view: mirror the machine's progress in the preview. */
   livePlot: {
     start(plan: Float64Array, pens: PenDef[]): void;
@@ -147,7 +147,7 @@ function buildSketchesPanel(
     }
     await saveSketchByName(name, hooks.getSource());
     hooks.setName(name);
-    await refresh();
+    hooks.afterSave(name);
     return name;
   }
   const saveBtn = button('Save', async () => {
@@ -178,66 +178,21 @@ function buildSketchesPanel(
       return;
     }
     hooks.openSketch('', NEW_SKETCH);
-    await refresh();
   });
   newBtn.title = 'Start a fresh sketch — name it in the top bar, then Save';
   actionRow.append(newBtn, saveBtn, importBtn2, dlBtn);
 
-  const list = document.createElement('div');
   const hint = document.createElement('div');
   hint.className = 'panel-hint';
-  hint.textContent = 'Saved on the studio server — open them from any browser.';
+  const link = document.createElement('a');
+  link.href = '/sketches.html';
+  link.target = '_blank';
+  link.rel = 'noopener';
+  link.textContent = 'Sketches page';
+  hint.append('Saved on the studio server — browse, fork and snapshot on the ', link, '.');
 
-  async function refresh(): Promise<void> {
-    let sketches;
-    try {
-      sketches = await listSketches();
-    } catch {
-      list.textContent = 'sketch store unavailable';
-      return;
-    }
-    list.innerHTML = '';
-    if (sketches.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'panel-hint';
-      empty.textContent = 'No saved sketches yet — name this one and press Save.';
-      list.append(empty);
-      return;
-    }
-    for (const s of sketches) {
-      const row = document.createElement('div');
-      row.className = `sketch-row${s.name === hooks.currentName() ? ' selected' : ''}`;
-      const name = document.createElement('span');
-      name.className = 'sketch-name';
-      name.textContent = s.name;
-      const when = document.createElement('span');
-      when.className = 'sketch-when';
-      when.textContent = ago(s.mtime);
-      const del = button('×', async () => {
-        if (!confirm(`Delete sketch '${s.name}' from the server?`)) return;
-        await deleteSketchByName(s.name);
-        await refresh();
-      });
-      del.title = `Delete ${s.name}`;
-      del.className = 'sketch-del';
-      row.append(name, when, del);
-      row.onclick = async (e) => {
-        if (e.target === del) return;
-        try {
-          const src = await loadSketchByName(s.name);
-          hooks.openSketch(s.name, src);
-          await refresh();
-        } catch (err) {
-          alert(err instanceof Error ? err.message : String(err));
-        }
-      };
-      list.append(row);
-    }
-  }
-
-  body.append(actionRow, list, hint);
-  void refresh();
-  return { refresh: () => void refresh(), save };
+  body.append(actionRow, hint);
+  return { refresh: () => undefined, save };
 }
 
 function ago(mtime: number): string {

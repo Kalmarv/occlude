@@ -9,6 +9,9 @@ import {
   loadUi, saveSketch, saveSketchName, saveUi,
 } from './store.js';
 import { listFills, loadFill, saveFill } from './fillApi.js';
+import {
+  createSnapshot, forkSketch, loadSketchByName, putThumb, thumbFromCanvas,
+} from './sketchApi.js';
 import { customFillNames, embedFills, importSketchWithFills } from './fillEmbed.js';
 import { UiPanel } from './uiPanel.js';
 import { RenderClient, type WorkerError } from './workerClient.js';
@@ -246,6 +249,12 @@ async function boot(): Promise<void> {
       };
       input.click();
     },
+    afterSave: (name) => {
+      // The finished render, scaled down: no re-render, the canvas is painted.
+      void thumbFromCanvas($('preview') as HTMLCanvasElement).then((png) => {
+        if (png) return putThumb(name, png);
+      }).catch(() => undefined);
+    },
     downloadSketchFile: async () => {
       // Embed the resolved source of every custom fill the sketch uses, in
       // a comment-only block: the file stays a valid sketch and travels
@@ -264,6 +273,50 @@ async function boot(): Promise<void> {
       end: () => preview.endLive(),
     },
   });
+
+  // Snapshot: freeze this source with the seed it rendered under. Fork: a
+  // new sketch from this one, opened here. Both live on the Sketches page.
+  const status = (ok: boolean, text: string): void => {
+    statusMsg.className = ok ? 'status-ok' : 'status-err';
+    statusMsg.textContent = text;
+  };
+  ($('btn-snapshot') as HTMLButtonElement).onclick = async () => {
+    try {
+      const name = await rail.saveCurrent();
+      if (!name) {
+        status(false, 'name the sketch to snapshot it (title bar)');
+        return;
+      }
+      const label = prompt('Snapshot label (optional):', '') ?? null;
+      if (label === null) return;
+      const id = await createSnapshot(name, { seed, label });
+      const png = await thumbFromCanvas($('preview') as HTMLCanvasElement);
+      if (png) await putThumb(name, png, id);
+      status(true, `snapshot of '${name}' saved (seed ${seed ?? '—'})`);
+    } catch (err) {
+      status(false, `snapshot failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  ($('btn-fork') as HTMLButtonElement).onclick = async () => {
+    try {
+      const name = await rail.saveCurrent();
+      if (!name) {
+        status(false, 'name and save the sketch before forking it');
+        return;
+      }
+      const to = prompt(`Fork '${name}' as:`, `${name}-2`)?.trim();
+      if (!to) return;
+      const made = await forkSketch(name, to);
+      const source = await loadSketchByName(made);
+      sketchName = made;
+      saveSketchName(made);
+      setTitle();
+      editor.setValue(source);
+      status(true, `forked '${name}' → '${made}'`);
+    } catch (err) {
+      status(false, `fork failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
   // Ctrl/Cmd+S saves to the server-side sketch library, not the web page.
   window.addEventListener(

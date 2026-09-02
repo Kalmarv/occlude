@@ -1281,6 +1281,25 @@ const png  = exportPng(def, { paper: 'A4', scale: 11.81 });  // ≈ 300 dpi
 - Papers: `PAPERS` has A3–A6, Letter, Square20; custom sizes via
   `{ paper: { w, h } }`.
 
+## The sketch library
+
+Saved sketches live on the studio server as a git repository: every save
+is a commit, so nothing is ever lost, and the **Sketches** page shows the
+library as cards. Two moves beyond saving, both from the studio's top bar:
+
+- **Fork** copies the current sketch into a new one (its first line
+  records `// fork of <name> @ <commit>`) and opens it, so you can follow
+  a different path without touching the original. Forks can fork; the
+  page nests them under their parent.
+- **Snapshot** freezes the current source together with the seed it
+  rendered under — an annotated tag, immutable — for "I like this one"
+  moments that don't deserve a whole new sketch. On the page a snapshot
+  opens with its seed, or forks into a sketch of its own.
+
+Thumbnails come from the studio's finished render on save and snapshot;
+the page never renders. Each card opens into its forks, snapshots, and a
+rail of its history.
+
 ## Plotting from the studio
 
 The Plot panel drives an EBB-family (AxiDraw/iDraw) machine over Web
