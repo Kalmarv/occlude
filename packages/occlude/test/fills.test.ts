@@ -208,30 +208,9 @@ describe('pass-1 handle lifetime', () => {
 });
 
 describe("fill('isolines')", () => {
-  it('insets the shape\'s own outline every `spacing` mm by default', () => {
-    // A square: the insets are smaller squares, each piece's midpoint at a
-    // multiple of `spacing` from the nearest edge.
-    const out = render(
-      sketch({ seed: 1 }, () => rect(20, 20, 60, 60, { stroke: false, fill: fill('isolines', { spacing: 3, step: mm(0.5) }) })),
-      { paper: 'Square20' },
-    );
-    const r = out.frags.filter((f) => !f.dot);
-    expect(r.length).toBeGreaterThan(20);
-    const unit = Math.min(out.frame.inner.innerW, out.frame.inner.innerH) / 100;
-    const [x0, y0] = [out.frame.offsetX + 20 * unit, out.frame.offsetY + 20 * unit];
-    const side = 60 * unit;
-    let off = 0;
-    for (const f of r) {
-      const g = f.geom as { x0: number; y0: number; x1: number; y1: number };
-      const mx = (g.x0 + g.x1) / 2 - x0;
-      const my = (g.y0 + g.y1) / 2 - y0;
-      const d = Math.min(mx, my, side - mx, side - my); // distance to the square's edge, mm
-      if (Math.abs(d / 3 - Math.round(d / 3)) * 3 > 0.3 || d < 2.5) off++;
-    }
-    expect(off).toBe(0);
-  });
-
-  it('contours a given field instead, sampled in sketch coordinates and clipped to the shape', () => {
+  it('fills a region with contour polylines of its field, clipped to the shape', () => {
+    // A radial field: contours are rings; only the parts inside the circle
+    // survive, and every contour is one chain (judged whole).
     const out = render(
       sketch({ seed: 1 }, () =>
         circle(50, 50, 20, {
@@ -244,8 +223,14 @@ describe("fill('isolines')", () => {
         })),
       { paper: 'Square20' },
     );
+    expect(out.stats.fillPrims).toBeGreaterThan(50);
     const r = out.frags.filter((f) => !f.dot);
     expect(r.length).toBeGreaterThan(50);
+    // The field is sampled in SKETCH coordinates (the fill's field params
+    // arrive anchored), so rings are multiples of 4 units from (100, 100)
+    // in user space. Every kept piece's midpoint, mapped back to user
+    // coordinates, sits within 0.3 units of one (edge-interpolated at a
+    // 1 mm step).
     const unit = Math.min(out.frame.inner.innerW, out.frame.inner.innerH) / 100;
     let off = 0;
     for (const f of r) {
@@ -258,9 +243,10 @@ describe("fill('isolines')", () => {
     expect(off).toBe(0);
   });
 
-  it('takes explicit levels', () => {
-    const a = render(sketch({ seed: 1 }, () => rect(20, 20, 40, 40, { stroke: false, fill: fill('isolines', { spacing: 2 }) })), { paper: 'Square20' });
-    const b = render(sketch({ seed: 1 }, () => rect(20, 20, 40, 40, { stroke: false, fill: fill('isolines', { levels: [5] }) })), { paper: 'Square20' });
+  it("defaults contour y every 3 mm — level lines — and takes explicit levels", () => {
+    const a = render(sketch({ seed: 1 }, () => rect(20, 20, 40, 40, { stroke: false, fill: fill('isolines') })), { paper: 'Square20' });
+    expect(a.stats.fillPrims).toBeGreaterThan(5);
+    const b = render(sketch({ seed: 1 }, () => rect(20, 20, 40, 40, { stroke: false, fill: fill('isolines', { levels: [40] }) })), { paper: 'Square20' });
     expect(b.stats.fillPrims).toBeGreaterThan(0);
     expect(b.stats.fillPrims).toBeLessThan(a.stats.fillPrims);
   });

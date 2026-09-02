@@ -416,27 +416,25 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 
 ### fill('isolines')
 
-`fill('isolines', { spacing, levels, step, field, align })` — contour
-lines inside the shape, one pen stroke per contour. By default the
-contours of the shape's **own boundary distance**: concentric insets every
-`spacing` millimetres (3× the nib if unset), following the outline however
-it bends — the "fill with itself" recipe with no geometry written by hand.
-Given a `field`, the contours of that field instead, every `spacing` in
-field value (0.1 if unset), sampled in the region's coordinates and
-anchored by `align` like every fill field param — for lines that follow a
-landscape shared across shapes (nested bands cut from a noise field, each
-filled with the same noise's contours, meet edge to edge). Levels sit on
-multiples of `spacing`, so adjacent same-spec fills tile; `levels` sets
-them explicitly; `step` is the sampling length (default 2× the nib).
+`fill('isolines', { field, spacing, levels, step, align })` — contour
+lines of a field inside the shape: the same marching squares as
+`t.isolines`, over the region, on a field sampled in the region's
+coordinates (anchored by `align` like every fill field param), one pen
+stroke per contour. Levels every `spacing` in field value on multiples
+of it (so adjacent same-spec fills tile), or explicit `levels`; `step`
+is the sampling length (default 2× the nib). Topography, moiré, tone by
+contour density — anything a field can say:
 
 ```ts live
-import { sketch, circle, rect, polygon, fill, mm } from 'occlude';
+import { sketch, circle, rect, fill, mm } from 'occlude';
 
-export default sketch({ aspect: [2, 1], seed: 8 }, (t) => [
-  circle(20, 25, 18, { fill: fill('isolines', { spacing: 1.6 }) }),               // insets
-  polygon(56, 25, 5, 18, 90, { fill: fill('isolines', { spacing: 2.2 }) }),
-  rect(78, 7, 20, 36, { fill: fill('isolines', { field: (x, y) => t.noise(x / 9, y / 9), spacing: 0.08, step: mm(0.8) }) }),
-]);
+export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
+  const hills = (x, y) => t.noise(x / 9, y / 9);
+  return [
+    circle(25, 25, 20, { fill: fill('isolines', { field: hills, spacing: 0.08, step: mm(0.8) }) }),
+    rect(55, 5, 40, 40, { fill: fill('isolines', { field: (x, y) => Math.hypot(x - 75, y - 25), spacing: 2.5 }) }),
+  ];
+});
 ```
 
 ### custom fills
@@ -454,7 +452,6 @@ per-shape from the sketch seed — use it instead of `Math.random()`.
   region.bbox              // { x, y, w, h } in mm
   region.contains(x, y)    // point test (respects the winding rule)
   region.path              // the actual outline: contours of exact primitives
-  region.loops             // the outline flattened to [x, y] loops (distanceTo-ready)
   ctx.penWidth             // fill pen nib, mm
   ctx.rnd()                // seeded [0, 1)
   ctx.len(l)               // resolve a length to mm

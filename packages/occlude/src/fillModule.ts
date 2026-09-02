@@ -14,9 +14,6 @@ export interface FillRegion {
   bbox: { x: number; y: number; w: number; h: number };
   /** The actual outline: contours of exact primitives, paper mm. */
   path: Prim[][];
-  /** The outline flattened to point loops (0.05 mm), paper mm — what
-   * `contains` tests against, and a ready `distanceTo` input. */
-  loops: [number, number][][];
   /** Point-in-region test (respects the shape's winding rule). */
   contains(x: number, y: number): boolean;
 }
