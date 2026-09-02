@@ -282,30 +282,92 @@ export function scatterPoints(
     }
   }
   const K = 20;
-  while (active.length > 0) {
-    const pick = Math.floor(env.rnd() * active.length);
-    const base = pts[active[pick]];
-    const rb = radii[active[pick]];
-    let placed = false;
-    for (let k = 0; k < K; k++) {
-      const a = env.rnd() * Math.PI * 2;
-      const rr = rb * (1 + env.rnd());
-      const x = base.x + Math.cos(a) * rr;
-      const y = base.y + Math.sin(a) * rr;
-      if (x < bounds.x || y < bounds.y || x > bounds.x + bounds.w || y > bounds.y + bounds.h) {
-        continue;
+  const flood = (): void => {
+    while (active.length > 0) {
+      const pick = Math.floor(env.rnd() * active.length);
+      const base = pts[active[pick]];
+      const rb = radii[active[pick]];
+      let placed = false;
+      for (let k = 0; k < K; k++) {
+        const a = env.rnd() * Math.PI * 2;
+        const rr = rb * (1 + env.rnd());
+        const x = base.x + Math.cos(a) * rr;
+        const y = base.y + Math.sin(a) * rr;
+        if (x < bounds.x || y < bounds.y || x > bounds.x + bounds.w || y > bounds.y + bounds.h) {
+          continue;
+        }
+        const r = rOf(x, y);
+        if (!Number.isFinite(r) || !fits(x, y, r)) continue;
+        active.push(pts.length);
+        put(x, y, r);
+        placed = true;
+        break;
       }
-      const r = rOf(x, y);
-      if (!Number.isFinite(r) || !fits(x, y, r)) continue;
-      active.push(pts.length);
-      put(x, y, r);
-      placed = true;
-      break;
+      if (!placed) {
+        active[pick] = active[active.length - 1];
+        active.pop();
+      }
     }
-    if (!placed) {
-      active[pick] = active[active.length - 1];
-      active.pop();
+  };
+  flood();
+
+  // Bridson grows from its seed and cannot cross a stretch of empty field
+  // wider than its candidate reach (2·rMax), so a field made of ISLANDS —
+  // the bright parts of a key on black — kept only the island the first
+  // point landed in, chosen by the seed. Scan the field for non-empty
+  // places no point can see, seed each, and flood again.
+  // A field the first flood already covered draws nothing here, so its
+  // points (and everything downstream in the stream) are unchanged.
+  const anyWithin = (x: number, y: number, dist: number): boolean => {
+    const ci = col(x);
+    const cj = row(y);
+    const span = Math.ceil(dist / cell) + 1;
+    const d2 = dist * dist;
+    for (let dj = -span; dj <= span; dj++) {
+      const nj = cj + dj;
+      if (nj < 0 || nj >= rows) continue;
+      for (let di = -span; di <= span; di++) {
+        const ni = ci + di;
+        if (ni < 0 || ni >= cols) continue;
+        const bucket = grid[nj * cols + ni];
+        for (let b = 0; b < bucket.length; b++) {
+          const q = pts[bucket[b]];
+          const dx = q.x - x;
+          const dy = q.y - y;
+          if (dx * dx + dy * dy <= d2) return true;
+        }
+      }
     }
+    return false;
+  };
+  // Scan at twice the minimum spacing: any island that can hold a point
+  // is at least that wide, so a cell centre lands in it.
+  const scan = 2 * rMin;
+  const sc = Math.max(1, Math.ceil(bounds.w / scan));
+  const sr = Math.max(1, Math.ceil(bounds.h / scan));
+  for (let pass = 0; pass < 8; pass++) {
+    let seeded = 0;
+    for (let j = 0; j < sr; j++) {
+      for (let i = 0; i < sc; i++) {
+        const cx = bounds.x + (i + 0.5) * scan;
+        const cy = bounds.y + (j + 0.5) * scan;
+        const rc = rOf(cx, cy);
+        if (!Number.isFinite(rc) || anyWithin(cx, cy, 2 * rc)) continue;
+        for (let tries = 0; tries < 30; tries++) {
+          const x = cx + (env.rnd() - 0.5) * scan;
+          const y = cy + (env.rnd() - 0.5) * scan;
+          if (x < bounds.x || y < bounds.y || x > bounds.x + bounds.w || y > bounds.y + bounds.h) continue;
+          const r = rOf(x, y);
+          if (!Number.isFinite(r) || !fits(x, y, r)) continue;
+          active.push(pts.length);
+          put(x, y, r);
+          seeded++;
+          flood();
+          break;
+        }
+      }
+    }
+    if (seeded === 0) break;
   }
   return Points.make(pts, env, f, spacingU, resolution);
 }

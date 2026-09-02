@@ -846,6 +846,8 @@ Everything is seeded; `relax`/`settle` return new sets.
 `t.scatter(field?, { spacing })` — field-modulated Poisson-disk points:
 local spacing tightens where the field (0–1) is high, empty where it's 0.
 Returns an array-like set of `{ x, y, w }` (w ≈ local demand).
+Every island of the field is sampled — a field made of separate bright
+patches gets points in all of them, whatever the seed.
 
 ```ts live
 import { sketch, circle } from 'occlude';

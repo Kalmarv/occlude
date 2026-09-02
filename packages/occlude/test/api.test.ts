@@ -1187,3 +1187,25 @@ describe('probe: the variable inspector', () => {
     expect(p.max).toBe(9999);
   });
 });
+
+describe('scatter covers every island of a field', () => {
+  it('seeds each disconnected non-empty region, not just the one the first point landed in', () => {
+    // Two bright discs on nothing, far apart: one Bridson flood can never
+    // cross the gap; both must be sampled, whatever the seed.
+    for (const seed of [1, 2, 3, 4, 5]) {
+      let left = 0;
+      let right = 0;
+      compileSketch(sketch({ seed }, (t) => {
+        const f = (x: number, y: number) =>
+          Math.hypot(x - 20, y - 50) < 8 || Math.hypot(x - 80, y - 50) < 8 ? 1 : 0;
+        for (const p of t.scatter(f, { spacing: 1 })) {
+          if (p.x < 50) left++;
+          else right++;
+        }
+        return circle(0, 0, 1);
+      }));
+      expect(left).toBeGreaterThan(40);
+      expect(right).toBeGreaterThan(40);
+    }
+  });
+});
