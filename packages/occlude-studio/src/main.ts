@@ -287,9 +287,7 @@ async function boot(): Promise<void> {
         status(false, 'name the sketch to snapshot it (title bar)');
         return;
       }
-      const label = prompt('Snapshot label (optional):', '') ?? null;
-      if (label === null) return;
-      const id = await createSnapshot(name, { seed, label });
+      const id = await createSnapshot(name, { seed, label: '' });
       const png = await thumbFromCanvas($('preview') as HTMLCanvasElement);
       if (png) await putThumb(name, png, id);
       status(true, `snapshot of '${name}' saved (seed ${seed ?? '—'})`);

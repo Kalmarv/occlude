@@ -65,11 +65,11 @@ function snapshotCard(s: Snapshot, refresh: () => Promise<void>): HTMLElement {
   meta.className = 'asset-meta';
   const nm = document.createElement('div');
   nm.className = 'asset-name';
-  nm.textContent = s.meta.label || 'snapshot';
+  nm.textContent = s.meta.label || `seed ${s.meta.seed ?? '—'}`;
   const sub = document.createElement('div');
   sub.className = 'asset-size';
   const when = s.meta.at ? ago(Date.parse(s.meta.at)) : s.id;
-  sub.textContent = `seed ${s.meta.seed ?? '—'} · ${when} · ${s.sha}`;
+  sub.textContent = `${when} · ${s.sha}`;
   meta.append(nm, sub);
   const actions = document.createElement('div');
   actions.className = 'asset-actions';
