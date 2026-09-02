@@ -76,7 +76,7 @@ export class UiPanel {
       hist.className = 'ui-probe-hist';
       hist.textContent = sparkline(p);
       hist.title = 'histogram, min → max';
-      row.append(name, nums, hist);
+      row.append(name, hist, nums);
       this.probes.append(row);
     }
   }
