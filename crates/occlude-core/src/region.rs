@@ -10,6 +10,12 @@ use crate::bbox::BBox;
 use crate::index::SpatialIndex;
 use crate::intersect::project_point_cubic;
 use crate::primitive::{Arc, Primitive, EPS};
+
+thread_local! {
+    /// Scratch for point-query index hits; reused across every containment
+    /// and boundary test on this thread.
+    static RAY_SCRATCH: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) };
+}
 use crate::vec2::Vec2;
 
 /// Boundary sizes below this stay on the plain linear scans: the scan wins
@@ -221,43 +227,40 @@ impl Region {
     /// prunes contributes exactly 0: its (welded) y-span misses p.y, or its
     /// whole x-range is left of p.x — integer sums over any superset of the
     /// contributors are identical, so containment stays bit-exact.
-    fn ray_candidates(&self, p: Vec2) -> Option<Vec<u32>> {
-        let idx = self.mono_index.as_ref()?;
+    /// Run `f` over the mono pieces the rightward ray from `p` could cross,
+    /// using a thread-local scratch buffer for the index query — a point
+    /// test is asked millions of times per render (every stipple dot against
+    /// every region in front of it) and must not allocate.
+    fn with_ray_candidates(&self, p: Vec2, mut f: impl FnMut(&MonoPiece)) {
+        let Some(idx) = self.mono_index.as_ref() else {
+            for piece in &self.mono {
+                f(piece);
+            }
+            return;
+        };
         let ray = BBox::new(p, Vec2 { x: self.bbox.max.x, y: p.y });
-        let mut buf: Vec<u32> = Vec::new();
-        idx.query(&ray, &mut buf);
-        Some(buf)
+        RAY_SCRATCH.with(|cell| {
+            let mut buf = cell.borrow_mut();
+            idx.query(&ray, &mut buf);
+            for &i in buf.iter() {
+                f(&self.mono[i as usize]);
+            }
+        });
     }
 
     fn winding_number(&self, p: Vec2) -> i32 {
         let mut w = 0;
-        if let Some(cands) = self.ray_candidates(p) {
-            for &i in &cands {
-                w += self.mono[i as usize].crossing(p);
-            }
-        } else {
-            for piece in &self.mono {
-                w += piece.crossing(p);
-            }
-        }
+        self.with_ray_candidates(p, |piece| w += piece.crossing(p));
         w
     }
 
     fn crossing_count(&self, p: Vec2) -> u32 {
         let mut n = 0;
-        if let Some(cands) = self.ray_candidates(p) {
-            for &i in &cands {
-                if self.mono[i as usize].crossing(p) != 0 {
-                    n += 1;
-                }
+        self.with_ray_candidates(p, |piece| {
+            if piece.crossing(p) != 0 {
+                n += 1;
             }
-        } else {
-            for piece in &self.mono {
-                if piece.crossing(p) != 0 {
-                    n += 1;
-                }
-            }
-        }
+        });
         n
     }
 
@@ -271,11 +274,12 @@ impl Region {
         // linear scan's `pb.expanded(eps).contains_point(p)` gate passes.
         if let Some(idx) = &self.boundary_index {
             let q = BBox::new(p, p).expanded(eps);
-            let mut buf: Vec<u32> = Vec::new();
-            idx.query(&q, &mut buf);
-            return buf
-                .iter()
-                .any(|&i| self.dist_to_prim(p, &self.boundary_flat[i as usize]) <= eps);
+            return RAY_SCRATCH.with(|cell| {
+                let mut buf = cell.borrow_mut();
+                idx.query(&q, &mut buf);
+                buf.iter()
+                    .any(|&i| self.dist_to_prim(p, &self.boundary_flat[i as usize]) <= eps)
+            });
         }
         for (prim, pb) in self.boundary_flat.iter().zip(&self.boundary_bbox) {
             if !pb.expanded(eps).contains_point(p) {

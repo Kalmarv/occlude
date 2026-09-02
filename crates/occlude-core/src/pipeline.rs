@@ -1715,11 +1715,13 @@ fn point_visible(p: Vec2, clips: &[(&Region, bool)], ctx: &ClipCtx, query_buf: &
     }
     let pb = BBox::new(p, p);
     ctx.occ_index.query(&pb, query_buf);
-    for k in (0..query_buf.len()).rev() {
-        let occ = &ctx.occluders[query_buf[k] as usize];
-        if occ.rank <= ctx.my_rank {
-            break;
-        }
+    // Nearest-rank occluder first: for a point, hidden-by-any is order-
+    // independent, and the shape drawn right after this one is the likeliest
+    // cover (nested contour bands: each band's dots are mostly under the
+    // next band) — one test settles most dots instead of one per occluder.
+    let first_above = query_buf.partition_point(|&oi| ctx.occluders[oi as usize].rank <= ctx.my_rank);
+    for &oi in &query_buf[first_above..] {
+        let occ = &ctx.occluders[oi as usize];
         if !occ.region.on_boundary(p, crate::clip::ON_BOUNDARY_EPS) && occ.region.inside(p) {
             return false;
         }

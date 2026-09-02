@@ -24,20 +24,23 @@ function cyrb128(str: string): [number, number, number, number] {
   return [(h1 ^ h2 ^ h3 ^ h4) >>> 0, (h2 ^ h1) >>> 0, (h3 ^ h1) >>> 0, (h4 ^ h1) >>> 0];
 }
 
-/** sfc32 PRNG. */
+/** sfc32 PRNG. State in a typed array rather than four captured `let`s:
+ * the same integer arithmetic, the same sequence, cheaper per draw (a
+ * stipple asks millions of times). */
 function sfc32(a: number, b: number, c: number, d: number): () => number {
+  const s = new Uint32Array([a >>> 0, b >>> 0, c >>> 0, d >>> 0]);
   return () => {
-    a >>>= 0;
-    b >>>= 0;
-    c >>>= 0;
-    d >>>= 0;
+    const a = s[0];
+    const b = s[1];
+    const c = s[2];
     let t = (a + b) | 0;
-    a = b ^ (b >>> 9);
-    b = (c + (c << 3)) | 0;
-    c = (c << 21) | (c >>> 11);
-    d = (d + 1) | 0;
+    s[0] = b ^ (b >>> 9);
+    s[1] = (c + (c << 3)) | 0;
+    const c2 = (c << 21) | (c >>> 11);
+    const d = (s[3] + 1) | 0;
+    s[3] = d;
     t = (t + d) | 0;
-    c = (c + t) | 0;
+    s[2] = (c2 + t) | 0;
     return (t >>> 0) / 4294967296;
   };
 }
@@ -82,12 +85,20 @@ function makeSimplex2(rng: Rng): (x: number, y: number) => number {
   }
   for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
 
-  const grad = [
-    [1, 1], [-1, 1], [1, -1], [-1, -1],
-    [1, 0], [-1, 0], [0, 1], [0, -1],
-  ];
+  // Gradients as two flat arrays; the corner kernel is a plain function.
+  // No per-sample allocation (the old closure, tuple, and gradient pair
+  // were three), identical arithmetic in identical order.
+  const GX = new Float64Array([1, -1, 1, -1, 1, -1, 0, 0]);
+  const GY = new Float64Array([1, 1, -1, -1, 0, 0, 1, -1]);
   const F2 = 0.5 * (Math.sqrt(3) - 1);
   const G2 = (3 - Math.sqrt(3)) / 6;
+  const corner = (x: number, y: number, gi: number): number => {
+    let t0 = 0.5 - x * x - y * y;
+    if (t0 < 0) return 0;
+    t0 *= t0;
+    const g = gi % 8;
+    return t0 * t0 * (GX[g] * x + GY[g] * y);
+  };
 
   return (xin: number, yin: number): number => {
     const s = (xin + yin) * F2;
@@ -96,7 +107,8 @@ function makeSimplex2(rng: Rng): (x: number, y: number) => number {
     const t = (i + j) * G2;
     const x0 = xin - (i - t);
     const y0 = yin - (j - t);
-    const [i1, j1] = x0 > y0 ? [1, 0] : [0, 1];
+    const i1 = x0 > y0 ? 1 : 0;
+    const j1 = x0 > y0 ? 0 : 1;
     const x1 = x0 - i1 + G2;
     const y1 = y0 - j1 + G2;
     const x2 = x0 - 1 + 2 * G2;
@@ -104,13 +116,6 @@ function makeSimplex2(rng: Rng): (x: number, y: number) => number {
     const ii = i & 255;
     const jj = j & 255;
     let n = 0;
-    const corner = (x: number, y: number, gi: number) => {
-      let t0 = 0.5 - x * x - y * y;
-      if (t0 < 0) return 0;
-      t0 *= t0;
-      const g = grad[gi % 8];
-      return t0 * t0 * (g[0] * x + g[1] * y);
-    };
     n += corner(x0, y0, perm[ii + perm[jj]]);
     n += corner(x1, y1, perm[ii + i1 + perm[jj + j1]]);
     n += corner(x2, y2, perm[ii + 1 + perm[jj + 1]]);

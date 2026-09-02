@@ -33,7 +33,11 @@ const opt = (name: string): string | undefined => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 ? args[i + 1] : undefined;
 };
-const paper = opt('paper') ?? 'A4';
+const paperArg = opt('paper') ?? 'A4';
+// 'A4' | 'Square20' | '304.8x304.8' (mm)
+const paper: string | { w: number; h: number } = /^[\d.]+x[\d.]+$/.test(paperArg)
+  ? { w: Number(paperArg.split('x')[0]), h: Number(paperArg.split('x')[1]) }
+  : paperArg;
 const landscape = args.includes('--landscape');
 const seed = opt('seed');
 const runs = Number(opt('runs') ?? 1);

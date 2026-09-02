@@ -39,7 +39,10 @@ if (!sketchFile || !outDir) {
 }
 
 const seed = opt('seed');
-const paper = opt('paper') ?? 'Square20';
+const paperArg = opt('paper') ?? 'Square20';
+const paper: string | { w: number; h: number } = /^[\d.]+x[\d.]+$/.test(paperArg)
+  ? { w: Number(paperArg.split('x')[0]), h: Number(paperArg.split('x')[1]) }
+  : paperArg;
 const landscape = args.includes('--landscape');
 
 // The sketch reads its seed from the URL; give it one.
