@@ -73,6 +73,7 @@ function makeFillRegion(contours: Prim[][], winding: Winding): FillRegion {
   return {
     bbox: { x: bx0, y: by0, w: bx1 - bx0, h: by1 - by0 },
     path: contours,
+    loops: polys,
     contains,
   };
 }
