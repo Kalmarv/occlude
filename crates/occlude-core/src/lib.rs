@@ -24,7 +24,7 @@ pub mod svg;
 pub mod vec2;
 
 pub mod modifier;
-pub mod nativegen;
+pub mod synth;
 pub mod profile;
 pub mod scene;
 #[cfg(feature = "wasm")]

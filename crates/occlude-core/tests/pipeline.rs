@@ -1,6 +1,6 @@
 use occlude_core::bbox::BBox;
-use occlude_core::fill::FillKind;
-use occlude_core::nativegen::{hatch_region, render_with, HatchPass, NativeFill};
+use occlude_core::fill::{FillKind, SuppliedFill};
+use occlude_core::synth::{bbox_of, custom_lines, lattice_dots, render_with};
 use occlude_core::gcode::{export_gcode, merge_chains, MachineProfile};
 use occlude_core::pipeline::{render, ClipDef, Pen, RenderInput, ShapeRec};
 use occlude_core::primitive::{Arc, Line, Primitive};
@@ -56,20 +56,11 @@ fn filled_shape(contours: Vec<Vec<Primitive>>, kind: FillKind) -> ShapeRec {
     }
 }
 
-/// Hatch ink precomputed harness-side (the supplied-prims leg): the engine
-/// generates no patterns anymore, so tests supply them via Custom.
+/// Line ink precomputed harness-side (the supplied-prims leg): the engine
+/// generates no patterns, so tests supply synthetic lines via Custom.
 fn hatched_shape(contours: Vec<Vec<Primitive>>) -> ShapeRec {
-    let region = Region::new(contours.clone(), WindingRule::NonZero, true);
-    let prims = hatch_region(
-        &region,
-        &HatchPass {
-            angle: 45.0,
-            spacing: 1.0,
-            offset: 0.0,
-            shape_anchor: false,
-        },
-    );
-    filled_shape(contours, FillKind::Custom(prims))
+    let fill = custom_lines(&contours, 1.0, 45.0);
+    filled_shape(contours, fill)
 }
 
 fn input(shapes: Vec<ShapeRec>) -> RenderInput {
@@ -225,17 +216,16 @@ fn hatch_fills_convex_and_is_occluded() {
 }
 
 #[test]
-fn stipple_is_deterministic_and_inside() {
+fn supplied_dots_are_deterministic_and_strictly_inside() {
+    // Dots supplied over the whole bbox (many outside the circle): the
+    // engine keeps only strictly-inside ones, deterministically.
     let shape = filled_shape(circle_contour(0., 0., 10.), FillKind::Pending);
-    let fills = [(
-        0usize,
-        NativeFill::Stipple {
-            density: 0.5,
-            min_dist: 1.0,
-        },
-    )];
-    let out1 = render_with(input(vec![shape.clone()]), &fills);
-    let out2 = render_with(input(vec![shape]), &fills);
+    let supply = |job: &occlude_core::pipeline::FillJob| SuppliedFill {
+        chains: Vec::new(),
+        dots: lattice_dots(&bbox_of(job.contours), 1.0, 7),
+    };
+    let out1 = render_with(input(vec![shape.clone()]), supply);
+    let out2 = render_with(input(vec![shape]), supply);
     let dots1: Vec<_> = out1.frags.iter().filter(|f| f.dot).collect();
     let dots2: Vec<_> = out2.frags.iter().filter(|f| f.dot).collect();
     assert!(

@@ -1,10 +1,10 @@
 //! Fill kinds. The engine generates NO patterns (spec: it decides what
 //! survives to paper, never what gets drawn) — fill primitives are produced
 //! by sketch-space code between the two render passes and supplied to
-//! `finish`, or carried pre-generated (`Custom`) by native consumers
-//! (goldens, replay, benches). Hatch and stipple live as JS fill modules in
-//! the occlude package now; their generators left this crate with the
-//! fills-fields redesign.
+//! `finish`, or carried pre-generated (`Custom`) by native harness scenes
+//! (synthetic benchmark ink, see synth.rs). Hatch and stipple live as JS
+//! fill modules in the occlude package — the one fill truth; the golden
+//! consumes their output as a committed sidecar.
 
 use crate::primitive::Primitive;
 use crate::vec2::Vec2;

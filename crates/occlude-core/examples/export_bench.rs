@@ -1,4 +1,4 @@
-use occlude_core::nativegen::{custom_hatch, HatchPass};
+use occlude_core::synth::custom_lines;
 use occlude_core::gcode::{export_gcode, MachineProfile};
 use occlude_core::pipeline::{render, Pen, RenderInput, ShapeRec};
 use occlude_core::primitive::{Arc, Primitive};
@@ -21,17 +21,7 @@ fn main() {
                 Primitive::Arc(Arc::new(v(x, y), r, 0.0, PI)),
                 Primitive::Arc(Arc::new(v(x, y), r, PI, PI)),
             ]];
-            let fill = custom_hatch(
-                &contours,
-                WindingRule::NonZero,
-                true,
-                &HatchPass {
-                    angle: 45.0,
-                    spacing: 0.4,
-                    shape_anchor: false,
-                    offset: 0.0,
-                },
-            );
+            let fill = custom_lines(&contours, 0.4, 45.0);
             ShapeRec {
                 contours,
                 closed: true,

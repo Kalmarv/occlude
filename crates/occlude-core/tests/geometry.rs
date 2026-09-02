@@ -737,24 +737,3 @@ fn mirrored_s_cubics_are_not_deduped() {
     assert_eq!(out.frags.len(), 2, "both S-curves must draw");
 }
 
-#[test]
-fn stipple_zero_min_dist_is_bounded() {
-    use occlude_core::nativegen::stipple_region;
-    use occlude_core::primitive::Line;
-    use occlude_core::region::Region;
-    // A 100×100mm square with min_dist = 0 must complete quickly on a
-    // budgeted grid rather than attempting a gigabyte allocation.
-    let sq = Region::new(
-        vec![vec![
-            Primitive::Line(Line::new(v(0., 0.), v(100., 0.))),
-            Primitive::Line(Line::new(v(100., 0.), v(100., 100.))),
-            Primitive::Line(Line::new(v(100., 100.), v(0., 100.))),
-            Primitive::Line(Line::new(v(0., 100.), v(0., 0.))),
-        ]],
-        WindingRule::NonZero,
-        true,
-    );
-    let pts = stipple_region(&sq, 1.0, 0.0, 7);
-    assert!(!pts.is_empty());
-    assert!(pts.len() < 5_000_000);
-}

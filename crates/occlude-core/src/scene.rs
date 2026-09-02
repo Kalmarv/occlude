@@ -445,3 +445,121 @@ pub fn encode_render_output(out: &RenderOutput) -> EncodedOutput {
         ],
     }
 }
+
+
+/// A dump-scene directory — the encoder's exact buffers plus the fills
+/// sidecar the JS fill modules produced — for native consumers: the replay
+/// profiler and the golden test. Product ink, no JS at test time.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod dump {
+    use super::{decode_prims, decode_render_input};
+    use crate::fill::SuppliedFill;
+    use crate::pipeline::RenderInput;
+    use std::path::Path;
+
+    pub struct Dump {
+        pub input: RenderInput,
+        pub supplied: Vec<Option<SuppliedFill>>,
+        /// [x0, y0, x1, y1] paper rect in mm (empty = unbounded).
+        pub paper: Vec<f64>,
+        pub seed: u32,
+        pub prim_rows: usize,
+    }
+
+    fn f64s(dir: &Path, name: &str, required: bool) -> Result<Vec<f64>, String> {
+        match std::fs::read(dir.join(name)) {
+            Ok(b) => Ok(b
+                .chunks_exact(8)
+                .map(|c| f64::from_le_bytes(c.try_into().unwrap()))
+                .collect()),
+            Err(e) if required => Err(format!("{name}: {e}")),
+            Err(_) => Ok(Vec::new()),
+        }
+    }
+
+    fn u32s(dir: &Path, name: &str, required: bool) -> Result<Vec<u32>, String> {
+        match std::fs::read(dir.join(name)) {
+            Ok(b) => Ok(b
+                .chunks_exact(4)
+                .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+                .collect()),
+            Err(e) if required => Err(format!("{name}: {e}")),
+            Err(_) => Ok(Vec::new()),
+        }
+    }
+
+    pub fn load(dir: &Path) -> Result<Dump, String> {
+        let prims = f64s(dir, "prims.f64", true)?;
+        let contours = u32s(dir, "contours.u32", true)?;
+        let shapes_u32 = u32s(dir, "shapes_u32.u32", true)?;
+        let shapes_f64 = f64s(dir, "shapes_f64.f64", true)?;
+        let mods = f64s(dir, "mods.f64", true)?;
+        let fields = f64s(dir, "fields.f64", true)?;
+        // Absent in dumps that predate engine field uses: an empty table is
+        // a valid scene with none.
+        let field_uses = f64s(dir, "field_uses.f64", false)?;
+        let domain_list = u32s(dir, "domain_list.u32", false)?;
+        let clip_list = u32s(dir, "clip_list.u32", true)?;
+        let clips_u32 = u32s(dir, "clips_u32.u32", true)?;
+        let pens_json =
+            std::fs::read_to_string(dir.join("pens.json")).map_err(|e| format!("pens.json: {e}"))?;
+        let meta: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("meta.json")).map_err(|e| format!("meta.json: {e}"))?,
+        )
+        .map_err(|e| format!("meta.json: {e}"))?;
+        let paper: Vec<f64> = meta["paper"]
+            .as_array()
+            .ok_or("meta.json: paper")?
+            .iter()
+            .filter_map(|v| v.as_f64())
+            .collect();
+        let seed = meta["seed"].as_u64().ok_or("meta.json: seed")? as u32;
+        let coarsen = meta["coarsen"].as_f64().unwrap_or(1.0);
+        let input = decode_render_input(
+            &prims, &contours, &shapes_u32, &shapes_f64, &mods, &fields, &field_uses,
+            &domain_list, &clip_list, &clips_u32, &pens_json, &paper, seed, coarsen, 0,
+        )?;
+
+        // The fills sidecar: chains of supplied ink per Pending shape.
+        let fills_index = u32s(dir, "fills_index.u32", false)?;
+        let n = input.shapes.len();
+        let mut supplied: Vec<Option<SuppliedFill>> = vec![None; n];
+        if !fills_index.is_empty() {
+            if !dir.join("fill_chains.u32").exists() {
+                return Err("fills sidecar predates fill_chains.u32 — re-run dump-scene".into());
+            }
+            let fill_chains = u32s(dir, "fill_chains.u32", false)?;
+            let fill_prims = decode_prims(&f64s(dir, "fill_prims.f64", false)?);
+            let fill_dots = f64s(dir, "fill_dots.f64", false)?;
+            for rec in fills_index.chunks_exact(5) {
+                let (si, cs, cc, ds, dc) = (
+                    rec[0] as usize,
+                    rec[1] as usize,
+                    rec[2] as usize,
+                    rec[3] as usize,
+                    rec[4] as usize,
+                );
+                if si >= n {
+                    return Err("fills sidecar: shape out of bounds".into());
+                }
+                let chains = (cs..cs + cc)
+                    .map(|c| {
+                        let (ps, pc) = (fill_chains[c * 2] as usize, fill_chains[c * 2 + 1] as usize);
+                        fill_prims[ps..ps + pc].to_vec()
+                    })
+                    .collect();
+                let dots = (ds..ds + dc)
+                    .map(|d| crate::vec2::v(fill_dots[d * 2], fill_dots[d * 2 + 1]))
+                    .collect();
+                supplied[si] = Some(SuppliedFill { chains, dots });
+            }
+        }
+        Ok(Dump {
+            prim_rows: prims.len() / super::PRIM_STRIDE,
+            input,
+            supplied,
+            paper,
+            seed,
+        })
+    }
+}

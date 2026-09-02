@@ -1,5 +1,6 @@
 use occlude_core::fill::FillKind;
-use occlude_core::nativegen::{render_with, NativeFill};
+use occlude_core::synth::{bbox_of, lattice_dots, render_with};
+use occlude_core::fill::SuppliedFill;
 use occlude_core::pipeline::{Pen, RenderInput, ShapeRec};
 use occlude_core::primitive::{Arc, Line, Primitive};
 use occlude_core::region::WindingRule;
@@ -54,17 +55,6 @@ fn main() {
             }
         })
         .collect();
-    let fills: Vec<(usize, NativeFill)> = (0..shapes.len())
-        .map(|i| {
-            (
-                i,
-                NativeFill::Stipple {
-                    density: 1.0,
-                    min_dist: 0.4,
-                },
-            )
-        })
-        .collect();
     let out = render_with(
         RenderInput {
             shapes,
@@ -75,7 +65,10 @@ fn main() {
             coarsen: 1.0,
             debug_ghost: false, fields: Vec::new(), field_uses: Vec::new(),
         },
-        &fills,
+        |job| SuppliedFill {
+            chains: Vec::new(),
+            dots: lattice_dots(&bbox_of(job.contours), 0.4, job.shape as u64),
+        },
     );
     eprintln!("culled_contained: {}", out.stats.culled_contained);
 }

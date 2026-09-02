@@ -1,6 +1,6 @@
 //! Property tests (spec §8): random shapes and occluders.
 
-use occlude_core::nativegen::{custom_hatch, HatchPass};
+use occlude_core::synth::custom_lines;
 use occlude_core::pipeline::{render, Pen, RenderInput, ShapeRec};
 use occlude_core::primitive::{Arc, Cubic, Line, Primitive};
 use occlude_core::region::{Region, WindingRule};
@@ -114,17 +114,7 @@ fn to_rec(g: &GenShape) -> ShapeRec {
     let fill = if filled && closed {
         Some((
             0,
-            custom_hatch(
-                &contours,
-                WindingRule::NonZero,
-                convex,
-                &HatchPass {
-                    angle: 45.0,
-                    spacing: 2.0,
-                    offset: 0.0,
-                    shape_anchor: false,
-                },
-            ),
+            custom_lines(&contours, 2.0, 45.0),
         ))
     } else {
         None

@@ -9,7 +9,8 @@
 
 use occlude_core::bbox::BBox;
 use occlude_core::fill::FillKind;
-use occlude_core::nativegen::{custom_hatch, render_with, HatchPass, NativeFill};
+use occlude_core::synth::{bbox_of, custom_lines, lattice_dots, render_with};
+use occlude_core::fill::SuppliedFill;
 use occlude_core::modifier::FieldUse;
 use occlude_core::modifier::{FieldGrid, Modifier, Param};
 use occlude_core::pipeline::{Pen, RenderInput, ShapeRec};
@@ -78,17 +79,7 @@ fn input(shapes: Vec<ShapeRec>, fields: Vec<FieldGrid>) -> RenderInput {
 }
 
 fn hatch_for(sh: &occlude_core::pipeline::ShapeRec, spacing: f64) -> FillKind {
-    custom_hatch(
-        &sh.contours,
-        sh.winding,
-        sh.convex,
-        &HatchPass {
-            angle: 45.0,
-            spacing,
-            shape_anchor: false,
-            offset: 0.0,
-        },
-    )
+    custom_lines(&sh.contours, spacing, 45.0)
 }
 
 /// scale-cull mirror: 1500 concentric opaque circles + 1200 disjoint hatch
@@ -117,7 +108,7 @@ fn scene_cull() -> RenderInput {
 }
 
 /// comb mirror: 60 long lines chopped by 60 opaque circles + stipple discs.
-fn scene_comb() -> (RenderInput, Vec<(usize, NativeFill)>) {
+fn scene_comb() -> (RenderInput, Vec<usize>) {
     let mut s = 23u64;
     let mut shapes = Vec::new();
     for k in 0..60 {
@@ -138,17 +129,11 @@ fn scene_comb() -> (RenderInput, Vec<(usize, NativeFill)>) {
         sh.fill = Some((0, FillKind::Mask));
         shapes.push(sh);
     }
-    let mut fills: Vec<(usize, NativeFill)> = Vec::new();
+    let mut fills: Vec<usize> = Vec::new();
     for k in 0..4 {
         let mut sh = shape(circle(50.0 + k as f64 * 30.0, 170.0, 14.0), true, true);
         sh.fill = Some((0, FillKind::Pending));
-        fills.push((
-            shapes.len(),
-            NativeFill::Stipple {
-                density: 0.8,
-                min_dist: 0.9,
-            },
-        ));
+        fills.push(shapes.len());
         shapes.push(sh);
     }
     (input(shapes, vec![]), fills)
@@ -236,7 +221,7 @@ fn main() {
         .nth(1)
         .and_then(|a| a.parse().ok())
         .unwrap_or(50);
-    let scenes: Vec<(&str, RenderInput, Vec<(usize, NativeFill)>)> = vec![
+    let scenes: Vec<(&str, RenderInput, Vec<usize>)> = vec![
         ("cull-2800", scene_cull(), Vec::new()),
         {
             let (inp, fills) = scene_comb();
@@ -247,16 +232,25 @@ fn main() {
     ];
 
     for (name, inp, fills) in &scenes {
+        // Synthetic dots for the stippled shapes: benchmark input, not a fill.
+        let supply = |job: &occlude_core::pipeline::FillJob| SuppliedFill {
+            chains: Vec::new(),
+            dots: if fills.contains(&job.shape) {
+                lattice_dots(&bbox_of(job.contours), 0.9, job.shape as u64)
+            } else {
+                Vec::new()
+            },
+        };
         // Warmup + drain any stale zones.
         for _ in 0..3 {
-            let _ = render_with(inp.clone(), fills);
+            let _ = render_with(inp.clone(), supply);
         }
         let _ = occlude_core::profile::take();
 
         let t0 = Instant::now();
         let mut frags = 0usize;
         for _ in 0..iters {
-            frags = render_with(inp.clone(), fills).frags.len();
+            frags = render_with(inp.clone(), supply).frags.len();
         }
         let wall = t0.elapsed();
 
