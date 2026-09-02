@@ -89,29 +89,28 @@ export default sketch({ aspect: [1, 1], seed: 24 }, (t) => {
 });
 ```
 
-**The occlude way.** The ridge idiom from the reference: build the
-open trace, stroke it, then extend the same builder down to the page
-bottom and mask that — the occluder is the whole hill, not a chord. The
-jitter becomes seeded `noise` so each trace is a pulse rather than
-static, and the envelope becomes an `ease` curve instead of a clamp.
+**The occlude way.** A ridge is plain data — a list of points — so the
+stroke is `trace`, the open-minded sibling of `polygon`, and the hill
+behind it is the same points closed down to the page bottom and masked.
+Top ridge first: later wins, so each hill hides the ones behind it, with
+no chord and no builder. The jitter becomes seeded `noise` so each trace
+is a pulse rather than static, and the envelope an `ease` curve instead
+of a clamp.
 
 ```ts live
-import { sketch, path, mask, ease } from 'occlude';
+import { sketch, trace, polygon, mask, ease } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 24 }, (t) => {
   const size = 100, step = size / 32;
-  // Top ridge first: later wins, so each hill hides the ones behind it.
   return t.times(26, (k) => {
     const base = step * (6 + k);
-    const p = path().moveTo(step, base);
-    for (let x = step + 0.4; x <= size - step; x += 0.4) {
+    const pts = [];
+    for (let x = step; x <= size - step; x += 0.4) {
       const env = ease.sinInOut(1 - Math.min(1, Math.abs(x - size / 2) / 32));
       const pulse = (t.noise(x / 7, k * 9) + 1) / 2;
-      p.lineTo(x, base - pulse * env * 17);
+      pts.push([x, base - pulse * env * 17]);
     }
-    const stroke = p.build();
-    p.lineTo(size - step, size).lineTo(step, size).close();
-    return [stroke, mask(p.build())];
+    return [trace(pts), mask(polygon([...pts, [size - step, size], [step, size]]))];
   });
 });
 ```
