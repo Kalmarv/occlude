@@ -31,6 +31,9 @@ export interface RunConfig {
    * `?seed=`, so the host passes it explicitly; null/undefined lets the
    * session seed roll. */
   seed?: number | string | null;
+  /** A fill being drafted in the editor (unsaved): its emitted JS stands in
+   * for the library copy under this name for the render. */
+  draftFill?: { name: string; js: string };
 }
 
 export function runSketch(js: string, cfg: RunConfig): RunOutcome {

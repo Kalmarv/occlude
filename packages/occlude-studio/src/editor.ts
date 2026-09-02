@@ -33,6 +33,8 @@ export interface Editor {
   onChange(fn: () => void): void;
   setValue(src: string): void;
   getValue(): string;
+  /** Built-in fills open read-only: ink-immutable, clone to change. */
+  setReadOnly(on: boolean): void;
   /** Format the document with Prettier (no-op on parse errors). */
   format(): Promise<void>;
 }
@@ -161,6 +163,9 @@ export function createEditor(container: HTMLElement, initial: string): Editor {
     },
     getValue() {
       return model.getValue();
+    },
+    setReadOnly(on) {
+      editor.updateOptions({ readOnly: on });
     },
   };
 }

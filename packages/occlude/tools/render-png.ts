@@ -64,7 +64,9 @@ const js = transformSync(readFileSync(sketchFile, 'utf8'), {
   format: 'cjs',
 }).code;
 const { preloadAssetsFromDisk } = await import('./asset-preload.js');
+const { preloadFillsFromDisk } = await import('./fill-preload.js');
 preloadAssetsFromDisk(js);
+preloadFillsFromDisk(js);
 const module = { exports: {} as Record<string, unknown> };
 const requireShim = (name: string): unknown => {
   if (name === 'occlude') return occlude;

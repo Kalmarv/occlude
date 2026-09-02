@@ -20,7 +20,7 @@
  *   stays usable — build() snapshots)
  */
 
-import { fill, type CustomFillFn, type FillSpec } from './fills.js';
+import { fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
 import { finiteCount } from './guard.js';
 import { svg as svgValue } from './svgin.js';
@@ -584,6 +584,7 @@ export interface Toolkit {
   noiseField: typeof noiseField;
   label: typeof label;
   fill: typeof fill;
+  rulings: typeof rulings;
   ui: typeof ui;
   rnd: typeof rnd;
   pick: typeof pick;
@@ -719,7 +720,7 @@ function pointsOf(
 const TOOLKIT_BASE = {
   circle, ellipse, rect, line, polygon, region, trace, path, group, clip, mask, decimate, wobble, modify,
   dash, smooth, roughen, deform, noiseField, label,
-  fill, ui,
+  fill, rulings, ui,
   rnd, pick, chance, prob, noise, stream,
   map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,

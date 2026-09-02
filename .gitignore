@@ -5,4 +5,5 @@ pkg/
 *.log
 .DS_Store
 packages/occlude-studio/sketches/
+packages/occlude-studio/fills/
 .playwright-cli/

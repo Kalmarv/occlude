@@ -26,6 +26,7 @@ import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as core from 'occlude-core';
 import { preloadAssetsFromDisk } from './asset-preload.js';
+import { preloadFillsFromDisk } from './fill-preload.js';
 import * as occlude from '../src/index.js';
 import {
   compileSketch, initOcclude, isSketch, paperSize, pensToJson, render,
@@ -438,6 +439,7 @@ for (const file of files) {
   try {
     const js = transformSync(readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs' }).code;
     preloadAssetsFromDisk(js);
+    preloadFillsFromDisk(js);
     const module = { exports: {} as Record<string, unknown> };
     const requireShim = (name: string): unknown => {
       if (name === 'occlude') return occlude;

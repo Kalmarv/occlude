@@ -16,6 +16,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSketchHandler } from './sketch-store.mjs';
 import { createAssetHandler } from './asset-store.mjs';
+import { createFillHandler } from './fill-store.mjs';
 
 const root = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const dist = join(root, 'dist');
@@ -29,6 +30,7 @@ if (!existsSync(join(dist, 'index.html'))) {
 
 const sketchApi = createSketchHandler(join(root, 'sketches'));
 const assetApi = createAssetHandler(join(root, 'assets'));
+const fillApi = createFillHandler(join(root, 'fills'), join(root, 'sketches'));
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -58,6 +60,10 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname.startsWith('/api/assets')) {
     void assetApi(req, res);
+    return;
+  }
+  if (url.pathname.startsWith('/api/fills')) {
+    void fillApi(req, res);
     return;
   }
   if (url.pathname.startsWith('/api/')) {

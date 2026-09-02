@@ -460,6 +460,73 @@ offset: 3 })`, `fill('stipple', { density: 0.7, minDist })` — stipple dot
 spacing
 ≈ `minDist / density`.
 
+### rulings
+
+`rulings(region, { spacing, angle, offset, align })` — the primitive under
+`hatch`, `crosshatch`, and `solid`, exported for your own fills: parallel
+lines across the region's bbox, overshooting it (the engine clips exactly).
+Spacing is paper mm; `align: 'paper'` (default) samples one paper-wide grid,
+`'shape'` centres the ruling on the region. Vary it per shape and you have
+a tone ramp without touching the engine:
+
+```ts live
+import { sketch, circle, rulings } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) =>
+  t.times(5, (k, u) =>
+    circle(12 + u * 76, 25, 10, {
+      fill: (region, ctx) =>
+        rulings(region, { spacing: ctx.penWidth * (1.5 + 6 * (1 - u)), angle: 30 + k * 25, align: 'shape' }),
+    }),
+  ),
+);
+```
+
+### fill files & the library
+
+A **fill file** is a fill as a standalone module: declared params plus a
+pure generator, importing nothing but occlude and capturing nothing —
+which is exactly what makes it storable, shareable, and embeddable:
+
+```ts
+import { fillAsset, rulings, mm } from 'occlude';
+
+export default fillAsset({
+  params: { spacing: mm(1.5), angle: 45 },
+  generate(region, p, ctx) {
+    return rulings(region, { spacing: ctx.len(p.spacing) * ctx.coarsen, angle: p.angle });
+  },
+});
+```
+
+Saved in the studio's **Fills** panel under a name, it is used exactly
+like a built-in: `fill('grain', { angle: 60 })` — the call site's literals
+override the declared defaults, and the name is a literal (computed names
+defeat the scan that loads fills, warns on edit, and rewires imports).
+The render worker fetches referenced fill files per render and the
+headless tools (plotstats, render, dump-scene) read the same library from
+disk, so studio, node, and the docs page execute one source.
+
+- **Built-ins are ink-immutable.** `hatch`, `crosshatch`, `stipple`, and
+  `solid` resolve from the package, never from the library, and open
+  read-only. An ink-affecting change to a shipped fill needs a new name —
+  otherwise a package upgrade would silently change every saved sketch
+  that says `fill('hatch')`. *Clone* copies one into a file you own.
+- **Warn-on-edit.** Saving a fill that saved sketches reference is,
+  transitively, an edit to those sketches: the panel scans the sketch
+  library at that moment and lists them, with *Clone* (a fresh name; the
+  sketch you are working on is rewired to it) as the default and *Edit
+  anyway* the deliberate choice. Drafts and unreferenced fills save
+  silently. No versioning, no locks.
+- **Exports travel complete.** *Download .ts* appends the source of every
+  custom fill the sketch uses in a comment-only block at the end of the
+  file; *Import .ts* restores them: identical content reuses the name,
+  a genuine mismatch imports under a fresh name and the sketch's
+  `fill('…')` literal follows it. Never a prompt, never an overwrite.
+- **Determinism is contract.** A fill is a pure function of (region,
+  params, ctx) — `ctx.rnd()` is its seeded sub-stream; anything else is a
+  preview/plot mismatch waiting to happen.
+
 Variable-radius dot shading — tiny full circles as single arcs, sized by
 distance from a light source:
 

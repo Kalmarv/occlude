@@ -12,6 +12,7 @@ import initCore, * as core from 'occlude-core';
 import { renderEncoded, type WasmModule } from 'occlude';
 import { currentSeed, runSketch, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
+import { preloadFills } from './fillLoader.js';
 
 interface RenderMsg {
   type: 'render';
@@ -69,6 +70,9 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         // worker (fetch + OffscreenCanvas are worker-native) before the
         // synchronous sketch executes.
         await preloadAssets(msg.js);
+        // Custom fills too: fetched from the fill library (or the editor's
+        // draft) and registered before encode resolves fill('name').
+        await preloadFills(msg.js, msg.cfg.draftFill);
         const outcome = runSketch(msg.js, msg.cfg);
         if (outcome.error || !outcome.scene) {
           const err = outcome.error;

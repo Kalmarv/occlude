@@ -29,8 +29,14 @@ export type {
 export type { ModifierValue, FieldFn, VectorFieldFn } from './shapes.js';
 
 // Fills are pure data (module reference + params) or plain functions.
-export { fill, fillAsset, customFill, resolveFill } from './fills.js';
-export type { FillAssetDef, FillCtx } from './fills.js';
+// Built-ins resolve from the package; hosts load custom fills into the
+// registry (studio worker per render, node tools from disk).
+export {
+  fill, fillAsset, customFill, rulings, resolveFill,
+  scanFillNames, loadFillModule, registerFill, clearFills,
+  BUILTIN_FILL_NAMES, isBuiltinFill,
+} from './fills.js';
+export type { FillAssetDef, FillCtx, RulingOpts } from './fills.js';
 export { svg } from './svgin.js';
 export {
   asset, image, scanAssetNames, registerTextAsset, registerImageAsset, clearAssets,
@@ -97,3 +103,10 @@ export type {
 
 // Host integration.
 export { setPenLibrary, setPaperHint, setSeedHint, getState } from './state.js';
+
+// A fill file's `import … from 'occlude'` resolves to this very module: the
+// registry hands loaded fills the package's own namespace (self-import is
+// ordinary ESM — the namespace is created at link time, bindings are live).
+import * as occludeNamespace from './index.js';
+import { setOccludeModule } from './fills.js';
+setOccludeModule(occludeNamespace as unknown as Record<string, unknown>);

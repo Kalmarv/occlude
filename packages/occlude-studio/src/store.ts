@@ -129,7 +129,7 @@ export const DEFAULT_SKETCH = `import { sketch, mm } from 'occlude';
 // A sketch is a pure function: toolkit in, tree of shapes out.
 // Tree order is draw order — filled shapes hide what's beneath them.
 export default sketch({ aspect: [3, 2], margin: 6 }, (t) => {
-  const { circle, rect, line, hatch, stipple, grid, rnd, chance, bounds } = t;
+  const { circle, rect, line, fill, grid, rnd, chance, bounds } = t;
   const b = bounds();
 
   return [
@@ -141,10 +141,10 @@ export default sketch({ aspect: [3, 2], margin: 6 }, (t) => {
       const cy = cell.y + cell.h / 2;
       return chance(0.7)
         ? circle(cx, cy, cell.w * rnd(0.28, 0.5), {
-            fill: hatch(rnd(180), mm(rnd(0.8, 2))),
+            fill: fill('hatch', { angle: rnd(180), spacing: mm(rnd(0.8, 2)) }),
           })
         : rect(cell.x + 2, cell.y + 2, cell.w - 4, cell.h - 4, 2, {
-            fill: stipple(0.6),
+            fill: fill('stipple', { density: 0.6 }),
             fillPen: 'stabilo-88-red',
           });
     }),
@@ -162,6 +162,50 @@ export default sketch({ aspect: [3, 2], margin: 6 }, (t) => {
   return [circle(b.cx, b.cy, b.h / 4)];
 });
 `;
+
+/** Starter for a new fill file: declared params, a pure generator, no
+ * imports beyond occlude, no captures — the storable shape. */
+export const NEW_FILL = `import { fillAsset, rulings, mm } from 'occlude';
+
+// A fill file: declared params + a pure generator of marks in paper mm.
+// It imports nothing but occlude and captures nothing — that is what makes
+// it storable, shareable, and embeddable in exports. Use it from a sketch
+// as fill('<name>', { spacing: mm(1), angle: 60 }).
+export default fillAsset({
+  params: { spacing: mm(1.5), angle: 45 },
+  generate(region, p, ctx) {
+    return rulings(region, { spacing: ctx.len(p.spacing) * ctx.coarsen, angle: p.angle });
+  },
+});
+`;
+
+/** The editor is either the sketch or one fill file (drafting). The draft
+ * survives reloads like the sketch does. */
+export interface FillDraft {
+  name: string;
+  /** The source as opened (library copy, built-in text, or template) —
+   * the dirty baseline. */
+  source: string;
+  readOnly: boolean;
+  /** Work in progress, persisted per run like the sketch is. */
+  text?: string;
+}
+
+export type EditorMode = { kind: 'sketch' } | ({ kind: 'fill' } & FillDraft);
+
+export function loadFillDraft(): FillDraft | null {
+  try {
+    const raw = localStorage.getItem('occlude.fillDraft');
+    return raw ? (JSON.parse(raw) as FillDraft) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveFillDraft(draft: FillDraft | null): void {
+  if (draft) localStorage.setItem('occlude.fillDraft', JSON.stringify(draft));
+  else localStorage.removeItem('occlude.fillDraft');
+}
 
 export function loadSketch(): string {
   return localStorage.getItem(KEYS.sketch) ?? DEFAULT_SKETCH;
