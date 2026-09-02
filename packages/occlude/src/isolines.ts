@@ -8,8 +8,10 @@
  * Semantics: contours trace the boundary of `{ field ≥ at }`. Contour
  * orientation is consistent (holes wind opposite their parents), but the
  * supported stamping story is evenodd winding, which never looks at
- * orientation. Non-finite field samples count as outside. Deterministic:
- * a pure function of the field, level, and options.
+ * orientation. Non-finite field samples are ABSENT (a within() bound or a
+ * NaN hole): cells touching absence emit nothing, so contours truncate
+ * OPEN at a domain edge exactly as at the paper edge. Deterministic: a
+ * pure function of the field, level, and options.
  *
  * Boundary policy: an isoline that exits the drawable edge is genuinely
  * open and comes back `closed: false`, drawable as ink without ugly border
@@ -95,10 +97,17 @@ export function isolinesOf(
   // become deeply-outside sentinels so interpolation stays finite and the
   // crossing lands at the finite corner.
   const vals = new Float64Array(gw * gh);
+  // Absent samples (non-finite — a within() bound or a hand-rolled NaN
+  // hole) are tracked separately: cells touching absence emit NOTHING, so
+  // contours truncate OPEN at the domain edge exactly as they do at the
+  // paper edge — never a staircase wall hugging the bound.
+  const absent = new Uint8Array(gw * gh);
   for (let j = 0; j < gh; j++) {
     for (let i = 0; i < gw; i++) {
       const v = field(b.x + i * sx, b.y + j * sy);
-      vals[j * gw + i] = Number.isFinite(v) ? v : -1e30;
+      const fin = Number.isFinite(v);
+      vals[j * gw + i] = fin ? v : -1e30;
+      absent[j * gw + i] = fin ? 0 : 1;
     }
   }
 
@@ -106,13 +115,14 @@ export function isolinesOf(
   const levels = Array.isArray(at) ? at : [at];
   const perLevel = levels.map((lvl) => {
     if (!Number.isFinite(lvl)) throw new Error(`isolines: level is ${lvl}`);
-    return marchLevel(vals, gw, gh, b, sx, sy, lvl, close);
+    return marchLevel(vals, absent, gw, gh, b, sx, sy, lvl, close);
   });
   return Array.isArray(at) ? perLevel : perLevel[0];
 }
 
 function marchLevel(
   vals: Float64Array,
+  absent: Uint8Array,
   gw: number,
   gh: number,
   b: { x: number; y: number; w: number; h: number },
@@ -128,6 +138,10 @@ function marchLevel(
   const pad = lvl - 1;
   const val = (i: number, j: number): number =>
     i < 0 || j < 0 || i >= gw || j >= gh ? pad : vals[j * gw + i];
+  // Out-of-grid sentinel samples are the paper-edge closing ring, never
+  // "absent"; only in-grid non-finite samples truncate contours.
+  const abs = (i: number, j: number): boolean =>
+    i >= 0 && j >= 0 && i < gw && j < gh && absent[j * gw + i] === 1;
   const px = (i: number): number => b.x + i * sx;
   const py = (j: number): number => b.y + j * sy;
   const lo = close ? -1 : 0;
@@ -152,6 +166,9 @@ function marchLevel(
       const vb = val(i + 1, j); // top-right
       const vc = val(i + 1, j + 1); // bottom-right
       const vd = val(i, j + 1); // bottom-left
+      // Domain-edge policy: a cell touching an absent sample emits nothing
+      // — the contour ends (open), like at the paper edge.
+      if (abs(i, j) || abs(i + 1, j) || abs(i + 1, j + 1) || abs(i, j + 1)) continue;
       const code =
         (va >= lvl ? 1 : 0) | (vb >= lvl ? 2 : 0) | (vc >= lvl ? 4 : 0) | (vd >= lvl ? 8 : 0);
       if (code === 0 || code === 15) continue;

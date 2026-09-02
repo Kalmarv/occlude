@@ -14,7 +14,7 @@ import {
 import { paperSize, type PaperChoice } from './paper.js';
 import type { PenDef } from './pens.js';
 import { flattenPrim, subPrim, type Prim } from './prims.js';
-import { lowerShape, makeFrame, paperToUser, type Frame } from './record.js';
+import { lowerShape, makeFrame, paperToUser, shapeAnchorMatrix, type Frame } from './record.js';
 import type { FieldFn, VectorFieldFn } from './shapes.js';
 import { Rng } from './random.js';
 import { getState, type Winding } from './state.js';
@@ -253,6 +253,10 @@ export interface FillJob {
   order: number;
   penWidth: number;
   winding: Winding;
+  /** Shape-anchor rotation (degrees, paper space): the accumulated explicit
+   * transform's rotation — identity (0) for coordinate-placed shapes, so a
+   * shape-aligned texture rotates only when its motif does. */
+  anchorRotation: number;
   run(region: FillRegion, ctx: FillCtx): CustomPrimitive[];
 }
 
@@ -477,7 +481,11 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
           const fn = spec.fn;
           run = (region, ctx) => fn(region, ctx);
         }
-        fillJobs.set(shapeIndex, { order, penWidth: penDef.width, winding, run });
+        const am = shapeAnchorMatrix(shape, frame);
+        const anchorRotation = (Math.atan2(am.b, am.a) * 180) / Math.PI;
+        fillJobs.set(shapeIndex, {
+          order, penWidth: penDef.width, winding, anchorRotation, run,
+        });
       }
     }
 
@@ -662,6 +670,7 @@ export function runFillJobs(
       rnd: () => fillRng.float(),
       coarsen: scene.coarsen,
       len: (l) => resolveLen(l, scene.frame.inner),
+      anchor: { rotation: job.anchorRotation },
     };
     const marks = job.run(region, ctx);
     const primStart = fillPrims.length / PRIM_STRIDE;

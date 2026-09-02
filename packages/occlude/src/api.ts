@@ -39,6 +39,10 @@ import {
 } from './points.js';
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { distanceTo } from './distance.js';
+import {
+  rotate as rotateField, scale as scaleField, translate as translateField,
+  vectorField as vectorFieldMark, within,
+} from './field.js';
 import { ui } from './ui.js';
 import { h, long, mm, s, w, resolveLen, Len, type L } from './units.js';
 
@@ -466,10 +470,10 @@ export function deform(
  * `amount` and `wavelength` in user units.
  */
 export function noiseField(amount: number, wavelength = 25): VectorFieldFn {
-  return (x, y) => [
+  return vectorFieldMark((x, y) => [
     amount * noise(x / wavelength, y / wavelength),
     amount * noise(x / wavelength + 213.7, y / wavelength - 118.3),
-  ];
+  ]);
 }
 
 /**
@@ -579,6 +583,11 @@ export interface Toolkit {
   scatter: typeof scatter;
   isolines: typeof isolines;
   distanceTo: typeof distanceTo;
+  within: typeof within;
+  rotate: typeof rotateField;
+  translate: typeof translateField;
+  scale: typeof scaleField;
+  vectorField: typeof vectorFieldMark;
   points: typeof pointsOf;
   voronoi: typeof voronoi;
   triangulate: typeof triangulate;
@@ -691,6 +700,8 @@ const TOOLKIT_BASE = {
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
   scatter, isolines, distanceTo, points: pointsOf, voronoi, triangulate,
+  within, rotate: rotateField, translate: translateField, scale: scaleField,
+  vectorField: vectorFieldMark,
   mm, w, h, s, long,
 };
 

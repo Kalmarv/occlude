@@ -857,6 +857,40 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 });
 ```
 
+### fields
+
+Fields — any `(x, y) => number` — are citizens: `within(f, shape)` bounds
+a field's domain (outside it is ABSENT: generators make nothing there,
+modifiers touch nothing); `rotate(f, deg)`, `translate(f, dx, dy)`, and
+`scale(f, s)` transform the sampling explicitly (nothing is ambient —
+wanting a paper-pinned texture under a rotated motif means NOT
+transforming the field). Transformed fields stay plain callables, so
+lambdas remain the composition language. Vector fields (deform) follow
+the iron-filings rule — wrap custom ones in `vectorField(fn)` and
+rotation turns the arrows too; magnitudes never scale (a 2mm wobble is
+2mm at any motif size). Isoline contours truncate OPEN at a domain edge,
+exactly like the paper edge. Shape-aligned fills (`align: 'shape'`)
+anchor to the motif: identical marks for coordinate-placed shapes (the
+halftone case), rotating with shapes in transformed groups.
+
+```ts live
+import { sketch, circle, path, rotate, within } from 'occlude';
+
+// Grain bounded to a blob and rotated 30° — contours end at the bound.
+export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
+  const grain = rotate((x, y) => t.noise(x / 5, y / 22), 30);
+  const f = within(grain, circle(50, 25, 18));
+  return [
+    circle(50, 25, 18),
+    t.isolines(f, [0.1, 0.35, 0.6], { step: 0.4 }).flat().map((c) => {
+      const p = path().moveTo(...c.pts[0]);
+      for (const pt of c.pts.slice(1)) p.lineTo(...pt);
+      return p.build();
+    }),
+  ];
+});
+```
+
 ### distanceTo
 
 `distanceTo(loops)` — the bridge back from stampable geometry to scalar

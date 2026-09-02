@@ -46,6 +46,11 @@ export interface FillCtx {
   coarsen: number;
   /** Resolve a length (mm()/w()/h()/bare %) to paper mm. */
   len(l: L): number;
+  /** Shape anchor: the accumulated explicit transform at this use.
+   * `rotation` (degrees) is identity-0 for coordinate-placed shapes —
+   * shape-aligned textures add it so a rotated motif carries its texture,
+   * while halftone circles keep identical marks (ONE align meaning). */
+  anchor: { rotation: number };
 }
 
 /**
@@ -163,7 +168,8 @@ const hatchAsset = fillAsset({
   generate(region, p, ctx) {
     const spacing =
       (p.spacing !== undefined ? ctx.len(p.spacing) : 3 * ctx.penWidth) * ctx.coarsen;
-    return rulingLines(region, spacing, p.angle, p.offset, p.align);
+    const angle = p.align === 'shape' ? p.angle + ctx.anchor.rotation : p.angle;
+    return rulingLines(region, spacing, angle, p.offset, p.align);
   },
 });
 
@@ -177,8 +183,9 @@ const crosshatchAsset = fillAsset({
   generate(region, p, ctx) {
     const spacing =
       (p.spacing !== undefined ? ctx.len(p.spacing) : 3 * ctx.penWidth) * ctx.coarsen;
+    const turn = p.align === 'shape' ? ctx.anchor.rotation : 0;
     return p.angles.flatMap((angle) =>
-      rulingLines(region, spacing, angle, p.offset, p.align),
+      rulingLines(region, spacing, angle + turn, p.offset, p.align),
     );
   },
 });
@@ -193,8 +200,9 @@ const solidAsset = fillAsset({
   generate(region, p, ctx) {
     const spacing =
       (p.spacing !== undefined ? ctx.len(p.spacing) : 0.9 * ctx.penWidth) * ctx.coarsen;
-    // Shape-aligned: small shapes fill identically wherever they sit.
-    return rulingLines(region, spacing, p.angle, 0, 'shape');
+    // Shape-aligned: small shapes fill identically wherever they sit, and
+    // the rows rotate with the motif's explicit transform.
+    return rulingLines(region, spacing, p.angle + ctx.anchor.rotation, 0, 'shape');
   },
 });
 

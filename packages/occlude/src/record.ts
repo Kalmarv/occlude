@@ -407,6 +407,18 @@ export interface LoweredShape {
   convex: boolean;
 }
 
+/**
+ * The shape's accumulated EXPLICIT transform in paper space — group
+ * transforms and shape-level transform opts, excluding coordinates
+ * intrinsic to the geometry, excluding the paper offset. Anchors
+ * shape-aligned fill textures (ctx.anchor): a coordinate-placed shape has
+ * the identity here; a shape in a rotated group carries the rotation.
+ */
+export function shapeAnchorMatrix(shape: Shape, frame: Frame): Mat {
+  const rz = new Resolver(frame);
+  return mul(userFrameMatrix(frame), composeChain(shape.transform, rz));
+}
+
 /** Full lowering of one shape into snapped paper-space primitives. */
 export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
   const rz = new Resolver(frame);
