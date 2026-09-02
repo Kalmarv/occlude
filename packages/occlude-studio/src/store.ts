@@ -179,34 +179,6 @@ export default fillAsset({
 });
 `;
 
-/** The editor is either the sketch or one fill file (drafting). The draft
- * survives reloads like the sketch does. */
-export interface FillDraft {
-  name: string;
-  /** The source as opened (library copy, built-in text, or template) —
-   * the dirty baseline. */
-  source: string;
-  readOnly: boolean;
-  /** Work in progress, persisted per run like the sketch is. */
-  text?: string;
-}
-
-export type EditorMode = { kind: 'sketch' } | ({ kind: 'fill' } & FillDraft);
-
-export function loadFillDraft(): FillDraft | null {
-  try {
-    const raw = localStorage.getItem('occlude.fillDraft');
-    return raw ? (JSON.parse(raw) as FillDraft) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveFillDraft(draft: FillDraft | null): void {
-  if (draft) localStorage.setItem('occlude.fillDraft', JSON.stringify(draft));
-  else localStorage.removeItem('occlude.fillDraft');
-}
-
 export function loadSketch(): string {
   return localStorage.getItem(KEYS.sketch) ?? DEFAULT_SKETCH;
 }

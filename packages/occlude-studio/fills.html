@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>occlude fills</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="docs-body">
+    <header id="topbar">
+      <span class="wordmark">occlude<span class="wordmark-dot">·</span>fills</span>
+      <div class="topbar-actions">
+        <button id="btn-new" title="Draft a new fill file">New fill</button>
+        <a class="topbar-link" href="/" rel="noopener">Studio</a>
+        <a class="topbar-link" href="/assets.html" rel="noopener">Assets</a>
+        <a class="topbar-link" href="/docs.html" rel="noopener">Docs</a>
+      </div>
+    </header>
+    <main id="fills-main">
+      <p class="assets-hint">
+        Fill files, used from a sketch as <code>fill('name', { … })</code>. Built-ins are
+        ink-immutable — clone one to change it. Saving a fill that saved sketches use warns
+        first; the sketches are never edited for you.
+      </p>
+      <section id="fill-editor" class="fill-editor" hidden>
+        <div class="fill-editor-bar">
+          <input id="fill-name" placeholder="fill name" spellcheck="false" />
+          <span id="fill-note" class="fill-note"></span>
+          <button id="btn-save" class="primary" title="Save to the fill library (Ctrl+S)">Save</button>
+          <button id="btn-close" title="Close the editor">Close</button>
+        </div>
+        <div class="fill-editor-body">
+          <div id="editor" class="fill-editor-code"></div>
+          <div class="fill-editor-preview">
+            <canvas id="fill-preview"></canvas>
+            <div id="fill-status" class="fill-status">rendering…</div>
+          </div>
+        </div>
+      </section>
+      <div id="fills-grid" class="assets-grid"></div>
+    </main>
+    <script type="module" src="/src/fillsPage.ts"></script>
+  </body>
+</html>

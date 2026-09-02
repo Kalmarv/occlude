@@ -509,7 +509,7 @@ export default fillAsset({
 
 A fill module can also live right in the sketch and be used by value —
 `fill(myAsset, { angle: 60 })` — the declared-params form with no library
-involved. Saved in the studio's **Fills** panel under a name, it is used
+involved. Saved on the studio's **Fills** page under a name, it is used
 exactly like a built-in: `fill('grain', { angle: 60 })` — the call site's literals
 override the declared defaults, and the name is a literal (computed names
 defeat the scan that loads fills, warns on edit, and rewires imports).
@@ -523,11 +523,12 @@ disk, so studio, node, and the docs page execute one source.
   otherwise a package upgrade would silently change every saved sketch
   that says `fill('hatch')`. *Clone* copies one into a file you own.
 - **Warn-on-edit.** Saving a fill that saved sketches reference is,
-  transitively, an edit to those sketches: the panel scans the sketch
-  library at that moment and lists them, with *Clone* (a fresh name; the
-  sketch you are working on is rewired to it) as the default and *Edit
-  anyway* the deliberate choice. Drafts and unreferenced fills save
-  silently. No versioning, no locks.
+  transitively, an edit to those sketches: the page scans the sketch
+  library at that moment and lists them, with *Clone* (save under a fresh
+  name) as the default and *Edit anyway* the deliberate choice. Your
+  sketches are never edited for you — point them at the clone when you
+  mean to. Drafts and unreferenced fills save silently. No versioning,
+  no locks.
 - **Exports travel complete.** *Download .ts* appends the source of every
   custom fill the sketch uses in a comment-only block at the end of the
   file; *Import .ts* restores them: identical content reuses the name,

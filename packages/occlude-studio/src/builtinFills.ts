@@ -1,5 +1,5 @@
 /**
- * The built-in fills' source text, for the Fills panel: read-only viewing
+ * The built-in fills' source text, for the Fills page: read-only viewing
  * and Clone. Globbed from the package's fill files so the text the artist
  * sees IS the code that runs — never a copy. Inside the package the files
  * import their contract relatively; a clone is a standalone fill file, so

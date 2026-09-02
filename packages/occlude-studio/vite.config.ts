@@ -43,6 +43,7 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html'),
         docs: resolve(__dirname, 'docs.html'),
         assets: resolve(__dirname, 'assets.html'),
+        fills: resolve(__dirname, 'fills.html'),
       },
     },
   },

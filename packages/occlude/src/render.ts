@@ -518,7 +518,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
           if (!def) {
             throw new Error(
               `unknown fill '${label}' — built-ins: hatch, crosshatch, stipple, solid; ` +
-                'custom fills are saved in the studio Fills panel',
+                'custom fills are saved on the studio Fills page',
             );
           }
           validateFillParams(label, spec.params);

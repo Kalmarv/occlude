@@ -399,33 +399,7 @@ body {
   color: var(--ink-dim);
 }
 
-/* ---- fill library ---- */
-.fill-editing {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--toolpath);
-}
-
-.fill-editing:empty {
-  display: none;
-}
-
-.mode-badge {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--toolpath);
-  border: 1px solid color-mix(in srgb, var(--toolpath) 50%, transparent);
-  border-radius: 3px;
-  padding: 2px 6px;
-  white-space: nowrap;
-}
-
-#sketch-title.fill-mode {
-  border-color: color-mix(in srgb, var(--toolpath) 55%, transparent);
-}
-
+/* ---- fill library (warn-on-edit dialog; the page itself is below) ---- */
 dialog.fill-warn {
   background: var(--panel);
   color: var(--ink);
@@ -1033,6 +1007,85 @@ button.primary {
 body.dropping {
   outline: 3px dashed var(--toolpath, #5b8bd9);
   outline-offset: -6px;
+}
+
+/* ---- fills page ---- */
+#fills-main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 18px 24px 40px;
+}
+
+.fill-thumb {
+  background: #f6f2ea;
+}
+
+.fill-thumb canvas {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.fill-editor {
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 0 0 18px;
+  background: var(--panel);
+}
+
+.fill-editor-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--panel-edge);
+}
+
+.fill-editor-bar input {
+  flex: 0 0 240px;
+}
+
+.fill-note {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.fill-editor-body {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  height: 440px;
+}
+
+.fill-editor-code {
+  min-width: 0;
+}
+
+.fill-editor-preview {
+  border-left: 1px solid var(--panel-edge);
+  background: #f6f2ea;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.fill-editor-preview canvas {
+  display: block;
+}
+
+.fill-status {
+  margin-top: auto;
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #5c636a;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.fill-status.err {
+  color: #b0412e;
 }
 
 /* ---- live docs examples ---- */

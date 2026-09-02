@@ -10,17 +10,13 @@ import {
   estimatePlanMs, profileToJson,
   type GcodeJob, type PenDef, type RenderResult,
 } from 'occlude';
-import { BUILTIN_FILL_NAMES, isBuiltinFill } from 'occlude';
 import {
   deleteSketchByName, listSketches, loadSketchByName, saveSketchByName,
 } from './sketchApi.js';
-import { FILL_NAME_RE, deleteFill, fillUses, listFills, loadFill, saveFill } from './fillApi.js';
-import { BUILTIN_FILL_SOURCES, cloneSource } from './builtinFills.js';
-import { canonicalFillSource, freshFillName } from './fillEmbed.js';
 import {
-  DEFAULT_SKETCH, NEW_FILL, NEW_SKETCH,
+  DEFAULT_SKETCH, NEW_SKETCH,
   download, savePens, saveProfiles, saveSettings,
-  type EditorMode, type FillDraft, type MachineProfile, type Settings,
+  type MachineProfile, type Settings,
 } from './store.js';
 import { Ebb, serialSupported, type PlotProgress } from './ebb.js';
 import {
@@ -43,20 +39,6 @@ export interface PanelHooks {
   setName(name: string): void;
   importSketchFile(): void;
   downloadSketchFile(): void;
-  /** Fill library: the editor holds either the sketch or one fill file. */
-  openFill(draft: FillDraft): void;
-  /** Prettier-format the editor (the Ctrl+S path does; the Save button
-   * must too, or the two paths disagree about "changed"). */
-  formatSource(): Promise<void>;
-  currentMode(): EditorMode;
-  backToSketch(): void;
-  /** A save landed (possibly under a clone's new name): the draft's
-   * baseline is now this source. */
-  fillSaved(name: string, source: string): void;
-  /** After a clone-on-warn: point the stashed sketch's fill('from') at the
-   * clone so the preview keeps showing what the artist was editing.
-   * Returns whether the sketch referenced it at all. */
-  rewireSketchFill(from: string, to: string): boolean;
   /** Live plot view: mirror the machine's progress in the preview. */
   livePlot: {
     start(plan: Float64Array, pens: PenDef[]): void;
@@ -68,13 +50,9 @@ export interface PanelHooks {
 export interface Rail {
   refreshExport(): void;
   refreshSketches(): void;
-  refreshFills(): void;
   /** Save the current sketch under its name (Ctrl+S path). Resolves with the
    * saved name, or null when there is no name yet. */
   saveCurrent(): Promise<string | null>;
-  /** Save the fill being drafted (Ctrl+S in fill mode), through the
-   * warn-on-edit gate. Null when unnamed, read-only, or cancelled. */
-  saveCurrentFill(): Promise<string | null>;
 }
 
 /** Extent of a toolpath plan in paper mm (origin = plot origin). */
@@ -102,18 +80,16 @@ export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
   onProfileSwitch.length = 0;
   rail.innerHTML = '';
   const sketchesPanel = panel('Sketch', true);
-  const fillsPanel = panel('Fills', false);
   const pensPanel = panel('Pens', true);
   const paperPanel = panel('Paper', false);
   const plotPanel = panel('Plot', false);
   const exportPanel = panel('Export', false);
   rail.append(
-    sketchesPanel.root, fillsPanel.root, pensPanel.root, paperPanel.root,
+    sketchesPanel.root, pensPanel.root, paperPanel.root,
     plotPanel.root, exportPanel.root,
   );
 
   const sketches = buildSketchesPanel(sketchesPanel.body, hooks);
-  const fills = buildFillsPanel(fillsPanel.body, fillsPanel.root, hooks);
   buildPensPanel(pensPanel.body, hooks);
   buildPaperPanel(paperPanel.body, hooks);
   buildPlotPanel(plotPanel.body, hooks);
@@ -124,9 +100,7 @@ export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
   return {
     refreshExport,
     refreshSketches: sketches.refresh,
-    refreshFills: fills.refresh,
     saveCurrent: sketches.save,
-    saveCurrentFill: fills.save,
   };
 }
 
@@ -264,276 +238,6 @@ function buildSketchesPanel(
   body.append(actionRow, list, hint);
   void refresh();
   return { refresh: () => void refresh(), save };
-}
-
-// ---- fill library (server-side store; built-ins from the package) ----
-
-function buildFillsPanel(
-  body: HTMLElement,
-  root: HTMLDetailsElement,
-  hooks: PanelHooks,
-): { refresh(): void; save(): Promise<string | null> } {
-  // Editing state: what the editor holds is the mode's business; this
-  // panel opens fills into it, saves them, and lists the library.
-  const editing = document.createElement('div');
-  editing.className = 'fill-editing';
-  const actionRow = document.createElement('div');
-  actionRow.className = 'row';
-
-  const taken = async (): Promise<Set<string>> =>
-    new Set([...BUILTIN_FILL_NAMES, ...(await listFills()).map((f) => f.name)]);
-
-  async function save(): Promise<string | null> {
-    const m = hooks.currentMode();
-    if (m.kind !== 'fill' || m.readOnly) return null;
-    let name = m.name.trim();
-    if (!name) return null;
-    if (!FILL_NAME_RE.test(name)) {
-      alert('Fill names: letters, digits, - and _ (max 64) — they are fill(\'name\') literals.');
-      return null;
-    }
-    if (isBuiltinFill(name)) {
-      alert(`'${name}' is a built-in fill — built-ins never change; pick another name.`);
-      return null;
-    }
-    await hooks.formatSource();
-    const src = hooks.getSource();
-    const stored = await loadFill(name);
-    // Warn-on-edit (spec rule 8): a fill that saved sketches reference is
-    // transitively part of their ink. Scan the sketch directory NOW; a
-    // draft (unsaved, unchanged, or unreferenced) saves silently.
-    if (stored !== null && canonicalFillSource(stored) !== canonicalFillSource(src)) {
-      const uses = await fillUses(name);
-      if (uses.length > 0) {
-        const names = await taken();
-        const choice = await warnOnEdit(name, uses, freshFillName(name, names), names);
-        if (choice.action === 'cancel') return null;
-        if (choice.action === 'clone') {
-          const from = name;
-          name = choice.name;
-          if (hooks.rewireSketchFill(from, name)) {
-            editing.textContent = `sketch rewired: fill('${from}') → fill('${name}')`;
-          }
-        }
-      }
-    }
-    await saveFill(name, src);
-    hooks.fillSaved(name, src);
-    await refresh();
-    return name;
-  }
-
-  const newBtn = button('New fill', () => {
-    hooks.openFill({ name: '', source: NEW_FILL, readOnly: false });
-  });
-  newBtn.title = 'Draft a fill file — name it in the top bar, then Save';
-  const saveBtn = button('Save fill', async () => {
-    try {
-      if ((await save()) === null) {
-        const m = hooks.currentMode();
-        if (m.kind === 'fill' && !m.readOnly && !m.name.trim()) {
-          alert('Name the fill first — the title field in the top bar.');
-        }
-      }
-    } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
-    }
-  });
-  saveBtn.className = 'primary';
-  saveBtn.title = 'Save to the fill library under the title-bar name (Ctrl+S)';
-  const backBtn = button('← Sketch', hooks.backToSketch);
-  backBtn.title = 'Return to the sketch';
-  actionRow.append(newBtn, saveBtn, backBtn);
-
-  const list = document.createElement('div');
-  const hint = document.createElement('div');
-  hint.className = 'panel-hint';
-  hint.textContent =
-    "Fill files, used as fill('name', { … }). Built-ins are ink-immutable: clone to change. " +
-    'Saving a fill that saved sketches use warns first.';
-
-  const fillRow = (
-    name: string,
-    meta: string,
-    open: () => Promise<void> | void,
-    clone: () => Promise<void> | void,
-    del?: () => Promise<void>,
-  ): HTMLDivElement => {
-    const m = hooks.currentMode();
-    const row = document.createElement('div');
-    row.className = `sketch-row${m.kind === 'fill' && m.name === name ? ' selected' : ''}`;
-    const label = document.createElement('span');
-    label.className = 'sketch-name';
-    label.textContent = name;
-    const when = document.createElement('span');
-    when.className = 'sketch-when';
-    when.textContent = meta;
-    const cloneBtn = button('Clone', clone);
-    cloneBtn.className = 'sketch-del';
-    cloneBtn.title = `Copy '${name}' into a new fill file you own`;
-    row.append(label, when, cloneBtn);
-    if (del) {
-      const delBtn = button('×', del);
-      delBtn.className = 'sketch-del';
-      delBtn.title = `Delete ${name}`;
-      row.append(delBtn);
-    }
-    row.onclick = (e) => {
-      if ((e.target as HTMLElement).tagName === 'BUTTON') return;
-      void Promise.resolve(open()).catch((err) => alert(err instanceof Error ? err.message : String(err)));
-    };
-    return row;
-  };
-
-  async function refresh(): Promise<void> {
-    const m = hooks.currentMode();
-    const fillMode = m.kind === 'fill';
-    saveBtn.disabled = !fillMode || m.readOnly;
-    backBtn.disabled = !fillMode;
-    if (fillMode) {
-      root.open = true;
-      editing.textContent = m.readOnly
-        ? `viewing built-in '${m.name}' (read-only) — Clone to make it yours`
-        : `editing fill '${m.name || '(unnamed)'}'`;
-    } else {
-      editing.textContent = '';
-    }
-    let custom;
-    try {
-      custom = await listFills();
-    } catch {
-      list.textContent = 'fill library unavailable';
-      return;
-    }
-    list.innerHTML = '';
-    for (const name of BUILTIN_FILL_NAMES) {
-      const source = BUILTIN_FILL_SOURCES[name] ?? '';
-      list.append(
-        fillRow(
-          name,
-          'built-in',
-          () => hooks.openFill({ name, source, readOnly: true }),
-          async () =>
-            hooks.openFill({
-              name: freshFillName(name, await taken()),
-              source: cloneSource(name, source),
-              readOnly: false,
-            }),
-        ),
-      );
-    }
-    for (const f of custom) {
-      list.append(
-        fillRow(
-          f.name,
-          ago(f.mtime),
-          async () => {
-            const source = await loadFill(f.name);
-            if (source === null) throw new Error(`fill '${f.name}' vanished from the library`);
-            hooks.openFill({ name: f.name, source, readOnly: false });
-          },
-          async () => {
-            const source = await loadFill(f.name);
-            if (source === null) return;
-            hooks.openFill({
-              name: freshFillName(f.name, await taken()),
-              source: cloneSource(f.name, source),
-              readOnly: false,
-            });
-          },
-          async () => {
-            const uses = await fillUses(f.name);
-            const warn = uses.length > 0 ? ` Saved sketches use it: ${uses.join(', ')}.` : '';
-            if (!confirm(`Delete fill '${f.name}' from the library?${warn}`)) return;
-            await deleteFill(f.name);
-            await refresh();
-          },
-        ),
-      );
-    }
-  }
-
-  body.append(editing, actionRow, list, hint);
-  void refresh();
-  return { refresh: () => void refresh(), save };
-}
-
-type WarnChoice = { action: 'clone'; name: string } | { action: 'edit' } | { action: 'cancel' };
-
-/** The warn-on-edit dialog: the actual list of using sketches, Clone as the
- * default (Enter), Edit-anyway the deliberate one. No versioning, no locks. */
-function warnOnEdit(
-  name: string,
-  uses: string[],
-  suggested: string,
-  taken: Set<string>,
-): Promise<WarnChoice> {
-  return new Promise((resolve) => {
-    let result: WarnChoice = { action: 'cancel' };
-    const dlg = document.createElement('dialog');
-    dlg.className = 'fill-warn';
-    const h = document.createElement('h3');
-    h.textContent = `'${name}' is used by ${uses.length} saved sketch${uses.length === 1 ? '' : 'es'}`;
-    const p = document.createElement('p');
-    p.textContent =
-      'Saving changes their ink the next time they render or plot — same seed, ' +
-      'different marks. Clone keeps them exactly as plotted.';
-    const ul = document.createElement('ul');
-    for (const u of uses) {
-      const li = document.createElement('li');
-      li.textContent = u;
-      ul.append(li);
-    }
-    const nameRow = document.createElement('div');
-    nameRow.className = 'row';
-    const nameLabel = document.createElement('label');
-    nameLabel.textContent = 'clone as';
-    const nameInput = document.createElement('input');
-    nameInput.value = suggested;
-    nameInput.spellcheck = false;
-    nameRow.append(nameLabel, nameInput);
-    const err = document.createElement('div');
-    err.className = 'err';
-    const actions = document.createElement('div');
-    actions.className = 'fill-warn-actions';
-    const cancel = button('Cancel', () => dlg.close());
-    const edit = button('Edit anyway', () => {
-      result = { action: 'edit' };
-      dlg.close();
-    });
-    edit.className = 'danger';
-    edit.title = `Overwrite '${name}' — the listed sketches change`;
-    const clone = button('Clone', () => {
-      const n = nameInput.value.trim();
-      if (!FILL_NAME_RE.test(n)) {
-        err.textContent = 'letters, digits, - and _ only';
-        return;
-      }
-      if (taken.has(n)) {
-        err.textContent = `'${n}' already exists`;
-        return;
-      }
-      result = { action: 'clone', name: n };
-      dlg.close();
-    });
-    clone.className = 'primary';
-    clone.autofocus = true;
-    clone.title = 'Save under a new name; the listed sketches keep the original';
-    actions.append(cancel, edit, clone);
-    nameInput.onkeydown = (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        clone.click();
-      }
-    };
-    dlg.append(h, p, ul, nameRow, err, actions);
-    dlg.addEventListener('close', () => {
-      dlg.remove();
-      resolve(result);
-    });
-    document.body.append(dlg);
-    dlg.showModal();
-  });
 }
 
 function ago(mtime: number): string {

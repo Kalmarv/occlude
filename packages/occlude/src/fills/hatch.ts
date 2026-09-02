@@ -1,6 +1,6 @@
 // Built-in fill 'hatch' — parallel lines. An ordinary fill file with no
 // privileges; shipped names are ink-immutable (an ink-affecting change needs
-// a NEW name). Clone it from the studio's Fills panel to make it yours.
+// a NEW name). Clone it from the studio's Fills page to make it yours.
 import { fillAsset, rulings } from '../fillModule.js';
 import type { L } from '../units.js';
 

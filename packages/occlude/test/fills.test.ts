@@ -131,7 +131,7 @@ export default fillAsset({ params: { keys: Object.keys(o) }, generate: () => [] 
   it('unregistered names fail loudly at encode, naming the panel', () => {
     clearFills();
     const def = sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('ghost') }));
-    expect(() => render(def, { paper: 'Square20' })).toThrow(/unknown fill 'ghost'.*Fills panel/);
+    expect(() => render(def, { paper: 'Square20' })).toThrow(/unknown fill 'ghost'.*Fills page/);
   });
 });
 

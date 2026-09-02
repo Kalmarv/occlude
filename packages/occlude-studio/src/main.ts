@@ -5,14 +5,11 @@ import { clearRuntimeMarkers, createEditor, setRuntimeMarker } from './editor.js
 import { buildRail } from './panels.js';
 import { Preview } from './preview.js';
 import {
-  download, loadFillDraft, loadPens, loadProfiles, loadSettings, loadSketch, loadSketchName,
-  loadUi, saveFillDraft, saveSketch, saveSketchName, saveUi,
-  type EditorMode, type FillDraft,
+  download, loadPens, loadProfiles, loadSettings, loadSketch, loadSketchName,
+  loadUi, saveSketch, saveSketchName, saveUi,
 } from './store.js';
 import { listFills, loadFill, saveFill } from './fillApi.js';
-import {
-  customFillNames, embedFills, importSketchWithFills, rewireFillName,
-} from './fillEmbed.js';
+import { customFillNames, embedFills, importSketchWithFills } from './fillEmbed.js';
 import { UiPanel } from './uiPanel.js';
 import { RenderClient, type WorkerError } from './workerClient.js';
 import type { RenderResult } from 'occlude';
@@ -48,11 +45,7 @@ async function boot(): Promise<void> {
     settings.activeProfile = profiles[0].name;
   }
   const client = new RenderClient();
-  // The editor holds either the sketch or one fill file being drafted; a
-  // fill draft survives reloads exactly like the sketch does.
-  const draft = loadFillDraft();
-  let mode: EditorMode = draft ? { kind: 'fill', ...draft } : { kind: 'sketch' };
-  const editor = createEditor($('editor'), draft ? (draft.text ?? draft.source) : loadSketch());
+  const editor = createEditor($('editor'), loadSketch());
   const preview = new Preview($('preview') as HTMLCanvasElement);
   let lastResult: RenderResult | null = null;
   let pending: number | null = null;
@@ -61,84 +54,13 @@ async function boot(): Promise<void> {
   let note: string | null = null;
 
   function setTitle(): void {
-    titleEl.value = mode.kind === 'fill' ? mode.name : sketchName;
+    titleEl.value = sketchName;
   }
   setTitle();
   titleEl.onchange = () => {
-    const v = titleEl.value.trim();
-    if (mode.kind === 'fill') {
-      mode.name = v;
-      saveFillDraft(mode);
-    } else {
-      sketchName = v;
-      saveSketchName(sketchName);
-    }
+    sketchName = titleEl.value.trim();
+    saveSketchName(sketchName);
   };
-
-  // ---- editor mode: the sketch, or one fill file ----
-  const modeBadge = $('mode-badge');
-  let railRef: { refreshFills(): void } | null = null;
-  function applyMode(): void {
-    const fillMode = mode.kind === 'fill';
-    const readOnly = mode.kind === 'fill' && mode.readOnly;
-    modeBadge.hidden = !fillMode;
-    modeBadge.textContent = readOnly ? 'built-in fill · read-only' : 'fill';
-    titleEl.classList.toggle('fill-mode', fillMode);
-    titleEl.disabled = readOnly;
-    titleEl.placeholder = fillMode ? 'fill name' : 'untitled sketch';
-    editor.setReadOnly(readOnly);
-    setTitle();
-    railRef?.refreshFills();
-  }
-  /** True when an unsaved fill draft is open and the artist declines to
-   * drop it. */
-  function unsavedFillBlocks(): boolean {
-    return (
-      mode.kind === 'fill' &&
-      !mode.readOnly &&
-      editor.getValue() !== mode.source &&
-      !confirm(`Discard unsaved changes to fill '${mode.name}'?`)
-    );
-  }
-  function openFill(d: FillDraft): void {
-    if (unsavedFillBlocks()) return;
-    if (mode.kind === 'sketch') {
-      // Stash NOW: a run still pending in the debounce would otherwise fire
-      // in fill mode and persist the draft instead of these keystrokes.
-      if (pending !== null) {
-        clearTimeout(pending);
-        pending = null;
-      }
-      saveSketch(editor.getValue());
-    }
-    mode = { kind: 'fill', ...d };
-    saveFillDraft(mode);
-    applyMode();
-    editor.setValue(d.source); // triggers a run via onChange
-  }
-  function backToSketch(): void {
-    if (mode.kind !== 'fill') return;
-    if (unsavedFillBlocks()) return;
-    mode = { kind: 'sketch' };
-    saveFillDraft(null);
-    applyMode();
-    editor.setValue(loadSketch()); // the sketch was stashed before the fill opened
-  }
-  /** The preview a fill draft renders into: two shapes, one of them
-   * rotated, so shape-aligned textures show their anchoring. Plain CJS —
-   * this thread emits, it never runs. */
-  const fillPreviewJs = (name: string): string => `
-const { sketch, circle, rect, fill } = require('occlude');
-module.exports.default = sketch({ aspect: [2, 1], margin: 4 }, (t) => {
-  const b = t.bounds();
-  return [
-    circle(b.w * 0.27, b.cy, b.h * 0.38, { fill: fill(${JSON.stringify(name)}) }),
-    rect(b.w * 0.72 - b.h * 0.3, b.cy - b.h * 0.3, b.h * 0.6, b.h * 0.6, {
-      fill: fill(${JSON.stringify(name)}), rotate: 25,
-    }),
-  ];
-});
-`;
 
   // Seed ownership lives HERE now: the worker has no ?seed= in its URL and
   // its session seed dies on watchdog respawn, so the main thread passes the
@@ -180,10 +102,7 @@ module.exports.default = sketch({ aspect: [2, 1], margin: 4 }, (t) => {
   }
 
   async function runInner(): Promise<void> {
-    // Persist BEFORE executing — survives anything. In fill mode the sketch
-    // stays stashed untouched; the fill draft persists instead.
-    if (mode.kind === 'fill') saveFillDraft({ ...mode, text: editor.getValue() });
-    else saveSketch(editor.getValue());
+    saveSketch(editor.getValue()); // persist BEFORE executing — survives anything
     if (!renderOn) {
       statusMsg.className = 'status-err';
       statusMsg.textContent = 'rendering paused — press ▶ render to run the sketch';
@@ -195,16 +114,7 @@ module.exports.default = sketch({ aspect: [2, 1], margin: 4 }, (t) => {
       statusMsg.textContent = emitted.errors[0] ?? 'syntax error';
       return;
     }
-    // Fill mode: the editor's emit IS the fill module (a draft the worker
-    // registers under the fill's name); the sketch rendered is a fixed
-    // preview that uses it. Built-ins are read-only and resolve from the
-    // package, so no draft rides along.
-    const fillName = mode.kind === 'fill' ? mode.name.trim() || 'draft' : null;
-    const js = fillName === null ? emitted.js : fillPreviewJs(fillName);
-    const draftFill =
-      mode.kind === 'fill' && !mode.readOnly && fillName !== null
-        ? { name: fillName, js: emitted.js }
-        : undefined;
+
     clearRuntimeMarkers(editor.model);
     statusMsg.className = 'status-ok';
     statusMsg.textContent = 'rendering…';
@@ -214,7 +124,7 @@ module.exports.default = sketch({ aspect: [2, 1], margin: 4 }, (t) => {
     let reply;
     try {
       reply = await client.render({
-        js,
+        js: emitted.js,
         cfg: {
           pens,
           paper: settings.paper === 'Custom' ? settings.customPaper : settings.paper,
@@ -223,7 +133,6 @@ module.exports.default = sketch({ aspect: [2, 1], margin: 4 }, (t) => {
           coarsen: 1,
           debugGhost: preview.debug.occluded,
           seed,
-          draftFill,
         },
       });
     } catch (err) {
@@ -314,10 +223,6 @@ module.exports.default = sketch({ aspect: [2, 1], margin: 4 }, (t) => {
         input.value = '';
         if (!file) return;
         const text = await file.text();
-        if (mode.kind === 'fill') {
-          editor.setValue(text);
-          return;
-        }
         // Embedded fills reconcile with the library first: identical
         // content reuses the name, a mismatch lands under a fresh name and
         // the sketch is rewired — never a prompt, never an overwrite.
@@ -331,10 +236,7 @@ module.exports.default = sketch({ aspect: [2, 1], margin: 4 }, (t) => {
           if (out.added.length) parts.push(`fills added: ${out.added.join(', ')}`);
           if (out.reused.length) parts.push(`fills reused: ${out.reused.join(', ')}`);
           for (const r of out.renamed) parts.push(`fill '${r.from}' differs — imported as '${r.to}', sketch rewired`);
-          if (parts.length) {
-            note = parts.join(' · ');
-            rail.refreshFills();
-          }
+          if (parts.length) note = parts.join(' · ');
           editor.setValue(out.sketch);
         } catch (err) {
           statusMsg.className = 'status-err';
@@ -344,10 +246,6 @@ module.exports.default = sketch({ aspect: [2, 1], margin: 4 }, (t) => {
       input.click();
     },
     downloadSketchFile: async () => {
-      if (mode.kind === 'fill') {
-        download(`${mode.name || 'fill'}.ts`, editor.getValue());
-        return;
-      }
       // Embed the resolved source of every custom fill the sketch uses, in
       // a comment-only block: the file stays a valid sketch and travels
       // complete (fill files import nothing but occlude).
@@ -359,32 +257,12 @@ module.exports.default = sketch({ aspect: [2, 1], margin: 4 }, (t) => {
       }
       download(`${sketchName || 'sketch'}.ts`, embedFills(src, fills));
     },
-    openFill,
-    formatSource: () => editor.format(),
-    currentMode: () => mode,
-    backToSketch,
-    fillSaved: (name, source) => {
-      if (mode.kind !== 'fill') return;
-      mode.name = name;
-      mode.source = source;
-      saveFillDraft({ ...mode, text: editor.getValue() });
-      setTitle();
-    },
-    rewireSketchFill: (from, to) => {
-      const stashed = loadSketch();
-      const next = rewireFillName(stashed, from, to);
-      if (next === stashed) return false;
-      saveSketch(next);
-      return true;
-    },
     livePlot: {
       start: (plan, pens) => preview.startLive(plan, pens),
       progress: (chain) => preview.liveProgress(chain),
       end: () => preview.endLive(),
     },
   });
-  railRef = rail;
-  applyMode();
 
   // Ctrl/Cmd+S saves to the server-side sketch library, not the web page.
   window.addEventListener(
@@ -392,20 +270,13 @@ module.exports.default = sketch({ aspect: [2, 1], margin: 4 }, (t) => {
     (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
-        const fillMode = mode.kind === 'fill';
         editor
           .format()
-          .then(() => (fillMode ? rail.saveCurrentFill() : rail.saveCurrent()))
+          .then(() => rail.saveCurrent())
           .then((name) => {
             if (name) {
               statusMsg.className = 'status-ok';
-              statusMsg.textContent = fillMode ? `saved fill '${name}'` : `saved '${name}'`;
-            } else if (fillMode) {
-              const m = mode as Extract<EditorMode, { kind: 'fill' }>;
-              statusMsg.className = 'status-err';
-              statusMsg.textContent = m.readOnly
-                ? 'built-in fills are read-only — Clone it in the Fills panel'
-                : 'name the fill to save it (title bar)';
+              statusMsg.textContent = `saved '${name}'`;
             } else {
               statusMsg.className = 'status-err';
               statusMsg.textContent = 'name the sketch to save it (Sketches panel)';
