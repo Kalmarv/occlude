@@ -97,6 +97,7 @@ fn main() {
             .unwrap_or_default()
     };
     let fills_index = read_opt_u32("fills_index.u32");
+    let fill_chains = read_opt_u32("fill_chains.u32");
     let fill_prims_raw = read_opt_f64("fill_prims.f64");
     let fill_dots_raw = read_opt_f64("fill_dots.f64");
     let fill_prim_table = decode_prims(&fill_prims_raw);
@@ -104,7 +105,7 @@ fn main() {
     let make_supplied = || -> Vec<Option<SuppliedFill>> {
         let mut supplied: Vec<Option<SuppliedFill>> = vec![None; n_shapes];
         for rec in fills_index.chunks_exact(5) {
-            let (si, ps, pc, ds, dc) = (
+            let (si, cs, cc, ds, dc) = (
                 rec[0] as usize,
                 rec[1] as usize,
                 rec[2] as usize,
@@ -112,7 +113,12 @@ fn main() {
                 rec[4] as usize,
             );
             supplied[si] = Some(SuppliedFill {
-                prims: fill_prim_table[ps..ps + pc].to_vec(),
+                chains: (cs..cs + cc)
+                    .map(|c| {
+                        let (ps, pc) = (fill_chains[c * 2] as usize, fill_chains[c * 2 + 1] as usize);
+                        fill_prim_table[ps..ps + pc].to_vec()
+                    })
+                    .collect(),
                 dots: (ds..ds + dc)
                     .map(|d| occlude_core::vec2::v(fill_dots_raw[d * 2], fill_dots_raw[d * 2 + 1]))
                     .collect(),

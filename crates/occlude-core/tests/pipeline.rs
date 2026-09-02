@@ -403,3 +403,37 @@ fn mask_occludes_without_ink() {
         "hidden-line cut missing: {total}"
     );
 }
+
+#[test]
+fn fill_polyline_chain_is_judged_whole() {
+    use occlude_core::fill::SuppliedFill;
+    use occlude_core::pipeline::{prepare, RenderOutput};
+    let shape = filled_shape(rect_contour(-20., -20., 40., 40.), FillKind::Pending);
+    // A 30 mm squiggle in 0.02 mm steps: every segment is far below the
+    // 0.3 mm nib, but the chain is one pen stroke — drawable ink.
+    let n = 1500;
+    let pt = |i: usize| v(-15.0 + i as f64 * 0.02, (i as f64 * 0.04).sin() * 3.0);
+    let chain: Vec<Primitive> = (0..n)
+        .map(|i| Primitive::Line(Line::new(pt(i), pt(i + 1))))
+        .collect();
+    let fill_ink = |out: &RenderOutput| -> f64 {
+        out.frags
+            .iter()
+            .filter(|f| f.origin >= 4 && !f.dot)
+            .map(|f| f.geom.length())
+            .sum()
+    };
+    let whole = prepare(input(vec![shape.clone()])).finish(vec![Some(SuppliedFill {
+        chains: vec![chain.clone()],
+        dots: vec![],
+    })]);
+    let as_chain = fill_ink(&whole);
+    assert!(as_chain > 25.0, "chain judged whole should survive: {as_chain} mm");
+    // The same segments as 1500 separate strokes: each sub-nib alone —
+    // that is the contract (chain = stroke), not a regression.
+    let split = prepare(input(vec![shape])).finish(vec![Some(SuppliedFill {
+        chains: chain.iter().map(|p| vec![*p]).collect(),
+        dots: vec![],
+    })]);
+    assert_eq!(fill_ink(&split), 0.0);
+}

@@ -17,7 +17,8 @@ When a proposal conflicts with one, the law wins until the artist says otherwise
 3. **The nib is the only tolerance.** Sub-nib decisions are made by exact
    ink COVERAGE (vector distance queries, never rasterising), not by length
    heuristics or epsilon knobs. Contours are judged whole — open or
-   closed: a connected chain is one pen stroke.
+   closed: a connected chain is one pen stroke (outline contours AND
+   fill polyline chains alike).
 4. **Never double-draw ink.** Crossing an inked line is fine; retracing one
    is forbidden. No Eulerizing by edge duplication, ever. (Deliberate
    exception: the backlash diagnostic overtraces on purpose.)

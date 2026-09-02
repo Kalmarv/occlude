@@ -109,6 +109,7 @@ dump('clips_u32.u32', scene.clipsU32);
   );
   prepared.free?.();
   dump('fills_index.u32', supplied.fillsIndex);
+  dump('fill_chains.u32', supplied.fillChains);
   dump('fill_prims.f64', supplied.fillPrims);
   dump('fill_dots.f64', supplied.fillDots);
 }

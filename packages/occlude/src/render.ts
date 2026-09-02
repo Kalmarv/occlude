@@ -100,6 +100,7 @@ export interface WasmModule {
   wasm_finish(
     prepared: unknown,
     fills_index: Uint32Array,
+    fill_chains: Uint32Array,
     fill_prims: Float64Array,
     fill_dots: Float64Array,
   ): { prims: Float64Array; frags: Float64Array; stats: Float64Array; ghost: Float64Array; free?(): void };
@@ -628,9 +629,13 @@ export function decodeRender(scene: EncodedScene, raw: RawRender): RenderResult 
 }
 
 /** The supplied-ink buffers one render's fill jobs produced — also the
- * dump-scene sidecar format (fills_index stride 5). */
+ * dump-scene sidecar format. Strides are documented at the top of
+ * scene.rs: fills_index 5 [shape, chain_start, chain_count, dot_start,
+ * dot_count]; fill_chains 2 [prim_start, prim_count]. A chain is one
+ * connected pen stroke — the nib rule judges it whole. */
 export interface SuppliedFills {
   fillsIndex: Uint32Array;
+  fillChains: Uint32Array;
   fillPrims: Float64Array;
   fillDots: Float64Array;
 }
@@ -644,6 +649,7 @@ export function runFillJobs(
   jobsPrims: Float64Array,
 ): SuppliedFills {
   const fillsIndex: number[] = [];
+  const fillChains: number[] = [];
   const fillPrims: number[] = [];
   const fillDots: number[] = [];
   for (let j = 0; j + 2 < jobsIndex.length; j += 3) {
@@ -673,19 +679,28 @@ export function runFillJobs(
       anchor: { rotation: job.anchorRotation },
     };
     const marks = job.run(region, ctx);
-    const primStart = fillPrims.length / PRIM_STRIDE;
+    const chainStart = fillChains.length / 2;
     const dotStart = fillDots.length / 2;
+    // One chain per mark: a polyline is a connected run of lines (one pen
+    // stroke, judged whole by the nib rule); any other primitive is a
+    // chain of one.
+    const pushChain = (prims: Prim[]): void => {
+      fillChains.push(fillPrims.length / PRIM_STRIDE, prims.length);
+      for (const p of prims) encodePrim(p, fillPrims);
+    };
     for (const cp of marks) {
       if (cp.type === 'dot') {
         fillDots.push(cp.x, cp.y);
         continue;
       }
       if (cp.type === 'polyline') {
+        const lines: Prim[] = [];
         for (let i = 0; i + 1 < cp.pts.length; i++) {
           const [x0, y0] = cp.pts[i];
           const [x1, y1] = cp.pts[i + 1];
-          encodePrim({ t: 'line', x0, y0, x1, y1 }, fillPrims);
+          lines.push({ t: 'line', x0, y0, x1, y1 });
         }
+        if (lines.length > 0) pushChain(lines);
         continue;
       }
       const prim: Prim =
@@ -700,18 +715,19 @@ export function runFillJobs(
                 c1x: cp.cx2, c1y: cp.cy2,
                 x1: cp.x2, y1: cp.y2,
               };
-      encodePrim(prim, fillPrims);
+      pushChain([prim]);
     }
     fillsIndex.push(
       shapeIdx,
-      primStart,
-      fillPrims.length / PRIM_STRIDE - primStart,
+      chainStart,
+      fillChains.length / 2 - chainStart,
       dotStart,
       fillDots.length / 2 - dotStart,
     );
   }
   return {
     fillsIndex: new Uint32Array(fillsIndex),
+    fillChains: new Uint32Array(fillChains),
     fillPrims: new Float64Array(fillPrims),
     fillDots: new Float64Array(fillDots),
   };
@@ -746,6 +762,7 @@ export function renderEncoded(mod: WasmModule, scene: EncodedScene): RawRender {
   const result = mod.wasm_finish(
     prepared,
     supplied.fillsIndex,
+    supplied.fillChains,
     supplied.fillPrims,
     supplied.fillDots,
   );

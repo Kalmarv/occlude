@@ -130,19 +130,26 @@ pub fn wasm_prepare(
 }
 
 /// Pass 2: clip the supplied fill ink, occlude, clean up, post-modify,
-/// bridge, emit fragments. `fills_index` stride 5:
-/// [shape_index, prim_start(row), prim_count, dot_start(pair), dot_count];
-/// `fill_prims` PRIM stride 9; `fill_dots` xy pairs. Consumes the handle.
+/// bridge, emit fragments. Supplied-ink protocol (documented with the
+/// other strides at the top of scene.rs): `fills_index` stride 5
+/// [shape_index, chain_start, chain_count, dot_start(pair), dot_count];
+/// `fill_chains` stride 2 [prim_start(row), prim_count] — one entry per
+/// connected pen stroke; `fill_prims` PRIM stride 9; `fill_dots` xy pairs.
+/// Consumes the handle.
 #[wasm_bindgen]
 pub fn wasm_finish(
     mut prepared: WasmPrepared,
     fills_index: &[u32],
+    fill_chains: &[u32],
     fill_prims: &[f64],
     fill_dots: &[f64],
 ) -> Result<RenderResult, JsValue> {
     let err = |m: &str| JsValue::from_str(m);
     if fills_index.len() % 5 != 0 {
         return Err(err("fills_index not a multiple of the stride"));
+    }
+    if fill_chains.len() % 2 != 0 {
+        return Err(err("fill_chains not a multiple of the stride"));
     }
     if fill_prims.len() % PRIM_STRIDE != 0 || fill_dots.len() % 2 != 0 {
         return Err(err("fill buffers not a multiple of the stride"));
@@ -155,10 +162,11 @@ pub fn wasm_finish(
         .take()
         .ok_or(err("prepared handle already consumed"))?;
     let prim_rows = fill_prims.len() / PRIM_STRIDE;
+    let chain_rows = fill_chains.len() / 2;
     let dot_pairs = fill_dots.len() / 2;
     let mut supplied: Vec<Option<crate::fill::SuppliedFill>> = vec![None; prepared.n_shapes];
     for rec in fills_index.chunks_exact(5) {
-        let (si, ps, pc, ds, dc) = (
+        let (si, cs, cc, ds, dc) = (
             rec[0] as usize,
             rec[1] as usize,
             rec[2] as usize,
@@ -168,20 +176,31 @@ pub fn wasm_finish(
         if si >= prepared.n_shapes {
             return Err(err("fills_index shape out of bounds"));
         }
-        if ps.checked_add(pc).filter(|&e| e <= prim_rows).is_none()
+        if cs.checked_add(cc).filter(|&e| e <= chain_rows).is_none()
             || ds.checked_add(dc).filter(|&e| e <= dot_pairs).is_none()
         {
             return Err(err("fills_index range out of bounds"));
         }
-        let prims = (ps..ps + pc)
-            .map(|r| {
-                crate::scene::decode_prims(&fill_prims[r * PRIM_STRIDE..(r + 1) * PRIM_STRIDE])[0]
-            })
-            .collect();
+        let mut chains = Vec::with_capacity(cc);
+        for c in cs..cs + cc {
+            let (ps, pc) = (fill_chains[c * 2] as usize, fill_chains[c * 2 + 1] as usize);
+            if ps.checked_add(pc).filter(|&e| e <= prim_rows).is_none() {
+                return Err(err("fill_chains range out of bounds"));
+            }
+            chains.push(
+                (ps..ps + pc)
+                    .map(|r| {
+                        crate::scene::decode_prims(
+                            &fill_prims[r * PRIM_STRIDE..(r + 1) * PRIM_STRIDE],
+                        )[0]
+                    })
+                    .collect(),
+            );
+        }
         let dots = (ds..ds + dc)
             .map(|d| crate::vec2::v(fill_dots[d * 2], fill_dots[d * 2 + 1]))
             .collect();
-        supplied[si] = Some(crate::fill::SuppliedFill { prims, dots });
+        supplied[si] = Some(crate::fill::SuppliedFill { chains, dots });
     }
     let out = encode_render_output(&inner.finish(supplied));
     Ok(RenderResult {

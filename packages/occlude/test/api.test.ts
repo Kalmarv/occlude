@@ -1130,3 +1130,27 @@ describe('bridge opt', () => {
     expect(chains).toBe(2); // one serpentine + one border loop
   });
 });
+
+describe('fill polyline chains', () => {
+  it('judges a fine-stepped polyline chain whole, not per segment', () => {
+    // A 0.1 mm-stepped squiggle: every segment is sub-nib, but the chain is
+    // one 30 mm pen stroke — drawable ink, exactly like a traced outline.
+    const def = sketch({ seed: 1 }, () =>
+      circle(50, 50, 25, {
+        fill: (region) => {
+          const b = region.bbox;
+          const pts: [number, number][] = [];
+          // 0.02 mm steps: every segment far below the 0.2 mm nib.
+          for (let i = 0; i <= 1500; i++) {
+            pts.push([b.x + b.w * 0.2 + i * 0.02, b.y + b.h / 2 + Math.sin(i * 0.04) * 3]);
+          }
+          return [{ type: 'polyline' as const, pts }];
+        },
+      }),
+    );
+    const out = sq(def);
+    const fillFrags = out.frags.filter((f) => f.shape === 0 && f.origin >= 2 && !f.dot);
+    expect(fillFrags.length).toBeGreaterThan(1000);
+    expect(totalLen(fillFrags)).toBeGreaterThan(25);
+  });
+});

@@ -437,7 +437,10 @@ per-shape from the sketch seed — use it instead of `Math.random()`.
 
 Strokes are records of the engine's stroke vocabulary — everything in the
 pipeline lowers to lines, arcs, and cubics, so any drawable mark is
-expressible (`polyline` is just a compact form for a connected line run):
+expressible. A `polyline` is one connected pen stroke, and the nib rule
+judges it **whole** — a finely stepped 30 mm squiggle of 0.02 mm segments
+is drawable ink, not crumbs — exactly as a traced outline is judged. Every
+other record is a stroke of its own:
 
 ```ts
 { type: 'line',  x1, y1, x2, y2 }

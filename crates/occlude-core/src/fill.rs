@@ -26,10 +26,14 @@ pub enum FillKind {
 /// One shape's between-pass fill output, as handed to `finish`.
 #[derive(Debug, Clone, Default)]
 pub struct SuppliedFill {
-    /// Pattern primitives; clipped to the shape's own region by the engine
+    /// Pattern ink as CHAINS — each chain is one connected pen stroke (a
+    /// polyline mark arrives as one chain of lines; a lone line/arc/cubic
+    /// is a chain of one). Clipped to the shape's own region by the engine
     /// (overshooting the boundary is fine and expected — paper-aligned
-    /// rulings are generated across the bbox and cut here).
-    pub prims: Vec<Primitive>,
+    /// rulings are generated across the bbox and cut here). The nib rule
+    /// judges a chain WHOLE, exactly like an outline contour: a 30 mm
+    /// squiggle of 0.02 mm segments is drawable ink, not 1500 crumbs.
+    pub chains: Vec<Vec<Primitive>>,
     /// Intentional taps. Engine-filtered to strictly-inside points (a dot on
     /// the region edge drops), occludable, never routed through tap
     /// resolution — engine-stipple dot semantics exactly.

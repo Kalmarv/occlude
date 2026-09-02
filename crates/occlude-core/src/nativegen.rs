@@ -51,15 +51,17 @@ pub fn render_with(input: RenderInput, fills: &[(usize, NativeFill)]) -> RenderO
         };
         let region = Region::new(job.contours.to_vec(), job.winding, job.convex);
         let fill = match spec {
+            // Each ruling is its own pen stroke: a chain of one.
             NativeFill::Hatch(passes) => SuppliedFill {
-                prims: passes
+                chains: passes
                     .iter()
                     .flat_map(|pass| hatch_region(&region, pass))
+                    .map(|p| vec![p])
                     .collect(),
                 dots: Vec::new(),
             },
             NativeFill::Stipple { density, min_dist } => SuppliedFill {
-                prims: Vec::new(),
+                chains: Vec::new(),
                 dots: stipple_region(
                     &region,
                     *density,

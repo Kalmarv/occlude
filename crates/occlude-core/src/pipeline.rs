@@ -508,14 +508,14 @@ impl Prepared {
                 return so;
             };
             let threshold = pen_width(*fill_pen);
-            let gen_one = |prim: Primitive, so: &mut ShapeOut, query_buf: &mut Vec<u32>| {
+            let gen_one = |prim: Primitive, judge: f64, so: &mut ShapeOut, query_buf: &mut Vec<u32>| {
                 let origin = GEN_FLAG | so.gen_prims.len() as u32;
                 so.gen_prims.push(prim);
                 clip_one(
                     origin,
                     &prim,
                     threshold,
-                    prim.length(),
+                    judge,
                     *fill_pen,
                     i as u32,
                     &shape_clips,
@@ -526,8 +526,16 @@ impl Prepared {
                     &mut so.taps,
                 );
             };
-            let clip_to_region = |prims: &[Primitive], so: &mut ShapeOut, query_buf: &mut Vec<u32>| {
-                for prim in prims {
+            // A chain is one connected pen stroke, so the nib rule judges it
+            // WHOLE — the fill-side twin of "contours judged whole" for
+            // outlines: clip every primitive of the chain to the region
+            // first, then judge the visible ink's TOTAL length. (Per-
+            // primitive judgment made fine-stepped polyline fills vanish:
+            // every segment sub-nib, tapped, swallowed by coverage — and
+            // finer steps made it worse.)
+            let clip_chain = |chain: &[Primitive], so: &mut ShapeOut, query_buf: &mut Vec<u32>| {
+                let mut pieces: Vec<Primitive> = Vec::with_capacity(chain.len());
+                for prim in chain {
                     let mut spans = vec![Span {
                         t0: 0.0,
                         t1: 1.0,
@@ -535,15 +543,20 @@ impl Prepared {
                     }];
                     clip_spans(prim, &mut spans, region, true);
                     for sp in spans.iter().filter(|sp| sp.visible) {
-                        let piece = prim.sub(sp.t0, sp.t1);
-                        gen_one(piece, so, query_buf);
+                        pieces.push(prim.sub(sp.t0, sp.t1));
                     }
+                }
+                let judge: f64 = pieces.iter().map(|p| p.length()).sum();
+                for piece in pieces {
+                    gen_one(piece, judge, so, query_buf);
                 }
             };
             match kind {
                 FillKind::Pending => {
                     if let Some(Some(fill)) = supplied.get(i) {
-                        clip_to_region(&fill.prims, &mut so, &mut query_buf);
+                        for chain in &fill.chains {
+                            clip_chain(chain, &mut so, &mut query_buf);
+                        }
                         // Intentional taps: engine-stipple semantics — strictly
                         // inside the region (edge dots drop), occludable, never
                         // routed through tap resolution.
@@ -570,7 +583,11 @@ impl Prepared {
                     }
                 }
                 FillKind::Custom(prims) => {
-                    clip_to_region(prims, &mut so, &mut query_buf);
+                    // Pre-generated ink carries no chain structure: each
+                    // primitive is its own stroke.
+                    for prim in prims {
+                        clip_chain(std::slice::from_ref(prim), &mut so, &mut query_buf);
+                    }
                 }
                 // Opaque with zero ink: the occluder was registered in
                 // prepare; there is nothing to generate.
