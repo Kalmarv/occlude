@@ -27,7 +27,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   circle, exportGcode, exportPng, exportSvg, initOcclude, label, line, mm, path,
-  paperSize, rect, render, setPaperHint, setPenLibrary, sketch, stipple,
+  paperSize, rect, render, setPaperHint, setPenLibrary, sketch, fill,
   type PenDef, type Tree,
 } from '../src/index.js';
 
@@ -156,7 +156,7 @@ const def = sketch({ aspect: 'paper', margin: 0, seed: 1, pen: name }, () => {
   for (const d of delays) {
     out.push(label(`P${d}`, 12, y - 2, 3.6, { pen: name, unit: 'mm' }));
     out.push(rect(L(42), L(y - 2.2), L(154), L(4.4), {
-      stroke: false, fill: stipple(1, mm(3.5)), fillPen: pPen(d),
+      stroke: false, fill: fill('stipple', { density: 1, minDist: mm(3.5) }), fillPen: pPen(d),
     }));
     y += 8;
   }

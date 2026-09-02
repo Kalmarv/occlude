@@ -1,8 +1,9 @@
 //! Golden test: a fixed-seed scene rendered to SVG must not drift.
 //! Regenerate deliberately with: UPDATE_GOLDEN=1 cargo test golden
 
-use occlude_core::fill::{FillKind, HatchPass};
-use occlude_core::pipeline::{render, Pen, RenderInput, ShapeRec};
+use occlude_core::fill::FillKind;
+use occlude_core::nativegen::{render_with, HatchPass, NativeFill};
+use occlude_core::pipeline::{Pen, RenderInput, ShapeRec};
 use occlude_core::primitive::{Arc, Cubic, Line, Primitive};
 use occlude_core::region::WindingRule;
 use occlude_core::snap::snap_primitive;
@@ -23,14 +24,7 @@ fn scene() -> RenderInput {
             Primitive::Arc(Arc::new(v(x, y), r, PI, PI)),
         ])
     };
-    let hatch = |angle: f64| {
-        FillKind::Hatch(vec![HatchPass {
-            angle,
-            spacing: 2.0,
-            offset: 0.0,
-            shape_anchor: false,
-        }])
-    };
+
     let shape = |contours: Vec<Vec<Primitive>>,
                  closed: bool,
                  fill: Option<(u32, FillKind)>,
@@ -71,25 +65,19 @@ fn scene() -> RenderInput {
             shape(
                 vec![circle(40., 74., 22.)],
                 true,
-                Some((0, hatch(45.0))),
+                Some((0, FillKind::Pending)),
                 0.0,
             ),
             shape(
                 vec![circle(62., 74., 18.)],
                 true,
-                Some((0, hatch(-30.0))),
+                Some((0, FillKind::Pending)),
                 0.0,
             ),
             shape(
                 vec![circle(52., 40., 12.)],
                 true,
-                Some((
-                    0,
-                    FillKind::Stipple {
-                        density: 0.6,
-                        min_dist: 1.2,
-                    },
-                )),
+                Some((0, FillKind::Pending)),
                 0.0,
             ),
         ],
@@ -105,7 +93,28 @@ fn scene() -> RenderInput {
 
 #[test]
 fn golden_svg_stable() {
-    let out = render(&scene());
+    // Fill ink supplied through the real two-pass path (the JS runtime's
+    // native analogue): hatch/stipple specs registered per shape index.
+    let hatch = |angle: f64| {
+        NativeFill::Hatch(vec![HatchPass {
+            angle,
+            spacing: 2.0,
+            offset: 0.0,
+            shape_anchor: false,
+        }])
+    };
+    let fills = [
+        (2usize, hatch(45.0)),
+        (3usize, hatch(-30.0)),
+        (
+            4usize,
+            NativeFill::Stipple {
+                density: 0.6,
+                min_dist: 1.2,
+            },
+        ),
+    ];
+    let out = render_with(scene(), &fills);
     let svg = to_svg(
         &out.frags,
         &[Pen::default()],

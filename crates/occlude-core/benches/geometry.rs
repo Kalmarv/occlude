@@ -2,7 +2,7 @@
 //! micro-benchmarks per intersection pair and `inside` variant (spec §7).
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use occlude_core::fill::{FillKind, HatchPass};
+use occlude_core::nativegen::{custom_hatch, HatchPass};
 use occlude_core::pipeline::{render, Pen, RenderInput, ShapeRec};
 use occlude_core::primitive::{Arc, Cubic, Line, Primitive};
 use occlude_core::region::{Region, WindingRule};
@@ -27,12 +27,17 @@ fn filled_circle(cx: f64, cy: f64, r: f64) -> ShapeRec {
         stroke: Some(0),
         fill: Some((
             0,
-            FillKind::Hatch(vec![HatchPass {
-                angle: 45.0,
-                spacing: 1.0,
-                offset: 0.0,
-                shape_anchor: false,
-            }]),
+            custom_hatch(
+                &circle_contour(cx, cy, r),
+                WindingRule::NonZero,
+                true,
+                &HatchPass {
+                    angle: 45.0,
+                    spacing: 1.0,
+                    offset: 0.0,
+                    shape_anchor: false,
+                },
+            ),
         )),
         z: 0.0,
         bridge_mm: 0.0,

@@ -6,7 +6,7 @@
  *   export default sketch({ aspect: 'square', margin: 6 }, ({ circle, hatch, rnd, bounds }) => {
  *     const b = bounds();
  *     return Array.from({ length: 24 }, () =>
- *       circle(rnd(b.w), rnd(b.h), rnd(6, 22), { fill: hatch(rnd(180)) }));
+ *       circle(rnd(b.w), rnd(b.h), rnd(6, 22), { fill: fill('hatch', { angle: rnd(180) }) }));
  *   });
  *
  * Filled/opaque shapes hide what is beneath them; `render()` computes the
@@ -28,8 +28,9 @@ export type {
 } from './api.js';
 export type { ModifierValue, FieldFn, VectorFieldFn } from './shapes.js';
 
-// Fills are already pure specs.
-export { hatch, crosshatch, stipple, solid, customFill } from './fills.js';
+// Fills are pure data (module reference + params) or plain functions.
+export { fill, fillAsset, customFill, resolveFill } from './fills.js';
+export type { FillAssetDef, FillCtx } from './fills.js';
 export { svg } from './svgin.js';
 export {
   asset, image, scanAssetNames, registerTextAsset, registerImageAsset, clearAssets,

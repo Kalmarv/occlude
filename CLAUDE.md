@@ -83,4 +83,7 @@ When a proposal conflicts with one, the law wins until the artist says otherwise
 - Rejected on principle (don't resurrect): veil/partial occlusion
   (overlays can't erode ink — use decimate fields on the content),
   raster-based coverage, channels-as-FieldFn, drawing images, branded
-  algorithm names, mode-flag mega-functions.
+  algorithm names, mode-flag mega-functions, and the fills-redesign's
+  obsoleted machinery (mailbox/SAB field sampling, COOP/COEP isolation,
+  mid-pipeline wasm→JS fill callback, presence-mask NaN rasters, bleed
+  margins — see fills-fields-spec.md).

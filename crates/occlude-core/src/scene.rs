@@ -18,12 +18,10 @@
 //!    fill_kind, clip_start, clip_count, fill_start, fill_count,
 //!    mod_start, mod_count]
 //!   flags: bit0 closed, bit1 convex, bit2 even-odd winding
-//!   fill_kind: 0 none, 1 hatch, 2 stipple, 3 custom
-//!   hatch:   fill params = fill_count triplets (angle°, spacing, offset)
-//!            starting at fill_params[fill_start]
-//!   stipple: fill params = (density, min_dist)
-//!   custom:  [fill_start, fill_start+fill_count) is a range of PRIMS
-//!            (custom fill geometry recorded straight into the prim table)
+//!   fill_kind: 0 none, 1 pending (ink arrives at finish as supplied
+//!            prims + dots — the two-pass path), 2 mask. The engine
+//!            generates no patterns; hatch/stipple are JS fill modules.
+//!            Slots 8/9 (old fill_start/fill_count) are reserved-zero.
 //!   mod_start/mod_count: this shape's modifier program — mod_count
 //!            instructions starting at f64 offset mod_start in `mods`.
 //!
@@ -63,7 +61,7 @@
 //! same stride-9 encoding, so the preview can draw exact curves.
 
 use crate::bbox::BBox;
-use crate::fill::{FillKind, HatchPass};
+use crate::fill::FillKind;
 use crate::modifier::{FieldGrid, Modifier, Param};
 use crate::pipeline::{ClipDef, Pen, RenderInput, RenderOutput, ShapeRec};
 use crate::primitive::{Arc, Cubic, Line, Primitive};
@@ -224,7 +222,6 @@ pub fn decode_render_input(
     shapes_f64: &[f64],
     mods: &[f64],
     field_data: &[f64],
-    fill_params: &[f64],
     clip_list: &[u32],
     clips_u32: &[u32],
     pens_json: &str,
@@ -268,53 +265,12 @@ pub fn decode_render_input(
         } else {
             WindingRule::NonZero
         };
-        if s[4] == 0 && (1..=3).contains(&s[5]) {
+        if s[4] == 0 && (1..=2).contains(&s[5]) {
             return Err(err("fill kind set without a fill pen"));
         }
         let fill = match s[5] {
-            1 => {
-                let start = s[8] as usize;
-                let count = s[9] as usize;
-                if start
-                    .checked_add(count.checked_mul(4).ok_or(err("hatch params overflow"))?)
-                    .filter(|&e| e <= fill_params.len())
-                    .is_none()
-                {
-                    return Err(err("hatch params out of bounds"));
-                }
-                let passes = (0..count)
-                    .map(|k| HatchPass {
-                        angle: fill_params[start + k * 4],
-                        spacing: fill_params[start + k * 4 + 1],
-                        offset: fill_params[start + k * 4 + 2],
-                        shape_anchor: fill_params[start + k * 4 + 3] != 0.0,
-                    })
-                    .collect();
-                Some((s[4] - 1, FillKind::Hatch(passes)))
-            }
-            2 => {
-                let start = s[8] as usize;
-                if start + 2 > fill_params.len() {
-                    return Err(err("stipple params out of bounds"));
-                }
-                Some((
-                    s[4] - 1,
-                    FillKind::Stipple {
-                        density: fill_params[start],
-                        min_dist: fill_params[start + 1],
-                    },
-                ))
-            }
-            3 => {
-                let start = s[8] as usize;
-                let count = s[9] as usize;
-                let end = start
-                    .checked_add(count)
-                    .filter(|&e| e <= table.len())
-                    .ok_or(err("custom fill prims out of bounds"))?;
-                Some((s[4] - 1, FillKind::Custom(table[start..end].to_vec())))
-            }
-            4 => Some((s[4] - 1, FillKind::Mask)),
+            1 => Some((s[4] - 1, FillKind::Pending)),
+            2 => Some((s[4] - 1, FillKind::Mask)),
             _ => None,
         };
         let clip_end = (s[6] as usize)

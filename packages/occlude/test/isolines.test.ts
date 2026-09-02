@@ -162,7 +162,7 @@ describe('isolines: toolkit + engine integration', () => {
         (x, y) => 20 - Math.abs(Math.hypot(x - 50, y - 50) - 25),
         10,
       );
-      return [t.region(band.map((c) => c.pts), { fill: t.hatch(0, t.mm(1.5)) })];
+      return [t.region(band.map((c) => c.pts), { fill: t.fill('hatch', { angle: 0, spacing: t.mm(1.5) }) })];
     });
     const out = sq(def);
     // Paper 200×200mm, user units ×2: band radii 30–70mm around (100,100).
@@ -183,7 +183,7 @@ describe('isolines: toolkit + engine integration', () => {
     const def = sketch({ seed: 1 }, (t) => [
       t.region(
         t.isolines((x, y) => t.noise(x / 20, y / 20), 2, { close: true }).map((c) => c.pts),
-        { fill: t.stipple() },
+        { fill: t.fill('stipple') },
       ),
       t.circle(50, 50, 10),
     ]);

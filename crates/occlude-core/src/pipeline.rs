@@ -12,7 +12,7 @@
 use crate::bbox::BBox;
 use crate::cleanup::{dedupe_seams, spans_to_fragments};
 use crate::clip::{clip_spans, fully_hidden};
-use crate::fill::{hatch_region, stipple_region, FillKind};
+use crate::fill::{FillKind, SuppliedFill};
 use crate::fragment::{Frag, Span};
 use crate::index::SpatialIndex;
 use crate::modifier::{FieldGrid, Modifier, Param, Stage};
@@ -150,8 +150,75 @@ struct ShapeOut {
     taps: Vec<Frag>,
 }
 
-pub fn render(input: &RenderInput) -> RenderOutput {
-    let n = input.shapes.len();
+/// Pass 1 of the two-pass render: pre-stage modifiers, z-sort, primitive
+/// tables, opaque regions, culling — everything that exists before fills
+/// do. `finish` consumes it with the supplied fill ink. Owns its inputs, so
+/// its lifetime is a plain value (one synchronous call frame in the worker;
+/// no module-level state).
+pub struct Prepared {
+    shapes: Vec<ShapeRec>,
+    pens: Vec<Pen>,
+    seed: u64,
+    fields: Vec<FieldGrid>,
+    debug_ghost: bool,
+    stats: RenderStats,
+    rank: Vec<usize>,
+    prim_table: Vec<Primitive>,
+    outline_range: Vec<(usize, usize)>,
+    contour_ranges: Vec<Vec<(usize, usize)>>,
+    shape_region: Vec<Option<Arc<Region>>>,
+    occluders: Vec<Occluder>,
+    occ_index: SpatialIndex,
+    clip_regions: Vec<(Region, bool)>,
+    paper_region: Option<Region>,
+    alive: Vec<bool>,
+    clean: Vec<bool>,
+}
+
+/// One surviving filled shape awaiting between-pass ink: its index and the
+/// post-deform outline the fill generator must see.
+pub struct FillJob<'a> {
+    pub shape: usize,
+    pub contours: &'a [Vec<Primitive>],
+    pub winding: WindingRule,
+    pub convex: bool,
+}
+
+impl Prepared {
+    /// Shapes whose fill ink is generated between the passes: alive after
+    /// culling, closed, and marked Pending. The contours are post-pre-stage
+    /// (deform/smooth/roughen applied) — the outline as it will be inked.
+    pub fn fill_jobs(&self) -> Vec<FillJob<'_>> {
+        self.shapes
+            .iter()
+            .enumerate()
+            .filter(|(i, s)| {
+                self.alive[*i]
+                    && s.closed
+                    && matches!(s.fill, Some((_, FillKind::Pending)))
+            })
+            .map(|(i, s)| FillJob {
+                shape: i,
+                contours: &s.contours,
+                winding: s.winding,
+                convex: s.convex,
+            })
+            .collect()
+    }
+}
+
+pub fn prepare(input: RenderInput) -> Prepared {
+    let RenderInput {
+        shapes: input_shapes,
+        clips,
+        pens,
+        paper,
+        seed,
+        coarsen: _,
+        fields,
+        debug_ghost,
+    } = input;
+    let n = input_shapes.len();
     let mut stats = RenderStats {
         shapes_in: n,
         ..Default::default()
@@ -162,21 +229,17 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     // the conscious-choice stage: curves shatter into polylines here, and
     // only wrapped shapes pay for it.
     let _z = crate::profile::zone("1 pre-modifiers");
-    let pre_shapes: Vec<ShapeRec>;
-    let shapes: &[ShapeRec] = if input
-        .shapes
+    let shapes: Vec<ShapeRec> = if input_shapes
         .iter()
         .any(|s| s.modifiers.iter().any(|m| m.stage() == Stage::Pre))
     {
-        pre_shapes = input
-            .shapes
+        input_shapes
             .iter()
             .enumerate()
-            .map(|(i, s)| apply_pre(s, i, input))
-            .collect();
-        &pre_shapes
+            .map(|(i, s)| apply_pre(s, i, seed, &fields, &pens))
+            .collect()
     } else {
-        &input.shapes
+        input_shapes
     };
 
     drop(_z);
@@ -200,7 +263,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     let mut outline_range: Vec<(usize, usize)> = Vec::with_capacity(n);
     let mut contour_ranges: Vec<Vec<(usize, usize)>> = Vec::with_capacity(n);
     let mut shape_bbox: Vec<BBox> = Vec::with_capacity(n);
-    for s in shapes {
+    for s in &shapes {
         let start = prim_table.len();
         let mut b = BBox::EMPTY;
         let mut ranges = Vec::with_capacity(s.contours.len());
@@ -239,12 +302,11 @@ pub fn render(input: &RenderInput) -> RenderOutput {
     // Clip regions.
     // (region, keep_inside): a normal clip keeps inside, an inverted one
     // keeps outside — the same polarity bit clip_spans already speaks.
-    let clip_regions: Vec<(Region, bool)> = input
-        .clips
+    let clip_regions: Vec<(Region, bool)> = clips
         .iter()
         .map(|c| (Region::new(c.contours.clone(), c.winding, c.convex), !c.invert))
         .collect();
-    let paper_region: Option<Region> = input.paper.map(|p| {
+    let paper_region: Option<Region> = paper.map(|p| {
         let pts = [
             v(p.min.x, p.min.y),
             v(p.max.x, p.min.y),
@@ -276,7 +338,7 @@ pub fn render(input: &RenderInput) -> RenderOutput {
             continue;
         }
         // Off-paper cull (bleed is legal; only fully-off-paper dies).
-        if let Some(p) = &input.paper {
+        if let Some(p) = &paper {
             if !b.overlaps(p) {
                 alive[i] = false;
                 stats.culled_off_paper += 1;
@@ -311,158 +373,158 @@ pub fn render(input: &RenderInput) -> RenderOutput {
             continue;
         }
         // Clean: no later occluder overlap, no clips, fully on paper.
-        let on_paper = input.paper.map(|p| p.contains_box(b)).unwrap_or(true);
+        let on_paper = paper.map(|p| p.contains_box(b)).unwrap_or(true);
         if !any_later && shapes[i].clips.is_empty() && on_paper {
             clean[i] = true;
             stats.clean += 1;
         }
     }
 
-    // ---- Layers 3–5, sharded by shape (spec: after culling, shapes are
-    // independent). Generated fill primitives get shape-local provisional
-    // origins (GEN_FLAG | local index) that are rebased during the
-    // deterministic merge, so the output is identical to the serial run.
-    let min_pen_width = input
-        .pens
-        .iter()
-        .map(|p| p.width)
-        .fold(f64::INFINITY, f64::min)
-        .min(0.3);
-    let coarsen = if input.coarsen > 0.0 {
-        input.coarsen
-    } else {
-        1.0
-    };
-    drop(query_buf);
+    Prepared {
+        shapes,
+        pens,
+        seed,
+        fields,
+        debug_ghost,
+        stats,
+        rank,
+        prim_table,
+        outline_range,
+        contour_ranges,
+        shape_region,
+        occluders,
+        occ_index,
+        clip_regions,
+        paper_region,
+        alive,
+        clean,
+    }
+}
 
-    let process = |i: usize| -> ShapeOut {
-        let mut so = ShapeOut::default();
-        if !alive[i] {
-            return so;
-        }
-        let s = &shapes[i];
-        let pen_width =
-            |pen: u32| -> f64 { input.pens.get(pen as usize).map(|p| p.width).unwrap_or(0.3) };
-        let ctx = ClipCtx {
-            occluders: &occluders,
-            occ_index: &occ_index,
-            my_rank: rank[i],
-        };
-        let shape_clips: Vec<(&Region, bool)> = s
-            .clips
+impl Prepared {
+    /// Pass 2: clip supplied fill ink to its regions, occlude, clean up,
+    /// run post-stage modifiers, bridge, and emit fragments. `supplied` is
+    /// indexed by shape; shapes without an entry (or with a non-Pending
+    /// fill) proceed without between-pass ink.
+    pub fn finish(mut self, supplied: Vec<Option<SuppliedFill>>) -> RenderOutput {
+        let n = self.shapes.len();
+        let shapes = &self.shapes;
+        let alive = &self.alive;
+        let clean = &self.clean;
+        let rank = &self.rank;
+        let occluders = &self.occluders;
+        let occ_index = &self.occ_index;
+        let clip_regions = &self.clip_regions;
+        let paper_region = &self.paper_region;
+        let shape_region = &self.shape_region;
+        let contour_ranges = &self.contour_ranges;
+        let outline_range = &self.outline_range;
+        let pens = &self.pens;
+        let seed = self.seed;
+        let prim_table_ro = &self.prim_table;
+        let supplied = &supplied;
+
+        // ---- Layers 3–5, sharded by shape (spec: after culling, shapes are
+        // independent). Generated fill primitives get shape-local provisional
+        // origins (GEN_FLAG | local index) that are rebased during the
+        // deterministic merge, so the output is identical to the serial run.
+        let min_pen_width = pens
             .iter()
-            .filter_map(|&c| clip_regions.get(c as usize))
-            .map(|(r, keep)| (r, *keep))
-            .chain(paper_region.iter().filter(|_| !clean[i]).map(|r| (r, true)))
-            .collect();
-        let mut query_buf: Vec<u32> = Vec::new();
+            .map(|p| p.width)
+            .fold(f64::INFINITY, f64::min)
+            .min(0.3);
 
-        // Stroke outline. Sub-nib judgement is per CONTOUR for closed
-        // shapes: a tiny circle's arcs are each below the nib, but drawing
-        // the whole ring lays a solid dot of diameter 2r + nib — legitimate
-        // ink with better tone than a bare tap. Only a contour whose TOTAL
-        // length is sub-nib degrades to a tap.
-        let _sz = crate::profile::zone("5a outline-clip");
-        if let Some(stroke_pen) = s.stroke {
-            let threshold = pen_width(stroke_pen);
-            for &(cs, ce) in &contour_ranges[i] {
-                let judge = if s.closed {
-                    prim_table[cs..ce].iter().map(|p| p.length()).sum::<f64>()
-                } else {
-                    f64::NAN // per-primitive below
-                };
-                for gi in cs..ce {
-                    let prim = prim_table[gi];
-                    clip_one(
-                        gi as u32,
-                        &prim,
-                        threshold,
-                        if judge.is_nan() { prim.length() } else { judge },
-                        stroke_pen,
-                        i as u32,
-                        &shape_clips,
-                        &ctx,
-                        clean[i],
-                        &mut query_buf,
-                        &mut so.frags,
-                        &mut so.taps,
-                    );
-                }
+        let process = |i: usize| -> ShapeOut {
+            let mut so = ShapeOut::default();
+            if !alive[i] {
+                return so;
             }
-        }
+            let s = &shapes[i];
+            let pen_width =
+                |pen: u32| -> f64 { pens.get(pen as usize).map(|p| p.width).unwrap_or(0.3) };
+            let ctx = ClipCtx {
+                occluders,
+                occ_index,
+                my_rank: rank[i],
+            };
+            let shape_clips: Vec<(&Region, bool)> = s
+                .clips
+                .iter()
+                .filter_map(|&c| clip_regions.get(c as usize))
+                .map(|(r, keep)| (r, *keep))
+                .chain(paper_region.iter().filter(|_| !clean[i]).map(|r| (r, true)))
+                .collect();
+            let mut query_buf: Vec<u32> = Vec::new();
 
-        drop(_sz);
-        let _sz = crate::profile::zone("5b fills");
-        // Fill.
-        let Some((fill_pen, kind)) = &s.fill else {
-            return so;
-        };
-        if !s.closed {
-            return so;
-        }
-        let Some(region) = &shape_region[i] else {
-            return so;
-        };
-        let threshold = pen_width(*fill_pen);
-        let gen_one = |prim: Primitive, so: &mut ShapeOut, query_buf: &mut Vec<u32>| {
-            let origin = GEN_FLAG | so.gen_prims.len() as u32;
-            so.gen_prims.push(prim);
-            clip_one(
-                origin,
-                &prim,
-                threshold,
-                prim.length(),
-                *fill_pen,
-                i as u32,
-                &shape_clips,
-                &ctx,
-                clean[i],
-                query_buf,
-                &mut so.frags,
-                &mut so.taps,
-            );
-        };
-        match kind {
-            FillKind::Hatch(passes) => {
-                for pass in passes {
-                    let mut pass = *pass;
-                    pass.spacing *= coarsen;
-                    for prim in hatch_region(region, &pass) {
-                        gen_one(prim, &mut so, &mut query_buf);
+            // Stroke outline. Sub-nib judgement is per CONTOUR for closed
+            // shapes: a tiny circle's arcs are each below the nib, but drawing
+            // the whole ring lays a solid dot of diameter 2r + nib — legitimate
+            // ink with better tone than a bare tap. Only a contour whose TOTAL
+            // length is sub-nib degrades to a tap.
+            let _sz = crate::profile::zone("5a outline-clip");
+            if let Some(stroke_pen) = s.stroke {
+                let threshold = pen_width(stroke_pen);
+                for &(cs, ce) in &contour_ranges[i] {
+                    let judge = if s.closed {
+                        prim_table_ro[cs..ce].iter().map(|p| p.length()).sum::<f64>()
+                    } else {
+                        f64::NAN // per-primitive below
+                    };
+                    for gi in cs..ce {
+                        let prim = prim_table_ro[gi];
+                        clip_one(
+                            gi as u32,
+                            &prim,
+                            threshold,
+                            if judge.is_nan() { prim.length() } else { judge },
+                            stroke_pen,
+                            i as u32,
+                            &shape_clips,
+                            &ctx,
+                            clean[i],
+                            &mut query_buf,
+                            &mut so.frags,
+                            &mut so.taps,
+                        );
                     }
                 }
             }
-            FillKind::Stipple { density, min_dist } => {
-                // Decorrelate per shape: with one global seed, shapes with
-                // similar bboxes generate nearly identical Poisson patterns
-                // in paper space, and occlusion slivers then reveal
-                // near-duplicate dots from neighbouring shapes (clumpy,
-                // structured borders). Still fully deterministic per sketch
-                // seed; shape 0 keeps the unmixed seed.
-                let shape_seed = input.seed ^ (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-                let pts = stipple_region(region, *density, *min_dist * coarsen, shape_seed);
-                for p in pts {
-                    if point_visible(p, &shape_clips, &ctx, &mut query_buf) {
-                        let origin = GEN_FLAG | so.gen_prims.len() as u32;
-                        let dotp = Primitive::Line(Line::new(p, p));
-                        so.gen_prims.push(dotp);
-                        so.frags.push(Frag {
-                            origin,
-                            t0: 0.0,
-                            t1: 1.0,
-                            pen: *fill_pen,
-                            shape: i as u32,
-                            dot: true,
-                            bridge: false,
-                            geom: dotp,
-                        });
-                    }
-                }
+
+            drop(_sz);
+            let _sz = crate::profile::zone("5b fills");
+            // Fill ink: supplied between the passes (Pending) or carried
+            // pre-generated (Custom). Both are clipped to the shape's own
+            // region first — a fill is ink inside the region.
+            let Some((fill_pen, kind)) = &s.fill else {
+                return so;
+            };
+            if !s.closed {
+                return so;
             }
-            FillKind::Custom(prims) => {
+            let Some(region) = &shape_region[i] else {
+                return so;
+            };
+            let threshold = pen_width(*fill_pen);
+            let gen_one = |prim: Primitive, so: &mut ShapeOut, query_buf: &mut Vec<u32>| {
+                let origin = GEN_FLAG | so.gen_prims.len() as u32;
+                so.gen_prims.push(prim);
+                clip_one(
+                    origin,
+                    &prim,
+                    threshold,
+                    prim.length(),
+                    *fill_pen,
+                    i as u32,
+                    &shape_clips,
+                    &ctx,
+                    clean[i],
+                    query_buf,
+                    &mut so.frags,
+                    &mut so.taps,
+                );
+            };
+            let clip_to_region = |prims: &[Primitive], so: &mut ShapeOut, query_buf: &mut Vec<u32>| {
                 for prim in prims {
-                    // Custom fill primitives are clipped to their own region
-                    // first — a fill is ink inside the region.
                     let mut spans = vec![Span {
                         t0: 0.0,
                         t1: 1.0,
@@ -471,200 +533,242 @@ pub fn render(input: &RenderInput) -> RenderOutput {
                     clip_spans(prim, &mut spans, region, true);
                     for sp in spans.iter().filter(|sp| sp.visible) {
                         let piece = prim.sub(sp.t0, sp.t1);
-                        gen_one(piece, &mut so, &mut query_buf);
+                        gen_one(piece, so, query_buf);
+                    }
+                }
+            };
+            match kind {
+                FillKind::Pending => {
+                    if let Some(Some(fill)) = supplied.get(i) {
+                        clip_to_region(&fill.prims, &mut so, &mut query_buf);
+                        // Intentional taps: engine-stipple semantics — strictly
+                        // inside the region (edge dots drop), occludable, never
+                        // routed through tap resolution.
+                        for &p in &fill.dots {
+                            if !region.inside(p) || region.on_boundary(p, 1e-9) {
+                                continue;
+                            }
+                            if point_visible(p, &shape_clips, &ctx, &mut query_buf) {
+                                let origin = GEN_FLAG | so.gen_prims.len() as u32;
+                                let dotp = Primitive::Line(Line::new(p, p));
+                                so.gen_prims.push(dotp);
+                                so.frags.push(Frag {
+                                    origin,
+                                    t0: 0.0,
+                                    t1: 1.0,
+                                    pen: *fill_pen,
+                                    shape: i as u32,
+                                    dot: true,
+                                    bridge: false,
+                                    geom: dotp,
+                                });
+                            }
+                        }
+                    }
+                }
+                FillKind::Custom(prims) => {
+                    clip_to_region(prims, &mut so, &mut query_buf);
+                }
+                // Opaque with zero ink: the occluder was registered in
+                // prepare; there is nothing to generate.
+                FillKind::Mask => {}
+            }
+            so
+        };
+
+        let _z = crate::profile::zone("5 clip+fills");
+        #[cfg(feature = "parallel")]
+        let outputs: Vec<ShapeOut> = (0..n).into_par_iter().map(process).collect();
+        #[cfg(not(feature = "parallel"))]
+        let outputs: Vec<ShapeOut> = (0..n).map(process).collect();
+
+        let mut stats = std::mem::take(&mut self.stats);
+        let mut prim_table = std::mem::take(&mut self.prim_table);
+        let contour_ranges = &self.contour_ranges;
+
+        // Deterministic merge in input order: rebase generated origins.
+        let mut frags: Vec<Frag> = Vec::new();
+        let mut taps: Vec<Frag> = Vec::new();
+        let mut gen_range: Vec<(usize, usize)> = vec![(0, 0); n];
+        for (i, so) in outputs.into_iter().enumerate() {
+            let base = prim_table.len() as u32;
+            stats.fill_prims += so.gen_prims.len();
+            gen_range[i] = (base as usize, base as usize + so.gen_prims.len());
+            let mut shape_taps = so.taps;
+            // A closed contour that collapsed ENTIRELY (every primitive tapped,
+            // nothing kept) is one mark, not one per lowered primitive — a
+            // sub-nib circle's two arcs must tap once at the centre, not twice
+            // as a peanut. Replace such a contour's taps with a single
+            // length-weighted centroid tap; partially-kept contours keep their
+            // per-primitive candidates (coverage handles those).
+            for &(cs, ce) in &contour_ranges[i] {
+                let in_range =
+                    |o: u32| o & GEN_FLAG == 0 && (o as usize) >= cs && (o as usize) < ce;
+                if so.frags.iter().any(|f| in_range(f.origin)) {
+                    continue;
+                }
+                let idxs: Vec<usize> = shape_taps
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, t)| in_range(t.origin))
+                    .map(|(k, _)| k)
+                    .collect();
+                if idxs.len() < 2 {
+                    continue;
+                }
+                let (mut cx, mut cy, mut wsum) = (0.0, 0.0, 0.0);
+                for &k in &idxs {
+                    let p = shape_taps[k].geom.start();
+                    let w = prim_table[shape_taps[k].origin as usize].length().max(1e-9);
+                    cx += p.x * w;
+                    cy += p.y * w;
+                    wsum += w;
+                }
+                let c = v(cx / wsum, cy / wsum);
+                let first = idxs[0];
+                shape_taps[first].geom = Primitive::Line(Line::new(c, c));
+                for &k in idxs.iter().skip(1).rev() {
+                    shape_taps.remove(k);
+                }
+            }
+            prim_table.extend(so.gen_prims);
+            let rebase = |mut f: Frag| {
+                if f.origin & GEN_FLAG != 0 {
+                    f.origin = base + (f.origin & !GEN_FLAG);
+                }
+                f
+            };
+            frags.extend(so.frags.into_iter().map(rebase));
+            taps.extend(shape_taps.into_iter().map(rebase));
+        }
+
+        drop(_z);
+        let _z = crate::profile::zone("6 dedupe");
+        let mut frags = dedupe_seams(frags, min_pen_width.max(1e-6));
+        // Sub-nib candidates become dots only where their ink is not already
+        // laid down by kept strokes — the coverage half of the nib rule.
+        let pen_widths: Vec<f64> = pens.iter().map(|p| p.width).collect();
+        crate::cleanup::resolve_taps(&mut frags, taps, &pen_widths);
+        let frags = frags;
+        drop(_z);
+        let _z = crate::profile::zone("7 post-modifiers");
+        // ---- Post-stage modifiers: each shape's ordered program runs over its
+        // final ink, AFTER occlusion and cleanup, so what a modifier touches is
+        // final visible strokes. One frag at a time through the whole program
+        // preserves global frag order (and therefore plot order).
+        let mut frags = frags;
+        let has_post = shapes
+            .iter()
+            .any(|s| s.modifiers.iter().any(|m| m.stage() == Stage::Post));
+        if has_post {
+            let mut interp = PostInterp {
+                seed,
+                fields: &self.fields,
+                prim_table: &mut prim_table,
+                contour_ranges,
+                dash_tables: std::collections::HashMap::new(),
+                dash_chains: std::collections::HashMap::new(),
+                cur: Vec::new(),
+                next: Vec::new(),
+                pts: Vec::new(),
+                dense: Vec::new(),
+            };
+            let mut out: Vec<Frag> = Vec::with_capacity(frags.len());
+            for f in frags.drain(..) {
+                let si = f.shape as usize;
+                let prog = &shapes[si].modifiers;
+                if prog.iter().all(|m| m.stage() != Stage::Post) {
+                    out.push(f);
+                    continue;
+                }
+                // Stroke-vs-fill is a property of the ORIGINAL fragment; a
+                // wobbled segment of an outline is still outline ink even
+                // though its origin now points at a generated primitive.
+                let (p0, p1) = outline_range[si];
+                let is_stroke = (f.origin as usize) >= p0 && (f.origin as usize) < p1;
+                interp.run(f, prog, is_stroke, shapes[si].closed, &mut out);
+            }
+            frags = out;
+        }
+
+        drop(_z);
+        // ---- Bridge pass: shapes that OPT IN (bridge_mm > 0) get their stroke
+        // endpoints greedily joined pen-down across gaps up to their tolerance
+        // (per pen). Connectors are real fragments (debug-visible, flagged) and
+        // share exact endpoints with the strokes they join, so downstream chain
+        // merging assembles the long serpentines automatically. On hatch-dense
+        // work this converts most pen lifts into tiny drawn connectors — the
+        // artistic trade the per-sketch tolerance controls. Connectors span
+        // GAPS only: never along existing ink (the no-double-draw rule).
+        if shapes.iter().any(|s| s.bridge_mm > 0.0) {
+            let _z = crate::profile::zone("8 bridge");
+            bridge_pass(shapes, &mut frags, &mut prim_table);
+        }
+        // ---- Debug ghost: full pre-occlusion geometry through each shape's
+        // post program (decimate skipped so deleted strokes stay inspectable).
+        // Wobble displaces by position, so ghosts align exactly with the
+        // surviving ink's tremor; hidden portions get the same treatment the
+        // visible ones did.
+        let ghost: Vec<Primitive> = if self.debug_ghost {
+            let mut gtable = prim_table.clone();
+            let mut interp = PostInterp {
+                seed,
+                fields: &self.fields,
+                prim_table: &mut gtable,
+                contour_ranges,
+                dash_tables: std::collections::HashMap::new(),
+                dash_chains: std::collections::HashMap::new(),
+                cur: Vec::new(),
+                next: Vec::new(),
+                pts: Vec::new(),
+                dense: Vec::new(),
+            };
+            let mut gfrags: Vec<Frag> = Vec::new();
+            for (i, s) in shapes.iter().enumerate() {
+                let prog: Vec<Modifier> = s
+                    .modifiers
+                    .iter()
+                    .filter(|m| m.stage() == Stage::Post && !matches!(m, Modifier::Decimate { .. }))
+                    .cloned()
+                    .collect();
+                let (p0, p1) = outline_range[i];
+                let (g0, g1) = gen_range[i];
+                for id in (p0..p1).chain(g0..g1) {
+                    let f = Frag::whole(id as u32, prim_table[id], 0, i as u32);
+                    if prog.is_empty() {
+                        gfrags.push(f);
+                    } else {
+                        let is_stroke = id >= p0 && id < p1;
+                        interp.run(f, &prog, is_stroke, s.closed, &mut gfrags);
                     }
                 }
             }
-            // Opaque with zero ink: the occluder was registered above; there
-            // is nothing to generate.
-            FillKind::Mask => {}
-        }
-        so
-    };
-
-    drop(_z);
-    let _z = crate::profile::zone("5 clip+fills");
-    #[cfg(feature = "parallel")]
-    let outputs: Vec<ShapeOut> = (0..n).into_par_iter().map(process).collect();
-    #[cfg(not(feature = "parallel"))]
-    let outputs: Vec<ShapeOut> = (0..n).map(process).collect();
-
-    // Deterministic merge in input order: rebase generated origins.
-    let mut frags: Vec<Frag> = Vec::new();
-    let mut taps: Vec<Frag> = Vec::new();
-    let mut gen_range: Vec<(usize, usize)> = vec![(0, 0); n];
-    for (i, so) in outputs.into_iter().enumerate() {
-        let base = prim_table.len() as u32;
-        stats.fill_prims += so.gen_prims.len();
-        gen_range[i] = (base as usize, base as usize + so.gen_prims.len());
-        let mut shape_taps = so.taps;
-        // A closed contour that collapsed ENTIRELY (every primitive tapped,
-        // nothing kept) is one mark, not one per lowered primitive — a
-        // sub-nib circle's two arcs must tap once at the centre, not twice
-        // as a peanut. Replace such a contour's taps with a single
-        // length-weighted centroid tap; partially-kept contours keep their
-        // per-primitive candidates (coverage handles those).
-        for &(cs, ce) in &contour_ranges[i] {
-            let in_range =
-                |o: u32| o & GEN_FLAG == 0 && (o as usize) >= cs && (o as usize) < ce;
-            if so.frags.iter().any(|f| in_range(f.origin)) {
-                continue;
-            }
-            let idxs: Vec<usize> = shape_taps
-                .iter()
-                .enumerate()
-                .filter(|(_, t)| in_range(t.origin))
-                .map(|(k, _)| k)
-                .collect();
-            if idxs.len() < 2 {
-                continue;
-            }
-            let (mut cx, mut cy, mut wsum) = (0.0, 0.0, 0.0);
-            for &k in &idxs {
-                let p = shape_taps[k].geom.start();
-                let w = prim_table[shape_taps[k].origin as usize].length().max(1e-9);
-                cx += p.x * w;
-                cy += p.y * w;
-                wsum += w;
-            }
-            let c = v(cx / wsum, cy / wsum);
-            let first = idxs[0];
-            shape_taps[first].geom = Primitive::Line(Line::new(c, c));
-            for &k in idxs.iter().skip(1).rev() {
-                shape_taps.remove(k);
-            }
-        }
-        prim_table.extend(so.gen_prims);
-        let rebase = |mut f: Frag| {
-            if f.origin & GEN_FLAG != 0 {
-                f.origin = base + (f.origin & !GEN_FLAG);
-            }
-            f
+            gfrags.into_iter().map(|f| f.geom).collect()
+        } else {
+            Vec::new()
         };
-        frags.extend(so.frags.into_iter().map(rebase));
-        taps.extend(shape_taps.into_iter().map(rebase));
-    }
 
-    drop(_z);
-    let _z = crate::profile::zone("6 dedupe");
-    let mut frags = dedupe_seams(frags, min_pen_width.max(1e-6));
-    // Sub-nib candidates become dots only where their ink is not already
-    // laid down by kept strokes — the coverage half of the nib rule.
-    let pen_widths: Vec<f64> = input.pens.iter().map(|p| p.width).collect();
-    crate::cleanup::resolve_taps(&mut frags, taps, &pen_widths);
-    let frags = frags;
-    drop(_z);
-    let _z = crate::profile::zone("7 post-modifiers");
-    // ---- Post-stage modifiers: each shape's ordered program runs over its
-    // final ink, AFTER occlusion and cleanup, so what a modifier touches is
-    // final visible strokes. One frag at a time through the whole program
-    // preserves global frag order (and therefore plot order).
-    let mut frags = frags;
-    let has_post = input
-        .shapes
-        .iter()
-        .any(|s| s.modifiers.iter().any(|m| m.stage() == Stage::Post));
-    if has_post {
-        let mut interp = PostInterp {
-            seed: input.seed,
-            fields: &input.fields,
-            prim_table: &mut prim_table,
-            contour_ranges: &contour_ranges,
-            dash_tables: std::collections::HashMap::new(),
-            dash_chains: std::collections::HashMap::new(),
-            cur: Vec::new(),
-            next: Vec::new(),
-            pts: Vec::new(),
-            dense: Vec::new(),
-        };
-        let mut out: Vec<Frag> = Vec::with_capacity(frags.len());
-        for f in frags.drain(..) {
-            let si = f.shape as usize;
-            let prog = &shapes[si].modifiers;
-            if prog.iter().all(|m| m.stage() != Stage::Post) {
-                out.push(f);
-                continue;
-            }
-            // Stroke-vs-fill is a property of the ORIGINAL fragment; a
-            // wobbled segment of an outline is still outline ink even
-            // though its origin now points at a generated primitive.
-            let (p0, p1) = outline_range[si];
-            let is_stroke = (f.origin as usize) >= p0 && (f.origin as usize) < p1;
-            interp.run(f, prog, is_stroke, input.shapes[si].closed, &mut out);
+        stats.fragments = frags.len();
+        RenderOutput {
+            prims: prim_table,
+            frags,
+            stats,
+            ghost,
         }
-        frags = out;
     }
+}
 
-    drop(_z);
-    // ---- Bridge pass: shapes that OPT IN (bridge_mm > 0) get their stroke
-    // endpoints greedily joined pen-down across gaps up to their tolerance
-    // (per pen). Connectors are real fragments (debug-visible, flagged) and
-    // share exact endpoints with the strokes they join, so downstream chain
-    // merging assembles the long serpentines automatically. On hatch-dense
-    // work this converts most pen lifts into tiny drawn connectors — the
-    // artistic trade the per-sketch tolerance controls. Connectors span
-    // GAPS only: never along existing ink (the no-double-draw rule).
-    if input.shapes.iter().any(|s| s.bridge_mm > 0.0) {
-        let _z = crate::profile::zone("8 bridge");
-        bridge_pass(input, &mut frags, &mut prim_table);
-    }
-    // ---- Debug ghost: full pre-occlusion geometry through each shape's
-    // post program (decimate skipped so deleted strokes stay inspectable).
-    // Wobble displaces by position, so ghosts align exactly with the
-    // surviving ink's tremor; hidden portions get the same treatment the
-    // visible ones did.
-    let ghost: Vec<Primitive> = if input.debug_ghost {
-        let mut gtable = prim_table.clone();
-        let mut interp = PostInterp {
-            seed: input.seed,
-            fields: &input.fields,
-            prim_table: &mut gtable,
-            contour_ranges: &contour_ranges,
-            dash_tables: std::collections::HashMap::new(),
-            dash_chains: std::collections::HashMap::new(),
-            cur: Vec::new(),
-            next: Vec::new(),
-            pts: Vec::new(),
-            dense: Vec::new(),
-        };
-        let mut gfrags: Vec<Frag> = Vec::new();
-        for (i, s) in shapes.iter().enumerate() {
-            let prog: Vec<Modifier> = s
-                .modifiers
-                .iter()
-                .filter(|m| m.stage() == Stage::Post && !matches!(m, Modifier::Decimate { .. }))
-                .cloned()
-                .collect();
-            let (p0, p1) = outline_range[i];
-            let (g0, g1) = gen_range[i];
-            for id in (p0..p1).chain(g0..g1) {
-                let f = Frag::whole(id as u32, prim_table[id], 0, i as u32);
-                if prog.is_empty() {
-                    gfrags.push(f);
-                } else {
-                    let is_stroke = id >= p0 && id < p1;
-                    interp.run(f, &prog, is_stroke, s.closed, &mut gfrags);
-                }
-            }
-        }
-        gfrags.into_iter().map(|f| f.geom).collect()
-    } else {
-        Vec::new()
-    };
-
-    stats.fragments = frags.len();
-    RenderOutput {
-        prims: prim_table,
-        frags,
-        stats,
-        ghost,
-    }
+/// One-call render for native consumers (goldens, benches, replay without a
+/// fills sidecar): Custom/Mask fills work as always; Pending fills produce
+/// no ink unless supplied.
+pub fn render(input: &RenderInput) -> RenderOutput {
+    prepare(input.clone()).finish(Vec::new())
 }
 
 /// Greedy endpoint matching within per-shape tolerances. Each fragment end
 /// joins at most one connector; pairs need dist ≤ min(tolA, tolB) and > the
 /// snap grid (exact touches already merge downstream).
-fn bridge_pass(input: &RenderInput, frags: &mut Vec<Frag>, prims: &mut Vec<Primitive>) {
+fn bridge_pass(shapes: &[ShapeRec], frags: &mut Vec<Frag>, prims: &mut Vec<Primitive>) {
     #[derive(Clone, Copy)]
     struct End {
         frag: usize,
@@ -677,7 +781,7 @@ fn bridge_pass(input: &RenderInput, frags: &mut Vec<Frag>, prims: &mut Vec<Primi
         if f.dot || f.bridge {
             continue;
         }
-        let tol = input.shapes[f.shape as usize].bridge_mm;
+        let tol = shapes[f.shape as usize].bridge_mm;
         if tol <= 0.0 {
             continue;
         }
@@ -1116,11 +1220,10 @@ fn prefix_len(origin: &Primitive, t0: f64) -> f64 {
 /// Contours flatten to polylines once (0.05 mm), the ops transform points,
 /// and line primitives are rebuilt at the end. Convexity is conservatively
 /// dropped — deformed geometry makes no promises.
-fn apply_pre(s: &ShapeRec, shape_idx: usize, input: &RenderInput) -> ShapeRec {
+fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &[FieldGrid], pens: &[Pen]) -> ShapeRec {
     if !s.modifiers.iter().any(|m| m.stage() == Stage::Pre) {
         return s.clone();
     }
-    let (seed, fields) = (input.seed, &input.fields[..]);
     let closed = s.closed;
     let mut polys: Vec<Vec<Vec2>> = s
         .contours
@@ -1200,7 +1303,7 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, input: &RenderInput) -> ShapeRec {
     // below the nib — invisible by the system's own tolerance.
     let min_seg = s
         .stroke
-        .and_then(|p| input.pens.get(p as usize))
+        .and_then(|p| pens.get(p as usize))
         .map(|p| p.width)
         .unwrap_or(0.3)
         .max(0.05);

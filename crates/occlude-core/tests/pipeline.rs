@@ -1,5 +1,6 @@
 use occlude_core::bbox::BBox;
-use occlude_core::fill::{FillKind, HatchPass};
+use occlude_core::fill::FillKind;
+use occlude_core::nativegen::{hatch_region, render_with, HatchPass, NativeFill};
 use occlude_core::gcode::{export_gcode, merge_chains, MachineProfile};
 use occlude_core::pipeline::{render, ClipDef, Pen, RenderInput, ShapeRec};
 use occlude_core::primitive::{Arc, Line, Primitive};
@@ -55,13 +56,20 @@ fn filled_shape(contours: Vec<Vec<Primitive>>, kind: FillKind) -> ShapeRec {
     }
 }
 
-fn hatch() -> FillKind {
-    FillKind::Hatch(vec![HatchPass {
-        angle: 45.0,
-        spacing: 1.0,
-        offset: 0.0,
-        shape_anchor: false,
-    }])
+/// Hatch ink precomputed harness-side (the supplied-prims leg): the engine
+/// generates no patterns anymore, so tests supply them via Custom.
+fn hatched_shape(contours: Vec<Vec<Primitive>>) -> ShapeRec {
+    let region = Region::new(contours.clone(), WindingRule::NonZero, true);
+    let prims = hatch_region(
+        &region,
+        &HatchPass {
+            angle: 45.0,
+            spacing: 1.0,
+            offset: 0.0,
+            shape_anchor: false,
+        },
+    );
+    filled_shape(contours, FillKind::Custom(prims))
 }
 
 fn input(shapes: Vec<ShapeRec>) -> RenderInput {
@@ -103,7 +111,7 @@ fn line_under_filled_rect_splits() {
             vec![vec![Primitive::Line(Line::new(v(-20., 0.), v(20., 0.)))]],
             false,
         ),
-        filled_shape(rect_contour(-5., -5., 10., 10.), hatch()),
+        hatched_shape(rect_contour(-5., -5., 10., 10.)),
     ];
     let out = render(&input(shapes));
     let line_frags: Vec<_> = out.frags.iter().filter(|f| f.shape == 0).collect();
@@ -115,8 +123,8 @@ fn line_under_filled_rect_splits() {
 #[test]
 fn overlapping_filled_circles_occlude_in_draw_order() {
     let shapes = vec![
-        filled_shape(circle_contour(0., 0., 10.), hatch()),
-        filled_shape(circle_contour(10., 0., 10.), hatch()),
+        hatched_shape(circle_contour(0., 0., 10.)),
+        hatched_shape(circle_contour(10., 0., 10.)),
     ];
     let out = render(&input(shapes));
     let occ = Region::new(circle_contour(10., 0., 10.), WindingRule::NonZero, true);
@@ -147,9 +155,9 @@ fn overlapping_filled_circles_occlude_in_draw_order() {
 
 #[test]
 fn z_override_beats_draw_order() {
-    let mut top = filled_shape(circle_contour(0., 0., 10.), hatch());
+    let mut top = hatched_shape(circle_contour(0., 0., 10.));
     top.z = 5.0; // drawn first but stacked on top
-    let below = filled_shape(circle_contour(5., 0., 10.), hatch());
+    let below = hatched_shape(circle_contour(5., 0., 10.));
     let out = render(&input(vec![top, below]));
     let occ0 = Region::new(circle_contour(0., 0., 10.), WindingRule::NonZero, true);
     // Shape 1 (below) must have no midpoints inside shape 0's region.
@@ -173,7 +181,7 @@ fn z_override_beats_draw_order() {
 fn contained_shape_is_culled() {
     let shapes = vec![
         stroke_shape(circle_contour(0., 0., 2.), true), // buried
-        filled_shape(circle_contour(0., 0., 10.), hatch()),
+        hatched_shape(circle_contour(0., 0., 10.)),
     ];
     let out = render(&input(shapes));
     assert!(out.frags.iter().all(|f| f.shape != 0), "buried shape drawn");
@@ -184,7 +192,7 @@ fn contained_shape_is_culled() {
 fn clean_shapes_pass_through_whole() {
     let shapes = vec![
         stroke_shape(circle_contour(0., 0., 5.), true),
-        filled_shape(circle_contour(100., 0., 5.), hatch()),
+        hatched_shape(circle_contour(100., 0., 5.)),
     ];
     let out = render(&input(shapes));
     assert_eq!(out.stats.clean, 2);
@@ -196,8 +204,8 @@ fn clean_shapes_pass_through_whole() {
 #[test]
 fn hatch_fills_convex_and_is_occluded() {
     let shapes = vec![
-        filled_shape(circle_contour(0., 0., 10.), hatch()),
-        filled_shape(rect_contour(0., -12., 14., 24.), hatch()),
+        hatched_shape(circle_contour(0., 0., 10.)),
+        hatched_shape(rect_contour(0., -12., 14., 24.)),
     ];
     let out = render(&input(shapes));
     assert!(out.stats.fill_prims > 10);
@@ -218,15 +226,16 @@ fn hatch_fills_convex_and_is_occluded() {
 
 #[test]
 fn stipple_is_deterministic_and_inside() {
-    let shape = filled_shape(
-        circle_contour(0., 0., 10.),
-        FillKind::Stipple {
+    let shape = filled_shape(circle_contour(0., 0., 10.), FillKind::Pending);
+    let fills = [(
+        0usize,
+        NativeFill::Stipple {
             density: 0.5,
             min_dist: 1.0,
         },
-    );
-    let out1 = render(&input(vec![shape.clone()]));
-    let out2 = render(&input(vec![shape]));
+    )];
+    let out1 = render_with(input(vec![shape.clone()]), &fills);
+    let out2 = render_with(input(vec![shape]), &fills);
     let dots1: Vec<_> = out1.frags.iter().filter(|f| f.dot).collect();
     let dots2: Vec<_> = out2.frags.iter().filter(|f| f.dot).collect();
     assert!(
@@ -317,8 +326,8 @@ fn paper_clips_and_culls() {
 fn shared_edge_squares_no_double_seam() {
     // Two adjacent filled squares sharing edge x=10 exactly (snapped input).
     let shapes = vec![
-        filled_shape(rect_contour(0., 0., 10., 10.), hatch()),
-        filled_shape(rect_contour(10., 0., 10., 10.), hatch()),
+        hatched_shape(rect_contour(0., 0., 10., 10.)),
+        hatched_shape(rect_contour(10., 0., 10., 10.)),
     ];
     let out = render(&input(shapes));
     // The shared edge must be drawn exactly once.
@@ -341,8 +350,8 @@ fn shared_edge_squares_no_double_seam() {
 #[test]
 fn export_gcode_and_svg_smoke() {
     let shapes = vec![
-        filled_shape(circle_contour(50., 50., 20.), hatch()),
-        filled_shape(rect_contour(60., 30., 30., 40.), hatch()),
+        hatched_shape(circle_contour(50., 50., 20.)),
+        hatched_shape(rect_contour(60., 30., 30., 40.)),
     ];
     let out = render(&input(shapes));
     let pens = vec![Pen::default()];

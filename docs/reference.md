@@ -16,11 +16,11 @@ wrapped — `mm(1)` is physical. Examples use the default pen library.
 and hides what's beneath (that's the house rule: fill means occlude).
 
 ```ts live
-import { sketch, circle, hatch, mm } from 'occlude';
+import { sketch, circle, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) =>
   t.times(7, (k, u) =>
-    circle(12 + u * 76, 25, 10, { fill: hatch(u * 90, mm(0.8 + u)) }),
+    circle(12 + u * 76, 25, 10, { fill: fill('hatch', { angle: u * 90, spacing: mm(0.8 + u) }) }),
   ),
 );
 ```
@@ -32,11 +32,11 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 the corners.
 
 ```ts live
-import { sketch, rect, stipple } from 'occlude';
+import { sketch, rect, fill } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) =>
   t.times(5, (k, u) => [
-    rect(6 + u * 72, 8, 16, 34, u * 8, { fill: stipple(0.25 + u * 0.55) }),
+    rect(6 + u * 72, 8, 16, 34, u * 8, { fill: fill('stipple', { density: 0.25 + u * 0.55 }) }),
   ]),
 );
 ```
@@ -74,11 +74,11 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 `polygon([[x, y], …], opts?)` with explicit points.
 
 ```ts live
-import { sketch, polygon, hatch, mm } from 'occlude';
+import { sketch, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) =>
   t.times(6, (k) =>
-    polygon(10 + k * 16, 25, 3 + k, 8, 90, { fill: hatch(45, mm(1)) }),
+    polygon(10 + k * 16, 25, 3 + k, 8, 90, { fill: fill('hatch', { angle: 45, spacing: mm(1) }) }),
   ),
 );
 ```
@@ -251,12 +251,12 @@ Drop a fraction of final strokes — seeded, deterministic, field-aware.
 `{ stroke, fill }` targets outline and fill ink separately.
 
 ```ts live
-import { sketch, circle, hatch, mm } from 'occlude';
+import { sketch, circle, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) =>
   t.times(4, (k, u) =>
     circle(14 + u * 72, 25, 11, {
-      fill: hatch(45, mm(0.7)),
+      fill: fill('hatch', { angle: 45, spacing: mm(0.7) }),
       decimate: { fill: u * 0.85 }, // erode the texture, keep the outline
     }),
   ),
@@ -334,68 +334,82 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 Fills draw texture inside a closed shape and **imply opaque**. The fill
 pen defaults to the shape's pen; `fillPen` overrides.
 
-### hatch
+### fill
 
-`hatch(angle?, spacing?, offset?)` — parallel lines. Spacing is a length
+Fills are sketch-space code, never engine features: `fill(name, params?)`
+references a fill module by name (names are literals), and the engine
+runs it between the render passes against the shape's FINAL outline —
+post-deform — then clips and occludes the result like all ink. The
+built-ins (`hatch`, `crosshatch`, `stipple`, `solid`) are ordinary
+modules with no privileges; an inline function (`fill: (region, ctx) =>
+[...]`) works too and receives the same region/ctx contract.
+
+### fill('hatch')
+
+`fill('hatch', { angle, spacing, offset, align })` — parallel lines.
+Spacing is a length
 (`mm()` for physical). The ruling is **paper-anchored by default**: one
 paper-wide grid that every same-spec fill samples, so adjacent shapes
 tile into continuous texture. For many small shapes (halftone dots) that
 makes each shape's marks depend on where it sits — pass the object form
-`hatch({ angle, spacing, align: 'shape' })` to centre the ruling on each
+`align: 'shape'` to centre the ruling on each
 shape instead: identical marks wherever the shape lands.
 
 ```ts live
-import { sketch, circle, hatch, mm } from 'occlude';
+import { sketch, circle, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) =>
-  t.times(5, (k, u) => circle(12 + u * 76, 25, 10, { fill: hatch(u * 72, mm(0.6 + u * 1.4)) })),
+  t.times(5, (k, u) => circle(12 + u * 76, 25, 10, { fill: fill('hatch', { angle: u * 72, spacing: mm(0.6 + u * 1.4) }) })),
 );
 ```
 
-### crosshatch
+### fill('crosshatch')
 
-`crosshatch(angles?, spacing?)` — stacked hatch passes (default 0° + 90°).
+`fill('crosshatch', { angles, spacing })` — stacked hatch passes
+(default 0° + 90°).
 Tone by layering.
 
 ```ts live
-import { sketch, rect, crosshatch, mm } from 'occlude';
+import { sketch, rect, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, () => [
-  rect(8, 10, 22, 30, { fill: crosshatch([45], mm(1.2)) }),
-  rect(39, 10, 22, 30, { fill: crosshatch([45, 135], mm(1.2)) }),
-  rect(70, 10, 22, 30, { fill: crosshatch([0, 60, 120], mm(1.2)) }),
+  rect(8, 10, 22, 30, { fill: fill('crosshatch', { angles: [45], spacing: mm(1.2) }) }),
+  rect(39, 10, 22, 30, { fill: fill('crosshatch', { angles: [45, 135], spacing: mm(1.2) }) }),
+  rect(70, 10, 22, 30, { fill: fill('crosshatch', { angles: [0, 60, 120], spacing: mm(1.2) }) }),
 ]);
 ```
 
-### stipple
+### fill('stipple')
 
-`stipple(density?, minDist?)` — Poisson-placed dots, plotted as pen taps.
+`fill('stipple', { density, minDist })` — Poisson-placed dots, plotted as
+pen taps.
 Density accepts the 0–1 range; pair with `decimate: { fill: field }` for
 image-driven halftones.
 
 ```ts live
-import { sketch, circle, stipple } from 'occlude';
+import { sketch, circle, fill } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 12 }, (t) =>
-  t.times(4, (k, u) => circle(14 + u * 72, 25, 11, { fill: stipple(0.15 + u * 0.75) })),
+  t.times(4, (k, u) => circle(14 + u * 72, 25, 11, { fill: fill('stipple', { density: 0.15 + u * 0.75 }) })),
 );
 ```
 
-### solid
+### fill('solid')
 
-`solid(angle?)` — unbroken ink: shape-aligned hatch at 0.9× the fill
+`fill('solid', { angle })` — unbroken ink: shape-aligned hatch at 0.9× the
+fill
 pen's nib, so rows overlap into full coverage and every shape fills
 identically wherever it sits. The texture default (`hatch`) is airy on
 purpose; `solid` is the "just make it black" fill. Rows follow `angle`
 (plot direction); pair with `bridge` to serpentine them.
 
 ```ts live
-import { sketch, circle, solid, hatch, mm } from 'occlude';
+import { sketch, circle, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) =>
   t.times(4, (k, u) => [
-    circle(14 + u * 72, 15, 7, { fill: hatch(0, mm(1)) }),  // texture
-    circle(14 + u * 72, 35, 7, { fill: solid(u * 90) }),    // ink
+    circle(14 + u * 72, 15, 7, { fill: fill('hatch', { spacing: mm(1) }) }),  // texture
+    circle(14 + u * 72, 35, 7, { fill: fill('solid', { angle: u * 90 }) }),    // ink
   ]),
 );
 ```
@@ -438,8 +452,9 @@ fills, modifiers, and occlusion among themselves — use
 [`clip`](#clip)`(region, ...children)` instead ("fill this blob with
 little hatched circles" is a clip, not a custom fill).
 
-Every built-in fill also takes an object form: `hatch({ angle: 45,
-offset: 3 })`, `stipple({ density: 0.7, minDist })` — stipple dot spacing
+Every built-in takes its params as one object: `fill('hatch', { angle: 45,
+offset: 3 })`, `fill('stipple', { density: 0.7, minDist })` — stipple dot
+spacing
 ≈ `minDist / density`.
 
 Variable-radius dot shading — tiny full circles as single arcs, sized by
@@ -690,12 +705,12 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 workhorse of specimen sheets and halftones.
 
 ```ts live
-import { sketch, circle, rect, hatch, mm } from 'occlude';
+import { sketch, circle, rect, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 18 }, (t) =>
   t.grid({ cols: 9, rows: 4, gap: 2 }).map((c) =>
     t.chance(0.5)
-      ? circle(c.cx, c.cy, Math.min(c.w, c.h) * 0.42, { fill: hatch(t.rnd(180), mm(1)) })
+      ? circle(c.cx, c.cy, Math.min(c.w, c.h) * 0.42, { fill: fill('hatch', { angle: t.rnd(180), spacing: mm(1) }) })
       : rect(c.x + 1, c.y + 1, c.w - 2, c.h - 2, 2),
   ),
 );
@@ -792,12 +807,12 @@ stamp however you like; both also exist as pure imports
 (`voronoi(points, bounds)`, `triangulate(points)`) over arbitrary arrays.
 
 ```ts live
-import { sketch, polygon, hatch, mm } from 'occlude';
+import { sketch, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const pts = t.scatter({ spacing: 7 }).relax(3);
   return pts.cells().map((c) =>
-    polygon(c.pts, t.chance(0.25) ? { fill: hatch(t.rnd(180), mm(1.1)) } : {}),
+    polygon(c.pts, t.chance(0.25) ? { fill: fill('hatch', { angle: t.rnd(180), spacing: mm(1.1) }) } : {}),
   );
 });
 ```
@@ -827,7 +842,7 @@ crossings are edge-interpolated, so positional accuracy is far finer
 than the grid.
 
 ```ts live
-import { sketch, polygon, hatch, mm } from 'occlude';
+import { sketch, polygon, fill, mm } from 'occlude';
 
 // Posterized tone: each level is opaque, so the denser inner hatch
 // REPLACES the coarse one where they overlap — fill means occlude.
@@ -835,9 +850,9 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const field = (x, y) => t.noise(x / 16, y / 16);
   return [
     t.isolines(field, 0.15, { close: true }).map((c) =>
-      polygon(c.pts, { fill: hatch(30, mm(1.6)) })),
+      polygon(c.pts, { fill: fill('hatch', { angle: 30, spacing: mm(1.6) }) })),
     t.isolines(field, 0.5, { close: true }).map((c) =>
-      polygon(c.pts, { fill: hatch(120, mm(0.7)) })),
+      polygon(c.pts, { fill: fill('hatch', { angle: 120, spacing: mm(0.7) }) })),
   ];
 });
 ```
@@ -1024,12 +1039,12 @@ amount. A field on a fill's decimate is a halftone — here `dash` chops the
 hatch into cells and a radial field erodes them away from the centre:
 
 ```ts live
-import { sketch, rect, hatch, modify, dash, decimate, mm } from 'occlude';
+import { sketch, rect, fill, modify, dash, decimate, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 5 }, () =>
   modify(
     [dash(mm(1.2), mm(0.8)), decimate((x, y) => Math.hypot(x - 50, (y - 25) * 2.1) / 52)],
-    rect(2, 3, 96, 44, { fill: hatch(45, mm(1.1)), stroke: false }),
+    rect(2, 3, 96, 44, { fill: fill('hatch', { angle: 45, spacing: mm(1.1) }), stroke: false }),
   ),
 );
 ```

@@ -20,7 +20,7 @@
  *   stays usable — build() snapshots)
  */
 
-import { crosshatch, hatch, stipple, type CustomFillFn, type FillSpec } from './fills.js';
+import { fill, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
 import { finiteCount } from './guard.js';
 import { svg as svgValue } from './svgin.js';
@@ -39,7 +39,6 @@ import {
 } from './points.js';
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { distanceTo } from './distance.js';
-import { solid } from './fills.js';
 import { ui } from './ui.js';
 import { h, long, mm, s, w, resolveLen, Len, type L } from './units.js';
 
@@ -555,10 +554,7 @@ export interface Toolkit {
   deform: typeof deform;
   noiseField: typeof noiseField;
   label: typeof label;
-  hatch: typeof hatch;
-  crosshatch: typeof crosshatch;
-  stipple: typeof stipple;
-  solid: typeof solid;
+  fill: typeof fill;
   ui: typeof ui;
   rnd: typeof rnd;
   pick: typeof pick;
@@ -689,7 +685,7 @@ function pointsOf(
 const TOOLKIT_BASE = {
   circle, ellipse, rect, line, polygon, region, path, group, clip, mask, decimate, wobble, modify,
   dash, smooth, roughen, deform, noiseField, label,
-  hatch, crosshatch, stipple, solid, ui,
+  fill, ui,
   rnd, pick, chance, prob, noise, stream,
   map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,

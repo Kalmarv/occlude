@@ -736,7 +736,7 @@ fn mirrored_s_cubics_are_not_deduped() {
 
 #[test]
 fn stipple_zero_min_dist_is_bounded() {
-    use occlude_core::fill::stipple_region;
+    use occlude_core::nativegen::stipple_region;
     use occlude_core::primitive::Line;
     use occlude_core::region::Region;
     // A 100×100mm square with min_dist = 0 must complete quickly on a

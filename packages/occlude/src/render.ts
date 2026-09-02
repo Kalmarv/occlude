@@ -8,8 +8,8 @@
  */
 
 import {
-  defaultHatchSpacing, defaultStippleMinDist,
-  type FillRegion, type FillSpec,
+  resolveFill, validateFillParams,
+  type CustomPrimitive, type FillCtx, type FillRegion, type FillSpec,
 } from './fills.js';
 import { paperSize, type PaperChoice } from './paper.js';
 import type { PenDef } from './pens.js';
@@ -77,14 +77,13 @@ function makeFillRegion(contours: Prim[][], winding: Winding): FillRegion {
 
 // wasm module bindings, injected by initOcclude.
 export interface WasmModule {
-  wasm_render(
+  wasm_prepare(
     prims: Float64Array,
     contours: Uint32Array,
     shapes_u32: Uint32Array,
     shapes_f64: Float64Array,
     mods: Float64Array,
     field_data: Float64Array,
-    fill_params: Float64Array,
     clip_list: Uint32Array,
     clips_u32: Uint32Array,
     pens_json: string,
@@ -92,6 +91,17 @@ export interface WasmModule {
     seed: number,
     coarsen: number,
     debug_ghost: number,
+  ): {
+    jobs_index: Uint32Array;
+    jobs_contours: Uint32Array;
+    jobs_prims: Float64Array;
+    free?(): void;
+  };
+  wasm_finish(
+    prepared: unknown,
+    fills_index: Uint32Array,
+    fill_prims: Float64Array,
+    fill_dots: Float64Array,
   ): { prims: Float64Array; frags: Float64Array; stats: Float64Array; ghost: Float64Array; free?(): void };
   wasm_export_gcode(
     prims: Float64Array,
@@ -191,7 +201,7 @@ const PRIM_STRIDE = 9;
 const FRAG_STRIDE = 6;
 
 /**
- * A fully encoded scene: exactly the arguments of `wasm_render` (all
+ * A fully encoded scene: the arguments of `wasm_prepare` (all
  * transferable) plus the metadata `decodeRender` needs afterwards.
  */
 export interface EncodedScene {
@@ -203,14 +213,19 @@ export interface EncodedScene {
   mods: Float64Array;
   /** Concatenated field rasters: [w, h, x0, y0, dx, dy, ...samples] each. */
   fieldData: Float64Array;
-  fillParams: Float64Array;
   clipList: Uint32Array;
   clipsU32: Uint32Array;
   pensJson: string;
   paperArr: Float64Array;
   seed: number;
+  /** The seed as the sketch used it (may be a string) — keys per-fill
+   * randomness sub-streams. */
+  seedUsed: number | string;
   coarsen: number;
   debugGhost: boolean;
+  /** Between-pass fill generators, indexed by wasm shape index. Function-
+   * bearing: the scene never leaves the runtime that owns the sketch. */
+  fillJobs: Map<number, FillJob>;
   // decode metadata (plain data)
   pens: PenDef[];
   frame: Frame;
@@ -226,11 +241,19 @@ export function sceneTransferables(s: EncodedScene): ArrayBuffer[] {
     s.shapesF64.buffer,
     s.mods.buffer,
     s.fieldData.buffer,
-    s.fillParams.buffer,
     s.clipList.buffer,
     s.clipsU32.buffer,
     s.paperArr.buffer,
   ] as ArrayBuffer[];
+}
+
+/** One shape's between-pass fill: run against the FINAL outline pass 1
+ * returns. `order` keys the seeded sub-stream (draw order, as always). */
+export interface FillJob {
+  order: number;
+  penWidth: number;
+  winding: Winding;
+  run(region: FillRegion, ctx: FillCtx): CustomPrimitive[];
 }
 
 function encodePrim(p: Prim, out: number[]): void {
@@ -283,7 +306,7 @@ export function pensToJson(pens: PenDef[]): string {
 }
 
 /**
- * Encode the recorded sketch for `wasm_render`. Pure and synchronous — no
+ * Encode the recorded sketch for the two-pass render. Pure and synchronous — no
  * wasm involved, so it is cheap enough for the main thread while the actual
  * geometry runs in a worker.
  */
@@ -315,7 +338,6 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
   const shapesF64: number[] = [];
   const modsBuf: number[] = [];
   const fieldData: number[] = [];
-  const fillParams: number[] = [];
 
   // Field rasterisation: sample the user's function over the paper on a
   // coarse mm grid (the core interpolates bilinearly). Sampled in user
@@ -414,7 +436,10 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
   }
 
   // Shapes.
+  const fillJobs = new Map<number, FillJob>();
+  let shapeIndex = -1;
   for (const shape of state.shapes) {
+    shapeIndex++;
     const lowered = lowerShape(shape, frame);
     const [cStart, cCount] = pushContours(lowered.contours);
     const geom = shape.geom;
@@ -424,73 +449,35 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
 
     let fillPen = 0;
     let fillKind = 0;
-    let fillStart = 0;
-    let fillCount = 0;
     if (shape.fillSpec && shape.fillPen) {
       fillPen = penIdx(shape.fillPen) + 1;
       const penDef = pens[fillPen - 1];
       const spec: FillSpec = shape.fillSpec;
-      if (spec.type === 'hatch') {
-        fillKind = 1;
-        fillStart = fillParams.length;
-        fillCount = spec.passes.length;
-        for (const pass of spec.passes) {
-          const spacing = resolveLen(
-            pass.spacing ??
-              (pass.solid ? mm(penDef.width * 0.9) : defaultHatchSpacing(penDef.width)),
-            frame.inner,
-          );
-          fillParams.push(pass.angle, spacing, pass.offset, pass.align === 'shape' ? 1 : 0);
-        }
-      } else if (spec.type === 'stipple') {
-        fillKind = 2;
-        fillStart = fillParams.length;
-        fillCount = 2;
-        const minDist = resolveLen(
-          spec.minDist ?? defaultStippleMinDist(penDef.width),
-          frame.inner,
-        );
-        fillParams.push(spec.density, minDist);
-      } else if (spec.type === 'mask') {
+      if (spec.type === 'mask') {
         // Opaque with zero ink: registers the occluder, generates nothing.
-        fillKind = 4;
+        fillKind = 2;
       } else {
-        // Custom fill: run the user function now, in paper mm.
-        fillKind = 3;
+        // Pending: ink is generated between the passes, against the FINAL
+        // outline pass 1 returns — never here, where deform hasn't run.
+        fillKind = 1;
         const winding = geom.kind === 'path' ? geom.winding : 'nonzero';
-        const region = makeFillRegion(lowered.contours, winding);
-        const fillRng = new Rng(`${state.seedUsed}:fill:${shape.order}`);
-        const custom = spec.fn(region, {
-          penWidth: penDef.width,
-          rnd: () => fillRng.float(),
-        });
-        fillStart = primCount;
-        for (const cp of custom) {
-          if (cp.type === 'polyline') {
-            for (let i = 0; i + 1 < cp.pts.length; i++) {
-              const [x0, y0] = cp.pts[i];
-              const [x1, y1] = cp.pts[i + 1];
-              encodePrim({ t: 'line', x0, y0, x1, y1 }, primsBuf);
-              primCount++;
-            }
-            continue;
+        const order = shape.order;
+        let run: FillJob['run'];
+        if (spec.type === 'use') {
+          const def = resolveFill(spec.name);
+          if (!def) {
+            throw new Error(
+              `unknown fill '${spec.name}' — built-ins: hatch, crosshatch, stipple, solid`,
+            );
           }
-          const prim: Prim =
-            cp.type === 'line'
-              ? { t: 'line', x0: cp.x1, y0: cp.y1, x1: cp.x2, y1: cp.y2 }
-              : cp.type === 'arc'
-                ? { t: 'arc', cx: cp.cx, cy: cp.cy, r: cp.r, start: cp.start, sweep: cp.sweep }
-                : {
-                    t: 'cubic',
-                    x0: cp.x1, y0: cp.y1,
-                    c0x: cp.cx1, c0y: cp.cy1,
-                    c1x: cp.cx2, c1y: cp.cy2,
-                    x1: cp.x2, y1: cp.y2,
-                  };
-          encodePrim(prim, primsBuf);
-          primCount++;
+          validateFillParams(spec.name, spec.params);
+          const params = { ...def.params, ...spec.params };
+          run = (region, ctx) => def.generate(region, params, ctx);
+        } else {
+          const fn = spec.fn;
+          run = (region, ctx) => fn(region, ctx);
         }
-        fillCount = primCount - fillStart;
+        fillJobs.set(shapeIndex, { order, penWidth: penDef.width, winding, run });
       }
     }
 
@@ -541,7 +528,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
 
     shapesU32.push(
       cStart, cCount, flags, strokePen, fillPen, fillKind,
-      clipStart, shape.clips.length, fillStart, fillCount,
+      clipStart, shape.clips.length, 0, 0, // reserved (old fill_start/count)
       modStart, shape.modifiers.length,
     );
     shapesF64.push(shape.zIndex);
@@ -556,7 +543,6 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     shapesF64: new Float64Array(shapesF64),
     mods: new Float64Array(modsBuf),
     fieldData: new Float64Array(fieldData),
-    fillParams: new Float64Array(fillParams),
     clipList: new Uint32Array(clipList),
     clipsU32: new Uint32Array(clipsU32),
     pensJson: pensToJson(pens),
@@ -564,6 +550,8 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
       ? new Float64Array(0)
       : new Float64Array([0, 0, paperW, paperH]),
     seed: state.rng.seed32,
+    seedUsed: state.seedUsed,
+    fillJobs,
     coarsen: opts.coarsen ?? 1,
     debugGhost: opts.debugGhost ?? false,
     pens,
@@ -572,7 +560,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
   };
 }
 
-/** Raw wasm_render output (the transferable half of a worker reply). */
+/** Raw render output (the transferable half of a worker reply). */
 export interface RawRender {
   prims: Float64Array;
   frags: Float64Array;
@@ -631,17 +619,107 @@ export function decodeRender(scene: EncodedScene, raw: RawRender): RenderResult 
   };
 }
 
-/** Run wasm_render on an encoded scene with a given wasm module instance. */
+/** The supplied-ink buffers one render's fill jobs produced — also the
+ * dump-scene sidecar format (fills_index stride 5). */
+export interface SuppliedFills {
+  fillsIndex: Uint32Array;
+  fillPrims: Float64Array;
+  fillDots: Float64Array;
+}
+
+/** Run the between-pass fill jobs against pass 1's outlines. Exposed so
+ * dump-scene can persist the sidecar the native replay consumes. */
+export function runFillJobs(
+  scene: EncodedScene,
+  jobsIndex: Uint32Array,
+  jobsContours: Uint32Array,
+  jobsPrims: Float64Array,
+): SuppliedFills {
+  const fillsIndex: number[] = [];
+  const fillPrims: number[] = [];
+  const fillDots: number[] = [];
+  for (let j = 0; j + 2 < jobsIndex.length; j += 3) {
+    const shapeIdx = jobsIndex[j];
+    const cStart = jobsIndex[j + 1];
+    const cCount = jobsIndex[j + 2];
+    const job = scene.fillJobs.get(shapeIdx);
+    if (!job) continue;
+    // Decode the FINAL outline (post-deform, post-cull) into contours.
+    const contours: Prim[][] = [];
+    for (let c = cStart; c < cStart + cCount; c++) {
+      const ps = jobsContours[c * 2];
+      const pc = jobsContours[c * 2 + 1];
+      const contour: Prim[] = [];
+      for (let r = ps; r < ps + pc; r++) {
+        contour.push(decodePrim(jobsPrims, r * PRIM_STRIDE));
+      }
+      contours.push(contour);
+    }
+    const region = makeFillRegion(contours, job.winding);
+    const fillRng = new Rng(`${scene.seedUsed}:fill:${job.order}`);
+    const ctx: FillCtx = {
+      penWidth: job.penWidth,
+      rnd: () => fillRng.float(),
+      coarsen: scene.coarsen,
+      len: (l) => resolveLen(l, scene.frame.inner),
+    };
+    const marks = job.run(region, ctx);
+    const primStart = fillPrims.length / PRIM_STRIDE;
+    const dotStart = fillDots.length / 2;
+    for (const cp of marks) {
+      if (cp.type === 'dot') {
+        fillDots.push(cp.x, cp.y);
+        continue;
+      }
+      if (cp.type === 'polyline') {
+        for (let i = 0; i + 1 < cp.pts.length; i++) {
+          const [x0, y0] = cp.pts[i];
+          const [x1, y1] = cp.pts[i + 1];
+          encodePrim({ t: 'line', x0, y0, x1, y1 }, fillPrims);
+        }
+        continue;
+      }
+      const prim: Prim =
+        cp.type === 'line'
+          ? { t: 'line', x0: cp.x1, y0: cp.y1, x1: cp.x2, y1: cp.y2 }
+          : cp.type === 'arc'
+            ? { t: 'arc', cx: cp.cx, cy: cp.cy, r: cp.r, start: cp.start, sweep: cp.sweep }
+            : {
+                t: 'cubic',
+                x0: cp.x1, y0: cp.y1,
+                c0x: cp.cx1, c0y: cp.cy1,
+                c1x: cp.cx2, c1y: cp.cy2,
+                x1: cp.x2, y1: cp.y2,
+              };
+      encodePrim(prim, fillPrims);
+    }
+    fillsIndex.push(
+      shapeIdx,
+      primStart,
+      fillPrims.length / PRIM_STRIDE - primStart,
+      dotStart,
+      fillDots.length / 2 - dotStart,
+    );
+  }
+  return {
+    fillsIndex: new Uint32Array(fillsIndex),
+    fillPrims: new Float64Array(fillPrims),
+    fillDots: new Float64Array(fillDots),
+  };
+}
+
+/** Two-pass render on an encoded scene: pass 1 prepares and exposes the
+ * surviving outlines, the fill jobs generate ink here in the runtime, and
+ * pass 2 clips and occludes it. One synchronous call frame. */
 export function renderEncoded(mod: WasmModule, scene: EncodedScene): RawRender {
   const t0 = performance.now();
-  const result = mod.wasm_render(
+  const prepared = mod.wasm_prepare(
     scene.prims,
     scene.contours,
     scene.shapesU32,
     scene.shapesF64,
     scene.mods,
     scene.fieldData,
-    scene.fillParams,
     scene.clipList,
     scene.clipsU32,
     scene.pensJson,
@@ -649,6 +727,18 @@ export function renderEncoded(mod: WasmModule, scene: EncodedScene): RawRender {
     scene.seed,
     scene.coarsen,
     scene.debugGhost ? 1 : 0,
+  );
+  const supplied = runFillJobs(
+    scene,
+    prepared.jobs_index,
+    prepared.jobs_contours,
+    prepared.jobs_prims,
+  );
+  const result = mod.wasm_finish(
+    prepared,
+    supplied.fillsIndex,
+    supplied.fillPrims,
+    supplied.fillDots,
   );
   const raw: RawRender = {
     prims: result.prims,

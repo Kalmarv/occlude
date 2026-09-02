@@ -8,9 +8,10 @@
 //! the same code path the wasm build executes.
 
 use occlude_core::bbox::BBox;
-use occlude_core::fill::{FillKind, HatchPass};
+use occlude_core::fill::FillKind;
+use occlude_core::nativegen::{custom_hatch, render_with, HatchPass, NativeFill};
 use occlude_core::modifier::{FieldGrid, Modifier, Param};
-use occlude_core::pipeline::{render, Pen, RenderInput, ShapeRec};
+use occlude_core::pipeline::{Pen, RenderInput, ShapeRec};
 use occlude_core::primitive::{Arc, Line, Primitive};
 use occlude_core::region::WindingRule;
 use occlude_core::vec2::v;
@@ -73,13 +74,18 @@ fn input(shapes: Vec<ShapeRec>, fields: Vec<FieldGrid>) -> RenderInput {
     }
 }
 
-fn hatch(spacing: f64) -> FillKind {
-    FillKind::Hatch(vec![HatchPass {
-        angle: 45.0,
-        spacing,
-        shape_anchor: false,
-        offset: 0.0,
-    }])
+fn hatch_for(sh: &occlude_core::pipeline::ShapeRec, spacing: f64) -> FillKind {
+    custom_hatch(
+        &sh.contours,
+        sh.winding,
+        sh.convex,
+        &HatchPass {
+            angle: 45.0,
+            spacing,
+            shape_anchor: false,
+            offset: 0.0,
+        },
+    )
 }
 
 /// scale-cull mirror: 1500 concentric opaque circles + 1200 disjoint hatch
@@ -95,20 +101,20 @@ fn scene_cull() -> RenderInput {
     for k in 0..1200 {
         let (i, j) = ((k % 40) as f64, (k / 40) as f64);
         let mut sh = shape(rect(i * 5.0, j * 5.0, 4.0, 4.0), true, true);
-        sh.fill = Some((0, hatch(0.8)));
+        sh.fill = Some((0, hatch_for(&sh, 0.8)));
         shapes.push(sh);
     }
     for _ in 0..100 {
         let (x, y) = (lcg(&mut s) * 160.0, lcg(&mut s) * 160.0);
         let mut sh = shape(rect(x, y, 40.0, 40.0), true, true);
-        sh.fill = Some((0, hatch(1.2)));
+        sh.fill = Some((0, hatch_for(&sh, 1.2)));
         shapes.push(sh);
     }
     input(shapes, vec![])
 }
 
 /// comb mirror: 60 long lines chopped by 60 opaque circles + stipple discs.
-fn scene_comb() -> RenderInput {
+fn scene_comb() -> (RenderInput, Vec<(usize, NativeFill)>) {
     let mut s = 23u64;
     let mut shapes = Vec::new();
     for k in 0..60 {
@@ -129,18 +135,20 @@ fn scene_comb() -> RenderInput {
         sh.fill = Some((0, FillKind::Mask));
         shapes.push(sh);
     }
+    let mut fills: Vec<(usize, NativeFill)> = Vec::new();
     for k in 0..4 {
         let mut sh = shape(circle(50.0 + k as f64 * 30.0, 170.0, 14.0), true, true);
-        sh.fill = Some((
-            0,
-            FillKind::Stipple {
+        sh.fill = Some((0, FillKind::Pending));
+        fills.push((
+            shapes.len(),
+            NativeFill::Stipple {
                 density: 0.8,
                 min_dist: 0.9,
             },
         ));
         shapes.push(sh);
     }
-    input(shapes, vec![])
+    (input(shapes, vec![]), fills)
 }
 
 /// Ring stack: 120 concentric circles with dash+wobble programs, plus a
@@ -214,7 +222,7 @@ fn scene_hatch() -> RenderInput {
             4.0 + lcg(&mut s) * 14.0,
         );
         let mut sh = shape(circle(x, y, r), true, true);
-        sh.fill = Some((0, hatch(1.4)));
+        sh.fill = Some((0, hatch_for(&sh, 1.4)));
         shapes.push(sh);
     }
     input(shapes, vec![])
@@ -225,24 +233,27 @@ fn main() {
         .nth(1)
         .and_then(|a| a.parse().ok())
         .unwrap_or(50);
-    let scenes: Vec<(&str, RenderInput)> = vec![
-        ("cull-2800", scene_cull()),
-        ("comb", scene_comb()),
-        ("rings-modifiers", scene_rings()),
-        ("hatch-250", scene_hatch()),
+    let scenes: Vec<(&str, RenderInput, Vec<(usize, NativeFill)>)> = vec![
+        ("cull-2800", scene_cull(), Vec::new()),
+        {
+            let (inp, fills) = scene_comb();
+            ("comb", inp, fills)
+        },
+        ("rings-modifiers", scene_rings(), Vec::new()),
+        ("hatch-250", scene_hatch(), Vec::new()),
     ];
 
-    for (name, inp) in &scenes {
+    for (name, inp, fills) in &scenes {
         // Warmup + drain any stale zones.
         for _ in 0..3 {
-            let _ = render(inp);
+            let _ = render_with(inp.clone(), fills);
         }
         let _ = occlude_core::profile::take();
 
         let t0 = Instant::now();
         let mut frags = 0usize;
         for _ in 0..iters {
-            frags = render(inp).frags.len();
+            frags = render_with(inp.clone(), fills).frags.len();
         }
         let wall = t0.elapsed();
 

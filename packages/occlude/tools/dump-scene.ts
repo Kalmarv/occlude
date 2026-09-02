@@ -21,7 +21,8 @@ import * as occlude from '../src/index.js';
 import {
   compileSketch, initOcclude, isSketch, paperSize, setPaperHint, type SketchDef,
 } from '../src/index.js';
-import { encodeScene } from '../src/render.js';
+import { encodeScene, runFillJobs, type WasmModule } from '../src/render.js';
+import * as core from 'occlude-core';
 
 const args = process.argv.slice(2);
 const positional = args.filter((a) => !a.startsWith('--'));
@@ -92,9 +93,25 @@ dump('shapes_u32.u32', scene.shapesU32);
 dump('shapes_f64.f64', scene.shapesF64);
 dump('mods.f64', scene.mods);
 dump('fields.f64', scene.fieldData);
-dump('fill_params.f64', scene.fillParams);
 dump('clip_list.u32', scene.clipList);
 dump('clips_u32.u32', scene.clipsU32);
+// Fills sidecar: run pass 1 + the fill jobs (exactly what a render does)
+// and persist the supplied ink for native replay.
+{
+  const mod = core as unknown as WasmModule;
+  const prepared = mod.wasm_prepare(
+    scene.prims, scene.contours, scene.shapesU32, scene.shapesF64, scene.mods,
+    scene.fieldData, scene.clipList, scene.clipsU32, scene.pensJson,
+    scene.paperArr, scene.seed, scene.coarsen, 0,
+  );
+  const supplied = runFillJobs(
+    scene, prepared.jobs_index, prepared.jobs_contours, prepared.jobs_prims,
+  );
+  prepared.free?.();
+  dump('fills_index.u32', supplied.fillsIndex);
+  dump('fill_prims.f64', supplied.fillPrims);
+  dump('fill_dots.f64', supplied.fillDots);
+}
 writeFileSync(`${outDir}/pens.json`, scene.pensJson);
 writeFileSync(`${outDir}/meta.json`, JSON.stringify({
   paper: Array.from(scene.paperArr), seed: scene.seed, coarsen: scene.coarsen,

@@ -1,5 +1,6 @@
 use occlude_core::fill::FillKind;
-use occlude_core::pipeline::{render, Pen, RenderInput, ShapeRec};
+use occlude_core::nativegen::{render_with, NativeFill};
+use occlude_core::pipeline::{Pen, RenderInput, ShapeRec};
 use occlude_core::primitive::{Arc, Line, Primitive};
 use occlude_core::region::WindingRule;
 use occlude_core::snap::snap_primitive;
@@ -45,13 +46,7 @@ fn main() {
                 convex: true,
                 winding: WindingRule::NonZero,
                 stroke: Some(0),
-                fill: Some((
-                    0,
-                    FillKind::Stipple {
-                        density: 1.0,
-                        min_dist: 0.4,
-                    },
-                )),
+                fill: Some((0, FillKind::Pending)),
                 z: 0.0,
                 bridge_mm: 0.0,
                 clips: vec![],
@@ -59,14 +54,28 @@ fn main() {
             }
         })
         .collect();
-    let out = render(&RenderInput {
-        shapes,
-        clips: vec![],
-        pens: vec![Pen::default()],
-        paper: None,
-        seed: 1,
-        coarsen: 1.0,
-        debug_ghost: false, fields: Vec::new(),
-    });
+    let fills: Vec<(usize, NativeFill)> = (0..shapes.len())
+        .map(|i| {
+            (
+                i,
+                NativeFill::Stipple {
+                    density: 1.0,
+                    min_dist: 0.4,
+                },
+            )
+        })
+        .collect();
+    let out = render_with(
+        RenderInput {
+            shapes,
+            clips: vec![],
+            pens: vec![Pen::default()],
+            paper: None,
+            seed: 1,
+            coarsen: 1.0,
+            debug_ghost: false, fields: Vec::new(),
+        },
+        &fills,
+    );
     eprintln!("culled_contained: {}", out.stats.culled_contained);
 }

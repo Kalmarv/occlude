@@ -1,6 +1,6 @@
 //! Property tests (spec §8): random shapes and occluders.
 
-use occlude_core::fill::{FillKind, HatchPass};
+use occlude_core::nativegen::{custom_hatch, HatchPass};
 use occlude_core::pipeline::{render, Pen, RenderInput, ShapeRec};
 use occlude_core::primitive::{Arc, Cubic, Line, Primitive};
 use occlude_core::region::{Region, WindingRule};
@@ -85,12 +85,6 @@ fn shape_strategy() -> impl Strategy<Value = GenShape> {
 }
 
 fn to_rec(g: &GenShape) -> ShapeRec {
-    let hatch = FillKind::Hatch(vec![HatchPass {
-        angle: 45.0,
-        spacing: 2.0,
-        offset: 0.0,
-        shape_anchor: false,
-    }]);
     let (contours, closed, convex, filled) = match g {
         GenShape::Circle { x, y, r, filled } => (circle_contour(*x, *y, *r), true, true, *filled),
         GenShape::Rect { x, y, w, h, filled } => {
@@ -117,17 +111,31 @@ fn to_rec(g: &GenShape) -> ShapeRec {
             false,
         ),
     };
+    let fill = if filled && closed {
+        Some((
+            0,
+            custom_hatch(
+                &contours,
+                WindingRule::NonZero,
+                convex,
+                &HatchPass {
+                    angle: 45.0,
+                    spacing: 2.0,
+                    offset: 0.0,
+                    shape_anchor: false,
+                },
+            ),
+        ))
+    } else {
+        None
+    };
     ShapeRec {
         contours,
         closed,
         convex,
         winding: WindingRule::NonZero,
         stroke: Some(0),
-        fill: if filled && closed {
-            Some((0, hatch))
-        } else {
-            None
-        },
+        fill,
         z: 0.0,
         bridge_mm: 0.0,
         clips: vec![],

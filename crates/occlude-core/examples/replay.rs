@@ -11,7 +11,9 @@
 //! out-frags.f64 next to the scene for byte-identity diffing against a
 //! wasm render of the same dump.
 
-use occlude_core::pipeline::render;
+use occlude_core::fill::SuppliedFill;
+use occlude_core::pipeline::prepare;
+use occlude_core::scene::decode_prims;
 use occlude_core::scene::{decode_render_input, encode_render_output};
 use std::collections::HashMap;
 use std::fs;
@@ -45,7 +47,6 @@ fn main() {
     let shapes_f64 = read_f64(dir, "shapes_f64.f64");
     let mods = read_f64(dir, "mods.f64");
     let fields = read_f64(dir, "fields.f64");
-    let fill_params = read_f64(dir, "fill_params.f64");
     let clip_list = read_u32(dir, "clip_list.u32");
     let clips_u32 = read_u32(dir, "clips_u32.u32");
     let pens_json = fs::read_to_string(dir.join("pens.json")).expect("pens.json");
@@ -62,7 +63,7 @@ fn main() {
     let coarsen = meta["coarsen"].as_f64().unwrap_or(1.0);
 
     let input = decode_render_input(
-        &prims, &contours, &shapes_u32, &shapes_f64, &mods, &fields, &fill_params, &clip_list,
+        &prims, &contours, &shapes_u32, &shapes_f64, &mods, &fields, &clip_list,
         &clips_u32, &pens_json, &paper, seed, coarsen, 0,
     )
     .expect("decode scene");
@@ -75,13 +76,61 @@ fn main() {
         seed
     );
 
+    // Optional fills sidecar (written by dump-scene after running the JS
+    // fill modules): supplied ink for Pending-filled shapes.
+    let read_opt_f64 = |name: &str| -> Vec<f64> {
+        fs::read(dir.join(name))
+            .map(|b| {
+                b.chunks_exact(8)
+                    .map(|c| f64::from_le_bytes(c.try_into().unwrap()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let read_opt_u32 = |name: &str| -> Vec<u32> {
+        fs::read(dir.join(name))
+            .map(|b| {
+                b.chunks_exact(4)
+                    .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let fills_index = read_opt_u32("fills_index.u32");
+    let fill_prims_raw = read_opt_f64("fill_prims.f64");
+    let fill_dots_raw = read_opt_f64("fill_dots.f64");
+    let fill_prim_table = decode_prims(&fill_prims_raw);
+    let n_shapes = input.shapes.len();
+    let make_supplied = || -> Vec<Option<SuppliedFill>> {
+        let mut supplied: Vec<Option<SuppliedFill>> = vec![None; n_shapes];
+        for rec in fills_index.chunks_exact(5) {
+            let (si, ps, pc, ds, dc) = (
+                rec[0] as usize,
+                rec[1] as usize,
+                rec[2] as usize,
+                rec[3] as usize,
+                rec[4] as usize,
+            );
+            supplied[si] = Some(SuppliedFill {
+                prims: fill_prim_table[ps..ps + pc].to_vec(),
+                dots: (ds..ds + dc)
+                    .map(|d| occlude_core::vec2::v(fill_dots_raw[d * 2], fill_dots_raw[d * 2 + 1]))
+                    .collect(),
+            });
+        }
+        supplied
+    };
+    if !fills_index.is_empty() {
+        println!("fills sidecar: {} filled shapes supplied", fills_index.len() / 5);
+    }
+
     let mut zones: HashMap<&'static str, Duration> = HashMap::new();
     let mut total = Duration::ZERO;
     let mut last = None;
     for _ in 0..iters {
         occlude_core::profile::take();
         let t0 = Instant::now();
-        let out = render(&input);
+        let out = prepare(input.clone()).finish(make_supplied());
         total += t0.elapsed();
         for (name, d) in occlude_core::profile::take() {
             *zones.entry(name).or_default() += d;

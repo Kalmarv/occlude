@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, ellipse, exportGcode, exportPng, exportSvg, hatch, initOcclude,
-  line, mask, mm, polygon, rect, render, sketch, solid, stipple, w,
+  fill,
+  circle, ellipse, exportGcode, exportPng, exportSvg, initOcclude,
+  line, mask, mm, polygon, rect, render, sketch, w,
 } from '../src/index.js';
 import { evalPrim } from '../src/index.js';
 import type { Fragment, Prim, RenderOptions, SketchDef } from '../src/index.js';
@@ -33,7 +34,7 @@ describe('occlude declarative api', () => {
   it('occludes a line under a filled rect', () => {
     const def = sketch({ seed: 1 }, () => [
       line(0, 50, 100, 50),
-      rect(25, 25, 50, 50, { fill: hatch(45) }),
+      rect(25, 25, 50, 50, { fill: fill('hatch', { angle: 45 }) }),
     ]);
     const out = sq(def);
     // Paper 200×200: line spans (0,100)→(200,100); rect covers x∈[50,150].
@@ -60,11 +61,11 @@ describe('occlude declarative api', () => {
 
   it('fill on an open path throws at compile', () => {
     const open = sketch({ seed: 1 }, ({ path }) => [
-      path().moveTo(0, 0).lineTo(10, 10).build({ fill: hatch() }),
+      path().moveTo(0, 0).lineTo(10, 10).build({ fill: fill('hatch') }),
     ]);
     expect(() => sq(open)).toThrow(/open/);
     const closed = sketch({ seed: 1 }, ({ path }) => [
-      path().moveTo(0, 0).lineTo(10, 0).lineTo(10, 10).close().build({ fill: hatch() }),
+      path().moveTo(0, 0).lineTo(10, 0).lineTo(10, 10).close().build({ fill: fill('hatch') }),
     ]);
     expect(() => sq(closed)).not.toThrow();
   });
@@ -78,8 +79,8 @@ describe('occlude declarative api', () => {
 
   it('z overrides tree order', () => {
     const def = sketch({ seed: 1 }, () => [
-      circle(40, 50, 20, { fill: hatch(), z: 10 }), // earlier in tree, stacked on top
-      circle(60, 50, 20, { fill: hatch() }),
+      circle(40, 50, 20, { fill: fill('hatch'), z: 10 }), // earlier in tree, stacked on top
+      circle(60, 50, 20, { fill: fill('hatch') }),
     ]);
     const out = sq(def);
     const outline0 = out.frags.filter((f) => f.shape === 0 && f.geom.t === 'arc');
@@ -178,7 +179,7 @@ describe('occlude declarative api', () => {
       const def = sketch({ aspect: [1, 1], seed, origin: 'center', margin: 6 }, ({ group }) =>
         Array.from({ length: 100 }, (_, i) =>
           group({ rotate: i },
-            rect(-10, -4, 20, 8, 10, { fill: stipple(1), fillPen: 'stabilo-88-red' })),
+            rect(-10, -4, 20, 8, 10, { fill: fill('stipple', { density: 1 }), fillPen: 'stabilo-88-red' })),
         ),
       );
       const out = sq(def);
@@ -248,7 +249,7 @@ describe('occlude declarative api', () => {
         const a = stream('ridges');
         const r0 = a.rnd();
         return [
-          circle(50, 50, 30, { fill: stipple(0.5, mm(2)), fillPen: 'stabilo-88-red' }),
+          circle(50, 50, 30, { fill: fill('stipple', { density: 0.5, minDist: mm(2) }), fillPen: 'stabilo-88-red' }),
           circle(20, 20, r0 * 5 + 2),
         ];
       });
@@ -279,7 +280,7 @@ describe('occlude declarative api', () => {
 
   it('polygon forms and ellipse opts placement', () => {
     const def = sketch({ seed: 1 }, () => [
-      polygon(50, 50, 6, 20, { fill: hatch(0, mm(2)) }),
+      polygon(50, 50, 6, 20, { fill: fill('hatch', { angle: 0, spacing: mm(2) }) }),
       polygon([[10, 10], [30, 10], [20, 30]]),
       ellipse(70, 70, 10, 5, { opaque: true }), // opts in the rotation slot
     ]);
@@ -340,8 +341,8 @@ describe('occlude declarative api', () => {
 
   it('exports SVG, G-code and PNG from a sketch def', () => {
     const def = sketch({ seed: 1 }, () => [
-      circle(35, 50, 20, { fill: hatch(45) }),
-      circle(65, 50, 20, { fill: hatch(-45), pen: 'stabilo-88-red' }),
+      circle(35, 50, 20, { fill: fill('hatch', { angle: 45 }) }),
+      circle(65, 50, 20, { fill: fill('hatch', { angle: -45 }), pen: 'stabilo-88-red' }),
     ]);
     const svg = exportSvg(def, { paper: 'A5', background: '#faf7f0' });
     expect(svg).toContain('<svg');
@@ -487,7 +488,7 @@ describe('decimate', () => {
     const { decimate } = await import('../src/index.js');
     // fill: 1 → hatch fully erased, outline intact.
     const fillOnly = sketch({ seed: 7 }, () => [
-      rect(20, 20, 60, 60, { fill: hatch(45, mm(2)), decimate: { fill: 1 } }),
+      rect(20, 20, 60, 60, { fill: fill('hatch', { angle: 45, spacing: mm(2) }), decimate: { fill: 1 } }),
     ]);
     const out = sq(fillOnly);
     expect(out.frags.filter((f) => f.origin >= 4)).toHaveLength(0); // no fill ink
@@ -495,7 +496,7 @@ describe('decimate', () => {
 
     // stroke: 1 → outline gone, hatch intact.
     const strokeOnly = sketch({ seed: 7 }, () => [
-      rect(20, 20, 60, 60, { fill: hatch(45, mm(2)), decimate: { stroke: 1 } }),
+      rect(20, 20, 60, 60, { fill: fill('hatch', { angle: 45, spacing: mm(2) }), decimate: { stroke: 1 } }),
     ]);
     const out2 = sq(strokeOnly);
     expect(out2.frags.filter((f) => f.origin < 4)).toHaveLength(0);
@@ -503,7 +504,7 @@ describe('decimate', () => {
 
     // Combinator accepts the object form too.
     const viaCombinator = sketch({ seed: 7 }, () =>
-      decimate({ fill: 1 }, rect(20, 20, 60, 60, { fill: hatch(45, mm(2)) })),
+      decimate({ fill: 1 }, rect(20, 20, 60, 60, { fill: fill('hatch', { angle: 45, spacing: mm(2) }) })),
     );
     const out3 = sq(viaCombinator);
     expect(out3.frags.filter((f) => f.origin >= 4)).toHaveLength(0);
@@ -875,13 +876,13 @@ describe('seed stability', () => {
 
 describe('solid fill', () => {
   it('lays overlapping shape-aligned rows at 0.9x the fill nib', () => {
-    const def = sketch({ aspect: [1, 1] }, () => circle(50, 50, mm(5), { fill: solid() }));
+    const def = sketch({ aspect: [1, 1] }, () => circle(50, 50, mm(5), { fill: fill('solid') }));
     const r = sq(def);
     // 10mm circle, default 0.2mm pen -> 0.18mm rows: ~55 chords.
     expect(r.stats.fillPrims).toBeGreaterThan(50);
     expect(r.stats.fillPrims).toBeLessThan(60);
     // shape-aligned: the same circle elsewhere fills identically
-    const def2 = sketch({ aspect: [1, 1] }, () => circle(23.7, 71.2, mm(5), { fill: solid() }));
+    const def2 = sketch({ aspect: [1, 1] }, () => circle(23.7, 71.2, mm(5), { fill: fill('solid') }));
     expect(sq(def2).stats.fillPrims).toBe(r.stats.fillPrims);
   });
 });
@@ -894,8 +895,8 @@ describe('hatch align', () => {
     // fills are congruent (same chord lengths at the same relative spots).
     const chords = (align: 'paper' | 'shape') => {
       const def = sketch({ aspect: [1, 1] }, () => [
-        circle(30, 30, mm(2.9), { fill: hatch({ angle: 0, spacing: mm(4), align }) }),
-        circle(70, 51.3, mm(2.9), { fill: hatch({ angle: 0, spacing: mm(4), align }) }),
+        circle(30, 30, mm(2.9), { fill: fill('hatch', { angle: 0, spacing: mm(4), align }) }),
+        circle(70, 51.3, mm(2.9), { fill: fill('hatch', { angle: 0, spacing: mm(4), align }) }),
       ]);
       const r = sq(def);
       // Collect per-circle sorted chord lengths (line frags only).
@@ -984,11 +985,14 @@ describe('live-coding guards', () => {
   });
 
   it('rejects zero or negative fill spacings', () => {
-    expect(() => hatch(45, 0)).toThrow(/positive length/);
-    expect(() => hatch(45, mm(0))).toThrow(/positive length/);
-    expect(() => hatch({ angle: 45, spacing: mm(-1) })).toThrow(/positive length/);
-    expect(() => stipple(0.5, mm(0))).toThrow(/positive length/);
-    expect(hatch(45, mm(0.05))).toBeTruthy(); // small-but-real stays legal
+    // Fill params are validated at encode (mid-edit transient guard).
+    const bad = (spec: ReturnType<typeof fill>) =>
+      sketch({ seed: 1 }, () => [circle(50, 50, 10, { fill: spec })]);
+    expect(() => sq(bad(fill('hatch', { angle: 45, spacing: 0 })))).toThrow(/positive length/);
+    expect(() => sq(bad(fill('hatch', { angle: 45, spacing: mm(0) })))).toThrow(/positive length/);
+    expect(() => sq(bad(fill('hatch', { angle: 45, spacing: mm(-1) })))).toThrow(/positive length/);
+    expect(() => sq(bad(fill('stipple', { density: 0.5, minDist: mm(0) })))).toThrow(/positive length/);
+    expect(sq(bad(fill('hatch', { angle: 45, spacing: mm(0.05) })))).toBeTruthy(); // small-but-real stays legal
   });
 });
 

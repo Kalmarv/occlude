@@ -1,4 +1,4 @@
-use occlude_core::fill::{FillKind, HatchPass};
+use occlude_core::nativegen::{custom_hatch, HatchPass};
 use occlude_core::gcode::{export_gcode, MachineProfile};
 use occlude_core::pipeline::{render, Pen, RenderInput, ShapeRec};
 use occlude_core::primitive::{Arc, Primitive};
@@ -17,24 +17,28 @@ fn main() {
                 rng.range(0.0, 300.0),
                 rng.range(4.0, 10.0),
             );
+            let contours = vec![vec![
+                Primitive::Arc(Arc::new(v(x, y), r, 0.0, PI)),
+                Primitive::Arc(Arc::new(v(x, y), r, PI, PI)),
+            ]];
+            let fill = custom_hatch(
+                &contours,
+                WindingRule::NonZero,
+                true,
+                &HatchPass {
+                    angle: 45.0,
+                    spacing: 0.4,
+                    shape_anchor: false,
+                    offset: 0.0,
+                },
+            );
             ShapeRec {
-                contours: vec![vec![
-                    Primitive::Arc(Arc::new(v(x, y), r, 0.0, PI)),
-                    Primitive::Arc(Arc::new(v(x, y), r, PI, PI)),
-                ]],
+                contours,
                 closed: true,
                 convex: true,
                 winding: WindingRule::NonZero,
                 stroke: Some(0),
-                fill: Some((
-                    0,
-                    FillKind::Hatch(vec![HatchPass {
-                        angle: 45.0,
-                        spacing: 0.4,
-                        shape_anchor: false,
-                        offset: 0.0,
-                    }]),
-                )),
+                fill: Some((0, fill)),
                 z: 0.0,
                 bridge_mm: 0.0,
                 clips: vec![],
