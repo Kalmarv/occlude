@@ -26,7 +26,7 @@ const safe = (name) => (FILL_NAME_RE.test(name) ? name : null);
 
 /** Mirrors BUILTIN_FILL_NAMES in packages/occlude/src/fills.ts (this file is
  * dependency-free plain node); a studio test keeps the two lists equal. */
-export const BUILTIN_FILL_NAMES = ['hatch', 'crosshatch', 'solid', 'stipple', 'isolines'];
+export const BUILTIN_FILL_NAMES = ['hatch', 'crosshatch', 'solid', 'stipple'];
 
 const HISTORY_KEEP = 20;
 async function keepHistory(dir, name, file, newBody) {

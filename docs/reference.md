@@ -340,7 +340,7 @@ Fills are sketch-space code, never engine features: `fill(name, params?)`
 references a fill module by name (names are literals), and the engine
 runs it between the render passes against the shape's FINAL outline —
 post-deform — then clips and occludes the result like all ink. The
-built-ins (`hatch`, `crosshatch`, `stipple`, `solid`, `isolines`) are ordinary
+built-ins (`hatch`, `crosshatch`, `stipple`, `solid`) are ordinary
 modules with no privileges; an inline function (`fill: (region, ctx) =>
 [...]`) works too and receives the same region/ctx contract.
 
@@ -412,29 +412,6 @@ export default sketch({ aspect: [2, 1] }, (t) =>
     circle(14 + u * 72, 35, 7, { fill: fill('solid', { angle: u * 90 }) }),    // ink
   ]),
 );
-```
-
-### fill('isolines')
-
-`fill('isolines', { field, spacing, levels, step, align })` — contour
-lines of a field inside the shape: the same marching squares as
-`t.isolines`, over the region, on a field sampled in the region's
-coordinates (anchored by `align` like every fill field param), one pen
-stroke per contour. Levels every `spacing` in field value on multiples
-of it (so adjacent same-spec fills tile), or explicit `levels`; `step`
-is the sampling length (default 2× the nib). Topography, moiré, tone by
-contour density — anything a field can say:
-
-```ts live
-import { sketch, circle, rect, fill, mm } from 'occlude';
-
-export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
-  const hills = (x, y) => t.noise(x / 9, y / 9);
-  return [
-    circle(25, 25, 20, { fill: fill('isolines', { field: hills, spacing: 0.08, step: mm(0.8) }) }),
-    rect(55, 5, 40, 40, { fill: fill('isolines', { field: (x, y) => Math.hypot(x - 75, y - 25), spacing: 2.5 }) }),
-  ];
-});
 ```
 
 ### custom fills

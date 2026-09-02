@@ -25,7 +25,6 @@ import hatch from './fills/hatch.js';
 import crosshatch from './fills/crosshatch.js';
 import solid from './fills/solid.js';
 import stipple from './fills/stipple.js';
-import isolines from './fills/isolines.js';
 
 export {
   fillAsset, rulings,
@@ -78,7 +77,6 @@ const BUILTIN_FILLS = new Map<string, AnyFill>([
   ['crosshatch', crosshatch as AnyFill],
   ['solid', solid as AnyFill],
   ['stipple', stipple as AnyFill],
-  ['isolines', isolines as AnyFill],
 ]);
 
 export const BUILTIN_FILL_NAMES: readonly string[] = [...BUILTIN_FILLS.keys()];

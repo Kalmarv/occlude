@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  BUILTIN_FILL_NAMES, circle, clearFills, compileSketch, encodeScene, fill, fillAsset, initOcclude, mm, rect,
+  BUILTIN_FILL_NAMES, circle, clearFills, compileSketch, encodeScene, fill, fillAsset, initOcclude,
   isBuiltinFill, loadFillModule, registerFill, render, renderEncoded, resolveFill, rulings,
   scanFillNames, sketch, type WasmModule,
 } from '../src/index.js';
@@ -16,7 +16,7 @@ beforeAll(async () => {
 
 describe('fill registry', () => {
   it('ships exactly the ink-immutable built-ins, resolved from the package', () => {
-    expect([...BUILTIN_FILL_NAMES].sort()).toEqual(['crosshatch', 'hatch', 'isolines', 'solid', 'stipple']);
+    expect([...BUILTIN_FILL_NAMES].sort()).toEqual(['crosshatch', 'hatch', 'solid', 'stipple']);
     for (const n of BUILTIN_FILL_NAMES) expect(resolveFill(n)?.generate).toBeTypeOf('function');
     expect(isBuiltinFill('hatch')).toBe(true);
     expect(isBuiltinFill('mine')).toBe(false);
@@ -204,50 +204,5 @@ describe('pass-1 handle lifetime', () => {
     );
     renderEncoded(mod, scene);
     expect(freed).toBe(0);
-  });
-});
-
-describe("fill('isolines')", () => {
-  it('fills a region with contour polylines of its field, clipped to the shape', () => {
-    // A radial field: contours are rings; only the parts inside the circle
-    // survive, and every contour is one chain (judged whole).
-    const out = render(
-      sketch({ seed: 1 }, () =>
-        circle(50, 50, 20, {
-          stroke: false,
-          fill: fill('isolines', {
-            field: (x: number, y: number) => Math.hypot(x - 100, y - 100),
-            spacing: 4,
-            step: mm(1),
-          }),
-        })),
-      { paper: 'Square20' },
-    );
-    expect(out.stats.fillPrims).toBeGreaterThan(50);
-    const r = out.frags.filter((f) => !f.dot);
-    expect(r.length).toBeGreaterThan(50);
-    // The field is sampled in SKETCH coordinates (the fill's field params
-    // arrive anchored), so rings are multiples of 4 units from (100, 100)
-    // in user space. Every kept piece's midpoint, mapped back to user
-    // coordinates, sits within 0.3 units of one (edge-interpolated at a
-    // 1 mm step).
-    const unit = Math.min(out.frame.inner.innerW, out.frame.inner.innerH) / 100;
-    let off = 0;
-    for (const f of r) {
-      const g = f.geom as { x0: number; y0: number; x1: number; y1: number };
-      const ux = ((g.x0 + g.x1) / 2 - out.frame.offsetX) / unit;
-      const uy = ((g.y0 + g.y1) / 2 - out.frame.offsetY) / unit;
-      const d = Math.hypot(ux - 100, uy - 100);
-      if (Math.abs(d / 4 - Math.round(d / 4)) * 4 > 0.3) off++;
-    }
-    expect(off).toBe(0);
-  });
-
-  it("defaults contour y every 3 mm — level lines — and takes explicit levels", () => {
-    const a = render(sketch({ seed: 1 }, () => rect(20, 20, 40, 40, { stroke: false, fill: fill('isolines') })), { paper: 'Square20' });
-    expect(a.stats.fillPrims).toBeGreaterThan(5);
-    const b = render(sketch({ seed: 1 }, () => rect(20, 20, 40, 40, { stroke: false, fill: fill('isolines', { levels: [40] }) })), { paper: 'Square20' });
-    expect(b.stats.fillPrims).toBeGreaterThan(0);
-    expect(b.stats.fillPrims).toBeLessThan(a.stats.fillPrims);
   });
 });

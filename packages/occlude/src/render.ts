@@ -517,7 +517,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
           const label = spec.type === 'asset' ? 'fill asset' : spec.name;
           if (!def) {
             throw new Error(
-              `unknown fill '${label}' — built-ins: hatch, crosshatch, stipple, solid, isolines; ` +
+              `unknown fill '${label}' — built-ins: hatch, crosshatch, stipple, solid; ` +
                 'custom fills are saved on the studio Fills page',
             );
           }
