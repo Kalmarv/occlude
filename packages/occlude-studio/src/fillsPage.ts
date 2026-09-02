@@ -44,8 +44,9 @@ module.exports.default = sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
 });
 `;
 
-/** Draw a result cropped to its ink, at the canvas's on-screen width. */
-function paint(canvas: HTMLCanvasElement, result: RenderResult, cssW: number): void {
+/** Draw a result cropped to its ink, fitted inside a css box (contain:
+ * both dimensions scale by the same factor, so the aspect is the ink's). */
+function paint(canvas: HTMLCanvasElement, result: RenderResult, cssW: number, cssH: number): void {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const f of result.frags) {
     for (const s of [0, 0.5, 1]) {
@@ -61,11 +62,12 @@ function paint(canvas: HTMLCanvasElement, result: RenderResult, cssW: number): v
   const w = Math.max(10, x1 - x0 + pad * 2);
   const h = Math.max(10, y1 - y0 + pad * 2);
   const dpr = window.devicePixelRatio || 1;
-  const px = Math.min(12, (cssW * dpr) / w);
+  const cssScale = Math.min(cssW / w, cssH / h);
+  const px = Math.min(12, cssScale * dpr);
   canvas.width = Math.round(w * px);
   canvas.height = Math.round(h * px);
-  canvas.style.width = `${cssW}px`;
-  canvas.style.height = `${Math.round((cssW * h) / w)}px`;
+  canvas.style.width = `${Math.round(w * cssScale)}px`;
+  canvas.style.height = `${Math.round(h * cssScale)}px`;
   const ctx = canvas.getContext('2d')!;
   ctx.fillStyle = '#f6f2ea';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -116,7 +118,8 @@ async function boot(): Promise<void> {
     try {
       const result = await renderFill(name, open.readOnly ? undefined : { name, js: emitted.js });
       if (!result) return; // superseded
-      paint(previewCanvas, result, previewCanvas.parentElement!.clientWidth - 2);
+      const box = previewCanvas.parentElement!;
+      paint(previewCanvas, result, box.clientWidth - 2, Math.max(60, box.clientHeight - 36));
       status.textContent = `${result.stats.fragments} frags · ${result.stats.fillPrims} fill prims · ${result.stats.renderMs.toFixed(1)}ms`;
     } catch (e) {
       status.className = 'fill-status err';
@@ -274,7 +277,10 @@ async function boot(): Promise<void> {
     for (const { name, canvas } of thumbs) {
       try {
         const result = await renderFill(name);
-        if (result) paint(canvas, result, canvas.parentElement!.clientWidth - 2);
+        if (result) {
+          const box = canvas.parentElement!;
+          paint(canvas, result, box.clientWidth - 8, box.clientHeight - 8);
+        }
       } catch {
         canvas.replaceWith(Object.assign(document.createElement('span'), { textContent: 'render failed' }));
       }

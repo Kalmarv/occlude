@@ -179,7 +179,7 @@ describe('occlude declarative api', () => {
       const def = sketch({ aspect: [1, 1], seed, origin: 'center', margin: 6 }, ({ group }) =>
         Array.from({ length: 100 }, (_, i) =>
           group({ rotate: i },
-            rect(-10, -4, 20, 8, 10, { fill: fill('stipple', { density: 1 }), fillPen: 'stabilo-88-red' })),
+            rect(-10, -4, 20, 8, 10, { fill: fill('stipple', { density: 1 }), fillPen: 'stabilo-88-green' })),
         ),
       );
       const out = sq(def);
@@ -249,7 +249,7 @@ describe('occlude declarative api', () => {
         const a = stream('ridges');
         const r0 = a.rnd();
         return [
-          circle(50, 50, 30, { fill: fill('stipple', { density: 0.5, minDist: mm(2) }), fillPen: 'stabilo-88-red' }),
+          circle(50, 50, 30, { fill: fill('stipple', { density: 0.5, minDist: mm(2) }), fillPen: 'stabilo-88-green' }),
           circle(20, 20, r0 * 5 + 2),
         ];
       });
@@ -342,11 +342,11 @@ describe('occlude declarative api', () => {
   it('exports SVG, G-code and PNG from a sketch def', () => {
     const def = sketch({ seed: 1 }, () => [
       circle(35, 50, 20, { fill: fill('hatch', { angle: 45 }) }),
-      circle(65, 50, 20, { fill: fill('hatch', { angle: -45 }), pen: 'stabilo-88-red' }),
+      circle(65, 50, 20, { fill: fill('hatch', { angle: -45 }), pen: 'stabilo-88-green' }),
     ]);
     const svg = exportSvg(def, { paper: 'A5', background: '#faf7f0' });
     expect(svg).toContain('<svg');
-    expect(svg).toContain('data-pen="stabilo-88-red"');
+    expect(svg).toContain('data-pen="stabilo-88-green"');
     const jobs = exportGcode(def, { paper: 'A5' });
     expect(jobs).toHaveLength(2);
     expect(jobs[0].gcode).toContain('G21');

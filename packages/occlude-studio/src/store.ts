@@ -145,7 +145,6 @@ export default sketch({ aspect: [3, 2], margin: 6 }, (t) => {
           })
         : rect(cell.x + 2, cell.y + 2, cell.w - 4, cell.h - 4, 2, {
             fill: fill('stipple', { density: 0.6 }),
-            fillPen: 'stabilo-88-red',
           });
     }),
   ];
