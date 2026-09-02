@@ -22,6 +22,7 @@ export default fillAsset({
       0.05,
       Math.sqrt((2 * b.w * b.h) / MAX_CELLS),
     );
+    const rr = r * r;
     const cell = r / Math.SQRT2;
     const cols = Math.ceil(b.w / cell) + 1;
     const rows = Math.ceil(b.h / cell) + 1;
@@ -78,7 +79,16 @@ export default fillAsset({
           const row = gy * cols;
           for (let gx = gx0; gx < gx1; gx++) {
             const idx = grid[row + gx];
-            if (idx >= 0 && Math.hypot(px[idx] - x, py[idx] - y) < r) {
+            if (idx < 0) continue;
+            // `hypot(dx, dy) < r`, decided by the squared distance except in
+            // a ±1e-9 relative band around r², where hypot itself decides —
+            // hypot's error is ~1e-16 relative, so the outcome is exactly
+            // the original comparison's, at a fraction of the cost.
+            const ddx = px[idx] - x;
+            const ddy = py[idx] - y;
+            const q = ddx * ddx + ddy * ddy;
+            const near = q < rr * (1 - 1e-9) || (q < rr * (1 + 1e-9) && Math.hypot(ddx, ddy) < r);
+            if (near) {
               ok = false;
               break;
             }

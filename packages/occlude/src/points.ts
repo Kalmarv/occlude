@@ -233,21 +233,28 @@ export function scatterPoints(
   const rows = Math.max(1, Math.ceil(bounds.h / cell));
   const grid: number[][] = Array.from({ length: cols * rows }, () => []);
   const pts: ScatterPoint[] = [];
-  const gi = (x: number, y: number): [number, number] => [
-    Math.min(cols - 1, Math.max(0, Math.floor((x - bounds.x) / cell))),
-    Math.min(rows - 1, Math.max(0, Math.floor((y - bounds.y) / cell))),
-  ];
+  // Each placed point's radius, kept from the moment it was computed: the
+  // field is a pure function of position (contract), so the value is the
+  // same one `rOf` would return again — and the neighbour test asked for it
+  // once per neighbour per candidate, which made the field the hot spot.
+  const radii: number[] = [];
+  const reach = Math.ceil(rMax / cell) + 1;
+  const col = (x: number): number => Math.min(cols - 1, Math.max(0, Math.floor((x - bounds.x) / cell)));
+  const row = (y: number): number => Math.min(rows - 1, Math.max(0, Math.floor((y - bounds.y) / cell)));
   const fits = (x: number, y: number, r: number): boolean => {
-    const reach = Math.ceil(rMax / cell) + 1;
-    const [ci, cj] = gi(x, y);
+    const ci = col(x);
+    const cj = row(y);
     for (let dj = -reach; dj <= reach; dj++) {
+      const nj = cj + dj;
+      if (nj < 0 || nj >= rows) continue;
       for (let di = -reach; di <= reach; di++) {
         const ni = ci + di;
-        const nj = cj + dj;
-        if (ni < 0 || nj < 0 || ni >= cols || nj >= rows) continue;
-        for (const k of grid[nj * cols + ni]) {
+        if (ni < 0 || ni >= cols) continue;
+        const bucket = grid[nj * cols + ni];
+        for (let b = 0; b < bucket.length; b++) {
+          const k = bucket[b];
           const q = pts[k];
-          const need = (r + rOf(q.x, q.y)) / 2;
+          const need = (r + radii[k]) / 2;
           if (!Number.isFinite(need)) continue;
           const dx = q.x - x;
           const dy = q.y - y;
@@ -257,9 +264,9 @@ export function scatterPoints(
     }
     return true;
   };
-  const put = (x: number, y: number): void => {
-    const [ci, cj] = gi(x, y);
-    grid[cj * cols + ci].push(pts.length);
+  const put = (x: number, y: number, r: number): void => {
+    grid[row(y) * cols + col(x)].push(pts.length);
+    radii.push(r);
     pts.push({ x, y, w: Math.min(1, Math.max(0, f(x, y))) });
   };
 
@@ -268,8 +275,9 @@ export function scatterPoints(
   for (let tries = 0; tries < 500 && pts.length === 0; tries++) {
     const x = bounds.x + env.rnd() * bounds.w;
     const y = bounds.y + env.rnd() * bounds.h;
-    if (Number.isFinite(rOf(x, y))) {
-      put(x, y);
+    const r0 = rOf(x, y);
+    if (Number.isFinite(r0)) {
+      put(x, y, r0);
       active.push(0);
     }
   }
@@ -277,7 +285,7 @@ export function scatterPoints(
   while (active.length > 0) {
     const pick = Math.floor(env.rnd() * active.length);
     const base = pts[active[pick]];
-    const rb = rOf(base.x, base.y);
+    const rb = radii[active[pick]];
     let placed = false;
     for (let k = 0; k < K; k++) {
       const a = env.rnd() * Math.PI * 2;
@@ -290,7 +298,7 @@ export function scatterPoints(
       const r = rOf(x, y);
       if (!Number.isFinite(r) || !fits(x, y, r)) continue;
       active.push(pts.length);
-      put(x, y);
+      put(x, y, r);
       placed = true;
       break;
     }

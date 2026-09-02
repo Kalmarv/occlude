@@ -826,7 +826,7 @@ export function runFillJobs(
     const a = job.anchor;
     const ctx: FillCtx = {
       penWidth: job.penWidth,
-      rnd: () => fillRng.float(),
+      rnd: fillRng.floatFn(),
       coarsen: scene.coarsen,
       len: (l) => resolveLen(l, scene.frame.inner),
       anchor: { ...a, rotation: (Math.atan2(a.b, a.a) * 180) / Math.PI },

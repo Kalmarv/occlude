@@ -62,6 +62,12 @@ export class Rng {
     return this.next();
   }
 
+  /** The raw draw function itself, for hot loops that call millions of
+   * times: the same stream, one call instead of two. */
+  floatFn(): () => number {
+    return this.next;
+  }
+
   private noise2: (x: number, y: number) => number;
 
   noise(x: number, y = 0, z = 0): number {
