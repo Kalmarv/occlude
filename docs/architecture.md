@@ -156,9 +156,10 @@ clip regions the engine tests before it samples.
 - **Roots on subdivision boundaries are checked explicitly.** A root exactly
   at a Bernstein split point is invisible to both children (endpoint touch,
   zero sign variations), so the splitter evaluates the split point itself.
-- **The nib is the only tolerance.** Sub-nib ink is judged per connected
-  stroke (contour or chain) and then by exact coverage; everything upstream
-  is exact.
+- **The nib is the only tolerance.** Clipping emits every visible piece;
+  `judge_runs` groups a contour's or chain's pieces into connected runs
+  (pen-down movements) and judges each whole — a sub-nib run is one tap
+  candidate, resolved by exact coverage. Everything upstream is exact.
 - **Handles have owners.** `Prepared` is consumed by `finish`; the JS side
   frees it by hand only on the fill-throw path.
 

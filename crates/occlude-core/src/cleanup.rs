@@ -5,10 +5,11 @@
 //!    This is done by run-merging, not per-piece rules: grazing-incidence
 //!    occlusion cuts an edge into alternating sub-nib visible/hidden slivers,
 //!    and per-piece "mixed neighbours → delete" would erase a zone that a
-//!    real pen renders as a solid line. After bridging, a visible run still
-//!    shorter than the nib becomes a TAP CANDIDATE: the pen can't draw it as
-//!    a line, but it can tap a dot there. Whether it should is a coverage
-//!    question — `resolve_taps` keeps a candidate only when its ink is not
+//!    real pen renders as a solid line. The pieces are then judged as
+//!    connected RUNS across the whole contour or chain (`judge_runs` in the
+//!    pipeline): a run shorter than the nib becomes a TAP CANDIDATE — the
+//!    pen can't draw it as a line, but it can tap a dot there. Whether it
+//!    should is a coverage question — `resolve_taps` keeps a candidate only when its ink is not
 //!    already laid down by neighbouring kept strokes of the same pen
 //!    (exact nib-distance queries, no rasterising). One rule replaces the
 //!    old drop heuristics: covered ink is redundant, uncovered ink is owed.
@@ -19,33 +20,17 @@
 use crate::bbox::BBox;
 use crate::fragment::{Frag, Span};
 use crate::index::SpatialIndex;
-use crate::primitive::{Line, Primitive};
+use crate::primitive::Primitive;
 use crate::vec2::{v, Vec2};
 use std::collections::HashMap;
 
-/// A visible run too short to draw as a line is still ink the pen can make:
-/// a tap. Candidates are resolved against actual ink coverage by
-/// `resolve_taps`.
-pub fn dot_frag(origin: u32, prim: &Primitive, pen: u32, shape: u32) -> Frag {
-    dot_frag_at(origin, prim, 0.5, pen, shape)
-}
-
-pub fn dot_frag_at(origin: u32, prim: &Primitive, t: f64, pen: u32, shape: u32) -> Frag {
-    let mid = prim.eval(t);
-    Frag {
-        origin,
-        t0: t,
-        t1: t,
-        pen,
-        shape,
-        dot: true,
-        bridge: false,
-        geom: Primitive::Line(Line::new(mid, mid)),
-    }
-}
-
-/// Apply rules 1–2 to one origin primitive's final span partition and emit
-/// fragments. `threshold` is the nib width of the pen drawing this primitive.
+/// Apply rule 1's gap half to one origin primitive's final span partition
+/// and emit the visible PIECES — every one of them, sub-nib included. The
+/// keep-or-tap decision is not made here: pieces are judged as connected
+/// RUNS across the whole contour or chain afterwards (`judge_runs` in the
+/// pipeline), because a stroke is one pen movement, not a list of
+/// primitives. `threshold` (the nib) only decides which hidden gaps the
+/// pen bridges physically.
 pub fn spans_to_fragments(
     origin: u32,
     prim: &Primitive,
@@ -54,7 +39,6 @@ pub fn spans_to_fragments(
     pen: u32,
     shape: u32,
     out: &mut Vec<Frag>,
-    taps: &mut Vec<Frag>,
 ) {
     if spans.is_empty() {
         return;
@@ -98,12 +82,6 @@ pub fn spans_to_fragments(
             }
         }
         i = j + 1;
-        if span_len(start, end) < threshold {
-            // Visible ink the pen can only tap — a coverage question, not a
-            // length rule. Deferred to `resolve_taps`.
-            taps.push(dot_frag_at(origin, prim, (start + end) * 0.5, pen, shape));
-            continue;
-        }
         out.push(Frag {
             origin,
             t0: start,

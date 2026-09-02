@@ -369,7 +369,7 @@ fn tangent_line_draws_through() {
     }];
     clip_spans(&subject, &mut spans, &region, false);
     let mut frags = Vec::new();
-    spans_to_fragments(0, &subject, &spans, 0.2, 0, 0, &mut frags, &mut Vec::new());
+    spans_to_fragments(0, &subject, &spans, 0.2, 0, 0, &mut frags);
     assert_eq!(frags.len(), 1, "{frags:?}");
     assert!((frags[0].t0 - 0.0).abs() < 1e-9 && (frags[0].t1 - 1.0).abs() < 1e-9);
 }
@@ -455,15 +455,17 @@ fn tiny_hidden_gap_bridges() {
         },
     ];
     let mut frags = Vec::new();
-    spans_to_fragments(0, &prim, &spans, 0.3, 0, 0, &mut frags, &mut Vec::new());
+    spans_to_fragments(0, &prim, &spans, 0.3, 0, 0, &mut frags);
     assert_eq!(frags.len(), 1);
     assert!((frags[0].t1 - frags[0].t0 - 1.0).abs() < 1e-12);
 }
 
 #[test]
-fn sub_nib_runs_become_tap_candidates() {
-    // Any visible run below the nib is a tap CANDIDATE — never a line frag,
-    // never silently gone at this level. Coverage decides its fate.
+fn sub_nib_pieces_are_emitted_not_judged_here() {
+    // The span partition emits every visible PIECE, sub-nib included: the
+    // keep-or-tap decision belongs to the pipeline's run judgment, which
+    // sees the whole contour or chain (a 0.2 mm piece may be one segment
+    // of a 40 mm stroke). Nothing is silently gone at this level.
     let prim = Primitive::Line(line(0., 0., 0.2, 0.));
     let spans = vec![Span {
         t0: 0.0,
@@ -471,25 +473,25 @@ fn sub_nib_runs_become_tap_candidates() {
         visible: true,
     }];
     let mut frags = Vec::new();
-    let mut taps = Vec::new();
-    spans_to_fragments(0, &prim, &spans, 0.38, 0, 0, &mut frags, &mut taps);
-    assert!(frags.is_empty(), "{frags:?}");
-    assert_eq!(taps.len(), 1, "{taps:?}");
-    assert!(taps[0].dot);
-    let p = taps[0].geom.start();
-    assert!(
-        (p.x - 0.1).abs() < 1e-9 && p.y.abs() < 1e-9,
-        "dot at midpoint"
-    );
+    spans_to_fragments(0, &prim, &spans, 0.38, 0, 0, &mut frags);
+    assert_eq!(frags.len(), 1, "{frags:?}");
+    assert!(!frags[0].dot);
+    assert!((frags[0].geom.length() - 0.2).abs() < 1e-9);
 }
 
 #[test]
 fn tap_coverage_owed_vs_redundant() {
     // The one rule: a candidate whose ink is already laid down by a kept
     // stroke of the same pen is redundant; an uncovered one is owed a dot.
-    let cand = |x: f64, y: f64, pen: u32| {
-        let prim = Primitive::Line(line(x, y, x, y));
-        occlude_core::cleanup::dot_frag(9, &prim, pen, 0)
+    let cand = |x: f64, y: f64, pen: u32| Frag {
+        origin: 9,
+        t0: 0.5,
+        t1: 0.5,
+        pen,
+        shape: 0,
+        dot: true,
+        bridge: false,
+        geom: Primitive::Line(line(x, y, x, y)),
     };
     let kept = Frag::whole(0, Primitive::Line(line(0., 0., 10., 0.)), 0, 0);
     let widths = [0.3];

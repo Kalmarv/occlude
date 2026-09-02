@@ -16,9 +16,11 @@ When a proposal conflicts with one, the law wins until the artist says otherwise
    is a backlogged opt-in, not a default).
 3. **The nib is the only tolerance.** Sub-nib decisions are made by exact
    ink COVERAGE (vector distance queries, never rasterising), not by length
-   heuristics or epsilon knobs. Contours are judged whole — open or
-   closed: a connected chain is one pen stroke (outline contours AND
-   fill polyline chains alike).
+   heuristics or epsilon knobs. Visible ink is judged as connected
+   RUNS, whole: a run is one pen stroke — an outline contour, a fill
+   chain, or whatever the occluders left of either — and only a run that
+   is sub-nib as a whole degrades to a single tap (`judge_runs`, the one
+   place the rule lives).
 4. **Never double-draw ink.** Crossing an inked line is fine; retracing one
    is forbidden. No Eulerizing by edge duplication, ever. (Deliberate
    exception: the backlash diagnostic overtraces on purpose.)

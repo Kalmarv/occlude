@@ -469,3 +469,31 @@ fn fill_chain_pieces_split_by_the_region_are_separate_strokes() {
     assert!(lines.iter().any(|&l| (l - 5.0).abs() < 1e-6), "wide arm piece: {lines:?}");
     assert!(lines.iter().all(|&l| l >= 0.3), "sub-nib sliver emitted as a line: {lines:?}");
 }
+
+#[test]
+fn the_occluder_span_path_judges_runs_whole() {
+    // A 38 mm squiggle of 0.19 mm segments, stroked, with a later opaque
+    // shape whose BBOX overlaps every segment but whose region touches none:
+    // each segment takes the occluder-span path. Judged per piece, every
+    // segment is sub-nib (0.19 < 0.3) and the stroke dissolves into taps;
+    // judged as a run, it is 38 mm of drawable ink.
+    let n = 200;
+    let pt = |i: usize| v(-19.0 + i as f64 * 0.19, (i as f64 * 0.3).sin() * 0.02);
+    let chain: Vec<Primitive> = (0..n)
+        .map(|i| Primitive::Line(Line::new(pt(i), pt(i + 1))))
+        .collect();
+    let squiggle = stroke_shape(vec![chain], false);
+    // A wide, thin filled bar just below the squiggle: its bbox spans the
+    // squiggle's x-range, its region never reaches y ≈ 0.
+    let bar = filled_shape(rect_contour(-25., 2., 50., 1.), FillKind::Custom(Vec::new()));
+    let out = render(&input(vec![squiggle, bar]));
+    let ink: f64 = out
+        .frags
+        .iter()
+        .filter(|f| f.shape == 0 && !f.dot)
+        .map(|f| f.geom.length())
+        .sum();
+    let dots = out.frags.iter().filter(|f| f.shape == 0 && f.dot).count();
+    assert!(ink > 37.0, "run judged whole should keep the stroke: {ink} mm");
+    assert_eq!(dots, 0, "no crumbs along a drawable stroke");
+}

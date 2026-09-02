@@ -477,21 +477,20 @@ impl Prepared {
             if let Some(stroke_pen) = s.stroke {
                 let threshold = pen_width(stroke_pen);
                 for &(cs, ce) in &contour_ranges[i] {
-                    // The nib rule judges CONTOURS whole, open or closed: a
-                    // contour is one connected pen stroke — a 40mm squiggle
-                    // of 0.2mm segments is drawable ink, not 200 crumbs.
-                    // (Per-primitive judgment made fine-stepped open
-                    // polylines vanish: every segment individually sub-nib,
-                    // demoted to a tap, swallowed by coverage — and finer
-                    // steps made it worse.)
-                    let judge = prim_table_ro[cs..ce].iter().map(|p| p.length()).sum::<f64>();
+                    // Clip every primitive of the contour to pieces, then judge
+                    // the pieces as connected RUNS — a contour is one pen
+                    // stroke, open or closed, however many primitives lower
+                    // it. (Per-primitive judgment made fine-stepped polylines
+                    // vanish: every segment individually sub-nib, demoted to
+                    // a tap, swallowed by coverage — and finer steps made it
+                    // worse.)
+                    let from = so.frags.len();
                     for gi in cs..ce {
                         let prim = prim_table_ro[gi];
                         clip_one(
                             gi as u32,
                             &prim,
                             threshold,
-                            judge,
                             stroke_pen,
                             i as u32,
                             &shape_clips,
@@ -499,9 +498,9 @@ impl Prepared {
                             clean[i],
                             &mut query_buf,
                             &mut so.frags,
-                            &mut so.taps,
                         );
                     }
+                    judge_runs(&mut so, from, threshold, s.closed, stroke_pen, i as u32);
                 }
             }
 
@@ -520,14 +519,13 @@ impl Prepared {
                 return so;
             };
             let threshold = pen_width(*fill_pen);
-            let gen_one = |prim: Primitive, judge: f64, so: &mut ShapeOut, query_buf: &mut Vec<u32>| {
+            let gen_one = |prim: Primitive, so: &mut ShapeOut, query_buf: &mut Vec<u32>| {
                 let origin = GEN_FLAG | so.gen_prims.len() as u32;
                 so.gen_prims.push(prim);
                 clip_one(
                     origin,
                     &prim,
                     threshold,
-                    judge,
                     *fill_pen,
                     i as u32,
                     &shape_clips,
@@ -535,24 +533,15 @@ impl Prepared {
                     clean[i],
                     query_buf,
                     &mut so.frags,
-                    &mut so.taps,
                 );
             };
-            // A chain is one connected pen stroke, so the nib rule judges it
-            // WHOLE — the fill-side twin of "contours judged whole" for
-            // outlines. Clip every primitive of the chain to the region
-            // first, then group the visible pieces into RUNS the pen draws
-            // without lifting: a piece that starts where the previous one
-            // ended continues the stroke; a gap (the region cut the chain,
-            // or the chain left and re-entered) ends it. Each run is judged
-            // by its total length. A lone ruling cut into disjoint pieces
-            // is therefore judged per piece — built-in hatch ink on concave
-            // regions is exactly what it was before chains existed. (Per-
-            // primitive judgment made fine-stepped polyline fills vanish:
-            // every segment sub-nib, tapped, swallowed by coverage — and
-            // finer steps made it worse.)
+            // A chain is one connected pen stroke: clip every primitive to
+            // the region, then to the occluders, and judge the surviving
+            // pieces as connected RUNS exactly like an outline contour. A
+            // lone ruling cut into disjoint pieces is several runs, judged
+            // apart; a fine-stepped polyline is one run, drawable ink.
             let clip_chain = |chain: &[Primitive], so: &mut ShapeOut, query_buf: &mut Vec<u32>| {
-                let mut runs: Vec<Vec<Primitive>> = Vec::new();
+                let from = so.frags.len();
                 for prim in chain {
                     let mut spans = vec![Span {
                         t0: 0.0,
@@ -561,23 +550,10 @@ impl Prepared {
                     }];
                     clip_spans(prim, &mut spans, region, true);
                     for sp in spans.iter().filter(|sp| sp.visible) {
-                        let piece = prim.sub(sp.t0, sp.t1);
-                        let continues = runs
-                            .last()
-                            .and_then(|r| r.last())
-                            .is_some_and(|prev| prev.end().dist(piece.start()) <= 1e-9);
-                        match runs.last_mut() {
-                            Some(run) if continues => run.push(piece),
-                            _ => runs.push(vec![piece]),
-                        }
+                        gen_one(prim.sub(sp.t0, sp.t1), so, query_buf);
                     }
                 }
-                for run in runs {
-                    let judge: f64 = run.iter().map(|p| p.length()).sum();
-                    for piece in run {
-                        gen_one(piece, judge, so, query_buf);
-                    }
-                }
+                judge_runs(so, from, threshold, false, *fill_pen, i as u32);
             };
             match kind {
                 FillKind::Pending => {
@@ -642,43 +618,7 @@ impl Prepared {
             let base = prim_table.len() as u32;
             stats.fill_prims += so.gen_prims.len();
             gen_range[i] = (base as usize, base as usize + so.gen_prims.len());
-            let mut shape_taps = so.taps;
-            // A closed contour that collapsed ENTIRELY (every primitive tapped,
-            // nothing kept) is one mark, not one per lowered primitive — a
-            // sub-nib circle's two arcs must tap once at the centre, not twice
-            // as a peanut. Replace such a contour's taps with a single
-            // length-weighted centroid tap; partially-kept contours keep their
-            // per-primitive candidates (coverage handles those).
-            for &(cs, ce) in &contour_ranges[i] {
-                let in_range =
-                    |o: u32| o & GEN_FLAG == 0 && (o as usize) >= cs && (o as usize) < ce;
-                if so.frags.iter().any(|f| in_range(f.origin)) {
-                    continue;
-                }
-                let idxs: Vec<usize> = shape_taps
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, t)| in_range(t.origin))
-                    .map(|(k, _)| k)
-                    .collect();
-                if idxs.len() < 2 {
-                    continue;
-                }
-                let (mut cx, mut cy, mut wsum) = (0.0, 0.0, 0.0);
-                for &k in &idxs {
-                    let p = shape_taps[k].geom.start();
-                    let w = prim_table[shape_taps[k].origin as usize].length().max(1e-9);
-                    cx += p.x * w;
-                    cy += p.y * w;
-                    wsum += w;
-                }
-                let c = v(cx / wsum, cy / wsum);
-                let first = idxs[0];
-                shape_taps[first].geom = Primitive::Line(Line::new(c, c));
-                for &k in idxs.iter().skip(1).rev() {
-                    shape_taps.remove(k);
-                }
-            }
+            let shape_taps = so.taps;
             prim_table.extend(so.gen_prims);
             let rebase = |mut f: Frag| {
                 if f.origin & GEN_FLAG != 0 {
@@ -1591,14 +1531,14 @@ fn value_noise(seed: u64, x: f64, y: f64) -> f64 {
 /// Clip a single primitive through clip regions (keep inside) then occluders
 /// (keep outside, front to back with early-out), then cleanup + emit.
 #[allow(clippy::too_many_arguments)]
+/// Clip one primitive against its clips and the occluders in front of it
+/// and emit its visible PIECES. No nib judgment happens here — pieces are
+/// judged as connected runs by `judge_runs`, whatever path produced them.
+#[allow(clippy::too_many_arguments)]
 fn clip_one(
     origin: u32,
     prim: &Primitive,
     threshold: f64,
-    // Length judged against the nib for the fully-visible keep/tap decision:
-    // the whole contour's length for closed outlines (a ring of sub-nib arcs
-    // is still plottable ink), the primitive's own length otherwise.
-    judge_len: f64,
     pen: u32,
     shape: u32,
     clips: &[(&Region, bool)],
@@ -1606,17 +1546,9 @@ fn clip_one(
     clean: bool,
     query_buf: &mut Vec<u32>,
     out: &mut Vec<Frag>,
-    taps: &mut Vec<Frag>,
 ) {
     if clean {
-        // The nib rule applies on the fast path too — judged per contour
-        // for closed outlines: only ink that is sub-nib AS A WHOLE degrades
-        // to a tap candidate (coverage decides its fate in resolve_taps).
-        if judge_len >= threshold {
-            out.push(Frag::whole(origin, *prim, pen, shape));
-        } else {
-            taps.push(crate::cleanup::dot_frag(origin, prim, pen, shape));
-        }
+        out.push(Frag::whole(origin, *prim, pen, shape));
         return;
     }
     // Per-primitive index query: only occluders near THIS primitive.
@@ -1632,11 +1564,7 @@ fn clip_one(
         .iter()
         .any(|&oi| ctx.occluders[oi as usize].rank > ctx.my_rank);
     if !any_later && clips.is_empty() {
-        if judge_len >= threshold {
-            out.push(Frag::whole(origin, *prim, pen, shape));
-        } else {
-            taps.push(crate::cleanup::dot_frag(origin, prim, pen, shape));
-        }
+        out.push(Frag::whole(origin, *prim, pen, shape));
         return;
     }
     let mut spans = vec![Span {
@@ -1687,7 +1615,77 @@ fn clip_one(
             return;
         }
     }
-    spans_to_fragments(origin, prim, &spans, threshold, pen, shape, out, taps);
+    spans_to_fragments(origin, prim, &spans, threshold, pen, shape, out);
+}
+
+/// THE nib rule, in one place. The pieces pushed to `so.frags` since `from`
+/// are one contour's or one chain's visible ink, in stroke order. Group
+/// them into RUNS the pen draws without lifting (a piece that starts where
+/// the previous one ended continues the stroke; a closed contour's last
+/// run wraps into its first) and judge each run by its TOTAL length: a run
+/// at or above the nib stays as its pieces; a sub-nib run is ink the pen
+/// can only tap — it becomes ONE tap candidate at its length-weighted
+/// centroid (a sub-nib circle's two arcs tap once at the centre, never as
+/// a peanut), resolved later against coverage. Whether a piece came from
+/// the clean fast path, an occluder span, or a region clip is invisible
+/// here — one mechanism, no special cases.
+fn judge_runs(so: &mut ShapeOut, from: usize, threshold: f64, closed: bool, pen: u32, shape: u32) {
+    if so.frags.len() <= from {
+        return;
+    }
+    let pieces: Vec<Frag> = so.frags.drain(from..).collect();
+    let mut runs: Vec<Vec<Frag>> = Vec::new();
+    for piece in pieces {
+        let continues = runs
+            .last()
+            .and_then(|r| r.last())
+            .is_some_and(|prev| prev.geom.end().dist(piece.geom.start()) <= 1e-9);
+        match runs.last_mut() {
+            Some(run) if continues => run.push(piece),
+            _ => runs.push(vec![piece]),
+        }
+    }
+    if closed && runs.len() > 1 {
+        let wraps = runs
+            .last()
+            .and_then(|r| r.last())
+            .zip(runs.first().and_then(|r| r.first()))
+            .is_some_and(|(last, first)| last.geom.end().dist(first.geom.start()) <= 1e-9);
+        if wraps {
+            let mut last = runs.pop().unwrap();
+            last.append(&mut runs[0]);
+            runs[0] = last;
+        }
+    }
+    for run in runs {
+        let total: f64 = run.iter().map(|f| f.geom.length()).sum();
+        if total >= threshold {
+            so.frags.extend(run);
+            continue;
+        }
+        let (mut cx, mut cy, mut wsum) = (0.0, 0.0, 0.0);
+        for f in &run {
+            let m = f.geom.eval(0.5);
+            let w = f.geom.length().max(1e-9);
+            cx += m.x * w;
+            cy += m.y * w;
+            wsum += w;
+        }
+        let c = v(cx / wsum, cy / wsum);
+        let dotp = Primitive::Line(Line::new(c, c));
+        let origin = GEN_FLAG | so.gen_prims.len() as u32;
+        so.gen_prims.push(dotp);
+        so.taps.push(Frag {
+            origin,
+            t0: 0.0,
+            t1: 1.0,
+            pen,
+            shape,
+            dot: true,
+            bridge: false,
+            geom: dotp,
+        });
+    }
 }
 
 fn point_visible(p: Vec2, clips: &[(&Region, bool)], ctx: &ClipCtx, query_buf: &mut Vec<u32>) -> bool {
