@@ -60,7 +60,14 @@ async function fork(name: string): Promise<void> {
 function snapshotCard(s: Snapshot, refresh: () => Promise<void>): HTMLElement {
   const card = document.createElement('div');
   card.className = 'asset-card snap-card';
-  card.append(thumb(thumbUrl(s.name, s.id)));
+  const snapThumb = thumb(thumbUrl(s.name, s.id));
+  snapThumb.title = 'Open this snapshot in the studio';
+  snapThumb.onclick = async (e) => {
+    e.stopPropagation();
+    const { source, meta: m } = await loadSnapshot(s.name, s.id);
+    openInStudio(s.name, source, m.seed);
+  };
+  card.append(snapThumb);
   const meta = document.createElement('div');
   meta.className = 'asset-meta';
   const nm = document.createElement('div');
@@ -205,6 +212,14 @@ function sketchCard(info: SketchInfo, all: SketchInfo[], refresh: () => Promise<
     }
   };
   if (!detail.hidden) void fill();
+  // The thumbnail is the sketch: click it to open in the studio. The strip
+  // below (name, meta, actions) toggles the forks/snapshots/history.
+  const thumbEl = card.querySelector('.sketch-thumb') as HTMLElement;
+  thumbEl.title = `Open '${info.name}' in the studio`;
+  thumbEl.onclick = async (e) => {
+    e.stopPropagation();
+    openInStudio(info.name, await loadSketchByName(info.name));
+  };
   card.onclick = (e) => {
     if ((e.target as HTMLElement).closest('.sketch-detail, button')) return;
     detail.hidden = !detail.hidden;

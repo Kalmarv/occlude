@@ -1071,6 +1071,15 @@ body.dropping {
   cursor: pointer;
 }
 
+.sketch-thumb {
+  cursor: pointer;
+}
+
+.sketch-thumb:hover {
+  outline: 2px solid var(--toolpath);
+  outline-offset: -2px;
+}
+
 .sketch-card.expanded {
   grid-column: 1 / -1;
   cursor: default;
