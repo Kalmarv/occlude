@@ -34,18 +34,26 @@ export type VectorFieldFn = (x: number, y: number) => [number, number];
  * modifier constructors (`decimate(p)`, `wobble(amt)`, …). Post-stage
  * entries run over the shape's final ink after occlusion, in stack order.
  */
+/** Where a modifier's field params are anchored: `'paper'` (default)
+ * samples in paper coordinates; `'shape'` anchors the field to the shape —
+ * A = G ∘ C: the shape's intrinsic bbox centre is field (0, 0) and the
+ * field turns with the motif's explicit transforms. */
+export type FieldAlign = 'paper' | 'shape';
+
 export type ModifierValue =
   | {
       readonly __occludeModifier: true;
       readonly kind: 'decimate';
       stroke: number | FieldFn;
       fill: number | FieldFn;
+      align?: FieldAlign;
     }
   | {
       readonly __occludeModifier: true;
       readonly kind: 'wobble';
       amount: L | FieldFn;
       wavelength?: L;
+      align?: FieldAlign;
     }
   | { readonly __occludeModifier: true; readonly kind: 'dash'; len: L; gap: L; offset?: L }
   | { readonly __occludeModifier: true; readonly kind: 'smooth'; passes: number }
@@ -54,12 +62,14 @@ export type ModifierValue =
       readonly kind: 'roughen';
       amount: L | FieldFn;
       detail?: L;
+      align?: FieldAlign;
     }
   | {
       readonly __occludeModifier: true;
       readonly kind: 'deform';
       field: VectorFieldFn;
       detail?: L;
+      align?: FieldAlign;
     };
 
 export type ShapeGeom =

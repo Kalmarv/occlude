@@ -15,7 +15,7 @@ use crate::clip::{clip_spans, fully_hidden};
 use crate::fill::{FillKind, SuppliedFill};
 use crate::fragment::{Frag, Span};
 use crate::index::SpatialIndex;
-use crate::modifier::{FieldGrid, Modifier, Param, Stage};
+use crate::modifier::{FieldCtx, FieldGrid, FieldUse, Modifier, Param, Stage};
 use crate::primitive::{Line, Primitive};
 use crate::region::{Region, WindingRule};
 use crate::vec2::{v, Vec2};
@@ -94,9 +94,11 @@ pub struct RenderInput {
     /// Coarsening factor for preview (multiplies hatch spacing / stipple
     /// distance). 1.0 = exact.
     pub coarsen: f64,
-    /// Rasterised scalar fields referenced by `Param::Field` modifier
-    /// parameters (paper-mm grids).
+    /// Rasterised field grids (field space); `field_uses` reference them.
     pub fields: Vec<FieldGrid>,
+    /// Engine field uses referenced by `Param::Field`: grid + per-use
+    /// sampling transform + domain refs into `clips`.
+    pub field_uses: Vec<FieldUse>,
     /// Debug: also return every shape's full pre-occlusion geometry run
     /// through its post-stage program (decimate skipped) — ghosts that
     /// wobble and dash exactly like the surviving ink.
@@ -160,6 +162,7 @@ pub struct Prepared {
     pens: Vec<Pen>,
     seed: u64,
     fields: Vec<FieldGrid>,
+    field_uses: Vec<FieldUse>,
     debug_ghost: bool,
     stats: RenderStats,
     rank: Vec<usize>,
@@ -216,6 +219,7 @@ pub fn prepare(input: RenderInput) -> Prepared {
         seed,
         coarsen: _,
         fields,
+        field_uses,
         debug_ghost,
     } = input;
     let n = input_shapes.len();
@@ -223,6 +227,15 @@ pub fn prepare(input: RenderInput) -> Prepared {
         shapes_in: n,
         ..Default::default()
     };
+
+    // Clip regions, built first: field domains (`within()` bounds) ride
+    // this table and pre-stage modifiers sample fields before the solve.
+    // (region, keep_inside): a normal clip keeps inside, an inverted one
+    // keeps outside — the same polarity bit clip_spans already speaks.
+    let clip_regions: Vec<(Region, bool)> = clips
+        .iter()
+        .map(|c| (Region::new(c.contours.clone(), c.winding, c.convex), !c.invert))
+        .collect();
 
     // ---- Pre-stage modifiers: deform shape geometry BEFORE the solve, so
     // occlusion, fills and culling all follow the modified contours. This is
@@ -233,10 +246,15 @@ pub fn prepare(input: RenderInput) -> Prepared {
         .iter()
         .any(|s| s.modifiers.iter().any(|m| m.stage() == Stage::Pre))
     {
+        let ctx = FieldCtx {
+            grids: &fields,
+            uses: &field_uses,
+            domains: &clip_regions,
+        };
         input_shapes
             .iter()
             .enumerate()
-            .map(|(i, s)| apply_pre(s, i, seed, &fields, &pens))
+            .map(|(i, s)| apply_pre(s, i, seed, &ctx, &pens))
             .collect()
     } else {
         input_shapes
@@ -299,13 +317,6 @@ pub fn prepare(input: RenderInput) -> Prepared {
     let occ_boxes: Vec<BBox> = occluders.iter().map(|o| o.region.bbox).collect();
     let occ_index = SpatialIndex::build(&occ_boxes);
 
-    // Clip regions.
-    // (region, keep_inside): a normal clip keeps inside, an inverted one
-    // keeps outside — the same polarity bit clip_spans already speaks.
-    let clip_regions: Vec<(Region, bool)> = clips
-        .iter()
-        .map(|c| (Region::new(c.contours.clone(), c.winding, c.convex), !c.invert))
-        .collect();
     let paper_region: Option<Region> = paper.map(|p| {
         let pts = [
             v(p.min.x, p.min.y),
@@ -385,6 +396,7 @@ pub fn prepare(input: RenderInput) -> Prepared {
         pens,
         seed,
         fields,
+        field_uses,
         debug_ghost,
         stats,
         rank,
@@ -699,7 +711,11 @@ impl Prepared {
         if has_post {
             let mut interp = PostInterp {
                 seed,
-                fields: &self.fields,
+                fields: FieldCtx {
+                    grids: &self.fields,
+                    uses: &self.field_uses,
+                    domains: &self.clip_regions,
+                },
                 prim_table: &mut prim_table,
                 contour_ranges,
                 dash_tables: std::collections::HashMap::new(),
@@ -749,7 +765,11 @@ impl Prepared {
             let mut gtable = prim_table.clone();
             let mut interp = PostInterp {
                 seed,
-                fields: &self.fields,
+                fields: FieldCtx {
+                    grids: &self.fields,
+                    uses: &self.field_uses,
+                    domains: &self.clip_regions,
+                },
                 prim_table: &mut gtable,
                 contour_ranges,
                 dash_tables: std::collections::HashMap::new(),
@@ -935,7 +955,7 @@ fn bridge_pass(shapes: &[ShapeRec], frags: &mut Vec<Frag>, prims: &mut Vec<Primi
 /// with many (wobble); generated geometry is appended to the prim table.
 struct PostInterp<'a> {
     seed: u64,
-    fields: &'a [FieldGrid],
+    fields: FieldCtx<'a>,
     prim_table: &'a mut Vec<Primitive>,
     contour_ranges: &'a [Vec<(usize, usize)>],
     /// Per-shape outline arc-length tables for phase-continuous dashing.
@@ -1002,7 +1022,7 @@ impl PostInterp<'_> {
     /// Seeded per-fragment coin flip; deterministic from the sketch seed.
     fn keep_decimated(&self, f: &Frag, p: &Param) -> bool {
         let mid = f.geom.eval(0.5);
-        let p = p.at(self.fields, mid.x, mid.y);
+        let p = p.at(&self.fields, mid);
         if p <= 0.0 {
             return true;
         }
@@ -1025,9 +1045,9 @@ impl PostInterp<'_> {
         let wl = wavelength.max(1.0);
         let freq = 1.0 / wl;
         let seed = self.seed;
-        let fields = self.fields;
+        let fields = &self.fields;
         let jiggle = |p: Vec2| -> Vec2 {
-            let a = amp.at(fields, p.x, p.y);
+            let a = amp.at(fields, p);
             v(
                 p.x + a * value_noise(seed ^ 0x570B_B1E5, p.x * freq, p.y * freq),
                 p.y + a * value_noise(seed ^ 0x0135_E2A7, p.x * freq, p.y * freq),
@@ -1256,7 +1276,7 @@ fn prefix_len(origin: &Primitive, t0: f64) -> f64 {
 /// Contours flatten to polylines once (0.05 mm), the ops transform points,
 /// and line primitives are rebuilt at the end. Convexity is conservatively
 /// dropped — deformed geometry makes no promises.
-fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &[FieldGrid], pens: &[Pen]) -> ShapeRec {
+fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &FieldCtx, pens: &[Pen]) -> ShapeRec {
     if !s.modifiers.iter().any(|m| m.stage() == Stage::Pre) {
         return s.clone();
     }
@@ -1283,7 +1303,7 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &[FieldGrid], pe
                         (1, n.saturating_sub(1))
                     };
                     for (i, p) in poly.iter_mut().enumerate().take(hi).skip(lo) {
-                        let a = amp.at(fields, p.x, p.y);
+                        let a = amp.at(fields, *p);
                         if a <= 0.0 {
                             continue;
                         }
@@ -1299,7 +1319,10 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &[FieldGrid], pe
             }
             Modifier::Deform { dx, dy, detail } => {
                 let target = detail.max(0.2);
-                let map = |p: Vec2| v(p.x + dx.at(fields, p.x, p.y), p.y + dy.at(fields, p.x, p.y));
+                let map = |p: Vec2| {
+                    let d = fields.vector(dx, dy, p);
+                    v(p.x + d.x, p.y + d.y)
+                };
                 for poly in &mut polys {
                     // Adaptive floor: small shapes need proportionally finer
                     // source sampling — guarantee ≥64 segments per contour.

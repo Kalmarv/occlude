@@ -17,8 +17,12 @@ import {
 import { paperSize, type PaperChoice } from './paper.js';
 import type { PenDef } from './pens.js';
 import { flattenPrim, subPrim, type Prim } from './prims.js';
-import { lowerShape, makeFrame, paperToUser, shapeAnchorMatrix, type Frame } from './record.js';
-import type { FieldFn, VectorFieldFn } from './shapes.js';
+import {
+  lowerShape, lowerToUserLoops, makeFrame, unitMm, userToPaperMatrix, type Frame,
+} from './record.js';
+import { fieldMeta } from './field.js';
+import { apply, invert, minScale, mul, scale as mscale, type Mat } from './matrix.js';
+import type { FieldAlign, FieldFn, VectorFieldFn } from './shapes.js';
 import { Rng } from './random.js';
 import { getState, type Winding } from './state.js';
 import { compileSketch, isSketch, type SketchDef } from './api.js';
@@ -82,6 +86,8 @@ export interface WasmModule {
     shapes_f64: Float64Array,
     mods: Float64Array,
     field_data: Float64Array,
+    field_uses: Float64Array,
+    domain_list: Uint32Array,
     clip_list: Uint32Array,
     clips_u32: Uint32Array,
     pens_json: string,
@@ -212,8 +218,15 @@ export interface EncodedScene {
   shapesF64: Float64Array;
   /** Modifier tape: [opcode, field_mask, ...params] per instruction. */
   mods: Float64Array;
-  /** Concatenated field rasters: [w, h, x0, y0, dx, dy, ...samples] each. */
+  /** Concatenated field grids in FIELD space: [w, h, x0, y0, dx, dy,
+   * ...samples] each — one grid per field, shared by every use. */
   fieldData: Float64Array;
+  /** Engine field uses, stride 14 (see scene.rs): grid, paper→field
+   * transform, field→paper linear part, magnitude scale, domain refs. */
+  fieldUses: Float64Array;
+  /** Domain refs: clip-region indices (`within()` bounds ride the clip
+   * table as exact paper-mm regions). */
+  domainList: Uint32Array;
   clipList: Uint32Array;
   clipsU32: Uint32Array;
   pensJson: string;
@@ -239,10 +252,10 @@ export interface FillJob {
   order: number;
   penWidth: number;
   winding: Winding;
-  /** Shape-anchor rotation (degrees, paper space): the accumulated explicit
-   * transform's rotation — identity (0) for coordinate-placed shapes, so a
-   * shape-aligned texture rotates only when its motif does. */
-  anchorRotation: number;
+  /** The shape anchor A = G ∘ C compiled to paper (shape-local mm → paper
+   * mm): identity-plus-centre for coordinate-placed shapes, so a shape-
+   * aligned texture turns only when its motif does. */
+  anchor: Mat;
   run(region: FillRegion, ctx: FillCtx): CustomPrimitive[];
 }
 
@@ -327,75 +340,6 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
   const shapesU32: number[] = [];
   const shapesF64: number[] = [];
   const modsBuf: number[] = [];
-  const fieldData: number[] = [];
-
-  // Field rasterisation: sample the user's function over the paper on a
-  // coarse mm grid (the core interpolates bilinearly). Sampled in user
-  // coordinates, stored per value kind — 'p01' clamps to a probability,
-  // 'len' resolves lengths (bare units or Len) to mm. One raster per
-  // (function, kind), shared across shapes.
-  const toUser = paperToUser(frame);
-  const fieldIndex = new Map<FieldFn, { p01?: number; len?: number }>();
-  let fieldCount = 0;
-  const fieldParam = (
-    v: number | import('./units.js').L | FieldFn,
-    kind: 'p01' | 'len',
-  ): [number, number] => {
-    if (typeof v === 'function') {
-      let slots = fieldIndex.get(v);
-      if (!slots) fieldIndex.set(v, (slots = {}));
-      if (slots[kind] === undefined) {
-        const step = Math.max(0.5, Math.min(2, Math.max(paperW, paperH) / 128));
-        const gw = Math.max(2, Math.ceil(paperW / step) + 1);
-        const gh = Math.max(2, Math.ceil(paperH / step) + 1);
-        fieldData.push(gw, gh, 0, 0, step, step);
-        for (let j = 0; j < gh; j++) {
-          for (let i = 0; i < gw; i++) {
-            const [ux, uy] = toUser(i * step, j * step);
-            const raw = v(ux, uy);
-            const val =
-              kind === 'p01'
-                ? Math.min(1, Math.max(0, Number(raw)))
-                : resolveLen(raw, frame.inner);
-            // Fail open on a non-finite field sample: draw normally rather
-            // than silently deleting or teleporting ink.
-            fieldData.push(Number.isFinite(val) ? val : 0);
-          }
-        }
-        slots[kind] = fieldCount++;
-      }
-      return [slots[kind], 1];
-    }
-    return [kind === 'len' ? resolveLen(v, frame.inner) : (v as number), 0];
-  };
-  // Vector fields (deform): two scalar rasters per function — dx then dy —
-  // converted from user-unit displacement to paper mm (yUp flips dy).
-  const vectorIndex = new Map<VectorFieldFn, [number, number]>();
-  const vectorField = (fn: VectorFieldFn): [number, number] => {
-    let ids = vectorIndex.get(fn);
-    if (ids) return ids;
-    const unit = Math.min(frame.inner.innerW, frame.inner.innerH) / 100;
-    const ySign = frame.yUp ? -1 : 1;
-    // Finer than scalar fields: deform geometry follows this raster
-    // directly, and vortex-like fields turn fast near their cores.
-    const step = Math.max(0.25, Math.min(1, Math.max(paperW, paperH) / 256));
-    const gw = Math.max(2, Math.ceil(paperW / step) + 1);
-    const gh = Math.max(2, Math.ceil(paperH / step) + 1);
-    for (const axis of [0, 1] as const) {
-      fieldData.push(gw, gh, 0, 0, step, step);
-      for (let j = 0; j < gh; j++) {
-        for (let i = 0; i < gw; i++) {
-          const [ux, uy] = toUser(i * step, j * step);
-          const d = fn(ux, uy)[axis] * unit;
-          fieldData.push(Number.isFinite(d) ? (axis === 1 ? d * ySign : d) : 0);
-        }
-      }
-    }
-    ids = [fieldCount, fieldCount + 1];
-    fieldCount += 2;
-    vectorIndex.set(fn, ids);
-    return ids;
-  };
   const clipList: number[] = [];
   const clipsU32: number[] = [];
 
@@ -412,6 +356,101 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     return [start, cs.length];
   };
 
+  // ---- Engine field uses (spec rules 10–12) -------------------------
+  // A modifier's field param becomes a USE: (grid, per-use sampling
+  // transform, domain refs). The transform stays OUTSIDE the grid — one
+  // raster per field, shared by every use; a thousand shape-anchored
+  // halftone dots are a thousand tiny matrices over one grid. Grids are
+  // built after the shape loop, over the union of the uses' pulled-back
+  // footprints, at a pitch the largest use needs. `within()` bounds ship
+  // as exact clip regions the engine tests before sampling.
+  const unit = unitMm(frame);
+  const userToPaper = userToPaperMatrix(frame);
+  /** paper mm → user units: the paper-aligned sampling transform. */
+  const paperToUnits = mul(mscale(1 / unit, 1 / unit), invert(userToPaper));
+  type Kind = 'p01' | 'len' | 'vx' | 'vy';
+  interface UseRec {
+    fn: FieldFn | VectorFieldFn; // the UNBOUNDED field the grid samples
+    kind: Kind;
+    m: Mat; // paper mm → field units
+    domains: number[];
+    footprint: { x0: number; y0: number; x1: number; y1: number }; // paper mm
+    grid?: number;
+  }
+  const uses: UseRec[] = [];
+  const paperUseIndex = new Map<string, number>();
+  const fnIds = new Map<object, number>();
+  const idOf = (fn: object): number => {
+    let id = fnIds.get(fn);
+    if (id === undefined) fnIds.set(fn, (id = fnIds.size));
+    return id;
+  };
+  const paperFootprint = { x0: 0, y0: 0, x1: paperW, y1: paperH };
+  /** Push a domain bound as a clip region in paper mm and return its index. */
+  const domainCache = new Map<string, number>();
+  const pushDomain = (bound: import('./field.js').FieldBound, m: Mat, key: string): number => {
+    const cached = domainCache.get(key);
+    if (cached !== undefined) return cached;
+    const o = bound.shape.opts;
+    const loops = lowerToUserLoops(
+      bound.shape.geom,
+      { translate: o.translate, rotate: o.rotate, scale: o.scale },
+      frame,
+    );
+    // bound space (user mm) → user units → field units → paper mm.
+    const toPaper = mul(
+      invert(m),
+      mul(invert(bound.toBound()), mscale(1 / unit, 1 / unit)),
+    );
+    const cs: Prim[][] = loops
+      .filter((l) => l.length >= 3)
+      .map((l) => {
+        const pts = l.map(([x, y]) => apply(toPaper, x, y));
+        const out: Prim[] = [];
+        for (let i = 0; i < pts.length; i++) {
+          const [x0, y0] = pts[i];
+          const [x1, y1] = pts[(i + 1) % pts.length];
+          out.push({ t: 'line', x0, y0, x1, y1 });
+        }
+        return out;
+      });
+    const [cStart, cCount] = pushContours(cs);
+    const g = bound.shape.geom;
+    const winding = g.kind === 'path' && g.winding === 'evenodd' ? 4 : 0;
+    clipsU32.push(cStart, cCount, winding);
+    const idx = clipsU32.length / 3 - 1;
+    domainCache.set(key, idx);
+    return idx;
+  };
+  /** Register a use of `field` at this shape and return its index. */
+  const useOf = (
+    field: FieldFn | VectorFieldFn,
+    kind: Kind,
+    align: FieldAlign | undefined,
+    anchor: Mat,
+    footprint: UseRec['footprint'],
+  ): number => {
+    const meta = fieldMeta(field);
+    const shapeAligned = align === 'shape';
+    const key = `${idOf(field)}:${kind}`;
+    if (!shapeAligned) {
+      const hit = paperUseIndex.get(key);
+      if (hit !== undefined) return hit;
+    }
+    // Shape-aligned: field units = shape-local mm / unit, so the shape's
+    // intrinsic centre is field (0, 0) and its axes are the field's.
+    const m = shapeAligned ? mul(mscale(1 / unit, 1 / unit), invert(anchor)) : paperToUnits;
+    const domains = meta.bounds.map((b, k) =>
+      pushDomain(b, m, shapeAligned ? `${key}:${uses.length}:${k}` : `${key}:paper:${k}`),
+    );
+    const idx = uses.length;
+    uses.push({
+      fn: meta.unbounded, kind, m, domains,
+      footprint: shapeAligned ? footprint : paperFootprint,
+    });
+    if (!shapeAligned) paperUseIndex.set(key, idx);
+    return idx;
+  };
   // Clip regions first (shapes reference them by index).
   for (const clipRec of state.clips) {
     if (!clipRec.shape.closed) {
@@ -436,6 +475,26 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     const winding = geom.kind === 'path' && geom.winding === 'evenodd' ? 4 : 0;
     const flags = (shape.closed ? 1 : 0) | (lowered.convex ? 2 : 0) | winding;
     const strokePen = shape.strokePen !== null ? penIdx(shape.strokePen) + 1 : 0;
+    // Paper footprint of this shape, for shape-aligned grid extents.
+    const fp = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    for (const c of lowered.contours) {
+      for (const p of c) {
+        for (const [x, y] of flattenPrim(p, 0.5)) {
+          fp.x0 = Math.min(fp.x0, x); fp.y0 = Math.min(fp.y0, y);
+          fp.x1 = Math.max(fp.x1, x); fp.y1 = Math.max(fp.y1, y);
+        }
+      }
+    }
+    if (!Number.isFinite(fp.x0)) Object.assign(fp, paperFootprint);
+    const anchor = lowered.anchor;
+    const fieldParam = (
+      v: number | import('./units.js').L | FieldFn,
+      kind: 'p01' | 'len',
+      align: FieldAlign | undefined,
+    ): [number, number] => {
+      if (typeof v === 'function') return [useOf(v, kind, align, anchor, fp), 1];
+      return [kind === 'len' ? resolveLen(v, frame.inner) : (v as number), 0];
+    };
 
     let fillPen = 0;
     let fillKind = 0;
@@ -463,16 +522,26 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
             );
           }
           validateFillParams(label, spec.params);
-          const params = { ...def.params, ...spec.params };
+          const params: Record<string, unknown> = { ...def.params, ...spec.params };
+          // Field params are anchored by the runtime (rule 10: `align` on the
+          // fill use applies to all of them): the fill receives a sampler in
+          // PAPER mm — the region's coordinates — that maps through the use's
+          // transform into the field's own coordinates. The fill's OWN
+          // geometry anchors through ctx.anchor, the same A.
+          const fm = params.align === 'shape' ? mul(mscale(1 / unit, 1 / unit), invert(anchor)) : paperToUnits;
+          for (const [k, v] of Object.entries(params)) {
+            if (typeof v === 'function') {
+              const field = v as (x: number, y: number) => unknown;
+              params[k] = (px: number, py: number) => field(...apply(fm, px, py));
+            }
+          }
           run = (region, ctx) => def.generate(region, params, ctx);
         } else {
           const fn = spec.fn;
           run = (region, ctx) => fn(region, ctx);
         }
-        const am = shapeAnchorMatrix(shape, frame);
-        const anchorRotation = (Math.atan2(am.b, am.a) * 180) / Math.PI;
         fillJobs.set(shapeIndex, {
-          order, penWidth: penDef.width, winding, anchorRotation, run,
+          order, penWidth: penDef.width, winding, anchor, run,
         });
       }
     }
@@ -488,13 +557,13 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     for (const m of shape.modifiers) {
       switch (m.kind) {
         case 'decimate': {
-          const [s0, m0] = fieldParam(m.stroke, 'p01');
-          const [s1, m1] = fieldParam(m.fill, 'p01');
+          const [s0, m0] = fieldParam(m.stroke, 'p01', m.align);
+          const [s1, m1] = fieldParam(m.fill, 'p01', m.align);
           modsBuf.push(1, m0 | (m1 << 1), s0, s1);
           break;
         }
         case 'wobble': {
-          const [a, ma] = fieldParam(m.amount, 'len');
+          const [a, ma] = fieldParam(m.amount, 'len', m.align);
           modsBuf.push(2, ma, a, resolveLen(m.wavelength ?? mm(25), frame.inner));
           break;
         }
@@ -510,12 +579,13 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
           modsBuf.push(4, 0, Math.max(1, Math.round(m.passes)));
           break;
         case 'roughen': {
-          const [a, ma] = fieldParam(m.amount, 'len');
+          const [a, ma] = fieldParam(m.amount, 'len', m.align);
           modsBuf.push(5, ma, a, resolveLen(m.detail ?? mm(1.5), frame.inner));
           break;
         }
         case 'deform': {
-          const [dx, dy] = vectorField(m.field);
+          const dx = useOf(m.field, 'vx', m.align, anchor, fp);
+          const dy = useOf(m.field, 'vy', m.align, anchor, fp);
           modsBuf.push(6, 0b11, dx, dy, resolveLen(m.detail ?? mm(2), frame.inner));
           break;
         }
@@ -532,6 +602,80 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     shapesF64.push(shape.bridge !== undefined ? resolveLen(shape.bridge, frame.inner) : 0);
   }
 
+  // ---- Build the grids: one per (unbounded field, kind), over the union
+  // of its uses' pulled-back footprints, at the pitch the tightest use
+  // needs (paper pitch × the smallest scale any use applies) — a shrunken
+  // motif never aliases, a magnified one never wastes cells.
+  const fieldData: number[] = [];
+  const groups = new Map<string, UseRec[]>();
+  for (const u of uses) {
+    const key = `${idOf(u.fn)}:${u.kind}`;
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = []));
+    g.push(u);
+  }
+  let gridCount = 0;
+  for (const group of groups.values()) {
+    const kind = group[0].kind;
+    const vector = kind === 'vx' || kind === 'vy';
+    // Deform geometry follows its raster directly and vortex-like fields
+    // turn fast near their cores: finer than the scalar pitch.
+    const paperStep = vector
+      ? Math.max(0.25, Math.min(1, Math.max(paperW, paperH) / 256))
+      : Math.max(0.5, Math.min(2, Math.max(paperW, paperH) / 128));
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    let cell = Infinity;
+    for (const u of group) {
+      const f = u.footprint;
+      for (const [px, py] of [[f.x0, f.y0], [f.x1, f.y0], [f.x0, f.y1], [f.x1, f.y1]]) {
+        const [fx, fy] = apply(u.m, px, py);
+        x0 = Math.min(x0, fx); y0 = Math.min(y0, fy);
+        x1 = Math.max(x1, fx); y1 = Math.max(y1, fy);
+      }
+      cell = Math.min(cell, paperStep * minScale(u.m));
+    }
+    if (!Number.isFinite(cell) || !(cell > 0)) cell = paperStep / unit;
+    // Cell budget: coarsen rather than allocate without bound.
+    const MAX_SAMPLES = 1_048_576;
+    const span = Math.max(x1 - x0, y1 - y0, cell);
+    const need = ((x1 - x0) / cell + 2) * ((y1 - y0) / cell + 2);
+    if (need > MAX_SAMPLES) cell = span / Math.sqrt(MAX_SAMPLES) * 1.05;
+    // One cell of margin so Catmull-Rom never clamps on a footprint edge.
+    x0 -= cell; y0 -= cell; x1 += cell; y1 += cell;
+    const gw = Math.max(2, Math.ceil((x1 - x0) / cell) + 1);
+    const gh = Math.max(2, Math.ceil((y1 - y0) / cell) + 1);
+    fieldData.push(gw, gh, x0, y0, cell, cell);
+    const fn = group[0].fn;
+    for (let j = 0; j < gh; j++) {
+      for (let i = 0; i < gw; i++) {
+        const raw = fn(x0 + i * cell, y0 + j * cell) as unknown;
+        let val: number;
+        if (kind === 'p01') val = Math.min(1, Math.max(0, Number(raw)));
+        else if (kind === 'len') val = resolveLen(raw as number, frame.inner);
+        else val = Number((raw as [number, number])?.[kind === 'vx' ? 0 : 1]);
+        // Fail open on a non-finite sample: a hand-rolled NaN is
+        // fail-soft; the exact edge is within()'s job, shipped as regions.
+        fieldData.push(Number.isFinite(val) ? val : 0);
+      }
+    }
+    for (const u of group) u.grid = gridCount;
+    gridCount++;
+  }
+  const fieldUses: number[] = [];
+  const domainList: number[] = [];
+  for (const u of uses) {
+    const inv = invert(u.m);
+    const ds = domainList.length;
+    domainList.push(...u.domains);
+    fieldUses.push(
+      u.grid ?? 0,
+      u.m.a, u.m.b, u.m.c, u.m.d, u.m.e, u.m.f,
+      inv.a, inv.b, inv.c, inv.d,
+      unit,
+      ds, u.domains.length,
+    );
+  }
+
   return {
     prims: new Float64Array(primsBuf),
     contours: new Uint32Array(contours),
@@ -539,6 +683,8 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     shapesF64: new Float64Array(shapesF64),
     mods: new Float64Array(modsBuf),
     fieldData: new Float64Array(fieldData),
+    fieldUses: new Float64Array(fieldUses),
+    domainList: new Uint32Array(domainList),
     clipList: new Uint32Array(clipList),
     clipsU32: new Uint32Array(clipsU32),
     pensJson: pensToJson(pens),
@@ -658,12 +804,13 @@ export function runFillJobs(
     }
     const region = makeFillRegion(contours, job.winding);
     const fillRng = new Rng(`${scene.seedUsed}:fill:${job.order}`);
+    const a = job.anchor;
     const ctx: FillCtx = {
       penWidth: job.penWidth,
       rnd: () => fillRng.float(),
       coarsen: scene.coarsen,
       len: (l) => resolveLen(l, scene.frame.inner),
-      anchor: { rotation: job.anchorRotation },
+      anchor: { ...a, rotation: (Math.atan2(a.b, a.a) * 180) / Math.PI },
     };
     const marks = job.run(region, ctx);
     const chainStart = fillChains.length / 2;
@@ -732,6 +879,8 @@ export function renderEncoded(mod: WasmModule, scene: EncodedScene): RawRender {
     scene.shapesF64,
     scene.mods,
     scene.fieldData,
+    scene.fieldUses,
+    scene.domainList,
     scene.clipList,
     scene.clipsU32,
     scene.pensJson,

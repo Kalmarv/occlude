@@ -73,7 +73,7 @@ fn main() {
             paper: None,
             seed: 1,
             coarsen: 1.0,
-            debug_ghost: false, fields: Vec::new(),
+            debug_ghost: false, fields: Vec::new(), field_uses: Vec::new(),
         },
         &fills,
     );

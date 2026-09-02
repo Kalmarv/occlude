@@ -729,6 +729,7 @@ fn mirrored_s_cubics_are_not_deduped() {
         coarsen: 1.0,
         debug_ghost: false,
         fields: Vec::new(),
+        field_uses: Vec::new(),
     };
     let out = occlude_core::pipeline::render(&input);
     assert_eq!(out.frags.len(), 2, "both S-curves must draw");

@@ -60,17 +60,118 @@ impl Modifier {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Param {
     Lit(f64),
-    /// Index into `RenderInput::fields`.
+    /// Index into `RenderInput::field_uses`.
     Field(u32),
 }
 
+/// One engine field USE (spec rule 12): the grid it samples, the per-use
+/// sampling transform — paper mm → field space, "the transform outside the
+/// grid", so a thousand shape-anchored uses share ONE raster — the linear
+/// part field→paper (vector directions turn with the motif; rule 10's
+/// iron-filings law), the magnitude scale (field units → mm), and the
+/// domain refs: clip-region indices the sample point must lie in (nested
+/// `within()` bounds are a conjunction). Outside its domain a field is
+/// ABSENT, and absence is the do-nothing value: modifiers touch nothing.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldUse {
+    pub grid: u32,
+    /// Affine [a, b, c, d, e, f]: (x', y') = (a x + c y + e, b x + d y + f).
+    pub m: [f64; 6],
+    /// Linear part of the inverse map (field → paper), for directions.
+    pub linv: [f64; 4],
+    pub mag: f64,
+    pub domains: Vec<u32>,
+}
+
+impl FieldUse {
+    /// A use that samples a paper-mm grid directly (harness scenes).
+    pub fn direct(grid: u32) -> FieldUse {
+        FieldUse {
+            grid,
+            m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            linv: [1.0, 0.0, 0.0, 1.0],
+            mag: 1.0,
+            domains: Vec::new(),
+        }
+    }
+}
+
+/// Everything a field sample needs: grids, uses, and the domain regions
+/// (the scene's clip regions — domains ride the same table).
+#[derive(Clone, Copy)]
+pub struct FieldCtx<'a> {
+    pub grids: &'a [FieldGrid],
+    pub uses: &'a [FieldUse],
+    pub domains: &'a [(crate::region::Region, bool)],
+}
+
+impl FieldCtx<'_> {
+    fn absent(&self, u: &FieldUse, p: crate::vec2::Vec2) -> bool {
+        u.domains.iter().any(|&d| {
+            self.domains
+                .get(d as usize)
+                .is_some_and(|(r, keep)| r.inside(p) != *keep)
+        })
+    }
+
+    fn raw(&self, u: &FieldUse, p: crate::vec2::Vec2) -> f64 {
+        let [a, b, c, d, e, f] = u.m;
+        let x = a * p.x + c * p.y + e;
+        let y = b * p.x + d * p.y + f;
+        self.grids.get(u.grid as usize).map_or(0.0, |g| g.sample(x, y))
+    }
+
+    /// A scalar use at a paper point: absent outside its domain (0), else
+    /// the grid sampled through the use's transform.
+    pub fn scalar(&self, use_idx: u32, p: crate::vec2::Vec2) -> f64 {
+        let Some(u) = self.uses.get(use_idx as usize) else {
+            return 0.0;
+        };
+        if self.absent(u, p) {
+            return 0.0;
+        }
+        self.raw(u, p)
+    }
+
+    /// A vector (dx, dy) use pair at a paper point, in paper mm: sampled
+    /// through the transform, direction carried through the linear part
+    /// and renormalised, magnitude preserved (scaled to mm) — transforms
+    /// act on coordinates and directions, never on magnitudes.
+    pub fn vector(&self, dx: &Param, dy: &Param, p: crate::vec2::Vec2) -> crate::vec2::Vec2 {
+        let (Param::Field(ix), Param::Field(iy)) = (dx, dy) else {
+            return crate::vec2::v(dx.at(self, p), dy.at(self, p));
+        };
+        let (Some(ux), Some(uy)) = (self.uses.get(*ix as usize), self.uses.get(*iy as usize))
+        else {
+            return crate::vec2::v(0.0, 0.0);
+        };
+        if self.absent(ux, p) {
+            return crate::vec2::v(0.0, 0.0);
+        }
+        let sx = self.raw(ux, p);
+        let sy = self.raw(uy, p);
+        let mag = sx.hypot(sy);
+        if !(mag > 0.0) || !mag.is_finite() {
+            return crate::vec2::v(0.0, 0.0);
+        }
+        let [a, b, c, d] = ux.linv;
+        let tx = a * sx + c * sy;
+        let ty = b * sx + d * sy;
+        let tm = tx.hypot(ty);
+        if !(tm > 0.0) {
+            return crate::vec2::v(0.0, 0.0);
+        }
+        crate::vec2::v(tx / tm * mag * ux.mag, ty / tm * mag * ux.mag)
+    }
+}
+
 impl Param {
-    /// Resolve at a position (paper mm). Out-of-range field indices resolve
-    /// to 0 — a malformed scene degrades to "modifier off", not a panic.
-    pub fn at(&self, fields: &[FieldGrid], x: f64, y: f64) -> f64 {
+    /// Resolve at a paper point. Out-of-range use indices resolve to 0 — a
+    /// malformed scene degrades to "modifier off", not a panic.
+    pub fn at(&self, fields: &FieldCtx, p: crate::vec2::Vec2) -> f64 {
         match *self {
             Param::Lit(v) => v,
-            Param::Field(i) => fields.get(i as usize).map_or(0.0, |f| f.sample(x, y)),
+            Param::Field(i) => fields.scalar(i, p),
         }
     }
 
@@ -91,8 +192,8 @@ impl Param {
     }
 }
 
-/// A scalar field rasterised over the paper (mm coordinates), sampled with
-/// clamped bilinear interpolation.
+/// A scalar field rasterised over FIELD space (the coordinates a `FieldUse`
+/// transform maps paper points into), sampled with clamped interpolation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldGrid {
     pub x0: f64,

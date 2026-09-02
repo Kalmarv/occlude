@@ -44,9 +44,25 @@
 //!     6 deform:   params [dx_field, dy_field, detail_mm] (dx/dy always
 //!                 field refs; mask bits 0 and 1 must be set)
 //!
-//! `fields: Float64Array` — rasterised scalar fields, concatenated:
-//!   each field is [w, h, x0, y0, dx, dy, ...w*h row-major samples] in
-//!   paper mm; `Param::Field(i)` refers to the i-th field in order.
+//! `fields: Float64Array` — rasterised field grids, concatenated: each is
+//!   [w, h, x0, y0, dx, dy, ...w*h row-major samples] in FIELD space (the
+//!   coordinates a use's transform maps paper points into). A modifier
+//!   param never names a grid directly — it names a USE.
+//!
+//! `field_uses: Float64Array`, stride 14 — one per engine field use (spec
+//!   rule 12: transform OUTSIDE the grid, one raster per field shared by
+//!   every use, per-use transform as data):
+//!   [grid, m.a, m.b, m.c, m.d, m.e, m.f,  linv.a, linv.b, linv.c, linv.d,
+//!    mag, domain_start, domain_count]
+//!   m: affine paper mm → field space, sampled as grid.sample(m·p).
+//!   linv: linear part of field → paper, for vector directions (deform).
+//!   mag: field units → mm for vector magnitudes.
+//!   domain_start/count: slice of `domain_list`; the field is ABSENT (the
+//!   do-nothing value 0) outside any of them — nested within() bounds.
+//!   `Param::Field(i)` refers to the i-th use.
+//!
+//! `domain_list: Uint32Array`: clip-region indices (into `clips_u32`) —
+//!   `within()` bounds are ordinary clip regions in paper mm.
 //!
 //! `clip_list: Uint32Array`: clip region indices, sliced per shape by
 //!   clip_start/clip_count.
@@ -77,7 +93,7 @@
 
 use crate::bbox::BBox;
 use crate::fill::FillKind;
-use crate::modifier::{FieldGrid, Modifier, Param};
+use crate::modifier::{FieldGrid, FieldUse, Modifier, Param};
 use crate::pipeline::{ClipDef, Pen, RenderInput, RenderOutput, ShapeRec};
 use crate::primitive::{Arc, Cubic, Line, Primitive};
 use crate::region::WindingRule;
@@ -237,6 +253,8 @@ pub fn decode_render_input(
     shapes_f64: &[f64],
     mods: &[f64],
     field_data: &[f64],
+    field_uses_data: &[f64],
+    domain_list: &[u32],
     clip_list: &[u32],
     clips_u32: &[u32],
     pens_json: &str,
@@ -265,6 +283,7 @@ pub fn decode_render_input(
     let pens: Vec<Pen> =
         serde_json::from_str(pens_json).map_err(|e| format!("bad pens json: {e}"))?;
     let fields = decode_fields(field_data)?;
+    let field_uses = decode_field_uses(field_uses_data, domain_list, fields.len(), clips_u32.len() / 3)?;
 
     let n = shapes_u32.len() / SHAPE_U32_STRIDE;
     if shapes_f64.len() < n * 2 {
@@ -336,8 +355,50 @@ pub fn decode_render_input(
         seed: seed as u64,
         coarsen,
         fields,
+        field_uses,
         debug_ghost: debug_ghost != 0,
     })
+}
+
+pub const FIELD_USE_STRIDE: usize = 14;
+
+/// Decode the field-use table (stride 14) and its domain-ref list.
+fn decode_field_uses(
+    data: &[f64],
+    domain_list: &[u32],
+    n_grids: usize,
+    n_clips: usize,
+) -> Result<Vec<FieldUse>, String> {
+    if data.len() % FIELD_USE_STRIDE != 0 {
+        return Err("field_uses buffer not a multiple of the stride".into());
+    }
+    if data.iter().any(|v| !v.is_finite()) {
+        return Err("non-finite value in field_uses".into());
+    }
+    let mut out = Vec::with_capacity(data.len() / FIELD_USE_STRIDE);
+    for u in data.chunks_exact(FIELD_USE_STRIDE) {
+        let grid = u[0] as usize;
+        if grid >= n_grids {
+            return Err("field use grid index out of bounds".into());
+        }
+        let (ds, dc) = (u[12] as usize, u[13] as usize);
+        let end = ds
+            .checked_add(dc)
+            .filter(|&e| e <= domain_list.len())
+            .ok_or("field use domain range out of bounds")?;
+        let domains = domain_list[ds..end].to_vec();
+        if domains.iter().any(|&d| d as usize >= n_clips) {
+            return Err("field use domain refers to a missing clip region".into());
+        }
+        out.push(FieldUse {
+            grid: grid as u32,
+            m: [u[1], u[2], u[3], u[4], u[5], u[6]],
+            linv: [u[7], u[8], u[9], u[10]],
+            mag: u[11],
+            domains,
+        });
+    }
+    Ok(out)
 }
 
 /// Flat-buffer render output: exactly what crosses the wasm boundary.

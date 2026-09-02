@@ -23,13 +23,35 @@
 
 import type { FieldFn, VectorFieldFn } from './shapes.js';
 import type { ShapeValue } from './api.js';
+import { IDENTITY, invert, mul, rotate as mrotate, scale as mscale, translate as mtranslate, type Mat } from './matrix.js';
 import { lowerToUserLoops, makeFrame, userPointMm, type Frame } from './record.js';
 import { geomClosed } from './shapes.js';
 import { bounds, getPaperHint, getState, unitScaleMm } from './state.js';
 import { resolveLen, Len, type L } from './units.js';
 
+/** A `within()` bound as the encoder sees it: the shape, and the map from
+ * the (outer) field's coordinates to the shape's own user space — the
+ * verbs applied after the bound accumulate their inverses here. Lazy: a
+ * translate resolves its lengths when the paper is known. */
+export interface FieldBound {
+  shape: ShapeValue;
+  toBound: () => Mat;
+}
+
 interface FieldMeta {
   kind: 'scalar' | 'vector';
+  /** The same field with every `within()` stripped — what the engine
+   * rasterises (the bound is exact vector geometry, never a NaN hole in a
+   * grid). Absent when the field has no bound. */
+  unbounded?: AnyField;
+  bounds?: FieldBound[];
+}
+
+/** What the encoder needs of a field: the unbounded function to rasterise
+ * and the exact domain bounds to ship as regions. */
+export function fieldMeta(fn: AnyField): { unbounded: AnyField; bounds: FieldBound[] } {
+  const m = metaOf(fn);
+  return { unbounded: m?.unbounded ?? fn, bounds: m?.bounds ?? [] };
 }
 
 const FIELD_META = new WeakMap<object, FieldMeta>();
@@ -63,12 +85,28 @@ function isVector(fn: AnyField): boolean {
   return metaOf(fn)?.kind === 'vector';
 }
 
+/** Wrap a field in a coordinate verb. `xf` is the verb's forward map on
+ * coordinates (user units, lazy) and `again` re-applies the verb to the
+ * source's unbounded twin, so bounds and the rasterisable field both
+ * survive composition: bounds move with the verb (their to-bound map
+ * gains the verb's inverse), the unbounded twin gets the verb too. */
 function wrap<F extends AnyField>(
   src: F,
   sample: (x: number, y: number) => number | [number, number],
+  xf?: () => Mat,
+  again?: (f: F) => F,
 ): F {
   const out = ((x: number, y: number) => sample(x, y)) as F;
-  if (isVector(src)) FIELD_META.set(out, { kind: 'vector' });
+  const sm = metaOf(src);
+  const meta: FieldMeta = { kind: sm?.kind ?? 'scalar' };
+  if (sm?.bounds && sm.bounds.length > 0 && xf && again) {
+    meta.bounds = sm.bounds.map((b) => ({
+      shape: b.shape,
+      toBound: () => mul(b.toBound(), invert(xf())),
+    }));
+    meta.unbounded = again((sm.unbounded ?? src) as F);
+  }
+  FIELD_META.set(out, meta);
   return out;
 }
 
@@ -82,17 +120,22 @@ export function rotate<F extends AnyField>(field: F, deg: number): F {
   const c = Math.cos(th);
   const s = Math.sin(th);
   const vec = isVector(field);
-  return wrap(field, (x, y) => {
-    // Sample through the inverse rotation.
-    const ix = x * c + y * s;
-    const iy = -x * s + y * c;
-    const v = field(ix, iy);
-    if (!vec || !Array.isArray(v)) return v as number;
-    const [dx, dy] = v as [number, number];
-    // Directions rotate forward; magnitudes are untouched by construction
-    // (pure rotation preserves length).
-    return [dx * c - dy * s, dx * s + dy * c];
-  });
+  return wrap(
+    field,
+    (x, y) => {
+      // Sample through the inverse rotation.
+      const ix = x * c + y * s;
+      const iy = -x * s + y * c;
+      const v = field(ix, iy);
+      if (!vec || !Array.isArray(v)) return v as number;
+      const [dx, dy] = v as [number, number];
+      // Directions rotate forward; magnitudes are untouched by construction
+      // (pure rotation preserves length).
+      return [dx * c - dy * s, dx * s + dy * c];
+    },
+    () => mrotate(th),
+    (f) => rotate(f, deg),
+  );
 }
 
 /** Translate a field by (dx, dy) — lengths accepted; arrows unchanged.
@@ -101,10 +144,16 @@ export function rotate<F extends AnyField>(field: F, deg: number): F {
  * against the paper it renders on. */
 export function translate<F extends AnyField>(field: F, dx: L, dy: L): F {
   let t: [number, number] | null = null;
-  return wrap(field, (x, y) => {
-    t ??= [userLen(dx), userLen(dy)];
-    return field(x - t[0], y - t[1]);
-  });
+  const at = (): [number, number] => (t ??= [userLen(dx), userLen(dy)]);
+  return wrap(
+    field,
+    (x, y) => {
+      const [tx, ty] = at();
+      return field(x - tx, y - ty);
+    },
+    () => mtranslate(...at()),
+    (f) => translate(f, dx, dy),
+  );
 }
 
 /**
@@ -116,19 +165,24 @@ export function translate<F extends AnyField>(field: F, dx: L, dy: L): F {
 export function scale<F extends AnyField>(field: F, s: number | [number, number]): F {
   const [sx, sy] = typeof s === 'number' ? [s, s] : s;
   const vec = isVector(field);
-  return wrap(field, (x, y) => {
-    const v = field(x / sx, y / sy);
-    if (!vec || !Array.isArray(v)) return v as number;
-    const [dx, dy] = v as [number, number];
-    const mag = Math.hypot(dx, dy);
-    if (!(mag > 0)) return [0, 0];
-    // Direction through the linear part, renormalized; magnitude kept.
-    const tx = dx * sx;
-    const ty = dy * sy;
-    const tm = Math.hypot(tx, ty);
-    if (!(tm > 0)) return [0, 0];
-    return [(tx / tm) * mag, (ty / tm) * mag];
-  });
+  return wrap(
+    field,
+    (x, y) => {
+      const v = field(x / sx, y / sy);
+      if (!vec || !Array.isArray(v)) return v as number;
+      const [dx, dy] = v as [number, number];
+      const mag = Math.hypot(dx, dy);
+      if (!(mag > 0)) return [0, 0];
+      // Direction through the linear part, renormalized; magnitude kept.
+      const tx = dx * sx;
+      const ty = dy * sy;
+      const tm = Math.hypot(tx, ty);
+      if (!(tm > 0)) return [0, 0];
+      return [(tx / tm) * mag, (ty / tm) * mag];
+    },
+    () => mscale(sx, sy),
+    (f) => scale(f, s),
+  );
 }
 
 // ---- domain bounds -----------------------------------------------------
@@ -204,10 +258,19 @@ export function within<F extends AnyField>(field: F, shape: ShapeValue): F {
     throw new Error('within() bound must be a closed shape (close() the path, or use a region)');
   }
   const vec = isVector(field);
-  return wrap(field, (x, y) => {
+  const out = wrap(field, (x, y) => {
     if (!containsPoint(shape, x, y)) {
       return vec ? ([NaN, NaN] as [number, number]) : NaN;
     }
     return field(x, y);
   });
+  // Engine consumers get the bound as exact geometry, not a NaN hole: the
+  // raster is of the field WITHOUT this bound, the shape travels beside it.
+  const inner = fieldMeta(field);
+  FIELD_META.set(out, {
+    kind: vec ? 'vector' : 'scalar',
+    unbounded: inner.unbounded,
+    bounds: [...inner.bounds, { shape, toBound: () => IDENTITY }],
+  });
+  return out;
 }

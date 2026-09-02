@@ -26,7 +26,7 @@ import { finiteCount } from './guard.js';
 import { svg as svgValue } from './svgin.js';
 import { label } from './font.js';
 import { grid as gridCells, type GridCell, type GridOptions } from './layout.js';
-import { Shape, type FieldFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
+import { type FieldAlign, Shape, type FieldFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
 import {
   bounds, chance, clip as legacyClip, margin, noise, pick, prob, push, rnd,
   sketch as legacySketch, stream, getState, unitScaleMm,
@@ -68,12 +68,15 @@ export interface ShapeOpts {
    * occlusion and cleanup. Seeded — the distressed-plot modifier. A number
    * applies to everything; { stroke, fill } sets outline and fill ink
    * separately (e.g. { fill: 0.5 } erodes the texture, keeps the outline). */
-  decimate?: number | FieldFn | { stroke?: number | FieldFn; fill?: number | FieldFn };
+  decimate?:
+    | number
+    | FieldFn
+    | { stroke?: number | FieldFn; fill?: number | FieldFn; align?: FieldAlign };
   /** Hand-tremor: displace final strokes with seeded smooth noise, AFTER
    * occlusion (line quality only). A length (bare units or mm()), or
    * { amount, wavelength } to also set the noise wavelength (default
    * mm(25)). */
-  wobble?: L | FieldFn | { amount: L | FieldFn; wavelength?: L };
+  wobble?: L | FieldFn | { amount: L | FieldFn; wavelength?: L; align?: FieldAlign };
   /** Endpoint-join tolerance (a length; mm() recommended): after occlusion,
    * strokes of shapes that OPT IN are joined pen-down across gaps up to
    * this size — hatch rows serpentine into single strokes, trading tiny
@@ -352,19 +355,24 @@ const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 type DecimateArg =
   | number
   | FieldFn
-  | { stroke?: number | FieldFn; fill?: number | FieldFn };
-type WobbleArg = L | FieldFn | { amount: L | FieldFn; wavelength?: L };
+  | { stroke?: number | FieldFn; fill?: number | FieldFn; align?: FieldAlign };
+type WobbleArg = L | FieldFn | { amount: L | FieldFn; wavelength?: L; align?: FieldAlign };
 
 function decimateValue(p: DecimateArg): ModifierValue {
-  const [stroke, fill] =
-    typeof p === 'number' || typeof p === 'function' ? [p, p] : [p.stroke ?? 0, p.fill ?? 0];
+  const [stroke, fill, align] =
+    typeof p === 'number' || typeof p === 'function'
+      ? [p, p, undefined]
+      : [p.stroke ?? 0, p.fill ?? 0, p.align];
   const c = (v: number | FieldFn): number | FieldFn => (typeof v === 'number' ? clamp01(v) : v);
-  return { __occludeModifier: true, kind: 'decimate', stroke: c(stroke), fill: c(fill) };
+  return { __occludeModifier: true, kind: 'decimate', stroke: c(stroke), fill: c(fill), align };
 }
 
 function wobbleValue(a: WobbleArg): ModifierValue {
   if (typeof a === 'object' && !(a instanceof Len) && 'amount' in a) {
-    return { __occludeModifier: true, kind: 'wobble', amount: a.amount, wavelength: a.wavelength };
+    return {
+      __occludeModifier: true, kind: 'wobble',
+      amount: a.amount, wavelength: a.wavelength, align: a.align,
+    };
   }
   return { __occludeModifier: true, kind: 'wobble', amount: a };
 }
@@ -447,18 +455,27 @@ export function smooth(passes = 2, ...children: Tree[]): GroupValue | ModifierVa
  * at `detail` spacing (default mm(1.5)) and vertices jittered by up to
  * `amount` — jagged edges (coastlines, stone), vs wobble's smooth tremor.
  */
-export function roughen(amount: L | FieldFn, detail?: L): ModifierValue;
+type RoughenArg = L | FieldFn | { amount: L | FieldFn; detail?: L; align?: FieldAlign };
+
+export function roughen(amount: RoughenArg, detail?: L): ModifierValue;
 export function roughen(
-  amount: L | FieldFn,
+  amount: RoughenArg,
   detail: L | undefined,
   ...children: [Tree, ...Tree[]]
 ): GroupValue;
 export function roughen(
-  amount: L | FieldFn,
+  amount: RoughenArg,
   detail?: L,
   ...children: Tree[]
 ): GroupValue | ModifierValue {
-  const value: ModifierValue = { __occludeModifier: true, kind: 'roughen', amount, detail };
+  const cfg =
+    typeof amount === 'object' && !(amount instanceof Len) && 'amount' in amount
+      ? amount
+      : { amount, detail };
+  const value: ModifierValue = {
+    __occludeModifier: true, kind: 'roughen',
+    amount: cfg.amount, detail: cfg.detail ?? detail, align: cfg.align,
+  };
   if (children.length === 0) return value;
   return { __occludeGroup: true, opts: { modifiers: [value] }, children };
 }
@@ -471,19 +488,20 @@ export function roughen(
  * `{ field, detail }` to control the resampling step (default mm(2)).
  */
 export function deform(
-  field: VectorFieldFn | { field: VectorFieldFn; detail?: L },
+  field: VectorFieldFn | { field: VectorFieldFn; detail?: L; align?: FieldAlign },
 ): ModifierValue;
 export function deform(
-  field: VectorFieldFn | { field: VectorFieldFn; detail?: L },
+  field: VectorFieldFn | { field: VectorFieldFn; detail?: L; align?: FieldAlign },
   ...children: [Tree, ...Tree[]]
 ): GroupValue;
 export function deform(
-  field: VectorFieldFn | { field: VectorFieldFn; detail?: L },
+  field: VectorFieldFn | { field: VectorFieldFn; detail?: L; align?: FieldAlign },
   ...children: Tree[]
 ): GroupValue | ModifierValue {
   const cfg = typeof field === 'function' ? { field } : field;
   const value: ModifierValue = {
-    __occludeModifier: true, kind: 'deform', field: cfg.field, detail: cfg.detail,
+    __occludeModifier: true, kind: 'deform',
+    field: cfg.field, detail: cfg.detail, align: cfg.align,
   };
   if (children.length === 0) return value;
   return { __occludeGroup: true, opts: { modifiers: [value] }, children };

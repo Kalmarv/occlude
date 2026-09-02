@@ -80,7 +80,7 @@ fn input(shapes: Vec<ShapeRec>) -> RenderInput {
         paper: None,
         seed: 42,
         coarsen: 1.0,
-        debug_ghost: false, fields: Vec::new(),
+        debug_ghost: false, fields: Vec::new(), field_uses: Vec::new(),
     }
 }
 

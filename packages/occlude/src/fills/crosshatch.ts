@@ -12,9 +12,8 @@ export default fillAsset({
   generate(region, p, ctx) {
     const spacing =
       (p.spacing !== undefined ? ctx.len(p.spacing) : 3 * ctx.penWidth) * ctx.coarsen;
-    const turn = p.align === 'shape' ? ctx.anchor.rotation : 0;
     return p.angles.flatMap((angle) =>
-      rulings(region, { spacing, angle: angle + turn, offset: p.offset, align: p.align }),
+      rulings(region, { spacing, angle, offset: p.offset, align: p.align, anchor: ctx.anchor }),
     );
   },
 });

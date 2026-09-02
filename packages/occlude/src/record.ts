@@ -405,18 +405,20 @@ export interface LoweredShape {
   /** Snapped paper-space contours. */
   contours: Prim[][];
   convex: boolean;
+  /** The shape anchor A = G ∘ C compiled to paper: shape-local mm (origin
+   * at the intrinsic bbox centre, axes turned by the explicit transforms)
+   * → paper mm. Identity-plus-centre for coordinate-placed shapes. */
+  anchor: Mat;
 }
 
-/**
- * The shape's accumulated EXPLICIT transform in paper space — group
- * transforms and shape-level transform opts, excluding coordinates
- * intrinsic to the geometry, excluding the paper offset. Anchors
- * shape-aligned fill textures (ctx.anchor): a coordinate-placed shape has
- * the identity here; a shape in a rotated group carries the rotation.
- */
-export function shapeAnchorMatrix(shape: Shape, frame: Frame): Mat {
-  const rz = new Resolver(frame);
-  return mul(userFrameMatrix(frame), composeChain(shape.transform, rz));
+/** User-space mm → paper mm: the paper offset and the origin/yUp frame. */
+export function userToPaperMatrix(frame: Frame): Mat {
+  return mul(translate(frame.offsetX, frame.offsetY), userFrameMatrix(frame));
+}
+
+/** One bare user unit in mm (percent of the drawable's short side). */
+export function unitMm(frame: Frame): number {
+  return Math.min(frame.inner.innerW, frame.inner.innerH) / 100;
 }
 
 /**
@@ -458,15 +460,25 @@ export function lowerShape(shape: Shape, frame: Frame): LoweredShape {
   const rz = new Resolver(frame);
   // paper offset ∘ user frame (origin/yUp) ∘ transform chain: the chain acts
   // in user coordinates, so its rotations pivot around the user's origin.
-  const m = mul(
-    translate(frame.offsetX, frame.offsetY),
-    mul(userFrameMatrix(frame), composeChain(shape.transform, rz)),
-  );
-  const contours = lowerGeom(shape.geom, rz).map((contour) =>
-    contour.flatMap((p) => transformPrim(p, m)).map(snapPrim),
+  const chain = mul(userToPaperMatrix(frame), composeChain(shape.transform, rz));
+  const raw = lowerGeom(shape.geom, rz);
+  const contours = raw.map((contour) =>
+    contour.flatMap((p) => transformPrim(p, chain)).map(snapPrim),
   );
   const convex = isConvexGeom(shape.geom);
-  return { shape, contours, convex };
+  // C: the intrinsic bbox centre (pre-transform) — the one anchor every
+  // shape kind has, and a fixed point of the shape under G.
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const c of raw) {
+    for (const p of c) {
+      for (const [x, y] of flattenPrim(p, 0.05)) {
+        x0 = Math.min(x0, x); y0 = Math.min(y0, y);
+        x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+      }
+    }
+  }
+  const centre = Number.isFinite(x0) ? translate((x0 + x1) / 2, (y0 + y1) / 2) : IDENTITY;
+  return { shape, contours, convex, anchor: mul(chain, centre) };
 }
 
 function isConvexGeom(geom: ShapeGeom): boolean {

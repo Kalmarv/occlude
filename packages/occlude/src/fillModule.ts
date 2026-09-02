@@ -28,15 +28,21 @@ export interface FillCtx {
   coarsen: number;
   /** Resolve a length (mm()/w()/h()/bare %) to paper mm. */
   len(l: import('./units.js').L): number;
-  /** Shape anchor: the accumulated explicit transform at this use.
-   * `rotation` (degrees) is identity-0 for coordinate-placed shapes —
-   * shape-aligned textures add it so a rotated motif carries its texture,
-   * while halftone circles keep identical marks (ONE align meaning).
-   * Known limitation: this is the rotation of the x-axis image only, so a
-   * MIRRORED group (`scale: [-1, 1]`) does not mirror a shape-aligned
-   * ruling's angle (45° stays 45°, not 135°) — pending the artist's ruling
-   * on carrying the full linear part. */
-  anchor: { rotation: number };
+  /** Shape anchor A = G ∘ C compiled to paper: the affine from shape-local
+   * mm (origin at the shape's intrinsic bbox centre, axes turned by the
+   * motif's explicit transforms, including mirrors) to paper mm — the SAME
+   * transform the runtime anchors field params with under `align:
+   * 'shape'`. `rotation` (degrees) is a convenience read of the x-axis
+   * image; `rulings` transforms its direction through the full linear
+   * part, so a mirrored motif mirrors its texture. Identity-plus-centre for
+   * a coordinate-placed shape: halftone dots keep identical marks. */
+  anchor: FillAnchor;
+}
+
+/** An affine shape-local mm → paper mm: (x', y') = (a x + c y + e, b x + d y + f). */
+export interface FillAnchor {
+  a: number; b: number; c: number; d: number; e: number; f: number;
+  rotation: number;
 }
 
 /**
@@ -86,9 +92,15 @@ export interface RulingOpts {
   /** Phase offset along the ruling normal, mm. */
   offset?: number;
   /** 'paper' (default): one paper-wide grid every same-spec fill samples,
-   * so adjacent shapes tile. 'shape': centre the ruling on the region, so
-   * small shapes get identical marks wherever they sit. */
+   * so adjacent shapes tile. 'shape': anchor the ruling to the shape —
+   * centred on it, its direction carried through `anchor`'s linear part
+   * (a rotated motif's rulings turn, a mirrored one's mirror) — so small
+   * shapes get identical marks wherever they sit. */
   align?: 'paper' | 'shape';
+  /** The shape anchor (`ctx.anchor`), consulted for `align: 'shape'`.
+   * Without it, shape alignment falls back to the region's bbox centre
+   * and the raw angle. */
+  anchor?: FillAnchor;
 }
 
 /**
@@ -105,7 +117,17 @@ export function rulings(region: FillRegion, opts: RulingOpts): CustomPrimitive[]
   const diag = Math.hypot(b.w, b.h);
   const s = Math.max(opts.spacing, 0.02, diag / 100_000);
   const theta = (angleDeg * Math.PI) / 180;
-  const dir = [Math.cos(theta), Math.sin(theta)];
+  let dir = [Math.cos(theta), Math.sin(theta)];
+  const A = align === 'shape' ? opts.anchor : undefined;
+  if (A) {
+    // Direction through the anchor's linear part, renormalised: rotation
+    // turns it, a mirror flips it, non-uniform scale tilts it — the
+    // spacing (a magnitude) never changes.
+    const tx = A.a * dir[0] + A.c * dir[1];
+    const ty = A.b * dir[0] + A.d * dir[1];
+    const tm = Math.hypot(tx, ty);
+    if (tm > 0) dir = [tx / tm, ty / tm];
+  }
   const nrm = [-dir[1], dir[0]];
   const corners: [number, number][] = [
     [b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h],
@@ -120,10 +142,8 @@ export function rulings(region: FillRegion, opts: RulingOpts): CustomPrimitive[]
   // Phase: paper-anchored rulings are multiples of spacing in paper space
   // (adjacent same-spec fills align); shape-anchored ones centre the
   // ruling on the region, so small shapes render identically anywhere.
-  const phase =
-    align === 'shape'
-      ? offset + (b.x + b.w / 2) * nrm[0] + (b.y + b.h / 2) * nrm[1]
-      : offset;
+  const [ax, ay] = A ? [A.e, A.f] : [b.x + b.w / 2, b.y + b.h / 2];
+  const phase = align === 'shape' ? offset + ax * nrm[0] + ay * nrm[1] : offset;
   const k0 = Math.ceil((omin - phase) / s);
   const k1 = Math.floor((omax - phase) / s);
   const pad = s * 0.5;

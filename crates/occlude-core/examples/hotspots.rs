@@ -10,6 +10,7 @@
 use occlude_core::bbox::BBox;
 use occlude_core::fill::FillKind;
 use occlude_core::nativegen::{custom_hatch, render_with, HatchPass, NativeFill};
+use occlude_core::modifier::FieldUse;
 use occlude_core::modifier::{FieldGrid, Modifier, Param};
 use occlude_core::pipeline::{Pen, RenderInput, ShapeRec};
 use occlude_core::primitive::{Arc, Line, Primitive};
@@ -58,6 +59,7 @@ fn shape(contours: Vec<Vec<Primitive>>, closed: bool, convex: bool) -> ShapeRec 
 }
 
 fn input(shapes: Vec<ShapeRec>, fields: Vec<FieldGrid>) -> RenderInput {
+    let nfields = fields.len();
     let mut shapes = shapes;
     for (i, s) in shapes.iter_mut().enumerate() {
         s.z = i as f64;
@@ -71,6 +73,7 @@ fn input(shapes: Vec<ShapeRec>, fields: Vec<FieldGrid>) -> RenderInput {
         coarsen: 1.0,
         debug_ghost: false,
         fields,
+        field_uses: (0..nfields).map(|i| FieldUse::direct(i as u32)).collect(),
     }
 }
 

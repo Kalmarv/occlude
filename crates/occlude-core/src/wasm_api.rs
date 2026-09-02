@@ -93,6 +93,8 @@ pub fn wasm_prepare(
     shapes_f64: &[f64],
     mods: &[f64],
     field_data: &[f64],
+    field_uses: &[f64],
+    domain_list: &[u32],
     clip_list: &[u32],
     clips_u32: &[u32],
     pens_json: &str,
@@ -102,8 +104,8 @@ pub fn wasm_prepare(
     debug_ghost: u32,
 ) -> Result<WasmPrepared, JsValue> {
     let input = decode_render_input(
-        prims, contours, shapes_u32, shapes_f64, mods, field_data, clip_list, clips_u32,
-        pens_json, paper, seed, coarsen, debug_ghost,
+        prims, contours, shapes_u32, shapes_f64, mods, field_data, field_uses, domain_list,
+        clip_list, clips_u32, pens_json, paper, seed, coarsen, debug_ghost,
     )
     .map_err(|e| JsValue::from_str(&e))?;
     let n_shapes = input.shapes.len();

@@ -15,7 +15,7 @@ export default fillAsset({
     // Shape-aligned: small shapes fill identically wherever they sit, and
     // the rows rotate with the motif's explicit transform.
     return rulings(region, {
-      spacing, angle: p.angle + ctx.anchor.rotation, offset: 0, align: 'shape',
+      spacing, angle: p.angle, offset: 0, align: 'shape', anchor: ctx.anchor,
     });
   },
 });

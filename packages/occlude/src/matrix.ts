@@ -58,3 +58,24 @@ export function conformalScale(m: Mat): number {
 export function det(m: Mat): number {
   return m.a * m.d - m.b * m.c;
 }
+
+/** Inverse affine. A singular matrix (zero scale) inverts to the identity
+ * rather than NaN — a degenerate use samples somewhere, not nowhere. */
+export function invert(m: Mat): Mat {
+  const D = det(m);
+  if (!(Math.abs(D) > 1e-18) || !Number.isFinite(D)) return IDENTITY;
+  const a = m.d / D;
+  const b = -m.b / D;
+  const c = -m.c / D;
+  const d = m.a / D;
+  return { a, b, c, d, e: -(a * m.e + c * m.f), f: -(b * m.e + d * m.f) };
+}
+
+/** Smallest singular value of the linear part: the tightest factor by
+ * which the map shrinks any direction. */
+export function minScale(m: Mat): number {
+  const S = m.a * m.a + m.b * m.b + m.c * m.c + m.d * m.d;
+  const D = det(m);
+  const disc = Math.max(0, S * S - 4 * D * D);
+  return Math.sqrt(Math.max(0, (S - Math.sqrt(disc)) / 2));
+}

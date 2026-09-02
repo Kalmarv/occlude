@@ -130,14 +130,18 @@ parallel output is bit-identical to serial.
 ## Fields
 
 A Field is an augmented callable: a plain `(x, y) => value` carrying its
-transform and domain bound inside the closure. `rotate`/`translate`/
-`scale` are explicit verbs (nothing is ambient); vector fields rotate
-their arrows and never scale magnitudes. `within(f, shape)` bounds the
-domain — absent outside — through the same lowerer the shape inks with.
-Sketch-time consumers (isolines, scatter, fills) call fields directly and
-exactly; engine-consumed modifier params ride rasters built at encode time
-(one grid per callable identity), whose bilinear fade gives bounded
-modifier fields soft, grid-scale edges.
+transform and domain bound inside the closure, plus metadata the verbs
+propagate (the unbounded twin to rasterise, the bounds to ship as
+regions). `rotate`/`translate`/`scale` are explicit verbs (nothing is
+ambient); vector fields rotate their arrows and never scale magnitudes.
+`within(f, shape)` bounds the domain — absent outside — through the same
+lowerer the shape inks with. Sketch-time consumers (isolines, scatter,
+fills) call fields directly and exactly. Engine-consumed modifier params
+become **field uses**: one raster per field (built over the union of its
+uses' pulled-back footprints) plus, per use, a paper→field affine and
+domain refs — `align: 'shape'` compiles A = G ∘ C into that affine, so a
+thousand halftone dots share one grid, and `within()` bounds are exact
+clip regions the engine tests before it samples.
 
 ## Robustness invariants worth knowing
 

@@ -431,8 +431,16 @@ per-shape from the sketch seed — use it instead of `Math.random()`.
   region.path              // the actual outline: contours of exact primitives
   ctx.penWidth             // fill pen nib, mm
   ctx.rnd()                // seeded [0, 1)
+  ctx.len(l)               // resolve a length to mm
+  ctx.anchor               // { a, b, c, d, e, f, rotation }: shape-local mm → paper mm
 }
 ```
+
+A fill FILE's field params (`fill('grain', { field: f, align: 'shape' })`)
+arrive already anchored: the runtime hands `generate` a sampler that takes
+the region's paper-mm coordinates and maps them into the field's own
+frame through the use's `align`, so a fill never converts coordinates
+itself.
 
 Strokes are records of the engine's stroke vocabulary — everything in the
 pipeline lowers to lines, arcs, and cubics, so any drawable mark is
@@ -461,12 +469,13 @@ spacing
 
 ### rulings
 
-`rulings(region, { spacing, angle, offset, align })` — the primitive under
-`hatch`, `crosshatch`, and `solid`, exported for your own fills: parallel
-lines across the region's bbox, overshooting it (the engine clips exactly).
-Spacing is paper mm; `align: 'paper'` (default) samples one paper-wide grid,
-`'shape'` centres the ruling on the region. Vary it per shape and you have
-a tone ramp without touching the engine:
+`rulings(region, { spacing, angle, offset, align, anchor })` — the
+primitive under `hatch`, `crosshatch`, and `solid`, exported for your own
+fills: parallel lines across the region's bbox, overshooting it (the
+engine clips exactly). Spacing is paper mm; `align: 'paper'` (default)
+samples one paper-wide grid, `'shape'` anchors the ruling to the shape —
+pass `ctx.anchor` and the direction turns (or mirrors) with the motif.
+Vary it per shape and you have a tone ramp without touching the engine:
 
 ```ts live
 import { sketch, circle, rulings } from 'occlude';
@@ -942,9 +951,24 @@ lambdas remain the composition language. Vector fields (deform) follow
 the iron-filings rule — wrap custom ones in `vectorField(fn)` and
 rotation turns the arrows too; magnitudes never scale (a 2mm wobble is
 2mm at any motif size). Isoline contours truncate OPEN at a domain edge,
-exactly like the paper edge. Shape-aligned fills (`align: 'shape'`)
-anchor to the motif: identical marks for coordinate-placed shapes (the
-halftone case), rotating with shapes in transformed groups.
+exactly like the paper edge.
+
+**Anchoring at the point of use.** Every consumer of a field takes
+`align`: `'paper'` (default) samples the field in paper coordinates;
+`'shape'` anchors it to the shape — the shape's intrinsic bbox centre is
+field (0, 0) and the field turns with the motif's explicit transforms
+(group and shape-level `translate`/`rotate`/`scale`, mirrors included).
+One meaning everywhere: on a fill use it applies to the fill's field
+params and to the fill's own geometry (`ctx.anchor`), on a modifier's
+param object (`decimate: { fill: f, align: 'shape' }`, `wobble: {
+amount, align }`, `roughen({ amount, align })`, `deform({ field, align
+})`) to that modifier. Coordinate-placed shapes see identical marks
+wherever they sit (the halftone case); a thousand shape-aligned uses
+share ONE raster — the anchor is a per-use transform, never a per-shape
+grid. Engine-consumed modifier fields get `within()` bounds as exact
+vector regions: a bounded wobble stops on the line, not in a fade band
+(decimate judges each fragment once, at its midpoint — clip the ink with
+`clip()` if a fragment must be cut at the edge).
 
 ```ts live
 import { sketch, circle, trace, rotate, within } from 'occlude';
@@ -1138,8 +1162,11 @@ the value varies spatially. Deterministic and plotter-reproducible;
 anything goes inside (math, `noise`, image lookups).
 
 Fielded params: `decimate` probabilities, `wobble` amount, `roughen`
-amount. A field on a fill's decimate is a halftone — here `dash` chops the
-hatch into cells and a radial field erodes them away from the centre:
+amount, `deform`'s vector field. Each takes `align` beside the field
+(`'paper'` default, `'shape'` to anchor to the shape — see
+[fields](#fields)). A field on a fill's decimate is a halftone — here
+`dash` chops the hatch into cells and a radial field erodes them away
+from the centre:
 
 ```ts live
 import { sketch, rect, fill, modify, dash, decimate, mm } from 'occlude';
@@ -1150,6 +1177,29 @@ export default sketch({ aspect: [2, 1], seed: 5 }, () =>
     rect(2, 3, 96, 44, { fill: fill('hatch', { angle: 45, spacing: mm(1.1) }), stroke: false }),
   ),
 );
+```
+
+Shape-anchored modifier fields travel with their motif. The same erosion
+field, once paper-pinned (every square samples the paper's radial
+gradient where it sits) and once shape-anchored (every square is eroded
+from its own centre, turned with its group):
+
+```ts live
+import { sketch, rect, fill, group, mm } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
+  const erode = (x, y) => Math.min(1, Math.hypot(x, y) / 9);
+  const sq = (x, y, align) =>
+    rect(x, y, 14, 14, { fill: fill('hatch', { angle: 0, spacing: mm(0.7) }), stroke: false,
+      decimate: { fill: (px, py) => erode(px - 50, py - 25), align: 'paper' } });
+  const anchored = (x, y) =>
+    group({ rotate: 15 }, rect(x, y, 14, 14, { fill: fill('hatch', { angle: 0, spacing: mm(0.7), align: 'shape' }),
+      stroke: false, decimate: { fill: erode, align: 'shape' } }));
+  return [
+    t.times(3, (k) => sq(6 + k * 18, 6)),
+    t.times(3, (k) => anchored(60 + k * 12, -12 + k * 2)),
+  ];
+});
 ```
 
 ## Render & export

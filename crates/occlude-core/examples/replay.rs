@@ -62,9 +62,17 @@ fn main() {
     let seed = meta["seed"].as_u64().expect("seed") as u32;
     let coarsen = meta["coarsen"].as_f64().unwrap_or(1.0);
 
+    // Field uses + domain refs (absent in dumps that predate them: an
+    // empty table is a valid scene with no engine field uses).
+    let field_uses: Vec<f64> = fs::read(dir.join("field_uses.f64"))
+        .map(|b| b.chunks_exact(8).map(|c| f64::from_le_bytes(c.try_into().unwrap())).collect())
+        .unwrap_or_default();
+    let domain_list: Vec<u32> = fs::read(dir.join("domain_list.u32"))
+        .map(|b| b.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect())
+        .unwrap_or_default();
     let input = decode_render_input(
-        &prims, &contours, &shapes_u32, &shapes_f64, &mods, &fields, &clip_list,
-        &clips_u32, &pens_json, &paper, seed, coarsen, 0,
+        &prims, &contours, &shapes_u32, &shapes_f64, &mods, &fields, &field_uses, &domain_list,
+        &clip_list, &clips_u32, &pens_json, &paper, seed, coarsen, 0,
     )
     .expect("decode scene");
 

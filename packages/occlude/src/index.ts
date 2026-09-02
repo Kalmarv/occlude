@@ -36,7 +36,8 @@ export {
   scanFillNames, loadFillModule, registerFill, clearFills,
   BUILTIN_FILL_NAMES, FILL_NAME_RE, isBuiltinFill,
 } from './fills.js';
-export type { FillAssetDef, FillCtx, RulingOpts } from './fills.js';
+export type { FillAssetDef, FillCtx, FillAnchor, RulingOpts } from './fills.js';
+export type { FieldAlign } from './shapes.js';
 export { svg } from './svgin.js';
 export {
   asset, image, scanAssetNames, registerTextAsset, registerImageAsset, clearAssets,

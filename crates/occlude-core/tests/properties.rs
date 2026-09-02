@@ -151,7 +151,7 @@ fn run(shapes: Vec<ShapeRec>) -> occlude_core::pipeline::RenderOutput {
         paper: None,
         seed: 7,
         coarsen: 1.0,
-        debug_ghost: false, fields: Vec::new(),
+        debug_ghost: false, fields: Vec::new(), field_uses: Vec::new(),
     })
 }
 

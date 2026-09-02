@@ -28,7 +28,7 @@ import stipple from './fills/stipple.js';
 
 export {
   fillAsset, rulings,
-  type FillRegion, type FillCtx, type CustomFillFn, type CustomPrimitive,
+  type FillRegion, type FillCtx, type FillAnchor, type CustomFillFn, type CustomPrimitive,
   type FillAssetDef, type RulingOpts,
 } from './fillModule.js';
 

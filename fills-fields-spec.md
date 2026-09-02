@@ -498,3 +498,24 @@ single win), and the engine contract now fits in one sentence.
     direction by L renormalized, magnitude preserved (subsumes the
     rotation ruling; a flip mirrors arrows, non-uniform scale tilts
     them like squashing the photo).
+17. (2026-09-02, post-implementation rulings, artist + two external
+    reviewers) (a) Rule 12 built as written: engine field use = grid +
+    per-use affine (paper mm → field space, composed in JS from the
+    user frame, offset, G⁻¹, C⁻¹) + domain refs; A = G ∘ C with C the
+    INTRINSIC (pre-G) bbox centre; grid extent = union of pulled-back
+    footprints, pitch = paper pitch × smallest use scale, cell cap;
+    the full linear part is carried (mirrors mirror, non-uniform scale
+    tilts) — no rotation-only anchor. Consequently `within()` on
+    modifier fields has exact vector edges (rule 11 stands) and
+    `align` reaches modifiers and fill field params (rule 10 stands);
+    the project-3 raster-only shipping was interim. (b) Fill params
+    stay a plain defaults object — no typed declarators ("if we're
+    writing the fill we know what to pass"). (c) One fill truth, JS:
+    nativegen.rs goes; the Rust golden consumes a small committed
+    JS-generated scene + sidecar (a vitest sentinel regenerates it
+    when fills change); benches use deterministic synthetic ink.
+    (d) `fill(asset, params)` by value stays. (e) The studio never
+    edits a sketch on the artist's behalf: Clone-on-warn saves the
+    clone and stops. (f) Import equality stays name-scoped (the
+    artist edits only in the studio; the .ts round trip is a
+    courtesy). (g) Fills get a page like Assets, not a rail panel.
