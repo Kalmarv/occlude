@@ -18,7 +18,7 @@
 // The declarative API.
 export {
   sketch, compileSketch, isSketch,
-  circle, ellipse, rect, line, polygon, region, path, PathValue,
+  circle, ellipse, rect, line, polygon, region, trace, path, PathValue,
   group, clip, mask, invert, decimate, wobble, modify, dash, smooth, roughen, deform, noiseField,
   times, range,
 } from './api.js';

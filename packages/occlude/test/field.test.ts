@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, fill, group, initOcclude, render, rotate, scale, sketch, translate,
-  vectorField, within,
+  circle, fill, group, initOcclude, render, rotate, scale, sketch, trace,
+  translate, vectorField, within,
 } from '../src/index.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
 import type { RenderOptions, SketchDef } from '../src/index.js';
@@ -164,5 +164,32 @@ describe('align: shape-anchored fills follow the motif', () => {
     ]);
     const angles = rowAngles(def);
     for (const a of angles) expect(Math.min(a, 180 - a)).toBeLessThan(1e-6);
+  });
+});
+
+describe('trace: contour stamping without the seam foot-gun', () => {
+  it('closed contours keep their seam; fine open chains survive whole', () => {
+    const def = sketch({ seed: 6 }, (t) => {
+      const f = within(
+        (x: number, y: number) => t.noise(x / 5, y / 22),
+        circle(50, 50, 40),
+      );
+      return t.isolines(f, 0.2, { step: 0.2 }).map((c) => trace(c));
+    });
+    const out = sq(def);
+    const drawn = out.frags.filter((fr) => !fr.dot);
+    const dots = out.frags.filter((fr) => fr.dot);
+    // The chain-whole nib rule: fine-stepped traced contours are ink, not
+    // a field of swallowed tap candidates.
+    expect(drawn.length).toBeGreaterThan(500);
+    expect(dots.length).toBeLessThan(drawn.length / 20);
+  });
+
+  it('bare point arrays trace open', () => {
+    const def = sketch({ seed: 1 }, () => [
+      trace([[10, 10], [50, 30], [90, 10]]),
+    ]);
+    const out = sq(def);
+    expect(out.frags.filter((f) => !f.dot).length).toBe(2); // two segments, no closing chord
   });
 });

@@ -836,7 +836,9 @@ from `image()` samplers). Returns plain contour data `{ pts, closed }`:
 lifts a whole level set into ONE shape (holes respected) for
 `clip`/`mask`/fills. A contour that exits the drawable edge comes back
 open (`closed: false`); pass `close: true` to close every region along
-the edge — the form `clip` and fills want. An array of levels marches
+the edge — the form `clip` and fills want. `trace(c)` strokes a contour
+with the right seams and open ends (`polygon` always closes; a bare
+`[x, y][]` traces open). An array of levels marches
 them all over one shared field sampling. The step defaults to ~mm(1);
 crossings are edge-interpolated, so positional accuracy is far finer
 than the grid.
@@ -874,7 +876,7 @@ anchor to the motif: identical marks for coordinate-placed shapes (the
 halftone case), rotating with shapes in transformed groups.
 
 ```ts live
-import { sketch, circle, path, rotate, within } from 'occlude';
+import { sketch, circle, trace, rotate, within } from 'occlude';
 
 // Grain bounded to a blob and rotated 30° — contours end at the bound.
 export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
@@ -882,12 +884,7 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
   const f = within(grain, circle(50, 25, 18));
   return [
     circle(50, 25, 18),
-    t.isolines(f, [0.1, 0.35, 0.6], { step: 0.4 }).flat().map((c) => {
-      const p = path().moveTo(...c.pts[0]);
-      for (const pt of c.pts.slice(1)) p.lineTo(...pt);
-      if (c.closed) p.close(); // closed contours imply the seam segment
-      return p.build();
-    }),
+    t.isolines(f, [0.1, 0.35, 0.6], { step: 0.4 }).flat().map((c) => trace(c)),
   ];
 });
 ```

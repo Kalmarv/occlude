@@ -208,6 +208,30 @@ export function region(loops: [L, L][][], opts?: ShapeOpts): ShapeValue {
   return shape({ kind: 'path', cmds, winding: 'evenodd' }, opts);
 }
 
+/**
+ * Trace a contour with the pen — `polygon`'s open-minded sibling. A bare
+ * `[x, y][]` traces an OPEN polyline (polygon always closes); an
+ * `IsoContour` honors its `closed` flag, so isolines/rings stamp with the
+ * right seams and the right open ends in one call:
+ * `t.isolines(f, 0.3).map((c) => trace(c))`.
+ */
+export function trace(
+  contour: IsoContour | [L, L][],
+  opts?: ShapeOpts,
+): ShapeValue {
+  const pts = Array.isArray(contour) ? contour : contour.pts;
+  const closed = Array.isArray(contour) ? false : contour.closed;
+  const cmds: PathCmd[] = [];
+  if (pts.length > 0) {
+    cmds.push({ op: 'move', x: pts[0][0], y: pts[0][1] });
+    for (let i = 1; i < pts.length; i++) {
+      cmds.push({ op: 'line', x: pts[i][0], y: pts[i][1] });
+    }
+    if (closed) cmds.push({ op: 'close' });
+  }
+  return shape({ kind: 'path', cmds, winding: 'nonzero' }, opts);
+}
+
 export function polygon(points: [L, L][], opts?: ShapeOpts): ShapeValue;
 export function polygon(
   x: L, y: L, sides: number, r: L, rotation?: number | ShapeOpts, opts?: ShapeOpts,
@@ -545,6 +569,7 @@ export interface Toolkit {
   line: typeof line;
   polygon: typeof polygon;
   region: typeof region;
+  trace: typeof trace;
   path: typeof path;
   group: typeof group;
   clip: typeof clip;
@@ -692,7 +717,7 @@ function pointsOf(
 }
 
 const TOOLKIT_BASE = {
-  circle, ellipse, rect, line, polygon, region, path, group, clip, mask, decimate, wobble, modify,
+  circle, ellipse, rect, line, polygon, region, trace, path, group, clip, mask, decimate, wobble, modify,
   dash, smooth, roughen, deform, noiseField, label,
   fill, ui,
   rnd, pick, chance, prob, noise, stream,
