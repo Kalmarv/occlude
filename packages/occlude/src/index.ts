@@ -93,4 +93,4 @@ export type {
 } from './motion.js';
 
 // Host integration.
-export { setPenLibrary, setPaperHint, getState } from './state.js';
+export { setPenLibrary, setPaperHint, setSeedHint, getState } from './state.js';

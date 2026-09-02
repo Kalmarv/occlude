@@ -65,13 +65,24 @@ let paperHint: { w: number; h: number } = { w: 210, h: 297 };
  * only an explicit reroll (?seed=) changes it. */
 let sessionSeed: number | null = null;
 
+/** Host-injected seed for 'url'/default-seed sketches — the worker analogue
+ * of the URL param (a worker's own URL carries no `?seed=`). Wins over the
+ * URL when set; null clears. Like setPaperHint, survives sketch() resets. */
+let seedHint: number | string | null = null;
+
+export function setSeedHint(seed: number | string | null): void {
+  seedHint = seed;
+}
+
 function freshState(opts: SketchOptions = {}): State {
   let seed: number | string;
   if (opts.seed === 'url' || opts.seed === undefined) {
     const fromUrl =
-      typeof globalThis !== 'undefined' && (globalThis as { location?: Location }).location
-        ? new URLSearchParams((globalThis as unknown as { location: Location }).location.search).get('seed')
-        : null;
+      seedHint !== null
+        ? String(seedHint)
+        : typeof globalThis !== 'undefined' && (globalThis as { location?: Location }).location
+          ? new URLSearchParams((globalThis as unknown as { location: Location }).location.search).get('seed')
+          : null;
     if (fromUrl !== null && fromUrl !== '') {
       seed = fromUrl;
     } else {

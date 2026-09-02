@@ -94,6 +94,9 @@ export interface EbbOptions {
    * interpolated at 25kHz in hardware, vs the XM fallback's ~40Hz staircase
    * of constant-velocity packets. */
   lmMotion: boolean;
+  /** Query the board's step counters every N chains to detect drift
+   * (skipped steps); 0 disables. Default 1000. */
+  driftCheckEvery?: number;
 }
 
 const MAX_MOTOR_STEPS_PER_MS = 25; // verified: 25k steps/s per motor

@@ -1,22 +1,43 @@
 /**
- * Main-thread side of the render worker. Render requests coalesce: while one
- * is in flight, only the newest queued scene survives — a typing burst never
- * builds a backlog, and superseded calls resolve to null.
+ * Main-thread side of the render worker. The worker owns the whole sketch
+ * runtime, so a render request is just source + config — no scene ever
+ * exists on this thread. Render requests coalesce: while one is in flight,
+ * only the newest queued request survives — a typing burst never builds a
+ * backlog, and superseded calls resolve to null. A render is atomic from
+ * the worker's perspective; the watchdog is the only hard interruption.
  */
 
-import {
-  decodeRender, sceneTransferables,
-  type EncodedScene, type RenderResult,
-} from 'occlude';
+import { decodeRender, type EncodedScene, type RenderResult } from 'occlude';
+import type { RunConfig } from './runner.js';
+
+export interface RenderRequest {
+  js: string;
+  cfg: RunConfig;
+}
+
+/** A render carrying its worker-side seed (the main thread has no sketch
+ * state to read it from anymore). */
+export interface RenderReply {
+  result: RenderResult;
+  seedUsed: string;
+}
+
+/** Worker errors carry the sketch flag when execution (not geometry)
+ * failed, plus the stack the editor's runtime marker parses. */
+export interface WorkerError extends Error {
+  sketch?: boolean;
+}
 
 interface Pending {
   resolve(value: unknown): void;
   reject(err: Error): void;
-  scene?: EncodedScene;
+  isRender?: boolean;
 }
 
-/** A render that takes this long is a runaway (sub-mm spacings, huge
- * counts): kill the worker rather than let it eat the tab's memory. */
+/** A render that takes this long is a runaway (a wedged sketch loop,
+ * sub-mm spacings, huge counts): kill the worker rather than let it eat
+ * memory. Sketch execution lives in the worker too now, so this watchdog
+ * replaces the old main-thread crash sentinel. */
 const RENDER_TIMEOUT_MS = 20_000;
 
 export class RenderClient {
@@ -24,7 +45,7 @@ export class RenderClient {
   private nextId = 1;
   private pending = new Map<number, Pending>();
   private inFlightRender = false;
-  private queuedRender: { scene: EncodedScene; p: Pending } | null = null;
+  private queuedRender: { req: RenderRequest; p: Pending } | null = null;
   private watchdog: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
@@ -43,13 +64,15 @@ export class RenderClient {
     };
   }
 
-  /** Watchdog fired: the worker is wedged (or allocating without end).
-   * Terminate it — wasm state and all — and start fresh. */
+  /** Watchdog fired: the worker is wedged (runaway sketch loop or a
+   * runaway parameter). Terminate it — wasm state, sketch runtime, asset
+   * cache and all — and start fresh; every render request carries the full
+   * source + config, so a fresh worker self-heals on the next run. */
   private respawnStuckWorker(): void {
     this.worker.terminate();
     const err = new Error(
       `render timed out after ${RENDER_TIMEOUT_MS / 1000}s — likely a runaway ` +
-        'parameter (tiny spacing/step or a huge count); the renderer was restarted',
+        'loop or parameter (tiny spacing/step or a huge count); the renderer was restarted',
     );
     for (const p of this.pending.values()) p.reject(err);
     this.pending.clear();
@@ -67,42 +90,40 @@ export class RenderClient {
     const p = this.pending.get(msg.id);
     if (!p) return;
     this.pending.delete(msg.id);
-    if (msg.type === 'render' || (msg.type === 'error' && p.scene)) {
+    if (msg.type === 'render' || (msg.type === 'error' && p.isRender)) {
       if (this.watchdog) {
         clearTimeout(this.watchdog);
         this.watchdog = null;
       }
       this.inFlightRender = false;
       if (this.queuedRender) {
-        const { scene, p: qp } = this.queuedRender;
+        const { req, p: qp } = this.queuedRender;
         this.queuedRender = null;
-        this.sendRender(scene, qp);
+        this.sendRender(req, qp);
       }
     }
     if (msg.type === 'error') {
-      p.reject(new Error(String(msg.message)));
+      const err = new Error(String(msg.message)) as WorkerError;
+      if (typeof msg.stack === 'string') err.stack = msg.stack;
+      if (msg.sketch === true) err.sketch = true;
+      p.reject(err);
       return;
     }
     p.resolve(msg);
   }
 
-  private sendRender(scene: EncodedScene, p: Pending): void {
+  private sendRender(req: RenderRequest, p: Pending): void {
     const id = this.nextId++;
-    p.scene = scene;
+    p.isRender = true;
     this.pending.set(id, p);
     this.inFlightRender = true;
     if (this.watchdog) clearTimeout(this.watchdog);
     this.watchdog = setTimeout(() => this.respawnStuckWorker(), RENDER_TIMEOUT_MS);
-    // Only the wasm-call arguments transfer; decode metadata (pens, frame)
-    // stays on this side inside `scene`.
-    this.worker.postMessage(
-      { type: 'render', id, scene },
-      { transfer: sceneTransferables(scene) },
-    );
+    this.worker.postMessage({ type: 'render', id, js: req.js, cfg: req.cfg });
   }
 
-  /** Render a scene. Resolves null when superseded by a newer request. */
-  render(scene: EncodedScene): Promise<RenderResult | null> {
+  /** Run + render a sketch. Resolves null when superseded by a newer request. */
+  render(req: RenderRequest): Promise<RenderReply | null> {
     return new Promise((resolve, reject) => {
       const p: Pending = {
         resolve: (msg) => {
@@ -115,17 +136,23 @@ export class RenderClient {
             frags: Float64Array;
             stats: Float64Array;
             renderMs: number;
+            pens: EncodedScene['pens'];
+            frame: EncodedScene['frame'];
+            paper: EncodedScene['paper'];
+            seedUsed: string;
           };
-          resolve(decodeRender(scene, m));
+          // decodeRender reads only pens/frame/paper from the scene half.
+          const meta = { pens: m.pens, frame: m.frame, paper: m.paper } as EncodedScene;
+          resolve({ result: decodeRender(meta, m), seedUsed: m.seedUsed });
         },
         reject,
       };
       if (this.inFlightRender) {
         this.queuedRender?.p.resolve(null);
-        this.queuedRender = { scene, p };
+        this.queuedRender = { req, p };
         return;
       }
-      this.sendRender(scene, p);
+      this.sendRender(req, p);
     });
   }
 

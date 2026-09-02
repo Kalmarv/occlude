@@ -5,8 +5,9 @@
  * 'occlude'` into `require('occlude')`, satisfied from the studio's own
  * module instance.
  *
- * Execution + encoding are cheap and synchronous; the wasm geometry call
- * happens in the render worker so the editor never blocks.
+ * Runs INSIDE the render worker (spec: the worker owns the entire sketch
+ * runtime; the main thread owns the editor only). A runaway sketch loop
+ * wedges the worker — killed by the client watchdog — never the tab.
  */
 
 import * as occlude from 'occlude';
@@ -26,9 +27,14 @@ export interface RunConfig {
   coarsen: number;
   /** Compute the debug ghost (post-modified pre-occlusion geometry). */
   debugGhost?: boolean;
+  /** Seed for 'url'/default-seed sketches. The worker's own URL carries no
+   * `?seed=`, so the host passes it explicitly; null/undefined lets the
+   * session seed roll. */
+  seed?: number | string | null;
 }
 
 export function runSketch(js: string, cfg: RunConfig): RunOutcome {
+  occlude.setSeedHint(cfg.seed ?? null);
   occlude.setPenLibrary(cfg.pens);
   // Let bounds() see the real paper for aspect-'paper' sketches.
   const { w, h } = occlude.paperSize({ paper: cfg.paper as never, landscape: cfg.landscape });

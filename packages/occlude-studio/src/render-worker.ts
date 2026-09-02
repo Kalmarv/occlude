@@ -1,16 +1,23 @@
 /**
- * Render worker: owns the wasm module so geometry never blocks the editor.
- * Keeps the last render's raw buffers so G-code/SVG exports reuse them
- * instead of re-rendering.
+ * Render worker: owns the ENTIRE sketch runtime — sketch execution, asset
+ * registry, scene encoding, the wasm module, and export state. The main
+ * thread owns the editor/UI only and never executes sketch code (spec:
+ * fills-fields-spec.md, project 1). A render is atomic from this worker's
+ * perspective: requests coalesce on the main thread; the watchdog is the
+ * only hard interruption. Keeps the last render's raw buffers so
+ * G-code/SVG exports reuse them instead of re-rendering.
  */
 
 import initCore, * as core from 'occlude-core';
-import { renderEncoded, type EncodedScene, type WasmModule } from 'occlude';
+import { renderEncoded, type WasmModule } from 'occlude';
+import { currentSeed, runSketch, type RunConfig } from './runner.js';
+import { preloadAssets } from './assetLoader.js';
 
 interface RenderMsg {
   type: 'render';
   id: number;
-  scene: EncodedScene;
+  js: string;
+  cfg: RunConfig;
 }
 
 interface GcodeMsg {
@@ -58,10 +65,28 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
   try {
     switch (msg.type) {
       case 'render': {
-        const raw = renderEncoded(mod, msg.scene);
-        last = { prims: raw.prims, frags: raw.frags, pensJson: msg.scene.pensJson };
+        // Assets referenced by literal name are fetched/decoded here in the
+        // worker (fetch + OffscreenCanvas are worker-native) before the
+        // synchronous sketch executes.
+        await preloadAssets(msg.js);
+        const outcome = runSketch(msg.js, msg.cfg);
+        if (outcome.error || !outcome.scene) {
+          const err = outcome.error;
+          self.postMessage({
+            type: 'error',
+            id: msg.id,
+            message: err instanceof Error ? err.message : String(err),
+            stack: err instanceof Error ? err.stack : undefined,
+            sketch: true, // execution failed — the editor sets a runtime marker
+          });
+          break;
+        }
+        const scene = outcome.scene;
+        const raw = renderEncoded(mod, scene);
+        last = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson };
         // The preview needs the buffers too, so copy rather than transfer the
-        // cached ones.
+        // cached ones. Decode metadata (pens/frame/paper) rides along so the
+        // main thread can decode without ever having held the scene.
         self.postMessage(
           {
             type: 'render',
@@ -71,6 +96,10 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
             ghost: raw.ghost?.slice(),
             stats: raw.stats,
             renderMs: raw.renderMs,
+            pens: scene.pens,
+            frame: scene.frame,
+            paper: scene.paper,
+            seedUsed: currentSeed(),
           },
           { transfer: [] },
         );
@@ -132,6 +161,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       type: 'error',
       id: msg.id,
       message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
     });
   }
 };

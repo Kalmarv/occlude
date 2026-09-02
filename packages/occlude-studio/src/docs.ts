@@ -6,10 +6,8 @@
 import './style.css';
 import { marked } from 'marked';
 import {
-  DEFAULT_PENS, drawFragments, evalPrim, liveExampleToJs, setPenLibrary,
+  DEFAULT_PENS, drawFragments, evalPrim, liveExampleToJs,
 } from 'occlude';
-import { preloadAssets } from './assetLoader.js';
-import { runSketch } from './runner.js';
 import { RenderClient } from './workerClient.js';
 import architectureMd from '../../../docs/architecture.md?raw';
 import referenceMd from '../../../docs/reference.md?raw';
@@ -48,22 +46,22 @@ async function hydrateLiveExamples(): Promise<void> {
   const outputs = [...content.querySelectorAll<HTMLElement>('[data-live]')];
   if (outputs.length === 0) return;
   client ??= new RenderClient();
-  setPenLibrary(structuredClone(DEFAULT_PENS));
   for (const el of outputs) {
     const src = liveSources[Number(el.dataset.live)];
     try {
       const js = liveExampleToJs(src);
-      await preloadAssets(js);
-      const outcome = runSketch(js, {
-        pens: structuredClone(DEFAULT_PENS),
-        paper: 'Square20',
-        landscape: false,
-        defaultMarginPct: 5,
-        coarsen: 1,
+      const reply = await client.render({
+        js,
+        cfg: {
+          pens: structuredClone(DEFAULT_PENS),
+          paper: 'Square20',
+          landscape: false,
+          defaultMarginPct: 5,
+          coarsen: 1,
+        },
       });
-      if (outcome.error || !outcome.scene) throw outcome.error ?? new Error('no scene');
-      const result = await client.render(outcome.scene);
-      if (!result) continue;
+      if (!reply) continue;
+      const result = reply.result;
       // Crop to the drawn content (examples vary in aspect; the render
       // paper does not) with a small margin.
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;

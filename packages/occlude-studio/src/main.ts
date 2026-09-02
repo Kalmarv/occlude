@@ -4,27 +4,20 @@ import './style.css';
 import { clearRuntimeMarkers, createEditor, setRuntimeMarker } from './editor.js';
 import { buildRail } from './panels.js';
 import { Preview } from './preview.js';
-import { currentSeed, runSketch } from './runner.js';
-import { preloadAssets } from './assetLoader.js';
 import {
   download, loadPens, loadProfiles, loadSettings, loadSketch, loadSketchName,
   loadUi, saveSketch, saveSketchName, saveUi,
 } from './store.js';
 import { UiPanel } from './uiPanel.js';
-import { RenderClient } from './workerClient.js';
+import { RenderClient, type WorkerError } from './workerClient.js';
 import type { RenderResult } from 'occlude';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
-/**
- * Crash recovery: the sketch executes synchronously on the main thread, so a
- * runaway loop (`x += 0` mid-edit) freezes or OOM-kills the tab before any
- * error can surface. The sentinel is set just before that dangerous window
- * and cleared right after — if a page load finds it still set, the last run
- * never finished, and rendering starts paused so the bad code can be edited
- * without instantly re-executing.
- */
-const RUN_SENTINEL = 'occlude.run-in-progress';
+// The sketch executes in the render worker (spec: the worker owns the whole
+// sketch runtime; this thread owns the editor only). A runaway loop wedges
+// the worker and the client watchdog respawns it — the tab never freezes,
+// so the old crash sentinel is gone.
 
 async function boot(): Promise<void> {
   const statusMsg = $('status-msg');
@@ -32,9 +25,7 @@ async function boot(): Promise<void> {
   const statusSeed = $('status-seed');
   const titleEl = $('sketch-title') as HTMLInputElement;
 
-  let crashed = localStorage.getItem(RUN_SENTINEL) !== null;
-  localStorage.removeItem(RUN_SENTINEL);
-  let renderOn = !crashed;
+  let renderOn = true;
   const renderToggle = $('render-toggle') as HTMLButtonElement;
   function syncRenderToggle(): void {
     renderToggle.textContent = renderOn ? '⏸ live' : '▶ render';
@@ -67,17 +58,22 @@ async function boot(): Promise<void> {
     saveSketchName(sketchName);
   };
 
-  function renderSeedControls(): void {
+  // Seed ownership lives HERE now: the worker has no ?seed= in its URL and
+  // its session seed dies on watchdog respawn, so the main thread passes the
+  // seed explicitly and captures whatever the worker actually used.
+  let seed: string | null = new URL(location.href).searchParams.get('seed');
+
+  function renderSeedControls(used: string): void {
     statusSeed.innerHTML = '';
-    const seed = currentSeed();
     const label = document.createElement('span');
-    label.textContent = `seed ${seed}`;
+    label.textContent = `seed ${used}`;
     const reroll = document.createElement('button');
     reroll.textContent = 'reroll';
     reroll.title = 'New random seed';
     reroll.onclick = () => {
+      seed = String(Math.floor(Math.random() * 2 ** 31));
       const url = new URL(location.href);
-      url.searchParams.set('seed', String(Math.floor(Math.random() * 2 ** 31)));
+      url.searchParams.set('seed', seed);
       history.replaceState(null, '', url);
       void run();
     };
@@ -86,7 +82,7 @@ async function boot(): Promise<void> {
     share.title = 'Copy a shareable URL with this seed';
     share.onclick = () => {
       const url = new URL(location.href);
-      url.searchParams.set('seed', seed);
+      url.searchParams.set('seed', used);
       void navigator.clipboard.writeText(url.toString());
     };
     statusSeed.append(label, reroll, share);
@@ -102,13 +98,10 @@ async function boot(): Promise<void> {
   }
 
   async function runInner(): Promise<void> {
-    saveSketch(editor.getValue()); // persist BEFORE executing — survives a crash
+    saveSketch(editor.getValue()); // persist BEFORE executing — survives anything
     if (!renderOn) {
       statusMsg.className = 'status-err';
-      statusMsg.textContent = crashed
-        ? 'last run never finished (runaway loop / out of memory?) — rendering is ' +
-          'paused so you can fix the sketch; press ▶ render when ready'
-        : 'rendering paused — press ▶ render to run the sketch';
+      statusMsg.textContent = 'rendering paused — press ▶ render to run the sketch';
       return;
     }
     const emitted = await editor.emit();
@@ -118,46 +111,36 @@ async function boot(): Promise<void> {
       return;
     }
     clearRuntimeMarkers(editor.model);
-    // Assets referenced by literal name must be fetched/decoded before the
-    // synchronous sketch executes.
-    try {
-      await preloadAssets(emitted.js);
-    } catch (err) {
-      statusMsg.className = 'status-err';
-      statusMsg.textContent = err instanceof Error ? err.message : String(err);
-      return;
-    }
-    // Execute + encode on the main thread (cheap); geometry in the worker.
-    // This synchronous window is where a runaway loop hangs the tab — the
-    // sentinel brackets it so a reload after a crash starts paused.
-    localStorage.setItem(RUN_SENTINEL, '1');
-    const outcome = runSketch(emitted.js, {
-      pens,
-      paper: settings.paper === 'Custom' ? settings.customPaper : settings.paper,
-      landscape: settings.landscape,
-      defaultMarginPct: settings.defaultMarginPct,
-      coarsen: 1,
-      debugGhost: preview.debug.occluded,
-    });
-    localStorage.removeItem(RUN_SENTINEL);
-    if (outcome.error || !outcome.scene) {
-      statusMsg.className = 'status-err';
-      statusMsg.textContent =
-        outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
-      setRuntimeMarker(editor.model, outcome.error);
-      return;
-    }
     statusMsg.className = 'status-ok';
     statusMsg.textContent = 'rendering…';
-    let result: RenderResult | null;
+    // The worker runs everything: asset preload, sketch execution, encode,
+    // wasm. Each request carries the full config so a respawned worker
+    // self-heals.
+    let reply;
     try {
-      result = await client.render(outcome.scene);
+      reply = await client.render({
+        js: emitted.js,
+        cfg: {
+          pens,
+          paper: settings.paper === 'Custom' ? settings.customPaper : settings.paper,
+          landscape: settings.landscape,
+          defaultMarginPct: settings.defaultMarginPct,
+          coarsen: 1,
+          debugGhost: preview.debug.occluded,
+          seed,
+        },
+      });
     } catch (err) {
       statusMsg.className = 'status-err';
       statusMsg.textContent = err instanceof Error ? err.message : String(err);
+      if ((err as WorkerError).sketch) setRuntimeMarker(editor.model, err);
       return;
     }
-    if (result === null) return; // superseded by a newer run
+    if (reply === null) return; // superseded by a newer run
+    const result: RenderResult = reply.result;
+    // Capture the seed the worker actually used (the rolled session seed on
+    // a fresh run) so respawns and shares stay sticky.
+    seed = reply.seedUsed;
     lastResult = result;
     if (result.stats.shapesIn === 0) {
       statusMsg.className = 'status-err';
@@ -179,7 +162,7 @@ async function boot(): Promise<void> {
       `${s.clean} clean · ${s.culledContained + s.culledOffPaper} culled · ` +
       `${s.renderMs.toFixed(1)}ms`;
     preview.setResult(result);
-    renderSeedControls();
+    renderSeedControls(reply.seedUsed);
   }
 
   function scheduleRun(): void {
@@ -192,7 +175,6 @@ async function boot(): Promise<void> {
 
   renderToggle.onclick = () => {
     renderOn = !renderOn;
-    if (renderOn) crashed = false; // the crash notice served its purpose
     syncRenderToggle();
     void run();
   };
