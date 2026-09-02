@@ -71,6 +71,17 @@ export type ShapeGeom =
   | { kind: 'points'; pts: [L, L][] }
   | { kind: 'path'; cmds: PathCmd[]; winding: Winding };
 
+/** Is this geometry a closed region? An empty path is the empty region:
+ * trivially closed (no boundary), so a generator that produced nothing
+ * (isolines above the field max, say) still fills/clips as a no-op instead
+ * of throwing. */
+export function geomClosed(g: ShapeGeom): boolean {
+  if (g.kind === 'line') return false;
+  if (g.kind === 'points') return true;
+  if (g.kind === 'path') return g.cmds.length === 0 || g.cmds.some((c) => c.op === 'close');
+  return true;
+}
+
 export class Shape {
   readonly geom: ShapeGeom;
   /** Transform chain snapshot at record time (outermost first). */
@@ -114,14 +125,7 @@ export class Shape {
   }
 
   get closed(): boolean {
-    const g = this.geom;
-    if (g.kind === 'line') return false;
-    if (g.kind === 'points') return true;
-    // An empty path is the empty region: trivially closed (no boundary), so
-    // a generator that produced nothing (isolines above the field max, say)
-    // still fills/clips as a no-op instead of throwing.
-    if (g.kind === 'path') return g.cmds.length === 0 || g.cmds.some((c) => c.op === 'close');
-    return true;
+    return geomClosed(this.geom);
   }
 
   /**

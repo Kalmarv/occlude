@@ -23,7 +23,9 @@
 
 import type { FieldFn, VectorFieldFn } from './shapes.js';
 import type { ShapeValue } from './api.js';
-import { bounds, unitScaleMm } from './state.js';
+import { lowerToUserLoops, makeFrame, userPointMm, type Frame } from './record.js';
+import { geomClosed } from './shapes.js';
+import { bounds, getPaperHint, getState, unitScaleMm } from './state.js';
 import { resolveLen, Len, type L } from './units.js';
 
 interface FieldMeta {
@@ -93,11 +95,16 @@ export function rotate<F extends AnyField>(field: F, deg: number): F {
   });
 }
 
-/** Translate a field by (dx, dy) — lengths accepted; arrows unchanged. */
+/** Translate a field by (dx, dy) — lengths accepted; arrows unchanged.
+ * Lengths resolve LAZILY, at the first sample: a field built at module
+ * scope (before the sketch's paper/aspect exist) still resolves `mm(10)`
+ * against the paper it renders on. */
 export function translate<F extends AnyField>(field: F, dx: L, dy: L): F {
-  const tx = userLen(dx);
-  const ty = userLen(dy);
-  return wrap(field, (x, y) => field(x - tx, y - ty));
+  let t: [number, number] | null = null;
+  return wrap(field, (x, y) => {
+    t ??= [userLen(dx), userLen(dy)];
+    return field(x - t[0], y - t[1]);
+  });
 }
 
 /**
@@ -126,129 +133,35 @@ export function scale<F extends AnyField>(field: F, s: number | [number, number]
 
 // ---- domain bounds -----------------------------------------------------
 
-/** Point-in-shape in user units, honoring the value's own transform opts.
- * Supports the closed geometry kinds; open geoms (line) contain nothing. */
+/** Flattened user-space loops per bound shape, lowered LAZILY on the first
+ * sample — the sketch's paper/aspect/rectMode are established by then even
+ * for a bound built at module scope. */
+const BOUND_LOOPS = new WeakMap<ShapeValue, [number, number][][]>();
+
+function sketchFrame(): Frame {
+  const { w, h } = getPaperHint();
+  return makeFrame(getState(), w, h, false);
+}
+
+/** Point-in-shape in user units, through the one lowerer (rectMode, arc
+ * commands, curve flattening, transform opts — exactly what the shape
+ * inks), with the geometry's own winding rule. */
 function containsPoint(shape: ShapeValue, x: number, y: number): boolean {
-  // Undo the shape-level transform opts (translate → rotate → scale, the
-  // same order the emit chain applies).
-  const o = shape.opts;
-  let px = x;
-  let py = y;
-  if (o.translate) {
-    px -= userLen(o.translate[0]);
-    py -= userLen(o.translate[1]);
+  let loops = BOUND_LOOPS.get(shape);
+  const frame = sketchFrame();
+  if (!loops) {
+    const o = shape.opts;
+    loops = lowerToUserLoops(
+      shape.geom,
+      { translate: o.translate, rotate: o.rotate, scale: o.scale },
+      frame,
+    );
+    BOUND_LOOPS.set(shape, loops);
   }
-  if (o.rotate) {
-    const th = (-o.rotate * Math.PI) / 180;
-    const c = Math.cos(th);
-    const s = Math.sin(th);
-    const rx = px * c - py * s;
-    const ry = px * s + py * c;
-    px = rx;
-    py = ry;
-  }
-  if (o.scale !== undefined) {
-    const [sx, sy] = typeof o.scale === 'number' ? [o.scale, o.scale] : o.scale;
-    px /= sx;
-    py /= sy;
-  }
+  const [px, py] = userPointMm(x, y, frame);
   const g = shape.geom;
-  switch (g.kind) {
-    case 'circle': {
-      const cx = userLen(g.x);
-      const cy = userLen(g.y);
-      const r = userLen(g.r);
-      return Math.hypot(px - cx, py - cy) <= r;
-    }
-    case 'ellipse': {
-      const cx = userLen(g.x);
-      const cy = userLen(g.y);
-      const rx = userLen(g.rx);
-      const ry = userLen(g.ry);
-      const th = (-(g.rotation ?? 0) * Math.PI) / 180;
-      const c = Math.cos(th);
-      const s = Math.sin(th);
-      const lx = (px - cx) * c - (py - cy) * s;
-      const ly = (px - cx) * s + (py - cy) * c;
-      return (lx / rx) ** 2 + (ly / ry) ** 2 <= 1;
-    }
-    case 'rect': {
-      const rx = userLen(g.x);
-      const ry = userLen(g.y);
-      const rw = userLen(g.w);
-      const rh = userLen(g.h);
-      const cx = g.anchor === 'center' ? rx - rw / 2 : rx;
-      const cy = g.anchor === 'center' ? ry - rh / 2 : ry;
-      return px >= cx && px <= cx + rw && py >= cy && py <= cy + rh;
-    }
-    case 'ngon': {
-      const cx = userLen(g.x);
-      const cy = userLen(g.y);
-      const r = userLen(g.r);
-      const rot = ((g.rotation ?? 0) * Math.PI) / 180 - Math.PI / 2;
-      const pts: [number, number][] = [];
-      for (let i = 0; i < g.sides; i++) {
-        const a = rot + (i * 2 * Math.PI) / g.sides;
-        pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
-      }
-      return pointInLoops([pts], px, py);
-    }
-    case 'points':
-      return pointInLoops([g.pts.map(([ax, ay]) => [userLen(ax), userLen(ay)])], px, py);
-    case 'path': {
-      // Flatten commands to polyline loops (curves sampled — the domain
-      // test is sampled-precision by nature for sketch-time consumers).
-      const loops: [number, number][][] = [];
-      let cur: [number, number][] = [];
-      let sx0 = 0;
-      let sy0 = 0;
-      for (const cmd of g.cmds) {
-        if (cmd.op === 'move') {
-          if (cur.length > 1) loops.push(cur);
-          sx0 = userLen(cmd.x);
-          sy0 = userLen(cmd.y);
-          cur = [[sx0, sy0]];
-        } else if (cmd.op === 'line') {
-          cur.push([userLen(cmd.x), userLen(cmd.y)]);
-        } else if (cmd.op === 'close') {
-          if (cur.length > 1) loops.push(cur);
-          cur = [[sx0, sy0]];
-        } else if (cmd.op === 'bezier' || cmd.op === 'quad') {
-          const last = cur[cur.length - 1] ?? [sx0, sy0];
-          const ex = userLen(cmd.x);
-          const ey = userLen(cmd.y);
-          for (let t = 0.125; t <= 1.0001; t += 0.125) {
-            if (cmd.op === 'bezier') {
-              const c0x = userLen(cmd.c0x);
-              const c0y = userLen(cmd.c0y);
-              const c1x = userLen(cmd.c1x);
-              const c1y = userLen(cmd.c1y);
-              const u = 1 - t;
-              cur.push([
-                u ** 3 * last[0] + 3 * u * u * t * c0x + 3 * u * t * t * c1x + t ** 3 * ex,
-                u ** 3 * last[1] + 3 * u * u * t * c0y + 3 * u * t * t * c1y + t ** 3 * ey,
-              ]);
-            } else {
-              const qx = userLen(cmd.cx);
-              const qy = userLen(cmd.cy);
-              const u = 1 - t;
-              cur.push([
-                u * u * last[0] + 2 * u * t * qx + t * t * ex,
-                u * u * last[1] + 2 * u * t * qy + t * t * ey,
-              ]);
-            }
-          }
-        } else if (cmd.op === 'arc') {
-          // Sampled chord approximation, consistent with the sampled test.
-          cur.push([userLen(cmd.x), userLen(cmd.y)]);
-        }
-      }
-      if (cur.length > 1) loops.push(cur);
-      return pointInLoops(loops, px, py, g.winding === 'evenodd');
-    }
-    default:
-      return false; // open geometry contains nothing
-  }
+  const evenodd = g.kind === 'path' && g.winding === 'evenodd';
+  return pointInLoops(loops, px, py, evenodd);
 }
 
 /** Even-odd (or nonzero) ray cast over polyline loops. */
@@ -287,6 +200,9 @@ function pointInLoops(
  * scatter, fills) get this test's exactness.
  */
 export function within<F extends AnyField>(field: F, shape: ShapeValue): F {
+  if (!geomClosed(shape.geom)) {
+    throw new Error('within() bound must be a closed shape (close() the path, or use a region)');
+  }
   const vec = isVector(field);
   return wrap(field, (x, y) => {
     if (!containsPoint(shape, x, y)) {

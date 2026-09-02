@@ -16,8 +16,6 @@ export interface FillRegion {
   path: Prim[][];
   /** Point-in-region test (respects the shape's winding rule). */
   contains(x: number, y: number): boolean;
-  /** Region area in mm² (holes subtracted). */
-  area: number;
 }
 
 /** Everything a fill may read besides its region and params. */
@@ -33,7 +31,11 @@ export interface FillCtx {
   /** Shape anchor: the accumulated explicit transform at this use.
    * `rotation` (degrees) is identity-0 for coordinate-placed shapes —
    * shape-aligned textures add it so a rotated motif carries its texture,
-   * while halftone circles keep identical marks (ONE align meaning). */
+   * while halftone circles keep identical marks (ONE align meaning).
+   * Known limitation: this is the rotation of the x-axis image only, so a
+   * MIRRORED group (`scale: [-1, 1]`) does not mirror a shape-aligned
+   * ruling's angle (45° stays 45°, not 135°) — pending the artist's ruling
+   * on carrying the full linear part. */
   anchor: { rotation: number };
 }
 

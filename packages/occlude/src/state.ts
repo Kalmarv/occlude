@@ -133,6 +133,12 @@ export function setPaperHint(wMm: number, hMm: number): void {
   paperHint = { w: wMm, h: hMm };
 }
 
+/** The paper hosts said they will render (mm) — what `bounds()` and
+ * sketch-time lowering resolve against. */
+export function getPaperHint(): { w: number; h: number } {
+  return paperHint;
+}
+
 /**
  * The drawable extent in bare units (percent of the short side): the safe
  * full-bleed rect is `rect(0, 0, b.w, b.h)`. The short side is always 100;

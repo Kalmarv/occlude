@@ -34,15 +34,30 @@ export {
 
 export type FillSpec =
   | { type: 'use'; name: string; params: Record<string, unknown> }
+  /** A fill module held by value (a `fillAsset` defined in the sketch
+   * itself): resolves in place, no library involved. */
+  | { type: 'asset'; def: FillAssetDef<Record<string, unknown>>; params: Record<string, unknown> }
   | { type: 'custom'; fn: CustomFillFn }
   | { type: 'mask' };
 
 /**
- * Use a fill module by name with parameter overrides. Names are literals —
- * computed names defeat scanning and import rewiring.
+ * Use a fill module with parameter overrides — by NAME (a literal: computed
+ * names defeat scanning and import rewiring; the stored/referenced form)
+ * or by VALUE (a `fillAsset` defined right in the sketch — the declared-
+ * params form without a library; execution and storage are separate
+ * concerns).
  */
-export function fill(name: string, params: Record<string, unknown> = {}): FillSpec {
-  return { type: 'use', name, params };
+export function fill<P extends Record<string, unknown>>(
+  asset: FillAssetDef<P>,
+  params?: Partial<P>,
+): FillSpec;
+export function fill(name: string, params?: Record<string, unknown>): FillSpec;
+export function fill(
+  ref: string | FillAssetDef<Record<string, unknown>>,
+  params: Record<string, unknown> = {},
+): FillSpec {
+  if (typeof ref === 'string') return { type: 'use', name: ref, params };
+  return { type: 'asset', def: ref, params };
 }
 
 /** Wrap an inline fill function. `.fill(f)` also accepts the function directly. */

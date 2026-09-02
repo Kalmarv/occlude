@@ -1,10 +1,13 @@
 /**
  * The deferred renderer: encodes the whole recording into flat typed arrays,
- * makes ONE wasm call, and decodes fragments back. Also G-code / SVG export.
+ * runs the TWO-PASS render (wasm pass 1 prepares and exposes surviving
+ * outlines; the fill jobs generate ink here in JS; wasm pass 2 clips and
+ * occludes it), and decodes fragments back. Also G-code / SVG / PNG export.
  *
- * The encode and decode halves are exported separately so a host (the studio)
- * can run the wasm call in a Web Worker — the spec requires render off the
- * main thread. `render()` itself stays synchronous for tests and simple use.
+ * Everything from sketch execution to `renderEncoded` lives in ONE runtime
+ * (the studio's render worker, or node): the encoded scene carries fill
+ * closures and never crosses a thread. `decodeRender` is the only half a
+ * host runs elsewhere (the studio's main thread decodes posted buffers).
  */
 
 import {
@@ -21,9 +24,9 @@ import { getState, type Winding } from './state.js';
 import { compileSketch, isSketch, type SketchDef } from './api.js';
 import { mm, resolveLen } from './units.js';
 
-/** Build the region object handed to custom fill functions. `contains` and
- * `area` work on a 0.05 mm flattening — plenty for fill generation; the
- * returned primitives are clipped exactly regardless. */
+/** Build the region object handed to custom fill functions. `contains`
+ * works on a 0.05 mm flattening — plenty for fill generation; the returned
+ * primitives are clipped exactly regardless. */
 function makeFillRegion(contours: Prim[][], winding: Winding): FillRegion {
   const polys: [number, number][][] = contours.map((c) => {
     const pts: [number, number][] = [];
@@ -37,16 +40,12 @@ function makeFillRegion(contours: Prim[][], winding: Winding): FillRegion {
   let by0 = Infinity;
   let bx1 = -Infinity;
   let by1 = -Infinity;
-  let signedArea = 0;
   for (const poly of polys) {
-    for (let i = 0, n = poly.length; i < n; i++) {
-      const [x0, y0] = poly[i];
-      const [x1, y1] = poly[(i + 1) % n];
+    for (const [x0, y0] of poly) {
       bx0 = Math.min(bx0, x0);
       by0 = Math.min(by0, y0);
       bx1 = Math.max(bx1, x0);
       by1 = Math.max(by1, y0);
-      signedArea += (x0 * y1 - x1 * y0) / 2;
     }
   }
   const contains = (x: number, y: number): boolean => {
@@ -71,7 +70,6 @@ function makeFillRegion(contours: Prim[][], winding: Winding): FillRegion {
     bbox: { x: bx0, y: by0, w: bx1 - bx0, h: by1 - by0 },
     path: contours,
     contains,
-    area: Math.abs(signedArea),
   };
 }
 
@@ -202,8 +200,10 @@ const PRIM_STRIDE = 9;
 const FRAG_STRIDE = 6;
 
 /**
- * A fully encoded scene: the arguments of `wasm_prepare` (all
- * transferable) plus the metadata `decodeRender` needs afterwards.
+ * A fully encoded scene: the arguments of `wasm_prepare` plus the between-
+ * pass fill jobs (closures!) and the metadata `decodeRender` needs. It is
+ * NOT transferable and must never cross a thread: it belongs to the runtime
+ * that executed the sketch, which is the runtime that renders it.
  */
 export interface EncodedScene {
   prims: Float64Array;
@@ -231,21 +231,6 @@ export interface EncodedScene {
   pens: PenDef[];
   frame: Frame;
   paper: { w: number; h: number };
-}
-
-/** The transferable buffers of a scene (for postMessage transfer lists). */
-export function sceneTransferables(s: EncodedScene): ArrayBuffer[] {
-  return [
-    s.prims.buffer,
-    s.contours.buffer,
-    s.shapesU32.buffer,
-    s.shapesF64.buffer,
-    s.mods.buffer,
-    s.fieldData.buffer,
-    s.clipList.buffer,
-    s.clipsU32.buffer,
-    s.paperArr.buffer,
-  ] as ArrayBuffer[];
 }
 
 /** One shape's between-pass fill: run against the FINAL outline pass 1
@@ -468,15 +453,16 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
         const winding = geom.kind === 'path' ? geom.winding : 'nonzero';
         const order = shape.order;
         let run: FillJob['run'];
-        if (spec.type === 'use') {
-          const def = resolveFill(spec.name);
+        if (spec.type === 'use' || spec.type === 'asset') {
+          const def = spec.type === 'asset' ? spec.def : resolveFill(spec.name);
+          const label = spec.type === 'asset' ? 'fill asset' : spec.name;
           if (!def) {
             throw new Error(
-              `unknown fill '${spec.name}' — built-ins: hatch, crosshatch, stipple, solid; ` +
+              `unknown fill '${label}' — built-ins: hatch, crosshatch, stipple, solid; ` +
                 'custom fills are saved in the studio Fills panel',
             );
           }
-          validateFillParams(spec.name, spec.params);
+          validateFillParams(label, spec.params);
           const params = { ...def.params, ...spec.params };
           run = (region, ctx) => def.generate(region, params, ctx);
         } else {
@@ -754,12 +740,23 @@ export function renderEncoded(mod: WasmModule, scene: EncodedScene): RawRender {
     scene.coarsen,
     scene.debugGhost ? 1 : 0,
   );
-  const supplied = runFillJobs(
-    scene,
-    prepared.jobs_index,
-    prepared.jobs_contours,
-    prepared.jobs_prims,
-  );
+  // The pass-1 handle owns the whole prepared scene; wasm_finish consumes
+  // it (freed on Ok and Err alike), so only the fill-throw path must free
+  // it by hand — a bad inline closure must not leak a scene per keystroke.
+  // Not `finally`: after finish the handle is consumed and a second free
+  // is a null-pointer error.
+  let supplied: SuppliedFills;
+  try {
+    supplied = runFillJobs(
+      scene,
+      prepared.jobs_index,
+      prepared.jobs_contours,
+      prepared.jobs_prims,
+    );
+  } catch (e) {
+    prepared.free?.();
+    throw e;
+  }
   const result = mod.wasm_finish(
     prepared,
     supplied.fillsIndex,

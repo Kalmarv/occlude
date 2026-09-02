@@ -33,7 +33,14 @@ const md = readFileSync(
   fileURLToPath(new URL('../../../docs/reference.md', import.meta.url)),
   'utf8',
 );
-const fences = [...md.matchAll(/```ts live\n([\s\S]*?)```/g)].map((m) => m[1]);
+const readme = readFileSync(fileURLToPath(new URL('../../../README.md', import.meta.url)), 'utf8');
+// The README's headline example is the deleted-API canary: it runs too.
+const fences = [
+  ...[...md.matchAll(/```ts live\n([\s\S]*?)```/g)].map((m) => m[1]),
+  ...[...readme.matchAll(/```ts\n([\s\S]*?)```/g)]
+    .map((m) => m[1])
+    .filter((src) => src.includes('export default sketch')),
+];
 if (fences.length === 0) {
   console.error('no `ts live` fences found — wrong file?');
   process.exit(1);

@@ -429,7 +429,6 @@ per-shape from the sketch seed — use it instead of `Math.random()`.
   region.bbox              // { x, y, w, h } in mm
   region.contains(x, y)    // point test (respects the winding rule)
   region.path              // the actual outline: contours of exact primitives
-  region.area              // mm², holes subtracted
   ctx.penWidth             // fill pen nib, mm
   ctx.rnd()                // seeded [0, 1)
 }
@@ -499,8 +498,10 @@ export default fillAsset({
 });
 ```
 
-Saved in the studio's **Fills** panel under a name, it is used exactly
-like a built-in: `fill('grain', { angle: 60 })` — the call site's literals
+A fill module can also live right in the sketch and be used by value —
+`fill(myAsset, { angle: 60 })` — the declared-params form with no library
+involved. Saved in the studio's **Fills** panel under a name, it is used
+exactly like a built-in: `fill('grain', { angle: 60 })` — the call site's literals
 override the declared defaults, and the name is a literal (computed names
 defeat the scan that loads fills, warns on edit, and rewires imports).
 The render worker fetches referenced fill files per render and the

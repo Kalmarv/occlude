@@ -106,10 +106,14 @@ dump('clips_u32.u32', scene.clipsU32);
     scene.fieldData, scene.clipList, scene.clipsU32, scene.pensJson,
     scene.paperArr, scene.seed, scene.coarsen, 0,
   );
-  const supplied = runFillJobs(
-    scene, prepared.jobs_index, prepared.jobs_contours, prepared.jobs_prims,
-  );
-  prepared.free?.();
+  let supplied;
+  try {
+    supplied = runFillJobs(
+      scene, prepared.jobs_index, prepared.jobs_contours, prepared.jobs_prims,
+    );
+  } finally {
+    prepared.free?.(); // never passed to finish here, so free on both paths
+  }
   dump('fills_index.u32', supplied.fillsIndex);
   dump('fill_chains.u32', supplied.fillChains);
   dump('fill_prims.f64', supplied.fillPrims);

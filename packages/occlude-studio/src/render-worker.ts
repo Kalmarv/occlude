@@ -88,16 +88,22 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         const scene = outcome.scene;
         const raw = renderEncoded(mod, scene);
         last = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson };
-        // The preview needs the buffers too, so copy rather than transfer the
-        // cached ones. Decode metadata (pens/frame/paper) rides along so the
-        // main thread can decode without ever having held the scene.
+        // Exports reuse the cached originals, so the preview gets COPIES —
+        // and the copies are transferred, not structured-cloned a second
+        // time. Decode metadata (pens/frame/paper) rides along so the main
+        // thread can decode without ever having held the scene.
+        const prims = raw.prims.slice();
+        const frags = raw.frags.slice();
+        const ghost = raw.ghost?.slice();
+        const transfer: ArrayBuffer[] = [prims.buffer, frags.buffer];
+        if (ghost) transfer.push(ghost.buffer);
         self.postMessage(
           {
             type: 'render',
             id: msg.id,
-            prims: raw.prims.slice(),
-            frags: raw.frags.slice(),
-            ghost: raw.ghost?.slice(),
+            prims,
+            frags,
+            ghost,
             stats: raw.stats,
             renderMs: raw.renderMs,
             pens: scene.pens,
@@ -105,7 +111,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
             paper: scene.paper,
             seedUsed: currentSeed(),
           },
-          { transfer: [] },
+          { transfer },
         );
         break;
       }

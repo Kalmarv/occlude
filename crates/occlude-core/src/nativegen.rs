@@ -4,6 +4,11 @@
 //! survives to paper, never what gets drawn); these produce the supplied
 //! ink that `Prepared::finish` consumes, exercising the real two-pass path.
 //! The algorithms are the pre-redesign engine generators, verbatim.
+//!
+//! POLICY: goldens built on these are PIPELINE fixtures, not fill fixtures.
+//! The product fills are the JS modules in packages/occlude/src/fills and
+//! already differ (anchor rotation, coarsen); never compare native-generated
+//! ink against JS-generated ink across the two.
 
 use crate::clip::clip_spans;
 use crate::fill::SuppliedFill;

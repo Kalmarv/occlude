@@ -60,7 +60,7 @@ export { ease } from './ease.js';
 // Render & export (accept a SketchDef, or operate on legacy recorded state).
 export {
   render, exportGcode, exportSvg, exportPng,
-  encodeScene, decodeRender, renderEncoded, sceneTransferables,
+  encodeScene, decodeRender, renderEncoded,
   pensToJson, profileToJson, tourBudget,
 } from './render.js';
 export type {

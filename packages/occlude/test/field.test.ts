@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, fill, group, initOcclude, render, rotate, scale, sketch, trace,
-  translate, vectorField, within,
+  circle, compileSketch, fill, group, initOcclude, mm, path, rect, render, rotate, scale,
+  setPaperHint, sketch, trace, translate, vectorField, within,
 } from '../src/index.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
 import type { RenderOptions, SketchDef } from '../src/index.js';
@@ -119,6 +119,53 @@ describe('within: domain bounds and absence', () => {
     const cs = isolinesOf(env, f, 5, { step: 0.5 });
     expect(cs.length).toBeGreaterThan(0);
     expect(cs.every((c) => !c.closed)).toBe(true);
+  });
+});
+
+describe('within: one geometry language (the lowerer)', () => {
+  it('honors the sketch rectMode, like the shape itself', () => {
+    let centered = false;
+    let cornered = true;
+    const def = sketch({ rectMode: 'center' }, () => {
+      const f = within(() => 1, rect(50, 50, 20, 20));
+      centered = f(50, 50) === 1; // centre of a centred rect
+      cornered = f(65, 65) === 1; // inside only if the rect were corner-anchored
+      return circle(50, 50, 10);
+    });
+    compileSketch(def);
+    expect(centered).toBe(true);
+    expect(cornered).toBe(false);
+  });
+
+  it('refuses an open path as a bound', () => {
+    expect(() => within(() => 1, path().moveTo(0, 0).lineTo(10, 0).lineTo(10, 10).build()))
+      .toThrow(/closed/);
+  });
+
+  it('samples arc commands as real arcs, not chords', () => {
+    // A half-disc: chord 40 with r = 20 is exactly a semicircle to one side,
+    // closed along the chord. A point just under the crown on that side is
+    // inside; the chord approximation would call both sides outside.
+    const half = path().moveTo(30, 50).arcTo(70, 50, 20).close().build();
+    const f = within(() => 1, half);
+    const above = f(50, 31) === 1;
+    const below = f(50, 69) === 1;
+    expect(above !== below).toBe(true);
+  });
+
+  it('translate() resolves tagged lengths against the paper the sketch renders on', () => {
+    // Built at module scope, before any sketch state: mm(10) must still be
+    // 10 mm of THIS paper at sample time, not of the default A4.
+    const f = translate((x: number) => x, mm(10), 0);
+    let seen = NaN;
+    setPaperHint(200, 200);
+    try {
+      compileSketch(sketch({ aspect: 'paper', margin: 0 }, () => { seen = f(0, 0); return circle(0, 0, 1); }));
+    } finally {
+      setPaperHint(210, 297);
+    }
+    // 200 mm short side → 100 units; 10 mm = 5 units → f(0,0) = -5.
+    expect(seen).toBeCloseTo(-5, 6);
   });
 });
 

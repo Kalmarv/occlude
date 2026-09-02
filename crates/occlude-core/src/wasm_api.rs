@@ -1,7 +1,10 @@
-//! WASM boundary. One call per render with the whole recording buffer — no
-//! per-shape FFI (spec, Layer 1). Thin bindgen wrappers only: the buffer
-//! protocol (strides, decoding, validation) lives in `scene.rs`, shared
-//! with the native replay/profiling harness.
+//! WASM boundary. Two calls per render — `wasm_prepare` (pass 1: decode,
+//! pre-stage modifiers, sort, region build, cull; returns the surviving
+//! outlines as fill jobs) and `wasm_finish` (pass 2: clip the JS-supplied
+//! fill ink, occlude, clean up, post-modify, bridge, emit) — with whole
+//! buffers each way, no per-shape FFI. Thin bindgen wrappers only: the
+//! buffer protocol (strides, decoding, validation) lives in `scene.rs`,
+//! shared with the native replay/profiling harness.
 
 use crate::gcode::{export_gcode, MachineProfile};
 use crate::pipeline::Pen;

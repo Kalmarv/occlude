@@ -48,8 +48,8 @@ When a proposal conflicts with one, the law wins until the artist says otherwise
 
 ## API shape rules
 
-- Pure factories (shapes, fills, modifiers, units, map/ease, ui, svg,
-  voronoi/triangulate) are module imports; anything reading the seed or
+- Pure factories (shapes, `fill()`/`fillAsset`/`rulings`, modifiers,
+  units, map/ease, ui, svg, voronoi/triangulate) are module imports; anything reading the seed or
   the resolved paper (rnd/noise/stream, bounds/grid/times, scatter/points)
   lives only on the toolkit. The toolkit also carries the pure set.
 - `TOOLKIT_BASE` (object) and `Toolkit` (interface) in api.ts are

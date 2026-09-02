@@ -10,12 +10,12 @@ in a Rust/WASM core) instead of simulating a canvas.
 A sketch is a pure function from a toolkit to a tree of shapes:
 
 ```ts
-import { sketch, mm } from 'occlude';
+import { sketch, fill, mm } from 'occlude';
 
-export default sketch({ aspect: 'square', margin: 8 }, ({ circle, line, hatch, times, rnd }) => [
+export default sketch({ aspect: 'square', margin: 8 }, ({ circle, line, times, rnd }) => [
   times(24, (k, t) => line(0, t * 100, 100, t * 100)),        // cut exactly where fills cover
   times(12, () => circle(rnd(100), rnd(100), rnd(6, 18), {
-    fill: hatch(rnd(180), mm(1)),                              // filled → occludes
+    fill: fill('hatch', { angle: rnd(180), spacing: mm(1) }),  // filled → occludes
   })),
 ]);
 ```

@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  BUILTIN_FILL_NAMES, circle, clearFills, fill, initOcclude, isBuiltinFill,
-  loadFillModule, registerFill, render, resolveFill, rulings, scanFillNames, sketch,
+  BUILTIN_FILL_NAMES, circle, clearFills, compileSketch, encodeScene, fill, fillAsset, initOcclude,
+  isBuiltinFill, loadFillModule, registerFill, render, renderEncoded, resolveFill, rulings,
+  scanFillNames, sketch, type WasmModule,
 } from '../src/index.js';
 
 beforeAll(async () => {
@@ -121,5 +122,61 @@ describe('rulings', () => {
         expect(l.x1).toBeLessThan(10); // overshoot
       }
     }
+  });
+});
+
+describe('fill by value', () => {
+  it('fill(asset, params) uses a fillAsset defined in the sketch, no library involved', () => {
+    clearFills();
+    const bars = fillAsset({
+      params: { spacing: 3, angle: 90 },
+      generate(region, p) { return rulings(region, { spacing: p.spacing, angle: p.angle }); },
+    });
+    const out = render(
+      sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill(bars, { spacing: 1 }) })),
+      { paper: 'Square20' },
+    );
+    expect(out.stats.fillPrims).toBeGreaterThan(30);
+    // Nothing was registered by name: the value form is execution-only.
+    expect(resolveFill('bars')).toBeUndefined();
+  });
+});
+
+describe('pass-1 handle lifetime', () => {
+  const stub = (onFree: () => void, finish: WasmModule['wasm_finish']): WasmModule =>
+    ({
+      wasm_prepare: (prims: Float64Array) => ({
+        // One job: shape 0, one contour of two rows (the circle's arcs).
+        jobs_index: new Uint32Array([0, 0, 1]),
+        jobs_contours: new Uint32Array([0, 2]),
+        jobs_prims: prims.slice(0, 18),
+        free: onFree,
+      }),
+      wasm_finish: finish,
+    }) as unknown as WasmModule;
+
+  it('frees the handle when a fill throws (and never reaches finish)', () => {
+    compileSketch(sketch({ seed: 1 }, () =>
+      circle(50, 50, 20, { fill: () => { throw new Error('boom'); } })));
+    const scene = encodeScene({ paper: 'Square20' });
+    let freed = 0;
+    const mod = stub(() => { freed++; }, () => { throw new Error('finish must not run'); });
+    expect(() => renderEncoded(mod, scene)).toThrow('boom');
+    expect(freed).toBe(1);
+  });
+
+  it('never frees a handle that finish consumed', () => {
+    compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('hatch') })));
+    const scene = encodeScene({ paper: 'Square20' });
+    let freed = 0;
+    const mod = stub(
+      () => { freed++; },
+      () => ({
+        prims: new Float64Array(0), frags: new Float64Array(0),
+        stats: new Float64Array(6), ghost: new Float64Array(0),
+      }),
+    );
+    renderEncoded(mod, scene);
+    expect(freed).toBe(0);
   });
 });

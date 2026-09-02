@@ -310,12 +310,12 @@ describe('occlude declarative api', () => {
     expect(Math.max(...ys)).toBeLessThan(95);
   });
 
-  it('custom fills receive contains/path/area and accept polylines and arcs', () => {
-    let seenArea = 0;
+  it('custom fills receive contains/path and accept polylines and arcs', () => {
+    let seenPath = 0;
     const def = sketch({ seed: 1 }, () =>
       circle(50, 50, 25, {
         fill: (region, ctx) => {
-          seenArea = region.area;
+          seenPath = region.path.length;
           expect(region.contains(100, 100)).toBe(true);
           expect(region.contains(region.bbox.x + 0.1, region.bbox.y + 0.1)).toBe(false);
           const pts: [number, number][] = [];
@@ -335,7 +335,7 @@ describe('occlude declarative api', () => {
       }),
     );
     const out = sq(def);
-    expect(Math.abs(seenArea - Math.PI * 2500) / (Math.PI * 2500)).toBeLessThan(0.005);
+    expect(seenPath).toBe(1); // one contour: the circle
     expect(out.frags.filter((f) => f.shape === 0 && f.origin >= 2).length).toBeGreaterThan(20);
   });
 

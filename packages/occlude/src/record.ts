@@ -8,7 +8,7 @@
  */
 
 import { apply, conformalScale, det, IDENTITY, isConformal, mul, rotate, scale as mscale, translate, type Mat } from './matrix.js';
-import { arcToCubics, snapPrim, type Prim } from './prims.js';
+import { arcToCubics, flattenPrim, snapPrim, type Prim } from './prims.js';
 import type { Shape, ShapeGeom, PathCmd } from './shapes.js';
 import type { State, TransformOp } from './state.js';
 import { resolveLen, type L, type UnitCtx } from './units.js';
@@ -417,6 +417,40 @@ export interface LoweredShape {
 export function shapeAnchorMatrix(shape: Shape, frame: Frame): Mat {
   const rz = new Resolver(frame);
   return mul(userFrameMatrix(frame), composeChain(shape.transform, rz));
+}
+
+/**
+ * The frame-less half of `lowerShape`, for sketch-time consumers: a
+ * declarative shape value's geometry plus its OWN transform opts, lowered by
+ * the one lowerer and flattened to loops in user-space mm — no paper offset,
+ * no origin/yUp (those are the outer frame). `within()` tests points here,
+ * so its containment agrees with what the shape actually inks: rectMode,
+ * arc commands, curve flattening, all one geometry language.
+ */
+export function lowerToUserLoops(
+  geom: ShapeGeom,
+  opts: TransformOp,
+  frame: Frame,
+  tol = 0.05,
+): [number, number][][] {
+  const rz = new Resolver(frame);
+  const m = composeChain([opts], rz);
+  return lowerGeom(geom, rz).map((contour) => {
+    const pts: [number, number][] = [];
+    for (const p of contour) {
+      for (const q of transformPrim(p, m)) {
+        const fp = flattenPrim(q, tol);
+        for (let i = pts.length > 0 ? 1 : 0; i < fp.length; i++) pts.push(fp[i]);
+      }
+    }
+    return pts;
+  });
+}
+
+/** A bare user-space point in the mm space `lowerToUserLoops` produces —
+ * resolved exactly as the lowerer resolves positions. */
+export function userPointMm(x: L, y: L, frame: Frame): [number, number] {
+  return new Resolver(frame).pos(x, y);
 }
 
 /** Full lowering of one shape into snapped paper-space primitives. */
