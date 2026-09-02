@@ -78,6 +78,8 @@ When a proposal conflicts with one, the law wins until the artist says otherwise
 - **Docs are the reference, singular.** Every feature gets a `ts live`
   entry in docs/reference.md (executed in-browser and by docs:check).
   api.md and guide.md were deliberately deleted — do not recreate them.
+  docs/gallery.md is the one other live page: classic pieces transposed
+  (credited, licence-checked, never API documentation), same checker.
 - **Copyleft neighbors:** saxi (AGPL), EggBot (GPL), Spicker stippling
   (LGPL), Marlin/Klipper (GPL) — ideas, protocol facts, and papers only,
   NEVER code. Keep the README credits table current.

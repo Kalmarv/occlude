@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
 /**
- * Docs example checker: every `ts live` fence in docs/reference.md must
- * execute and render to visible strokes against the CURRENT engine. Run in
- * CI-ish contexts / before committing reference changes:
+ * Docs example checker: every `ts live` fence in docs/reference.md and
+ * docs/gallery.md must execute and render to visible strokes against the
+ * CURRENT engine. Run in CI-ish contexts / before committing doc changes:
  *
  *   pnpm --filter occlude docs:check
  *
@@ -29,14 +29,13 @@ setPenLibrary(structuredClone(DEFAULT_PENS));
 const size = paperSize({ paper: 'Square20' });
 setPaperHint(size.w, size.h);
 
-const md = readFileSync(
-  fileURLToPath(new URL('../../../docs/reference.md', import.meta.url)),
-  'utf8',
+const docs = ['reference', 'gallery'].map((name) =>
+  readFileSync(fileURLToPath(new URL(`../../../docs/${name}.md`, import.meta.url)), 'utf8'),
 );
 const readme = readFileSync(fileURLToPath(new URL('../../../README.md', import.meta.url)), 'utf8');
 // The README's headline example is the deleted-API canary: it runs too.
 const fences = [
-  ...[...md.matchAll(/```ts live\n([\s\S]*?)```/g)].map((m) => m[1]),
+  ...docs.flatMap((md) => [...md.matchAll(/```ts live\n([\s\S]*?)```/g)].map((m) => m[1])),
   ...[...readme.matchAll(/```ts\n([\s\S]*?)```/g)]
     .map((m) => m[1])
     .filter((src) => src.includes('export default sketch')),

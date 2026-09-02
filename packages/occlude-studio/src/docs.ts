@@ -11,10 +11,12 @@ import {
 import { RenderClient } from './workerClient.js';
 import architectureMd from '../../../docs/architecture.md?raw';
 import referenceMd from '../../../docs/reference.md?raw';
+import galleryMd from '../../../docs/gallery.md?raw';
 import readmeMd from '../../../README.md?raw';
 
 const PAGES: { slug: string; title: string; md: string }[] = [
   { slug: 'reference', title: 'Reference', md: referenceMd },
+  { slug: 'gallery', title: 'Gallery', md: galleryMd },
   { slug: 'architecture', title: 'Architecture', md: architectureMd },
   { slug: 'readme', title: 'README', md: readmeMd },
 ];
