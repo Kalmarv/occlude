@@ -34,7 +34,7 @@ export type { ModifierValue, FieldFn, VectorFieldFn } from './shapes.js';
 export {
   fill, fillAsset, customFill, rulings, resolveFill,
   scanFillNames, loadFillModule, registerFill, clearFills,
-  BUILTIN_FILL_NAMES, isBuiltinFill,
+  BUILTIN_FILL_NAMES, FILL_NAME_RE, isBuiltinFill,
 } from './fills.js';
 export type { FillAssetDef, FillCtx, RulingOpts } from './fills.js';
 export { svg } from './svgin.js';
@@ -109,4 +109,17 @@ export { setPenLibrary, setPaperHint, setSeedHint, getState } from './state.js';
 // ordinary ESM — the namespace is created at link time, bindings are live).
 import * as occludeNamespace from './index.js';
 import { setOccludeModule } from './fills.js';
-setOccludeModule(occludeNamespace as unknown as Record<string, unknown>);
+/** Host integration and runtime entry points a fill file must not reach. */
+const HOST_ONLY = new Set([
+  'setPenLibrary', 'setPaperHint', 'setSeedHint', 'getState',
+  'registerFill', 'clearFills', 'loadFillModule', 'initOcclude',
+  'compileSketch', 'render', 'exportGcode', 'exportSvg', 'exportPng',
+  'encodeScene', 'decodeRender', 'renderEncoded',
+]);
+setOccludeModule(() =>
+  Object.fromEntries(
+    Object.entries(occludeNamespace as unknown as Record<string, unknown>).filter(
+      ([k]) => !HOST_ONLY.has(k),
+    ),
+  ),
+);

@@ -528,13 +528,19 @@ impl Prepared {
             };
             // A chain is one connected pen stroke, so the nib rule judges it
             // WHOLE — the fill-side twin of "contours judged whole" for
-            // outlines: clip every primitive of the chain to the region
-            // first, then judge the visible ink's TOTAL length. (Per-
+            // outlines. Clip every primitive of the chain to the region
+            // first, then group the visible pieces into RUNS the pen draws
+            // without lifting: a piece that starts where the previous one
+            // ended continues the stroke; a gap (the region cut the chain,
+            // or the chain left and re-entered) ends it. Each run is judged
+            // by its total length. A lone ruling cut into disjoint pieces
+            // is therefore judged per piece — built-in hatch ink on concave
+            // regions is exactly what it was before chains existed. (Per-
             // primitive judgment made fine-stepped polyline fills vanish:
             // every segment sub-nib, tapped, swallowed by coverage — and
             // finer steps made it worse.)
             let clip_chain = |chain: &[Primitive], so: &mut ShapeOut, query_buf: &mut Vec<u32>| {
-                let mut pieces: Vec<Primitive> = Vec::with_capacity(chain.len());
+                let mut runs: Vec<Vec<Primitive>> = Vec::new();
                 for prim in chain {
                     let mut spans = vec![Span {
                         t0: 0.0,
@@ -543,12 +549,22 @@ impl Prepared {
                     }];
                     clip_spans(prim, &mut spans, region, true);
                     for sp in spans.iter().filter(|sp| sp.visible) {
-                        pieces.push(prim.sub(sp.t0, sp.t1));
+                        let piece = prim.sub(sp.t0, sp.t1);
+                        let continues = runs
+                            .last()
+                            .and_then(|r| r.last())
+                            .is_some_and(|prev| prev.end().dist(piece.start()) <= 1e-9);
+                        match runs.last_mut() {
+                            Some(run) if continues => run.push(piece),
+                            _ => runs.push(vec![piece]),
+                        }
                     }
                 }
-                let judge: f64 = pieces.iter().map(|p| p.length()).sum();
-                for piece in pieces {
-                    gen_one(piece, judge, so, query_buf);
+                for run in runs {
+                    let judge: f64 = run.iter().map(|p| p.length()).sum();
+                    for piece in run {
+                        gen_one(piece, judge, so, query_buf);
+                    }
                 }
             };
             match kind {

@@ -16,7 +16,7 @@ import {
 } from './sketchApi.js';
 import { FILL_NAME_RE, deleteFill, fillUses, listFills, loadFill, saveFill } from './fillApi.js';
 import { BUILTIN_FILL_SOURCES, cloneSource } from './builtinFills.js';
-import { freshFillName } from './fillEmbed.js';
+import { canonicalFillSource, freshFillName } from './fillEmbed.js';
 import {
   DEFAULT_SKETCH, NEW_FILL, NEW_SKETCH,
   download, savePens, saveProfiles, saveSettings,
@@ -45,6 +45,9 @@ export interface PanelHooks {
   downloadSketchFile(): void;
   /** Fill library: the editor holds either the sketch or one fill file. */
   openFill(draft: FillDraft): void;
+  /** Prettier-format the editor (the Ctrl+S path does; the Save button
+   * must too, or the two paths disagree about "changed"). */
+  formatSource(): Promise<void>;
   currentMode(): EditorMode;
   backToSketch(): void;
   /** A save landed (possibly under a clone's new name): the draft's
@@ -293,15 +296,17 @@ function buildFillsPanel(
       alert(`'${name}' is a built-in fill — built-ins never change; pick another name.`);
       return null;
     }
+    await hooks.formatSource();
     const src = hooks.getSource();
     const stored = await loadFill(name);
     // Warn-on-edit (spec rule 8): a fill that saved sketches reference is
     // transitively part of their ink. Scan the sketch directory NOW; a
     // draft (unsaved, unchanged, or unreferenced) saves silently.
-    if (stored !== null && stored !== src) {
+    if (stored !== null && canonicalFillSource(stored) !== canonicalFillSource(src)) {
       const uses = await fillUses(name);
       if (uses.length > 0) {
-        const choice = await warnOnEdit(name, uses, freshFillName(name, await taken()), await taken());
+        const names = await taken();
+        const choice = await warnOnEdit(name, uses, freshFillName(name, names), names);
         if (choice.action === 'cancel') return null;
         if (choice.action === 'clone') {
           const from = name;

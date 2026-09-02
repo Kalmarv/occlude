@@ -437,3 +437,35 @@ fn fill_polyline_chain_is_judged_whole() {
     })]);
     assert_eq!(fill_ink(&split), 0.0);
 }
+
+#[test]
+fn fill_chain_pieces_split_by_the_region_are_separate_strokes() {
+    use occlude_core::fill::SuppliedFill;
+    use occlude_core::pipeline::prepare;
+    // A U-shaped region with a hair-thin left arm (0.1 mm) and a wide right
+    // arm. One ruling crosses both: a 5 mm piece and a 0.1 mm sliver with a
+    // pen lift between them — two strokes, judged apart. Summing them would
+    // emit the sliver as a line: an ink change to the ink-immutable hatch.
+    let pts = [
+        v(-20., -20.), v(20., -20.), v(20., 20.), v(15., 20.),
+        v(15., -15.), v(-19.9, -15.), v(-19.9, 20.), v(-20., 20.),
+    ];
+    let contour: Vec<Primitive> = (0..pts.len())
+        .map(|i| Primitive::Line(Line::new(pts[i], pts[(i + 1) % pts.len()])))
+        .collect();
+    let mut shape = filled_shape(vec![contour], FillKind::Pending);
+    shape.convex = false;
+    let ruling = Primitive::Line(Line::new(v(-30., 0.), v(30., 0.)));
+    let out = prepare(input(vec![shape])).finish(vec![Some(SuppliedFill {
+        chains: vec![vec![ruling]],
+        dots: vec![],
+    })]);
+    let lines: Vec<f64> = out
+        .frags
+        .iter()
+        .filter(|f| f.origin >= 8 && !f.dot)
+        .map(|f| f.geom.length())
+        .collect();
+    assert!(lines.iter().any(|&l| (l - 5.0).abs() < 1e-6), "wide arm piece: {lines:?}");
+    assert!(lines.iter().all(|&l| l >= 0.3), "sub-nib sliver emitted as a line: {lines:?}");
+}

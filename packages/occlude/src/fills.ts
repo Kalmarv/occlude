@@ -107,15 +107,25 @@ export function resolveFill(name: string): AnyFill | undefined {
   return BUILTIN_FILLS.get(name) ?? customFills.get(name);
 }
 
+/** The fill-name grammar — a `fill('name')` literal and a library file
+ * name in one: no spaces, no quotes, no path separators. The server's
+ * fill-store.mjs carries the same regex (plain node); a test keeps them
+ * equal. */
+export const FILL_NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
 /**
- * Fill names a source references: `fill('name'` literals, including the
- * CommonJS indirect form `(0, x.fill)('name'` that transpilers emit.
- * Literal names are the contract — this scan is what the studio worker,
- * the node tools, and warn-on-edit all key on.
+ * Fill names a source references: well-formed `fill('name'` literals,
+ * including the CommonJS indirect form `(0, x.fill)('name'` that
+ * transpilers emit. Literal names are the contract — this scan is what
+ * the studio worker, the node tools, and warn-on-edit all key on. A
+ * literal outside the grammar is not a name (nothing fetches it; encode
+ * reports it as unknown if the sketch really uses it).
  */
 export function scanFillNames(source: string): string[] {
   const names = new Set<string>();
-  for (const m of source.matchAll(/\bfill\)?\(\s*['"]([^'"\n]+)['"]/g)) names.add(m[1]);
+  for (const m of source.matchAll(/\bfill\)?\(\s*['"]([^'"\n]+)['"]/g)) {
+    if (FILL_NAME_RE.test(m[1])) names.add(m[1]);
+  }
   return [...names];
 }
 
@@ -147,7 +157,20 @@ export function loadFillModule(name: string, js: string): AnyFill {
       throw new Error(`fill '${name}' may import only from 'occlude' (found '${spec}')`);
     }
   }
+  // Dynamic import takes any expression — a fill file has no use for it,
+  // so its mere presence is refused rather than pattern-matched.
+  if (/\bimport\s*\(/.test(js)) {
+    throw new Error(`fill '${name}' may not use dynamic import()`);
+  }
   const cjs = liveExampleToJs(js);
+  // Only the named-import form is rewritten; a surviving ESM statement
+  // (namespace or default import) would fail inside Function() with a
+  // message pointing nowhere.
+  if (/^\s*import\b/m.test(cjs)) {
+    throw new Error(
+      `fill '${name}' must import as \`import { … } from 'occlude'\` (namespace/default imports are not supported)`,
+    );
+  }
   const module = { exports: {} as Record<string, unknown> };
   const require = (spec: string): unknown => {
     if (spec === 'occlude') return occludeModule();
@@ -165,15 +188,23 @@ export function loadFillModule(name: string, js: string): AnyFill {
   return def as AnyFill;
 }
 
-/** The package's public surface, as a fill file sees it via `require`. Set
- * once by index.ts (a fill file may use any pure export — rulings, mm,
- * ease, map — exactly what a sketch may). */
+/** The package's surface as a fill file sees it via `require`: every pure
+ * export (rulings, mm, ease, map, shapes …) and none of the host
+ * integration (seed/pen/paper setters, the registry, the render entry
+ * points) — a fill is a pure function of (region, params, ctx) and gets
+ * no handle on the runtime around it. Provided lazily by index.ts, since
+ * the namespace is only complete once the module graph has evaluated. */
+let occludeProvider: (() => Record<string, unknown>) | null = null;
 let occludeExports: Record<string, unknown> | null = null;
-export function setOccludeModule(mod: Record<string, unknown>): void {
-  occludeExports = mod;
+export function setOccludeModule(provider: () => Record<string, unknown>): void {
+  occludeProvider = provider;
+  occludeExports = null;
 }
 function occludeModule(): Record<string, unknown> {
-  if (!occludeExports) throw new Error('occlude module not initialised');
+  if (!occludeExports) {
+    if (!occludeProvider) throw new Error('occlude module not initialised');
+    occludeExports = occludeProvider();
+  }
   return occludeExports;
 }
 

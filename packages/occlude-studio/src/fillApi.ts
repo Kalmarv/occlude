@@ -1,11 +1,11 @@
 /** Client for the server-side fill library (fill-store.mjs). */
 
+export { FILL_NAME_RE } from 'occlude';
+
 export interface FillMeta {
   name: string;
   mtime: number;
 }
-
-export const FILL_NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 
 export async function listFills(): Promise<FillMeta[]> {
   const res = await fetch('/api/fills');

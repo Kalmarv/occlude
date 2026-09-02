@@ -97,6 +97,32 @@ export default fillAsset({ params: {}, generate: (r) => rulings(r, { spacing: 1 
     expect(() => loadFillModule('dyn', `${src}\nimport('node:fs');`)).toThrow(/node:fs/);
   });
 
+  it('refuses dynamic import() in any form, and unsupported ESM import forms', () => {
+    const body = "export default fillAsset({ params: {}, generate: () => [] });";
+    expect(() => loadFillModule('dyn2', `import { fillAsset } from 'occlude';\nconst m = import(\`/api/x\`);\n${body}`))
+      .toThrow(/dynamic import/);
+    expect(() => loadFillModule('ns', `import * as o from 'occlude';\nexport default o.fillAsset({ params: {}, generate: () => [] });`))
+      .toThrow(/import \{ … \} from 'occlude'/);
+  });
+
+  it('hands a fill the pure surface only — no host setters, registry, or render entry points', () => {
+    clearFills();
+    const probe = loadFillModule('probe', `
+import { fillAsset } from 'occlude';
+const o = require('occlude');
+export default fillAsset({ params: { keys: Object.keys(o) }, generate: () => [] });`);
+    const keys = probe.params.keys as string[];
+    expect(keys).toContain('rulings');
+    expect(keys).toContain('mm');
+    for (const k of ['setSeedHint', 'setPenLibrary', 'setPaperHint', 'getState', 'registerFill', 'clearFills', 'render', 'loadFillModule']) {
+      expect(keys).not.toContain(k);
+    }
+  });
+
+  it('scans only well-formed names', () => {
+    expect(scanFillNames("fill('../sketches/x'); fill('my fill'); fill('ok_1')")).toEqual(['ok_1']);
+  });
+
   it('refuses a file whose default export is not a fill module', () => {
     expect(() => loadFillModule('notafill', `export default 42;`)).toThrow(/fillAsset/);
     expect(() => loadFillModule('hatch', ESM)).toThrow(/built-in/);

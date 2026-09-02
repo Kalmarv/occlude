@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import {
-  embedFills, extractEmbeddedFills, freshFillName, importSketchWithFills, rewireFillName,
-  type FillLibrary,
+  canonicalFillSource, embedFills, extractEmbeddedFills, freshFillName, importSketchWithFills,
+  rewireFillName, type FillLibrary,
 } from './fillEmbed.js';
-// @ts-expect-error plain-JS module shared with the production server
-import { BUILTIN_FILL_NAMES as STORE_BUILTINS, sketchUsesFill } from '../fill-store.mjs';
-import { BUILTIN_FILL_NAMES } from 'occlude';
+import {
+  BUILTIN_FILL_NAMES as STORE_BUILTINS, FILL_NAME_RE as STORE_NAME_RE, sketchUsesFill,
+  // @ts-expect-error plain-JS module shared with the production server
+} from '../fill-store.mjs';
+import { BUILTIN_FILL_NAMES, FILL_NAME_RE } from 'occlude';
 
 const SKETCH = `import { sketch, circle, fill } from 'occlude';
 
@@ -38,6 +40,29 @@ describe('export embedding', () => {
     const twice = embedFills(once, [{ name: 'grain', source: GRAIN }]);
     expect(twice).toBe(once);
     expect(embedFills(once, [])).toBe(SKETCH);
+  });
+
+  test('CRLF files and missing final newlines round-trip and compare equal', async () => {
+    const noNl = GRAIN.replace(/\n$/, '');
+    const crlf = GRAIN.replace(/\n/g, '\r\n');
+    expect(canonicalFillSource(noNl)).toBe(GRAIN);
+    expect(canonicalFillSource(crlf)).toBe(GRAIN);
+    const exported = embedFills(SKETCH, [{ name: 'grain', source: noNl }]);
+    // The downloaded file passed through a CRLF-converting editor.
+    const back = extractEmbeddedFills(exported.replace(/\n/g, '\r\n'));
+    expect(back.fills).toEqual([{ name: 'grain', source: GRAIN }]);
+    const lib = { saved: { grain: crlf } as Record<string, string>,
+      list: async () => ['grain'], load: async (n: string) => lib.saved[n] ?? null,
+      save: async (n: string, s: string) => { lib.saved[n] = s; } };
+    const out = await importSketchWithFills(exported, lib);
+    expect(out.reused).toEqual(['grain']);
+    expect(out.renamed).toEqual([]);
+  });
+
+  test('a header quoted in a sketch comment does not truncate the sketch', () => {
+    const chatty = SKETCH.replace('export default', '// see: ' + '// ==== occlude fills — embedded by Download .ts; Import .ts restores them to the fill library ====\nexport default');
+    const out = embedFills(chatty, [{ name: 'grain', source: GRAIN }]);
+    expect(extractEmbeddedFills(out).sketch).toBe(chatty);
   });
 
   test('a file without a block is just a sketch', () => {
@@ -108,8 +133,9 @@ describe('import reconciliation', () => {
 });
 
 describe('fill store', () => {
-  test('the server-side built-in list mirrors the package', () => {
+  test('the server-side built-in list and name grammar mirror the package', () => {
     expect([...STORE_BUILTINS].sort()).toEqual([...BUILTIN_FILL_NAMES].sort());
+    expect((STORE_NAME_RE as RegExp).source).toBe(FILL_NAME_RE.source);
   });
   test('warn-on-edit scans literal uses only', () => {
     expect(sketchUsesFill(`x = fill('grain', {})`, 'grain')).toBe(true);

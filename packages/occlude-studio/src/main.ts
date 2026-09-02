@@ -102,6 +102,15 @@ async function boot(): Promise<void> {
   }
   function openFill(d: FillDraft): void {
     if (unsavedFillBlocks()) return;
+    if (mode.kind === 'sketch') {
+      // Stash NOW: a run still pending in the debounce would otherwise fire
+      // in fill mode and persist the draft instead of these keystrokes.
+      if (pending !== null) {
+        clearTimeout(pending);
+        pending = null;
+      }
+      saveSketch(editor.getValue());
+    }
     mode = { kind: 'fill', ...d };
     saveFillDraft(mode);
     applyMode();
@@ -351,6 +360,7 @@ module.exports.default = sketch({ aspect: [2, 1], margin: 4 }, (t) => {
       download(`${sketchName || 'sketch'}.ts`, embedFills(src, fills));
     },
     openFill,
+    formatSource: () => editor.format(),
     currentMode: () => mode,
     backToSketch,
     fillSaved: (name, source) => {

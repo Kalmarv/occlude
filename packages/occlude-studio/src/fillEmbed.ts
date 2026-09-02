@@ -16,9 +16,18 @@ export interface EmbeddedFill {
 
 const HEADER =
   '// ==== occlude fills — embedded by Download .ts; Import .ts restores them to the fill library ====';
+const HEADER_LINE = new RegExp(`^${HEADER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'gm');
 const FILL_START = /^\/\/ ---- fill: ([a-zA-Z0-9_-]+) ----$/;
 const FILL_END = '// ---- end fill ----';
 const LINE_PREFIX = '//| ';
+
+/** The canonical text of a fill source, for embedding and for the
+ * content-equality short-circuit: LF line ends, no trailing whitespace at
+ * the end, exactly one final newline. An editor that drops the final
+ * newline or a CRLF round trip must not read as "a different fill". */
+export function canonicalFillSource(source: string): string {
+  return `${source.replace(/\r\n?/g, '\n').replace(/\s+$/, '')}\n`;
+}
 
 /** Append the fills block. Any earlier block is replaced, not stacked. */
 export function embedFills(sketch: string, fills: EmbeddedFill[]): string {
@@ -27,7 +36,7 @@ export function embedFills(sketch: string, fills: EmbeddedFill[]): string {
   const lines = [base, '', HEADER];
   for (const f of fills) {
     lines.push(`// ---- fill: ${f.name} ----`);
-    for (const l of f.source.replace(/\s+$/, '').split('\n')) {
+    for (const l of canonicalFillSource(f.source).replace(/\n$/, '').split('\n')) {
       lines.push(l === '' ? LINE_PREFIX.trimEnd() : LINE_PREFIX + l);
     }
     lines.push(FILL_END);
@@ -35,14 +44,18 @@ export function embedFills(sketch: string, fills: EmbeddedFill[]): string {
   return `${lines.join('\n')}\n`;
 }
 
-/** Split a downloaded file back into the sketch and its embedded fills. */
+/** Split a downloaded file back into the sketch and its embedded fills.
+ * The block is the LAST header line in the file (a sketch comment quoting
+ * the header cannot truncate it); CRLF files are normalised first. */
 export function extractEmbeddedFills(text: string): { sketch: string; fills: EmbeddedFill[] } {
-  const at = text.indexOf(HEADER);
+  const lf = text.replace(/\r\n?/g, '\n');
+  let at = -1;
+  for (const m of lf.matchAll(HEADER_LINE)) at = m.index;
   if (at < 0) return { sketch: text, fills: [] };
-  const sketch = text.slice(0, at).replace(/\s+$/, '') + '\n';
+  const sketch = lf.slice(0, at).replace(/\s+$/, '') + '\n';
   const fills: EmbeddedFill[] = [];
   let current: { name: string; lines: string[] } | null = null;
-  for (const line of text.slice(at + HEADER.length).split('\n')) {
+  for (const line of lf.slice(at + HEADER.length).split('\n')) {
     const start = line.match(FILL_START);
     if (start) {
       current = { name: start[1], lines: [] };
@@ -111,8 +124,9 @@ export async function importSketchWithFills(
   if (fills.length === 0) return out;
   const taken = new Set(await lib.list());
   for (const f of fills) {
-    const existing = isBuiltinFill(f.name) ? undefined : await lib.load(f.name);
-    if (existing === f.source) {
+    const stored = isBuiltinFill(f.name) ? undefined : await lib.load(f.name);
+    const existing = stored == null ? stored : canonicalFillSource(stored);
+    if (existing === canonicalFillSource(f.source)) {
       out.reused.push(f.name);
       continue;
     }

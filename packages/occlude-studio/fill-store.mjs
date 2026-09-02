@@ -18,8 +18,11 @@ import { existsSync, mkdirSync, promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { stripFillTypes } from './fill-transpile.mjs';
 
-/** Fill names are `fill('name')` literals: no spaces, no quotes. */
-const safe = (name) => (/^[a-zA-Z0-9_-]{1,64}$/.test(name) ? name : null);
+/** Fill names are `fill('name')` literals: no spaces, no quotes. Mirrors
+ * FILL_NAME_RE in packages/occlude/src/fills.ts (a studio test keeps
+ * them equal). */
+export const FILL_NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+const safe = (name) => (FILL_NAME_RE.test(name) ? name : null);
 
 /** Mirrors BUILTIN_FILL_NAMES in packages/occlude/src/fills.ts (this file is
  * dependency-free plain node); a studio test keeps the two lists equal. */
@@ -125,6 +128,7 @@ export function createFillHandler(dir, sketchesDir) {
         const chunks = [];
         for await (const c of req) chunks.push(c);
         const body = Buffer.concat(chunks);
+        if (body.length > 1024 * 1024) return send(413, '{"error":"too large (1MB max)"}');
         await keepHistory(dir, name, file, body.toString('utf8'));
         await fs.writeFile(file, body);
         return send(200, '{"ok":true}');

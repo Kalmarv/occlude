@@ -98,6 +98,9 @@ fn main() {
     };
     let fills_index = read_opt_u32("fills_index.u32");
     let fill_chains = read_opt_u32("fill_chains.u32");
+    if !fills_index.is_empty() && !dir.join("fill_chains.u32").exists() {
+        panic!("fills sidecar predates fill_chains.u32 (prim-range fills_index) — re-run dump-scene");
+    }
     let fill_prims_raw = read_opt_f64("fill_prims.f64");
     let fill_dots_raw = read_opt_f64("fill_dots.f64");
     let fill_prim_table = decode_prims(&fill_prims_raw);
