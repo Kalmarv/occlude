@@ -33,7 +33,11 @@ if (!sketchFile) {
 }
 
 const seed = opt('seed');
-const paper = opt('paper') ?? 'A4';
+const paperArg = opt('paper') ?? 'A4';
+// 'A4' | 'Square20' | '304.8x304.8' (WxH mm)
+const paper: string | { w: number; h: number } = /^[\d.]+x[\d.]+$/.test(paperArg)
+  ? { w: Number(paperArg.split('x')[0]), h: Number(paperArg.split('x')[1]) }
+  : paperArg;
 const landscape = has('landscape');
 const scale = parseFloat(opt('scale') ?? '8');
 const out = opt('out') ?? 'sketch.png';
