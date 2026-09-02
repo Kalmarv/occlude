@@ -465,18 +465,21 @@ impl Prepared {
             if let Some(stroke_pen) = s.stroke {
                 let threshold = pen_width(stroke_pen);
                 for &(cs, ce) in &contour_ranges[i] {
-                    let judge = if s.closed {
-                        prim_table_ro[cs..ce].iter().map(|p| p.length()).sum::<f64>()
-                    } else {
-                        f64::NAN // per-primitive below
-                    };
+                    // The nib rule judges CONTOURS whole, open or closed: a
+                    // contour is one connected pen stroke — a 40mm squiggle
+                    // of 0.2mm segments is drawable ink, not 200 crumbs.
+                    // (Per-primitive judgment made fine-stepped open
+                    // polylines vanish: every segment individually sub-nib,
+                    // demoted to a tap, swallowed by coverage — and finer
+                    // steps made it worse.)
+                    let judge = prim_table_ro[cs..ce].iter().map(|p| p.length()).sum::<f64>();
                     for gi in cs..ce {
                         let prim = prim_table_ro[gi];
                         clip_one(
                             gi as u32,
                             &prim,
                             threshold,
-                            if judge.is_nan() { prim.length() } else { judge },
+                            judge,
                             stroke_pen,
                             i as u32,
                             &shape_clips,
