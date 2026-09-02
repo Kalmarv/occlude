@@ -26,38 +26,38 @@ export default fillAsset({
     const cols = Math.ceil(b.w / cell) + 1;
     const rows = Math.ceil(b.h / cell) + 1;
     const grid = new Int32Array(cols * rows).fill(-1);
-    const px: number[] = [];
-    const py: number[] = [];
-    const active: number[] = [];
+    // Typed, growable point stores and an explicit active stack: no per-
+    // candidate allocation. The arithmetic, the comparisons, and the order
+    // of rnd() draws are exactly the original Bridson loop's — this fill's
+    // ink is immutable and the golden fixture pins it.
+    let cap = 1024;
+    let px = new Float64Array(cap);
+    let py = new Float64Array(cap);
+    let active = new Int32Array(cap);
+    let n = 0;
+    let nActive = 0;
     const rnd = ctx.rnd;
-    const cellOf = (x: number, y: number): [number, number] => [
-      Math.min(cols - 1, Math.floor((x - b.x) / cell)),
-      Math.min(rows - 1, Math.floor((y - b.y) / cell)),
-    ];
-    const fits = (x: number, y: number): boolean => {
-      if (x < b.x || x > b.x + b.w || y < b.y || y > b.y + b.h) return false;
-      const [cx, cy] = cellOf(x, y);
-      const x0 = Math.max(0, cx - 2);
-      const y0 = Math.max(0, cy - 2);
-      for (let gy = y0; gy < Math.min(cy + 3, rows); gy++) {
-        for (let gx = x0; gx < Math.min(cx + 3, cols); gx++) {
-          const idx = grid[gy * cols + gx];
-          if (idx >= 0 && Math.hypot(px[idx] - x, py[idx] - y) < r) return false;
-        }
-      }
-      return true;
-    };
+    const bx1 = b.x + b.w;
+    const by1 = b.y + b.h;
     const push = (x: number, y: number): void => {
-      const idx = px.length;
-      px.push(x); py.push(y);
-      active.push(idx);
-      const [cx, cy] = cellOf(x, y);
+      if (n === cap) {
+        cap *= 2;
+        const npx = new Float64Array(cap); npx.set(px); px = npx;
+        const npy = new Float64Array(cap); npy.set(py); py = npy;
+        const na = new Int32Array(cap); na.set(active); active = na;
+      }
+      const idx = n++;
+      px[idx] = x;
+      py[idx] = y;
+      active[nActive++] = idx;
+      const cx = Math.min(cols - 1, Math.floor((x - b.x) / cell));
+      const cy = Math.min(rows - 1, Math.floor((y - b.y) / cell));
       grid[cy * cols + cx] = idx;
     };
     push(b.x + rnd() * b.w, b.y + rnd() * b.h);
     const K = 24;
-    while (active.length > 0) {
-      const pick = Math.floor(rnd() * active.length) % active.length;
+    while (nActive > 0) {
+      const pick = Math.floor(rnd() * nActive) % nActive;
       const bi = active[pick];
       let placed = false;
       for (let t = 0; t < K; t++) {
@@ -65,19 +65,38 @@ export default fillAsset({
         const rad = r + rnd() * r;
         const x = px[bi] + Math.cos(ang) * rad;
         const y = py[bi] + Math.sin(ang) * rad;
-        if (fits(x, y)) {
+        // fits(x, y), inlined.
+        if (x < b.x || x > bx1 || y < b.y || y > by1) continue;
+        const cx = Math.min(cols - 1, Math.floor((x - b.x) / cell));
+        const cy = Math.min(rows - 1, Math.floor((y - b.y) / cell));
+        const gx0 = Math.max(0, cx - 2);
+        const gy0 = Math.max(0, cy - 2);
+        const gx1 = Math.min(cx + 3, cols);
+        const gy1 = Math.min(cy + 3, rows);
+        let ok = true;
+        for (let gy = gy0; ok && gy < gy1; gy++) {
+          const row = gy * cols;
+          for (let gx = gx0; gx < gx1; gx++) {
+            const idx = grid[row + gx];
+            if (idx >= 0 && Math.hypot(px[idx] - x, py[idx] - y) < r) {
+              ok = false;
+              break;
+            }
+          }
+        }
+        if (ok) {
           push(x, y);
           placed = true;
           break;
         }
       }
       if (!placed) {
-        active[pick] = active[active.length - 1];
-        active.pop();
+        active[pick] = active[nActive - 1];
+        nActive--;
       }
     }
-    const out: CustomPrimitive[] = [];
-    for (let i = 0; i < px.length; i++) out.push({ type: 'dot', x: px[i], y: py[i] });
+    const out: CustomPrimitive[] = new Array(n);
+    for (let i = 0; i < n; i++) out[i] = { type: 'dot', x: px[i], y: py[i] };
     return out;
   },
 });

@@ -615,9 +615,17 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     g.push(u);
   }
   let gridCount = 0;
-  for (const group of groups.values()) {
+  const done = new Set<string>();
+  for (const [gkey, group] of groups) {
+    if (done.has(gkey)) continue;
     const kind = group[0].kind;
     const vector = kind === 'vx' || kind === 'vy';
+    // A vector field's two grids share every use (both components are
+    // registered together, same transform, same footprint), so they share
+    // the extent and are filled from ONE evaluation per sample — the
+    // field is the sketch's own closure and may be expensive.
+    const partner = kind === 'vx' ? groups.get(`${idOf(group[0].fn)}:vy`) : undefined;
+    if (partner) done.add(`${idOf(group[0].fn)}:vy`);
     // Deform geometry follows its raster directly and vortex-like fields
     // turn fast near their cores: finer than the scalar pitch.
     const paperStep = vector
@@ -646,6 +654,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     const gh = Math.max(2, Math.ceil((y1 - y0) / cell) + 1);
     fieldData.push(gw, gh, x0, y0, cell, cell);
     const fn = group[0].fn;
+    const second = partner ? new Float64Array(gw * gh) : null;
     for (let j = 0; j < gh; j++) {
       for (let i = 0; i < gw; i++) {
         const raw = fn(x0 + i * cell, y0 + j * cell) as unknown;
@@ -656,10 +665,20 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
         // Fail open on a non-finite sample: a hand-rolled NaN is
         // fail-soft; the exact edge is within()'s job, shipped as regions.
         fieldData.push(Number.isFinite(val) ? val : 0);
+        if (second) {
+          const vy = Number((raw as [number, number])?.[1]);
+          second[j * gw + i] = Number.isFinite(vy) ? vy : 0;
+        }
       }
     }
     for (const u of group) u.grid = gridCount;
     gridCount++;
+    if (partner && second) {
+      fieldData.push(gw, gh, x0, y0, cell, cell);
+      for (let k = 0; k < second.length; k++) fieldData.push(second[k]);
+      for (const u of partner) u.grid = gridCount;
+      gridCount++;
+    }
   }
   const fieldUses: number[] = [];
   const domainList: number[] = [];

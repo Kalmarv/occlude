@@ -112,22 +112,43 @@ pub fn dedupe_seams(frags: Vec<Frag>, threshold: f64) -> Vec<Frag> {
             (kb.0, kb.1, ka.0, ka.1)
         }
     };
-    let mut seen: HashMap<(i64, i64, i64, i64), Vec<usize>> = HashMap::new();
+    // Buckets as intrusive chains (head map + next links) instead of a Vec
+    // per bucket: one allocation for the whole table, and a cheap hash on
+    // the quantised endpoints. The kept set is identical — a bucket's
+    // membership test is order-independent.
+    let mut head: crate::fasthash::FxHashMap<(i64, i64, i64, i64), usize> =
+        crate::fasthash::FxHashMap::with_capacity_and_hasher(frags.len(), Default::default());
+    let mut next: Vec<usize> = vec![usize::MAX; frags.len()];
     let mut keep = vec![true; frags.len()];
     for (idx, f) in frags.iter().enumerate() {
         if f.dot {
             continue;
         }
         let key = key_of(f);
-        let bucket = seen.entry(key).or_default();
-        let dup = bucket.iter().any(|&j| {
-            let g = &frags[j];
-            g.shape != f.shape && coincident(&g.geom, &f.geom, threshold)
-        });
-        if dup {
-            keep[idx] = false;
-        } else {
-            bucket.push(idx);
+        match head.entry(key) {
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(idx);
+            }
+            std::collections::hash_map::Entry::Occupied(e) => {
+                let mut j = *e.get();
+                let mut dup = false;
+                loop {
+                    let g = &frags[j];
+                    if g.shape != f.shape && coincident(&g.geom, &f.geom, threshold) {
+                        dup = true;
+                        break;
+                    }
+                    if next[j] == usize::MAX {
+                        break;
+                    }
+                    j = next[j];
+                }
+                if dup {
+                    keep[idx] = false;
+                } else {
+                    next[j] = idx;
+                }
+            }
         }
     }
     frags

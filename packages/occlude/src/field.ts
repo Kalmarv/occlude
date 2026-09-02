@@ -187,10 +187,65 @@ export function scale<F extends AnyField>(field: F, s: number | [number, number]
 
 // ---- domain bounds -----------------------------------------------------
 
-/** Flattened user-space loops per bound shape, lowered LAZILY on the first
- * sample — the sketch's paper/aspect/rectMode are established by then even
- * for a bound built at module scope. */
-const BOUND_LOOPS = new WeakMap<ShapeValue, [number, number][][]>();
+/** A bound shape's flattened loops as an edge table bucketed by y-band, so a
+ * containment query touches only the edges that can span its y — the ray
+ * cast itself is unchanged (same edges, same arithmetic, integer counts).
+ * Lowered LAZILY on the first sample: the sketch's paper/aspect/rectMode
+ * are established by then even for a bound built at module scope. */
+interface LoopIndex {
+  ax: Float64Array;
+  ay: Float64Array;
+  bx: Float64Array;
+  by: Float64Array;
+  /** Union bbox of every loop. */
+  x0: number; y0: number; x1: number; y1: number;
+  bandH: number;
+  nb: number;
+  /** CSR: edges of band k are items[start[k]..start[k + 1]]. */
+  start: Int32Array;
+  items: Int32Array;
+}
+
+function indexLoops(loops: [number, number][][]): LoopIndex {
+  let ne = 0;
+  for (const l of loops) ne += l.length;
+  const ax = new Float64Array(ne), ay = new Float64Array(ne);
+  const bx = new Float64Array(ne), by = new Float64Array(ne);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  let k = 0;
+  for (const loop of loops) {
+    const n = loop.length;
+    for (let i = 0; i < n; i++) {
+      const [px, py] = loop[i];
+      const [qx, qy] = loop[(i + 1) % n];
+      ax[k] = px; ay[k] = py; bx[k] = qx; by[k] = qy;
+      x0 = Math.min(x0, px); x1 = Math.max(x1, px);
+      y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+      k++;
+    }
+  }
+  const nb = Math.max(1, Math.min(4096, Math.ceil(Math.sqrt(ne))));
+  const bandH = ne > 0 && y1 > y0 ? (y1 - y0) / nb : 1;
+  const bandOf = (y: number): number => Math.min(nb - 1, Math.max(0, Math.floor((y - y0) / bandH)));
+  const count = new Int32Array(nb + 1);
+  for (let e = 0; e < ne; e++) {
+    const lo = bandOf(Math.min(ay[e], by[e]));
+    const hi = bandOf(Math.max(ay[e], by[e]));
+    for (let b = lo; b <= hi; b++) count[b + 1]++;
+  }
+  for (let b = 0; b < nb; b++) count[b + 1] += count[b];
+  const start = count;
+  const fill = start.slice(0, nb);
+  const items = new Int32Array(start[nb]);
+  for (let e = 0; e < ne; e++) {
+    const lo = bandOf(Math.min(ay[e], by[e]));
+    const hi = bandOf(Math.max(ay[e], by[e]));
+    for (let b = lo; b <= hi; b++) items[fill[b]++] = e;
+  }
+  return { ax, ay, bx, by, x0, y0, x1, y1, bandH, nb, start, items };
+}
+
+const BOUND_LOOPS = new WeakMap<ShapeValue, LoopIndex>();
 
 function sketchFrame(): Frame {
   const { w, h } = getPaperHint();
@@ -201,43 +256,42 @@ function sketchFrame(): Frame {
  * commands, curve flattening, transform opts — exactly what the shape
  * inks), with the geometry's own winding rule. */
 function containsPoint(shape: ShapeValue, x: number, y: number): boolean {
-  let loops = BOUND_LOOPS.get(shape);
+  let idx = BOUND_LOOPS.get(shape);
   const frame = sketchFrame();
-  if (!loops) {
+  if (!idx) {
     const o = shape.opts;
-    loops = lowerToUserLoops(
-      shape.geom,
-      { translate: o.translate, rotate: o.rotate, scale: o.scale },
-      frame,
+    idx = indexLoops(
+      lowerToUserLoops(
+        shape.geom,
+        { translate: o.translate, rotate: o.rotate, scale: o.scale },
+        frame,
+      ),
     );
-    BOUND_LOOPS.set(shape, loops);
+    BOUND_LOOPS.set(shape, idx);
   }
   const [px, py] = userPointMm(x, y, frame);
   const g = shape.geom;
   const evenodd = g.kind === 'path' && g.winding === 'evenodd';
-  return pointInLoops(loops, px, py, evenodd);
+  return pointInLoops(idx, px, py, evenodd);
 }
 
-/** Even-odd (or nonzero) ray cast over polyline loops. */
-function pointInLoops(
-  loops: [number, number][][],
-  x: number,
-  y: number,
-  evenodd = true,
-): boolean {
+/** Even-odd (or nonzero) ray cast over the indexed loops: only the edges in
+ * the query's y-band are visited; every edge that can span y is there. */
+function pointInLoops(idx: LoopIndex, x: number, y: number, evenodd = true): boolean {
+  if (x < idx.x0 || x > idx.x1 || y < idx.y0 || y > idx.y1) return false;
+  const b = Math.min(idx.nb - 1, Math.max(0, Math.floor((y - idx.y0) / idx.bandH)));
+  const { ax, ay, bx, by, items } = idx;
   let crossings = 0;
   let windingN = 0;
-  for (const loop of loops) {
-    const n = loop.length;
-    for (let i = 0; i < n; i++) {
-      const [ax, ay] = loop[i];
-      const [bx, by] = loop[(i + 1) % n];
-      if (ay > y !== by > y) {
-        const xi = ax + ((y - ay) / (by - ay)) * (bx - ax);
-        if (xi > x) {
-          crossings++;
-          windingN += by > ay ? 1 : -1;
-        }
+  for (let k = idx.start[b], end = idx.start[b + 1]; k < end; k++) {
+    const e = items[k];
+    const eay = ay[e];
+    const eby = by[e];
+    if (eay > y !== eby > y) {
+      const xi = ax[e] + ((y - eay) / (eby - eay)) * (bx[e] - ax[e]);
+      if (xi > x) {
+        crossings++;
+        windingN += eby > eay ? 1 : -1;
       }
     }
   }

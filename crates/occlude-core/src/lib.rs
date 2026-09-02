@@ -25,6 +25,7 @@ pub mod vec2;
 
 pub mod modifier;
 pub mod synth;
+pub mod fasthash;
 pub mod profile;
 pub mod scene;
 #[cfg(feature = "wasm")]

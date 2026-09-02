@@ -139,6 +139,7 @@ export function image(name: string, place: ImagePlacement = {}): ImageSampler {
   const sx = px.width / width; // image px per sketch unit
   const sy = px.height / height;
 
+  const W = px.width;
   const bilinear = (ch: Channel, ux: number, uy: number): number => {
     const fx = Math.min(px.width - 1, Math.max(0, ux * sx - 0.5));
     const fy = Math.min(px.height - 1, Math.max(0, uy * sy - 0.5));
@@ -148,26 +149,27 @@ export function image(name: string, place: ImagePlacement = {}): ImageSampler {
     const y1 = Math.min(px.height - 1, y0 + 1);
     const tx = fx - x0;
     const ty = fy - y0;
-    const v = (X: number, Y: number): number => channelValue(px, Y * px.width + X, ch);
     return (
-      v(x0, y0) * (1 - tx) * (1 - ty) +
-      v(x1, y0) * tx * (1 - ty) +
-      v(x0, y1) * (1 - tx) * ty +
-      v(x1, y1) * tx * ty
+      channelValue(px, y0 * W + x0, ch) * (1 - tx) * (1 - ty) +
+      channelValue(px, y0 * W + x1, ch) * tx * (1 - ty) +
+      channelValue(px, y1 * W + x0, ch) * (1 - tx) * ty +
+      channelValue(px, y1 * W + x1, ch) * tx * ty
     );
   };
 
+  // Summed-area tables per channel, held here so the hot path (a scatter
+  // asks millions of times) does no map lookup or closure allocation.
+  const sats: Partial<Record<Channel, Float64Array>> = {};
   const boxAvg = (ch: Channel, ux: number, uy: number, area: number): number => {
-    const t = satOf(e, ch);
-    const W = px.width;
+    const t = sats[ch] ?? (sats[ch] = satOf(e, ch));
     const x0 = Math.max(0, Math.min(W, Math.round((ux - area) * sx)));
     const x1 = Math.max(0, Math.min(W, Math.round((ux + area) * sx)));
     const y0 = Math.max(0, Math.min(px.height, Math.round((uy - area) * sy)));
     const y1 = Math.max(0, Math.min(px.height, Math.round((uy + area) * sy)));
     const n = (x1 - x0) * (y1 - y0);
     if (n <= 0) return bilinear(ch, ux, uy);
-    const S = (X: number, Y: number): number => t[Y * (W + 1) + X];
-    return (S(x1, y1) - S(x0, y1) - S(x1, y0) + S(x0, y0)) / n;
+    const W1 = W + 1;
+    return (t[y1 * W1 + x1] - t[y1 * W1 + x0] - t[y0 * W1 + x1] + t[y0 * W1 + x0]) / n;
   };
 
   const sample = (ch: Channel, x: number, y: number, area?: number): number => {

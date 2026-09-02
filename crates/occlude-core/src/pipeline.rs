@@ -796,10 +796,26 @@ fn bridge_pass(shapes: &[ShapeRec], frags: &mut Vec<Frag>, prims: &mut Vec<Primi
     let max_tol = ends.iter().fold(0.0f64, |m, e| m.max(e.tol));
     let cell = max_tol.max(1e-3);
     let key = |p: Vec2| ((p.x / cell).floor() as i64, (p.y / cell).floor() as i64);
-    let mut grid: std::collections::HashMap<(i64, i64), Vec<usize>> =
-        std::collections::HashMap::new();
-    for (i, e) in ends.iter().enumerate() {
-        grid.entry(key(e.pos)).or_default().push(i);
+    // Cell buckets in CSR form: (cell, end index) sorted, so a cell's ends
+    // are a slice in ascending index order — exactly the insertion order
+    // the greedy match's tie-breaking depends on — and one map lookup finds
+    // the slice. No per-cell Vec, no SipHash.
+    let mut cells: Vec<((i64, i64), usize)> = ends.iter().enumerate().map(|(i, e)| (key(e.pos), i)).collect();
+    cells.sort_unstable();
+    let items: Vec<usize> = cells.iter().map(|c| c.1).collect();
+    let mut grid: crate::fasthash::FxHashMap<(i64, i64), (usize, usize)> =
+        crate::fasthash::FxHashMap::default();
+    {
+        let mut s = 0;
+        while s < cells.len() {
+            let k = cells[s].0;
+            let mut e = s + 1;
+            while e < cells.len() && cells[e].0 == k {
+                e += 1;
+            }
+            grid.insert(k, (s, e));
+            s = e;
+        }
     }
     // Union-find over fragments, seeded with EXACT-endpoint connectivity
     // (strokes already chained by shared endpoints count as one component),
@@ -814,8 +830,8 @@ fn bridge_pass(shapes: &[ShapeRec], frags: &mut Vec<Frag>, prims: &mut Vec<Primi
         i
     }
     {
-        let mut by_exact: std::collections::HashMap<(i64, i64), usize> =
-            std::collections::HashMap::new();
+        let mut by_exact: crate::fasthash::FxHashMap<(i64, i64), usize> =
+            crate::fasthash::FxHashMap::default();
         let q = 1e-4;
         for e in &ends {
             let k = ((e.pos.x / q).round() as i64, (e.pos.y / q).round() as i64);
@@ -843,10 +859,10 @@ fn bridge_pass(shapes: &[ShapeRec], frags: &mut Vec<Frag>, prims: &mut Vec<Primi
         let mut best: Option<(f64, usize)> = None;
         for dx in -1..=1 {
             for dy in -1..=1 {
-                let Some(cellv) = grid.get(&(kx + dx, ky + dy)) else {
+                let Some(&(s, e)) = grid.get(&(kx + dx, ky + dy)) else {
                     continue;
                 };
-                for &j in cellv {
+                for &j in &items[s..e] {
                     if j == i || used[j] {
                         continue;
                     }
@@ -1229,11 +1245,13 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &FieldCtx, pens:
     for m in &s.modifiers {
         match m {
             Modifier::Smooth { passes } => {
+                let _z = crate::profile::zone("1a smooth");
                 for poly in &mut polys {
                     chaikin(poly, *passes, closed);
                 }
             }
             Modifier::Roughen { amp, detail } => {
+                let _z = crate::profile::zone("1b roughen");
                 for (ci, poly) in polys.iter_mut().enumerate() {
                     resample_polyline(poly, detail.max(0.2), closed);
                     let n = poly.len();
@@ -1258,6 +1276,7 @@ fn apply_pre(s: &ShapeRec, shape_idx: usize, seed: u64, fields: &FieldCtx, pens:
                 }
             }
             Modifier::Deform { dx, dy, detail } => {
+                let _z = crate::profile::zone("1c deform");
                 let target = detail.max(0.2);
                 let map = |p: Vec2| {
                     let d = fields.vector(dx, dy, p);
