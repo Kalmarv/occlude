@@ -5,6 +5,7 @@
 
 import * as monaco from 'monaco-editor';
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import { attachScrubbing } from './scrub.js';
 import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 
 // EVERY source file of the occlude package becomes a Monaco extra lib —
@@ -115,6 +116,9 @@ export function createEditor(container: HTMLElement, initial: string): Editor {
     renderLineHighlight: 'gutter',
     tabSize: 2,
   });
+
+  // Alt-drag any number literal to change it (scrubby sliders).
+  attachScrubbing(editor);
 
   return {
     model,

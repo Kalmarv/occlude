@@ -1058,6 +1058,12 @@ shares, and replots exactly as seen. The label defaults to the assigned
 name (`const rows = ui(12)` → "rows"). At render time `ui()` just returns
 its value — headless tools and this page see the literal.
 
+Every other number is tweakable too, without wrapping it: **Alt-drag any
+number literal in the editor** to scrub it (Shift ×10, Ctrl ÷10 and one
+more decimal). The step follows the literal's own precision, and the edit
+lands in the code the same way — `ui()` is for the values you want a
+labelled control for.
+
 ```ts live
 import { sketch, circle, ui } from 'occlude';
 

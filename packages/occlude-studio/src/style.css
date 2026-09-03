@@ -1279,6 +1279,19 @@ body.dropping {
   padding: 1px 7px;
 }
 
+/* ---- editor scrubbing: Alt-drag a number literal ---- */
+.scrub-hot {
+  cursor: ew-resize;
+  background: rgba(91, 139, 217, 0.18);
+  border-bottom: 1px dashed var(--toolpath);
+}
+
+body.scrubbing,
+body.scrubbing * {
+  cursor: ew-resize !important;
+  user-select: none;
+}
+
 .lineage-pop {
   position: fixed;
   z-index: 40;
