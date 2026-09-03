@@ -134,6 +134,22 @@ body {
   inset: 0 -4px;
 }
 
+/* The panels toggle: a hamburger at the far right of the top bar. */
+#btn-rail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  margin-left: 6px;
+  flex: none;
+}
+
+#btn-rail svg {
+  display: block;
+}
+
 #btn-rail[aria-pressed='false'] {
   color: var(--ink-faint);
 }

@@ -20,12 +20,16 @@
         <div class="topbar-actions">
           <button id="btn-snapshot" title="Freeze this source with the current seed (Sketches page)">Snapshot</button>
           <button id="btn-fork" title="Copy this sketch into a new one and keep going there">Fork</button>
-          <button id="btn-rail" title="Show or hide the panels" aria-pressed="true">Panels</button>
           <a class="topbar-link" href="/sketches.html" target="_blank" rel="noopener">Sketches</a>
           <a class="topbar-link" href="/fills.html" target="_blank" rel="noopener">Fills</a>
           <a class="topbar-link" href="/assets.html" target="_blank" rel="noopener">Assets</a>
           <a class="topbar-link" href="/docs.html" target="_blank" rel="noopener">Docs</a>
         </div>
+        <button id="btn-rail" class="icon-btn" title="Show or hide the panels" aria-pressed="true" aria-label="Panels">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none" />
+          </svg>
+        </button>
       </header>
       <main id="workbench">
         <section id="editor-pane">
