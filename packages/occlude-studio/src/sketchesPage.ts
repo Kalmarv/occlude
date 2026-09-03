@@ -1,20 +1,23 @@
 /**
- * The Sketches page: the library as cards — root sketches on top, and a
- * card opens into its forks (a tree, since forks can fork), its snapshots
- * (frozen source + seed), and its git history drawn as a rail. The
- * server keeps the truth in git; this page only reads it and hands
- * sources to the studio.
+ * The Sketches page: the library as lineages. A family is a root sketch
+ * and every fork descended from it, drawn as one upward graph — the root
+ * chain starts at the bottom, every save is a dot, time climbs, a fork
+ * splits off the save it was taken from into its own chain, a snapshot
+ * hangs off the save it froze as a picture to the right, and the current
+ * render tops each chain. Clicking a dot or a snapshot selects it; the
+ * strip below opens, forks, or deletes the selection. The server keeps
+ * the truth in git; this page only reads it.
  */
 
 import './style.css';
 import {
-  deleteSketchByName, deleteSnapshot, forkSketch, forkSnapshot, listSketchInfo, listSnapshots,
-  loadSketchByName, loadSnapshot, openInStudio, sketchHistory, thumbUrl,
+  deleteSketchByName, deleteSnapshot, forkSketch, forkSnapshot, listSketchInfo,
+  loadSketchAt, loadSketchByName, loadSnapshot, openInStudio, sketchHistory, thumbUrl,
   type Commit, type SketchInfo, type Snapshot,
 } from './sketchApi.js';
 
-const grid = document.getElementById('sketches-grid')!;
-const openCards = new Set<string>();
+const main = document.getElementById('sketches-families')!;
+const NS = 'http://www.w3.org/2000/svg';
 
 function ago(mtime: number): string {
   const s = (Date.now() - mtime) / 1000;
@@ -23,6 +26,11 @@ function ago(mtime: number): string {
   if (s < 86400) return `${Math.round(s / 3600)}h ago`;
   return `${Math.round(s / 86400)}d ago`;
 }
+
+const when = (t: number): string => {
+  const d = new Date(t);
+  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+};
 
 const btn = (label: string, fn: () => void | Promise<void>, title?: string): HTMLButtonElement => {
   const b = document.createElement('button');
@@ -35,226 +43,318 @@ const btn = (label: string, fn: () => void | Promise<void>, title?: string): HTM
   return b;
 };
 
-function thumb(url: string): HTMLDivElement {
-  const el = document.createElement('div');
-  el.className = 'asset-thumb sketch-thumb';
-  const img = document.createElement('img');
-  img.src = `${url}?t=${Date.now()}`;
-  img.alt = '';
-  img.loading = 'lazy';
-  img.onerror = () => {
-    img.remove();
-    el.textContent = 'no thumbnail yet — save in the studio';
-  };
-  el.append(img);
-  return el;
-}
+const el = (tag: string, cls?: string, text?: string): HTMLElement => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+};
 
-async function fork(name: string): Promise<void> {
-  const to = prompt(`Fork '${name}' as:`, `${name}-2`)?.trim();
-  if (!to) return;
-  const made = await forkSketch(name, to);
+const svgEl = (tag: string, attrs: Record<string, string | number>, cls?: string): SVGElement => {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+  if (cls) e.setAttribute('class', cls);
+  return e;
+};
+
+async function forkNow(name: string, ref?: string): Promise<void> {
+  const made = await forkSketch(name, undefined, ref);
   openInStudio(made, await loadSketchByName(made));
 }
 
-function snapshotCard(s: Snapshot, refresh: () => Promise<void>): HTMLElement {
-  const card = document.createElement('div');
-  card.className = 'asset-card snap-card';
-  const snapThumb = thumb(thumbUrl(s.name, s.id));
-  snapThumb.title = 'Open this snapshot in the studio';
-  snapThumb.onclick = async (e) => {
-    e.stopPropagation();
-    const { source, meta: m } = await loadSnapshot(s.name, s.id);
-    openInStudio(s.name, source, m.seed);
-  };
-  card.append(snapThumb);
-  const meta = document.createElement('div');
-  meta.className = 'asset-meta';
-  const nm = document.createElement('div');
-  nm.className = 'asset-name';
-  nm.textContent = s.meta.label || `seed ${s.meta.seed ?? '—'}`;
-  const sub = document.createElement('div');
-  sub.className = 'asset-size';
-  const when = s.meta.at ? ago(Date.parse(s.meta.at)) : s.id;
-  sub.textContent = `${when} · ${s.sha}`;
-  meta.append(nm, sub);
-  const actions = document.createElement('div');
-  actions.className = 'asset-actions';
-  actions.append(
-    btn('open', async () => {
-      const { source, meta: m } = await loadSnapshot(s.name, s.id);
-      openInStudio(s.name, source, m.seed);
-    }, 'Open this source with its seed (saving writes the sketch head)'),
-    btn('fork', async () => {
-      const to = prompt(`Fork snapshot of '${s.name}' as:`, `${s.name}-${(s.meta.label || s.id).replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 20)}`)?.trim();
-      if (!to) return;
-      const made = await forkSnapshot(s.name, s.id, to);
-      openInStudio(made, await loadSketchByName(made), s.meta.seed);
-    }, 'A new sketch from this frozen source'),
-    btn('delete', async () => {
-      if (!confirm(`Delete this snapshot of '${s.name}'?`)) return;
-      await deleteSnapshot(s.name, s.id);
-      await refresh();
-    }),
-  );
-  card.append(meta, actions);
-  return card;
+// ---- the lineage graph ----
+
+interface Row {
+  info: SketchInfo;
+  depth: number;
+  commits: Commit[];     // oldest first
+  snapshots: Snapshot[];
 }
 
-/** The git rail: commits as a vertical line of dots, newest on top, with
- * snapshot markers and fork-off points labelled beside them. */
-function historyRail(commits: Commit[], snaps: Snapshot[]): SVGSVGElement {
-  const ns = 'http://www.w3.org/2000/svg';
-  const rowH = 22;
-  const svg = document.createElementNS(ns, 'svg');
-  const h = Math.max(1, commits.length) * rowH + 10;
-  svg.setAttribute('viewBox', `0 0 420 ${h}`);
-  svg.setAttribute('class', 'git-rail');
-  svg.style.height = `${h}px`;
-  const line = document.createElementNS(ns, 'line');
-  line.setAttribute('x1', '14'); line.setAttribute('x2', '14');
-  line.setAttribute('y1', '10'); line.setAttribute('y2', String(h - 10));
-  line.setAttribute('class', 'git-line');
-  svg.append(line);
-  const bySha = new Map<string, Snapshot[]>();
-  for (const s of snaps) bySha.set(s.sha, [...(bySha.get(s.sha) ?? []), s]);
-  commits.forEach((c, i) => {
-    const y = 10 + i * rowH;
-    const dot = document.createElementNS(ns, 'circle');
-    dot.setAttribute('cx', '14'); dot.setAttribute('cy', String(y)); dot.setAttribute('r', '4');
-    const isFork = /^fork /.test(c.subject);
-    dot.setAttribute('class', isFork ? 'git-dot fork' : 'git-dot');
-    svg.append(dot);
-    const label = document.createElementNS(ns, 'text');
-    label.setAttribute('x', '28'); label.setAttribute('y', String(y + 4));
-    label.setAttribute('class', 'git-text');
-    const d = new Date(c.time);
-    label.textContent = `${c.sha}  ${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}  ${c.subject}`;
-    svg.append(label);
-    const tagged = bySha.get(c.sha) ?? [];
-    tagged.forEach((s, k) => {
-      const tx = 300 + k * 8;
-      const mark = document.createElementNS(ns, 'path');
-      mark.setAttribute('d', `M ${tx} ${y - 5} l 6 5 l -6 5 z`);
-      mark.setAttribute('class', 'git-snap');
-      const t = document.createElementNS(ns, 'title');
-      t.textContent = `snapshot ${s.meta.label || s.id} · seed ${s.meta.seed ?? '—'}`;
-      mark.append(t);
-      svg.append(mark);
+type Selection =
+  | { kind: 'commit'; row: Row; commit: Commit }
+  | { kind: 'snapshot'; row: Row; snapshot: Snapshot };
+
+const ROW = 26;        // one save
+const LANE = 210;      // chain pitch: the chain plus the gutter its pictures hang in
+const X0 = 80;         // first chain's x (room for its current render to its left)
+const STUB = 16;       // node → picture elbow
+const PIC_W = 110, PIC_H = 76;      // snapshot picture
+const CUR_W = 130, CUR_H = 90;      // current render, centred above the chain
+const LABEL_H = 54;
+const GAP = 8;         // between stacked pictures
+const PAD_T = 12, PAD_B = 18, PAD_R = 24;
+
+/** Root first, then each fork under its parent (oldest fork first). */
+function orderRows(root: SketchInfo, all: SketchInfo[], byName: Map<string, Row>): Row[] {
+  const out: Row[] = [];
+  const walk = (info: SketchInfo, depth: number): void => {
+    const row = byName.get(info.name);
+    if (!row) return;
+    row.depth = depth;
+    out.push(row);
+    const kids = all
+      .filter((s) => s.parent === info.name)
+      .sort((a, b) => (byName.get(a.name)?.commits[0]?.time ?? 0) - (byName.get(b.name)?.commits[0]?.time ?? 0));
+    for (const k of kids) walk(k, depth + 1);
+  };
+  walk(root, 0);
+  return out;
+}
+
+/** Where a fork's chain leaves its parent: the parent's save named by the
+ * fork header, else the parent's last save before the fork. */
+function forkPoint(row: Row, parent: Row): Commit | undefined {
+  const ref = row.info.forkRef ?? '';
+  const snapId = ref.match(/^snapshot (\S+)$/)?.[1];
+  const sha = snapId
+    ? parent.snapshots.find((s) => s.id === snapId)?.sha
+    : parent.commits.find((c) => ref.startsWith(c.sha) || c.sha.startsWith(ref))?.sha;
+  const hit = sha && parent.commits.find((c) => c.sha === sha);
+  if (hit) return hit;
+  const t0 = row.commits[0]?.time ?? Infinity;
+  return [...parent.commits].reverse().find((c) => c.time <= t0) ?? parent.commits[0];
+}
+
+/** The save a snapshot hangs off: the tagged commit when it is on this
+ * chain, else the last save at or before the snapshot's time (an
+ * untouched sketch snapshotted for its seed tags another file's commit). */
+function snapshotAnchor(row: Row, s: Snapshot): Commit | undefined {
+  const own = row.commits.find((c) => c.sha === s.sha);
+  if (own) return own;
+  const at = s.meta.at ? Date.parse(s.meta.at) : Infinity;
+  return [...row.commits].reverse().find((c) => c.time <= at) ?? row.commits[row.commits.length - 1];
+}
+
+function lineage(rows: Row[], select: (s: Selection | null) => void, selected: Selection | null): HTMLElement {
+  // One time axis for the family: every save of every member, oldest at
+  // the bottom. Coordinates are computed y-up and flipped at the end.
+  const all = rows.flatMap((r) => r.commits.map((c) => ({ row: r, c })));
+  all.sort((a, b) => a.c.time - b.c.time || a.c.sha.localeCompare(b.c.sha));
+  const laneX = (row: Row): number => X0 + rows.indexOf(row) * LANE;
+  // Which save each snapshot hangs off, per chain.
+  const anchored = new Map<Row, Map<string, Snapshot[]>>();
+  for (const row of rows) {
+    const bySha = new Map<string, Snapshot[]>();
+    for (const s of row.snapshots) {
+      const a = snapshotAnchor(row, s);
+      if (a) bySha.set(a.sha, [...(bySha.get(a.sha) ?? []), s]);
+    }
+    anchored.set(row, bySha);
+  }
+  // A save's row is as tall as the pictures hanging off it, so pictures
+  // sit level with their save instead of piling up the gutter.
+  const yUpOf = new Map<string, number>();
+  let cursor = PAD_B;
+  for (const e of all) {
+    yUpOf.set(e.c.sha, cursor);
+    const n = anchored.get(e.row)?.get(e.c.sha)?.length ?? 0;
+    const isHead = e.row.commits[e.row.commits.length - 1] === e.c;
+    cursor += Math.max(ROW, n * (PIC_H + GAP) + (isHead ? CUR_H + GAP + LABEL_H : 0));
+  }
+
+  interface Pic { row: Row; x: number; bottom: number; w: number; h: number; node: Commit; snap?: Snapshot }
+  const pics: Pic[] = [];
+  let top = 0;
+  for (const row of rows) {
+    if (row.commits.length === 0) continue;
+    // Pictures stack up the lane's gutter: each sits level with its save
+    // unless the one below is in the way, then it rides above it.
+    let ceiling = -Infinity;
+    const place = (node: Commit, w: number, h: number, snap?: Snapshot): void => {
+      // Snapshots hang level with their save in the gutter; the current
+      // render caps the chain, centred above the last save and clear of
+      // any fork curving off it.
+      const bottom = snap
+        ? Math.max(yUpOf.get(node.sha)! - h / 2, ceiling + GAP)
+        : Math.max(yUpOf.get(node.sha)! + 14, ceiling + GAP);
+      ceiling = bottom + h;
+      pics.push({ row, x: snap ? laneX(row) + STUB + 10 : laneX(row) - w / 2, bottom, w, h, node, snap });
+    };
+    const bySha = anchored.get(row)!;
+    for (const c of row.commits) {
+      const snaps = (bySha.get(c.sha) ?? []).sort((a, b) => a.id.localeCompare(b.id));
+      for (const s of snaps) place(c, PIC_W, PIC_H, s);
+    }
+    const head = row.commits[row.commits.length - 1];
+    place(head, CUR_W, CUR_H);
+    top = Math.max(top, ceiling + LABEL_H);
+  }
+  const H = top + PAD_T;
+  const W = X0 + rows.length * LANE + PAD_R;
+  const Y = (yUp: number): number => H - yUp;
+
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H }, 'lineage') as SVGSVGElement;
+  const isSel = (s: Selection): boolean =>
+    !!selected && selected.kind === s.kind && selected.row === s.row &&
+    (s.kind === 'commit'
+      ? selected.kind === 'commit' && selected.commit.sha === s.commit.sha
+      : selected.kind === 'snapshot' && selected.snapshot.id === s.snapshot.id);
+
+  // Chains.
+  for (const row of rows) {
+    if (row.commits.length === 0) continue;
+    const x = laneX(row);
+    const y1 = Y(yUpOf.get(row.commits[0].sha)!), y2 = Y(yUpOf.get(row.commits[row.commits.length - 1].sha)!);
+    svg.append(svgEl('line', { x1: x, x2: x, y1, y2 }, 'lineage-rail'));
+  }
+  // Fork connectors: from the parent's save up and over to the fork's first save.
+  for (const row of rows) {
+    const parent = rows.find((r) => r.info.name === row.info.parent);
+    if (!parent || row.commits.length === 0) continue;
+    const from = forkPoint(row, parent);
+    if (!from) continue;
+    const x1 = laneX(parent), y1 = Y(yUpOf.get(from.sha)!);
+    const x2 = laneX(row), y2 = Y(yUpOf.get(row.commits[0].sha)!);
+    const my = (y1 + y2) / 2;
+    svg.append(svgEl('path', { d: `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}` }, 'lineage-fork'));
+  }
+  // Pictures with their elbows.
+  for (const p of pics) {
+    const nx = laneX(p.row), ny = Y(yUpOf.get(p.node.sha)!);
+    const py = Y(p.bottom + p.h / 2);
+    svg.append(p.snap
+      ? svgEl('path', { d: `M ${nx} ${ny} H ${nx + STUB / 2} V ${py} H ${p.x}` }, 'lineage-stub')
+      : svgEl('path', { d: `M ${nx} ${ny} V ${Y(p.bottom)}` }, 'lineage-stub current'));
+    const g = svgEl('g', {}, 'lineage-pic' + (p.snap ? '' : ' current'));
+    const sel: Selection | null = p.snap ? { kind: 'snapshot', row: p.row, snapshot: p.snap } : null;
+    if (sel && isSel(sel)) g.classList.add('selected');
+    g.append(svgEl('rect', { x: p.x, y: Y(p.bottom + p.h), width: p.w, height: p.h, rx: 3 }, 'lineage-paper'));
+    const img = svgEl('image', {
+      x: p.x + 2, y: Y(p.bottom + p.h) + 2, width: p.w - 4, height: p.h - 4,
+      href: `${thumbUrl(p.row.info.name, p.snap?.id)}?t=${Date.now()}`, preserveAspectRatio: 'xMidYMid meet',
     });
-  });
-  return svg;
+    g.append(img);
+    g.append(svgEl('rect', { x: p.x, y: Y(p.bottom + p.h), width: p.w, height: p.h, rx: 3 }, 'lineage-frame'));
+    const title = svgEl('title', {});
+    if (p.snap) {
+      const s = p.snap;
+      title.textContent = `snapshot · ${s.meta.label || 'seed ' + (s.meta.seed ?? '—')} · ${s.meta.at ? when(Date.parse(s.meta.at)) : s.id}`;
+      if (s.meta.label) {
+        const cap = svgEl('text', { x: p.x + 5, y: Y(p.bottom) - 5 }, 'lineage-cap');
+        cap.textContent = s.meta.label;
+        g.append(cap);
+      }
+      g.addEventListener('click', () => select(isSel(sel!) ? null : sel));
+    } else {
+      title.textContent = `open '${p.row.info.name}' in the studio`;
+      g.addEventListener('click', async () => openInStudio(p.row.info.name, await loadSketchByName(p.row.info.name)));
+    }
+    g.append(title);
+    svg.append(g);
+  }
+  // Dots on top of everything.
+  for (const row of rows) {
+    const x = laneX(row);
+    const head = row.commits[row.commits.length - 1];
+    for (const c of row.commits) {
+      const y = Y(yUpOf.get(c.sha)!);
+      const isFork = /^fork /.test(c.subject);
+      const sel: Selection = { kind: 'commit', row, commit: c };
+      const g = svgEl('g', {}, 'lineage-commit');
+      const title = svgEl('title', {});
+      title.textContent = `${c.sha} · ${when(c.time)} · ${c.subject}`;
+      g.append(title, svgEl('circle', { cx: x, cy: y, r: 10 }, 'lineage-hit'));
+      g.append(svgEl('circle', { cx: x, cy: y, r: c === head ? 5.5 : 3.5 },
+        `lineage-dot${isFork ? ' fork' : ''}${c === head ? ' head' : ''}${isSel(sel) ? ' selected' : ''}`));
+      g.addEventListener('click', () => select(isSel(sel) ? null : sel));
+      svg.append(g);
+    }
+  }
+  // Labels: name, counts, and actions above each chain's current render.
+  for (const row of rows) {
+    const cur = pics.find((p) => p.row === row && !p.snap);
+    if (!cur) continue;
+    const fo = svgEl('foreignObject', { x: cur.x, y: Y(cur.bottom + cur.h + LABEL_H), width: LANE - 20, height: LABEL_H });
+    const box = el('div', 'lineage-label');
+    box.append(el('div', 'lineage-name', row.info.name));
+    const n = row.commits.length, k = row.snapshots.length;
+    box.append(el('div', 'lineage-sub', `${ago(row.info.mtime)} · ${n} save${n === 1 ? '' : 's'}` +
+      (k ? ` · ${k} snapshot${k === 1 ? '' : 's'}` : '')));
+    fo.append(box);
+    svg.append(fo);
+  }
+  const wrap = el('div', 'lineage-scroll');
+  wrap.append(svg);
+  return wrap;
 }
 
-function sketchCard(info: SketchInfo, all: SketchInfo[], refresh: () => Promise<void>): HTMLElement {
-  const card = document.createElement('div');
-  card.className = 'asset-card sketch-card';
-  card.dataset.name = info.name;
-  card.append(thumb(thumbUrl(info.name)));
-  const meta = document.createElement('div');
-  meta.className = 'asset-meta';
-  const nm = document.createElement('div');
-  nm.className = 'asset-name';
-  nm.textContent = info.name;
-  const forks = all.filter((s) => s.parent === info.name);
-  // Counts include every descendant: a snapshot on a fork of a fork is
-  // still this sketch's history, and the root card must say so.
-  const descendants = (name: string): SketchInfo[] =>
-    all.filter((s) => s.parent === name).flatMap((f) => [f, ...descendants(f.name)]);
-  const tree = descendants(info.name);
-  const totalSnaps = info.snapshots + tree.reduce((n, s) => n + s.snapshots, 0);
-  const sub = document.createElement('div');
-  sub.className = 'asset-size';
-  sub.textContent =
-    `${ago(info.mtime)}` +
-    (tree.length ? ` · ${tree.length} fork${tree.length === 1 ? '' : 's'}` : '') +
-    (totalSnaps ? ` · ${totalSnaps} snapshot${totalSnaps === 1 ? '' : 's'}` : '') +
-    (info.parent ? ` · fork of ${info.parent}` : '');
-  meta.append(nm, sub);
-  const actions = document.createElement('div');
-  actions.className = 'asset-actions';
-  actions.append(
-    btn('open', async () => openInStudio(info.name, await loadSketchByName(info.name))),
-    btn('fork', () => fork(info.name)),
-    btn('delete', async () => {
-      if (!confirm(`Delete sketch '${info.name}' from the library? (git keeps its history)`)) return;
-      await deleteSketchByName(info.name);
-      await refresh();
-    }),
-  );
-  card.append(meta, actions);
+function inspector(sel: Selection, refresh: () => Promise<void>): HTMLElement {
+  const box = el('div', 'lineage-inspector');
+  const name = sel.row.info.name;
+  const meta = el('div', 'lineage-row-meta');
+  const actions = el('div', 'lineage-actions');
+  if (sel.kind === 'snapshot') {
+    const s = sel.snapshot;
+    meta.append(el('div', 'lineage-name', `snapshot · ${s.meta.label || `seed ${s.meta.seed ?? '—'}`}`));
+    meta.append(el('div', 'lineage-sub', `on ${name} @ ${s.sha}` +
+      (s.meta.label && s.meta.seed != null ? ` · seed ${s.meta.seed}` : '') +
+      (s.meta.at ? ` · ${when(Date.parse(s.meta.at))}` : '')));
+    actions.append(
+      btn('open', async () => {
+        const { source, meta: m } = await loadSnapshot(name, s.id);
+        openInStudio(name, source, m.seed);
+      }, 'Open this frozen source with its seed (saving writes the sketch head)'),
+      btn('fork', async () => {
+        const made = await forkSnapshot(name, s.id);
+        openInStudio(made, await loadSketchByName(made), s.meta.seed);
+      }, 'A new sketch from this frozen source'),
+      btn('delete', async () => {
+        if (!confirm(`Delete this snapshot of '${name}'?`)) return;
+        await deleteSnapshot(name, s.id);
+        await refresh();
+      }),
+    );
+  } else {
+    const c = sel.commit;
+    const isHead = sel.row.commits[sel.row.commits.length - 1] === c;
+    meta.append(el('div', 'lineage-name', `${c.subject}${isHead ? ' · current' : ''}`));
+    meta.append(el('div', 'lineage-sub', `${name} @ ${c.sha} · ${when(c.time)}`));
+    actions.append(
+      btn('open', async () =>
+        openInStudio(name, isHead ? await loadSketchByName(name) : await loadSketchAt(name, c.sha)),
+      isHead ? 'Open the sketch' : 'Open the source as it was at this save (saving writes the sketch head)'),
+      btn(isHead ? 'fork' : 'fork from here', () => forkNow(name, isHead ? undefined : c.sha),
+        isHead ? 'A new sketch from the current source' : 'A new sketch branching from this save'),
+      btn('delete sketch', async () => {
+        if (!confirm(`Delete sketch '${name}' from the library? (git keeps its saves)`)) return;
+        await deleteSketchByName(name);
+        await refresh();
+      }),
+    );
+  }
+  box.append(meta, actions);
+  return box;
+}
 
-  // Expand: forks (as cards, recursively), snapshots, history.
-  const detail = document.createElement('div');
-  detail.className = 'sketch-detail';
-  detail.hidden = !openCards.has(info.name);
-  card.append(detail);
-  const fill = async (): Promise<void> => {
-    detail.replaceChildren();
-    // Snapshots first — this sketch's own, then every descendant's, each
-    // labelled with the fork it belongs to — so nothing hides two levels
-    // down. Forks follow as cards (open them for their own detail).
-    const [own, hist, ...nested] = await Promise.all([
-      listSnapshots(info.name),
-      sketchHistory(info.name),
-      ...tree.map((f) => listSnapshots(f.name)),
-    ]);
-    const snaps = [...own, ...nested.flat()];
-    if (snaps.length) {
-      const h = document.createElement('h4');
-      h.textContent = 'snapshots';
-      const g = document.createElement('div');
-      g.className = 'assets-grid sketch-children';
-      for (const s of snaps) {
-        const card = snapshotCard(s, refresh);
-        if (s.name !== info.name) {
-          const of = document.createElement('div');
-          of.className = 'asset-size';
-          of.textContent = `on ${s.name}`;
-          card.querySelector('.asset-meta')?.append(of);
-        }
-        g.append(card);
-      }
-      detail.append(h, g);
-    }
-    if (forks.length) {
-      const h = document.createElement('h4');
-      h.textContent = 'forks';
-      const g = document.createElement('div');
-      g.className = 'assets-grid sketch-children';
-      for (const f of forks) g.append(sketchCard(f, all, refresh));
-      detail.append(h, g);
-    }
-    if (hist.commits.length) {
-      const h = document.createElement('h4');
-      h.textContent = 'history';
-      const wrap = document.createElement('div');
-      wrap.className = 'git-rail-wrap';
-      wrap.append(historyRail(hist.commits, hist.snapshots));
-      detail.append(h, wrap);
-    }
+function family(root: SketchInfo, all: SketchInfo[], rows: Row[], refresh: () => Promise<void>): HTMLElement {
+  const sec = el('section', 'lineage-family');
+  const ordered = orderRows(root, all, new Map(rows.map((r) => [r.info.name, r])));
+  const head = el('div', 'lineage-head');
+  const forks = ordered.length - 1;
+  const snaps = ordered.reduce((n, r) => n + r.snapshots.length, 0);
+  const saves = ordered.reduce((n, r) => n + r.commits.length, 0);
+  head.append(el('h3', undefined, root.name), el('span', 'lineage-sub',
+    `${saves} save${saves === 1 ? '' : 's'}` +
+    (forks ? ` · ${forks} fork${forks === 1 ? '' : 's'}` : '') +
+    (snaps ? ` · ${snaps} snapshot${snaps === 1 ? '' : 's'}` : '')));
+  sec.append(head);
+  let selected: Selection | null = null;
+  let graph: HTMLElement | null = null;
+  let strip: HTMLElement | null = null;
+  const draw = (): void => {
+    const keep = graph?.scrollLeft;
+    const next = lineage(ordered, select, selected);
+    if (graph) graph.replaceWith(next); else sec.append(next);
+    graph = next;
+    if (keep !== undefined) graph.scrollLeft = keep;
+    strip?.remove();
+    strip = selected ? inspector(selected, refresh) : null;
+    if (strip) sec.append(strip);
   };
-  if (!detail.hidden) void fill();
-  // The thumbnail is the sketch: click it to open in the studio. The strip
-  // below (name, meta, actions) toggles the forks/snapshots/history.
-  const thumbEl = card.querySelector('.sketch-thumb') as HTMLElement;
-  thumbEl.title = `Open '${info.name}' in the studio`;
-  thumbEl.onclick = async (e) => {
-    e.stopPropagation();
-    openInStudio(info.name, await loadSketchByName(info.name));
-  };
-  card.onclick = (e) => {
-    if ((e.target as HTMLElement).closest('.sketch-detail, button')) return;
-    detail.hidden = !detail.hidden;
-    if (detail.hidden) openCards.delete(info.name);
-    else {
-      openCards.add(info.name);
-      void fill();
-    }
-    card.classList.toggle('expanded', !detail.hidden);
-  };
-  card.classList.toggle('expanded', !detail.hidden);
-  return card;
+  const select = (s: Selection | null): void => { selected = s; draw(); };
+  draw();
+  return sec;
 }
 
 async function refresh(): Promise<void> {
@@ -262,19 +362,22 @@ async function refresh(): Promise<void> {
   try {
     all = await listSketchInfo();
   } catch {
-    grid.textContent = 'sketch library unavailable';
+    main.textContent = 'sketch library unavailable';
     return;
   }
-  grid.replaceChildren();
+  if (all.length === 0) {
+    main.replaceChildren(el('p', 'assets-hint', 'No saved sketches yet — name one in the studio and press Save.'));
+    return;
+  }
+  const hist = await Promise.all(all.map((info) => sketchHistory(info.name).catch(() => ({ commits: [], snapshots: [] }))));
+  const rows: Row[] = all.map((info, i) => ({
+    info, depth: 0,
+    commits: [...hist[i].commits].reverse(),
+    snapshots: hist[i].snapshots,
+  }));
   const roots = all.filter((s) => s.parent === null || !all.some((p) => p.name === s.parent));
-  if (roots.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'assets-hint';
-    empty.textContent = 'No saved sketches yet — name one in the studio and press Save.';
-    grid.append(empty);
-    return;
-  }
-  for (const s of roots) grid.append(sketchCard(s, all, refresh));
+  roots.sort((a, b) => b.mtime - a.mtime);
+  main.replaceChildren(...roots.map((r) => family(r, all, rows, refresh)));
 }
 
 (window as unknown as Record<string, unknown>).__sketches = { refresh };

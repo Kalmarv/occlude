@@ -100,6 +100,11 @@ export async function snapshotSource(dir, name, id) {
   return git(dir, ['show', `${tagOf(name, id)}:${name}.ts`]);
 }
 
+/** The sketch's source as of one commit (any point on its history rail). */
+export async function sourceAt(dir, name, sha) {
+  return git(dir, ['show', `${sha}:${name}.ts`]);
+}
+
 export async function deleteSnapshot(dir, name, id) {
   await git(dir, ['tag', '-d', tagOf(name, id)]);
 }

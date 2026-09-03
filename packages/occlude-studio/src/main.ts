@@ -302,9 +302,8 @@ async function boot(): Promise<void> {
         status(false, 'name and save the sketch before forking it');
         return;
       }
-      const to = prompt(`Fork '${name}' as:`, `${name}-2`)?.trim();
-      if (!to) return;
-      const made = await forkSketch(name, to);
+      // Forks are not named, like snapshots: the server picks `<name>-<n>`.
+      const made = await forkSketch(name);
       const source = await loadSketchByName(made);
       sketchName = made;
       saveSketchName(made);

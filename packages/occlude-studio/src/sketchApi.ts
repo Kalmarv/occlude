@@ -38,6 +38,8 @@ export async function deleteSketchByName(name: string): Promise<void> {
 export interface SketchInfo extends SketchMeta {
   /** Parent sketch name when this file is a fork (its first line says so). */
   parent: string | null;
+  /** Where the fork branched: the parent's commit sha, or `snapshot <id>`. */
+  forkRef: string | null;
   snapshots: number;
   thumb: boolean;
 }
@@ -67,10 +69,13 @@ export async function listSketchInfo(): Promise<SketchInfo[]> {
   return (await j(await fetch('/api/sketches'), 'sketch list')) as SketchInfo[];
 }
 
-export async function forkSketch(name: string, to: string): Promise<string> {
+/** Fork the sketch's latest save, or (with `ref`) its source as of that
+ * commit. Forks are not named: the server picks `<name>-<n>` unless `to`
+ * is given. Returns the new sketch's name. */
+export async function forkSketch(name: string, to?: string, ref?: string): Promise<string> {
   const r = (await j(
     await fetch(`/api/sketches/${encodeURIComponent(name)}/fork`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ to }),
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ to, ref }),
     }),
     'fork',
   )) as { name: string };
@@ -102,7 +107,8 @@ export async function deleteSnapshot(name: string, id: string): Promise<void> {
   await j(await fetch(`/api/sketches/${encodeURIComponent(name)}/snapshots/${id}`, { method: 'DELETE' }), 'delete snapshot');
 }
 
-export async function forkSnapshot(name: string, id: string, to: string): Promise<string> {
+/** A new sketch from a frozen snapshot; unnamed forks get `<name>-<n>`. */
+export async function forkSnapshot(name: string, id: string, to?: string): Promise<string> {
   const r = (await j(
     await fetch(`/api/sketches/${encodeURIComponent(name)}/snapshots/${id}/fork`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ to }),
@@ -122,6 +128,13 @@ export async function sketchHistory(name: string): Promise<{ commits: Commit[]; 
   return (await j(await fetch(`/api/sketches/${encodeURIComponent(name)}/history`), 'history')) as {
     commits: Commit[]; snapshots: Snapshot[];
   };
+}
+
+/** The sketch's source as of one commit on its history. */
+export async function loadSketchAt(name: string, sha: string): Promise<string> {
+  const res = await fetch(`/api/sketches/${encodeURIComponent(name)}/at/${encodeURIComponent(sha)}`);
+  if (!res.ok) throw new Error(`version ${sha} of '${name}' not found (${res.status})`);
+  return res.text();
 }
 
 export function thumbUrl(name: string, snapId?: string): string {

@@ -1049,95 +1049,173 @@ body.dropping {
 
 /* ---- sketches page ---- */
 #sketches-main {
-  max-width: 1180px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 18px 24px 40px;
 }
 
-.sketch-thumb {
-  background: #f6f2ea;
-  font-size: 11px;
-  text-align: center;
-  padding: 0 10px;
+.lineage-family {
+  margin: 18px 0 28px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
 }
 
-.sketch-thumb img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
+.lineage-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--panel-edge);
 }
 
-.sketch-card {
-  cursor: pointer;
-}
-
-.sketch-thumb {
-  cursor: pointer;
-}
-
-.sketch-thumb:hover {
-  outline: 2px solid var(--toolpath);
-  outline-offset: -2px;
-}
-
-.sketch-card.expanded {
-  grid-column: 1 / -1;
-  cursor: default;
-}
-
-.sketch-card.expanded > .asset-thumb {
-  height: 220px;
-}
-
-.sketch-detail {
-  padding: 4px 10px 12px;
-  border-top: 1px solid var(--panel-edge);
-}
-
-.sketch-detail h4 {
+.lineage-head h3 {
+  margin: 0;
   font-family: var(--mono);
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ink-dim);
-  margin: 12px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
-.sketch-children .asset-thumb {
-  height: 110px;
-}
-
-.git-rail-wrap {
+.lineage-scroll {
   overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 0 0;
 }
 
-.git-rail {
-  width: 100%;
-  max-width: 640px;
+.lineage {
   display: block;
 }
 
-.git-line {
-  stroke: var(--panel-edge);
+.lineage-rail {
+  stroke: var(--ink-dim);
   stroke-width: 2;
 }
 
-.git-dot {
+.lineage-fork {
+  fill: none;
+  stroke: var(--toolpath);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2;
+}
+
+.lineage-stub {
+  fill: none;
+  stroke: #d9a13d;
+  stroke-width: 1.2;
+}
+
+.lineage-stub.current {
+  stroke: var(--toolpath);
+}
+
+.lineage-paper {
+  fill: #f6f2ea;
+}
+
+.lineage-frame {
+  fill: none;
+  stroke: #d9a13d;
+  stroke-width: 1.5;
+}
+
+.lineage-pic {
+  cursor: pointer;
+}
+
+.lineage-pic.current .lineage-frame {
+  stroke: var(--toolpath);
+}
+
+.lineage-pic:hover .lineage-frame,
+.lineage-pic.selected .lineage-frame {
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+
+.lineage-cap {
+  font-family: var(--mono);
+  font-size: 9.5px;
   fill: var(--ink-dim);
 }
 
-.git-dot.fork {
+.lineage-commit {
+  cursor: pointer;
+}
+
+.lineage-hit {
+  fill: transparent;
+}
+
+.lineage-dot {
+  fill: var(--ink-dim);
+  stroke: var(--panel);
+  stroke-width: 1.5;
+}
+
+.lineage-dot.fork {
   fill: var(--toolpath);
 }
 
-.git-text {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  fill: var(--ink-dim);
+.lineage-dot.head {
+  fill: var(--ink);
 }
 
-.git-snap {
-  fill: var(--warn);
+.lineage-commit:hover .lineage-dot,
+.lineage-dot.selected {
+  fill: var(--toolpath);
+  stroke: var(--ink);
+}
+
+.lineage-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: flex-end;
+  height: 100%;
+  box-sizing: border-box;
+  padding-bottom: 6px;
+}
+
+.lineage-row-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lineage-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lineage-sub {
+  font-size: 11px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.lineage-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.lineage-actions button {
+  font-size: 10.5px;
+  padding: 1px 7px;
+}
+
+.lineage-inspector {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-top: 1px solid var(--panel-edge);
 }
 
 /* ---- fills page ---- */

@@ -6,17 +6,18 @@
  * — and the pen library as ./sketches/pens.json. Shared by every
  * browser/device that reaches this server.
  *
- *   GET    /api/sketches                        → [{ name, mtime, parent, snapshots }]
+ *   GET    /api/sketches                        → [{ name, mtime, parent, forkRef, snapshots, thumb }]
  *   GET    /api/sketches/<name>                 → source text
  *   PUT    /api/sketches/<name>                 → save (commit) body as source
  *   DELETE /api/sketches/<name>                 → remove (commit)
- *   POST   /api/sketches/<name>/fork {to}       → new file `to` with a fork header
- *   GET    /api/sketches/<name>/history         → [{ sha, time, subject }]
+ *   POST   /api/sketches/<name>/fork {to?, ref?} → new file (`to`, else `<name>-<n>`) with a fork header, from `ref` or the latest save
+ *   GET    /api/sketches/<name>/history         → { commits: [{ sha, time, subject }], snapshots }
+ *   GET    /api/sketches/<name>/at/<sha>        → source as of that commit
  *   GET    /api/sketches/<name>/snapshots       → [{ id, sha, meta }]
  *   POST   /api/sketches/<name>/snapshots {seed,label} → { id }
  *   GET    /api/sketches/<name>/snapshots/<id>  → { source, meta }
  *   DELETE /api/sketches/<name>/snapshots/<id>
- *   POST   /api/sketches/<name>/snapshots/<id>/fork {to}
+ *   POST   /api/sketches/<name>/snapshots/<id>/fork {to?}
  *   GET/PUT /api/sketches/<name>/thumb          → PNG (also …/snapshots/<id>/thumb)
  *   GET    /api/pens             → pen library JSON (404 before first save)
  *   PUT    /api/pens             → save pen library JSON
@@ -133,6 +134,7 @@ export function createSketchHandler(dir) {
                 name,
                 mtime: st.mtimeMs,
                 parent: parent?.parent ?? null,
+                forkRef: parent?.ref ?? null,
                 snapshots: snaps.filter((s) => s.name === name).length,
                 thumb: existsSync(join(thumbs, `${name}.png`)),
               };
@@ -169,15 +171,35 @@ export function createSketchHandler(dir) {
         const snaps = await sg.snapshots(dir, name);
         return send(200, JSON.stringify({ commits, snapshots: snaps }));
       }
+      const nextForkName = () => {
+        for (let n = 2; ; n++) if (!existsSync(join(dir, `${name}-${n}.ts`))) return `${name}-${n}`;
+      };
+      if (sub === 'at') {
+        if (req.method !== 'GET') return send(405, '{"error":"method"}');
+        if (!/^[0-9a-f]{4,40}$/.test(snapId ?? '')) return send(400, '{"error":"bad sha"}');
+        const src = await sg.sourceAt(dir, name, snapId).catch(() => null);
+        if (src === null) return send(404, '{"error":"no such version"}');
+        return send(200, src, 'text/plain');
+      }
       if (sub === 'fork') {
         if (req.method !== 'POST') return send(405, '{"error":"method"}');
-        const { to } = JSON.parse((await readBody(req)).toString('utf8') || '{}');
-        const target = safe(String(to ?? ''));
+        const { to, ref: wantRef } = JSON.parse((await readBody(req)).toString('utf8') || '{}');
+        // Forks are not named, like snapshots: without `to`, the next free
+        // `<name>-<n>`. A caller may still pass a name.
+        const target = to ? safe(String(to)) : nextForkName();
         if (!target) return send(400, '{"error":"bad fork name"}');
         if (existsSync(join(dir, `${target}.ts`))) return send(409, '{"error":"a sketch of that name exists"}');
-        const src = await fs.readFile(file, 'utf8').catch(() => null);
-        if (src === null) return send(404, '{"error":"not found"}');
-        const ref = await sg.head(dir);
+        if (wantRef !== undefined && !/^[0-9a-f]{4,40}$/.test(String(wantRef))) return send(400, '{"error":"bad ref"}');
+        // The fork branches from one of THIS sketch's saves: the requested
+        // one, else its latest — so the lineage graph can draw the branch.
+        const raw = wantRef
+          ? await sg.sourceAt(dir, name, wantRef).catch(() => null)
+          : await fs.readFile(file, 'utf8').catch(() => null);
+        if (raw === null) return send(404, '{"error":"not found"}');
+        const ref = wantRef ?? (await sg.history(dir, name))[0]?.sha ?? (await sg.head(dir));
+        // The header names the direct parent only; a fork of a fork drops
+        // the grandparent's line rather than stacking headers.
+        const src = raw.replace(/^\/\/ fork of [^\n]*\n/, '');
         await fs.writeFile(join(dir, `${target}.ts`), sg.forkHeader(name, ref) + src);
         await sg.commit(dir, [`${target}.ts`], `fork ${target} from ${name} @ ${ref}`).catch(() => undefined);
         return send(200, JSON.stringify({ ok: true, name: target }));
@@ -215,7 +237,7 @@ export function createSketchHandler(dir) {
         if (sub2 === 'fork') {
           if (req.method !== 'POST') return send(405, '{"error":"method"}');
           const { to } = JSON.parse((await readBody(req)).toString('utf8') || '{}');
-          const target = safe(String(to ?? ''));
+          const target = to ? safe(String(to)) : nextForkName();
           if (!target) return send(400, '{"error":"bad fork name"}');
           if (existsSync(join(dir, `${target}.ts`))) return send(409, '{"error":"a sketch of that name exists"}');
           const src = await sg.snapshotSource(dir, name, snapId).catch(() => null);

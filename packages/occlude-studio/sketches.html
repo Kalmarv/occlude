@@ -24,11 +24,12 @@
     </header>
     <main id="sketches-main">
       <p class="assets-hint">
-        Every save is a commit. <b>Fork</b> a sketch to keep iterating on a copy that stays
-        its own; <b>snapshot</b> one to freeze a seed you like with the source as it was, without
-        starting a new sketch. Open a card to see its forks, snapshots, and history.
+        Every save is a dot and time runs up the page. A <b>fork</b> splits off the save it was taken
+        from and climbs its own chain; a <b>snapshot</b> hangs off the save it froze, seed and all,
+        and the current render tops each chain. Click a dot or a snapshot to open, fork, or delete
+        it; click a current render to open the sketch.
       </p>
-      <div id="sketches-grid" class="assets-grid"></div>
+      <div id="sketches-families"></div>
     </main>
     <script type="module" src="/src/sketchesPage.ts"></script>
   </body>
