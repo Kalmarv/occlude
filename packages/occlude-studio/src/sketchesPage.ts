@@ -4,9 +4,9 @@
  * chain starts at the bottom, every save is a dot, time climbs, a fork
  * splits off the save it was taken from into its own chain, a snapshot
  * hangs off the save it froze as a picture to the right, and the current
- * render tops each chain. Clicking a dot or a snapshot selects it; the
- * strip below opens, forks, or deletes the selection. The server keeps
- * the truth in git; this page only reads it.
+ * render tops each chain. Clicking a dot or a picture opens a popover
+ * beside it — a larger preview, the details, and open/fork/delete. The
+ * server keeps the truth in git; this page only reads it.
  */
 
 import './style.css';
@@ -73,7 +73,8 @@ interface Row {
 
 type Selection =
   | { kind: 'commit'; row: Row; commit: Commit }
-  | { kind: 'snapshot'; row: Row; snapshot: Snapshot };
+  | { kind: 'snapshot'; row: Row; snapshot: Snapshot }
+  | { kind: 'current'; row: Row };
 
 const ROW = 26;        // one save
 const LANE = 210;      // chain pitch: the chain plus the gutter its pictures hang in
@@ -126,7 +127,7 @@ function snapshotAnchor(row: Row, s: Snapshot): Commit | undefined {
   return [...row.commits].reverse().find((c) => c.time <= at) ?? row.commits[row.commits.length - 1];
 }
 
-function lineage(rows: Row[], select: (s: Selection | null) => void, selected: Selection | null): HTMLElement {
+function lineage(rows: Row[], pick: (s: Selection, anchor: Element) => void): HTMLElement {
   // One time axis for the family: every save of every member, oldest at
   // the bottom. Coordinates are computed y-up and flipped at the end.
   const all = rows.flatMap((r) => r.commits.map((c) => ({ row: r, c })));
@@ -185,11 +186,6 @@ function lineage(rows: Row[], select: (s: Selection | null) => void, selected: S
   const Y = (yUp: number): number => H - yUp;
 
   const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H }, 'lineage') as SVGSVGElement;
-  const isSel = (s: Selection): boolean =>
-    !!selected && selected.kind === s.kind && selected.row === s.row &&
-    (s.kind === 'commit'
-      ? selected.kind === 'commit' && selected.commit.sha === s.commit.sha
-      : selected.kind === 'snapshot' && selected.snapshot.id === s.snapshot.id);
 
   // Chains.
   for (const row of rows) {
@@ -217,8 +213,7 @@ function lineage(rows: Row[], select: (s: Selection | null) => void, selected: S
       ? svgEl('path', { d: `M ${nx} ${ny} H ${nx + STUB / 2} V ${py} H ${p.x}` }, 'lineage-stub')
       : svgEl('path', { d: `M ${nx} ${ny} V ${Y(p.bottom)}` }, 'lineage-stub current'));
     const g = svgEl('g', {}, 'lineage-pic' + (p.snap ? '' : ' current'));
-    const sel: Selection | null = p.snap ? { kind: 'snapshot', row: p.row, snapshot: p.snap } : null;
-    if (sel && isSel(sel)) g.classList.add('selected');
+    const sel: Selection = p.snap ? { kind: 'snapshot', row: p.row, snapshot: p.snap } : { kind: 'current', row: p.row };
     g.append(svgEl('rect', { x: p.x, y: Y(p.bottom + p.h), width: p.w, height: p.h, rx: 3 }, 'lineage-paper'));
     const img = svgEl('image', {
       x: p.x + 2, y: Y(p.bottom + p.h) + 2, width: p.w - 4, height: p.h - 4,
@@ -235,11 +230,10 @@ function lineage(rows: Row[], select: (s: Selection | null) => void, selected: S
         cap.textContent = s.meta.label;
         g.append(cap);
       }
-      g.addEventListener('click', () => select(isSel(sel!) ? null : sel));
     } else {
-      title.textContent = `open '${p.row.info.name}' in the studio`;
-      g.addEventListener('click', async () => openInStudio(p.row.info.name, await loadSketchByName(p.row.info.name)));
+      title.textContent = `${p.row.info.name} · current`;
     }
+    g.addEventListener('click', (e) => { e.stopPropagation(); pick(sel, g); });
     g.append(title);
     svg.append(g);
   }
@@ -256,8 +250,8 @@ function lineage(rows: Row[], select: (s: Selection | null) => void, selected: S
       title.textContent = `${c.sha} · ${when(c.time)} · ${c.subject}`;
       g.append(title, svgEl('circle', { cx: x, cy: y, r: 10 }, 'lineage-hit'));
       g.append(svgEl('circle', { cx: x, cy: y, r: c === head ? 5.5 : 3.5 },
-        `lineage-dot${isFork ? ' fork' : ''}${c === head ? ' head' : ''}${isSel(sel) ? ' selected' : ''}`));
-      g.addEventListener('click', () => select(isSel(sel) ? null : sel));
+        `lineage-dot${isFork ? ' fork' : ''}${c === head ? ' head' : ''}`));
+      g.addEventListener('click', (e) => { e.stopPropagation(); pick(sel, g); });
       svg.append(g);
     }
   }
@@ -279,13 +273,67 @@ function lineage(rows: Row[], select: (s: Selection | null) => void, selected: S
   return wrap;
 }
 
-function inspector(sel: Selection, refresh: () => Promise<void>): HTMLElement {
-  const box = el('div', 'lineage-inspector');
+// ---- the popover: preview, details, and actions beside what was clicked ----
+
+const POP_W = 360;
+let pop: HTMLElement | null = null;
+let popAnchor: Element | null = null;
+
+function closePopover(): void {
+  pop?.remove();
+  pop = null;
+  popAnchor?.classList.remove('selected');
+  popAnchor = null;
+}
+
+function placePopover(): void {
+  if (!pop || !popAnchor) return;
+  const r = popAnchor.getBoundingClientRect();
+  const h = pop.offsetHeight;
+  let left = r.right + 12;
+  if (left + POP_W > window.innerWidth - 8) left = Math.max(8, r.left - 12 - POP_W);
+  const top = Math.min(Math.max(8, r.top - 8), Math.max(8, window.innerHeight - h - 8));
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
+}
+
+document.addEventListener('click', (e) => {
+  if (pop && !pop.contains(e.target as Node)) closePopover();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePopover(); });
+window.addEventListener('resize', placePopover);
+window.addEventListener('scroll', placePopover, true);
+
+function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<void>): void {
+  const same = popAnchor === anchor;
+  closePopover();
+  if (same) return;
+  popAnchor = anchor;
+  anchor.classList.add('selected');
+  pop = el('div', 'lineage-pop');
+  pop.addEventListener('click', (e) => e.stopPropagation());
   const name = sel.row.info.name;
+  const head = sel.row.commits[sel.row.commits.length - 1];
+  const preview = (url: string): void => {
+    const box = el('div', 'lineage-pop-pic');
+    const img = document.createElement('img');
+    img.src = `${url}?t=${Date.now()}`;
+    img.alt = '';
+    img.onerror = () => { img.remove(); box.textContent = 'no render yet'; };
+    box.append(img);
+    pop!.append(box);
+  };
   const meta = el('div', 'lineage-row-meta');
   const actions = el('div', 'lineage-actions');
+  const deleteSketch = btn('delete sketch', async () => {
+    if (!confirm(`Delete sketch '${name}' from the library? (git keeps its saves)`)) return;
+    closePopover();
+    await deleteSketchByName(name);
+    await refresh();
+  });
   if (sel.kind === 'snapshot') {
     const s = sel.snapshot;
+    preview(thumbUrl(name, s.id));
     meta.append(el('div', 'lineage-name', `snapshot · ${s.meta.label || `seed ${s.meta.seed ?? '—'}`}`));
     meta.append(el('div', 'lineage-sub', `on ${name} @ ${s.sha}` +
       (s.meta.label && s.meta.seed != null ? ` · seed ${s.meta.seed}` : '') +
@@ -301,30 +349,33 @@ function inspector(sel: Selection, refresh: () => Promise<void>): HTMLElement {
       }, 'A new sketch from this frozen source'),
       btn('delete', async () => {
         if (!confirm(`Delete this snapshot of '${name}'?`)) return;
+        closePopover();
         await deleteSnapshot(name, s.id);
         await refresh();
       }),
     );
+  } else if (sel.kind === 'current' || (sel.kind === 'commit' && sel.commit === head)) {
+    preview(thumbUrl(name));
+    meta.append(el('div', 'lineage-name', `${name} · current`));
+    meta.append(el('div', 'lineage-sub', `${head ? `@ ${head.sha} · ${when(head.time)}` : ''}`));
+    actions.append(
+      btn('open', async () => openInStudio(name, await loadSketchByName(name)), 'Open the sketch in the studio'),
+      btn('fork', () => forkNow(name), 'A new sketch from the current source'),
+      deleteSketch,
+    );
   } else {
     const c = sel.commit;
-    const isHead = sel.row.commits[sel.row.commits.length - 1] === c;
-    meta.append(el('div', 'lineage-name', `${c.subject}${isHead ? ' · current' : ''}`));
+    meta.append(el('div', 'lineage-name', c.subject));
     meta.append(el('div', 'lineage-sub', `${name} @ ${c.sha} · ${when(c.time)}`));
     actions.append(
-      btn('open', async () =>
-        openInStudio(name, isHead ? await loadSketchByName(name) : await loadSketchAt(name, c.sha)),
-      isHead ? 'Open the sketch' : 'Open the source as it was at this save (saving writes the sketch head)'),
-      btn(isHead ? 'fork' : 'fork from here', () => forkNow(name, isHead ? undefined : c.sha),
-        isHead ? 'A new sketch from the current source' : 'A new sketch branching from this save'),
-      btn('delete sketch', async () => {
-        if (!confirm(`Delete sketch '${name}' from the library? (git keeps its saves)`)) return;
-        await deleteSketchByName(name);
-        await refresh();
-      }),
+      btn('open', async () => openInStudio(name, await loadSketchAt(name, c.sha)),
+        'Open the source as it was at this save (saving writes the sketch head)'),
+      btn('fork from here', () => forkNow(name, c.sha), 'A new sketch branching from this save'),
     );
   }
-  box.append(meta, actions);
-  return box;
+  pop.append(meta, actions);
+  document.body.append(pop);
+  placePopover();
 }
 
 const openFamilies = new Set<string>();
@@ -356,27 +407,14 @@ function family(root: SketchInfo, all: SketchInfo[], rows: Row[], refresh: () =>
   head.append(pic, text);
   sec.append(head);
 
-  let selected: Selection | null = null;
   let graph: HTMLElement | null = null;
-  let strip: HTMLElement | null = null;
-  const draw = (): void => {
-    const keep = graph?.scrollLeft;
-    graph?.remove();
-    strip?.remove();
-    graph = null;
-    strip = null;
-    if (!openFamilies.has(root.name)) return;
-    graph = lineage(ordered, select, selected);
-    sec.append(graph);
-    if (keep !== undefined) graph.scrollLeft = keep;
-    strip = selected ? inspector(selected, refresh) : null;
-    if (strip) sec.append(strip);
-  };
-  const select = (s: Selection | null): void => { selected = s; draw(); };
   const setOpen = (open: boolean): void => {
     if (open) openFamilies.add(root.name); else openFamilies.delete(root.name);
     sec.classList.toggle('open', open);
-    draw();
+    closePopover();
+    graph?.remove();
+    graph = open ? lineage(ordered, (sel, anchor) => openPopover(sel, anchor, refresh)) : null;
+    if (graph) sec.append(graph);
   };
   head.onclick = () => setOpen(!openFamilies.has(root.name));
   head.title = 'Show the family’s saves, forks, and snapshots';
@@ -385,6 +423,7 @@ function family(root: SketchInfo, all: SketchInfo[], rows: Row[], refresh: () =>
 }
 
 async function refresh(): Promise<void> {
+  closePopover();
   let all: SketchInfo[];
   try {
     all = await listSketchInfo();
