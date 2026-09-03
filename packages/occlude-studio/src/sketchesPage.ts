@@ -327,33 +327,60 @@ function inspector(sel: Selection, refresh: () => Promise<void>): HTMLElement {
   return box;
 }
 
+const openFamilies = new Set<string>();
+
 function family(root: SketchInfo, all: SketchInfo[], rows: Row[], refresh: () => Promise<void>): HTMLElement {
   const sec = el('section', 'lineage-family');
   const ordered = orderRows(root, all, new Map(rows.map((r) => [r.info.name, r])));
-  const head = el('div', 'lineage-head');
   const forks = ordered.length - 1;
   const snaps = ordered.reduce((n, r) => n + r.snapshots.length, 0);
   const saves = ordered.reduce((n, r) => n + r.commits.length, 0);
-  head.append(el('h3', undefined, root.name), el('span', 'lineage-sub',
+  const counts =
     `${saves} save${saves === 1 ? '' : 's'}` +
     (forks ? ` · ${forks} fork${forks === 1 ? '' : 's'}` : '') +
-    (snaps ? ` · ${snaps} snapshot${snaps === 1 ? '' : 's'}` : '')));
+    (snaps ? ` · ${snaps} snapshot${snaps === 1 ? '' : 's'}` : '');
+  // The entry is the family's most recent render: whichever sketch in it
+  // was saved last.
+  const latest = ordered.reduce((a, b) => (b.info.mtime > a.info.mtime ? b : a), ordered[0]);
+  const pic = el('div', 'lineage-entry');
+  const img = document.createElement('img');
+  img.src = `${thumbUrl(latest.info.name)}?t=${Date.now()}`;
+  img.alt = '';
+  img.loading = 'lazy';
+  img.onerror = () => { img.remove(); pic.classList.add('empty'); pic.textContent = 'no render yet'; };
+  pic.append(img);
+  const head = el('div', 'lineage-head');
+  const text = el('div', 'lineage-row-meta');
+  text.append(el('h3', undefined, root.name), el('span', 'lineage-sub',
+    counts + (latest.info.name !== root.name ? ` · latest: ${latest.info.name}` : '') + ` · ${ago(latest.info.mtime)}`));
+  head.append(pic, text);
   sec.append(head);
+
   let selected: Selection | null = null;
   let graph: HTMLElement | null = null;
   let strip: HTMLElement | null = null;
   const draw = (): void => {
     const keep = graph?.scrollLeft;
-    const next = lineage(ordered, select, selected);
-    if (graph) graph.replaceWith(next); else sec.append(next);
-    graph = next;
-    if (keep !== undefined) graph.scrollLeft = keep;
+    graph?.remove();
     strip?.remove();
+    graph = null;
+    strip = null;
+    if (!openFamilies.has(root.name)) return;
+    graph = lineage(ordered, select, selected);
+    sec.append(graph);
+    if (keep !== undefined) graph.scrollLeft = keep;
     strip = selected ? inspector(selected, refresh) : null;
     if (strip) sec.append(strip);
   };
   const select = (s: Selection | null): void => { selected = s; draw(); };
-  draw();
+  const setOpen = (open: boolean): void => {
+    if (open) openFamilies.add(root.name); else openFamilies.delete(root.name);
+    sec.classList.toggle('open', open);
+    draw();
+  };
+  head.onclick = () => setOpen(!openFamilies.has(root.name));
+  head.title = 'Show the family’s saves, forks, and snapshots';
+  setOpen(openFamilies.has(root.name));
   return sec;
 }
 
@@ -377,6 +404,7 @@ async function refresh(): Promise<void> {
   }));
   const roots = all.filter((s) => s.parent === null || !all.some((p) => p.name === s.parent));
   roots.sort((a, b) => b.mtime - a.mtime);
+  main.className = 'lineage-grid';
   main.replaceChildren(...roots.map((r) => family(r, all, rows, refresh)));
 }
 
