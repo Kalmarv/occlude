@@ -89,18 +89,25 @@ export function isolinesOf(
   // Sample once; every level marches over the same grid. Non-finite samples
   // become deeply-outside sentinels so interpolation stays finite and the
   // crossing lands at the finite corner.
-  const vals = new Float64Array(gw * gh);
+  // Padded by one ring on every side (stride pw = gw + 2). The ring holds
+  // the `close` sentinel and is never "absent", so marchLevel reads samples
+  // with a plain indexed load instead of four bounds checks per access —
+  // `val` alone was 20% of isolinesOf.
+  const pw = gw + 2;
+  const ph = gh + 2;
+  const vals = new Float64Array(pw * ph);
   // Absent samples (non-finite — a within() bound or a hand-rolled NaN
   // hole) are tracked separately: cells touching absence emit NOTHING, so
   // contours truncate OPEN at the domain edge exactly as they do at the
   // paper edge — never a staircase wall hugging the bound.
-  const absent = new Uint8Array(gw * gh);
+  const absent = new Uint8Array(pw * ph);
   for (let j = 0; j < gh; j++) {
+    const row = (j + 1) * pw + 1;
     for (let i = 0; i < gw; i++) {
       const v = field(b.x + i * sx, b.y + j * sy);
       const fin = Number.isFinite(v);
-      vals[j * gw + i] = fin ? v : -1e30;
-      absent[j * gw + i] = fin ? 0 : 1;
+      vals[row + i] = fin ? v : -1e30;
+      absent[row + i] = fin ? 0 : 1;
     }
   }
 
@@ -108,7 +115,7 @@ export function isolinesOf(
   const levels = Array.isArray(at) ? at : [at];
   const perLevel = levels.map((lvl) => {
     if (!Number.isFinite(lvl)) throw new Error(`isolines: level is ${lvl}`);
-    return marchLevel(vals, absent, gw, gh, b, sx, sy, lvl, close);
+    return marchLevel(vals, absent, pw, gw, gh, b, sx, sy, lvl, close);
   });
   return Array.isArray(at) ? perLevel : perLevel[0];
 }
@@ -116,6 +123,7 @@ export function isolinesOf(
 function marchLevel(
   vals: Float64Array,
   absent: Uint8Array,
+  pw: number,
   gw: number,
   gh: number,
   b: { x: number; y: number; w: number; h: number },
@@ -128,13 +136,22 @@ function marchLevel(
   // grid (indices -1 and gw/gh), so every region's boundary closes just
   // outside the drawable; the emitted points are clamped back onto it and
   // the colinear merge collapses the border runs.
+  // The pad ring carries the below-level sentinel; out-of-grid samples are
+  // the paper-edge closing ring, never "absent", so `absent` stays 0 there
+  // and only in-grid non-finite samples truncate contours. Index (i,j) in
+  // grid space is (j+1)*pw + (i+1) in padded space, valid for i,j in
+  // [-1, gw] / [-1, gh] — exactly the range marchLevel walks.
   const pad = lvl - 1;
-  const val = (i: number, j: number): number =>
-    i < 0 || j < 0 || i >= gw || j >= gh ? pad : vals[j * gw + i];
-  // Out-of-grid sentinel samples are the paper-edge closing ring, never
-  // "absent"; only in-grid non-finite samples truncate contours.
-  const abs = (i: number, j: number): boolean =>
-    i >= 0 && j >= 0 && i < gw && j < gh && absent[j * gw + i] === 1;
+  const ph = gh + 2;
+  for (let i = 0; i < pw; i++) {
+    vals[i] = pad; // top ring row
+    vals[(ph - 1) * pw + i] = pad; // bottom ring row
+  }
+  for (let j = 0; j < ph; j++) {
+    vals[j * pw] = pad; // left ring column
+    vals[j * pw + pw - 1] = pad; // right ring column
+  }
+  const at = (i: number, j: number): number => (j + 1) * pw + (i + 1);
   const px = (i: number): number => b.x + i * sx;
   const py = (j: number): number => b.y + j * sy;
   const lo = close ? -1 : 0;
@@ -169,13 +186,14 @@ function marchLevel(
     py(j) + sy * ((lvl - va) / (vd - va));
   for (let j = lo; j < hiJ; j++) {
     for (let i = lo; i < hiI; i++) {
-      const va = val(i, j); // top-left
-      const vb = val(i + 1, j); // top-right
-      const vc = val(i + 1, j + 1); // bottom-right
-      const vd = val(i, j + 1); // bottom-left
+      const o = at(i, j);
+      const va = vals[o]; // top-left
+      const vb = vals[o + 1]; // top-right
+      const vc = vals[o + pw + 1]; // bottom-right
+      const vd = vals[o + pw]; // bottom-left
       // Domain-edge policy: a cell touching an absent sample emits nothing
       // — the contour ends (open), like at the paper edge.
-      if (abs(i, j) || abs(i + 1, j) || abs(i + 1, j + 1) || abs(i, j + 1)) continue;
+      if (absent[o] === 1 || absent[o + 1] === 1 || absent[o + pw + 1] === 1 || absent[o + pw] === 1) continue;
       const code =
         (va >= lvl ? 1 : 0) | (vb >= lvl ? 2 : 0) | (vc >= lvl ? 4 : 0) | (vd >= lvl ? 8 : 0);
       if (code === 0 || code === 15) continue;
