@@ -15,7 +15,7 @@
  */
 
 import { Rng } from './random.js';
-import { bounds } from './state.js';
+import { bounds, getState } from './state.js';
 
 export interface SynthStats {
   /** Fraction of probe samples that were finite. */
@@ -27,6 +27,9 @@ export interface SynthStats {
   spread: number;
   /** (max - hi) / spread: how far the worst outlier sits beyond the body. */
   tail: number;
+  /** (hi - mid) / (mid - lo): how lopsided the body is. Catches a pole
+   * sitting on a probe grid line, which `tail` cannot see. */
+  skew: number;
 }
 
 export interface SynthFn {
@@ -50,7 +53,12 @@ export interface SynthBounds {
 }
 
 export interface SynthOpts {
-  /** Required for reproducibility: same seed and vars, same source, forever. */
+  /** Same seed and vars, same source, forever. Omitted, the seed is drawn
+   * from the SKETCH's own seeded stream — so rerolling the sketch rerolls
+   * the expression, two calls in one sketch differ, and the whole thing is
+   * still reproducible from the sketch seed. A fixed default (it was 0)
+   * meant an unseeded synth returned the same expression every time and
+   * could not be rerolled at all. */
   seed?: number;
   depth?: number;
   /** Optional cap on total nodes; the tree degrades to terminals once hit. */
@@ -120,7 +128,19 @@ function grow(rng: Rng, vars: string[], depth: number, budget: { n: number }): N
   if (r < PICK_BINARY) {
     budget.n -= 2;
     const op = weighted(rng, BINARY).op;
-    return { kind: 'bin', op, a: grow(rng, vars, depth - 1, budget), b: grow(rng, vars, depth - 1, budget) };
+    const a = grow(rng, vars, depth - 1, budget);
+    let b = grow(rng, vars, depth - 1, budget);
+    if (op === '/') {
+      // a / a is 1 everywhere the guard does not bite and 0 where it does:
+      // a step, not a field, and no probe threshold objects to it because a
+      // step is real variation. Cheaper to never emit it. Re-draw the
+      // denominator a few times, then settle for a constant.
+      for (let k = 0; k < 4 && emit(a) === emit(b); k++) b = grow(rng, vars, depth - 1, budget);
+      if (emit(a) === emit(b)) {
+        b = { kind: 'const', text: CONSTS[Math.floor(rng.float() * CONSTS.length)] };
+      }
+    }
+    return { kind: 'bin', op, a, b };
   }
   if (r < PICK_UNARY) {
     budget.n -= 1;
@@ -157,7 +177,12 @@ function emit(n: Node): string {
         // branch that can never run into a string whose readability is the
         // deliverable.
         if (n.b.kind === 'const') return `(${a} / ${b})`;
-        return `(${a} / (Math.abs(${b}) < 1e-6 ? 1e-6 : ${b}))`;
+        // Nudge the denominator away from zero in the direction it already
+        // points; never SUBSTITUTE for it. The substituting form
+        // (Math.abs(b) < 1e-6 ? 1e-6 : b) flipped sign inside the band and
+        // was discontinuous at its edge. |denominator| >= 1e-6 always,
+        // since the offset carries b's own sign (and +1e-6 when b is 0).
+        return `(${a} / (${b} + (${b} < 0 ? -1e-6 : 1e-6)))`;
       }
       if (n.op === 'min' || n.op === 'max' || n.op === 'atan2') return `Math.${n.op}(${a}, ${b})`;
       return `(${a} ${n.op} ${b})`;
@@ -202,19 +227,27 @@ export function probe(
     }
   }
   if (vals.length === 0) {
-    return { finite: 0, lo: NaN, hi: NaN, mid: NaN, spread: 0, tail: Infinity };
+    return { finite: 0, lo: NaN, hi: NaN, mid: NaN, spread: 0, tail: Infinity, skew: Infinity };
   }
   vals.sort((p, q) => p - q);
   const lo = pct(vals, 0.02);
   const hi = pct(vals, 0.98);
   const spread = hi - lo;
   const max = vals[vals.length - 1];
+  const mid = pct(vals, 0.5);
   return {
     finite: finite / total,
     lo,
     hi,
-    mid: pct(vals, 0.5),
+    mid,
     spread,
+    // How lopsided the body is. A pole that lands ON a probe grid line
+    // (x = 0, say) spikes a whole COLUMN — 5% of samples — so the 98th
+    // percentile sits inside the spike and `tail` reads 0 while `spread` is
+    // enormous. `5 / x` scored spread 5e6, tail 0.00 and passed. Comparing
+    // the two halves of the body catches it: a healthy field is roughly
+    // balanced about its median, a pole is not.
+    skew: mid - lo > 1e-12 ? (hi - mid) / (mid - lo) : Infinity,
     // A flat page with one spike near a singularity has plenty of min/max
     // range and is useless; this is the test that catches it.
     tail: spread > 1e-12 ? (max - hi) / spread : Infinity,
@@ -222,7 +255,13 @@ export function probe(
 }
 
 const usable = (s: SynthStats): boolean =>
-  s.finite >= 0.95 && s.spread >= 1e-6 && s.tail <= 20;
+  s.finite >= 0.95 && s.spread >= 1e-6 && s.tail <= 20 && s.skew <= 20 && 1 / s.skew <= 20;
+
+/** An explicit seed, or a draw from the sketch's seeded stream — the same
+ * stream rnd()/pick()/scatter draw from, so it advances per call and resets
+ * with the sketch. */
+const seedOf = (opts: SynthOpts): number | string =>
+  opts.seed ?? `${getState().seedUsed}:synth:${getState().rng.float()}`;
 
 const defaultBounds = (): SynthBounds => {
   const b = bounds();
@@ -262,7 +301,7 @@ function synthFn(vars: string[], opts: SynthOpts = {}): SynthFn {
   for (const v of vars) {
     if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(v)) throw new Error(`synth: '${v}' is not a variable name`);
   }
-  const rng = new Rng(opts.seed ?? 0);
+  const rng = new Rng(seedOf(opts));
   const b = opts.bounds ?? defaultBounds();
   const tries = opts.tries ?? 200;
   for (let i = 0; i < tries; i++) {
@@ -277,7 +316,7 @@ function synthFn(vars: string[], opts: SynthOpts = {}): SynthFn {
 
 /** Two independent expressions over the same variables: a displacement. */
 function warp(vars: string[], opts: SynthOpts = {}): WarpFn {
-  const rng = new Rng(opts.seed ?? 0);
+  const rng = new Rng(seedOf(opts));
   const b = opts.bounds ?? defaultBounds();
   const tries = opts.tries ?? 200;
   const pair: SynthFn[] = [];

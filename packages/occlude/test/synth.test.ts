@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { probeExpression, synth } from '../src/index.js';
+import { compileSketch, probeExpression, sketch, synth } from '../src/index.js';
 
 const B = { x: 0, y: 0, w: 100, h: 100 };
 
@@ -104,6 +104,59 @@ describe('synth', () => {
     expect(Number.isFinite(dy)).toBe(true);
     const again = synth.warp(['x', 'y'], { seed: 11, bounds: B });
     expect(again.source).toEqual(w.source);
+  });
+
+  it('the protected divide perturbs the denominator, never substitutes for it', () => {
+    // The old form, `Math.abs(b) < 1e-6 ? 1e-6 : b`, replaced the denominator
+    // inside the band: it flipped sign for small negatives and was
+    // discontinuous at the band edge. a/a then read exactly 1.0 everywhere
+    // and 0 at the origin — a step, not a field.
+    for (let seed = 0; seed < 60; seed++) {
+      const src = synth(['x', 'y'], { seed, bounds: B }).source;
+      expect(src).not.toContain('? 1e-6 :');
+    }
+    const guarded = (b: number): number =>
+      (1 / (b + (b < 0 ? -1e-6 : 1e-6)));
+    // Sign is preserved either side of zero, and zero itself is finite.
+    expect(guarded(-1)).toBeLessThan(0);
+    expect(guarded(-1e-9)).toBeLessThan(0);
+    expect(guarded(1e-9)).toBeGreaterThan(0);
+    expect(Number.isFinite(guarded(0))).toBe(true);
+  });
+
+  it('never generates a divide whose two sides are the identical subtree', () => {
+    for (let seed = 0; seed < 200; seed++) {
+      const src = synth(['x', 'y'], { seed, bounds: B }).source;
+      // Any `(A / (A + ...))` — the emitted shape of a/a — is a step, and
+      // no probe threshold objects to a step because it is real variation.
+      expect(/\((.+?) \/ \(\1 \+ \(/.test(src)).toBe(false);
+    }
+  });
+
+  it('skew rejects a pole sitting on a probe grid line, which tail cannot see', () => {
+    // 5/x spikes the whole x = 0 COLUMN: 5% of samples, so the 98th
+    // percentile lands inside the spike, tail reads 0.00 and spread is 5e6.
+    const pole = (x: number, _y: number): number => 5 / (x + (x < 0 ? -1e-6 : 1e-6));
+    const s = probeExpression(pole as (...a: number[]) => number, ['x', 'y'], B);
+    expect(s.tail).toBeLessThanOrEqual(20);      // tail is blind to it
+    expect(s.spread).toBeGreaterThan(1e6);       // so is spread
+    expect(s.skew).toBeGreaterThan(20);          // skew is not
+  });
+
+  it('an unseeded synth follows the sketch seed, so rerolling rerolls it', () => {
+    const run = (seed: number): string[] => {
+      const out: string[] = [];
+      compileSketch(sketch({ aspect: 'square', seed }, (t) => {
+        out.push(t.synth.warp(['x', 'y'], { bounds: B }).source[0]);
+        out.push(t.synth.warp(['x', 'y'], { bounds: B }).source[0]);
+        return [];
+      }));
+      return out;
+    };
+    const a = run(1);
+    expect(run(1)).toEqual(a);          // same sketch seed, same expressions
+    expect(a[0]).not.toBe(a[1]);        // two calls draw their own
+    expect(run(2)[0]).not.toBe(a[0]);   // reroll the sketch, reroll the warp
   });
 
   it('respects a node cap and rejects a bad variable name', () => {
