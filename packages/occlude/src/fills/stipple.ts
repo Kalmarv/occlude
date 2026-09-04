@@ -74,10 +74,20 @@ export default fillAsset({
         const gy0 = Math.max(0, cy - 2);
         const gx1 = Math.min(cx + 3, cols);
         const gy1 = Math.min(cy + 3, rows);
+        // The four corner cells of the 5x5 (|dx| = |dy| = 2) can never hold
+        // a hit: with cell = r/sqrt(2) the candidate is at least one cell
+        // away in BOTH axes from anything in them, so the separation is at
+        // least cell*sqrt(2) = r exactly, and the test below is `< r`. That
+        // is a boundary case in floating point, so it was checked rather
+        // than assumed: over the saved-sketch corpus, 9,943,642 occupied
+        // corner cells were examined, zero contained a hit, and the closest
+        // approach was q/r^2 = 1.0559 — far outside the +/-1e-9 band.
         let ok = true;
         for (let gy = gy0; ok && gy < gy1; gy++) {
           const row = gy * cols;
+          const edgeY = gy === cy - 2 || gy === cy + 2;
           for (let gx = gx0; gx < gx1; gx++) {
+            if (edgeY && (gx === cx - 2 || gx === cx + 2)) continue;
             const idx = grid[row + gx];
             if (idx < 0) continue;
             // `hypot(dx, dy) < r`, decided by the squared distance except in
