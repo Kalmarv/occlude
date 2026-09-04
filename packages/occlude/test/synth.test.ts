@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileSketch, probeExpression, sketch, synth } from '../src/index.js';
+import { compileSketch, getState, probeExpression, sketch, synth } from '../src/index.js';
 
 const B = { x: 0, y: 0, w: 100, h: 100 };
 
@@ -157,6 +157,20 @@ describe('synth', () => {
     expect(run(1)).toEqual(a);          // same sketch seed, same expressions
     expect(a[0]).not.toBe(a[1]);        // two calls draw their own
     expect(run(2)[0]).not.toBe(a[0]);   // reroll the sketch, reroll the warp
+  });
+
+  it('takes the sketch seed directly, and an offset gives a different one', () => {
+    compileSketch(sketch({ aspect: 'square', seed: 42 }, (t) => {
+      const seed = getState().seedUsed;
+      const a = t.synth(['x', 'y'], { seed, bounds: B });
+      const b = t.synth(['x', 'y'], { seed, bounds: B });
+      const c = t.synth(['x', 'y'], { seed: Number(seed) + 1, bounds: B });
+      expect(a.source).toBe(b.source);        // same seed, same expression
+      expect(c.source).not.toBe(a.source);    // +1 is a different one
+      // A string seed works too, so any distinct suffix will do.
+      expect(t.synth(['x', 'y'], { seed: `${seed}b`, bounds: B }).source).not.toBe(a.source);
+      return [];
+    }));
   });
 
   it('respects a node cap and rejects a bad variable name', () => {

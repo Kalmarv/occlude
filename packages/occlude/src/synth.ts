@@ -58,8 +58,13 @@ export interface SynthOpts {
    * the expression, two calls in one sketch differ, and the whole thing is
    * still reproducible from the sketch seed. A fixed default (it was 0)
    * meant an unseeded synth returned the same expression every time and
-   * could not be rerolled at all. */
-  seed?: number;
+   * could not be rerolled at all.
+   *
+   * `number | string`, matching Rng and the sketch's own `seedUsed`, so
+   * `{ seed: getState().seedUsed }` passes straight through and a second
+   * call can offset it: `{ seed: Number(seedUsed) + 1 }`, or any distinct
+   * string. */
+  seed?: number | string;
   depth?: number;
   /** Optional cap on total nodes; the tree degrades to terminals once hit. */
   nodes?: number;
