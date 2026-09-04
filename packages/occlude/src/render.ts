@@ -375,6 +375,10 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     m: Mat; // paper mm → field units
     domains: number[];
     footprint: { x0: number; y0: number; x1: number; y1: number }; // paper mm
+    /** Union of the paper bboxes of every shape referencing this use — where
+     * the raster is actually read, as opposed to the sheet it spans. */
+    shapeFp: { x0: number; y0: number; x1: number; y1: number };
+    aligned: boolean;
     grid?: number;
   }
   const uses: UseRec[] = [];
@@ -435,7 +439,14 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     const key = `${idOf(field)}:${kind}`;
     if (!shapeAligned) {
       const hit = paperUseIndex.get(key);
-      if (hit !== undefined) return hit;
+      if (hit !== undefined) {
+        // Shared paper-aligned use: widen the read window to cover this shape
+        // too, or its side of the raster gets clipped away.
+        const f = uses[hit].shapeFp;
+        f.x0 = Math.min(f.x0, footprint.x0); f.y0 = Math.min(f.y0, footprint.y0);
+        f.x1 = Math.max(f.x1, footprint.x1); f.y1 = Math.max(f.y1, footprint.y1);
+        return hit;
+      }
     }
     // Shape-aligned: field units = shape-local mm / unit, so the shape's
     // intrinsic centre is field (0, 0) and its axes are the field's.
@@ -447,6 +458,8 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     uses.push({
       fn: meta.unbounded, kind, m, domains,
       footprint: shapeAligned ? footprint : paperFootprint,
+      shapeFp: { ...footprint },
+      aligned: shapeAligned,
     });
     if (!shapeAligned) paperUseIndex.set(key, idx);
     return idx;
@@ -655,8 +668,51 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     if (need > MAX_SAMPLES) cell = span / Math.sqrt(MAX_SAMPLES) * 1.05;
     // One cell of margin so Catmull-Rom never clamps on a footprint edge.
     x0 -= cell; y0 -= cell; x1 += cell; y1 += cell;
-    const gw = Math.max(2, Math.ceil((x1 - x0) / cell) + 1);
-    const gh = Math.max(2, Math.ceil((y1 - y0) / cell) + 1);
+    let gw = Math.max(2, Math.ceil((x1 - x0) / cell) + 1);
+    let gh = Math.max(2, Math.ceil((y1 - y0) / cell) + 1);
+    // A paper-aligned grid spans the whole sheet whatever the shape's size: a
+    // radius-5 circle got the same full-page raster as a radius-36 one, and a
+    // per-shape field — times(n, i => deform(fieldOf(i), shape)) — paid that n
+    // times over, sized by the paper rather than by the geometry.
+    //
+    // Clip the raster to where it is actually read. The window is snapped to
+    // the full grid's own lattice and padded by PAD cells; the engine's
+    // Catmull-Rom reads ix-1 .. ix+2 (modifier.rs `sample`), so PAD >= 2 keeps
+    // every stencil inside. Verified by poisoning every sample outside the
+    // window on the full-size grid: the ink did not move, so nothing is read
+    // out there. Below 4 cells the engine falls back to bilinear, so never
+    // clip under that.
+    let ci0 = 0;
+    let cj0 = 0;
+    if (!group[0].aligned) {
+      const PAD = 3;
+      let sx0 = Infinity, sy0 = Infinity, sx1 = -Infinity, sy1 = -Infinity;
+      for (const u of group) {
+        const f = u.shapeFp;
+        for (const [px, py] of [[f.x0, f.y0], [f.x1, f.y0], [f.x0, f.y1], [f.x1, f.y1]]) {
+          const [fx, fy] = apply(u.m, px, py);
+          sx0 = Math.min(sx0, fx); sy0 = Math.min(sy0, fy);
+          sx1 = Math.max(sx1, fx); sy1 = Math.max(sy1, fy);
+        }
+      }
+      if (Number.isFinite(sx0) && Number.isFinite(sy0)) {
+        const span = (origin: number, lo: number, hi: number, n: number): [number, number] => {
+          let a = Math.max(0, Math.floor((lo - origin) / cell) - PAD);
+          let b = Math.min(n - 1, Math.ceil((hi - origin) / cell) + PAD);
+          if (b - a + 1 < 4) { a = Math.max(0, Math.min(a, n - 4)); b = Math.min(n - 1, a + 3); }
+          return [a, b];
+        };
+        const [i0, i1] = span(x0, sx0, sx1, gw);
+        const [j0, j1] = span(y0, sy0, sy1, gh);
+        if (i1 - i0 + 1 < gw || j1 - j0 + 1 < gh) {
+          // Keep the FULL grid's origin as the lattice reference and offset by
+          // whole cells when sampling: rebasing (x0 += i0 * cell, then
+          // x0 + i * cell) is a different float from x0 + (i0 + i) * cell.
+          ci0 = i0; cj0 = j0;
+          gw = i1 - i0 + 1; gh = j1 - j0 + 1;
+        }
+      }
+    }
     // A paper-aligned grid spans the whole sheet whatever the shape's size —
     // a radius-5 circle got the same full-page raster as a radius-36 one, and
     // a per-shape field (times(n, i => deform(fieldOf(i), …))) paid that n
@@ -673,15 +729,19 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     // bbox would clamp and differ; the corpus is byte-identical, which is
     // evidence for that bound, not proof of it.
     const fn = group[0].fn;
+    // Declared origin IS the first sample's coordinate, same expression, so
+    // the engine reconstructs the lattice the grid was sampled on.
+    const ox = x0 + ci0 * cell;
+    const oy = y0 + cj0 * cell;
     const first = new Float64Array(6 + gw * gh);
-    first[0] = gw; first[1] = gh; first[2] = x0; first[3] = y0; first[4] = cell; first[5] = cell;
+    first[0] = gw; first[1] = gh; first[2] = ox; first[3] = oy; first[4] = cell; first[5] = cell;
     const second = partner ? new Float64Array(6 + gw * gh) : null;
     if (second) {
-      second[0] = gw; second[1] = gh; second[2] = x0; second[3] = y0; second[4] = cell; second[5] = cell;
+      second[0] = gw; second[1] = gh; second[2] = ox; second[3] = oy; second[4] = cell; second[5] = cell;
     }
     for (let j = 0; j < gh; j++) {
       for (let i = 0; i < gw; i++) {
-        const raw = fn(x0 + i * cell, y0 + j * cell) as unknown;
+        const raw = fn(x0 + (ci0 + i) * cell, y0 + (cj0 + j) * cell) as unknown;
         let val: number;
         if (kind === 'p01') val = Math.min(1, Math.max(0, Number(raw)));
         else if (kind === 'len') val = resolveLen(raw as number, frame.inner);
