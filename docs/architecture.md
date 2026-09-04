@@ -1,9 +1,8 @@
 # occlude architecture
 
-Companion to [`plan.md`](../plan.md) (the original spec) and
-`fills-fields-spec.md` (the fills/fields redesign and its decision log).
 This documents how the implementation actually fits together and where
-each responsibility lives.
+each responsibility lives. The original design notes and the fills/fields
+decision log live locally under `working/` (untracked).
 
 ## The one-sentence model
 

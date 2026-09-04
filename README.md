@@ -70,8 +70,7 @@ EBB-family machine over Web Serial, and per-pen SVG/G-code/PNG export is
 a click. The **docs** tab serves the [reference](docs/reference.md) —
 every feature as a live example rendered by the real engine in your
 browser, with the full API prose at the bottom. The
-[architecture notes](docs/architecture.md) cover the engine;
-[`plan.md`](./plan.md) is the original design document.
+[architecture notes](docs/architecture.md) cover the engine.
 
 Headless rendering, for CI or batch work:
 

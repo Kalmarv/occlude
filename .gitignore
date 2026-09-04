@@ -7,3 +7,4 @@ pkg/
 packages/occlude-studio/sketches/
 packages/occlude-studio/fills/
 .playwright-cli/
+working/
