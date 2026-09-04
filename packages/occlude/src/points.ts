@@ -255,10 +255,19 @@ export function scatterPoints(
   // same one `rOf` would return again — and the neighbour test asked for it
   // once per neighbour per candidate, which made the field the hot spot.
   const radii: number[] = [];
-  const reach = Math.ceil(rMax / cell) + 1;
+  // Candidate reach is sized by the field's WORST case (rMax = 6 * spacing),
+  // so every candidate scanned (2*10+1)^2 = 441 cells. No ALREADY-PLACED
+  // neighbour can exceed the largest radius placed so far, so the largest
+  // distance that can matter for a candidate of radius r is
+  // (r + rMaxSeen) / 2 — track it and size the scan per candidate. `fits` is
+  // a pure any-overlap predicate over a superset, so this cannot change which
+  // points are placed.
+  const reachMax = Math.ceil(rMax / cell) + 1;
+  let rMaxSeen = 0;
   const col = (x: number): number => Math.min(cols - 1, Math.max(0, Math.floor((x - bounds.x) / cell)));
   const row = (y: number): number => Math.min(rows - 1, Math.max(0, Math.floor((y - bounds.y) / cell)));
   const fits = (x: number, y: number, r: number): boolean => {
+    const reach = Math.min(reachMax, Math.ceil((r + rMaxSeen) / 2 / cell) + 1);
     const ci = col(x);
     const cj = row(y);
     for (let dj = -reach; dj <= reach; dj++) {
@@ -280,6 +289,7 @@ export function scatterPoints(
     return true;
   };
   const put = (x: number, y: number, r: number): void => {
+    if (r > rMaxSeen) rMaxSeen = r;
     const id = pts.length;
     if (id >= nextCap) {
       nextCap *= 2;
