@@ -151,10 +151,12 @@ function grow(rng: Rng, vars: string[], depth: number, budget: { n: number }): N
 
 /**
  * Render a node as standalone JavaScript. The protected divide is written
- * out here rather than called: `a / (Math.abs(b) < 1e-6 ? 1e-6 : b)`. That
+ * out here rather than called: `a / (b + (b < 0 ? -1e-6 : 1e-6))`. That
  * repeats the denominator, which is the price of a source string that runs
- * with no import. Inside the 1e-6 band the guard is positive regardless of
- * b's sign — a singularity guard, not a sign-preserving division.
+ * with no import. The offset carries b's own sign, so the denominator is
+ * nudged away from zero in the direction it already points and never
+ * substituted for — |denominator| >= 1e-6 everywhere, with no sign flip and
+ * no discontinuity.
  */
 function emit(n: Node): string {
   switch (n.kind) {
