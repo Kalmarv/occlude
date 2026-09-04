@@ -45,6 +45,8 @@ export {
 } from './imageAsset.js';
 export { label, labelWidth } from './font.js';
 export { liveExampleToJs } from './docsExamples.js';
+export { synth, probe as probeExpression } from './synth.js';
+export type { SynthFn, SynthOpts, SynthStats, SynthBounds, WarpFn } from './synth.js';
 export type { LabelOpts } from './font.js';
 export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fills.js';
 

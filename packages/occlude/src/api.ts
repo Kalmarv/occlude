@@ -46,6 +46,7 @@ import {
 } from './field.js';
 import { ui } from './ui.js';
 import { h, long, mm, s, w, resolveLen, Len, type L } from './units.js';
+import { synth } from './synth.js';
 
 // ---- values ----
 
@@ -638,6 +639,10 @@ export interface Toolkit {
   points: typeof pointsOf;
   voronoi: typeof voronoi;
   triangulate: typeof triangulate;
+  /** Random expressions to explore as fields/warps; `.source` is the
+   * deliverable. On the toolkit because its probe bounds default to the
+   * drawable. */
+  synth: typeof synth;
   noisyLine: typeof noisyLineValue;
   svg: typeof svgValue;
   mm: typeof mm;
@@ -780,7 +785,7 @@ const TOOLKIT_BASE = {
   map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, isolines, loops, probe, distanceTo, points: pointsOf, voronoi, triangulate,
+  scatter, isolines, loops, probe, distanceTo, points: pointsOf, voronoi, triangulate, synth,
   within, rotate: rotateField, translate: translateField, scale: scaleField,
   vectorField: vectorFieldMark,
   mm, w, h, s, long,
