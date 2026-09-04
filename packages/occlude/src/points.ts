@@ -163,8 +163,16 @@ export class Points extends Array<ScatterPoint> {
 
     let pts: ScatterPoint[] = [...this];
     for (let it = 0; it < n && pts.length > 0; it++) {
-      const flat = pts.map((p) => [p.x, p.y] as [number, number]);
-      const del = Delaunay.from(flat);
+      // Flat coordinates straight into Delaunay. `Delaunay.from` would build
+      // an [x, y] tuple per point and then copy it into a Float64Array of its
+      // own; at 50 settle rounds that was hundreds of thousands of throwaway
+      // arrays. Same numbers reach Delaunator either way.
+      const coords = new Float64Array(pts.length * 2);
+      for (let p = 0; p < pts.length; p++) {
+        coords[p * 2] = pts[p].x;
+        coords[p * 2 + 1] = pts[p].y;
+      }
+      const del = new Delaunay(coords);
       const w = new Float64Array(pts.length);
       const cx = new Float64Array(pts.length);
       const cy = new Float64Array(pts.length);
