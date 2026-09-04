@@ -50,6 +50,7 @@ async function boot(): Promise<void> {
   const client = new RenderClient();
   const editor = createEditor($('editor'), loadSketch());
   const preview = new Preview($('preview') as HTMLCanvasElement);
+  preview.setPaperColor(settings.paperColor);
   let lastResult: RenderResult | null = null;
   let pending: number | null = null;
   let sketchName = loadSketchName();
@@ -206,6 +207,7 @@ async function boot(): Promise<void> {
     settings,
     client,
     onChanged: () => void run(),
+    onPaperColor: (hex) => preview.setPaperColor(hex),
     lastResult: () => lastResult,
     getSource: () => editor.getValue(),
     openSketch: (name, source) => {

@@ -12,7 +12,7 @@ import {
 } from 'occlude';
 import { loadSketchByName, saveSketchByName } from './sketchApi.js';
 import {
-  DEFAULT_SKETCH, NEW_SKETCH,
+  DEFAULT_SKETCH, NEW_SKETCH, PAPER_COLORS,
   download, savePens, saveProfiles, saveSettings,
   type MachineProfile, type Settings,
 } from './store.js';
@@ -29,6 +29,8 @@ export interface PanelHooks {
   /** Server-shared machine profiles; settings.activeProfile picks one. */
   profiles: MachineProfile[];
   onChanged(): void;
+  /** Paper colour changed: repaint the sheet, don't re-render the ink. */
+  onPaperColor(hex: string): void;
   lastResult(): RenderResult | null;
   client: RenderClient;
   getSource(): string;
@@ -431,6 +433,39 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
     persist();
   });
 
+  // Paper colour: what the preview and both exports paint under the ink.
+  // Changing it never re-renders — the ink is identical, the sheet is not.
+  const colorSel = document.createElement('select');
+  for (const name of [...PAPER_COLORS.map((c) => c.name), 'Custom']) {
+    const o = document.createElement('option');
+    o.value = name;
+    o.textContent = name;
+    colorSel.append(o);
+  }
+  const colorInput = document.createElement('input');
+  colorInput.type = 'color';
+  colorInput.style.flex = '0 0 3.2em';
+  colorInput.title = 'The sheet colour, exactly';
+  const syncColor = (): void => {
+    colorInput.value = s.paperColor;
+    colorSel.value = PAPER_COLORS.find((c) => c.hex === s.paperColor)?.name ?? 'Custom';
+  };
+  syncColor();
+  const applyColor = (hex: string): void => {
+    s.paperColor = hex;
+    saveSettings(s);
+    hooks.onPaperColor(hex);
+    syncColor();
+  };
+  colorSel.onchange = () => {
+    const stock = PAPER_COLORS.find((c) => c.name === colorSel.value);
+    if (stock) applyColor(stock.hex);
+  };
+  colorInput.oninput = () => applyColor(colorInput.value);
+  const colorWrap = document.createElement('div');
+  colorWrap.className = 'row';
+  colorWrap.append(colorSel, colorInput);
+
   const marginInput = numberInput(s.defaultMarginPct, 0.5, (v) => {
     s.defaultMarginPct = v;
     persist();
@@ -439,6 +474,7 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
   body.append(
     row('Paper', paperSel),
     customRow,
+    row('Color', colorWrap, 'The stock you are plotting on — preview and exports both use it'),
     landscape,
     row('Margin %', marginInput, 'Used when the sketch does not call margin()'),
   );
@@ -992,14 +1028,14 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
   const svgAll = button('Download SVG (all pens)', async () => {
     const r = hooks.lastResult();
     if (!r) return;
-    const svg = await hooks.client.exportSvg(r.paper.w, r.paper.h, '#f6f2ea', -1);
+    const svg = await hooks.client.exportSvg(r.paper.w, r.paper.h, hooks.settings.paperColor, -1);
     download('occlude.svg', svg, 'image/svg+xml');
   });
   svgAll.className = 'primary';
   const pngBtn = button('Download PNG (300 dpi)', async () => {
     const r = hooks.lastResult();
     if (!r) return;
-    const png = await hooks.client.exportPng(r.paper.w, r.paper.h, 11.81, '#f6f2ea');
+    const png = await hooks.client.exportPng(r.paper.w, r.paper.h, 11.81, hooks.settings.paperColor);
     download('occlude.png', png, 'image/png');
   });
   const exportRow = document.createElement('div');

@@ -1286,6 +1286,12 @@ const png  = exportPng(def, { paper: 'A4', scale: 11.81 });  // ≈ 300 dpi
   `setPenLibrary(pens)`.
 - Papers: `PAPERS` has A3–A6, Letter, Square20; custom sizes via
   `{ paper: { w, h } }`.
+- Paper colour: the studio's Paper panel carries the stock you actually
+  loaded (natural white through kraft and black, or any colour by hand).
+  It paints under the ink in the preview AND in both exports — the preview
+  is ink-truth, so a white gel pen on black stock reads on screen the way
+  it will on paper. It changes nothing about the ink or the plot, so
+  setting it never re-renders.
 
 ## The sketch library
 

@@ -46,6 +46,8 @@ export class Preview {
   private fitted = false;
   /** Debug layers: each pass answers a different question. */
   debug = { occluded: false, bridges: false, cuts: false };
+  /** The sheet's colour — what the ink is actually going onto. */
+  private paperColor = '#f6f2ea';
   private sim: PlotSim | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -301,6 +303,14 @@ export class Preview {
     }
   }
 
+  /** Paint the sheet in the loaded stock's colour (no re-render: the ink
+   * is unchanged, only what sits under it). */
+  setPaperColor(hex: string): void {
+    if (hex === this.paperColor) return;
+    this.paperColor = hex;
+    this.draw();
+  }
+
   setPlotSpeed(speed: number): void {
     if (this.sim) this.sim.speed = speed;
   }
@@ -453,7 +463,7 @@ export class Preview {
     ctx.shadowColor = 'rgba(0,0,0,0.55)';
     ctx.shadowBlur = 18 / this.scale;
     ctx.shadowOffsetY = 6 / this.scale;
-    ctx.fillStyle = '#f6f2ea';
+    ctx.fillStyle = this.paperColor;
     ctx.fillRect(0, 0, w, h);
     ctx.restore();
 

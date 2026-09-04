@@ -81,7 +81,21 @@ export interface Settings {
   paperUnit: 'mm' | 'in';
   landscape: boolean;
   defaultMarginPct: number;
+  /** The sheet's own colour — painted under the ink in the preview and in
+   * both exports, because the preview is ink-truth. */
+  paperColor: string;
 }
+
+/** Stocks worth keeping in the picker; any other colour is set by hand. */
+export const PAPER_COLORS: { name: string; hex: string }[] = [
+  { name: 'Natural white', hex: '#f6f2ea' },
+  { name: 'Bright white', hex: '#ffffff' },
+  { name: 'Cream', hex: '#f2e6cc' },
+  { name: 'Toned tan', hex: '#d9c3a2' },
+  { name: 'Toned gray', hex: '#b8b5ad' },
+  { name: 'Kraft', hex: '#c49a6c' },
+  { name: 'Black', hex: '#17181a' },
+];
 
 export const DEFAULT_SETTINGS: Settings = {
   activeProfile: 'iDraw',
@@ -90,6 +104,7 @@ export const DEFAULT_SETTINGS: Settings = {
   paperUnit: 'mm',
   landscape: false,
   defaultMarginPct: 5,
+  paperColor: '#f6f2ea',
 };
 
 /** The measured iDraw (EBB 2.8.1, 2026-08-26): 100 steps/mm at 1/16
