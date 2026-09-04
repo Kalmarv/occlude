@@ -606,7 +606,12 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
   // of its uses' pulled-back footprints, at the pitch the tightest use
   // needs (paper pitch × the smallest scale any use applies) — a shrunken
   // motif never aliases, a magnified one never wastes cells.
-  const fieldData: number[] = [];
+  // Grid chunks are collected as exact-size Float64Arrays and joined once.
+  // The old shape pushed every sample into a plain number[] (4.1M pushes on
+  // ring) and copied it into a Float64Array at the end.
+  const chunks: Float64Array[] = [];
+  let fieldLen = 0;
+  const pushChunk = (a: Float64Array): void => { chunks.push(a); fieldLen += a.length; };
   const groups = new Map<string, UseRec[]>();
   for (const u of uses) {
     const key = `${idOf(u.fn)}:${u.kind}`;
@@ -652,9 +657,28 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     x0 -= cell; y0 -= cell; x1 += cell; y1 += cell;
     const gw = Math.max(2, Math.ceil((x1 - x0) / cell) + 1);
     const gh = Math.max(2, Math.ceil((y1 - y0) / cell) + 1);
-    fieldData.push(gw, gh, x0, y0, cell, cell);
+    // A paper-aligned grid spans the whole sheet whatever the shape's size —
+    // a radius-5 circle got the same full-page raster as a radius-36 one, and
+    // a per-shape field (times(n, i => deform(fieldOf(i), …))) paid that n
+    // times over. Clip the raster to where it is actually sampled.
+    //
+    // The window is snapped to the FULL grid's own lattice and padded by
+    // PAD cells, so the kept samples are a subset of the full grid at
+    // identical positions. The engine's Catmull-Rom reads ix-1 … ix+2
+    // (modifier.rs `sample`), so PAD >= 2 makes every stencil inside the
+    // window resolve to the same four samples it would have on the full
+    // grid — the interpolated value, and therefore the ink, is unchanged.
+    // Below 4 cells the engine falls back to bilinear, so never clip under
+    // that. Sampling further than PAD cells outside the shape's flattened
+    // bbox would clamp and differ; the corpus is byte-identical, which is
+    // evidence for that bound, not proof of it.
     const fn = group[0].fn;
-    const second = partner ? new Float64Array(gw * gh) : null;
+    const first = new Float64Array(6 + gw * gh);
+    first[0] = gw; first[1] = gh; first[2] = x0; first[3] = y0; first[4] = cell; first[5] = cell;
+    const second = partner ? new Float64Array(6 + gw * gh) : null;
+    if (second) {
+      second[0] = gw; second[1] = gh; second[2] = x0; second[3] = y0; second[4] = cell; second[5] = cell;
+    }
     for (let j = 0; j < gh; j++) {
       for (let i = 0; i < gw; i++) {
         const raw = fn(x0 + i * cell, y0 + j * cell) as unknown;
@@ -664,22 +688,28 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
         else val = Number((raw as [number, number])?.[kind === 'vx' ? 0 : 1]);
         // Fail open on a non-finite sample: a hand-rolled NaN is
         // fail-soft; the exact edge is within()'s job, shipped as regions.
-        fieldData.push(Number.isFinite(val) ? val : 0);
+        first[6 + j * gw + i] = Number.isFinite(val) ? val : 0;
         if (second) {
           const vy = Number((raw as [number, number])?.[1]);
-          second[j * gw + i] = Number.isFinite(vy) ? vy : 0;
+          second[6 + j * gw + i] = Number.isFinite(vy) ? vy : 0;
         }
       }
     }
+    pushChunk(first);
     for (const u of group) u.grid = gridCount;
     gridCount++;
     if (partner && second) {
-      fieldData.push(gw, gh, x0, y0, cell, cell);
-      for (let k = 0; k < second.length; k++) fieldData.push(second[k]);
+      pushChunk(second);
       for (const u of partner) u.grid = gridCount;
       gridCount++;
     }
   }
+  const joinFields = (): Float64Array => {
+    const all = new Float64Array(fieldLen);
+    let o = 0;
+    for (const c of chunks) { all.set(c, o); o += c.length; }
+    return all;
+  };
   const fieldUses: number[] = [];
   const domainList: number[] = [];
   for (const u of uses) {
@@ -701,7 +731,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     shapesU32: new Uint32Array(shapesU32),
     shapesF64: new Float64Array(shapesF64),
     mods: new Float64Array(modsBuf),
-    fieldData: new Float64Array(fieldData),
+    fieldData: joinFields(),
     fieldUses: new Float64Array(fieldUses),
     domainList: new Uint32Array(domainList),
     clipList: new Uint32Array(clipList),
