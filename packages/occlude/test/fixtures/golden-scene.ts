@@ -6,10 +6,24 @@ import { sketch, circle, line, path, fill, mm } from 'occlude';
 // Rendered by the PRODUCT fills; the sentinel test keeps the committed
 // fixture (crates/occlude-core/tests/fixtures/golden) equal to what these
 // fills produce today.
-export default sketch({ aspect: 'paper', margin: 0, seed: 1234 }, () => [
+export default sketch({ aspect: 'paper', margin: 0, seed: 1234 }, (t) => [
   line(mm(0), mm(74), mm(105), mm(74), { z: -1 }),
   path().moveTo(mm(10), mm(120)).bezierTo(mm(35), mm(60), mm(70), mm(130), mm(95), mm(50)).build(),
   circle(mm(40), mm(74), mm(22), { fill: fill('hatch', { angle: 45, spacing: mm(2) }) }),
   circle(mm(62), mm(74), mm(18), { fill: fill('hatch', { angle: -30, spacing: mm(2) }) }),
   circle(mm(52), mm(40), mm(12), { fill: fill('stipple', { density: 0.6, minDist: mm(1.2) }) }),
+  // Two deform fields on shapes far smaller than the sheet. This is the
+  // field-raster path: paper-aligned grids, clipped to the shape's own
+  // bbox, sampled through seeded noise. Two DISTINCT closures so they
+  // cannot share a grid — the shape that made ring rasterise the whole
+  // page 64 times. Nothing else in this fixture registers a field, so
+  // without these the raster code is entirely uncovered.
+  t.deform(
+    (x, y) => [t.noise(x / 15, y / 15) * 2.5, t.noise(x / 15 + 40, y / 15 + 40) * 2.5],
+    circle(mm(24), mm(120), mm(13)),
+  ),
+  t.deform(
+    (x, y) => [t.noise(x / 9 + 7, y / 9 + 7) * 1.5, t.noise(x / 9 - 7, y / 9 - 7) * 1.5],
+    circle(mm(80), mm(118), mm(10)),
+  ),
 ]);
