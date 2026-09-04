@@ -231,7 +231,16 @@ export function scatterPoints(
   const cell = rMin / Math.SQRT2;
   const cols = Math.max(1, Math.ceil(bounds.w / cell));
   const rows = Math.max(1, Math.ceil(bounds.h / cell));
-  const grid: number[][] = Array.from({ length: cols * rows }, () => []);
+  // Neighbour buckets as an intrusive linked list over two Int32Arrays:
+  // `head[cell]` is the newest point in that cell, `nextOf[i]` the one
+  // before it, -1 terminating. The old shape was number[][], so every cell
+  // probe was a pointer chase into a separate JS array — and `fits` probes
+  // (2*reach+1)^2 = 441 cells per candidate, nearly all of them empty.
+  // Both consumers (`fits`, `anyWithin`) are pure any-overlap predicates
+  // that return on the first hit, so bucket ORDER cannot change the answer.
+  const head = new Int32Array(cols * rows).fill(-1);
+  let nextCap = 1024;
+  let nextOf = new Int32Array(nextCap).fill(-1);
   const pts: ScatterPoint[] = [];
   // Each placed point's radius, kept from the moment it was computed: the
   // field is a pure function of position (contract), so the value is the
@@ -250,9 +259,7 @@ export function scatterPoints(
       for (let di = -reach; di <= reach; di++) {
         const ni = ci + di;
         if (ni < 0 || ni >= cols) continue;
-        const bucket = grid[nj * cols + ni];
-        for (let b = 0; b < bucket.length; b++) {
-          const k = bucket[b];
+        for (let k = head[nj * cols + ni]; k >= 0; k = nextOf[k]) {
           const q = pts[k];
           const need = (r + radii[k]) / 2;
           if (!Number.isFinite(need)) continue;
@@ -265,7 +272,16 @@ export function scatterPoints(
     return true;
   };
   const put = (x: number, y: number, r: number): void => {
-    grid[row(y) * cols + col(x)].push(pts.length);
+    const id = pts.length;
+    if (id >= nextCap) {
+      nextCap *= 2;
+      const g = new Int32Array(nextCap).fill(-1);
+      g.set(nextOf);
+      nextOf = g;
+    }
+    const c = row(y) * cols + col(x);
+    nextOf[id] = head[c];
+    head[c] = id;
     radii.push(r);
     pts.push({ x, y, w: Math.min(1, Math.max(0, f(x, y))) });
   };
@@ -329,9 +345,8 @@ export function scatterPoints(
       for (let di = -span; di <= span; di++) {
         const ni = ci + di;
         if (ni < 0 || ni >= cols) continue;
-        const bucket = grid[nj * cols + ni];
-        for (let b = 0; b < bucket.length; b++) {
-          const q = pts[bucket[b]];
+        for (let k = head[nj * cols + ni]; k >= 0; k = nextOf[k]) {
+          const q = pts[k];
           const dx = q.x - x;
           const dy = q.y - y;
           if (dx * dx + dy * dy <= d2) return true;
