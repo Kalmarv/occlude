@@ -84,6 +84,23 @@ export class RenderClient {
     this.spawn();
   }
 
+  /** Terminate the worker and settle anything outstanding. The Sketches
+   * page spins up a client per lightbox; without this each one leaks a
+   * worker (and its wasm instance) for the life of the page. */
+  dispose(): void {
+    if (this.watchdog) {
+      clearTimeout(this.watchdog);
+      this.watchdog = null;
+    }
+    this.worker.terminate();
+    const err = new Error('render client disposed');
+    for (const p of this.pending.values()) p.reject(err);
+    this.pending.clear();
+    this.inFlightRender = false;
+    this.queuedRender?.p.resolve(null);
+    this.queuedRender = null;
+  }
+
   private onMessage(msg: {
     type: string;
     id: number;

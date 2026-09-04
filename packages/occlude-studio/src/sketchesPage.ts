@@ -15,6 +15,7 @@ import {
   loadSketchAt, loadSketchByName, loadSnapshot, openInStudio, sketchHistory, thumbUrl,
   type Commit, type SketchInfo, type Snapshot,
 } from './sketchApi.js';
+import { openGallery } from './snapshotGallery.js';
 
 const main = document.getElementById('sketches-families')!;
 const NS = 'http://www.w3.org/2000/svg';
@@ -339,6 +340,10 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
       (s.meta.label && s.meta.seed != null ? ` · seed ${s.meta.seed}` : '') +
       (s.meta.at ? ` · ${when(Date.parse(s.meta.at))}` : '')));
     actions.append(
+      btn('gallery', () => {
+        closePopover();
+        openGallery({ shots: sel.row.snapshots, index: sel.row.snapshots.indexOf(s), scope: name });
+      }, 'Flip through this sketch’s snapshots, starting here'),
       btn('open', async () => {
         const { source, meta: m } = await loadSnapshot(name, s.id);
         openInStudio(name, source, m.seed);
@@ -405,6 +410,14 @@ function family(root: SketchInfo, all: SketchInfo[], rows: Row[], refresh: () =>
   text.append(el('h3', undefined, root.name), el('span', 'lineage-sub',
     counts + (latest.info.name !== root.name ? ` · latest: ${latest.info.name}` : '') + ` · ${ago(latest.info.mtime)}`));
   head.append(pic, text);
+  if (snaps > 0) {
+    // Flipping through the family's frozen renders, largest the window
+    // allows — the lineage graph shows where they came from, not which one
+    // to print.
+    const all = ordered.flatMap((r) => r.snapshots);
+    head.append(btn('gallery', () => openGallery({ shots: all, scope: root.name }),
+      `Flip through this family’s ${snaps} snapshot${snaps === 1 ? '' : 's'}`));
+  }
   sec.append(head);
 
   let graph: HTMLElement | null = null;

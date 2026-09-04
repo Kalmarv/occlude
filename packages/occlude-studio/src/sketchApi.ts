@@ -103,6 +103,14 @@ export async function loadSnapshot(name: string, id: string): Promise<{ source: 
   )) as { source: string; meta: SnapshotMeta };
 }
 
+/** A snapshot's source with its types stripped, ready to run. The Sketches
+ * page has no TypeScript worker, so the server does the one transpile step. */
+export async function snapshotJs(name: string, id: string): Promise<string> {
+  const res = await fetch(`/api/sketches/${encodeURIComponent(name)}/snapshots/${id}/js`);
+  if (!res.ok) throw new Error(`snapshot ${id} of '${name}' would not transpile (${res.status})`);
+  return res.text();
+}
+
 export async function deleteSnapshot(name: string, id: string): Promise<void> {
   await j(await fetch(`/api/sketches/${encodeURIComponent(name)}/snapshots/${id}`, { method: 'DELETE' }), 'delete snapshot');
 }

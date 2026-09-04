@@ -16,6 +16,7 @@
  *   GET    /api/sketches/<name>/snapshots       → [{ id, sha, meta }]
  *   POST   /api/sketches/<name>/snapshots {seed,label} → { id }
  *   GET    /api/sketches/<name>/snapshots/<id>  → { source, meta }
+ *   GET    /api/sketches/<name>/snapshots/<id>/js → type-stripped JS
  *   DELETE /api/sketches/<name>/snapshots/<id>
  *   POST   /api/sketches/<name>/snapshots/<id>/fork {to?}
  *   GET/PUT /api/sketches/<name>/thumb          → PNG (also …/snapshots/<id>/thumb)
@@ -26,6 +27,7 @@
 import { existsSync, mkdirSync, promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import * as sg from './sketch-git.mjs';
+import { stripFillTypes } from './fill-transpile.mjs';
 
 const safe = (name) => (/^[a-zA-Z0-9 _-]{1,64}$/.test(name) ? name : null);
 const SNAP_ID = /^[0-9TZ]{8,20}$/;
@@ -233,6 +235,19 @@ export function createSketchHandler(dir) {
             return send(200, '{"ok":true}');
           }
           return send(405, '{"error":"method"}');
+        }
+        if (sub2 === 'js') {
+          // Type-stripped source, so a browser that has no TypeScript worker
+          // (the Sketches page) can still render a snapshot. Same one
+          // transpile step the fill store uses.
+          if (req.method !== 'GET') return send(405, '{"error":"method"}');
+          const src = await sg.snapshotSource(dir, name, snapId).catch(() => null);
+          if (src === null) return send(404, '{"error":"snapshot not found"}');
+          try {
+            return send(200, stripFillTypes(src), 'text/javascript');
+          } catch (e) {
+            return send(400, JSON.stringify({ error: String(e?.message ?? e) }));
+          }
         }
         if (sub2 === 'fork') {
           if (req.method !== 'POST') return send(405, '{"error":"method"}');
