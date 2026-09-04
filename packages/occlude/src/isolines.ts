@@ -245,59 +245,98 @@ function marchLevel(
  * order, so the result is deterministic. */
 function chain(segXY: Float64Array, segN: number): IsoContour[] {
   const Q = 1e-6; // user units — far below any step, above float noise
-  const key = (x: number, y: number): string =>
-    `${Math.round(x / Q)},${Math.round(y / Q)}`;
-  const byStart = new Map<string, number[]>();
-  const byEnd = new Map<string, number[]>();
+  const q = (v: number): number => Math.round(v / Q);
   const ax = (k: number): number => segXY[k * 4];
   const ay = (k: number): number => segXY[k * 4 + 1];
   const bx = (k: number): number => segXY[k * 4 + 2];
   const by = (k: number): number => segXY[k * 4 + 3];
+  // Endpoint index keyed by the quantised pair as NUMBERS, two levels deep.
+  // The old shape built a `${rx},${ry}` string for every endpoint and every
+  // probe; chain + take were 22% of isolinesOf, most of it string building.
+  interface Bucket {
+    idx: number[];
+    /** Entries before this are all consumed — see `take`. */
+    cur: number;
+  }
+  type Index = Map<number, Map<number, Bucket>>;
+  const byStart: Index = new Map();
+  const byEnd: Index = new Map();
+  const add = (m: Index, rx: number, ry: number, k: number): void => {
+    let inner = m.get(rx);
+    if (inner === undefined) {
+      inner = new Map();
+      m.set(rx, inner);
+    }
+    const bkt = inner.get(ry);
+    if (bkt === undefined) inner.set(ry, { idx: [k], cur: 0 });
+    else bkt.idx.push(k);
+  };
   for (let k = 0; k < segN; k++) {
-    const ks = key(ax(k), ay(k));
-    const ke = key(bx(k), by(k));
-    (byStart.get(ks) ?? byStart.set(ks, []).get(ks)!).push(k);
-    (byEnd.get(ke) ?? byEnd.set(ke, []).get(ke)!).push(k);
+    add(byStart, q(ax(k)), q(ay(k)), k);
+    add(byEnd, q(bx(k)), q(by(k)), k);
   }
   const used = new Uint8Array(segN);
-  const take = (m: Map<string, number[]>, k: string): number | undefined => {
-    const cands = m.get(k);
-    if (!cands) return undefined;
-    for (const c of cands) if (!used[c]) return c;
-    return undefined;
+  // A segment never becomes unused again, so a bucket's cursor can advance
+  // past consumed entries for good: same "first unused" answer, without
+  // rescanning the bucket from the front on every probe.
+  const take = (m: Index, rx: number, ry: number): number | undefined => {
+    const inner = m.get(rx);
+    if (inner === undefined) return undefined;
+    const bkt = inner.get(ry);
+    if (bkt === undefined) return undefined;
+    const list = bkt.idx;
+    let c = bkt.cur;
+    while (c < list.length && used[list[c]] === 1) c++;
+    bkt.cur = c;
+    return c < list.length ? list[c] : undefined;
   };
   const out: IsoContour[] = [];
   for (let k = 0; k < segN; k++) {
     if (used[k]) continue;
     used[k] = 1;
-    const pts: [number, number][] = [
+    let pts: [number, number][] = [
       [ax(k), ay(k)],
       [bx(k), by(k)],
     ];
-    const startKey = (): string => key(pts[0][0], pts[0][1]);
+    // Quantised key of the chain's first point, kept in step with pts[0].
+    let sx = q(ax(k));
+    let sy = q(ay(k));
+    const endsAtStart = (): boolean => {
+      const l = pts[pts.length - 1];
+      return pts.length > 2 && q(l[0]) === sx && q(l[1]) === sy;
+    };
     // Forward: append segments starting where the chain ends.
     for (;;) {
       const last = pts[pts.length - 1];
-      const nk = key(last[0], last[1]);
-      if (nk === startKey() && pts.length > 2) break;
-      const n = take(byStart, nk);
+      const lx = q(last[0]);
+      const ly = q(last[1]);
+      if (lx === sx && ly === sy && pts.length > 2) break;
+      const n = take(byStart, lx, ly);
       if (n === undefined) break;
       used[n] = 1;
       pts.push([bx(n), by(n)]);
     }
-    let closed = pts.length > 2 && key(pts[pts.length - 1][0], pts[pts.length - 1][1]) === startKey();
+    let closed = endsAtStart();
     if (closed) {
       pts.pop();
     } else {
-      // Backward: prepend segments ending where the chain starts.
+      // Backward: prepend segments ending where the chain starts. Collected
+      // and spliced once — unshift per segment made long open chains
+      // quadratic.
+      const head: [number, number][] = [];
       for (;;) {
-        const n = take(byEnd, startKey());
+        const n = take(byEnd, sx, sy);
         if (n === undefined) break;
         used[n] = 1;
-        pts.unshift([ax(n), ay(n)]);
+        head.push([ax(n), ay(n)]);
+        sx = q(ax(n));
+        sy = q(ay(n));
       }
-      closed =
-        pts.length > 2 && key(pts[pts.length - 1][0], pts[pts.length - 1][1]) === startKey();
+      if (head.length > 0) {
+        head.reverse();
+        pts = head.concat(pts);
+      }
+      closed = endsAtStart();
       if (closed) pts.pop();
     }
     out.push({ pts, closed });
