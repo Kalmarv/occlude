@@ -178,19 +178,77 @@ proptest! {
         }
     }
 
+    /// The nib rule is a property of connected RUNS, not of individual
+    /// fragments. Clipping splits a contour into pieces at every crossing, so
+    /// a piece can legitimately be microscopic — a rect clipped near its
+    /// corner leaves a 0.006 mm sliver contiguous with a 19.4 mm edge, and
+    /// the two are one pen stroke. Judging pieces individually is what
+    /// `judge_runs` deliberately does NOT do: it made fine-stepped polylines
+    /// vanish, every segment sub-nib and demoted to a tap.
+    ///
+    /// So: rebuild the runs from the output by endpoint adjacency and assert
+    /// no RUN is sub-nib. That is what the engine guarantees, and it still
+    /// catches the thing worth catching — isolated sub-nib ink surviving
+    /// instead of degrading to a tap.
     #[test]
-    fn no_fragment_shorter_than_threshold(gens in prop::collection::vec(shape_strategy(), 2..8)) {
+    fn no_run_shorter_than_threshold(gens in prop::collection::vec(shape_strategy(), 2..8)) {
         let shapes: Vec<ShapeRec> = gens.iter().map(to_rec).collect();
         let out = run(shapes);
         let nib = 0.3;
-        for f in &out.frags {
-            if f.dot {
-                continue;
+        let live: Vec<usize> = (0..out.frags.len()).filter(|&i| !out.frags[i].dot).collect();
+        // Union-find over fragments joined at an endpoint (same shape).
+        let mut parent: Vec<usize> = (0..out.frags.len()).collect();
+        fn find(parent: &mut Vec<usize>, a: usize) -> usize {
+            let mut a = a;
+            while parent[a] != a {
+                parent[a] = parent[parent[a]];
+                a = parent[a];
             }
+            a
+        }
+        // Bucket endpoints so this stays linear-ish; 1e-7 is far below the
+        // nib and far above the 1e-9 join tolerance.
+        let key = |p: occlude_core::vec2::Vec2| -> (i64, i64) {
+            ((p.x * 1e7).round() as i64, (p.y * 1e7).round() as i64)
+        };
+        let mut buckets: std::collections::HashMap<(i64, i64), Vec<usize>> =
+            std::collections::HashMap::new();
+        for &i in &live {
+            for p in [out.frags[i].geom.start(), out.frags[i].geom.end()] {
+                let (kx, ky) = key(p);
+                for dx in -1..=1 {
+                    for dy in -1..=1 {
+                        buckets.entry((kx + dx, ky + dy)).or_default().push(i);
+                    }
+                }
+            }
+        }
+        for &i in &live {
+            for p in [out.frags[i].geom.start(), out.frags[i].geom.end()] {
+                for &j in buckets.get(&key(p)).map(|v| v.as_slice()).unwrap_or(&[]) {
+                    if j == i || out.frags[j].shape != out.frags[i].shape {
+                        continue;
+                    }
+                    let q = &out.frags[j].geom;
+                    if p.dist(q.start()) <= 1e-9 || p.dist(q.end()) <= 1e-9 {
+                        let (ra, rb) = (find(&mut parent, i), find(&mut parent, j));
+                        if ra != rb {
+                            parent[ra] = rb;
+                        }
+                    }
+                }
+            }
+        }
+        let mut total: std::collections::HashMap<usize, f64> = std::collections::HashMap::new();
+        for &i in &live {
+            let r = find(&mut parent, i);
+            *total.entry(r).or_insert(0.0) += out.frags[i].geom.length();
+        }
+        for (r, len) in &total {
             prop_assert!(
-                f.geom.length() >= nib - 1e-9,
-                "fragment of length {} below nib {}",
-                f.geom.length(), nib
+                *len >= nib - 1e-9,
+                "connected run (root {}) totals {}, below nib {} — should have degraded to a tap",
+                r, len, nib
             );
         }
     }
