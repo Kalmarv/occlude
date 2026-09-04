@@ -601,8 +601,47 @@ impl Prepared {
         };
 
         let _z = crate::profile::zone("5 clip+fills");
+        // Shape cost is wildly non-uniform and clusters at the low indices: a
+        // handful of filled shapes ahead of thousands of bare ones. Splitting
+        // 0..n evenly therefore hands one worker every expensive shape while
+        // the rest race through empties (contours-2-multicolor ran at 99% of
+        // one core, flat from 1 to 8 threads). Schedule longest-first at
+        // single-shape granularity so idle workers steal real work, then
+        // scatter back into input order — the merge below is z-ordered and
+        // the painter's algorithm depends on it.
         #[cfg(feature = "parallel")]
-        let outputs: Vec<ShapeOut> = (0..n).into_par_iter().map(process).collect();
+        let outputs: Vec<ShapeOut> = {
+            // Cost proxy from tables that already exist here: outline
+            // primitives plus whatever fill ink this shape carries. No
+            // geometry, no extra pass over the scene.
+            let cost = |i: usize| -> usize {
+                if !alive[i] {
+                    return 0;
+                }
+                let (p0, p1) = outline_range[i];
+                let mut c = p1 - p0;
+                if let Some(Some(sf)) = supplied.get(i) {
+                    c += sf.chains.iter().map(Vec::len).sum::<usize>() + sf.dots.len();
+                }
+                if let Some((_, FillKind::Custom(ps))) = &shapes[i].fill {
+                    c += ps.len();
+                }
+                c
+            };
+            let mut order: Vec<u32> = (0..n as u32).collect();
+            order.sort_unstable_by_key(|&i| std::cmp::Reverse(cost(i as usize)));
+            let done: Vec<ShapeOut> = order
+                .par_iter()
+                .with_max_len(1)
+                .map(|&i| process(i as usize))
+                .collect();
+            let mut slots: Vec<ShapeOut> = Vec::new();
+            slots.resize_with(n, ShapeOut::default);
+            for (&i, so) in order.iter().zip(done) {
+                slots[i as usize] = so;
+            }
+            slots
+        };
         #[cfg(not(feature = "parallel"))]
         let outputs: Vec<ShapeOut> = (0..n).map(process).collect();
 
