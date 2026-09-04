@@ -44,13 +44,6 @@ export interface IsoEnv {
   len(l: L): number;
 }
 
-interface Seg {
-  ax: number;
-  ay: number;
-  bx: number;
-  by: number;
-}
-
 export function isolinesOf(
   env: IsoEnv,
   field: FieldFn,
@@ -148,18 +141,32 @@ function marchLevel(
   const hiI = close ? gw : gw - 1; // exclusive cell upper bounds
   const hiJ = close ? gh : gh - 1;
 
-  const segs: Seg[] = [];
+  // Segments as a flat growable buffer, four scalars per segment. The old
+  // shape allocated five closures and two [x, y] tuples PER CELL, which on a
+  // 256² grid is ~330k closures a level and showed up as pure GC time.
+  let segCap = 1024;
+  let segXY = new Float64Array(segCap * 4);
+  let segN = 0;
+  const emit = (ax: number, ay: number, bx: number, by: number): void => {
+    if (ax === bx && ay === by) return;
+    if (segN === segCap) {
+      segCap *= 2;
+      const g = new Float64Array(segCap * 4);
+      g.set(segXY);
+      segXY = g;
+    }
+    const o = segN++ * 4;
+    segXY[o] = ax; segXY[o + 1] = ay; segXY[o + 2] = bx; segXY[o + 3] = by;
+  };
   // Crossing on a horizontal sample edge (i,j)–(i+1,j) and vertical
   // (i,j)–(i,j+1); shared edges produce bitwise-identical points in both
-  // adjacent cells, so chaining is a hash hit.
-  const xT = (i: number, j: number, va: number, vb: number): [number, number] => [
-    px(i) + sx * ((lvl - va) / (vb - va)),
-    py(j),
-  ];
-  const yL = (i: number, j: number, va: number, vd: number): [number, number] => [
-    px(i),
-    py(j) + sy * ((lvl - va) / (vd - va)),
-  ];
+  // adjacent cells, so chaining is a hash hit. Hoisted out of the cell loop
+  // and returning scalars — the arithmetic is unchanged, so the emitted
+  // coordinates are bit-identical to the tuple version.
+  const xTx = (i: number, va: number, vb: number): number =>
+    px(i) + sx * ((lvl - va) / (vb - va));
+  const yLy = (j: number, va: number, vd: number): number =>
+    py(j) + sy * ((lvl - va) / (vd - va));
   for (let j = lo; j < hiJ; j++) {
     for (let i = lo; i < hiI; i++) {
       const va = val(i, j); // top-left
@@ -172,64 +179,69 @@ function marchLevel(
       const code =
         (va >= lvl ? 1 : 0) | (vb >= lvl ? 2 : 0) | (vc >= lvl ? 4 : 0) | (vd >= lvl ? 8 : 0);
       if (code === 0 || code === 15) continue;
-      const T = (): [number, number] => xT(i, j, va, vb);
-      const B = (): [number, number] => xT(i, j + 1, vd, vc);
-      const Lf = (): [number, number] => yL(i, j, va, vd);
-      const R = (): [number, number] => yL(i + 1, j, vb, vc);
-      const emit = (p: [number, number], q: [number, number]): void => {
-        if (p[0] !== q[0] || p[1] !== q[1]) {
-          segs.push({ ax: p[0], ay: p[1], bx: q[0], by: q[1] });
-        }
-      };
+      // Crossing coordinates as scalars. Tx/Bx/Ly/Ry are the only varying
+      // components; the other component of each is a grid line.
+      const Tx = (): number => xTx(i, va, vb);
+      const Ty = py(j);
+      const Bx = (): number => xTx(i, vd, vc);
+      const By = py(j + 1);
+      const Lx = px(i);
+      const Ly = (): number => yLy(j, va, vd);
+      const Rx = px(i + 1);
+      const Ry = (): number => yLy(j, vb, vc);
       switch (code) {
-        case 1: emit(Lf(), T()); break;
-        case 2: emit(T(), R()); break;
-        case 3: emit(Lf(), R()); break;
-        case 4: emit(R(), B()); break;
+        case 1: emit(Lx, Ly(), Tx(), Ty); break;
+        case 2: emit(Tx(), Ty, Rx, Ry()); break;
+        case 3: emit(Lx, Ly(), Rx, Ry()); break;
+        case 4: emit(Rx, Ry(), Bx(), By); break;
         case 5: {
           // Saddle: the cell-centre average decides which diagonal connects.
           const centre = (va + vb + vc + vd) / 4 >= lvl;
-          if (centre) { emit(R(), T()); emit(Lf(), B()); }
-          else { emit(Lf(), T()); emit(R(), B()); }
+          if (centre) { emit(Rx, Ry(), Tx(), Ty); emit(Lx, Ly(), Bx(), By); }
+          else { emit(Lx, Ly(), Tx(), Ty); emit(Rx, Ry(), Bx(), By); }
           break;
         }
-        case 6: emit(T(), B()); break;
-        case 7: emit(Lf(), B()); break;
-        case 8: emit(B(), Lf()); break;
-        case 9: emit(B(), T()); break;
+        case 6: emit(Tx(), Ty, Bx(), By); break;
+        case 7: emit(Lx, Ly(), Bx(), By); break;
+        case 8: emit(Bx(), By, Lx, Ly()); break;
+        case 9: emit(Bx(), By, Tx(), Ty); break;
         case 10: {
           const centre = (va + vb + vc + vd) / 4 >= lvl;
-          if (centre) { emit(T(), Lf()); emit(B(), R()); }
-          else { emit(T(), R()); emit(B(), Lf()); }
+          if (centre) { emit(Tx(), Ty, Lx, Ly()); emit(Bx(), By, Rx, Ry()); }
+          else { emit(Tx(), Ty, Rx, Ry()); emit(Bx(), By, Lx, Ly()); }
           break;
         }
-        case 11: emit(B(), R()); break;
-        case 12: emit(R(), Lf()); break;
-        case 13: emit(R(), T()); break;
-        default: emit(T(), Lf()); break; // 14
+        case 11: emit(Bx(), By, Rx, Ry()); break;
+        case 12: emit(Rx, Ry(), Lx, Ly()); break;
+        case 13: emit(Rx, Ry(), Tx(), Ty); break;
+        default: emit(Tx(), Ty, Lx, Ly()); break; // 14
       }
     }
   }
-  return finishContours(chain(segs), b, close);
+  return finishContours(chain(segXY, segN), b, close);
 }
 
 /** Join directed segments end-to-start into contours. Orientation is
  * consistent from the case table, so forward extension follows `b → a`
  * matches and backward extension `a → b` matches; iteration is emission
  * order, so the result is deterministic. */
-function chain(segs: Seg[]): IsoContour[] {
+function chain(segXY: Float64Array, segN: number): IsoContour[] {
   const Q = 1e-6; // user units — far below any step, above float noise
   const key = (x: number, y: number): string =>
     `${Math.round(x / Q)},${Math.round(y / Q)}`;
   const byStart = new Map<string, number[]>();
   const byEnd = new Map<string, number[]>();
-  segs.forEach((s, k) => {
-    const ks = key(s.ax, s.ay);
-    const ke = key(s.bx, s.by);
+  const ax = (k: number): number => segXY[k * 4];
+  const ay = (k: number): number => segXY[k * 4 + 1];
+  const bx = (k: number): number => segXY[k * 4 + 2];
+  const by = (k: number): number => segXY[k * 4 + 3];
+  for (let k = 0; k < segN; k++) {
+    const ks = key(ax(k), ay(k));
+    const ke = key(bx(k), by(k));
     (byStart.get(ks) ?? byStart.set(ks, []).get(ks)!).push(k);
     (byEnd.get(ke) ?? byEnd.set(ke, []).get(ke)!).push(k);
-  });
-  const used = new Uint8Array(segs.length);
+  }
+  const used = new Uint8Array(segN);
   const take = (m: Map<string, number[]>, k: string): number | undefined => {
     const cands = m.get(k);
     if (!cands) return undefined;
@@ -237,13 +249,12 @@ function chain(segs: Seg[]): IsoContour[] {
     return undefined;
   };
   const out: IsoContour[] = [];
-  for (let k = 0; k < segs.length; k++) {
+  for (let k = 0; k < segN; k++) {
     if (used[k]) continue;
     used[k] = 1;
-    const s = segs[k];
     const pts: [number, number][] = [
-      [s.ax, s.ay],
-      [s.bx, s.by],
+      [ax(k), ay(k)],
+      [bx(k), by(k)],
     ];
     const startKey = (): string => key(pts[0][0], pts[0][1]);
     // Forward: append segments starting where the chain ends.
@@ -254,7 +265,7 @@ function chain(segs: Seg[]): IsoContour[] {
       const n = take(byStart, nk);
       if (n === undefined) break;
       used[n] = 1;
-      pts.push([segs[n].bx, segs[n].by]);
+      pts.push([bx(n), by(n)]);
     }
     let closed = pts.length > 2 && key(pts[pts.length - 1][0], pts[pts.length - 1][1]) === startKey();
     if (closed) {
@@ -265,7 +276,7 @@ function chain(segs: Seg[]): IsoContour[] {
         const n = take(byEnd, startKey());
         if (n === undefined) break;
         used[n] = 1;
-        pts.unshift([segs[n].ax, segs[n].ay]);
+        pts.unshift([ax(n), ay(n)]);
       }
       closed =
         pts.length > 2 && key(pts[pts.length - 1][0], pts[pts.length - 1][1]) === startKey();
