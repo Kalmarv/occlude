@@ -153,8 +153,8 @@ describe('lift traverse', () => {
     expect(chains).toHaveLength((12 + 8) * pulses.length * 2);
     // A horizontal sweep: left tick ends near the left edge, right tick near the right edge.
     const row0 = chains.filter((c) => c.pen === 0).slice(0, 2);
-    expect(row0[0].pts[0][0]).toBeLessThan(10);
-    expect(row0[1].pts[1][0]).toBeGreaterThan(294);
+    expect(row0[0].pts[0][0]).toBeLessThan(20);
+    expect(row0[1].pts[1][0]).toBeGreaterThan(285);
     expect(row0[0].pts[0][1]).toBe(row0[1].pts[0][1]); // same y: the travel between them is the sweep
     for (const c of chains) for (const [x, y] of c.pts) {
       expect(x).toBeGreaterThanOrEqual(0); expect(x).toBeLessThanOrEqual(304.8);

@@ -350,7 +350,7 @@ export function liftTraverse(base: PenDef | undefined, o: LiftTraverseOpts): Dia
     servo.push({ up: p });
   }
   const chains: Chain[] = [];
-  const m = 6; // edge margin, mm
+  const m = 8; // edge margin, mm — same as the lift grid
   const tick = 3;
   const step = 2; // spacing between the pulses' sweeps within a band
   const bandH = (o.bedH - 2 * m) / o.rows;

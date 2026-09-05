@@ -781,10 +781,31 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   // well inside the horn's carry zone up to the profile's down pulse.
   const ladder = (from: number, to: number, n: number): number[] =>
     Array.from({ length: n }, (_, i) => Math.round((from + ((to - from) * i) / (n - 1)) / 100) * 100);
+  // The lift ladder is editable (not persisted): the first traverse is run
+  // wide, from full lift down, and the next one narrowed onto the transition.
+  let ladderFrom = 0;
+  let ladderTo = 0;
   const liftPulses = (): number[] => {
     const e = prof().ebb;
-    return ladder(e.penUpPulse, e.penDownPulse - 2000, 6);
+    const from = ladderFrom || e.penUpPulse;
+    const to = ladderTo || e.penDownPulse - 2000;
+    return ladder(from, to, 6);
   };
+  const ladderRow = document.createElement('div');
+  ladderRow.className = 'row';
+  const fromIn = numberInput(0, 100, (v) => { ladderFrom = v; });
+  fromIn.placeholder = 'from (up pulse)';
+  fromIn.title = 'Most lift in the ladder (SC,4 pulse). 0 = the profile\u2019s pen-up pulse.';
+  const toIn = numberInput(0, 100, (v) => { ladderTo = v; });
+  toIn.placeholder = 'to';
+  toIn.title = 'Least lift in the ladder. 0 = 2000 below the profile\u2019s pen-down pulse.';
+  ladderRow.append(fromIn, toIn);
+  const ladderHint = document.createElement('div');
+  ladderHint.className = 'panel-hint';
+  ladderHint.textContent =
+    'Lift ladder for the pen-height cards: six pulses from \u2018from\u2019 to \u2018to\u2019. Leave 0/0 for the ' +
+    'wide first pass; then narrow onto where the ink started (e.g. 12000 \u2192 16000).';
+  diag.append(ladderRow, ladderHint);
   const downPulses = (): number[] => {
     const e = prof().ebb;
     return ladder(e.penDownPulse - 6000, e.penDownPulse, 6);
