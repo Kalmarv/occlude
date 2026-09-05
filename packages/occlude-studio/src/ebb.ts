@@ -18,6 +18,8 @@
  */
 
 import type { PenDef } from 'occlude';
+
+import { liftForTravel, type LiftMap } from './liftmap.js';
 import {
   estimatePlanMs, planDurationMs, planPolyline, segmentsToBlocks,
   type MotionBlock, type PlanEstimate, type Point,
@@ -143,6 +145,12 @@ export interface EbbOptions {
    * plots the pen cycle is ~95% of plot time, so this is the big lever.
    * 0 disables. */
   quickHopMm: number;
+  /** Pen-height map: when present, every travel takes the smallest lift that
+   * clears along it (liftmap.ts) and quickHopMm is ignored. Settle at a
+   * map lift is the pen's full penDelay until the settle×lift card says
+   * otherwise — clearance first, time second. */
+  liftMap?: LiftMap;
+  liftMarginPulses?: number;
   /** Use the LM command (firmware ≥2.5.3): true constant-acceleration ramps
    * interpolated at 25kHz in hardware, vs the XM fallback's ~40Hz staircase
    * of constant-velocity packets. */
@@ -761,7 +769,8 @@ export class Ebb {
         travelAcceleration: o.travelAcceleration,
         junctionDeviation: o.junctionDeviation,
         minimumCruiseRatio: o.minimumCruiseRatio,
-        quickHopMm: o.quickHopMm,
+        // A map lift is priced as a full settle until settle×lift is measured.
+        quickHopMm: o.liftMap ? 0 : o.quickHopMm,
       },
     );
     const total = estimate.commands;
@@ -834,7 +843,7 @@ export class Ebb {
     // Every travel has a LIFT PULSE (SC,4): full, the 40% hop, or a
     // calibration override. Every landing has a DOWN PULSE (SC,5): the
     // profile's, or an override. Registers are written only on change.
-    type LiftKind = 'full' | 'hop' | 'override';
+    type LiftKind = 'full' | 'hop' | 'map' | 'override';
     let liftKind = 'full' as LiftKind; // widened: closures below reassign it
     let liftPulse = Math.round(servo().penUpPulse); // what SC,4 holds now
     let downPulse = Math.round(servo().penDownPulse); // what SC,5 holds now
@@ -853,10 +862,15 @@ export class Ebb {
     };
     const setLiftFull = (): Promise<void> => setLift('full', Math.round(servo().penUpPulse));
     /** Lift for the travel INTO `next` (chosen before the pen-up that
-     * precedes it): override → hop (gap within quickHopMm) → full. */
-    const liftFor = (next: Chain | undefined, gap: number): Promise<void> => {
+     * precedes it): override → map → hop (gap within quickHopMm) → full. */
+    const liftFor = (next: Chain | undefined, from: [number, number], gap: number): Promise<void> => {
       const ov = next && servoFor?.(next.pen);
       if (ov?.up !== undefined) return setLift('override', Math.round(ov.up));
+      if (next && o.liftMap) {
+        const to: [number, number] = [next.pts[0], next.pts[1]];
+        const pulse = liftForTravel(o.liftMap, from, to, o.liftMarginPulses ?? 800, Math.round(servo().penUpPulse));
+        return setLift('map', pulse);
+      }
       if (next && o.quickHopMm > 0 && gap <= o.quickHopMm) return setLift('hop', hopPulse());
       return setLiftFull();
     };
@@ -952,7 +966,7 @@ export class Ebb {
               next.pts[1] - c.pts[c.pts.length - 1],
             )
           : Infinity;
-        await liftFor(next, gapOut);
+        await liftFor(next, [c.pts[c.pts.length - 2], c.pts[c.pts.length - 1]], gapOut);
         const upSettle = liftKind === 'hop' ? hopUpSettleOf(settle) : settle;
         await this.penUp(upSettle);
         sent += 1;

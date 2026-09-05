@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { Ebb, lmAxisCompletes, lmCompletable, type PlotProgress } from './ebb.js';
+import { liftForTravel } from './liftmap.js';
 
 const opts = {
   stepsPerMm: 100,
@@ -827,6 +828,49 @@ describe('servo overrides (pen-height cards)', () => {
     const c = port.commands;
     expect(c.indexOf('SC,5,16000')).toBeGreaterThan(-1);
     expect(c.lastIndexOf('SC,5,14200')).toBeGreaterThan(c.lastIndexOf('SC,5,16000'));
+  });
+});
+
+describe('lift map drives the travel lift', () => {
+  test('each travel takes the map\u2019s least-clearing pulse minus the margin, with the full settle', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    // 2×1 map over a 100×50 bed: left cell clears at 15200, right cell at 13600.
+    const liftMap = {
+      cols: 2, rows: 1, bedW: 100, bedH: 50, margin: 5,
+      thresholds: [15200, 13600], unresolvedAbove: 16000,
+    };
+    const direct = { ...opts, swapXY: false, invertX: false, quickHopMm: 15, liftMap, liftMarginPulses: 800 };
+    // Chain 0 in the left cell, chain 1 also left (5mm hop), chain 2 in the right cell.
+    const plan = new Float64Array([
+      0, 0, 2, 20, 25, 25, 25,
+      0, 0, 2, 30, 25, 35, 25,
+      0, 0, 2, 70, 25, 75, 25,
+    ]);
+    const ebb = new Ebb();
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    await ebb.plot(plan, [{ name: 'a', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 500 }],
+      direct, () => undefined);
+    const c = port.commands;
+    // The driver must write exactly what the map function says for each
+    // travel (bilinear between cell centres, min along the path, − margin).
+    const p1 = liftForTravel(liftMap, [25, 25], [30, 25], 800, 10000);
+    const p2 = liftForTravel(liftMap, [35, 25], [70, 25], 800, 10000);
+    expect(p1).toBeGreaterThan(p2); // the second travel reaches the deeper cell
+    expect(p2).toBeGreaterThanOrEqual(12800); // approaching the 13600 cell, − 800
+    expect(p2).toBeLessThan(13000);
+    const first = c.indexOf(`SC,4,${p1}`);
+    expect(first).toBeGreaterThan(-1);
+    expect(c[first + 1]).toBe('SP,1,500'); // full settle: map lifts are not priced as hops yet
+    const second = c.indexOf(`SC,4,${p2}`);
+    expect(second).toBeGreaterThan(first);
+    // The quick-hop pulse never appears: the map supersedes quickHopMm.
+    expect(c.some((x) => x === 'SC,4,12520')).toBe(false);
+    // Full lift restored at the end.
+    expect(c.lastIndexOf('SC,4,10000')).toBeGreaterThan(second);
   });
 });
 

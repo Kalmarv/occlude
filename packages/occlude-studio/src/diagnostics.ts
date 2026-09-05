@@ -190,6 +190,10 @@ export interface LiftGridOpts {
   pulses: number[];
   cols: number;
   rows: number;
+  /** Refinement: plot only cells this returns true for (row, col). */
+  only?: (r: number, c: number) => boolean;
+  /** Dashes per strip (default 3–6 by cell height). */
+  dashes?: number;
 }
 
 /**
@@ -220,9 +224,10 @@ export function liftGrid(base: PenDef | undefined, o: LiftGridOpts): Diagnostic 
   const fw = cw - 2 * pad;
   const fh = ch - 2 * pad;
   const sw = fw / o.pulses.length;
-  const dashes = Math.max(3, Math.min(6, Math.floor(fh / 4)));
+  const dashes = o.dashes ?? Math.max(3, Math.min(6, Math.floor(fh / 4)));
   for (let r = 0; r < o.rows; r++) {
     for (let c = 0; c < o.cols; c++) {
+      if (o.only && !o.only(r, c)) continue;
       const x0 = margin + c * cw + pad;
       const y0 = margin + r * ch + pad;
       chains.push({

@@ -21,6 +21,7 @@ import {
   backlashSquares, calDots, calHatch, calLines, calSegments, cornerRinging,
   downSweep, liftGrid, liftTraverse, registrationProbe, settleLift, type Diagnostic,
 } from './diagnostics.js';
+import { liftMapFromCounts, parseCounts, refineLiftMap } from './liftmap.js';
 import type { RenderClient } from './workerClient.js';
 
 export interface PanelHooks {
@@ -523,6 +524,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     minimumCruiseRatio: prof().ebb.minimumCruiseRatio,
     lmMotion: prof().ebb.lmMotion,
     quickHopMm: prof().ebb.quickHopMm,
+    liftMap: prof().ebb.liftMap,
+    liftMarginPulses: prof().ebb.liftMarginPulses,
     driftCheckEvery: prof().ebb.driftCheckEvery,
   });
   const persist = (): void => saveProfiles(hooks.profiles);
@@ -638,6 +641,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
           estimate: p.estimate,
           settings: {
             quickHopMm: prof().ebb.quickHopMm,
+            liftMap: ((m) => (m ? `${m.cols}x${m.rows}` : null))(prof().ebb.liftMap),
+            liftMarginPulses: prof().ebb.liftMarginPulses,
             travelFeed: prof().machine.travelFeed,
             acceleration: prof().ebb.acceleration,
             travelAcceleration: prof().ebb.travelAcceleration,
@@ -866,6 +871,61 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       });
     },
   );
+  // The map itself: paste the card as read (diagonal counts per cell), apply
+  // with the ladder it was plotted at. With a map present, the grid can plot
+  // only the still-unresolved cells at a higher ladder (refinement).
+  const mapBox = document.createElement('textarea');
+  mapBox.rows = 4;
+  mapBox.placeholder = 'diagonals per cell, one line per row of cells: 0,0,1,2 - 0,1,2,3 …';
+  mapBox.title = 'Read the lift grid: per cell, how many diagonal lines. Row 0 = nearest the origin.';
+  const mapStatus = document.createElement('div');
+  mapStatus.className = 'panel-hint';
+  const describeMap = (): void => {
+    const m = prof().ebb.liftMap;
+    if (!m) {
+      mapStatus.textContent = 'No lift map: quick hop rule applies.';
+      return;
+    }
+    const known = m.thresholds.filter((t): t is number => t !== null);
+    const unresolved = m.thresholds.length - known.length;
+    mapStatus.textContent =
+      `Lift map ${m.cols}\u00d7${m.rows}: worst cell clears at ${Math.min(...known)}, ` +
+      `${unresolved} cells unresolved (\u2265 ${m.unresolvedAbove}). Quick hop is ignored.`;
+  };
+  const applyMap = button('Apply as lift map', () => {
+    try {
+      const counts = parseCounts(mapBox.value);
+      const { bedW, bedH } = prof().machine;
+      const rows = counts.length;
+      const cols = counts[0]?.length ?? 0;
+      const geometry = { cols, rows, bedW, bedH, margin: 8 };
+      const existing = prof().ebb.liftMap;
+      const refining = existing && existing.cols === cols && existing.rows === rows && refine.checked;
+      prof().ebb.liftMap = refining
+        ? refineLiftMap(existing, counts, liftPulses())
+        : liftMapFromCounts(counts, liftPulses(), geometry);
+      persist();
+      describeMap();
+    } catch (e) {
+      showErr(e);
+    }
+  });
+  const clearMap = button('Clear map', () => {
+    delete prof().ebb.liftMap;
+    persist();
+    describeMap();
+  });
+  const refine = document.createElement('input');
+  refine.type = 'checkbox';
+  const refineLabel = document.createElement('label');
+  refineLabel.append(refine, ' refine: unresolved cells only');
+  refineLabel.title = 'Lift grid plots (and Apply fills) only cells the map has not resolved, at the current ladder.';
+  const mapRow = document.createElement('div');
+  mapRow.className = 'row';
+  mapRow.append(applyMap, clearMap, refineLabel);
+  diag.append(mapBox, mapRow, mapStatus);
+  describeMap();
+
   addDiag(
     'Lift grid (whole bed)',
     'Pen-height map. Framed cells across the whole bed (8 across the short axis); inside each, six strips travel at lift pulses ' +
@@ -878,7 +938,11 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       const { bedW, bedH } = prof().machine;
       const cols = bedW <= bedH ? ACROSS : Math.max(2, Math.round((ACROSS * bedW) / bedH));
       const rows = bedW <= bedH ? Math.max(2, Math.round((ACROSS * bedH) / bedW)) : ACROSS;
-      return liftGrid(base, { bedW, bedH, pulses: liftPulses(), cols, rows });
+      const m = prof().ebb.liftMap;
+      const only = refine.checked && m && m.cols === cols && m.rows === rows
+        ? (r: number, c: number) => m.thresholds[r * cols + c] === null
+        : undefined;
+      return liftGrid(base, { bedW, bedH, pulses: liftPulses(), cols, rows, only, dashes: only ? 4 : undefined });
     },
   );
   addDiag(
@@ -935,7 +999,11 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       row('Quick hop mm', numberInput(e.quickHopMm, 5, (v) => {
         e.quickHopMm = Math.max(0, v);
         persist();
-      }), 'Travels shorter than this lift the pen only ~40% with shorter settles. 0 disables — the large-format setting, where gantry deflection needs the full lift'),
+      }), 'Without a lift map: travels shorter than this lift the pen only ~40% with shorter settles; 0 disables. Ignored once a lift map exists (Machine diagnostics)'),
+      row('Lift margin', numberInput(e.liftMarginPulses, 100, (v) => {
+        e.liftMarginPulses = Math.max(0, Math.round(v));
+        persist();
+      }), 'Pulses of extra lift below each map cell\u2019s last-clean pulse (one ladder rung = 800)'),
       row('Drift check', numberInput(e.driftCheckEvery, 100, (v) => {
         e.driftCheckEvery = Math.max(0, Math.round(v));
         persist();
@@ -1193,7 +1261,7 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
               travelAcceleration: prof().ebb.travelAcceleration,
               junctionDeviation: prof().ebb.junctionDeviation,
               minimumCruiseRatio: prof().ebb.minimumCruiseRatio,
-              quickHopMm: prof().ebb.quickHopMm,
+              quickHopMm: prof().ebb.liftMap ? 0 : prof().ebb.quickHopMm,
             },
           );
           const mins = est.totalMs / 60000;

@@ -2,6 +2,8 @@
 
 import { DEFAULT_PENS, type PenDef } from 'occlude';
 
+import type { LiftMap } from './liftmap.js';
+
 const KEYS = {
   sketch: 'occlude.sketch',
   sketchName: 'occlude.sketchName',
@@ -58,7 +60,15 @@ export interface EbbSettings {
   junctionDeviation: number;
   minimumCruiseRatio: number;
   lmMotion: boolean;
+  /** Quick hop (no lift map): travels shorter than this lift to 40%. 0 = off.
+   * Ignored once a lift map exists — every travel then takes its lift from
+   * the map. */
   quickHopMm: number;
+  /** The pen-height map read off the lift-grid card (see liftmap.ts), and
+   * the safety margin below each cell's last-clean pulse, in pulses (one
+   * ladder rung by default). Absent = no map: quick-hop rule applies. */
+  liftMap?: LiftMap;
+  liftMarginPulses: number;
   /** Chains between mid-plot QS drift checks (each one drains the FIFO —
    * a deliberate ~0.5s pause). 0 = check only at plot end. */
   driftCheckEvery: number;
@@ -141,6 +151,7 @@ export const DEFAULT_PROFILE: MachineProfile = {
     minimumCruiseRatio: 0.5,
     lmMotion: true,
     quickHopMm: 15,
+    liftMarginPulses: 800,
     driftCheckEvery: 1000,
   },
 };
