@@ -858,6 +858,39 @@ describe('servo overrides (pen-height cards)', () => {
   });
 });
 
+describe('paper origin', () => {
+  test('plots draw at the paper offset in bed coordinates; Set origin clears it', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, lmMotion: true, swapXY: false, invertX: false };
+    const ebb = new Ebb();
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    // Jog to the sheet's corner and record it, without zeroing the board.
+    await ebb.jog(100, 50, direct);
+    expect(ebb.setPaperOrigin(direct)).toEqual([100, 50]);
+    expect(port.commands.filter((c) => c === 'CS')).toHaveLength(0);
+    // A stroke at paper (0,0)→(10,0) lands at bed (100,50)→(110,50).
+    const before = port.commands.length;
+    await ebb.plot(new Float64Array([0, 0, 2, 0, 0, 10, 0]),
+      [{ name: 'a', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
+      direct, () => undefined);
+    const down = port.commands.indexOf('SP,0,150', before);
+    const drawn = port.commands.slice(down).find((c) => c.startsWith('LM,'));
+    // The LM stream (home is HM, not simulated) ends at the stroke's end,
+    // bed (110, 50): the paper offset was applied.
+    const sim = simulateLm(port.commands);
+    expect(sim.stalled).toBe(false);
+    expect(drawn).toBeDefined();
+    expect([sim.x, sim.y]).toEqual([11000, 5000]);
+    // Set (bed) origin forgets the paper offset.
+    await ebb.setOrigin();
+    expect(ebb.paperOffset).toEqual([0, 0]);
+  });
+});
+
 describe('connect resilience', () => {
   test('stale bytes at power-up cannot corrupt the version or disable LM', async () => {
     // A lone OK left in the CDC buffer used to be consumed as V's reply:

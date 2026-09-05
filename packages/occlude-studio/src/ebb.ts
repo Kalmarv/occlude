@@ -627,23 +627,51 @@ export class Ebb {
     this.penIsUp = false;
   }
 
-  async jog(dxMm: number, dyMm: number, o: EbbOptions): Promise<void> {
-    if (this.plotting && this.plotPause) this.pauseAdjusted = true;
-    // Invert the paper→machine mapping to recover current paper position.
+  /** Current position in BED mm (the frame Set origin zeroed), inverting
+   * the paper→machine axis mapping. */
+  bedPosition(o: EbbOptions): [number, number] {
     const mx = (this.stepX / o.stepsPerMm) * (o.invertX ? -1 : 1);
     const my = (this.stepY / o.stepsPerMm) * (o.invertY ? -1 : 1);
-    const x = (o.swapXY ? my : mx) + dxMm;
-    const y = (o.swapXY ? mx : my) + dyMm;
-    await this.cmd('EM,1,1');
-    await this.moveRun([[x, y]], o.travelFeed, o);
+    return o.swapXY ? [my, mx] : [mx, my];
   }
 
-  /** Zero the board's step counters here — "this is the paper origin". */
+  async jog(dxMm: number, dyMm: number, o: EbbOptions): Promise<void> {
+    if (this.plotting && this.plotPause) this.pauseAdjusted = true;
+    const [x, y] = this.bedPosition(o);
+    await this.cmd('EM,1,1');
+    await this.moveRun([[x + dxMm, y + dyMm]], o.travelFeed, o);
+  }
+
+  /**
+   * Two origins. The BED origin is where Set origin zeroed the board's step
+   * counters — the frame the lift map was measured in, so it must be the
+   * same bed corner every time. The PAPER origin is an offset from it: jog
+   * to the sheet's corner and record it here, without zeroing anything.
+   * Plots draw at the offset, the map is looked up in bed coordinates, Home
+   * returns to the bed corner.
+   */
+  paperOffset: [number, number] = [0, 0];
+
+  setPaperOrigin(o: EbbOptions): [number, number] {
+    this.paperOffset = this.bedPosition(o).map((v) => Math.round(v * 100) / 100) as [number, number];
+    return this.paperOffset;
+  }
+
+  /** Travel to the paper origin (pen up). */
+  async goToPaperOrigin(o: EbbOptions): Promise<void> {
+    await this.penUp();
+    await this.cmd('EM,1,1');
+    await this.moveRun([[this.paperOffset[0], this.paperOffset[1]]], o.travelFeed, o);
+  }
+
+  /** Zero the board's step counters here — "this is the BED origin". Also
+   * clears the paper offset: the frame it was measured in is gone. */
   async setOrigin(): Promise<void> {
     if (this.plotting && this.plotPause) this.pauseAdjusted = true;
     await this.cmd('CS');
     this.stepX = 0;
     this.stepY = 0;
+    this.paperOffset = [0, 0];
   }
 
   async home(): Promise<void> {
@@ -737,11 +765,19 @@ export class Ebb {
       pts: Float64Array;
     }
     let chains: Chain[] = [];
+    // Plan points are paper mm; the machine, the lift map and the estimate
+    // all work in BED mm, so the paper offset is applied once, here.
+    const [offX, offY] = this.paperOffset;
     for (let i = 0; i < plan.length; ) {
       const pen = plan[i++];
       const dot = plan[i++] === 1;
       const n = plan[i++];
-      chains.push({ pen, dot, pts: plan.subarray(i, i + n * 2) });
+      const pts = new Float64Array(n * 2);
+      for (let k = 0; k < n; k++) {
+        pts[k * 2] = plan[i + k * 2] + offX;
+        pts[k * 2 + 1] = plan[i + k * 2 + 1] + offY;
+      }
+      chains.push({ pen, dot, pts });
       i += n * 2;
     }
     if (onlyPen !== undefined) chains = chains.filter((c) => c.pen === onlyPen);
@@ -969,7 +1005,7 @@ export class Ebb {
         const reinkAt = pen?.reinkMm ?? 0;
         if (reinkAt > 0 && inkedMm >= reinkAt && chainIndex < chains.length - 1 && !this.plotAbort) {
           await setLiftFull();
-          await this.moveRun([[0, 0]], o.travelFeed, o);
+          await this.moveRun([[offX, offY]], o.travelFeed, o);
           warning = `re-ink ${penName}: ${Math.round(inkedMm)}mm drawn — pump/refill, then Resume`;
           this.plotPause = true;
           await pauseUp();

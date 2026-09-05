@@ -499,7 +499,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     return;
   }
   hint.textContent =
-    'EBB/iDraw over USB — position the carriage by hand, Set origin (Manual control), then Plot.';
+    'EBB/iDraw over USB — park at the bed corner, Set bed origin, jog to the sheet\u2019s corner, Set paper origin, then Plot.';
   hint.title =
     'Connect leaves the rails free. PEN CONTACT IS MECHANICAL — the servo only lifts, it cannot ' +
     'press: with Pen down, seat the pen low in the clamp so its tip preloads into the sheet; ' +
@@ -567,12 +567,38 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   penDownBtn.title =
     'Servo contact is mechanical — with the pen down, seat it low in the clamp so the tip ' +
     'preloads into the sheet';
+  // Two origins: Set origin = the BED corner (the lift map's frame — same
+  // physical corner every time); Set paper origin = where the sheet's corner
+  // is, recorded as an offset by jogging there. Plots draw at the offset.
+  const paperStatus = document.createElement('span');
+  paperStatus.className = 'panel-hint';
+  const showPaper = (): void => {
+    const [x, y] = ebb.paperOffset;
+    paperStatus.textContent = x === 0 && y === 0 ? 'paper at bed origin' : `paper at ${x}, ${y} mm`;
+  };
+  showPaper();
+  const setOriginBtn = button('Set bed origin', () => {
+    void ebb.setOrigin().then(showPaper).catch(showErr);
+  });
+  setOriginBtn.title =
+    'Zero the machine here. This is the BED corner the lift map was measured from — use the same corner every time. Clears the paper origin.';
+  const setPaperBtn = button('Set paper origin', () => {
+    if (!ebb.connected) return;
+    ebb.setPaperOrigin(opts());
+    showPaper();
+  });
+  setPaperBtn.title =
+    'Record the current position as the sheet\u2019s corner, without zeroing. Plots draw from here; the lift map still reads bed coordinates.';
+  const goPaperBtn = button('Go to paper origin', () => void ebb.goToPaperOrigin(opts()).catch(showErr));
   penRow.append(
     button('Pen up', () => void ebb.penUp().catch(showErr)),
     penDownBtn,
-    button('Set origin', () => void ebb.setOrigin().catch(showErr)),
-    button('Home', () => void ebb.home().catch(showErr)),
+    setOriginBtn,
+    setPaperBtn,
+    goPaperBtn,
+    button('Home', () => void ebb.home().then(showPaper).catch(showErr)),
     button('Release', () => void ebb.cmd('EM,0,0').catch(showErr)),
+    paperStatus,
   );
   const logRow = document.createElement('div');
   logRow.className = 'row';
