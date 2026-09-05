@@ -55,6 +55,11 @@ export interface EbbSettings {
    * the board, so the tuned values live here. */
   penUpPulse: number;
   penDownPulse: number;
+  /** Seating pulse (SC,5): where the horn lifts the slider just off its
+   * stop; the pen is dropped to the paper and clamped at this pulse, then
+   * SC,5 returns to penDownPulse — the preload, in pulse units, the same
+   * for every pen. Also the bottom of the down-sweep ladder. */
+  seatPulse: number;
   acceleration: number;
   travelAcceleration: number;
   junctionDeviation: number;
@@ -144,6 +149,7 @@ export const DEFAULT_PROFILE: MachineProfile = {
     invertY: false,
     penUpPulse: 8600,
     penDownPulse: 18000,
+    seatPulse: 17000,
     acceleration: 1000,
     travelAcceleration: 2000,
     junctionDeviation: 0.02,

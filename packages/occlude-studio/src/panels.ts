@@ -811,9 +811,12 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     'Lift ladder for the pen-height cards: six pulses from \u2018from\u2019 to \u2018to\u2019. Leave 0/0 for the ' +
     'wide first pass; then narrow onto where the ink started (e.g. 12000 \u2192 16000).';
   diag.append(ladderRow, ladderHint);
+  // Down sweep: from just below the seat pulse (where the horn is known to
+  // carry the slider) up to the down pulse — the release lives in between.
   const downPulses = (): number[] => {
     const e = prof().ebb;
-    return ladder(e.penDownPulse - 6000, e.penDownPulse, 6);
+    const from = Math.min(e.seatPulse - 200, e.penDownPulse - 1200);
+    return Array.from({ length: 6 }, (_, i) => Math.round(from + ((e.penDownPulse - from) * i) / 5));
   };
   const cal = document.createElement('details');
   cal.className = 'subpanel';
@@ -991,8 +994,9 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   );
   addDiag(
     'Down sweep (~120\u00d718mm)',
-    'Six hatch patches at pen-down pulses from 6000 below the profile\u2019s up to it (left = horn still carrying ' +
-      'the pen). Faint or skipping patches = the horn has not released the pen. First solid patch = down pulse.',
+    'Six hatch patches at pen-down pulses from just below the seat pulse up to the profile\u2019s down pulse ' +
+      '(left = horn still carrying the pen). Blank or faint patches = not released. First solid patch = the ' +
+      'lowest safe down pulse. Run at 0,0, the least-sag spot, where release happens last.',
     (base) => downSweep(base, { pulses: downPulses() }),
   );
   addDiag(
@@ -1096,6 +1100,10 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         servoRow,
         'Pen-up (SC,4) and pen-down (SC,5) pulses — write-only on the board, so tuned values live here',
       ),
+      row('Seat pulse', numberInput(e.seatPulse, 100, (v) => {
+        e.seatPulse = Math.round(v);
+        persist();
+      }), 'Seating: set the pen-down box to this, Pen down, let the pen fall to the paper, clamp, restore the down pulse. The preload every pen gets; also the bottom of the down-sweep ladder'),
     );
   }
 
