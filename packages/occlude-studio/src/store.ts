@@ -47,8 +47,12 @@ export interface EbbSettings {
   swapXY: boolean;
   invertX: boolean;
   invertY: boolean;
-  servoDown: number;
-  servoUp: number;
+  /** Servo pulse for the pen-UP target (EBB register SC,4, the SP,1
+   * position) and pen-DOWN target (SC,5, the SP,0 position), in 1/12 MHz
+   * ticks. On the iDraw the LOWER pulse is the raised horn. Write-only on
+   * the board, so the tuned values live here. */
+  penUpPulse: number;
+  penDownPulse: number;
   acceleration: number;
   travelAcceleration: number;
   junctionDeviation: number;
@@ -108,9 +112,11 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 /** The measured iDraw (EBB 2.8.1, 2026-08-26): 100 steps/mm at 1/16
- * microstep; axes rotated 90° vs the page (swap + invert X); servo SC
- * positions verified on hardware — 10000 IS fully down (the arm clears
- * the pen, which rests under its own weight; contact is mechanical). */
+ * microstep; axes rotated 90° vs the page (swap + invert X). Servo pulses
+ * hand-swept 2026-09-05: 8600 is the highest the mechanism lifts (below it
+ * the horn stalls and bounces back), 18000 is where the horn fully clears
+ * the slider at pen-down (the bracket stops it at ~18200). The servo only
+ * lifts; pen contact is the pen's own weight. */
 export const DEFAULT_PROFILE: MachineProfile = {
   name: 'iDraw',
   driver: 'ebb',
@@ -127,8 +133,8 @@ export const DEFAULT_PROFILE: MachineProfile = {
     swapXY: true,
     invertX: true,
     invertY: false,
-    servoDown: 10000,
-    servoUp: 14200,
+    penUpPulse: 8600,
+    penDownPulse: 18000,
     acceleration: 1000,
     travelAcceleration: 2000,
     junctionDeviation: 0.02,
@@ -219,10 +225,9 @@ export async function loadProfiles(): Promise<MachineProfile[]> {
     if (res.ok) {
       const profiles = (await res.json()) as MachineProfile[];
       if (Array.isArray(profiles) && profiles.length > 0) {
-        // Forward-compat: fill fields added after a profile was saved.
         for (const pp of profiles) {
           pp.machine = { ...DEFAULT_PROFILE.machine, ...pp.machine };
-          pp.ebb = { ...DEFAULT_PROFILE.ebb, ...pp.ebb };
+          pp.ebb = migrateEbb(pp.ebb);
         }
         localStorage.setItem('occlude.profiles', JSON.stringify(profiles));
         return profiles;
@@ -235,7 +240,10 @@ export async function loadProfiles(): Promise<MachineProfile[]> {
     const raw = localStorage.getItem('occlude.profiles');
     if (raw) {
       const profiles = JSON.parse(raw) as MachineProfile[];
-      if (Array.isArray(profiles) && profiles.length > 0) return profiles;
+      if (Array.isArray(profiles) && profiles.length > 0) {
+        for (const pp of profiles) pp.ebb = migrateEbb(pp.ebb);
+        return profiles;
+      }
     }
   } catch {
     // corrupt cache
@@ -247,7 +255,7 @@ export async function loadProfiles(): Promise<MachineProfile[]> {
     if (raw) {
       const old = JSON.parse(raw) as { machine?: MachineSettings; ebb?: EbbSettings };
       if (old.machine) migrated.machine = { ...migrated.machine, ...old.machine };
-      if (old.ebb) migrated.ebb = { ...migrated.ebb, ...migrateEbb(old.ebb) };
+      if (old.ebb) migrated.ebb = migrateEbb(old.ebb);
     }
   } catch {
     // defaults stand
@@ -304,10 +312,35 @@ export function savePens(pens: PenDef[]): void {
 }
 
 /** Stored values beat defaults, so default changes need explicit
- * migrations: 7500 was a briefly-deployed mistake (the extension's range
- * floor) — the hardware-verified fully-down value is 10000. */
-function migrateEbb(ebb: EbbSettings): EbbSettings {
-  return ebb.servoDown === 7500 ? { ...ebb, servoDown: 10000 } : ebb;
+ * migrations. Two generations of the servo pair predate this one:
+ *
+ * - Fields were named `servoDown`/`servoUp` while feeding SC,4/SC,5 — but
+ *   SC,4 is the pen-UP register (SP,1 target), so the names were inverted.
+ *   They are renamed here to what they drive.
+ * - The pairs shipped under that misreading (7500 or 10000 up, 14200 or
+ *   16000 down) left a third of the lift unused and the down pulse still
+ *   kissing the slider; a stored default-pair is bumped to the 2026-09-05
+ *   sweep values. Hand-tuned pairs are kept as they are.
+ *
+ * Missing fields are filled from DEFAULT_PROFILE.ebb (forward-compat for
+ * fields added after a profile was saved). */
+export function migrateEbb(raw: Partial<EbbSettings> & LegacyEbbFields): EbbSettings {
+  const { servoDown, servoUp, ...rest } = raw;
+  const ebb: EbbSettings = { ...DEFAULT_PROFILE.ebb, ...rest };
+  if (servoDown !== undefined && rest.penUpPulse === undefined) ebb.penUpPulse = servoDown;
+  if (servoUp !== undefined && rest.penDownPulse === undefined) ebb.penDownPulse = servoUp;
+  const oldUp = ebb.penUpPulse === 7500 || ebb.penUpPulse === 10000;
+  const oldDown = ebb.penDownPulse === 14200 || ebb.penDownPulse === 16000;
+  if (oldUp && oldDown) {
+    ebb.penUpPulse = DEFAULT_PROFILE.ebb.penUpPulse;
+    ebb.penDownPulse = DEFAULT_PROFILE.ebb.penDownPulse;
+  }
+  return ebb;
+}
+
+interface LegacyEbbFields {
+  servoDown?: number;
+  servoUp?: number;
 }
 
 export function loadSettings(): Settings {

@@ -8,8 +8,8 @@ const opts = {
   swapXY: true,
   invertX: true,
   invertY: false,
-  servoDown: 10_000,
-  servoUp: 14_200,
+  penUpPulse: 10_000,
+  penDownPulse: 14_200,
   acceleration: 1000,
   travelAcceleration: 1000,
   junctionDeviation: 0.02,
@@ -130,7 +130,7 @@ describe('Ebb motor lifecycle', () => {
     });
 
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: 10_000, servoUp: 14_200 });
+    await ebb.connect({ penUpPulse: 10_000, penDownPulse: 14_200 });
 
     expect(port.commands).not.toContain('EM,1,1');
     expect(port.commands.slice(0, 2)).toEqual(['V', 'EM,0,0']);
@@ -144,7 +144,7 @@ describe('Ebb motor lifecycle', () => {
     });
 
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: 10_000, servoUp: 14_200 });
+    await ebb.connect({ penUpPulse: 10_000, penDownPulse: 14_200 });
     await ebb.home();
 
     expect(port.commands.slice(-3)).toEqual(['SP,1,300', 'EM,1,1', 'HM,2000']);
@@ -162,7 +162,7 @@ describe('Ebb motor lifecycle', () => {
     });
     const plan = new Float64Array([0, 0, points.length, ...points.flat()]);
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: opts.servoDown, servoUp: opts.servoUp });
+    await ebb.connect({ penUpPulse: opts.penUpPulse, penDownPulse: opts.penDownPulse });
     await ebb.plot(
       plan,
       [{ name: 'test', width: 0.2, color: '#000', feed: 3500, penDown: 0, penUp: 5, penDelay: 150 }],
@@ -185,7 +185,7 @@ describe('Ebb motor lifecycle', () => {
     const direct = { ...opts, swapXY: false, invertX: false };
     const plan = new Float64Array([0, 0, 3, 0, 0, 20, 0, 20, 20]);
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
     await ebb.plot(
       plan,
       [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
@@ -220,7 +220,7 @@ describe('Ebb motor lifecycle', () => {
     const direct = { ...opts, swapXY: false, invertX: false };
     const plan = new Float64Array([0, 0, 3, 0, 0, 0.05, 0, 0, 0]);
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
     await ebb.plot(
       plan,
       [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
@@ -240,7 +240,7 @@ describe('Ebb motor lifecycle', () => {
     });
     const direct = { ...opts, swapXY: false, invertX: false };
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
     await ebb.plot(
       new Float64Array([0, 0, 2, 0, 0, 20, 0]),
       [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
@@ -265,7 +265,7 @@ describe('Ebb motor lifecycle', () => {
     // them (never after the last chain).
     const plan = new Float64Array([0, 0, 2, 5, 5, 25, 5, 0, 0, 2, 25, 15, 5, 15]);
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
     const pauses: string[] = [];
     await ebb.plot(
       plan,
@@ -307,7 +307,7 @@ describe('Ebb motor lifecycle', () => {
     });
     const direct = { ...opts, swapXY: false, invertX: false };
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
     await ebb.plot(
       new Float64Array([0, 0, 2, 0, 0, 100, 0]),
       [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
@@ -331,7 +331,7 @@ describe('Ebb motor lifecycle', () => {
     });
     const direct = { ...opts, swapXY: false, invertX: false };
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
     await ebb.plot(
       new Float64Array([0, 0, 2, 0, 0, 100, 0]),
       [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
@@ -373,7 +373,7 @@ describe('Ebb motor lifecycle', () => {
       });
       const direct = { ...opts, swapXY: false, invertX: false, stepsPerMm };
       const ebb = new Ebb();
-      await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+      await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
       await ebb.plot(
         new Float64Array(plan),
         [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
@@ -399,7 +399,7 @@ describe('Ebb motor lifecycle', () => {
       });
       const direct = { ...opts, swapXY: false, invertX: false, travelAcceleration };
       const ebb = new Ebb();
-      await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+      await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
       await ebb.plot(
         new Float64Array([0, 0, 2, 60, 0, 70, 0]),
         [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
@@ -434,7 +434,7 @@ describe('Ebb motor lifecycle', () => {
       { name: 'b', width: 0.2, color: '#f00', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 },
     ];
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
     await ebb.plot(plan, pens, direct, () => undefined, undefined, undefined, 1);
 
     const downs = port.commands.filter((command) => command === 'SP,0,150');
@@ -463,7 +463,7 @@ describe('LM motion', () => {
       value: { serial: { requestPort: async () => port } },
     });
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: o.servoDown, servoUp: o.servoUp });
+    await ebb.connect({ penUpPulse: o.penUpPulse, penDownPulse: o.penDownPulse });
     await ebb.plot(plan, pen, o, () => undefined);
     return port;
   }
@@ -536,7 +536,7 @@ describe('stop robustness', () => {
     });
     const direct = { ...opts, swapXY: false, invertX: false };
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
     // The board goes silent on a motion command mid-plot (full FIFO or a
     // stalled move): the old stop() queued ES behind it and nothing —
     // including Home — could ever send again.
@@ -572,7 +572,7 @@ describe('progress estimation', () => {
     });
     const direct = { ...opts, swapXY: false, invertX: false };
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
     let last: PlotProgress | undefined;
     await ebb.plot(
       new Float64Array([0, 0, 2, 0, 0, 100, 0]),
@@ -613,7 +613,7 @@ describe('position integrity (QS)', () => {
     const port = new FakePort();
     port.qs = () => [200, 0]; // motor space → machine (100, 100) steps = (1, 1)mm
     const ebb = setup(port);
-    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
     await ebb.plot(new Float64Array([0, 0, 2, 1, 1, 2, 1]), pen, direct, () => undefined);
     // The chain starts exactly where the board says we are: no travel move.
     const down = port.commands.indexOf('SP,0,150');
@@ -628,7 +628,7 @@ describe('position integrity (QS)', () => {
     let calls = 0;
     port.qs = () => (++calls <= 1 ? [0, 0] : [1100, 1100]); // machine (1100, 0)
     const ebb = setup(port);
-    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
     const reports: (string | undefined)[] = [];
     await ebb.plot(new Float64Array([0, 0, 2, 0, 0, 10, 0]), pen, direct, (p) =>
       reports.push(p.warning),
@@ -640,7 +640,7 @@ describe('position integrity (QS)', () => {
   test('jog or Set origin during a pause keeps the pen up on resume', async () => {
     const port = new FakePort();
     const ebb = setup(port);
-    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
     let state = '';
     const plotting = ebb.plot(
       new Float64Array([0, 0, 2, 0, 0, 30, 0, 0, 0, 2, 5, 5, 6, 5]),
@@ -678,7 +678,7 @@ describe('quick-hop lifts', () => {
       0, 0, 2, 100, 0, 105, 0,
     ]);
     const ebb = new Ebb();
-    await ebb.connect({ servoDown: direct.servoDown, servoUp: direct.servoUp });
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
     await ebb.plot(
       plan,
       [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 500 }],
@@ -720,7 +720,7 @@ describe('connect resilience', () => {
       value: { serial: { requestPort: async () => port } },
     });
     const ebb = new Ebb();
-    const v = await ebb.connect({ servoDown: 10_000, servoUp: 14_200 });
+    const v = await ebb.connect({ penUpPulse: 10_000, penDownPulse: 14_200 });
     expect(v).toMatch(/\d+\.\d+\.\d+/);
     const direct = { ...opts, swapXY: false, invertX: false, lmMotion: true };
     await ebb.plot(

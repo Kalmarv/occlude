@@ -73,10 +73,11 @@ export interface EbbOptions {
   swapXY: boolean;
   invertX: boolean;
   invertY: boolean;
-  /** Servo positions (SC,4 / SC,5 — write-only on the board, persisted in
-   * the app). Verified working: down 10000, up 16000 (~5mm lift). */
-  servoDown: number;
-  servoUp: number;
+  /** Servo pulses: pen-UP target (SC,4, where SP,1 drives the horn) and
+   * pen-DOWN target (SC,5, SP,0's). Write-only on the board, persisted in
+   * the profile. iDraw 2026-09-05 sweep: up 8600 / down 18000. */
+  penUpPulse: number;
+  penDownPulse: number;
   /** Host-side look-ahead limits. Pen feed remains the per-stroke maximum. */
   acceleration: number; // mm/s²
   /** Pen-up moves have no ink physics or line quality to protect — only the
@@ -169,7 +170,7 @@ export class Ebb {
   // the pen onto the paper origin → Set origin → resume.
   private pauseAdjusted = false;
 
-  async connect(o?: { servoDown: number; servoUp: number }): Promise<string> {
+  async connect(o?: { penUpPulse: number; penDownPulse: number }): Promise<string> {
     const serial = (navigator as unknown as { serial: SerialLike }).serial;
     const port = await serial.requestPort({
       filters: [{ usbVendorId: 0x04d8, usbProductId: 0xfd92 }],
@@ -198,8 +199,8 @@ export class Ebb {
     await this.cmd('EM,0,0');
     await this.cmd('SR,0');
     if (o) {
-      await this.cmd(`SC,4,${Math.round(o.servoDown)}`);
-      await this.cmd(`SC,5,${Math.round(o.servoUp)}`);
+      await this.cmd(`SC,4,${Math.round(o.penUpPulse)}`);
+      await this.cmd(`SC,5,${Math.round(o.penDownPulse)}`);
     }
     await this.penUp(0);
     // Motor supply check: QC's second value is V+; ~zero = power unplugged.
@@ -656,7 +657,7 @@ export class Ebb {
     livePen?: (name: string) => PenDef | undefined,
     /** Current servo positions — re-sent on resume so pause → adjust →
      * resume also covers pen height. */
-    liveServo?: () => { servoDown: number; servoUp: number },
+    liveServo?: () => { penUpPulse: number; penDownPulse: number },
     /** Plot only this pen's chains (index into `pens`); omit for all. */
     onlyPen?: number,
   ): Promise<void> {
@@ -757,22 +758,21 @@ export class Ebb {
     // always restored for long travels, pauses, aborts, and the plot end.
     // REGISTER SEMANTICS (learned the hard way, serial log 2026-08-30):
     // SP,0 (pen DOWN) drives the servo to SC,5; SP,1 (UP) to SC,4 —
-    // standard EBB, the opposite of our integration notes' labels. Setting
-    // both as a pair hid the inversion; hop must therefore adjust SC,4
-    // (the true UP target) and NEVER touch SC,5, or it lowers the pen's
-    // DOWN position and strokes hover above the paper.
+    // standard EBB. The settings were once named the other way round,
+    // which hid this for weeks; hop adjusts SC,4 (penUpPulse) ONLY and
+    // NEVER touches SC,5, or it moves the pen's DOWN position and strokes
+    // hover above the paper.
     const HOP = 0.4;
     let hopMode = false;
-    const servo = (): { servoDown: number; servoUp: number } =>
-      liveServo?.() ?? { servoDown: o.servoDown, servoUp: o.servoUp };
+    const servo = (): { penUpPulse: number; penDownPulse: number } =>
+      liveServo?.() ?? { penUpPulse: o.penUpPulse, penDownPulse: o.penDownPulse };
     const setLift = async (hop: boolean): Promise<void> => {
       if (hop === hopMode) return;
       hopMode = hop;
       const sv = servo();
-      // settings.servoDown feeds SC,4 (full-up pulse), settings.servoUp
-      // feeds SC,5 (down pulse). Hop = rise only 40% of the way up.
-      const up = hop ? sv.servoUp + (sv.servoDown - sv.servoUp) * HOP : sv.servoDown;
-      this.fullUpPulse = Math.round(sv.servoDown);
+      // Hop = rise only 40% of the way from the down pulse to the up pulse.
+      const up = hop ? sv.penDownPulse + (sv.penUpPulse - sv.penDownPulse) * HOP : sv.penUpPulse;
+      this.fullUpPulse = Math.round(sv.penUpPulse);
       this.hopLiftActive = hop;
       await this.cmd(`SC,4,${Math.round(up)}`);
     };
@@ -815,8 +815,8 @@ export class Ebb {
           if (!this.plotAbort) {
             if (liveServo) {
               const sv = liveServo();
-              await this.cmd(`SC,4,${Math.round(sv.servoDown)}`);
-              await this.cmd(`SC,5,${Math.round(sv.servoUp)}`);
+              await this.cmd(`SC,4,${Math.round(sv.penUpPulse)}`);
+              await this.cmd(`SC,5,${Math.round(sv.penDownPulse)}`);
             }
             if (!wasUp && !this.pauseAdjusted) await this.penDown(settle);
           }

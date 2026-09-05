@@ -100,9 +100,20 @@ send(`XM,${Math.max(ms, Math.ceil(minMs))},${mdx},${mdy}\r`);
 - ⚠️ SR servo auto-power-off. Verified: SR,3000 → power dropped at exactly 3 s idle.
   Default 60 s. On power-off the pen can sag onto the paper — fatal during a pause. `SR,0`
   disables it (verified).
-- Current tuned values: `SC,4,10000` (down, **fully down**), `SC,5,16000` (up, ~5–6 mm
-  lift). Lift is ~2× more than needed; SC,5,14200 ≈ 2.5–3 mm would speed up plots. SC is
+- ~~Current tuned values: `SC,4,10000` (down, **fully down**), `SC,5,16000` (up, ~5–6 mm
+  lift). Lift is ~2× more than needed; SC,5,14200 ≈ 2.5–3 mm would speed up plots.~~ SC is
   write-only — no readback, so persist these in the app.
+- ⚠️ **CORRECTION (2026-09-05, hand sweep with the horn watched):** SC,4 is the pen-UP
+  pulse and the LOWER pulse is the raised horn. The mechanism lifts furthest at
+  **SC,4 = 8600** (below that the horn stalls against its travel limit and bounces back; at
+  8600 it holds but audibly strains — 9000 is the quiet retreat if the servo runs hot).
+  The horn only FULLY clears the slider at pen-down around **SC,5 = 18000** (the bracket
+  stops it at ~18200), so the earlier 14200/16000 "down" pulses still carried part of the
+  pen's weight — a likely contributor to the pressure dropouts above. With 8600/18000 the
+  pen clears the paper at full X extension, where the old pair could not. Settle (penDelay)
+  must be re-swept for the ~2.6× longer swing. The app's profile fields are now named
+  `penUpPulse` (SC,4) / `penDownPulse` (SC,5); the old `servoDown`/`servoUp` names were
+  inverted and are migrated.
 
 ## 8. Connect / plot / stop sequences
 
@@ -110,8 +121,8 @@ send(`XM,${Math.max(ms, Math.ceil(minMs))},${mdx},${mdy}\r`);
 CONNECT (no delay after open):
   V              ; verify banner
   SR,0           ; servo never powers off  <-- critical
-  SC,4,10000     ; pen down = fully down
-  SC,5,16000     ; pen up
+  SC,4,8600      ; pen UP pulse (SP,1 target) — see 2026-09-05 correction above
+  SC,5,18000     ; pen DOWN pulse (SP,0 target)
   SP,1           ; ensure up
   EM,1,1         ; motors on, 1/16 microstep
   <user parks carriage; app prompts to seat pen LOW>

@@ -515,8 +515,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     swapXY: prof().ebb.swapXY,
     invertX: prof().ebb.invertX,
     invertY: prof().ebb.invertY,
-    servoDown: prof().ebb.servoDown,
-    servoUp: prof().ebb.servoUp,
+    penUpPulse: prof().ebb.penUpPulse,
+    penDownPulse: prof().ebb.penDownPulse,
     acceleration: prof().ebb.acceleration,
     travelAcceleration: prof().ebb.travelAcceleration,
     junctionDeviation: prof().ebb.junctionDeviation,
@@ -535,7 +535,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         status.textContent = 'not connected';
         return;
       }
-      const v = await ebb.connect({ servoDown: prof().ebb.servoDown, servoUp: prof().ebb.servoUp });
+      const v = await ebb.connect({ penUpPulse: prof().ebb.penUpPulse, penDownPulse: prof().ebb.penDownPulse });
       connectBtn.textContent = 'Disconnect';
       status.textContent = v || 'connected';
     } catch (e) {
@@ -692,7 +692,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         opts(),
         onProgress,
         (name) => hooks.pens.find((p) => p.name === name),
-        () => ({ servoDown: prof().ebb.servoDown, servoUp: prof().ebb.servoUp }),
+        () => ({ penUpPulse: prof().ebb.penUpPulse, penDownPulse: prof().ebb.penDownPulse }),
         penIndex,
       );
     } catch (e) {
@@ -888,25 +888,34 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     const servoRow = document.createElement('div');
     servoRow.className = 'row';
     // SC positions are board state: apply edits immediately when connected.
-    servoRow.append(
-      numberInput(e.servoDown, 100, (v) => {
-        e.servoDown = v;
-        persist();
-        if (ebb.connected) void ebb.cmd(`SC,4,${Math.round(v)}`).catch(showErr);
-      }),
-      numberInput(e.servoUp, 100, (v) => {
-        e.servoUp = v;
-        persist();
-        if (ebb.connected) void ebb.cmd(`SC,5,${Math.round(v)}`).catch(showErr);
-      }),
-    );
+    // SC,4 is what the Pen up button (SP,1) drives to; SC,5 is Pen down's
+    // (SP,0) target. The horn moves on the next SP, not on the SC write.
+    const upIn = numberInput(e.penUpPulse, 100, (v) => {
+      e.penUpPulse = v;
+      persist();
+      if (ebb.connected) void ebb.cmd(`SC,4,${Math.round(v)}`).catch(showErr);
+    });
+    upIn.title = 'Pen UP pulse (SC,4). Lower = higher lift on the iDraw; below ~8600 the horn stalls.';
+    const downIn = numberInput(e.penDownPulse, 100, (v) => {
+      e.penDownPulse = v;
+      persist();
+      if (ebb.connected) void ebb.cmd(`SC,5,${Math.round(v)}`).catch(showErr);
+    });
+    downIn.title =
+      'Pen DOWN pulse (SC,5). Must fully clear the slider so the pen rests on its own weight; ' +
+      'the bracket stops the horn at ~18200.';
+    servoRow.append(upIn, downIn);
     setup.body.replaceChildren(
       row('Steps/mm', numberInput(e.stepsPerMm, 0.1, (v) => {
         e.stepsPerMm = v;
         persist();
       }), 'Verify a new machine with the cal-sheet ruler'),
       flips,
-      row('Servo dn/up', servoRow, 'SC,4 / SC,5 positions — write-only on the board, so tuned values live here'),
+      row(
+        'Servo up/down',
+        servoRow,
+        'Pen-up (SC,4) and pen-down (SC,5) pulses — write-only on the board, so tuned values live here',
+      ),
     );
   }
 
