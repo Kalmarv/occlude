@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { Ebb, type PlotProgress } from './ebb.js';
+import { Ebb, lmAxisCompletes, lmCompletable, type PlotProgress } from './ebb.js';
 
 const opts = {
   stepsPerMm: 100,
@@ -524,6 +524,55 @@ describe('LM motion', () => {
     const port = await run(new Float64Array([0, 0, 2, 0, 0, 20, 0]), lmOpts, 'EBBv2.4.5');
     expect(port.commands.some((c) => c.startsWith('LM,'))).toBe(false);
     expect(port.commands.some((c) => c.startsWith('XM,'))).toBe(true);
+  });
+});
+
+describe('LM completion guard', () => {
+  test('the 2026-09-05 wedge: a 252-step decel to the floor stalls one step short', () => {
+    // Verbatim from the field serial log: the board never returned OK.
+    expect(lmAxisCompletes(865837701, -252, -692648)).toBe(false);
+    expect(lmAxisCompletes(852094245, 248, -681654)).toBe(false);
+    // A neighbouring block from the same log that did complete.
+    expect(lmAxisCompletes(214748365, 31, -346368)).toBe(true);
+  });
+
+  test('easing the deceleration makes the wedged block complete with the rate still positive', () => {
+    for (const [r, s, a] of [[865837701, -252, -692648], [852094245, 248, -681654]] as const) {
+      const [rate, accel] = lmCompletable(r, a, s);
+      expect(rate).toBe(r);
+      expect(Math.abs(accel)).toBeLessThan(Math.abs(a));
+      expect(Math.abs(accel)).toBeGreaterThan(Math.abs(a) * 0.9); // a nudge, not a different move
+      expect(lmAxisCompletes(rate, s, accel)).toBe(true);
+    }
+  });
+
+  test('accelerating and already-completable blocks pass through untouched', () => {
+    expect(lmCompletable(85899, 346368, 31)).toEqual([85899, 346368]);
+    expect(lmCompletable(214748365, -346368, 31)).toEqual([214748365, -346368]);
+  });
+
+  test('a plot whose final travel block is the wedge case now emits only completable LMs', async () => {
+    // The traverse geometry: a 6000mm/min pen-up travel that ends 250 steps
+    // (2.5mm) short along Y with a 2-step X component, decelerating to the floor.
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const o = { ...opts, lmMotion: true, swapXY: false, invertX: false, travelFeed: 6000, travelAcceleration: 2000 };
+    const ebb = new Ebb();
+    await ebb.connect({ penUpPulse: o.penUpPulse, penDownPulse: o.penDownPulse });
+    const plan = new Float64Array([0, 0, 2, 0, 0, 3, 0, 0, 0, 2, 0.5, 300, 3.5, 300]);
+    await ebb.plot(plan, [{ name: 't', width: 0.2, color: '#000', feed: 3000, penDown: 0, penUp: 5, penDelay: 150 }], o, () => undefined);
+    const lm = port.commands.filter((c) => c.startsWith('LM,'));
+    expect(lm.length).toBeGreaterThan(0);
+    for (const cmd of lm) {
+      const [r1, s1, d1, r2, s2, d2] = cmd.split(',').slice(1).map(Number);
+      expect(lmAxisCompletes(r1, s1, d1)).toBe(true);
+      expect(lmAxisCompletes(r2, s2, d2)).toBe(true);
+    }
+    const sim = simulateLm(port.commands);
+    expect(sim.stalled).toBe(false);
   });
 });
 

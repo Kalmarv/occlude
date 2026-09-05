@@ -40,6 +40,52 @@ export function serialSupported(): boolean {
   return typeof navigator !== 'undefined' && 'serial' in navigator && window.isSecureContext;
 }
 
+/**
+ * Run one LM axis the way the firmware does — every 40µs add Accel to Rate
+ * and Rate to a 31-bit accumulator, step on overflow, after the −Accel/2
+ * initial adjustment — and report whether all steps fire before the rate
+ * runs out. The continuous math can put the last step within a fraction of
+ * a step of the point where the rate reaches zero; when rounding lands it
+ * on the wrong side the move never completes and the board's FIFO is
+ * wedged for good (field log 2026-09-05: a 252-step decel to the floor took
+ * 251 steps and ran negative). Cheap: a block is at most a few thousand ticks.
+ */
+export function lmAxisCompletes(rate: number, steps: number, accel: number): boolean {
+  const target = Math.abs(steps);
+  if (target === 0) return true;
+  let r = rate - accel / 2;
+  let acc = 0;
+  let taken = 0;
+  // Generous cap: a legitimate block is ≤0.3s = 7500 ticks.
+  for (let tick = 0; tick < 50_000 && taken < target; tick++) {
+    r += accel;
+    if (r <= 0) return false; // the accumulator can never overflow again
+    acc += r;
+    if (acc >= 0x80000000) {
+      acc -= 0x80000000;
+      taken += 1;
+    }
+  }
+  return taken >= target;
+}
+
+/**
+ * Make a decelerating LM axis completable: while the emulated firmware
+ * would stall, ease the deceleration toward zero by 1/256 per pass so the
+ * rate is still positive when the last step fires. The block then ends a
+ * hair faster than planned — a fraction of a percent of travel speed at
+ * the end of a travel, invisible — instead of never ending at all.
+ */
+export function lmCompletable(rate: number, accel: number, steps: number): [number, number] {
+  if (steps === 0 || accel >= 0) return [rate, accel];
+  let a = accel;
+  for (let pass = 0; pass < 64 && !lmAxisCompletes(rate, steps, a); pass++) {
+    a = Math.trunc(a * (1 - 1 / 256));
+    if (a === 0) break;
+  }
+  return [rate, a];
+}
+
 /** Servo pulses a calibration card pins for one pen's chains. */
 export interface ServoOverride {
   up?: number;
@@ -435,8 +481,8 @@ export class Ebb {
       const deltaR = Math.round((finalRate - initialRate) / (moveTime * 25000));
       return [initialRate, deltaR];
     };
-    const [rate1, accel1] = axisRate(steps1, Math.abs(dx + dy));
-    const [rate2, accel2] = axisRate(steps2, Math.abs(dx - dy));
+    const [rate1, accel1] = lmCompletable(...axisRate(steps1, Math.abs(dx + dy)), steps1);
+    const [rate2, accel2] = lmCompletable(...axisRate(steps2, Math.abs(dx - dy)), steps2);
     await this.cmd(`LM,${rate1},${steps1},${accel1},${rate2},${steps2},${accel2}`);
     this.stepX = sx;
     this.stepY = sy;
