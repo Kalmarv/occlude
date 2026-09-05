@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest';
 
-import { backlashSquares, cornerRinging, registrationProbe } from './diagnostics.js';
+import {
+  backlashSquares, cornerRinging, downSweep, liftGrid, registrationProbe, settleLift,
+} from './diagnostics.js';
 
 /** Mirror of ebb.plot()'s plan parser. */
 function parse(plan: Float64Array): { pen: number; pts: [number, number][] }[] {
@@ -96,5 +98,48 @@ describe('machine diagnostics', () => {
         expect(Math.abs(dx) + Math.abs(dy)).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe('pen-height cards', () => {
+  const base = {
+    name: 'micron-01', width: 0.45, color: '#111', feed: 3500,
+    penDown: 0, penUp: 5, penDelay: 600,
+  };
+  const pulses = [8600, 10000, 11400, 12800, 14200, 16000];
+
+  test('lift grid: framed cells cover the bed, one pen per pulse, frame pen unpinned', () => {
+    const d = liftGrid(base, { bedW: 300, bedH: 218, pulses, cols: 5, rows: 4 });
+    expect(d.pens).toHaveLength(pulses.length + 1);
+    expect(d.servo?.[0]).toBeUndefined();
+    expect(d.servo?.slice(1).map((s) => s?.up)).toEqual(pulses);
+    const chains = parse(d.plan);
+    for (const c of chains) for (const [x, y] of c.pts) {
+      expect(x).toBeGreaterThanOrEqual(0); expect(x).toBeLessThanOrEqual(300);
+      expect(y).toBeGreaterThanOrEqual(0); expect(y).toBeLessThanOrEqual(218);
+    }
+    // 20 frames, and every strip alternates direction so each hop travel is a diagonal.
+    expect(chains.filter((c) => c.pen === 0)).toHaveLength(20);
+    const strip = chains.filter((c) => c.pen === 1).slice(0, 2);
+    expect(Math.sign(strip[0].pts[1][0] - strip[0].pts[0][0]))
+      .toBe(-Math.sign(strip[1].pts[1][0] - strip[1].pts[0][0]));
+    for (const p of d.pens) expect(p.penDelay).toBe(600);
+  });
+
+  test('settle × lift: one pen per cell carrying its row settle and column lift', () => {
+    const settles = [200, 400, 600];
+    const d = settleLift(base, { pulses, settles });
+    expect(d.pens).toHaveLength(pulses.length * settles.length);
+    expect(d.pens.map((p) => p.penDelay)).toEqual(settles.flatMap((s) => pulses.map(() => s)));
+    expect(d.servo?.map((s) => s?.up)).toEqual(settles.flatMap(() => pulses));
+    // 9 dashes per cell.
+    expect(parse(d.plan)).toHaveLength(9 * d.pens.length);
+  });
+
+  test('down sweep: one hatch patch per landing pulse, lifts untouched', () => {
+    const d = downSweep(base, { pulses: [12000, 14000, 16000, 18000] });
+    expect(d.servo?.map((s) => s?.down)).toEqual([12000, 14000, 16000, 18000]);
+    expect(d.servo?.every((s) => s?.up === undefined)).toBe(true);
+    expect(parse(d.plan).filter((c) => c.pen === 2)).toHaveLength(19);
   });
 });

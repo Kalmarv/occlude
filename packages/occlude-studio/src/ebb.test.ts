@@ -709,6 +709,78 @@ describe('quick-hop lifts', () => {
   });
 });
 
+describe('servo overrides (pen-height cards)', () => {
+  const pen = (name: string, penDelay = 500) => ({
+    name, width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay,
+  });
+
+  test('a pen with `up` is travelled into at that SC,4; `down` lands at that SC,5; both restore', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, swapXY: false, invertX: false, quickHopMm: 0 };
+    // pen 0 plain, pen 1 lift override 12000, pen 2 down override 15000.
+    const plan = new Float64Array([
+      0, 0, 2, 0, 0, 5, 0,
+      1, 0, 2, 10, 0, 15, 0,
+      2, 0, 2, 20, 0, 25, 0,
+      0, 0, 2, 30, 0, 35, 0,
+    ]);
+    const servo = [undefined, { up: 12000 }, { down: 15000 }];
+    const ebb = new Ebb();
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    await ebb.plot(plan, [pen('a'), pen('b'), pen('c')], direct, () => undefined,
+      undefined, undefined, undefined, (i) => servo[i]);
+    const c = port.commands;
+    // Lift override is written BEFORE the pen-up that precedes chain 1's
+    // travel, and the settle is the full one (an override lift is not a hop).
+    const liftSet = c.indexOf('SC,4,12000');
+    expect(liftSet).toBeGreaterThan(-1);
+    expect(c[liftSet + 1]).toBe('SP,1,500');
+    // Chain 2 has no `up`, so full lift is restored before ITS travel…
+    const restoreUp = c.indexOf('SC,4,10000', liftSet);
+    expect(restoreUp).toBeGreaterThan(liftSet);
+    // …and its landing pulse is written right before its pen-down.
+    const downSet = c.indexOf('SC,5,15000');
+    expect(downSet).toBeGreaterThan(restoreUp);
+    expect(c[downSet + 1]).toBe('SP,0,500');
+    // Chain 3 (plain) lands at the profile pulse again.
+    const restoreDown = c.indexOf('SC,5,14200', downSet);
+    expect(restoreDown).toBeGreaterThan(downSet);
+    // Registers are only written on change: exactly one write per override.
+    expect(c.filter((x) => x === 'SC,4,12000')).toHaveLength(1);
+    expect(c.filter((x) => x === 'SC,5,15000')).toHaveLength(1);
+    // The plot ends with the profile pair on the board.
+    expect(c.lastIndexOf('SC,4,10000')).toBeGreaterThan(c.lastIndexOf('SC,4,12000'));
+    expect(c.lastIndexOf('SC,5,14200')).toBeGreaterThan(c.lastIndexOf('SC,5,15000'));
+  });
+
+  test('stop() restores an overridden landing pulse', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, swapXY: false, invertX: false, quickHopMm: 0 };
+    // One long chain with a down override so stop() lands mid-stroke.
+    const pts: number[] = [];
+    for (let i = 0; i <= 400; i++) pts.push(i * 0.5, (i % 2) * 0.5);
+    const plan = new Float64Array([0, 0, 401, ...pts]);
+    const ebb = new Ebb();
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    const plotting = ebb.plot(plan, [pen('a')], direct, () => undefined,
+      undefined, undefined, undefined, () => ({ down: 16000 }));
+    await new Promise((r) => setTimeout(r, 40));
+    await ebb.stop();
+    await plotting;
+    const c = port.commands;
+    expect(c.indexOf('SC,5,16000')).toBeGreaterThan(-1);
+    expect(c.lastIndexOf('SC,5,14200')).toBeGreaterThan(c.lastIndexOf('SC,5,16000'));
+  });
+});
+
 describe('connect resilience', () => {
   test('stale bytes at power-up cannot corrupt the version or disable LM', async () => {
     // A lone OK left in the CDC buffer used to be consumed as V's reply:

@@ -40,6 +40,12 @@ export function serialSupported(): boolean {
   return typeof navigator !== 'undefined' && 'serial' in navigator && window.isSecureContext;
 }
 
+/** Servo pulses a calibration card pins for one pen's chains. */
+export interface ServoOverride {
+  up?: number;
+  down?: number;
+}
+
 export interface PlotProgress {
   /** Commands sent / total. */
   sent: number;
@@ -162,6 +168,8 @@ export class Ebb {
   // settings don't matter, reconnect fixes it" field bug.)
   private hopLiftActive = false;
   private fullUpPulse = 0;
+  private downOverrideActive = false;
+  private profileDownPulse = 0;
   // Set when the user jogs or re-origins during a pause: the coordinate
   // frame moved, so resuming must NOT re-lower the pen — continuing the
   // interrupted stroke from a shifted position would draw a stray line.
@@ -627,6 +635,11 @@ export class Ebb {
       this.hopLiftActive = false;
       await this.cmd(`SC,4,${this.fullUpPulse}`).catch(() => undefined);
     }
+    if (this.downOverrideActive && this.profileDownPulse > 0) {
+      // Nor a calibration card's landing pulse.
+      this.downOverrideActive = false;
+      await this.cmd(`SC,5,${this.profileDownPulse}`).catch(() => undefined);
+    }
     await this.penUp().catch(() => undefined);
     // Unlock the gantry: after an abort the next step is usually a manual
     // re-park, and held steppers fight the hand.
@@ -660,6 +673,13 @@ export class Ebb {
     liveServo?: () => { penUpPulse: number; penDownPulse: number },
     /** Plot only this pen's chains (index into `pens`); omit for all. */
     onlyPen?: number,
+    /** Per-pen servo overrides (machine calibration cards): chains of a pen
+     * with `up` are TRAVELLED INTO at that SC,4 pulse instead of the
+     * full/hop lift, and chains with `down` LAND at that SC,5 pulse. The
+     * very first travel of a plot is always at full lift (the pen was
+     * raised at connect). Both registers are restored at the end, on stop,
+     * and re-derived after a pause. */
+    servoFor?: (penIndex: number) => ServoOverride | undefined,
   ): Promise<void> {
     interface Chain {
       pen: number;
@@ -763,19 +783,46 @@ export class Ebb {
     // NEVER touches SC,5, or it moves the pen's DOWN position and strokes
     // hover above the paper.
     const HOP = 0.4;
-    let hopMode = false;
     const servo = (): { penUpPulse: number; penDownPulse: number } =>
       liveServo?.() ?? { penUpPulse: o.penUpPulse, penDownPulse: o.penDownPulse };
-    const setLift = async (hop: boolean): Promise<void> => {
-      if (hop === hopMode) return;
-      hopMode = hop;
+    // Every travel has a LIFT PULSE (SC,4): full, the 40% hop, or a
+    // calibration override. Every landing has a DOWN PULSE (SC,5): the
+    // profile's, or an override. Registers are written only on change.
+    type LiftKind = 'full' | 'hop' | 'override';
+    let liftKind = 'full' as LiftKind; // widened: closures below reassign it
+    let liftPulse = Math.round(servo().penUpPulse); // what SC,4 holds now
+    let downPulse = Math.round(servo().penDownPulse); // what SC,5 holds now
+    const hopPulse = (): number => {
       const sv = servo();
       // Hop = rise only 40% of the way from the down pulse to the up pulse.
-      const up = hop ? sv.penDownPulse + (sv.penUpPulse - sv.penDownPulse) * HOP : sv.penUpPulse;
-      this.fullUpPulse = Math.round(sv.penUpPulse);
-      this.hopLiftActive = hop;
-      await this.cmd(`SC,4,${Math.round(up)}`);
+      return Math.round(sv.penDownPulse + (sv.penUpPulse - sv.penDownPulse) * HOP);
     };
+    const setLift = async (kind: LiftKind, pulse: number): Promise<void> => {
+      liftKind = kind;
+      this.fullUpPulse = Math.round(servo().penUpPulse);
+      this.hopLiftActive = pulse !== this.fullUpPulse;
+      if (pulse === liftPulse) return;
+      liftPulse = pulse;
+      await this.cmd(`SC,4,${pulse}`);
+    };
+    const setLiftFull = (): Promise<void> => setLift('full', Math.round(servo().penUpPulse));
+    /** Lift for the travel INTO `next` (chosen before the pen-up that
+     * precedes it): override → hop (gap within quickHopMm) → full. */
+    const liftFor = (next: Chain | undefined, gap: number): Promise<void> => {
+      const ov = next && servoFor?.(next.pen);
+      if (ov?.up !== undefined) return setLift('override', Math.round(ov.up));
+      if (next && o.quickHopMm > 0 && gap <= o.quickHopMm) return setLift('hop', hopPulse());
+      return setLiftFull();
+    };
+    const setDown = async (pulse: number): Promise<void> => {
+      this.downOverrideActive = pulse !== Math.round(servo().penDownPulse);
+      this.profileDownPulse = Math.round(servo().penDownPulse);
+      if (pulse === downPulse) return;
+      downPulse = pulse;
+      await this.cmd(`SC,5,${pulse}`);
+    };
+    const downFor = (c: Chain): Promise<void> =>
+      setDown(Math.round(servoFor?.(c.pen)?.down ?? servo().penDownPulse));
     // Asymmetric on purpose: pen-DOWN must physically complete before ink
     // matters (a truncated fall reads as "pen not all the way down" on
     // dense strokes), so it keeps more margin; pen-UP can start the travel
@@ -803,7 +850,7 @@ export class Ebb {
         // inked would draw a stray line; the next chain re-inks normally.
         const pauseUp = async (): Promise<void> => {
           const wasUp = this.penIsUp;
-          await setLift(false); // pauses always get the full, safe lift
+          await setLiftFull(); // pauses always get the full, safe lift
           if (!wasUp) await this.penUp(settle);
           this.pauseAdjusted = false;
           report('paused', penName);
@@ -814,9 +861,14 @@ export class Ebb {
           pausedWallMs += Date.now() - pauseWall0;
           if (!this.plotAbort) {
             if (liveServo) {
+              // The panel may have edited the pulses while paused: the
+              // board now holds the profile pair, so the trackers follow.
               const sv = liveServo();
-              await this.cmd(`SC,4,${Math.round(sv.penUpPulse)}`);
-              await this.cmd(`SC,5,${Math.round(sv.penDownPulse)}`);
+              liftPulse = Math.round(sv.penUpPulse);
+              downPulse = Math.round(sv.penDownPulse);
+              await this.cmd(`SC,4,${liftPulse}`);
+              await this.cmd(`SC,5,${downPulse}`);
+              await downFor(c); // this chain's landing pulse, if overridden
             }
             if (!wasUp && !this.pauseAdjusted) await this.penDown(settle);
           }
@@ -828,7 +880,11 @@ export class Ebb {
         });
         sent += 1;
         if (this.plotAbort) break;
-        const downSettle = hopMode ? hopDownSettleOf(settle) : settle;
+        // Settle follows the lift the pen is coming DOWN from: the hop's
+        // validated short settles, else the full settle (an override lift
+        // is priced as full until the settle×lift card says otherwise).
+        const downSettle = liftKind === 'hop' ? hopDownSettleOf(settle) : settle;
+        await downFor(c);
         await this.penDown(downSettle);
         sent += 1;
         if (!c.dot) {
@@ -850,8 +906,8 @@ export class Ebb {
               next.pts[1] - c.pts[c.pts.length - 1],
             )
           : Infinity;
-        await setLift(o.quickHopMm > 0 && gapOut <= o.quickHopMm);
-        const upSettle = hopMode ? hopUpSettleOf(settle) : settle;
+        await liftFor(next, gapOut);
+        const upSettle = liftKind === 'hop' ? hopUpSettleOf(settle) : settle;
         await this.penUp(upSettle);
         sent += 1;
         elapsedMs += downSettle + upSettle; // mirrors the totals' pen-cycle term
@@ -868,7 +924,7 @@ export class Ebb {
         }
         const reinkAt = pen?.reinkMm ?? 0;
         if (reinkAt > 0 && inkedMm >= reinkAt && chainIndex < chains.length - 1 && !this.plotAbort) {
-          await setLift(false);
+          await setLiftFull();
           await this.moveRun([[0, 0]], o.travelFeed, o);
           warning = `re-ink ${penName}: ${Math.round(inkedMm)}mm drawn — pump/refill, then Resume`;
           this.plotPause = true;
@@ -885,7 +941,9 @@ export class Ebb {
         if (every > 0 && chainIndex % every === every - 1) await verifyPosition();
         report('plotting', penName);
       }
-      await setLift(false).catch(() => undefined); // never leave hop height behind
+      // Never leave a reduced lift or an overridden landing on the board.
+      await setLiftFull().catch(() => undefined);
+      await setDown(Math.round(servo().penDownPulse)).catch(() => undefined);
       if (!this.plotAbort) {
         await this.penUp();
         await verifyPosition(); // before home() zeroes the counters

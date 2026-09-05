@@ -1343,9 +1343,18 @@ Serial. What's under the hood, briefly, so its knobs make sense:
   feed/settle.
 - **Diagnostics** (in the panel): registration probe (step loss),
   backlash squares, corner ringing at three feeds (junction-deviation
-  tuning), plus the settle × travel sweep sketch for finding a pen's true
+  tuning), plus the `settle-sweep` sketch for finding a pen's true
   `penDelay` floor. **Download serial log** exports the full timestamped
   command transcript — the first artifact to grab when anything misbehaves.
+- **Pen-height cards** (also in Diagnostics): the servo is open loop and
+  the gantry sags, so the only sensor is ink. Seat the pen on a shim the
+  same way every time, then let the paper answer in pulse units: the
+  **lift grid** travels each bed cell at six lift pulses (a zigzag joining
+  the dash ends = the pen dragged at that lift; the last clean strip is
+  that cell's clearance threshold), **settle × lift** finds the settle each
+  lift needs, and the **down sweep** finds the pen-down pulse at which the
+  horn fully releases the pen (first solid hatch patch). Machine profile
+  fields are `penUpPulse` (SC,4) and `penDownPulse` (SC,5).
 - **ETA**: totals come from the planner's actual trapezoids and blend
   toward measured throughput as the plot runs — the number is honest.
 - **Draft plots**: `decimate(0.7, everything)` makes a fast structural

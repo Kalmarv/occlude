@@ -19,9 +19,14 @@
 
 import type { PenDef } from 'occlude';
 
+import type { ServoOverride } from './ebb.js';
+
 export interface Diagnostic {
   plan: Float64Array;
   pens: PenDef[];
+  /** Per-pen servo pulses (indexed like `pens`) for the pen-height cards.
+   * Passed to `ebb.plot()` as its `servoFor` hook. */
+  servo?: (ServoOverride | undefined)[];
 }
 
 interface Chain {
@@ -166,4 +171,150 @@ export function cornerRinging(base?: PenDef): Diagnostic {
     plan: encode(chains),
     pens: feeds.map((f) => pen(`comb-${f}`, f, base)),
   };
+}
+
+// ---- pen-height calibration -------------------------------------------------
+//
+// The servo is open loop and the gantry sags, so the only sensor is ink:
+// put the pen on paper at a known pulse and see what comes back. These three
+// cards pin the two servo registers per block (Diagnostic.servo) and let the
+// paper answer, in PULSE units, the questions the pen-height model needs.
+// Nothing here is measured in millimetres.
+
+/** Options shared by the pen-height cards. Pulses are EBB SC units. */
+export interface LiftGridOpts {
+  /** Bed extent, paper mm — the grid covers it with a margin. */
+  bedW: number;
+  bedH: number;
+  /** Lift pulses (SC,4) to try in each cell, most lift first (ascending). */
+  pulses: number[];
+  cols: number;
+  rows: number;
+}
+
+/**
+ * Lift grid — where on the bed does each lift pulse still clear the paper?
+ *
+ * Each cell is framed first (full-lift travel into the cell), then holds one
+ * strip per pulse, left → right in the given order. A strip is a short stack
+ * of dashes drawn alternately left→right and right→left, so every travel
+ * inside it is a short diagonal over blank paper AT THAT STRIP'S LIFT. Where
+ * the lift does not clear, the pen drags and a zigzag joins the dash ends.
+ *
+ * Read per cell: the last clean strip is the highest pulse (smallest lift)
+ * that clears there — that cell's clearance threshold. Entering those per
+ * cell gives the clearance map; the driver interpolates between cells.
+ */
+export function liftGrid(base: PenDef | undefined, o: LiftGridOpts): Diagnostic {
+  const pens: PenDef[] = [pen('lift-frame', base?.feed ?? 3000, base)];
+  const servo: (ServoOverride | undefined)[] = [undefined];
+  for (const p of o.pulses) {
+    pens.push(pen(`lift-${p}`, base?.feed ?? 3000, base));
+    servo.push({ up: p });
+  }
+  const chains: Chain[] = [];
+  const margin = 8;
+  const cw = (o.bedW - 2 * margin) / o.cols;
+  const ch = (o.bedH - 2 * margin) / o.rows;
+  const pad = Math.min(cw, ch) * 0.12;
+  const fw = cw - 2 * pad;
+  const fh = ch - 2 * pad;
+  const sw = fw / o.pulses.length;
+  const dashes = Math.max(3, Math.min(6, Math.floor(fh / 4)));
+  for (let r = 0; r < o.rows; r++) {
+    for (let c = 0; c < o.cols; c++) {
+      const x0 = margin + c * cw + pad;
+      const y0 = margin + r * ch + pad;
+      chains.push({
+        pen: 0,
+        pts: [[x0, y0], [x0 + fw, y0], [x0 + fw, y0 + fh], [x0, y0 + fh], [x0, y0]],
+      });
+      o.pulses.forEach((_, k) => {
+        const sx0 = x0 + k * sw + sw * 0.2;
+        const sx1 = x0 + (k + 1) * sw - sw * 0.2;
+        const g = fh / (dashes + 1);
+        for (let i = 0; i < dashes; i++) {
+          const y = y0 + (i + 1) * g;
+          chains.push({ pen: k + 1, pts: i % 2 ? [[sx1, y], [sx0, y]] : [[sx0, y], [sx1, y]] });
+        }
+      });
+    }
+  }
+  return { plan: encode(chains), pens, servo };
+}
+
+export interface SettleLiftOpts {
+  /** Lift pulses (SC,4), one column each. */
+  pulses: number[];
+  /** Settle delays (ms), one row each. */
+  settles: number[];
+}
+
+/**
+ * Settle × lift — how much settle does each lift need? Columns are lift
+ * pulses, rows are settle delays. Each cell has three long-travel dashes
+ * (spread apart) above six tight ones, both alternating direction. Travel
+ * into and inside a cell is at that column's lift; the landing settle is
+ * that row's. A too-short settle shows as dashes missing their first
+ * millimetre. The lowest clean row per column is settle(lift) — the curve
+ * the time model needs to price variable lift. Footprint ≈ 22mm × columns
+ * by 30mm × rows from the origin.
+ */
+export function settleLift(base: PenDef | undefined, o: SettleLiftOpts): Diagnostic {
+  const pens: PenDef[] = [];
+  const servo: (ServoOverride | undefined)[] = [];
+  const chains: Chain[] = [];
+  const cellW = 22;
+  const cellH = 30;
+  o.settles.forEach((settle, r) => {
+    o.pulses.forEach((p, c) => {
+      const idx = pens.length;
+      pens.push({ ...pen(`settle-${settle}-lift-${p}`, base?.feed ?? 3000, base), penDelay: settle });
+      servo.push({ up: p });
+      const x0 = 4 + c * cellW;
+      const y0 = 4 + r * cellH;
+      const x1 = x0 + cellW - 6;
+      // sparse: three dashes 8mm apart
+      for (let i = 0; i < 3; i++) {
+        const y = y0 + i * 8;
+        chains.push({ pen: idx, pts: i % 2 ? [[x1, y], [x0, y]] : [[x0, y], [x1, y]] });
+      }
+      // dense: six dashes 1.2mm apart
+      for (let i = 0; i < 6; i++) {
+        const y = y0 + 18 + i * 1.2;
+        chains.push({ pen: idx, pts: i % 2 ? [[x1, y], [x0, y]] : [[x0, y], [x1, y]] });
+      }
+    });
+  });
+  return { plan: encode(chains), pens, servo };
+}
+
+export interface DownSweepOpts {
+  /** Pen-down pulses (SC,5) to try, one hatch patch each, ascending. */
+  pulses: number[];
+}
+
+/**
+ * Down sweep — at which pen-down pulse does the horn fully release the pen?
+ * One tightly hatched patch per pulse, left → right. While the horn still
+ * carries part of the pen's weight the lines go faint or skip; the first
+ * fully solid patch is the down pulse, and the last patch that is NOT
+ * solid marks the horn's engagement. Travel is at full lift. Footprint
+ * ≈ 20mm × patches by 18mm from the origin.
+ */
+export function downSweep(base: PenDef | undefined, o: DownSweepOpts): Diagnostic {
+  const pens: PenDef[] = [];
+  const servo: (ServoOverride | undefined)[] = [];
+  const chains: Chain[] = [];
+  o.pulses.forEach((p, c) => {
+    pens.push(pen(`down-${p}`, base?.feed ?? 3000, base));
+    servo.push({ down: p });
+    const x0 = 4 + c * 20;
+    const x1 = x0 + 15;
+    for (let i = 0; i < 19; i++) {
+      const y = 4 + i * 0.8;
+      chains.push({ pen: c, pts: i % 2 ? [[x1, y], [x0, y]] : [[x0, y], [x1, y]] });
+    }
+  });
+  return { plan: encode(chains), pens, servo };
 }

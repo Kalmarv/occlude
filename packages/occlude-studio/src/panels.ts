@@ -19,7 +19,7 @@ import {
 import { Ebb, serialSupported, type PlotProgress } from './ebb.js';
 import {
   backlashSquares, calDots, calHatch, calLines, calSegments, cornerRinging,
-  registrationProbe, type Diagnostic,
+  downSweep, liftGrid, registrationProbe, settleLift, type Diagnostic,
 } from './diagnostics.js';
 import type { RenderClient } from './workerClient.js';
 
@@ -761,7 +761,10 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       try {
         const d = build(diagBasePen());
         hooks.livePlot.start(d.plan, d.pens);
-        await ebb.plot(d.plan, d.pens, opts(), onProgress);
+        await ebb.plot(
+          d.plan, d.pens, opts(), onProgress, undefined, undefined, undefined,
+          d.servo ? (i) => d.servo?.[i] : undefined,
+        );
       } catch (e) {
         showErr(e);
       } finally {
@@ -772,6 +775,19 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     h.className = 'panel-hint';
     h.textContent = hint;
     diag.append(b, h);
+  };
+  // Pulse ladders for the pen-height cards, from the active profile's pair:
+  // lifts from full up towards (but short of) the down pulse; landings from
+  // well inside the horn's carry zone up to the profile's down pulse.
+  const ladder = (from: number, to: number, n: number): number[] =>
+    Array.from({ length: n }, (_, i) => Math.round((from + ((to - from) * i) / (n - 1)) / 100) * 100);
+  const liftPulses = (): number[] => {
+    const e = prof().ebb;
+    return ladder(e.penUpPulse, e.penDownPulse - 2000, 6);
+  };
+  const downPulses = (): number[] => {
+    const e = prof().ebb;
+    return ladder(e.penDownPulse - 6000, e.penDownPulse, 6);
   };
   const cal = document.createElement('details');
   cal.className = 'subpanel';
@@ -814,6 +830,25 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     'Backlash squares (~45\u00d720mm)',
     'Left square repeats every edge in the same direction; right square goes there-and-back. Doubled edges on the right square only = backlash at direction reversals.',
     backlashSquares,
+  );
+  addDiag(
+    'Lift grid (whole bed)',
+    'Pen-height map. 5\u00d74 framed cells across the bed; inside each, six strips travel at lift pulses ' +
+      'from full up towards the down pulse (left = most lift). A zigzag joining the dash ends = the pen dragged ' +
+      'at that lift. Per cell, the last clean strip is its clearance threshold. Seat the pen on the shim first.',
+    (base) => liftGrid(base, { bedW: prof().machine.bedW, bedH: prof().machine.bedH, pulses: liftPulses(), cols: 5, rows: 4 }),
+  );
+  addDiag(
+    'Settle \u00d7 lift (~130\u00d7150mm)',
+    'Columns = the same six lift pulses, rows = settle 200\u2013700ms. Each cell: three spread dashes over six tight ' +
+      'ones. Dashes missing their first millimetre = settle too short. Lowest clean row per column is settle(lift).',
+    (base) => settleLift(base, { pulses: liftPulses(), settles: [200, 300, 400, 500, 600, 700] }),
+  );
+  addDiag(
+    'Down sweep (~120\u00d718mm)',
+    'Six hatch patches at pen-down pulses from 6000 below the profile\u2019s up to it (left = horn still carrying ' +
+      'the pen). Faint or skipping patches = the horn has not released the pen. First solid patch = down pulse.',
+    (base) => downSweep(base, { pulses: downPulses() }),
   );
   addDiag(
     'Corner ringing (~66\u00d770mm)',
