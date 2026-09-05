@@ -590,9 +590,41 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   setPaperBtn.title =
     'Record the current position as the sheet\u2019s corner, without zeroing. Plots draw from here; the lift map still reads bed coordinates.';
   const goPaperBtn = button('Go to paper origin', () => void ebb.goToPaperOrigin(opts()).catch(showErr));
+  // Seating: the servo as the shim. Step 1 parks the horn at the seat pulse
+  // (SC,5) and lowers the pen — the horn lifts the slider off its stop by the
+  // seat lift. Loosen, let the pen fall to the paper, clamp. Step 2 returns
+  // SC,5 to the down pulse: the horn retreats, the paper holds the slider up
+  // by exactly the seat lift. Same preload for every pen, no ruler.
+  let seating = false;
+  const seatBtn = button('Seat pen', async () => {
+    if (!ebb.connected || ebb.plotting) return;
+    try {
+      const e = prof().ebb;
+      if (!seating) {
+        await ebb.cmd(`SC,5,${Math.round(e.seatPulse)}`);
+        await ebb.penDown(300);
+        seating = true;
+        seatBtn.textContent = 'Clamped \u2014 finish seating';
+        seatBtn.title = 'The horn is holding the slider at the seat pulse. Loosen the clamp, let the pen fall to the paper, clamp it, then press this.';
+      } else {
+        await ebb.cmd(`SC,5,${Math.round(e.penDownPulse)}`);
+        await ebb.penDown(300); // re-issue so the horn actually retreats
+        seating = false;
+        seatBtn.textContent = 'Seat pen';
+        seatBtn.title = seatTitle;
+      }
+    } catch (err) {
+      showErr(err);
+    }
+  });
+  const seatTitle =
+    'Repeatable seating: parks the horn at the seat pulse with the pen down so the slider sits off its stop. ' +
+    'Loosen the clamp, let the pen fall to the paper, clamp, press again to restore the down pulse.';
+  seatBtn.title = seatTitle;
   penRow.append(
     button('Pen up', () => void ebb.penUp().catch(showErr)),
     penDownBtn,
+    seatBtn,
     setOriginBtn,
     setPaperBtn,
     goPaperBtn,
