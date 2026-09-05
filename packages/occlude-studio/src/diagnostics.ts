@@ -308,17 +308,26 @@ export interface DownSweepOpts {
  * ≈ 20mm × patches by 18mm from the origin.
  */
 export function downSweep(base: PenDef | undefined, o: DownSweepOpts): Diagnostic {
-  const pens: PenDef[] = [];
-  const servo: (ServoOverride | undefined)[] = [];
+  // Pen 0 frames every patch at the profile's own down pulse (no override),
+  // so a patch that never touched the paper still has a visible box to
+  // count. Patches are left → right in ladder order.
+  const pens: PenDef[] = [pen('down-frame', base?.feed ?? 3000, base)];
+  const servo: (ServoOverride | undefined)[] = [undefined];
   const chains: Chain[] = [];
   o.pulses.forEach((p, c) => {
     pens.push(pen(`down-${p}`, base?.feed ?? 3000, base));
     servo.push({ down: p });
     const x0 = 4 + c * 20;
     const x1 = x0 + 15;
+    const y0 = 4;
+    const y1 = 4 + 18 * 0.8;
+    chains.push({
+      pen: 0,
+      pts: [[x0 - 1.5, y0 - 1.5], [x1 + 1.5, y0 - 1.5], [x1 + 1.5, y1 + 1.5], [x0 - 1.5, y1 + 1.5], [x0 - 1.5, y0 - 1.5]],
+    });
     for (let i = 0; i < 19; i++) {
-      const y = 4 + i * 0.8;
-      chains.push({ pen: c, pts: i % 2 ? [[x1, y], [x0, y]] : [[x0, y], [x1, y]] });
+      const y = y0 + i * 0.8;
+      chains.push({ pen: c + 1, pts: i % 2 ? [[x1, y], [x0, y]] : [[x0, y], [x1, y]] });
     }
   });
   return { plan: encode(chains), pens, servo };

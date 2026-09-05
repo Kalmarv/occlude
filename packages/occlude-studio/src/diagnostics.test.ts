@@ -136,11 +136,14 @@ describe('pen-height cards', () => {
     expect(parse(d.plan)).toHaveLength(9 * d.pens.length);
   });
 
-  test('down sweep: one hatch patch per landing pulse, lifts untouched', () => {
+  test('down sweep: a framed hatch patch per landing pulse, frames at the profile pulse, lifts untouched', () => {
     const d = downSweep(base, { pulses: [12000, 14000, 16000, 18000] });
-    expect(d.servo?.map((s) => s?.down)).toEqual([12000, 14000, 16000, 18000]);
+    expect(d.servo?.[0]).toBeUndefined(); // frame pen: profile's own down pulse
+    expect(d.servo?.slice(1).map((s) => s?.down)).toEqual([12000, 14000, 16000, 18000]);
     expect(d.servo?.every((s) => s?.up === undefined)).toBe(true);
-    expect(parse(d.plan).filter((c) => c.pen === 2)).toHaveLength(19);
+    const chains = parse(d.plan);
+    expect(chains.filter((c) => c.pen === 0)).toHaveLength(4); // one frame per patch
+    expect(chains.filter((c) => c.pen === 3)).toHaveLength(19);
   });
 });
 
