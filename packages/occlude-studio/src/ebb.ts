@@ -19,7 +19,7 @@
 
 import type { PenDef } from 'occlude';
 
-import { liftForTravel, type LiftMap } from './liftmap.js';
+import { settleAtLift, travelLiftPulse, type LiftModel, type LiftMap, type SettlePoint } from 'occlude';
 import {
   estimatePlanMs, planDurationMs, planPolyline, segmentsToBlocks,
   type MotionBlock, type PlanEstimate, type Point,
@@ -140,17 +140,13 @@ export interface EbbOptions {
   travelAcceleration: number; // mm/s²
   junctionDeviation: number; // mm
   minimumCruiseRatio: number;
-  /** Quick-hop: for travels shorter than this (mm), lift the pen to only
-   * ~40% height with proportionally shorter settles. On hatch/stipple-dense
-   * plots the pen cycle is ~95% of plot time, so this is the big lever.
-   * 0 disables. */
-  quickHopMm: number;
-  /** Pen-height map: when present, every travel takes the smallest lift that
-   * clears along it (liftmap.ts) and quickHopMm is ignored. Settle at a
-   * map lift is the pen's full penDelay until the settle×lift card says
-   * otherwise — clearance first, time second. */
+  /** Pen height (occlude's liftmap.ts): every travel takes the smallest lift
+   * that clears along it per the map (full lift without one), and each
+   * settle is the pen's penDelay scaled by the settle curve for that lift
+   * (unscaled without one). The estimator prices the same way. */
   liftMap?: LiftMap;
   liftMarginPulses?: number;
+  settleCurve?: SettlePoint[];
   /** Use the LM command (firmware ≥2.5.3): true constant-acceleration ramps
    * interpolated at 25kHz in hardware, vs the XM fallback's ~40Hz staircase
    * of constant-velocity packets. */
@@ -756,6 +752,12 @@ export class Ebb {
     // that take longest.
     // Totals for progress: THE shared ground-truth model (estimatePlanMs) —
     // the same numbers plotstats and the export panel show.
+    const liftModel: LiftModel = {
+      penUpPulse: o.penUpPulse,
+      map: o.liftMap,
+      marginPulses: o.liftMarginPulses ?? 800,
+      settleCurve: o.settleCurve,
+    };
     const estimate: PlanEstimate = estimatePlanMs(
       chains,
       (pi) => {
@@ -769,8 +771,7 @@ export class Ebb {
         travelAcceleration: o.travelAcceleration,
         junctionDeviation: o.junctionDeviation,
         minimumCruiseRatio: o.minimumCruiseRatio,
-        // A map lift is priced as a full settle until settle×lift is measured.
-        quickHopMm: o.liftMap ? 0 : o.quickHopMm,
+        lift: liftModel,
       },
     );
     const total = estimate.commands;
@@ -827,31 +828,22 @@ export class Ebb {
       }
     };
 
-    // Quick-hop lift state: between close-together strokes the pen rises to
-    // only ~40% height with proportionally shorter settles — on hatch- and
-    // stipple-dense plots the pen cycle is ~95% of plot time. Full lift is
-    // always restored for long travels, pauses, aborts, and the plot end.
+    // Pen height. Every travel has a LIFT PULSE (SC,4): from the map (the
+    // smallest lift that clears along the travel, less the margin), full
+    // without a map, or a calibration override. Every landing has a DOWN
+    // PULSE (SC,5): the profile's, or an override. Registers are written
+    // only on change; full lift is restored for pauses, aborts, plot end.
     // REGISTER SEMANTICS (learned the hard way, serial log 2026-08-30):
     // SP,0 (pen DOWN) drives the servo to SC,5; SP,1 (UP) to SC,4 —
-    // standard EBB. The settings were once named the other way round,
-    // which hid this for weeks; hop adjusts SC,4 (penUpPulse) ONLY and
-    // NEVER touches SC,5, or it moves the pen's DOWN position and strokes
-    // hover above the paper.
-    const HOP = 0.4;
+    // standard EBB. Lift adjusts SC,4 ONLY and never touches SC,5, or it
+    // moves the pen's DOWN position and strokes hover above the paper.
     const servo = (): { penUpPulse: number; penDownPulse: number } =>
       liveServo?.() ?? { penUpPulse: o.penUpPulse, penDownPulse: o.penDownPulse };
-    // Every travel has a LIFT PULSE (SC,4): full, the 40% hop, or a
-    // calibration override. Every landing has a DOWN PULSE (SC,5): the
-    // profile's, or an override. Registers are written only on change.
-    type LiftKind = 'full' | 'hop' | 'map' | 'override';
+    const model = (): LiftModel => ({ ...liftModel, penUpPulse: servo().penUpPulse });
+    type LiftKind = 'full' | 'map' | 'override';
     let liftKind = 'full' as LiftKind; // widened: closures below reassign it
     let liftPulse = Math.round(servo().penUpPulse); // what SC,4 holds now
     let downPulse = Math.round(servo().penDownPulse); // what SC,5 holds now
-    const hopPulse = (): number => {
-      const sv = servo();
-      // Hop = rise only 40% of the way from the down pulse to the up pulse.
-      return Math.round(sv.penDownPulse + (sv.penUpPulse - sv.penDownPulse) * HOP);
-    };
     const setLift = async (kind: LiftKind, pulse: number): Promise<void> => {
       liftKind = kind;
       this.fullUpPulse = Math.round(servo().penUpPulse);
@@ -862,18 +854,19 @@ export class Ebb {
     };
     const setLiftFull = (): Promise<void> => setLift('full', Math.round(servo().penUpPulse));
     /** Lift for the travel INTO `next` (chosen before the pen-up that
-     * precedes it): override → map → hop (gap within quickHopMm) → full. */
-    const liftFor = (next: Chain | undefined, from: [number, number], gap: number): Promise<void> => {
+     * precedes it): override → model (map or full). */
+    const liftFor = (next: Chain | undefined, from: [number, number]): Promise<void> => {
       const ov = next && servoFor?.(next.pen);
       if (ov?.up !== undefined) return setLift('override', Math.round(ov.up));
-      if (next && o.liftMap) {
-        const to: [number, number] = [next.pts[0], next.pts[1]];
-        const pulse = liftForTravel(o.liftMap, from, to, o.liftMarginPulses ?? 800, Math.round(servo().penUpPulse));
-        return setLift('map', pulse);
-      }
-      if (next && o.quickHopMm > 0 && gap <= o.quickHopMm) return setLift('hop', hopPulse());
-      return setLiftFull();
+      if (!next) return setLiftFull();
+      const pulse = travelLiftPulse(model(), from, [next.pts[0], next.pts[1]]);
+      return setLift(pulse === Math.round(servo().penUpPulse) ? 'full' : 'map', pulse);
     };
+    /** Settle for a servo move at the given lift: the pen's penDelay scaled
+     * by the curve (THE shared clock); a calibration override is the card's
+     * own settle, unscaled — the card is measuring it. */
+    const settleFor = (penDelay: number, kind: LiftKind, pulse: number): number =>
+      kind === 'override' ? Math.max(penDelay, 150) : settleAtLift(penDelay, pulse, model());
     const setDown = async (pulse: number): Promise<void> => {
       this.downOverrideActive = pulse !== Math.round(servo().penDownPulse);
       this.profileDownPulse = Math.round(servo().penDownPulse);
@@ -887,8 +880,6 @@ export class Ebb {
     // matters (a truncated fall reads as "pen not all the way down" on
     // dense strokes), so it keeps more margin; pen-UP can start the travel
     // a hair early harmlessly.
-    const hopDownSettleOf = (settle: number): number => Math.max(200, Math.round(settle * 0.5));
-    const hopUpSettleOf = (settle: number): number => Math.max(150, Math.round(settle * HOP));
 
     try {
       for (const [chainIndex, c] of chains.entries()) {
@@ -901,7 +892,8 @@ export class Ebb {
         // or travels drag (pen still lifting). Too long: the pen dwells
         // inked-and-stationary at every stroke start — wet pens bleed a
         // dot. Tune per pen via penDelay; 150 is a hard physical floor.
-        const settle = Math.max(pen?.penDelay ?? 300, 150);
+        const penDelay = pen?.penDelay ?? 300;
+        const settle = Math.max(penDelay, 150); // full-lift settle (pauses, re-ink)
         const penName = pen?.name ?? '';
         // Pause dance: raise, wait, re-lower (drawing only). The run
         // replans its ramp from rest afterwards. If the user jogged or
@@ -940,10 +932,8 @@ export class Ebb {
         });
         sent += 1;
         if (this.plotAbort) break;
-        // Settle follows the lift the pen is coming DOWN from: the hop's
-        // validated short settles, else the full settle (an override lift
-        // is priced as full until the settle×lift card says otherwise).
-        const downSettle = liftKind === 'hop' ? hopDownSettleOf(settle) : settle;
+        // The pen falls from the lift it travelled in at.
+        const downSettle = settleFor(penDelay, liftKind, liftPulse);
         await downFor(c);
         await this.penDown(downSettle);
         sent += 1;
@@ -957,17 +947,11 @@ export class Ebb {
           });
         }
         if (this.plotAbort) break;
-        // Lift height for the NEXT travel: hop when the next chain starts
-        // nearby, full otherwise (and always full for the last chain).
+        // Lift for the NEXT travel (full for the last chain), and the pen
+        // rises to it with the settle that lift needs.
         const next = chains[chainIndex + 1];
-        const gapOut = next
-          ? Math.hypot(
-              next.pts[0] - c.pts[c.pts.length - 2],
-              next.pts[1] - c.pts[c.pts.length - 1],
-            )
-          : Infinity;
-        await liftFor(next, [c.pts[c.pts.length - 2], c.pts[c.pts.length - 1]], gapOut);
-        const upSettle = liftKind === 'hop' ? hopUpSettleOf(settle) : settle;
+        await liftFor(next, [c.pts[c.pts.length - 2], c.pts[c.pts.length - 1]]);
+        const upSettle = settleFor(penDelay, liftKind, liftPulse);
         await this.penUp(upSettle);
         sent += 1;
         elapsedMs += downSettle + upSettle; // mirrors the totals' pen-cycle term

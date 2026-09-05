@@ -136,3 +136,66 @@ export function parseCounts(text: string): number[][] {
       return n;
     }));
 }
+
+// ---- settle by lift ----------------------------------------------------------
+
+/** One reading off the settle×lift card: at this lift pulse, the shortest
+ * settle (ms) that landed clean. */
+export interface SettlePoint {
+  pulse: number;
+  ms: number;
+}
+
+/**
+ * Everything the pen-cycle needs to know about lifting on one machine: the
+ * mechanism's full lift, the clearance map (absent = full lift everywhere),
+ * the margin below each cell's last-clean pulse, and the settle curve
+ * (absent = the pen's penDelay at every lift).
+ */
+export interface LiftModel {
+  penUpPulse: number;
+  map?: LiftMap;
+  marginPulses: number;
+  settleCurve?: SettlePoint[];
+}
+
+/** The lift pulse for a travel under this model: from the map, else full. */
+export function travelLiftPulse(m: LiftModel, from: [number, number], to: [number, number]): number {
+  if (!m.map) return Math.round(m.penUpPulse);
+  return liftForTravel(m.map, from, to, m.marginPulses, Math.round(m.penUpPulse));
+}
+
+/** Piecewise-linear settle curve, clamped at both ends. */
+export function curveMs(curve: SettlePoint[], pulse: number): number {
+  const pts = [...curve].sort((a, b) => a.pulse - b.pulse);
+  if (pts.length === 0) throw new Error('settle curve: no points');
+  if (pulse <= pts[0].pulse) return pts[0].ms;
+  if (pulse >= pts[pts.length - 1].pulse) return pts[pts.length - 1].ms;
+  for (let i = 1; i < pts.length; i++) {
+    if (pulse <= pts[i].pulse) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      const t = (pulse - a.pulse) / (b.pulse - a.pulse);
+      return a.ms + (b.ms - a.ms) * t;
+    }
+  }
+  return pts[pts.length - 1].ms;
+}
+
+/** Hard physical floor: below this the servo has not moved at all (ms). */
+export const SETTLE_FLOOR_MS = 150;
+
+/**
+ * THE settle for one pen cycle at one lift — driver and estimator both call
+ * this, so there is one clock. The pen's penDelay is its settle at FULL
+ * lift; the curve scales it down for smaller lifts (a wetter or heavier pen
+ * keeps its own tuning, in proportion). No curve: penDelay at every lift.
+ */
+export function settleAtLift(penDelay: number, pulse: number, m: LiftModel): number {
+  const full = Math.max(penDelay, SETTLE_FLOOR_MS);
+  if (!m.settleCurve || m.settleCurve.length === 0) return full;
+  const ref = curveMs(m.settleCurve, m.penUpPulse);
+  if (ref <= 0) return full;
+  const scaled = full * (curveMs(m.settleCurve, pulse) / ref);
+  return Math.max(SETTLE_FLOOR_MS, Math.round(scaled));
+}

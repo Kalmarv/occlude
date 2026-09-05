@@ -43,7 +43,12 @@ describe('migrateEbb', () => {
   test('fields added after a profile was saved are filled from the default', () => {
     const out = migrateEbb({ stepsPerMm: 80 });
     expect(out.stepsPerMm).toBe(80);
-    expect(out.quickHopMm).toBe(DEFAULT_PROFILE.ebb.quickHopMm);
+    expect(out.liftMarginPulses).toBe(DEFAULT_PROFILE.ebb.liftMarginPulses);
     expect(out.penUpPulse).toBe(DEFAULT_PROFILE.ebb.penUpPulse);
+  });
+
+  test('quickHopMm (retired) is dropped from stored profiles', () => {
+    const out = migrateEbb({ ...DEFAULT_PROFILE.ebb, quickHopMm: 15 });
+    expect('quickHopMm' in out).toBe(false);
   });
 });

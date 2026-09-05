@@ -104,6 +104,15 @@ export type {
   MotionLimits, PlannedSegment, MotionBlock, Point, PlanEstimate, EstimateOpts,
 } from './motion.js';
 
+// Pen height: the clearance map read off the lift-grid card, the settle
+// curve from the settle×lift card, and the one pen-cycle model both the
+// driver and the estimator use.
+export {
+  cellCentre, liftMapFromCounts, refineLiftMap, liftAt, liftForTravel, parseCounts,
+  travelLiftPulse, curveMs, settleAtLift, SETTLE_FLOOR_MS,
+} from './liftmap.js';
+export type { LiftMap, CellGeometry, SettlePoint, LiftModel } from './liftmap.js';
+
 // Host integration.
 export { setPenLibrary, setPaperHint, setSeedHint, getState, getProbeStats } from './state.js';
 export type { ProbeSummary } from './state.js';

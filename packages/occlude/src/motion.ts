@@ -197,6 +197,8 @@ export function planPolyline(points: Point[], limits: MotionLimits): PlannedSegm
 }
 
 
+import { settleAtLift, travelLiftPulse, type LiftModel } from './liftmap.js';
+
 // ---- plot-time ground truth ------------------------------------------------
 
 export interface PlanChainLike {
@@ -213,8 +215,10 @@ export interface EstimateOpts {
   travelAcceleration: number;
   junctionDeviation: number;
   minimumCruiseRatio: number;
-  /** Quick-hop threshold, mm; 0 disables (full lifts everywhere). */
-  quickHopMm: number;
+  /** Pen height: the lift each travel takes (clearance map) and the settle
+   * each lift needs (settle curve). Omit for full lifts at the pens' own
+   * penDelay everywhere. */
+  lift?: LiftModel;
 }
 
 export interface PenTiming {
@@ -237,7 +241,9 @@ export interface PlanEstimate {
  * ETA use. plotstats and the export panel estimate through this too, so
  * every number the user sees shares one source of truth. Trapezoid-planned
  * per move (short dense segments never reach feed and are priced at their
- * planned speed), pen cycles follow the quick-hop rule exactly. */
+ * planned speed), pen cycles follow the driver's lift rule exactly: the
+ * travel INTO a chain sets the lift the pen falls from, the travel OUT sets
+ * the lift it rises to, and settleAtLift prices both. */
 export function estimatePlanMs(
   chains: readonly PlanChainLike[],
   penOf: (penIndex: number) => PenTiming | undefined,
@@ -257,8 +263,13 @@ export function estimatePlanMs(
     totalMs: 0, drawMs: 0, travelMs: 0, cycleMs: 0,
     commands: 0, chains: chains.length, dots: 0,
   };
+  const lift: LiftModel = o.lift ?? { penUpPulse: 0, marginPulses: 0 };
+  const full = Math.round(lift.penUpPulse);
   let px = 0;
   let py = 0;
+  // Lift of the travel into chain i: the first travel of a plot is always
+  // at full lift (the pen was raised at connect).
+  let liftIn = full;
   chains.forEach((c, i) => {
     const pen = penOf(c.pen);
     const feed = pen?.feed ?? 3000;
@@ -276,17 +287,16 @@ export function estimatePlanMs(
       est.drawMs += planDurationMs(planPolyline(poly, limits(feed / 60, drawAccel)), drawAccel);
       est.commands += poly.length - 1;
     }
-    // Pen-cycle cost mirrors the plot loop's quick-hop rule: down height set
-    // by the travel INTO the chain, up height by the travel OUT of it.
-    const settle = Math.max(pen?.penDelay ?? 300, 150);
-    const gapIn = Math.hypot(c.pts[0] - px, c.pts[1] - py);
+    // Pen-cycle cost mirrors the plot loop: the pen falls from the lift it
+    // travelled in at, and rises to the lift of the travel out.
+    const penDelay = pen?.penDelay ?? 300;
     const nxt = chains[i + 1];
     px = c.pts[c.pts.length - 2] as number;
     py = c.pts[c.pts.length - 1] as number;
-    const gapOut = nxt ? Math.hypot((nxt.pts[0] as number) - px, (nxt.pts[1] as number) - py) : Infinity;
-    const hop = (g: number): boolean => o.quickHopMm > 0 && g <= o.quickHopMm;
-    const down = i > 0 && hop(gapIn) ? Math.max(200, Math.round(settle * 0.5)) : settle;
-    const up = hop(gapOut) ? Math.max(150, Math.round(settle * 0.4)) : settle;
+    const liftOut = nxt ? travelLiftPulse(lift, [px, py], [nxt.pts[0] as number, nxt.pts[1] as number]) : full;
+    const down = settleAtLift(penDelay, liftIn, lift);
+    const up = settleAtLift(penDelay, liftOut, lift);
+    liftIn = liftOut;
     // No per-chain overhead term: the four-card motion calibration (LM,
     // 2026-08-31) measured cycle cost = the commanded settles alone — the
     // board times SP durations exactly and the pump adds only milliseconds.

@@ -90,7 +90,12 @@ send(`XM,${Math.max(ms, Math.ceil(minMs))},${mdx},${mdy}\r`);
 - `SP,<state>,<ms>` queues a settle delay in the FIFO; OK returns immediately (~53 ms). Use
   `SP,0,700` rather than a host sleep.
 - ⚠️ **The servo only lifts. It applies no downforce — the pen rests under its own weight.
-  SC,4 positions the arm out of the way; it cannot press.**
+  SC,4 positions the arm out of the way; it cannot press.** (2026-09-05 correction: at
+  pen-down the SLIDER rests on its bottom STOP, not on the paper. The pen's weight reaches
+  the paper only if the tip was clamped below stop level — the "seat it low" step below is
+  not optional preload, it is the only contact there is. Repeatable seating: raise the
+  slider off its stop with a seat pulse on SC,5 (~16000), let the pen fall to the paper,
+  clamp, restore SC,5.)
   - Consequence: zero pressure margin. A 99 mm line failed to draw at all while a 28 mm
     line 90° away drew fine — bed unevenness of a fraction of a mm breaks contact.
   - **The only fix is mechanical: seat the pen deliberately low so it's preloaded into the

@@ -21,7 +21,7 @@ import {
   backlashSquares, calDots, calHatch, calLines, calSegments, cornerRinging,
   downSweep, liftGrid, liftTraverse, registrationProbe, settleLift, type Diagnostic,
 } from './diagnostics.js';
-import { liftMapFromCounts, parseCounts, refineLiftMap } from './liftmap.js';
+import { liftMapFromCounts, parseCounts, refineLiftMap } from 'occlude';
 import type { RenderClient } from './workerClient.js';
 
 export interface PanelHooks {
@@ -523,9 +523,9 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     junctionDeviation: prof().ebb.junctionDeviation,
     minimumCruiseRatio: prof().ebb.minimumCruiseRatio,
     lmMotion: prof().ebb.lmMotion,
-    quickHopMm: prof().ebb.quickHopMm,
     liftMap: prof().ebb.liftMap,
     liftMarginPulses: prof().ebb.liftMarginPulses,
+    settleCurve: prof().ebb.settleCurve,
     driftCheckEvery: prof().ebb.driftCheckEvery,
   });
   const persist = (): void => saveProfiles(hooks.profiles);
@@ -640,9 +640,9 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
           modelMs: Math.round(p.totalMs),
           estimate: p.estimate,
           settings: {
-            quickHopMm: prof().ebb.quickHopMm,
             liftMap: ((m) => (m ? `${m.cols}x${m.rows}` : null))(prof().ebb.liftMap),
             liftMarginPulses: prof().ebb.liftMarginPulses,
+            settleCurve: prof().ebb.settleCurve?.length ?? 0,
             travelFeed: prof().machine.travelFeed,
             acceleration: prof().ebb.acceleration,
             travelAcceleration: prof().ebb.travelAcceleration,
@@ -882,15 +882,19 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   mapStatus.className = 'panel-hint';
   const describeMap = (): void => {
     const m = prof().ebb.liftMap;
+    const curve = prof().ebb.settleCurve;
+    const curveText = curve && curve.length
+      ? ` Settle curve: ${[...curve].sort((a, b) => a.pulse - b.pulse).map((p) => `${p.pulse}\u2192${p.ms}`).join(', ')}.`
+      : ' No settle curve: every lift settles for the pen\u2019s full penDelay.';
     if (!m) {
-      mapStatus.textContent = 'No lift map: quick hop rule applies.';
+      mapStatus.textContent = 'No lift map: every travel at full lift.' + curveText;
       return;
     }
     const known = m.thresholds.filter((t): t is number => t !== null);
     const unresolved = m.thresholds.length - known.length;
     mapStatus.textContent =
       `Lift map ${m.cols}\u00d7${m.rows}: worst cell clears at ${Math.min(...known)}, ` +
-      `${unresolved} cells unresolved (\u2265 ${m.unresolvedAbove}). Quick hop is ignored.`;
+      `${unresolved} cells unresolved (\u2265 ${m.unresolvedAbove}).` + curveText;
   };
   const applyMap = button('Apply as lift map', () => {
     try {
@@ -923,7 +927,41 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   const mapRow = document.createElement('div');
   mapRow.className = 'row';
   mapRow.append(applyMap, clearMap, refineLabel);
-  diag.append(mapBox, mapRow, mapStatus);
+  // Settle curve: the settle×lift card read per column (lowest clean row's
+  // ms), one value per ladder pulse. The pen's penDelay at full lift is the
+  // curve's reference, so the full-lift point is added from the profile.
+  const curveBox = numberInput(0, 100, () => undefined);
+  curveBox.type = 'text';
+  curveBox.value = '';
+  curveBox.placeholder = 'settle ms per ladder column, e.g. 600,500,400,300,200,200';
+  curveBox.title = 'Settle \u00d7 lift card: for each ladder pulse (left \u2192 right), the lowest clean settle in ms.';
+  const applyCurve = button('Apply as settle curve', () => {
+    try {
+      const ms = curveBox.value.split(/[\s,]+/).filter(Boolean).map(Number);
+      const pulses = liftPulses();
+      if (ms.length !== pulses.length || ms.some((v) => !Number.isFinite(v) || v <= 0)) {
+        throw new Error(`settle curve: expected ${pulses.length} settle values for the ladder ${pulses.join(', ')}`);
+      }
+      const full = prof().ebb.penUpPulse;
+      const points = pulses.map((p, i) => ({ pulse: p, ms: ms[i] }));
+      // Full lift: the largest measured settle, unless the ladder reached it.
+      if (!points.some((p) => p.pulse === full)) points.push({ pulse: full, ms: Math.max(...ms) });
+      prof().ebb.settleCurve = points;
+      persist();
+      describeMap();
+    } catch (e) {
+      showErr(e);
+    }
+  });
+  const clearCurve = button('Clear curve', () => {
+    delete prof().ebb.settleCurve;
+    persist();
+    describeMap();
+  });
+  const curveRow = document.createElement('div');
+  curveRow.className = 'row';
+  curveRow.append(curveBox, applyCurve, clearCurve);
+  diag.append(mapBox, mapRow, curveRow, mapStatus);
   describeMap();
 
   addDiag(
@@ -996,14 +1034,10 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         e.minimumCruiseRatio = Math.max(0, Math.min(0.99, v));
         persist();
       }), '0–0.99; suppresses vibration-producing speed spikes on short moves'),
-      row('Quick hop mm', numberInput(e.quickHopMm, 5, (v) => {
-        e.quickHopMm = Math.max(0, v);
-        persist();
-      }), 'Without a lift map: travels shorter than this lift the pen only ~40% with shorter settles; 0 disables. Ignored once a lift map exists (Machine diagnostics)'),
       row('Lift margin', numberInput(e.liftMarginPulses, 100, (v) => {
         e.liftMarginPulses = Math.max(0, Math.round(v));
         persist();
-      }), 'Pulses of extra lift below each map cell\u2019s last-clean pulse (one ladder rung = 800)'),
+      }), 'Pulses of extra lift below each lift-map cell\u2019s last-clean pulse (one ladder rung = 800). The map and settle curve themselves are entered under Machine diagnostics'),
       row('Drift check', numberInput(e.driftCheckEvery, 100, (v) => {
         e.driftCheckEvery = Math.max(0, Math.round(v));
         persist();
@@ -1261,7 +1295,12 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
               travelAcceleration: prof().ebb.travelAcceleration,
               junctionDeviation: prof().ebb.junctionDeviation,
               minimumCruiseRatio: prof().ebb.minimumCruiseRatio,
-              quickHopMm: prof().ebb.liftMap ? 0 : prof().ebb.quickHopMm,
+              lift: {
+                penUpPulse: prof().ebb.penUpPulse,
+                map: prof().ebb.liftMap,
+                marginPulses: prof().ebb.liftMarginPulses,
+                settleCurve: prof().ebb.settleCurve,
+              },
             },
           );
           const mins = est.totalMs / 60000;

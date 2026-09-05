@@ -6,7 +6,7 @@
  *
  *   pnpm --filter occlude plotstats <sketch.ts...> [--seed N] [--paper A4]
  *        [--landscape] [--tolerance 0.025]
- *        [--hop MM=15] [--travel MMPM=6000] [--accel MMS2=1000] [--taccel MMS2=2000]
+ *        [--profile profiles.json] [--travel MMPM=6000] [--accel MMS2=1000] [--taccel MMS2=2000]
  *   pnpm --filter occlude plotstats --fit    # learn wall-time correction
  *                                           # coefficients from the plot log
  *
@@ -114,7 +114,7 @@ if (args.includes('--fit')) {
 }
 const optValues = new Set<number>();
 args.forEach((a, i) => {
-  if (a.startsWith('--') && ['seed', 'paper', 'tolerance', 'eps', 'hop', 'travel', 'accel', 'taccel'].includes(a.slice(2))) optValues.add(i + 1);
+  if (a.startsWith('--') && ['seed', 'paper', 'tolerance', 'eps', 'profile', 'travel', 'accel', 'taccel'].includes(a.slice(2))) optValues.add(i + 1);
 });
 const files = args.filter((a, i) => !a.startsWith('--') && !optValues.has(i));
 const opt = (name: string): string | undefined => {
@@ -385,7 +385,22 @@ const machineOpts = {
   travelAcceleration: parseFloat(opt('taccel') ?? '2000'),
   junctionDeviation: 0.02,
   minimumCruiseRatio: 0.5,
-  quickHopMm: parseFloat(opt('hop') ?? '15'),
+  // --profile <profiles.json>: price with that machine's lift map and settle
+  // curve (the studio's server store). Without it: full lifts, pens' own
+  // settles — the oracle basis.
+  lift: ((p) => {
+    if (!p) return undefined;
+    const profs = JSON.parse(readFileSync(p, 'utf8')) as {
+      ebb: { penUpPulse: number; liftMap?: unknown; liftMarginPulses?: number; settleCurve?: unknown };
+    }[];
+    const e = profs[0].ebb;
+    return {
+      penUpPulse: e.penUpPulse,
+      map: e.liftMap as occlude.LiftModel['map'],
+      marginPulses: e.liftMarginPulses ?? 800,
+      settleCurve: e.settleCurve as occlude.LiftModel['settleCurve'],
+    };
+  })(opt('profile')),
 };
 
 function analyze(name: string, chains: Chain[], pens: occlude.PenDef[]): Stats {

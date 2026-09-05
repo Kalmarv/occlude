@@ -2,7 +2,7 @@
 
 import { DEFAULT_PENS, type PenDef } from 'occlude';
 
-import type { LiftMap } from './liftmap.js';
+import type { LiftMap, SettlePoint } from 'occlude';
 
 const KEYS = {
   sketch: 'occlude.sketch',
@@ -60,15 +60,14 @@ export interface EbbSettings {
   junctionDeviation: number;
   minimumCruiseRatio: number;
   lmMotion: boolean;
-  /** Quick hop (no lift map): travels shorter than this lift to 40%. 0 = off.
-   * Ignored once a lift map exists — every travel then takes its lift from
-   * the map. */
-  quickHopMm: number;
-  /** The pen-height map read off the lift-grid card (see liftmap.ts), and
-   * the safety margin below each cell's last-clean pulse, in pulses (one
-   * ladder rung by default). Absent = no map: quick-hop rule applies. */
+  /** Pen height (occlude's liftmap.ts): the clearance map read off the
+   * lift-grid card, the safety margin below each cell's last-clean pulse in
+   * pulses (one ladder rung by default), and the settle curve from the
+   * settle×lift card. No map = full lift on every travel; no curve = the
+   * pen's penDelay at every lift. */
   liftMap?: LiftMap;
   liftMarginPulses: number;
+  settleCurve?: SettlePoint[];
   /** Chains between mid-plot QS drift checks (each one drains the FIFO —
    * a deliberate ~0.5s pause). 0 = check only at plot end. */
   driftCheckEvery: number;
@@ -150,7 +149,6 @@ export const DEFAULT_PROFILE: MachineProfile = {
     junctionDeviation: 0.02,
     minimumCruiseRatio: 0.5,
     lmMotion: true,
-    quickHopMm: 15,
     liftMarginPulses: 800,
     driftCheckEvery: 1000,
   },
@@ -332,11 +330,12 @@ export function savePens(pens: PenDef[]): void {
  *   16000 down) left a third of the lift unused and the down pulse still
  *   kissing the slider; a stored default-pair is bumped to the 2026-09-05
  *   sweep values. Hand-tuned pairs are kept as they are.
+ * - quickHopMm is dropped: the lift map replaced it.
  *
  * Missing fields are filled from DEFAULT_PROFILE.ebb (forward-compat for
  * fields added after a profile was saved). */
 export function migrateEbb(raw: Partial<EbbSettings> & LegacyEbbFields): EbbSettings {
-  const { servoDown, servoUp, ...rest } = raw;
+  const { servoDown, servoUp, quickHopMm: _retired, ...rest } = raw;
   const ebb: EbbSettings = { ...DEFAULT_PROFILE.ebb, ...rest };
   if (servoDown !== undefined && rest.penUpPulse === undefined) ebb.penUpPulse = servoDown;
   if (servoUp !== undefined && rest.penDownPulse === undefined) ebb.penDownPulse = servoUp;
@@ -352,6 +351,9 @@ export function migrateEbb(raw: Partial<EbbSettings> & LegacyEbbFields): EbbSett
 interface LegacyEbbFields {
   servoDown?: number;
   servoUp?: number;
+  /** Quick hop (a distance threshold for a fixed 40% lift) retired 2026-09-05:
+   * the lift map decides every travel's lift. */
+  quickHopMm?: number;
 }
 
 export function loadSettings(): Settings {

@@ -1321,10 +1321,13 @@ Serial. What's under the hood, briefly, so its knobs make sense:
   emitted as hardware-interpolated constant-acceleration `LM` commands
   (25 kHz ramps in firmware; falls back to `XM` packets below firmware
   2.5.3 or via the checkbox). Separate acceleration for pen-up travel.
-- **Pen cycles**: per-pen `feed` and `penDelay` (settle). **Quick hop**
-  lifts the pen only ~40% for short travels with shorter settles — the
-  big lever on hatch/stipple plots; 0 disables (needed on machines whose
-  gantry sags at one side).
+- **Pen cycles**: per-pen `feed` and `penDelay` (the settle at FULL lift).
+  With a **lift map** on the machine profile, every travel takes the
+  smallest lift that clears along its path (less a margin), and the
+  **settle curve** scales the pen's settle down for that lift — the big
+  lever on hatch/stipple plots, now per travel and per bed position rather
+  than a fixed 40% hop within a distance. Driver and estimator price the
+  cycle through one function (`settleAtLift`), so the ETA stays honest.
 - **Re-ink pauses**: pens with a `reinkMm` budget (paint markers that need
   pumping, dip pens, brushes) auto-pause at the first stroke boundary past
   that many drawn mm: the carriage parks at the paper origin — the
@@ -1355,8 +1358,10 @@ Serial. What's under the hood, briefly, so its knobs make sense:
   joining the dash ends = dragged; the last clean strip is that cell's
   clearance threshold; the slow truth for short hops), **settle × lift** finds the settle each
   lift needs, and the **down sweep** finds the pen-down pulse at which the
-  horn fully releases the pen (first solid hatch patch). Machine profile
-  fields are `penUpPulse` (SC,4) and `penDownPulse` (SC,5).
+  horn fully releases the pen (first solid hatch patch). The cards are read
+  by eye and pasted into the panel (diagonal counts per cell; settle per
+  ladder column) to become the profile's `liftMap` and `settleCurve`.
+  Machine profile fields are `penUpPulse` (SC,4) and `penDownPulse` (SC,5).
 - **ETA**: totals come from the planner's actual trapezoids and blend
   toward measured throughput as the plot runs — the number is honest.
 - **Draft plots**: `decimate(0.7, everything)` makes a fast structural

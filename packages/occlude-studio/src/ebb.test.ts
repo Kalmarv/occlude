@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { Ebb, lmAxisCompletes, lmCompletable, type PlotProgress } from './ebb.js';
-import { liftForTravel } from './liftmap.js';
+import { liftForTravel } from 'occlude';
 
 const opts = {
   stepsPerMm: 100,
@@ -17,8 +17,6 @@ const opts = {
   minimumCruiseRatio: 0.5,
   // The XM tests pin exact packet streams; LM has its own suite below.
   lmMotion: false,
-  // Off: existing tests pin exact settle values; quick-hop has its own test.
-  quickHopMm: 0,
 };
 
 class FakePort {
@@ -711,51 +709,80 @@ describe('position integrity (QS)', () => {
   });
 });
 
-describe('quick-hop lifts', () => {
-  test('short gaps hop at reduced height and settle; long gaps restore full', async () => {
+describe('lift map + settle curve', () => {
+  test('travels take the map lift and settles scale with it; nothing hops without a map', async () => {
     const port = new FakePort();
     Object.defineProperty(globalThis, 'navigator', {
       configurable: true,
       value: { serial: { requestPort: async () => port } },
     });
-    const direct = { ...opts, swapXY: false, invertX: false, quickHopMm: 15 };
-    // Chains at x 0-5, 10-15, 20-25 (5mm gaps → hop), then 100-105 (far →
-    // full), all on y 0.
+    // 2×1 map over a 100×50 bed: left cell clears at 15200, right at 13600.
+    const liftMap = {
+      cols: 2, rows: 1, bedW: 100, bedH: 50, margin: 5,
+      thresholds: [15200, 13600], unresolvedAbove: 16000,
+    };
+    const settleCurve = [
+      { pulse: 10000, ms: 600 }, { pulse: 12800, ms: 500 }, { pulse: 13600, ms: 400 },
+      { pulse: 14400, ms: 300 }, { pulse: 15200, ms: 200 }, { pulse: 16000, ms: 200 },
+    ];
+    const direct = { ...opts, swapXY: false, invertX: false, liftMap, liftMarginPulses: 800, settleCurve };
     const plan = new Float64Array([
-      0, 0, 2, 0, 0, 5, 0,
-      0, 0, 2, 10, 0, 15, 0,
-      0, 0, 2, 20, 0, 25, 0,
-      0, 0, 2, 100, 0, 105, 0,
+      0, 0, 2, 20, 25, 25, 25,
+      0, 0, 2, 30, 25, 35, 25,
+      0, 0, 2, 70, 25, 75, 25,
     ]);
     const ebb = new Ebb();
     await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
-    await ebb.plot(
-      plan,
-      [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 500 }],
-      direct,
-      () => undefined,
-    );
-
+    const pen = { name: 'a', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 600 };
+    await ebb.plot(plan, [pen], direct, () => undefined);
     const c = port.commands;
-    // REGISTER SEMANTICS: SP,1 (up) targets SC,4; SP,0 (down) targets SC,5.
-    // Hop adjusts SC,4 ONLY — touching SC,5 would lower the pen-DOWN
-    // target and strokes would hover (the 2026-08-30 field bug). Hop
-    // pulse: 14200 + (10000−14200)×0.4 = 12520. Asymmetric settles: up
-    // 0.4×500 = 200; down 0.5×500 = 250 (the fall must COMPLETE).
-    const hopSet = c.indexOf('SC,4,12520');
-    expect(hopSet).toBeGreaterThan(-1);
-    expect(c.filter((cmd) => cmd.startsWith('SC,5')).length).toBe(1); // connect only
-    expect(c.indexOf('SP,1,200', hopSet)).toBeGreaterThan(hopSet);
-    expect(c.indexOf('SP,0,250', hopSet)).toBeGreaterThan(hopSet);
-    // Before the 75mm travel to the last chain, full lift is restored and
-    // the full settle returns.
-    const restore = c.indexOf('SC,4,10000', hopSet);
-    expect(restore).toBeGreaterThan(hopSet);
-    expect(c.indexOf('SP,1,500', restore)).toBeGreaterThan(restore);
-    // The final full-lift restore never leaves the board in hop mode.
-    expect(c.lastIndexOf('SC,4,10000')).toBeGreaterThan(c.lastIndexOf('SC,4,12520'));
-    // First chain's pen-down (before any hop decision) uses the full settle.
-    expect(c.indexOf('SP,0,500')).toBeLessThan(c.indexOf('SC,4,12520'));
+    const model = { penUpPulse: 10000, marginPulses: 800, settleCurve };
+    // First chain: travelled into at full lift → falls with the full settle.
+    expect(c.indexOf('SP,0,600')).toBeGreaterThan(-1);
+    // Travel into chain 1 inside the left cell: map lift, and the pen rises
+    // with the settle THAT lift needs.
+    const p1 = liftForTravel(liftMap, [25, 25], [30, 25], 800, 10000);
+    const i1 = c.indexOf(`SC,4,${p1}`);
+    expect(i1).toBeGreaterThan(-1);
+    const up1 = Number(c[i1 + 1].split(',')[2]);
+    expect(c[i1 + 1].startsWith('SP,1,')).toBe(true);
+    expect(up1).toBeLessThan(600);
+    expect(up1).toBeGreaterThanOrEqual(150);
+    // …and chain 1 falls from that same lift with the same settle.
+    expect(c.indexOf(`SP,0,${up1}`, i1)).toBeGreaterThan(i1);
+    // Travel into chain 2 approaches the deeper cell: more lift, longer settle.
+    const p2 = liftForTravel(liftMap, [35, 25], [70, 25], 800, 10000);
+    const i2 = c.indexOf(`SC,4,${p2}`);
+    expect(i2).toBeGreaterThan(i1);
+    expect(p2).toBeLessThan(p1);
+    const up2 = Number(c[i2 + 1].split(',')[2]);
+    expect(up2).toBeGreaterThan(up1);
+    // Full lift restored at the end; no fixed-fraction hop pulse anywhere.
+    expect(c.lastIndexOf('SC,4,10000')).toBeGreaterThan(i2);
+    expect(c.some((x) => x === 'SC,4,12520')).toBe(false);
+    void model;
+  });
+
+  test('without a map every travel is at full lift with the pen\u2019s own settle', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, swapXY: false, invertX: false };
+    const plan = new Float64Array([0, 0, 2, 0, 0, 5, 0, 0, 0, 2, 10, 0, 15, 0]);
+    const ebb = new Ebb();
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    await ebb.plot(plan, [{ name: 'a', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 500 }],
+      direct, () => undefined);
+    const c = port.commands;
+    expect(c.filter((x) => x.startsWith('SC,4,')).every((x) => x === 'SC,4,10000')).toBe(true);
+    // Every landing, and every pen-up inside the plot (connect and the final
+    // park use the driver's own default), waits the pen's full penDelay.
+    expect(c.filter((x) => x.startsWith('SP,0')).every((x) => x === 'SP,0,500')).toBe(true);
+    const first = c.indexOf('SP,0,500');
+    const last = c.lastIndexOf('SP,0,500');
+    expect(c.slice(first, last).filter((x) => x.startsWith('SP,1')).every((x) => x === 'SP,1,500')).toBe(true);
   });
 });
 
@@ -770,7 +797,7 @@ describe('servo overrides (pen-height cards)', () => {
       configurable: true,
       value: { serial: { requestPort: async () => port } },
     });
-    const direct = { ...opts, swapXY: false, invertX: false, quickHopMm: 0 };
+    const direct = { ...opts, swapXY: false, invertX: false };
     // pen 0 plain, pen 1 lift override 12000, pen 2 down override 15000.
     const plan = new Float64Array([
       0, 0, 2, 0, 0, 5, 0,
@@ -813,7 +840,7 @@ describe('servo overrides (pen-height cards)', () => {
       configurable: true,
       value: { serial: { requestPort: async () => port } },
     });
-    const direct = { ...opts, swapXY: false, invertX: false, quickHopMm: 0 };
+    const direct = { ...opts, swapXY: false, invertX: false };
     // One long chain with a down override so stop() lands mid-stroke.
     const pts: number[] = [];
     for (let i = 0; i <= 400; i++) pts.push(i * 0.5, (i % 2) * 0.5);
@@ -828,49 +855,6 @@ describe('servo overrides (pen-height cards)', () => {
     const c = port.commands;
     expect(c.indexOf('SC,5,16000')).toBeGreaterThan(-1);
     expect(c.lastIndexOf('SC,5,14200')).toBeGreaterThan(c.lastIndexOf('SC,5,16000'));
-  });
-});
-
-describe('lift map drives the travel lift', () => {
-  test('each travel takes the map\u2019s least-clearing pulse minus the margin, with the full settle', async () => {
-    const port = new FakePort();
-    Object.defineProperty(globalThis, 'navigator', {
-      configurable: true,
-      value: { serial: { requestPort: async () => port } },
-    });
-    // 2×1 map over a 100×50 bed: left cell clears at 15200, right cell at 13600.
-    const liftMap = {
-      cols: 2, rows: 1, bedW: 100, bedH: 50, margin: 5,
-      thresholds: [15200, 13600], unresolvedAbove: 16000,
-    };
-    const direct = { ...opts, swapXY: false, invertX: false, quickHopMm: 15, liftMap, liftMarginPulses: 800 };
-    // Chain 0 in the left cell, chain 1 also left (5mm hop), chain 2 in the right cell.
-    const plan = new Float64Array([
-      0, 0, 2, 20, 25, 25, 25,
-      0, 0, 2, 30, 25, 35, 25,
-      0, 0, 2, 70, 25, 75, 25,
-    ]);
-    const ebb = new Ebb();
-    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
-    await ebb.plot(plan, [{ name: 'a', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 500 }],
-      direct, () => undefined);
-    const c = port.commands;
-    // The driver must write exactly what the map function says for each
-    // travel (bilinear between cell centres, min along the path, − margin).
-    const p1 = liftForTravel(liftMap, [25, 25], [30, 25], 800, 10000);
-    const p2 = liftForTravel(liftMap, [35, 25], [70, 25], 800, 10000);
-    expect(p1).toBeGreaterThan(p2); // the second travel reaches the deeper cell
-    expect(p2).toBeGreaterThanOrEqual(12800); // approaching the 13600 cell, − 800
-    expect(p2).toBeLessThan(13000);
-    const first = c.indexOf(`SC,4,${p1}`);
-    expect(first).toBeGreaterThan(-1);
-    expect(c[first + 1]).toBe('SP,1,500'); // full settle: map lifts are not priced as hops yet
-    const second = c.indexOf(`SC,4,${p2}`);
-    expect(second).toBeGreaterThan(first);
-    // The quick-hop pulse never appears: the map supersedes quickHopMm.
-    expect(c.some((x) => x === 'SC,4,12520')).toBe(false);
-    // Full lift restored at the end.
-    expect(c.lastIndexOf('SC,4,10000')).toBeGreaterThan(second);
   });
 });
 
