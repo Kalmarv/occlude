@@ -833,14 +833,16 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   );
   addDiag(
     'Lift grid (whole bed)',
-    'Pen-height map. Framed cells across the whole bed (4 across the short axis); inside each, six strips travel at lift pulses ' +
+    'Pen-height map. Framed cells across the whole bed (8 across the short axis); inside each, six strips travel at lift pulses ' +
       'from full up towards the down pulse (left = most lift). A zigzag joining the dash ends = the pen dragged ' +
       'at that lift. Per cell, the last clean strip is its clearance threshold. Seat the pen on the shim first.',
     (base) => {
-      // Cells roughly square: 4 across the short axis, rows follow the aspect.
+      // Cells roughly square: 8 across the short axis, rows follow the aspect
+      // (8×12 on the iDraw's 12"×17" bed, ~36mm cells).
+      const ACROSS = 8;
       const { bedW, bedH } = prof().machine;
-      const cols = bedW <= bedH ? 4 : Math.max(2, Math.round((4 * bedW) / bedH));
-      const rows = bedW <= bedH ? Math.max(2, Math.round((4 * bedH) / bedW)) : 4;
+      const cols = bedW <= bedH ? ACROSS : Math.max(2, Math.round((ACROSS * bedW) / bedH));
+      const rows = bedW <= bedH ? Math.max(2, Math.round((ACROSS * bedH) / bedW)) : ACROSS;
       return liftGrid(base, { bedW, bedH, pulses: liftPulses(), cols, rows });
     },
   );
