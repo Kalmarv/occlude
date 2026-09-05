@@ -318,3 +318,59 @@ export function downSweep(base: PenDef | undefined, o: DownSweepOpts): Diagnosti
   });
   return { plan: encode(chains), pens, servo };
 }
+
+export interface LiftTraverseOpts {
+  bedW: number;
+  bedH: number;
+  /** Lift pulses (SC,4), most lift first (ascending). */
+  pulses: number[];
+  /** Horizontal sweeps (rows) and vertical sweeps (columns). */
+  rows: number;
+  cols: number;
+}
+
+/**
+ * Lift traverse — the fast sag map. For every lift pulse and every row: a
+ * tick at the left edge, then ONE pen-up travel across the whole bed at that
+ * lift, then a tick at the right edge; likewise top → bottom per column.
+ * Wherever the lift does not clear the paper the nib drags and draws the
+ * failure itself: ink between the ticks marks exactly where, continuously
+ * along the sweep. Within a row band the sweeps stack 2mm apart, most lift
+ * (lowest pulse) first, so the k-th line in a band is the k-th pulse.
+ *
+ * ~120 travels instead of thousands of hops: minutes, not an hour. The lift
+ * grid stays the truth for how SHORT hops behave; this is the map to run
+ * first and to rerun after any change.
+ */
+export function liftTraverse(base: PenDef | undefined, o: LiftTraverseOpts): Diagnostic {
+  const pens: PenDef[] = [];
+  const servo: (ServoOverride | undefined)[] = [];
+  for (const p of o.pulses) {
+    pens.push(pen(`traverse-${p}`, base?.feed ?? 3000, base));
+    servo.push({ up: p });
+  }
+  const chains: Chain[] = [];
+  const m = 6; // edge margin, mm
+  const tick = 3;
+  const step = 2; // spacing between the pulses' sweeps within a band
+  const bandH = (o.bedH - 2 * m) / o.rows;
+  const bandW = (o.bedW - 2 * m) / o.cols;
+  // Horizontal sweeps: left tick, travel, right tick. Both ticks belong to
+  // the pulse's pen, so the travel INTO the right tick is at that lift.
+  for (let r = 0; r < o.rows; r++) {
+    o.pulses.forEach((_, k) => {
+      const y = m + r * bandH + bandH / 2 + (k - (o.pulses.length - 1) / 2) * step;
+      chains.push({ pen: k, pts: [[m, y], [m + tick, y]] });
+      chains.push({ pen: k, pts: [[o.bedW - m - tick, y], [o.bedW - m, y]] });
+    });
+  }
+  // Vertical sweeps: top tick, travel, bottom tick.
+  for (let c = 0; c < o.cols; c++) {
+    o.pulses.forEach((_, k) => {
+      const x = m + c * bandW + bandW / 2 + (k - (o.pulses.length - 1) / 2) * step;
+      chains.push({ pen: k, pts: [[x, m], [x, m + tick]] });
+      chains.push({ pen: k, pts: [[x, o.bedH - m - tick], [x, o.bedH - m]] });
+    });
+  }
+  return { plan: encode(chains), pens, servo };
+}

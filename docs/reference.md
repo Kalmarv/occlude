@@ -1349,9 +1349,11 @@ Serial. What's under the hood, briefly, so its knobs make sense:
 - **Pen-height cards** (also in Diagnostics): the servo is open loop and
   the gantry sags, so the only sensor is ink. Seat the pen on a shim the
   same way every time, then let the paper answer in pulse units: the
-  **lift grid** travels each bed cell at six lift pulses (a zigzag joining
-  the dash ends = the pen dragged at that lift; the last clean strip is
-  that cell's clearance threshold), **settle × lift** finds the settle each
+  **lift traverse** sweeps the raised pen across the whole bed at six lift
+  pulses (ink between the edge ticks = where that lift dragged; minutes),
+  the **lift grid** hops within each bed cell at the same pulses (a zigzag
+  joining the dash ends = dragged; the last clean strip is that cell's
+  clearance threshold; the slow truth for short hops), **settle × lift** finds the settle each
   lift needs, and the **down sweep** finds the pen-down pulse at which the
   horn fully releases the pen (first solid hatch patch). Machine profile
   fields are `penUpPulse` (SC,4) and `penDownPulse` (SC,5).

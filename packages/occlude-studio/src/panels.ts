@@ -19,7 +19,7 @@ import {
 import { Ebb, serialSupported, type PlotProgress } from './ebb.js';
 import {
   backlashSquares, calDots, calHatch, calLines, calSegments, cornerRinging,
-  downSweep, liftGrid, registrationProbe, settleLift, type Diagnostic,
+  downSweep, liftGrid, liftTraverse, registrationProbe, settleLift, type Diagnostic,
 } from './diagnostics.js';
 import type { RenderClient } from './workerClient.js';
 
@@ -830,6 +830,20 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     'Backlash squares (~45\u00d720mm)',
     'Left square repeats every edge in the same direction; right square goes there-and-back. Doubled edges on the right square only = backlash at direction reversals.',
     backlashSquares,
+  );
+  addDiag(
+    'Lift traverse (whole bed, ~5 min)',
+    'The fast sag map. At each of six lift pulses the pen ticks one edge, travels PEN-UP across the whole bed, ' +
+      'and ticks the other edge \u2014 12 rows across and 8 columns down. Ink between the ticks is where that ' +
+      'lift dragged; within a band the lines are most-lift first. Run this first; rerun after any change.',
+    (base) => {
+      // 12 bands along the long axis, 8 along the short one.
+      const { bedW, bedH } = prof().machine;
+      const portrait = bedH >= bedW;
+      return liftTraverse(base, {
+        bedW, bedH, pulses: liftPulses(), rows: portrait ? 12 : 8, cols: portrait ? 8 : 12,
+      });
+    },
   );
   addDiag(
     'Lift grid (whole bed)',
