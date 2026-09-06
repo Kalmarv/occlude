@@ -6,7 +6,10 @@
  * not on their source. Assets and fills preload from the studio stores
  * exactly as the docs checker does.
  *
- *   pnpm --filter occlude render-hash <sketch.ts> [--seeds 1,42,7]
+ *   pnpm --filter occlude render-hash <sketch.ts> [--seeds 1,42,7] [--probes]
+ *
+ * `--probes` also prints the sketch's t.probe() stats and the render time
+ * per seed.
  *
  * A sketch that fails to compile or render prints `ERROR <message>` on one
  * line and exits 0 — the caller compares that line too.
@@ -16,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import {
-  compileSketch, exportSvg, initOcclude, isSketch, render, setPaperHint, setPenLibrary,
+  compileSketch, exportSvg, getProbeStats, initOcclude, isSketch, render, setPaperHint, setPenLibrary,
   DEFAULT_PENS, paperSize,
 } from '../src/index.js';
 import { transformSync } from 'esbuild';
@@ -28,6 +31,7 @@ const file = args.find((a) => !a.startsWith('--'));
 if (!file) throw new Error('usage: render-hash <sketch.ts> [--seeds a,b,c]');
 const si = args.indexOf('--seeds');
 const seeds = si >= 0 ? args[si + 1].split(',').map(Number) : [1, 42, 7];
+const probes = args.includes('--probes');
 
 const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
@@ -76,10 +80,18 @@ for (const seed of seeds) {
     // A sketch with no seed of its own reads the url seed at compile time.
     (globalThis as Record<string, unknown>).location = { search: `?seed=${seed}` };
     compileSketch(def as Parameters<typeof compileSketch>[0]);
+    const t0 = performance.now();
     const out = render({ paper: 'Square20' });
+    const renderMs = performance.now() - t0;
     const svg = exportSvg({ paper: 'Square20' });
     const hash = createHash('sha256').update(svg).digest('hex');
     console.log(`${seed}  ${hash}  ${out.frags.length}`);
+    if (probes) {
+      console.log(`  render ${renderMs.toFixed(0)} ms`);
+      for (const [label, st] of Object.entries(getProbeStats() as Record<string, unknown>)) {
+        console.log(`  probe ${label}: ${JSON.stringify(st)}`);
+      }
+    }
   } catch (e) {
     console.log(`${seed}  ERROR ${stableError(e)}`);
   }
