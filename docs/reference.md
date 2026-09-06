@@ -1200,8 +1200,8 @@ apart. **Material:** a `Curve` is an ordered chain of vertices, closed
 unless told otherwise, with positions and any named attributes in columns;
 connectivity is the order. **Numbers:** a small vector vocabulary (`add`,
 `sub`, `mul`, `length`, `distance`, `unit`, `limit`, `perp`, `sum`, `sumBy`) that
-knows nothing about pens or growth. **Rules and recipes:** `evolve` runs a
-rule you write on that vocabulary; `tension` and `separation` are recipes
+knows nothing about pens or growth. **Rules and recipes:** `curve.steps()`
+runs a rule you write on that vocabulary; `tension` and `separation` are recipes
 written the same way — copy one into a sketch and change it. **Drawing:**
 `segmentRuns` turns an attribute into strokes. All pure imports; `t.sample`
 sits on the toolkit because it reads the paper.
@@ -1284,17 +1284,26 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 ]);
 ```
 
-### evolve
+### steps
 
-`evolve(start, steps, (current, next, k) => …)` — run a rule and keep
-every state. The rule reads `current` (frozen) and describes `next`,
-which starts as a copy: `next.move(id, [dx, dy])` displaces,
-`next.set(id, { age })` writes attributes, `next.splitEdges(where, { at?,
-attributes })` inserts vertices on the MOVED edges — moves apply first,
-then `where(edge)` sees each edge as it will be. Every attribute of an
-inserted vertex must be given: inheriting, interpolating or resetting is
-the rule's decision, never a silent default. Returns `steps + 1` curves,
-the input first, so the drawing can pick any iteration.
+`curve.steps(n, (current, next, k) => …, { every? })` — THE iteration
+operation: run a rule `n` times and return the final curve, ready for
+further operations. Growth, relaxation and erosion are different rules
+for this one verb; `.steps(1, rule)` is a single transition. The rule
+reads `current` (frozen) and describes `next`, which starts as a copy:
+`next.move(index, [dx, dy])` displaces, `next.set(index, { age })` writes
+attributes, `next.splitEdges(where, { at?, attributes })` inserts vertices
+on the MOVED edges — moves apply first, then `where(edge)` sees each edge
+as it will be. Every attribute of an inserted vertex must be given:
+inheriting, interpolating or resetting is the rule's decision, never a
+silent default.
+
+By default only the final state is kept. `{ every: m }` also captures
+iteration 0, every m-th iteration, and the final one — each once, labelled
+— on the result's `history` as `{ iteration, curve }`; nothing a later
+step does can disturb a snapshot, and `iteration` keeps counting across
+calls. Each sketch run recomputes from the start: scrubbing an iteration
+control re-runs the growth to that point.
 
 Spatial neighbours come from `neighbours(curve, { radius })`: the index
 is built ONCE for the state and the returned query gives, per vertex, the
@@ -1307,13 +1316,13 @@ neighbours, linearly to zero at the radius. Both are a few lines on the
 vocabulary above — write your own beside them.
 
 ```ts live
-import { sketch, stroke, curve, evolve, neighbours, separation, tension, sum, mul } from 'occlude';
+import { sketch, stroke, curve, neighbours, separation, tension, sum, mul } from 'occlude';
 
 // Differential growth in twelve lines: tension + separation + seeded
 // noise, split the stretched edges, keep every iteration.
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const start = curve(t.sample(t.circle(25, 25, 5), { count: 24 })[0], { age: 0 });
-  const history = evolve(start, 60, (cur, next, k) => {
+  const grown = start.steps(60, (cur, next, k) => {
     const near = neighbours(cur, { radius: 2 });
     for (const p of cur.points) {
       const a = t.noise(p.x * 0.1, p.y * 0.1, k * 0.02) * Math.PI * 2;
@@ -1322,11 +1331,11 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
       next.set(p.index, { age: p.age + 1 });
     }
     next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
-  });
-  // Every 12th iteration as ghosts on the left, the last one on the right.
+  }, { every: 12 });
+  // Every 12th iteration as ghosts on the left, the final one on the right.
   return [
-    history.filter((_, i) => i % 12 === 0).map((c) => stroke(c.contour)),
-    stroke({ pts: history[60].pts.map(([x, y]) => [x + 50, y]), closed: true }),
+    grown.history.map((h) => stroke(h.curve.contour)),
+    stroke({ pts: grown.pts.map(([x, y]) => [x + 50, y]), closed: true }),
   ];
 });
 ```
@@ -1342,13 +1351,13 @@ before it can own an edge — the start vertex's (`(a) => band(a.age)`),
 the end's, both, either, or their mean are all different drawings.
 
 ```ts live
-import { sketch, stroke, curve, evolve, neighbours, separation, tension, sum, mul, segmentRuns } from 'occlude';
+import { sketch, stroke, curve, neighbours, separation, tension, sum, mul, segmentRuns } from 'occlude';
 
 // The same grown ring, cut into runs by age band: young edges in one
 // pen, old ones in another — chosen after the growth, not inside it.
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const start = curve(t.sample(t.circle(50, 25, 5), { count: 24 })[0], { age: 0 });
-  const history = evolve(start, 60, (cur, next, k) => {
+  const last = start.steps(60, (cur, next, k) => {
     const near = neighbours(cur, { radius: 2 });
     for (const p of cur.points) {
       const a = t.noise(p.x * 0.1, p.y * 0.1, k * 0.02) * Math.PI * 2;
@@ -1357,7 +1366,6 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
     }
     next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
   });
-  const last = history[60];
   const old = (age) => (age > 30 ? 1 : 0);
   return segmentRuns(last, (a) => old(a.age)).map((r) => stroke(r, { pen: r.key ? 'pigma-005-black' : 'stabilo-88-blue' }));
 });

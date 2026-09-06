@@ -755,6 +755,13 @@ button.primary {
   color: var(--warn);
 }
 
+/* The canvas holds the previous result while a render runs or after one
+   failed — visibly not the current code. */
+#preview.stale {
+  opacity: 0.55;
+  transition: opacity 0.3s ease 0.5s;
+}
+
 #status-stats {
   overflow: hidden;
   text-overflow: ellipsis;

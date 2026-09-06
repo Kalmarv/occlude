@@ -50,13 +50,13 @@ export type { SynthFn, SynthOpts, SynthStats, SynthBounds, WarpFn } from './synt
 export type { LabelOpts } from './font.js';
 export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fills.js';
 
-// Curves with attributes: hold, evolve, reinterpret (pure; the toolkit's
+// Curves with attributes: hold, step, reinterpret (pure; the toolkit's
 // t.sample turns a shape into the starting positions).
 export {
-  curve, Curve, evolve, segmentRuns, neighbours, separation, tension,
+  curve, Curve, segmentRuns, neighbours, separation, tension,
   add, sub, mul, length, distance, unit, limit, perp, sum, sumBy,
 } from './curve.js';
-export type { Vertex, Edge, Next, SegmentRun, Vec, XY } from './curve.js';
+export type { Vertex, Edge, Next, Snapshot, NeighbourStats, SegmentRun, Vec, XY } from './curve.js';
 
 // Units.
 export { w, h, s, long, mm, Len } from './units.js';

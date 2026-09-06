@@ -12,7 +12,7 @@
  * rule directly against raw arrays showed which bookkeeping deserved a
  * home: neighbour search prepared once per state (`neighbours`), the
  * current-state/next-state discipline with attribute-preserving edits
- * (`evolve`), edge splitting that reconnects the ring, and turning a
+ * (`curve.steps()`), edge splitting that reconnects the ring, and turning a
  * per-vertex attribute into strokes without rewriting the wrap-around
  * (`segmentRuns`). Underneath sits a small numerical vocabulary (`add`,
  * `sub`, `mul`, `length`, `unit`, `limit`, `sum`, `sumBy`, …) so a rule is
@@ -43,6 +43,13 @@ export interface Edge {
 
 const asXY = (p: XY): [number, number] => (Array.isArray(p) ? [p[0], p[1]] : [p.x, p.y]);
 
+/** One captured state of a `steps()` run: which iteration it is, and the
+ * curve as it was then. Never touched by later steps. */
+export interface Snapshot {
+  iteration: number;
+  curve: Curve;
+}
+
 export class Curve {
   readonly n: number;
   readonly closed: boolean;
@@ -50,9 +57,28 @@ export class Curve {
   readonly y: Float64Array;
   /** Attribute columns by name, each `n` long. */
   readonly attrs: Readonly<Record<string, Float64Array>>;
+  /** How many `steps()` iterations produced this state (0 for a fresh
+   * `curve()`); `steps()` continues the count. */
+  readonly iteration: number;
+  /** States captured by the `steps()` call that made this curve — empty
+   * unless it asked for `{ every }`. Iteration 0 of that call, every
+   * `every`-th iteration after it, and the final one, each once, oldest
+   * first. Snapshots carry no history of their own. */
+  readonly history: readonly Snapshot[];
 
-  /** @internal Use `curve()`; columns are adopted, not copied. */
-  constructor(x: Float64Array, y: Float64Array, attrs: Record<string, Float64Array>, closed: boolean) {
+  /** @internal Use `curve()`; columns are adopted, not copied. The library
+   * never writes to a curve's columns after construction — every step
+   * builds new ones — so a snapshot stays what it was. (Typed arrays
+   * cannot be frozen; a sketch that writes `c.x[i] = …` is editing a
+   * value it was given, on its own head.) */
+  constructor(
+    x: Float64Array,
+    y: Float64Array,
+    attrs: Record<string, Float64Array>,
+    closed: boolean,
+    iteration = 0,
+    history: readonly Snapshot[] = [],
+  ) {
     if (x.length !== y.length) throw new Error('curve: x and y columns differ in length');
     for (const [name, col] of Object.entries(attrs)) {
       if (col.length !== x.length) {
@@ -67,8 +93,46 @@ export class Curve {
     this.x = x;
     this.y = y;
     this.attrs = attrs;
+    this.iteration = iteration;
+    this.history = history;
     Object.freeze(this.attrs);
+    Object.freeze(this.history);
     Object.freeze(this);
+  }
+
+  /**
+   * THE iteration operation. Run `rule` `n` times and return the final
+   * curve, ready for further operations. `rule(current, next, k)` reads
+   * `current` (frozen) and describes `next`, which starts as a copy:
+   * `next.move(index, [dx, dy])` displaces, `next.set(index, { age })`
+   * writes attributes, `next.splitEdges(where, { at?, attributes })`
+   * inserts vertices on the MOVED edges — moves apply first, then `where`
+   * sees each edge as it will be — and every attribute of an inserted
+   * vertex must be given. `k` counts from 0 within this call. Growth,
+   * relaxation and erosion are different rules for this one verb;
+   * `.steps(1, rule)` is a single transition.
+   *
+   * By default only the final state is kept. `{ every: m }` also captures
+   * iteration 0, every m-th iteration, and the final one (no duplicates)
+   * on the result's `history`, each labelled with its iteration number.
+   * Nothing a later step does can disturb an earlier snapshot.
+   */
+  steps(
+    n: number,
+    rule: (current: Curve, next: Next, k: number) => void,
+    opts: { every?: number } = {},
+  ): Curve {
+    const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
+    const snaps: Snapshot[] = [];
+    const base = new Curve(this.x, this.y, { ...this.attrs }, this.closed, this.iteration);
+    if (every) snaps.push({ iteration: this.iteration, curve: base });
+    let cur = base;
+    for (let k = 0; k < n; k++) {
+      cur = stepOnce(cur, k, rule);
+      if (every && (k + 1) % every === 0 && k + 1 < n) snaps.push({ iteration: cur.iteration, curve: cur });
+    }
+    if (every && n > 0) snaps.push({ iteration: cur.iteration, curve: cur });
+    return every ? new Curve(cur.x, cur.y, { ...cur.attrs }, cur.closed, cur.iteration, snaps) : cur;
   }
 
   /** Names of the attribute columns. */
@@ -254,8 +318,20 @@ export function sumBy<T>(items: Iterable<T>, fn: (item: T, index: number) => XY)
  * (topological neighbours, `c.prev(i)`/`c.next(i)`, are a different
  * concept and are NOT excluded here). Indices are valid for this state.
  */
-export function neighbours(c: Curve, opts: { radius: number }): (p: Vertex) => number[] {
+export interface NeighbourStats {
+  queries: number;
+  /** Vertices examined from the grid cells around the query point. */
+  candidates: number;
+  /** Of those, within the radius. */
+  hits: number;
+}
+
+export function neighbours(
+  c: Curve,
+  opts: { radius: number; stats?: NeighbourStats },
+): (p: Vertex) => number[] {
   const radius = opts.radius;
+  const stats = opts.stats;
   const cell = radius;
   const grid = new Map<number, number[]>();
   const key = (gx: number, gy: number) => gx * 65536 + gy;
@@ -269,10 +345,12 @@ export function neighbours(c: Curve, opts: { radius: number }): (p: Vertex) => n
     const out: number[] = [];
     const cx = Math.floor(p.x / cell);
     const cy = Math.floor(p.y / cell);
+    if (stats) stats.queries++;
     for (let gx = cx - 1; gx <= cx + 1; gx++) {
       for (let gy = cy - 1; gy <= cy + 1; gy++) {
         const bucket = grid.get(key(gx, gy));
         if (!bucket) continue;
+        if (stats) stats.candidates += bucket.length;
         for (const j of bucket) {
           if (j === p.index) continue;
           const dx = p.x - c.x[j];
@@ -281,6 +359,7 @@ export function neighbours(c: Curve, opts: { radius: number }): (p: Vertex) => n
         }
       }
     }
+    if (stats) stats.hits += out.length;
     return out;
   };
 }
@@ -324,7 +403,7 @@ export function separation(
   });
 }
 
-// ---- evolution ---------------------------------------------------------------
+// ---- one step ------------------------------------------------------------------
 
 /** The next state under construction. Every vertex starts as a copy of
  * the current one — position and all attributes — so a rule only states
@@ -346,26 +425,6 @@ export interface Next {
   splitEdges(where: (e: Edge) => boolean, opts: { at?: number; attributes: Record<string, number> }): void;
 }
 
-/**
- * Run `rule` for `steps` iterations and keep every state. `rule(current,
- * next, k)` reads `current` (frozen) and describes `next`; nothing the
- * rule does can disturb `current` or any earlier state. Returns
- * `steps + 1` curves, the input first.
- */
-export function evolve(
-  start: Curve,
-  steps: number,
-  rule: (current: Curve, next: Next, k: number) => void,
-): Curve[] {
-  const history: Curve[] = [start];
-  let cur = start;
-  for (let k = 0; k < steps; k++) {
-    cur = stepOnce(cur, k, rule);
-    history.push(cur);
-  }
-  return history;
-}
-
 function stepOnce(cur: Curve, k: number, rule: (c: Curve, n: Next, k: number) => void): Curve {
   const n = cur.n;
   const names = cur.attrNames;
@@ -383,25 +442,25 @@ function stepOnce(cur: Curve, k: number, rule: (c: Curve, n: Next, k: number) =>
     set(index, attrs) {
       for (const [name, v] of Object.entries(attrs)) {
         const col = nattrs[name];
-        if (!col) throw new Error(`evolve: no attribute '${name}' — declare it in curve()`);
+        if (!col) throw new Error(`steps: no attribute '${name}' — declare it in curve()`);
         col[index] = v;
       }
     },
     splitEdges(where, opts) {
       for (const name of names) {
         if (!(name in opts.attributes)) {
-          throw new Error(`evolve: splitEdges must give '${name}' for the new vertex (every attribute is a choice)`);
+          throw new Error(`steps: splitEdges must give '${name}' for the new vertex (every attribute is a choice)`);
         }
       }
       for (const name in opts.attributes) {
-        if (!names.includes(name)) throw new Error(`evolve: no attribute '${name}' — declare it in curve()`);
+        if (!names.includes(name)) throw new Error(`steps: no attribute '${name}' — declare it in curve()`);
       }
       splits.push({ where, at: opts.at ?? 0.5, attributes: opts.attributes });
     },
   };
   rule(cur, next, k);
 
-  if (splits.length === 0) return new Curve(nx, ny, nattrs, cur.closed);
+  if (splits.length === 0) return new Curve(nx, ny, nattrs, cur.closed, cur.iteration + 1);
 
   // Splits read the moved state; each edge may be split at most once per
   // step (the first request that wants it wins).
@@ -427,7 +486,7 @@ function stepOnce(cur: Curve, k: number, rule: (c: Curve, n: Next, k: number) =>
   }
   const attrs: Record<string, Float64Array> = {};
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
-  return new Curve(Float64Array.from(ox), Float64Array.from(oy), attrs, cur.closed);
+  return new Curve(Float64Array.from(ox), Float64Array.from(oy), attrs, cur.closed, cur.iteration + 1);
 }
 
 // ---- interpretation -----------------------------------------------------------

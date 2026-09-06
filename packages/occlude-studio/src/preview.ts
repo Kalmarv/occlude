@@ -71,6 +71,12 @@ export class Preview {
     this.canvas.height = Math.max(1, clientHeight * dpr);
   }
 
+  /** Mark the canvas as showing a PREVIOUS result (a render is running or
+   * failed): dimmed until the next result lands. */
+  setStale(stale: boolean): void {
+    this.canvas.classList.toggle('stale', stale);
+  }
+
   setResult(r: RenderResult): void {
     this.result = r;
     this.stopPlot();

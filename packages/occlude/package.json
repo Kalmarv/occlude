@@ -17,6 +17,7 @@
     "calibrate": "tsx tools/calibrate.ts",
     "frags": "tsx tools/frags.ts",
     "render-hash": "tsx tools/render-hash.ts",
+    "growth-diag": "tsx tools/growth-diag.ts",
     "plotstats": "tsx tools/plotstats.ts",
     "docs:check": "tsx tools/check-docs-examples.ts",
     "dump-scene": "tsx tools/dump-scene.ts",

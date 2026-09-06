@@ -79,9 +79,13 @@ export class RenderClient {
     for (const p of this.pending.values()) p.reject(err);
     this.pending.clear();
     this.inFlightRender = false;
-    this.queuedRender?.p.resolve(null);
-    this.queuedRender = null;
+    this.watchdog = null;
     this.spawn();
+    // The change made while the runaway was rendering is not lost: it runs
+    // on the fresh worker. The timed-out request itself is never retried.
+    const queued = this.queuedRender;
+    this.queuedRender = null;
+    if (queued) this.sendRender(queued.req, queued.p);
   }
 
   /** Terminate the worker and settle anything outstanding. The Sketches

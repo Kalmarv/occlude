@@ -127,6 +127,16 @@ async function boot(): Promise<void> {
     clearRuntimeMarkers(editor.model);
     statusMsg.className = 'status-ok';
     statusMsg.textContent = 'rendering…';
+    // While a render runs (and after one fails) the canvas still shows the
+    // PREVIOUS result: say so, with the elapsed time, and dim it.
+    const started = performance.now();
+    preview.setStale(lastResult !== null);
+    const ticker = setInterval(() => {
+      const s = Math.round((performance.now() - started) / 1000);
+      statusMsg.textContent = s >= 1
+        ? `rendering… ${s}s${lastResult ? ' — showing previous result' : ''}`
+        : 'rendering…';
+    }, 1000);
     // The worker runs everything: asset preload, sketch execution, encode,
     // wasm. Each request carries the full config so a respawned worker
     // self-heals.
@@ -145,12 +155,17 @@ async function boot(): Promise<void> {
         },
       });
     } catch (err) {
+      clearInterval(ticker);
       statusMsg.className = 'status-err';
-      statusMsg.textContent = err instanceof Error ? err.message : String(err);
+      statusMsg.textContent =
+        (err instanceof Error ? err.message : String(err)) +
+        (lastResult ? ' — showing previous result' : '');
       if ((err as WorkerError).sketch) setRuntimeMarker(editor.model, err);
       return;
     }
-    if (reply === null) return; // superseded by a newer run
+    clearInterval(ticker);
+    if (reply === null) return; // superseded by a newer run (its own ticker takes over)
+    preview.setStale(false);
     const result: RenderResult = reply.result;
     // Capture the seed the worker actually used (the rolled session seed on
     // a fresh run) so respawns and shares stay sticky.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  add, curve, distance, evolve, length, limit, mul, neighbours, perp, segmentRuns, separation, sub, sum, sumBy, tension, unit,
+  add, curve, distance, length, limit, mul, neighbours, perp, segmentRuns, separation, sub, sum, sumBy, tension, unit,
 } from '../src/curve.js';
 
 const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0 });
@@ -112,26 +112,75 @@ describe('forces', () => {
   });
 });
 
-describe('evolve', () => {
-  it('keeps every state, preserves attributes on survivors, and never mutates the input', () => {
+describe('steps', () => {
+  const march = (cur: import('../src/curve.js').Curve, next: import('../src/curve.js').Next) => {
+    for (const p of cur.points) {
+      next.move(p.index, [1, 0]);
+      next.set(p.index, { age: p.age + 1 });
+    }
+  };
+
+  it('returns the final curve, preserves attributes on survivors, and never mutates the input', () => {
     const start = square();
-    const history = evolve(start, 2, (cur, next) => {
-      for (const p of cur.points) {
-        next.move(p.index, [1, 0]);
-        next.set(p.index, { age: p.age + 1 });
-      }
-    });
-    expect(history).toHaveLength(3);
-    expect(history[0]).toBe(start);
+    const grown = start.steps(2, march);
+    expect(grown.iteration).toBe(2);
+    expect(grown.history).toEqual([]);
     expect(start.x[0]).toBe(0);
-    expect(history[2].x[0]).toBe(2);
-    expect(Array.from(history[2].attrs.age)).toEqual([2, 2, 2, 2]);
-    expect(Array.from(history[1].attrs.age)).toEqual([1, 1, 1, 1]);
+    expect(start.iteration).toBe(0);
+    expect(grown.x[0]).toBe(2);
+    expect(Array.from(grown.attrs.age)).toEqual([2, 2, 2, 2]);
+  });
+
+  it('zero and one iteration', () => {
+    const start = square();
+    const same = start.steps(0, march);
+    expect(same.pts).toEqual(start.pts);
+    expect(same.iteration).toBe(0);
+    expect(start.steps(0, march, { every: 5 }).history.map((h) => h.iteration)).toEqual([0]);
+    const one = start.steps(1, march);
+    expect(one.x[0]).toBe(1);
+    expect(one.iteration).toBe(1);
+  });
+
+  it('history: iteration 0, every m-th, and the final one, once each, labelled', () => {
+    const start = square();
+    const g = start.steps(10, march, { every: 4 });
+    expect(g.history.map((h) => h.iteration)).toEqual([0, 4, 8, 10]);
+    expect(g.history.map((h) => h.curve.x[0])).toEqual([0, 4, 8, 10]);
+    // final iteration on the interval: not duplicated
+    expect(start.steps(8, march, { every: 4 }).history.map((h) => h.iteration)).toEqual([0, 4, 8]);
+    // snapshots carry no history of their own; the final curve is the last snapshot's state
+    expect(g.history.every((h) => h.curve.history.length === 0)).toBe(true);
+    expect(g.history[3].curve.pts).toEqual(g.pts);
+    // the count continues across calls
+    const more = g.steps(3, march, { every: 1 });
+    expect(more.iteration).toBe(13);
+    expect(more.history.map((h) => h.iteration)).toEqual([10, 11, 12, 13]);
+  });
+
+  it('history on and off give the same final geometry; later steps leave snapshots untouched', () => {
+    const start = square();
+    const rule = (cur: import('../src/curve.js').Curve, n: import('../src/curve.js').Next) => {
+      march(cur, n);
+      n.splitEdges((e) => e.length > 12, { attributes: { age: 0 } });
+    };
+    const off = start.steps(6, rule);
+    const on = start.steps(6, rule, { every: 2 });
+    expect(on.pts).toEqual(off.pts);
+    expect(Array.from(on.attrs.age)).toEqual(Array.from(off.attrs.age));
+    const snap = on.history[1];
+    const before = { pts: snap.curve.pts, age: Array.from(snap.curve.attrs.age), n: snap.curve.n };
+    on.steps(5, rule);
+    snap.curve.steps(5, rule);
+    expect(snap.curve.pts).toEqual(before.pts);
+    expect(Array.from(snap.curve.attrs.age)).toEqual(before.age);
+    expect(snap.curve.n).toBe(before.n);
+    expect(Object.isFrozen(on.history)).toBe(true);
   });
 
   it('splits see the moved state, insert with explicit attributes, and reconnect the ring', () => {
     const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 5 });
-    const [, next] = evolve(start, 1, (cur, n) => {
+    const next = start.steps(1, (cur, n) => {
       n.move(1, [10, 0]); // edge 0→1 becomes 20 long AFTER the move
       n.splitEdges((e) => e.length > 15, { attributes: { age: 0 } });
     });
@@ -141,12 +190,25 @@ describe('evolve', () => {
     expect(next.next(4)).toBe(0);
   });
 
+  it('split predicates run in edge order on the moved edges, once per edge', () => {
+    const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0 });
+    const seen: [number, number][] = [];
+    const out = start.steps(1, (cur, n) => {
+      n.move(0, [-10, 0]);
+      n.splitEdges((e) => { seen.push([e.a.index, Math.round(e.length)]); return e.length > 15; }, { attributes: { age: 0 } });
+      n.splitEdges(() => true, { attributes: { age: 9 } }); // second request: only edges the first declined
+    });
+    expect(seen).toEqual([[0, 20], [1, 10], [2, 10], [3, 14]]);
+    // edge 0→1 split by the first request (age 0), the other three by the second (age 9)
+    expect(Array.from(out.attrs.age)).toEqual([0, 0, 0, 9, 0, 9, 0, 9]);
+  });
+
   it('refuses silent attribute loss and unknown attributes', () => {
     const start = curve([[0, 0], [10, 0], [10, 10]], { age: 0, energy: 1 });
     expect(() =>
-      evolve(start, 1, (_, n) => n.splitEdges(() => true, { attributes: { age: 0 } })),
+      start.steps(1, (_, n) => n.splitEdges(() => true, { attributes: { age: 0 } })),
     ).toThrow(/must give 'energy'/);
-    expect(() => evolve(start, 1, (_, n) => n.set(0, { branch: 1 }))).toThrow(/no attribute 'branch'/);
+    expect(() => start.steps(1, (_, n) => n.set(0, { branch: 1 }))).toThrow(/no attribute 'branch'/);
   });
 });
 
