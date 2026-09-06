@@ -1237,7 +1237,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 `curve(pts, { closed?, ...attrs })` — positions (either spelling) plus
 attribute columns, each a constant per vertex (`{ age: 0 }`) or a full
-column. `c.points` are vertex views `{ id, x, y, ...attrs }`; `c.pts` is
+column. `c.points` are vertex views `{ index, x, y, ...attrs }`; `c.pts` is
 tuples for `polygon`/`distanceTo`; `c.contour` stamps with `stroke`;
 `c.prev(i)`/`c.next(i)`/`c.edges` walk the connectivity.
 
@@ -1316,8 +1316,8 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
     for (const p of cur.points) {
       const a = t.noise(p.x * 0.1, p.y * 0.1, k * 0.02) * Math.PI * 2;
       const f = sum(tension(cur, p, { rest: 0.8 }), separation(cur, p, near, { radius: 2 }), [Math.cos(a) * 0.1, Math.sin(a) * 0.1]);
-      next.move(p.id, mul(f, 0.15));
-      next.set(p.id, { age: p.age + 1 });
+      next.move(p.index, mul(f, 0.15));
+      next.set(p.index, { age: p.age + 1 });
     }
     next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
   });
@@ -1350,8 +1350,8 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
     const near = neighbours(cur, { radius: 2 });
     for (const p of cur.points) {
       const a = t.noise(p.x * 0.1, p.y * 0.1, k * 0.02) * Math.PI * 2;
-      next.move(p.id, mul(sum(tension(cur, p, { rest: 0.8 }), separation(cur, p, near, { radius: 2 }), [Math.cos(a) * 0.1, Math.sin(a) * 0.1]), 0.15));
-      next.set(p.id, { age: p.age + 1 });
+      next.move(p.index, mul(sum(tension(cur, p, { rest: 0.8 }), separation(cur, p, near, { radius: 2 }), [Math.cos(a) * 0.1, Math.sin(a) * 0.1]), 0.15));
+      next.set(p.index, { age: p.age + 1 });
     }
     next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
   });

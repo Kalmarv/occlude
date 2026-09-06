@@ -11,7 +11,7 @@ describe('curve values', () => {
     expect(c.n).toBe(3);
     expect(c.closed).toBe(true);
     expect(c.attrNames).toEqual(['age', 'energy']);
-    expect(c.vertex(1)).toEqual({ id: 1, x: 10, y: 0, age: 2, energy: 0.5 });
+    expect(c.vertex(1)).toEqual({ index: 1, x: 10, y: 0, age: 2, energy: 0.5 });
     expect(c.pts).toEqual([[0, 0], [10, 0], [10, 10]]);
     expect(c.contour).toEqual({ pts: [[0, 0], [10, 0], [10, 10]], closed: true });
     expect(Object.isFrozen(c)).toBe(true);
@@ -49,7 +49,7 @@ describe('forces', () => {
     const near = neighbours(c, { radius: 4 });
     for (const p of c.points.slice(0, 30)) {
       const brute: number[] = [];
-      for (let j = 0; j < c.n; j++) if (j !== p.id && distance(p, c.vertex(j)) < 4) brute.push(j);
+      for (let j = 0; j < c.n; j++) if (j !== p.index && distance(p, c.vertex(j)) < 4) brute.push(j);
       expect([...near(p)].sort((a, b) => a - b)).toEqual(brute);
     }
   });
@@ -65,7 +65,7 @@ describe('forces', () => {
       let fx = 0;
       let fy = 0;
       for (let j = 0; j < c.n; j++) {
-        if (j === p.id || j === c.prev(p.id) || j === c.next(p.id)) continue;
+        if (j === p.index || j === c.prev(p.index) || j === c.next(p.index)) continue;
         const dx = p.x - c.x[j];
         const dy = p.y - c.y[j];
         const d = Math.hypot(dx, dy);
@@ -114,8 +114,8 @@ describe('evolve', () => {
     const start = square();
     const history = evolve(start, 2, (cur, next) => {
       for (const p of cur.points) {
-        next.move(p.id, [1, 0]);
-        next.set(p.id, { age: p.age + 1 });
+        next.move(p.index, [1, 0]);
+        next.set(p.index, { age: p.age + 1 });
       }
     });
     expect(history).toHaveLength(3);

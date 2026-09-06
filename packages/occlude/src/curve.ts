@@ -29,9 +29,10 @@ import type { IsoContour } from './isolines.js';
 
 export type XY = [number, number] | { x: number; y: number };
 
-/** A vertex view: its index (`id`), position, and every attribute column.
- * Plain data, valid for the curve it came from. */
-export type Vertex = { id: number; x: number; y: number } & Record<string, number>;
+/** A vertex view: its row `index` in THIS state, position, and every
+ * attribute column. A plain snapshot, valid for the curve it came from —
+ * not a persistent identity: insertion renumbers later states. */
+export type Vertex = { index: number; x: number; y: number } & Record<string, number>;
 
 export interface Edge {
   /** Vertex views at the edge's ends, in curve order. */
@@ -57,7 +58,7 @@ export class Curve {
       if (col.length !== x.length) {
         throw new Error(`curve: attribute '${name}' has ${col.length} values for ${x.length} vertices`);
       }
-      if (name === 'x' || name === 'y' || name === 'id') {
+      if (name === 'x' || name === 'y' || name === 'index') {
         throw new Error(`curve: '${name}' is a reserved vertex field`);
       }
     }
@@ -77,7 +78,7 @@ export class Curve {
 
   /** The vertex at index `i` as a plain view. */
   vertex(i: number): Vertex {
-    const v: Record<string, number> = { id: i, x: this.x[i], y: this.y[i] };
+    const v: Record<string, number> = { index: i, x: this.x[i], y: this.y[i] };
     for (const name in this.attrs) v[name] = this.attrs[name][i];
     return v as Vertex;
   }
@@ -265,7 +266,7 @@ export function neighbours(c: Curve, opts: { radius: number }): (p: Vertex) => n
         const bucket = grid.get(key(gx, gy));
         if (!bucket) continue;
         for (const j of bucket) {
-          if (j === p.id) continue;
+          if (j === p.index) continue;
           const dx = p.x - c.x[j];
           const dy = p.y - c.y[j];
           if (dx * dx + dy * dy < radius * radius) out.push(j);
@@ -286,7 +287,7 @@ export function neighbours(c: Curve, opts: { radius: number }): (p: Vertex) => n
  * gap beyond `rest` — a slack chain, not a rubber band.
  */
 export function tension(c: Curve, p: Vertex, opts: { rest: number }): Vec {
-  return sumBy([c.prev(p.id), c.next(p.id)], (j) => {
+  return sumBy([c.prev(p.index), c.next(p.index)], (j) => {
     if (j < 0) return [0, 0];
     const delta = sub(c.vertex(j), p);
     return mul(unit(delta), Math.max(0, length(delta) - opts.rest));
@@ -305,8 +306,8 @@ export function separation(
   near: (p: Vertex) => number[],
   opts: { radius: number },
 ): Vec {
-  const prev = c.prev(p.id);
-  const next = c.next(p.id);
+  const prev = c.prev(p.index);
+  const next = c.next(p.index);
   return sumBy(near(p), (j) => {
     if (j === prev || j === next) return [0, 0];
     const delta = sub(p, c.vertex(j));
@@ -321,11 +322,11 @@ export function separation(
  * the current one — position and all attributes — so a rule only states
  * what changes. */
 export interface Next {
-  /** Displace vertex `id` by `by`; several moves add up. */
-  move(id: number, by: Vec): void;
-  /** Set attributes on vertex `id`. Unknown names are an error: columns
-   * are declared at `curve()`, not invented mid-rule. */
-  set(id: number, attrs: Record<string, number>): void;
+  /** Displace the vertex at `index` by `by`; several moves add up. */
+  move(index: number, by: Vec): void;
+  /** Set attributes on the vertex at `index`. Unknown names are an error:
+   * columns are declared at `curve()`, not invented mid-rule. */
+  set(index: number, attrs: Record<string, number>): void;
   /**
    * Split edges of the MOVED state — moves and sets apply first, then
    * `where` sees each edge as it will be — inserting a vertex at fraction
@@ -367,15 +368,15 @@ function stepOnce(cur: Curve, k: number, rule: (c: Curve, n: Next, k: number) =>
   const splits: { where: (e: Edge) => boolean; at: number; attributes: Record<string, number> }[] = [];
 
   const next: Next = {
-    move(id, by) {
-      nx[id] += by[0];
-      ny[id] += by[1];
+    move(index, by) {
+      nx[index] += by[0];
+      ny[index] += by[1];
     },
-    set(id, attrs) {
+    set(index, attrs) {
       for (const [name, v] of Object.entries(attrs)) {
         const col = nattrs[name];
         if (!col) throw new Error(`evolve: no attribute '${name}' — declare it in curve()`);
-        col[id] = v;
+        col[index] = v;
       }
     },
     splitEdges(where, opts) {
@@ -463,10 +464,10 @@ export function segmentRuns(c: Curve, key: (a: Vertex, b: Vertex) => number | st
     const e = edges[i];
     if (!cur || cur.key !== keys[i]) {
       if (cur) runs.push(cur);
-      cur = { key: keys[i], pts: [[e.a.x, e.a.y]], closed: false, from: e.a.id, to: e.a.id };
+      cur = { key: keys[i], pts: [[e.a.x, e.a.y]], closed: false, from: e.a.index, to: e.a.index };
     }
     cur.pts.push([e.b.x, e.b.y]);
-    cur.to = e.b.id;
+    cur.to = e.b.index;
   }
   if (cur) runs.push(cur);
   return runs;
