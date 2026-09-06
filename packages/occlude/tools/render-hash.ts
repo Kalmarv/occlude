@@ -6,7 +6,9 @@
  * not on their source. Assets and fills preload from the studio stores
  * exactly as the docs checker does.
  *
- *   pnpm --filter occlude render-hash <sketch.ts> [--seeds 1,42,7] [--probes] [--paper A4]
+ *   pnpm --filter occlude render-hash <sketch.ts> [--seeds 1,42,7] [--probes] [--paper A4] [--svg out.svg]
+ *
+ * `--svg <path>` also writes the last seed's SVG to that path.
  *
  * `--probes` also prints the sketch's t.probe() stats and the render time
  * per seed.
@@ -15,7 +17,7 @@
  * line and exits 0 — the caller compares that line too.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import {
@@ -32,6 +34,7 @@ if (!file) throw new Error('usage: render-hash <sketch.ts> [--seeds a,b,c]');
 const si = args.indexOf('--seeds');
 const seeds = si >= 0 ? args[si + 1].split(',').map(Number) : [1, 42, 7];
 const probes = args.includes('--probes');
+const svgOut = args.indexOf('--svg') >= 0 ? args[args.indexOf('--svg') + 1] : undefined;
 const pi = args.indexOf('--paper');
 const paper = (pi >= 0 ? args[pi + 1] : 'Square20') as 'Square20';
 
@@ -88,6 +91,7 @@ for (const seed of seeds) {
     const svg = exportSvg({ paper: 'Square20' });
     const hash = createHash('sha256').update(svg).digest('hex');
     console.log(`${seed}  ${hash}  ${out.frags.length}`);
+    if (svgOut) writeFileSync(svgOut, svg);
     if (probes) {
       console.log(`  render ${renderMs.toFixed(0)} ms`);
       for (const [label, st] of Object.entries(getProbeStats() as Record<string, unknown>)) {
