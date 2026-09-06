@@ -26,7 +26,7 @@ import { finiteCount } from './guard.js';
 import { svg as svgValue } from './svgin.js';
 import { label } from './font.js';
 import { grid as gridCells, type GridCell, type GridOptions } from './layout.js';
-import { type FieldAlign, Shape, type FieldFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
+import { type FieldAlign, Shape, geomClosed, type FieldFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
 import {
   bounds, chance, clip as legacyClip, margin, noise, pick, prob, push, rnd,
   sketch as legacySketch, stream, getState, unitScaleMm,
@@ -635,6 +635,7 @@ export interface Toolkit {
   isolines: typeof isolines;
   streamlines: typeof streamlines;
   polylines: typeof polylines;
+  sample: typeof sample;
   probe: typeof probe;
   distanceTo: typeof distanceTo;
   within: typeof within;
@@ -776,6 +777,53 @@ function polylines(shape: ShapeValue, opts: { tolerance?: L } = {}): [number, nu
 }
 
 /**
+ * A shape resampled along its outline — the explicit, lossy step from
+ * exact geometry to points you can move one by one. Each polyline of the
+ * shape (see `t.polylines`) comes back with `count` points, or as many as
+ * fit at `spacing`, evenly spaced by arc length: a closed outline gets
+ * `count` points around it (no duplicate seam), an open one gets `count`
+ * points from end to end. Positions only — attributes are declared by
+ * `curve()`: `curve(t.sample(circle(50, 50, 6), { count: 48 })[0], { age: 0 })`.
+ */
+function sample(
+  shape: ShapeValue,
+  opts: { count?: number; spacing?: L; tolerance?: L },
+): [number, number][][] {
+  if ((opts.count === undefined) === (opts.spacing === undefined)) {
+    throw new Error('sample: give exactly one of { count, spacing }');
+  }
+  const frame = sketchFrame();
+  const unit = unitMm(frame);
+  const closed = geomClosed(shape.geom);
+  const spacingU = opts.spacing !== undefined ? resolveLen(opts.spacing, frame.inner) / unit : undefined;
+  return polylines(shape, { tolerance: opts.tolerance }).map((poly) => {
+    const segs = closed ? poly.length : poly.length - 1;
+    const cum = [0];
+    for (let i = 0; i < segs; i++) {
+      const [x0, y0] = poly[i];
+      const [x1, y1] = poly[(i + 1) % poly.length];
+      cum.push(cum[i] + Math.hypot(x1 - x0, y1 - y0));
+    }
+    const total = cum[segs];
+    const count = opts.count ?? Math.max(closed ? 3 : 2, Math.round(total / spacingU!));
+    if (count < 1 || total === 0) return [];
+    const out: [number, number][] = [];
+    const steps = closed ? count : count - 1;
+    let seg = 0;
+    for (let k = 0; k < count; k++) {
+      const d = steps > 0 ? (total * k) / steps : 0;
+      while (seg < segs - 1 && cum[seg + 1] < d) seg++;
+      const [x0, y0] = poly[seg];
+      const [x1, y1] = poly[(seg + 1) % poly.length];
+      const len = cum[seg + 1] - cum[seg];
+      const u = len > 0 ? (d - cum[seg]) / len : 0;
+      out.push([x0 + (x1 - x0) * u, y0 + (y1 - y0) * u]);
+    }
+    return out;
+  });
+}
+
+/**
  * A variable inspector: returns `value` unchanged and records it under
  * `label`, so the studio can show what a number actually ran through —
  * count, min, max, mean, a histogram — after the render. Works anywhere in
@@ -803,7 +851,7 @@ const TOOLKIT_BASE = {
   map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, isolines, streamlines, polylines, probe, distanceTo, points: pointsOf, voronoi, triangulate, synth,
+  scatter, isolines, streamlines, polylines, sample, probe, distanceTo, points: pointsOf, voronoi, triangulate, synth,
   within, rotate: rotateField, translate: translateField, scale: scaleField,
   vectorField: vectorFieldMark,
   mm, w, h, s, long,

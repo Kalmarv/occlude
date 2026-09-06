@@ -1193,6 +1193,174 @@ const density = (x, y) => {
 };
 ```
 
+## Curves & growth
+
+Geometry you can hold, step, and reinterpret — in four layers that stay
+apart. **Material:** a `Curve` is an ordered chain of vertices, closed
+unless told otherwise, with positions and any named attributes in columns;
+connectivity is the order. **Numbers:** a small vector vocabulary (`add`,
+`sub`, `mul`, `length`, `distance`, `unit`, `perp`, `sum`, `sumBy`) that
+knows nothing about pens or growth. **Rules and recipes:** `evolve` runs a
+rule you write on that vocabulary; `tension` and `separation` are recipes
+written the same way — copy one into a sketch and change it. **Drawing:**
+`segmentRuns` turns an attribute into strokes. All pure imports; `t.sample`
+sits on the toolkit because it reads the paper.
+
+### vectors
+
+Vectors are tuples `[x, y]`. Every operation accepts either spelling
+(`[x, y]` or `{ x, y }`, so a vertex view goes straight in), returns a
+fresh tuple, and never mutates an argument. `unit([0, 0])` is `[0, 0]`:
+coincident points contribute no direction and no NaN. `sumBy(items, fn)`
+is the vector total of your function over a collection, accumulated in
+order — the shape of most forces.
+
+```ts live
+import { sketch, line, circle, sub, mul, unit, length, sumBy } from 'occlude';
+
+// A field of arrows: each one is the sum of pulls toward three anchors,
+// each pull a plain function on the vocabulary.
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const anchors = [{ x: 20, y: 25 }, { x: 60, y: 12 }, { x: 80, y: 40 }];
+  const pull = (p, q) => mul(unit(sub(q, p)), 30 / (length(sub(q, p)) + 10));
+  return [
+    anchors.map((a) => circle(a.x, a.y, 1.5)),
+    t.grid({ cols: 20, rows: 10 }).map((c) => {
+      const f = sumBy(anchors, (a) => pull(c, a));
+      return line(c.cx, c.cy, c.cx + f[0], c.cy + f[1]);
+    }),
+  ];
+});
+```
+
+### curve
+
+`curve(pts, { closed?, ...attrs })` — positions (either spelling) plus
+attribute columns, each a constant per vertex (`{ age: 0 }`) or a full
+column. `c.points` are vertex views `{ id, x, y, ...attrs }`; `c.pts` is
+tuples for `polygon`/`distanceTo`; `c.contour` stamps with `stroke`;
+`c.prev(i)`/`c.next(i)`/`c.edges` walk the connectivity.
+
+```ts live
+import { sketch, stroke, polygon, circle, curve, fill, mm } from 'occlude';
+
+// Attributes ride with the geometry: a lumpy ring carries a `bump`
+// column, and two interpretations read the same material — the area
+// hatched on the left, the bumps picked out as dots on the right.
+export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
+  const bump = t.times(40, () => (t.chance(0.2) ? 1 : 0));
+  const ring = curve(
+    bump.map((b, i) => {
+      const a = (i / 40) * Math.PI * 2;
+      return [30 + Math.cos(a) * (14 + b * 4), 25 + Math.sin(a) * (14 + b * 4)];
+    }),
+    { bump },
+  );
+  return [
+    polygon(ring.pts, { fill: fill('hatch', { angle: 30, spacing: mm(1.5) }) }),
+    stroke({ pts: ring.pts.map(([x, y]) => [x + 40, y]), closed: true }),
+    ring.points.filter((p) => p.bump).map((p) => circle(p.x + 40, p.y, 1.2)),
+  ];
+});
+```
+
+### sample
+
+`t.sample(shape, { count | spacing, tolerance? })` — the explicit, lossy
+step from exact geometry to points you can move one by one: each
+polyline of the shape resampled evenly by arc length, `count` points
+around a closed outline (no duplicate seam) or end to end on an open one.
+Positions only; attributes are declared by `curve()`.
+
+```ts live
+import { sketch, circle, rect, curve, stroke } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => [
+  circle(25, 25, 15),
+  curve(t.sample(circle(25, 25, 15), { count: 24 })[0]).points.map((p) => circle(p.x, p.y, 0.8)),
+  curve(t.sample(rect(60, 10, 30, 30), { spacing: 3 })[0]).points.map((p) => circle(p.x, p.y, 0.8)),
+]);
+```
+
+### evolve
+
+`evolve(start, steps, (current, next, k) => …)` — run a rule and keep
+every state. The rule reads `current` (frozen) and describes `next`,
+which starts as a copy: `next.move(id, [dx, dy])` displaces,
+`next.set(id, { age })` writes attributes, `next.splitEdges(where, { at?,
+attributes })` inserts vertices on the MOVED edges — moves apply first,
+then `where(edge)` sees each edge as it will be. Every attribute of an
+inserted vertex must be given: inheriting, interpolating or resetting is
+the rule's decision, never a silent default. Returns `steps + 1` curves,
+the input first, so the drawing can pick any iteration.
+
+Spatial neighbours come from `neighbours(curve, { radius })`: the index
+is built ONCE for the state and the returned query gives, per vertex, the
+indices within the radius (self excluded; the chain neighbours
+`c.prev(i)`/`c.next(i)` are a different concept and are not excluded).
+Forces are then ordinary functions: `tension(curve, p, { rest })` pulls a
+vertex toward its chain neighbours by the gap beyond `rest`;
+`separation(curve, p, near, { radius })` pushes it from its spatial
+neighbours, linearly to zero at the radius. Both are a few lines on the
+vocabulary above — write your own beside them.
+
+```ts live
+import { sketch, stroke, curve, evolve, neighbours, separation, tension, sum, mul } from 'occlude';
+
+// Differential growth in twelve lines: tension + separation + seeded
+// noise, split the stretched edges, keep every iteration.
+export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
+  const start = curve(t.sample(t.circle(25, 25, 5), { count: 24 })[0], { age: 0 });
+  const history = evolve(start, 60, (cur, next, k) => {
+    const near = neighbours(cur, { radius: 2 });
+    for (const p of cur.points) {
+      const a = t.noise(p.x * 0.1, p.y * 0.1, k * 0.02) * Math.PI * 2;
+      const f = sum(tension(cur, p, { rest: 0.8 }), separation(cur, p, near, { radius: 2 }), [Math.cos(a) * 0.1, Math.sin(a) * 0.1]);
+      next.move(p.id, mul(f, 0.15));
+      next.set(p.id, { age: p.age + 1 });
+    }
+    next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
+  });
+  // Every 12th iteration as ghosts on the left, the last one on the right.
+  return [
+    history.filter((_, i) => i % 12 === 0).map((c) => stroke(c.contour)),
+    stroke({ pts: history[60].pts.map(([x, y]) => [x + 50, y]), closed: true }),
+  ];
+});
+```
+
+### segmentRuns
+
+`segmentRuns(curve, (a, b) => key)` — classify every edge by its two
+vertices and gather consecutive equal keys into runs, each a stampable
+contour with `key`, `from`, `to`. Runs meet end to end and never split
+across a closed curve's seam; a uniform closed curve is one closed run.
+The classification is yours: a vertex attribute needs an interpretation
+before it can own an edge — the start vertex's (`(a) => band(a.age)`),
+the end's, both, either, or their mean are all different drawings.
+
+```ts live
+import { sketch, stroke, curve, evolve, neighbours, separation, tension, sum, mul, segmentRuns } from 'occlude';
+
+// The same grown ring, cut into runs by age band: young edges in one
+// pen, old ones in another — chosen after the growth, not inside it.
+export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
+  const start = curve(t.sample(t.circle(50, 25, 5), { count: 24 })[0], { age: 0 });
+  const history = evolve(start, 60, (cur, next, k) => {
+    const near = neighbours(cur, { radius: 2 });
+    for (const p of cur.points) {
+      const a = t.noise(p.x * 0.1, p.y * 0.1, k * 0.02) * Math.PI * 2;
+      next.move(p.id, mul(sum(tension(cur, p, { rest: 0.8 }), separation(cur, p, near, { radius: 2 }), [Math.cos(a) * 0.1, Math.sin(a) * 0.1]), 0.15));
+      next.set(p.id, { age: p.age + 1 });
+    }
+    next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
+  });
+  const last = history[60];
+  const old = (age) => (age > 30 ? 1 : 0);
+  return segmentRuns(last, (a) => old(a.age)).map((r) => stroke(r, { pen: r.key ? 'pigma-005-black' : 'stabilo-88-blue' }));
+});
+```
+
 ## Units
 
 Bare numbers are percent of the drawable's short side — sketches stay
