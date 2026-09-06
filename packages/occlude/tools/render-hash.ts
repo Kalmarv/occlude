@@ -6,7 +6,7 @@
  * not on their source. Assets and fills preload from the studio stores
  * exactly as the docs checker does.
  *
- *   pnpm --filter occlude render-hash <sketch.ts> [--seeds 1,42,7] [--probes]
+ *   pnpm --filter occlude render-hash <sketch.ts> [--seeds 1,42,7] [--probes] [--paper A4]
  *
  * `--probes` also prints the sketch's t.probe() stats and the render time
  * per seed.
@@ -32,6 +32,8 @@ if (!file) throw new Error('usage: render-hash <sketch.ts> [--seeds a,b,c]');
 const si = args.indexOf('--seeds');
 const seeds = si >= 0 ? args[si + 1].split(',').map(Number) : [1, 42, 7];
 const probes = args.includes('--probes');
+const pi = args.indexOf('--paper');
+const paper = (pi >= 0 ? args[pi + 1] : 'Square20') as 'Square20';
 
 const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
@@ -44,7 +46,7 @@ try {
 } catch {
   setPenLibrary(structuredClone(DEFAULT_PENS));
 }
-const size = paperSize({ paper: 'Square20' });
+const size = paperSize({ paper });
 setPaperHint(size.w, size.h);
 
 // Error text minus anything that names a temp path or a line number, so

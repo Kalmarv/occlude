@@ -54,7 +54,7 @@ export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fill
 // t.sample turns a shape into the starting positions).
 export {
   curve, Curve, evolve, segmentRuns, neighbours, separation, tension,
-  add, sub, mul, length, distance, unit, perp, sum, sumBy,
+  add, sub, mul, length, distance, unit, limit, perp, sum, sumBy,
 } from './curve.js';
 export type { Vertex, Edge, Next, SegmentRun, Vec, XY } from './curve.js';
 

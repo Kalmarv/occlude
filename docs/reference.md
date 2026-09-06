@@ -1199,7 +1199,7 @@ Geometry you can hold, step, and reinterpret — in four layers that stay
 apart. **Material:** a `Curve` is an ordered chain of vertices, closed
 unless told otherwise, with positions and any named attributes in columns;
 connectivity is the order. **Numbers:** a small vector vocabulary (`add`,
-`sub`, `mul`, `length`, `distance`, `unit`, `perp`, `sum`, `sumBy`) that
+`sub`, `mul`, `length`, `distance`, `unit`, `limit`, `perp`, `sum`, `sumBy`) that
 knows nothing about pens or growth. **Rules and recipes:** `evolve` runs a
 rule you write on that vocabulary; `tension` and `separation` are recipes
 written the same way — copy one into a sketch and change it. **Drawing:**
@@ -1211,7 +1211,9 @@ sits on the toolkit because it reads the paper.
 Vectors are tuples `[x, y]`. Every operation accepts either spelling
 (`[x, y]` or `{ x, y }`, so a vertex view goes straight in), returns a
 fresh tuple, and never mutates an argument. `unit([0, 0])` is `[0, 0]`:
-coincident points contribute no direction and no NaN. `sumBy(items, fn)`
+coincident points contribute no direction and no NaN. `limit(v, max)` caps a
+length — the guard that keeps a rule with strong pushes from throwing a
+point across the page in one step. `sumBy(items, fn)`
 is the vector total of your function over a collection, accumulated in
 order — the shape of most forces.
 

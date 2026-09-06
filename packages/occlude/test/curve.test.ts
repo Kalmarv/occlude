@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  add, curve, distance, evolve, length, mul, neighbours, perp, segmentRuns, separation, sub, sum, sumBy, tension, unit,
+  add, curve, distance, evolve, length, limit, mul, neighbours, perp, segmentRuns, separation, sub, sum, sumBy, tension, unit,
 } from '../src/curve.js';
 
 const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0 });
@@ -90,6 +90,9 @@ describe('forces', () => {
     expect(unit([0, 3])).toEqual([0, 1]);
     expect(unit([0, 0])).toEqual([0, 0]);
     expect(perp([1, 0])).toEqual([-0, 1]);
+    expect(limit([3, 4], 10)).toEqual([3, 4]);
+    expect(limit([3, 4], 1)).toEqual([0.6, 0.8]);
+    expect(limit([0, 0], 1)).toEqual([0, 0]);
     expect(sum([1, 2], [3, 4], [5, 6])).toEqual([9, 12]);
     expect(sumBy([1, 2, 3], (k) => [k, -k])).toEqual([6, -6]);
     expect(a).toEqual([1, 2]);

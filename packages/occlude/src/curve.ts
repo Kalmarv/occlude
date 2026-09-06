@@ -15,7 +15,7 @@
  * (`evolve`), edge splitting that reconnects the ring, and turning a
  * per-vertex attribute into strokes without rewriting the wrap-around
  * (`segmentRuns`). Underneath sits a small numerical vocabulary (`add`,
- * `sub`, `mul`, `length`, `unit`, `sum`, `sumBy`, …) so a rule is
+ * `sub`, `mul`, `length`, `unit`, `limit`, `sum`, `sumBy`, …) so a rule is
  * vector math, not dx/dy bookkeeping; the forces (`tension`,
  * `separation`) are recipes written on it — read them, copy one into a
  * sketch, change it.
@@ -204,6 +204,14 @@ export function distance(a: XY, b: XY): number {
 export function unit(v: XY): Vec {
   const d = length(v);
   return d > 0 ? [vx(v) / d, vy(v) / d] : [0, 0];
+}
+
+/** `v` shortened to `max` if it is longer; unchanged otherwise. The usual
+ * guard on a per-step displacement — a rule that can sum many strong
+ * pushes stays stable when no step may exceed, say, half the split length. */
+export function limit(v: XY, max: number): Vec {
+  const d = length(v);
+  return d > max && d > 0 ? [(vx(v) / d) * max, (vy(v) / d) * max] : [vx(v), vy(v)];
 }
 
 /** `v` turned a quarter turn counter-clockwise (y down: visually clockwise). */
