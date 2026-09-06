@@ -422,12 +422,34 @@ export interface Next {
   /**
    * Split edges of the MOVED state — moves and sets apply first, then
    * `where` sees each edge as it will be — inserting a vertex at fraction
-   * `at` (default 0.5) along it. The new vertex gets `attributes`; every
-   * column must be given explicitly (`{ age: 0 }`), because inheriting,
-   * interpolating, or resetting is a choice the rule owns. Splits
-   * evaluate in edge order and read the state before any split.
+   * `at` (default 0.5) along it. The new vertex gets `attributes`, a
+   * constant or a function of the split edge; every column must be given
+   * explicitly (`{ age: 0 }`), because inheriting, interpolating, or
+   * resetting is a choice the rule owns. An attribute that belongs to the
+   * EDGE (kept on its start vertex) can be rewritten on the parent with
+   * `parent`, e.g. dividing a rest length between the two children:
+   * `attributes: (e) => ({ rest: e.a.rest * 0.5 }), parent: (e) => ({ rest: e.a.rest * 0.5 })`.
+   * Splits evaluate in edge order and read the state before any split.
    */
-  splitEdges(where: (e: Edge) => boolean, opts: { at?: number; attributes: Record<string, number> }): void;
+  splitEdges(
+    where: (e: Edge) => boolean,
+    opts: {
+      at?: number;
+      attributes: Record<string, number> | ((e: Edge) => Record<string, number>);
+      parent?: (e: Edge) => Record<string, number>;
+    },
+  ): void;
+}
+
+function checkAttrs(attrs: Record<string, number>, names: string[], what: string): void {
+  for (const name of names) {
+    if (!(name in attrs)) {
+      throw new Error(`steps: splitEdges must give '${name}' for ${what} (every attribute is a choice)`);
+    }
+  }
+  for (const name in attrs) {
+    if (!names.includes(name)) throw new Error(`steps: no attribute '${name}' — declare it in curve()`);
+  }
 }
 
 function stepOnce(cur: Curve, k: number, rule: (c: Curve, n: Next, k: number) => void): Curve {
@@ -437,7 +459,12 @@ function stepOnce(cur: Curve, k: number, rule: (c: Curve, n: Next, k: number) =>
   const ny = Float64Array.from(cur.y);
   const nattrs: Record<string, Float64Array> = {};
   for (const name of names) nattrs[name] = Float64Array.from(cur.attrs[name]);
-  const splits: { where: (e: Edge) => boolean; at: number; attributes: Record<string, number> }[] = [];
+  const splits: {
+    where: (e: Edge) => boolean;
+    at: number;
+    attributes: Record<string, number> | ((e: Edge) => Record<string, number>);
+    parent?: (e: Edge) => Record<string, number>;
+  }[] = [];
 
   const next: Next = {
     move(index, by) {
@@ -452,15 +479,8 @@ function stepOnce(cur: Curve, k: number, rule: (c: Curve, n: Next, k: number) =>
       }
     },
     splitEdges(where, opts) {
-      for (const name of names) {
-        if (!(name in opts.attributes)) {
-          throw new Error(`steps: splitEdges must give '${name}' for the new vertex (every attribute is a choice)`);
-        }
-      }
-      for (const name in opts.attributes) {
-        if (!names.includes(name)) throw new Error(`steps: no attribute '${name}' — declare it in curve()`);
-      }
-      splits.push({ where, at: opts.at ?? 0.5, attributes: opts.attributes });
+      if (typeof opts.attributes !== 'function') checkAttrs(opts.attributes, names, 'the new vertex');
+      splits.push({ where, at: opts.at ?? 0.5, attributes: opts.attributes, parent: opts.parent });
     },
   };
   rule(cur, next, k);
@@ -483,9 +503,18 @@ function stepOnce(cur: Curve, k: number, rule: (c: Curve, n: Next, k: number) =>
     if (!e) continue; // the open end
     for (const s of splits) {
       if (!s.where(e)) continue;
+      const born = typeof s.attributes === 'function' ? s.attributes(e) : s.attributes;
+      if (typeof s.attributes === 'function') checkAttrs(born, names, 'the new vertex');
+      if (s.parent) {
+        const upd = s.parent(e);
+        for (const name in upd) {
+          if (!names.includes(name)) throw new Error(`steps: no attribute '${name}' — declare it in curve()`);
+          oattrs[name][oattrs[name].length - 1] = upd[name]; // the start vertex, pushed just above
+        }
+      }
       ox.push(e.a.x + (e.b.x - e.a.x) * s.at);
       oy.push(e.a.y + (e.b.y - e.a.y) * s.at);
-      for (const name of names) oattrs[name].push(s.attributes[name]);
+      for (const name of names) oattrs[name].push(born[name]);
       break;
     }
   }

@@ -227,6 +227,32 @@ describe('steps', () => {
     expect(Array.from(out.attrs.age)).toEqual([0, 0, 0, 9, 0, 9, 0, 9]);
   });
 
+  it('edge attributes on the start vertex: a split divides them between the children, total preserved', () => {
+    // `rest` is the rest length of the OUTGOING edge of each vertex.
+    const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0, rest: 1 });
+    const total = (c: import('../src/curve.js').Curve) => Array.from(c.attrs.rest).reduce((a, b) => a + b, 0);
+    const out = start.steps(1, (cur, n) => {
+      n.move(1, [10, 0]); // edge 0→1 is 20 long after the move
+      n.splitEdges((e) => e.length > 15, {
+        at: 0.25,
+        attributes: (e) => ({ age: 0, rest: e.a.rest * 0.75 }),
+        parent: (e) => ({ rest: e.a.rest * 0.25 }),
+      });
+    });
+    expect(out.n).toBe(5);
+    expect(out.pts[1]).toEqual([5, 0]); // at 0.25 along 0→(20,0)
+    expect(Array.from(out.attrs.rest)).toEqual([0.25, 0.75, 1, 1, 1]);
+    expect(total(out)).toBeCloseTo(total(start), 12);
+    // repeated splitting keeps the total exactly: every edge, ten steps
+    const many = start.steps(10, (_, n) =>
+      n.splitEdges(() => true, { attributes: (e) => ({ age: 0, rest: e.a.rest / 2 }), parent: (e) => ({ rest: e.a.rest / 2 }) }),
+    );
+    expect(many.n).toBe(4 * 2 ** 10);
+    expect(total(many)).toBeCloseTo(4, 9);
+    // the function form must still name every column
+    expect(() => start.steps(1, (_, n) => n.splitEdges(() => true, { attributes: () => ({ age: 0 }) }))).toThrow(/must give 'rest'/);
+  });
+
   it('refuses silent attribute loss and unknown attributes', () => {
     const start = curve([[0, 0], [10, 0], [10, 10]], { age: 0, energy: 1 });
     expect(() =>

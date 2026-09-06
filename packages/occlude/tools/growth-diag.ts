@@ -29,6 +29,9 @@ const speed = num('speed', 0.15);
 const wander = num('wander', 0.12);
 const swirl = num('swirl', 0.35);
 const withHistory = args.includes('--history');
+// --material: each edge keeps its own rest length (start-vertex column),
+// halved into both children at a split — the ring-growth-material variant.
+const material = args.includes('--material');
 // Isolation switches: which chain pull and which repulsion each rule uses.
 const pullKind = opt('pull', ruleName === 'alt' ? 'spring' : 'slack');
 const repelKind = opt('repel', ruleName === 'alt' ? 'inverse' : 'linear');
@@ -44,7 +47,7 @@ const start = curve(
     const r = 6 + (rng.float() - 0.5) * 0.6;
     return [50 + Math.cos(a) * r, 50 + Math.sin(a) * r] as [number, number];
   }),
-  { age: 0 },
+  material ? { age: 0, rest } : { age: 0 },
 );
 
 const stats: NeighbourStats = { queries: 0, candidates: 0, hits: 0 };
@@ -87,8 +90,15 @@ const rule = ruleName === 'alt'
         const prev = current.prev(p.index);
         const nxt = current.next(p.index);
         const a = noiseAngle(p.x, p.y, k);
+        const edgeRest = (j: number) => (material ? current.attrs.rest[j] : rest);
+        const pullEdge = (q: Vertex, r: number) => {
+          const d = sub(q, p);
+          return mul(unit(d), Math.max(0, length(d) - r));
+        };
         const force = sum(
-          sumBy([prev, nxt], (j) => pull(p, current.vertex(j))),
+          material
+            ? sum(pullEdge(current.vertex(prev), edgeRest(prev)), pullEdge(current.vertex(nxt), edgeRest(p.index)))
+            : sumBy([prev, nxt], (j) => pull(p, current.vertex(j))),
           sumBy(near(p), (j) => (j === prev || j === nxt ? [0, 0] : repel(p, current.vertex(j)))),
           [Math.cos(a) * wander, Math.sin(a) * wander],
         );
@@ -97,10 +107,17 @@ const rule = ruleName === 'alt'
         next.move(p.index, step);
         next.set(p.index, { age: p.age + 1 });
       }
-      next.splitEdges((e) => e.length > splitAt && chance(grow), { attributes: { age: 0 } });
+      if (material) {
+        next.splitEdges((e) => e.length > splitAt && chance(grow), {
+          attributes: (e) => ({ age: 0, rest: e.a.rest * 0.5 }),
+          parent: (e) => ({ rest: e.a.rest * 0.5 }),
+        });
+      } else {
+        next.splitEdges((e) => e.length > splitAt && chance(grow), { attributes: { age: 0 } });
+      }
     };
 
-console.log(`rule=${ruleName} pull=${pullKind} repel=${repelKind} rest=${rest} push=${push} splitAt=${splitAt} grow=${grow} speed=${speed} history=${withHistory ? `every ${every}` : 'off'} budget=${budgetMs / 1000}s`);
+console.log(`rule=${ruleName}${material ? ' MATERIAL' : ''} pull=${pullKind} repel=${repelKind} rest=${rest} push=${push} splitAt=${splitAt} grow=${grow} speed=${speed} history=${withHistory ? `every ${every}` : 'off'} budget=${budgetMs / 1000}s`);
 console.log('iter   points  splits  candidates     hits  cand/pt  hits/pt   ms   histPts');
 let cur = start;
 let historyPts = 0;
@@ -112,22 +129,31 @@ while (done < iterations) {
   const before = cur.n;
   stats.queries = stats.candidates = stats.hits = 0;
   const ti = performance.now();
-  const out = cur.steps(n, rule, withHistory ? { every: 1 } : {});
+  // One iteration at a time so the budget is checked between iterations —
+  // an explosive interval must not run for minutes before it reports.
+  let out = cur;
+  let ran = 0;
+  let over = false;
+  for (let i = 0; i < n; i++) {
+    out = out.steps(1, rule);
+    ran++;
+    if (withHistory) historyPts += out.n;
+    if (performance.now() - t0 > budgetMs) { over = true; break; }
+  }
   const ms = performance.now() - ti;
-  if (withHistory) historyPts += out.history.slice(1).reduce((s, h) => s + h.curve.n, 0);
   cur = out;
-  done += n;
+  done += ran;
   interval++;
   const q = Math.max(1, stats.queries);
   console.log(
     `${String(done).padStart(4)} ${String(cur.n).padStart(8)} ${String(cur.n - before).padStart(7)} ${String(stats.candidates).padStart(11)} ${String(stats.hits).padStart(8)} ${(stats.candidates / q).toFixed(1).padStart(8)} ${(stats.hits / q).toFixed(1).padStart(8)} ${ms.toFixed(0).padStart(5)} ${String(historyPts).padStart(9)}`,
   );
-  if (performance.now() - t0 > budgetMs) {
+  if (over) {
     console.log(`budget exhausted at iteration ${done} of ${iterations} (${((performance.now() - t0) / 1000).toFixed(1)} s)`);
     break;
   }
 }
-console.log(`total ${((performance.now() - t0) / 1000).toFixed(2)} s, final ${cur.n} points, iteration ${cur.iteration}`);
+console.log(`total ${((performance.now() - t0) / 1000).toFixed(2)} s, final ${cur.n} points, iteration ${cur.iteration}${material ? `, total rest ${Array.from(cur.attrs.rest).reduce((a, b) => a + b, 0).toFixed(3)}` : ''}`);
 
 // ---- shape of the final curve: what the pen will see ----
 const pct = (xs: number[], q: number) => { const a = [...xs].sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.floor(q * a.length))]; };
@@ -138,7 +164,7 @@ for (let i = 0; i < cur.n; i++) {
   const u = unit(sub(b, a)); const v = unit(sub(c, b));
   turn.push(Math.abs(Math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1])) * 180 / Math.PI);
 }
-const fmt = (xs: number[]) => `p10 ${pct(xs, 0.1).toFixed(2)}  median ${pct(xs, 0.5).toFixed(2)}  p90 ${pct(xs, 0.9).toFixed(2)}  max ${Math.max(...xs).toFixed(2)}`;
+const fmt = (xs: number[]) => `p10 ${pct(xs, 0.1).toFixed(2)}  median ${pct(xs, 0.5).toFixed(2)}  p90 ${pct(xs, 0.9).toFixed(2)}  max ${xs.reduce((m, v) => (v > m ? v : m), -Infinity).toFixed(2)}`;
 console.log(`edge length      ${fmt(edgeLen)}`);
 console.log(`turn per vertex° ${fmt(turn)}   (share > 45°: ${(100 * turn.filter((t) => t > 45).length / turn.length).toFixed(1)}%)`);
 console.log(`step per point   ${fmt(moves)}   capped: ${(100 * capped / Math.max(1, moves.length)).toFixed(1)}% of moves`);

@@ -1296,7 +1296,11 @@ attributes, `next.splitEdges(where, { at?, attributes })` inserts vertices
 on the MOVED edges — moves apply first, then `where(edge)` sees each edge
 as it will be. Every attribute of an inserted vertex must be given:
 inheriting, interpolating or resetting is the rule's decision, never a
-silent default.
+silent default. `attributes` may be a function of the split edge, and
+`parent` rewrites the start vertex — how an attribute that belongs to the
+EDGE (kept on its start vertex) is divided between the children:
+`splitEdges(where, { attributes: (e) => ({ age: 0, rest: e.a.rest / 2 }), parent: (e) => ({ rest: e.a.rest / 2 }) })`
+conserves a material rest length through every split.
 
 By default only the final state is kept. `{ every: m }` also captures
 iteration 0, every m-th iteration, and the final one — each once, labelled
