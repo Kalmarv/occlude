@@ -56,6 +56,10 @@ async function boot(): Promise<void> {
   const preview = new Preview($('preview') as HTMLCanvasElement);
   preview.setPaperColor(settings.paperColor);
   let lastResult: RenderResult | null = null;
+  // Render-status ownership: the newest run's sequence number and the one
+  // elapsed-time ticker (see runInner).
+  let runSeq = 0;
+  let ticker: ReturnType<typeof setInterval> | null = null;
   let pending: number | null = null;
   let sketchName = loadSketchName();
   /** One-shot note appended to the next 'ok' status (import summaries). */
@@ -128,15 +132,25 @@ async function boot(): Promise<void> {
     statusMsg.className = 'status-ok';
     statusMsg.textContent = 'rendering…';
     // While a render runs (and after one fails) the canvas still shows the
-    // PREVIOUS result: say so, with the elapsed time, and dim it.
+    // PREVIOUS result: say so, with the elapsed time, and dim it. One
+    // ticker for the whole page, owned by the newest run: an older run
+    // still in flight must neither write the status nor clear the ticker.
+    const myRun = ++runSeq;
     const started = performance.now();
     preview.setStale(lastResult !== null);
-    const ticker = setInterval(() => {
+    if (ticker) clearInterval(ticker);
+    ticker = setInterval(() => {
       const s = Math.round((performance.now() - started) / 1000);
       statusMsg.textContent = s >= 1
         ? `rendering… ${s}s${lastResult ? ' — showing previous result' : ''}`
         : 'rendering…';
     }, 1000);
+    const finish = () => {
+      if (myRun !== runSeq) return false; // a newer run owns the status now
+      if (ticker) clearInterval(ticker);
+      ticker = null;
+      return true;
+    };
     // The worker runs everything: asset preload, sketch execution, encode,
     // wasm. Each request carries the full config so a respawned worker
     // self-heals.
@@ -155,36 +169,41 @@ async function boot(): Promise<void> {
         },
       });
     } catch (err) {
-      clearInterval(ticker);
+      if ((err as WorkerError).sketch) setRuntimeMarker(editor.model, err);
+      if (!finish()) return; // superseded: the newer run reports
       statusMsg.className = 'status-err';
       statusMsg.textContent =
         (err instanceof Error ? err.message : String(err)) +
         (lastResult ? ' — showing previous result' : '');
-      if ((err as WorkerError).sketch) setRuntimeMarker(editor.model, err);
       return;
     }
-    clearInterval(ticker);
-    if (reply === null) return; // superseded by a newer run (its own ticker takes over)
-    preview.setStale(false);
+    if (reply === null) return; // superseded by a newer run, which owns the status
+    const latest = finish();
+    if (latest) preview.setStale(false);
     const result: RenderResult = reply.result;
+    // An older run landing behind a newer one still shows its drawing (the
+    // newer will replace it), but the status line belongs to the newer run.
+    const say = (cls: string, text: string) => {
+      if (!latest) return;
+      statusMsg.className = cls;
+      statusMsg.textContent = text;
+    };
     // Capture the seed the worker actually used (the rolled session seed on
     // a fresh run) so respawns and shares stay sticky.
     seed = reply.seedUsed;
     lastResult = result;
     if (result.stats.shapesIn === 0) {
-      statusMsg.className = 'status-err';
-      statusMsg.textContent =
-        'sketch returned an empty tree — no shapes (check for undefined returns or empty arrays)';
+      say('status-err', 'sketch returned an empty tree — no shapes (check for undefined returns or empty arrays)');
     } else if (result.stats.fragments === 0) {
-      statusMsg.className = 'status-err';
-      statusMsg.textContent =
+      say(
+        'status-err',
         `${result.stats.shapesIn} shape(s) but zero visible strokes — everything is ` +
-        'off-paper, fully occluded, or sub-nib (with origin: \'center\', coordinates run ' +
-        '±50, so radii/half-sizes belong in 0–50)';
+          'off-paper, fully occluded, or sub-nib (with origin: \'center\', coordinates run ' +
+          '±50, so radii/half-sizes belong in 0–50)',
+      );
     } else {
-      statusMsg.className = 'status-ok';
-      statusMsg.textContent = note ? `ok · ${note}` : 'ok';
-      note = null;
+      say('status-ok', note ? `ok · ${note}` : 'ok');
+      if (latest) note = null;
     }
     const s = result.stats;
     statusStats.textContent =

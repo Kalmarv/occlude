@@ -178,6 +178,30 @@ describe('steps', () => {
     expect(Object.isFrozen(on.history)).toBe(true);
   });
 
+  it('continuation: 100 steps then 100 more equals 200 uninterrupted, random state included', () => {
+    // A seeded stream the rule closes over, as a sketch's t.chance would be.
+    const makeRule = (seed: number) => {
+      let s = seed;
+      const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+      return (cur: import('../src/curve.js').Curve, n: import('../src/curve.js').Next) => {
+        for (const p of cur.points) {
+          n.move(p.index, [rnd() - 0.5, rnd() - 0.5]);
+          n.set(p.index, { age: p.age + 1 });
+        }
+        n.splitEdges((e) => e.length > 3 && rnd() < 0.3, { attributes: { age: 0 } });
+      };
+    };
+    const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0 });
+    const whole = start.steps(200, makeRule(11));
+    const rule = makeRule(11);
+    const split = start.steps(100, rule).steps(100, rule);
+    expect(split.iteration).toBe(200);
+    expect(split.n).toBe(whole.n);
+    expect(Array.from(split.x)).toEqual(Array.from(whole.x));
+    expect(Array.from(split.y)).toEqual(Array.from(whole.y));
+    expect(Array.from(split.attrs.age)).toEqual(Array.from(whole.attrs.age));
+  });
+
   it('splits see the moved state, insert with explicit attributes, and reconnect the ring', () => {
     const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 5 });
     const next = start.steps(1, (cur, n) => {

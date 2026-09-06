@@ -29,6 +29,9 @@ const speed = num('speed', 0.15);
 const wander = num('wander', 0.12);
 const swirl = num('swirl', 0.35);
 const withHistory = args.includes('--history');
+// Isolation switches: which chain pull and which repulsion each rule uses.
+const pullKind = opt('pull', ruleName === 'alt' ? 'spring' : 'slack');
+const repelKind = opt('repel', ruleName === 'alt' ? 'inverse' : 'linear');
 
 // Seeded chance/noise stand-ins for the toolkit's, so the run is repeatable.
 const rng = new Rng(3);
@@ -45,6 +48,8 @@ const start = curve(
 );
 
 const stats: NeighbourStats = { queries: 0, candidates: 0, hits: 0 };
+const moves: number[] = [];
+let capped = 0;
 
 const slackPull = (p: Vertex, q: Vertex) => { const d = sub(q, p); return mul(unit(d), Math.max(0, length(d) - rest)); };
 const repelFrom = (p: Vertex, q: Vertex) => { const d = sub(p, q); return mul(unit(d), (1 - length(d) / push) * push); };
@@ -56,6 +61,8 @@ const shove = (p: Vertex, q: Vertex) => {
   return sum(away, mul(perp(away), swirl));
 };
 
+const pull = pullKind === 'spring' ? spring : slackPull;
+const repel = repelKind === 'inverse' ? shove : repelFrom;
 const rule = ruleName === 'alt'
   ? (current: Curve, next: import('../src/index.js').Next) => {
       const near = neighbours(current, { radius: push, stats });
@@ -63,10 +70,13 @@ const rule = ruleName === 'alt'
         const prev = current.prev(p.index);
         const nxt = current.next(p.index);
         const force = sum(
-          sumBy([prev, nxt], (j) => spring(p, current.vertex(j))),
-          sumBy(near(p), (j) => (j === prev || j === nxt ? [0, 0] : shove(p, current.vertex(j)))),
+          sumBy([prev, nxt], (j) => pull(p, current.vertex(j))),
+          sumBy(near(p), (j) => (j === prev || j === nxt ? [0, 0] : repel(p, current.vertex(j)))),
         );
-        next.move(p.index, limit(mul(force, speed), splitAt / 2));
+        const step = limit(mul(force, speed), splitAt / 2);
+        if (length(mul(force, speed)) > splitAt / 2) capped++;
+        moves.push(length(step));
+        next.move(p.index, step);
         next.set(p.index, { age: p.age + 1 });
       }
       next.splitEdges((e) => e.length > splitAt && chance(grow), { attributes: { age: 0 } });
@@ -78,17 +88,19 @@ const rule = ruleName === 'alt'
         const nxt = current.next(p.index);
         const a = noiseAngle(p.x, p.y, k);
         const force = sum(
-          sumBy([prev, nxt], (j) => slackPull(p, current.vertex(j))),
-          sumBy(near(p), (j) => (j === prev || j === nxt ? [0, 0] : repelFrom(p, current.vertex(j)))),
+          sumBy([prev, nxt], (j) => pull(p, current.vertex(j))),
+          sumBy(near(p), (j) => (j === prev || j === nxt ? [0, 0] : repel(p, current.vertex(j)))),
           [Math.cos(a) * wander, Math.sin(a) * wander],
         );
-        next.move(p.index, mul(force, speed));
+        const step = mul(force, speed);
+        moves.push(length(step));
+        next.move(p.index, step);
         next.set(p.index, { age: p.age + 1 });
       }
       next.splitEdges((e) => e.length > splitAt && chance(grow), { attributes: { age: 0 } });
     };
 
-console.log(`rule=${ruleName} rest=${rest} push=${push} splitAt=${splitAt} grow=${grow} speed=${speed} history=${withHistory ? `every ${every}` : 'off'} budget=${budgetMs / 1000}s`);
+console.log(`rule=${ruleName} pull=${pullKind} repel=${repelKind} rest=${rest} push=${push} splitAt=${splitAt} grow=${grow} speed=${speed} history=${withHistory ? `every ${every}` : 'off'} budget=${budgetMs / 1000}s`);
 console.log('iter   points  splits  candidates     hits  cand/pt  hits/pt   ms   histPts');
 let cur = start;
 let historyPts = 0;
@@ -116,3 +128,17 @@ while (done < iterations) {
   }
 }
 console.log(`total ${((performance.now() - t0) / 1000).toFixed(2)} s, final ${cur.n} points, iteration ${cur.iteration}`);
+
+// ---- shape of the final curve: what the pen will see ----
+const pct = (xs: number[], q: number) => { const a = [...xs].sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.floor(q * a.length))]; };
+const edgeLen = cur.edges.map((e) => e.length);
+const turn: number[] = [];
+for (let i = 0; i < cur.n; i++) {
+  const a = cur.vertex(cur.prev(i)); const b = cur.vertex(i); const c = cur.vertex(cur.next(i));
+  const u = unit(sub(b, a)); const v = unit(sub(c, b));
+  turn.push(Math.abs(Math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1])) * 180 / Math.PI);
+}
+const fmt = (xs: number[]) => `p10 ${pct(xs, 0.1).toFixed(2)}  median ${pct(xs, 0.5).toFixed(2)}  p90 ${pct(xs, 0.9).toFixed(2)}  max ${Math.max(...xs).toFixed(2)}`;
+console.log(`edge length      ${fmt(edgeLen)}`);
+console.log(`turn per vertex° ${fmt(turn)}   (share > 45°: ${(100 * turn.filter((t) => t > 45).length / turn.length).toFixed(1)}%)`);
+console.log(`step per point   ${fmt(moves)}   capped: ${(100 * capped / Math.max(1, moves.length)).toFixed(1)}% of moves`);
