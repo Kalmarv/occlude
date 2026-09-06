@@ -369,20 +369,68 @@ export function neighbours(
   };
 }
 
-// ---- force recipes ----------------------------------------------------------
+// ---- forces -------------------------------------------------------------------
 //
-// Ordinary functions on the vocabulary above, in one shape: PREPARE with
-// the source geometry once per state, then EVALUATE at a vertex to get a
-// vector. Nothing here moves anything — the rule decides what to do with
-// the vector. A handwritten force is any `(p) => Vec`, and composes with
-// these through `sum`. Copy one into a sketch and change the falloff, the
-// direction, the weighting; nothing registers them.
+// One shape: PREPARE with the source geometry once per state, then EVALUATE
+// at a point to get a vector. Nothing here moves anything — the rule sums
+// the vectors and decides. Two callback shapes cover the field:
+//
+//   p => vector        wind, drift, a vector field — works in `sum` as is
+//   (p, q) => vector   interaction with another point — `nearby` finds the
+//                      q's within a radius and adds your contributions up
+//
+// The named recipes below (`tension`, `separation`, `drift`) are ordinary
+// functions on this mechanism and the vocabulary. Copy one into a sketch
+// and change it; a custom force that earns reuse can become a recipe.
+
+/** Points a force can be prepared from: a curve (its vertices, with
+ * `index` so the callback can tell them apart) or any list of points. */
+export type Sources = Curve | readonly XY[];
+
+/**
+ * A neighbourhood interaction: the sum, over every source point `q` within
+ * `radius` of `p`, of `contribution(p, q)`. The spatial index over
+ * `sources` is built ONCE, here; the returned function evaluates at any
+ * point. `q` is a vertex view when the sources are a curve (so `q.index`
+ * and its attributes are available) and `{ x, y, index }` for a plain list.
+ *
+ * Identity: when `p` is a vertex of the same curve as `sources`, `p`
+ * itself is skipped — a point never interacts with itself. Nothing else
+ * is skipped unless `skip(p, q)` says so; chain neighbours are NOT excluded
+ * by default (see `adjacent`). Contributions accumulate in index order
+ * within each grid cell, cells in a fixed sweep, so a run is repeatable.
+ */
+export function nearby(
+  sources: Sources,
+  opts: { radius: number; skip?: (p: Vertex, q: Vertex) => boolean; stats?: NeighbourStats },
+  contribution: (p: Vertex, q: Vertex) => XY,
+): (p: Vertex) => Vec {
+  const c = sources instanceof Curve ? sources : curve(sources, { closed: false });
+  const self = sources instanceof Curve;
+  const near = neighbours(c, { radius: opts.radius, stats: opts.stats });
+  const skip = opts.skip;
+  return (p) => {
+    // `neighbours` skips index === p.index; that is only self-exclusion
+    // when p belongs to these sources. For foreign sources include it.
+    const probe: Vertex = self ? p : ({ ...p, index: -1 } as Vertex);
+    return sumBy(near(probe), (j) => {
+      const q = c.vertex(j);
+      return skip && skip(p, q) ? [0, 0] : contribution(p, q);
+    });
+  };
+}
+
+/** The explicit "skip my chain neighbours" rule for `nearby`: true when
+ * `q` is p's prev or next along `c`. */
+export function adjacent(c: Curve): (p: Vertex, q: Vertex) => boolean {
+  return (p, q) => c.prev(p.index) === q.index || c.next(p.index) === q.index;
+}
 
 /**
  * Slack chain tension, prepared for `c`: `pull(p)` is the vector toward
- * each of p's CHAIN neighbours (prev, then next — `c.prev`/`c.next`, so
- * this one needs connectivity) by the part of the gap beyond `rest`. Zero
- * when both neighbours are within `rest`: a slack chain, not a spring.
+ * each of p's CHAIN neighbours (prev, then next — this one needs the
+ * connectivity) by the part of the gap beyond `rest`. Zero when both
+ * neighbours are within `rest`: a slack chain, not a spring.
  */
 export function tension(c: Curve, opts: { rest: number }): (p: Vertex) => Vec {
   const { rest } = opts;
@@ -395,26 +443,39 @@ export function tension(c: Curve, opts: { rest: number }): (p: Vertex) => Vec {
 }
 
 /**
- * Separation, prepared for `c`: builds the spatial index ONCE (see
- * `neighbours`), then `repel(p)` is the vector away from every other
- * vertex within `radius`, falling off linearly to zero at the radius and
- * peaking at `radius` when touching. p's chain neighbours are skipped —
- * tension owns that spacing — which is the one place this recipe reads
- * connectivity; for a purely spatial push use `neighbours` directly.
+ * Separation, prepared for `c`: `repel(p)` is the vector away from every
+ * other vertex within `radius`, falling off linearly to zero at the radius
+ * and peaking at `radius` when touching, chain neighbours skipped (tension
+ * owns that spacing). Written on `nearby` — the shape of any interaction:
  */
 export function separation(c: Curve, opts: { radius: number }): (p: Vertex) => Vec {
   const { radius } = opts;
-  const near = neighbours(c, { radius });
-  return (p) => {
-    const prev = c.prev(p.index);
-    const next = c.next(p.index);
-    return sumBy(near(p), (j) => {
-      if (j === prev || j === next) return [0, 0];
-      const delta = sub(p, c.vertex(j));
-      return mul(unit(delta), (1 - length(delta) / radius) * radius);
-    });
+  return nearby(c, { radius, skip: adjacent(c) }, (p, q) => {
+    const delta = sub(p, q);
+    return mul(unit(delta), (1 - length(delta) / radius) * radius);
+  });
+}
+
+/**
+ * Drift: a direction read from a noise function, `amount` long, turning
+ * slowly with the iteration. Pure — pass the toolkit's seeded `t.noise`
+ * in: `drift(t.noise, { amount })`, then `wander(p, k)`. `frequency`
+ * scales position into the noise (default 0.08), `rate` the iteration
+ * (default 0.01).
+ */
+export function drift(
+  noise: (x: number, y: number, z: number) => number,
+  opts: { amount: number; frequency?: number; rate?: number },
+): (p: XY, k: number) => Vec {
+  const { amount, frequency = 0.08, rate = 0.01 } = opts;
+  return (p, k) => {
+    const a = noise(vx(p) * frequency, vy(p) * frequency, k * rate) * Math.PI * 2;
+    return [Math.cos(a) * amount, Math.sin(a) * amount];
   };
 }
+
+/** The forces as one namespace, for the `force.nearby(...)` reading. */
+export const force = { nearby, adjacent, tension, separation, drift };
 
 // ---- one step ------------------------------------------------------------------
 

@@ -1199,12 +1199,14 @@ Geometry you can hold, step, and reinterpret — in four layers that stay
 apart. **Material:** a `Curve` is an ordered chain of vertices, closed
 unless told otherwise, with positions and any named attributes in columns;
 connectivity is the order. **Numbers:** a small vector vocabulary (`add`,
-`sub`, `mul`, `length`, `distance`, `unit`, `limit`, `perp`, `sum`, `sumBy`) that
-knows nothing about pens or growth. **Rules and recipes:** `curve.steps()`
-runs a rule you write on that vocabulary; `tension` and `separation` are recipes
-written the same way — copy one into a sketch and change it. **Drawing:**
-`segmentRuns` turns an attribute into strokes. All pure imports; `t.sample`
-sits on the toolkit because it reads the paper.
+`sub`, `mul`, `length`, `distance`, `unit`, `limit`, `perp`, `sum`, `sumBy`)
+that knows nothing about pens or growth. **Rules and forces:**
+`curve.steps()` runs a rule you write; forces are prepared once with their
+sources and evaluated at a point to a vector — `nearby` finds and adds up
+interactions, and `tension`, `separation`, `drift` are recipes written on
+it that you can copy and change. **Drawing:** `segmentRuns` turns an
+attribute into strokes. All pure imports; `t.sample` sits on the toolkit
+because it reads the paper.
 
 ### vectors
 
@@ -1284,6 +1286,80 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 ]);
 ```
 
+### forces
+
+A force is prepared once with its sources, then evaluated at a point to a
+vector; nothing moves until the rule says so. Two callback shapes cover
+the field. `p => vector` — wind, drift, a vector field — works in `sum`
+as it is. `(p, q) => vector` — an interaction with another point — goes
+through `nearby`, which finds every source `q` within a radius of `p`
+(spatial index built once, here) and sums your contributions:
+
+```ts
+const repel = force.nearby(sources, { radius }, (p, q) => {
+  const delta = sub(p, q);
+  return mul(unit(delta), radius - length(delta));
+});
+next.move(p.index, mul(repel(p), speed));
+```
+
+`sources` is a curve (then `q` is a vertex view with `index` and
+attributes) or any list of points. A vertex never interacts with itself
+when its own curve is the source; nothing else is skipped unless you say
+so — `skip: adjacent(curve)` is the explicit "not my chain neighbours".
+The named recipes are ordinary functions on this mechanism; `force` is
+the same set as one namespace.
+
+| recipe | prepare with | evaluate | vector |
+|---|---|---|---|
+| `tension(curve, { rest })` | the state; reads prev/next | `pull(p)` | toward each chain neighbour by the gap beyond `rest` (slack, not a spring) |
+| `separation(curve, { radius })` | the state; index once; skips chain neighbours | `repel(p)` | away from every other vertex within the radius, linearly to zero at the edge |
+| `drift(noise, { amount, frequency?, rate? })` | a noise function — pass `t.noise`, it owns no seed | `wander(p, k)` | a direction read from the noise, turning with the iteration |
+| `nearby(sources, { radius, skip? }, (p, q) => v)` | any points; index once | `f(p)` | the sum of your contributions |
+
+```ts live
+import { sketch, stroke, circle, curve, force, sub, unit, length, sum, mul } from 'occlude';
+
+// Sources need not be the moving geometry: a ring grows among fixed
+// obstacles that shove it away — one interaction written in place, one
+// recipe, one drift — and the obstacles are drawn as what they are.
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const obstacles = t.times(9, (i) => [12 + i * 9.5, 10 + (i % 2) * 30]);
+  const avoid = force.nearby(obstacles, { radius: 9 }, (p, q) => {
+    const delta = sub(p, q);
+    return mul(unit(delta), (9 - length(delta)) * 0.6);
+  });
+  const wander = force.drift(t.noise, { amount: 0.3 });
+  const start = curve(t.sample(circle(50, 25, 6), { count: 36 })[0]);
+  const grown = start.steps(70, (cur, next, k) => {
+    const pull = force.tension(cur, { rest: 1.2 });
+    const repel = force.separation(cur, { radius: 2.4 });
+    for (const p of cur.points) next.move(p.index, mul(sum(pull(p), repel(p), avoid(p), wander(p, k)), 0.2));
+    next.splitEdges((e) => e.length > 1.3 && t.chance(0.3), { attributes: {} });
+  });
+  return [obstacles.map(([x, y]) => circle(x, y, 1.2)), stroke(grown.contour)];
+});
+```
+
+```ts live
+import { sketch, stroke, circle, curve, curl, sub, perp, unit, mul, sum, length } from 'occlude';
+
+// The other shape, p => vector, needs no helper: a vortex around the centre
+// and a noise field, summed, relax a ring with no growth at all — the same
+// `.steps()` verb, a different rule. Every 6th state is kept and drawn.
+export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
+  const centre = { x: 50, y: 25 };
+  const vortex = (p) => mul(perp(unit(sub(p, centre))), 8 / (length(sub(p, centre)) + 4));
+  const field = curl((x, y) => t.noise(x / 12, y / 12) * 6);
+  const flow = (p) => field(p.x, p.y);
+  const ring = curve(t.sample(circle(50, 25, 14), { count: 80 })[0]);
+  const swirled = ring.steps(48, (cur, next) => {
+    for (const p of cur.points) next.move(p.index, mul(sum(vortex(p), flow(p)), 0.25));
+  }, { every: 6 });
+  return swirled.history.map((h) => stroke(h.curve.contour));
+});
+```
+
 ### steps
 
 `curve.steps(n, (current, next, k) => …, { every? })` — THE iteration
@@ -1309,16 +1385,7 @@ step does can disturb a snapshot, and `iteration` keeps counting across
 calls. Each sketch run recomputes from the start: scrubbing an iteration
 control re-runs the growth to that point.
 
-Forces are recipes in one shape: PREPARE with the state once, EVALUATE
-at a vertex, get a vector, move nothing. `tension(curve, { rest })` gives
-`pull(p)`, the vector toward p's chain neighbours by the gap beyond `rest`
-(it reads `prev`/`next`, the one connectivity it needs).
-`separation(curve, { radius })` builds the spatial index once (see
-`neighbours`) and gives `repel(p)`, the vector away from every other
-vertex within the radius, linearly to zero at the edge, chain neighbours
-skipped. A handwritten force is any `(p) => vector`; `sum` composes them.
-Both recipes are a few lines on the vocabulary — copy one beside your
-own and change it.
+The rule below uses the three recipes from the forces section:
 
 ```ts live
 import { sketch, stroke, curve, separation, tension, sum, mul } from 'occlude';

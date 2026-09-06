@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  add, curve, distance, length, limit, mul, neighbours, perp, segmentRuns, separation, sub, sum, sumBy, tension, unit,
+  add, adjacent, curve, distance, drift, length, limit, mul, nearby, neighbours, perp, segmentRuns, separation, sub, sum, sumBy, tension, unit,
 } from '../src/curve.js';
 
 const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0 });
@@ -77,6 +77,48 @@ describe('forces', () => {
       expect(gx).toBeCloseTo(fx, 9);
       expect(gy).toBeCloseTo(fy, 9);
     }
+  });
+
+  it('nearby: sums your contribution over sources within the radius; self skipped, chain not', () => {
+    const c = curve([[0, 0], [1, 0], [2, 0], [10, 10]]);
+    const count = nearby(c, { radius: 5 }, () => [1, 0]);
+    expect(count(c.vertex(0))).toEqual([2, 0]); // vertices 1 and 2; not itself, not the far one
+    const noChain = nearby(c, { radius: 5, skip: adjacent(c) }, () => [1, 0]);
+    expect(noChain(c.vertex(0))).toEqual([1, 0]); // next (1) skipped; 2 is not adjacent to 0; prev (3) is far
+    expect(noChain(c.vertex(1))).toEqual([0, 0]); // 0 and 2 are its chain neighbours
+    // foreign sources: a plain list, nothing is "self", q carries its index
+    const obstacles: [number, number][] = [[0, 1], [0, 2], [50, 50]];
+    const seen: number[] = [];
+    const push = nearby(obstacles, { radius: 3 }, (p, q) => { seen.push(q.index); return sub(p, q); });
+    expect(push(c.vertex(0))).toEqual([0, -3]);
+    expect(seen.sort()).toEqual([0, 1]);
+    // a vertex at an obstacle's exact position still interacts with it (no false self)
+    const at = nearby([[0, 0]], { radius: 3 }, () => [7, 0]);
+    expect(at(c.vertex(0))).toEqual([7, 0]);
+  });
+
+  it('separation through nearby matches the brute-force sum exactly', () => {
+    const pts: [number, number][] = [];
+    let seed = 5;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 150; i++) pts.push([rnd() * 40, rnd() * 40]);
+    const c = curve(pts);
+    const repel = separation(c, { radius: 4 });
+    const byHand = nearby(c, { radius: 4, skip: adjacent(c) }, (p, q) => {
+      const d = sub(p, q);
+      return mul(unit(d), (1 - length(d) / 4) * 4);
+    });
+    for (const p of c.points) expect(repel(p)).toEqual(byHand(p));
+  });
+
+  it('drift is pure and deterministic given the noise it is handed', () => {
+    const noise = (x: number, y: number, z: number) => ((Math.sin(x) + Math.cos(y) + z) % 1 + 1) % 1;
+    const wander = drift(noise, { amount: 0.5 });
+    const a = wander({ x: 3, y: 4 }, 2);
+    const b = wander([3, 4], 2);
+    expect(a).toEqual(b);
+    expect(Math.hypot(a[0], a[1])).toBeCloseTo(0.5);
+    expect(wander([3, 4], 3)).not.toEqual(a);
   });
 
   it('vocabulary: either spelling in, fresh tuples out, nothing mutated, unit(0) = 0', () => {
