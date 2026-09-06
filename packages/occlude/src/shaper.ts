@@ -1,9 +1,13 @@
 /**
- * A drawn remap of the unit range: the tone curve from image editors, as a
- * value. `shaper(points)` takes knots on the unit square and returns a
- * function 0–1 → 0–1 through them — lift the middle and midtones brighten,
- * pull the ends in and it clips, an S adds contrast. Generic: a field's
- * contrast, an easing for a sweep, the spacing of streamlines by tone.
+ * A drawn remap: the tone curve from image editors, as a value.
+ * `shaper(points)` takes knots and returns a function through them. The
+ * knots define the area: the input runs from the first knot's x to the
+ * last's, the output stays between the lowest and highest knot — so
+ * `[[0, 0], [1, 1]]` is a unit tone curve, `[[0, 0.65], [1, 3.75]]` turns a
+ * 0–1 luminance straight into millimetres, and `[[0, 0], [2, 2]]` is an
+ * identity over 0–2. Lift the middle and midtones rise, flatten an end and
+ * it clips, an S adds contrast. Generic: a field's contrast, an easing for
+ * a sweep, the spacing of streamlines by tone.
  *
  * The knots are a literal in the sketch; the studio gives that literal a
  * curve editor the way `ui()` gives numbers a slider, and every drag
@@ -27,9 +31,11 @@ export type Shaper = ((v: number) => number) & {
   /** The knots, sorted by x — what the editor edits. */
   readonly points: readonly ShaperPoint[];
   readonly method: 'akima' | 'cubic' | 'linear';
+  /** Input extent: first knot's x to last knot's x. */
+  readonly domain: readonly [number, number];
+  /** Output extent: lowest to highest knot y — the curve never leaves it. */
+  readonly range: readonly [number, number];
 };
-
-const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 export function shaper(points: readonly ShaperPoint[], opts: ShaperOpts = {}): Shaper {
   if (!Array.isArray(points) || points.length < 2) {
@@ -41,7 +47,7 @@ export function shaper(points: readonly ShaperPoint[], opts: ShaperOpts = {}): S
     }
   }
   const sorted: ShaperPoint[] = [...points]
-    .map(([x, y]) => [clamp01(x), clamp01(y)] as ShaperPoint)
+    .map(([x, y]) => [x, y] as ShaperPoint)
     .sort((a, b) => a[0] - b[0]);
   // Strictly increasing x: nudge exact duplicates apart rather than throw —
   // a knot dragged onto another mid-edit must not blank the sketch.
@@ -56,12 +62,21 @@ export function shaper(points: readonly ShaperPoint[], opts: ShaperOpts = {}): S
   );
   const x0 = sorted[0][0];
   const x1 = sorted[sorted.length - 1][0];
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const [, y] of sorted) {
+    lo = Math.min(lo, y);
+    hi = Math.max(hi, y);
+  }
   const fn = ((v: number): number => {
     if (!Number.isFinite(v)) return NaN;
     const x = v < x0 ? x0 : v > x1 ? x1 : v;
-    return clamp01(interp(x));
+    const y = interp(x);
+    return y < lo ? lo : y > hi ? hi : y; // Akima may overshoot between knots; the knots bound it
   }) as Shaper;
   Object.defineProperty(fn, 'points', { value: sorted, enumerable: true });
   Object.defineProperty(fn, 'method', { value: method, enumerable: true });
+  Object.defineProperty(fn, 'domain', { value: [x0, x1], enumerable: true });
+  Object.defineProperty(fn, 'range', { value: [lo, hi], enumerable: true });
   return fn;
 }

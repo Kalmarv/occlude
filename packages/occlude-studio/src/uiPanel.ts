@@ -20,18 +20,34 @@ interface Row {
 type Pt = [number, number];
 
 /**
- * The tone-curve editor: knots on a unit square, the shaper's own curve
- * drawn through them (so what you see is exactly what the sketch computes).
- * Drag a knot; double-click empty space to add one; double-click a knot or
- * drag it off the square to remove it (never below two). End knots keep
- * their x. Every change hands the new knot list back to be written into
- * the code, formatted to three decimals.
+ * The tone-curve editor. The knots define the area (as in `shaper`): x runs
+ * from the first knot to the last, y between the lowest and highest knot;
+ * the corners are labelled so the numbers are never hidden. The shaper's
+ * own curve is drawn through the knots, so what you see is exactly what
+ * the sketch computes. Drag a knot; double-click empty space to add one;
+ * double-click a knot or drag it far off the box to remove it (never below
+ * two). End knots keep their x; the extreme knots keep the box, so to grow
+ * the area edit the numbers in the code. Every change hands the knot list
+ * back to be written into the code, formatted to three decimals.
  */
 class CurveEditor {
   readonly canvas: HTMLCanvasElement;
   private pts: Pt[];
   private drag: number | null = null;
   private readonly size = 132;
+  private readonly pad = 6;
+  /** The box the knots span; degenerate spans get a little room. */
+  private box(): { x0: number; x1: number; y0: number; y1: number } {
+    const xs = this.pts.map((p) => p[0]);
+    const ys = this.pts.map((p) => p[1]);
+    let x0 = Math.min(...xs);
+    let x1 = Math.max(...xs);
+    let y0 = Math.min(...ys);
+    let y1 = Math.max(...ys);
+    if (x1 - x0 < 1e-9) { x0 -= 0.5; x1 += 0.5; }
+    if (y1 - y0 < 1e-9) { y0 -= 0.5; y1 += 0.5; }
+    return { x0, x1, y0, y1 };
+  }
   constructor(
     points: Pt[],
     private onChange: (pts: Pt[], final: boolean) => void,
@@ -57,26 +73,29 @@ class CurveEditor {
     this.draw();
   }
 
-  /** Knots live on the unit square, sorted by x — what the shaper itself
-   * does, so an off-range knot in the code is shown where it will act. */
+  /** Sorted by x, as the shaper itself sorts. */
   private static tidy(points: Pt[]): Pt[] {
-    const cl = (v: number): number => Math.min(1, Math.max(0, v));
-    return points.map((p) => [cl(p[0]), cl(p[1])] as Pt).sort((a, b) => a[0] - b[0]);
+    return points.map((p) => [p[0], p[1]] as Pt).sort((a, b) => a[0] - b[0]);
   }
 
-  private toUnit(e: PointerEvent | MouseEvent): Pt {
+  /** Pointer → knot coordinates, clamped to the box. */
+  private toKnot(e: PointerEvent | MouseEvent): Pt {
     const r = this.canvas.getBoundingClientRect();
-    const pad = 6;
-    const u = (e.clientX - r.left - pad) / (r.width - 2 * pad);
-    const v = 1 - (e.clientY - r.top - pad) / (r.height - 2 * pad);
-    return [Math.min(1, Math.max(0, u)), Math.min(1, Math.max(0, v))];
+    const { x0, x1, y0, y1 } = this.box();
+    const u = (e.clientX - r.left - this.pad) / (r.width - 2 * this.pad);
+    const v = 1 - (e.clientY - r.top - this.pad) / (r.height - 2 * this.pad);
+    const cu = Math.min(1, Math.max(0, u));
+    const cv = Math.min(1, Math.max(0, v));
+    return [x0 + cu * (x1 - x0), y0 + cv * (y1 - y0)];
   }
 
+  /** Nearest knot within ~7% of the box, in box-normalised distance. */
   private nearest(p: Pt): number | null {
+    const { x0, x1, y0, y1 } = this.box();
     let best = -1;
     let bestD = Infinity;
     this.pts.forEach((q, i) => {
-      const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      const d = Math.hypot((q[0] - p[0]) / (x1 - x0), (q[1] - p[1]) / (y1 - y0));
       if (d < bestD) {
         bestD = d;
         best = i;
@@ -88,7 +107,7 @@ class CurveEditor {
   private bind(): void {
     const c = this.canvas;
     c.addEventListener('pointerdown', (e) => {
-      const p = this.toUnit(e);
+      const p = this.toKnot(e);
       const i = this.nearest(p);
       if (i === null) return;
       this.drag = i;
@@ -100,11 +119,11 @@ class CurveEditor {
       if (this.drag === null) return;
       const r = this.canvas.getBoundingClientRect();
       const off = e.clientX < r.left - 24 || e.clientX > r.right + 24 || e.clientY < r.top - 24 || e.clientY > r.bottom + 24;
-      const p = this.toUnit(e);
+      const p = this.toKnot(e);
       const i = this.drag;
       const first = i === 0;
       const last = i === this.pts.length - 1;
-      // Dragging an inner knot well outside the square removes it.
+      // Dragging an inner knot well outside the box removes it.
       if (off && !first && !last && this.pts.length > 2) {
         this.pts.splice(i, 1);
         this.drag = null;
@@ -112,10 +131,15 @@ class CurveEditor {
         this.onChange(this.pts, true);
         return;
       }
-      const lo = first ? 0 : this.pts[i - 1][0] + 0.005;
-      const hi = last ? 1 : this.pts[i + 1][0] - 0.005;
-      const x = first ? 0 : last ? 1 : Math.min(hi, Math.max(lo, p[0]));
-      this.pts[i] = [x, p[1]];
+      // The box is frozen for the gesture: its extreme knots may move
+      // inside it but not push it outward (edit the code for that).
+      const { x0, x1, y0, y1 } = this.box();
+      const gap = (x1 - x0) * 0.005;
+      const lo = first ? x0 : this.pts[i - 1][0] + gap;
+      const hi = last ? x1 : this.pts[i + 1][0] - gap;
+      const x = first ? x0 : last ? x1 : Math.min(hi, Math.max(lo, p[0]));
+      const y = Math.min(y1, Math.max(y0, p[1]));
+      this.pts[i] = [x, y];
       this.draw();
       this.onChange(this.pts, false);
     });
@@ -127,7 +151,7 @@ class CurveEditor {
     c.addEventListener('pointerup', end);
     c.addEventListener('pointercancel', end);
     c.addEventListener('dblclick', (e) => {
-      const p = this.toUnit(e);
+      const p = this.toKnot(e);
       const i = this.nearest(p);
       this.onStart();
       if (i !== null) {
@@ -146,7 +170,7 @@ class CurveEditor {
     const ctx = this.canvas.getContext('2d')!;
     const dpr = window.devicePixelRatio || 1;
     const S = this.size;
-    const pad = 6;
+    const pad = this.pad;
     const w = S - 2 * pad;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, S, S);
@@ -155,25 +179,26 @@ class CurveEditor {
     const dim = css.getPropertyValue('--ink-faint').trim() || '#4d5257';
     const edge = css.getPropertyValue('--panel-edge').trim() || '#2e3237';
     const accent = css.getPropertyValue('--toolpath').trim() || '#5b8bd9';
-    const X = (u: number): number => pad + u * w;
-    const Y = (v: number): number => pad + (1 - v) * w;
-    // Grid: quarters, and the identity diagonal as the reference.
+    const { x0, x1, y0, y1 } = this.box();
+    const X = (x: number): number => pad + ((x - x0) / (x1 - x0)) * w;
+    const Y = (y: number): number => pad + (1 - (y - y0) / (y1 - y0)) * w;
+    // Grid: quarters of the box, and its diagonal as the reference.
     ctx.strokeStyle = edge;
     ctx.lineWidth = 1;
     for (let k = 0; k <= 4; k++) {
       const t = k / 4;
       ctx.beginPath();
-      ctx.moveTo(X(t), Y(0));
-      ctx.lineTo(X(t), Y(1));
-      ctx.moveTo(X(0), Y(t));
-      ctx.lineTo(X(1), Y(t));
+      ctx.moveTo(X(x0 + t * (x1 - x0)), Y(y0));
+      ctx.lineTo(X(x0 + t * (x1 - x0)), Y(y1));
+      ctx.moveTo(X(x0), Y(y0 + t * (y1 - y0)));
+      ctx.lineTo(X(x1), Y(y0 + t * (y1 - y0)));
       ctx.stroke();
     }
     ctx.strokeStyle = dim;
     ctx.setLineDash([3, 3]);
     ctx.beginPath();
-    ctx.moveTo(X(0), Y(0));
-    ctx.lineTo(X(1), Y(1));
+    ctx.moveTo(X(x0), Y(y0));
+    ctx.lineTo(X(x1), Y(y1));
     ctx.stroke();
     ctx.setLineDash([]);
     // The curve, through the sketch's own shaper.
@@ -187,12 +212,21 @@ class CurveEditor {
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     for (let k = 0; k <= 100; k++) {
-      const u = k / 100;
-      const v = fn(u);
-      if (k === 0) ctx.moveTo(X(u), Y(v));
-      else ctx.lineTo(X(u), Y(v));
+      const x = x0 + (k / 100) * (x1 - x0);
+      const y = fn(x);
+      if (k === 0) ctx.moveTo(X(x), Y(y));
+      else ctx.lineTo(X(x), Y(y));
     }
     ctx.stroke();
+    // Corner values: the area is the knots' own numbers, never hidden.
+    ctx.fillStyle = dim;
+    ctx.font = '9px ui-monospace, monospace';
+    ctx.textBaseline = 'bottom';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${fmt3(x0)}, ${fmt3(y0)}`, pad + 2, S - pad - 1);
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${fmt3(x1)}, ${fmt3(y1)}`, S - pad - 2, pad + 1);
     // Knots.
     for (const [i, p] of this.pts.entries()) {
       ctx.beginPath();

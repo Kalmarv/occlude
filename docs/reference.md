@@ -765,14 +765,19 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 ### shaper
 
 `shaper(points, { method? })` — the tone curve from image editors as a
-value: knots on the unit square, a curve through them (Akima by default;
-`'cubic'` or `'linear'`), and the result is a function 0–1 → 0–1. Lift the
-middle and midtones brighten, pull the ends in and it clips, an S adds
-contrast. Generic, not image-specific: a field's contrast, an easing for a
-sweep, streamline spacing by tone. In the studio the knot literal gets a
-curve editor beside the `ui()` sliders — drag a knot, double-click empty
-space to add one, double-click a knot to remove it — and every change
-rewrites the array in the code, so the sketch stays the spec.
+value: knots, a curve through them (Akima by default; `'cubic'` or
+`'linear'`), and the result is a function. **The knots define the area**:
+the input runs from the first knot's x to the last's, the output stays
+between the lowest and highest knot. `[[0, 0], [1, 1]]` is a unit tone
+curve; `[[0, 0.65], [1, 3.75]]` turns a 0–1 luminance straight into
+millimetres of spacing; `[[0, 1], [1, 0]]` inverts. Lift the middle and
+midtones rise, flatten an end and it clips, an S adds contrast. Generic,
+not image-specific: a field's contrast, an easing for a sweep, streamline
+spacing by tone. In the studio the knot literal gets a curve editor beside
+the `ui()` sliders, its corners labelled with the area — drag a knot,
+double-click empty space to add one, double-click a knot to remove it —
+and every change rewrites the array in the code, so the sketch stays the
+spec. The box itself is set by the numbers: edit the code to grow it.
 
 ```ts live
 import { sketch, circle, shaper } from 'occlude';

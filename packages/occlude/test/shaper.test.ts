@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { scanUiControls, shaper } from '../src/index.js';
 
 describe('shaper', () => {
-  it('identity through the corners, clamped to the unit range', () => {
+  it('identity through the corners; inputs outside the domain clamp to its ends', () => {
     const s = shaper([[0, 0], [1, 1]]);
     expect(s(0)).toBe(0);
     expect(s(0.5)).toBeCloseTo(0.5, 6);
@@ -11,6 +11,24 @@ describe('shaper', () => {
     expect(s(-2)).toBe(0);
     expect(s(3)).toBe(1);
     expect(Number.isNaN(s(NaN))).toBe(true);
+    expect(s.domain).toEqual([0, 1]);
+    expect(s.range).toEqual([0, 1]);
+  });
+
+  it('the knots define the area: any domain, any range, output bounded by the knots', () => {
+    const wide = shaper([[0, 0], [2, 2]]);
+    expect(wide(1.5)).toBeCloseTo(1.5, 6);
+    expect(wide(5)).toBe(2);
+    const mmCurve = shaper([[0, 0.65], [0.5, 1.2], [1, 3.75]]); // luminance → mm of spacing
+    expect(mmCurve(0)).toBeCloseTo(0.65, 6);
+    expect(mmCurve(1)).toBeCloseTo(3.75, 6);
+    expect(mmCurve.range).toEqual([0.65, 3.75]);
+    for (let v = 0; v <= 1; v += 0.01) {
+      expect(mmCurve(v)).toBeGreaterThanOrEqual(0.65);
+      expect(mmCurve(v)).toBeLessThanOrEqual(3.75);
+    }
+    const inverting = shaper([[0, 1], [1, 0]]);
+    expect(inverting(0.25)).toBeCloseTo(0.75, 6);
   });
 
   it('passes through its knots and lifts the midtones when the middle knot is raised', () => {
@@ -22,7 +40,7 @@ describe('shaper', () => {
     expect(s(1)).toBe(1);
   });
 
-  it('clips: a flat top stays flat and never exceeds 1', () => {
+  it('clips: a flat top stays flat and never exceeds the highest knot', () => {
     const s = shaper([[0, 0], [0.6, 1], [1, 1]]);
     for (let v = 0.6; v <= 1; v += 0.05) expect(s(v)).toBeLessThanOrEqual(1);
     expect(s(0.3)).toBeGreaterThan(0.3);
