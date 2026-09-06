@@ -37,7 +37,7 @@ class CurveEditor {
     private onChange: (pts: Pt[], final: boolean) => void,
     private onStart: () => void,
   ) {
-    this.pts = points.map((p) => [p[0], p[1]] as Pt);
+    this.pts = CurveEditor.tidy(points);
     const c = document.createElement('canvas');
     c.className = 'ui-curve';
     const dpr = window.devicePixelRatio || 1;
@@ -53,8 +53,15 @@ class CurveEditor {
 
   setPoints(points: Pt[]): void {
     if (this.drag !== null) return;
-    this.pts = points.map((p) => [p[0], p[1]] as Pt);
+    this.pts = CurveEditor.tidy(points);
     this.draw();
+  }
+
+  /** Knots live on the unit square, sorted by x — what the shaper itself
+   * does, so an off-range knot in the code is shown where it will act. */
+  private static tidy(points: Pt[]): Pt[] {
+    const cl = (v: number): number => Math.min(1, Math.max(0, v));
+    return points.map((p) => [cl(p[0]), cl(p[1])] as Pt).sort((a, b) => a[0] - b[0]);
   }
 
   private toUnit(e: PointerEvent | MouseEvent): Pt {
