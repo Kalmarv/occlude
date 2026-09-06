@@ -34,8 +34,8 @@ describe('curve values', () => {
 describe('forces', () => {
   it('tension is zero within rest and pulls beyond it', () => {
     const c = square();
-    expect(tension(c, c.vertex(0), { rest: 20 })).toEqual([0, 0]);
-    const [fx, fy] = tension(c, c.vertex(0), { rest: 4 });
+    expect(tension(c, { rest: 20 })(c.vertex(0))).toEqual([0, 0]);
+    const [fx, fy] = tension(c, { rest: 4 })(c.vertex(0));
     expect(fx).toBeCloseTo(6);
     expect(fy).toBeCloseTo(6);
   });
@@ -60,7 +60,7 @@ describe('forces', () => {
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     for (let i = 0; i < 200; i++) pts.push([rnd() * 50, rnd() * 50]);
     const c = curve(pts);
-    const near = neighbours(c, { radius: 4 });
+    const repel = separation(c, { radius: 4 });
     for (const p of c.points.slice(0, 20)) {
       let fx = 0;
       let fy = 0;
@@ -73,7 +73,7 @@ describe('forces', () => {
         fx += (dx / d) * (1 - d / 4) * 4;
         fy += (dy / d) * (1 - d / 4) * 4;
       }
-      const [gx, gy] = separation(c, p, near, { radius: 4 });
+      const [gx, gy] = repel(p);
       expect(gx).toBeCloseTo(fx, 9);
       expect(gy).toBeCloseTo(fy, 9);
     }
@@ -104,9 +104,10 @@ describe('forces', () => {
 
   it('coincident vertices produce finite forces', () => {
     const c = curve([[5, 5], [5, 5], [5, 5], [9, 5]], { age: 0 });
-    const near = neighbours(c, { radius: 3 });
+    const pull = tension(c, { rest: 0.5 });
+    const repel = separation(c, { radius: 3 });
     for (const p of c.points) {
-      const f = sum(tension(c, p, { rest: 0.5 }), separation(c, p, near, { radius: 3 }));
+      const f = sum(pull(p), repel(p));
       expect(Number.isFinite(f[0]) && Number.isFinite(f[1])).toBe(true);
     }
   });

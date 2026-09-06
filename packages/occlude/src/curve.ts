@@ -371,41 +371,49 @@ export function neighbours(
 
 // ---- force recipes ----------------------------------------------------------
 //
-// Ordinary functions on the vocabulary above. Copy one into a sketch and
-// change the falloff, the direction, the weighting; nothing registers them.
+// Ordinary functions on the vocabulary above, in one shape: PREPARE with
+// the source geometry once per state, then EVALUATE at a vertex to get a
+// vector. Nothing here moves anything — the rule decides what to do with
+// the vector. A handwritten force is any `(p) => Vec`, and composes with
+// these through `sum`. Copy one into a sketch and change the falloff, the
+// direction, the weighting; nothing registers them.
 
 /**
- * Chain tension: pull `p` toward each curve neighbour by the part of the
- * gap beyond `rest` — a slack chain, not a rubber band.
+ * Slack chain tension, prepared for `c`: `pull(p)` is the vector toward
+ * each of p's CHAIN neighbours (prev, then next — `c.prev`/`c.next`, so
+ * this one needs connectivity) by the part of the gap beyond `rest`. Zero
+ * when both neighbours are within `rest`: a slack chain, not a spring.
  */
-export function tension(c: Curve, p: Vertex, opts: { rest: number }): Vec {
-  return sumBy([c.prev(p.index), c.next(p.index)], (j) => {
+export function tension(c: Curve, opts: { rest: number }): (p: Vertex) => Vec {
+  const { rest } = opts;
+  const pull = (p: Vertex, j: number): Vec => {
     if (j < 0) return [0, 0];
     const delta = sub(c.vertex(j), p);
-    return mul(unit(delta), Math.max(0, length(delta) - opts.rest));
-  });
+    return mul(unit(delta), Math.max(0, length(delta) - rest));
+  };
+  return (p) => sum(pull(p, c.prev(p.index)), pull(p, c.next(p.index)));
 }
 
 /**
- * Separation: push `p` away from every spatial neighbour within
- * `radius` (from a `neighbours()` query prepared for this state), falling
- * off linearly to zero at the radius. Curve neighbours are skipped —
- * tension owns that spacing.
+ * Separation, prepared for `c`: builds the spatial index ONCE (see
+ * `neighbours`), then `repel(p)` is the vector away from every other
+ * vertex within `radius`, falling off linearly to zero at the radius and
+ * peaking at `radius` when touching. p's chain neighbours are skipped —
+ * tension owns that spacing — which is the one place this recipe reads
+ * connectivity; for a purely spatial push use `neighbours` directly.
  */
-export function separation(
-  c: Curve,
-  p: Vertex,
-  near: (p: Vertex) => number[],
-  opts: { radius: number },
-): Vec {
-  const prev = c.prev(p.index);
-  const next = c.next(p.index);
-  return sumBy(near(p), (j) => {
-    if (j === prev || j === next) return [0, 0];
-    const delta = sub(p, c.vertex(j));
-    const d = length(delta);
-    return mul(unit(delta), (1 - d / opts.radius) * opts.radius);
-  });
+export function separation(c: Curve, opts: { radius: number }): (p: Vertex) => Vec {
+  const { radius } = opts;
+  const near = neighbours(c, { radius });
+  return (p) => {
+    const prev = c.prev(p.index);
+    const next = c.next(p.index);
+    return sumBy(near(p), (j) => {
+      if (j === prev || j === next) return [0, 0];
+      const delta = sub(p, c.vertex(j));
+      return mul(unit(delta), (1 - length(delta) / radius) * radius);
+    });
+  };
 }
 
 // ---- one step ------------------------------------------------------------------

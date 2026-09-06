@@ -1309,29 +1309,30 @@ step does can disturb a snapshot, and `iteration` keeps counting across
 calls. Each sketch run recomputes from the start: scrubbing an iteration
 control re-runs the growth to that point.
 
-Spatial neighbours come from `neighbours(curve, { radius })`: the index
-is built ONCE for the state and the returned query gives, per vertex, the
-indices within the radius (self excluded; the chain neighbours
-`c.prev(i)`/`c.next(i)` are a different concept and are not excluded).
-Forces are then ordinary functions: `tension(curve, p, { rest })` pulls a
-vertex toward its chain neighbours by the gap beyond `rest`;
-`separation(curve, p, near, { radius })` pushes it from its spatial
-neighbours, linearly to zero at the radius. Both are a few lines on the
-vocabulary above — write your own beside them.
+Forces are recipes in one shape: PREPARE with the state once, EVALUATE
+at a vertex, get a vector, move nothing. `tension(curve, { rest })` gives
+`pull(p)`, the vector toward p's chain neighbours by the gap beyond `rest`
+(it reads `prev`/`next`, the one connectivity it needs).
+`separation(curve, { radius })` builds the spatial index once (see
+`neighbours`) and gives `repel(p)`, the vector away from every other
+vertex within the radius, linearly to zero at the edge, chain neighbours
+skipped. A handwritten force is any `(p) => vector`; `sum` composes them.
+Both recipes are a few lines on the vocabulary — copy one beside your
+own and change it.
 
 ```ts live
-import { sketch, stroke, curve, neighbours, separation, tension, sum, mul } from 'occlude';
+import { sketch, stroke, curve, separation, tension, sum, mul } from 'occlude';
 
 // Differential growth in twelve lines: tension + separation + seeded
 // noise, split the stretched edges, keep every iteration.
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const start = curve(t.sample(t.circle(25, 25, 5), { count: 24 })[0], { age: 0 });
   const grown = start.steps(60, (cur, next, k) => {
-    const near = neighbours(cur, { radius: 2 });
+    const pull = tension(cur, { rest: 0.8 });
+    const repel = separation(cur, { radius: 2 });
     for (const p of cur.points) {
       const a = t.noise(p.x * 0.1, p.y * 0.1, k * 0.02) * Math.PI * 2;
-      const f = sum(tension(cur, p, { rest: 0.8 }), separation(cur, p, near, { radius: 2 }), [Math.cos(a) * 0.1, Math.sin(a) * 0.1]);
-      next.move(p.index, mul(f, 0.15));
+      next.move(p.index, mul(sum(pull(p), repel(p), [Math.cos(a) * 0.1, Math.sin(a) * 0.1]), 0.15));
       next.set(p.index, { age: p.age + 1 });
     }
     next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
@@ -1355,17 +1356,18 @@ before it can own an edge — the start vertex's (`(a) => band(a.age)`),
 the end's, both, either, or their mean are all different drawings.
 
 ```ts live
-import { sketch, stroke, curve, neighbours, separation, tension, sum, mul, segmentRuns } from 'occlude';
+import { sketch, stroke, curve, separation, tension, sum, mul, segmentRuns } from 'occlude';
 
 // The same grown ring, cut into runs by age band: young edges in one
 // pen, old ones in another — chosen after the growth, not inside it.
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const start = curve(t.sample(t.circle(50, 25, 5), { count: 24 })[0], { age: 0 });
   const last = start.steps(60, (cur, next, k) => {
-    const near = neighbours(cur, { radius: 2 });
+    const pull = tension(cur, { rest: 0.8 });
+    const repel = separation(cur, { radius: 2 });
     for (const p of cur.points) {
       const a = t.noise(p.x * 0.1, p.y * 0.1, k * 0.02) * Math.PI * 2;
-      next.move(p.index, mul(sum(tension(cur, p, { rest: 0.8 }), separation(cur, p, near, { radius: 2 }), [Math.cos(a) * 0.1, Math.sin(a) * 0.1]), 0.15));
+      next.move(p.index, mul(sum(pull(p), repel(p), [Math.cos(a) * 0.1, Math.sin(a) * 0.1]), 0.15));
       next.set(p.index, { age: p.age + 1 });
     }
     next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
