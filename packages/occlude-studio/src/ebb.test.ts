@@ -33,11 +33,17 @@ class FakePort {
   });
   /** When true, motion commands get no reply — a wedged board. */
   muteMotion = false;
+  /** Swallow the reply to the next N motion commands, then behave — a lost byte. */
+  muteNext = 0;
   readonly writable = new WritableStream<Uint8Array>({
     write: (chunk) => {
       const command = new TextDecoder().decode(chunk).replace(/\r$/, '');
       this.commands.push(command);
       if (this.muteMotion && /^(XM|LM|HM)/.test(command)) return;
+      if (this.muteNext > 0 && /^(XM|LM)/.test(command)) {
+        this.muteNext -= 1;
+        return;
+      }
       const response =
         command === 'V'
           ? `${this.version}\r`
@@ -881,6 +887,66 @@ describe('calibration cards are a blank slate', () => {
     const lifts = port.commands.filter((c) => c.startsWith('SC,4,'));
     // Only the pinned pulse and full lift ever appear — the map's 14400 never does.
     expect(new Set(lifts)).toEqual(new Set(['SC,4,10000', 'SC,4,14000']));
+  });
+});
+
+describe('stall watchdog', () => {
+  test('a lost reply mid-plot is recovered: ES, resync, redo the chain, finish', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, lmMotion: true, swapXY: false, invertX: false };
+    const ebb = new Ebb();
+    ebb.watchdogMs = 150; // field: 8000
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    // Three strokes; the board "loses" the reply to one motion command
+    // during the second.
+    const plan = new Float64Array([0, 0, 2, 0, 0, 10, 0, 0, 0, 2, 20, 0, 30, 0, 0, 0, 2, 40, 0, 50, 0]);
+    const progress: PlotProgress[] = [];
+    let armed = false;
+    const plotting = ebb.plot(plan,
+      [{ name: 'a', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
+      direct, (p) => {
+        progress.push(p);
+        if (!armed && p.chain === 1) {
+          armed = true;
+          port.muteNext = 1;
+        }
+      });
+    await plotting;
+    const c = port.commands;
+    // The watchdog fired, ES went out raw, position was re-read, and the plot
+    // went on to finish with the pen parked.
+    expect(c.filter((x) => x.trim() === 'ES')).toHaveLength(1);
+    expect(progress.some((p) => p.warning?.includes('stall recovered'))).toBe(true);
+    expect(progress[progress.length - 1].state).toBe('done');
+    // The stalled chain was redone: at least one more pen-down after the ES,
+    // preceded by the servo registers being re-armed and a pen-up.
+    const es = c.findIndex((x) => x.trim() === 'ES');
+    expect(c.slice(es).filter((x) => x === 'SP,0,150').length).toBeGreaterThanOrEqual(1);
+    expect(c.slice(es).some((x) => x === 'QS')).toBe(true);
+    expect(c.slice(es).some((x) => x === 'SC,4,10000')).toBe(true);
+    // Every command after recovery got its reply (no second stall).
+    expect(progress.filter((p) => p.warning?.includes('stall')).every((p) => !p.warning?.includes('giving up'))).toBe(true);
+  });
+
+  test('a board that never answers gives up after four stalls with a clear error', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, lmMotion: true, swapXY: false, invertX: false };
+    const ebb = new Ebb();
+    ebb.watchdogMs = 100;
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    port.muteMotion = true;
+    await expect(ebb.plot(new Float64Array([0, 0, 2, 0, 0, 10, 0]),
+      [{ name: 'a', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
+      direct, () => undefined)).rejects.toThrow(/4 stalls/);
+    expect(port.commands.filter((x) => x.trim() === 'ES').length).toBe(4);
   });
 });
 

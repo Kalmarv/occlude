@@ -167,7 +167,25 @@ interface QueuedCmd {
   expectOk: boolean;
   resolve(lines: string[]): void;
   reject(err: Error): void;
+  /** Watchdog: reject with StallError if no reply within this long. */
+  timeoutMs?: number;
+  timer?: ReturnType<typeof setTimeout>;
 }
+
+/** A command's reply never came: the board stopped executing (a move that
+ * cannot finish) or a byte was lost on the link. Either way the pump would
+ * wait forever without a watchdog. */
+export class StallError extends Error {
+  constructor(readonly command: string, readonly afterMs: number) {
+    super(`no reply to ${command} after ${afterMs}ms`);
+    this.name = 'StallError';
+  }
+}
+
+/** Reply watchdog while plotting. The longest legitimate wait is the two
+ * FIFO'd blocks ahead of a command (≤0.3s each) plus a settle (≤1s); 8s is
+ * far outside that and far inside a human noticing. */
+export const PLOT_WATCHDOG_MS = 8000;
 
 export class Ebb {
   private port: SerialPortLike | null = null;
@@ -356,6 +374,7 @@ export class Ebb {
     if (!cur) return;
     if (line.startsWith('!')) {
       const err = new Error(`EBB: ${line} (after ${cur.line})`);
+      clearTimeout(cur.timer);
       this.inFlight = null;
       cur.reject(err);
       this.pump();
@@ -366,6 +385,7 @@ export class Ebb {
       this.collected.push(line);
       const lines = this.collected;
       this.collected = [];
+      clearTimeout(cur.timer);
       this.inFlight = null;
       cur.resolve(lines);
       this.pump();
@@ -374,6 +394,7 @@ export class Ebb {
     if (line === 'OK') {
       const lines = this.collected;
       this.collected = [];
+      clearTimeout(cur.timer);
       this.inFlight = null;
       cur.resolve(lines);
       this.pump();
@@ -388,8 +409,18 @@ export class Ebb {
     this.inFlight = next;
     this.collected = [];
     this.logLine('>', next.line);
+    if (next.timeoutMs) {
+      next.timer = setTimeout(() => {
+        if (this.inFlight !== next) return;
+        // Leave the command in flight: nothing else may be sent until the
+        // recovery (emergencyClear) has reset the pipeline.
+        this.logLine('<', `(watchdog: no reply after ${next.timeoutMs}ms)`);
+        next.reject(new StallError(next.line, next.timeoutMs ?? 0));
+      }, next.timeoutMs);
+    }
     const bytes = new TextEncoder().encode(next.line + '\r');
     this.writer.write(bytes).catch((e: unknown) => {
+      clearTimeout(next.timer);
       this.inFlight = null;
       next.reject(e instanceof Error ? e : new Error(String(e)));
     });
@@ -398,12 +429,16 @@ export class Ebb {
   /** Send one command; resolves with its data lines once OK (or the first
    * data line for no-OK queries) arrives. The write→await-OK pacing IS the
    * flow control — the board's FIFO backpressure does the rest. */
-  cmd(line: string, expectOk = true): Promise<string[]> {
+  cmd(line: string, expectOk = true, timeoutMs?: number): Promise<string[]> {
+    const t = timeoutMs ?? (this.plotting ? this.watchdogMs : undefined);
     return new Promise((resolve, reject) => {
-      this.queue.push({ line, expectOk, resolve, reject });
+      this.queue.push({ line, expectOk, resolve, reject, timeoutMs: t });
       this.pump();
     });
   }
+
+  /** Overridable for tests; PLOT_WATCHDOG_MS in the field. */
+  watchdogMs = PLOT_WATCHDOG_MS;
 
   // ---- motion ----
 
@@ -690,24 +725,7 @@ export class Ebb {
    * host pipeline is reset and given a moment to drain orphan replies. */
   async stop(): Promise<void> {
     this.plotAbort = true;
-    this.logLine('>', 'ES (raw, queue bypassed)');
-    try {
-      await this.writer?.write(new TextEncoder().encode('\rES\r'));
-    } catch {
-      // port gone
-    }
-    const err = new Error('stopped');
-    const stranded = [this.inFlight, ...this.queue].filter(
-      (c): c is QueuedCmd => c !== null,
-    );
-    this.inFlight = null;
-    this.queue = [];
-    this.collected = [];
-    for (const c of stranded) c.reject(err);
-    // Late replies (the aborted command's OK, ES's own response) arrive
-    // with nothing in flight and are dropped by onLine; give them time to
-    // flush so they can't be attributed to the next queued command.
-    await new Promise((r) => setTimeout(r, 300));
+    await this.emergencyClear('stopped');
     if (this.hopLiftActive && this.fullUpPulse > 0) {
       // A stopped hop plot must not leave the reduced lift on the board.
       this.hopLiftActive = false;
@@ -722,6 +740,30 @@ export class Ebb {
     // Unlock the gantry: after an abort the next step is usually a manual
     // re-park, and held steppers fight the hand.
     await this.cmd('EM,0,0').catch(() => undefined);
+  }
+
+  /** Raw ES (abort motion, clear the board's FIFO), bypassing the queue,
+   * then reset the host pipeline: strand every queued command, and give
+   * late replies (the aborted command's OK, ES's own) time to arrive with
+   * nothing in flight so onLine drops them instead of attributing them to
+   * the next command. Used by stop() and by stall recovery. */
+  private async emergencyClear(reason: string): Promise<void> {
+    this.logLine('>', `ES (raw, queue bypassed) — ${reason}`);
+    try {
+      await this.writer?.write(new TextEncoder().encode('\rES\r'));
+    } catch {
+      // port gone
+    }
+    const err = new Error(reason);
+    const stranded = [this.inFlight, ...this.queue].filter(
+      (c): c is QueuedCmd => c !== null,
+    );
+    for (const c of stranded) clearTimeout(c.timer);
+    this.inFlight = null;
+    this.queue = [];
+    this.collected = [];
+    for (const c of stranded) c.reject(err);
+    await new Promise((r) => setTimeout(r, 300));
   }
 
   pause(): void {
@@ -920,9 +962,13 @@ export class Ebb {
     // dense strokes), so it keeps more margin; pen-UP can start the travel
     // a hair early harmlessly.
 
+    let stalls = 0;
     try {
-      for (const [chainIndex, c] of chains.entries()) {
+      let chainIndex = 0;
+      while (chainIndex < chains.length) {
+        const c = chains[chainIndex];
         curChain = chainIndex;
+        try {
         const base = pens[c.pen];
         const pen = (base && livePen?.(base.name)) ?? base;
         const feed = pen?.feed ?? 3000;
@@ -1023,6 +1069,32 @@ export class Ebb {
         const every = o.driftCheckEvery ?? 1000;
         if (every > 0 && chainIndex % every === every - 1) await verifyPosition();
         report('plotting', penName);
+        chainIndex += 1;
+        } catch (e) {
+          // Stall recovery: the board stopped answering (a move that cannot
+          // finish, or a lost byte). Abort and clear the board, adopt its
+          // step counters as the truth, re-arm the servo registers, and redo
+          // this chain from its start pen-up. Bounded: a board that keeps
+          // stalling is a hardware problem to look at, not to loop on.
+          if (!(e instanceof StallError) || this.plotAbort) throw e;
+          stalls += 1;
+          await this.emergencyClear(`stall: ${e.message}`);
+          if (stalls > 3) throw new Error(`${e.message} — 4 stalls, giving up`);
+          const pos = await this.queryPosition().catch(() => null);
+          if (pos) {
+            this.stepX = pos[0];
+            this.stepY = pos[1];
+          }
+          this.lmCarryV0 = null;
+          this.pendingMs = 0;
+          liftPulse = -1; // registers may or may not have been written: re-send
+          downPulse = -1;
+          await setLiftFull();
+          await setDown(Math.round(servo().penDownPulse));
+          await this.penUp(Math.max(pens[c.pen]?.penDelay ?? 300, 150));
+          warning = `board stall recovered at chain ${chainIndex + 1} (${e.command}) — redoing it`;
+          report('plotting', pens[c.pen]?.name ?? '');
+        }
       }
       // Never leave a reduced lift or an overridden landing on the board.
       await setLiftFull().catch(() => undefined);
