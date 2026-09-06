@@ -1,5 +1,18 @@
+import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
+
+/** The commit this build came from — shown in the status bar so "which
+ * build is this tab on" is a glance, never a guess. */
+function buildStamp(): string {
+  try {
+    const sha = execSync('git rev-parse --short HEAD', { cwd: __dirname }).toString().trim();
+    const dirty = execSync('git status --porcelain -- ../../packages ../../crates', { cwd: __dirname }).toString().trim() ? '+' : '';
+    return `${sha}${dirty}`;
+  } catch {
+    return 'dev';
+  }
+}
 // @ts-expect-error plain-JS module shared with the production server
 import { createSketchHandler } from './sketch-store.mjs';
 // @ts-expect-error same
@@ -28,6 +41,9 @@ function sketchStore(): Plugin {
 }
 
 export default defineConfig({
+  define: {
+    __BUILD_STAMP__: JSON.stringify(`${buildStamp()} ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`),
+  },
   plugins: [sketchStore()],
   // occlude is consumed as TS source from the workspace; vite transpiles it.
   optimizeDeps: {

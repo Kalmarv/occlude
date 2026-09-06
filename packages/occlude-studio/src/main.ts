@@ -14,6 +14,9 @@ import {
 } from './sketchApi.js';
 import { customFillNames, embedFills, importSketchWithFills } from './fillEmbed.js';
 import { UiPanel } from './uiPanel.js';
+
+declare const __BUILD_STAMP__: string;
+import { scanUiControls } from 'occlude';
 import { RenderClient, type WorkerError } from './workerClient.js';
 import type { RenderResult } from 'occlude';
 
@@ -28,6 +31,7 @@ async function boot(): Promise<void> {
   const statusMsg = $('status-msg');
   const statusStats = $('status-stats');
   const statusSeed = $('status-seed');
+  $('status-build').textContent = __BUILD_STAMP__;
   const titleEl = $('sketch-title') as HTMLInputElement;
 
   let renderOn = true;
@@ -201,6 +205,8 @@ async function boot(): Promise<void> {
     editor,
     result: () => lastResult,
     preview,
+    /** What the controls panel sees in the source right now (debugging). */
+    controls: () => scanUiControls(editor.getValue()),
   };
 
   const rail = buildRail($('rail'), {

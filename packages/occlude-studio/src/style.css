@@ -2041,3 +2041,11 @@ button.armed {
   cursor: crosshair;
   touch-action: none;
 }
+
+#status-build {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
