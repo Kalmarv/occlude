@@ -6,13 +6,194 @@
  * drag, and the normal change→re-run pipeline picks the new value up.
  */
 
-import { scanUiControls, type ProbeSummary, type UiControl } from 'occlude';
+import { scanUiControls, shaper, type ProbeSummary, type UiControl } from 'occlude';
 import type { Editor } from './editor.js';
 
 interface Row {
   control: UiControl;
-  slider: HTMLInputElement; // range or checkbox
+  slider: HTMLInputElement | null; // range or checkbox; null for a curve
   num: HTMLInputElement | null;
+  /** Curve editor for a shaper's knots. */
+  curve?: CurveEditor;
+}
+
+type Pt = [number, number];
+
+/**
+ * The tone-curve editor: knots on a unit square, the shaper's own curve
+ * drawn through them (so what you see is exactly what the sketch computes).
+ * Drag a knot; double-click empty space to add one; double-click a knot or
+ * drag it off the square to remove it (never below two). End knots keep
+ * their x. Every change hands the new knot list back to be written into
+ * the code, formatted to three decimals.
+ */
+class CurveEditor {
+  readonly canvas: HTMLCanvasElement;
+  private pts: Pt[];
+  private drag: number | null = null;
+  private readonly size = 132;
+  constructor(
+    points: Pt[],
+    private onChange: (pts: Pt[], final: boolean) => void,
+    private onStart: () => void,
+  ) {
+    this.pts = points.map((p) => [p[0], p[1]] as Pt);
+    const c = document.createElement('canvas');
+    c.className = 'ui-curve';
+    const dpr = window.devicePixelRatio || 1;
+    c.width = Math.round(this.size * dpr);
+    c.height = Math.round(this.size * dpr);
+    c.style.width = `${this.size}px`;
+    c.style.height = `${this.size}px`;
+    c.title = 'drag a knot · double-click empty space to add · double-click a knot to remove';
+    this.canvas = c;
+    this.bind();
+    this.draw();
+  }
+
+  setPoints(points: Pt[]): void {
+    if (this.drag !== null) return;
+    this.pts = points.map((p) => [p[0], p[1]] as Pt);
+    this.draw();
+  }
+
+  private toUnit(e: PointerEvent | MouseEvent): Pt {
+    const r = this.canvas.getBoundingClientRect();
+    const pad = 6;
+    const u = (e.clientX - r.left - pad) / (r.width - 2 * pad);
+    const v = 1 - (e.clientY - r.top - pad) / (r.height - 2 * pad);
+    return [Math.min(1, Math.max(0, u)), Math.min(1, Math.max(0, v))];
+  }
+
+  private nearest(p: Pt): number | null {
+    let best = -1;
+    let bestD = Infinity;
+    this.pts.forEach((q, i) => {
+      const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
+    return bestD < 0.07 ? best : null;
+  }
+
+  private bind(): void {
+    const c = this.canvas;
+    c.addEventListener('pointerdown', (e) => {
+      const p = this.toUnit(e);
+      const i = this.nearest(p);
+      if (i === null) return;
+      this.drag = i;
+      c.setPointerCapture(e.pointerId);
+      this.onStart();
+      e.preventDefault();
+    });
+    c.addEventListener('pointermove', (e) => {
+      if (this.drag === null) return;
+      const r = this.canvas.getBoundingClientRect();
+      const off = e.clientX < r.left - 24 || e.clientX > r.right + 24 || e.clientY < r.top - 24 || e.clientY > r.bottom + 24;
+      const p = this.toUnit(e);
+      const i = this.drag;
+      const first = i === 0;
+      const last = i === this.pts.length - 1;
+      // Dragging an inner knot well outside the square removes it.
+      if (off && !first && !last && this.pts.length > 2) {
+        this.pts.splice(i, 1);
+        this.drag = null;
+        this.draw();
+        this.onChange(this.pts, true);
+        return;
+      }
+      const lo = first ? 0 : this.pts[i - 1][0] + 0.005;
+      const hi = last ? 1 : this.pts[i + 1][0] - 0.005;
+      const x = first ? 0 : last ? 1 : Math.min(hi, Math.max(lo, p[0]));
+      this.pts[i] = [x, p[1]];
+      this.draw();
+      this.onChange(this.pts, false);
+    });
+    const end = (): void => {
+      if (this.drag === null) return;
+      this.drag = null;
+      this.onChange(this.pts, true);
+    };
+    c.addEventListener('pointerup', end);
+    c.addEventListener('pointercancel', end);
+    c.addEventListener('dblclick', (e) => {
+      const p = this.toUnit(e);
+      const i = this.nearest(p);
+      this.onStart();
+      if (i !== null) {
+        if (i === 0 || i === this.pts.length - 1 || this.pts.length <= 2) return;
+        this.pts.splice(i, 1);
+      } else {
+        this.pts.push(p);
+        this.pts.sort((a, b) => a[0] - b[0]);
+      }
+      this.draw();
+      this.onChange(this.pts, true);
+    });
+  }
+
+  private draw(): void {
+    const ctx = this.canvas.getContext('2d')!;
+    const dpr = window.devicePixelRatio || 1;
+    const S = this.size;
+    const pad = 6;
+    const w = S - 2 * pad;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, S, S);
+    const css = getComputedStyle(this.canvas);
+    const ink = css.getPropertyValue('--ink').trim() || '#c9cdd1';
+    const dim = css.getPropertyValue('--ink-faint').trim() || '#4d5257';
+    const edge = css.getPropertyValue('--panel-edge').trim() || '#2e3237';
+    const accent = css.getPropertyValue('--toolpath').trim() || '#5b8bd9';
+    const X = (u: number): number => pad + u * w;
+    const Y = (v: number): number => pad + (1 - v) * w;
+    // Grid: quarters, and the identity diagonal as the reference.
+    ctx.strokeStyle = edge;
+    ctx.lineWidth = 1;
+    for (let k = 0; k <= 4; k++) {
+      const t = k / 4;
+      ctx.beginPath();
+      ctx.moveTo(X(t), Y(0));
+      ctx.lineTo(X(t), Y(1));
+      ctx.moveTo(X(0), Y(t));
+      ctx.lineTo(X(1), Y(t));
+      ctx.stroke();
+    }
+    ctx.strokeStyle = dim;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(X(0), Y(0));
+    ctx.lineTo(X(1), Y(1));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // The curve, through the sketch's own shaper.
+    let fn: (v: number) => number;
+    try {
+      fn = shaper(this.pts);
+    } catch {
+      fn = (v) => v;
+    }
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let k = 0; k <= 100; k++) {
+      const u = k / 100;
+      const v = fn(u);
+      if (k === 0) ctx.moveTo(X(u), Y(v));
+      else ctx.lineTo(X(u), Y(v));
+    }
+    ctx.stroke();
+    // Knots.
+    for (const [i, p] of this.pts.entries()) {
+      ctx.beginPath();
+      ctx.arc(X(p[0]), Y(p[1]), i === this.drag ? 4.5 : 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = i === this.drag ? accent : ink;
+      ctx.fill();
+    }
+  }
 }
 
 export class UiPanel {
@@ -89,7 +270,7 @@ export class UiPanel {
     this.controlCount = controls.length;
     this.root.hidden = controls.length === 0 && this.probeCount === 0;
     const signature = controls
-      .map((c) => `${c.label}|${typeof c.value}|${c.opts.min}|${c.opts.max}|${c.opts.step}`)
+      .map((c) => `${c.label}|${c.kind}|${c.opts.min}|${c.opts.max}|${c.opts.step}`)
       .join(';');
     if (signature !== this.signature) {
       this.signature = signature;
@@ -100,9 +281,11 @@ export class UiPanel {
     controls.forEach((c, k) => {
       const row = this.rows[k];
       row.control = c;
-      if (typeof c.value === 'boolean') {
-        row.slider.checked = c.value;
-      } else if (document.activeElement !== row.slider && document.activeElement !== row.num) {
+      if (c.kind === 'points') {
+        row.curve?.setPoints(c.value as Pt[]);
+      } else if (typeof c.value === 'boolean') {
+        if (row.slider) row.slider.checked = c.value;
+      } else if (row.slider && document.activeElement !== row.slider && document.activeElement !== row.num) {
         row.slider.value = String(c.value);
         if (row.num) row.num.value = String(c.value);
       }
@@ -122,6 +305,31 @@ export class UiPanel {
     name.textContent = control.label;
     row.append(name);
 
+    if (control.kind === 'points') {
+      const entry: Row = { control, slider: null, num: null };
+      const curve = new CurveEditor(
+        control.value as Pt[],
+        (pts, final) => {
+          this.write(entry, pts);
+          if (final) {
+            this.ed.editor.pushUndoStop();
+            this.clearHighlight();
+          } else {
+            this.highlight(entry.control);
+          }
+        },
+        () => {
+          this.ed.editor.pushUndoStop();
+          this.highlight(entry.control);
+        },
+      );
+      entry.curve = curve;
+      row.classList.add('ui-row-curve');
+      row.append(curve.canvas);
+      this.body.append(row);
+      return entry;
+    }
+
     if (typeof control.value === 'boolean') {
       const box = document.createElement('input');
       box.type = 'checkbox';
@@ -133,7 +341,7 @@ export class UiPanel {
       return entry;
     }
 
-    const { min, max, step } = sliderSpec(control.value, control.opts);
+    const { min, max, step } = sliderSpec(control.value as number, control.opts);
     const slider = document.createElement('input');
     slider.type = 'range';
     slider.min = String(min);
@@ -174,9 +382,11 @@ export class UiPanel {
   }
 
   /** Replace the control's literal in the editor and shift later offsets. */
-  private write(row: Row, value: number | boolean): void {
+  private write(row: Row, value: number | boolean | Pt[]): void {
     const c = row.control;
-    const text = String(value);
+    const text = Array.isArray(value)
+      ? `[${value.map(([x, y]) => `[${fmt3(x)}, ${fmt3(y)}]`).join(', ')}]`
+      : String(value);
     const model = this.ed.model;
     const s = model.getPositionAt(c.valueStart);
     const e = model.getPositionAt(c.valueEnd);
@@ -198,7 +408,7 @@ export class UiPanel {
     }
     const delta = text.length - (c.valueEnd - c.valueStart);
     c.valueEnd += delta;
-    c.value = value;
+    c.value = Array.isArray(value) ? value.map((p) => [p[0], p[1]] as Pt) : value;
     for (const other of this.rows) {
       if (other.control.valueStart > c.valueStart) {
         other.control.valueStart += delta;
@@ -296,4 +506,9 @@ function sparkline(p: ProbeSummary): string {
   const peak = Math.max(...bins);
   const blocks = ' ▁▂▃▄▅▆▇█';
   return bins.map((b) => blocks[b === 0 ? 0 : 1 + Math.floor((b / peak) * 7.999)]).join('');
+}
+
+/** Three decimals, no trailing zeros: 0.3 stays 0.3, 0.125 stays 0.125. */
+function fmt3(v: number): string {
+  return String(Math.round(v * 1000) / 1000);
 }

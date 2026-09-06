@@ -122,6 +122,7 @@ facts, and papers — never code**:
 | Bridson, *Fast Poisson Disk Sampling* (2007) | `scatter` and the stipple fill's blue-noise placement. | paper |
 | Jobard & Lefer, *Creating Evenly-Spaced Streamlines of Arbitrary Density* (Eurographics 1997) | `t.streamlines` implements the paper's seeding and separation scheme, with the spacing as a field. Ideas from the paper only. | paper |
 | [d3-delaunay](https://github.com/d3/d3-delaunay) (Mike Bostock) | Bundled dependency powering `voronoi`/`triangulate`/`settle`; his weighted-stippling notebook showed the `delaunay.find` accumulation walk. | ISC |
+| [commons-math-interpolation](https://github.com/chdh/commons-math-interpolation) (Christian d'Heureuse) | Bundled dependency: the Akima / cubic / linear interpolators behind `shaper()`. | MIT |
 | [plotterbench](https://github.com/plotterbench) | Inverse-kinematics golden-test idea (backlog). Ideas only — PolyForm forbids code reuse. | PolyForm Shield |
 | Robert Penner / [easings.net](https://easings.net) | The `ease.*` curve catalog (standard formulas). | formulas |
 | [p5.js](https://p5js.org), [vpype](https://github.com/abey79/vpype) | API ergonomics and plotter-workflow inspiration, respectively. | — |

@@ -10,6 +10,9 @@ importers:
 
   packages/occlude:
     dependencies:
+      commons-math-interpolation:
+        specifier: ^2.2.4
+        version: 2.2.4
       d3-delaunay:
         specifier: ^6.0.4
         version: 6.0.4
@@ -721,6 +724,9 @@ packages:
     resolution: {integrity: sha512-PAJdDJusoxnwm1VwW07VWwUN1sl7smmC3OKggvndJFadxxDRyFJBX/ggnu/KE4kQAB7a3Dp8f/YXC1FlUprWmA==}
     engines: {node: '>= 16'}
 
+  commons-math-interpolation@2.2.4:
+    resolution: {integrity: sha512-1CS9PTIXcTbB7AfowrOv8KEd0gTz8BdM8b+CfBwp3Sr6WLXF8Cw5tK41Yjx2HOOm+qZ1Ao6O/nft4Uci6LUDEQ==}
+
   d3-delaunay@6.0.4:
     resolution: {integrity: sha512-mdjtIZ1XLAM8bm/hx3WwjfHt6Sggek7qH043O8KEjDXN40xi3vx/6pYSVTwLjEgiXQTbvaouWKynLBiUZ6SK6A==}
     engines: {node: '>=12'}
@@ -1306,6 +1312,8 @@ snapshots:
       pathval: 2.0.1
 
   check-error@2.1.3: {}
+
+  commons-math-interpolation@2.2.4: {}
 
   d3-delaunay@6.0.4:
     dependencies:

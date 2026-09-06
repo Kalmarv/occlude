@@ -21,6 +21,7 @@
     "renderhash": "tsx tools/renderhash.ts"
   },
   "dependencies": {
+    "commons-math-interpolation": "^2.2.4",
     "d3-delaunay": "^6.0.4",
     "occlude-core": "link:../../crates/occlude-core/pkg"
   },

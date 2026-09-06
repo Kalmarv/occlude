@@ -25,16 +25,19 @@ export function ui(value: number | boolean, _opts?: UiOpts): number | boolean {
   return value;
 }
 
-/** One `ui(...)` call found in sketch source. */
+/** One tweakable literal found in sketch source: a `ui(<number|boolean>)`
+ * call, or the knot array of a `shaper([[x, y], …])` call. */
 export interface UiControl {
   /** Offset span of the value literal — replace exactly this to retune. */
   valueStart: number;
   valueEnd: number;
-  value: number | boolean;
+  value: number | boolean | [number, number][];
   opts: UiOpts;
   /** opts.label, else the assigned name (`const rows = ui(…)`), else ui N. */
   label: string;
   index: number;
+  /** 'points' = a shaper's knots: the panel shows a curve editor. */
+  kind: 'number' | 'boolean' | 'points';
 }
 
 /**
@@ -70,6 +73,21 @@ export function scanUiControls(source: string): UiControl[] {
       while (j < n && source[j] === ' ') j++;
       if (source[j] === '(') {
         const parsed = parseUiCall(source, i, j + 1, controls.length);
+        if (parsed) {
+          controls.push(parsed.control);
+          i = parsed.end;
+          continue;
+        }
+      }
+    }
+    if (
+      ch === 's' && source.startsWith('shaper', i) && !isIdentChar(source[i - 1]) &&
+      source[i - 1] !== '.' && !isIdentChar(source[i + 6])
+    ) {
+      let j = i + 6;
+      while (j < n && source[j] === ' ') j++;
+      if (source[j] === '(') {
+        const parsed = parseShaperCall(source, i, j + 1, controls.length);
         if (parsed) {
           controls.push(parsed.control);
           i = parsed.end;
@@ -146,9 +164,64 @@ function parseUiCall(
   }
   const label = opts.label ?? inferLabel(source, uiStart) ?? `ui ${index + 1}`;
   return {
-    control: { valueStart, valueEnd, value, opts, label, index },
+    control: {
+      valueStart, valueEnd, value, opts, label, index,
+      kind: typeof value === 'boolean' ? 'boolean' : 'number',
+    },
     end: i,
   };
+}
+
+/** `shaper([[0, 0], [0.3, 0.2], [1, 1]], opts?)` — the knot array literal
+ * is the control. Only a pure literal of numeric pairs counts; anything
+ * computed is left alone. */
+function parseShaperCall(
+  source: string,
+  callStart: number,
+  argStart: number,
+  index: number,
+): { control: UiControl; end: number } | null {
+  let i = argStart;
+  while (source[i] === ' ' || source[i] === '\n') i++;
+  if (source[i] !== '[') return null;
+  const valueStart = i;
+  const valueEnd = matchBracket(source, i);
+  if (valueEnd < 0) return null;
+  const text = source.slice(valueStart, valueEnd + 1);
+  if (!/^[\s\d\[\],.\-+e]+$/.test(text)) return null;
+  let value: unknown;
+  try {
+    value = new Function(`return (${text});`)();
+  } catch {
+    return null;
+  }
+  if (
+    !Array.isArray(value) || value.length < 2 ||
+    !value.every((p) => Array.isArray(p) && p.length === 2 && p.every((v) => typeof v === 'number' && Number.isFinite(v)))
+  ) {
+    return null;
+  }
+  const close = matchParen(source, argStart - 1);
+  if (close < 0) return null;
+  const label = inferLabel(source, callStart) ?? `shaper ${index + 1}`;
+  return {
+    control: {
+      valueStart, valueEnd: valueEnd + 1, value: value as [number, number][],
+      opts: {}, label, index, kind: 'points',
+    },
+    end: close + 1,
+  };
+}
+
+/** Offset of the `]` matching the `[` at `open`. */
+function matchBracket(source: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < source.length; i++) {
+    const c = source[i];
+    if (c === '[') depth++;
+    else if (c === ']' && --depth === 0) return i;
+  }
+  return -1;
 }
 
 /** Offset of the `)` matching the `(` at `open`. */

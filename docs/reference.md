@@ -762,6 +762,31 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 
 ## Layout & sequence
 
+### shaper
+
+`shaper(points, { method? })` — the tone curve from image editors as a
+value: knots on the unit square, a curve through them (Akima by default;
+`'cubic'` or `'linear'`), and the result is a function 0–1 → 0–1. Lift the
+middle and midtones brighten, pull the ends in and it clips, an S adds
+contrast. Generic, not image-specific: a field's contrast, an easing for a
+sweep, streamline spacing by tone. In the studio the knot literal gets a
+curve editor beside the `ui()` sliders — drag a knot, double-click empty
+space to add one, double-click a knot to remove it — and every change
+rewrites the array in the code, so the sketch stays the spec.
+
+```ts live
+import { sketch, circle, shaper } from 'occlude';
+
+// Dot sizes through a drawn curve: an S pushes the mids apart.
+export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
+  const tone = shaper([[0, 0], [0.3, 0.12], [0.7, 0.88], [1, 1]]);
+  return t.grid({ cols: 24, rows: 12 }).map((c) => {
+    const v = tone(t.noise(c.x / 22, c.y / 22) * 0.5 + 0.5);
+    return v > 0.03 ? circle(c.x + c.w / 2, c.y + c.h / 2, v * c.w * 0.48) : null;
+  });
+});
+```
+
 ### times / range
 
 `times(n, (k, u) => …)` calls n times (`u` normalised 0–1 across the run);

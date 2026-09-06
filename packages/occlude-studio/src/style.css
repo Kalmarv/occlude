@@ -2027,3 +2027,17 @@ button.armed {
 .pen-group[open] > summary::before {
   content: '▾ ';
 }
+
+/* Tone-curve editor for shaper() knots. */
+.ui-row-curve {
+  align-items: flex-start;
+}
+
+.ui-curve {
+  display: block;
+  background: var(--well);
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+  cursor: crosshair;
+  touch-action: none;
+}

@@ -105,6 +105,8 @@ export type {
 } from './motion.js';
 
 export type { StreamOpts } from './streamlines.js';
+export { shaper } from './shaper.js';
+export type { Shaper, ShaperOpts, ShaperPoint } from './shaper.js';
 
 // Pen height: the clearance map read off the lift-grid card, the settle
 // curve from the settle×lift card, and the one pen-cycle model both the
