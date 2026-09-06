@@ -241,8 +241,6 @@ pub struct GcodeJob {
     pub gcode: String,
     pub ink_mm: f64,
     pub travel_mm: f64,
-    /// Rough plot time estimate in seconds from feeds and pen delays.
-    pub est_seconds: f64,
 }
 
 /// One G-code job per pen present in the fragment list.
@@ -311,13 +309,11 @@ fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) 
     let mut ink = 0.0;
     let mut travel = 0.0;
     let mut pos = Vec2::ZERO;
-    let mut pen_downs = 0usize;
     for chain in chains {
         let s = chain.start();
         travel += pos.dist(s);
         let _ = writeln!(g, "G0 X{:.3} Y{:.3} F{:.0}", s.x, s.y, profile.travel_feed);
         down(&mut g);
-        pen_downs += 1;
         if chain.dot {
             up(&mut g);
             pos = s;
@@ -359,15 +355,13 @@ fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) 
     let _ = writeln!(g, "G0 X0 Y0 F{:.0}", profile.travel_feed);
     let _ = writeln!(g, "; end pen {}", pi);
 
-    let est_seconds = ink / (pen.feed / 60.0)
-        + travel / (profile.travel_feed / 60.0)
-        + pen_downs as f64 * (pen.pen_delay_ms / 1000.0 * 2.0 + 0.2);
+    // No time estimate here: plot time has ONE model (estimatePlanMs, over
+    // the toolpath) — a second constant-feed formula drifted from it.
     GcodeJob {
         pen: pi,
         pen_name: pen.name.clone(),
         gcode: g,
         ink_mm: ink,
         travel_mm: travel,
-        est_seconds,
     }
 }

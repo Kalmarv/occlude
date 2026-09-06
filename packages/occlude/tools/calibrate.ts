@@ -198,7 +198,10 @@ writeFileSync(join(outDir, 'cal.gcode'), combined);
 writeFileSync(join(outDir, 'cal.png'), exportPng(def, { ...paperOpt, scale: 8, background: '#f6f2ea' }));
 writeFileSync(join(outDir, 'cal.svg'), exportSvg(def, { ...paperOpt, background: '#f6f2ea' }));
 
-const secs = jobs.reduce((a, j) => a + j.estSeconds, 0);
-console.log(`wrote ${outDir}/cal.gcode (${jobs.length} jobs, ~${(secs / 60).toFixed(1)} min), cal.png, cal.svg`);
+// Plot time through THE model (estimatePlanMs over the toolpath), not a
+// per-job formula: the number here is the one the studio and plotstats show.
+const ink = jobs.reduce((a, j) => a + j.inkMm, 0);
+console.log(`wrote ${outDir}/cal.gcode (${jobs.length} jobs, ${ink.toFixed(0)} mm of ink), cal.png, cal.svg`);
+console.log('plot time: pnpm --filter occlude plotstats <sketch> reports the estimate for a sketch file.');
 console.log('read the sheet: fastest clean F row → pen.feed; best Z row → pen.penDown;');
 console.log('cleanest P row → pen.penDelay; measure the 100mm rulers and the X60 diagonals.');

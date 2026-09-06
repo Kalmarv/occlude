@@ -447,11 +447,25 @@ async function boot(): Promise<void> {
       const penTol = lastResult.pens.reduce((tol, pen) => Math.min(tol, pen.width / 4), Infinity);
       const activeProf = profiles.find((p) => p.name === settings.activeProfile) ?? profiles[0];
       const tol = Math.max(0.0001, Math.min(activeProf.machine.resolution, penTol));
-      const plan = await client.exportToolpath(50_000, tol);
+      // The same tour budget as Plot and Export: the simulation must show
+      // the order the machine will actually run.
+      const plan = await client.exportToolpath(200_000, tol);
       preview.startPlot(
         plan,
         lastResult.pens,
-        (profiles.find((p) => p.name === settings.activeProfile) ?? profiles[0]).machine.travelFeed,
+        {
+          travelFeed: activeProf.machine.travelFeed,
+          acceleration: activeProf.ebb.acceleration,
+          travelAcceleration: activeProf.ebb.travelAcceleration,
+          junctionDeviation: activeProf.ebb.junctionDeviation,
+          minimumCruiseRatio: activeProf.ebb.minimumCruiseRatio,
+          lift: {
+            penUpPulse: activeProf.ebb.penUpPulse,
+            map: activeProf.ebb.liftMap,
+            marginPulses: activeProf.ebb.liftMarginPulses,
+            settleCurve: activeProf.ebb.settleCurve,
+          },
+        },
         parseFloat(speedSel.value),
         (elapsed, total, pen) => {
           statusMsg.className = 'status-ok';

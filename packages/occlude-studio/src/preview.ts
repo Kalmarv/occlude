@@ -4,7 +4,10 @@
  * outlines occluder bounds, and marks fragment endpoints.
  */
 
-import { drawFragments, evalPrim, tracePrim, type PenDef, type RenderResult } from 'occlude';
+import {
+  drawFragments, evalPrim, schedulePlan, tracePrim,
+  type EstimateOpts, type PenDef, type RenderResult,
+} from 'occlude';
 
 interface PlanChain {
   pen: number;
@@ -224,7 +227,9 @@ export class Preview {
   startPlot(
     plan: Float64Array,
     pens: PenDef[],
-    travelFeed: number,
+    /** The machine's motion and lift model — the same the driver, the
+     * estimator and plotstats use, so the simulation's clock is THE clock. */
+    motion: EstimateOpts,
     speed: number,
     onProgress: (elapsed: number, total: number, pen: string) => void,
     onDone: () => void,
@@ -234,25 +239,20 @@ export class Preview {
     if (!this.result) return;
     const chains = this.parsePlan(plan);
     if (chains.length === 0) return;
-    // Timing: travel to each chain start, then draw at the pen's feed.
-    const chainStart: number[] = [];
-    const chainDur: number[] = [];
-    let t = 0;
-    let px = 0;
-    let py = 0;
-    const travelPerSec = Math.max(1, travelFeed / 60);
-    for (const c of chains) {
-      const pdef = pens[c.pen];
-      const feedPerSec = Math.max(1, (pdef?.feed ?? 3000) / 60);
-      const dwell = ((pdef?.penDelay ?? 100) / 1000) * 2 + 0.15; // down+up+settle
-      t += Math.hypot(c.pts[0] - px, c.pts[1] - py) / travelPerSec;
-      chainStart.push(t);
-      const dur = c.dot ? dwell : dwell + c.inkLen / feedPerSec;
-      chainDur.push(dur);
-      t += dur;
-      px = c.pts[c.pts.length - 2];
-      py = c.pts[c.pts.length - 1];
-    }
+    // Timing from the shared model: trapezoid-planned moves, settles per
+    // lift. Within a chain the head advances linearly along the ink — the
+    // chain boundaries are exact, the ramp inside is not drawn.
+    const schedule = schedulePlan(
+      chains.map((c) => ({ pen: c.pen, dot: c.dot, pts: c.pts })),
+      (pi) => {
+        const p = pens[pi];
+        return p ? { feed: p.feed, penDelay: p.penDelay } : undefined;
+      },
+      motion,
+    );
+    const chainStart = schedule.chainStartMs.map((ms) => ms / 1000);
+    const chainDur = schedule.chainDurMs.map((ms) => ms / 1000);
+    const t = schedule.estimate.totalMs / 1000;
     // Offscreen accumulation layer in paper space — resolution follows the
     // current zoom (see rebuildLayer) so committed ink stays crisp.
     this.sim = {

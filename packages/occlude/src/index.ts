@@ -98,10 +98,10 @@ export type { UiOpts, UiControl } from './ui.js';
 // Motion planning + the plot-time ground-truth model (shared by the EBB
 // driver, plotstats, and the export panel).
 export {
-  planPolyline, planDurationMs, segmentsToBlocks, estimatePlanMs,
+  planPolyline, planDurationMs, segmentsToBlocks, estimatePlanMs, schedulePlan,
 } from './motion.js';
 export type {
-  MotionLimits, PlannedSegment, MotionBlock, Point, PlanEstimate, EstimateOpts,
+  MotionLimits, PlannedSegment, MotionBlock, Point, PlanEstimate, EstimateOpts, PlanSchedule,
 } from './motion.js';
 
 // Pen height: the clearance map read off the lift-grid card, the settle

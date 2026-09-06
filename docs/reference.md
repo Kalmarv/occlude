@@ -1264,8 +1264,10 @@ const png  = exportPng(def, { paper: 'A4', scale: 11.81 });  // ≈ 300 dpi
   `coarsen` (preview coarsening; 1 = exact), `stretch` (fill the paper,
   non-uniform), `unbounded` (skip the paper clip).
 - `exportGcode` returns one job per pen:
-  `{ pen, penName, gcode, inkMm, travelMm, estSeconds }`. `optimize` sets
-  the 2-opt tour budget (`false` disables, a number overrides).
+  `{ pen, penName, gcode, inkMm, travelMm }`. `optimize` sets the 2-opt
+  tour budget (`false` disables, a number overrides). Plot time is not on
+  the job: `estimatePlanMs` over the toolpath is the one model (law 4),
+  shared by the driver, the export panel, plotstats and the simulation.
 - `exportSvg` is the plotted drawing, not the raw fragments: one `<path>` per
   chain the pen draws, in plot order, after the same merge → tour → bridge
   the G-code and the machine run (law 5 — preview, export and machine

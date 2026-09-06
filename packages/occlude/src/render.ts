@@ -1065,7 +1065,6 @@ export interface GcodeJob {
   gcode: string;
   inkMm: number;
   travelMm: number;
-  estSeconds: number;
 }
 
 export interface ExportOptions extends RenderOptions {

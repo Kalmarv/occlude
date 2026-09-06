@@ -237,18 +237,36 @@ export interface PlanEstimate {
   dots: number;
 }
 
+/** Per-chain timeline of a plan, ms: when each chain's pen cycle begins
+ * (after the travel into it) and how long it takes (down settle + draw +
+ * up settle). The studio's simulated playback walks this; `estimatePlanMs`
+ * is its sum — one clock. */
+export interface PlanSchedule {
+  chainStartMs: number[];
+  chainDurMs: number[];
+  estimate: PlanEstimate;
+}
+
 /** THE plot-time model — the same math the EBB driver's progress totals and
- * ETA use. plotstats and the export panel estimate through this too, so
- * every number the user sees shares one source of truth. Trapezoid-planned
- * per move (short dense segments never reach feed and are priced at their
- * planned speed), pen cycles follow the driver's lift rule exactly: the
- * travel INTO a chain sets the lift the pen falls from, the travel OUT sets
- * the lift it rises to, and settleAtLift prices both. */
+ * ETA use. plotstats, the export panel and the simulated playback all go
+ * through this, so every number the user sees shares one source of truth.
+ * Trapezoid-planned per move (short dense segments never reach feed and are
+ * priced at their planned speed), pen cycles follow the driver's lift rule
+ * exactly: the travel INTO a chain sets the lift the pen falls from, the
+ * travel OUT sets the lift it rises to, and settleAtLift prices both. */
 export function estimatePlanMs(
   chains: readonly PlanChainLike[],
   penOf: (penIndex: number) => PenTiming | undefined,
   o: EstimateOpts,
 ): PlanEstimate {
+  return schedulePlan(chains, penOf, o).estimate;
+}
+
+export function schedulePlan(
+  chains: readonly PlanChainLike[],
+  penOf: (penIndex: number) => PenTiming | undefined,
+  o: EstimateOpts,
+): PlanSchedule {
   const drawAccel = Math.max(1, o.acceleration);
   const travelAccel = Math.max(1, o.travelAcceleration);
   const limits = (maxVelocity: number, acceleration: number) => ({
@@ -263,6 +281,9 @@ export function estimatePlanMs(
     totalMs: 0, drawMs: 0, travelMs: 0, cycleMs: 0,
     commands: 0, chains: chains.length, dots: 0,
   };
+  const chainStartMs: number[] = [];
+  const chainDurMs: number[] = [];
+  let clock = 0;
   const lift: LiftModel = o.lift ?? { penUpPulse: 0, marginPulses: 0 };
   const full = Math.round(lift.penUpPulse);
   let px = 0;
@@ -274,17 +295,20 @@ export function estimatePlanMs(
     const pen = penOf(c.pen);
     const feed = pen?.feed ?? 3000;
     const travel: Point[] = [[px, py], [c.pts[0], c.pts[1]]];
-    est.travelMs += planDurationMs(
+    const travelMs = planDurationMs(
       planPolyline(travel, limits(o.travelFeed / 60, travelAccel)),
       travelAccel,
     );
+    est.travelMs += travelMs;
     est.commands += 3; // travel + pen down + pen up
+    let drawMs = 0;
     if (c.dot) {
       est.dots += 1;
     } else {
       const poly: Point[] = [];
       for (let k = 0; k < c.pts.length; k += 2) poly.push([c.pts[k], c.pts[k + 1]]);
-      est.drawMs += planDurationMs(planPolyline(poly, limits(feed / 60, drawAccel)), drawAccel);
+      drawMs = planDurationMs(planPolyline(poly, limits(feed / 60, drawAccel)), drawAccel);
+      est.drawMs += drawMs;
       est.commands += poly.length - 1;
     }
     // Pen-cycle cost mirrors the plot loop: the pen falls from the lift it
@@ -301,7 +325,11 @@ export function estimatePlanMs(
     // 2026-08-31) measured cycle cost = the commanded settles alone — the
     // board times SP durations exactly and the pump adds only milliseconds.
     est.cycleMs += down + up;
+    clock += travelMs;
+    chainStartMs.push(clock);
+    chainDurMs.push(down + drawMs + up);
+    clock += down + drawMs + up;
   });
   est.totalMs = est.drawMs + est.travelMs + est.cycleMs;
-  return est;
+  return { chainStartMs, chainDurMs, estimate: est };
 }

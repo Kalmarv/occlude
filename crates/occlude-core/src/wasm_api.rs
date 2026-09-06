@@ -245,7 +245,7 @@ fn decode_frags(prims: &[f64], frags: &[f64]) -> Result<Vec<crate::fragment::Fra
 }
 
 /// G-code export. Returns a JSON array of jobs:
-/// [{pen, penName, gcode, inkMm, travelMm, estSeconds}]
+/// [{pen, penName, gcode, inkMm, travelMm}] — plot time is estimatePlanMs over the toolpath (one model)
 #[wasm_bindgen]
 pub fn wasm_export_gcode(
     prims: &[f64],
