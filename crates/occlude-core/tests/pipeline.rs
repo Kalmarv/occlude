@@ -353,10 +353,21 @@ fn export_gcode_and_svg_smoke() {
             height: 100.0,
             background: Some("#f8f5ee".into()),
             only_pen: None,
+            tour_budget: 20_000,
         },
     );
     assert!(svg.contains("<path"), "svg has geometry");
     let jobs = export_gcode(&out.frags, &pens, &MachineProfile::default(), 20_000);
+    // Law 5: the SVG is the plotted drawing — one <path> per chain the G-code
+    // plots, in the same order, bridging included (so its ink ≥ the raw
+    // fragments' ink by exactly the bridged gaps, never less).
+    let svg_paths = svg.matches("<path").count();
+    let plotted = occlude_core::svg::plotted_chains(&out.frags, 0, &pens[0], 20_000);
+    assert_eq!(svg_paths, plotted.iter().filter(|c| !c.dot).count());
+    let chained_ink: f64 = plotted.iter().map(|c| c.ink_length()).sum();
+    let frag_ink: f64 = out.frags.iter().filter(|f| !f.dot).map(|f| f.geom.length()).sum();
+    assert!(chained_ink >= frag_ink - 1e-6, "svg chains must carry all the ink");
+    assert!(chained_ink - frag_ink < pens[0].width * plotted.len() as f64, "bridges are sub-nib");
     assert_eq!(jobs.len(), 1);
     let g = &jobs[0].gcode;
     assert!(g.contains("G21"));

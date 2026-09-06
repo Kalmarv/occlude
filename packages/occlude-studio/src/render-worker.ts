@@ -35,6 +35,8 @@ interface SvgMsg {
   height: number;
   background: string | undefined;
   onlyPen: number;
+  /** Tour budget: the SVG's paths are the plotted chains, like the G-code. */
+  budget?: number;
 }
 
 interface ToolpathMsg {
@@ -162,6 +164,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
           msg.height,
           msg.background,
           msg.onlyPen,
+          msg.budget ?? 200_000,
         );
         self.postMessage({ type: 'svg', id: msg.id, svg });
         break;

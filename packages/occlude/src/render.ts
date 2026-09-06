@@ -123,6 +123,7 @@ export interface WasmModule {
     height: number,
     background: string | undefined,
     only_pen: number,
+    tour_budget: number,
   ): string;
   wasm_export_png(
     prims: Float64Array,
@@ -1111,6 +1112,9 @@ export interface SvgOptions extends RenderOptions {
   background?: string;
   /** Restrict to one pen index. */
   onlyPen?: number;
+  /** 2-opt tour budget; the SVG's paths are the plotted chains in plot
+   * order (merge → tour → bridge, as the G-code), default 200 000. */
+  tourBudget?: number;
 }
 
 export interface PngOptions extends RenderOptions {
@@ -1137,7 +1141,8 @@ export function exportPng(a?: SketchDef | PngOptions, b?: PngOptions): Uint8Arra
   );
 }
 
-/** Render exactly and export SVG (exact curves, no flattening; synchronous). */
+/** Render exactly and export SVG: exact curves, one path per plotted chain
+ * (the same merge → tour → bridge as the G-code, so the SVG IS the plot). */
 export function exportSvg(def: SketchDef, opts?: SvgOptions): string;
 export function exportSvg(opts?: SvgOptions): string;
 export function exportSvg(a?: SketchDef | SvgOptions, b?: SvgOptions): string {
@@ -1152,5 +1157,6 @@ export function exportSvg(a?: SketchDef | SvgOptions, b?: SvgOptions): string {
     result.paper.h,
     opts.background,
     opts.onlyPen ?? -1,
+    opts.tourBudget ?? 200_000,
   );
 }

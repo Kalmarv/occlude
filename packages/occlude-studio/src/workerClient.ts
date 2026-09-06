@@ -185,8 +185,9 @@ export class RenderClient {
     height: number,
     background: string | undefined,
     onlyPen: number,
+    budget = 200_000,
   ): Promise<string> {
-    return this.request({ type: 'svg', width, height, background, onlyPen }, 'svg');
+    return this.request({ type: 'svg', width, height, background, onlyPen, budget }, 'svg');
   }
 
   exportToolpath(budget: number, tolerance: number): Promise<Float64Array> {

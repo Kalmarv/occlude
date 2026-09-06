@@ -1,9 +1,14 @@
 //! SVG output: exact primitives (no flattening — SVG draws arcs and cubics
-//! natively). One <g> per pen; dots become filled circles at nib radius.
+//! natively). One <g> per pen, one <path> per PLOTTED CHAIN — the same
+//! merge → tour → bridge the G-code and the machine driver run, so the SVG
+//! is the drawing the pen lays down (law 5): bridged sub-nib gaps are inked,
+//! and path order is plot order. Dots become filled circles at nib radius.
 
 use crate::fragment::Frag;
+use crate::gcode::{merge_chains, tour, Chain};
 use crate::pipeline::Pen;
 use crate::primitive::Primitive;
+use crate::route::bridge_chains;
 use std::fmt::Write;
 
 pub struct SvgOptions {
@@ -13,6 +18,20 @@ pub struct SvgOptions {
     pub background: Option<String>,
     /// Restrict output to one pen index.
     pub only_pen: Option<u32>,
+    /// 2-opt iteration budget for the tour — the same number the G-code and
+    /// toolpath exports take, so all three agree on the order.
+    pub tour_budget: usize,
+}
+
+/// The chains a pen plots, in plot order: exactly what `export_gcode` and the
+/// toolpath export produce for that pen.
+pub fn plotted_chains(frags: &[Frag], pen_index: u32, pen: &Pen, tour_budget: usize) -> Vec<Chain> {
+    let chains = merge_chains(frags, pen_index);
+    if chains.is_empty() {
+        return chains;
+    }
+    let chains = tour(chains, tour_budget);
+    bridge_chains(chains, pen.width.max(0.05) * 0.5)
 }
 
 /// Escape arbitrary text for use inside an XML attribute value.
@@ -55,21 +74,20 @@ pub fn to_svg(frags: &[Frag], pens: &[Pen], opts: &SvgOptions) -> String {
                 continue;
             }
         }
-        let mine: Vec<&Frag> = frags.iter().filter(|f| f.pen == pi as u32).collect();
-        if mine.is_empty() {
+        let chains = plotted_chains(frags, pi as u32, pen, opts.tour_budget);
+        if chains.is_empty() {
             continue;
         }
         let _ = write!(
             s,
-            r#"<g fill="none" stroke="{}" stroke-width="{}" stroke-linecap="round" data-pen="{}">"#,
+            r#"<g fill="none" stroke="{}" stroke-width="{}" stroke-linecap="round" stroke-linejoin="round" data-pen="{}">"#,
             xml_escape(&pen.color),
             pen.width,
             xml_escape(&pen.name)
         );
-        let mut path = String::new();
-        for f in mine {
-            if f.dot {
-                let p = f.geom.start();
+        for chain in &chains {
+            if chain.dot {
+                let p = chain.start();
                 let _ = write!(
                     s,
                     r#"<circle cx="{:.4}" cy="{:.4}" r="{:.4}" fill="{}" stroke="none"/>"#,
@@ -80,10 +98,13 @@ pub fn to_svg(frags: &[Frag], pens: &[Pen], opts: &SvgOptions) -> String {
                 );
                 continue;
             }
-            append_path(&mut path, &f.geom);
-        }
-        if !path.is_empty() {
-            let _ = write!(s, r#"<path d="{}"/>"#, path);
+            let mut d = String::new();
+            let start = chain.start();
+            let _ = write!(d, "M{:.4} {:.4}", start.x, start.y);
+            for p in &chain.prims {
+                append_segment(&mut d, p);
+            }
+            let _ = write!(s, r#"<path d="{}"/>"#, d);
         }
         s.push_str("</g>");
     }
@@ -91,9 +112,9 @@ pub fn to_svg(frags: &[Frag], pens: &[Pen], opts: &SvgOptions) -> String {
     s
 }
 
-fn append_path(d: &mut String, p: &Primitive) {
-    let s = p.start();
-    let _ = write!(d, "M{:.4} {:.4}", s.x, s.y);
+/// One primitive's drawing command, continuing from the current point (the
+/// chain's previous end — chains are contiguous by construction).
+fn append_segment(d: &mut String, p: &Primitive) {
     match p {
         Primitive::Line(l) => {
             let _ = write!(d, "L{:.4} {:.4}", l.p1.x, l.p1.y);

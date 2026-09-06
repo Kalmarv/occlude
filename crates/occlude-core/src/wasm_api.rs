@@ -308,7 +308,8 @@ pub fn wasm_export_png(
     ))
 }
 
-/// SVG export (exact curves, no flattening).
+/// SVG export: exact curves, one path per plotted chain (merge → tour →
+/// bridge, the same passes as the G-code), so the SVG is what the pen draws.
 #[wasm_bindgen]
 pub fn wasm_export_svg(
     prims: &[f64],
@@ -318,6 +319,7 @@ pub fn wasm_export_svg(
     height: f64,
     background: Option<String>,
     only_pen: i32,
+    tour_budget: u32,
 ) -> Result<String, JsValue> {
     let pens: Vec<Pen> = serde_json::from_str(pens_json)
         .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
@@ -334,6 +336,7 @@ pub fn wasm_export_svg(
             } else {
                 None
             },
+            tour_budget: tour_budget as usize,
         },
     ))
 }

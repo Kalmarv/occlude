@@ -39,6 +39,7 @@ fn golden_svg_stable() {
             height: h,
             background: None,
             only_pen: None,
+            tour_budget: 200_000,
         },
     );
     let path = golden_path();

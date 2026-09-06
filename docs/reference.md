@@ -1266,6 +1266,12 @@ const png  = exportPng(def, { paper: 'A4', scale: 11.81 });  // ≈ 300 dpi
 - `exportGcode` returns one job per pen:
   `{ pen, penName, gcode, inkMm, travelMm, estSeconds }`. `optimize` sets
   the 2-opt tour budget (`false` disables, a number overrides).
+- `exportSvg` is the plotted drawing, not the raw fragments: one `<path>` per
+  chain the pen draws, in plot order, after the same merge → tour → bridge
+  the G-code and the machine run (law 5 — preview, export and machine
+  agree). Curves stay exact (arcs and cubics, no flattening); sub-nib gaps
+  the nib physically spans are inked as bridges. `tourBudget` matches
+  `optimize`; default 200 000.
 - Headless CLI: `pnpm --filter occlude render <sketch.ts> --seed N --paper A4
   --out x.png [--svg x.svg]`.
 - A `Fragment` is `{ origin, t0, t1, pen, shape, dot, bridge, geom }` — a
