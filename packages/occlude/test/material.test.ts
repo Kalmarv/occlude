@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  add, append, banding, connect, curve, distance, extent, length, limit, mesh, mul, neighbours, perp, segmentRuns, sub, sum, sumBy, unit,
-  force, type Mesh, type Next,
-} from '../src/mesh.js';
+  add, append, banding, connect, curve, distance, extent, length, limit, material, mul, neighbours, perp, segmentRuns, sub, sum, sumBy, unit,
+  force, type Material, type Next,
+} from '../src/material.js';
 const { adjacent, attract, boundary, drift, field, nearby, relax, separation, tension, vortex } = force;
 
 const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0 });
@@ -199,7 +199,7 @@ describe('forces', () => {
 });
 
 describe('steps', () => {
-  const march = (cur: Mesh, next: Next) => {
+  const march = (cur: Material, next: Next) => {
     for (const p of cur.points) {
       next.move(p.index, [1, 0]);
       next.set(p.index, { age: p.age + 1 });
@@ -232,12 +232,12 @@ describe('steps', () => {
     const start = square();
     const g = start.steps(10, march, { every: 4 });
     expect(g.history.map((h) => h.iteration)).toEqual([0, 4, 8, 10]);
-    expect(g.history.map((h) => h.mesh.x[0])).toEqual([0, 4, 8, 10]);
+    expect(g.history.map((h) => h.material.x[0])).toEqual([0, 4, 8, 10]);
     // final iteration on the interval: not duplicated
     expect(start.steps(8, march, { every: 4 }).history.map((h) => h.iteration)).toEqual([0, 4, 8]);
     // snapshots carry no history of their own; the final curve is the last snapshot's state
-    expect(g.history.every((h) => h.mesh.history.length === 0)).toBe(true);
-    expect(g.history[3].mesh.pts).toEqual(g.pts);
+    expect(g.history.every((h) => h.material.history.length === 0)).toBe(true);
+    expect(g.history[3].material.pts).toEqual(g.pts);
     // the count continues across calls
     const more = g.steps(3, march, { every: 1 });
     expect(more.iteration).toBe(13);
@@ -246,7 +246,7 @@ describe('steps', () => {
 
   it('history on and off give the same final geometry; later steps leave snapshots untouched', () => {
     const start = square();
-    const rule = (cur: Mesh, n: Next) => {
+    const rule = (cur: Material, n: Next) => {
       march(cur, n);
       n.splitEdges((e) => e.length > 12, { attributes: { age: 0 } });
     };
@@ -255,12 +255,12 @@ describe('steps', () => {
     expect(on.pts).toEqual(off.pts);
     expect(Array.from(on.attrs.age)).toEqual(Array.from(off.attrs.age));
     const snap = on.history[1];
-    const before = { pts: snap.mesh.pts, age: Array.from(snap.mesh.attrs.age), n: snap.mesh.n };
+    const before = { pts: snap.material.pts, age: Array.from(snap.material.attrs.age), n: snap.material.n };
     on.steps(5, rule);
-    snap.mesh.steps(5, rule);
-    expect(snap.mesh.pts).toEqual(before.pts);
-    expect(Array.from(snap.mesh.attrs.age)).toEqual(before.age);
-    expect(snap.mesh.n).toBe(before.n);
+    snap.material.steps(5, rule);
+    expect(snap.material.pts).toEqual(before.pts);
+    expect(Array.from(snap.material.attrs.age)).toEqual(before.age);
+    expect(snap.material.n).toBe(before.n);
     expect(Object.isFrozen(on.history)).toBe(true);
   });
 
@@ -269,7 +269,7 @@ describe('steps', () => {
     const makeRule = (seed: number) => {
       let s = seed;
       const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-      return (cur: Mesh, n: Next) => {
+      return (cur: Material, n: Next) => {
         for (const p of cur.points) {
           n.move(p.index, [rnd() - 0.5, rnd() - 0.5]);
           n.set(p.index, { age: p.age + 1 });
@@ -316,7 +316,7 @@ describe('steps', () => {
   it('edge attributes on the start vertex: a split divides them between the children, total preserved', () => {
     // `rest` is the rest length of the OUTGOING edge of each vertex.
     const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0, rest: 1 });
-    const total = (c: Mesh) => Array.from(c.attrs.rest).reduce((a, b) => a + b, 0);
+    const total = (c: Material) => Array.from(c.attrs.rest).reduce((a, b) => a + b, 0);
     const out = start.steps(1, (cur, n) => {
       n.move(1, [10, 0]); // edge 0→1 is 20 long after the move
       n.splitEdges((e) => e.length > 15, {
@@ -394,9 +394,9 @@ describe('segmentRuns', () => {
   });
 });
 
-describe('mesh: material beyond one chain', () => {
-  it('mesh() from tuples, objects with extra columns, and constant options; connect.* builds topology', () => {
-    const cloud = mesh([{ x: 0, y: 0, w: 0.5 }, { x: 3, y: 0, w: 1 }, { x: 0, y: 4, w: 2 }], { age: 0 });
+describe('material: material beyond one chain', () => {
+  it('material() from tuples, objects with extra columns, and constant options; connect.* builds topology', () => {
+    const cloud = material([{ x: 0, y: 0, w: 0.5 }, { x: 3, y: 0, w: 1 }, { x: 0, y: 4, w: 2 }], { age: 0 });
     expect(cloud.attrNames.sort()).toEqual(['age', 'w']);
     expect(Array.from(cloud.attrs.w)).toEqual([0.5, 1, 2]);
     expect(cloud.edgeCount).toBe(0);
@@ -408,26 +408,26 @@ describe('mesh: material beyond one chain', () => {
     expect(ring.curves().map((c) => [c.indices, c.closed])).toEqual([[[0, 1, 2], true]]);
     expect(ring.closed).toBe(true);
     // nearest: undirected, no duplicates, self excluded, ties by lower row
-    const sq = mesh([[0, 0], [1, 0], [1, 1], [0, 1]]);
+    const sq = material([[0, 0], [1, 0], [1, 1], [0, 1]]);
     const near = connect.nearest(sq, { count: 2 });
     expect(near.edgeCount).toBe(4);
     expect(near.degree(0)).toBe(2);
     // pairs: both sets kept, coincident points distinct
-    const a = mesh([[0, 0], [1, 0]]);
-    const b = mesh([[0, 0], [1, 5]]);
+    const a = material([[0, 0], [1, 0]]);
+    const b = material([[0, 0], [1, 5]]);
     const paired = connect.pairs(a, b);
     expect(paired.n).toBe(4);
     expect(paired.isConnected(0, 2)).toBe(true);
-    expect(() => connect.pairs(a, mesh([[0, 0]]))).toThrow(/lengths must match/);
+    expect(() => connect.pairs(a, material([[0, 0]]))).toThrow(/lengths must match/);
     // triangulate: edges of the Delaunay triangles, accessible as connectivity
     const tri = connect.triangulate(sq);
     expect(tri.edgeCount).toBe(5);
-    expect(() => mesh([[0, 0]], { edges: [[0, 0]] })).toThrow(/joins a vertex to itself/);
+    expect(() => material([[0, 0]], { edges: [[0, 0]] })).toThrow(/joins a vertex to itself/);
   });
 
   it('curves(): edge-disjoint walk ending at junctions, cycles closed, every edge once', () => {
     // a Y: 0-1, 1-2, 1-3 ; plus a separate triangle 4-5-6
-    const y = mesh([[0, 0], [1, 0], [2, 1], [2, -1], [10, 10], [11, 10], [10, 11]], {
+    const y = material([[0, 0], [1, 0], [2, 1], [2, -1], [10, 10], [11, 10], [10, 11]], {
       edges: [[0, 1], [1, 2], [1, 3], [4, 5], [5, 6], [6, 4]],
     });
     const cs = y.curves();
@@ -480,7 +480,7 @@ describe('mesh: material beyond one chain', () => {
 
   it('nearby identity: membership in the source state, not coordinates or indices', () => {
     const a = curve([[0, 0], [5, 0], [5, 5]], { closed: false });
-    const b = curve([[0, 0], [5, 0], [5, 5]], { closed: false }); // same coordinates, another mesh
+    const b = curve([[0, 0], [5, 0], [5, 5]], { closed: false }); // same coordinates, another material
     const count = nearby(b, { radius: 100 }, () => [1, 0]);
     expect(count(a.vertex(0))).toEqual([3, 0]); // all three of b, including the coincident one
     expect(count(b.vertex(0))).toEqual([2, 0]); // b's own vertex 0 skipped
@@ -509,7 +509,7 @@ describe('mesh: material beyond one chain', () => {
     expect(Array.from(zeroed.attrs.age).every((v) => v === 0)).toBe(true);
     const fn = ring.resample({ count: 4, transfer: { age: (a, b, t) => a.age * 100 + t } });
     expect(fn.attrs.age[1]).toBeCloseTo(701, 6); // lands exactly on vertex 1: a = vertex 0, t = 1
-    expect(() => mesh([[0, 0], [1, 0], [2, 0], [1, 1]], { edges: [[0, 1], [1, 2], [1, 3]] }).resample({ spacing: 1 })).toThrow(/junction/);
+    expect(() => material([[0, 0], [1, 0], [2, 0], [1, 1]], { edges: [[0, 1], [1, 2], [1, 3]] }).resample({ spacing: 1 })).toThrow(/junction/);
   });
 
   it('extent and banding', () => {
@@ -521,8 +521,8 @@ describe('mesh: material beyond one chain', () => {
     expect(() => banding({ min: 0, max: 1, count: 0 })).toThrow(/positive integer/);
   });
 
-  it('segmentRuns on a branched mesh: runs end at junctions and cover each edge once', () => {
-    const y = mesh([[0, 0], [1, 0], [2, 1], [2, -1]], { edges: [[0, 1], [1, 2], [1, 3]], age: [0, 0, 5, 5] });
+  it('segmentRuns on a branched material: runs end at junctions and cover each edge once', () => {
+    const y = material([[0, 0], [1, 0], [2, 1], [2, -1]], { edges: [[0, 1], [1, 2], [1, 3]], age: [0, 0, 5, 5] });
     const runs = segmentRuns(y, (a, b) => (a.age + b.age) / 2 > 2 ? 'old' : 'young');
     expect(runs.reduce((n, r) => n + r.pts.length - 1, 0)).toBe(3);
     expect(runs.every((r) => r.pts.length === 2)).toBe(true);
@@ -531,7 +531,7 @@ describe('mesh: material beyond one chain', () => {
   });
 
   it('relax on a junction pulls toward the mean of all branches; append re-bases edges', () => {
-    const y = mesh([[0, 0], [1, 0], [2, 1], [2, -1]], { edges: [[0, 1], [1, 2], [1, 3]] });
+    const y = material([[0, 0], [1, 0], [2, 1], [2, -1]], { edges: [[0, 1], [1, 2], [1, 3]] });
     const smooth = relax(y);
     expect(smooth(y.vertex(1))[0]).toBeCloseTo(1 / 3, 12);
     expect(smooth(y.vertex(1))[1]).toBe(0);

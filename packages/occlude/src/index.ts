@@ -54,14 +54,14 @@ export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fill
 // resample, reinterpret (pure; the toolkit's t.sample turns a shape into
 // material with its outline's connectivity).
 export {
-  mesh, curve, append, connect, Mesh, segmentRuns, neighbours, extent, banding,
+  material, curve, append, connect, Material, segmentRuns, neighbours, extent, banding,
   add, sub, mul, length, distance, unit, limit, perp, sum, sumBy,
   force,
-} from './mesh.js';
+} from './material.js';
 export type {
   Vertex, Edge, Curve, Next, Handle, Ref, ChildSpec, Snapshot, Transfer, NeighbourStats,
   SegmentRun, Sources, PointsLike, Vec, XY,
-} from './mesh.js';
+} from './material.js';
 
 // Units.
 export { w, h, s, long, mm, Len } from './units.js';

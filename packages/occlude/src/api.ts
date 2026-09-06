@@ -40,7 +40,7 @@ import {
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { lowerToUserLoops, sketchFrame, unitMm } from './record.js';
-import { Mesh, mesh as meshOf } from './mesh.js';
+import { Material, material as materialOf } from './material.js';
 import { distanceTo } from './distance.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
@@ -780,17 +780,17 @@ function polylines(shape: ShapeValue, opts: { tolerance?: L } = {}): [number, nu
 /**
  * A shape as sampled material — the explicit, lossy step from exact
  * geometry to points you can move one by one. Each outline of the shape
- * (see `t.polylines`) becomes a chain of the returned mesh with `count`
+ * (see `t.polylines`) becomes a chain of the returned material with `count`
  * vertices, or as many as fit at `spacing`, evenly spaced by arc length:
  * a closed outline is a ring (no duplicate seam), an open one a chain
- * from end to end; several outlines are separate chains in one mesh.
+ * from end to end; several outlines are separate chains in one material.
  * Positions and connectivity only — attributes come from
  * `.attribute()`: `t.sample(circle(50, 50, 6), { count: 48 }).attribute('age', 0)`.
  */
 function sample(
   shape: ShapeValue,
   opts: { count?: number; spacing?: L; tolerance?: L },
-): Mesh {
+): Material {
   if ((opts.count === undefined) === (opts.spacing === undefined)) {
     throw new Error('sample: give exactly one of { count, spacing }');
   }
@@ -826,7 +826,7 @@ function sample(
     }
     if (closed && count > 2) edges.push([first + count - 1, first]);
   }
-  return meshOf(pts, { edges });
+  return materialOf(pts, { edges });
 }
 
 /**
@@ -841,7 +841,7 @@ function probe<T>(label: string, value: T): T {
   return value;
 }
 
-/** Lift any point array into the Points vocabulary (relax/settle/cells/mesh). */
+/** Lift any point array into the Points vocabulary (relax/settle/cells/material). */
 function pointsOf(
   raw: readonly ({ x: number; y: number } | [number, number])[],
   opts: { field?: FieldFn2; spacing?: L; resolution?: number } = {},

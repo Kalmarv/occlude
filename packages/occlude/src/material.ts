@@ -2,16 +2,16 @@
  * Material: positions, connections and attributes you can hold, step,
  * connect, resample and reinterpret.
  *
- * A `Mesh` is a set of vertices — `x`, `y` and any named attribute
+ * A `Material` is a set of vertices — `x`, `y` and any named attribute
  * columns — plus an edge list. A ring, an open chain, a branching tree
- * and an unconnected cloud are all meshes; a `Curve` is the chain a mesh
- * hands back for drawing. Meshes are values: every operation returns a
+ * and an unconnected cloud are all materials; a `Curve` is the chain a material
+ * hands back for drawing. Materials are values: every operation returns a
  * new one and leaves its input intact, so an evolution can be kept and
  * any iteration chosen later. Indices are rows of one state, not
  * identities: insertion renumbers later states.
  *
  * Four layers, kept apart:
- *   material   `mesh()` / `curve()` / `t.sample()`; `connect.*`;
+ *   material   `material()` / `curve()` / `t.sample()`; `connect.*`;
  *              `.attribute()`, `.resample()`
  *   numbers    add sub mul length distance unit limit perp sum sumBy
  *   rules      `.steps(n, (current, next, k) => …)` with collection edits;
@@ -115,11 +115,11 @@ export function sumBy<T>(items: Iterable<T>, fn: (item: T, index: number) => XY)
   return [x, y];
 }
 
-// ---- the mesh --------------------------------------------------------------------
+// ---- the material --------------------------------------------------------------------
 
 /** A vertex view: its row `index` in THIS state, position, and every
- * attribute column. A plain snapshot, valid for the mesh it came from —
- * not a persistent identity. `mesh` (non-enumerable) names that mesh, so
+ * attribute column. A plain snapshot, valid for the material it came from —
+ * not a persistent identity. `material` (non-enumerable) names that material, so
  * a force can tell "this vertex of these sources" from a foreign point
  * that happens to share an index. */
 export type Vertex = { index: number; x: number; y: number } & Record<string, number>;
@@ -129,11 +129,11 @@ export interface Edge {
   a: Vertex;
   b: Vertex;
   length: number;
-  /** Row of this edge in the mesh's edge list. */
+  /** Row of this edge in the material's edge list. */
   index: number;
 }
 
-/** A chain of a mesh for drawing: stampable as-is (`stroke(curve)`), with
+/** A chain of a material for drawing: stampable as-is (`stroke(curve)`), with
  * the vertex rows it walks. */
 export interface Curve extends IsoContour {
   indices: number[];
@@ -142,7 +142,7 @@ export interface Curve extends IsoContour {
 /** One captured state of a `steps()` run. Never touched by later steps. */
 export interface Snapshot {
   iteration: number;
-  mesh: Mesh;
+  material: Material;
 }
 
 /** How a column carries over when `resample` places new vertices:
@@ -156,9 +156,9 @@ export type Transfer =
   | number
   | ((a: Vertex, b: Vertex, t: number) => number);
 
-const OWNER = Symbol('mesh');
+const OWNER = Symbol('material');
 
-export class Mesh {
+export class Material {
   readonly n: number;
   readonly x: Float64Array;
   readonly y: Float64Array;
@@ -171,15 +171,15 @@ export class Mesh {
   /** How many `steps()` iterations produced this state (0 for fresh
    * material); `steps()` continues the count. */
   readonly iteration: number;
-  /** States captured by the `steps()` call that made this mesh — empty
+  /** States captured by the `steps()` call that made this material — empty
    * unless it asked for `{ every }`. Iteration 0 of that call, every
    * `every`-th after it, and the final one, each once, oldest first.
    * Snapshots carry no history of their own. */
   readonly history: readonly Snapshot[];
   private readonly adj: number[][];
 
-  /** @internal Use `mesh()`/`curve()`/`t.sample()`; columns are adopted, not
-   * copied. The library never writes to a mesh's columns after
+  /** @internal Use `material()`/`curve()`/`t.sample()`; columns are adopted, not
+   * copied. The library never writes to a material's columns after
    * construction — every step builds new ones — so a snapshot stays what it
    * was. (Typed arrays cannot be frozen; a sketch that writes `m.x[i] = …`
    * is editing a value it was given, on its own head.) */
@@ -191,16 +191,16 @@ export class Mesh {
     iteration = 0,
     history: readonly Snapshot[] = [],
   ) {
-    if (x.length !== y.length) throw new Error('mesh: x and y columns differ in length');
+    if (x.length !== y.length) throw new Error('material: x and y columns differ in length');
     for (const [name, col] of Object.entries(attrs)) {
       if (col.length !== x.length) {
-        throw new Error(`mesh: attribute '${name}' has ${col.length} values for ${x.length} vertices`);
+        throw new Error(`material: attribute '${name}' has ${col.length} values for ${x.length} vertices`);
       }
       if (name === 'x' || name === 'y' || name === 'index') {
-        throw new Error(`mesh: '${name}' is a reserved vertex field`);
+        throw new Error(`material: '${name}' is a reserved vertex field`);
       }
     }
-    if (edgeList.length % 2 !== 0) throw new Error('mesh: edge list must be pairs');
+    if (edgeList.length % 2 !== 0) throw new Error('material: edge list must be pairs');
     this.n = x.length;
     this.x = x;
     this.y = y;
@@ -212,8 +212,8 @@ export class Mesh {
     for (let e = 0; e < edgeList.length; e += 2) {
       const a = edgeList[e];
       const b = edgeList[e + 1];
-      if (a >= this.n || b >= this.n) throw new Error(`mesh: edge ${a}–${b} names a vertex beyond ${this.n - 1}`);
-      if (a === b) throw new Error(`mesh: edge ${a}–${b} joins a vertex to itself`);
+      if (a >= this.n || b >= this.n) throw new Error(`material: edge ${a}–${b} names a vertex beyond ${this.n - 1}`);
+      if (a === b) throw new Error(`material: edge ${a}–${b} joins a vertex to itself`);
       adj[a].push(b);
       adj[b].push(a);
     }
@@ -295,23 +295,23 @@ export class Mesh {
     return -1;
   }
 
-  /** True when the mesh is one closed chain (a ring). */
+  /** True when the material is one closed chain (a ring). */
   get closed(): boolean {
     const cs = this.curves();
     return cs.length === 1 && cs[0].closed && cs[0].indices.length === this.n;
   }
 
-  /** The mesh's single chain as a stampable contour — for chain meshes;
-   * a branched mesh has several, see `curves()`. */
+  /** The material's single chain as a stampable contour — for chain materials;
+   * a branched material has several, see `curves()`. */
   get contour(): IsoContour {
     const cs = this.curves();
     if (cs.length === 1) return { pts: cs[0].pts, closed: cs[0].closed };
     if (cs.length === 0) return { pts: this.pts, closed: false };
-    throw new Error(`contour: this mesh has ${cs.length} chains — use curves()`);
+    throw new Error(`contour: this material has ${cs.length} chains — use curves()`);
   }
 
   /**
-   * The mesh as chains for drawing: a deterministic, edge-disjoint walk.
+   * The material as chains for drawing: a deterministic, edge-disjoint walk.
    * Chains start at endpoints and junctions (degree ≠ 2), pass through
    * degree-2 vertices, and end at the next endpoint or junction; edges
    * left over belong to pure cycles, which come back closed. Every edge
@@ -360,16 +360,16 @@ export class Mesh {
 
   // ---- derived material ----
 
-  /** A new mesh with a column set: a constant, or one value per vertex. */
-  attribute(name: string, value: number | ((p: Vertex) => number)): Mesh {
+  /** A new material with a column set: a constant, or one value per vertex. */
+  attribute(name: string, value: number | ((p: Vertex) => number)): Material {
     const col = new Float64Array(this.n);
     if (typeof value === 'number') col.fill(value);
     else for (let i = 0; i < this.n; i++) col[i] = value(this.vertex(i));
-    return new Mesh(this.x, this.y, { ...this.attrs, [name]: col }, this.edgeList, this.iteration);
+    return new Material(this.x, this.y, { ...this.attrs, [name]: col }, this.edgeList, this.iteration);
   }
 
-  /** A new mesh with these edges added (undirected; duplicates dropped). */
-  withEdges(pairs: readonly (readonly [number, number])[]): Mesh {
+  /** A new material with these edges added (undirected; duplicates dropped). */
+  withEdges(pairs: readonly (readonly [number, number])[]): Material {
     const list = Array.from(this.edgeList);
     const seen = new Set<number>();
     for (let e = 0; e < list.length; e += 2) seen.add(pairKey(list[e], list[e + 1]));
@@ -381,11 +381,11 @@ export class Mesh {
       seen.add(k);
       list.push(a, b);
     }
-    return new Mesh(this.x, this.y, this.attrs, Uint32Array.from(list), this.iteration);
+    return new Material(this.x, this.y, this.attrs, Uint32Array.from(list), this.iteration);
   }
 
   /**
-   * Resample the mesh's chains evenly by arc length — the explicit,
+   * Resample the material's chains evenly by arc length — the explicit,
    * lossy redistribution of sampled material after it has been deformed.
    * Chains only (a junction is an error, for now). Each chain gets
    * `count` vertices, or as many as fit at `spacing` (at least 2 open,
@@ -396,7 +396,7 @@ export class Mesh {
    * interpolation for every column; `'nearest'`, a constant, or a function
    * per column to say otherwise — an `age` is a choice, not a mean).
    */
-  resample(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer> }): Mesh {
+  resample(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer> }): Material {
     if ((opts.spacing === undefined) === (opts.count === undefined)) {
       throw new Error('resample: give exactly one of { spacing, count }');
     }
@@ -452,14 +452,14 @@ export class Mesh {
     }
     const attrs: Record<string, Float64Array> = {};
     for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
-    return new Mesh(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), this.iteration);
+    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), this.iteration);
   }
 
   // ---- the iteration verb ----
 
   /**
    * THE iteration operation. Run `rule` `n` times and return the final
-   * mesh, ready for further operations. `rule(current, next, k)` reads
+   * material, ready for further operations. `rule(current, next, k)` reads
    * `current` (frozen) and describes `next`, which starts as a copy; see
    * `Next` for the edits. `k` counts from 0 within this call. Growth,
    * relaxation, deformation and erosion are different rules for this one
@@ -470,41 +470,41 @@ export class Mesh {
    * on the result's `history`, each labelled with its iteration number.
    * Nothing a later step does can disturb an earlier snapshot.
    */
-  steps(n: number, rule: (current: Mesh, next: Next, k: number) => void, opts: { every?: number } = {}): Mesh {
+  steps(n: number, rule: (current: Material, next: Next, k: number) => void, opts: { every?: number } = {}): Material {
     const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
     const snaps: Snapshot[] = [];
-    const base = new Mesh(this.x, this.y, { ...this.attrs }, this.edgeList, this.iteration);
-    if (every) snaps.push({ iteration: this.iteration, mesh: base });
+    const base = new Material(this.x, this.y, { ...this.attrs }, this.edgeList, this.iteration);
+    if (every) snaps.push({ iteration: this.iteration, material: base });
     let cur = base;
     for (let k = 0; k < n; k++) {
       cur = stepOnce(cur, k, rule);
-      if (every && (k + 1) % every === 0 && k + 1 < n) snaps.push({ iteration: cur.iteration, mesh: cur });
+      if (every && (k + 1) % every === 0 && k + 1 < n) snaps.push({ iteration: cur.iteration, material: cur });
     }
-    if (every && n > 0) snaps.push({ iteration: cur.iteration, mesh: cur });
-    return every ? new Mesh(cur.x, cur.y, { ...cur.attrs }, cur.edgeList, cur.iteration, snaps) : cur;
+    if (every && n > 0) snaps.push({ iteration: cur.iteration, material: cur });
+    return every ? new Material(cur.x, cur.y, { ...cur.attrs }, cur.edgeList, cur.iteration, snaps) : cur;
   }
 }
 
 const pairKey = (a: number, b: number) => (a < b ? a * 4294967296 + b : b * 4294967296 + a);
 
-const ownerOf = (p: Vertex): Mesh | undefined => (p as unknown as Record<symbol, Mesh>)[OWNER];
+const ownerOf = (p: Vertex): Material | undefined => (p as unknown as Record<symbol, Material>)[OWNER];
 
 // ---- constructors ----------------------------------------------------------------
 
-/** Points a mesh can be made from: tuples, `{x, y}` objects (extra numeric
- * fields such as a scatter point's `w` become columns), or a mesh. */
-export type PointsLike = readonly XY[] | Mesh;
+/** Points a material can be made from: tuples, `{x, y}` objects (extra numeric
+ * fields such as a scatter point's `w` become columns), or a material. */
+export type PointsLike = readonly XY[] | Material;
 
 /**
  * Material from positions. Unconnected unless `edges` are given; extra
  * numeric fields on object points (`w` from `t.scatter`) become columns;
  * named options become constant columns. Use `connect.*` for topology.
  */
-export function mesh(
+export function material(
   points: PointsLike,
   opts: { edges?: readonly (readonly [number, number])[] } & Record<string, number | ArrayLike<number> | readonly (readonly [number, number])[] | undefined> = {},
-): Mesh {
-  if (points instanceof Mesh) return points;
+): Material {
+  if (points instanceof Material) return points;
   const n = points.length;
   const x = new Float64Array(n);
   const y = new Float64Array(n);
@@ -523,7 +523,7 @@ export function mesh(
     for (let i = 0; i < n; i++) {
       const p = points[i];
       const v = isArr(p) ? undefined : (p as Record<string, unknown>)[k];
-      if (typeof v !== 'number') throw new Error(`mesh: point ${i} has no numeric '${k}' — every point needs every column`);
+      if (typeof v !== 'number') throw new Error(`material: point ${i} has no numeric '${k}' — every point needs every column`);
       col[i] = v;
     }
     attrs[k] = col;
@@ -540,18 +540,18 @@ export function mesh(
     if (typeof value === 'number') attrs[name] = new Float64Array(n).fill(value);
     else attrs[name] = Float64Array.from(value as ArrayLike<number>);
   }
-  return new Mesh(x, y, attrs, edges);
+  return new Material(x, y, attrs, edges);
 }
 
 /**
  * A chain from positions — closed (a ring) unless `closed: false` — with
  * optional attribute columns as one constant per vertex or a full column.
- * Sugar for `connect.ring(mesh(pts))` / `connect.chain(...)`.
+ * Sugar for `connect.ring(material(pts))` / `connect.chain(...)`.
  */
 export function curve(
   pts: readonly XY[],
   opts: { closed?: boolean } & Record<string, number | ArrayLike<number> | boolean | undefined> = {},
-): Mesh {
+): Material {
   const { closed = true, ...rest } = opts;
   const cols: Record<string, number | ArrayLike<number>> = {};
   for (const [k, v] of Object.entries(rest)) {
@@ -559,7 +559,7 @@ export function curve(
     if (typeof v === 'boolean') throw new Error(`curve: attribute '${k}' must be numeric`);
     cols[k] = v;
   }
-  const m = mesh(pts, cols);
+  const m = material(pts, cols);
   return closed ? connect.ring(m) : connect.chain(m);
 }
 
@@ -573,23 +573,23 @@ function chainEdges(n: number, closed: boolean): [number, number][] {
   return out;
 }
 
-/** Common connection patterns; each returns a new mesh. None infers a
+/** Common connection patterns; each returns a new material. None infers a
  * route: chain and ring use the supplied row order. */
 export const connect = {
   /** Consecutive rows joined, open. */
-  chain(m: PointsLike): Mesh {
-    const mm = mesh(m);
+  chain(m: PointsLike): Material {
+    const mm = material(m);
     return mm.withEdges(chainEdges(mm.n, false));
   },
   /** Consecutive rows joined and the last joined back to the first. */
-  ring(m: PointsLike): Mesh {
-    const mm = mesh(m);
+  ring(m: PointsLike): Material {
+    const mm = material(m);
     return mm.withEdges(chainEdges(mm.n, true));
   },
   /** Each vertex joined to its `count` nearest others (undirected, no
    * duplicates, self excluded; ties broken by lower row). */
-  nearest(m: PointsLike, opts: { count: number }): Mesh {
-    const mm = mesh(m);
+  nearest(m: PointsLike, opts: { count: number }): Material {
+    const mm = material(m);
     const pairs: [number, number][] = [];
     for (let i = 0; i < mm.n; i++) {
       const cand: [number, number][] = [];
@@ -604,11 +604,11 @@ export const connect = {
     }
     return mm.withEdges(pairs);
   },
-  /** Row i of `a` joined to row i of `b`, in one mesh (a's rows first).
+  /** Row i of `a` joined to row i of `b`, in one material (a's rows first).
    * Lengths must match; coincident points stay distinct. */
-  pairs(a: PointsLike, b: PointsLike): Mesh {
-    const ma = mesh(a);
-    const mb = mesh(b);
+  pairs(a: PointsLike, b: PointsLike): Material {
+    const ma = material(a);
+    const mb = material(b);
     if (ma.n !== mb.n) throw new Error(`connect.pairs: ${ma.n} and ${mb.n} points — lengths must match`);
     const joined = append(ma, mb);
     const pairs: [number, number][] = [];
@@ -616,8 +616,8 @@ export const connect = {
     return joined.withEdges(pairs);
   },
   /** Delaunay triangulation edges over the vertices. */
-  triangulate(m: PointsLike): Mesh {
-    const mm = mesh(m);
+  triangulate(m: PointsLike): Material {
+    const mm = material(m);
     const tris = delaunayTriangles(mm.pts);
     // triangulate() returns coordinate triples; map back to rows by position
     const rowOf = new Map<string, number>();
@@ -631,9 +631,9 @@ export const connect = {
   },
 };
 
-/** Two meshes as one: b's rows after a's, b's edges re-based; only the
+/** Two materials as one: b's rows after a's, b's edges re-based; only the
  * columns both have carry over. */
-export function append(a: Mesh, b: Mesh): Mesh {
+export function append(a: Material, b: Material): Material {
   const names = a.attrNames.filter((k) => b.attrNames.includes(k));
   const x = new Float64Array(a.n + b.n);
   const y = new Float64Array(a.n + b.n);
@@ -651,7 +651,7 @@ export function append(a: Mesh, b: Mesh): Mesh {
   const edges = new Uint32Array(a.edgeList.length + b.edgeList.length);
   edges.set(a.edgeList);
   for (let e = 0; e < b.edgeList.length; e++) edges[a.edgeList.length + e] = b.edgeList[e] + a.n;
-  return new Mesh(x, y, attrs, edges);
+  return new Material(x, y, attrs, edges);
 }
 
 // ---- one step ---------------------------------------------------------------------
@@ -718,11 +718,11 @@ function checkAttrs(attrs: Record<string, number>, names: string[], what: string
     if (!(name in attrs)) throw new Error(`steps: must give '${name}' for ${what} (every attribute is a choice)`);
   }
   for (const name in attrs) {
-    if (!names.includes(name)) throw new Error(`steps: no attribute '${name}' — declare it in mesh()/curve()`);
+    if (!names.includes(name)) throw new Error(`steps: no attribute '${name}' — declare it in material()/curve()`);
   }
 }
 
-function stepOnce(cur: Mesh, k: number, rule: (c: Mesh, n: Next, k: number) => void): Mesh {
+function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: number) => void): Material {
   const n = cur.n;
   const names = cur.attrNames;
   const nx = Float64Array.from(cur.x);
@@ -759,7 +759,7 @@ function stepOnce(cur: Mesh, k: number, rule: (c: Mesh, n: Next, k: number) => v
       const write = (index: number, attrs: Record<string, number>) => {
         for (const [name, v] of Object.entries(attrs)) {
           const col = nattrs[name];
-          if (!col) throw new Error(`steps: no attribute '${name}' — declare it in mesh()/curve()`);
+          if (!col) throw new Error(`steps: no attribute '${name}' — declare it in material()/curve()`);
           col[index] = v;
         }
       };
@@ -801,7 +801,7 @@ function stepOnce(cur: Mesh, k: number, rule: (c: Mesh, n: Next, k: number) => v
   // Splits read the moved state; a split vertex is inserted right after
   // its edge's start row (keeps row order along a chain, hence the same
   // neighbour-grid order as before) and the edge becomes two.
-  const moved = new Mesh(nx, ny, nattrs, cur.edgeList, cur.iteration + 1);
+  const moved = new Material(nx, ny, nattrs, cur.edgeList, cur.iteration + 1);
   const rowMap = new Int32Array(n); // old row → new row
   const ox: number[] = [];
   const oy: number[] = [];
@@ -818,7 +818,7 @@ function stepOnce(cur: Mesh, k: number, rule: (c: Mesh, n: Next, k: number) => v
         if (typeof s.attributes === 'function') checkAttrs(born, names, 'the new vertex');
         if (s.parent) {
           const upd = s.parent(e);
-          for (const name in upd) if (!names.includes(name)) throw new Error(`steps: no attribute '${name}' — declare it in mesh()/curve()`);
+          for (const name in upd) if (!names.includes(name)) throw new Error(`steps: no attribute '${name}' — declare it in material()/curve()`);
           parentWrites.set(e.a.index, { ...(parentWrites.get(e.a.index) ?? {}), ...upd });
         }
         const list = insertAfter.get(e.a.index) ?? [];
@@ -868,7 +868,7 @@ function stepOnce(cur: Mesh, k: number, rule: (c: Mesh, n: Next, k: number) => v
   for (const [a, b] of links) edges.push(resolve(a), resolve(b));
   const attrs: Record<string, Float64Array> = {};
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
-  return new Mesh(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), cur.iteration + 1);
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), cur.iteration + 1);
 }
 
 // ---- spatial neighbours -----------------------------------------------------------
@@ -882,14 +882,14 @@ export interface NeighbourStats {
 }
 
 /**
- * Spatial neighbours of a mesh's vertices, prepared ONCE for the state as
+ * Spatial neighbours of a material's vertices, prepared ONCE for the state as
  * it is now: a uniform grid over the positions. The query gives the rows
- * within `radius` of `p` (a vertex of THIS mesh is excluded from its own
+ * within `radius` of `p` (a vertex of THIS material is excluded from its own
  * query; a foreign point is not), in grid order — the sketch decides what
  * to do with them. Connectivity is a different concept and is NOT
  * excluded here (see `force.adjacent`). Rows are valid for this state.
  */
-export function neighbours(m: Mesh, opts: { radius: number; stats?: NeighbourStats }): (p: XY) => number[] {
+export function neighbours(m: Material, opts: { radius: number; stats?: NeighbourStats }): (p: XY) => number[] {
   const radius = opts.radius;
   const cell = radius;
   const stats = opts.stats;
@@ -941,7 +941,7 @@ export function neighbours(m: Mesh, opts: { radius: number; stats?: NeighbourSta
 // vocabulary. Copy one into a sketch and change it; a custom force that
 // earns reuse can become a recipe.
 
-/** Points a force can be prepared from: a mesh (its vertices, with `index`
+/** Points a force can be prepared from: a material (its vertices, with `index`
  * and attributes on `q`) or any list of points. */
 export type Sources = PointsLike;
 
@@ -951,7 +951,7 @@ export type Sources = PointsLike;
  * `sources` is built ONCE, here, for that frozen state; the returned
  * function evaluates at any point. `q` is a vertex view of the sources.
  *
- * Identity: a vertex of the source mesh never interacts with itself —
+ * Identity: a vertex of the source material never interacts with itself —
  * decided by membership in that state, not by coordinates or by an index
  * from an unrelated collection. Nothing else is skipped unless `skip(p, q)`
  * says so; connected neighbours are NOT excluded by default (see
@@ -962,7 +962,7 @@ export function nearby(
   opts: { radius: number; skip?: (p: Vertex, q: Vertex) => boolean; stats?: NeighbourStats },
   contribution: (p: Vertex, q: Vertex) => XY,
 ): (p: Vertex) => Vec {
-  const m = mesh(sources);
+  const m = material(sources);
   const near = neighbours(m, { radius: opts.radius, stats: opts.stats });
   const skip = opts.skip;
   return (p) =>
@@ -974,7 +974,7 @@ export function nearby(
 
 /** The explicit "skip what I'm connected to" rule for `nearby`: true when
  * `p` and `q` share an edge of `m` (both must be vertices of `m`). */
-export function adjacent(m: Mesh): (p: Vertex, q: Vertex) => boolean {
+export function adjacent(m: Material): (p: Vertex, q: Vertex) => boolean {
   return (p, q) => ownerOf(p) === m && m.isConnected(p.index, q.index);
 }
 
@@ -985,7 +985,7 @@ export function adjacent(m: Mesh): (p: Vertex, q: Vertex) => boolean {
  * a spring. Needs connectivity; on a junction it pulls toward every
  * branch.
  */
-export function tension(m: Mesh, opts: { rest: number }): (p: Vertex) => Vec {
+export function tension(m: Material, opts: { rest: number }): (p: Vertex) => Vec {
   const { rest } = opts;
   return (p) =>
     sumBy(m.connected(p.index), (j) => {
@@ -998,14 +998,14 @@ export function tension(m: Mesh, opts: { rest: number }): (p: Vertex) => Vec {
  * Separation: `repel(p)` is the vector away from every source within
  * `radius`, falling off linearly to zero at the radius and peaking at
  * `radius` when touching (strength is the radius, as in the reference
- * rule). Sources may be the mesh being moved or something else — obstacle
- * samples, another mesh. `excludeConnected: true` skips p's connected
- * neighbours when the sources are p's own mesh (tension owns that
+ * rule). Sources may be the material being moved or something else — obstacle
+ * samples, another material. `excludeConnected: true` skips p's connected
+ * neighbours when the sources are p's own material (tension owns that
  * spacing); off by default, so say it.
  */
 export function separation(sources: Sources, opts: { radius: number; excludeConnected?: boolean }): (p: Vertex) => Vec {
   const { radius, excludeConnected = false } = opts;
-  const m = mesh(sources);
+  const m = material(sources);
   return nearby(m, { radius, skip: excludeConnected ? adjacent(m) : undefined }, (p, q) => {
     const delta = sub(p, q);
     return mul(unit(delta), (1 - length(delta) / radius) * radius);
@@ -1033,7 +1033,7 @@ export function drift(
 /**
  * Attraction: `pull(p)` is the vector toward every source within `radius`,
  * `strength` when touching, fading linearly to zero at the radius —
- * separation's mirror. Sources may be the mesh itself (`excludeConnected`
+ * separation's mirror. Sources may be the material itself (`excludeConnected`
  * as for separation) or anchor points.
  */
 export function attract(
@@ -1041,7 +1041,7 @@ export function attract(
   opts: { radius: number; strength?: number; excludeConnected?: boolean },
 ): (p: Vertex) => Vec {
   const { radius, strength = 1, excludeConnected = false } = opts;
-  const m = mesh(sources);
+  const m = material(sources);
   return nearby(m, { radius, skip: excludeConnected ? adjacent(m) : undefined }, (p, q) => {
     const delta = sub(q, p);
     return mul(unit(delta), (1 - length(delta) / radius) * strength);
@@ -1053,7 +1053,7 @@ export function attract(
  * inside the boundary loops, grows linearly to `strength` at the edge, and
  * keeps pushing inward outside — direction from the signed distance field
  * (`distanceTo`: positive inside, holes respected; contours chord-closed).
- * Loops are plain points: `t.polylines(rect(...))`, a mesh's `curves()`
+ * Loops are plain points: `t.polylines(rect(...))`, a material's `curves()`
  * pts, isolines' pts. Sampled obstacles are `separation`; this is the
  * continuous boundary.
  */
@@ -1096,7 +1096,7 @@ export function field(vf: VectorFieldFn, opts: { strength?: number } = {}): (p: 
  * smoothing as a force, the growth-free counterpart of tension. A vertex
  * with fewer than two neighbours (an open end, an isolated point) stays.
  */
-export function relax(m: Mesh, opts: { amount?: number } = {}): (p: Vertex) => Vec {
+export function relax(m: Material, opts: { amount?: number } = {}): (p: Vertex) => Vec {
   const { amount = 1 } = opts;
   return (p) => {
     const nb = m.connected(p.index);
@@ -1164,7 +1164,7 @@ export interface SegmentRun<K = number | string> extends IsoContour {
  * own an edge — the start vertex's, the end's, both, or their mean are
  * different drawings.
  */
-export function segmentRuns<K extends number | string>(m: Mesh, key: (a: Vertex, b: Vertex) => K): SegmentRun<K>[] {
+export function segmentRuns<K extends number | string>(m: Material, key: (a: Vertex, b: Vertex) => K): SegmentRun<K>[] {
   const runs: SegmentRun<K>[] = [];
   for (const c of m.curves()) {
     const idx = c.indices;

@@ -1193,19 +1193,19 @@ const density = (x, y) => {
 };
 ```
 
-## Material: meshes, forces, growth
+## Material
 
-Geometry you can hold, connect, step, resample and reinterpret. A `Mesh`
+Geometry you can hold, connect, step, resample and reinterpret. A `Material`
 is vertices — `x`, `y` and any named attribute columns — plus an edge
 list. A ring, an open chain, a branching tree and an unconnected cloud
-are all meshes; a `Curve` is a chain the mesh hands back for drawing.
+are all materials; a `Curve` is a chain the material hands back for drawing.
 Meshes are values: every operation returns a new one, so an evolution can
 be kept and any state chosen later. Indices are rows of one state, not
 identities. Four layers, kept apart:
 
 | layer | what |
 |---|---|
-| material | `t.sample(shape)`, `mesh(points)`, `curve(pts)`; `connect.*`; `.attribute()`, `.resample()` |
+| material | `t.sample(shape)`, `material(points)`, `curve(pts)`; `connect.*`; `.attribute()`, `.resample()` |
 | numbers | `add sub mul length distance unit limit perp sum sumBy` — tuples out, either spelling in, nothing mutated |
 | rules | `.steps(n, (current, next, k) => …)` with collection edits; forces prepared once, evaluated at a point |
 | drawing | `.curves()`, `segmentRuns`, `extent`, `banding` — then `stroke`, `polygon`, `circle` |
@@ -1218,23 +1218,23 @@ lossy step into this world.
 
 `t.sample(shape, { count | spacing, tolerance? })` — each outline of the
 shape becomes a chain: a closed outline a ring, an open one a chain from
-end to end, several outlines separate chains in one mesh. `mesh(points,
+end to end, several outlines separate chains in one material. `material(points,
 { edges?, ...columns })` — from tuples or `{x, y}` objects (a scatter
 point's `w` becomes a column), unconnected unless edges are given.
 `curve(pts, { closed?, ...columns })` — a ring or chain from positions.
 `m.attribute(name, constant | p => value)` adds a column and returns a
-new mesh. Access: `m.points` (vertex views `{ index, x, y, ...attrs }`),
+new material. Access: `m.points` (vertex views `{ index, x, y, ...attrs }`),
 `m.pts` (tuples), `m.x`/`m.y`/`m.attrs.age` (the columns), `m.connected(i)`,
 `m.degree(i)`, `m.edges`, `m.curves()`.
 
 ```ts live
-import { sketch, stroke, polygon, circle, mesh, fill, mm } from 'occlude';
+import { sketch, stroke, polygon, circle, material, fill, mm } from 'occlude';
 
 // Attributes ride with the geometry: a scatter's `w` becomes a column,
 // a derived `far` column is added, and two interpretations read the same
 // material — dots sized by w on the left, the far ones ringed on the right.
 export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
-  const cloud = mesh(t.scatter((x, y) => 1 - Math.hypot(x - 25, y - 25) / 30, { spacing: 3 }))
+  const cloud = material(t.scatter((x, y) => 1 - Math.hypot(x - 25, y - 25) / 30, { spacing: 3 }))
     .attribute('far', (p) => Math.hypot(p.x - 25, p.y - 25) > 14 ? 1 : 0);
   return [
     cloud.points.map((p) => circle(p.x, p.y, 0.3 + p.w)),
@@ -1249,20 +1249,20 @@ export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
 given order (no route is inferred). `connect.nearest(m, { count })` joins
 each vertex to its `count` nearest others — undirected, no duplicates,
 self excluded, ties to the lower row. `connect.pairs(a, b)` joins row i of
-`a` to row i of `b` in one mesh, lengths must match, coincident points stay
+`a` to row i of `b` in one material, lengths must match, coincident points stay
 distinct. `connect.triangulate(m)` adds the Delaunay edges. `append(a, b)`
-puts two meshes in one. (`t.scatter(...).cells()` and `.mesh()` remain the
+puts two materials in one. (`t.scatter(...).cells()` and `.mesh()` remain the
 polygon views: Voronoi cells and Delaunay triangles as loops to stamp.)
 
 ```ts live
-import { sketch, stroke, circle, mesh, connect } from 'occlude';
+import { sketch, stroke, circle, material, connect } from 'occlude';
 
 // Two ways to connect one cloud: nearest-3 on the left, Delaunay on the
 // right — each edge drawn once through curves().
 export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
   const pts = t.scatter({ spacing: 5 }).map((p) => [p.x / 2 + 2, p.y]);
-  const left = connect.nearest(mesh(pts), { count: 3 });
-  const right = connect.triangulate(mesh(pts.map(([x, y]) => [x + 50, y])));
+  const left = connect.nearest(material(pts), { count: 3 });
+  const right = connect.triangulate(material(pts.map(([x, y]) => [x + 50, y])));
   return [left, right].flatMap((m) => m.curves().map((c) => stroke(c)));
 });
 ```
@@ -1312,9 +1312,9 @@ const repel = force.nearby(sources, { radius }, (p, q) => {
 next.move((p) => mul(repel(p), speed));
 ```
 
-`sources` is a mesh (then `q` is a vertex view) or any list of points —
-the mesh being moved, or obstacles that stay put. A vertex of the source
-mesh never interacts with itself: membership in that state decides, not
+`sources` is a material (then `q` is a vertex view) or any list of points —
+the material being moved, or obstacles that stay put. A vertex of the source
+material never interacts with itself: membership in that state decides, not
 coordinates or an index from another collection. Nothing else is skipped
 unless you say so — `excludeConnected: true` on the recipes, or `skip:
 force.adjacent(m)` on `nearby`, is the explicit "not what I'm connected
@@ -1369,7 +1369,7 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
     const smooth = force.relax(cur, { amount: 0.3 });
     next.move((p) => mul(sum(swirl(p), flow(p), smooth(p)), 0.25));
   }, { every: 8 });
-  return relaxed.history.map((h) => stroke(h.mesh.contour));
+  return relaxed.history.map((h) => stroke(h.material.contour));
 });
 ```
 
@@ -1398,7 +1398,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
 ### steps
 
 `m.steps(n, (current, next, k) => …, { every? })` — THE iteration
-operation: run a rule `n` times and return the final mesh, ready for
+operation: run a rule `n` times and return the final material, ready for
 further operations. Growth, relaxation, deformation and erosion are
 different rules for this one verb; `.steps(1, rule)` is a single
 transition. The rule reads `current` (frozen — every callback sees the
@@ -1424,7 +1424,7 @@ a dropped edit.
 
 By default only the final state is kept. `{ every: m }` also captures
 iteration 0, every m-th iteration, and the final one — each once, labelled
-— on the result's `history` as `{ iteration, mesh }`; nothing a later
+— on the result's `history` as `{ iteration, material }`; nothing a later
 step does can disturb a snapshot, and `iteration` keeps counting across
 calls. Each sketch run recomputes from the start: scrubbing an iteration
 control re-runs the growth to that point.
@@ -1445,21 +1445,21 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
     next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
   }, { every: 12 });
   return [
-    grown.history.map((h) => stroke(h.mesh.contour)),
+    grown.history.map((h) => stroke(h.material.contour)),
     stroke({ pts: grown.pts.map(([x, y]) => [x + 50, y]), closed: true }),
   ];
 });
 ```
 
 ```ts live
-import { sketch, stroke, circle, mesh, force, add, mul, sub, unit, perp } from 'occlude';
+import { sketch, stroke, circle, material, force, add, mul, sub, unit, perp } from 'occlude';
 
 // Branching through ordinary edits: active tips extend along their
 // heading (bent by noise), fork now and then, and hand their activity to
 // the children. Junctions are just vertices with three edges; curves()
 // walks each arm once.
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
-  const seed = mesh([[50, 48]], { active: 1, heading: -Math.PI / 2, depth: 0 });
+  const seed = material([[50, 48]], { active: 1, heading: -Math.PI / 2, depth: 0 });
   const tree = seed.steps(26, (cur, next, k) => {
     next.extend((p) => {
       // a little noise in the heading (noise is −1…1), and a pull back toward straight up
@@ -1478,13 +1478,13 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
 ```
 
 ```ts live
-import { sketch, stroke, circle, mesh, force, sum, mul } from 'occlude';
+import { sketch, stroke, circle, material, force, sum, mul } from 'occlude';
 
 // A point cloud, no topology at all: forces still work, and the obstacles
 // that push it are a separate sampled outline that never moves. Sampled
 // obstacle repulsion is not the continuous `boundary` — both are useful.
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
-  const cloud = mesh(t.scatter({ spacing: 2.2 }).map((p) => [p.x / 2 + 2, p.y]))
+  const cloud = material(t.scatter({ spacing: 2.2 }).map((p) => [p.x / 2 + 2, p.y]))
     .attribute('mobility', (p) => (p.y < 10 ? 0 : 1));
   const wall = t.sample(circle(50, 25, 9), { spacing: 0.8 });
   const avoid = force.separation(wall, { radius: 6 });
