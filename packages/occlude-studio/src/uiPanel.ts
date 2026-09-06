@@ -24,11 +24,13 @@ type Pt = [number, number];
  * from the first knot to the last, y between the lowest and highest knot;
  * the corners are labelled so the numbers are never hidden. The shaper's
  * own curve is drawn through the knots, so what you see is exactly what
- * the sketch computes. Drag a knot; double-click empty space to add one;
- * double-click a knot or drag it far off the box to remove it (never below
- * two). End knots keep their x; the extreme knots keep the box, so to grow
- * the area edit the numbers in the code. Every change hands the knot list
- * back to be written into the code, formatted to three decimals.
+ * the sketch computes. Drag a knot — past an edge to push the box out, in
+ * x or y; the pointer keeps the mapping it had when the drag began, and
+ * the box redraws live. Double-click empty space to add a knot,
+ * double-click a knot to remove it (never below two). End knots move on
+ * both axes (they are the domain); inner knots stay between their
+ * neighbours. Every change hands the knot list back to be written into
+ * the code, formatted to three decimals.
  */
 class CurveEditor {
   readonly canvas: HTMLCanvasElement;
@@ -39,9 +41,8 @@ class CurveEditor {
   /** The box as it was when the current gesture began: the pointer keeps
    * one mapping until release, even as the knots it drags redefine the box. */
   private frozen: { x0: number; x1: number; y0: number; y1: number } | null = null;
-  /** The box the knots span; degenerate spans get a little room. */
+  /** The box the knots span (live); degenerate spans get a little room. */
   private box(): { x0: number; x1: number; y0: number; y1: number } {
-    if (this.frozen) return this.frozen;
     const xs = this.pts.map((p) => p[0]);
     const ys = this.pts.map((p) => p[1]);
     let x0 = Math.min(...xs);
@@ -65,7 +66,7 @@ class CurveEditor {
     c.height = Math.round(this.size * dpr);
     c.style.width = `${this.size}px`;
     c.style.height = `${this.size}px`;
-    c.title = 'drag a knot · double-click empty space to add · double-click a knot to remove';
+    c.title = 'drag a knot (past an edge to grow the box) · double-click empty space to add · double-click a knot to remove';
     this.canvas = c;
     this.bind();
     this.draw();
@@ -82,15 +83,15 @@ class CurveEditor {
     return points.map((p) => [p[0], p[1]] as Pt).sort((a, b) => a[0] - b[0]);
   }
 
-  /** Pointer → knot coordinates, clamped to the box. */
+  /** Pointer → knot coordinates through the gesture's mapping (the box as
+   * it was at pointer-down, else the live box). Not clamped: past an edge
+   * is how the box grows. */
   private toKnot(e: PointerEvent | MouseEvent): Pt {
     const r = this.canvas.getBoundingClientRect();
-    const { x0, x1, y0, y1 } = this.box();
+    const { x0, x1, y0, y1 } = this.frozen ?? this.box();
     const u = (e.clientX - r.left - this.pad) / (r.width - 2 * this.pad);
     const v = 1 - (e.clientY - r.top - this.pad) / (r.height - 2 * this.pad);
-    const cu = Math.min(1, Math.max(0, u));
-    const cv = Math.min(1, Math.max(0, v));
-    return [x0 + cu * (x1 - x0), y0 + cv * (y1 - y0)];
+    return [x0 + u * (x1 - x0), y0 + v * (y1 - y0)];
   }
 
   /** Nearest knot within ~7% of the box, in box-normalised distance. */
@@ -122,30 +123,19 @@ class CurveEditor {
     });
     c.addEventListener('pointermove', (e) => {
       if (this.drag === null) return;
-      const r = this.canvas.getBoundingClientRect();
-      const off = e.clientX < r.left - 24 || e.clientX > r.right + 24 || e.clientY < r.top - 24 || e.clientY > r.bottom + 24;
       const p = this.toKnot(e);
       const i = this.drag;
       const first = i === 0;
       const last = i === this.pts.length - 1;
-      // Dragging an inner knot well outside the box removes it.
-      if (off && !first && !last && this.pts.length > 2) {
-        this.pts.splice(i, 1);
-        this.drag = null;
-        this.frozen = null;
-        this.draw();
-        this.onChange(this.pts, true);
-        return;
-      }
-      // The box is frozen for the gesture: its extreme knots may move
-      // inside it but not push it outward (edit the code for that).
-      const { x0, x1, y0, y1 } = this.box();
-      const gap = (x1 - x0) * 0.005;
-      const lo = first ? x0 : this.pts[i - 1][0] + gap;
-      const hi = last ? x1 : this.pts[i + 1][0] - gap;
-      const x = first ? x0 : last ? x1 : Math.min(hi, Math.max(lo, p[0]));
-      const y = Math.min(y1, Math.max(y0, p[1]));
-      this.pts[i] = [x, y];
+      // End knots are the domain: free on both axes, kept just outside
+      // their neighbour. Inner knots keep their order.
+      const gap = ((this.frozen ?? this.box()).x1 - (this.frozen ?? this.box()).x0) * 0.005;
+      const x = first
+        ? Math.min(this.pts[1][0] - gap, p[0])
+        : last
+          ? Math.max(this.pts[i - 1][0] + gap, p[0])
+          : Math.min(this.pts[i + 1][0] - gap, Math.max(this.pts[i - 1][0] + gap, p[0]));
+      this.pts[i] = [x, p[1]];
       this.draw();
       this.onChange(this.pts, false);
     });
@@ -166,7 +156,9 @@ class CurveEditor {
         if (i === 0 || i === this.pts.length - 1 || this.pts.length <= 2) return;
         this.pts.splice(i, 1);
       } else {
-        this.pts.push(p);
+        const { x0, x1, y0, y1 } = this.box();
+        // A new knot lands inside the box; growing it is a drag.
+        this.pts.push([Math.min(x1, Math.max(x0, p[0])), Math.min(y1, Math.max(y0, p[1]))]);
         this.pts.sort((a, b) => a[0] - b[0]);
       }
       this.draw();
