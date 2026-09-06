@@ -30,6 +30,7 @@ export class UiPanel {
     this.root = document.createElement('div');
     this.root.id = 'ui-panel';
     this.root.hidden = true;
+    this.root.classList.add('collapsed'); // closed until asked; the sketch is the point
     const head = document.createElement('div');
     head.className = 'ui-panel-head';
     head.title = 'ui() values — dragging edits the literal in the code';
