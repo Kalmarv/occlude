@@ -7,7 +7,7 @@ import { defineConfig, type Plugin } from 'vite';
 function buildStamp(): string {
   try {
     const sha = execSync('git rev-parse --short HEAD', { cwd: __dirname }).toString().trim();
-    const dirty = execSync('git status --porcelain -- ../../packages ../../crates', { cwd: __dirname }).toString().trim() ? '+' : '';
+    const dirty = execSync('git status --porcelain --untracked-files=no -- ../../packages ../../crates', { cwd: __dirname }).toString().trim() ? '+' : '';
     return `${sha}${dirty}`;
   } catch {
     return 'dev';
