@@ -64,6 +64,7 @@ class CurveEditor {
   constructor(
     points: Pt[],
     private bounds: [[number, number], [number, number]] | undefined,
+    private method: 'akima' | 'cubic' | 'linear' | undefined,
     private onChange: (pts: Pt[], final: boolean) => void,
     private onStart: () => void,
   ) {
@@ -84,9 +85,10 @@ class CurveEditor {
 
   /** The code changed under us (an edit, not our own drag): the knots and
    * the area follow the code. */
-  setPoints(points: Pt[], bounds?: [[number, number], [number, number]]): void {
+  setPoints(points: Pt[], bounds?: [[number, number], [number, number]], method?: 'akima' | 'cubic' | 'linear'): void {
     if (this.drag !== null) return;
     this.bounds = bounds;
+    this.method = method;
     this.pts = CurveEditor.tidy(points);
     this.area = this.areaOf(this.pts);
     this.draw();
@@ -210,10 +212,10 @@ class CurveEditor {
     ctx.lineTo(X(x1), Y(y1));
     ctx.stroke();
     ctx.setLineDash([]);
-    // The curve, through the sketch's own shaper.
+    // The curve, through the sketch's own shaper — same method, same bounds.
     let fn: (v: number) => number;
     try {
-      fn = shaper(this.pts);
+      fn = shaper(this.pts, { method: this.method, bounds: this.bounds });
     } catch {
       fn = (v) => v;
     }
@@ -320,7 +322,7 @@ export class UiPanel {
     this.controlCount = controls.length;
     this.root.hidden = controls.length === 0 && this.probeCount === 0;
     const signature = controls
-      .map((c) => `${c.label}|${c.kind}|${c.opts.min}|${c.opts.max}|${c.opts.step}|${JSON.stringify(c.opts.bounds ?? null)}`)
+      .map((c) => `${c.label}|${c.kind}|${c.opts.min}|${c.opts.max}|${c.opts.step}|${JSON.stringify(c.opts.bounds ?? null)}|${c.opts.method ?? ''}`)
       .join(';');
     if (signature !== this.signature) {
       this.signature = signature;
@@ -332,7 +334,7 @@ export class UiPanel {
       const row = this.rows[k];
       row.control = c;
       if (c.kind === 'points') {
-        row.curve?.setPoints(c.value as Pt[], c.opts.bounds);
+        row.curve?.setPoints(c.value as Pt[], c.opts.bounds, c.opts.method);
       } else if (typeof c.value === 'boolean') {
         if (row.slider) row.slider.checked = c.value;
       } else if (row.slider && document.activeElement !== row.slider && document.activeElement !== row.num) {
@@ -360,6 +362,7 @@ export class UiPanel {
       const curve = new CurveEditor(
         control.value as Pt[],
         control.opts.bounds,
+        control.opts.method,
         (pts, final) => {
           this.write(entry, pts);
           if (final) {

@@ -19,6 +19,8 @@ export interface UiOpts {
   label?: string;
   /** shaper controls: the explicit area from the call's opts, if any. */
   bounds?: [[number, number], [number, number]];
+  /** shaper controls: the interpolation the call asked for. */
+  method?: 'akima' | 'cubic' | 'linear';
 }
 
 export function ui(value: number, opts?: UiOpts): number;
@@ -212,13 +214,16 @@ function parseShaperCall(
   while (source[j] === ' ' || source[j] === '\n') j++;
   if (source[j] === ',') {
     try {
-      const parsed = new Function(`return (${source.slice(j + 1, close)});`)() as { bounds?: unknown };
+      const parsed = new Function(`return (${source.slice(j + 1, close)});`)() as { bounds?: unknown; method?: unknown };
       const b = parsed?.bounds;
       if (
         Array.isArray(b) && b.length === 2 &&
         b.every((p) => Array.isArray(p) && p.length === 2 && p.every((v) => typeof v === 'number' && Number.isFinite(v)))
       ) {
-        opts = { bounds: b as [[number, number], [number, number]] };
+        opts = { ...opts, bounds: b as [[number, number], [number, number]] };
+      }
+      if (parsed?.method === 'akima' || parsed?.method === 'cubic' || parsed?.method === 'linear') {
+        opts = { ...opts, method: parsed.method };
       }
     } catch {
       // computed opts: the knots are still a control, the box follows them
