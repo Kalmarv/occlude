@@ -89,7 +89,7 @@ export type { IsoContour, IsoOpts } from './isolines.js';
 export { distanceTo } from './distance.js';
 export type { DistanceField } from './distance.js';
 // Fields as citizens: explicit transforms, domain bounds, vector marking.
-export { rotate, translate, scale, within, vectorField } from './field.js';
+export { rotate, translate, scale, within, vectorField, grad, curl } from './field.js';
 
 // Tweakable values (identity at runtime; the studio scans + builds sliders).
 export { ui, scanUiControls } from './ui.js';
@@ -103,6 +103,8 @@ export {
 export type {
   MotionLimits, PlannedSegment, MotionBlock, Point, PlanEstimate, EstimateOpts, PlanSchedule,
 } from './motion.js';
+
+export type { StreamOpts } from './streamlines.js';
 
 // Pen height: the clearance map read off the lift-grid card, the settle
 // curve from the settle×lift card, and the one pen-cycle model both the

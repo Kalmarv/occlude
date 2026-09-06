@@ -942,6 +942,53 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 });
 ```
 
+### streamlines
+
+`t.streamlines(field, { spacing?, minSpacing?, step?, seeds? })` — evenly
+spaced streamlines of a vector field over the drawable (Jobard & Lefer):
+the bridge from vector fields to stampable geometry, the twin of
+`isolines` for flow. Returns open contours `{ pts, closed: false }`, so
+`trace(c)` stamps them. Lines stop at the drawable edge, at a `within()`
+bound, and half a spacing from ink already laid, so they never cross or
+bunch. `spacing` is a length (default mm(1); at the nib width the result
+is a flow-following solid) **or a field of lengths**, `(x, y) => mm(…)` or
+bare units — density as tone, direction as flow; `minSpacing` (default
+mm(0.3)) is its floor.
+Deterministic: no seed, a pure function of the fields. Long continuous
+lines with few lifts are the cheapest ink a plotter can draw.
+
+```ts live
+import { sketch, trace, curl } from 'occlude';
+
+// The flow-field look: streamlines of the curl of noise never converge.
+export default sketch({ aspect: [3, 2], seed: 4 }, (t) => {
+  const flow = curl((x, y) => t.noise(x / 30, y / 30));
+  return t.streamlines(flow, { spacing: 1.6 }).map((c) => trace(c));
+});
+```
+
+```ts live
+import { sketch, circle, trace, curl, within, distanceTo } from 'occlude';
+
+// Hatch that wraps a form: the curl of a distance field runs along the
+// outline, and density from the distance fades it with the distance.
+export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
+  const blob = circle(50, 25, 12);
+  const d = distanceTo(t.loops(blob));
+  const around = within(curl(d), circle(50, 25, 24));
+  return [
+    blob,
+    t.streamlines(around, { spacing: (x, y) => 0.6 + d(x, y) * 0.25 }).map((c) => trace(c)),
+  ];
+});
+```
+
+`grad(f, h?)` and `curl(f, h?)` are pure imports that lift a scalar field to
+a vector one: the gradient points uphill, the curl is the gradient turned
+90°, so it runs along `f`'s contours and never converges. A `within()`
+bound on `f` carries through. Streamlines of `curl(f)` at nib spacing are
+the isolines of `f`, densely — one mechanism seen twice.
+
 ### fields
 
 Fields — any `(x, y) => number` — are citizens: `within(f, shape)` bounds

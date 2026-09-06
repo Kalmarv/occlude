@@ -38,6 +38,7 @@ import {
   type FieldFn2, type ScatterOpts,
 } from './points.js';
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
+import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { lowerToUserLoops, sketchFrame, unitMm } from './record.js';
 import { distanceTo } from './distance.js';
 import {
@@ -628,6 +629,7 @@ export interface Toolkit {
   grid: (opts: GridOptions) => GridCell[];
   scatter: typeof scatter;
   isolines: typeof isolines;
+  streamlines: typeof streamlines;
   loops: typeof loops;
   probe: typeof probe;
   distanceTo: typeof distanceTo;
@@ -735,6 +737,17 @@ function isolines(
     : isolinesOf(env, field, at, opts);
 }
 
+/** Evenly spaced streamlines of a vector field over the drawable (Jobard &
+ * Lefer) — plain open contours, stamped with `trace(c)`. `spacing` is a
+ * length or a scalar field of lengths: density as tone, direction as flow.
+ * Lines stop at the drawable edge, at a `within()` bound, and half a spacing
+ * from ink already laid. Deterministic, no seed. */
+function streamlines(field: VectorFieldFn, opts: StreamOpts = {}): IsoContour[] {
+  const b = bounds();
+  const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: sketchLen(b) };
+  return streamlinesOf(env, field, opts);
+}
+
 /**
  * A shape's outline as plain point loops in sketch coordinates — the bridge
  * from any shape value to everything that eats loops: `distanceTo`,
@@ -785,7 +798,7 @@ const TOOLKIT_BASE = {
   map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, isolines, loops, probe, distanceTo, points: pointsOf, voronoi, triangulate, synth,
+  scatter, isolines, streamlines, loops, probe, distanceTo, points: pointsOf, voronoi, triangulate, synth,
   within, rotate: rotateField, translate: translateField, scale: scaleField,
   vectorField: vectorFieldMark,
   mm, w, h, s, long,

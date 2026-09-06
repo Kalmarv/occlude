@@ -79,6 +79,51 @@ export function vectorField(fn: VectorFieldFn): VectorFieldFn {
   return fn;
 }
 
+/** A vector field derived from a scalar one keeps the scalar's `within()`
+ * bounds (NaN outside comes through the differences naturally, and the
+ * engine still gets the bound as exact geometry). */
+function derivedVector(src: FieldFn, sample: VectorFieldFn, again: (f: FieldFn) => VectorFieldFn): VectorFieldFn {
+  const out = ((x: number, y: number) => sample(x, y)) as VectorFieldFn;
+  const sm = metaOf(src);
+  const meta: FieldMeta = { kind: 'vector' };
+  if (sm?.bounds && sm.bounds.length > 0) {
+    meta.bounds = sm.bounds;
+    meta.unbounded = again((sm.unbounded ?? src) as FieldFn);
+  }
+  FIELD_META.set(out, meta);
+  return out;
+}
+
+/**
+ * Gradient of a scalar field by central differences: points uphill, its
+ * length is the slope. `h` is the difference step in user units (default
+ * 0.25 — a quarter of a percent of the short side). Streamlines of
+ * `grad(distanceTo(loops))` run away from a shape; `deform` with it pushes
+ * ink downhill.
+ */
+export function grad(field: FieldFn, h = 0.25): VectorFieldFn {
+  const sample: VectorFieldFn = (x, y) => [
+    (field(x + h, y) - field(x - h, y)) / (2 * h),
+    (field(x, y + h) - field(x, y - h)) / (2 * h),
+  ];
+  return derivedVector(field, sample, (f) => grad(f, h));
+}
+
+/**
+ * Curl of a scalar field: the gradient turned 90°, so it runs ALONG the
+ * field's contours and never converges (divergence-free). Streamlines of
+ * `curl(noise)` are the flow-field look; streamlines of `curl(f)` at nib
+ * spacing are the isolines of `f`, densely — one mechanism seen twice.
+ */
+export function curl(field: FieldFn, h = 0.25): VectorFieldFn {
+  const g = grad(field, h);
+  const sample: VectorFieldFn = (x, y) => {
+    const [gx, gy] = g(x, y);
+    return [-gy, gx];
+  };
+  return derivedVector(field, sample, (f) => curl(f, h));
+}
+
 type AnyField = FieldFn | VectorFieldFn;
 
 function isVector(fn: AnyField): boolean {

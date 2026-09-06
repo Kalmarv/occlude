@@ -120,6 +120,7 @@ facts, and papers — never code**:
 | [Marlin](https://github.com/MarlinFirmware/Marlin) & [Klipper](https://github.com/Klipper3d/klipper) | Motion-planning concepts: junction deviation, minimum cruise ratio, look-ahead structure. Ideas only. | GPL-3.0 |
 | Deussen, Spicker et al., *Weighted Linde-Buzo-Gray Stippling* (SIGGRAPH Asia 2017); [reference impl](https://github.com/MarcSpicker/LindeBuzoGrayStippling) | `scatter(...).settle(n)` implements the paper's algorithm from the paper. No code from the LGPL reference. | paper / LGPL-3.0 |
 | Bridson, *Fast Poisson Disk Sampling* (2007) | `scatter` and the stipple fill's blue-noise placement. | paper |
+| Jobard & Lefer, *Creating Evenly-Spaced Streamlines of Arbitrary Density* (Eurographics 1997) | `t.streamlines` implements the paper's seeding and separation scheme, with the spacing as a field. Ideas from the paper only. | paper |
 | [d3-delaunay](https://github.com/d3/d3-delaunay) (Mike Bostock) | Bundled dependency powering `voronoi`/`triangulate`/`settle`; his weighted-stippling notebook showed the `delaunay.find` accumulation walk. | ISC |
 | [plotterbench](https://github.com/plotterbench) | Inverse-kinematics golden-test idea (backlog). Ideas only — PolyForm forbids code reuse. | PolyForm Shield |
 | Robert Penner / [easings.net](https://easings.net) | The `ease.*` curve catalog (standard formulas). | formulas |
