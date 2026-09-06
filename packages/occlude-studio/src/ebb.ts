@@ -890,11 +890,14 @@ export class Ebb {
     };
     const setLiftFull = (): Promise<void> => setLift('full', Math.round(servo().penUpPulse));
     /** Lift for the travel INTO `next` (chosen before the pen-up that
-     * precedes it): override → model (map or full). */
+     * precedes it): override → model (map or full). A calibration card
+     * (servoFor present) is a blank slate: its unpinned chains — frames,
+     * ticks — travel at FULL lift, never through the map they are there to
+     * measure or check. */
     const liftFor = (next: Chain | undefined, from: [number, number]): Promise<void> => {
       const ov = next && servoFor?.(next.pen);
       if (ov?.up !== undefined) return setLift('override', Math.round(ov.up));
-      if (!next) return setLiftFull();
+      if (!next || servoFor) return setLiftFull();
       const pulse = travelLiftPulse(model(), from, [next.pts[0], next.pts[1]]);
       return setLift(pulse === Math.round(servo().penUpPulse) ? 'full' : 'map', pulse);
     };

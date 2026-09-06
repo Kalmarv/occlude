@@ -858,6 +858,32 @@ describe('servo overrides (pen-height cards)', () => {
   });
 });
 
+describe('calibration cards are a blank slate', () => {
+  test('unpinned chains of a card travel at full lift even with a map on the profile', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const liftMap = {
+      cols: 1, rows: 1, bedW: 100, bedH: 50, margin: 5, thresholds: [15200], unresolvedAbove: 16000,
+    };
+    const direct = { ...opts, swapXY: false, invertX: false, liftMap, liftMarginPulses: 800 };
+    // pen 0 = frame (unpinned), pen 1 = strip pinned at 14000.
+    const plan = new Float64Array([0, 0, 2, 10, 10, 20, 10, 1, 0, 2, 30, 10, 35, 10, 0, 0, 2, 40, 10, 45, 10]);
+    const servo = [undefined, { up: 14000 }];
+    const ebb = new Ebb();
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    await ebb.plot(plan, [
+      { name: 'frame', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 600 },
+      { name: 'strip', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 600 },
+    ], direct, () => undefined, undefined, undefined, undefined, (i) => servo[i]);
+    const lifts = port.commands.filter((c) => c.startsWith('SC,4,'));
+    // Only the pinned pulse and full lift ever appear — the map's 14400 never does.
+    expect(new Set(lifts)).toEqual(new Set(['SC,4,10000', 'SC,4,14000']));
+  });
+});
+
 describe('paper origin', () => {
   test('plots draw at the paper offset in bed coordinates; Set origin clears it', async () => {
     const port = new FakePort();
