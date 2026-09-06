@@ -91,6 +91,29 @@ describe('shaper knots as a control', () => {
     expect(src.slice(c.valueStart, c.valueEnd)).toBe('[[0, 0], [1, 1]]');
   });
 
+  it('reads bounds through a formatter’s trailing comma and line breaks', () => {
+    const src = `const gamma = shaper(
+    [
+      [0, 0],
+      [0.676, 0.241],
+      [2, 0.702],
+    ],
+    {
+      bounds: [
+        [0, 0],
+        [2, 2],
+      ],
+    },
+  );`;
+    const c = scanUiControls(src)[0];
+    expect(c.kind).toBe('points');
+    expect(c.opts.bounds).toEqual([[0, 0], [2, 2]]);
+    expect(c.value).toEqual([[0, 0], [0.676, 0.241], [2, 0.702]]);
+    // ui() with the same formatting.
+    const u = scanUiControls(`const k = ui(\n  3,\n  { min: 1, max: 9 },\n);`)[0];
+    expect(u.opts).toEqual({ min: 1, max: 9 });
+  });
+
   it('ignores computed knots and shaper calls inside strings or comments', () => {
     const src = `// shaper([[0,0],[1,1]])\nconst a = shaper(pts);\nconst s = 'shaper([[0,0],[1,1]])';\nconst b = shaper([[0, 0], [1, k]]);`;
     expect(scanUiControls(src)).toHaveLength(0);

@@ -155,7 +155,8 @@ function parseUiCall(
     const close = matchParen(source, argStart - 1);
     if (close < 0) return null;
     try {
-      const parsedOpts = new Function(`return (${source.slice(optsStart, close)});`)() as UiOpts;
+      const optsText = source.slice(optsStart, close).replace(/,\s*$/, ''); // trailing comma
+      const parsedOpts = new Function(`return (${optsText});`)() as UiOpts;
       if (parsedOpts && typeof parsedOpts === 'object') opts = parsedOpts;
     } catch {
       return null; // malformed mid-edit — no control this pass
@@ -214,7 +215,9 @@ function parseShaperCall(
   while (source[j] === ' ' || source[j] === '\n') j++;
   if (source[j] === ',') {
     try {
-      const parsed = new Function(`return (${source.slice(j + 1, close)});`)() as { bounds?: unknown; method?: unknown };
+      // A formatter may leave a trailing comma before the `)`: drop it.
+      const optsText = source.slice(j + 1, close).replace(/,\s*$/, '');
+      const parsed = new Function(`return (${optsText});`)() as { bounds?: unknown; method?: unknown };
       const b = parsed?.bounds;
       if (
         Array.isArray(b) && b.length === 2 &&
