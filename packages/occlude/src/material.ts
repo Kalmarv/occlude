@@ -1017,13 +1017,17 @@ export function separation(sources: Sources, opts: { radius: number; excludeConn
  * slowly with the iteration. Pure — pass the toolkit's seeded `t.noise`
  * in: `drift(t.noise, { amount })`, then `wander(p, k)`. `frequency`
  * scales position into the noise (default 0.08), `rate` the iteration
- * (default 0.01): angle = noise(x·f, y·f, k·rate) · 2π.
+ * into its third axis (default 0.0004): angle = noise(x·f, y·f, k·rate) · 2π.
+ * The default rate is small because the toolkit's noise folds z onto
+ * shifted 2D slices about thirty times steeper than x and y: at 0.01 per
+ * iteration the direction re-rolls every step and a trail is a random
+ * walk; at 0.0004 it turns.
  */
 export function drift(
   noise: (x: number, y: number, z: number) => number,
   opts: { amount: number; frequency?: number; rate?: number },
 ): (p: XY, k: number) => Vec {
-  const { amount, frequency = 0.08, rate = 0.01 } = opts;
+  const { amount, frequency = 0.08, rate = 0.0004 } = opts;
   return (p, k) => {
     const a = noise(vx(p) * frequency, vy(p) * frequency, k * rate) * Math.PI * 2;
     return [Math.cos(a) * amount, Math.sin(a) * amount];

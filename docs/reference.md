@@ -1326,7 +1326,7 @@ copy one beside your own and change it.
 | `force.tension(m, { rest })` | the state; reads connections | `pull(p)` | toward each connected neighbour by the gap beyond `rest` (slack, not a spring) |
 | `force.separation(sources, { radius, excludeConnected? })` | any points; index once | `repel(p)` | away from every source within the radius, linearly to zero at the edge, `radius` when touching |
 | `force.attract(sources, { radius, strength?, excludeConnected? })` | any points; index once | `pull(p)` | toward each source, `strength` when touching, zero at the radius |
-| `force.drift(noise, { amount, frequency?, rate? })` | a noise function — pass `t.noise`, it owns no seed | `wander(p, k)` | a direction read from the noise, turning with the iteration |
+| `force.drift(noise, { amount, frequency?, rate? })` | a noise function — pass `t.noise`, it owns no seed | `wander(p, k)` | a direction read from the noise, turning slowly with the iteration (`rate`, default 0.0004: the noise's z axis is steep) |
 | `force.boundary(loops, { radius, strength? })` | boundary loops, as `distanceTo` takes them | `keep(p)` | inward within `radius` of the edge and everywhere outside; zero deeper in |
 | `force.vortex(centre, { strength, falloff? })` | a point | `swirl(p)` | tangential around the centre, fading as `1 / (1 + d / falloff)` |
 | `force.field(vectorField, { strength? })` | a `grad`/`curl`/hand-written field | `flow(p)` | the field at p — the adapter into `sum` |
@@ -1336,62 +1336,150 @@ copy one beside your own and change it.
 ```ts live
 import { sketch, stroke, circle, force, sub, unit, length, sum, mul } from 'occlude';
 
-// Sources need not be the moving geometry: a ring grows among fixed
-// obstacles that shove it away — one interaction written in place, two
-// recipes, one drift — and the obstacles are drawn as what they are.
+// nearby — sources need not be the moving geometry: a ring grows among
+// six fixed posts that shove it away, so it flows around them. One
+// interaction written in place; the posts are drawn as what they are.
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
-  const obstacles = t.times(9, (i) => [12 + i * 9.5, 10 + (i % 2) * 30]);
-  const avoid = force.nearby(obstacles, { radius: 9 }, (p, q) => {
+  const posts = [[20, 12], [50, 8], [80, 14], [22, 38], [52, 42], [80, 36]];
+  const shove = force.nearby(posts, { radius: 9 }, (p, q) => {
     const delta = sub(p, q);
-    return mul(unit(delta), (9 - length(delta)) * 0.6);
+    return mul(unit(delta), (9 - length(delta)) * 0.9);
   });
-  const wander = force.drift(t.noise, { amount: 0.3 });
-  const grown = t.sample(circle(50, 25, 6), { count: 36 }).steps(70, (cur, next, k) => {
-    const pull = force.tension(cur, { rest: 1.2 });
-    const repel = force.separation(cur, { radius: 2.4, excludeConnected: true });
-    next.move((p) => mul(sum(pull(p), repel(p), avoid(p), wander(p, k)), 0.2));
-    next.splitEdges((e) => e.length > 1.3 && t.chance(0.3), { attributes: {} });
+  const wander = force.drift(t.noise, { amount: 0.1 });
+  const grown = t.sample(circle(50, 25, 4), { count: 30 }).steps(210, (cur, next, k) => {
+    const pull = force.tension(cur, { rest: 1 });
+    const repel = force.separation(cur, { radius: 2.2, excludeConnected: true });
+    next.move((p) => mul(sum(pull(p), repel(p), shove(p), wander(p, k)), 0.18));
+    next.splitEdges((e) => e.length > 1.1 && t.chance(0.3), { attributes: {} });
   });
-  return [obstacles.map(([x, y]) => circle(x, y, 1.2)), stroke(grown.contour)];
+  return [posts.map(([x, y]) => circle(x, y, 2)), stroke(grown.contour)];
 });
 ```
 
 ```ts live
-import { sketch, stroke, circle, curl, force, sum, mul } from 'occlude';
+import { sketch, stroke, curve, force, mul } from 'occlude';
 
-// The other shape, p => vector, needs no helper: a vortex and a curl
-// field relax a ring with no growth at all — the same `.steps()` verb, a
-// different rule. Every 8th state is kept and drawn.
-export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
-  const swirl = force.vortex({ x: 50, y: 25 }, { strength: 6, falloff: 8 });
-  const flow = force.field(curl((x, y) => t.noise(x / 12, y / 12) * 6));
-  const relaxed = t.sample(circle(50, 25, 14), { count: 80 }).steps(64, (cur, next) => {
-    const smooth = force.relax(cur, { amount: 0.3 });
-    next.move((p) => mul(sum(swirl(p), flow(p), smooth(p)), 0.25));
+// tension — an open chain pulled taut: the slack pull only acts where a
+// link is stretched beyond `rest`, so the zigzag straightens link by link
+// while the ends, which have one neighbour each, follow. Every 4th state.
+export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
+  const zigzag = t.times(21, (i) => [8 + i * 4.2, 25 + (i % 2 ? 9 : -9) + t.rnd(-2, 2)]);
+  const chain = curve(zigzag, { closed: false });
+  const pulled = chain.steps(48, (cur, next) => {
+    const pull = force.tension(cur, { rest: 3 });
+    next.move((p) => mul(pull(p), 0.05));
   }, { every: 8 });
-  return relaxed.history.map((h) => stroke(h.material.contour));
+  return pulled.history.map((h) => stroke(h.material.contour));
+});
+```
+
+```ts live
+import { sketch, circle, material, force, mul } from 'occlude';
+
+// separation — a clump spreads itself into an even, blue-noise scatter:
+// each dot moves away from every other within the radius. Left the
+// start, right after 40 steps.
+export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
+  const start = material(t.times(120, () => {
+    const a = t.rnd(Math.PI * 2); const r = 9 * Math.sqrt(t.rnd());
+    return [25 + Math.cos(a) * r, 25 + Math.sin(a) * r];
+  }));
+  const spread = start.steps(40, (cur, next) => {
+    const repel = force.separation(cur, { radius: 7 });
+    next.move((p) => mul(repel(p), 0.12));
+  });
+  return [start.points.map((p) => circle(p.x, p.y, 0.5)), spread.points.map((p) => circle(p.x + 50, p.y, 0.5))];
+});
+```
+
+```ts live
+import { sketch, stroke, circle, material, force, mul } from 'occlude';
+
+// attract — dots gather toward three anchors; each dot's path over 120
+// small steps is drawn from the history, so the pull is visible as a trail.
+export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
+  const anchors = [[22, 25], [55, 11], [80, 38]];
+  const toward = force.attract(anchors, { radius: 42, strength: 1 });
+  const dots = material(t.scatter({ spacing: 5 }).map((p) => [p.x, p.y / 2]));
+  const gathered = dots.steps(120, (cur, next) => next.move((p) => mul(toward(p), 0.08)), { every: 1 });
+  const trail = (i) => gathered.history.map((h) => [h.material.x[i], h.material.y[i]]);
+  return [
+    anchors.map(([x, y]) => circle(x, y, 1.5)),
+    dots.points.map((p) => stroke(trail(p.index))),
+  ];
+});
+```
+
+```ts live
+import { sketch, stroke, material, force } from 'occlude';
+
+// drift — the same trails under noise alone: each dot wanders along a
+// seeded noise direction that turns slowly with the iteration.
+export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
+  const wander = force.drift(t.noise, { amount: 0.16, frequency: 0.03 });
+  const dots = material(t.scatter({ spacing: 11 }).map((p) => [p.x, p.y / 2]));
+  const wandered = dots.steps(110, (cur, next, k) => next.move((p) => wander(p, k)), { every: 1 });
+  const trail = (i) => wandered.history.map((h) => [h.material.x[i], h.material.y[i]]);
+  return dots.points.map((p) => stroke(trail(p.index)));
+});
+```
+
+```ts live
+import { sketch, stroke, rect, curl, force, sum, mul } from 'occlude';
+
+// vortex + field — the other shape, p => vector, needs no helper. A
+// rectangle's outline is carried by a vortex and a curl field with no
+// growth at all: the same `.steps()` verb, a different rule. Every 10th
+// state is drawn, so the drift reads as nested frames.
+export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
+  const swirl = force.vortex({ x: 50, y: 25 }, { strength: 1.6, falloff: 30 });
+  const flow = force.field(curl((x, y) => t.noise(x / 30, y / 30) * 3));
+  const carried = t.sample(rect(22, 8, 56, 34), { spacing: 1 }).steps(40, (cur, next) => {
+    next.move((p) => mul(sum(swirl(p), flow(p)), 0.35));
+  }, { every: 10 });
+  return carried.history.map((h) => stroke(h.material.contour));
+});
+```
+
+```ts live
+import { sketch, stroke, curve, force, mul } from 'occlude';
+
+// relax — Laplacian smoothing as a force: a rough closed outline settles
+// toward the mean of its neighbours, corners first. Every 6th state,
+// outermost the roughest.
+export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
+  const rough = curve(t.times(40, (i) => {
+    const a = (i / 40) * Math.PI * 2;
+    const r = 18 + t.rnd(-5, 5);
+    return [50 + Math.cos(a) * r * 1.6, 25 + Math.sin(a) * r];
+  }));
+  const settled = rough.steps(24, (cur, next) => {
+    const smooth = force.relax(cur, { amount: 0.5 });
+    next.move((p) => mul(smooth(p), 1));
+  }, { every: 6 });
+  return settled.history.map((h) => stroke(h.material.contour));
 });
 ```
 
 ```ts live
 import { sketch, stroke, circle, rect, force, sum, mul } from 'occlude';
 
-// Kept on the page: `boundary` pushes the growth back from the frame's
-// edge, `attract` draws it toward three anchors, and the rest is the
-// ordinary ring rule. The frame and anchors are drawn as what they are.
+// Kept on the page: `boundary` turns the growth back a little inside the
+// frame's edge, `attract` draws it toward three anchors, and the rest is
+// the ordinary ring rule. The frame and anchors are drawn as what they are.
 export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
-  const frame = rect(6, 6, 88, 38);
-  const keep = force.boundary(t.polylines(frame), { radius: 5, strength: 1.5 });
-  const anchors = [[20, 25], [50, 12], [80, 38]];
-  const toward = force.attract(anchors, { radius: 30, strength: 0.6 });
+  const frame = rect(4, 4, 92, 42);
+  const keep = force.boundary(t.polylines(frame), { radius: 6, strength: 2 });
+  const anchors = [[16, 24], [50, 9], [84, 40]];
+  const toward = force.attract(anchors, { radius: 40, strength: 0.5 });
   const wander = force.drift(t.noise, { amount: 0.2 });
-  const grown = t.sample(circle(50, 25, 5), { count: 30 }).steps(80, (cur, next, k) => {
-    const pull = force.tension(cur, { rest: 1.2 });
-    const repel = force.separation(cur, { radius: 2.4, excludeConnected: true });
-    next.move((p) => mul(sum(pull(p), repel(p), keep(p), toward(p), wander(p, k)), 0.2));
-    next.splitEdges((e) => e.length > 1.3 && t.chance(0.3), { attributes: {} });
+  const grown = t.sample(circle(50, 25, 4), { count: 30 }).steps(240, (cur, next, k) => {
+    const pull = force.tension(cur, { rest: 1 });
+    const repel = force.separation(cur, { radius: 2.2, excludeConnected: true });
+    next.move((p) => mul(sum(pull(p), repel(p), keep(p), toward(p), wander(p, k)), 0.18));
+    next.splitEdges((e) => e.length > 1.1 && t.chance(0.3), { attributes: {} });
   });
-  return [frame, anchors.map(([x, y]) => circle(x, y, 1)), stroke(grown.contour)];
+  return [frame, anchors.map(([x, y]) => circle(x, y, 1.2)), stroke(grown.contour)];
 });
 ```
 
@@ -1433,64 +1521,61 @@ control re-runs the growth to that point.
 import { sketch, stroke, circle, force, sum, mul } from 'occlude';
 
 // Differential growth in ten lines: tension + separation + seeded drift,
-// split the stretched edges, keep every 12th state (left) and the final
-// one (right).
+// split the stretched edges, keep going. This is the ring study.
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  const wander = force.drift(t.noise, { amount: 0.1, frequency: 0.1, rate: 0.02 });
-  const grown = t.sample(circle(25, 25, 5), { count: 24 }).attribute('age', 0).steps(60, (cur, next, k) => {
+  const wander = force.drift(t.noise, { amount: 0.12, frequency: 0.1 });
+  const grown = t.sample(circle(50, 25, 4), { count: 24 }).attribute('age', 0).steps(150, (cur, next, k) => {
     const pull = force.tension(cur, { rest: 0.8 });
     const repel = force.separation(cur, { radius: 2, excludeConnected: true });
     next.move((p) => mul(sum(pull(p), repel(p), wander(p, k)), 0.15));
     next.set((p) => ({ age: p.age + 1 }));
     next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
-  }, { every: 12 });
-  return [
-    grown.history.map((h) => stroke(h.material.contour)),
-    stroke({ pts: grown.pts.map(([x, y]) => [x + 50, y]), closed: true }),
-  ];
+  });
+  return stroke(grown.contour);
 });
 ```
 
 ```ts live
-import { sketch, stroke, circle, material, force, add, mul, sub, unit, perp } from 'occlude';
+import { sketch, stroke, circle, material, add } from 'occlude';
 
 // Branching through ordinary edits: active tips extend along their
-// heading (bent by noise), fork now and then, and hand their activity to
-// the children. Junctions are just vertices with three edges; curves()
-// walks each arm once.
+// heading (bent by noise, pulled back toward up), fork now and then, and
+// hand their activity to the children. Junctions are just vertices with
+// three edges; curves() walks each arm once. Tips are drawn as dots.
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
-  const seed = material([[50, 48]], { active: 1, heading: -Math.PI / 2, depth: 0 });
-  const tree = seed.steps(26, (cur, next, k) => {
+  const seed = material([[50, 49]], { active: 1, heading: -Math.PI / 2, depth: 0 });
+  const tree = seed.steps(30, (cur, next, k) => {
     next.extend((p) => {
-      // a little noise in the heading (noise is −1…1), and a pull back toward straight up
-      const turn = t.noise(p.x / 9, p.y / 9, k) * 0.2 - (p.heading + Math.PI / 2) * 0.15;
-      const fork = p.depth < 3 && t.chance(0.22);
-      const children = fork ? [p.heading - 0.45 + turn, p.heading + 0.45 + turn] : [p.heading + turn];
-      return children.map((h) => ({
-        position: add(p, [Math.cos(h) * 2.2, Math.sin(h) * 2.2]),
+      const turn = t.noise(p.x / 7, p.y / 7, k) * 0.3 - (p.heading + Math.PI / 2) * 0.1;
+      const fork = p.depth < 4 && t.chance(0.3);
+      const headings = fork ? [p.heading - 0.5 + turn, p.heading + 0.5 + turn] : [p.heading + turn];
+      return headings.map((h) => ({
+        position: add(p, [Math.cos(h) * 1.6, Math.sin(h) * 1.6]),
         attributes: { active: 1, heading: h, depth: p.depth + (fork ? 1 : 0) },
       }));
-    }, { where: (p) => p.active === 1 && p.y > 4 });
+    }, { where: (p) => p.active === 1 && p.y > 3 && p.x > 3 && p.x < 97 });
     next.set(() => ({ active: 0 }), { where: (p) => p.active === 1 });
   });
-  return [tree.curves().map((c) => stroke(c)), tree.points.filter((p) => p.active).map((p) => circle(p.x, p.y, 0.6))];
+  return [tree.curves().map((c) => stroke(c)), tree.points.filter((p) => p.active).map((p) => circle(p.x, p.y, 0.5))];
 });
 ```
 
 ```ts live
-import { sketch, stroke, circle, material, force, sum, mul } from 'occlude';
+import { sketch, stroke, circle, material, curl, force, sum, mul } from 'occlude';
 
-// A point cloud, no topology at all: forces still work, and the obstacles
-// that push it are a separate sampled outline that never moves. Sampled
-// obstacle repulsion is not the continuous `boundary` — both are useful.
+// A point cloud, no topology at all: forces still work, and the wall
+// that deflects it is a separate sampled outline that never moves. A
+// band of dots streams left to right on a light noise wind and parts
+// around the wall; `mobility`, an ordinary column, scales how far each
+// one goes. Sampled obstacle repulsion is not the continuous `boundary`.
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
-  const cloud = material(t.scatter({ spacing: 2.2 }).map((p) => [p.x / 2 + 2, p.y]))
-    .attribute('mobility', (p) => (p.y < 10 ? 0 : 1));
-  const wall = t.sample(circle(50, 25, 9), { spacing: 0.8 });
-  const avoid = force.separation(wall, { radius: 6 });
-  const wind = (p) => [1.2, Math.sin(p.y * 0.3) * 0.4];
-  const moved = cloud.steps(40, (cur, next) => {
-    next.move((p) => mul(sum(avoid(p), wind(p)), p.mobility * 0.5));
+  const cloud = material(t.scatter({ spacing: 2 }).map((p) => [p.x / 5 + 2, p.y]))
+    .attribute('mobility', (p) => 0.6 + 0.4 * t.noise(p.y / 6));
+  const wall = t.sample(circle(46, 25, 8), { spacing: 0.8 });
+  const avoid = force.separation(wall, { radius: 9 });
+  const gusts = force.field(curl((x, y) => t.noise(x / 25, y / 25) * 2));
+  const moved = cloud.steps(160, (cur, next) => {
+    next.move((p) => mul(sum(avoid(p), gusts(p), [2, 0]), p.mobility * 0.18));
   });
   return [stroke(wall.contour), moved.points.map((p) => circle(p.x, p.y, 0.35))];
 });
@@ -1550,7 +1635,7 @@ import { sketch, stroke, circle, force, sum, mul, segmentRuns, extent, banding }
 // The same grown ring, cut into runs by age band: young edges in one pen,
 // old ones in another — chosen after the growth, not inside it.
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  const wander = force.drift(t.noise, { amount: 0.1, frequency: 0.1, rate: 0.02 });
+  const wander = force.drift(t.noise, { amount: 0.1, frequency: 0.1 });
   const last = t.sample(circle(50, 25, 5), { count: 24 }).attribute('age', 0).steps(60, (cur, next, k) => {
     const pull = force.tension(cur, { rest: 0.8 });
     const repel = force.separation(cur, { radius: 2, excludeConnected: true });
