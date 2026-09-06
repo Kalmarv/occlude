@@ -950,6 +950,32 @@ describe('stall watchdog', () => {
   });
 });
 
+describe('resume from a chain', () => {
+  test('startChain skips earlier chains, reports absolute indices, and starts pen-up', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, lmMotion: true, swapXY: false, invertX: false };
+    const ebb = new Ebb();
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    const plan = new Float64Array([0, 0, 2, 0, 0, 10, 0, 0, 0, 2, 20, 0, 30, 0, 0, 0, 2, 40, 0, 50, 0]);
+    const seen: number[] = [];
+    await ebb.plot(plan,
+      [{ name: 'a', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
+      direct, (p) => { if (p.chain !== undefined) seen.push(p.chain); },
+      undefined, undefined, undefined, undefined, 2);
+    // Only the third chain was drawn: one landing.
+    expect(port.commands.filter((c) => c === 'SP,0,150')).toHaveLength(1);
+    expect(Math.min(...seen)).toBe(2);
+    expect(seen.every((c) => c >= 2)).toBe(true);
+    // It travelled straight to chain 3's start (x=40) and drew to 50.
+    const sim = simulateLm(port.commands);
+    expect([sim.x, sim.y]).toEqual([5000, 0]);
+  });
+});
+
 describe('paper origin', () => {
   test('plots draw at the paper offset in bed coordinates; Set origin clears it', async () => {
     const port = new FakePort();

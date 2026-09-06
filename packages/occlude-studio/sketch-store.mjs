@@ -20,6 +20,7 @@
  *   DELETE /api/sketches/<name>/snapshots/<id>
  *   POST   /api/sketches/<name>/snapshots/<id>/fork {to?}
  *   GET/PUT /api/sketches/<name>/thumb          → PNG (also …/snapshots/<id>/thumb)
+ *   GET/PUT/DELETE /api/plot-progress → the one unfinished plot (resume record)
  *   GET    /api/pens             → pen library JSON (404 before first save)
  *   PUT    /api/pens             → save pen library JSON
  */
@@ -54,7 +55,8 @@ export function createSketchHandler(dir) {
     const isPens = url.pathname === '/api/pens';
     const isProfiles = url.pathname === '/api/profiles';
     const isPlotLog = url.pathname === '/api/plotlog';
-    if (!url.pathname.startsWith('/api/sketches') && !isPens && !isProfiles && !isPlotLog) {
+    const isProgress = url.pathname === '/api/plot-progress';
+    if (!url.pathname.startsWith('/api/sketches') && !isPens && !isProfiles && !isPlotLog && !isProgress) {
       if (next) return next();
       res.statusCode = 404;
       return res.end('{"error":"not found"}');
@@ -65,6 +67,31 @@ export function createSketchHandler(dir) {
       res.end(body);
     };
     try {
+      if (isProgress) {
+        // The one unfinished plot (sketch, source hash, seed, pen, paper
+        // offset, chain reached) — written every few chains by the studio,
+        // deleted when a plot completes or the user clears it. Survives a
+        // tab crash or a power loss; resume rebuilds the same plan.
+        const file = join(dir, 'plot-progress.json');
+        if (req.method === 'GET') {
+          const src = await fs.readFile(file, 'utf8').catch(() => null);
+          if (src === null) return send(404, '{"error":"no plot in progress"}');
+          return send(200, src);
+        }
+        if (req.method === 'PUT') {
+          const chunks = [];
+          for await (const c of req) chunks.push(c);
+          const body = Buffer.concat(chunks).toString('utf8');
+          JSON.parse(body);
+          await fs.writeFile(file, body);
+          return send(200, '{"ok":true}');
+        }
+        if (req.method === 'DELETE') {
+          await fs.rm(file, { force: true });
+          return send(200, '{"ok":true}');
+        }
+        return send(405, '{"error":"method"}');
+      }
       if (isPlotLog) {
         const file = join(dir, 'plots.jsonl');
         if (req.method === 'GET') {

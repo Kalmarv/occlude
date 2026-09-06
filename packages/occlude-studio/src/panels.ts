@@ -33,6 +33,8 @@ export interface PanelHooks {
   /** Paper colour changed: repaint the sheet, don't re-render the ink. */
   onPaperColor(hex: string): void;
   lastResult(): RenderResult | null;
+  /** The seed the current render actually used (resume checks it). */
+  currentSeed(): string | null;
   client: RenderClient;
   getSource(): string;
   openSketch(name: string, source: string): void;
@@ -721,6 +723,136 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     pauseBtn.textContent = p.state === 'paused' ? 'Resume' : 'Pause';
   }
 
+  /** The plan for the current render at a pen selection (undefined = all),
+   * with the bed-fit check. Shared by Plot and Resume so both plot the same
+   * chains in the same order. */
+  const buildPlan = async (r: RenderResult, penIndex: number | undefined): Promise<Float64Array | null> => {
+    // Match G-code export: machine resolution is the geometric error
+    // ceiling, with nib/4 avoiding needless points for broad pens.
+    const penTol = penIndex === undefined
+      ? r.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)
+      : (r.pens[penIndex]?.width ?? Infinity) / 4;
+    const tol = Math.max(0.0001, Math.min(prof().machine.resolution, penTol));
+    const plan = await hooks.client.exportToolpath(200_000, tol);
+    // Physical fit: refuse extents the bed cannot hold (placement is the
+    // operator's via the origins — the Frame button verifies that part).
+    const bb = planBbox(plan);
+    const bed = prof().machine;
+    const [ox, oy] = ebb.paperOffset;
+    if (ox + bb.x + bb.w > bed.bedW + 0.5 || oy + bb.y + bb.h > bed.bedH + 0.5) {
+      showErr(
+        `plan needs ${(ox + bb.x + bb.w).toFixed(0)}×${(oy + bb.y + bb.h).toFixed(0)}mm from the bed origin — ` +
+        `exceeds the ${prof().name} bed (${bed.bedW}×${bed.bedH}mm); not plotting`,
+      );
+      return null;
+    }
+    return plan;
+  };
+
+  // Saved progress: enough to rebuild the same plan and carry on from the
+  // chain the machine reached — after a stop, a crashed tab, or a power loss
+  // (re-park at the bed corner and Set bed origin first; the paper offset is
+  // restored from the record). Lives on the server next to the plot log.
+  interface SavedPlot {
+    sketch: string;
+    sourceHash: string;
+    seed: string | null;
+    penIndex: number | null;
+    paperOffset: [number, number];
+    chain: number;
+    chainTotal: number;
+    ts: string;
+  }
+  const hashSource = (src: string): string => {
+    let h = 5381;
+    for (let i = 0; i < src.length; i++) h = ((h * 33) ^ src.charCodeAt(i)) >>> 0;
+    return h.toString(16);
+  };
+  let saved: SavedPlot | null = null;
+  let lastSavedChain = -1;
+  let lastSavedAt = 0;
+  const progressRow = document.createElement('div');
+  progressRow.className = 'row';
+  const progressHint = document.createElement('div');
+  progressHint.className = 'panel-hint';
+  const showSaved = (): void => {
+    progressRow.hidden = !saved;
+    progressHint.hidden = !saved;
+    if (!saved) return;
+    const pen = saved.penIndex === null ? 'all pens' : `pen ${saved.penIndex}`;
+    progressHint.textContent =
+      `Saved plot: ${saved.sketch} \u00b7 ${pen} \u00b7 chain ${saved.chain} of ${saved.chainTotal} \u00b7 ` +
+      `paper at ${saved.paperOffset[0]}, ${saved.paperOffset[1]} mm \u00b7 ${new Date(saved.ts).toLocaleString()}. ` +
+      'To resume after a power loss: re-park at the bed corner, Set bed origin, then Resume.';
+  };
+  const putProgress = (p: SavedPlot): void => {
+    saved = p;
+    void fetch('/api/plot-progress', {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(p),
+    }).catch(() => undefined);
+  };
+  const clearProgress = (): void => {
+    saved = null;
+    lastSavedChain = -1;
+    void fetch('/api/plot-progress', { method: 'DELETE' }).catch(() => undefined);
+    showSaved();
+  };
+  void fetch('/api/plot-progress')
+    .then(async (res) => (res.ok ? ((await res.json()) as SavedPlot) : null))
+    .then((p) => {
+      saved = p;
+      showSaved();
+    })
+    .catch(() => undefined);
+
+  const runPlot = async (penIndex: number | undefined, startChain: number): Promise<void> => {
+    const r = hooks.lastResult();
+    if (!r) return;
+    const plan = await buildPlan(r, penIndex);
+    if (!plan) return;
+    const record = (chain: number, chainTotal: number): void => {
+      putProgress({
+        sketch: hooks.currentName(),
+        sourceHash: hashSource(hooks.getSource()),
+        seed: hooks.currentSeed(),
+        penIndex: penIndex ?? null,
+        paperOffset: [...ebb.paperOffset] as [number, number],
+        chain, chainTotal, ts: new Date().toISOString(),
+      });
+      lastSavedChain = chain;
+      lastSavedAt = Date.now();
+    };
+    hooks.livePlot.start(plan, r.pens);
+    try {
+      await ebb.plot(
+        plan,
+        r.pens,
+        opts(),
+        (p) => {
+          onProgress(p);
+          if (p.state === 'done') {
+            clearProgress();
+          } else if (p.state === 'plotting' || p.state === 'paused' || p.state === 'stopped') {
+            // Every 10 chains or 5 seconds — cheap, and never more than a few
+            // strokes behind the machine.
+            const chain = p.chain ?? 0;
+            if (chain !== lastSavedChain && (chain % 10 === 0 || Date.now() - lastSavedAt > 5000 || p.state === 'stopped')) {
+              record(chain, p.chainTotal ?? 0);
+              showSaved();
+            }
+          }
+        },
+        (name) => hooks.pens.find((p) => p.name === name),
+        () => ({ penUpPulse: prof().ebb.penUpPulse, penDownPulse: prof().ebb.penDownPulse }),
+        penIndex,
+        undefined,
+        startChain,
+      );
+    } finally {
+      hooks.livePlot.end();
+    }
+  };
+
   const plotBtn = button('\u25b6 Plot', async () => {
     if (!ebb.connected || ebb.plotting) return;
     const r = hooks.lastResult();
@@ -728,42 +860,37 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     try {
       refreshPenSelect();
       const raw = parseInt(penSelect.value, 10);
-      const allPens = raw === -1;
-      const penIndex = allPens ? undefined : Math.min(raw || 0, r.pens.length - 1);
-      // Match G-code export: machine resolution is the geometric error
-      // ceiling, with nib/4 avoiding needless points for broad pens.
-      const penTol = allPens
-        ? r.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)
-        : (r.pens[penIndex!]?.width ?? Infinity) / 4;
-      const tol = Math.max(0.0001, Math.min(prof().machine.resolution, penTol));
-      const plan = await hooks.client.exportToolpath(200_000, tol);
-      // Physical fit: refuse extents the bed cannot hold (placement is the
-      // operator's via Set origin — the Frame button verifies that part).
-      const bb = planBbox(plan);
-      const bed = prof().machine;
-      if (bb.x + bb.w > bed.bedW + 0.5 || bb.y + bb.h > bed.bedH + 0.5) {
-        showErr(
-          `plan needs ${(bb.x + bb.w).toFixed(0)}×${(bb.y + bb.h).toFixed(0)}mm from origin — ` +
-          `exceeds the ${prof().name} bed (${bed.bedW}×${bed.bedH}mm); not plotting`,
-        );
-        return;
-      }
-      hooks.livePlot.start(plan, r.pens);
-      await ebb.plot(
-        plan,
-        r.pens,
-        opts(),
-        onProgress,
-        (name) => hooks.pens.find((p) => p.name === name),
-        () => ({ penUpPulse: prof().ebb.penUpPulse, penDownPulse: prof().ebb.penDownPulse }),
-        penIndex,
-      );
+      const penIndex = raw === -1 ? undefined : Math.min(raw || 0, r.pens.length - 1);
+      await runPlot(penIndex, 0);
     } catch (e) {
       showErr(e);
-    } finally {
-      hooks.livePlot.end();
     }
   });
+  const resumeBtn = button('Resume saved plot', async () => {
+    if (!ebb.connected || ebb.plotting || !saved) return;
+    const r = hooks.lastResult();
+    if (!r) return;
+    try {
+      const s = saved;
+      if (hooks.currentName() !== s.sketch || hashSource(hooks.getSource()) !== s.sourceHash) {
+        throw new Error(`resume: load the saved sketch "${s.sketch}" unchanged first (Sketches page)`);
+      }
+      if ((hooks.currentSeed() ?? null) !== s.seed) {
+        throw new Error(`resume: the saved plot used seed ${s.seed}; open the sketch with that seed (?seed=${s.seed})`);
+      }
+      ebb.paperOffset = [...s.paperOffset] as [number, number];
+      showPaper();
+      const penIndex = s.penIndex === null ? undefined : s.penIndex;
+      await runPlot(penIndex, s.chain);
+    } catch (e) {
+      showErr(e);
+    }
+  });
+  resumeBtn.title =
+    'Rebuild the same plan (same sketch, source and seed) and carry on from the saved chain at the saved paper offset. ' +
+    'After a power loss: re-park at the bed corner and Set bed origin first.';
+  const clearSavedBtn = button('Clear saved plot', clearProgress);
+  progressRow.append(resumeBtn, clearSavedBtn);
   plotBtn.className = 'primary danger';
   plotBtn.title = 'Plot on the connected machine — pen and paper, for real';
   const pauseBtn = button('Pause', () => {
@@ -1228,6 +1355,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     plotRow,
     bar,
     progressText,
+    progressRow,
+    progressHint,
     manual.root,
     tuning.root,
     setup.root,

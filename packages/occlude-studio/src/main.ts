@@ -70,6 +70,7 @@ async function boot(): Promise<void> {
   // its session seed dies on watchdog respawn, so the main thread passes the
   // seed explicitly and captures whatever the worker actually used.
   let seed: string | null = new URL(location.href).searchParams.get('seed');
+  let seedUsed: string | null = null; // what the worker actually rendered with
 
   function renderSeedControls(used: string): void {
     statusSeed.innerHTML = '';
@@ -173,6 +174,7 @@ async function boot(): Promise<void> {
       `${s.renderMs.toFixed(1)}ms`;
     preview.setResult(result);
     uiPanel.setProbes(reply.probes);
+    seedUsed = reply.seedUsed;
     renderSeedControls(reply.seedUsed);
   }
 
@@ -209,6 +211,7 @@ async function boot(): Promise<void> {
     onChanged: () => void run(),
     onPaperColor: (hex) => preview.setPaperColor(hex),
     lastResult: () => lastResult,
+    currentSeed: () => seedUsed,
     getSource: () => editor.getValue(),
     openSketch: (name, source) => {
       sketchName = name;

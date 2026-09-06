@@ -1340,6 +1340,18 @@ Serial. What's under the hood, briefly, so its knobs make sense:
   commands are healed automatically and flagged. Visible drift mid-plot:
   Pause → jog the pen onto the origin mark → Set origin → Resume (the
   interrupted stroke's remainder stays pen-up; the next chain re-inks).
+- **Two origins**: *Set bed origin* zeroes the machine at the bed corner
+  the lift map was measured from (same corner every time); *Set paper
+  origin* records where the sheet is as an offset, without zeroing. Plots
+  draw at the offset; the map reads bed coordinates; Home returns to the
+  bed corner.
+- **Resume**: progress (sketch, source hash, seed, pen, paper offset, chain
+  reached) is saved on the server every few chains. After a stop, a crashed
+  tab, or a power loss, *Resume saved plot* rebuilds the same plan and
+  carries on from that chain at the saved offset — after a power loss,
+  re-park at the bed corner and Set bed origin first. *Clear saved plot*
+  forgets it. A board that stops answering mid-plot is recovered
+  automatically (emergency stop, position re-read, the chain redone).
 - **Pen changes**: no changer — multi-pen sketches plot one pen per run
   via the Plot-pen select; "all pens (one run)" runs a whole multi-pen
   plan with the installed pen, each chain using its own logical pen's

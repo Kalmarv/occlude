@@ -800,6 +800,10 @@ export class Ebb {
      * raised at connect). Both registers are restored at the end, on stop,
      * and re-derived after a pause. */
     servoFor?: (penIndex: number) => ServoOverride | undefined,
+    /** Resume: begin at this chain (index into the pen-filtered list, as
+     * reported in PlotProgress.chain). Chains before it are skipped; the
+     * first travel is at full lift from wherever the carriage is. */
+    startChain = 0,
   ): Promise<void> {
     interface Chain {
       pen: number;
@@ -823,6 +827,7 @@ export class Ebb {
       i += n * 2;
     }
     if (onlyPen !== undefined) chains = chains.filter((c) => c.pen === onlyPen);
+    const first = Math.max(0, Math.min(startChain, chains.length));
     // Totals for progress: the machine-time estimate sums the planner's
     // actual trapezoids per move — a stroke that never reaches feed (dense
     // corners, short segments) is counted at its planned speed, not the
@@ -837,7 +842,7 @@ export class Ebb {
       settleCurve: o.settleCurve,
     };
     const estimate: PlanEstimate = estimatePlanMs(
-      chains,
+      chains.slice(first), // what remains — the ETA is for the work ahead
       (pi) => {
         const base = pens[pi];
         const pen = (base && livePen?.(base.name)) ?? base;
@@ -964,7 +969,8 @@ export class Ebb {
 
     let stalls = 0;
     try {
-      let chainIndex = 0;
+      if (first > 0) await this.penUp(300); // resuming: make sure we travel raised
+      let chainIndex = first;
       while (chainIndex < chains.length) {
         const c = chains[chainIndex];
         curChain = chainIndex;
