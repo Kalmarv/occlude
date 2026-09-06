@@ -50,14 +50,18 @@ export type { SynthFn, SynthOpts, SynthStats, SynthBounds, WarpFn } from './synt
 export type { LabelOpts } from './font.js';
 export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fills.js';
 
-// Curves with attributes: hold, step, reinterpret (pure; the toolkit's
-// t.sample turns a shape into the starting positions).
+// Material: meshes with attributes and connections — hold, connect, step,
+// resample, reinterpret (pure; the toolkit's t.sample turns a shape into
+// material with its outline's connectivity).
 export {
-  curve, Curve, segmentRuns, neighbours, nearby, adjacent, separation, tension, drift,
-  attract, boundary, vortex, field, relax, force,
+  mesh, curve, append, connect, Mesh, segmentRuns, neighbours, extent, banding,
   add, sub, mul, length, distance, unit, limit, perp, sum, sumBy,
-} from './curve.js';
-export type { Vertex, Edge, Next, Snapshot, NeighbourStats, SegmentRun, Sources, Vec, XY } from './curve.js';
+  force,
+} from './mesh.js';
+export type {
+  Vertex, Edge, Curve, Next, Handle, Ref, ChildSpec, Snapshot, Transfer, NeighbourStats,
+  SegmentRun, Sources, PointsLike, Vec, XY,
+} from './mesh.js';
 
 // Units.
 export { w, h, s, long, mm, Len } from './units.js';

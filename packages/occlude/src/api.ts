@@ -40,6 +40,7 @@ import {
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { lowerToUserLoops, sketchFrame, unitMm } from './record.js';
+import { Mesh, mesh as meshOf } from './mesh.js';
 import { distanceTo } from './distance.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
@@ -777,18 +778,19 @@ function polylines(shape: ShapeValue, opts: { tolerance?: L } = {}): [number, nu
 }
 
 /**
- * A shape resampled along its outline — the explicit, lossy step from
- * exact geometry to points you can move one by one. Each polyline of the
- * shape (see `t.polylines`) comes back with `count` points, or as many as
- * fit at `spacing`, evenly spaced by arc length: a closed outline gets
- * `count` points around it (no duplicate seam), an open one gets `count`
- * points from end to end. Positions only — attributes are declared by
- * `curve()`: `curve(t.sample(circle(50, 50, 6), { count: 48 })[0], { age: 0 })`.
+ * A shape as sampled material — the explicit, lossy step from exact
+ * geometry to points you can move one by one. Each outline of the shape
+ * (see `t.polylines`) becomes a chain of the returned mesh with `count`
+ * vertices, or as many as fit at `spacing`, evenly spaced by arc length:
+ * a closed outline is a ring (no duplicate seam), an open one a chain
+ * from end to end; several outlines are separate chains in one mesh.
+ * Positions and connectivity only — attributes come from
+ * `.attribute()`: `t.sample(circle(50, 50, 6), { count: 48 }).attribute('age', 0)`.
  */
 function sample(
   shape: ShapeValue,
   opts: { count?: number; spacing?: L; tolerance?: L },
-): [number, number][][] {
+): Mesh {
   if ((opts.count === undefined) === (opts.spacing === undefined)) {
     throw new Error('sample: give exactly one of { count, spacing }');
   }
@@ -796,7 +798,9 @@ function sample(
   const unit = unitMm(frame);
   const closed = geomClosed(shape.geom);
   const spacingU = opts.spacing !== undefined ? resolveLen(opts.spacing, frame.inner) / unit : undefined;
-  return polylines(shape, { tolerance: opts.tolerance }).map((poly) => {
+  const pts: [number, number][] = [];
+  const edges: [number, number][] = [];
+  for (const poly of polylines(shape, { tolerance: opts.tolerance })) {
     const segs = closed ? poly.length : poly.length - 1;
     const cum = [0];
     for (let i = 0; i < segs; i++) {
@@ -806,8 +810,8 @@ function sample(
     }
     const total = cum[segs];
     const count = opts.count ?? Math.max(closed ? 3 : 2, Math.round(total / spacingU!));
-    if (count < 1 || total === 0) return [];
-    const out: [number, number][] = [];
+    if (count < 1 || total === 0) continue;
+    const first = pts.length;
     const steps = closed ? count : count - 1;
     let seg = 0;
     for (let k = 0; k < count; k++) {
@@ -817,10 +821,12 @@ function sample(
       const [x1, y1] = poly[(seg + 1) % poly.length];
       const len = cum[seg + 1] - cum[seg];
       const u = len > 0 ? (d - cum[seg]) / len : 0;
-      out.push([x0 + (x1 - x0) * u, y0 + (y1 - y0) * u]);
+      pts.push([x0 + (x1 - x0) * u, y0 + (y1 - y0) * u]);
+      if (k > 0) edges.push([first + k - 1, first + k]);
     }
-    return out;
-  });
+    if (closed && count > 2) edges.push([first + count - 1, first]);
+  }
+  return meshOf(pts, { edges });
 }
 
 /**

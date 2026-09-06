@@ -1193,31 +1193,88 @@ const density = (x, y) => {
 };
 ```
 
-## Curves & growth
+## Material: meshes, forces, growth
 
-Geometry you can hold, step, and reinterpret — in four layers that stay
-apart. **Material:** a `Curve` is an ordered chain of vertices, closed
-unless told otherwise, with positions and any named attributes in columns;
-connectivity is the order. **Numbers:** a small vector vocabulary (`add`,
-`sub`, `mul`, `length`, `distance`, `unit`, `limit`, `perp`, `sum`, `sumBy`)
-that knows nothing about pens or growth. **Rules and forces:**
-`curve.steps()` runs a rule you write; forces are prepared once with their
-sources and evaluated at a point to a vector — `nearby` finds and adds up
-interactions, and `tension`, `separation`, `drift` are recipes written on
-it that you can copy and change. **Drawing:** `segmentRuns` turns an
-attribute into strokes. All pure imports; `t.sample` sits on the toolkit
-because it reads the paper.
+Geometry you can hold, connect, step, resample and reinterpret. A `Mesh`
+is vertices — `x`, `y` and any named attribute columns — plus an edge
+list. A ring, an open chain, a branching tree and an unconnected cloud
+are all meshes; a `Curve` is a chain the mesh hands back for drawing.
+Meshes are values: every operation returns a new one, so an evolution can
+be kept and any state chosen later. Indices are rows of one state, not
+identities. Four layers, kept apart:
+
+| layer | what |
+|---|---|
+| material | `t.sample(shape)`, `mesh(points)`, `curve(pts)`; `connect.*`; `.attribute()`, `.resample()` |
+| numbers | `add sub mul length distance unit limit perp sum sumBy` — tuples out, either spelling in, nothing mutated |
+| rules | `.steps(n, (current, next, k) => …)` with collection edits; forces prepared once, evaluated at a point |
+| drawing | `.curves()`, `segmentRuns`, `extent`, `banding` — then `stroke`, `polygon`, `circle` |
+
+All pure imports except `t.sample`, which reads the paper. The exact
+shapes stay exact through the engine; sampling is the one, explicit,
+lossy step into this world.
+
+### material
+
+`t.sample(shape, { count | spacing, tolerance? })` — each outline of the
+shape becomes a chain: a closed outline a ring, an open one a chain from
+end to end, several outlines separate chains in one mesh. `mesh(points,
+{ edges?, ...columns })` — from tuples or `{x, y}` objects (a scatter
+point's `w` becomes a column), unconnected unless edges are given.
+`curve(pts, { closed?, ...columns })` — a ring or chain from positions.
+`m.attribute(name, constant | p => value)` adds a column and returns a
+new mesh. Access: `m.points` (vertex views `{ index, x, y, ...attrs }`),
+`m.pts` (tuples), `m.x`/`m.y`/`m.attrs.age` (the columns), `m.connected(i)`,
+`m.degree(i)`, `m.edges`, `m.curves()`.
+
+```ts live
+import { sketch, stroke, polygon, circle, mesh, fill, mm } from 'occlude';
+
+// Attributes ride with the geometry: a scatter's `w` becomes a column,
+// a derived `far` column is added, and two interpretations read the same
+// material — dots sized by w on the left, the far ones ringed on the right.
+export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
+  const cloud = mesh(t.scatter((x, y) => 1 - Math.hypot(x - 25, y - 25) / 30, { spacing: 3 }))
+    .attribute('far', (p) => Math.hypot(p.x - 25, p.y - 25) > 14 ? 1 : 0);
+  return [
+    cloud.points.map((p) => circle(p.x, p.y, 0.3 + p.w)),
+    cloud.points.filter((p) => p.far).map((p) => circle(p.x + 50, p.y, 1.5)),
+  ];
+});
+```
+
+### connect
+
+`connect.chain(m)` and `connect.ring(m)` join consecutive rows in the
+given order (no route is inferred). `connect.nearest(m, { count })` joins
+each vertex to its `count` nearest others — undirected, no duplicates,
+self excluded, ties to the lower row. `connect.pairs(a, b)` joins row i of
+`a` to row i of `b` in one mesh, lengths must match, coincident points stay
+distinct. `connect.triangulate(m)` adds the Delaunay edges. `append(a, b)`
+puts two meshes in one. (`t.scatter(...).cells()` and `.mesh()` remain the
+polygon views: Voronoi cells and Delaunay triangles as loops to stamp.)
+
+```ts live
+import { sketch, stroke, circle, mesh, connect } from 'occlude';
+
+// Two ways to connect one cloud: nearest-3 on the left, Delaunay on the
+// right — each edge drawn once through curves().
+export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
+  const pts = t.scatter({ spacing: 5 }).map((p) => [p.x / 2 + 2, p.y]);
+  const left = connect.nearest(mesh(pts), { count: 3 });
+  const right = connect.triangulate(mesh(pts.map(([x, y]) => [x + 50, y])));
+  return [left, right].flatMap((m) => m.curves().map((c) => stroke(c)));
+});
+```
 
 ### vectors
 
 Vectors are tuples `[x, y]`. Every operation accepts either spelling
 (`[x, y]` or `{ x, y }`, so a vertex view goes straight in), returns a
 fresh tuple, and never mutates an argument. `unit([0, 0])` is `[0, 0]`:
-coincident points contribute no direction and no NaN. `limit(v, max)` caps a
-length — the guard that keeps a rule with strong pushes from throwing a
-point across the page in one step. `sumBy(items, fn)`
-is the vector total of your function over a collection, accumulated in
-order — the shape of most forces.
+coincident points contribute no direction and no NaN. `mul` is scalar
+multiplication only. `limit(v, max)` caps a length. `sumBy(items, fn)` is
+the vector total of your function over a collection, accumulated in order.
 
 ```ts live
 import { sketch, line, circle, sub, mul, unit, length, sumBy } from 'occlude';
@@ -1237,97 +1294,51 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
-### curve
-
-`curve(pts, { closed?, ...attrs })` — positions (either spelling) plus
-attribute columns, each a constant per vertex (`{ age: 0 }`) or a full
-column. `c.points` are vertex views `{ index, x, y, ...attrs }`; `c.pts` is
-tuples for `polygon`/`distanceTo`; `c.contour` stamps with `stroke`;
-`c.prev(i)`/`c.next(i)`/`c.edges` walk the connectivity.
-
-```ts live
-import { sketch, stroke, polygon, circle, curve, fill, mm } from 'occlude';
-
-// Attributes ride with the geometry: a lumpy ring carries a `bump`
-// column, and two interpretations read the same material — the area
-// hatched on the left, the bumps picked out as dots on the right.
-export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
-  const bump = t.times(40, () => (t.chance(0.2) ? 1 : 0));
-  const ring = curve(
-    bump.map((b, i) => {
-      const a = (i / 40) * Math.PI * 2;
-      return [30 + Math.cos(a) * (14 + b * 4), 25 + Math.sin(a) * (14 + b * 4)];
-    }),
-    { bump },
-  );
-  return [
-    polygon(ring.pts, { fill: fill('hatch', { angle: 30, spacing: mm(1.5) }) }),
-    stroke({ pts: ring.pts.map(([x, y]) => [x + 40, y]), closed: true }),
-    ring.points.filter((p) => p.bump).map((p) => circle(p.x + 40, p.y, 1.2)),
-  ];
-});
-```
-
-### sample
-
-`t.sample(shape, { count | spacing, tolerance? })` — the explicit, lossy
-step from exact geometry to points you can move one by one: each
-polyline of the shape resampled evenly by arc length, `count` points
-around a closed outline (no duplicate seam) or end to end on an open one.
-Positions only; attributes are declared by `curve()`.
-
-```ts live
-import { sketch, circle, rect, curve, stroke } from 'occlude';
-
-export default sketch({ aspect: [2, 1] }, (t) => [
-  circle(25, 25, 15),
-  curve(t.sample(circle(25, 25, 15), { count: 24 })[0]).points.map((p) => circle(p.x, p.y, 0.8)),
-  curve(t.sample(rect(60, 10, 30, 30), { spacing: 3 })[0]).points.map((p) => circle(p.x, p.y, 0.8)),
-]);
-```
-
 ### forces
 
 A force is prepared once with its sources, then evaluated at a point to a
 vector; nothing moves until the rule says so. Two callback shapes cover
 the field. `p => vector` — wind, drift, a vector field — works in `sum`
 as it is. `(p, q) => vector` — an interaction with another point — goes
-through `nearby`, which finds every source `q` within a radius of `p`
-(spatial index built once, here) and sums your contributions:
+through `force.nearby`, which finds every source `q` within a radius of
+`p` (spatial index built once, for that frozen state) and sums your
+contributions:
 
 ```ts
 const repel = force.nearby(sources, { radius }, (p, q) => {
   const delta = sub(p, q);
   return mul(unit(delta), radius - length(delta));
 });
-next.move(p.index, mul(repel(p), speed));
+next.move((p) => mul(repel(p), speed));
 ```
 
-`sources` is a curve (then `q` is a vertex view with `index` and
-attributes) or any list of points. A vertex never interacts with itself
-when its own curve is the source; nothing else is skipped unless you say
-so — `skip: adjacent(curve)` is the explicit "not my chain neighbours".
-The named recipes are ordinary functions on this mechanism; `force` is
-the same set as one namespace.
+`sources` is a mesh (then `q` is a vertex view) or any list of points —
+the mesh being moved, or obstacles that stay put. A vertex of the source
+mesh never interacts with itself: membership in that state decides, not
+coordinates or an index from another collection. Nothing else is skipped
+unless you say so — `excludeConnected: true` on the recipes, or `skip:
+force.adjacent(m)` on `nearby`, is the explicit "not what I'm connected
+to". The named recipes are short ordinary functions on this mechanism;
+copy one beside your own and change it.
 
 | recipe | prepare with | evaluate | vector |
 |---|---|---|---|
-| `tension(curve, { rest })` | the state; reads prev/next | `pull(p)` | toward each chain neighbour by the gap beyond `rest` (slack, not a spring) |
-| `separation(curve, { radius })` | the state; index once; skips chain neighbours | `repel(p)` | away from every other vertex within the radius, linearly to zero at the edge |
-| `drift(noise, { amount, frequency?, rate? })` | a noise function — pass `t.noise`, it owns no seed | `wander(p, k)` | a direction read from the noise, turning with the iteration |
-| `attract(sources, { radius, strength?, skip? })` | a curve or anchor points; index once | `pull(p)` | toward each source, `strength` when touching, zero at the radius |
-| `boundary(loops, { radius, strength? })` | boundary loops, as `distanceTo` takes them | `keep(p)` | inward within `radius` of the edge and everywhere outside; zero deeper in |
-| `vortex(centre, { strength, falloff? })` | a point | `swirl(p)` | tangential around the centre, fading as `1 / (1 + d / falloff)` |
-| `field(vectorField, { strength? })` | a `grad`/`curl`/hand-written field | `flow(p)` | the field at p — the adapter into `sum` |
-| `relax(curve, { amount? })` | the state; reads prev/next | `smooth(p)` | toward the midpoint of the chain neighbours (Laplacian smoothing) |
-| `nearby(sources, { radius, skip? }, (p, q) => v)` | any points; index once | `f(p)` | the sum of your contributions |
+| `force.tension(m, { rest })` | the state; reads connections | `pull(p)` | toward each connected neighbour by the gap beyond `rest` (slack, not a spring) |
+| `force.separation(sources, { radius, excludeConnected? })` | any points; index once | `repel(p)` | away from every source within the radius, linearly to zero at the edge, `radius` when touching |
+| `force.attract(sources, { radius, strength?, excludeConnected? })` | any points; index once | `pull(p)` | toward each source, `strength` when touching, zero at the radius |
+| `force.drift(noise, { amount, frequency?, rate? })` | a noise function — pass `t.noise`, it owns no seed | `wander(p, k)` | a direction read from the noise, turning with the iteration |
+| `force.boundary(loops, { radius, strength? })` | boundary loops, as `distanceTo` takes them | `keep(p)` | inward within `radius` of the edge and everywhere outside; zero deeper in |
+| `force.vortex(centre, { strength, falloff? })` | a point | `swirl(p)` | tangential around the centre, fading as `1 / (1 + d / falloff)` |
+| `force.field(vectorField, { strength? })` | a `grad`/`curl`/hand-written field | `flow(p)` | the field at p — the adapter into `sum` |
+| `force.relax(m, { amount? })` | the state; reads connections | `smooth(p)` | toward the mean of the connected neighbours (Laplacian smoothing) |
+| `force.nearby(sources, { radius, skip? }, (p, q) => v)` | any points; index once | `f(p)` | the sum of your contributions |
 
 ```ts live
-import { sketch, stroke, circle, curve, force, sub, unit, length, sum, mul } from 'occlude';
+import { sketch, stroke, circle, force, sub, unit, length, sum, mul } from 'occlude';
 
 // Sources need not be the moving geometry: a ring grows among fixed
-// obstacles that shove it away — one interaction written in place, one
-// recipe, one drift — and the obstacles are drawn as what they are.
+// obstacles that shove it away — one interaction written in place, two
+// recipes, one drift — and the obstacles are drawn as what they are.
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const obstacles = t.times(9, (i) => [12 + i * 9.5, 10 + (i % 2) * 30]);
   const avoid = force.nearby(obstacles, { radius: 9 }, (p, q) => {
@@ -1335,11 +1346,10 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
     return mul(unit(delta), (9 - length(delta)) * 0.6);
   });
   const wander = force.drift(t.noise, { amount: 0.3 });
-  const start = curve(t.sample(circle(50, 25, 6), { count: 36 })[0]);
-  const grown = start.steps(70, (cur, next, k) => {
+  const grown = t.sample(circle(50, 25, 6), { count: 36 }).steps(70, (cur, next, k) => {
     const pull = force.tension(cur, { rest: 1.2 });
-    const repel = force.separation(cur, { radius: 2.4 });
-    for (const p of cur.points) next.move(p.index, mul(sum(pull(p), repel(p), avoid(p), wander(p, k)), 0.2));
+    const repel = force.separation(cur, { radius: 2.4, excludeConnected: true });
+    next.move((p) => mul(sum(pull(p), repel(p), avoid(p), wander(p, k)), 0.2));
     next.splitEdges((e) => e.length > 1.3 && t.chance(0.3), { attributes: {} });
   });
   return [obstacles.map(([x, y]) => circle(x, y, 1.2)), stroke(grown.contour)];
@@ -1347,26 +1357,24 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
 ```
 
 ```ts live
-import { sketch, stroke, circle, curve, curl, sub, perp, unit, mul, sum, length } from 'occlude';
+import { sketch, stroke, circle, curl, force, sum, mul } from 'occlude';
 
-// The other shape, p => vector, needs no helper: a vortex around the centre
-// and a noise field, summed, relax a ring with no growth at all — the same
-// `.steps()` verb, a different rule. Every 6th state is kept and drawn.
+// The other shape, p => vector, needs no helper: a vortex and a curl
+// field relax a ring with no growth at all — the same `.steps()` verb, a
+// different rule. Every 8th state is kept and drawn.
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
-  const centre = { x: 50, y: 25 };
-  const vortex = (p) => mul(perp(unit(sub(p, centre))), 8 / (length(sub(p, centre)) + 4));
-  const field = curl((x, y) => t.noise(x / 12, y / 12) * 6);
-  const flow = (p) => field(p.x, p.y);
-  const ring = curve(t.sample(circle(50, 25, 14), { count: 80 })[0]);
-  const swirled = ring.steps(48, (cur, next) => {
-    for (const p of cur.points) next.move(p.index, mul(sum(vortex(p), flow(p)), 0.25));
-  }, { every: 6 });
-  return swirled.history.map((h) => stroke(h.curve.contour));
+  const swirl = force.vortex({ x: 50, y: 25 }, { strength: 6, falloff: 8 });
+  const flow = force.field(curl((x, y) => t.noise(x / 12, y / 12) * 6));
+  const relaxed = t.sample(circle(50, 25, 14), { count: 80 }).steps(64, (cur, next) => {
+    const smooth = force.relax(cur, { amount: 0.3 });
+    next.move((p) => mul(sum(swirl(p), flow(p), smooth(p)), 0.25));
+  }, { every: 8 });
+  return relaxed.history.map((h) => stroke(h.mesh.contour));
 });
 ```
 
 ```ts live
-import { sketch, stroke, circle, rect, curve, force, sum, mul } from 'occlude';
+import { sketch, stroke, circle, rect, force, sum, mul } from 'occlude';
 
 // Kept on the page: `boundary` pushes the growth back from the frame's
 // edge, `attract` draws it toward three anchors, and the rest is the
@@ -1377,117 +1385,183 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const anchors = [[20, 25], [50, 12], [80, 38]];
   const toward = force.attract(anchors, { radius: 30, strength: 0.6 });
   const wander = force.drift(t.noise, { amount: 0.2 });
-  const grown = curve(t.sample(circle(50, 25, 5), { count: 30 })[0]).steps(80, (cur, next, k) => {
+  const grown = t.sample(circle(50, 25, 5), { count: 30 }).steps(80, (cur, next, k) => {
     const pull = force.tension(cur, { rest: 1.2 });
-    const repel = force.separation(cur, { radius: 2.4 });
-    for (const p of cur.points) {
-      next.move(p.index, mul(sum(pull(p), repel(p), keep(p), toward(p), wander(p, k)), 0.2));
-    }
+    const repel = force.separation(cur, { radius: 2.4, excludeConnected: true });
+    next.move((p) => mul(sum(pull(p), repel(p), keep(p), toward(p), wander(p, k)), 0.2));
     next.splitEdges((e) => e.length > 1.3 && t.chance(0.3), { attributes: {} });
   });
   return [frame, anchors.map(([x, y]) => circle(x, y, 1)), stroke(grown.contour)];
 });
 ```
 
-```ts live
-import { sketch, stroke, circle, curve, curl, force, sum, mul } from 'occlude';
-
-// No growth: the same ring relaxed under three named forces — a vortex, a
-// curl field, and Laplacian smoothing — every 8th state kept. Change one
-// number, or swap a recipe for your own `p => vector`.
-export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
-  const swirl = force.vortex({ x: 50, y: 25 }, { strength: 6, falloff: 8 });
-  const flow = force.field(curl((x, y) => t.noise(x / 12, y / 12) * 6));
-  const ring = curve(t.sample(circle(50, 25, 14), { count: 80 })[0]);
-  const relaxed = ring.steps(64, (cur, next) => {
-    const smooth = force.relax(cur, { amount: 0.3 });
-    for (const p of cur.points) next.move(p.index, mul(sum(swirl(p), flow(p), smooth(p)), 0.25));
-  }, { every: 8 });
-  return relaxed.history.map((h) => stroke(h.curve.contour));
-});
-```
-
 ### steps
 
-`curve.steps(n, (current, next, k) => …, { every? })` — THE iteration
-operation: run a rule `n` times and return the final curve, ready for
-further operations. Growth, relaxation and erosion are different rules
-for this one verb; `.steps(1, rule)` is a single transition. The rule
-reads `current` (frozen) and describes `next`, which starts as a copy:
-`next.move(index, [dx, dy])` displaces, `next.set(index, { age })` writes
-attributes, `next.splitEdges(where, { at?, attributes })` inserts vertices
-on the MOVED edges — moves apply first, then `where(edge)` sees each edge
-as it will be. Every attribute of an inserted vertex must be given:
-inheriting, interpolating or resetting is the rule's decision, never a
-silent default. `attributes` may be a function of the split edge, and
-`parent` rewrites the start vertex — how an attribute that belongs to the
-EDGE (kept on its start vertex) is divided between the children:
-`splitEdges(where, { attributes: (e) => ({ age: 0, rest: e.a.rest / 2 }), parent: (e) => ({ rest: e.a.rest / 2 }) })`
-conserves a material rest length through every split.
+`m.steps(n, (current, next, k) => …, { every? })` — THE iteration
+operation: run a rule `n` times and return the final mesh, ready for
+further operations. Growth, relaxation, deformation and erosion are
+different rules for this one verb; `.steps(1, rule)` is a single
+transition. The rule reads `current` (frozen — every callback sees the
+same state, no edit changes what a later one reads) and describes `next`,
+which starts as a copy:
+
+| edit | meaning |
+|---|---|
+| `next.move(p => vector, { where? })` / `next.move(i, vector)` | displacement; several moves add up |
+| `next.set(p => attrs, { where? })` / `next.set(i, attrs)` | write attributes; the last write of a key wins |
+| `next.splitEdges(e => bool, { at?, attributes, parent? })` | insert a vertex on each accepted edge of the MOVED state — moves first, then `where` sees each edge as it will be |
+| `next.addPoint(position, attributes)` → handle | a new vertex; the handle names it within this batch |
+| `next.connect(a, b)` | an edge between rows and/or handles |
+| `next.extend(p => spec \| spec[], { where? })` | for each selected vertex, add the child(ren) `{ position, attributes }` and connect them to it |
+
+Every attribute of a new vertex must be given: inheriting, interpolating
+or resetting is the rule's decision, never a silent default. `attributes`
+of a split may be a function of the edge, and `parent` rewrites the start
+vertex — how an attribute that belongs to the edge is divided between the
+children. Structural edits apply after moves and sets; a bad reference
+(a row that does not exist, a handle from another batch) is an error, not
+a dropped edit.
 
 By default only the final state is kept. `{ every: m }` also captures
 iteration 0, every m-th iteration, and the final one — each once, labelled
-— on the result's `history` as `{ iteration, curve }`; nothing a later
+— on the result's `history` as `{ iteration, mesh }`; nothing a later
 step does can disturb a snapshot, and `iteration` keeps counting across
 calls. Each sketch run recomputes from the start: scrubbing an iteration
 control re-runs the growth to that point.
 
-The rule below uses the three recipes from the forces section:
-
 ```ts live
-import { sketch, stroke, curve, separation, tension, sum, mul } from 'occlude';
+import { sketch, stroke, circle, force, sum, mul } from 'occlude';
 
-// Differential growth in twelve lines: tension + separation + seeded
-// noise, split the stretched edges, keep every iteration.
+// Differential growth in ten lines: tension + separation + seeded drift,
+// split the stretched edges, keep every 12th state (left) and the final
+// one (right).
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  const start = curve(t.sample(t.circle(25, 25, 5), { count: 24 })[0], { age: 0 });
-  const grown = start.steps(60, (cur, next, k) => {
-    const pull = tension(cur, { rest: 0.8 });
-    const repel = separation(cur, { radius: 2 });
-    for (const p of cur.points) {
-      const a = t.noise(p.x * 0.1, p.y * 0.1, k * 0.02) * Math.PI * 2;
-      next.move(p.index, mul(sum(pull(p), repel(p), [Math.cos(a) * 0.1, Math.sin(a) * 0.1]), 0.15));
-      next.set(p.index, { age: p.age + 1 });
-    }
+  const wander = force.drift(t.noise, { amount: 0.1, frequency: 0.1, rate: 0.02 });
+  const grown = t.sample(circle(25, 25, 5), { count: 24 }).attribute('age', 0).steps(60, (cur, next, k) => {
+    const pull = force.tension(cur, { rest: 0.8 });
+    const repel = force.separation(cur, { radius: 2, excludeConnected: true });
+    next.move((p) => mul(sum(pull(p), repel(p), wander(p, k)), 0.15));
+    next.set((p) => ({ age: p.age + 1 }));
     next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
   }, { every: 12 });
-  // Every 12th iteration as ghosts on the left, the final one on the right.
   return [
-    grown.history.map((h) => stroke(h.curve.contour)),
+    grown.history.map((h) => stroke(h.mesh.contour)),
     stroke({ pts: grown.pts.map(([x, y]) => [x + 50, y]), closed: true }),
   ];
 });
 ```
 
-### segmentRuns
+```ts live
+import { sketch, stroke, circle, mesh, force, add, mul, sub, unit, perp } from 'occlude';
 
-`segmentRuns(curve, (a, b) => key)` — classify every edge by its two
-vertices and gather consecutive equal keys into runs, each a stampable
-contour with `key`, `from`, `to`. Runs meet end to end and never split
-across a closed curve's seam; a uniform closed curve is one closed run.
-The classification is yours: a vertex attribute needs an interpretation
-before it can own an edge — the start vertex's (`(a) => band(a.age)`),
-the end's, both, either, or their mean are all different drawings.
+// Branching through ordinary edits: active tips extend along their
+// heading (bent by noise), fork now and then, and hand their activity to
+// the children. Junctions are just vertices with three edges; curves()
+// walks each arm once.
+export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
+  const seed = mesh([[50, 48]], { active: 1, heading: -Math.PI / 2, depth: 0 });
+  const tree = seed.steps(26, (cur, next, k) => {
+    next.extend((p) => {
+      // a little noise in the heading (noise is −1…1), and a pull back toward straight up
+      const turn = t.noise(p.x / 9, p.y / 9, k) * 0.2 - (p.heading + Math.PI / 2) * 0.15;
+      const fork = p.depth < 3 && t.chance(0.22);
+      const children = fork ? [p.heading - 0.45 + turn, p.heading + 0.45 + turn] : [p.heading + turn];
+      return children.map((h) => ({
+        position: add(p, [Math.cos(h) * 2.2, Math.sin(h) * 2.2]),
+        attributes: { active: 1, heading: h, depth: p.depth + (fork ? 1 : 0) },
+      }));
+    }, { where: (p) => p.active === 1 && p.y > 4 });
+    next.set(() => ({ active: 0 }), { where: (p) => p.active === 1 });
+  });
+  return [tree.curves().map((c) => stroke(c)), tree.points.filter((p) => p.active).map((p) => circle(p.x, p.y, 0.6))];
+});
+```
 
 ```ts live
-import { sketch, stroke, curve, separation, tension, sum, mul, segmentRuns } from 'occlude';
+import { sketch, stroke, circle, mesh, force, sum, mul } from 'occlude';
 
-// The same grown ring, cut into runs by age band: young edges in one
-// pen, old ones in another — chosen after the growth, not inside it.
+// A point cloud, no topology at all: forces still work, and the obstacles
+// that push it are a separate sampled outline that never moves. Sampled
+// obstacle repulsion is not the continuous `boundary` — both are useful.
+export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
+  const cloud = mesh(t.scatter({ spacing: 2.2 }).map((p) => [p.x / 2 + 2, p.y]))
+    .attribute('mobility', (p) => (p.y < 10 ? 0 : 1));
+  const wall = t.sample(circle(50, 25, 9), { spacing: 0.8 });
+  const avoid = force.separation(wall, { radius: 6 });
+  const wind = (p) => [1.2, Math.sin(p.y * 0.3) * 0.4];
+  const moved = cloud.steps(40, (cur, next) => {
+    next.move((p) => mul(sum(avoid(p), wind(p)), p.mobility * 0.5));
+  });
+  return [stroke(wall.contour), moved.points.map((p) => circle(p.x, p.y, 0.35))];
+});
+```
+
+### resample
+
+`m.resample({ spacing | count, transfer? })` — redistribute a deformed
+chain's vertices evenly by arc length. Chains only (a junction is an
+error, for now). Open chains keep both endpoints, closed ones their seam
+at the first vertex; separate chains stay separate. Corners are NOT
+preserved: a new vertex lands on the old polyline, but a corner between
+two new vertices is cut. Attributes carry over per `transfer`: linear
+interpolation for every column by default; `'nearest'` (ties to the start
+vertex), a constant, or a function `(a, b, t) => value` per column say
+otherwise — a display curve may interpolate `age`, a simulation point may
+want it reset. Splitting adds detail and keeps every vertex; resampling
+may remove them. Neither smooths.
+
+```ts live
+import { sketch, stroke, circle, rect, force, mul } from 'occlude';
+
+// A rectangle's outline pushed around by a vortex, then resampled evenly
+// for the pen: left as deformed (vertices drawn), right resampled at 1.5.
+export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
+  const swirl = force.vortex({ x: 25, y: 25 }, { strength: 5, falloff: 6 });
+  const bent = t.sample(rect(10, 10, 30, 30), { spacing: 3 }).steps(30, (cur, next) => {
+    next.move((p) => mul(swirl(p), 0.3));
+  });
+  const even = bent.resample({ spacing: 1.5 });
+  return [
+    stroke(bent.contour), bent.points.map((p) => circle(p.x, p.y, 0.35)),
+    stroke({ pts: even.pts.map(([x, y]) => [x + 50, y]), closed: true }),
+    even.points.map((p) => circle(p.x + 50, p.y, 0.35)),
+  ];
+});
+```
+
+### segmentRuns, extent, banding
+
+`extent(column)` is `[min, max]` (`[0, 0]` when empty). `banding({ min,
+max, count })` is a classifier into `count` equal bands, clamped at both
+ends, everything in band 0 for a constant range. `segmentRuns(m, (a, b)
+=> key)` classifies every edge by its two vertices (a → b in stored
+order) and gathers consecutive equal keys into runs, chain by chain: runs
+end at endpoints and junctions, never split across a closed chain's seam,
+and meet end to end so together they redraw every edge once; a uniform
+closed chain is one closed run. The key type is whatever your classifier
+returns. The classification is yours: a vertex attribute needs an
+interpretation before it can own an edge — the start vertex's, the end's,
+both, or their mean are different drawings. Measurement, classification
+and pen assignment stay three separate lines.
+
+```ts live
+import { sketch, stroke, circle, force, sum, mul, segmentRuns, extent, banding } from 'occlude';
+
+// The same grown ring, cut into runs by age band: young edges in one pen,
+// old ones in another — chosen after the growth, not inside it.
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  const start = curve(t.sample(t.circle(50, 25, 5), { count: 24 })[0], { age: 0 });
-  const last = start.steps(60, (cur, next, k) => {
-    const pull = tension(cur, { rest: 0.8 });
-    const repel = separation(cur, { radius: 2 });
-    for (const p of cur.points) {
-      const a = t.noise(p.x * 0.1, p.y * 0.1, k * 0.02) * Math.PI * 2;
-      next.move(p.index, mul(sum(pull(p), repel(p), [Math.cos(a) * 0.1, Math.sin(a) * 0.1]), 0.15));
-      next.set(p.index, { age: p.age + 1 });
-    }
+  const wander = force.drift(t.noise, { amount: 0.1, frequency: 0.1, rate: 0.02 });
+  const last = t.sample(circle(50, 25, 5), { count: 24 }).attribute('age', 0).steps(60, (cur, next, k) => {
+    const pull = force.tension(cur, { rest: 0.8 });
+    const repel = force.separation(cur, { radius: 2, excludeConnected: true });
+    next.move((p) => mul(sum(pull(p), repel(p), wander(p, k)), 0.15));
+    next.set((p) => ({ age: p.age + 1 }));
     next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
   });
-  const old = (age) => (age > 30 ? 1 : 0);
-  return segmentRuns(last, (a) => old(a.age)).map((r) => stroke(r, { pen: r.key ? 'pigma-005-black' : 'stabilo-88-blue' }));
+  const [young, old] = extent(last.attrs.age);
+  const band = banding({ min: young, max: old, count: 2 });
+  const pens = ['stabilo-88-blue', 'pigma-005-black'];
+  return segmentRuns(last, (a, b) => band((a.age + b.age) / 2)).map((r) => stroke(r, { pen: pens[r.key] }));
 });
 ```
 

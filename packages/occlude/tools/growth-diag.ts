@@ -11,7 +11,7 @@
  * candidates examined vs actual neighbours within the radius, interval
  * ms, and points retained in history (0 without --history).
  */
-import { curve, neighbours, sub, mul, length, unit, limit, perp, sum, sumBy, type Curve, type NeighbourStats, type Vertex } from '../src/index.js';
+import { curve, neighbours, sub, mul, length, unit, limit, perp, sum, sumBy, type Mesh, type NeighbourStats, type Vertex, type Next } from '../src/index.js';
 import { Rng } from '../src/random.js';
 
 const args = process.argv.slice(2);
@@ -67,7 +67,7 @@ const shove = (p: Vertex, q: Vertex) => {
 const pull = pullKind === 'spring' ? spring : slackPull;
 const repel = repelKind === 'inverse' ? shove : repelFrom;
 const rule = ruleName === 'alt'
-  ? (current: Curve, next: import('../src/index.js').Next) => {
+  ? (current: Mesh, next: Next) => {
       const near = neighbours(current, { radius: push, stats });
       for (const p of current.points) {
         const prev = current.prev(p.index);
@@ -84,7 +84,7 @@ const rule = ruleName === 'alt'
       }
       next.splitEdges((e) => e.length > splitAt && chance(grow), { attributes: { age: 0 } });
     }
-  : (current: Curve, next: import('../src/index.js').Next, k: number) => {
+  : (current: Mesh, next: Next, k: number) => {
       const near = neighbours(current, { radius: push, stats });
       for (const p of current.points) {
         const prev = current.prev(p.index);
