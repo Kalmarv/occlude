@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>occlude sketches</title>
+    <title>occlude machine</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -12,26 +12,18 @@
       rel="stylesheet"
     />
   </head>
-  <body class="docs-body">
+  <body class="docs-body machine-body">
     <header id="topbar">
-      <span class="wordmark">occlude<span class="wordmark-dot">·</span>sketches</span>
+      <span class="wordmark">occlude<span class="wordmark-dot">·</span>machine</span>
       <div class="topbar-actions">
         <a class="topbar-link" href="/" rel="noopener">Studio</a>
+        <a class="topbar-link" href="/sketches.html" rel="noopener">Sketches</a>
         <a class="topbar-link" href="/fills.html" rel="noopener">Fills</a>
         <a class="topbar-link" href="/assets.html" rel="noopener">Assets</a>
-        <a class="topbar-link" href="/machine.html" rel="noopener">Machine</a>
         <a class="topbar-link" href="/docs.html" rel="noopener">Docs</a>
       </div>
     </header>
-    <main id="sketches-main">
-      <p class="assets-hint">
-        Every save is a dot and time runs up the page. A <b>fork</b> splits off the save it was taken
-        from and climbs its own chain; a <b>snapshot</b> hangs off the save it froze, seed and all,
-        and the current render tops each chain. Click a card to open its family; click a dot or a
-        picture for a preview and its open, fork, and delete buttons.
-      </p>
-      <div id="sketches-families"></div>
-    </main>
-    <script type="module" src="/src/sketchesPage.ts"></script>
+    <main id="machine-main"></main>
+    <script type="module" src="/src/machinePage.ts"></script>
   </body>
 </html>

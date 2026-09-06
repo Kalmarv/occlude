@@ -18,10 +18,12 @@ export interface UiPrefs {
   railOpen: boolean;
   /** Rail width, CSS px; null = default (280px). */
   railW: number | null;
+  /** Rail mode: composing the drawing, or running the machine. */
+  railMode: 'compose' | 'plot';
 }
 
 export function loadUi(): UiPrefs {
-  const defaults: UiPrefs = { editorW: null, railOpen: true, railW: null };
+  const defaults: UiPrefs = { editorW: null, railOpen: true, railW: null, railMode: 'compose' };
   try {
     const raw = localStorage.getItem(KEYS.ui);
     if (raw) return { ...defaults, ...(JSON.parse(raw) as Partial<UiPrefs>) };

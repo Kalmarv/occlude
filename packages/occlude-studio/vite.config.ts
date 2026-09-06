@@ -45,6 +45,7 @@ export default defineConfig({
         assets: resolve(__dirname, 'assets.html'),
         fills: resolve(__dirname, 'fills.html'),
         sketches: resolve(__dirname, 'sketches.html'),
+        machine: resolve(__dirname, 'machine.html'),
       },
     },
   },

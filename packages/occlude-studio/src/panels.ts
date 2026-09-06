@@ -13,16 +13,13 @@ import {
 import { loadSketchByName, saveSketchByName } from './sketchApi.js';
 import {
   DEFAULT_SKETCH, NEW_SKETCH, PAPER_COLORS,
-  download, savePens, saveProfiles, saveSettings,
+  download, loadUi, savePens, saveProfiles, saveSettings, saveUi,
   type MachineProfile, type Settings,
 } from './store.js';
-import { Ebb, serialSupported, type PlotProgress } from './ebb.js';
-import {
-  backlashSquares, calDots, calHatch, calLines, calSegments, cornerRinging,
-  downSweep, liftGrid, liftTraverse, registrationProbe, settleLift, type Diagnostic,
-} from './diagnostics.js';
-import { liftMapFromCounts, parseCounts, refineLiftMap } from 'occlude';
+import { serialSupported, type PlotProgress } from './ebb.js';
+import { buildConnect, buildManualControls, buildProfileSelect, createSession } from './machine.js';
 import type { RenderClient } from './workerClient.js';
+import { button, checkbox, el, hint, numberInput, pairInput, row, segmented } from './widgets.js';
 
 export interface PanelHooks {
   pens: PenDef[];
@@ -84,24 +81,43 @@ const onProfileSwitch: (() => void)[] = [];
 export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
   onProfileSwitch.length = 0;
   rail.innerHTML = '';
-  const sketchesPanel = panel('Sketch', true);
-  const pensPanel = panel('Pens', true);
-  const paperPanel = panel('Paper', false);
-  const plotPanel = panel('Plot', false);
-  const exportPanel = panel('Export', false);
-  rail.append(
-    sketchesPanel.root, pensPanel.root, paperPanel.root,
-    plotPanel.root, exportPanel.root,
+  // Two modes, two rhythms: composing the drawing (every minute) and running
+  // the machine (every plot). Each fits one screen; the switch is remembered.
+  const ui = loadUi();
+  const compose = el('div', 'rail-mode compose');
+  const plot = el('div', 'rail-mode plot');
+  const setMode = (mode: 'compose' | 'plot'): void => {
+    compose.hidden = mode !== 'compose';
+    plot.hidden = mode !== 'plot';
+    rail.dataset.mode = mode;
+    ui.railMode = mode;
+    saveUi(ui);
+  };
+  const modes = segmented(
+    [
+      { key: 'compose' as const, label: 'Compose', title: 'Sketch, paper, pens, export' },
+      { key: 'plot' as const, label: 'Plot', title: 'Connect, position, plot' },
+    ],
+    ui.railMode,
+    setMode,
   );
+  rail.append(modes.root, compose, plot);
+
+  const sketchesPanel = panel('Sketch', true);
+  const paperPanel = panel('Paper', true);
+  const pensPanel = panel('Pens', true);
+  const exportPanel = panel('Export', false);
+  compose.append(sketchesPanel.root, paperPanel.root, pensPanel.root, exportPanel.root);
 
   const sketches = buildSketchesPanel(sketchesPanel.body, hooks);
   buildPensPanel(pensPanel.body, hooks);
   buildPaperPanel(paperPanel.body, hooks);
-  buildPlotPanel(plotPanel.body, hooks);
+  buildPlotPanel(plot, hooks);
   const refreshExport = buildExportPanel(exportPanel.body, hooks);
   exportPanel.root.addEventListener('toggle', () => {
     if ((exportPanel.root as HTMLDetailsElement).open) refreshExport();
   });
+  setMode(ui.railMode);
   return {
     refreshExport,
     refreshSketches: sketches.refresh,
@@ -327,8 +343,19 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
     editHost.append(form);
   }
 
+  // Calibration pens (the settle-sweep sketch's per-column pens) stay in the
+  // library so sketches can name them, but out of the everyday tray.
+  const isCalibrationPen = (pen: PenDef): boolean => /^(settle|cal|lift|down|traverse)-/.test(pen.name);
+  let calOpen = false;
   function renderList(): void {
     list.innerHTML = '';
+    const group = document.createElement('details');
+    group.className = 'pen-group';
+    group.open = calOpen;
+    group.addEventListener('toggle', () => { calOpen = group.open; });
+    const summary = document.createElement('summary');
+    group.append(summary);
+    let calCount = 0;
     hooks.pens.forEach((pen, i) => {
       const row = document.createElement('div');
       row.className = `pen-row${i === selected ? ' selected' : ''}`;
@@ -346,9 +373,18 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
         selected = selected === i ? null : i;
         renderList();
       };
-      list.append(row);
+      if (isCalibrationPen(pen)) {
+        calCount += 1;
+        group.append(row);
+      } else {
+        list.append(row);
+      }
       requestAnimationFrame(() => strokeSample(sample, pen));
     });
+    if (calCount > 0) {
+      summary.textContent = `${calCount} calibration pens`;
+      list.append(group);
+    }
     renderEditor();
   }
 
@@ -486,162 +522,24 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
 // ---- plot: EBB (AxiDraw-family) over Web Serial ----
 
 function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
-  const s = hooks.settings;
-  /** The ACTIVE profile — always read through this, never captured, so
-   * every control and estimate follows a profile switch instantly. */
-  const prof = (): MachineProfile =>
-    hooks.profiles.find((pp) => pp.name === s.activeProfile) ?? hooks.profiles[0];
-  const hint = document.createElement('div');
-  hint.className = 'panel-hint';
   if (!serialSupported()) {
-    hint.textContent = window.isSecureContext
+    body.append(hint(window.isSecureContext
       ? 'Web Serial needs Chrome or Edge.'
-      : 'Web Serial needs a secure context — open the studio over HTTPS (or localhost).';
-    body.append(hint);
+      : 'Web Serial needs a secure context — open the studio over HTTPS (or localhost).'));
     return;
   }
-  hint.textContent =
-    'EBB/iDraw over USB — park at the bed corner, Set bed origin, jog to the sheet\u2019s corner, Set paper origin, then Plot.';
-  hint.title =
-    'Connect leaves the rails free. PEN CONTACT IS MECHANICAL — the servo only lifts, it cannot ' +
-    'press: with Pen down, seat the pen low in the clamp so its tip preloads into the sheet; ' +
-    'dropped-out lines mean seating depth, not firmware. Full chapter: Docs → Plotting from the studio.';
-
-  const ebb = new Ebb();
   const status = document.createElement('div');
-  status.className = 'panel-hint';
-  status.textContent = 'not connected';
-
-  const opts = (): import('./ebb.js').EbbOptions => ({
-    stepsPerMm: prof().ebb.stepsPerMm,
-    travelFeed: prof().machine.travelFeed,
-    swapXY: prof().ebb.swapXY,
-    invertX: prof().ebb.invertX,
-    invertY: prof().ebb.invertY,
-    penUpPulse: prof().ebb.penUpPulse,
-    penDownPulse: prof().ebb.penDownPulse,
-    acceleration: prof().ebb.acceleration,
-    travelAcceleration: prof().ebb.travelAcceleration,
-    junctionDeviation: prof().ebb.junctionDeviation,
-    minimumCruiseRatio: prof().ebb.minimumCruiseRatio,
-    lmMotion: prof().ebb.lmMotion,
-    liftMap: prof().ebb.liftMap,
-    liftMarginPulses: prof().ebb.liftMarginPulses,
-    settleCurve: prof().ebb.settleCurve,
-    driftCheckEvery: prof().ebb.driftCheckEvery,
-  });
-  const persist = (): void => saveProfiles(hooks.profiles);
-
-  const connectBtn = button('Connect', async () => {
-    try {
-      if (ebb.connected) {
-        await ebb.disconnect();
-        connectBtn.textContent = 'Connect';
-        status.textContent = 'not connected';
-        return;
-      }
-      const v = await ebb.connect({ penUpPulse: prof().ebb.penUpPulse, penDownPulse: prof().ebb.penDownPulse });
-      connectBtn.textContent = 'Disconnect';
-      status.textContent = v || 'connected';
-    } catch (e) {
-      status.textContent = e instanceof Error ? e.message : String(e);
-    }
-  });
-  connectBtn.className = 'primary';
-
-  // Jog pad.
-  const jogStep = numberInput(10, 1, () => undefined);
-  jogStep.title = 'jog distance, mm';
-  jogStep.style.width = '3.5em';
-  const jog = (dx: number, dy: number) =>
-    button(dx === 0 ? (dy < 0 ? '\u2191' : '\u2193') : dx < 0 ? '\u2190' : '\u2192', async () => {
-      const d = Math.abs(parseFloat(jogStep.value) || 10);
-      await ebb.jog(dx * d, dy * d, opts()).catch(showErr);
-    });
-  const jogRow = document.createElement('div');
-  jogRow.className = 'row';
-  jogRow.append(jog(-1, 0), jog(0, -1), jog(0, 1), jog(1, 0), jogStep);
-
-  const penRow = document.createElement('div');
-  penRow.className = 'row';
-  penRow.style.flexWrap = 'wrap';
-  const penDownBtn = button('Pen down', () => void ebb.penDown().catch(showErr));
-  penDownBtn.title =
-    'Servo contact is mechanical — with the pen down, seat it low in the clamp so the tip ' +
-    'preloads into the sheet';
-  // Two origins: Set origin = the BED corner (the lift map's frame — same
-  // physical corner every time); Set paper origin = where the sheet's corner
-  // is, recorded as an offset by jogging there. Plots draw at the offset.
-  const paperStatus = document.createElement('span');
-  paperStatus.className = 'panel-hint';
-  const showPaper = (): void => {
-    const [x, y] = ebb.paperOffset;
-    paperStatus.textContent = x === 0 && y === 0 ? 'paper at bed origin' : `paper at ${x}, ${y} mm`;
+  status.className = 'panel-hint status-line';
+  const showErr = (e: unknown): void => {
+    status.textContent = e instanceof Error ? e.message : String(e);
   };
-  showPaper();
-  const setOriginBtn = button('Set bed origin', () => {
-    void ebb.setOrigin().then(showPaper).catch(showErr);
-  });
-  setOriginBtn.title =
-    'Zero the machine here. This is the BED corner the lift map was measured from — use the same corner every time. Clears the paper origin.';
-  const setPaperBtn = button('Set paper origin', () => {
-    if (!ebb.connected) return;
-    ebb.setPaperOrigin(opts());
-    showPaper();
-  });
-  setPaperBtn.title =
-    'Record the current position as the sheet\u2019s corner, without zeroing. Plots draw from here; the lift map still reads bed coordinates.';
-  const goPaperBtn = button('Go to paper origin', () => void ebb.goToPaperOrigin(opts()).catch(showErr));
-  // Seating: the servo as the shim. Step 1 parks the horn at the seat pulse
-  // (SC,5) and lowers the pen — the horn lifts the slider off its stop by the
-  // seat lift. Loosen, let the pen fall to the paper, clamp. Step 2 returns
-  // SC,5 to the down pulse: the horn retreats, the paper holds the slider up
-  // by exactly the seat lift. Same preload for every pen, no ruler.
-  let seating = false;
-  const seatBtn = button('Seat pen', async () => {
-    if (!ebb.connected || ebb.plotting) return;
-    try {
-      const e = prof().ebb;
-      if (!seating) {
-        await ebb.cmd(`SC,5,${Math.round(e.seatPulse)}`);
-        await ebb.penDown(300);
-        seating = true;
-        seatBtn.textContent = 'Clamped \u2014 finish seating';
-        seatBtn.title = 'The horn is holding the slider at the seat pulse. Loosen the clamp, let the pen fall to the paper, clamp it, then press this.';
-      } else {
-        await ebb.cmd(`SC,5,${Math.round(e.penDownPulse)}`);
-        await ebb.penDown(300); // re-issue so the horn actually retreats
-        seating = false;
-        seatBtn.textContent = 'Seat pen';
-        seatBtn.title = seatTitle;
-      }
-    } catch (err) {
-      showErr(err);
-    }
-  });
-  const seatTitle =
-    'Repeatable seating: parks the horn at the seat pulse with the pen down so the slider sits off its stop. ' +
-    'Loosen the clamp, let the pen fall to the paper, clamp, press again to restore the down pulse.';
-  seatBtn.title = seatTitle;
-  penRow.append(
-    button('Pen up', () => void ebb.penUp().catch(showErr)),
-    penDownBtn,
-    seatBtn,
-    setOriginBtn,
-    setPaperBtn,
-    goPaperBtn,
-    button('Home', () => void ebb.home().then(showPaper).catch(showErr)),
-    button('Release', () => void ebb.cmd('EM,0,0').catch(showErr)),
-    paperStatus,
-  );
-  const logRow = document.createElement('div');
-  logRow.className = 'row';
-  logRow.append(
-    button('Download serial log', () =>
-      download('ebb-log.txt', ebb.transcript() || '(no traffic yet)', 'text/plain'),
-    ),
-  );
-
+  const m = createSession(hooks.profiles, hooks.settings, () => hooks.pens, showErr);
+  m.onChanged = () => {
+    hooks.onChanged(); // estimates follow the machine
+    for (const fn of onProfileSwitch) fn();
+  };
+  const { ebb } = m;
+  const prof = m.prof;
 
   // Pen to plot. No physical pen changer: a multi-pen sketch is plotted one
   // pen per run — plot, swap the pen by hand, pick the next, plot again.
@@ -652,9 +550,6 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     penSelect.innerHTML = '';
     const pens = hooks.lastResult()?.pens ?? [];
     if (pens.length > 1) {
-      // All logical pens in one pass with the installed physical pen —
-      // each chain still uses its own pen's feed and penDelay (how the
-      // settle-sweep card plots per-column settles in a single run).
       const all = document.createElement('option');
       all.value = '-1';
       all.textContent = 'all pens (one run)';
@@ -668,21 +563,29 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       option.selected = pen.name === prev;
       penSelect.append(option);
     });
+    tintPlot();
   };
   penSelect.addEventListener('pointerdown', refreshPenSelect);
-  refreshPenSelect();
+  penSelect.addEventListener('change', () => tintPlot());
 
-  // Plot controls.
+  // The Plot button wears the selected pen's ink: which pen is about to plot,
+  // without a label. "All pens" is the neutral brass.
+  const tintPlot = (): void => {
+    const raw = parseInt(penSelect.value, 10);
+    const pens = hooks.lastResult()?.pens ?? [];
+    const pen = raw >= 0 ? pens[raw] : undefined;
+    const color = pen ? hooks.pens.find((p) => p.name === pen.name)?.color ?? pen.color : null;
+    plotBtn.style.setProperty('--pen', color ?? 'var(--brass)');
+    bar.style.setProperty('--pen', color ?? 'var(--brass)');
+  };
+
   const bar = document.createElement('progress');
+  bar.className = 'plot-progress';
   bar.max = 1;
   bar.value = 0;
-  bar.style.width = '100%';
   const progressText = document.createElement('div');
-  progressText.className = 'panel-hint';
+  progressText.className = 'panel-hint progress-text';
 
-  function showErr(e: unknown): void {
-    status.textContent = e instanceof Error ? e.message : String(e);
-  }
   function onProgress(p: PlotProgress): void {
     if (p.chain !== undefined) hooks.livePlot.progress(p.chain);
     if (p.state === 'done' || p.state === 'stopped') hooks.livePlot.end();
@@ -700,7 +603,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
           modelMs: Math.round(p.totalMs),
           estimate: p.estimate,
           settings: {
-            liftMap: ((m) => (m ? `${m.cols}x${m.rows}` : null))(prof().ebb.liftMap),
+            liftMap: ((mp) => (mp ? `${mp.cols}x${mp.rows}` : null))(prof().ebb.liftMap),
             liftMarginPulses: prof().ebb.liftMarginPulses,
             settleCurve: prof().ebb.settleCurve?.length ?? 0,
             travelFeed: prof().machine.travelFeed,
@@ -718,24 +621,20 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         ? 'done'
         : p.state === 'stopped'
           ? 'stopped'
-          : `${p.state} \u00b7 ${p.penName} \u00b7 ~${eta.toFixed(1)} min left`;
-    progressText.textContent = p.warning ? `${base} \u00b7 \u26a0 ${p.warning}` : base;
+          : `${p.state} · ${p.penName} · ${eta.toFixed(1)} min left`;
+    progressText.textContent = p.warning ? `${base} · ⚠ ${p.warning}` : base;
     pauseBtn.textContent = p.state === 'paused' ? 'Resume' : 'Pause';
+    body.classList.toggle('plotting', p.state === 'plotting' || p.state === 'paused');
   }
 
   /** The plan for the current render at a pen selection (undefined = all),
-   * with the bed-fit check. Shared by Plot and Resume so both plot the same
-   * chains in the same order. */
+   * with the bed-fit check. Shared by Plot and Resume. */
   const buildPlan = async (r: RenderResult, penIndex: number | undefined): Promise<Float64Array | null> => {
-    // Match G-code export: machine resolution is the geometric error
-    // ceiling, with nib/4 avoiding needless points for broad pens.
     const penTol = penIndex === undefined
       ? r.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)
       : (r.pens[penIndex]?.width ?? Infinity) / 4;
     const tol = Math.max(0.0001, Math.min(prof().machine.resolution, penTol));
     const plan = await hooks.client.exportToolpath(200_000, tol);
-    // Physical fit: refuse extents the bed cannot hold (placement is the
-    // operator's via the origins — the Frame button verifies that part).
     const bb = planBbox(plan);
     const bed = prof().machine;
     const [ox, oy] = ebb.paperOffset;
@@ -750,9 +649,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   };
 
   // Saved progress: enough to rebuild the same plan and carry on from the
-  // chain the machine reached — after a stop, a crashed tab, or a power loss
-  // (re-park at the bed corner and Set bed origin first; the paper offset is
-  // restored from the record). Lives on the server next to the plot log.
+  // chain the machine reached — after a stop, a crashed tab, or a power loss.
   interface SavedPlot {
     sketch: string;
     sourceHash: string;
@@ -771,19 +668,19 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   let saved: SavedPlot | null = null;
   let lastSavedChain = -1;
   let lastSavedAt = 0;
-  const progressRow = document.createElement('div');
-  progressRow.className = 'row';
-  const progressHint = document.createElement('div');
-  progressHint.className = 'panel-hint';
+  const savedBox = document.createElement('div');
+  savedBox.className = 'saved-plot';
+  savedBox.hidden = true; // shown once the server says there is one
+  const savedText = document.createElement('div');
+  savedText.className = 'panel-hint';
   const showSaved = (): void => {
-    progressRow.hidden = !saved;
-    progressHint.hidden = !saved;
+    savedBox.hidden = !saved;
     if (!saved) return;
     const pen = saved.penIndex === null ? 'all pens' : `pen ${saved.penIndex}`;
-    progressHint.textContent =
-      `Saved plot: ${saved.sketch} \u00b7 ${pen} \u00b7 chain ${saved.chain} of ${saved.chainTotal} \u00b7 ` +
-      `paper at ${saved.paperOffset[0]}, ${saved.paperOffset[1]} mm \u00b7 ${new Date(saved.ts).toLocaleString()}. ` +
-      'To resume after a power loss: re-park at the bed corner, Set bed origin, then Resume.';
+    savedText.textContent =
+      `Unfinished: ${saved.sketch}, ${pen}, chain ${saved.chain} of ${saved.chainTotal}, ` +
+      `paper at ${saved.paperOffset[0]}, ${saved.paperOffset[1]} mm. ` +
+      'After a power loss, re-park at the bed corner and Set bed origin first.';
   };
   const putProgress = (p: SavedPlot): void => {
     saved = p;
@@ -799,10 +696,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   };
   void fetch('/api/plot-progress')
     .then(async (res) => (res.ok ? ((await res.json()) as SavedPlot) : null))
-    .then((p) => {
-      saved = p;
-      showSaved();
-    })
+    .then((p) => { saved = p; showSaved(); })
     .catch(() => undefined);
 
   const runPlot = async (penIndex: number | undefined, startChain: number): Promise<void> => {
@@ -825,16 +719,12 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     hooks.livePlot.start(plan, r.pens);
     try {
       await ebb.plot(
-        plan,
-        r.pens,
-        opts(),
+        plan, r.pens, m.opts(),
         (p) => {
           onProgress(p);
           if (p.state === 'done') {
             clearProgress();
           } else if (p.state === 'plotting' || p.state === 'paused' || p.state === 'stopped') {
-            // Every 10 chains or 5 seconds — cheap, and never more than a few
-            // strokes behind the machine.
             const chain = p.chain ?? 0;
             if (chain !== lastSavedChain && (chain % 10 === 0 || Date.now() - lastSavedAt > 5000 || p.state === 'stopped')) {
               record(chain, p.chainTotal ?? 0);
@@ -844,16 +734,14 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         },
         (name) => hooks.pens.find((p) => p.name === name),
         () => ({ penUpPulse: prof().ebb.penUpPulse, penDownPulse: prof().ebb.penDownPulse }),
-        penIndex,
-        undefined,
-        startChain,
+        penIndex, undefined, startChain,
       );
     } finally {
       hooks.livePlot.end();
     }
   };
 
-  const plotBtn = button('\u25b6 Plot', async () => {
+  const plotBtn = button('Plot', async () => {
     if (!ebb.connected || ebb.plotting) return;
     const r = hooks.lastResult();
     if (!r) return;
@@ -866,40 +754,15 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       showErr(e);
     }
   });
-  const resumeBtn = button('Resume saved plot', async () => {
-    if (!ebb.connected || ebb.plotting || !saved) return;
-    const r = hooks.lastResult();
-    if (!r) return;
-    try {
-      const s = saved;
-      if (hooks.currentName() !== s.sketch || hashSource(hooks.getSource()) !== s.sourceHash) {
-        throw new Error(`resume: load the saved sketch "${s.sketch}" unchanged first (Sketches page)`);
-      }
-      if ((hooks.currentSeed() ?? null) !== s.seed) {
-        throw new Error(`resume: the saved plot used seed ${s.seed}; open the sketch with that seed (?seed=${s.seed})`);
-      }
-      ebb.paperOffset = [...s.paperOffset] as [number, number];
-      showPaper();
-      const penIndex = s.penIndex === null ? undefined : s.penIndex;
-      await runPlot(penIndex, s.chain);
-    } catch (e) {
-      showErr(e);
-    }
-  });
-  resumeBtn.title =
-    'Rebuild the same plan (same sketch, source and seed) and carry on from the saved chain at the saved paper offset. ' +
-    'After a power loss: re-park at the bed corner and Set bed origin first.';
-  const clearSavedBtn = button('Clear saved plot', clearProgress);
-  progressRow.append(resumeBtn, clearSavedBtn);
-  plotBtn.className = 'primary danger';
+  plotBtn.className = 'plot-go';
   plotBtn.title = 'Plot on the connected machine — pen and paper, for real';
   const pauseBtn = button('Pause', () => {
-    if (ebb.plotting) {
-      if (pauseBtn.textContent === 'Pause') ebb.pause();
-      else ebb.resume();
-    }
+    if (!ebb.plotting) return;
+    if (pauseBtn.textContent === 'Pause') ebb.pause();
+    else ebb.resume();
   });
-  const stopBtn = button('\u25a0 Stop', () => void ebb.stop().catch(showErr));
+  const stopBtn = button('Stop', () => void ebb.stop().catch(showErr));
+  stopBtn.className = 'plot-stop';
   const frameBtn = button('Frame', async () => {
     if (!ebb.connected || ebb.plotting) return;
     const r = hooks.lastResult();
@@ -908,461 +771,59 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       const tol = Math.max(0.0001, prof().machine.resolution);
       const plan = await hooks.client.exportToolpath(200_000, tol);
       const bb = planBbox(plan);
-      // Pen-up perimeter of the plan's bounding box: the placement check no
-      // model can do — the machine shows you where the piece will land.
+      // Pen-up perimeter of the plan's bounding box, at the paper offset:
+      // the placement check no model can do.
+      const [ox, oy] = ebb.paperOffset;
       const legs: [number, number][] = [
-        [bb.x, bb.y], [bb.w, 0], [0, bb.h], [-bb.w, 0], [0, -bb.h], [-bb.x, -bb.y],
+        [ox + bb.x, oy + bb.y], [bb.w, 0], [0, bb.h], [-bb.w, 0], [0, -bb.h], [-(ox + bb.x), -(oy + bb.y)],
       ];
-      for (const [dx, dy] of legs) await ebb.jog(dx, dy, opts());
+      for (const [dx, dy] of legs) await ebb.jog(dx, dy, m.opts());
     } catch (e) {
       showErr(e);
     }
   });
-  frameBtn.title =
-    "Trace the plan's bounding box pen-up from the origin — verify placement physically before committing ink";
-  const plotRow = document.createElement('div');
-  plotRow.className = 'row';
-  plotRow.append(plotBtn, pauseBtn, stopBtn, frameBtn);
+  frameBtn.title = 'Trace the plan’s bounding box pen-up from the paper origin — see where the piece lands before committing ink';
 
-  // Machine diagnostics: the cal sheet characterizes pens; these
-  // characterize the machine. They run through the normal plot pipeline,
-  // so Pause/Stop, progress, and the QS drift check all apply. Position
-  // the origin bottom-left of a clear area first; footprints are in hints.
-  const diag = document.createElement('details');
-  diag.className = 'subpanel';
-  const diagSummary = document.createElement('summary');
-  diagSummary.textContent = 'Machine diagnostics';
-  diag.append(diagSummary);
-  // Patterns inherit the PHYSICAL pen's tuning (penDelay especially — the
-  // patterns are short strokes, so a too-short settle reads as "the pen
-  // never reaches the paper"): the Plot-pen selection resolved to its
-  // library definition, else the first library pen.
-  const diagBasePen = (): import('occlude').PenDef | undefined => {
-    const name = penSelect.selectedOptions[0]?.textContent ?? '';
-    return hooks.pens.find((p) => p.name === name) ?? hooks.pens[0];
-  };
-  const addDiag = (
-    label: string,
-    hint: string,
-    build: (base?: import('occlude').PenDef) => Diagnostic,
-  ): void => {
-    const b = button(label, async () => {
-      if (!ebb.connected || ebb.plotting) return;
-      try {
-        const d = build(diagBasePen());
-        hooks.livePlot.start(d.plan, d.pens);
-        await ebb.plot(
-          d.plan, d.pens, opts(), onProgress, undefined, undefined, undefined,
-          d.servo ? (i) => d.servo?.[i] : undefined,
-        );
-      } catch (e) {
-        showErr(e);
-      } finally {
-        hooks.livePlot.end();
-      }
-    });
-    const h = document.createElement('div');
-    h.className = 'panel-hint';
-    h.textContent = hint;
-    diag.append(b, h);
-  };
-  // Pulse ladders for the pen-height cards, from the active profile's pair:
-  // lifts from full up towards (but short of) the down pulse; landings from
-  // well inside the horn's carry zone up to the profile's down pulse.
-  const ladder = (from: number, to: number, n: number): number[] =>
-    Array.from({ length: n }, (_, i) => Math.round((from + ((to - from) * i) / (n - 1)) / 100) * 100);
-  // The lift ladder is editable (not persisted): the first traverse is run
-  // wide, from full lift down, and the next one narrowed onto the transition.
-  let ladderFrom = 0;
-  let ladderTo = 0;
-  const liftPulses = (): number[] => {
-    const e = prof().ebb;
-    const from = ladderFrom || e.penUpPulse;
-    const to = ladderTo || e.penDownPulse - 2000;
-    return ladder(from, to, 6);
-  };
-  const ladderRow = document.createElement('div');
-  ladderRow.className = 'row';
-  const fromIn = numberInput(0, 100, (v) => { ladderFrom = v; });
-  fromIn.placeholder = 'from (up pulse)';
-  fromIn.title = 'Most lift in the ladder (SC,4 pulse). 0 = the profile\u2019s pen-up pulse.';
-  const toIn = numberInput(0, 100, (v) => { ladderTo = v; });
-  toIn.placeholder = 'to';
-  toIn.title = 'Least lift in the ladder. 0 = 2000 below the profile\u2019s pen-down pulse.';
-  ladderRow.append(fromIn, toIn);
-  const ladderHint = document.createElement('div');
-  ladderHint.className = 'panel-hint';
-  ladderHint.textContent =
-    'Lift ladder for the pen-height cards: six pulses from \u2018from\u2019 to \u2018to\u2019. Leave 0/0 for the ' +
-    'wide first pass; then narrow onto where the ink started (e.g. 12000 \u2192 16000).';
-  diag.append(ladderRow, ladderHint);
-  // Down sweep: from just below the seat pulse (where the horn is known to
-  // carry the slider) up to the down pulse — the release lives in between.
-  const downPulses = (): number[] => {
-    const e = prof().ebb;
-    const from = Math.min(e.seatPulse - 200, e.penDownPulse - 1200);
-    return Array.from({ length: 6 }, (_, i) => Math.round(from + ((e.penDownPulse - from) * i) / 5));
-  };
-  const cal = document.createElement('details');
-  cal.className = 'subpanel';
-  const calSummary = document.createElement('summary');
-  calSummary.textContent = 'Calibration plots';
-  cal.append(calSummary);
-  const calHint = document.createElement('div');
-  calHint.className = 'panel-hint';
-  calHint.textContent =
-    'Small single-primitive plots — each isolates one cost axis. Completed ' +
-    'plots log model-vs-wall time on the server; plotstats --fit learns the ' +
-    'correction. Origin bottom-left of a clear ~70\u00d770mm area.';
-  cal.append(calHint);
-  const addCal = (label: string, build: (base?: PenDef) => Diagnostic): void => {
-    const b = button(label, async () => {
-      if (!ebb.connected || ebb.plotting) return;
-      try {
-        const d = build(diagBasePen());
-        hooks.livePlot.start(d.plan, d.pens);
-        await ebb.plot(d.plan, d.pens, opts(), onProgress);
-      } catch (e) {
-        showErr(e);
-      } finally {
-        hooks.livePlot.end();
-      }
-    });
-    cal.append(b);
-  };
-  addCal('Dots \u00d7120 (taps)', calDots);
-  addCal('Long lines \u00d740 (feed+travel)', calLines);
-  addCal('Dense zigzags (serial overhead)', calSegments);
-  addCal('Hatch square (mixed)', calHatch);
-
-  addDiag(
-    'Registration probe (~120\u00d764mm)',
-    '+ drawn first, \u2715 drawn last at the same spot, heavy fast travel between. Offset between their centers = steps lost during the run; direction says which motor.',
-    registrationProbe,
-  );
-  addDiag(
-    'Backlash squares (~45\u00d720mm)',
-    'Left square repeats every edge in the same direction; right square goes there-and-back. Doubled edges on the right square only = backlash at direction reversals.',
-    backlashSquares,
-  );
-  addDiag(
-    'Lift traverse (whole bed, ~5 min)',
-    'The fast sag map. At each of six lift pulses the pen ticks one edge, travels PEN-UP across the whole bed, ' +
-      'and ticks the other edge \u2014 12 rows across and 8 columns down. Ink between the ticks is where that ' +
-      'lift dragged; within a band the lines are most-lift first. Run this first; rerun after any change.',
-    (base) => {
-      // 12 bands along the long axis, 8 along the short one.
-      const { bedW, bedH } = prof().machine;
-      const portrait = bedH >= bedW;
-      return liftTraverse(base, {
-        bedW, bedH, pulses: liftPulses(), rows: portrait ? 12 : 8, cols: portrait ? 8 : 12,
-      });
-    },
-  );
-  // The map itself: paste the card as read (diagonal counts per cell), apply
-  // with the ladder it was plotted at. With a map present, the grid can plot
-  // only the still-unresolved cells at a higher ladder (refinement).
-  const mapBox = document.createElement('textarea');
-  mapBox.rows = 4;
-  mapBox.placeholder = 'diagonals per cell, one line per row of cells: 0,0,1,2 - 0,1,2,3 …';
-  mapBox.title = 'Read the lift grid: per cell, how many diagonal lines. Row 0 = nearest the origin.';
-  const mapStatus = document.createElement('div');
-  mapStatus.className = 'panel-hint';
-  const describeMap = (): void => {
-    const m = prof().ebb.liftMap;
-    const curve = prof().ebb.settleCurve;
-    const curveText = curve && curve.length
-      ? ` Settle curve: ${[...curve].sort((a, b) => a.pulse - b.pulse).map((p) => `${p.pulse}\u2192${p.ms}`).join(', ')}.`
-      : ' No settle curve: every lift settles for the pen\u2019s full penDelay.';
-    if (!m) {
-      mapStatus.textContent = 'No lift map: every travel at full lift.' + curveText;
-      return;
-    }
-    const known = m.thresholds.filter((t): t is number => t !== null);
-    const unresolved = m.thresholds.length - known.length;
-    mapStatus.textContent =
-      `Lift map ${m.cols}\u00d7${m.rows}: worst cell clears at ${Math.min(...known)}, ` +
-      `${unresolved} cells unresolved (\u2265 ${m.unresolvedAbove}).` + curveText;
-  };
-  const applyMap = button('Apply as lift map', () => {
+  const resumeBtn = button('Resume', async () => {
+    if (!ebb.connected || ebb.plotting || !saved) return;
+    const r = hooks.lastResult();
+    if (!r) return;
     try {
-      const counts = parseCounts(mapBox.value);
-      const { bedW, bedH } = prof().machine;
-      const rows = counts.length;
-      const cols = counts[0]?.length ?? 0;
-      const geometry = { cols, rows, bedW, bedH, margin: 8 };
-      const existing = prof().ebb.liftMap;
-      const refining = existing && existing.cols === cols && existing.rows === rows && refine.checked;
-      prof().ebb.liftMap = refining
-        ? refineLiftMap(existing, counts, liftPulses())
-        : liftMapFromCounts(counts, liftPulses(), geometry);
-      persist();
-      describeMap();
-    } catch (e) {
-      showErr(e);
-    }
-  });
-  const clearMap = button('Clear map', () => {
-    delete prof().ebb.liftMap;
-    persist();
-    describeMap();
-  });
-  const refine = document.createElement('input');
-  refine.type = 'checkbox';
-  const refineLabel = document.createElement('label');
-  refineLabel.append(refine, ' refine: unresolved cells only');
-  refineLabel.title = 'Lift grid plots (and Apply fills) only cells the map has not resolved, at the current ladder.';
-  const mapRow = document.createElement('div');
-  mapRow.className = 'row';
-  mapRow.append(applyMap, clearMap, refineLabel);
-  // Settle curve: the settle×lift card read per column (lowest clean row's
-  // ms), one value per ladder pulse. The pen's penDelay at full lift is the
-  // curve's reference, so the full-lift point is added from the profile.
-  const curveBox = numberInput(0, 100, () => undefined);
-  curveBox.type = 'text';
-  curveBox.value = '';
-  curveBox.placeholder = 'settle ms per ladder column, e.g. 600,500,400,300,200,200';
-  curveBox.title = 'Settle \u00d7 lift card: for each ladder pulse (left \u2192 right), the lowest clean settle in ms.';
-  const applyCurve = button('Apply as settle curve', () => {
-    try {
-      const ms = curveBox.value.split(/[\s,]+/).filter(Boolean).map(Number);
-      const pulses = liftPulses();
-      if (ms.length !== pulses.length || ms.some((v) => !Number.isFinite(v) || v <= 0)) {
-        throw new Error(`settle curve: expected ${pulses.length} settle values for the ladder ${pulses.join(', ')}`);
+      const sv = saved;
+      if (hooks.currentName() !== sv.sketch || hashSource(hooks.getSource()) !== sv.sourceHash) {
+        throw new Error(`resume: load the saved sketch "${sv.sketch}" unchanged first (Sketches page)`);
       }
-      const full = prof().ebb.penUpPulse;
-      const points = pulses.map((p, i) => ({ pulse: p, ms: ms[i] }));
-      // Full lift: the largest measured settle, unless the ladder reached it.
-      if (!points.some((p) => p.pulse === full)) points.push({ pulse: full, ms: Math.max(...ms) });
-      prof().ebb.settleCurve = points;
-      persist();
-      describeMap();
+      if ((hooks.currentSeed() ?? null) !== sv.seed) {
+        throw new Error(`resume: the saved plot used seed ${sv.seed}; open the sketch with ?seed=${sv.seed}`);
+      }
+      ebb.paperOffset = [...sv.paperOffset] as [number, number];
+      const penIndex = sv.penIndex === null ? undefined : sv.penIndex;
+      await runPlot(penIndex, sv.chain);
     } catch (e) {
       showErr(e);
     }
   });
-  const clearCurve = button('Clear curve', () => {
-    delete prof().ebb.settleCurve;
-    persist();
-    describeMap();
-  });
-  const curveRow = document.createElement('div');
-  curveRow.className = 'row';
-  curveRow.append(curveBox, applyCurve, clearCurve);
-  diag.append(mapBox, mapRow, curveRow, mapStatus);
-  describeMap();
+  resumeBtn.title = 'Rebuild the same plan (same sketch, source and seed) and carry on from the saved chain at the saved paper offset.';
+  const clearSavedBtn = button('Forget', clearProgress);
+  savedBox.append(savedText, el('div', 'row', resumeBtn, clearSavedBtn));
 
-  addDiag(
-    'Lift grid (whole bed)',
-    'Pen-height map. Framed cells across the whole bed (8 across the short axis); inside each, six strips travel at lift pulses ' +
-      'from full up towards the down pulse (left = most lift). A zigzag joining the dash ends = the pen dragged ' +
-      'at that lift. Per cell, the last clean strip is its clearance threshold. Seat the pen on the shim first.',
-    (base) => {
-      // Cells roughly square: 8 across the short axis, rows follow the aspect
-      // (8×12 on the iDraw's 12"×17" bed, ~36mm cells).
-      const ACROSS = 8;
-      const { bedW, bedH } = prof().machine;
-      const cols = bedW <= bedH ? ACROSS : Math.max(2, Math.round((ACROSS * bedW) / bedH));
-      const rows = bedW <= bedH ? Math.max(2, Math.round((ACROSS * bedH) / bedW)) : ACROSS;
-      const m = prof().ebb.liftMap;
-      const only = refine.checked && m && m.cols === cols && m.rows === rows
-        ? (r: number, c: number) => m.thresholds[r * cols + c] === null
-        : undefined;
-      return liftGrid(base, { bedW, bedH, pulses: liftPulses(), cols, rows, only, dashes: only ? 4 : undefined });
-    },
-  );
-  addDiag(
-    'Settle \u00d7 lift (~130\u00d7150mm)',
-    'Columns = the same six lift pulses, rows = settle 200\u2013700ms. Each cell: three spread dashes over six tight ' +
-      'ones. Dashes missing their first millimetre = settle too short. Lowest clean row per column is settle(lift).',
-    (base) => settleLift(base, { pulses: liftPulses(), settles: [200, 300, 400, 500, 600, 700] }),
-  );
-  addDiag(
-    'Down sweep (~120\u00d718mm)',
-    'Six hatch patches at pen-down pulses from just below the seat pulse up to the profile\u2019s down pulse ' +
-      '(left = horn still carrying the pen). Blank or faint patches = not released. First solid patch = the ' +
-      'lowest safe down pulse. Run at 0,0, the least-sag spot, where release happens last.',
-    (base) => downSweep(base, { pulses: downPulses() }),
-  );
-  addDiag(
-    'Corner ringing (~66\u00d770mm)',
-    'The same right-angle comb at 2000/4000/6000 mm/min, 1\u20133 tick marks. The first row whose corners wiggle is the cornering ceiling \u2014 tune junction deviation just below it.',
-    cornerRinging,
-  );
-
-  // Daily controls up top; set-once bands collapsed beneath. Band contents
-  // are RENDER FUNCTIONS over the active profile — a profile switch rebuilds
-  // them, so what you see is always the profile you're editing.
-  const manual = sub('Manual control');
-  manual.body.append(jogRow, penRow);
-
-  const tuning = sub('Motion tuning');
-  function renderTuning(): void {
-    const e = prof().ebb;
-    const lmCheck = checkbox('LM motion (hardware ramps)', e.lmMotion, (v) => {
-      e.lmMotion = v;
-      persist();
-    });
-    lmCheck.title =
-      'Hardware-interpolated constant-acceleration moves (25 kHz firmware ramps). ' +
-      'Uncheck to fall back to XM packets (firmware < 2.5.3).';
-    tuning.body.replaceChildren(
-      row('Accel mm/s²', numberInput(e.acceleration, 50, (v) => {
-        e.acceleration = Math.max(1, v);
-        persist();
-      }), 'Drawing acceleration — lower is gentler, higher reaches the pen feed sooner'),
-      row('Travel mm/s²', numberInput(e.travelAcceleration, 50, (v) => {
-        e.travelAcceleration = Math.max(1, v);
-        persist();
-      }), 'Acceleration for pen-up moves — no ink at stake, so it can run harder'),
-      row('Junction mm', numberInput(e.junctionDeviation, 0.005, (v) => {
-        e.junctionDeviation = Math.max(0, v);
-        persist();
-      }), 'Cornering tolerance for Marlin/Klipper-style look-ahead'),
-      row('Min cruise', numberInput(e.minimumCruiseRatio, 0.05, (v) => {
-        e.minimumCruiseRatio = Math.max(0, Math.min(0.99, v));
-        persist();
-      }), '0–0.99; suppresses vibration-producing speed spikes on short moves'),
-      row('Lift margin', numberInput(e.liftMarginPulses, 100, (v) => {
-        e.liftMarginPulses = Math.max(0, Math.round(v));
-        persist();
-      }), 'Pulses of extra lift below each lift-map cell\u2019s last-clean pulse (one ladder rung = 800). The map and settle curve themselves are entered under Machine diagnostics'),
-      row('Drift check', numberInput(e.driftCheckEvery, 100, (v) => {
-        e.driftCheckEvery = Math.max(0, Math.round(v));
-        persist();
-      }), 'Chains between mid-plot QS position checks — each drains the FIFO (a deliberate ~0.5s pause). 0 = check only at plot end'),
-      lmCheck,
-    );
-  }
-
-  const setup = sub('Machine setup');
-  function renderSetup(): void {
-    const e = prof().ebb;
-    const flips = document.createElement('div');
-    flips.className = 'row';
-    flips.append(
-      checkbox('Swap XY', e.swapXY, (v) => {
-        e.swapXY = v;
-        persist();
-      }),
-      checkbox('Inv X', e.invertX, (v) => {
-        e.invertX = v;
-        persist();
-      }),
-      checkbox('Inv Y', e.invertY, (v) => {
-        e.invertY = v;
-        persist();
-      }),
-    );
-    const servoRow = document.createElement('div');
-    servoRow.className = 'row';
-    // SC positions are board state: apply edits immediately when connected.
-    // SC,4 is what the Pen up button (SP,1) drives to; SC,5 is Pen down's
-    // (SP,0) target. The horn moves on the next SP, not on the SC write.
-    const upIn = numberInput(e.penUpPulse, 100, (v) => {
-      e.penUpPulse = v;
-      persist();
-      if (ebb.connected) void ebb.cmd(`SC,4,${Math.round(v)}`).catch(showErr);
-    });
-    upIn.title = 'Pen UP pulse (SC,4). Lower = higher lift on the iDraw; below ~8600 the horn stalls.';
-    const downIn = numberInput(e.penDownPulse, 100, (v) => {
-      e.penDownPulse = v;
-      persist();
-      if (ebb.connected) void ebb.cmd(`SC,5,${Math.round(v)}`).catch(showErr);
-    });
-    downIn.title =
-      'Pen DOWN pulse (SC,5). Must fully clear the slider so the pen rests on its own weight; ' +
-      'the bracket stops the horn at ~18200.';
-    servoRow.append(upIn, downIn);
-    setup.body.replaceChildren(
-      row('Steps/mm', numberInput(e.stepsPerMm, 0.1, (v) => {
-        e.stepsPerMm = v;
-        persist();
-      }), 'Verify a new machine with the cal-sheet ruler'),
-      flips,
-      row(
-        'Servo up/down',
-        servoRow,
-        'Pen-up (SC,4) and pen-down (SC,5) pulses — write-only on the board, so tuned values live here',
-      ),
-      row('Seat pulse', numberInput(e.seatPulse, 100, (v) => {
-        e.seatPulse = Math.round(v);
-        persist();
-      }), 'Seating: set the pen-down box to this, Pen down, let the pen fall to the paper, clamp, restore the down pulse. The preload every pen gets; also the bottom of the down-sweep ladder'),
-    );
-  }
-
-  // Machine profile selector: the one switch everything above follows.
-  const profileSelect = document.createElement('select');
-  function renderProfiles(): void {
-    profileSelect.innerHTML = '';
-    for (const pp of hooks.profiles) {
-      const o = document.createElement('option');
-      o.value = pp.name;
-      o.textContent = pp.name;
-      o.selected = pp.name === s.activeProfile;
-      profileSelect.append(o);
-    }
-    tuning.root.querySelector('summary')!.textContent = `Motion tuning — ${prof().name}`;
-    setup.root.querySelector('summary')!.textContent = `Machine setup — ${prof().name}`;
-    renderTuning();
-    renderSetup();
-    for (const fn of onProfileSwitch) fn();
-  }
-  profileSelect.onchange = () => {
-    s.activeProfile = profileSelect.value;
-    saveSettings(s);
-    renderProfiles();
-    hooks.onChanged(); // estimates follow the machine
-  };
-  const dupBtn = button('⧉', () => {
-    const name = prompt('New profile name', `${prof().name} copy`)?.trim();
-    if (!name || hooks.profiles.some((pp) => pp.name === name)) return;
-    hooks.profiles.push({ ...structuredClone(prof()), name });
-    s.activeProfile = name;
-    saveSettings(s);
-    persist();
-    renderProfiles();
-  });
-  dupBtn.title = 'Duplicate the active profile (e.g. an A3 regime with quick hop off)';
-  const delBtn = button('×', () => {
-    if (hooks.profiles.length <= 1) return;
-    if (!confirm(`Delete machine profile '${prof().name}'?`)) return;
-    const i = hooks.profiles.findIndex((pp) => pp.name === s.activeProfile);
-    hooks.profiles.splice(i, 1);
-    s.activeProfile = hooks.profiles[0].name;
-    saveSettings(s);
-    persist();
-    renderProfiles();
-    hooks.onChanged();
-  });
-  delBtn.title = 'Delete the active profile';
-  const profileRow = document.createElement('div');
-  profileRow.className = 'row';
-  const profileLabel = document.createElement('label');
-  profileLabel.textContent = 'Machine';
-  profileRow.append(profileLabel, profileSelect, dupBtn, delBtn);
-  renderProfiles();
-
-  diag.append(logRow);
+  const connect = buildConnect(m);
+  const transport = el('div', 'transport', plotBtn, pauseBtn, stopBtn, frameBtn);
+  const manual = buildManualControls(m);
 
   body.append(
-    hint,
-    profileRow,
-    connectBtn,
+    el('div', 'plot-head', buildProfileSelect(m, hooks.profiles, false), connect.root),
     status,
-    row('Plot pen', penSelect, 'Plots this pen only — for multi-pen sketches: plot, swap the pen, pick the next, plot again'),
-    plotRow,
+    row('Pen', penSelect, 'Plots this pen only — for multi-pen sketches: plot, swap the pen, pick the next, plot again'),
+    transport,
     bar,
     progressText,
-    progressRow,
-    progressHint,
-    manual.root,
-    tuning.root,
-    setup.root,
-    cal,
-    diag,
+    savedBox,
+    el('h4', 'band-title', 'Manual control'),
+    manual,
+    hint('Profile, calibration and the serial log live on the Machine page.'),
   );
+  refreshPenSelect();
 }
 
 // ---- export (runs in the render worker on the last rendered buffers) ----
@@ -1528,57 +989,3 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
 
 // ---- small helpers ----
 
-function button(label: string, onclick: () => void | Promise<void>): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.textContent = label;
-  b.onclick = () => void onclick();
-  return b;
-}
-
-function row(label: string, control: HTMLElement, title?: string): HTMLDivElement {
-  const r = document.createElement('div');
-  r.className = 'row';
-  if (title) r.title = title;
-  const l = document.createElement('label');
-  l.textContent = label;
-  r.append(l, control);
-  return r;
-}
-
-function checkbox(label: string, value: boolean, onchange: (v: boolean) => void): HTMLLabelElement {
-  const l = document.createElement('label');
-  l.className = 'row';
-  const input = document.createElement('input');
-  input.type = 'checkbox';
-  input.checked = value;
-  input.style.flex = 'none';
-  input.onchange = () => onchange(input.checked);
-  l.append(input, document.createTextNode(` ${label}`));
-  return l;
-}
-
-function numberInput(value: number, step: number, onchange: (v: number) => void): HTMLInputElement {
-  const input = document.createElement('input');
-  input.type = 'number';
-  input.step = String(step);
-  input.value = String(value);
-  input.onchange = () => {
-    const next = parseFloat(input.value);
-    if (Number.isFinite(next)) onchange(next);
-    else input.value = String(value);
-  };
-  return input;
-}
-
-function pairInput(
-  a: number,
-  b: number,
-  onchange: (a: number, b: number) => void,
-): HTMLDivElement {
-  const wrap = document.createElement('div');
-  wrap.className = 'row';
-  const ia = numberInput(a, 1, (v) => onchange(v, parseFloat(ib.value)));
-  const ib = numberInput(b, 1, (v) => onchange(parseFloat(ia.value), v));
-  wrap.append(ia, ib);
-  return wrap;
-}

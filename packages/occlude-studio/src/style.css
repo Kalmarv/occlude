@@ -11,6 +11,12 @@
   --ink-faint: #4d5257;
   --toolpath: #5b8bd9;
   --warn: #d9a13d;
+  /* The machine: one colour, the brass of the carriage bushings, used only
+     for things that touch the plotter — connected, Plot mode, origins. */
+  --brass: #c8a165;
+  --brass-dim: #7d6640;
+  /* Stop and delete, nothing else. */
+  --danger: #c65a4a;
   --bench: #101214;
   --paper: #f6f2ea;
   --mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -379,13 +385,12 @@ body {
 }
 
 .panel > summary {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--ink-dim);
-  padding: 9px 12px;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  padding: 10px 12px 8px;
   cursor: pointer;
   user-select: none;
   list-style: none;
@@ -626,10 +631,9 @@ button.danger:hover {
 }
 
 .subpanel > summary {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
   color: var(--ink-dim);
   cursor: pointer;
   padding: 3px 0;
@@ -672,11 +676,9 @@ button.primary {
 
 .row > label {
   flex: none;
-  font-family: var(--mono);
-  font-size: 10.5px;
+  font-family: var(--sans);
+  font-size: 11.5px;
   color: var(--ink-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   width: 74px;
 }
 
@@ -1539,4 +1541,476 @@ body.scrubbing * {
   padding: 4px 18px 12px;
   font-size: 11px;
   color: #74747e;
+}
+
+
+/* ---- rail modes ---- */
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  margin: 10px 12px 4px;
+  background: var(--well);
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+}
+
+.segmented > button {
+  flex: 1;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 5px 8px;
+}
+
+.segmented > button:hover {
+  color: var(--ink);
+  border-color: transparent;
+}
+
+.segmented > button.active {
+  color: var(--deck);
+  background: var(--paper);
+  border-color: var(--paper);
+}
+
+/* Plot mode is the machine's: brass instead of paper. */
+#rail[data-mode='plot'] .segmented > button.active {
+  background: var(--brass);
+  border-color: var(--brass);
+}
+
+.rail-mode.plot {
+  padding: 4px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rail-mode.plot .band-title {
+  margin: 8px 0 0;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* ---- machine session controls ---- */
+.plot-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.connect-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.connect-row .connect {
+  flex: none;
+}
+
+.conn-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+.conn-dot.on {
+  background: var(--brass);
+  box-shadow: 0 0 0 2px var(--panel), 0 0 6px var(--brass);
+}
+
+.conn-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-line {
+  min-height: 1.2em;
+  color: var(--warn);
+}
+
+.status-line:empty {
+  display: none;
+}
+
+.transport {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.transport button {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  padding: 8px 6px;
+}
+
+/* The Plot button wears the selected pen's ink. */
+button.plot-go {
+  --pen: var(--brass);
+  font-weight: 600;
+  color: var(--deck);
+  background: var(--pen);
+  border-color: var(--pen);
+}
+
+button.plot-go:hover {
+  filter: brightness(1.1);
+}
+
+button.plot-stop {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 60%, transparent);
+}
+
+button.plot-stop:hover {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+button.danger-quiet {
+  color: var(--ink-dim);
+}
+
+button.danger-quiet:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+progress.plot-progress {
+  --pen: var(--brass);
+  width: 100%;
+  height: 6px;
+  appearance: none;
+  border: none;
+  background: var(--well);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+progress.plot-progress::-webkit-progress-bar {
+  background: var(--well);
+}
+
+progress.plot-progress::-webkit-progress-value {
+  background: var(--pen);
+}
+
+progress.plot-progress::-moz-progress-bar {
+  background: var(--pen);
+}
+
+.progress-text {
+  font-family: var(--mono);
+  color: var(--ink-dim);
+}
+
+.saved-plot {
+  border: 1px solid var(--brass-dim);
+  border-left: 3px solid var(--brass);
+  border-radius: 4px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.saved-plot[hidden] {
+  display: none;
+}
+
+.saved-plot .row > button {
+  flex: none;
+}
+
+/* Manual control: a real jog pad, not a row of arrows. */
+.manual {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jog-pad {
+  display: grid;
+  grid-template-columns: 34px 52px 34px;
+  grid-template-rows: 28px 28px 28px;
+  gap: 3px;
+  justify-content: start;
+}
+
+.jog-pad button {
+  padding: 0;
+  font-size: 13px;
+}
+
+.jog-pad .jog-step {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.origins {
+  border-left: 3px solid var(--brass-dim);
+  padding-left: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.origins .row {
+  flex-wrap: wrap;
+}
+
+.origins button {
+  flex: 1 1 45%;
+  white-space: nowrap;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.origin-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--brass);
+}
+
+button.armed {
+  border-color: var(--brass);
+  color: var(--brass);
+}
+
+/* ---- machine page ---- */
+.machine-body main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 18px 24px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.machine-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--panel-edge);
+  border-left: 3px solid var(--brass);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.machine-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.machine-title > .row {
+  flex: none;
+}
+
+.machine-title select {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.machine-run {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.machine-body .segmented {
+  margin: 0;
+  max-width: 420px;
+}
+
+.machine-tab {
+  display: block;
+}
+
+.machine-tab[hidden] {
+  display: none;
+}
+
+.profile-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.form-section {
+  padding: 12px 14px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-section h3,
+.cal-side h3,
+.cal-head h3 {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.form-section .row > label {
+  width: 130px;
+}
+
+.machine-tab:has(.calibration) {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.machine-tab:has(.calibration)[hidden] {
+  display: none;
+}
+
+.cal-side {
+  position: sticky;
+  top: 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.calibration {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cal-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cal-step {
+  padding: 12px 14px 12px 16px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cal-num {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--deck);
+  background: var(--brass);
+}
+
+.cal-step textarea,
+.cal-step input[type='text'] {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink);
+  background: var(--well);
+  border: 1px solid var(--panel-edge);
+  border-radius: 3px;
+  padding: 6px 8px;
+}
+
+.cal-step .row > label {
+  flex: none;
+  white-space: nowrap;
+  width: auto;
+}
+
+.cal-step .row > label.row {
+  gap: 4px;
+}
+
+.cal-step .row > button {
+  flex: none;
+}
+
+.serial-log {
+  max-height: 60vh;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  background: var(--well);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  white-space: pre;
+}
+
+/* Calibration pens: in the library so cards and the settle sketch can use
+   them, out of the way in the tray. */
+.pen-group {
+  margin-top: 4px;
+  border-top: 1px solid var(--panel-edge);
+}
+
+.pen-group > summary {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  padding: 6px 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.pen-group > summary::before {
+  content: '▸ ';
+  color: var(--ink-faint);
+}
+
+.pen-group[open] > summary::before {
+  content: '▾ ';
 }

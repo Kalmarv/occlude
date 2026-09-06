@@ -1356,12 +1356,12 @@ Serial. What's under the hood, briefly, so its knobs make sense:
   via the Plot-pen select; "all pens (one run)" runs a whole multi-pen
   plan with the installed pen, each chain using its own logical pen's
   feed/settle.
-- **Diagnostics** (in the panel): registration probe (step loss),
+- **Diagnostics** (Machine page → Calibration): registration probe (step loss),
   backlash squares, corner ringing at three feeds (junction-deviation
   tuning), plus the `settle-sweep` sketch for finding a pen's true
   `penDelay` floor. **Download serial log** exports the full timestamped
   command transcript — the first artifact to grab when anything misbehaves.
-- **Pen-height cards** (also in Diagnostics): the servo is open loop and
+- **Pen-height cards** (Machine page → Calibration, in run order): the servo is open loop and
   the gantry sags, so the only sensor is ink. Seat the pen on a shim the
   same way every time, then let the paper answer in pulse units: the
   **lift traverse** sweeps the raised pen across the whole bed at six lift
