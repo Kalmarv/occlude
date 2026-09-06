@@ -18,13 +18,13 @@
 // The declarative API.
 export {
   sketch, compileSketch, isSketch,
-  circle, ellipse, rect, line, polygon, region, trace, path, PathValue,
+  circle, ellipse, rect, line, polygon, ngon, stroke, path, PathValue,
   group, clip, mask, invert, decimate, wobble, modify, dash, smooth, roughen, deform, noiseField,
   times, range,
 } from './api.js';
 export type {
   SketchDef, SketchConfig, Toolkit, Tree,
-  ShapeValue, ShapeOpts, GroupValue, GroupOpts, ClipValue, InvertValue,
+  ShapeValue, ShapeOpts, PolygonOpts, Contour, GroupValue, GroupOpts, ClipValue, InvertValue,
 } from './api.js';
 export type { ModifierValue, FieldFn, VectorFieldFn } from './shapes.js';
 

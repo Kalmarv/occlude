@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   circle, compileSketch, deform, encodeScene, fill, group, initOcclude, mm, path, rect, render,
-  rotate, scale, setPaperHint, sketch, trace, translate, vectorField, within,
+  rotate, scale, setPaperHint, sketch, stroke, translate, vectorField, within,
 } from '../src/index.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
 import type { RenderOptions, SketchDef } from '../src/index.js';
@@ -301,9 +301,9 @@ describe('loops: any shape as plain point loops', () => {
     let rc: [number, number][][] = [];
     let open: [number, number][][] = [];
     compileSketch(sketch({ rectMode: 'center' }, (t) => {
-      circ = t.loops(circle(50, 25, 15));
-      rc = t.loops(rect(50, 50, 20, 10, { rotate: 0 }));
-      open = t.loops(trace({ pts: [[0, 0], [10, 0], [10, 10]], closed: false }));
+      circ = t.polylines(circle(50, 25, 15));
+      rc = t.polylines(rect(50, 50, 20, 10, { rotate: 0 }));
+      open = t.polylines(stroke({ pts: [[0, 0], [10, 0], [10, 10]], closed: false }));
       return circle(0, 0, 1);
     }));
     expect(circ).toHaveLength(1);
@@ -319,10 +319,10 @@ describe('loops: any shape as plain point loops', () => {
     expect(open[0][open[0].length - 1]).toEqual([10, 10]);
   });
 
-  it('composes: distanceTo(t.loops(circle)) is the circle\'s signed distance', () => {
+  it('composes: distanceTo(t.polylines(circle)) is the circle\'s signed distance', () => {
     let seen = NaN;
     compileSketch(sketch({}, (t) => {
-      const d = t.distanceTo(t.loops(circle(50, 50, 25)));
+      const d = t.distanceTo(t.polylines(circle(50, 50, 25)));
       seen = d(50, 50);
       return circle(0, 0, 1);
     }));
@@ -375,14 +375,14 @@ describe('align: shape-anchored fills follow the motif', () => {
   });
 });
 
-describe('trace: contour stamping without the seam foot-gun', () => {
+describe('stroke: contour stamping without the seam foot-gun', () => {
   it('closed contours keep their seam; fine open chains survive whole', () => {
     const def = sketch({ seed: 6 }, (t) => {
       const f = within(
         (x: number, y: number) => t.noise(x / 5, y / 22),
         circle(50, 50, 40),
       );
-      return t.isolines(f, 0.2, { step: 0.2 }).map((c) => trace(c));
+      return t.isolines(f, 0.2, { step: 0.2 }).map((c) => stroke(c));
     });
     const out = sq(def);
     const drawn = out.frags.filter((fr) => !fr.dot);
@@ -393,9 +393,9 @@ describe('trace: contour stamping without the seam foot-gun', () => {
     expect(dots.length).toBeLessThan(drawn.length / 20);
   });
 
-  it('bare point arrays trace open', () => {
+  it('bare point arrays stroke open', () => {
     const def = sketch({ seed: 1 }, () => [
-      trace([[10, 10], [50, 30], [90, 10]]),
+      stroke([[10, 10], [50, 30], [90, 10]]),
     ]);
     const out = sq(def);
     expect(out.frags.filter((f) => !f.dot).length).toBe(2); // two segments, no closing chord

@@ -225,28 +225,6 @@ export function line(x1: L, y1: L, x2: L, y2: L): Shape {
   return new Shape({ kind: 'line', x1, y1, x2, y2 });
 }
 
-export function polygon(x: L, y: L, sides: number, r: L, rotation?: number): Shape;
-export function polygon(points: [L, L][]): Shape;
-export function polygon(
-  a: L | [L, L][],
-  y?: L,
-  sides?: number,
-  r?: L,
-  rotation = 0,
-): Shape {
-  if (Array.isArray(a)) {
-    return new Shape({ kind: 'points', pts: a });
-  }
-  return new Shape({
-    kind: 'ngon',
-    x: a,
-    y: y as L,
-    sides: sides as number,
-    r: r as L,
-    rotation,
-  });
-}
-
 /** Deep copy of a geometry record (paths and point lists are mutable). */
 function cloneGeom(geom: ShapeGeom): ShapeGeom {
   switch (geom.kind) {

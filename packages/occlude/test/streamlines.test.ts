@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { curl, grad, initOcclude, render, sketch, trace, vectorField, within, circle } from '../src/index.js';
+import { curl, grad, initOcclude, render, sketch, stroke, vectorField, within, circle } from '../src/index.js';
 import type { IsoEnv } from '../src/isolines.js';
 import { streamlinesOf } from '../src/streamlines.js';
 
@@ -115,7 +115,7 @@ describe('streamlines', () => {
   it('within() on the scalar carries to grad/curl and the toolkit stamps the result as ink', () => {
     const def = sketch({ seed: 1 }, (t) => {
       const field = within((x: number, y: number) => t.noise(x / 20, y / 20), circle(50, 50, 35));
-      return t.streamlines(curl(field), { spacing: 3 }).map((c) => trace(c));
+      return t.streamlines(curl(field), { spacing: 3 }).map((c) => stroke(c));
     });
     const out = render(def, { paper: 'Square20' });
     expect(out.frags.length).toBeGreaterThan(50);

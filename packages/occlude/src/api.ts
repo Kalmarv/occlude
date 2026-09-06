@@ -192,16 +192,30 @@ export function line(x1: L, y1: L, x2: L, y2: L, opts?: ShapeOpts): ShapeValue {
   return shape({ kind: 'line', x1, y1, x2, y2 }, opts);
 }
 
+/** A closed boundary as plain points. Open input gets its closing chord. */
+export type Contour = [L, L][];
+
+export interface PolygonOpts extends ShapeOpts {
+  /** Fill rule where boundaries nest or cross. `'evenodd'` (default): every
+   * enclosed boundary is a hole, whatever its orientation — a ring is an
+   * annulus, a pentagram has an empty pentagon. `'nonzero'`: the pentagram
+   * is solid; orientation decides holes. */
+  winding?: Winding;
+}
+
 /**
- * One area from several boundary loops — the engine's Region concept as a
- * value. Lifts naked `[x, y][]` loops into a single evenodd shape, so
- * nesting is holes regardless of loop orientation; the result clips,
- * fills, masks, and stamps as one thing. Strictly loops: wrapper records
- * expose theirs (`region(blobs.map((c) => c.pts))`). No geometry is
- * computed; open loops get their closing chord. Nonzero exotica stays
- * with `path({ winding })`.
+ * An area from its boundaries — the engine's Region concept as a value.
+ * One contour or several, each a bare `[x, y][]`; the result clips, fills,
+ * masks, and stamps as one thing. Strictly points: wrapper records expose
+ * theirs (`polygon(blobs.map((c) => c.pts))`). No geometry is computed;
+ * open contours get their closing chord. `winding` picks the fill rule.
  */
-export function region(loops: [L, L][][], opts?: ShapeOpts): ShapeValue {
+export function polygon(contours: Contour | Contour[], opts: PolygonOpts = {}): ShapeValue {
+  const { winding = 'evenodd', ...rest } = opts;
+  const loops: Contour[] =
+    contours.length > 0 && !Array.isArray(contours[0][0])
+      ? [contours as Contour]
+      : (contours as Contour[]);
   const cmds: PathCmd[] = [];
   for (const loop of loops) {
     if (loop.length < 2) continue;
@@ -211,17 +225,28 @@ export function region(loops: [L, L][][], opts?: ShapeOpts): ShapeValue {
     }
     cmds.push({ op: 'close' });
   }
-  return shape({ kind: 'path', cmds, winding: 'evenodd' }, opts);
+  return shape({ kind: 'path', cmds, winding }, rest);
+}
+
+/** Regular n-gon: `sides` vertices on a circle of radius `r`, the first at
+ * `rotation` degrees. */
+export function ngon(
+  x: L, y: L, sides: number, r: L, rotation?: number | ShapeOpts, opts?: ShapeOpts,
+): ShapeValue {
+  if (isOpts(rotation)) {
+    return shape({ kind: 'ngon', x, y, sides, r, rotation: 0 }, rotation);
+  }
+  return shape({ kind: 'ngon', x, y, sides, r, rotation: rotation ?? 0 }, opts);
 }
 
 /**
- * Trace a contour with the pen — `polygon`'s open-minded sibling. A bare
- * `[x, y][]` traces an OPEN polyline (polygon always closes); an
+ * Draw along a contour with the pen — `polygon`'s open-minded sibling. A
+ * bare `[x, y][]` strokes an OPEN polyline (polygon always closes); an
  * `IsoContour` honors its `closed` flag, so isolines/rings stamp with the
  * right seams and the right open ends in one call:
- * `t.isolines(f, 0.3).map((c) => trace(c))`.
+ * `t.isolines(f, 0.3).map((c) => stroke(c))`.
  */
-export function trace(
+export function stroke(
   contour: IsoContour | [L, L][],
   opts?: ShapeOpts,
 ): ShapeValue {
@@ -236,27 +261,6 @@ export function trace(
     if (closed) cmds.push({ op: 'close' });
   }
   return shape({ kind: 'path', cmds, winding: 'nonzero' }, opts);
-}
-
-export function polygon(points: [L, L][], opts?: ShapeOpts): ShapeValue;
-export function polygon(
-  x: L, y: L, sides: number, r: L, rotation?: number | ShapeOpts, opts?: ShapeOpts,
-): ShapeValue;
-export function polygon(
-  a: L | [L, L][], b?: L | ShapeOpts, sides?: number, r?: L,
-  rotation?: number | ShapeOpts, opts?: ShapeOpts,
-): ShapeValue {
-  if (Array.isArray(a)) return shape({ kind: 'points', pts: a }, b as ShapeOpts | undefined);
-  if (isOpts(rotation)) {
-    return shape(
-      { kind: 'ngon', x: a, y: b as L, sides: sides!, r: r!, rotation: 0 },
-      rotation,
-    );
-  }
-  return shape(
-    { kind: 'ngon', x: a, y: b as L, sides: sides!, r: r!, rotation: rotation ?? 0 },
-    opts,
-  );
 }
 
 /** Mutable builder; `build()` snapshots, so the builder stays extendable. */
@@ -589,8 +593,8 @@ export interface Toolkit {
   rect: typeof rect;
   line: typeof line;
   polygon: typeof polygon;
-  region: typeof region;
-  trace: typeof trace;
+  ngon: typeof ngon;
+  stroke: typeof stroke;
   path: typeof path;
   group: typeof group;
   clip: typeof clip;
@@ -630,7 +634,7 @@ export interface Toolkit {
   scatter: typeof scatter;
   isolines: typeof isolines;
   streamlines: typeof streamlines;
-  loops: typeof loops;
+  polylines: typeof polylines;
   probe: typeof probe;
   distanceTo: typeof distanceTo;
   within: typeof within;
@@ -719,8 +723,8 @@ function scatter(
 }
 
 /** Contours of `{ field ≥ at }` via marching squares over the drawable —
- * plain data: stamp with `polygon(c.pts)`, or assemble into one evenodd
- * `path()` for holes, and clip/fill from there. Open at the drawable edge
+ * plain data: stamp with `stroke(c)`, or assemble into one area with
+ * `polygon(cs.map((c) => c.pts))` and clip/fill from there. Open at the drawable edge
  * by default; `{ close: true }` closes regions along it. An `at` array
  * marches every level over one shared field sampling. */
 function isolines(field: FieldFn2, at: number, opts?: IsoOpts): IsoContour[];
@@ -738,7 +742,7 @@ function isolines(
 }
 
 /** Evenly spaced streamlines of a vector field over the drawable (Jobard &
- * Lefer) — plain open contours, stamped with `trace(c)`. `spacing` is a
+ * Lefer) — plain open contours, stamped with `stroke(c)`. `spacing` is a
  * length or a scalar field of lengths: density as tone, direction as flow.
  * Lines stop at the drawable edge, at a `within()` bound, and half a spacing
  * from ink already laid. Deterministic, no seed. */
@@ -749,15 +753,16 @@ function streamlines(field: VectorFieldFn, opts: StreamOpts = {}): IsoContour[] 
 }
 
 /**
- * A shape's outline as plain point loops in sketch coordinates — the bridge
- * from any shape value to everything that eats loops: `distanceTo`,
- * `region`, `polygon`, scatter bounds. Lowered by THE lowerer (rectMode,
- * arc commands, the shape's own transform opts, curves flattened at
- * `tolerance`, default 0.05 mm), so the loops are what the shape inks.
- * Closed shapes give closed loops; a line or open path gives an open
- * polyline (loop consumers treat it as chord-closed, like `region`).
+ * A shape's polylines: its outline as plain points in sketch coordinates,
+ * the bridge from any shape value to everything that eats points —
+ * `distanceTo`, `polygon`, `stroke`, scatter bounds. Lowered by THE lowerer
+ * (rectMode, arc commands, the shape's own transform opts, curves
+ * flattened at `tolerance`, default 0.05 mm), so the polylines are what
+ * the shape inks. Closed shapes give closed polylines; a line or open path
+ * gives an open one (area consumers treat it as chord-closed, like
+ * `polygon`).
  */
-function loops(shape: ShapeValue, opts: { tolerance?: L } = {}): [number, number][][] {
+function polylines(shape: ShapeValue, opts: { tolerance?: L } = {}): [number, number][][] {
   const frame = sketchFrame();
   const unit = unitMm(frame);
   const tol = opts.tolerance !== undefined ? resolveLen(opts.tolerance, frame.inner) : 0.05;
@@ -791,14 +796,14 @@ function pointsOf(
 }
 
 const TOOLKIT_BASE = {
-  circle, ellipse, rect, line, polygon, region, trace, path, group, clip, mask, decimate, wobble, modify,
+  circle, ellipse, rect, line, polygon, ngon, stroke, path, group, clip, mask, decimate, wobble, modify,
   dash, smooth, roughen, deform, noiseField, label,
   fill, rulings, ui,
   rnd, pick, chance, prob, noise, stream,
   map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, isolines, streamlines, loops, probe, distanceTo, points: pointsOf, voronoi, triangulate, synth,
+  scatter, isolines, streamlines, polylines, probe, distanceTo, points: pointsOf, voronoi, triangulate, synth,
   within, rotate: rotateField, translate: translateField, scale: scaleField,
   vectorField: vectorFieldMark,
   mm, w, h, s, long,

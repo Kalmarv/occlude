@@ -5,7 +5,7 @@ import {
   compileSketch, getProbeStats,
   fill,
   circle, ellipse, exportGcode, exportPng, exportSvg, initOcclude,
-  line, mask, mm, polygon, rect, render, sketch, w,
+  line, mask, mm, ngon, polygon, rect, render, sketch, w,
 } from '../src/index.js';
 import { evalPrim } from '../src/index.js';
 import type { Fragment, Prim, RenderOptions, SketchDef } from '../src/index.js';
@@ -281,7 +281,7 @@ describe('occlude declarative api', () => {
 
   it('polygon forms and ellipse opts placement', () => {
     const def = sketch({ seed: 1 }, () => [
-      polygon(50, 50, 6, 20, { fill: fill('hatch', { angle: 0, spacing: mm(2) }) }),
+      ngon(50, 50, 6, 20, { fill: fill('hatch', { angle: 0, spacing: mm(2) }) }),
       polygon([[10, 10], [30, 10], [20, 30]]),
       ellipse(70, 70, 10, 5, { opaque: true }), // opts in the rotation slot
     ]);
@@ -290,6 +290,38 @@ describe('occlude declarative api', () => {
       .toBeGreaterThan(6);
     expect(out.frags.filter((f) => f.shape === 1)).toHaveLength(3);
     expect(out.frags.some((f) => f.shape === 2)).toBe(true);
+  });
+
+  it('polygon: one contour or many; evenodd by default, nonzero on request', () => {
+    // A pentagram: evenodd leaves the inner pentagon empty, nonzero fills it.
+    const star: [number, number][] = [];
+    for (let k = 0; k < 5; k++) {
+      const a = (-Math.PI / 2) + (k * 4 * Math.PI) / 5;
+      star.push([50 + 30 * Math.cos(a), 50 + 30 * Math.sin(a)]);
+    }
+    const probe = line(50, 15, 50, 85); // through the centre, drawn FIRST so the star hides it
+    // Visible length of the probe (tools/frags.ts showed the piece COUNT is
+    // 2 under both rules: below the pentagon is outside the star, so the
+    // evenodd hole and the gap beneath it merge into one visible run).
+    const visible = (opts: Parameters<typeof polygon>[1]) => {
+      const out = sq(sketch({ seed: 1 }, () => [probe, polygon(star, { ...opts, opaque: true, stroke: false })]));
+      return out.frags
+        .filter((f) => f.shape === 0 && f.geom.t === 'line')
+        .reduce((sum, f) => sum + Math.abs(f.geom.y1 - f.geom.y0), 0);
+    };
+    const evenodd = visible({});
+    const nonzero = visible({ winding: 'nonzero' });
+    // evenodd: the probe survives inside the empty pentagon.
+    expect(evenodd).toBeGreaterThan(nonzero + 10);
+    // Many contours: a ring keeps its hole under the default rule.
+    const ring = sq(sketch({ seed: 1 }, () => [
+      line(50, 0, 50, 100),
+      polygon([
+        [[10, 10], [90, 10], [90, 90], [10, 90]],
+        [[30, 30], [70, 30], [70, 70], [30, 70]],
+      ], { opaque: true, stroke: false }),
+    ]));
+    expect(ring.frags.filter((f) => f.shape === 0)).toHaveLength(3);
   });
 
   it('path builder: build() snapshots, the builder stays extendable', () => {

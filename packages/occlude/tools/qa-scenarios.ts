@@ -9,7 +9,7 @@
  */
 
 import {
-  circle, decimate, deform, dash, evalPrim, line, mm, modify, polygon, rect,
+  circle, decimate, deform, dash, evalPrim, line, mm, modify, ngon, rect,
   render, roughen, sketch, smooth, wobble,
   type Fragment, type RenderResult, type SketchDef, type Tree, type VectorFieldFn,
 } from '../src/index.js';
@@ -153,7 +153,7 @@ export const preChains: Scenario = (seed) => {
           ? circle(cx, cy, size)
           : kind < 0.66
             ? rect(cx - size, cy - size, size * 2, size * 2, r() < 0.5 ? range(r, 1, 3) : 0)
-            : polygon(cx, cy, 3 + Math.floor(r() * 6), size, r() * 360);
+            : ngon(cx, cy, 3 + Math.floor(r() * 6), size, r() * 360);
       shapes.push(modify(mods(), shape));
       count++;
     }

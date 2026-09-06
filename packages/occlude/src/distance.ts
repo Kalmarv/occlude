@@ -8,8 +8,8 @@
  * Sign: POSITIVE inside, zero on the boundary, negative outside — so inset
  * levels are positive (`isolines(d, 2)` rings 2 units deep) and halos are
  * negative (`isolines(d, -2)` rings 2 units out). Insideness is even-odd
- * over the loops, exactly like `region()`: nesting is holes regardless of
- * loop orientation. Open loops get their closing chord (also like region).
+ * over the loops, exactly like `polygon()`: nesting is holes regardless of
+ * loop orientation. Open loops get their closing chord (also like polygon).
  *
  * Pure and deterministic: a function of the loops alone — no seed, no
  * paper. Coordinates and distances are in the units of the input points.
@@ -29,7 +29,7 @@ interface Seg {
 /**
  * Signed distance to the boundary of the area enclosed by `loops`
  * (even-odd): positive inside, negative outside. Strictly loops, like
- * `region()`: wrapper records expose theirs
+ * `polygon()`: wrapper records expose theirs
  * (`distanceTo(blobs.map((c) => c.pts))`). With no usable loops the field
  * is -Infinity everywhere — non-finite samples count as outside, so
  * isolines over an empty field yields no contours rather than throwing.

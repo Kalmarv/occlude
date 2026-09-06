@@ -90,7 +90,7 @@ export default sketch({ aspect: [1, 1], seed: 24 }, (t) => {
 ```
 
 **The occlude way.** A ridge is plain data — a list of points — so the
-stroke is `trace`, the open-minded sibling of `polygon`, and the hill
+stroke is `stroke`, the open-minded sibling of `polygon`, and the hill
 behind it is the same points closed down to the page bottom and masked.
 Top ridge first: later wins, so each hill hides the ones behind it, with
 no chord and no builder. The jitter becomes seeded `noise` so each trace
@@ -98,7 +98,7 @@ is a pulse rather than static, and the envelope an `ease` curve instead
 of a clamp.
 
 ```ts live
-import { sketch, trace, polygon, mask, ease } from 'occlude';
+import { sketch, stroke, polygon, mask, ease } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 24 }, (t) => {
   const size = 100, step = size / 32;
@@ -110,7 +110,7 @@ export default sketch({ aspect: [1, 1], seed: 24 }, (t) => {
       const pulse = (t.noise(x / 7, k * 9) + 1) / 2;
       pts.push([x, base - pulse * env * 17]);
     }
-    return [trace(pts), mask(polygon([...pts, [size - step, size], [step, size]]))];
+    return [stroke(pts), mask(polygon([...pts, [size - step, size], [step, size]]))];
   });
 });
 ```

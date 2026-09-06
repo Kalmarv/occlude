@@ -68,17 +68,17 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 );
 ```
 
-### polygon
+### ngon
 
-`polygon(x, y, sides, r, rotation?, opts?)` for regular n-gons, or
-`polygon([[x, y], …], opts?)` with explicit points.
+`ngon(x, y, sides, r, rotation?, opts?)` — a regular n-gon: `sides`
+vertices on a circle of radius `r`, the first at `rotation` degrees.
 
 ```ts live
-import { sketch, polygon, fill, mm } from 'occlude';
+import { sketch, ngon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) =>
   t.times(6, (k) =>
-    polygon(10 + k * 16, 25, 3 + k, 8, 90, { fill: fill('hatch', { angle: 45, spacing: mm(1) }) }),
+    ngon(10 + k * 16, 25, 3 + k, 8, 90, { fill: fill('hatch', { angle: 45, spacing: mm(1) }) }),
   ),
 );
 ```
@@ -103,21 +103,42 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) =>
 );
 ```
 
-### region
+### polygon
 
-`region(loops, opts?)` — one area from several `[x, y][]` boundary loops:
-a single **evenodd** shape, so nested loops are holes regardless of
-orientation. This is the engine's Region concept as a value — it clips,
-fills, masks, and stamps as one thing. Strictly loops: wrapper records
-expose theirs (`region(blobs.map((c) => c.pts))`).
+`polygon(contours, opts?)` — an area from its boundaries. One contour
+(`[[x, y], …]`) or several (`[[[x, y], …], …]`); each is closed with a
+chord if it isn't already. The result is ONE shape — it clips, fills,
+masks, and stamps as one thing. Strictly points: wrapper records expose
+theirs (`polygon(blobs.map((c) => c.pts))`). `winding` picks the fill
+rule where boundaries nest or cross: `'evenodd'` (default) makes every
+enclosed boundary a hole whatever its orientation — a ring is an annulus,
+a pentagram has an empty pentagon; `'nonzero'` fills the pentagram solid.
 
 ```ts live
-import { sketch, region, circle } from 'occlude';
+import { sketch, polygon, fill, mm } from 'occlude';
 
-// One region from a whole level set — dots survive only inside the blobs.
+// The same pentagram under both rules. Evenodd (left) leaves the inner
+// pentagon empty; nonzero (right) fills it — the outline is identical.
+export default sketch({ aspect: [2, 1] }, () => {
+  const star = (cx) => [0, 1, 2, 3, 4].map((k) => {
+    const a = -Math.PI / 2 + (k * 4 * Math.PI) / 5;
+    return [cx + 20 * Math.cos(a), 26 + 20 * Math.sin(a)];
+  });
+  const hatch = fill('hatch', { angle: 45, spacing: mm(1) });
+  return [
+    polygon(star(27), { fill: hatch }),
+    polygon(star(73), { fill: hatch, winding: 'nonzero' }),
+  ];
+});
+```
+
+```ts live
+import { sketch, polygon, circle } from 'occlude';
+
+// One area from a whole level set — dots survive only inside the blobs.
 export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const blobs = t.isolines((x, y) => t.noise(x / 14, y / 14), 0.1, { close: true });
-  return t.clip(region(blobs.map((c) => c.pts)), t.grid({ cols: 40, rows: 20 }).map((c) =>
+  return t.clip(polygon(blobs.map((c) => c.pts)), t.grid({ cols: 40, rows: 20 }).map((c) =>
     circle(c.cx, c.cy, 1)));
 });
 ```
@@ -177,15 +198,15 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 `invert(shape)` — complement a clip region: `clip(invert(shape), ...)`
 splits the children's ink along the shape's boundary and keeps the
 outside. A region annotation, not a drawable — it fails loudly anywhere
-else. With `region()` this is the full split-and-keep-either-side pair:
+else. With `polygon()` this is the full split-and-keep-either-side pair:
 same boundary, pick a side.
 
 ```ts live
-import { sketch, clip, invert, region, circle } from 'occlude';
+import { sketch, clip, invert, polygon, circle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const blobs = t.isolines((x, y) => t.noise(x / 14, y / 14), 0.1, { close: true });
-  const r = region(blobs.map((c) => c.pts));
+  const r = polygon(blobs.map((c) => c.pts));
   const dots = (rr) => t.grid({ cols: 40, rows: 20 }).map((c) => circle(c.cx, c.cy, rr));
   return [
     clip(r, dots(1.1)),           // inside: fat dots
@@ -286,12 +307,12 @@ crumbles clean edges into jitter. Both are pre-stage (they deform the
 contour before the solve, so fills and occlusion follow the new outline).
 
 ```ts live
-import { sketch, modify, smooth, roughen, polygon, mm } from 'occlude';
+import { sketch, modify, smooth, roughen, ngon, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 9 }, () => [
-  polygon(16, 25, 5, 14),
-  modify([smooth(3)], polygon(50, 25, 5, 14)),
-  modify([roughen(mm(1.2), mm(3))], polygon(84, 25, 5, 14)),
+  ngon(16, 25, 5, 14),
+  modify([smooth(3)], ngon(50, 25, 5, 14)),
+  modify([roughen(mm(1.2), mm(3))], ngon(84, 25, 5, 14)),
 ]);
 ```
 
@@ -949,11 +970,11 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
 marching squares over the drawable: the bridge from scalar fields to
 stampable geometry (noise blobs, metaballs via SDF fields, tonal bands
 from `image()` samplers). Returns plain contour data `{ pts, closed }`:
-`polygon(c.pts)` stamps one loop; `region(blobs.map((c) => c.pts))`
+`polygon(c.pts)` stamps one loop; `polygon(blobs.map((c) => c.pts))`
 lifts a whole level set into ONE shape (holes respected) for
 `clip`/`mask`/fills. A contour that exits the drawable edge comes back
 open (`closed: false`); pass `close: true` to close every region along
-the edge — the form `clip` and fills want. `trace(c)` strokes a contour
+the edge — the form `clip` and fills want. `stroke(c)` strokes a contour
 with the right seams and open ends (`polygon` always closes; a bare
 `[x, y][]` traces open). An array of levels marches
 them all over one shared field sampling. The step defaults to ~mm(1);
@@ -982,7 +1003,7 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 spaced streamlines of a vector field over the drawable (Jobard & Lefer):
 the bridge from vector fields to stampable geometry, the twin of
 `isolines` for flow. Returns open contours `{ pts, closed: false }`, so
-`trace(c)` stamps them. Lines stop at the drawable edge, at a `within()`
+`stroke(c)` stamps them. Lines stop at the drawable edge, at a `within()`
 bound, and half a spacing from ink already laid, so they never cross or
 bunch. `spacing` is a length (default mm(1); at the nib width the result
 is a flow-following solid) **or a field of lengths**, `(x, y) => mm(…)` or
@@ -992,27 +1013,27 @@ Deterministic: no seed, a pure function of the fields. Long continuous
 lines with few lifts are the cheapest ink a plotter can draw.
 
 ```ts live
-import { sketch, trace, curl } from 'occlude';
+import { sketch, stroke, curl } from 'occlude';
 
 // The flow-field look: streamlines of the curl of noise never converge.
 export default sketch({ aspect: [3, 2], seed: 4 }, (t) => {
   const flow = curl((x, y) => t.noise(x / 30, y / 30));
-  return t.streamlines(flow, { spacing: 1.6 }).map((c) => trace(c));
+  return t.streamlines(flow, { spacing: 1.6 }).map((c) => stroke(c));
 });
 ```
 
 ```ts live
-import { sketch, circle, trace, curl, within, distanceTo } from 'occlude';
+import { sketch, circle, stroke, curl, within, distanceTo } from 'occlude';
 
 // Hatch that wraps a form: the curl of a distance field runs along the
 // outline, and density from the distance fades it with the distance.
 export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
   const blob = circle(50, 25, 12);
-  const d = distanceTo(t.loops(blob));
+  const d = distanceTo(t.polylines(blob));
   const around = within(curl(d), circle(50, 25, 24));
   return [
     blob,
-    t.streamlines(around, { spacing: (x, y) => 0.6 + d(x, y) * 0.25 }).map((c) => trace(c)),
+    t.streamlines(around, { spacing: (x, y) => 0.6 + d(x, y) * 0.25 }).map((c) => stroke(c)),
   ];
 });
 ```
@@ -1055,7 +1076,7 @@ vector regions: a bounded wobble stops on the line, not in a fade band
 `clip()` if a fragment must be cut at the edge).
 
 ```ts live
-import { sketch, circle, trace, rotate, within } from 'occlude';
+import { sketch, circle, stroke, rotate, within } from 'occlude';
 
 // Grain bounded to a blob and rotated 30° — contours end at the bound.
 export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
@@ -1063,30 +1084,30 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
   const f = within(grain, circle(50, 25, 18));
   return [
     circle(50, 25, 18),
-    t.isolines(f, [0.1, 0.35, 0.6], { step: 0.4 }).flat().map((c) => trace(c)),
+    t.isolines(f, [0.1, 0.35, 0.6], { step: 0.4 }).flat().map((c) => stroke(c)),
   ];
 });
 ```
 
-### loops
+### polylines
 
-`t.loops(shape, { tolerance? })` — any shape value as plain point loops in
-sketch coordinates, through the one lowerer (rectMode, arc commands, the
-shape's own `translate`/`rotate`/`scale`, curves flattened at `tolerance`,
-default 0.05 mm) — so the loops are exactly what the shape inks. The
-bridge from shapes to everything that eats loops: `distanceTo`, `region`,
-`polygon`, `points`. Closed shapes give closed loops; an open path gives an
-open polyline.
+`t.polylines(shape, { tolerance? })` — any shape value as its polylines:
+plain points in sketch coordinates, through the one lowerer (rectMode, arc
+commands, the shape's own `translate`/`rotate`/`scale`, curves flattened
+at `tolerance`, default 0.05 mm) — so the polylines are exactly what the
+shape inks. The bridge from shapes to everything that eats points:
+`distanceTo`, `polygon`, `stroke`, `points`. Closed shapes give closed
+polylines; an open path gives an open one.
 
 ```ts live
-import { sketch, circle, rect, trace } from 'occlude';
+import { sketch, circle, rect, stroke } from 'occlude';
 
-// Rings around a rotated rect: the rect's own outline as loops, then
+// Rings around a rotated rect: the rect's own outline as polylines, then
 // distanceTo, then isolines — no geometry written by hand.
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const box = rect(50, 25, 26, 14, { rotate: 20, mode: 'center' });
-  const d = t.distanceTo(t.loops(box));
-  return [box, t.isolines(d, [-3, -6, -9, -12], { step: 0.5 }).flat().map((c) => trace(c))];
+  const d = t.distanceTo(t.polylines(box));
+  return [box, t.isolines(d, [-3, -6, -9, -12], { step: 0.5 }).flat().map((c) => stroke(c))];
 });
 ```
 
@@ -1097,7 +1118,7 @@ fields: a signed distance field from boundary loops. POSITIVE inside,
 zero on the boundary, negative outside — so `isolines(d, 2)` traces a
 ring 2 units deep (inset/offset IS this recipe; there is no `offset()`),
 and `isolines(d, -2)` traces a halo 2 units out. Insideness is even-odd
-over the loops like `region()`: nesting makes holes, orientation never
+over the loops like `polygon()`: nesting makes holes, orientation never
 matters; open loops get their closing chord. Strictly loops — wrapper
 records expose theirs (`distanceTo(blobs.map((c) => c.pts))`). Pure and
 deterministic; distances come back in the units of the input points, and
@@ -1105,14 +1126,14 @@ it composes anywhere a field goes: scatter densities, decimate/deform
 params, not just contours.
 
 ```ts live
-import { sketch, region, path, distanceTo } from 'occlude';
+import { sketch, polygon, path, distanceTo } from 'occlude';
 
 // A blob filled with its own echo: rings every 2.5 units, plus a halo.
 // Contours that exit the drawable come back open — stamp those as open
-// paths (region() would close them with a chord across the page).
+// paths (polygon() would close them with a chord across the page).
 export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const stamp = (c) => {
-    if (c.closed) return region([c.pts]);
+    if (c.closed) return polygon(c.pts);
     const p = path().moveTo(...c.pts[0]);
     for (const pt of c.pts.slice(1)) p.lineTo(...pt);
     return p.build();
@@ -1122,7 +1143,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   });
   const d = distanceTo(blob.map((c) => c.pts));
   return [
-    region(blob.map((c) => c.pts)),
+    polygon(blob.map((c) => c.pts)),
     t.isolines(d, [2.5, 5, 7.5, 10, 12.5], { step: 0.7 }).flat().map(stamp),
     t.isolines(d, -2.5, { step: 0.7 }).map(stamp),
   ];

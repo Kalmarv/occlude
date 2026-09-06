@@ -156,13 +156,13 @@ describe('isolines: toolkit + engine integration', () => {
     expect(capture[0].length).toBeGreaterThan(0);
   });
 
-  it('region() lifts annulus loops into one evenodd shape whose hole stays empty', () => {
+  it('polygon() lifts annulus loops into one evenodd shape whose hole stays empty', () => {
     const def = sketch({ seed: 1 }, (t) => {
       const band = t.isolines(
         (x, y) => 20 - Math.abs(Math.hypot(x - 50, y - 50) - 25),
         10,
       );
-      return [t.region(band.map((c) => c.pts), { fill: t.fill('hatch', { angle: 0, spacing: t.mm(1.5) }) })];
+      return [t.polygon(band.map((c) => c.pts), { fill: t.fill('hatch', { angle: 0, spacing: t.mm(1.5) }) })];
     });
     const out = sq(def);
     // Paper 200×200mm, user units ×2: band radii 30–70mm around (100,100).
@@ -177,11 +177,11 @@ describe('isolines: toolkit + engine integration', () => {
     expect(mids.filter((d) => d > 32 && d < 68).length).toBeGreaterThan(10); // the band inked
   });
 
-  it('a filled region() from zero contours is a no-op, not an error', () => {
+  it('a filled polygon() from zero contours is a no-op, not an error', () => {
     // A cutoff above the field's range yields no contours — the empty
     // region is trivially closed: it fills nothing, occludes nothing.
     const def = sketch({ seed: 1 }, (t) => [
-      t.region(
+      t.polygon(
         t.isolines((x, y) => t.noise(x / 20, y / 20), 2, { close: true }).map((c) => c.pts),
         { fill: t.fill('stipple') },
       ),
@@ -194,12 +194,12 @@ describe('isolines: toolkit + engine integration', () => {
     expect(out.frags.filter((f) => f.dot)).toHaveLength(0);
   });
 
-  it('clip(invert(region)) keeps ink outside; the two polarities tile the ink', () => {
+  it('clip(invert(polygon)) keeps ink outside; the two polarities tile the ink', () => {
     const mk = (kind: 'in' | 'out' | 'all'): SketchDef =>
       sketch({ seed: 3 }, (t) => {
         const album = t.grid({ cols: 12, rows: 12 }).map((c) => t.circle(c.cx, c.cy, 2));
         if (kind === 'all') return album;
-        const r = t.region(
+        const r = t.polygon(
           t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1, { close: true }).map((c) => c.pts),
         );
         return [kind === 'in' ? t.clip(r, album) : t.clip(t.invert(r), album)];
@@ -220,7 +220,7 @@ describe('isolines: toolkit + engine integration', () => {
     expect(() => sq(def)).toThrow(/region annotation/);
   });
 
-  it('an evenodd region used as clip respects holes', () => {
+  it('an evenodd polygon used as clip respects holes', () => {
     // Annulus region clipping a line: only the band crossings survive —
     // the hole is OUTSIDE the clip (winding now crosses the protocol).
     const def = sketch({ seed: 1 }, (t) => {
@@ -228,7 +228,7 @@ describe('isolines: toolkit + engine integration', () => {
         (x, y) => 20 - Math.abs(Math.hypot(x - 50, y - 50) - 25),
         10,
       );
-      return [t.clip(t.region(band.map((c) => c.pts)), t.line(0, 50, 100, 50))];
+      return [t.clip(t.polygon(band.map((c) => c.pts)), t.line(0, 50, 100, 50))];
     });
     const out = sq(def);
     const lens = out.frags.filter((f) => !f.dot).map(fragLenOf).sort((a, b) => a - b);
