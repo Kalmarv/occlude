@@ -25,6 +25,12 @@ export type ShaperPoint = [number, number];
 export interface ShaperOpts {
   /** 'akima' (default), 'cubic', or 'linear'. */
   method?: 'akima' | 'cubic' | 'linear';
+  /** The area, `[[x0, y0], [x1, y1]]`: the input runs x0–x1 and the output
+   * is clamped to y0–y1, whatever the knots do. Without it the knots' own
+   * span is the area — which moves when a knot at an edge moves; give the
+   * area explicitly when the box should stay put (the studio's editor
+   * draws it as the box). */
+  bounds?: [[number, number], [number, number]];
 }
 
 export type Shaper = ((v: number) => number) & {
@@ -60,19 +66,34 @@ export function shaper(points: readonly ShaperPoint[], opts: ShaperOpts = {}): S
     sorted.map((p) => p[0]),
     sorted.map((p) => p[1]),
   );
-  const x0 = sorted[0][0];
-  const x1 = sorted[sorted.length - 1][0];
+  let x0 = sorted[0][0];
+  let x1 = sorted[sorted.length - 1][0];
   let lo = Infinity;
   let hi = -Infinity;
   for (const [, y] of sorted) {
     lo = Math.min(lo, y);
     hi = Math.max(hi, y);
   }
+  if (opts.bounds) {
+    const [[bx0, by0], [bx1, by1]] = opts.bounds;
+    if (![bx0, by0, bx1, by1].every(Number.isFinite) || bx1 <= bx0 || by1 <= by0) {
+      throw new Error('shaper: bounds are [[x0, y0], [x1, y1]] with x1 > x0 and y1 > y0');
+    }
+    x0 = bx0;
+    x1 = bx1;
+    lo = by0;
+    hi = by1;
+  }
+  // Inputs outside the knots hold the end knots' values (the interpolator
+  // is not asked to extrapolate); outputs stay within the range.
+  const kx0 = sorted[0][0];
+  const kx1 = sorted[sorted.length - 1][0];
   const fn = ((v: number): number => {
     if (!Number.isFinite(v)) return NaN;
-    const x = v < x0 ? x0 : v > x1 ? x1 : v;
+    const c = v < x0 ? x0 : v > x1 ? x1 : v;
+    const x = c < kx0 ? kx0 : c > kx1 ? kx1 : c;
     const y = interp(x);
-    return y < lo ? lo : y > hi ? hi : y; // Akima may overshoot between knots; the knots bound it
+    return y < lo ? lo : y > hi ? hi : y;
   }) as Shaper;
   Object.defineProperty(fn, 'points', { value: sorted, enumerable: true });
   Object.defineProperty(fn, 'method', { value: method, enumerable: true });

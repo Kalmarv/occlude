@@ -42,6 +42,14 @@ class CurveEditor {
   private box(): { x0: number; x1: number; y0: number; y1: number } {
     return this.area;
   }
+  /** Explicit bounds from the call, else the knots' span. */
+  private areaOf(pts: Pt[]): { x0: number; x1: number; y0: number; y1: number } {
+    if (this.bounds) {
+      const [[x0, y0], [x1, y1]] = this.bounds;
+      if (x1 > x0 && y1 > y0) return { x0, x1, y0, y1 };
+    }
+    return CurveEditor.spanOf(pts);
+  }
   private static spanOf(pts: Pt[]): { x0: number; x1: number; y0: number; y1: number } {
     const xs = pts.map((p) => p[0]);
     const ys = pts.map((p) => p[1]);
@@ -55,11 +63,12 @@ class CurveEditor {
   }
   constructor(
     points: Pt[],
+    private bounds: [[number, number], [number, number]] | undefined,
     private onChange: (pts: Pt[], final: boolean) => void,
     private onStart: () => void,
   ) {
     this.pts = CurveEditor.tidy(points);
-    this.area = CurveEditor.spanOf(this.pts);
+    this.area = this.areaOf(this.pts);
     const c = document.createElement('canvas');
     c.className = 'ui-curve';
     const dpr = window.devicePixelRatio || 1;
@@ -75,10 +84,11 @@ class CurveEditor {
 
   /** The code changed under us (an edit, not our own drag): the knots and
    * the area follow the code. */
-  setPoints(points: Pt[]): void {
+  setPoints(points: Pt[], bounds?: [[number, number], [number, number]]): void {
     if (this.drag !== null) return;
+    this.bounds = bounds;
     this.pts = CurveEditor.tidy(points);
-    this.area = CurveEditor.spanOf(this.pts);
+    this.area = this.areaOf(this.pts);
     this.draw();
   }
 
@@ -128,14 +138,15 @@ class CurveEditor {
       const i = this.drag;
       const first = i === 0;
       const last = i === this.pts.length - 1;
-      // End knots keep their x (the domain); inner knots keep their order.
+      // Without explicit bounds the end knots ARE the domain and keep their
+      // x; with bounds the box is fixed and every knot moves inside it.
       const { x0, x1 } = this.box();
       const gap = (x1 - x0) * 0.005;
-      const x = first
-        ? this.pts[0][0]
-        : last
-          ? this.pts[i][0]
-          : Math.min(this.pts[i + 1][0] - gap, Math.max(this.pts[i - 1][0] + gap, p[0]));
+      const lo = first ? x0 : this.pts[i - 1][0] + gap;
+      const hi = last ? x1 : this.pts[i + 1][0] - gap;
+      const x = !this.bounds && (first || last)
+        ? this.pts[i][0]
+        : Math.min(hi, Math.max(lo, p[0]));
       this.pts[i] = [x, p[1]];
       this.draw();
       this.onChange(this.pts, false);
@@ -309,7 +320,7 @@ export class UiPanel {
     this.controlCount = controls.length;
     this.root.hidden = controls.length === 0 && this.probeCount === 0;
     const signature = controls
-      .map((c) => `${c.label}|${c.kind}|${c.opts.min}|${c.opts.max}|${c.opts.step}`)
+      .map((c) => `${c.label}|${c.kind}|${c.opts.min}|${c.opts.max}|${c.opts.step}|${JSON.stringify(c.opts.bounds ?? null)}`)
       .join(';');
     if (signature !== this.signature) {
       this.signature = signature;
@@ -321,7 +332,7 @@ export class UiPanel {
       const row = this.rows[k];
       row.control = c;
       if (c.kind === 'points') {
-        row.curve?.setPoints(c.value as Pt[]);
+        row.curve?.setPoints(c.value as Pt[], c.opts.bounds);
       } else if (typeof c.value === 'boolean') {
         if (row.slider) row.slider.checked = c.value;
       } else if (row.slider && document.activeElement !== row.slider && document.activeElement !== row.num) {
@@ -348,6 +359,7 @@ export class UiPanel {
       const entry: Row = { control, slider: null, num: null };
       const curve = new CurveEditor(
         control.value as Pt[],
+        control.opts.bounds,
         (pts, final) => {
           this.write(entry, pts);
           if (final) {

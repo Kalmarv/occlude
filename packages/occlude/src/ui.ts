@@ -17,6 +17,8 @@ export interface UiOpts {
   step?: number;
   /** Panel label; defaults to the assigned variable/property name. */
   label?: string;
+  /** shaper controls: the explicit area from the call's opts, if any. */
+  bounds?: [[number, number], [number, number]];
 }
 
 export function ui(value: number, opts?: UiOpts): number;
@@ -203,11 +205,30 @@ function parseShaperCall(
   }
   const close = matchParen(source, argStart - 1);
   if (close < 0) return null;
+  // Optional opts literal after the knots: `{ bounds: [[…], […]], method }`.
+  // Read for the editor's box; malformed mid-edit → no bounds this pass.
+  let opts: UiOpts = {};
+  let j = valueEnd + 1;
+  while (source[j] === ' ' || source[j] === '\n') j++;
+  if (source[j] === ',') {
+    try {
+      const parsed = new Function(`return (${source.slice(j + 1, close)});`)() as { bounds?: unknown };
+      const b = parsed?.bounds;
+      if (
+        Array.isArray(b) && b.length === 2 &&
+        b.every((p) => Array.isArray(p) && p.length === 2 && p.every((v) => typeof v === 'number' && Number.isFinite(v)))
+      ) {
+        opts = { bounds: b as [[number, number], [number, number]] };
+      }
+    } catch {
+      // computed opts: the knots are still a control, the box follows them
+    }
+  }
   const label = inferLabel(source, callStart) ?? `shaper ${index + 1}`;
   return {
     control: {
       valueStart, valueEnd: valueEnd + 1, value: value as [number, number][],
-      opts: {}, label, index, kind: 'points',
+      opts, label, index, kind: 'points',
     },
     end: close + 1,
   };

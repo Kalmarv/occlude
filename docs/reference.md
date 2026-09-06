@@ -777,8 +777,11 @@ spacing by tone. In the studio the knot literal gets a curve editor beside
 the `ui()` sliders, its corners labelled with the area — drag a knot,
 double-click empty space to add one, double-click a knot to remove it —
 and every change rewrites the array in the code, so the sketch stays the
-spec. The box is the area the numbers in the code span and stays that
-size while you drag; to change the area, change the numbers.
+spec. The editor's box is the knots' span as written, fixed while you
+drag; give `{ bounds: [[x0, y0], [x1, y1]] }` to pin the area explicitly
+(the input runs x0–x1, the output is clamped to y0–y1) so it survives
+knots being dragged to the edge — and with bounds, every knot moves
+freely inside the box.
 
 ```ts live
 import { sketch, circle, shaper } from 'occlude';

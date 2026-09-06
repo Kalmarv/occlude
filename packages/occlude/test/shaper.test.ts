@@ -59,6 +59,17 @@ describe('shaper', () => {
   });
 });
 
+describe('shaper bounds', () => {
+  it('bounds fix the area regardless of the knots', () => {
+    const s = shaper([[0, 0], [0.5, 0.4], [1, 0.9]], { bounds: [[0, 0], [2, 2]] });
+    expect(s.domain).toEqual([0, 2]);
+    expect(s.range).toEqual([0, 2]);
+    expect(s(1.5)).toBeCloseTo(0.9, 6); // past the last knot: holds its value
+    expect(s(0.5)).toBeCloseTo(0.4, 6);
+    expect(() => shaper([[0, 0], [1, 1]], { bounds: [[0, 0], [0, 1]] })).toThrow(/bounds/);
+  });
+});
+
 describe('shaper knots as a control', () => {
   it('scanUiControls finds the knot literal with its span and label', () => {
     const src = `const tone = shaper([[0, 0], [0.3, 0.15], [1, 1]]);\nconst k = ui(3);`;
@@ -70,6 +81,14 @@ describe('shaper knots as a control', () => {
     expect(c.value).toEqual([[0, 0], [0.3, 0.15], [1, 1]]);
     expect(src.slice(c.valueStart, c.valueEnd)).toBe('[[0, 0], [0.3, 0.15], [1, 1]]');
     expect(cs[1].kind).toBe('number');
+  });
+
+  it('carries explicit bounds from the opts literal onto the control', () => {
+    const src = `const g = shaper([[0, 0], [1, 1]], { bounds: [[0, 0], [2, 2]], method: 'linear' });`;
+    const c = scanUiControls(src)[0];
+    expect(c.kind).toBe('points');
+    expect(c.opts.bounds).toEqual([[0, 0], [2, 2]]);
+    expect(src.slice(c.valueStart, c.valueEnd)).toBe('[[0, 0], [1, 1]]');
   });
 
   it('ignores computed knots and shaper calls inside strings or comments', () => {
