@@ -26,6 +26,9 @@
  */
 
 import type { IsoContour } from './isolines.js';
+import type { VectorFieldFn } from './shapes.js';
+import { distanceTo } from './distance.js';
+import { grad } from './field.js';
 
 /** A point or vector in either spelling. A plain `number[]` is accepted
  * too, because a bare `[a, b]` returned from an untyped arrow is inferred
@@ -474,8 +477,86 @@ export function drift(
   };
 }
 
+/**
+ * Attraction, prepared for `sources`: `pull(p)` is the vector toward every
+ * source within `radius`, `strength` when touching, fading linearly to
+ * zero at the radius — separation's mirror, on `nearby`. Sources may be
+ * the curve itself (then chain neighbours are included; pass `skip:
+ * adjacent(c)` to leave spacing to tension) or anchor points.
+ */
+export function attract(
+  sources: Sources,
+  opts: { radius: number; strength?: number; skip?: (p: Vertex, q: Vertex) => boolean },
+): (p: Vertex) => Vec {
+  const { radius, strength = 1, skip } = opts;
+  return nearby(sources, { radius, skip }, (p, q) => {
+    const delta = sub(q, p);
+    return mul(unit(delta), (1 - length(delta) / radius) * strength);
+  });
+}
+
+/**
+ * Boundary: keep inside an area. `push(p)` is zero deeper than `radius`
+ * inside the boundary loops, grows linearly to `strength` at the edge, and
+ * keeps pushing inward outside — direction from the signed distance
+ * field (`distanceTo`: positive inside, holes respected). Loops are plain
+ * points: `t.polylines(rect(...))`, a curve's `pts`, isolines' `pts`.
+ */
+export function boundary(
+  loops: readonly (readonly XY[])[],
+  opts: { radius: number; strength?: number },
+): (p: XY) => Vec {
+  const { radius, strength = 1 } = opts;
+  const inside = distanceTo(loops.map((l) => l.map((q) => asXY(q))));
+  const inward = grad(inside);
+  return (p) => {
+    const d = inside(vx(p), vy(p));
+    if (d >= radius) return [0, 0];
+    const dir = unit(inward(vx(p), vy(p)));
+    return mul(dir, (1 - Math.max(d, 0) / radius) * strength);
+  };
+}
+
+/**
+ * Vortex: turn around `centre`. `swirl(p)` is tangential (counter-clockwise
+ * for positive `strength`; y is down, so clockwise on the page), `strength`
+ * near the centre and falling off as `1 / (1 + distance / falloff)`.
+ */
+export function vortex(centre: XY, opts: { strength: number; falloff?: number }): (p: XY) => Vec {
+  const { strength, falloff = 10 } = opts;
+  return (p) => {
+    const radial = sub(p, centre);
+    return mul(perp(unit(radial)), strength / (1 + length(radial) / falloff));
+  };
+}
+
+/** A vector field as a force: `field(curl(f))(p)` is the field at `p`,
+ * scaled by `strength` — the adapter that lets `grad`/`curl` fields sit
+ * in `sum` beside the others. */
+export function field(vf: VectorFieldFn, opts: { strength?: number } = {}): (p: XY) => Vec {
+  const { strength = 1 } = opts;
+  return (p) => mul(vf(vx(p), vy(p)), strength);
+}
+
+/**
+ * Relax, prepared for `c`: `smooth(p)` is the vector from `p` toward the
+ * midpoint of its chain neighbours, scaled by `amount` — Laplacian
+ * smoothing as a force, the growth-free counterpart of tension. Reads the
+ * connectivity; an open curve's ends stay put.
+ */
+export function relax(c: Curve, opts: { amount?: number } = {}): (p: Vertex) => Vec {
+  const { amount = 1 } = opts;
+  return (p) => {
+    const a = c.prev(p.index);
+    const b = c.next(p.index);
+    if (a < 0 || b < 0) return [0, 0];
+    const mid: Vec = [(c.x[a] + c.x[b]) / 2, (c.y[a] + c.y[b]) / 2];
+    return mul(sub(mid, p), amount);
+  };
+}
+
 /** The forces as one namespace, for the `force.nearby(...)` reading. */
-export const force = { nearby, adjacent, tension, separation, drift };
+export const force = { nearby, adjacent, tension, separation, drift, attract, boundary, vortex, field, relax };
 
 // ---- one step ------------------------------------------------------------------
 

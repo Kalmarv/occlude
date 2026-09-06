@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  add, adjacent, curve, distance, drift, length, limit, mul, nearby, neighbours, perp, segmentRuns, separation, sub, sum, sumBy, tension, unit,
+  add, adjacent, attract, boundary, curve, distance, drift, field, length, limit, mul, nearby, neighbours, perp, relax, segmentRuns, separation, sub, vortex, sum, sumBy, tension, unit,
 } from '../src/curve.js';
 
 const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0 });
@@ -109,6 +109,46 @@ describe('forces', () => {
       return mul(unit(d), (1 - length(d) / 4) * 4);
     });
     for (const p of c.points) expect(repel(p)).toEqual(byHand(p));
+  });
+
+  it('attract pulls toward sources, fading to zero at the radius', () => {
+    const c = curve([[0, 0], [10, 0], [10, 10], [0, 10]]);
+    const pull = attract([[4, 0]], { radius: 8, strength: 2 });
+    expect(pull(c.vertex(0))).toEqual([1, 0]); // distance 4 of 8 → half strength, toward +x
+    expect(pull(c.vertex(2))).toEqual([0, 0]); // out of range
+    // on the curve itself, chain neighbours included unless skipped
+    const self = attract(c, { radius: 12 });
+    const withSkip = attract(c, { radius: 12, skip: adjacent(c) });
+    expect(self(c.vertex(0))).not.toEqual(withSkip(c.vertex(0)));
+  });
+
+  it('boundary: zero deep inside, inward at the edge, inward outside', () => {
+    const frame = [[[0, 0], [100, 0], [100, 100], [0, 100]]] as [number, number][][];
+    const keep = boundary(frame, { radius: 10, strength: 3 });
+    expect(keep([50, 50])).toEqual([0, 0]);
+    const nearRight = keep([95, 50]); // 5 inside the right edge → half strength, pointing -x
+    expect(nearRight[0]).toBeCloseTo(-1.5, 6);
+    expect(Math.abs(nearRight[1])).toBeLessThan(1e-6);
+    const outside = keep([110, 50]);
+    expect(outside[0]).toBeCloseTo(-3, 6); // full strength, still inward
+  });
+
+  it('vortex is tangential and fades with distance', () => {
+    const swirl = vortex({ x: 0, y: 0 }, { strength: 2, falloff: 10 });
+    const v = swirl([10, 0]);
+    expect(v[0]).toBeCloseTo(0);
+    expect(v[1]).toBeCloseTo(1); // strength 2 / (1 + 10/10)
+    const far = swirl([30, 0]);
+    expect(length(far)).toBeCloseTo(0.5);
+  });
+
+  it('field adapts a vector field; relax pulls toward the chain midpoint', () => {
+    const f = field((x, y) => [y, -x], { strength: 0.5 });
+    expect(f([2, 4])).toEqual([2, -1]);
+    const c = curve([[0, 0], [10, 5], [20, 0]], { closed: false });
+    const smooth = relax(c, { amount: 0.5 });
+    expect(smooth(c.vertex(1))).toEqual([0, -2.5]); // midpoint (10, 0) − (10, 5), halved
+    expect(smooth(c.vertex(0))).toEqual([0, 0]); // open end stays
   });
 
   it('drift is pure and deterministic given the noise it is handed', () => {

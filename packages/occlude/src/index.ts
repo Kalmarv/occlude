@@ -53,7 +53,8 @@ export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fill
 // Curves with attributes: hold, step, reinterpret (pure; the toolkit's
 // t.sample turns a shape into the starting positions).
 export {
-  curve, Curve, segmentRuns, neighbours, nearby, adjacent, separation, tension, drift, force,
+  curve, Curve, segmentRuns, neighbours, nearby, adjacent, separation, tension, drift,
+  attract, boundary, vortex, field, relax, force,
   add, sub, mul, length, distance, unit, limit, perp, sum, sumBy,
 } from './curve.js';
 export type { Vertex, Edge, Next, Snapshot, NeighbourStats, SegmentRun, Sources, Vec, XY } from './curve.js';

@@ -1315,6 +1315,11 @@ the same set as one namespace.
 | `tension(curve, { rest })` | the state; reads prev/next | `pull(p)` | toward each chain neighbour by the gap beyond `rest` (slack, not a spring) |
 | `separation(curve, { radius })` | the state; index once; skips chain neighbours | `repel(p)` | away from every other vertex within the radius, linearly to zero at the edge |
 | `drift(noise, { amount, frequency?, rate? })` | a noise function — pass `t.noise`, it owns no seed | `wander(p, k)` | a direction read from the noise, turning with the iteration |
+| `attract(sources, { radius, strength?, skip? })` | a curve or anchor points; index once | `pull(p)` | toward each source, `strength` when touching, zero at the radius |
+| `boundary(loops, { radius, strength? })` | boundary loops, as `distanceTo` takes them | `keep(p)` | inward within `radius` of the edge and everywhere outside; zero deeper in |
+| `vortex(centre, { strength, falloff? })` | a point | `swirl(p)` | tangential around the centre, fading as `1 / (1 + d / falloff)` |
+| `field(vectorField, { strength? })` | a `grad`/`curl`/hand-written field | `flow(p)` | the field at p — the adapter into `sum` |
+| `relax(curve, { amount? })` | the state; reads prev/next | `smooth(p)` | toward the midpoint of the chain neighbours (Laplacian smoothing) |
 | `nearby(sources, { radius, skip? }, (p, q) => v)` | any points; index once | `f(p)` | the sum of your contributions |
 
 ```ts live
@@ -1357,6 +1362,48 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
     for (const p of cur.points) next.move(p.index, mul(sum(vortex(p), flow(p)), 0.25));
   }, { every: 6 });
   return swirled.history.map((h) => stroke(h.curve.contour));
+});
+```
+
+```ts live
+import { sketch, stroke, circle, rect, curve, force, sum, mul } from 'occlude';
+
+// Kept on the page: `boundary` pushes the growth back from the frame's
+// edge, `attract` draws it toward three anchors, and the rest is the
+// ordinary ring rule. The frame and anchors are drawn as what they are.
+export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
+  const frame = rect(6, 6, 88, 38);
+  const keep = force.boundary(t.polylines(frame), { radius: 5, strength: 1.5 });
+  const anchors = [[20, 25], [50, 12], [80, 38]];
+  const toward = force.attract(anchors, { radius: 30, strength: 0.6 });
+  const wander = force.drift(t.noise, { amount: 0.2 });
+  const grown = curve(t.sample(circle(50, 25, 5), { count: 30 })[0]).steps(80, (cur, next, k) => {
+    const pull = force.tension(cur, { rest: 1.2 });
+    const repel = force.separation(cur, { radius: 2.4 });
+    for (const p of cur.points) {
+      next.move(p.index, mul(sum(pull(p), repel(p), keep(p), toward(p), wander(p, k)), 0.2));
+    }
+    next.splitEdges((e) => e.length > 1.3 && t.chance(0.3), { attributes: {} });
+  });
+  return [frame, anchors.map(([x, y]) => circle(x, y, 1)), stroke(grown.contour)];
+});
+```
+
+```ts live
+import { sketch, stroke, circle, curve, curl, force, sum, mul } from 'occlude';
+
+// No growth: the same ring relaxed under three named forces — a vortex, a
+// curl field, and Laplacian smoothing — every 8th state kept. Change one
+// number, or swap a recipe for your own `p => vector`.
+export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
+  const swirl = force.vortex({ x: 50, y: 25 }, { strength: 6, falloff: 8 });
+  const flow = force.field(curl((x, y) => t.noise(x / 12, y / 12) * 6));
+  const ring = curve(t.sample(circle(50, 25, 14), { count: 80 })[0]);
+  const relaxed = ring.steps(64, (cur, next) => {
+    const smooth = force.relax(cur, { amount: 0.3 });
+    for (const p of cur.points) next.move(p.index, mul(sum(swirl(p), flow(p), smooth(p)), 0.25));
+  }, { every: 8 });
+  return relaxed.history.map((h) => stroke(h.curve.contour));
 });
 ```
 
