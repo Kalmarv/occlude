@@ -36,8 +36,12 @@ class CurveEditor {
   private drag: number | null = null;
   private readonly size = 132;
   private readonly pad = 6;
+  /** The box as it was when the current gesture began: the pointer keeps
+   * one mapping until release, even as the knots it drags redefine the box. */
+  private frozen: { x0: number; x1: number; y0: number; y1: number } | null = null;
   /** The box the knots span; degenerate spans get a little room. */
   private box(): { x0: number; x1: number; y0: number; y1: number } {
+    if (this.frozen) return this.frozen;
     const xs = this.pts.map((p) => p[0]);
     const ys = this.pts.map((p) => p[1]);
     let x0 = Math.min(...xs);
@@ -111,6 +115,7 @@ class CurveEditor {
       const i = this.nearest(p);
       if (i === null) return;
       this.drag = i;
+      this.frozen = this.box();
       c.setPointerCapture(e.pointerId);
       this.onStart();
       e.preventDefault();
@@ -127,6 +132,7 @@ class CurveEditor {
       if (off && !first && !last && this.pts.length > 2) {
         this.pts.splice(i, 1);
         this.drag = null;
+        this.frozen = null;
         this.draw();
         this.onChange(this.pts, true);
         return;
@@ -146,6 +152,8 @@ class CurveEditor {
     const end = (): void => {
       if (this.drag === null) return;
       this.drag = null;
+      this.frozen = null; // the box follows the knots again
+      this.draw();
       this.onChange(this.pts, true);
     };
     c.addEventListener('pointerup', end);
