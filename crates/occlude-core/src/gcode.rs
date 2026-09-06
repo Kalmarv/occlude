@@ -142,8 +142,14 @@ pub fn merge_chains(frags: &[Frag], pen: u32) -> Vec<Chain> {
             }
             chain.prims.extend(other.prims);
         }
+        // Backward: collect the pieces that lead INTO the start, then splice
+        // once. Prepending per piece copied the whole chain each time —
+        // quadratic in chain length, and a streamline is thousands of pieces
+        // (the 2026-09-06 27s "Simulate does nothing" on a flow portrait).
+        let mut before: Vec<Primitive> = Vec::new(); // reversed order, reversed prims
+        let mut head = chain.start();
         loop {
-            let k = key(chain.start());
+            let k = key(head);
             let Some(cands) = by_end.get(&k) else { break };
             let next = cands.iter().copied().find(|&j| pieces[j].is_some());
             let Some(j) = next else { break };
@@ -157,9 +163,14 @@ pub fn merge_chains(frags: &[Frag], pen: u32) -> Vec<Chain> {
                 pieces[j] = Some(other);
                 break;
             }
-            let mut prims = other.prims;
-            prims.extend(std::mem::take(&mut chain.prims));
-            chain.prims = prims;
+            head = other.start();
+            // Push in reverse so one final reverse restores plot order.
+            before.extend(other.prims.into_iter().rev());
+        }
+        if !before.is_empty() {
+            before.reverse();
+            before.extend(std::mem::take(&mut chain.prims));
+            chain.prims = before;
         }
         chains.push(chain);
     }
@@ -174,24 +185,106 @@ pub fn tour(mut chains: Vec<Chain>, budget: usize) -> Vec<Chain> {
     if n <= 2 {
         return chains;
     }
-    // Nearest neighbour.
+    // Nearest neighbour over a uniform grid of chain endpoints: each step
+    // searches rings of cells outward from the pen and stops as soon as the
+    // best candidate is closer than the next ring can be. A linear scan was
+    // O(n²) — 17s native on a 41k-chain flow portrait (2026-09-06). Ties
+    // break on the lowest chain index, then forward before reversed, so the
+    // result is a pure function of the input order.
     let mut ordered: Vec<Chain> = Vec::with_capacity(n);
     let mut pos = Vec2::ZERO;
-    let mut remaining: Vec<Chain> = std::mem::take(&mut chains);
-    while !remaining.is_empty() {
-        let mut best = (0usize, false, f64::INFINITY);
-        for (i, c) in remaining.iter().enumerate() {
-            let df = c.start().dist(pos);
-            if df < best.2 {
-                best = (i, false, df);
-            }
-            let dr = c.end().dist(pos);
-            if dr < best.2 {
-                best = (i, true, dr);
-            }
+    let mut remaining: Vec<Option<Chain>> = std::mem::take(&mut chains).into_iter().map(Some).collect();
+    let ends: Vec<(Vec2, Vec2)> = remaining
+        .iter()
+        .map(|c| {
+            let c = c.as_ref().unwrap();
+            (c.start(), c.end())
+        })
+        .collect();
+    let (mut minx, mut miny, mut maxx, mut maxy) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for (a, b) in &ends {
+        for p in [a, b] {
+            minx = minx.min(p.x);
+            miny = miny.min(p.y);
+            maxx = maxx.max(p.x);
+            maxy = maxy.max(p.y);
         }
-        let c = remaining.swap_remove(best.0);
-        let c = if best.1 { c.reversed() } else { c };
+    }
+    let span_x = (maxx - minx).max(1e-9);
+    let span_y = (maxy - miny).max(1e-9);
+    // ~2 chains per cell on average.
+    let cell = ((span_x * span_y) / (n as f64 / 2.0)).sqrt().max(1e-6);
+    let cols = ((span_x / cell).floor() as usize + 1).max(1);
+    let rows = ((span_y / cell).floor() as usize + 1).max(1);
+    let cell_of = |p: Vec2| -> (usize, usize) {
+        (
+            (((p.x - minx) / cell).floor() as usize).min(cols - 1),
+            (((p.y - miny) / cell).floor() as usize).min(rows - 1),
+        )
+    };
+    let mut grid: Vec<Vec<u32>> = vec![Vec::new(); cols * rows];
+    for (i, (a, b)) in ends.iter().enumerate() {
+        let ca = cell_of(*a);
+        let cb = cell_of(*b);
+        grid[ca.1 * cols + ca.0].push(i as u32);
+        if cb != ca {
+            grid[cb.1 * cols + cb.0].push(i as u32);
+        }
+    }
+    let max_ring = cols.max(rows);
+    for _ in 0..n {
+        // Pen position → grid cell (clamped: the pen may sit outside the bbox).
+        let px = (((pos.x - minx) / cell).floor()).clamp(0.0, (cols - 1) as f64) as i64;
+        let py = (((pos.y - miny) / cell).floor()).clamp(0.0, (rows - 1) as f64) as i64;
+        // Distance from the pen to the nearest point of the clamped cell:
+        // ring r's cells are at least (r - 1) cells + that away.
+        let outside = {
+            let cx0 = minx + px as f64 * cell;
+            let cy0 = miny + py as f64 * cell;
+            let dx = (cx0 - pos.x).max(pos.x - (cx0 + cell)).max(0.0);
+            let dy = (cy0 - pos.y).max(pos.y - (cy0 + cell)).max(0.0);
+            dx.hypot(dy)
+        };
+        let mut best: (f64, usize, bool) = (f64::INFINITY, usize::MAX, false);
+        let mut consider = |i: usize, rev: bool, d: f64, best: &mut (f64, usize, bool)| {
+            let better = d < best.0
+                || (d == best.0 && (i < best.1 || (i == best.1 && !rev && best.2)));
+            if better {
+                *best = (d, i, rev);
+            }
+        };
+        let mut r: i64 = 0;
+        loop {
+            let ring_min = if r == 0 { 0.0 } else { ((r - 1) as f64) * cell + outside };
+            if best.0 <= ring_min || r as usize > max_ring {
+                break;
+            }
+            for cy in (py - r)..=(py + r) {
+                if cy < 0 || cy >= rows as i64 {
+                    continue;
+                }
+                let edge_row = cy == py - r || cy == py + r;
+                let mut cx = px - r;
+                while cx <= px + r {
+                    if cx >= 0 && cx < cols as i64 {
+                        for &i in &grid[cy as usize * cols + cx as usize] {
+                            let i = i as usize;
+                            if remaining[i].is_none() {
+                                continue;
+                            }
+                            let (a, b) = ends[i];
+                            consider(i, false, a.dist(pos), &mut best);
+                            consider(i, true, b.dist(pos), &mut best);
+                        }
+                    }
+                    // Interior rows only visit the ring's two edge columns.
+                    cx += if edge_row || r == 0 { 1 } else { 2 * r };
+                }
+            }
+            r += 1;
+        }
+        let c = remaining[best.1].take().unwrap();
+        let c = if best.2 { c.reversed() } else { c };
         pos = c.end();
         ordered.push(c);
     }
