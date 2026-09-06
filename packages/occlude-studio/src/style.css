@@ -762,13 +762,23 @@ button.primary {
   transition: opacity 0.3s ease 0.5s;
 }
 
+#status-msg,
 #status-stats {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* The right-hand controls never leave the bar, however long the message. */
+#status-seed,
+#status-build {
+  flex: none;
+}
+
 #status-seed {
-  margin-left: auto;
+  /* Rightmost: the build stamp (which pushes right) sits just before it. */
+  order: 2;
   display: flex;
   gap: 8px;
   align-items: center;
@@ -2050,6 +2060,7 @@ button.armed {
 }
 
 #status-build {
+  order: 1;
   margin-left: auto;
   font-family: var(--mono);
   font-size: 10.5px;

@@ -41,12 +41,19 @@ interface Pending {
  * memory. Sketch execution lives in the worker too now, so this watchdog
  * replaces the old main-thread crash sentinel. */
 const RENDER_TIMEOUT_MS = 20_000;
+/** A newer request arriving while a render has already run this long
+ * pre-empts it: the worker is respawned and the new request runs at once.
+ * That is what makes ctrl+z a cancel — undo the change, the previous code
+ * renders now, not after the runaway's 20 s. Short renders are left to
+ * finish, so ordinary typing never pays the respawn. */
+const PREEMPT_AFTER_MS = 1_500;
 
 export class RenderClient {
   private worker!: Worker;
   private nextId = 1;
   private pending = new Map<number, Pending>();
   private inFlightRender = false;
+  private inFlightSince = 0;
   private queuedRender: { req: RenderRequest; p: Pending } | null = null;
   private watchdog: ReturnType<typeof setTimeout> | null = null;
 
@@ -135,11 +142,30 @@ export class RenderClient {
     p.resolve(msg);
   }
 
+  /** Abandon the render in flight (it is superseded, not failed): kill the
+   * worker, settle everything outstanding, start fresh. */
+  private preempt(): void {
+    this.worker.terminate();
+    if (this.watchdog) clearTimeout(this.watchdog);
+    this.watchdog = null;
+    const gone = new Error('render abandoned — the renderer was restarted for a newer request');
+    for (const p of this.pending.values()) {
+      if (p.isRender) p.resolve(null); // superseded, like a queued request
+      else p.reject(gone);
+    }
+    this.pending.clear();
+    this.inFlightRender = false;
+    this.queuedRender?.p.resolve(null);
+    this.queuedRender = null;
+    this.spawn();
+  }
+
   private sendRender(req: RenderRequest, p: Pending): void {
     const id = this.nextId++;
     p.isRender = true;
     this.pending.set(id, p);
     this.inFlightRender = true;
+    this.inFlightSince = performance.now();
     if (this.watchdog) clearTimeout(this.watchdog);
     this.watchdog = setTimeout(() => this.respawnStuckWorker(), RENDER_TIMEOUT_MS);
     this.worker.postMessage({ type: 'render', id, js: req.js, cfg: req.cfg });
@@ -171,6 +197,9 @@ export class RenderClient {
         },
         reject,
       };
+      if (this.inFlightRender && performance.now() - this.inFlightSince > PREEMPT_AFTER_MS) {
+        this.preempt();
+      }
       if (this.inFlightRender) {
         this.queuedRender?.p.resolve(null);
         this.queuedRender = { req, p };
