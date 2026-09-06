@@ -27,7 +27,10 @@
 
 import type { IsoContour } from './isolines.js';
 
-export type XY = [number, number] | { x: number; y: number };
+/** A point or vector in either spelling. A plain `number[]` is accepted
+ * too, because a bare `[a, b]` returned from an untyped arrow is inferred
+ * as `number[]` and a sketch should not have to annotate its forces. */
+export type XY = readonly [number, number] | readonly number[] | { x: number; y: number };
 
 /** A vertex view: its row `index` in THIS state, position, and every
  * attribute column. A plain snapshot, valid for the curve it came from —
@@ -41,7 +44,9 @@ export interface Edge {
   length: number;
 }
 
-const asXY = (p: XY): [number, number] => (Array.isArray(p) ? [p[0], p[1]] : [p.x, p.y]);
+// Array.isArray does not narrow readonly arrays; a guard does.
+const isArr = (p: XY): p is readonly number[] => Array.isArray(p);
+const asXY = (p: XY): [number, number] => (isArr(p) ? [p[0], p[1]] : [p.x, p.y]);
 
 /** One captured state of a `steps()` run: which iteration it is, and the
  * curve as it was then. Never touched by later steps. */
@@ -238,8 +243,8 @@ export function curve(
 
 export type Vec = [number, number];
 
-const vx = (p: XY): number => (Array.isArray(p) ? p[0] : p.x);
-const vy = (p: XY): number => (Array.isArray(p) ? p[1] : p.y);
+const vx = (p: XY): number => (isArr(p) ? p[0] : p.x);
+const vy = (p: XY): number => (isArr(p) ? p[1] : p.y);
 
 export function add(a: XY, b: XY): Vec {
   return [vx(a) + vx(b), vy(a) + vy(b)];
