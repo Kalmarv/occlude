@@ -15,7 +15,7 @@ describe('curve values', () => {
     expect(c.attrNames).toEqual(['age', 'energy']);
     expect(c.vertex(1)).toEqual({ index: 1, x: 10, y: 0, age: 2, energy: 0.5 });
     expect(c.pts).toEqual([[0, 0], [10, 0], [10, 10]]);
-    expect(c.contour).toEqual({ pts: [[0, 0], [10, 0], [10, 10]], closed: true });
+    expect(c.contour).toEqual({ pts: [[0, 0], [10, 0], [10, 10]], closed: true, indices: [0, 1, 2] });
     expect(Object.isFrozen(c)).toBe(true);
     expect(() => curve([[0, 0]], { x: 1 })).toThrow(/reserved/);
   });

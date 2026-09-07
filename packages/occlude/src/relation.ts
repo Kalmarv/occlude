@@ -220,7 +220,7 @@ function extractRows(m: Material, pointRows: readonly number[], edgeRows: readon
     for (let k = 0; k < edgeRows.length; k++) col[k] = src[edgeRows[k]];
     edgeAttrs[name] = col;
   }
-  return new Material(x, y, attrs, edges, 0, [], edgeAttrs, { ...m.transfers });
+  return new Material(x, y, attrs, edges, 0, [], edgeAttrs, { ...m.transfers }, { ...m.edgeTransfers });
 }
 
 // ---- relational measures ----------------------------------------------------------

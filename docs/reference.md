@@ -1503,7 +1503,7 @@ which starts as a copy:
 |---|---|
 | `next.move(p => vector, { where? })` / `next.move(ref, vector)` | displacement; several moves add up |
 | `next.set(p => attrs, { where? })` / `next.set(ref, attrs)` | write point attributes; the last write of a field wins |
-| `next.setEdges(e => attrs, { where? })` / `next.setEdge(edge, attrs)` | write edge attributes; the last write of a field wins |
+| `next.setEdges(e => attrs, { where? })` / `next.setEdge(edge, attrs)` | write edge attributes (`edge` a row or view); the last write of a field wins |
 | `next.addPoint(position, attributes)` → handle | a new vertex; the handle names it within this batch |
 | `next.connect(a, b, edgeAttributes?)` | one undirected edge between rows, views or handles; an existing pair is left as it is and needs no attributes |
 | `next.disconnect(edge \| e => bool)` | remove an edge, both points stay; repeating it is a no-op |
@@ -1982,6 +1982,41 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   ];
 });
 ```
+
+### transfer, references, lineage
+
+Three questions, three answers, one table. *Interpolation*: what value
+belongs between two samples. *Subdivision*: what each child inherits
+from its parent edge. *Reconciliation*: what value belongs where
+independent pieces meet. Policies are declared once on the column and
+honoured by every operation; a per-operation option overrides for that
+call only.
+
+| operation | point columns | edge columns | rows, iteration, history |
+|---|---|---|---|
+| `attribute(name, v, { transfer? })` / `edgeAttribute(name, v, { transfer? })` | sets the column; `transfer` `'interpolate'` (default) or `'nearest'` (categorical); a value update keeps the declared policy | `transfer` `'copy'` (default, categorical) or `'distribute'` (a quantity: a length share) | rows and iteration kept, history dropped |
+| `connect.*`, `withEdges`, `Next.connect` | — | every declared column must be given for a new edge; an existing pair needs nothing | kept |
+| `append(a, b, { fill, edgeFill })` | columns must match or be filled; effective policies must agree | same | b's rows after a's; iteration 0, a new lineage |
+| `split` / `splitEdges` / `extend` / `addPoint` | the new vertex inherits by the policy (interpolate or nearest along the parent), then `point` overrides; a new point must give every column | children copy or share the parent by the policy, then `edges(parent, child)` overrides | split vertices sit after their edge's start row; iteration +1 per step |
+| `resample` | by the policy, or a per-call `transfer: { col: 'nearest' \| number \| fn }` | `'copy'`: the source edge under the new edge's midpoint; `'distribute'`: the sum of each covered source edge's value times the share covered | rows renumbered; iteration kept (a continuation of the same lineage) |
+| `planarize` | candidates from every edge through the event by the policy; equal candidates pass, disagreeing ones need `point(event)` — a conflict is evidence, never resolved by picking a side | children copy or share by the policy, then `edges(parent, child)` | iteration 0, a new lineage |
+| `extract()` | copied | copied | rows compacted in source order; iteration 0 |
+
+References: a point is a row, a vertex view of this state, or a handle
+from this batch; an edge is a row or an edge view (`EdgeRef`). Every
+accessor (`degree`, `connected`, `prev`, `next`, `connectedPoints`) takes
+a row or a view and refuses a view of another state. `where` on any
+collection edit takes a predicate over the current views or a selection
+OF THE CURRENT STATE — membership by row, decided when the selection was
+made, before any move in the step — so the same selection drives
+`extend`, `set`, `remove`, `setEdges`, `disconnect` and `splitEdges`
+(whose predicate form sees the moved edges).
+
+Units: `t.sample({ spacing })` resolves a paper length; `resample({
+spacing })` is in material units, the coordinates the material holds.
+Iteration counts the steps on a lineage; `append`, `extract` and
+`planarize` start a new one at 0; history belongs to the `steps` call
+that captured it and no derivation carries it.
 
 ### resample
 

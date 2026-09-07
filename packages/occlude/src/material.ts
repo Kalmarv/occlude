@@ -182,6 +182,16 @@ export function brandView(view: object, owner: object, kind: 'vertex' | 'edge' |
  * and `resample`; a per-operation override wins. */
 export type TransferPolicy = 'interpolate' | 'nearest';
 
+/** How an EDGE column carries over when an edge is subdivided (split,
+ * planarize) or re-sampled: `'copy'` (the default) treats the value as a
+ * category — every child edge carries the parent's value, a resampled
+ * edge takes the source edge under its midpoint; `'distribute'` treats it
+ * as an extensive quantity — each child carries the parent's value times
+ * its share of the parent's length, and a resampled edge sums the shares
+ * of every source edge it covers. A rest length distributes; a pen index
+ * copies. Per-operation `edges` overrides win over either. */
+export type EdgeTransfer = 'copy' | 'distribute';
+
 export class Material {
   readonly n: number;
   readonly x: Float64Array;
@@ -204,6 +214,8 @@ export class Material {
   readonly edgeAttrs: Readonly<Record<string, Float64Array>>;
   /** Declared transfer policy per point column (default interpolate). */
   readonly transfers: Readonly<Record<string, TransferPolicy>>;
+  /** Declared transfer policy per edge column (default copy). */
+  readonly edgeTransfers: Readonly<Record<string, EdgeTransfer>>;
   private readonly adj: number[][];
 
   /** @internal Use `material()`/`curve()`/`t.sample()`. Columns are
@@ -222,6 +234,7 @@ export class Material {
     history: readonly Snapshot[] = [],
     edgeAttrs: Record<string, Float64Array> = {},
     transfers: Record<string, TransferPolicy> = {},
+    edgeTransfers: Record<string, EdgeTransfer> = {},
   ) {
     if (x.length !== y.length) throw new Error('material: x and y columns differ in length');
     for (const [name, col] of Object.entries(edgeAttrs)) {
@@ -250,6 +263,7 @@ export class Material {
     this.history = history;
     this.edgeAttrs = edgeAttrs;
     this.transfers = transfers;
+    this.edgeTransfers = edgeTransfers;
     const adj: number[][] = Array.from({ length: this.n }, () => []);
     for (let e = 0; e < edgeList.length; e += 2) {
       const a = edgeList[e];
@@ -263,6 +277,7 @@ export class Material {
     Object.freeze(this.attrs);
     Object.freeze(this.edgeAttrs);
     Object.freeze(this.transfers);
+    Object.freeze(this.edgeTransfers);
     Object.freeze(this.history);
     Object.freeze(this);
   }
@@ -324,17 +339,17 @@ export class Material {
     return out;
   }
 
-  /** Rows connected to `i`, in edge order. */
-  connected(i: number): readonly number[] {
-    return this.adj[i];
+  /** Rows connected to `i` (a row or a vertex view of this state), in edge order. */
+  connected(i: Vertex | number): readonly number[] {
+    return this.adj[this.rowOfVertex(i, 'connected')];
   }
 
-  degree(i: number): number {
-    return this.adj[i].length;
+  degree(i: Vertex | number): number {
+    return this.adj[this.rowOfVertex(i, 'degree')].length;
   }
 
-  isConnected(i: number, j: number): boolean {
-    return this.adj[i].includes(j);
+  isConnected(i: Vertex | number, j: Vertex | number): boolean {
+    return this.adj[this.rowOfVertex(i, 'isConnected')].includes(this.rowOfVertex(j, 'isConnected'));
   }
 
   /** The vertices connected to `p` by an edge, as views, in adjacency
@@ -387,14 +402,16 @@ export class Material {
 
   /** Chain convenience: the row before `i` along a stored edge into it,
    * -1 at an open end. On a junction, the first such row. */
-  prev(i: number): number {
+  prev(v: Vertex | number): number {
+    const i = this.rowOfVertex(v, 'prev');
     for (let e = 0; e < this.edgeList.length; e += 2) if (this.edgeList[e + 1] === i) return this.edgeList[e];
     return -1;
   }
 
   /** Chain convenience: the row after `i` along a stored edge out of it,
    * -1 at an open end. On a junction, the first such row. */
-  next(i: number): number {
+  next(v: Vertex | number): number {
+    const i = this.rowOfVertex(v, 'next');
     for (let e = 0; e < this.edgeList.length; e += 2) if (this.edgeList[e] === i) return this.edgeList[e + 1];
     return -1;
   }
@@ -407,10 +424,10 @@ export class Material {
 
   /** The material's single chain as a stampable contour — for chain materials;
    * a branched material has several, see `curves()`. */
-  get contour(): IsoContour {
+  get contour(): Curve {
     const cs = this.curves();
-    if (cs.length === 1) return { pts: cs[0].pts, closed: cs[0].closed };
-    if (cs.length === 0) return { pts: this.pts, closed: false };
+    if (cs.length === 1) return cs[0];
+    if (cs.length === 0) return { pts: this.pts, closed: false, indices: Array.from({ length: this.n }, (_, i) => i) };
     throw new Error(`contour: this material has ${cs.length} chains — use curves()`);
   }
 
@@ -476,20 +493,26 @@ export class Material {
     else if (opts.transfer) transfers[name] = opts.transfer;
     return new Material(
       copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), [name]: col }, copyEdges(this.edgeList), this.iteration, [],
-      copyAttrs(this.edgeAttrs), transfers,
+      copyAttrs(this.edgeAttrs), transfers, { ...this.edgeTransfers },
     );
   }
 
   /** A new material with an EDGE column set: a constant, or one value per
    * edge from its view (`e => e.length`). Each edge has its own row — a
-   * junction's three edges can carry three different rest lengths. */
-  edgeAttribute(name: string, value: number | ((e: Edge) => number)): Material {
+   * junction's three edges can carry three different rest lengths.
+   * `transfer` declares how the column subdivides (`'copy'` default,
+   * `'distribute'` for a length-proportional quantity); a value update
+   * keeps the declared policy, an explicit `'copy'` restores the default. */
+  edgeAttribute(name: string, value: number | ((e: Edge) => number), opts: { transfer?: EdgeTransfer } = {}): Material {
     const col = new Float64Array(this.edgeCount);
     if (typeof value === 'number') col.fill(value);
     else for (let e = 0; e < this.edgeCount; e++) col[e] = value(this.edge(e));
+    const edgeTransfers = { ...this.edgeTransfers };
+    if (opts.transfer === 'copy') delete edgeTransfers[name];
+    else if (opts.transfer) edgeTransfers[name] = opts.transfer;
     return new Material(
       copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), this.iteration, [],
-      { ...copyAttrs(this.edgeAttrs), [name]: col }, { ...this.transfers },
+      { ...copyAttrs(this.edgeAttrs), [name]: col }, { ...this.transfers }, edgeTransfers,
     );
   }
 
@@ -525,7 +548,7 @@ export class Material {
     }
     const edgeAttrs: Record<string, Float64Array> = {};
     for (const name of names) edgeAttrs[name] = Float64Array.from(cols[name]);
-    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), this.iteration, [], edgeAttrs, { ...this.transfers });
+    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), this.iteration, [], edgeAttrs, { ...this.transfers }, { ...this.edgeTransfers });
   }
 
   /**
@@ -590,28 +613,45 @@ export class Material {
       const cum = chainLengths(idx.map((i) => [this.x[i], this.y[i]] as [number, number]), c.closed);
       const total = cum[cum.length - 1];
       const at = (k: number) => cum[samples[k].seg] + samples[k].t * (cum[samples[k].seg + 1] - cum[samples[k].seg]);
-      const rowUnder = (d: number) => {
+      const rowOfSeg = (s: number) => storedRow.get(pairKey(idx[s], idx[(s + 1) % idx.length]))!;
+      const segUnder = (d: number) => {
         let s = 0;
         while (s < cum.length - 2 && cum[s + 1] <= d) s++;
-        return storedRow.get(pairKey(idx[s], idx[(s + 1) % idx.length]))!;
+        return s;
       };
-      const link = (from: number, to: number, mid: number) => {
+      // A new edge over [d0, d1]: a 'copy' column takes the source edge under
+      // the midpoint; a 'distribute' column sums each covered source edge's
+      // value times the share of that edge the new one covers.
+      const link = (from: number, to: number, d0: number, d1: number) => {
         edges.push(from, to);
-        const row = rowUnder(mid);
-        for (const name of enames) eattrs[name].push(this.edgeAttrs[name][row]);
+        const mid = rowOfSeg(segUnder((d0 + d1) / 2));
+        for (const name of enames) {
+          if (this.edgeTransfers[name] !== 'distribute') {
+            eattrs[name].push(this.edgeAttrs[name][mid]);
+            continue;
+          }
+          let sum = 0;
+          for (let s = 0; s + 1 < cum.length; s++) {
+            const len = cum[s + 1] - cum[s];
+            if (len <= 0) continue;
+            const overlap = Math.min(d1, cum[s + 1]) - Math.max(d0, cum[s]);
+            if (overlap > 0) sum += this.edgeAttrs[name][rowOfSeg(s)] * (overlap / len);
+          }
+          eattrs[name].push(sum);
+        }
       };
       for (let k = 0; k < samples.length; k++) {
         const { seg, t } = samples[k];
         place(idx[seg], idx[(seg + 1) % idx.length], t);
-        if (k > 0) link(first + k - 1, first + k, (at(k - 1) + at(k)) / 2);
+        if (k > 0) link(first + k - 1, first + k, at(k - 1), at(k));
       }
-      if (c.closed && samples.length > 1) link(first + samples.length - 1, first, (at(samples.length - 1) + total) / 2);
+      if (c.closed && samples.length > 1) link(first + samples.length - 1, first, at(samples.length - 1), total);
     }
     const attrs: Record<string, Float64Array> = {};
     for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
     const edgeAttrs: Record<string, Float64Array> = {};
     for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), this.iteration, [], edgeAttrs, { ...this.transfers });
+    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), this.iteration, [], edgeAttrs, { ...this.transfers }, { ...this.edgeTransfers });
   }
 
   // ---- the iteration verb ----
@@ -632,7 +672,7 @@ export class Material {
   steps(n: number, rule: (current: Material, next: Next, k: number) => void, opts: { every?: number } = {}): Material {
     const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
     const snaps: Snapshot[] = [];
-    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), this.iteration, [], copyAttrs(this.edgeAttrs), { ...this.transfers });
+    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), this.iteration, [], copyAttrs(this.edgeAttrs), { ...this.transfers }, { ...this.edgeTransfers });
     if (every) snaps.push({ iteration: this.iteration, material: base });
     let cur = base;
     for (let k = 0; k < n; k++) {
@@ -641,7 +681,7 @@ export class Material {
     }
     if (every && n > 0) snaps.push({ iteration: cur.iteration, material: cur });
     return every
-      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), cur.iteration, snaps, copyAttrs(cur.edgeAttrs), { ...cur.transfers })
+      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), cur.iteration, snaps, copyAttrs(cur.edgeAttrs), { ...cur.transfers }, { ...cur.edgeTransfers })
       : cur;
   }
 }
@@ -692,6 +732,15 @@ export function alongChain(
     const len = cum[seg + 1] - cum[seg];
     out.push({ seg, t: len > 0 ? Math.min(1, (d - cum[seg]) / len) : 0 });
   }
+  return out;
+}
+
+/** A child edge's inherited columns: a `'copy'` column carries the parent's
+ * value, a `'distribute'` column the parent's value times the child's
+ * share of the parent. */
+export function inheritEdge(m: Material, parent: Record<string, number>, fraction: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const name in parent) out[name] = m.edgeTransfers[name] === 'distribute' ? parent[name] * fraction : parent[name];
   return out;
 }
 
@@ -922,6 +971,12 @@ export function append(
       throw new Error(`append: '${k}' has transfer '${effective(a, k)}' on one side and '${effective(b, k)}' on the other`);
     }
   }
+  const effectiveEdge = (m: Material, k: string): EdgeTransfer => m.edgeTransfers[k] ?? 'copy';
+  for (const k of enames) {
+    if (k in a.edgeAttrs && k in b.edgeAttrs && effectiveEdge(a, k) !== effectiveEdge(b, k)) {
+      throw new Error(`append: edge column '${k}' has transfer '${effectiveEdge(a, k)}' on one side and '${effectiveEdge(b, k)}' on the other`);
+    }
+  }
   const x = new Float64Array(a.n + b.n);
   const y = new Float64Array(a.n + b.n);
   x.set(a.x);
@@ -949,7 +1004,7 @@ export function append(
     else col.fill(edgeFill[k], a.edgeCount);
     edgeAttrs[k] = col;
   }
-  return new Material(x, y, attrs, edges, 0, [], edgeAttrs, { ...b.transfers, ...a.transfers });
+  return new Material(x, y, attrs, edges, 0, [], edgeAttrs, { ...b.transfers, ...a.transfers }, { ...b.edgeTransfers, ...a.edgeTransfers });
 }
 
 // ---- one step ---------------------------------------------------------------------
@@ -1017,18 +1072,26 @@ export interface SplitOpts {
  * added points, connections — then one compaction. A conflicting batch
  * (see the table in the docs) throws and publishes nothing.
  */
+/** A row of the current state's edge list, or an edge view of it. */
+export type EdgeRef = number | Edge;
+/** A predicate over the current state's views, or a selection OF THE
+ * CURRENT STATE (membership by row, decided when the selection was made —
+ * before any move in this step). */
+export type PointWhere = ((p: Vertex) => boolean) | PointSelection;
+export type EdgeWhere = ((e: Edge) => boolean) | EdgeSelection;
+
 export interface Next {
   /** Displace one vertex, or every vertex `where` says (all by default). */
   move(index: Ref, by: XY): void;
-  move(by: (p: Vertex) => XY, opts?: { where?: (p: Vertex) => boolean }): void;
+  move(by: (p: Vertex) => XY, opts?: { where?: PointWhere }): void;
   /** Write point attributes on one vertex, or on every vertex `where`
    * says. Unknown names are an error: columns are declared, not invented. */
   set(index: Ref, attrs: Record<string, number>): void;
-  set(attrs: (p: Vertex) => Record<string, number>, opts?: { where?: (p: Vertex) => boolean }): void;
+  set(attrs: (p: Vertex) => Record<string, number>, opts?: { where?: PointWhere }): void;
   /** Write edge attributes on one edge of the current state. */
-  setEdge(edge: Edge, attrs: Record<string, number>): void;
+  setEdge(edge: EdgeRef, attrs: Record<string, number>): void;
   /** Write edge attributes on every edge `where` says (all by default). */
-  setEdges(attrs: (e: Edge) => Record<string, number>, opts?: { where?: (e: Edge) => boolean }): void;
+  setEdges(attrs: (e: Edge) => Record<string, number>, opts?: { where?: EdgeWhere }): void;
   /** A new vertex; the handle names it within this batch. Every declared
    * point column must be given. */
   addPoint(position: XY, attributes: Record<string, number>): Handle;
@@ -1038,25 +1101,25 @@ export interface Next {
   connect(a: Ref, b: Ref, edgeAttributes?: Record<string, number>): void;
   /** Remove an edge; both points stay. Repeating it is a no-op. A
    * predicate removes every current edge it accepts. */
-  disconnect(edge: Edge): void;
-  disconnect(where: (e: Edge) => boolean): void;
+  disconnect(edge: EdgeRef): void;
+  disconnect(where: EdgeWhere): void;
   /** Delete a point and its incident edges; the neighbours are never
    * joined. Repeating it is a no-op. A predicate removes every current
    * vertex it accepts. */
   remove(point: Ref): void;
-  remove(where: (p: Vertex) => boolean): void;
+  remove(where: PointWhere): void;
   /** Replace an edge of the current state with two child edges through a
    * new vertex at `at` (default 0.5), returning its handle — or, at 0 or
    * 1, the existing endpoint row. Several splits of one edge form one
    * chain in parameter order; equal parameters share a vertex. */
-  split(edge: Edge, opts?: SplitOpts): Ref;
+  split(edge: EdgeRef, opts?: SplitOpts): Ref;
   /** Bulk split on the MOVED edges — same machinery and defaults as
    * `split`; `where` sees each edge as it will be after the moves. */
-  splitEdges(where: (e: Edge) => boolean, opts?: SplitOpts): void;
+  splitEdges(where: EdgeWhere, opts?: SplitOpts): void;
   /** For every current vertex `where` says: add the child (or children)
    * `spec` describes — a new point, or a connection to an existing target
    * (`{ to }`) — and connect each to its parent. `[]` means none. */
-  extend(spec: (p: Vertex) => ChildSpec | ChildSpec[], opts?: { where?: (p: Vertex) => boolean }): void;
+  extend(spec: (p: Vertex) => ChildSpec | ChildSpec[], opts?: { where?: PointWhere }): void;
 }
 
 function checkAttrs(attrs: Record<string, number>, names: string[], what: string, opts: { complete?: boolean } = {}): void {
@@ -1125,10 +1188,31 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
     if (!Number.isInteger(r) || r < 0 || r >= n) throw new Error(`steps: ${what}: no vertex ${String(r)} in this state (${n} rows)`);
     return r;
   };
-  const edgeRow = (e: Edge, what: string): number => {
-    if (viewKind(e) !== 'edge') throw new Error(`steps: ${what} must be an edge view`);
+  const edgeRow = (e: EdgeRef, what: string): number => {
+    if (typeof e === 'number') {
+      if (!Number.isInteger(e) || e < 0 || e >= m) throw new Error(`steps: ${what}: no edge ${e} in this state (${m} edges)`);
+      return e;
+    }
+    if (viewKind(e) !== 'edge') throw new Error(`steps: ${what} must be an edge row or view`);
     if (ownerOf(e as unknown as Vertex) !== cur) throw new Error(`steps: ${what} is an edge of another material (or another state)`);
     return e.index;
+  };
+  // A selection as `where`: it must be OF this state; membership is by row,
+  // decided when the selection was made, so it also serves bulk splits,
+  // whose predicate form sees the moved views.
+  const pointTest = (w: PointWhere | undefined, what: string): ((p: Vertex) => boolean) | undefined => {
+    if (w === undefined || typeof w === 'function') return w;
+    if (!(w instanceof PointSelection)) throw new Error(`steps: ${what}: where must be a predicate or a point selection`);
+    if (w.source !== cur) throw new Error(`steps: ${what}: that selection is of another state — select from \`current\` inside the rule`);
+    const rows = new Set(w.indices);
+    return (p) => rows.has(p.index);
+  };
+  const edgeTest = (w: EdgeWhere | undefined, what: string): ((e: Edge) => boolean) | undefined => {
+    if (w === undefined || typeof w === 'function') return w;
+    if (!(w instanceof EdgeSelection)) throw new Error(`steps: ${what}: where must be a predicate or an edge selection`);
+    if (w.source !== cur) throw new Error(`steps: ${what}: that selection is of another state — select from \`current\` inside the rule`);
+    const rows = new Set(w.indices);
+    return (e) => rows.has(e.index);
   };
   const writePoint = (index: number, attrs: Record<string, number>) => {
     for (const [name, v] of Object.entries(attrs)) {
@@ -1159,9 +1243,9 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   };
 
   const next: Next = {
-    move(a: Ref | ((p: Vertex) => XY), b?: XY | { where?: (p: Vertex) => boolean }) {
+    move(a: Ref | ((p: Vertex) => XY), b?: XY | { where?: PointWhere }) {
       if (typeof a === 'function') {
-        const where = (b as { where?: (p: Vertex) => boolean } | undefined)?.where;
+        const where = pointTest((b as { where?: PointWhere } | undefined)?.where, 'move');
         for (const p of points) {
           if (where && !where(p)) continue;
           const [dx, dy] = finiteXY(a(p), 'a move');
@@ -1177,9 +1261,9 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
       ny[row] += dy;
       touchedPoint.add(row);
     },
-    set(a: Ref | ((p: Vertex) => Record<string, number>), b?: Record<string, number> | { where?: (p: Vertex) => boolean }) {
+    set(a: Ref | ((p: Vertex) => Record<string, number>), b?: Record<string, number> | { where?: PointWhere }) {
       if (typeof a === 'function') {
-        const where = (b as { where?: (p: Vertex) => boolean } | undefined)?.where;
+        const where = pointTest((b as { where?: PointWhere } | undefined)?.where, 'set');
         for (const p of points) {
           if (where && !where(p)) continue;
           writePoint(p.index, a(p));
@@ -1197,8 +1281,9 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
       touchedEdge.add(row);
     },
     setEdges(attrs, opts) {
+      const where = edgeTest(opts?.where, 'setEdges');
       for (const e of currentEdges()) {
-        if (opts?.where && !opts.where(e)) continue;
+        if (where && !where(e)) continue;
         writeEdge(e.index, attrs(e));
         touchedEdge.add(e.index);
       }
@@ -1215,16 +1300,18 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
       checkAttrs(edgeAttributes, enames, 'a new edge', { complete: false });
       links.push({ a, b, attrs: { ...edgeAttributes } });
     },
-    disconnect(edge: Edge | ((e: Edge) => boolean)) {
-      if (typeof edge === 'function') {
-        for (const e of currentEdges()) if (edge(e)) disconnected.add(e.index);
+    disconnect(edge: EdgeRef | EdgeWhere) {
+      if (typeof edge === 'function' || edge instanceof EdgeSelection || edge instanceof PointSelection) {
+        const where = edgeTest(edge, 'disconnect')!;
+        for (const e of currentEdges()) if (where(e)) disconnected.add(e.index);
         return;
       }
       disconnected.add(edgeRow(edge, 'disconnect'));
     },
-    remove(point: Ref | ((p: Vertex) => boolean)) {
-      if (typeof point === 'function') {
-        for (const p of points) if (point(p)) removed.add(p.index);
+    remove(point: Ref | PointWhere) {
+      if (typeof point === 'function' || point instanceof PointSelection || point instanceof EdgeSelection) {
+        const where = pointTest(point, 'remove')!;
+        for (const p of points) if (where(p)) removed.add(p.index);
         return;
       }
       removed.add(rowOf(point, 'remove'));
@@ -1254,11 +1341,12 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
         if (opts.point || opts.edges || opts.attributes || opts.parent) throw new Error('steps: a split at an endpoint creates nothing — point/edge overrides would modify existing data');
         return;
       }
-      bulkSplits.push({ where, req: splitRequest(opts, at) });
+      bulkSplits.push({ where: edgeTest(where, 'splitEdges')!, req: splitRequest(opts, at) });
     },
     extend(spec, opts) {
+      const where = pointTest(opts?.where, 'extend');
       for (const p of points) {
-        if (opts?.where && !opts.where(p)) continue;
+        if (where && !where(p)) continue;
         const specs = spec(p);
         for (const sp of Array.isArray(specs) ? specs : [specs]) {
           const hasPos = sp.position !== undefined;
@@ -1273,7 +1361,7 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   rule(cur, next, k);
 
   // ---- the moved state: bulk split predicates and transfer callbacks read it ----
-  const moved = new Material(nx, ny, nattrs, cur.edgeList, cur.iteration + 1, [], neattrs, { ...cur.transfers });
+  const moved = new Material(nx, ny, nattrs, cur.edgeList, cur.iteration + 1, [], neattrs, { ...cur.transfers }, { ...cur.edgeTransfers });
   const movedEdges = moved.edges;
   for (const { where, req } of bulkSplits) {
     for (const e of movedEdges) if (where(e)) recordSplit(e.index, req);
@@ -1435,7 +1523,7 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
         if (!enames.includes(name)) throw new Error(`steps: no edge attribute '${name}' — declare it with edgeAttribute()`);
         if (!Number.isFinite(extra[name])) throw new Error(`steps: '${name}' for a child edge is not a finite number`);
       }
-      pushEdge(rows[i], rows[i + 1], { ...parentAttrs, ...extra });
+      pushEdge(rows[i], rows[i + 1], { ...inheritEdge(cur, parentAttrs, child.fraction), ...extra });
     }
   }
   const resolve = (r: Ref, what: string): number => {
@@ -1465,7 +1553,7 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), cur.iteration + 1, [], edgeAttrs, { ...cur.transfers });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), cur.iteration + 1, [], edgeAttrs, { ...cur.transfers }, { ...cur.edgeTransfers });
 }
 
 // ---- spatial neighbours -----------------------------------------------------------

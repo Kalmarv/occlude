@@ -41,7 +41,7 @@ describe('selections', () => {
     expect(() => es.has(m.vertex(0) as never)).toThrow(/vertex view/);
     expect(() => pts.has(m.edge(0) as never)).toThrow(/edge view/);
     // the edit interface is just as strict: a vertex named a/b is not an edge
-    expect(() => m.steps(1, (cur, next) => next.split(cur.vertex(0) as never))).toThrow(/edge view/);
+    expect(() => m.steps(1, (cur, next) => next.split(cur.vertex(0) as never))).toThrow(/edge row or view/);
     expect(m.steps(1, (cur, next) => next.move(cur.vertex(1), [1, 0])).x[1]).toBe(2);
   });
 

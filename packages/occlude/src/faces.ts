@@ -34,7 +34,7 @@
  */
 
 import { orient2d } from 'robust-predicates';
-import { Material, brandView, ownedBy, viewKind, type ChildInterval, type Edge } from './material.js';
+import { Material, brandView, inheritEdge, ownedBy, viewKind, type ChildInterval, type Edge } from './material.js';
 import type { IsoContour } from './isolines.js';
 
 const EVENT_TOL = 1e-9;
@@ -457,14 +457,15 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
         if (!Number.isFinite(extra[name])) throw new Error(`planarize: '${name}' for a child edge is not a finite number`);
       }
       edges.push(stops[k].row, stops[k + 1].row);
-      for (const name of enames) eattrs[name].push(name in extra ? extra[name] : parentAttrs[name]);
+      const inherited = inheritEdge(m, parentAttrs, child.fraction);
+      for (const name of enames) eattrs[name].push(name in extra ? extra[name] : inherited[name]);
     }
   }
   const attrs: Record<string, Float64Array> = {};
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), 0, [], edgeAttrs, { ...m.transfers });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), 0, [], edgeAttrs, { ...m.transfers }, { ...m.edgeTransfers });
 }
 
 // ---- faces ----------------------------------------------------------------------------
