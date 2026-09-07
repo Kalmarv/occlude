@@ -432,6 +432,28 @@ messing-around 346/324 → 309/339 ms, lbg-stipple 1201/1199 → 1169/1134 ms.
 All of them are dominated by encode and the wasm passes, which none of these
 entries touch, on a box shared with other services.
 
+## Investigated and left alone: the Lloyd assignment (`src/points.ts`)
+
+`iterate` — the loop behind `relax` and `settle` — was the largest remaining
+library-side self time in the stipple sketches (477 ms). Phase timers put it
+in the raster→site assignment rather than the triangulation: for
+`settle(50)` at spacing 1.5, Delaunay construction 66 ms against 183 ms of
+assignment; across the new `bench/pbench.mts` rows, Delaunay 7–147 ms against
+assignment 33–99 ms.
+
+Stubbing `del.find` out of the loop (a throwaway probe, immediately reverted)
+dropped the assignment from ~46–60 ms to **3–5 ms**: `find` is over 90 % of
+it, at about 76 ns a call for 655 000 calls. The surrounding arithmetic —
+the density load, the two cell-centre multiplies, the three accumulations —
+is nearly free, so precomputing a flat live-cell list, which was the obvious
+exact rewrite, would buy almost nothing.
+
+Everything that would actually help changes the answer or the dependency:
+our own grid nearest-site query decides exact ties differently from d3's
+descent, and matching d3's `_step` means reimplementing the core of a
+dependency we already have. **Left alone on master; noted as a candidate for
+exploratory work.**
+
 ## Rejected, with reasons
 
 - **Scalar `rk4` / `dir` in `streamlines.ts`** (return into scratch variables
