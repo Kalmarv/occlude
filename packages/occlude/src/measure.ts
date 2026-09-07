@@ -75,17 +75,23 @@ function contourMoment(c: IsoContour): { a: number; cx: number; cy: number } {
 }
 
 /** Even-odd containment over a face's contours. */
-function faceContains(f: Face, x: number, y: number): boolean {
-  let inside = false;
+/** The x positions where the face's contours cross the horizontal line at
+ * `y`, sorted. Even-odd: a point is inside the face exactly when an odd
+ * number of crossings lie strictly to its right, i.e. when it sits in
+ * [c0, c1) ∪ [c2, c3) ∪ … of the sorted crossings — the same rule as the
+ * classic per-point ray test, applied to a whole row at once. */
+function rowCrossings(f: Face, y: number, out: number[]): number[] {
+  out.length = 0;
   for (const c of f.contours) {
     const pts = c.pts;
     for (let k = 0, j = pts.length - 1; k < pts.length; j = k++) {
       const [xi, yi] = pts[k];
       const [xj, yj] = pts[j];
-      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+      if (yi > y !== yj > y) out.push(((xj - xi) * (y - yi)) / (yj - yi) + xi);
     }
   }
-  return inside;
+  out.sort((a, b) => a - b);
+  return out;
 }
 
 export class FaceMeasurements implements Iterable<FaceMeasure> {
@@ -182,18 +188,26 @@ export function measureFaces(source: Faces, members: readonly Face[], field: ((x
     let wy = 0;
     let negative = false;
     let samples = 0;
+    const crossings: number[] = [];
     for (let j = j0; j <= j1; j++) {
       const y = b.y + (j + 0.5) * cw;
-      for (let i = i0; i <= i1; i++) {
-        const x = b.x + (i + 0.5) * cw;
-        if (!faceContains(f, x, y)) continue;
-        const v = sampleAt(i, j);
-        if (!Number.isFinite(v)) continue;
-        samples++;
-        integral += v;
-        if (v < 0) negative = true;
-        wx += v * x;
-        wy += v * y;
+      const xs = rowCrossings(f, y, crossings);
+      // Cells whose centre lies in [xs[a], xs[a + 1]) are inside; the
+      // explicit comparisons keep the exact boundary rule of the ray test.
+      for (let a = 0; a + 1 < xs.length; a += 2) {
+        const from = Math.max(i0, Math.floor((xs[a] - b.x) / cw - 0.5));
+        const to = Math.min(i1, Math.ceil((xs[a + 1] - b.x) / cw - 0.5));
+        for (let i = from; i <= to; i++) {
+          const x = b.x + (i + 0.5) * cw;
+          if (x < xs[a] || x >= xs[a + 1]) continue;
+          const v = sampleAt(i, j);
+          if (!Number.isFinite(v)) continue;
+          samples++;
+          integral += v;
+          if (v < 0) negative = true;
+          wx += v * x;
+          wy += v * y;
+        }
       }
     }
     r.integral = integral * cellArea;
