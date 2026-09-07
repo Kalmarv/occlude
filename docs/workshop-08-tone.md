@@ -3,19 +3,19 @@
 **How can the arrangement of points make tone?** A pen draws lines of one weight. Grey comes from how close the marks are, and a drawing of identical dots can carry a full range of light and shade if the dots are placed by a rule that reads the tone it wants. This is the drawing this chapter arrives at: a ball, lit from the upper left, its shadow shaped and its dark side dissolving into the ground it sits on, made of dots of one size, each one where the density asked for it. By the end you will be able to choose between scattering, relaxing and settling for a reason, and, more to the point, make a flat shape look round and say which of your decisions did it.
 
 ```ts live
-import { sketch, circle, distance, ui } from 'occlude';
+import { sketch, circle, distance, mm, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const highlight = [ui(84, { min: 40, max: 160, step: 1, label: 'highlight x' }), ui(34, { min: 10, max: 90, step: 1, label: 'highlight y' })];
   const contrast = ui(1.8, { min: 0.6, max: 4, step: 0.1 });
   const ground = ui(0.22, { min: 0, max: 0.5, step: 0.02, label: 'ground tone' });
-  const mark = ui(0.45, { min: 0.15, max: 0.8, step: 0.05, label: 'mark radius' });
+  const mark = ui(0.8, { min: 0.3, max: 1.6, step: 0.1, label: 'mark radius (mm)' });
   const r = (x, y) => distance([x, y], [100, 50]);
   const light = (x, y) => Math.max(0, 1 - distance([x, y], highlight) / 56);
   const body = (x, y) => Math.max(0.06, Math.pow(1 - light(x, y), contrast) - 0.25 * Math.max(0, (r(x, y) - 28) / 12) * (1 - light(x, y)));
   const shade = (x, y) => (r(x, y) < 40 ? body(x, y) : ground * Math.max(0, 1 - (r(x, y) - 40) / 20) * (y > 50 ? 1 : 0.2));
   const seeds = t.scatter(shade, { spacing: 2 });
-  return t.settle(seeds, { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, mark));
+  return t.settle(seeds, { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, mm(mark)));
 });
 ```
 
@@ -180,37 +180,37 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
 
 On the right the ground tone is a density of 0.22 at the ball's edge, a fifth of that above the ball's middle, fading to nothing twenty units out, and the ball's shadow side, at about the same density, has no edge against it; the silhouette survives only on the lit side, which is where a ball in a room shows its outline. On the left the dark rim is the strongest line in the drawing, and it says "disc" as much as "ball". Neither is wrong. The left is the version to choose when the drawing is about the shape; the right when it is about the light.
 
-**Tune the marks at the size they will be.** All of the above was judged at one size. A settled arrangement at spacing 2 on this sheet is dots about 3.6 mm apart at the densest, and a dot of radius 0.45 is a ring 1.6 mm across: a coarse stipple, readable at arm's length. The same study on A6, where the drawable is half the size, puts the densest dots 1.8 mm apart with the same 1.6 mm rings, and the shadow side closes up into rings that touch. That is a different drawing, and either the spacing or the mark has to change with the sheet: on the small sheet a mark of 0.25 keeps the shadow as a tone.
+**Tune the marks at the size they will be.** All of the above was judged at one size, with a mark radius in bare units, which scales with the sheet like everything else. The pen does not scale, and a mark meant to be a certain size on paper should say so: `mm(mark)` is a radius in millimetres whatever the sheet. A settled arrangement at spacing 2 on this sheet is dots about 3.6 mm apart at the densest, and a ring of radius 0.8 mm is a coarse stipple, readable at arm's length. The same study on A6, where the drawable is half the size, puts the densest dots about 1.9 mm apart, and the same 0.8 mm rings, now fixed in millimetres, touch and close up on the shadow side. That is a different drawing, and either the spacing or the mark has to change with the sheet: on the small sheet a mark of 0.4 mm keeps the shadow as a tone, and a ring that small is close to the nib's own width, so it is nearly a dot.
 
 ```ts live paper=A6
-import { sketch, circle, distance, ui } from 'occlude';
+import { sketch, circle, distance, mm, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
-  const mark = ui(0.45, { min: 0.15, max: 0.8, step: 0.05, label: 'mark radius' });
+  const mark = ui(0.8, { min: 0.3, max: 1.6, step: 0.1, label: 'mark radius (mm)' });
   const r = (x, y) => distance([x, y], [50, 50]);
   const light = (x, y) => Math.max(0, 1 - distance([x, y], [36, 34]) / 56);
   const shade = (x, y) => (r(x, y) < 40 ? Math.max(0.06, Math.pow(1 - light(x, y), 1.8) - 0.25 * Math.max(0, (r(x, y) - 28) / 12) * (1 - light(x, y))) : 0);
   const seeds = t.scatter(shade, { spacing: 2 });
-  return t.settle(seeds, { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, mark));
+  return t.settle(seeds, { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, mm(mark)));
 });
 ```
 
 **The drawing.** The ball with its highlight placed, its shadow shaped, its edge dissolving into a ground, on a sheet with room, and the mark sized for that sheet. The controls are the decisions in the order the page made them; none of them is the dot count.
 
 ```ts live focus=4-7
-import { sketch, circle, distance, ui } from 'occlude';
+import { sketch, circle, distance, mm, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const highlight = [ui(84, { min: 40, max: 160, step: 1, label: 'highlight x' }), ui(34, { min: 10, max: 90, step: 1, label: 'highlight y' })];
   const contrast = ui(1.8, { min: 0.6, max: 4, step: 0.1 });
   const ground = ui(0.22, { min: 0, max: 0.5, step: 0.02, label: 'ground tone' });
-  const mark = ui(0.45, { min: 0.15, max: 0.8, step: 0.05, label: 'mark radius' });
+  const mark = ui(0.8, { min: 0.3, max: 1.6, step: 0.1, label: 'mark radius (mm)' });
   const r = (x, y) => distance([x, y], [100, 50]);
   const light = (x, y) => Math.max(0, 1 - distance([x, y], highlight) / 56);
   const body = (x, y) => Math.max(0.06, Math.pow(1 - light(x, y), contrast) - 0.25 * Math.max(0, (r(x, y) - 28) / 12) * (1 - light(x, y)));
   const shade = (x, y) => (r(x, y) < 40 ? body(x, y) : ground * Math.max(0, 1 - (r(x, y) - 40) / 20) * (y > 50 ? 1 : 0.2));
   const seeds = t.scatter(shade, { spacing: 2 });
-  return t.settle(seeds, { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, mark));
+  return t.settle(seeds, { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, mm(mark)));
 });
 ```
 

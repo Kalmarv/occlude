@@ -153,11 +153,11 @@ export default sketch({ aspect: [3, 1], seed: 9 }, (t) => {
 });
 ```
 
-The drawing on the left has seven lines' worth of information and empty ground between them; the one on the right has lines everywhere and no way to tell high from low. Neither is a drawing yet. The rest of this page takes the flow and makes decisions about it, one at a time, and each decision is a reason for the next.
+The drawing on the left has seven lines' worth of information and empty ground between them; the one on the right has lines everywhere and no way to tell high from low. The rest of this page takes the flow and makes decisions about it toward one stated aim, one at a time, and each decision is a reason for the next.
 
 ## Develop the flow
 
-**Everything competes equally.** The flow with one spacing across the whole sheet. Every whorl is drawn the same, every part of the sheet is as dense as every other, and the eye has nowhere to start. Look at it for a moment and notice where you look; there is no answer, and that is the problem to solve.
+**Everything competes equally.** The flow with one spacing across the whole sheet: every whorl drawn the same, every part of the sheet as dense as every other. That can be a drawing; an even texture is a legitimate thing to want. What it does not do is give one region more attention than another, and for this page I want that: one place the eye goes first, and paper around it. Uniform spacing cannot establish that hierarchy, so the spacing will vary, and each of the next decisions is measured against that stated aim rather than against a rule about what drawings should be.
 
 ```ts live focus=6
 import { sketch, strokes, curl } from 'occlude';
@@ -169,7 +169,7 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
 });
 ```
 
-**Give one place emphasis.** `spacing` can be a function of position, and a function of position can say "close together here, far apart there". The simplest version: tight near a point you choose and opening with the distance from it. The flow is unchanged; only how many of its lines are drawn changes, and now there is a place to look and paper around it. Move `focus` about and watch the drawing reorganise around the choice.
+**Give one place emphasis.** `spacing` can be a function of position, and a function of position can say "close together here, far apart there". The simplest version: tight near a point you choose and opening with the distance from it. The flow is unchanged; only how many of its lines are drawn changes, and now one region has more lines than the rest, which was the aim. Move `focus` about and watch the drawing reorganise around the choice.
 
 ```ts live focus=6-8
 import { sketch, strokes, curl, distance, ui } from 'occlude';
@@ -185,7 +185,7 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
 
 Before going on, one question: does the density say anything about the landscape now? It does not. It says where you pointed. The flow still shows the hills, but the tone is a decision laid over them, not a reading of them.
 
-**Or let the land decide.** The other way to vary the density is from the field itself: `spacing` from `land`, so the hollows fill and the hills open, or the reverse. Now the tone means something, the height, but the emphasis is wherever the landscape happens to be low, which is many places at once. Compare the two: the focal version has one subject and says nothing about height; this one says height everywhere and has no subject.
+**Or let the land decide.** The other way to vary the density is from the field itself: `spacing` from `land`, so the hollows fill and the hills open, or the reverse. Now the tone means something, the height, but the emphasis is wherever the landscape happens to be low, which is many places at once. Compare the two against the aim: the focal version gives one region the attention and says nothing about height; this one says height everywhere and gives every hollow the same attention.
 
 ```ts live focus=6
 import { sketch, strokes, curl, ui } from 'occlude';
@@ -200,7 +200,7 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
 
 The two can be one function: `land` for the meaning and the distance from `focus` for the emphasis, multiplied. That is the spacing the final drawing uses, and it is worth writing yourself before reading it there.
 
-**Put something in the stream.** A drawing with one subject can take an interruption, and an interruption tests whether the flow survives it. Two ways to put a disc in the stream. Left: the lines are drawn and then cut, `clip(invert(disc), …)` keeping only the ink outside the disc; the flow passes behind the disc and comes out the other side unchanged. Right: the field itself is changed. `unit` makes the flow's direction a vector of length 1, and `away` is a push straight out from the disc's centre, as strong as the flow at the disc's edge and fading with the square of the distance; added together, the lines bend around the disc and close up again downstream, the way water goes round a stone. The flow's own strength is discarded on purpose: a streamline follows direction, and the push has to be measured against something of a known size.
+**Put something in the stream.** A drawing with one region of emphasis can take an interruption near it, and an interruption tests whether the flow survives it. Two ways to put a disc in the stream. Left: the lines are drawn and then cut, `clip(invert(disc), …)` keeping only the ink outside the disc; the flow passes behind the disc and comes out the other side unchanged. Right: the field itself is changed. `unit` makes the flow's direction a vector of length 1, and `away` is a push straight out from the disc's centre, as strong as the flow at the disc's edge and fading with the square of the distance; added together, the lines bend around the disc and close up again downstream, the way water goes round a stone. The flow's own strength is discarded on purpose: a streamline follows direction, and the push has to be measured against something of a known size.
 
 ```ts live focus=8-10
 import { sketch, strokes, circle, clip, invert, curl, distance, sub, mul, add, unit, group, rect, within } from 'occlude';
@@ -239,7 +239,7 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
 });
 ```
 
-Set `stone size` to 0 and the drawing is the focal version with height in it; put the stone far from the focus and it is a second subject competing with the first; put it inside the focus and it is the subject, with the emphasis around it as its halo. Where you leave it is the drawing. What this page cannot tell you is which of those is right, only that each is a different sentence, and that you can now write any of them.
+Set `stone size` to 0 and the drawing is the focal version with height in it; put the stone far from the focus and it is a second subject competing with the first; put it inside the focus and it is the subject, with the emphasis around it as its halo. Where you leave it is the drawing, and the uniform flow at the top of this section is a drawing too. What this page can say is only that each is a different sentence, and that you can now write any of them.
 
 ## Geometry as a field
 

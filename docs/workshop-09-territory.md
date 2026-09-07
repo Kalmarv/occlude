@@ -199,9 +199,9 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
 
 Drag `countryside above area` down and the clearing eats into the town; up past the largest cell and every fence returns. In between, the country is one open region, the town keeps every wall, and the edge between them is the last ring of small cells against the open ground: the edge the border found above, drawn now by absence instead of by a heavy pen. Clearing by a rule about *both* cells is what keeps the ring: a wall with a small cell on either side is never cleared.
 
-**Keep the cells or change them, and say why.** Two drawings can look the same and be different materials. The border version keeps every cell: nothing was removed, the emphasis is a selection, and `diagram` can still say which site owns which cell, so the town's cells could be hatched by their sites' attributes or measured by chapter 10's rule. The cleared version changed the network: the open regions are faces of a new material with no sites, and they can be filled as areas, which the border version cannot do for a region that is many cells. Keep the cells when the drawing will go on asking about sites; change them when it needs the regions themselves. Below, both: left the border version with the town's cells hatched by distance from the centre; right the cleared version with the open country hatched lightly as one area, which only a cleared network can do.
+**Keep the cells or change them, and say why.** Two drawings can look the same and be different materials, and the choice between them is not about what can be drawn. A selection of cells has `boundaries()`, the closed contours around its union, and `polygon` fills those, so the country can be hatched as one area without removing a single wall: select the union when several cells should be drawn as one area. Removing the walls makes a different material, whose open country is one face with no sites, and that matters only when later operations need it to be one face: measuring it in chapter 10, planarizing it against other lines, growing from its outline. Remove walls when subsequent geometry should treat the cells as one; select a union when only the drawing should. Below, both, from the same sites: left the cells kept, the country hatched through `boundaries()` and the town's cells hatched by distance from the centre, which needs `siteOf` and so needs the cells; right the cleared network, with the country as a face of its own.
 
-```ts live focus=10-13
+```ts live focus=13-17
 import { sketch, strokes, polygon, fill, mm, distance, group, rect, within } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
@@ -210,25 +210,28 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
     const density = within((x, y) => 0.08 + 0.92 * Math.max(0, 1 - Math.pow(distance([x, y], centre) / 30, 6)), rect(x0, 0, 98, 100));
     const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density, bounds: { x: x0, y: 0, w: 98, h: 100 } });
     const diagram = t.voronoi(sites, { bounds: { x: x0, y: 0, w: 98, h: 100 } });
-    const cells = diagram.faces();
-    return { centre, diagram, cells };
+    return { centre, diagram, cells: diagram.faces() };
   };
   const left = make(0);
-  const town = left.cells.filter((f) => f.area < 90);
   const right = make(102);
+  const hatch = fill('hatch', { angle: 20, spacing: mm(4.2) });
+  const country = left.cells.filter((f) => f.area > 90);
+  const town = left.cells.filter((f) => f.area <= 90);
   const open = right.diagram.edgeAttribute('open', (e) => { const [a, b] = right.cells.facesOf(e); return b !== undefined && a.area > 90 && b.area > 90 ? 1 : 0; });
   const cleared = open.steps(1, (current, next) => next.disconnect((e) => e.attrs.open === 1));
-  const country = cleared.faces().filter((f) => f.area > 90);
   return [
-    town.map((f) => polygon(f.contours, { fill: fill('hatch', { angle: 45, spacing: mm(0.7 + 0.02 * distance([f.bounds.x, f.bounds.y], left.centre)) }), stroke: false })),
-    strokes(town.boundaryEdges, { pen: 'pigma-05-black' }), strokes(left.cells.edges, { pen: 'pigma-005-black' }),
-    country.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),
+    polygon(country.boundaries(), { winding: 'evenodd', fill: hatch, stroke: false }),
+    town.map((f) => polygon(f.contours, { fill: fill('hatch', { angle: 110, spacing: mm(0.7 + 0.04 * distance(left.diagram.siteOf(f), left.centre)) }), stroke: false })),
+    strokes(left.cells.edges, { pen: 'pigma-005-black' }),
+    cleared.faces().filter((f) => f.area > 90).map((f) => polygon(f.contours, { winding: 'evenodd', fill: hatch, stroke: false })),
     strokes(cleared, { pen: 'pigma-005-black' }),
   ];
 });
 ```
 
-**The map.** The decisions in order: a town placed and given an edge, that edge found by the contrast of small cells against large, the fences cleared from the countryside so it is one open area, that area hatched lightly, the town's walls left fine and its edge heavy. This is the drawing from the top of the page. Every control is one of those decisions; the seed is not one of them, and a different seed gives a different town of the same kind.
+The two hatched countries are the same shape. The left still knows its sites, so the town's hatch can read each cell's distance from the centre; the right has one face where the left has forty, and no sites at all.
+
+**The map.** The decisions in order: a town placed and given an edge, that edge found by the contrast of small cells against large, the fences cleared from the countryside so it is one open area, that area hatched lightly, the town's walls left fine and its edge heavy. Clearing is the choice here, not a necessity; the same drawing can be made from the kept cells with `boundaries()`, and the reason to clear is only that nothing on this page needs the sites afterwards. This is the drawing from the top of the page. Every control is one of those decisions; the seed is not one of them, and a different seed gives a different town of the same kind.
 
 ```ts live focus=8-14
 import { sketch, strokes, polygon, fill, mm, distance, ui } from 'occlude';
