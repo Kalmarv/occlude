@@ -23,6 +23,7 @@
  * the outline of a shape comes from `t.sample`, which reads the paper.
  */
 
+import { PointSelection, EdgeSelection } from './relation.js';
 import type { IsoContour } from './isolines.js';
 import type { VectorFieldFn } from './shapes.js';
 import { distanceTo } from './distance.js';
@@ -318,6 +319,40 @@ export class Material {
 
   isConnected(i: number, j: number): boolean {
     return this.adj[i].includes(j);
+  }
+
+  /** The vertices connected to `p` by an edge, as views, in adjacency
+   * order — an isolated vertex has none. Topology only: no spatial search
+   * (see `neighbours` for that). `p` must be a vertex of this state. */
+  connectedPoints(p: Vertex | number): Vertex[] {
+    const row = this.rowOfVertex(p, 'connectedPoints');
+    return this.adj[row].map((j) => this.vertex(j));
+  }
+
+  private rowOfVertex(p: Vertex | number, what: string): number {
+    if (typeof p === 'number') {
+      if (!Number.isInteger(p) || p < 0 || p >= this.n) throw new Error(`${what}: no vertex ${p} in this state (${this.n} rows)`);
+      return p;
+    }
+    if (ownerOf(p) !== this) throw new Error(`${what}: that vertex belongs to another state`);
+    return p.index;
+  }
+
+  // ---- selections (see relation.ts) ----
+
+  /** The vertices `where` picks, as a source-bound selection: membership
+   * is decided now and fixed; the views it hands out are this state's. */
+  selectPoints(where: (p: Vertex) => boolean): PointSelection {
+    const rows: number[] = [];
+    for (let i = 0; i < this.n; i++) if (where(this.vertex(i))) rows.push(i);
+    return new PointSelection(this, rows);
+  }
+
+  /** The edges `where` picks, as a source-bound selection. */
+  selectEdges(where: (e: Edge) => boolean): EdgeSelection {
+    const rows: number[] = [];
+    for (let e = 0; e < this.edgeCount; e++) if (where(this.edge(e))) rows.push(e);
+    return new EdgeSelection(this, rows);
   }
 
   /** Chain convenience: the row before `i` along a stored edge into it,
