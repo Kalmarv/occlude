@@ -78,6 +78,27 @@ describe('within: domain bounds and absence', () => {
     expect(Number.isNaN(f(70, 50))).toBe(true);
   });
 
+  it('a bound resolves once and keeps answering for its own shape', () => {
+    // The containment test is built at the first sample and reused. Two
+    // bounds sampled alternately must each answer for themselves, and a
+    // bound asked the same question a thousand times must not drift.
+    const a = within(() => 1, circle(30, 30, 10));
+    const b = within(() => 2, circle(70, 70, 10, { translate: [5, 0] }));
+    for (let i = 0; i < 200; i++) {
+      expect(a(30, 30)).toBe(1);
+      expect(Number.isNaN(a(70, 70))).toBe(true);
+      expect(b(75, 70)).toBe(2);
+      expect(Number.isNaN(b(30, 30))).toBe(true);
+      // and right at the transformed bound's edge, on both sides
+      expect(b(84.9, 70)).toBe(2);
+      expect(Number.isNaN(b(85.1, 70))).toBe(true);
+    }
+    const c = within(() => 3, circle(50, 50, 20));
+    const first = c(50, 50);
+    for (let i = 0; i < 1000; i++) expect(c(50, 50)).toBe(first);
+    expect(first).toBe(3);
+  });
+
   it('nested bounds are a conjunction', () => {
     const f = within(within(() => 1, circle(50, 50, 20)), circle(60, 50, 20));
     expect(f(55, 50)).toBe(1); // inside both

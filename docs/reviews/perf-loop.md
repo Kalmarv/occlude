@@ -553,6 +553,41 @@ The grid, not the tuples, was the cost.)*
 ---
 
 
+## Entry 10 — a `within()` bound resolves once, not once per sample (`src/field.ts`)
+
+**Finding.** `containsPoint` ran the whole bound setup on **every field
+sample**: a `WeakMap` lookup for the loop index, a `sketchFrame()` call, a
+fresh `Resolver` object and a returned tuple from `userPointMm`, and the
+even-odd flag recomputed from the geometry. All of it is fixed for a given
+bound. On flow-user that showed as 113 ms of self time in `containsPoint`
+beside 98 ms in the ray cast it exists to reach.
+
+**Change.** `containsPoint` becomes `containsTest(shape)`, which resolves the
+index, the frame, the length resolution and the winding rule once and returns
+a closure that does only the ray cast. `within()` builds it at the **first
+sample**, not at `within()` — the frame a bound lowers against is the one in
+force when the field is read, exactly as before. `resolveLen(x, inner)` per
+coordinate is what `new Resolver(frame).pos(x, y)` resolved to.
+
+**Verification.** All 26 studio sketches hash identically. 316 TS tests,
+including a new one: two bounds sampled alternately 200 times each answer for
+their own shape (including a translated one, tested on both sides of its
+edge), and a third asked the same question a thousand times does not drift.
+The existing `within` suite already covers transform opts, nested bounds,
+even-odd paths with holes and `rectMode`. Docs 106/106, studio build with wasm
+md5 match, 81 studio tests, church oracle 381.0 min / 16 515 travel mm.
+
+**Measurement** (`renderhash`, seed 42, the sketch column, three A/B pairs):
+
+| sketch | before | after |
+|---|---|---|
+| flow-user | 3 376 / 3 054 / 2 901 ms | **2 645 / 2 736 / 2 567 ms** |
+| flow-portrait | 754 / 642 / 738 ms | **569 / 640 / 617 ms** |
+| testing-fields | 147 / 183 / 243 ms | 162 / 135 / 166 ms |
+
+---
+
+
 ## Recorded, not acted on: a stipple fill covers the whole bbox, once per region
 
 Instrumenting `contours-2-multicolor` — eight nested contour bands, each

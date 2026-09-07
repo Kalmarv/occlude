@@ -24,7 +24,7 @@
 import type { FieldFn, VectorFieldFn } from './shapes.js';
 import type { ShapeValue } from './api.js';
 import { IDENTITY, invert, mul, rotate as mrotate, scale as mscale, translate as mtranslate, type Mat } from './matrix.js';
-import { lowerToUserLoops, sketchFrame, userPointMm } from './record.js';
+import { lowerToUserLoops, sketchFrame } from './record.js';
 import { geomClosed } from './shapes.js';
 import { bounds, unitScaleMm } from './state.js';
 import { resolveLen, Len, type L } from './units.js';
@@ -294,10 +294,14 @@ const BOUND_LOOPS = new WeakMap<ShapeValue, LoopIndex>();
 
 /** Point-in-shape in user units, through the one lowerer (rectMode, arc
  * commands, curve flattening, transform opts — exactly what the shape
- * inks), with the geometry's own winding rule. */
-function containsPoint(shape: ShapeValue, x: number, y: number): boolean {
-  let idx = BOUND_LOOPS.get(shape);
+ * inks), with the geometry's own winding rule.
+ *
+ * Built once per bound, not once per sample: the loop index, the frame, the
+ * length resolution and the winding rule are all fixed for a given bound, and
+ * a bounded field is asked millions of times. */
+function containsTest(shape: ShapeValue): (x: number, y: number) => boolean {
   const frame = sketchFrame();
+  let idx = BOUND_LOOPS.get(shape);
   if (!idx) {
     const o = shape.opts;
     idx = indexLoops(
@@ -309,10 +313,12 @@ function containsPoint(shape: ShapeValue, x: number, y: number): boolean {
     );
     BOUND_LOOPS.set(shape, idx);
   }
-  const [px, py] = userPointMm(x, y, frame);
+  const loops = idx;
+  // exactly what `userPointMm(x, y, frame)` resolves each coordinate to
+  const inner = frame.inner;
   const g = shape.geom;
   const evenodd = g.kind === 'path' && g.winding === 'evenodd';
-  return pointInLoops(idx, px, py, evenodd);
+  return (x, y) => pointInLoops(loops, resolveLen(x, inner), resolveLen(y, inner), evenodd);
 }
 
 /** Even-odd (or nonzero) ray cast over the indexed loops: only the edges in
@@ -352,8 +358,12 @@ export function within<F extends AnyField>(field: F, shape: ShapeValue): F {
     throw new Error('within() bound must be a closed shape (close() the path, or use a region)');
   }
   const vec = isVector(field);
+  // resolved at the first sample, not at `within()` — the frame a bound
+  // lowers against is the one in force when the field is read
+  let contains: ((x: number, y: number) => boolean) | null = null;
   const out = wrap(field, (x, y) => {
-    if (!containsPoint(shape, x, y)) {
+    if (contains === null) contains = containsTest(shape);
+    if (!contains(x, y)) {
       return vec ? ([NaN, NaN] as [number, number]) : NaN;
     }
     return field(x, y);
