@@ -90,15 +90,87 @@ separately (median of 5) and its two long-query rows are no longer labelled
 
 ---
 
+## Entry 2 — the planarity check stops building strings (`src/faces.ts`)
+
+**Finding.** Profiling `faces()` on 18 244 V / 35 288 E showed **60 % of the
+call inside `checkPlanar`**, which re-verifies planarity from scratch every
+time. Per call, measured with in-place timers: segment list and duplicate-edge
+keys 16 ms, the coincident-vertex map **50 ms**, `boxPairs` + classification
+100 ms, and the actual face walk 110 ms. The two Set/Map keys were template
+strings — `` `${a},${b}` `` per edge and `` `${x},${y}` `` per endpoint, so
+~105 000 strings per call — and the endpoint loop allocated a two-element array
+per segment as well. `boxPairs`, shared with `planarize`, sorted a boxed
+`number[]` with a comparator that recomputed four `Math.min` calls and four
+object property loads per comparison.
+
+**Change.** `boxPairs` lays the four box columns out in `Float64Array`s once and
+sorts an `Int32Array` of indices on the precomputed left edge; the pairs, and
+the order they are visited in, are unchanged (the comparator was already a total
+order, tie-broken by row). The duplicate-edge key becomes the exact integer
+`min · n + max`. The coincident-vertex map becomes a hash of the two
+coordinates' bit patterns with the coordinates themselves compared on a hit, so
+a hash collision is resolved rather than reported: `validate` has already
+rejected non-finite coordinates, and 0 and −0 hash together because `===` calls
+them one position, exactly as the string key did.
+
+**Verification.**
+
+- Differential harness against a snapshot of the previous `faces.ts`:
+  **616 comparisons, 0 mismatches**, comparing the whole planarized material
+  (every coordinate, edge and attribute) and every face's index, area,
+  perimeter, bounds and contours, plus `boundaries()` and a selection's
+  boundaries — 6.7 MB of compared JSON on the 400-chord fixture alone
+  (17 047 faces) — and the thrown message on every error path. Fixtures:
+  400 chords, a 2 000-point triangulation, nested and corner-touching squares,
+  duplicate edges, coincident vertices, coincidence at −0, zero-length edges,
+  collinear overlap, a lattice, three concurrent lines, coordinates at 1e−6 and
+  1e7, empty and single-edge materials, and 200 random small networks (a third
+  of them snapped to a coarse grid so endpoints coincide and cross exactly).
+- A hash-collision stress: one material of 130 000 distinct positions, where a
+  32-bit position hash is expected to collide about twice. Both implementations
+  build the position map without a false coincidence and report the same first
+  crossing.
+- Two regression tests added to `test/faces.test.ts`: the duplicate-edge and
+  coincident-vertex messages, including −0 against 0; and 40 000 distinct
+  positions producing no false coincidence.
+- Gates: 308 TS tests, docs 106/106, studio build with wasm md5 match, 81 studio
+  tests, church oracle 381.0 min / 16 515 travel mm, `renderhash --check`
+  identical on all six reference sketches.
+
+**Measurement** (`bench/fbench.mts`, new; seed 5, medians of 5 — 3 for the two
+slowest rows):
+
+| workload | before | after |
+|---|---|---|
+| `faces` of 18 244 V / 35 288 E (17 047 faces) | 247 ms | 161 ms |
+| `faces` of a 5 000-point triangulation | 104 ms | 72 ms |
+| `faces` of a 90 × 90 lattice (8 281 V, 16 380 E) | 72 ms | 61 ms |
+| `faces` of 80 000 disjoint-segment vertices | 78 ms | 79 ms |
+| `planarize` 400 chords | 132 ms | 137 ms |
+
+Interleaved A/B on the same fixture, three alternating pairs, median of the
+medians: `faces` 278 → 182 ms, triangulation faces 116 → 81 ms.
+
+The two rows that did not move are honest: the disjoint-segment case has almost
+no box overlaps and spends its time in the angular sort and the face walk, and
+`planarize`'s own cost is dominated by its string-keyed event maps, not by
+`boxPairs`. Both are named below as the next targets.
+
+**Harness extension.** `bench/fbench.mts` is new: planarize, faces on a random
+chord net, on a triangulation, on a regular lattice, and on 80 000 vertices of
+disjoint segments, plus a face selection's boundaries.
+
+---
+
 ## Remaining measured bottlenecks (from `bench/prof.mts`, baseline 750214f)
 
 Recorded here so the next entry starts from evidence, not from a guess:
 
 | workload | cost |
 |---|---|
-| `faces()` of 18 360 V / 35 520 E | 313 ms |
-| `faces()` of a 5 000-point triangulation | 137 ms |
-| `planarize` of 400 chords | 138 ms |
+| `planarize` of 400 chords — string-keyed event maps (`byPos`, `seenPair`, `crossOf`, `contactOf`) | 137 ms |
+| `faces()` of 80 000 disjoint-segment vertices — the angular sort and the face walk | 79 ms |
+| isolines / contours, and iterative growth sketches — many small calls, not yet profiled | — |
 | growth step, 5 000-vertex ring | 53 ms (separation evaluate 24, `steps` 12) |
 | `pn.edges` (35 k views) | 63 ms |
 | `wasm_plan` on 3 600 circles | 66 ms |

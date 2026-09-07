@@ -68,23 +68,54 @@ export interface PlanarizeOpts {
 
 interface Seg { a: number; b: number; ax: number; ay: number; bx: number; by: number; row: number }
 
-/** Pairs of edges whose boxes overlap, by an x-sweep. Each pair once, i < j. */
+/** Pairs of edges whose boxes overlap, by an x-sweep. Each pair once, i < j.
+ * The boxes are laid out in columns first: the sweep reads them thousands of
+ * times each, and the order is a total one (least box-left, then row), so the
+ * pairs and their order do not depend on the sort. */
 function boxPairs(segs: Seg[], visit: (i: number, j: number) => void): void {
-  const order = segs.map((_, i) => i).sort((p, q) => Math.min(segs[p].ax, segs[p].bx) - Math.min(segs[q].ax, segs[q].bx) || p - q);
-  for (let oi = 0; oi < order.length; oi++) {
-    const i = order[oi];
+  const n = segs.length;
+  const lox = new Float64Array(n);
+  const hix = new Float64Array(n);
+  const loy = new Float64Array(n);
+  const hiy = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
     const s = segs[i];
-    const maxx = Math.max(s.ax, s.bx);
-    const miny = Math.min(s.ay, s.by);
-    const maxy = Math.max(s.ay, s.by);
-    for (let oj = oi + 1; oj < order.length; oj++) {
+    lox[i] = Math.min(s.ax, s.bx);
+    hix[i] = Math.max(s.ax, s.bx);
+    loy[i] = Math.min(s.ay, s.by);
+    hiy[i] = Math.max(s.ay, s.by);
+  }
+  const order = new Int32Array(n);
+  for (let i = 0; i < n; i++) order[i] = i;
+  order.sort((p, q) => lox[p] - lox[q] || p - q);
+  for (let oi = 0; oi < n; oi++) {
+    const i = order[oi];
+    const maxx = hix[i];
+    const miny = loy[i];
+    const maxy = hiy[i];
+    for (let oj = oi + 1; oj < n; oj++) {
       const j = order[oj];
-      const u = segs[j];
-      if (Math.min(u.ax, u.bx) > maxx) break;
-      if (Math.min(u.ay, u.by) > maxy || Math.max(u.ay, u.by) < miny) continue;
-      visit(Math.min(i, j), Math.max(i, j));
+      if (lox[j] > maxx) break;
+      if (loy[j] > maxy || hiy[j] < miny) continue;
+      visit(i < j ? i : j, i < j ? j : i);
     }
   }
+}
+
+// Exact coincidence of two positions without a string key per endpoint: hash
+// the bit patterns, then compare the coordinates themselves. Callers run
+// `validate` first, so coordinates are finite; 0 and −0 hash together because
+// `===` calls them one position, as the string key did.
+const hashBuf = new Float64Array(2);
+const hashBits = new Int32Array(hashBuf.buffer);
+function positionHash(x: number, y: number): number {
+  hashBuf[0] = x === 0 ? 0 : x;
+  hashBuf[1] = y === 0 ? 0 : y;
+  let h = Math.imul(hashBits[0], 0x9e3779b1) ^ Math.imul(hashBits[1], 0x85ebca6b)
+    ^ Math.imul(hashBits[2], 0xc2b2ae35) ^ Math.imul(hashBits[3], 0x27d4eb2f);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x2545f491);
+  return (h ^ (h >>> 13)) | 0;
 }
 
 type Event =
@@ -495,24 +526,40 @@ interface Walk {
 function checkPlanar(m: Material): void {
   validate(m, 'faces');
   const segs: Seg[] = [];
-  const seenPair = new Set<string>();
+  // the unordered pair packs into one exact integer while n² < 2^53 — that is
+  // every material whose coordinates fit in memory
+  const seenPair = new Set<number>();
   for (let e = 0; e < m.edgeCount; e++) {
     const a = m.edgeList[2 * e];
     const b = m.edgeList[2 * e + 1];
-    const key = a < b ? `${a},${b}` : `${b},${a}`;
+    const key = a < b ? a * m.n + b : b * m.n + a;
     if (seenPair.has(key)) throw new Error(`faces: duplicate edge ${e} — duplicate edges are overlaps and are not supported`);
     seenPair.add(key);
     segs.push({ a, b, ax: m.x[a], ay: m.y[a], bx: m.x[b], by: m.y[b], row: e });
   }
-  const byPos = new Map<string, number>();
-  for (const s of segs) {
-    for (const v of [s.a, s.b]) {
-      const k = `${m.x[v]},${m.y[v]}`;
-      const other = byPos.get(k);
-      if (other !== undefined && other !== v) throw new Error(`faces: vertices ${other} and ${v} coincide but are distinct — run planarize() first`);
-      byPos.set(k, v);
+  // A distinct vertex at an already-claimed position throws at once, so a
+  // bucket only ever holds vertices whose hashes collided but whose
+  // coordinates differ; it stays one deep in practice.
+  const byPos = new Map<number, number | number[]>();
+  const claim = (v: number): void => {
+    const x = m.x[v];
+    const y = m.y[v];
+    const h = positionHash(x, y);
+    const slot = byPos.get(h);
+    if (slot === undefined) { byPos.set(h, v); return; }
+    if (typeof slot === 'number') {
+      if (slot === v) return;
+      if (m.x[slot] === x && m.y[slot] === y) throw new Error(`faces: vertices ${slot} and ${v} coincide but are distinct — run planarize() first`);
+      byPos.set(h, [slot, v]);
+      return;
     }
-  }
+    for (const other of slot) {
+      if (other === v) return;
+      if (m.x[other] === x && m.y[other] === y) throw new Error(`faces: vertices ${other} and ${v} coincide but are distinct — run planarize() first`);
+    }
+    slot.push(v);
+  };
+  for (const s of segs) { claim(s.a); claim(s.b); }
   const events: Event[] = [];
   boxPairs(segs, (i, j) => {
     const s = segs[i];

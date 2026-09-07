@@ -339,3 +339,33 @@ describe('review of 3df7b04', () => {
     expect(() => { (f.contours[0].pts[0] as number[])[0] = 99; }).toThrow();
   });
 });
+
+describe('faces: the planarity check reads positions and pairs exactly', () => {
+  it('duplicate edges and coincident vertices are still refused, −0 counts as 0', () => {
+    const dup = material([[0, 0], [10, 0], [10, 10]], { edges: [[0, 1], [1, 2], [1, 0]] });
+    expect(() => faces(dup)).toThrow(/duplicate edge 2/);
+    const twice = material([[0, 0], [10, 0], [10, 0], [10, 10]], { edges: [[0, 1], [2, 3]] });
+    expect(() => faces(twice)).toThrow(/vertices 1 and 2 coincide but are distinct/);
+    // -0 and 0 are one position, as they were when the key was a string
+    const negZero = material([[-0, 5], [10, 5], [0, 5], [10, 9]], { edges: [[0, 1], [2, 3]] });
+    expect(() => faces(negZero)).toThrow(/vertices 0 and 2 coincide but are distinct/);
+  });
+
+  it('tens of thousands of distinct positions never collide into a false coincidence', () => {
+    // one short segment per cell of a wide lattice: nothing crosses, nothing
+    // coincides, and the position map is asked 40 000 times
+    const pts: [number, number][] = [];
+    const eds: [number, number][] = [];
+    let s = 99;
+    const rnd = () => ((s = (s * 48271) % 2147483647) / 2147483647);
+    for (let i = 0; i < 20000; i++) {
+      const x = (i % 200) * 10 + rnd();
+      const y = Math.floor(i / 200) * 10 + rnd();
+      pts.push([x, y], [x + 1 + rnd(), y + 1 + rnd()]);
+      eds.push([2 * i, 2 * i + 1]);
+    }
+    const wide = material(pts, { edges: eds });
+    expect(wide.n).toBe(40000);
+    expect(faces(wide).faces).toHaveLength(0);
+  });
+});
