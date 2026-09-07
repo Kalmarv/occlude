@@ -614,10 +614,13 @@ export class Material {
       const total = cum[cum.length - 1];
       const at = (k: number) => cum[samples[k].seg] + samples[k].t * (cum[samples[k].seg + 1] - cum[samples[k].seg]);
       const rowOfSeg = (s: number) => storedRow.get(pairKey(idx[s], idx[(s + 1) % idx.length]))!;
+      // Samples come in increasing arc length, so the segment under a
+      // position is found from where the last one was, never from the start.
+      let cursor = 0;
       const segUnder = (d: number) => {
-        let s = 0;
-        while (s < cum.length - 2 && cum[s + 1] <= d) s++;
-        return s;
+        if (cum[cursor] > d) cursor = 0; // a closed chain's seam wraps once
+        while (cursor < cum.length - 2 && cum[cursor + 1] <= d) cursor++;
+        return cursor;
       };
       // A new edge over [d0, d1]: a 'copy' column takes the source edge under
       // the midpoint; a 'distribute' column sums each covered source edge's
@@ -631,7 +634,9 @@ export class Material {
             continue;
           }
           let sum = 0;
-          for (let s = 0; s + 1 < cum.length; s++) {
+          let s = 0;
+          while (s < cum.length - 2 && cum[s + 1] <= d0) s++; // the first segment the range touches
+          for (; s + 1 < cum.length && cum[s] < d1; s++) {
             const len = cum[s + 1] - cum[s];
             if (len <= 0) continue;
             const overlap = Math.min(d1, cum[s + 1]) - Math.max(d0, cum[s]);
@@ -733,6 +738,42 @@ export function alongChain(
     out.push({ seg, t: len > 0 ? Math.min(1, (d - cum[seg]) / len) : 0 });
   }
   return out;
+}
+
+/** A uniform grid over points for ring searches: `ring(cx, cy, r)` lists
+ * the rows in the cells at Chebyshev distance r from (cx, cy); a ring's
+ * cells are at least (r − 1)·cell away from the centre cell's point, so a
+ * search may stop once its best candidate is nearer than the next ring. */
+export function pointGrid(x: Float64Array, y: Float64Array, cellsAcross: number): {
+  cell: number; cols: number; rows: number; maxRing: number;
+  col(px: number): number; row(py: number): number; ring(cx: number, cy: number, r: number): number[];
+} {
+  let minx = Infinity; let miny = Infinity; let maxx = -Infinity; let maxy = -Infinity;
+  for (let i = 0; i < x.length; i++) {
+    if (x[i] < minx) minx = x[i]; if (x[i] > maxx) maxx = x[i];
+    if (y[i] < miny) miny = y[i]; if (y[i] > maxy) maxy = y[i];
+  }
+  if (!Number.isFinite(minx)) { minx = miny = 0; maxx = maxy = 1; }
+  const cell = Math.max((Math.max(maxx - minx, maxy - miny) || 1) / cellsAcross, 1e-9);
+  const cols = Math.floor((maxx - minx) / cell) + 1;
+  const rows = Math.floor((maxy - miny) / cell) + 1;
+  const buckets: number[][] = Array.from({ length: cols * rows }, () => []);
+  const col = (px: number) => Math.min(cols - 1, Math.max(0, Math.floor((px - minx) / cell)));
+  const row = (py: number) => Math.min(rows - 1, Math.max(0, Math.floor((py - miny) / cell)));
+  for (let i = 0; i < x.length; i++) buckets[row(y[i]) * cols + col(x[i])].push(i);
+  const ring = (cx: number, cy: number, r: number): number[] => {
+    const out: number[] = [];
+    for (let gy = cy - r; gy <= cy + r; gy++) {
+      if (gy < 0 || gy >= rows) continue;
+      const edge = gy === cy - r || gy === cy + r;
+      for (let gx = cx - r; gx <= cx + r; gx += edge || r === 0 ? 1 : 2 * r) {
+        if (gx < 0 || gx >= cols) continue;
+        for (const j of buckets[gy * cols + gx]) out.push(j);
+      }
+    }
+    return out;
+  };
+  return { cell, cols, rows, maxRing: Math.max(cols, rows), col, row, ring };
 }
 
 /** A child edge's inherited columns: a `'copy'` column carries the parent's
@@ -878,16 +919,28 @@ export const connect = {
   nearest(m: PointsLike, opts: { count: number; edgeAttributes?: Record<string, number> }): Material {
     const mm = material(m);
     const pairs: [number, number][] = [];
+    // Grid search: rings of cells outward until the ring can hold nothing
+    // nearer than the k-th candidate found. Ties by (distance, row) exactly
+    // as the full scan ordered them.
+    const k = opts.count;
+    const grid = pointGrid(mm.x, mm.y, Math.max(2, Math.ceil(Math.sqrt(mm.n / 2))));
     for (let i = 0; i < mm.n; i++) {
       const cand: [number, number][] = [];
-      for (let j = 0; j < mm.n; j++) {
-        if (j === i) continue;
-        const dx = mm.x[j] - mm.x[i];
-        const dy = mm.y[j] - mm.y[i];
-        cand.push([dx * dx + dy * dy, j]);
+      const cx = grid.col(mm.x[i]);
+      const cy = grid.row(mm.y[i]);
+      for (let r = 0; ; r++) {
+        for (const j of grid.ring(cx, cy, r)) {
+          if (j === i) continue;
+          const dx = mm.x[j] - mm.x[i];
+          const dy = mm.y[j] - mm.y[i];
+          cand.push([dx * dx + dy * dy, j]);
+        }
+        cand.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+        // everything in rings beyond r is at least r·cell away
+        const reach = r * grid.cell;
+        if ((cand.length >= k && cand[k - 1][0] <= reach * reach) || r > grid.maxRing) break;
       }
-      cand.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
-      for (const [, j] of cand.slice(0, opts.count)) pairs.push([i, j]);
+      for (const [, j] of cand.slice(0, k)) pairs.push([i, j]);
     }
     return mm.withEdges(pairs, opts.edgeAttributes);
   },
@@ -1709,11 +1762,41 @@ export function tension(m: Material, opts: { rest: number }): (p: Vertex) => Vec
  */
 export function separation(sources: Sources, opts: { radius: number; excludeConnected?: boolean }): (p: Vertex) => Vec {
   const { radius, excludeConnected = false } = opts;
-  const m = material(sources);
-  return nearby(m, { radius, skip: excludeConnected ? adjacent(m) : undefined }, (p, q) => {
-    const delta = sub(p, q);
-    return mul(unit(delta), (1 - length(delta) / radius) * radius);
-  });
+  return radial(material(sources), radius, excludeConnected, radius, -1);
+}
+
+/** The fixed-law radial recipes (`separation`, `attract`) on the raw
+ * columns: the same neighbours in the same order and the same arithmetic
+ * as the generic `nearby` form — so the doubles, and the drawing, are
+ * identical — without a vertex view and two tuples per neighbour. Measured
+ * 20× on a 5 000-point ring (see the reference). `sign` −1 pushes away
+ * from the source, +1 pulls toward it; `strength` is the value when
+ * touching, fading linearly to zero at the radius. */
+function radial(m: Material, radius: number, excludeConnected: boolean, strength: number, sign: number): (p: Vertex) => Vec {
+  const near = neighbours(m, { radius });
+  const mx = m.x;
+  const my = m.y;
+  return (p) => {
+    const own = ownerOf(p) === m ? p.index : -1;
+    const adj = excludeConnected && own >= 0 ? m.connected(own) : null;
+    const px = p.x;
+    const py = p.y;
+    let x = 0;
+    let y = 0;
+    for (const j of near(p)) {
+      if (adj && adj.includes(j)) continue;
+      // sub(p, q) → unit → mul, spelled out in the same operations
+      const dx = (px - mx[j]) * sign * -1;
+      const dy = (py - my[j]) * sign * -1;
+      const d = Math.sqrt(dx * dx + dy * dy); // `length` spells it so; hypot can differ in the last bit
+      if (d > 0) {
+        const s = (1 - d / radius) * strength;
+        x += (dx / d) * s;
+        y += (dy / d) * s;
+      }
+    }
+    return [x, y];
+  };
 }
 
 /**
@@ -1749,11 +1832,7 @@ export function attract(
   opts: { radius: number; strength?: number; excludeConnected?: boolean },
 ): (p: Vertex) => Vec {
   const { radius, strength = 1, excludeConnected = false } = opts;
-  const m = material(sources);
-  return nearby(m, { radius, skip: excludeConnected ? adjacent(m) : undefined }, (p, q) => {
-    const delta = sub(q, p);
-    return mul(unit(delta), (1 - length(delta) / radius) * strength);
-  });
+  return radial(material(sources), radius, excludeConnected, strength, +1);
 }
 
 /**

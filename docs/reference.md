@@ -1373,7 +1373,7 @@ copy one beside your own and change it.
 | recipe | prepare with | evaluate | vector |
 |---|---|---|---|
 | `force.tension(m, { rest })` | the state; reads connections | `pull(p)` | toward each connected neighbour by the gap beyond `rest` (slack, not a spring) |
-| `force.separation(sources, { radius, excludeConnected? })` | any points; index once | `repel(p)` | away from every source within the radius, linearly to zero at the edge, `radius` when touching |
+| `force.separation(sources, { radius, excludeConnected? })` | any points; index once | `repel(p)` | away from every source within the radius, linearly to zero at the edge, `radius` when touching. A raw-column kernel: 5 000 points evaluate in 24 ms, the same doubles as the `nearby` form |
 | `force.attract(sources, { radius, strength?, excludeConnected? })` | any points; index once | `pull(p)` | toward each source, `strength` when touching, zero at the radius |
 | `force.drift(noise, { amount, frequency?, rate? })` | a noise function — pass `t.noise`, it owns no seed | `wander(p, k)` | a direction read from the noise, turning slowly with the iteration (`rate`, default 0.0004: the noise's z axis is steep) |
 | `force.boundary(loops, { radius, strength? })` | boundary loops, as `distanceTo` takes them | `keep(p)` | inward within `radius` of the edge and everywhere outside; zero deeper in |
@@ -1702,7 +1702,10 @@ zero-length move) or `overlap` (collinear: the start of the overlapping
 interval). `t` is along the source edge in stored a → b order. Queries
 return information and never edit; results belong to the state they were
 asked of, and the index does not see additions made in the same step.
-Both walk every edge: about a millisecond per query on 20k edges.
+Preparation builds a grid over the edges; a query as long as a growth
+step costs tens of microseconds on 35k edges (a thousand 2 mm `firstHit`
+queries: 23 ms), and a query spanning the whole drawing falls back to the
+plain scan (about a millisecond each).
 
 ```ts live
 import { sketch, strokes, circle, material, query, add } from 'occlude';

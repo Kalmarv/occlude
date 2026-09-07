@@ -10,11 +10,15 @@
  * tolerance `EPS` (1e-9 of the segment scale) deciding "on the line",
  * parallel and collinear; ties resolve by source edge order.
  *
- * Complexity: `nearest` and `firstHit` walk every edge — O(E) per query,
- * with the endpoint columns laid out once at preparation (1.4 ms for 20k
- * edges). Measured on that 20k-edge chain: nearest 0.86 ms per query,
- * firstHit 0.91 ms per query. No acceleration is claimed; a rule that
- * asks per vertex on a large material pays E × V per step.
+ * Complexity: preparation lays the endpoint columns out once and builds a
+ * uniform grid over the edges' boxes (an edge is registered in every cell
+ * its box covers; the cell is at least the mean edge extent, so long
+ * edges do not multiply). `nearest` searches rings of cells outward and
+ * stops once the best hit is nearer than the next ring; `firstHit` visits
+ * the cells the move's box covers. Both see exactly the candidates a full
+ * scan would judge (every edge whose box meets the query region) and
+ * judge them in source-edge order, so ties resolve as before. A query
+ * far longer than a cell degrades toward the full scan.
  */
 
 import { Material, ownedBy, type Edge, type Vertex, type XY } from './material.js';
@@ -66,6 +70,11 @@ export function edges(m: Material): EdgeQuery {
   const ay = new Float64Array(E);
   const bx = new Float64Array(E);
   const by = new Float64Array(E);
+  let minx = Infinity;
+  let miny = Infinity;
+  let maxx = -Infinity;
+  let maxy = -Infinity;
+  let extent = 0;
   for (let e = 0; e < E; e++) {
     const a = m.edgeList[2 * e];
     const b = m.edgeList[2 * e + 1];
@@ -73,7 +82,49 @@ export function edges(m: Material): EdgeQuery {
     ay[e] = m.y[a];
     bx[e] = m.x[b];
     by[e] = m.y[b];
+    minx = Math.min(minx, ax[e], bx[e]);
+    miny = Math.min(miny, ay[e], by[e]);
+    maxx = Math.max(maxx, ax[e], bx[e]);
+    maxy = Math.max(maxy, ay[e], by[e]);
+    extent += Math.max(Math.abs(bx[e] - ax[e]), Math.abs(by[e] - ay[e]));
   }
+  // ---- the grid: about one edge per cell, never finer than the mean edge extent ----
+  if (!Number.isFinite(minx)) { minx = miny = 0; maxx = maxy = 1; }
+  const span = Math.max(maxx - minx, maxy - miny, 1e-9);
+  const cell = Math.max(span / Math.max(1, Math.ceil(Math.sqrt(E))), E > 0 ? extent / E : span, 1e-9);
+  const cols = Math.floor((maxx - minx) / cell) + 1;
+  const rows = Math.floor((maxy - miny) / cell) + 1;
+  const col = (x: number) => Math.min(cols - 1, Math.max(0, Math.floor((x - minx) / cell)));
+  const row = (y: number) => Math.min(rows - 1, Math.max(0, Math.floor((y - miny) / cell)));
+  const buckets: number[][] = Array.from({ length: cols * rows }, () => []);
+  for (let e = 0; e < E; e++) {
+    const c0 = col(Math.min(ax[e], bx[e]));
+    const c1 = col(Math.max(ax[e], bx[e]));
+    const r0 = row(Math.min(ay[e], by[e]));
+    const r1 = row(Math.max(ay[e], by[e]));
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) buckets[r * cols + c].push(e);
+  }
+  const stamp = new Int32Array(E).fill(-1);
+  let query = 0;
+  /** Edges registered in the cells of a box, each once, in source order. */
+  const everyEdge = Array.from({ length: E }, (_, e) => e);
+  const candidatesIn = (x0: number, y0: number, x1: number, y1: number): number[] => {
+    query++;
+    const out: number[] = [];
+    if (x1 < minx - cell || x0 > maxx + cell || y1 < miny - cell || y0 > maxy + cell) return out;
+    // a box over most of the grid would visit and sort nearly everything: the plain scan is cheaper
+    if ((row(y1) - row(y0) + 1) * (col(x1) - col(x0) + 1) > 0.4 * cols * rows) return everyEdge;
+    for (let r = row(y0); r <= row(y1); r++) {
+      for (let c = col(x0); c <= col(x1); c++) {
+        for (const e of buckets[r * cols + c]) {
+          if (stamp[e] === query) continue;
+          stamp[e] = query;
+          out.push(e);
+        }
+      }
+    }
+    return out.sort((p, q) => p - q);
+  };
   const incidentRows = (v: Vertex | number): Set<number> => {
     let row: number;
     if (typeof v === 'number') {
@@ -95,7 +146,8 @@ export function edges(m: Material): EdgeQuery {
       const px = vx(position);
       const py = vy(position);
       let best: NearestHit | null = null;
-      for (let e = 0; e < E; e++) {
+      // every edge within `within` of the point has its box within `within` of it
+      for (const e of candidatesIn(px - within, py - within, px + within, py + within)) {
         const dx = bx[e] - ax[e];
         const dy = by[e] - ay[e];
         const len2 = dx * dx + dy * dy;
@@ -125,7 +177,7 @@ export function edges(m: Material): EdgeQuery {
         const py = fy + sy * along;
         best = { edge: m.edge(e), position: [px, py], t, along, distance: slen * along, kind };
       };
-      for (let e = 0; e < E; e++) {
+      for (const e of candidatesIn(Math.min(fx, tx), Math.min(fy, ty), Math.max(fx, tx), Math.max(fy, ty))) {
         if (skip && skip.has(e)) continue;
         const dx = bx[e] - ax[e];
         const dy = by[e] - ay[e];
