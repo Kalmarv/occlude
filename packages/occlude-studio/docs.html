@@ -13,18 +13,18 @@
     />
   </head>
   <body class="docs-body">
-    <header id="topbar">
-      <span class="wordmark">occlude<span class="wordmark-dot">·</span>docs</span>
-      <nav id="docs-nav" class="docs-nav"></nav>
-      <div class="topbar-actions">
-        <a class="topbar-link" href="/">← back to studio</a>
-        <a class="topbar-link" href="/machine.html">Machine</a>
+    <aside id="docs-side">
+      <div class="side-head">
+        <a class="wordmark" href="#/getting-started">occlude<span class="wordmark-dot">·</span>docs</a>
+        <a class="side-link" href="/" title="Back to the studio">studio →</a>
       </div>
-    </header>
-    <main id="docs-main">
-      <nav id="docs-toc" class="docs-toc"></nav>
-      <article id="docs-content" class="docs-content"></article>
-    </main>
+      <div class="docs-search-wrap">
+        <input id="docs-search" type="search" placeholder="find a function or section" aria-label="Search the docs" />
+        <div id="docs-search-results" class="docs-search-results" hidden></div>
+      </div>
+      <nav id="docs-tree" class="docs-tree"></nav>
+    </aside>
+    <main id="docs-content" class="docs-content"></main>
     <script type="module" src="/src/docs.ts"></script>
   </body>
 </html>

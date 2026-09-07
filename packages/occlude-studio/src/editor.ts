@@ -24,7 +24,14 @@ self.MonacoEnvironment = {
   },
 };
 
-const SKETCH_URI = monaco.Uri.parse('file:///sketch.ts');
+const SKETCH_URI = 'file:///sketch.ts';
+
+export interface EditorOptions {
+  /** Model path; every editor on a page needs its own (default: the studio's sketch). */
+  uri?: string;
+  /** Compact chrome for inline editors: no line highlight, smaller gutter. */
+  inline?: boolean;
+}
 
 export interface Editor {
   model: monaco.editor.ITextModel;
@@ -38,9 +45,19 @@ export interface Editor {
   setReadOnly(on: boolean): void;
   /** Format the document with Prettier (no-op on parse errors). */
   format(): Promise<void>;
+  /** Height that fits the whole document, px — for inline editors sized to their text. */
+  contentHeight(): number;
+  /** Release the editor and its model. */
+  dispose(): void;
 }
 
-export function createEditor(container: HTMLElement, initial: string): Editor {
+let monacoReady = false;
+
+/** Language defaults, extra libs, theme and formatter: once per page,
+ * however many editors it holds (the docs open one per example). */
+function setupMonaco(): void {
+  if (monacoReady) return;
+  monacoReady = true;
   const ts = monaco.languages.typescript.typescriptDefaults;
   ts.setCompilerOptions({
     target: monaco.languages.typescript.ScriptTarget.ES2020,
@@ -102,8 +119,12 @@ export function createEditor(container: HTMLElement, initial: string): Editor {
       return [{ range: m.getFullModelRange(), text }];
     },
   });
+}
 
-  const model = monaco.editor.createModel(initial, 'typescript', SKETCH_URI);
+export function createEditor(container: HTMLElement, initial: string, opts: EditorOptions = {}): Editor {
+  setupMonaco();
+  const uri = monaco.Uri.parse(opts.uri ?? SKETCH_URI);
+  const model = monaco.editor.createModel(initial, 'typescript', uri);
   const editor = monaco.editor.create(container, {
     model,
     theme: 'occlude-deck',
@@ -112,9 +133,12 @@ export function createEditor(container: HTMLElement, initial: string): Editor {
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
     automaticLayout: true,
-    padding: { top: 10 },
-    renderLineHighlight: 'gutter',
+    padding: { top: 10, bottom: opts.inline ? 10 : 0 },
+    renderLineHighlight: opts.inline ? 'none' : 'gutter',
     tabSize: 2,
+    ...(opts.inline
+      ? { lineNumbersMinChars: 3, folding: false, wordWrap: 'on', scrollbar: { alwaysConsumeMouseWheel: false }, overviewRulerLanes: 0, hideCursorInOverviewRuler: true }
+      : {}),
   });
 
   // Alt-drag any number literal to change it (scrubby sliders).
@@ -136,11 +160,10 @@ export function createEditor(container: HTMLElement, initial: string): Editor {
           }
         }
       })();
-      const client = await getWorker(SKETCH_URI);
-      const uri = SKETCH_URI.toString();
+      const client = await getWorker(uri);
       const [syntactic, out] = await Promise.all([
-        client.getSyntacticDiagnostics(uri),
-        client.getEmitOutput(uri),
+        client.getSyntacticDiagnostics(uri.toString()),
+        client.getEmitOutput(uri.toString()),
       ]);
       const errors = syntactic.map((d) => {
         const pos = d.start !== undefined ? model.getPositionAt(d.start) : null;
@@ -170,6 +193,13 @@ export function createEditor(container: HTMLElement, initial: string): Editor {
     },
     setReadOnly(on) {
       editor.updateOptions({ readOnly: on });
+    },
+    contentHeight() {
+      return editor.getContentHeight();
+    },
+    dispose() {
+      editor.dispose();
+      model.dispose();
     },
   };
 }

@@ -64,10 +64,15 @@ rasters are implementation numbers. They are not tenants.
   (`crates/occlude-core/pkg/*.wasm` == `packages/occlude-studio/dist/assets/*.wasm`)
   + commit/push. The server serves dist per request; restart only for
   server.mjs / *-store.mjs changes (kill by PID — pkill aborts the shell).
-- **Docs are the reference, singular.** Every feature gets a `ts live`
-  entry in docs/reference.md. Do not recreate api.md or guide.md.
-  docs/gallery.md is the other live page: classics transposed (credited,
-  licence-checked, never API documentation), same checker.
+- **Docs are topic pages with live examples.** Every feature gets a
+  `ts live` entry on its topic page under docs/ (getting-started, shapes,
+  fills, fields, materials, images, plotting; the list is `DOC_PAGES` in
+  packages/occlude/src/docsExamples.ts, shared by the site and the
+  checker). Explanation, signatures and live sketches stay together on
+  the page; do not split into separate guide/reference/sketch layers or
+  a page per function. docs/gallery.md is the live page of credited,
+  licence-checked classics — never API documentation. Same checker for
+  all of them; the checker also reports ink outside the drawable.
 - **Copyleft neighbors:** saxi (AGPL), EggBot (GPL), Spicker stippling
   (LGPL), Marlin/Klipper (GPL) — ideas, protocol facts, and papers only,
   NEVER code. Keep the README credits table current.

@@ -44,7 +44,8 @@ export {
   type ImageSampler, type ImagePlacement, type AssetPixels,
 } from './imageAsset.js';
 export { label, labelWidth } from './font.js';
-export { liveExampleToJs } from './docsExamples.js';
+export { liveExampleToJs, DOC_PAGES, parseLiveMeta, docsPaper } from './docsExamples.js';
+export type { LiveMeta } from './docsExamples.js';
 export { synth, probe as probeExpression } from './synth.js';
 export type { SynthFn, SynthOpts, SynthStats, SynthBounds, WarpFn } from './synth.js';
 export type { LabelOpts } from './font.js';

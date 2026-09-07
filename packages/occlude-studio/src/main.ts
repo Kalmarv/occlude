@@ -50,6 +50,30 @@ async function boot(): Promise<void> {
   const pens = await loadPens();
   const profiles = await loadProfiles();
   const settings = loadSettings();
+  // A sketch opened from the docs arrives with the sheet it was shown on
+  // and the pens it was written for: apply the sheet, add any pen the
+  // library lacks for THIS session (the library file is not written), and
+  // say so — the drawing should look as it did on the docs page.
+  let openedNote: string | null = null;
+  try {
+    const raw = localStorage.getItem('occlude.openSettings');
+    if (raw) {
+      localStorage.removeItem('occlude.openSettings');
+      const open = JSON.parse(raw) as { paper?: string; customPaper?: { w: number; h: number }; landscape?: boolean; defaultMarginPct?: number; pens?: PenDef[] };
+      if (open.paper) settings.paper = open.paper;
+      if (open.customPaper) settings.customPaper = open.customPaper;
+      if (open.landscape !== undefined) settings.landscape = open.landscape;
+      if (open.defaultMarginPct !== undefined) settings.defaultMarginPct = open.defaultMarginPct;
+      const added: string[] = [];
+      for (const pen of open.pens ?? []) {
+        if (!pens.some((p) => p.name === pen.name)) { pens.push(pen); added.push(pen.name); }
+      }
+      openedNote = `opened from the docs on ${settings.paper === 'Custom' ? `${settings.customPaper.w}×${settings.customPaper.h} mm` : settings.paper}${settings.landscape ? ' landscape' : ''}` +
+        (added.length ? ` — docs pens added for this session: ${added.join(', ')} (not saved to your library)` : '');
+    }
+  } catch {
+    openedNote = null;
+  }
   if (!profiles.some((p) => p.name === settings.activeProfile)) {
     settings.activeProfile = profiles[0].name;
   }
@@ -373,6 +397,8 @@ async function boot(): Promise<void> {
     showSelection();
     rail.refreshExport();
   });
+
+  if (openedNote) note = openedNote;
 
   // Snapshot: freeze this source with the seed it rendered under. Fork: a
   // new sketch from this one, opened here. Both live on the Sketches page.
