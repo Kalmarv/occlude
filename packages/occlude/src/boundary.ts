@@ -24,18 +24,26 @@ export interface ChainSource {
 /** Anything the area consumers take as a boundary. */
 export type Boundary = Loop | readonly Loop[] | IsoContour | readonly IsoContour[] | ChainSource;
 
-const isXY = (v: unknown): v is XYLike =>
-  (Array.isArray(v) && (v.length === 0 || typeof v[0] === 'number' || typeof v[0] === 'object')) ||
-  (typeof v === 'object' && v !== null && !Array.isArray(v) && typeof (v as { x?: unknown }).x === 'number');
-const isTuple = (v: unknown): v is readonly number[] => Array.isArray(v);
+/** A point: a numeric pair (extra entries ignored) or an object with numeric x and y. */
+const isPoint = (v: unknown): v is XYLike =>
+  (Array.isArray(v) && v.length >= 2 && typeof v[0] === 'number' && typeof v[1] === 'number') ||
+  (typeof v === 'object' && v !== null && !Array.isArray(v) &&
+    typeof (v as { x?: unknown }).x === 'number' && typeof (v as { y?: unknown }).y === 'number');
+/** A loop: an array of points, or an empty array. */
+const isLoop = (v: unknown): v is Loop => Array.isArray(v) && (v.length === 0 || isPoint(v[0]));
 const isContour = (v: unknown): v is IsoContour =>
   typeof v === 'object' && v !== null && !Array.isArray(v) && Array.isArray((v as { pts?: unknown }).pts);
 const isChainSource = (v: unknown): v is ChainSource =>
   typeof v === 'object' && v !== null && !Array.isArray(v) &&
   typeof (v as { curves?: unknown }).curves === 'function' && (v as { edgeList?: unknown }).edgeList instanceof Uint32Array;
 
-const loopOf = (loop: Loop): [number, number][] =>
-  loop.map((p) => (isTuple(p) ? (p as unknown as [number, number]) : [p.x, p.y]));
+const loopOf = (loop: Loop, who: string): [number, number][] =>
+  loop.map((p, i) => {
+    if (!isPoint(p)) throw new Error(`${who}: loop entry ${i} is not a point ([x, y] or { x, y })`);
+    if (Array.isArray(p)) return p as unknown as [number, number];
+    const q = p as { x: number; y: number };
+    return [q.x, q.y];
+  });
 
 /**
  * Resolve a boundary to loops. A closed chain is a loop; an open chain is a
@@ -61,11 +69,11 @@ export function boundaryLoops(input: Boundary, who: string): [number, number][][
   if (isContour(input)) return [input.pts];
   if (!Array.isArray(input)) throw new Error(`${who}: expected loops, contour records or a chain material`);
   if (input.length === 0) return [];
+  // What the first entry is decides the shape of the whole: a point means
+  // one loop, a loop (possibly empty) or a contour record means a list.
   const first: unknown = input[0];
   if (isContour(first)) return (input as readonly IsoContour[]).map((c) => c.pts);
-  if (isXY(first) && !(Array.isArray(first) && first.length > 0 && Array.isArray(first[0]))) {
-    // One loop of points: `[[x, y], …]` or `[{ x, y }, …]`.
-    return [loopOf(input as Loop)];
-  }
-  return (input as readonly Loop[]).map(loopOf);
+  if (isPoint(first)) return [loopOf(input as Loop, who)];
+  if (isLoop(first)) return (input as readonly Loop[]).map((l) => loopOf(l, who));
+  throw new Error(`${who}: expected loops of points ([x, y] or { x, y }), contour records or a chain material`);
 }

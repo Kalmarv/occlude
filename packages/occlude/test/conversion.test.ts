@@ -197,6 +197,25 @@ describe('one boundary contract', () => {
     expect(JSON.stringify(p2.geom)).toBe(JSON.stringify(p1.geom));
   });
 
+  it('detects points against loops by the first entry, never by shape guesses', () => {
+    const square: [number, number][] = [[0, 0], [10, 0], [10, 10], [0, 10]];
+    const objects = square.map(([x, y]) => ({ x, y }));
+    // A leading empty loop is a loop, not a point.
+    expect(boundaryLoops([[], square], 'test')).toEqual([[], square]);
+    expect(distanceTo([[], square])(5, 5)).toBe(5);
+    // Loops of { x, y } points, nested, are loops.
+    expect(boundaryLoops([objects], 'test')).toEqual([square]);
+    expect(boundaryLoops([objects, objects.slice(0, 2)], 'test')).toHaveLength(2);
+    expect(distanceTo([objects])(5, 5)).toBe(5);
+    expect(distanceTo(objects)(5, 5)).toBe(5);
+    expect(force.boundary([[], square], { radius: 4 })([1, 5])[0]).toBeGreaterThan(0);
+    expect(force.boundary([objects], { radius: 4 })([1, 5])[0]).toBeGreaterThan(0);
+    // Extra entries on a point are ignored; a bad entry is named.
+    expect(boundaryLoops([[[0, 0, 9], [10, 0, 9]]], 'test')).toEqual([[[0, 0, 9], [10, 0, 9]]]);
+    expect(() => boundaryLoops([[[0, 0], 'no']] as never, 'test')).toThrow(/loop entry 1 is not a point/);
+    expect(() => boundaryLoops([['a', 'b']] as never, 'test')).toThrow(/expected loops of points/);
+  });
+
   it('holes, chord closure, isolated points, empties and branching', () => {
     // A ring with a hole from two components of one material.
     const withHole = connect.ring(material(sq(0, 0, 30)));

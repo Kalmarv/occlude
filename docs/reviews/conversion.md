@@ -33,6 +33,10 @@ Docs (fields, shapes, materials), the tests, and the checker are migrated. Perso
 
 `polygon(m.selectEdges(...).extract())` is the per-level area; `.curves().map(polygon)` keeps one area per contour, which is what the old per-contour code did (opaque each, no holes between siblings).
 
+`tools/migrate-sketch-source.mjs` (the store-wide rewrite from the 2026-09-06 renames) now also rewrites `t.polylines(x)` and `t.loops(x)` to `t.material(x).curves().map((c) => c.pts)`, an array-preserving form, so callers that expected arrays keep working without hand edits; `node tools/migrate-sketch-source.mjs < in.ts > out.ts`. The isolines and streamlines result-shape changes are not text-rewritable and stay in the table above.
+
+Boundary detection decides by the first entry: a point (`[x, y]` or `{ x, y }`) means one loop, a loop (possibly empty) or a contour record means a list. A leading empty loop and nested loops of object points are covered by tests.
+
 ## Remaining friction
 
 - `polygon(selection)` is not accepted; a selection needs `.extract()` first (or `.curves()`). Accepting anything with `curves()` would also admit selections; deferred so the contract stays "loops, contours, chain material".
