@@ -28,9 +28,10 @@ export default fillAsset({
   generate(region, p, ctx) {
     const minDist =
       (p.minDist !== undefined ? ctx.len(p.minDist) : 2 * ctx.penWidth) * ctx.coarsen;
-    // Bridson Poisson-disk over the bbox; the engine keeps only strictly-
-    // inside dots, so no containment test is needed here. Physical floor
-    // and a hard grid budget against runaway parameters.
+    // Bridson Poisson-disk INSIDE THE REGION. A thin band's bbox is the whole
+    // shape, so proposing over the bbox and letting the engine keep the
+    // strictly-inside dots spends most of the work on ink that never lands.
+    // Physical floor and a hard grid budget against runaway parameters.
     const b = region.bbox;
     if (!(b.w > 0) || !(b.h > 0) || !Number.isFinite(b.w * b.h)) return [];
     const MAX_CELLS = 4_000_000;
@@ -45,9 +46,7 @@ export default fillAsset({
     const rows = Math.ceil(b.h / cell) + 1;
     const grid = new Int32Array(cols * rows).fill(-1);
     // Typed, growable point stores and an explicit active stack: no per-
-    // candidate allocation. The arithmetic, the comparisons, and the order
-    // of rnd() draws are exactly the original Bridson loop's — this fill's
-    // ink is immutable and the golden fixture pins it.
+    // candidate allocation.
     let cap = 1024;
     let px = new Float64Array(cap);
     let py = new Float64Array(cap);
@@ -72,9 +71,49 @@ export default fillAsset({
       const cy = Math.min(rows - 1, Math.floor((y - b.y) / cell));
       grid[cy * cols + cx] = idx;
     };
-    push(b.x + rnd() * b.w, b.y + rnd() * b.h);
+    /** Is (x, y) in the box and at least r from every stored dot? */
+    const fits = (x: number, y: number): boolean => {
+      if (x < b.x || x > bx1 || y < b.y || y > by1) return false;
+      const cx = Math.min(cols - 1, Math.floor((x - b.x) / cell));
+      const cy = Math.min(rows - 1, Math.floor((y - b.y) / cell));
+      // NEIGHBOURHOOD, nearest cells first. This is a pure any-overlap
+      // predicate that stops at the first hit, so the visiting order cannot
+      // change the answer — and a rejected candidate, which is most of them,
+      // nearly always conflicts with a point in the 3×3 core.
+      for (let k = 0; k < NEIGHBOURHOOD.length; k += 2) {
+        const gx = cx + NEIGHBOURHOOD[k];
+        if (gx < 0 || gx >= cols) continue;
+        const gy = cy + NEIGHBOURHOOD[k + 1];
+        if (gy < 0 || gy >= rows) continue;
+        const idx = grid[gy * cols + gx];
+        if (idx < 0) continue;
+        // `hypot(dx, dy) < r`, decided by the squared distance except in a
+        // ±1e-9 relative band around r², where hypot itself decides.
+        const ddx = px[idx] - x;
+        const ddy = py[idx] - y;
+        const q = ddx * ddx + ddy * ddy;
+        if (q < rr * (1 - 1e-9) || (q < rr * (1 + 1e-9) && Math.hypot(ddx, ddy) < r)) return false;
+      }
+      return true;
+    };
+    // Refusing candidates outside the region blocks propagation across a gap,
+    // so when the frontier empties the loop looks for a fresh seed inside the
+    // region — that is what covers a region of several disjoint islands, and
+    // what a single bbox-wide seed used to give for free.
+    const RESEED = 64;
+    const seed = (): boolean => {
+      for (let t = 0; t < RESEED; t++) {
+        const x = b.x + rnd() * b.w;
+        const y = b.y + rnd() * b.h;
+        if (fits(x, y) && region.contains(x, y)) {
+          push(x, y);
+          return true;
+        }
+      }
+      return false;
+    };
     const K = 24;
-    while (nActive > 0) {
+    while (nActive > 0 || seed()) {
       const pick = Math.floor(rnd() * nActive) % nActive;
       const bi = active[pick];
       let placed = false;
@@ -83,39 +122,10 @@ export default fillAsset({
         const rad = r + rnd() * r;
         const x = px[bi] + Math.cos(ang) * rad;
         const y = py[bi] + Math.sin(ang) * rad;
-        // fits(x, y), inlined.
-        if (x < b.x || x > bx1 || y < b.y || y > by1) continue;
-        const cx = Math.min(cols - 1, Math.floor((x - b.x) / cell));
-        const cy = Math.min(rows - 1, Math.floor((y - b.y) / cell));
-        // NEIGHBOURHOOD, nearest cells first. `ok` is a pure any-overlap
-        // predicate that stops at the first hit, so the visiting order
-        // cannot change the answer — and a rejected candidate, which is most
-        // of them, nearly always conflicts with a point in the 3×3 core.
-        let ok = true;
-        for (let k = 0; k < NEIGHBOURHOOD.length; k += 2) {
-          const gx = cx + NEIGHBOURHOOD[k];
-          if (gx < 0 || gx >= cols) continue;
-          const gy = cy + NEIGHBOURHOOD[k + 1];
-          if (gy < 0 || gy >= rows) continue;
-          const idx = grid[gy * cols + gx];
-          if (idx < 0) continue;
-          // `hypot(dx, dy) < r`, decided by the squared distance except in
-          // a ±1e-9 relative band around r², where hypot itself decides —
-          // hypot's error is ~1e-16 relative, so the outcome is exactly
-          // the original comparison's, at a fraction of the cost.
-          const ddx = px[idx] - x;
-          const ddy = py[idx] - y;
-          const q = ddx * ddx + ddy * ddy;
-          if (q < rr * (1 - 1e-9) || (q < rr * (1 + 1e-9) && Math.hypot(ddx, ddy) < r)) {
-            ok = false;
-            break;
-          }
-        }
-        if (ok) {
-          push(x, y);
-          placed = true;
-          break;
-        }
+        if (!fits(x, y) || !region.contains(x, y)) continue;
+        push(x, y);
+        placed = true;
+        break;
       }
       if (!placed) {
         active[pick] = active[nActive - 1];

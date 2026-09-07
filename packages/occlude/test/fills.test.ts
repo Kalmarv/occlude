@@ -240,7 +240,8 @@ describe('stipple: the disk guarantee, whatever order the neighbourhood is judge
     const gen = resolveFill('stipple')!.generate;
     let s = opts.seed ?? 7;
     const rnd = () => ((s = (s * 48271) % 2147483647) / 2147483647);
-    const region = { bbox: { x: 0, y: 0, w: opts.w, h: opts.h } } as never;
+    // a region that IS its bbox: the fill's own containment test passes
+    const region = { bbox: { x: 0, y: 0, w: opts.w, h: opts.h }, path: [], contains: () => true } as never;
     const ctx = {
       penWidth: opts.penWidth,
       rnd,
