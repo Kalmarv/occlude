@@ -49,3 +49,28 @@ med('one level, step 0.1 (2001² grid = 4M samples)', () => isolinesOf(E, wavy(0
 // degenerate: a constant field (no crossings at all) and a field that is all absent
 med('constant field, step 0.25 (no crossings)', () => isolinesOf(E, () => 1, 0, { step: 0.25 }), 3);
 med('all-absent field, step 0.25', () => isolinesOf(E, () => NaN, 0, { step: 0.25 }), 3);
+
+// ---- streamlines: the other field → geometry path (RK4 tracing + separation)
+import { streamlinesOf } from '../src/streamlines.js';
+
+const swirl = (x: number, y: number): [number, number] => {
+  const dx = x - 100;
+  const dy = y - 100;
+  return [-dy + dx * 0.15, dx + dy * 0.15];
+};
+const noisy = (x: number, y: number): [number, number] => {
+  const a = Math.sin(x * 0.04) * 2 + Math.cos(y * 0.05) * 2;
+  return [Math.cos(a), Math.sin(a)];
+};
+// a field that gives out over a disc: tracing stops mid-line, often
+const holey = (x: number, y: number): [number, number] =>
+  (Math.hypot(x - 100, y - 100) < 25 ? [NaN, NaN] : swirl(x, y));
+
+console.log('');
+med('streamlines: swirl, spacing 3', () => streamlinesOf(E, swirl, { spacing: 3 }), 3);
+med('streamlines: swirl, spacing 1', () => streamlinesOf(E, swirl, { spacing: 1 }), 3);
+med('streamlines: noisy, spacing 2', () => streamlinesOf(E, noisy, { spacing: 2 }), 3);
+med('streamlines: noisy, spacing 0.6 (dense)', () => streamlinesOf(E, noisy, { spacing: 0.6 }), 3);
+med('streamlines: variable spacing, noisy', () => streamlinesOf(E, noisy, { spacing: (x: number) => 0.8 + (x / 200) * 4 }), 3);
+med('streamlines: a field that gives out over a disc', () => streamlinesOf(E, holey, { spacing: 2 }), 3);
+med('streamlines: fine step, spacing 2', () => streamlinesOf(E, noisy, { spacing: 2, step: 0.1 }), 3);

@@ -1083,6 +1083,42 @@ describe('svg() with the generic transform opts', () => {
 });
 
 describe('image assets', () => {
+  it('each channel reads its own byte, point-sampled and area-averaged', async () => {
+    const { registerImageAsset, image, clearAssets } = await import('../src/index.js');
+    clearAssets();
+    // every pixel distinct per channel, and none of them equal: a channel
+    // read from the wrong byte cannot pass
+    const w = 2, h = 2;
+    const data = new Uint8ClampedArray(w * h * 4);
+    data.set([10, 60, 110, 160], 0);
+    data.set([20, 70, 120, 170], 4);
+    data.set([30, 80, 130, 180], 8);
+    data.set([40, 90, 140, 190], 12);
+    registerImageAsset('chan.png', { width: w, height: h, data });
+    const img = image('chan.png', { x: 0, y: 0, width: 20 }); // 20×20 units, 10 per pixel
+    const at = (px: number, py: number) => [px * 10 + 5, py * 10 + 5] as [number, number];
+    for (const [px, py, i] of [[0, 0, 0], [1, 0, 1], [0, 1, 2], [1, 1, 3]] as const) {
+      const [x, y] = at(px, py);
+      const [r, g, b] = img.rgb(x, y);
+      expect(r).toBeCloseTo(data[i * 4] / 255, 6);
+      expect(g).toBeCloseTo(data[i * 4 + 1] / 255, 6);
+      expect(b).toBeCloseTo(data[i * 4 + 2] / 255, 6);
+      expect(img.a(x, y)).toBeCloseTo(data[i * 4 + 3] / 255, 6);
+      expect(img.lum(x, y)).toBeCloseTo(
+        (0.2126 * data[i * 4] + 0.7152 * data[i * 4 + 1] + 0.0722 * data[i * 4 + 2]) / 255, 6,
+      );
+    }
+    // the summed-area path over the whole rect: the mean of each channel
+    const mean = (off: number) => (data[off] + data[4 + off] + data[8 + off] + data[12 + off]) / 4 / 255;
+    const [ar, ag, ab] = img.rgb(10, 10, 10);
+    expect(ar).toBeCloseTo(mean(0), 6);
+    expect(ag).toBeCloseTo(mean(1), 6);
+    expect(ab).toBeCloseTo(mean(2), 6);
+    expect(img.a(10, 10, 10)).toBeCloseTo(mean(3), 6);
+    expect(img.lum(10, 10, 10)).toBeCloseTo(0.2126 * mean(0) + 0.7152 * mean(1) + 0.0722 * mean(2), 6);
+    clearAssets();
+  });
+
   it('samples points, area averages, bands, and edges from registered pixels', async () => {
     const { registerImageAsset, image, clearAssets, scanAssetNames, asset, registerTextAsset } =
       await import('../src/index.js');

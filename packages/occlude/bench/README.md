@@ -13,7 +13,8 @@ process, warm where noted; report medians yourself when comparing.
 | `rsbench.mts` | resample at 4 000 / 8 000 / 16 000 points, `copy` and `distribute` edge columns, medians of 5 | the two edge-transfer paths |
 | `fbench.mts` | planarize 400 chords; faces of the 35 k-edge result, of a 5 000-point triangulation, of a 90 × 90 lattice, and of 80 000 disjoint-segment vertices; a face selection's boundaries | the topology operations a sketch pays for when it asks a drawing for its regions |
 | `gbench.mts` | the ring-growth recipe at three sizes written as the sketches write it; the per-step machinery isolated at 2 000 and 20 000 vertices (`points`, `edges`, `neighbours` prepare and query, `steps` move-only and split-every-edge, `separation`); a 200 000-vertex ring, 2 000 steps of a small ring, and 100 000 isolated points with no edges | the iterative path — many small calls per step, hundreds of steps |
-| `ibench.mts` | isolines over a 201²–2001² grid, 1 to 40 levels, `close` on and off, an absent-sample hole, a constant field and an all-absent field | field → contours, the path every contour sketch and every field `clip` takes |
+| `ibench.mts` | isolines over a 201²–2001² grid, 1 to 40 levels, `close` on and off, an absent-sample hole, a constant field and an all-absent field; then streamlines at four spacings, variable spacing, a field that gives out over a disc, and a fine step | field → geometry: the path every contour sketch, every flow sketch and every field `clip` takes |
+| `imbench.mts` | the committed `nyx.jpeg` asset: building the four summed-area tables, then 500 000 samples each of `lum` (bilinear and area), `rgb`, `edge`, `dir`, `bands`, and points outside the placed rect | image sampling — what a stipple or a flow field asks millions of times |
 
 ## Read the harness before the numbers
 

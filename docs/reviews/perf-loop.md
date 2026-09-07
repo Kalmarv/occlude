@@ -344,6 +344,59 @@ opens with how to read a `tsx` number.
 
 ---
 
+## Entry 6 — image channels are a number, not a string, in the sampling loop (`src/imageAsset.ts`)
+
+**Finding.** Profiling the image-fed sketches put 506 ms of self time in
+`satOf` and ~660 ms across the samplers. Both went through
+`channelValue(px, i, ch)`, whose body is a **switch on a string** —
+`'r' | 'g' | 'b' | 'a' | 'lum'`. A bilinear sample reads four pixels, and
+`edge`/`dir` take four samples each, so one `edge()` query did sixteen string
+comparisons. `satOf` did one per pixel of the whole image, and recomputed
+`(y + 1) * (w + 1)` and `y * (w + 1)` inside the pixel loop. The SAT cache was
+a string-keyed object read on every area sample.
+
+**Change.** A channel becomes a small integer — 0–3 is the byte's offset in
+the RGBA quad, 4 is luminance — resolved once where the sampler is built.
+`channelValue` branches on that integer; `bilinear`, `boxAvg` and `sample`
+carry it; the SAT cache is an array indexed by it. `satOf` hoists the pixel
+data, the two row offsets and the channel decision out of its inner loop and
+walks the byte offset forward. Every arithmetic expression is unchanged, and
+`(y * w + x) * 4` became `y * w * 4 + x * 4`, exact for any image that fits in
+memory.
+
+**Verification.** The benchmark's accumulated sums are **bit-identical**
+before and after on every row — 500 000 samples each of `lum`, `rgb`, `edge`,
+`dir`, `bands` and the summed-area path (882171.572, 904241.645, 72929.100,
+263812.192, 2253935.000). A new test in `test/api.test.ts` gives every pixel a
+different value in every channel — the existing image test used grey pixels,
+where an r/g/b mix-up cannot show — and checks each channel point-sampled and
+area-averaged, plus the luminance weights. 312 TS tests, docs 106/106, studio
+build with wasm md5 match, 81 studio tests, church oracle unchanged,
+`renderhash --check` identical on all six reference sketches and on
+lbg-stipple, lbg-stipple-2, flow-portrait, contour-portrait, beach-house
+and Ivy.
+
+**Measurement** (`bench/imbench.mts`, new; the committed `nyx.jpeg` asset,
+500 000 samples per row, two A/B pairs, medians of 5):
+
+| workload | before | after |
+|---|---|---|
+| `edge` (four lum samples) | 196 / 197 ms | **145 / 150 ms** |
+| `dir` (four lum samples) | 187 / 191 ms | **149 / 133 ms** |
+| `lum`, bilinear | 40 / 30 ms | 24 / 23 ms |
+| `lum`, area (summed-area) | 66 / 51 ms | 31 / 43 ms |
+| `bands(4)` | 45 / 63 ms | 27 / 26 ms |
+| building the four summed-area tables | 62 / 52 ms | 35 / 31 ms |
+| `rgb` (three channels) | 67 / 79 ms | 72 / 68 ms (flat — the tuple it returns dominates) |
+
+End to end (`renderhash`, seed 42, same hashes): lbg-stipple-2 551 → 332 ms,
+Ivy 326 → 243 ms, lbg-stipple 1 380 → 1 247 ms, contour-portrait 670 → 633 ms.
+
+**Harness extension.** `bench/imbench.mts` is new. It samples the committed
+studio asset, never a personal one.
+
+---
+
 ## Remaining measured bottlenecks (from `bench/prof.mts`, baseline 750214f)
 
 Recorded here so the next entry starts from evidence, not from a guess:
@@ -363,6 +416,16 @@ Recorded here so the next entry starts from evidence, not from a guess:
 | `append` ×400 (quadratic by construction) | 23 ms |
 
 ## Rejected, with reasons
+
+- **Scalar `rk4` / `dir` in `streamlines.ts`** (return into scratch variables
+  instead of a tuple per sample; delete the per-step `al` closure that aligns
+  the samples). Under `tsx` it looked like a 5–12 % win on flow-user and
+  flow-portrait. On the **compiled** library it is not a win at all and several
+  rows are slightly worse — noisy spacing 2: 62/64 → 73/80 ms, the gives-out
+  disc 51/59 → 56/63 ms. The apparent gain was entirely esbuild's `__name`.
+  Reverted. Instructive: V8 already escape-analyses the small tuples, and
+  hoisting the scratch into the enclosing function turns four local reads into
+  four *context* reads — the very cost the isolines entry removed.
 
 - **An array fast path in `sum` / `sumBy`** (indexed loop instead of the
   iterator protocol, same terms in the same order). `sumBy` is 296 ms of self
