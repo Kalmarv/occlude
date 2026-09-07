@@ -206,3 +206,58 @@ describe('pass-1 handle lifetime', () => {
     expect(freed).toBe(0);
   });
 });
+
+describe('stipple: the disk guarantee, whatever order the neighbourhood is judged in', () => {
+  const dots = (opts: { w: number; h: number; density: number; penWidth: number; seed?: number }) => {
+    const gen = resolveFill('stipple')!.generate;
+    let s = opts.seed ?? 7;
+    const rnd = () => ((s = (s * 48271) % 2147483647) / 2147483647);
+    const region = { bbox: { x: 0, y: 0, w: opts.w, h: opts.h } } as never;
+    const ctx = {
+      penWidth: opts.penWidth,
+      rnd,
+      coarsen: 1,
+      len: (l: unknown) => (typeof l === 'number' ? l : (l as { value: number }).value),
+      anchor: { x: 0, y: 0, a: 1, b: 0, rotation: 0 },
+    } as never;
+    return gen(region, { density: opts.density, minDist: undefined } as never, ctx) as { x: number; y: number }[];
+  };
+
+  it('no two dots are closer than the disk radius, and none escapes the box', () => {
+    for (const [w, h, density, penWidth, r] of [
+      [100, 100, 0.5, 1, 4],   // minDist 2, density 0.5 → r = 4
+      [100, 100, 1, 1, 2],     // r = 2: a denser field, more neighbours in range
+      [200, 40, 0.25, 0.5, 4], // a wide thin box
+      [7, 7, 1, 1, 2],         // a box only a few cells across
+    ] as const) {
+      const out = dots({ w, h, density, penWidth });
+      expect(out.length).toBeGreaterThan(3);
+      for (const d of out) {
+        expect(d.x).toBeGreaterThanOrEqual(0);
+        expect(d.y).toBeGreaterThanOrEqual(0);
+        expect(d.x).toBeLessThanOrEqual(w);
+        expect(d.y).toBeLessThanOrEqual(h);
+      }
+      // every pair, brute force: a neighbourhood cell left out of the scan
+      // shows up here as a pair closer than r
+      let worst = Infinity;
+      for (let i = 0; i < out.length; i++) {
+        for (let j = i + 1; j < out.length; j++) {
+          const d = Math.hypot(out[i].x - out[j].x, out[i].y - out[j].y);
+          if (d < worst) worst = d;
+        }
+      }
+      expect(worst).toBeGreaterThanOrEqual(r);
+    }
+  });
+
+  it('is a pure function of the box, the params and the stream', () => {
+    const a = dots({ w: 60, h: 60, density: 0.5, penWidth: 1 });
+    const b = dots({ w: 60, h: 60, density: 0.5, penWidth: 1 });
+    expect(b).toEqual(a);
+    const c = dots({ w: 60, h: 60, density: 0.5, penWidth: 1, seed: 8 });
+    expect(c).not.toEqual(a);
+    // a degenerate box draws nothing
+    expect(dots({ w: 0, h: 10, density: 0.5, penWidth: 1 })).toEqual([]);
+  });
+});

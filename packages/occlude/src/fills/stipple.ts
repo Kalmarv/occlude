@@ -2,6 +2,23 @@
 import { fillAsset, type CustomPrimitive } from '../fillModule.js';
 import type { L } from '../units.js';
 
+// The cells a candidate must be judged against, as (dx, dy) offsets from its
+// own cell, ordered nearest first: its own cell, the eight around it, then the
+// twelve of the ring at distance two. The four corners of the 5×5
+// (|dx| = |dy| = 2) are absent: with cell = r/√2 the candidate is at least one
+// cell away in BOTH axes from anything in them, so the separation is at least
+// cell·√2 = r exactly, and the test is `< r`. That is a boundary case in
+// floating point, so it was checked rather than assumed: over the saved-sketch
+// corpus, 9,943,642 occupied corner cells were examined, zero contained a hit,
+// and the closest approach was q/r² = 1.0559 — far outside the ±1e-9 band.
+const NEIGHBOURHOOD = new Int8Array([
+  0, 0,
+  -1, -1, 0, -1, 1, -1, -1, 0, 1, 0, -1, 1, 0, 1, 1, 1,
+  -1, -2, 0, -2, 1, -2,
+  -2, -1, 2, -1, -2, 0, 2, 0, -2, 1, 2, 1,
+  -1, 2, 0, 2, 1, 2,
+]);
+
 export default fillAsset({
   params: {
     density: 0.5,
@@ -70,38 +87,28 @@ export default fillAsset({
         if (x < b.x || x > bx1 || y < b.y || y > by1) continue;
         const cx = Math.min(cols - 1, Math.floor((x - b.x) / cell));
         const cy = Math.min(rows - 1, Math.floor((y - b.y) / cell));
-        const gx0 = Math.max(0, cx - 2);
-        const gy0 = Math.max(0, cy - 2);
-        const gx1 = Math.min(cx + 3, cols);
-        const gy1 = Math.min(cy + 3, rows);
-        // The four corner cells of the 5x5 (|dx| = |dy| = 2) can never hold
-        // a hit: with cell = r/sqrt(2) the candidate is at least one cell
-        // away in BOTH axes from anything in them, so the separation is at
-        // least cell*sqrt(2) = r exactly, and the test below is `< r`. That
-        // is a boundary case in floating point, so it was checked rather
-        // than assumed: over the saved-sketch corpus, 9,943,642 occupied
-        // corner cells were examined, zero contained a hit, and the closest
-        // approach was q/r^2 = 1.0559 — far outside the +/-1e-9 band.
+        // NEIGHBOURHOOD, nearest cells first. `ok` is a pure any-overlap
+        // predicate that stops at the first hit, so the visiting order
+        // cannot change the answer — and a rejected candidate, which is most
+        // of them, nearly always conflicts with a point in the 3×3 core.
         let ok = true;
-        for (let gy = gy0; ok && gy < gy1; gy++) {
-          const row = gy * cols;
-          const edgeY = gy === cy - 2 || gy === cy + 2;
-          for (let gx = gx0; gx < gx1; gx++) {
-            if (edgeY && (gx === cx - 2 || gx === cx + 2)) continue;
-            const idx = grid[row + gx];
-            if (idx < 0) continue;
-            // `hypot(dx, dy) < r`, decided by the squared distance except in
-            // a ±1e-9 relative band around r², where hypot itself decides —
-            // hypot's error is ~1e-16 relative, so the outcome is exactly
-            // the original comparison's, at a fraction of the cost.
-            const ddx = px[idx] - x;
-            const ddy = py[idx] - y;
-            const q = ddx * ddx + ddy * ddy;
-            const near = q < rr * (1 - 1e-9) || (q < rr * (1 + 1e-9) && Math.hypot(ddx, ddy) < r);
-            if (near) {
-              ok = false;
-              break;
-            }
+        for (let k = 0; k < NEIGHBOURHOOD.length; k += 2) {
+          const gx = cx + NEIGHBOURHOOD[k];
+          if (gx < 0 || gx >= cols) continue;
+          const gy = cy + NEIGHBOURHOOD[k + 1];
+          if (gy < 0 || gy >= rows) continue;
+          const idx = grid[gy * cols + gx];
+          if (idx < 0) continue;
+          // `hypot(dx, dy) < r`, decided by the squared distance except in
+          // a ±1e-9 relative band around r², where hypot itself decides —
+          // hypot's error is ~1e-16 relative, so the outcome is exactly
+          // the original comparison's, at a fraction of the cost.
+          const ddx = px[idx] - x;
+          const ddy = py[idx] - y;
+          const q = ddx * ddx + ddy * ddy;
+          if (q < rr * (1 - 1e-9) || (q < rr * (1 + 1e-9) && Math.hypot(ddx, ddy) < r)) {
+            ok = false;
+            break;
           }
         }
         if (ok) {
