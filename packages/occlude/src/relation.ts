@@ -82,6 +82,13 @@ export class PointSelection {
     return new PointSelection(this.source, this.indices.filter((i) => !other.set.has(i)));
   }
 
+  /** Every point of the source that is NOT selected. */
+  complement(): PointSelection {
+    const out: number[] = [];
+    for (let i = 0; i < this.source.n; i++) if (!this.set.has(i)) out.push(i);
+    return new PointSelection(this.source, out);
+  }
+
   /** The source edges whose BOTH endpoints are selected — connections that
    * already exist, never new ones. Selected points with no such edge are
    * absent from that edge selection's extraction. */
@@ -164,6 +171,13 @@ export class EdgeSelection {
     if (!(other instanceof EdgeSelection)) throw new Error('selection.subtract: an edge selection combines only with an edge selection');
     sameSource(this, other, 'subtract');
     return new EdgeSelection(this.source, this.indices.filter((e) => !other.set.has(e)));
+  }
+
+  /** Every edge of the source that is NOT selected. */
+  complement(): EdgeSelection {
+    const out: number[] = [];
+    for (let e = 0; e < this.source.edgeCount; e++) if (!this.set.has(e)) out.push(e);
+    return new EdgeSelection(this.source, out);
   }
 
   /** Independent material of the selected edges, their endpoints and both

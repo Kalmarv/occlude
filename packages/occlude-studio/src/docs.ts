@@ -6,7 +6,7 @@
 import './style.css';
 import { marked } from 'marked';
 import {
-  DEFAULT_PENS, drawFragments, evalPrim, liveExampleToJs,
+  DEFAULT_PENS, decodePlanBuffer, drawFragments, evalPrim, liveExampleToJs, planValue, resolveDraw, tracePrim,
 } from 'occlude';
 import { RenderClient } from './workerClient.js';
 import architectureMd from '../../../docs/architecture.md?raw';
@@ -91,7 +91,49 @@ async function hydrateLiveExamples(): Promise<void> {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.scale(px, px);
       ctx.translate(pad - x0, pad - y0);
-      drawFragments(ctx, result.frags, result.pens);
+      // A sketch that says t.draw({...}) is shown as it asks: the chosen
+      // range of its ordered plan at nib width, the rest ghosted. Ranges by
+      // minutes or a budget need a machine and are shown whole here.
+      let shown = false;
+      if (reply.draw && (reply.draw.chains || reply.draw.progress) && reply.draw.budget === undefined) {
+        try {
+          const plan = planValue(reply.plan.buffer, reply.plan.settings, reply.plan.planHash);
+          const sel = resolveDraw(plan, reply.draw).final;
+          const chains = decodePlanBuffer(reply.plan.buffer);
+          ctx.save();
+          ctx.strokeStyle = 'rgba(91, 139, 217, 0.45)';
+          ctx.lineWidth = 0.12;
+          ctx.setLineDash([0.8, 0.8]);
+          ctx.beginPath();
+          chains.forEach((c, i) => { if (i < sel.fromChain || i >= sel.toChain) for (const q of c.prims) tracePrim(ctx, q); });
+          ctx.stroke();
+          ctx.restore();
+          ctx.save();
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          for (let i = sel.fromChain; i < sel.toChain; i++) {
+            const c = chains[i];
+            const pen = result.pens[c.pen];
+            ctx.strokeStyle = pen?.color ?? '#111';
+            ctx.fillStyle = ctx.strokeStyle;
+            ctx.lineWidth = pen?.width ?? 0.3;
+            ctx.beginPath();
+            if (c.dot) {
+              const [qx, qy] = evalPrim(c.prims[0], 0);
+              ctx.arc(qx, qy, ctx.lineWidth / 2, 0, Math.PI * 2);
+              ctx.fill();
+              continue;
+            }
+            for (const q of c.prims) tracePrim(ctx, q);
+            ctx.stroke();
+          }
+          ctx.restore();
+          shown = true;
+        } catch {
+          shown = false;
+        }
+      }
+      if (!shown) drawFragments(ctx, result.frags, result.pens);
       const open = document.createElement('button');
       open.textContent = 'open in studio';
       open.className = 'live-open';

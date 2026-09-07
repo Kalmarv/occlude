@@ -1301,20 +1301,21 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
       links.push({ a, b, attrs: { ...edgeAttributes } });
     },
     disconnect(edge: EdgeRef | EdgeWhere) {
-      if (typeof edge === 'function' || edge instanceof EdgeSelection || edge instanceof PointSelection) {
-        const where = edgeTest(edge, 'disconnect')!;
-        for (const e of currentEdges()) if (where(e)) disconnected.add(e.index);
+      // a row or an edge view names one edge; anything else is a predicate or a selection
+      if (typeof edge === 'number' || viewKind(edge) === 'edge') {
+        disconnected.add(edgeRow(edge as EdgeRef, 'disconnect'));
         return;
       }
-      disconnected.add(edgeRow(edge, 'disconnect'));
+      const where = edgeTest(edge as EdgeWhere, 'disconnect')!;
+      for (const e of currentEdges()) if (where(e)) disconnected.add(e.index);
     },
     remove(point: Ref | PointWhere) {
-      if (typeof point === 'function' || point instanceof PointSelection || point instanceof EdgeSelection) {
-        const where = pointTest(point, 'remove')!;
-        for (const p of points) if (where(p)) removed.add(p.index);
+      if (typeof point === 'number' || isHandle(point) || viewKind(point) === 'vertex') {
+        removed.add(rowOf(point as Ref, 'remove'));
         return;
       }
-      removed.add(rowOf(point, 'remove'));
+      const where = pointTest(point as PointWhere, 'remove')!;
+      for (const p of points) if (where(p)) removed.add(p.index);
     },
     split(edge, opts = {}) {
       const row = edgeRow(edge, 'split');
@@ -1819,7 +1820,26 @@ export function relax(m: Material, opts: { amount?: number } = {}): (p: Vertex) 
 }
 
 /** The forces as one namespace: `force.nearby(...)`, `force.tension(...)`. */
-export const force = { nearby, adjacent, tension, separation, drift, attract, boundary, vortex, field, relax };
+/** Prepared forces summed into one: `(p, k) => vector`. Every force gets
+ * `p` and the iteration `k` (those that do not turn ignore it), so a
+ * rule reads `next.move((p) => mul(push(p, k), speed))` with the speed
+ * still the author's number. Prepare the members against `cur` each
+ * step as before — nothing here binds a state. */
+export function sumForces(...forces: readonly ((p: Vertex, k: number) => XY)[]): (p: Vertex, k?: number) => Vec {
+  return (p, k = 0) => {
+    let x = 0;
+    let y = 0;
+    for (const f of forces) {
+      const v = f(p, k);
+      x += vx(v);
+      y += vy(v);
+    }
+    return [x, y];
+  };
+}
+
+export const force = {
+  sum: sumForces, nearby, adjacent, tension, separation, drift, attract, boundary, vortex, field, relax };
 
 // ---- interpretation ---------------------------------------------------------------
 
@@ -1851,6 +1871,14 @@ export function banding(opts: { min: number; max: number; count: number }): (v: 
     return b < 0 ? 0 : b >= count ? count - 1 : b;
   };
 }
+
+/** A classifier fitted to a column's own extent: `banding.over(m.attrs.age,
+ * { count: 3 })` is `banding({ min, max, count })` with `extent` inside.
+ * Two columns that must share a range still use `extent` and `banding`. */
+banding.over = (values: ArrayLike<number>, opts: { count: number }): ((v: number) => number) => {
+  const [min, max] = extent(values);
+  return banding({ min, max, count: opts.count });
+};
 
 /** A maximal run of consecutive edges of one chain sharing one key, as a
  * stampable contour (`stroke(run)`), with the key and the vertex rows. */

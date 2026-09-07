@@ -18,7 +18,7 @@
 // The declarative API.
 export {
   sketch, compileSketch, isSketch,
-  circle, ellipse, rect, line, polygon, ngon, stroke, path, PathValue,
+  circle, ellipse, rect, line, polygon, ngon, stroke, strokes, path, PathValue,
   group, clip, mask, invert, decimate, wobble, modify, dash, smooth, roughen, deform, noiseField,
   times, range,
 } from './api.js';
@@ -59,7 +59,7 @@ export {
   force, ownedBy,
 } from './material.js';
 export { query } from './query.js';
-export { inheritEdge } from './material.js';
+export { inheritEdge, sumForces } from './material.js';
 export type { EdgeTransfer, EdgeRef, PointWhere, EdgeWhere } from './material.js';
 export { PointSelection, EdgeSelection, components, meanBy } from './relation.js';
 export type { Components } from './relation.js';

@@ -198,6 +198,21 @@ export function line(x1: L, y1: L, x2: L, y2: L, opts?: ShapeOpts): ShapeValue {
 /** A closed boundary as plain points. Open input gets its closing chord. */
 export type Contour = [L, L][];
 
+/**
+ * One stroke per contour, all with the same options — for a material's
+ * chains, a selection's, `segmentRuns` output or any contour records:
+ * `strokes(m, { pen })`, `strokes(sel, …)`, `strokes(segmentRuns(m, key), …)`.
+ * A decision per contour (a pen by run key, a width by chain) stays a
+ * `.map`: nothing here assigns pens from keys.
+ */
+export function strokes(
+  source: readonly IsoContour[] | { curves(): IsoContour[] },
+  opts?: ShapeOpts,
+): ShapeValue[] {
+  const contours = Array.isArray(source) ? (source as readonly IsoContour[]) : (source as { curves(): IsoContour[] }).curves();
+  return contours.map((c) => stroke(c, opts));
+}
+
 export interface PolygonOpts extends ShapeOpts {
   /** Fill rule where boundaries nest or cross. `'evenodd'` (default): every
    * enclosed boundary is a hole, whatever its orientation — a ring is an
