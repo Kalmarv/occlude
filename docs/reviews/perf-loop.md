@@ -162,6 +162,67 @@ disjoint segments, plus a face selection's boundaries.
 
 ---
 
+## Entry 3 — a view's brand moves to a shared prototype (`src/material.ts`, `src/faces.ts`)
+
+**Finding.** A CPU profile of `ring-growth-alt` (195 growth steps, ~2 000
+vertices, 4 875 ms of sketch time) put **2 455 ms — 47 % of the whole render —
+in `brandView`**. Every `Vertex` and `Edge` view was stamped with its owner and
+kind by two `Object.defineProperty` calls, and a growth step makes a view per
+vertex, per neighbour, per edge: roughly three million views over the render.
+`Object.defineProperty` is the slow runtime path, and it was paid twice each.
+
+**Change.** The brand moves to a prototype the views of one owner and kind
+share, created once per material (and once per `Faces`); `vertex()`, `edge()`
+and the face views are built with `Object.create(proto)`. `ownedBy` and
+`viewKind` read the symbols through the prototype chain unchanged.
+
+**Why the view still behaves as a plain object.** Symbol keys never appear in
+`for…in`, `Object.keys`, `JSON.stringify` or a spread, and inherited properties
+are not own properties, so `{ ...view }` still produces an *unowned* copy —
+exactly what the non-enumerable own symbol gave. The one observable difference
+is reflection: `Object.getOwnPropertySymbols(view)` now returns `[]` instead of
+the two brand symbols. Nothing in the library, the tests, the docs examples or
+the sketches reads it, and ownership is asked through `ownedBy`.
+
+Micro-benchmark of the four candidates, two million views each, median of 5:
+
+| build | time | reads back (20 × 200 k views) |
+|---|---|---|
+| literal + two `defineProperty` (before) | 751 ms | 45 ms |
+| literal + one `defineProperties` | 1 377 ms | 62 ms |
+| **`Object.create(branded proto)`** | **32 ms** | 46 ms |
+| symbols in the literal (enumerable) | 38 ms | 72 ms |
+
+The last was rejected: enumerable symbols make a spread copy owned, which
+would loosen the ownership contract.
+
+**Verification.** 309 TS tests (a new one pins the view contract: key order,
+`for…in`, `JSON.stringify`, `toEqual`, an unowned spread copy, a foreign
+material rejected, edge and face kinds, and a frozen face view), docs 106/106,
+studio build with wasm md5 match, 81 studio tests, church oracle 381.0 min /
+16 515 travel mm, `renderhash --check` identical on all six reference sketches,
+and no regression in `bench/qbench.mts` or `bench/fbench.mts`.
+
+**Measurement** (`renderhash`, seed 42, interleaved A/B, two alternating
+pairs — the sketch column, which is the growth loop itself):
+
+| sketch | before | after |
+|---|---|---|
+| ring-growth-alt (195 steps) | 4 727 / 4 808 ms | 3 014 / 2 800 ms |
+| ring-growth-compact | 1 702 / 1 684 ms | 969 / 1 016 ms |
+| web-growth | 535 / 573 ms | 313 / 328 ms |
+
+Roughly **1.6–1.7× on every iterative growth sketch**, output byte-identical.
+
+**Where the time goes now** (re-profiled, 3 089 ms): 1 738 ms in the sketch's
+own closures (`pull`, `repel`, `drift` and the per-vertex loop — user-authored
+callbacks, which stay flexible by design), 349 ms in `material.ts` closures,
+296 ms in `sumBy`, 181 ms GC, 171 ms `stepOnce`, 51 ms `move`, 49 ms the
+`Material` constructor. `sumBy` and `stepOnce` are the next library-side
+targets.
+
+---
+
 ## Remaining measured bottlenecks (from `bench/prof.mts`, baseline 750214f)
 
 Recorded here so the next entry starts from evidence, not from a guess:
@@ -170,7 +231,9 @@ Recorded here so the next entry starts from evidence, not from a guess:
 |---|---|
 | `planarize` of 400 chords — string-keyed event maps (`byPos`, `seenPair`, `crossOf`, `contactOf`) | 137 ms |
 | `faces()` of 80 000 disjoint-segment vertices — the angular sort and the face walk | 79 ms |
-| isolines / contours, and iterative growth sketches — many small calls, not yet profiled | — |
+| `sumBy` over a growth step's neighbour lists | 296 ms of a 3 089 ms render |
+| `stepOnce` — copy, compaction, split bookkeeping, and an `adj` array-of-arrays rebuilt per state | 171 ms of the same |
+| isolines / contours — not yet profiled | — |
 | growth step, 5 000-vertex ring | 53 ms (separation evaluate 24, `steps` 12) |
 | `pn.edges` (35 k views) | 63 ms |
 | `wasm_plan` on 3 600 circles | 66 ms |

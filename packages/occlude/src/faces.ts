@@ -34,7 +34,7 @@
  */
 
 import { orient2d } from 'robust-predicates';
-import { Material, brandView, inheritEdge, ownedBy, viewKind, type ChildInterval, type Edge } from './material.js';
+import { Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Edge } from './material.js';
 import type { IsoContour } from './isolines.js';
 
 const EVENT_TOL = 1e-9;
@@ -741,6 +741,7 @@ export class Faces {
       return Object.freeze({ pts: Object.freeze(pts) as unknown as [number, number][], closed: true }) as IsoContour;
     };
     const views: Face[] = [];
+    const faceProto = viewProto(this, 'face');
     for (let f = 0; f < faceWalk.length; f++) {
       const fw = walks[faceWalk[f]];
       let area = fw.area;
@@ -761,8 +762,7 @@ export class Faces {
         if (x > x1) x1 = x;
         if (y > y1) y1 = y;
       }
-      const view: Face = { index: f, area, perimeter, bounds: Object.freeze({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }), contours: Object.freeze(contours) as unknown as IsoContour[] };
-      brandView(view, this, 'face');
+      const view = Object.assign(Object.create(faceProto) as Face, { index: f, area, perimeter, bounds: Object.freeze({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }), contours: Object.freeze(contours) as unknown as IsoContour[] });
       Object.freeze(view);
       views.push(view);
     }

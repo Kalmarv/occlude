@@ -171,10 +171,17 @@ export function viewKind(view: unknown): 'vertex' | 'edge' | 'face' | undefined 
   return typeof view === 'object' && view !== null ? (view as Record<symbol, 'vertex' | 'edge' | 'face'>)[KIND] : undefined;
 }
 
-/** @internal Stamp a view with its owner and kind (non-enumerable). */
-export function brandView(view: object, owner: object, kind: 'vertex' | 'edge' | 'face'): void {
-  Object.defineProperty(view, OWNER, { value: owner, enumerable: false });
-  Object.defineProperty(view, KIND, { value: kind, enumerable: false });
+/** @internal The prototype every view of one owner and kind shares. The
+ * brand lives on it — reachable through the chain by `ownedBy` and
+ * `viewKind`, and invisible to `Object.keys`, `for…in`, spread and JSON
+ * exactly as a non-enumerable own symbol was, so a spread copy is still
+ * unowned. A view then costs no property definition of its own: defining
+ * two per view was 47% of a 195-step growth render. */
+export function viewProto(owner: object, kind: 'vertex' | 'edge' | 'face'): object {
+  const proto = {};
+  Object.defineProperty(proto, OWNER, { value: owner, enumerable: false });
+  Object.defineProperty(proto, KIND, { value: kind, enumerable: false });
+  return Object.freeze(proto);
 }
 
 /** Column transfer policies a material remembers for its point columns
@@ -217,6 +224,8 @@ export class Material {
   /** Declared transfer policy per edge column (default copy). */
   readonly edgeTransfers: Readonly<Record<string, EdgeTransfer>>;
   private readonly adj: number[][];
+  private readonly vertexProto: object;
+  private readonly edgeProto: object;
 
   /** @internal Use `material()`/`curve()`/`t.sample()`. Columns are
    * adopted by the constructor but no two materials ever share one: every
@@ -274,6 +283,8 @@ export class Material {
       adj[b].push(a);
     }
     this.adj = adj;
+    this.vertexProto = viewProto(this, 'vertex');
+    this.edgeProto = viewProto(this, 'edge');
     Object.freeze(this.attrs);
     Object.freeze(this.edgeAttrs);
     Object.freeze(this.transfers);
@@ -291,9 +302,11 @@ export class Material {
 
   /** The vertex at row `i` as a plain view. */
   vertex(i: number): Vertex {
-    const v: Record<string, number> = { index: i, x: this.x[i], y: this.y[i] };
+    const v: Record<string, number> = Object.create(this.vertexProto);
+    v.index = i;
+    v.x = this.x[i];
+    v.y = this.y[i];
     for (const name in this.attrs) v[name] = this.attrs[name][i];
-    brandView(v, this, 'vertex');
     return v as Vertex;
   }
 
@@ -327,9 +340,13 @@ export class Material {
     const b = this.vertex(this.edgeList[2 * e + 1]);
     const attrs: Record<string, number> = {};
     for (const name in this.edgeAttrs) attrs[name] = this.edgeAttrs[name][e];
-    const view: Edge = { a, b, length: distance(a, b), index: e, attrs };
-    brandView(view, this, 'edge');
-    return view;
+    const view = Object.create(this.edgeProto) as Edge & Record<string, unknown>;
+    view.a = a;
+    view.b = b;
+    view.length = distance(a, b);
+    view.index = e;
+    view.attrs = attrs;
+    return view as Edge;
   }
 
   /** Every edge as views, stored order. */

@@ -1021,3 +1021,36 @@ describe('correctness pass (review of 22c9887)', () => {
     }
   });
 });
+
+describe('view identity: the brand lives off the view, not on it', () => {
+  it('a view enumerates, spreads and serialises as a plain object; copies are not owned', async () => {
+    const { ownedBy } = await import('../src/material.js');
+    const { viewKind } = await import('../src/material.js');
+    const c = curve([[0, 0], [10, 0], [10, 10]], { age: [1, 2, 3] });
+    const v = c.vertex(1);
+    expect(Object.keys(v)).toEqual(['index', 'x', 'y', 'age']);
+    expect(JSON.stringify(v)).toBe('{"index":1,"x":10,"y":0,"age":2}');
+    expect(v).toEqual({ index: 1, x: 10, y: 0, age: 2 });
+    const seen: string[] = [];
+    for (const k in v) seen.push(k);
+    expect(seen).toEqual(['index', 'x', 'y', 'age']);
+    expect(Object.getOwnPropertySymbols(v)).toEqual([]);
+    // the brand is readable through the view, and a copy of it is not owned
+    expect(ownedBy(v, c)).toBe(true);
+    expect(viewKind(v)).toBe('vertex');
+    expect(ownedBy({ ...v }, c)).toBe(false);
+    expect(viewKind({ ...v })).toBeUndefined();
+    expect(ownedBy(Object.assign({}, v), c)).toBe(false);
+    expect(ownedBy(v, curve([[0, 0], [10, 0], [10, 10]]))).toBe(false);
+    // edges and faces carry their own kind, and a face view is frozen
+    const e = c.edge(0);
+    expect(viewKind(e)).toBe('edge');
+    expect(ownedBy(e, c)).toBe(true);
+    expect(Object.keys(e)).toEqual(['a', 'b', 'length', 'index', 'attrs']);
+    const f = curve([[0, 0], [10, 0], [10, 10], [0, 10]]).faces();
+    expect(viewKind(f.faces[0])).toBe('face');
+    expect(ownedBy(f.faces[0], f)).toBe(true);
+    expect(Object.isFrozen(f.faces[0])).toBe(true);
+    expect(Object.keys(f.faces[0])).toEqual(['index', 'area', 'perimeter', 'bounds', 'contours']);
+  });
+});
