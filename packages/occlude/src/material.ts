@@ -223,7 +223,10 @@ export class Material {
   readonly transfers: Readonly<Record<string, TransferPolicy>>;
   /** Declared transfer policy per edge column (default copy). */
   readonly edgeTransfers: Readonly<Record<string, EdgeTransfer>>;
-  private readonly adj: number[][];
+  /** Adjacency is built the first time it is asked for, then kept: a growth
+   * step makes a state per iteration, and most never ask. The box is
+   * mutable inside a frozen material. */
+  private readonly adjBox: { rows: number[][] | null };
   private readonly vertexProto: object;
   private readonly edgeProto: object;
 
@@ -273,16 +276,13 @@ export class Material {
     this.edgeAttrs = edgeAttrs;
     this.transfers = transfers;
     this.edgeTransfers = edgeTransfers;
-    const adj: number[][] = Array.from({ length: this.n }, () => []);
     for (let e = 0; e < edgeList.length; e += 2) {
       const a = edgeList[e];
       const b = edgeList[e + 1];
       if (a >= this.n || b >= this.n) throw new Error(`material: edge ${a}–${b} names a vertex beyond ${this.n - 1}`);
       if (a === b) throw new Error(`material: edge ${a}–${b} joins a vertex to itself`);
-      adj[a].push(b);
-      adj[b].push(a);
     }
-    this.adj = adj;
+    this.adjBox = { rows: null };
     this.vertexProto = viewProto(this, 'vertex');
     this.edgeProto = viewProto(this, 'edge');
     Object.freeze(this.attrs);
@@ -294,6 +294,20 @@ export class Material {
   }
 
   // ---- access ----
+
+  /** Rows adjacent to each row, in edge order — the same lists the
+   * constructor used to build eagerly. */
+  private get adj(): number[][] {
+    const box = this.adjBox;
+    if (box.rows !== null) return box.rows;
+    const rows: number[][] = Array.from({ length: this.n }, () => []);
+    for (let e = 0; e < this.edgeList.length; e += 2) {
+      rows[this.edgeList[e]].push(this.edgeList[e + 1]);
+      rows[this.edgeList[e + 1]].push(this.edgeList[e]);
+    }
+    box.rows = rows;
+    return rows;
+  }
 
   /** Names of the attribute columns. */
   get attrNames(): string[] {

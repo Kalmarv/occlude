@@ -223,6 +223,49 @@ targets.
 
 ---
 
+## Entry 4 — adjacency is built when it is asked for (`src/material.ts`)
+
+**Finding.** Every `Material` constructor built `adj`, an array of `n` arrays,
+and pushed both ends of every edge into it. A growth loop makes one state per
+iteration and most never ask for adjacency — `prev`/`next` walk the chain,
+`neighbours` is spatial — so a 195-step run allocated a few hundred thousand
+arrays for nothing, and the biggest states paid the most.
+
+**Change.** The constructor keeps its eager validation (an edge naming a vertex
+beyond the last row, or joining a vertex to itself, still throws at
+construction) and stores an empty box; `adj` becomes a private getter that
+fills the box the first time anything asks. A frozen material can hold a
+mutable box, so nothing about freezing changes.
+
+**Measurement** (`bench/gbench.mts`, new; medians of 3–5):
+
+| workload | before | after |
+|---|---|---|
+| 100 000 isolated points, 50 move steps | 3 118 ms | 2 261 ms |
+| 200 000-vertex ring, points + one move step | 674 ms | 407 ms |
+| 2 000 steps of a 200-vertex ring | 1 304 ms | 1 089 ms |
+| 20 000: `steps(1)`, move only | 28 ms | 13 ms |
+| 20 000: `steps(1)`, split every edge | 114 ms | 98 ms |
+| growth: 2 000-vertex ring, 40 steps | 601 ms | 624 ms (flat) |
+| growth: the ring-growth-alt shape | 846 ms | 836 ms (flat) |
+
+The growth rows are flat because those sketches do reach adjacency once per
+state; the win is in states that never ask, and in the largest states.
+
+`renderhash`, seed 42, against the entry-1 baseline: ring-growth-alt
+4 772 → 2 745 ms, ring-growth-compact 1 562 → 841 ms, web-growth 523 → 217 ms
+— the cumulative effect of entries 3 and 4. Hashes identical; 309 TS tests,
+docs 106/106, church oracle unchanged, studio built with wasm md5 match.
+
+**Harness extension.** `bench/gbench.mts` is new: the ring-growth recipe at
+three sizes written the way the sketches write it, the per-step machinery
+isolated at 2 000 and 20 000 vertices (`points`, `edges`, `neighbours` prepare
+and query, `steps` move-only and split-every-edge, `separation`), and three
+demanding cases — a 200 000-vertex ring, 2 000 steps of a small ring, and
+100 000 isolated points with no edges at all.
+
+---
+
 ## Remaining measured bottlenecks (from `bench/prof.mts`, baseline 750214f)
 
 Recorded here so the next entry starts from evidence, not from a guess:
@@ -241,6 +284,30 @@ Recorded here so the next entry starts from evidence, not from a guess:
 | `schedulePlan` (JS) | 20 ms |
 | `append` ×400 (quadratic by construction) | 23 ms |
 
-## Rejected / not attempted, with reasons
+## Rejected, with reasons
 
-- Nothing yet.
+- **An array fast path in `sum` / `sumBy`** (indexed loop instead of the
+  iterator protocol, same terms in the same order). `sumBy` is 296 ms of self
+  time in a 3 089 ms growth render, so the iterator looked like the cost. It is
+  not: ring-growth-alt 3 014/2 800 → 2 807/2 969 ms and web-growth 313/328 →
+  310/296 ms, i.e. inside the noise. V8 already escape-analyses `for…of` over a
+  plain array. Reverted — a duplicated loop and a branch for no measured
+  benefit. `sumBy`'s cost is the accumulation and the `vx`/`vy` calls
+  themselves.
+- **`Object.defineProperties` for the view brand** (one call instead of two):
+  1 377 ms per two million views against 751 ms for two `defineProperty` calls —
+  nearly twice as slow. See entry 3.
+- **Enumerable brand symbols in the view literal**: fast to build (38 ms) but a
+  spread copy would then be *owned*, loosening the ownership contract. See
+  entry 3.
+
+## Known flaky gate (pre-existing, not from this work)
+
+`packages/occlude-studio/src/drawing.test.ts` → *"an export asked before
+resolution waits for the real range instead of taking everything"* fails
+intermittently under load: it races a `setTimeout(r, 0)` tick against a 30 ms
+mock toolpath. Measured on this box, full studio suite: **1 failure in 8 runs
+on the unchanged tree, 2 in 8 with entry 4 applied** — the same wall-clock race
+either way, and no causal path from a material change to a mocked
+`Drawing` client. Recorded rather than repaired here; a timing repair is a
+test-only change that does not belong in a performance commit.
