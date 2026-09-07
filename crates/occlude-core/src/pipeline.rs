@@ -1629,18 +1629,24 @@ fn clip_one(
         spans,
         scratch,
     } = bufs;
-    // Per-primitive index query: only occluders near THIS primitive.
+    // Per-primitive index query: only occluders near THIS primitive. The
+    // answer is left unsorted and arranged as a max-heap instead: the walk
+    // below reads it front-to-back and almost always stops after one or two
+    // occluders (in a deep stack, most primitives are hidden outright), so
+    // sorting the whole answer to read the top of it was the largest single
+    // cost of a heavily-occluded render.
     let pb = prim.bbox();
     {
         let _q = crate::profile::zone("5q clip-query");
-        ctx.occ_index.query(&pb, query_buf);
+        ctx.occ_index.query_unsorted(&pb, query_buf);
+        crate::index::heapify(query_buf);
     }
     // Fast path: nothing in front of this primitive and no clips — the
     // common case for long polylines where only a few segments cross an
-    // occluder. No span work at all. The query returns ascending ids, and
-    // ascending ids are ascending rank, so the last one settles it.
+    // occluder. No span work at all. Ascending ids are ascending rank, so
+    // the heap's root — the largest id — settles it.
     let any_later = query_buf
-        .last()
+        .first()
         .is_some_and(|&oi| ctx.occluders[oi as usize].rank > ctx.my_rank);
     if !any_later && clips.is_empty() {
         out.push(Frag::whole(origin, *prim, pen, shape));
@@ -1658,10 +1664,20 @@ fn clip_one(
             return;
         }
     }
-    // Ascending ids = ascending rank; reverse = front-to-back.
+    // Ascending ids = ascending rank, so popping the heap's maximum walks
+    // front to back. Repeats come out adjacent — the grid registers a box in
+    // every cell it covers — and are collapsed here, exactly as the sorted
+    // answer's `dedup` did.
     let _s = crate::profile::zone("5s clip-spans-loop");
-    for k in (0..query_buf.len()).rev() {
-        let occ = &ctx.occluders[query_buf[k] as usize];
+    let mut live = query_buf.len();
+    let mut previous = u32::MAX;
+    while live > 0 {
+        let oi = crate::index::pop_max(query_buf, &mut live);
+        if oi == previous {
+            continue;
+        }
+        previous = oi;
+        let occ = &ctx.occluders[oi as usize];
         if occ.rank <= ctx.my_rank {
             break; // everything remaining is at or behind us
         }

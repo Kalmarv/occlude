@@ -11,7 +11,7 @@ import { performance } from 'node:perf_hooks';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as core from 'occlude-core';
-import { circle, fill, initOcclude, rect, render, setPenLibrary, sketch, type Shape } from '../src/index.js';
+import { circle, fill, initOcclude, line, rect, render, setPenLibrary, sketch, type Shape } from '../src/index.js';
 
 await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
 void core;
@@ -74,6 +74,18 @@ for (const n of deep ? [200, 400, 800] : [200, 400]) {
     const tk = t as unknown as { rnd(a: number, b: number): number; times<T>(n: number, f: (i: number) => T): T[] };
     const under = tk.times(n, () => rect(tk.rnd(5, 85), tk.rnd(5, 85), 10, 10, { fill: fill('hatch'), pen: 'micron-01' }));
     return [...under, circle(50, 50, 35, { fill: fill('solid'), pen: 'micron-03' })];
+  }));
+}
+
+// ---- the case that favours sorting the whole answer over reading the top of
+// it: long lines whose bbox overlaps hundreds of small opaque discs but which
+// pass BETWEEN them, so the clip walk never exits early and reads every one.
+for (const n of deep ? [200, 400, 800] : [200, 400]) {
+  med(`gauntlet: 40 long lines across ${n} small opaque discs`, () => run((t: never) => {
+    const tk = t as unknown as { rnd(a: number, b: number): number; times<T>(n: number, f: (i: number) => T): T[] };
+    const dots = tk.times(n, () => circle(tk.rnd(5, 95), tk.rnd(5, 95), 1.2, { fill: fill('solid'), pen: 'micron-03' }));
+    const over = tk.times(40, (i) => line(0, i * 2.5, 100, i * 2.5 + 1, { pen: 'micron-03' }));
+    return [...dots, ...over];
   }));
 }
 

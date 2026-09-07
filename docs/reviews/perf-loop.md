@@ -703,61 +703,65 @@ descent, and matching d3's `_step` means reimplementing the core of a
 dependency we already have. **Left alone on master; noted as a candidate for
 exploratory work.**
 
-## The next measured lead: the clip query sorts what it almost never reads
+## Entry 12 — the clip walk pops a heap instead of sorting what it never reads (Rust)
 
-**Heavy occlusion had no harness.** `bench/obench.mts` (new) is a scaling
-series rather than a single number, because what matters is whether the cost
-per shape stays flat as a stack deepens. It does not:
+**Finding** (the lead `7d93015` recorded). Heavy occlusion had no harness;
+`bench/obench.mts` showed it is **quadratic** where outlines are linear —
+opaque discs 53 → 126 → 308 → 949 ms at 50/100/200/400, the same discs as
+outlines 1 → 2 → 3 → 6 ms. `examples/stack_bench.rs` put the quadratic term in
+**`5q clip-query`** (24 → 101 → 430 ms), not the clipping, and **256 ms of that
+449 was `sort_unstable` + `dedup`**. The boxes are fat, so the index is already
+a BVH, which visits each leaf once — `dedup` finds nothing and the sort is the
+whole cost.
 
-| workload | 50 | 100 | 200 | 400 |
-|---|---|---|---|---|
-| opaque discs, each covering a third of the sheet | 53 ms | 126 ms | 308 ms | **949 ms** |
-| the same discs as outlines (nothing occludes) | 1 ms | 2 ms | 3 ms | 6 ms |
-| concentric nested rings | — | — | 94 ms | 305 ms |
+The sort is nearly all waste: `clip_one` sorts so it can walk front-to-back and
+stop at its own rank, and it stops early — the 400-disc fixture emits 5 488
+fragments from ~96 000 primitives, so most are hidden after one or two
+occluders. It sorts 400 ids to read two.
 
-Outlines are perfectly linear; occlusion is **quadratic**. 300 identical
-coincident discs take 735 ms for 353 fragments.
+**Change.** `SpatialIndex::query_unsorted` returns the overlapping ids in no
+order (with the grid's repeats); `heapify` and `pop_max` — an in-place max-heap
+over the caller's existing scratch, no allocation — hand back the same
+descending sequence, paying only for the part read. `clip_one` uses them and
+collapses adjacent repeats, exactly as `dedup` did; `any_later` reads the
+heap's root instead of the sorted answer's last element. The cull and
+`point_visible` keep the sorted `query`: the cull is order-independent, and
+`point_visible` deliberately wants the *nearest* rank first, which is ascending.
 
-`crates/occlude-core/examples/stack_bench.rs` (new) says which stage, with
-`--features profile` at 400 discs (610 ms, 5 488 fragments):
+**Measurement** (`bench/obench.mts`, µs/frag, two interleaved A/B pairs with
+the wasm rebuilt each way):
 
-| zone | 100 | 200 | 400 |
-|---|---|---|---|
-| `5q clip-query` | 24 ms | 101 ms | **430 ms** |
-| `5s clip-spans-loop` | 20 ms | 51 ms | 102 ms |
-
-The **query** is the quadratic term, not the clipping. Splitting it further:
-of the 449 ms, **256 ms is `sort_unstable` + `dedup`** and 185 ms is the
-gather. These boxes are fat, so `SpatialIndex::build`'s overlap-depth
-heuristic has already chosen the BVH — which visits each leaf once, so the
-`dedup` finds nothing and the sort is the whole cost.
-
-**Why the sort is nearly all waste here.** The caller sorts so it can walk
-front-to-back and stop at its own rank, and it stops early: this fixture emits
-5 488 fragments from ~96 000 primitives, so **94 % are fully hidden after one
-or two occluders**. It sorts 400 ids to read two of them.
-
-A max-heap popped lazily gives the same descending order without sorting the
-tail. Measured (400 ids, 200 000 repetitions, checksums equal):
-
-| occluders actually read | sort + dedup | heap |
+| workload | before | after |
 |---|---|---|
-| 1 | 548 ms | **108 ms** |
-| 2 | 506 ms | **110 ms** |
-| 4 | 509 ms | **109 ms** |
-| all 400 | 544 ms | 1 308 ms |
+| concentric, 400 nested rings | 570.0 / 553.7 | **344.9 / 353.3** — 1.61× |
+| coincident, 300 identical discs | 1 874.7 / 1 911.3 | **1 318.8 / 1 384.0** — 1.40× |
+| concentric, 200 nested rings | 171.9 / 173.9 | **131.7 / 142.2** — 1.26× |
+| stack, 400 opaque discs | 271.7 / 262.7 | **230.7 / 235.1** — 1.15× |
+| gauntlet: 40 long lines across 400 small discs | 4.0 / 3.6 | 3.5 / 4.0 — flat |
+| cover, outlines | — | flat |
 
-**5× when the loop exits early, 2.4× worse when it walks everything.** In this
-fixture 94 % exit early.
+**The regression mode was looked for and is not there.** A heap loses to a sort
+when the walk reads *everything* (a micro-benchmark says 2.4× at 400 ids), so
+`obench` gained a `gauntlet` row built for it: long lines whose boxes overlap
+hundreds of small opaque discs but which pass between them, so the walk never
+exits early. Flat. Ordinary sketches are flat too — `pass2` on church, contours,
+Ivy and beach-house, two pairs each.
 
-**Not attempted this run.** It restructures `SpatialIndex::query`'s contract
-and both consumers (`clip_one`'s reverse walk and `point_visible`'s
-`partition_point`) — the engine's hottest path — and it has a real regression
-mode when fragments are mostly visible under many overlapping occluders. That
-deserves its own careful pass with the full differential, not the tail of a
-long session. The harnesses and the numbers are committed so it can start from
-evidence.
+**A caution the numbers taught.** The micro-benchmark that motivated this
+predicted 5×; the real gain is 1.15–1.61×. Isolating the sort hid the gather
+around it (185 ms of the 449) and assumed fewer pops than the walk really
+makes. Native stage timings said 4 %; wasm says 15–61 %. Neither instrument was
+right on its own.
 
+**Verification.** All 26 studio sketches hash identically; all four `plotstats`
+oracles byte-identical (church 381.0 min / 16 515 travel mm, contours 517.3,
+flow-user 337.1, contours-2-multicolor 661.9); 317 TS tests; 62 Rust tests,
+including a new one demanding the heap hand back exactly `sort_unstable`'s
+descending order across every length 0–39, heavy duplication, already-sorted,
+reverse-sorted, all-equal, 200–800 element cases and the ends of the u32 range
+— mutation-checked twice (a right-child comparison against the left instead of
+the current best, and heapify skipping length-2 inputs both fail it). Docs
+106/106, studio built with wasm md5 match, 81 studio tests.
 
 ## Rejected, with reasons
 - **A cached luminance plane for the image sampler** (`imageAsset.ts`). The

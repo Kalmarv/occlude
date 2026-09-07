@@ -52,13 +52,65 @@ impl SpatialIndex {
 
     /// Indices of boxes overlapping `query`, in ascending index order.
     pub fn query(&self, query: &BBox, out: &mut Vec<u32>) {
+        self.query_unsorted(query, out);
+        out.sort_unstable();
+        out.dedup();
+    }
+
+    /// The same indices in NO order, possibly with repeats — the grid
+    /// registers a box in every cell it covers. For a caller that reads them
+    /// front-to-back and stops after one or two, `heapify` + `pop_max` beats
+    /// sorting the whole answer to read the top of it.
+    pub fn query_unsorted(&self, query: &BBox, out: &mut Vec<u32>) {
         out.clear();
         match self {
             SpatialIndex::Grid(g) => g.query(query, out),
             SpatialIndex::Bvh(b) => b.query(query, out),
         }
-        out.sort_unstable();
-        out.dedup();
+    }
+}
+
+/// Arrange `v` as a max-heap in place, O(n). Pair with `pop_max`: together
+/// they hand back the same descending sequence `sort_unstable` would, but
+/// pay for only the part actually read.
+pub fn heapify(v: &mut [u32]) {
+    if v.len() < 2 {
+        return;
+    }
+    for start in (0..v.len() / 2).rev() {
+        sift_down(v, start);
+    }
+}
+
+/// The largest of `v[..*live]`, removed. `*live` shrinks by one. Repeats come
+/// out adjacent, exactly as they would after a sort, so a caller collapses
+/// them by comparing with the previous value.
+pub fn pop_max(v: &mut [u32], live: &mut usize) -> u32 {
+    debug_assert!(*live > 0);
+    let last = *live - 1;
+    v.swap(0, last);
+    *live = last;
+    sift_down(&mut v[..last], 0);
+    v[last]
+}
+
+fn sift_down(v: &mut [u32], mut root: usize) {
+    let n = v.len();
+    loop {
+        let mut big = root;
+        let l = 2 * root + 1;
+        let r = l + 1;
+        if l < n && v[l] > v[big] {
+            big = l;
+        }
+        if r < n && v[r] > v[big] {
+            big = r;
+        }
+        if big == root {
+            return;
+        }
+        v.swap(root, big);
+        root = big;
     }
 }
 

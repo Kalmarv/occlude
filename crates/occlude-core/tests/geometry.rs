@@ -777,3 +777,57 @@ fn spatial_index_queries_come_back_sorted_and_unique() {
         }
     }
 }
+
+/// The clip walk reads occluders front-to-back by popping a max-heap instead
+/// of sorting the whole query answer. A sift-down bug would silently reorder
+/// or drop occluders — which is a change of what hides what — so this demands
+/// the exact sequence `sort_unstable` would have produced, on the shapes that
+/// break naive heaps: duplicates, all-equal, already-sorted, reverse-sorted,
+/// and every small length.
+#[test]
+fn the_heap_hands_back_exactly_the_descending_sorted_order() {
+    use occlude_core::index::{heapify, pop_max};
+
+    let drain = |v: &[u32]| -> Vec<u32> {
+        let mut h = v.to_vec();
+        heapify(&mut h);
+        let mut live = h.len();
+        let mut out = Vec::with_capacity(h.len());
+        while live > 0 {
+            out.push(pop_max(&mut h, &mut live));
+        }
+        out
+    };
+    let want = |v: &[u32]| -> Vec<u32> {
+        let mut s = v.to_vec();
+        s.sort_unstable();
+        s.reverse();
+        s
+    };
+
+    let mut s: u64 = 424_242;
+    let mut rnd = || {
+        s = s.wrapping_mul(6364136223846793005).wrapping_add(1);
+        (s >> 40) as u32
+    };
+    // every small length, where off-by-one sift-down bugs live
+    for n in 0..40usize {
+        let v: Vec<u32> = (0..n).map(|_| rnd() % 7).collect(); // heavy duplication
+        assert_eq!(drain(&v), want(&v), "random with repeats, n = {n}");
+        let asc: Vec<u32> = (0..n as u32).collect();
+        assert_eq!(drain(&asc), want(&asc), "already ascending, n = {n}");
+        let desc: Vec<u32> = (0..n as u32).rev().collect();
+        assert_eq!(drain(&desc), want(&desc), "already descending, n = {n}");
+        let same = vec![9u32; n];
+        assert_eq!(drain(&same), want(&same), "all equal, n = {n}");
+    }
+    // and at the size a deep stack actually reaches
+    for _ in 0..40 {
+        let n = 200 + (rnd() % 600) as usize;
+        let v: Vec<u32> = (0..n).map(|_| rnd() % 500).collect();
+        assert_eq!(drain(&v), want(&v), "n = {n}");
+    }
+    // extremes of the value range
+    let edge = [0u32, u32::MAX, 1, u32::MAX - 1, 0, u32::MAX];
+    assert_eq!(drain(&edge), want(&edge));
+}
