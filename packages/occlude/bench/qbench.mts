@@ -1,0 +1,15 @@
+import { performance } from 'node:perf_hooks';
+import { material, curve, query, append } from '../src/index.js';
+let s = 5; const rnd = () => ((s = (s * 48271) % 2147483647) / 2147483647) * 100;
+const t = (label: string, f: () => unknown) => { const t0 = performance.now(); f(); console.log(label.padEnd(58), (performance.now() - t0).toFixed(0).padStart(6), 'ms'); };
+let net = material([]);
+for (let i = 0; i < 400; i++) net = append(net, material([[rnd(), rnd()], [rnd(), rnd()]], { edges: [[0, 1]] }));
+const pn = net.planarize();
+const q = query.edges(pn);
+t(`prepare (35k edges) done above; 1000 firstHit, 2 mm moves`, () => { for (let i = 0; i < 1000; i++) { const x = rnd(), y = rnd(); q.firstHit([x, y], [x + 1.4, y + 1.4]); } });
+t(`1000 firstHit, whole-drawing moves (fallback)`, () => { for (let i = 0; i < 1000; i++) q.firstHit([rnd(), rnd()], [rnd(), rnd()]); });
+t(`1000 nearest within 3`, () => { for (let i = 0; i < 1000; i++) q.nearest([rnd(), rnd()], { within: 3 }); });
+const chain = curve(Array.from({ length: 16000 }, (_, i) => [i * 0.01, Math.sin(i * 0.001) * 50] as [number, number]), { closed: false });
+const q2 = query.edges(chain);
+t(`1000 nearest within 3 vs 16k-edge chain`, () => { for (let i = 0; i < 1000; i++) q2.nearest([rnd() * 1.6, rnd() - 50], { within: 3 }); });
+t(`1000 nearest within 50 (Codex case, fallback)`, () => { for (let i = 0; i < 1000; i++) q2.nearest([rnd(), rnd()], { within: 50 }); });

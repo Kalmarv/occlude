@@ -108,8 +108,16 @@ export function edges(m: Material): EdgeQuery {
   let query = 0;
   /** Edges registered in the cells of a box, each once, in source order. */
   const everyEdge = Array.from({ length: E }, (_, e) => e);
-  const candidatesIn = (x0: number, y0: number, x1: number, y1: number): number[] => {
+  // The exact test accepts contacts within EPS × scale (scale ≤ the largest
+  // extent in play): the broad phase pads every query box by more than
+  // that, so a contact just across a cell boundary is still judged.
+  const pad = Math.max(1e-9, EPS * 1000 * Math.max(1, span));
+  const candidatesIn = (bx0: number, by0: number, bx1: number, by1: number): number[] => {
     query++;
+    const x0 = bx0 - pad;
+    const y0 = by0 - pad;
+    const x1 = bx1 + pad;
+    const y1 = by1 + pad;
     const out: number[] = [];
     if (x1 < minx - cell || x0 > maxx + cell || y1 < miny - cell || y0 > maxy + cell) return out;
     // a box over most of the grid would visit and sort nearly everything: the plain scan is cheaper

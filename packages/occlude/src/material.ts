@@ -617,6 +617,7 @@ export class Material {
       // Samples come in increasing arc length, so the segment under a
       // position is found from where the last one was, never from the start.
       let cursor = 0;
+      let spread = 0; // the distribute loop's own cursor: d0 never decreases within a chain
       const segUnder = (d: number) => {
         if (cum[cursor] > d) cursor = 0; // a closed chain's seam wraps once
         while (cursor < cum.length - 2 && cum[cursor + 1] <= d) cursor++;
@@ -634,9 +635,9 @@ export class Material {
             continue;
           }
           let sum = 0;
-          let s = 0;
-          while (s < cum.length - 2 && cum[s + 1] <= d0) s++; // the first segment the range touches
-          for (; s + 1 < cum.length && cum[s] < d1; s++) {
+          if (cum[spread] > d0) spread = 0; // a closed chain's seam wraps once
+          while (spread < cum.length - 2 && cum[spread + 1] <= d0) spread++; // the first segment the range touches
+          for (let s = spread; s + 1 < cum.length && cum[s] < d1; s++) {
             const len = cum[s + 1] - cum[s];
             if (len <= 0) continue;
             const overlap = Math.min(d1, cum[s + 1]) - Math.max(d0, cum[s]);
@@ -923,6 +924,8 @@ export const connect = {
     // nearer than the k-th candidate found. Ties by (distance, row) exactly
     // as the full scan ordered them.
     const k = opts.count;
+    if (!Number.isInteger(k) || k < 0) throw new Error(`connect.nearest: count must be a non-negative integer, got ${k}`);
+    if (k === 0 || mm.n < 2) return mm.withEdges([], opts.edgeAttributes);
     const grid = pointGrid(mm.x, mm.y, Math.max(2, Math.ceil(Math.sqrt(mm.n / 2))));
     for (let i = 0; i < mm.n; i++) {
       const cand: [number, number][] = [];

@@ -1968,20 +1968,22 @@ mean instead: fill the cells with `stroke: false` and stroke the network
 once, or stroke only a selection's `boundaries()`.
 
 ```ts live
-import { sketch, strokes, circle, polygon, fill, mm, group, material } from 'occlude';
+import { sketch, strokes, circle, polygon, fill, mm, group, rect, line, append } from 'occlude';
 
-// Crossings become cells. Left: a frame and five chords as one material
-// — the frame alone encloses one face, and the chords merely cross it,
-// so faces() would refuse until the crossings are shared vertices.
-// Right: the same network planarized; every crossing is now a vertex
-// (marked) and each cell it encloses fills at its own angle. One chord
-// stops short of the frame: the gap stays a gap, so the hatch runs
-// unbroken across it — the two sides are one cell.
+// Crossings become cells. Left: a frame and five chords, each an ordinary
+// shape sampled to material and appended — the frame alone encloses one
+// face, and the chords merely cross it, so faces() would refuse until the
+// crossings are shared vertices. Right: the same network planarized;
+// every crossing is now a vertex (marked) and each cell it encloses fills
+// at its own angle. One chord stops short of the frame: the gap stays a
+// gap, so the hatch runs unbroken across it — the two sides are one cell.
 export default sketch({ aspect: [2, 1] }, (t) => {
-  const net = material(
-    [[4, 4], [46, 4], [46, 46], [4, 46], [4, 16], [46, 30], [12, 4], [30, 46], [4, 38], [46, 10], [34, 4], [40, 46], [20, 24], [46, 42]],
-    { edges: [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [6, 7], [8, 9], [10, 11], [12, 13]] }, // the last chord stops short of the left frame
-  );
+  const chord = (x0, y0, x1, y1) => t.sample(line(x0, y0, x1, y1), { count: 2 });
+  const net = [
+    t.sample(rect(4, 4, 42, 42), { count: 4 }),
+    chord(4, 16, 46, 30), chord(12, 4, 30, 46), chord(4, 38, 46, 10), chord(34, 4, 40, 46),
+    chord(20, 24, 46, 42), // stops short of the left frame
+  ].reduce((a, b) => append(a, b));
   const planar = net.planarize();
   const cells = planar.faces();
   return [

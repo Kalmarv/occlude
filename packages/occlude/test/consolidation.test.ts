@@ -107,3 +107,35 @@ describe('Stage C helpers (con2)', () => {
     expect(push(p)).toEqual(vsum(pull(p), [0, 0]));
   });
 });
+
+describe('closeout (review of 793e35f)', () => {
+  it('the query broad phase includes tolerated contacts across a cell boundary', async () => {
+    const { query } = await import('../src/index.js');
+    // many edges so the grid is fine; the point sits 1e-10 left of an edge on x = 5
+    const pts: [number, number][] = [];
+    const edges: [number, number][] = [];
+    for (let i = 0; i < 400; i++) { pts.push([i * 0.25, 0], [i * 0.25, 30]); edges.push([2 * i, 2 * i + 1]); }
+    const m = material(pts, { edges });
+    const q = query.edges(m);
+    const hit = q.firstHit([4.9999999999, 10], [4.9999999999, 10]);
+    expect(hit).not.toBeNull();
+    expect(hit!.edge.a.x).toBe(5);
+    expect(q.nearest([4.9999999999, 10], { within: 1e-6 })!.edge.a.x).toBe(5);
+  });
+
+  it('distributed resampling stays linear and exact; nearest with count 0 adds nothing and rejects bad counts', () => {
+    const big = curve(Array.from({ length: 16000 }, (_, i) => [i * 0.1, Math.sin(i * 0.01)] as [number, number]), { closed: false })
+      .edgeAttribute('w', (e) => e.index, { transfer: 'distribute' });
+    const t0 = performance.now();
+    const rs = big.resample({ spacing: 0.15 });
+    const ms = performance.now() - t0;
+    const total = (a: Float64Array) => Array.from(a).reduce((s, v) => s + v, 0);
+    expect(total(rs.edgeAttrs.w)).toBeCloseTo(total(big.edgeAttrs.w), 3); // conserved
+    expect(ms).toBeLessThan(400);
+    const pts = material([[0, 0], [1, 0], [2, 0]]);
+    expect(connect.nearest(pts, { count: 0 }).edgeCount).toBe(0);
+    expect(() => connect.nearest(pts, { count: -1 })).toThrow(/non-negative integer/);
+    expect(() => connect.nearest(pts, { count: 1.5 })).toThrow(/non-negative integer/);
+    expect(connect.nearest(material([[0, 0]]), { count: 3 }).edgeCount).toBe(0);
+  });
+});
