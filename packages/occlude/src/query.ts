@@ -151,9 +151,10 @@ export function edges(m: Material): EdgeQuery {
           const lo = Math.max(0, Math.min(u0, u1));
           const hi = Math.min(1, Math.max(u0, u1));
           if (lo > hi + EPS) continue;
-          const along = lo;
+          // tolerated endpoint contact resolves to the segment's end, never beyond it
+          const along = Math.max(0, Math.min(1, lo));
           const t = dx * dx + dy * dy > 0 ? Math.max(0, Math.min(1, ((fx + sx * along - ax[e]) * dx + (fy + sy * along - ay[e]) * dy) / (dx * dx + dy * dy))) : 0;
-          consider(e, along, t, lo === hi ? 'touch' : 'overlap');
+          consider(e, along, t, hi - lo <= EPS ? 'touch' : 'overlap');
           continue;
         }
         const along = (wx * dy - wy * dx) / denom;

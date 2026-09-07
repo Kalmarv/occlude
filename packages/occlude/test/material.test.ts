@@ -847,3 +847,95 @@ describe('query.edges', () => {
     expect(query.edges(moved).firstHit([5, 5], [5, 15])).toBeNull();
   });
 });
+
+describe('correctness pass (review of 22c9887)', () => {
+  it('1. recorded split options are copied at recording time; callbacks stay live', () => {
+    const line = curve([[0, 0], [10, 0], [20, 0]], { closed: false, age: 0 });
+    const shared = { age: 1 };
+    const a = line.steps(1, (cur, next) => {
+      next.split(cur.edge(0), { point: shared });
+      shared.age = 2; // mutated after recording: must not reach the first split
+      next.split(cur.edge(1), { point: shared });
+    });
+    expect(Array.from(a.attrs.age)).toEqual([0, 1, 0, 2, 0]);
+    const bulk = { at: 0.25 };
+    const b = line.steps(1, (_, next) => {
+      next.splitEdges(() => true, bulk);
+      bulk.at = 2; // bypassed validation before the fix: a vertex beyond the edge
+    });
+    expect(Array.from(b.x)).toEqual([0, 2.5, 10, 12.5, 20]);
+    const live = line.steps(1, (cur, next) => next.split(cur.edge(0), { point: (e, at) => ({ age: e.a.x + at }) }));
+    expect(live.attrs.age[1]).toBe(0.5);
+  });
+
+  it('2. derived materials own their topology', () => {
+    const src = square();
+    const derived = src.attribute('age', 1);
+    expect(derived.edgeList).not.toBe(src.edgeList);
+    const e2 = src.edgeAttribute('rest', 1);
+    expect(e2.edgeList).not.toBe(src.edgeList);
+    const stepped = src.steps(2, () => {}, { every: 1 });
+    expect(stepped.edgeList).not.toBe(src.edgeList);
+    const owned = new Set<Uint32Array>([src.edgeList, stepped.edgeList]);
+    for (const s of stepped.history) {
+      expect(owned.has(s.material.edgeList)).toBe(false);
+      owned.add(s.material.edgeList);
+    }
+  });
+
+  it('3. resample keeps edge attributes at samples that land on existing vertices', () => {
+    const chain = material([[0, 0], [10, 0], [20, 0]], { edges: [[0, 1], [1, 2]] }).edgeAttribute('w', (e) => (e.index === 0 ? 10 : 20));
+    const same = chain.resample({ count: 3 });
+    expect(Array.from(same.x)).toEqual([0, 10, 20]);
+    expect(Array.from(same.edgeAttrs.w)).toEqual([10, 20]);
+    // a new edge takes the attributes of the source edge under its midpoint
+    const denser = chain.resample({ count: 5 });
+    expect(Array.from(denser.edgeAttrs.w)).toEqual([10, 10, 20, 20]);
+  });
+
+  it('4. append compares effective transfer policies, defaults included', () => {
+    const a = curve([[0, 0], [10, 0]], { closed: false, age: 0 }); // age interpolates by default
+    const b = curve([[20, 0], [30, 0]], { closed: false }).attribute('age', 5, { transfer: 'nearest' });
+    expect(() => append(a, b)).toThrow(/transfer/);
+    expect(() => append(b, a)).toThrow(/transfer/);
+    const explicit = curve([[20, 0], [30, 0]], { closed: false }).attribute('age', 5, { transfer: 'interpolate' });
+    expect(append(a, explicit).transfers.age ?? 'interpolate').toBe('interpolate');
+  });
+
+  it('5. connecting an existing attributed pair is a no-op and needs no attributes', () => {
+    const m = curve([[0, 0], [10, 0]], { closed: false }).edgeAttribute('rest', 3);
+    const same = m.steps(1, (_, next) => next.connect(0, 1));
+    expect(same.edgeCount).toBe(1);
+    expect(same.edgeAttrs.rest[0]).toBe(3);
+    expect(() => m.steps(1, (_, next) => next.connect(1, 0))).not.toThrow();
+    // a genuinely new edge still demands every column
+    const three = material([[0, 0], [10, 0], [20, 0]], { edges: [[0, 1]] }).edgeAttribute('rest', 3);
+    expect(() => three.steps(1, (_, next) => next.connect(1, 2))).toThrow(/rest/);
+  });
+
+  it('6. firstHit keeps along within [0, 1] for tolerated endpoint contact', async () => {
+    const { query } = await import('../src/query.js');
+    const m = material([[10, 0], [20, 0]], { edges: [[0, 1]] });
+    const q = query.edges(m);
+    // a move ending just short of the edge's start, within tolerance
+    const hit = q.firstHit([0, 0], [10 - 1e-12, 0]);
+    if (hit) {
+      expect(hit.along).toBeLessThanOrEqual(1);
+      expect(hit.along).toBeGreaterThanOrEqual(0);
+      expect(hit.t).toBeGreaterThanOrEqual(0);
+      expect(hit.t).toBeLessThanOrEqual(1);
+      expect(hit.kind).toBe('touch');
+    }
+    // sweep a few near-endpoint offsets in both branches; nothing may leave its range
+    for (const dy of [0, 1e-13, -1e-13]) {
+      for (const dx of [-1e-12, 0, 1e-12]) {
+        const h = q.firstHit([0, dy], [10 + dx, dy]);
+        if (!h) continue;
+        expect(h.along).toBeGreaterThanOrEqual(0);
+        expect(h.along).toBeLessThanOrEqual(1);
+        expect(h.t).toBeGreaterThanOrEqual(0);
+        expect(h.t).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+});

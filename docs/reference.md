@@ -1503,10 +1503,10 @@ which starts as a copy:
 | `next.set(p => attrs, { where? })` / `next.set(ref, attrs)` | write point attributes; the last write of a field wins |
 | `next.setEdges(e => attrs, { where? })` / `next.setEdge(edge, attrs)` | write edge attributes; the last write of a field wins |
 | `next.addPoint(position, attributes)` → handle | a new vertex; the handle names it within this batch |
-| `next.connect(a, b, edgeAttributes?)` | one undirected edge between rows, views or handles; an existing pair is left as it is |
+| `next.connect(a, b, edgeAttributes?)` | one undirected edge between rows, views or handles; an existing pair is left as it is and needs no attributes |
 | `next.disconnect(edge \| e => bool)` | remove an edge, both points stay; repeating it is a no-op |
 | `next.remove(ref \| p => bool)` | delete a point and its incident edges; neighbours are never joined; repeating it is a no-op |
-| `next.split(edge, { at?, point?, edges? })` → handle | replace an edge with two through a new vertex; at 0 or 1, the existing endpoint |
+| `next.split(edge, { at?, point?, edges? })` → handle | replace an edge with two through a new vertex; at 0 or 1, the existing endpoint. Options are recorded as they are at the call (records copied, callbacks kept) |
 | `next.splitEdges(e => bool, { at?, point?, edges? })` | bulk split on the MOVED edges — moves first, then `where` sees each edge as it will be |
 | `next.extend(p => spec \| spec[], { where? })` | for each selected vertex, a new child `{ position, attributes }` or a connection `{ to }`, joined to it |
 
@@ -1707,7 +1707,8 @@ two new vertices is cut. Attributes carry over per `transfer`: linear
 interpolation for every column by default; `'nearest'` (ties to the start
 vertex), a constant, or a function `(a, b, t) => value` per column say
 otherwise — a display curve may interpolate `age`, a simulation point may
-want it reset. Splitting adds detail and keeps every vertex; resampling
+want it reset. Each new edge takes the edge attributes of the source edge
+under its midpoint. Splitting adds detail and keeps every vertex; resampling
 may remove them. Neither smooths.
 
 ```ts live

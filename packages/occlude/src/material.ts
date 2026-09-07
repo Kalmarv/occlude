@@ -408,7 +408,7 @@ export class Material {
     if (opts.transfer) transfers[name] = opts.transfer;
     else delete transfers[name];
     return new Material(
-      copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), [name]: col }, this.edgeList, this.iteration, [],
+      copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), [name]: col }, copyEdges(this.edgeList), this.iteration, [],
       copyAttrs(this.edgeAttrs), transfers,
     );
   }
@@ -421,7 +421,7 @@ export class Material {
     if (typeof value === 'number') col.fill(value);
     else for (let e = 0; e < this.edgeCount; e++) col[e] = value(this.edge(e));
     return new Material(
-      copy(this.x), copy(this.y), copyAttrs(this.attrs), this.edgeList, this.iteration, [],
+      copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), this.iteration, [],
       { ...copyAttrs(this.edgeAttrs), [name]: col }, { ...this.transfers },
     );
   }
@@ -509,21 +509,28 @@ export class Material {
       const idx = c.indices;
       const first = ox.length;
       const samples = alongChain(idx.map((i) => [this.x[i], this.y[i]] as [number, number]), c.closed, opts);
-      // A new edge takes the edge attributes of the source edge its start
-      // sample lies on.
-      const rowAt = (k: number) => storedRow.get(pairKey(idx[samples[k].seg], idx[(samples[k].seg + 1) % idx.length]))!;
+      // A new edge takes the edge attributes of the source edge under its
+      // midpoint (by arc length) — a sample that lands exactly on an old
+      // vertex belongs to neither of that vertex's edges by itself.
+      const cum = chainLengths(idx.map((i) => [this.x[i], this.y[i]] as [number, number]), c.closed);
+      const total = cum[cum.length - 1];
+      const at = (k: number) => cum[samples[k].seg] + samples[k].t * (cum[samples[k].seg + 1] - cum[samples[k].seg]);
+      const rowUnder = (d: number) => {
+        let s = 0;
+        while (s < cum.length - 2 && cum[s + 1] <= d) s++;
+        return storedRow.get(pairKey(idx[s], idx[(s + 1) % idx.length]))!;
+      };
+      const link = (from: number, to: number, mid: number) => {
+        edges.push(from, to);
+        const row = rowUnder(mid);
+        for (const name of enames) eattrs[name].push(this.edgeAttrs[name][row]);
+      };
       for (let k = 0; k < samples.length; k++) {
         const { seg, t } = samples[k];
         place(idx[seg], idx[(seg + 1) % idx.length], t);
-        if (k > 0) {
-          edges.push(first + k - 1, first + k);
-          for (const name of enames) eattrs[name].push(this.edgeAttrs[name][rowAt(k - 1)]);
-        }
+        if (k > 0) link(first + k - 1, first + k, (at(k - 1) + at(k)) / 2);
       }
-      if (c.closed && samples.length > 1) {
-        edges.push(first + samples.length - 1, first);
-        for (const name of enames) eattrs[name].push(this.edgeAttrs[name][rowAt(samples.length - 1)]);
-      }
+      if (c.closed && samples.length > 1) link(first + samples.length - 1, first, (at(samples.length - 1) + total) / 2);
     }
     const attrs: Record<string, Float64Array> = {};
     for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
@@ -550,7 +557,7 @@ export class Material {
   steps(n: number, rule: (current: Material, next: Next, k: number) => void, opts: { every?: number } = {}): Material {
     const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
     const snaps: Snapshot[] = [];
-    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), this.edgeList, this.iteration, [], copyAttrs(this.edgeAttrs), { ...this.transfers });
+    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), this.iteration, [], copyAttrs(this.edgeAttrs), { ...this.transfers });
     if (every) snaps.push({ iteration: this.iteration, material: base });
     let cur = base;
     for (let k = 0; k < n; k++) {
@@ -559,7 +566,7 @@ export class Material {
     }
     if (every && n > 0) snaps.push({ iteration: cur.iteration, material: cur });
     return every
-      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), cur.edgeList, cur.iteration, snaps, copyAttrs(cur.edgeAttrs), { ...cur.transfers })
+      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), cur.iteration, snaps, copyAttrs(cur.edgeAttrs), { ...cur.transfers })
       : cur;
   }
 }
@@ -592,12 +599,7 @@ export function alongChain(
   const n = pts.length;
   const segs = closed ? n : n - 1;
   if (n === 0) return [];
-  const cum = [0];
-  for (let s = 0; s < segs; s++) {
-    const a = pts[s];
-    const b = pts[(s + 1) % n];
-    cum.push(cum[s] + Math.hypot(b[0] - a[0], b[1] - a[1]));
-  }
+  const cum = chainLengths(pts, closed);
   const total = cum[segs];
   if (!(total > 0)) return [{ seg: 0, t: 0 }];
   let count: number;
@@ -618,8 +620,24 @@ export function alongChain(
   return out;
 }
 
+/** Cumulative arc length along a chain: `cum[s]` is the distance to the
+ * start of segment `s`, the last entry the total (closed chains include
+ * the seam segment). */
+function chainLengths(pts: readonly (readonly [number, number])[], closed: boolean): number[] {
+  const n = pts.length;
+  const segs = closed ? n : n - 1;
+  const cum = [0];
+  for (let s = 0; s < segs; s++) {
+    const a = pts[s];
+    const b = pts[(s + 1) % n];
+    cum.push(cum[s] + Math.hypot(b[0] - a[0], b[1] - a[1]));
+  }
+  return cum;
+}
+
 const pairKey = (a: number, b: number) => (a < b ? a * 4294967296 + b : b * 4294967296 + a);
 const copy = (col: Float64Array) => Float64Array.from(col);
+const copyEdges = (list: Uint32Array) => Uint32Array.from(list);
 const copyAttrs = (attrs: Readonly<Record<string, Float64Array>>): Record<string, Float64Array> => {
   const out: Record<string, Float64Array> = {};
   for (const k in attrs) out[k] = Float64Array.from(attrs[k]);
@@ -804,8 +822,14 @@ export function append(
       }
     }
   }
-  for (const k of Object.keys(a.transfers)) {
-    if (k in b.transfers && b.transfers[k] !== a.transfers[k]) throw new Error(`append: '${k}' has transfer '${a.transfers[k]}' on one side and '${b.transfers[k]}' on the other`);
+  // Policies are compared as they take effect — an undeclared column
+  // interpolates — so joining sides cannot silently change how a column
+  // splits afterwards.
+  const effective = (m: Material, k: string): TransferPolicy => m.transfers[k] ?? 'interpolate';
+  for (const k of names) {
+    if (k in a.attrs && k in b.attrs && effective(a, k) !== effective(b, k)) {
+      throw new Error(`append: '${k}' has transfer '${effective(a, k)}' on one side and '${effective(b, k)}' on the other`);
+    }
   }
   const x = new Float64Array(a.n + b.n);
   const y = new Float64Array(a.n + b.n);
@@ -944,9 +968,11 @@ export interface Next {
   extend(spec: (p: Vertex) => ChildSpec | ChildSpec[], opts?: { where?: (p: Vertex) => boolean }): void;
 }
 
-function checkAttrs(attrs: Record<string, number>, names: string[], what: string): void {
-  for (const name of names) {
-    if (!(name in attrs)) throw new Error(`steps: must give '${name}' for ${what} (every attribute is a choice)`);
+function checkAttrs(attrs: Record<string, number>, names: string[], what: string, opts: { complete?: boolean } = {}): void {
+  if (opts.complete !== false) {
+    for (const name of names) {
+      if (!(name in attrs)) throw new Error(`steps: must give '${name}' for ${what} (every attribute is a choice)`);
+    }
   }
   for (const name in attrs) {
     if (!names.includes(name)) throw new Error(`steps: no attribute '${name}' — declare it first`);
@@ -992,7 +1018,7 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   const removed = new Set<number>();
   const disconnected = new Set<number>();
   const splits = new Map<number, SplitRequest[]>(); // by ORIGINAL edge row
-  const bulkSplits: { where: (e: Edge) => boolean; opts: SplitOpts }[] = [];
+  const bulkSplits: { where: (e: Edge) => boolean; req: SplitRequest }[] = [];
   const added: { x: number; y: number; attrs: Record<string, number> }[] = [];
   const links: { a: Ref; b: Ref; attrs: Record<string, number> }[] = [];
   const points = cur.points; // frozen views for the collection forms
@@ -1029,6 +1055,12 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
       col[row] = v;
     }
   };
+  // Options are recorded as they are at the call: a plain record is
+  // copied, a callback stays a function (it runs on the moved state).
+  const byValue = <T,>(v: T): T => (v !== null && typeof v === 'object' ? ({ ...(v as object) } as T) : v);
+  const splitRequest = (opts: SplitOpts, at: number): SplitRequest => ({
+    at, point: byValue(opts.point), edges: byValue(opts.edges), attributes: byValue(opts.attributes), parent: opts.parent,
+  });
   const recordSplit = (row: number, req: SplitRequest) => {
     const list = splits.get(row) ?? [];
     list.push(req);
@@ -1087,7 +1119,9 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
       return { __handle: added.length - 1, __batch: batch };
     },
     connect(a, b, edgeAttributes = {}) {
-      checkAttrs(edgeAttributes, enames, 'a new edge');
+      // unknown names fail now; completeness is judged once we know the
+      // pair is new (an existing pair is left as it is and needs nothing)
+      checkAttrs(edgeAttributes, enames, 'a new edge', { complete: false });
       links.push({ a, b, attrs: { ...edgeAttributes } });
     },
     disconnect(edge: Edge | ((e: Edge) => boolean)) {
@@ -1116,13 +1150,13 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
       }
       const handle = added.length;
       added.push({ x: NaN, y: NaN, attrs: {} }); // placeholder: resolved by the split
-      recordSplit(row, { at, point: opts.point, edges: opts.edges, attributes: opts.attributes, parent: opts.parent, handle });
+      recordSplit(row, { ...splitRequest(opts, at), handle });
       return { __handle: handle, __batch: batch };
     },
     splitEdges(where, opts = {}) {
       const at = opts.at ?? 0.5;
       if (!Number.isFinite(at) || at <= 0 || at >= 1) throw new Error(`steps: splitEdges at ${at} — must be inside (0, 1)`);
-      bulkSplits.push({ where, opts });
+      bulkSplits.push({ where, req: splitRequest(opts, at) });
     },
     extend(spec, opts) {
       for (const p of points) {
@@ -1143,11 +1177,8 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   // ---- the moved state: bulk split predicates and transfer callbacks read it ----
   const moved = new Material(nx, ny, nattrs, cur.edgeList, cur.iteration + 1, [], neattrs, { ...cur.transfers });
   const movedEdges = moved.edges;
-  for (const { where, opts } of bulkSplits) {
-    for (const e of movedEdges) {
-      if (!where(e)) continue;
-      recordSplit(e.index, { at: opts.at ?? 0.5, point: opts.point, edges: opts.edges, attributes: opts.attributes, parent: opts.parent });
-    }
+  for (const { where, req } of bulkSplits) {
+    for (const e of movedEdges) if (where(e)) recordSplit(e.index, req);
   }
 
   // ---- conflicts ----
@@ -1320,6 +1351,7 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
     if (ra === rb) throw new Error(`steps: connect: edge ${ra}–${rb} joins a vertex to itself`);
     const key = pairKey(ra, rb);
     if (have.has(key)) continue; // an existing pair is left as it is
+    checkAttrs(l.attrs, enames, 'a new edge');
     have.add(key);
     pushEdge(ra, rb, l.attrs);
   }
