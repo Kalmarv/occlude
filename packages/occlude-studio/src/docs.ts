@@ -44,11 +44,12 @@ marked.use({
         }
         const i = liveSources.push({ src: text, meta }) - 1;
         const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-        // Reserve the preview's space from the sheet's aspect: no layout jump when it lands.
-        const size = paperSize(docsPaper(meta));
+        // Reserve the preview's space from the drawable's aspect (the sketch's
+        // own when it states one, else the sheet's): no layout jump when it lands.
+        const size = drawableAspect(text, meta);
         return (
           `<div class="live-example">` +
-          `<div class="live-code" data-code="${i}"><pre><code>${escaped}</code></pre></div>` +
+          `<div class="live-code-cell"><div class="live-code" data-code="${i}"><pre><code>${escaped}</code></pre></div></div>` +
           `<div class="live-output" data-live="${i}" style="aspect-ratio: ${size.w} / ${size.h}"><span class="live-pending">rendering when in view…</span></div>` +
           `</div>`
         );
@@ -57,6 +58,17 @@ marked.use({
     },
   },
 });
+
+/** The shown drawable's proportions before the sketch has run: a fixed
+ * `aspect` in the source, else the sheet inside its margin. */
+function drawableAspect(src: string, meta: LiveMeta): { w: number; h: number } {
+  const m = src.match(/aspect:\s*\[\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\]/);
+  if (m) return { w: Number(m[1]), h: Number(m[2]) };
+  if (/aspect:\s*'square'/.test(src)) return { w: 1, h: 1 };
+  const size = paperSize(docsPaper(meta));
+  const inset = ((meta.margin ?? 5) / 100) * Math.min(size.w, size.h);
+  return { w: size.w - 2 * inset, h: size.h - 2 * inset };
+}
 
 let client: RenderClient | null = null;
 /** Bumped on every page change: results for an older page are dropped. */

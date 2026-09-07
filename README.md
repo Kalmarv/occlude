@@ -1,56 +1,27 @@
 # occlude
 
-A TypeScript studio for pen-plotter art, built around one idea: **the pen
-is the medium, not a renderer of last resort**. On paper every stroke is
-real ink — there is no painting over mistakes — so occlude makes `fill`
-mean *occlude*: filled shapes hide what lies beneath them, and the engine
-computes the exact visible strokes (hidden-line removal on true vectors,
-in a Rust/WASM core) instead of simulating a canvas.
-
-A sketch is a pure function from a toolkit to a tree of shapes:
+A TypeScript library and browser studio for pen-plotter drawings. A sketch is a function that returns shapes; the engine computes which strokes remain visible where shapes hide one another (hidden-line removal on exact vectors, in a Rust/WASM core), and the studio previews, exports and plots the result over Web Serial.
 
 ```ts
 import { sketch, fill, mm } from 'occlude';
 
 export default sketch({ aspect: 'square', margin: 8 }, ({ circle, line, times, rnd }) => [
-  times(24, (k, t) => line(0, t * 100, 100, t * 100)),        // cut exactly where fills cover
-  times(12, () => circle(rnd(100), rnd(100), rnd(6, 18), {
-    fill: fill('hatch', { angle: rnd(180), spacing: mm(1) }),  // filled → occludes
+  times(24, (k, t) => line(0, t * 100, 100, t * 100)),        // cut exactly where the discs cover them
+  times(12, () => circle(rnd(18, 82), rnd(18, 82), rnd(6, 18), {
+    fill: fill('hatch', { angle: rnd(180), spacing: mm(1) }),  // a filled shape hides what lies beneath it
   })),
 ]);
 ```
 
-## What separates it from other drawing libraries
+## What it does
 
-Creative-coding libraries (p5, paper.js, canvas-sketch) think in pixels:
-fill paints over what came before, and a plotter export is an
-afterthought that draws every line, hidden or not. Plotter toolchains
-(vpype, vsketch) optimise paths but leave the hidden-line problem to you.
-Occlude is plotter-native end to end:
-
-- **Fill means occlude.** The painter's algorithm runs on vectors, cut at
-  true intersection parameters — what plots is exactly what a physical
-  layering of opaque shapes would leave visible. `mask()` gives you
-  hidden-line drawing (terrain ridges, overlapping forms) in one word.
-- **The nib is the only tolerance.** Visible detail finer than the pen
-  width rounds to a pen tap or to nothing, hidden gaps finer than the pen
-  width are inked — physical reasoning, not epsilon tuning. Pens are real objects with
-  width, feed, and settle time.
-- **Line character is part of the model.** An ordered modifier stack runs
-  *around* the occlusion solve: `smooth`/`roughen`/`deform` reshape
-  geometry before it (changing what is hidden), `dash`/`decimate`/`wobble`
-  distress the surviving ink after it, and any scalar parameter can be a
-  field `(x, y) => number` that varies over the page.
-- **Deterministic to the plot.** Every random value derives from the
-  sketch seed — the same seed produces the same drawing on screen,
-  in SVG, and on paper, every time.
-- **Curves stay exact.** Arcs and béziers are never flattened until
-  export; SVG output keeps true curves.
-- **Plot time is a design dimension.** Chained tours, opt-in `bridge`
-  joining (hatch rows serpentine into single strokes — hours off a dense
-  plot), plot-time stats, and a full EBB/iDraw Web Serial driver with
-  look-ahead motion planning, drift recovery, and machine diagnostics —
-  the browser plots directly, no export round-trip required.
+- Occlusion on vectors. A shape with a fill or `opaque: true` hides everything earlier in the tree under its area; cuts land at true intersection parameters, so the plot is what a physical layering of opaque shapes leaves visible. `mask()` is hidden-line drawing in one word. In the current version a fill always makes its shape opaque; a texture that does not hide is a planned option, not an existing one.
+- The pen width decides what is drawable. Visible runs shorter than the nib become a pen tap or are dropped when a neighbour already covers them; hidden gaps shorter than the nib are inked through. Pens are objects with width, feed and settle time.
+- Line character is part of the model. Modifiers run around the occlusion solve: `smooth`, `roughen` and `deform` reshape geometry before it, `dash`, `decimate` and `wobble` distress the surviving ink after it, and their parameters can be fields `(x, y) => number` that vary over the page.
+- Reproducible geometry. Every random value comes from the sketch seed, so the same source and seed give the same drawing on screen and in every export. Physical plots vary by pen, paper and machine.
+- Curves stay exact through the solve and the SVG export; they are flattened only for G-code and the machine.
+- Materials: points with attributes, edges, selections, forces and stepped rules for growth, faces of a planar network, resampling. Plain data in, plain data out.
+- Plot time as a design dimension: chained tours, opt-in `bridge` joining, one time estimator shared by export, simulation and the driver, and an EBB/iDraw Web Serial driver with look-ahead motion planning, drift recovery and calibration cards.
 
 ## Getting started
 
@@ -67,10 +38,14 @@ pnpm dev               # the studio, http://localhost:5173
 Write sketches in the studio's editor (Ctrl+S saves to the server-side
 library); the preview re-renders live, the Plot panel drives an
 EBB-family machine over Web Serial, and per-pen SVG/G-code/PNG export is
-a click. The **docs** tab serves the [reference](docs/reference.md) —
-every feature as a live example rendered by the real engine in your
-browser, with the full API prose at the bottom. The
-[architecture notes](docs/architecture.md) cover the engine.
+a click. The **docs** tab serves the topic pages under `docs/`
+([Getting started](docs/getting-started.md), [Shapes & layout](docs/shapes.md),
+[Fills](docs/fills.md), [Fields & variation](docs/fields.md),
+[Materials](docs/materials.md), [Images & imports](docs/images.md),
+[Plotting & saving](docs/plotting.md), [Gallery](docs/gallery.md)), every
+example rendered live and editable in the browser. The
+[architecture notes](docs/architecture.md) and [device notes](docs/device-notes.md)
+cover the engine and the machine.
 
 Headless rendering, for CI or batch work:
 
@@ -93,7 +68,7 @@ pnpm --filter occlude plotstats sketch.ts --seed 7   # lifts, ink/travel mm, plo
 cargo test                  # core: unit + pipeline + property + golden tests
 pnpm -r test                # TS end-to-end tests (drive the real wasm)
 pnpm --filter occlude qa    # property-based seed sweep + adversarial corpus
-pnpm --filter occlude docs:check   # every reference example must render
+pnpm --filter occlude docs:check   # every docs example must render (DOCS_PAGE=fills for one page)
 
 cd packages/occlude-studio
 pnpm build && node server.mjs   # production build, http://localhost:4173
@@ -139,11 +114,12 @@ facts, and papers — never code**:
   pre-stage modifiers to contours, generates fills lazily for surviving
   shapes, cuts every primitive against the opaque regions in front of it,
   then runs each shape's post-stage modifier program over the final ink.
-  Fragments shorter than the pen nib are the system's single tolerance:
-  bridged, tapped as dots, or dropped by physical reasoning.
-- Export merges fragments into chains, orders them (nearest-neighbour +
-  2-opt), bridges sub-nib gaps (plus opt-in `bridge` joining at artistic
-  tolerances), flattens adaptively, and emits GRBL-flavoured G-code per pen
-  — or plots directly over Web Serial.
+  Visible runs shorter than the pen nib are bridged, tapped as dots, or
+  dropped by exact coverage.
+- Planning merges fragments into chains, orders them (nearest-neighbour +
+  2-opt), and bridges sub-nib gaps (plus opt-in `bridge` joining at artistic
+  tolerances) into a `DrawingPlan` with a content hash. Exports and the
+  machine encode ranges of that plan: exact-curve SVG, per-pen G-code, or
+  a direct plot over Web Serial; saved results keep a selection's bytes.
 - Native builds parallelise the clip layers with rayon; the wasm build is
   single-threaded.

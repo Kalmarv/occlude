@@ -40,8 +40,9 @@ crates/occlude-core/src/
                         property tests — benchmark input, never a fill
   scene::dump           loads a dump-scene directory (buffers + JS fills
                         sidecar) for replay and the golden test
-  gcode, route, motion  chain merge → NN+2-opt tour → bridging → G-code /
-                        EBB motion
+  plan, fragment        chain merge → nearest-neighbour + 2-opt tour →
+                        bridging: the ordered DrawingPlan and its bytes
+  gcode, profile        G-code per pen from a plan range; machine profile
   svg, raster           exact-curve SVG; PNG raster export
   snap                  the 0.005 mm input grid
   scene                 the buffer protocol (all strides documented at the top)
@@ -63,13 +64,25 @@ packages/occlude/src/
                         also the frame-less lowering within() uses
   render                scene encoding, the two-pass render, fill jobs,
                         fragment decoding, exports
-  isolines, points,     sketch-time generators (marching squares, scatter/
-  distance              relax/settle, signed distance)
+  isolines, streamlines, sketch-time generators (marching squares, evenly
+  points, distance      spaced streamlines, scatter/relax/settle, signed
+                        distance); shaper: knot curves as functions
+  material, relation,   the material vocabulary: vertices with attribute
+  query, faces          columns and an edge list, steps and forces,
+                        selections and extraction, spatial edge queries,
+                        planarization and faces
+  plan, motion          the DrawingPlan as a value (selection, resolveDraw,
+                        encode/decode), estimatePlanMs and the motion model
   draw                  Canvas 2D preview (exact arcs/cubics, no flattening)
+  docsExamples          DOC_PAGES and the live-fence settings shared by the
+                        docs site and the checker
 
 packages/occlude-studio/
   server.mjs            production server: dist + the store APIs
-  sketch-store.mjs      /api/sketches, pens, profiles, plot log (.ts files)
+  sketch-store.mjs      /api/sketches, pens, profiles, plot log (.ts files);
+  sketch-git.mjs          every save a commit, forks and snapshots as refs
+  result-store.mjs      /api/results — saved selections: plan bytes, frozen
+                        SVG, pens, paper, profile, provenance; immutable
   fill-store.mjs        /api/fills — the fill library (.ts files); /js strips
   fill-transpile.mjs      types with Node's built-in stripper (the ONE
                           transpile step for stored fills)
@@ -81,6 +94,10 @@ packages/occlude-studio/
   src/workerClient      coalescing render requests + the watchdog
   src/preview, panels   paper bench, sketch/fill libraries, pen tray,
                         paper/machine, plot, export
+  src/drawing           the Drawing panel: reads the sketch's t.plan/t.draw
+                        result; ghosts omitted ink in the preview only
+  src/docs              the docs site: topic pages, inline editors, lazy
+                        whole-drawable previews
   src/fillEmbed         export embedding + import reconciliation of fills
   src/store             localStorage persistence
 ```
@@ -144,6 +161,40 @@ domain refs — `align: 'shape'` compiles A = G ∘ C into that affine, so a
 thousand halftone dots share one grid, and `within()` bounds are exact
 clip regions the engine tests before it samples.
 
+## Materials
+
+`material.ts` holds vertices as typed columns (`x`, `y`, declared
+attributes) plus an edge list with its own columns. Every operation
+returns a new material; `steps()` freezes the current state, collects the
+batch of edits described against `next` (moves, attribute writes, splits,
+removals, connections, extensions), validates conflicts and ownership,
+and publishes one new state, optionally recording history. Forces are
+prepared per state (spatial index built once in `force.nearby`) and
+evaluated per point. `relation.ts` is selections, extraction,
+`connectedPoints`, `components` and `meanBy`; `query.ts` prepares a grid
+over a state's edges for `nearest` and `firstHit` with a wide-box fallback
+so long queries stay exact; `faces.ts` planarizes with Shewchuk's
+`orient2d` for every orientation decision and reads bounded faces, face
+selections and union boundaries. Attribute transfer (interpolate or
+nearest for points, copy or distribute for edges) is declared per column
+and honoured by split, resample, planarize and append.
+
+## Plan and results
+
+`plan(render(def))` runs merge → tour → bridge once in the core and
+returns a `DrawingPlan`: chains with native primitives, the settings that
+produced them, and a SHA-256 over both. Everything downstream is a range
+of that value: `selectChains`, `selectProgress`, `selectTime` and
+`fitDuration` pick one, `resolveDraw` is what `t.draw` goes through, and
+`planSvg`, `planGcode` and `planToolpath` encode it. Selections never
+re-plan or re-solve visibility. The studio's render worker returns the
+plan bytes with every render; the Drawing panel reads the resolved range;
+Export, Simulate, Plot and Frame take it; Save result writes the selected
+chains as a plan of their own with the frozen SVG, pens, paper, profile
+and provenance into the result store, and `/?result=<id>` reopens those
+bytes without executing the source. `estimatePlanMs` is the one time
+model for the panel, `plotstats`, the simulation and the driver.
+
 ## Robustness invariants worth knowing
 
 - **Snap inputs, never results.** Input coordinates land on a 0.005 mm grid,
@@ -157,10 +208,12 @@ clip regions the engine tests before it samples.
 - **Roots on subdivision boundaries are checked explicitly.** A root exactly
   at a Bernstein split point is invisible to both children (endpoint touch,
   zero sign variations), so the splitter evaluates the split point itself.
-- **The nib is the only tolerance.** Clipping emits every visible piece;
+- **The nib rule judges runs whole.** Clipping emits every visible piece;
   `judge_runs` groups a contour's or chain's pieces into connected runs
   (pen-down movements) and judges each whole — a sub-nib run is one tap
-  candidate, resolved by exact coverage. Everything upstream is exact.
+  candidate, resolved by exact coverage. Upstream tolerances are the input
+  snap and curve flattening at export, both numerical policies rather
+  than artistic ones.
 - **Handles have owners.** `Prepared` is consumed by `finish`; the JS side
   frees it by hand only on the fill-throw path.
 - **One fill truth, JS.** Rust knows no pattern: the golden renders a
