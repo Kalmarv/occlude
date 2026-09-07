@@ -16,8 +16,9 @@ import { customFillNames, embedFills, importSketchWithFills } from './fillEmbed.
 import { UiPanel } from './uiPanel.js';
 
 declare const __BUILD_STAMP__: string;
-import { scanUiControls } from 'occlude';
+import { encodeToolpath, scanUiControls } from 'occlude';
 import { RenderClient, type WorkerError } from './workerClient.js';
+import { Drawing, machineTiming, machineTolerance, penTimingOf } from './drawing.js';
 import type { RenderResult } from 'occlude';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -56,6 +57,20 @@ async function boot(): Promise<void> {
   const preview = new Preview($('preview') as HTMLCanvasElement);
   preview.setPaperColor(settings.paperColor);
   let lastResult: RenderResult | null = null;
+  const activeProfile = () => profiles.find((p) => p.name === settings.activeProfile) ?? profiles[0];
+  // THE ordered plan of the current render, and the selection of it that
+  // the preview, exports, simulation and machine share.
+  const drawing = new Drawing(client, () => ({
+    opts: machineTiming(activeProfile()),
+    penOf: penTimingOf(lastResult?.pens ?? [], pens),
+    tolerance: machineTolerance(activeProfile(), lastResult?.pens ?? []),
+  }));
+  const showSelection = (): void => {
+    const plan = drawing.plan;
+    const sel = drawing.selection;
+    if (!plan || !sel || (sel.fromChain === 0 && sel.toChain === plan.chains.length)) preview.setSelection(null);
+    else preview.setSelection({ chains: plan.chains, from: sel.fromChain, to: sel.toChain, showOmitted: drawing.showOmitted });
+  };
   // Render-status ownership: the newest run's sequence number and the one
   // elapsed-time ticker (see runInner).
   let runSeq = 0;
@@ -211,6 +226,14 @@ async function boot(): Promise<void> {
       `${s.clean} clean · ${s.culledContained + s.culledOffPaper} culled · ` +
       `${s.renderMs.toFixed(1)}ms`;
     preview.setResult(result);
+    // Adopt this render's plan (identity verified); the standing selection
+    // request re-resolves against it. A stale reply cannot outrun a newer
+    // plan: setPlan is keyed by the plan it was given.
+    if (latest) {
+      drawing.setPlan(reply.plan, result.pens).catch((err: unknown) => {
+        say('status-err', `plan: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
     uiPanel.setProbes(reply.probes);
     seedUsed = reply.seedUsed;
     renderSeedControls(reply.seedUsed);
@@ -248,6 +271,8 @@ async function boot(): Promise<void> {
     profiles,
     settings,
     client,
+    drawing,
+    onSelectionView: showSelection,
     onChanged: () => void run(),
     onPaperColor: (hex) => preview.setPaperColor(hex),
     lastResult: () => lastResult,
@@ -317,6 +342,11 @@ async function boot(): Promise<void> {
       progress: (chain) => preview.liveProgress(chain),
       end: () => preview.endLive(),
     },
+  });
+
+  drawing.onChange(() => {
+    showSelection();
+    rail.refreshExport();
   });
 
   // Snapshot: freeze this source with the seed it rendered under. Fork: a
@@ -484,28 +514,16 @@ async function boot(): Promise<void> {
     if (!lastResult) return;
     plotBtn.textContent = '■ Stop';
     try {
-      const penTol = lastResult.pens.reduce((tol, pen) => Math.min(tol, pen.width / 4), Infinity);
-      const activeProf = profiles.find((p) => p.name === settings.activeProfile) ?? profiles[0];
-      const tol = Math.max(0.0001, Math.min(activeProf.machine.resolution, penTol));
+      const activeProf = activeProfile();
+      const tol = machineTolerance(activeProf, lastResult.pens);
       // The same tour budget as Plot and Export: the simulation must show
       // the order the machine will actually run.
-      const plan = await client.exportToolpath(200_000, tol);
+      // The SELECTED chains of the one plan — what Plot and Export use too.
+      const plan = encodeToolpath(await drawing.selectedToolpath(tol));
       preview.startPlot(
         plan,
         lastResult.pens,
-        {
-          travelFeed: activeProf.machine.travelFeed,
-          acceleration: activeProf.ebb.acceleration,
-          travelAcceleration: activeProf.ebb.travelAcceleration,
-          junctionDeviation: activeProf.ebb.junctionDeviation,
-          minimumCruiseRatio: activeProf.ebb.minimumCruiseRatio,
-          lift: {
-            penUpPulse: activeProf.ebb.penUpPulse,
-            map: activeProf.ebb.liftMap,
-            marginPulses: activeProf.ebb.liftMarginPulses,
-            settleCurve: activeProf.ebb.settleCurve,
-          },
-        },
+        machineTiming(activeProf),
         parseFloat(speedSel.value),
         (elapsed, total, pen) => {
           statusMsg.className = 'status-ok';

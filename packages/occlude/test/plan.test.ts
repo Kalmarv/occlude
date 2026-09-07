@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   DEFAULT_PENS, circle, rect, sketch, stroke, render, exportSvg, initOcclude, estimatePlanMs, schedulePlan,
-  planBuffer, planSvg, planGcode, planToolpath, makePlan, openPlan, hashPlan, canonicalJson,
+  plan as planOf, planBuffer, planSvg, planGcode, planToolpath, makePlan, openPlan, hashPlan, canonicalJson,
   decodePlanBuffer, encodePlanBuffer, parseToolpath, encodeToolpath,
   selectChains, selectAll, selectProgress, selectTime, selectedFlat, standaloneEstimate, fitDuration,
   type DrawingPlan, type FlatChain, type PlanChain, type EstimateOpts,
@@ -169,8 +169,9 @@ describe('engine: one plan, every consumer', () => {
 
   it('the full selection reproduces the legacy exports exactly; ranges are slices', async () => {
     const r = render(drawing, { paper: 'Square20' });
+    const p = await planOf(r);
     const { buffer, settings } = planBuffer(r);
-    const p = await makePlan(buffer, settings);
+    expect((await makePlan(buffer, settings)).planHash).toBe(p.planHash); // plan() IS planBuffer + makePlan
     expect(p.chains.length).toBeGreaterThan(20);
     expect(p.chains.some((c) => c.prims.some((q) => q.t === 'arc'))).toBe(true); // circles stay arcs
     const legacy = exportSvg(drawing, { paper: 'Square20' });

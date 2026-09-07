@@ -6,8 +6,18 @@
 
 import {
   drawFragments, evalPrim, schedulePlan, tracePrim,
-  type EstimateOpts, type PenDef, type RenderResult,
+  type EstimateOpts, type PenDef, type PlanChain as NativeChain, type RenderResult,
 } from 'occlude';
+
+/** A partial selection of the ordered plan to show instead of the raw
+ * fragments: the selected chains at nib width, the omitted ones as a
+ * preview-only ghost. Null shows the whole render. */
+export interface SelectionView {
+  chains: NativeChain[];
+  from: number;
+  to: number;
+  showOmitted: boolean;
+}
 
 interface PlanChain {
   pen: number;
@@ -52,6 +62,7 @@ export class Preview {
   /** The sheet's colour — what the ink is actually going onto. */
   private paperColor = '#f6f2ea';
   private sim: PlotSim | null = null;
+  private selection: SelectionView | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -79,9 +90,64 @@ export class Preview {
 
   setResult(r: RenderResult): void {
     this.result = r;
+    this.selection = null; // a new render: the selection view is re-supplied for its plan
     this.stopPlot();
     if (!this.fitted) this.fit();
     this.draw();
+  }
+
+  /** Show a chain range of the current plan (null = the whole drawing).
+   * A repaint only — nothing is rendered, solved or planned. */
+  setSelection(view: SelectionView | null): void {
+    this.selection = view;
+    this.draw();
+  }
+
+  /** The selected chains in real ink from their native primitives (arcs
+   * stay arcs), the omitted ones ghosted when asked. */
+  private drawSelection(ctx: CanvasRenderingContext2D, view: SelectionView, pens: PenDef[]): void {
+    const { chains, from, to } = view;
+    if (view.showOmitted) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(91, 139, 217, 0.45)';
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.lineWidth = 0.12;
+      ctx.setLineDash([0.8, 0.8]);
+      ctx.beginPath();
+      for (let i = 0; i < chains.length; i++) {
+        if (i >= from && i < to) continue;
+        for (const p of chains[i].prims) tracePrim(ctx, p);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    let pen = -1;
+    ctx.beginPath();
+    for (let i = from; i < to; i++) {
+      const c = chains[i];
+      if (c.pen !== pen) {
+        ctx.stroke();
+        pen = c.pen;
+        const def = pens[pen];
+        ctx.strokeStyle = def?.color ?? '#111';
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.lineWidth = def?.width ?? 0.3;
+        ctx.beginPath();
+      }
+      if (c.dot) {
+        const q = c.prims[0];
+        const [x, y] = q.t === 'line' ? [q.x0, q.y0] : evalPrim(q, 0);
+        ctx.moveTo(x + ctx.lineWidth / 2, y);
+        ctx.arc(x, y, ctx.lineWidth / 2, 0, Math.PI * 2);
+        continue;
+      }
+      for (const p of c.prims) tracePrim(ctx, p);
+    }
+    ctx.stroke();
+    ctx.restore();
   }
 
   get plotting(): boolean {
@@ -591,7 +657,8 @@ export class Preview {
       ctx.restore();
     }
 
-    drawFragments(ctx, r.frags, r.pens);
+    if (this.selection) this.drawSelection(ctx, this.selection, r.pens);
+    else drawFragments(ctx, r.frags, r.pens);
 
     if (this.debug.bridges) {
       // Bridge connectors: the pen-down joins the bridge opt inserted —

@@ -10,7 +10,7 @@
  * host runs elsewhere (the studio's main thread decodes posted buffers).
  */
 
-import { parseToolpath, type DrawingPlan, type FlatChain, type PlanSelection, type PlanSettings } from './plan.js';
+import { makePlan, parseToolpath, type DrawingPlan, type FlatChain, type PlanSelection, type PlanSettings } from './plan.js';
 import {
   resolveFill, validateFillParams,
   type CustomPrimitive, type FillCtx, type FillRegion, type FillSpec,
@@ -1170,6 +1170,15 @@ export function planBuffer(result: RenderResult, opts: { tourBudget?: number; en
     ...(opts.engine ? { engine: opts.engine } : {}),
   };
   return { buffer, settings };
+}
+
+/** THE entry: plan a rendered result once and get the plan as a value —
+ * hashed, decoded, ready for `selectChains` & co. and the `plan*`
+ * exporters. `plan(render(def))` is the whole story; nothing downstream
+ * plans again. Async only because the identity is a SHA-256 digest. */
+export async function plan(result: RenderResult, opts: { tourBudget?: number; engine?: string } = {}): Promise<DrawingPlan> {
+  const { buffer, settings } = planBuffer(result, opts);
+  return makePlan(buffer, settings);
 }
 
 const checkSelection = (plan: DrawingPlan, sel: PlanSelection): void => {

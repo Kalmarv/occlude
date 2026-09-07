@@ -7,6 +7,7 @@
  */
 
 import {
+  encodeToolpath, chainsBounds, type FlatChain,
   estimatePlanMs, profileToJson,
   type GcodeJob, type PenDef, type RenderResult,
 } from 'occlude';
@@ -18,6 +19,7 @@ import {
 } from './store.js';
 import { serialSupported, type PlotProgress } from './ebb.js';
 import { buildConnect, buildManualControls, buildProfileSelect, createSession } from './machine.js';
+import { machineTiming, machineTolerance, penTimingOf, type Drawing, type SelectionRequest } from './drawing.js';
 import type { RenderClient } from './workerClient.js';
 import { button, checkbox, el, hint, numberInput, pairInput, row, segmented } from './widgets.js';
 
@@ -33,6 +35,11 @@ export interface PanelHooks {
   /** The seed the current render actually used (resume checks it). */
   currentSeed(): string | null;
   client: RenderClient;
+  /** THE ordered plan of the current render and the selection of it that
+   * preview, exports, simulation and the machine all use. */
+  drawing: Drawing;
+  /** Repaint the preview's selection view (a preview-only toggle moved). */
+  onSelectionView(): void;
   getSource(): string;
   openSketch(name: string, source: string): void;
   currentName(): string;
@@ -55,23 +62,6 @@ export interface Rail {
   /** Save the current sketch under its name (Ctrl+S path). Resolves with the
    * saved name, or null when there is no name yet. */
   saveCurrent(): Promise<string | null>;
-}
-
-/** Extent of a toolpath plan in paper mm (origin = plot origin). */
-function planBbox(plan: Float64Array): { x: number; y: number; w: number; h: number } {
-  let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
-  for (let i = 0; i < plan.length; ) {
-    i += 2; // pen, dot
-    const n = plan[i++];
-    for (let k = 0; k < n; k++) {
-      const x = plan[i++];
-      const y = plan[i++];
-      x0 = Math.min(x0, x); y0 = Math.min(y0, y);
-      x1 = Math.max(x1, x); y1 = Math.max(y1, y);
-    }
-  }
-  if (!Number.isFinite(x0)) return { x: 0, y: 0, w: 0, h: 0 };
-  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
 /** Callbacks re-rendering profile-bound controls after a profile switch —
@@ -106,11 +96,13 @@ export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
   const sketchesPanel = panel('Sketch', true);
   const paperPanel = panel('Paper', true);
   const pensPanel = panel('Pens', true);
+  const drawingPanel = panel('Drawing', true);
   const exportPanel = panel('Export', false);
-  compose.append(sketchesPanel.root, paperPanel.root, pensPanel.root, exportPanel.root);
+  compose.append(sketchesPanel.root, paperPanel.root, pensPanel.root, drawingPanel.root, exportPanel.root);
 
   const sketches = buildSketchesPanel(sketchesPanel.body, hooks);
   buildPensPanel(pensPanel.body, hooks);
+  buildDrawingPanel(drawingPanel.body, hooks);
   buildPaperPanel(paperPanel.body, hooks);
   buildPlotPanel(plot, hooks);
   const refreshExport = buildExportPanel(exportPanel.body, hooks);
@@ -519,6 +511,112 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
   );
 }
 
+// ---- the ordered drawing: choose a prefix or interval of the plan ----
+
+const fmtMin = (ms: number): string => (ms >= 60_000 ? `${(ms / 60_000).toFixed(1)} min` : `${Math.ceil(ms / 1000)} s`);
+
+function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
+  const d = hooks.drawing;
+  type Mode = 'full' | 'prefix' | 'interval';
+  type Unit = 'chains' | 'progress' | 'time';
+  let mode: Mode = 'full';
+  let unit: Unit = 'chains';
+  let from = 0;
+  let to = 0;
+  let budgetOn = false;
+  let budgetMin = 20;
+
+  const readout = document.createElement('div');
+  readout.className = 'panel-hint drawing-readout';
+  const fromInput = numberInput(0, 1, (v) => { from = v; apply(); });
+  const toInput = numberInput(0, 1, (v) => { to = v; apply(); });
+  const fromRow = row('From', fromInput);
+  const toRow = row('To', toInput);
+  const unitSeg = segmented(
+    [
+      { key: 'chains' as const, label: 'chains', title: 'Whole chains of the plan, [from, to)' },
+      { key: 'progress' as const, label: '% chains', title: 'Fraction OF CHAINS — not ink, area or time' },
+      { key: 'time' as const, label: 'min', title: 'An interval of the full drawing\'s estimated timeline, quantized to whole chains' },
+    ],
+    unit,
+    (u) => { unit = u; syncInputs(); apply(); },
+  );
+  const modeSeg = segmented(
+    [
+      { key: 'full' as const, label: 'Full', title: 'The whole plan' },
+      { key: 'prefix' as const, label: 'Prefix', title: 'From the first chain up to a stopping point' },
+      { key: 'interval' as const, label: 'Interval', title: 'A contiguous middle stretch of the plan' },
+    ],
+    mode,
+    (m) => { mode = m; syncInputs(); apply(); },
+  );
+  const budgetInput = numberInput(budgetMin, 1, (v) => { budgetMin = v; apply(); });
+  const budgetBox = checkbox('Fit an estimated budget (min)', budgetOn, (v) => { budgetOn = v; apply(); });
+  const budgetRow = row('Budget', budgetInput, 'Longest prefix of the selection whose standalone estimate fits — travel in and final lift included; human waits not modelled');
+  const omitted = checkbox('Ghost the omitted ink (preview only)', d.showOmitted, (v) => { d.showOmitted = v; hooks.onSelectionView(); });
+
+  const syncInputs = (): void => {
+    fromRow.style.display = mode === 'interval' ? '' : 'none';
+    toRow.style.display = mode === 'full' ? 'none' : '';
+    unitSeg.root.style.display = mode === 'full' ? 'none' : '';
+    const step = unit === 'chains' ? 1 : unit === 'progress' ? 1 : 0.5;
+    fromInput.step = String(step);
+    toInput.step = String(step);
+  };
+  const request = (): SelectionRequest => {
+    if (mode === 'full') return { kind: 'full' };
+    const a = mode === 'prefix' ? 0 : from;
+    if (unit === 'chains') return { kind: 'chains', from: Math.max(0, Math.round(a)), to: Math.max(0, Math.round(to)) };
+    if (unit === 'progress') return { kind: 'progress', from: Math.min(1, Math.max(0, a / 100)), to: Math.min(1, Math.max(0, to / 100)) };
+    return { kind: 'time', fromMs: Math.max(0, a) * 60_000, toMs: Math.max(0, to) * 60_000 };
+  };
+  const apply = (): void => {
+    const req = request();
+    if (req.kind !== 'full' && ((req.kind === 'chains' && req.from > req.to) || (req.kind === 'progress' && req.from > req.to) || (req.kind === 'time' && req.fromMs > req.toMs))) {
+      readout.textContent = 'from must not exceed to';
+      return;
+    }
+    void d.select(req, budgetOn ? budgetMin * 60_000 : null).catch((e: unknown) => {
+      readout.textContent = e instanceof Error ? e.message : String(e);
+    });
+  };
+  const refresh = (): void => {
+    const plan = d.plan;
+    const r = d.current;
+    if (!plan || !r) {
+      readout.textContent = 'render a sketch to see its plan';
+      return;
+    }
+    const n = plan.chains.length;
+    const final = r.fit?.selection ?? r.selection;
+    const parts: string[] = [];
+    parts.push(`chains ${final.fromChain}–${final.toChain} of ${n} (${final.count} selected)`);
+    if (r.effective) parts.push(`effective ${fmtMin(r.effective.fromMs)}–${fmtMin(r.effective.toMs)} of ${fmtMin(r.fullMs)}`);
+    parts.push(`standalone ETA ${fmtMin(r.estimate.totalMs)}` + (final.count < n ? ` (full plan ${fmtMin(r.fullMs)})` : ''));
+    if (r.fit) parts.push(r.fit.dropped > 0 ? `budget: ${r.fit.dropped} chains dropped, ${fmtMin(r.fit.unusedMs)} unused` : `budget: fits, ${fmtMin(r.fit.unusedMs)} unused`);
+    readout.textContent = parts.join(' · ');
+    // The inputs' ceilings follow the plan so the controls stay meaningful.
+    if (unit === 'chains') { toInput.max = String(n); fromInput.max = String(n); }
+    if (unit === 'progress') { toInput.max = '100'; fromInput.max = '100'; }
+    if (unit === 'time') { toInput.max = String(Math.ceil(r.fullMs / 60_000)); fromInput.max = toInput.max; }
+  };
+  d.onChange(refresh);
+  syncInputs();
+  refresh();
+
+  body.append(
+    modeSeg.root,
+    unitSeg.root,
+    fromRow,
+    toRow,
+    budgetBox,
+    budgetRow,
+    omitted,
+    readout,
+    hint('Selection reuses the plan as rendered: nothing is re-solved, reordered or re-bridged, and ink hidden by later shapes stays hidden. Exports, Simulate and Plot all use this selection.'),
+  );
+}
+
 // ---- plot: EBB (AxiDraw-family) over Web Serial ----
 
 function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
@@ -630,12 +728,13 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   /** The plan for the current render at a pen selection (undefined = all),
    * with the bed-fit check. Shared by Plot and Resume. */
   const buildPlan = async (r: RenderResult, penIndex: number | undefined): Promise<Float64Array | null> => {
-    const penTol = penIndex === undefined
-      ? r.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)
-      : (r.pens[penIndex]?.width ?? Infinity) / 4;
-    const tol = Math.max(0.0001, Math.min(prof().machine.resolution, penTol));
-    const plan = await hooks.client.exportToolpath(200_000, tol);
-    const bb = planBbox(plan);
+    const tol = machineTolerance(prof(), penIndex === undefined ? r.pens : [r.pens[penIndex] ?? r.pens[0]]);
+    // The SELECTED chains of the plan, source indices kept; the driver's
+    // pen filter is an execution filter over that same sequence.
+    const flat = await hooks.drawing.selectedToolpath(tol);
+    executed = penIndex === undefined ? flat : flat.filter((c) => c.pen === penIndex);
+    const plan = encodeToolpath(flat);
+    const bb = chainsBounds(executed);
     const bed = prof().machine;
     const [ox, oy] = ebb.paperOffset;
     if (ox + bb.x + bb.w > bed.bedW + 0.5 || oy + bb.y + bb.h > bed.bedH + 0.5) {
@@ -648,16 +747,26 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     return plan;
   };
 
-  // Saved progress: enough to rebuild the same plan and carry on from the
-  // chain the machine reached — after a stop, a crashed tab, or a power loss.
+  /** The chains the driver is executing (selection, then pen filter): the
+   * driver reports indices into this list; source rows come from it. */
+  let executed: FlatChain[] = [];
+
+  // Saved progress: which plan, which selection of it, and the chain the
+  // machine reached — after a stop, a crashed tab, or a power loss.
   interface SavedPlot {
     sketch: string;
     sourceHash: string;
     seed: string | null;
     penIndex: number | null;
     paperOffset: [number, number];
+    /** Index into the EXECUTED list (selection, pen-filtered). */
     chain: number;
     chainTotal: number;
+    /** Full-plan row of that chain, for reading. */
+    sourceChain: number | null;
+    /** Identity of the plan and the selected range this progress is of. */
+    planHash: string | null;
+    selection: { from: number; to: number } | null;
     ts: string;
   }
   const hashSource = (src: string): string => {
@@ -677,9 +786,11 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     savedBox.hidden = !saved;
     if (!saved) return;
     const pen = saved.penIndex === null ? 'all pens' : `pen ${saved.penIndex}`;
+    const range = saved.selection ? `chains ${saved.selection.from}–${saved.selection.to} of the plan` : 'the whole plan';
     savedText.textContent =
-      `Unfinished: ${saved.sketch}, ${pen}, chain ${saved.chain} of ${saved.chainTotal}, ` +
-      `paper at ${saved.paperOffset[0]}, ${saved.paperOffset[1]} mm. ` +
+      `Unfinished: ${saved.sketch}, ${pen}, ${range}, executed chain ${saved.chain} of ${saved.chainTotal}` +
+      (saved.sourceChain !== null ? ` (plan row ${saved.sourceChain})` : '') +
+      `, paper at ${saved.paperOffset[0]}, ${saved.paperOffset[1]} mm. ` +
       'After a power loss, re-park at the bed corner and Set bed origin first.';
   };
   const putProgress = (p: SavedPlot): void => {
@@ -704,6 +815,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     if (!r) return;
     const plan = await buildPlan(r, penIndex);
     if (!plan) return;
+    const sel = hooks.drawing.selection;
     const record = (chain: number, chainTotal: number): void => {
       putProgress({
         sketch: hooks.currentName(),
@@ -711,7 +823,11 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         seed: hooks.currentSeed(),
         penIndex: penIndex ?? null,
         paperOffset: [...ebb.paperOffset] as [number, number],
-        chain, chainTotal, ts: new Date().toISOString(),
+        chain, chainTotal,
+        sourceChain: executed[chain]?.index ?? null,
+        planHash: hooks.drawing.plan?.planHash ?? null,
+        selection: sel ? { from: sel.fromChain, to: sel.toChain } : null,
+        ts: new Date().toISOString(),
       });
       lastSavedChain = chain;
       lastSavedAt = Date.now();
@@ -768,11 +884,11 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     const r = hooks.lastResult();
     if (!r) return;
     try {
-      const tol = Math.max(0.0001, prof().machine.resolution);
-      const plan = await hooks.client.exportToolpath(200_000, tol);
-      const bb = planBbox(plan);
-      // Pen-up perimeter of the plan's bounding box, at the paper offset:
-      // the placement check no model can do.
+      // Policy: frame the SELECTED ink — what this run will put on paper.
+      const flat = await hooks.drawing.selectedToolpath(Math.max(0.0001, prof().machine.resolution));
+      const bb = chainsBounds(flat);
+      // Pen-up perimeter of the selection's bounding box, at the paper
+      // offset: the placement check no model can do.
       const [ox, oy] = ebb.paperOffset;
       const legs: [number, number][] = [
         [ox + bb.x, oy + bb.y], [bb.w, 0], [0, bb.h], [-bb.w, 0], [0, -bb.h], [-(ox + bb.x), -(oy + bb.y)],
@@ -790,11 +906,22 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     if (!r) return;
     try {
       const sv = saved;
-      if (hooks.currentName() !== sv.sketch || hashSource(hooks.getSource()) !== sv.sourceHash) {
-        throw new Error(`resume: load the saved sketch "${sv.sketch}" unchanged first (Sketches page)`);
-      }
-      if ((hooks.currentSeed() ?? null) !== sv.seed) {
-        throw new Error(`resume: the saved plot used seed ${sv.seed}; open the sketch with ?seed=${sv.seed}`);
+      // Identity, not heuristics: the current plan must BE the saved plan.
+      const plan = hooks.drawing.plan;
+      if (sv.planHash) {
+        if (!plan) throw new Error('resume: render the saved sketch first');
+        if (plan.planHash !== sv.planHash) {
+          throw new Error(
+            `resume: the current drawing is not the saved plan (hash ${plan.planHash.slice(0, 8)}… vs ${sv.planHash.slice(0, 8)}…) — ` +
+            `open "${sv.sketch}" unchanged with seed ${sv.seed ?? '—'}, the same pens and paper`,
+          );
+        }
+        const cur = hooks.drawing.selection;
+        if (sv.selection && cur && (cur.fromChain !== sv.selection.from || cur.toChain !== sv.selection.to)) {
+          throw new Error(`resume: the saved plot selected chains ${sv.selection.from}–${sv.selection.to}; set the Drawing panel to that range first`);
+        }
+      } else if (hooks.currentName() !== sv.sketch || hashSource(hooks.getSource()) !== sv.sourceHash || (hooks.currentSeed() ?? null) !== sv.seed) {
+        throw new Error(`resume: load the saved sketch "${sv.sketch}" unchanged (seed ${sv.seed}) first — this record predates plan identities`);
       }
       ebb.paperOffset = [...sv.paperOffset] as [number, number];
       const penIndex = sv.penIndex === null ? undefined : sv.penIndex;
@@ -803,7 +930,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       showErr(e);
     }
   });
-  resumeBtn.title = 'Rebuild the same plan (same sketch, source and seed) and carry on from the saved chain at the saved paper offset.';
+  resumeBtn.title = 'Carry on from the saved chain at the saved paper offset — only when the current render IS the saved plan (same hash) and the same range is selected.';
   const clearSavedBtn = button('Forget', clearProgress);
   savedBox.append(savedText, el('div', 'row', resumeBtn, clearSavedBtn));
 
@@ -870,10 +997,9 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
 
   const table = document.createElement('table');
   table.className = 'export-table';
-  const svgAll = button('Download SVG (all pens)', async () => {
-    const r = hooks.lastResult();
-    if (!r) return;
-    const svg = await hooks.client.exportSvg(r.paper.w, r.paper.h, hooks.settings.paperColor, -1);
+  const svgAll = button('Download SVG (selection, all pens)', async () => {
+    if (!hooks.lastResult()) return;
+    const svg = await hooks.drawing.svg(hooks.settings.paperColor, -1);
     download('occlude.svg', svg, 'image/svg+xml');
   });
   svgAll.className = 'primary';
@@ -906,22 +1032,11 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
       r.paper,
     );
     // Times come from THE ground-truth model (the EBB planner's math with
-    // the CURRENT machine settings), per pen as if plotted alone — the
-    // G-code jobs' own estimates assume a generic G-code machine and were
-    // the source of wildly divergent numbers.
+    // the CURRENT machine settings), per pen as if plotted alone, over the
+    // SELECTED chains of the one plan — the same chains the G-code encodes.
     const tol = Math.max(0.0001, prof().machine.resolution);
-    const planPromise = hooks.client.exportToolpath(200_000, tol).then((plan) => {
-      const chains: { pen: number; dot: boolean; pts: Float64Array }[] = [];
-      for (let i = 0; i < plan.length; ) {
-        const pen = plan[i++];
-        const dot = plan[i++] === 1;
-        const n = plan[i++];
-        chains.push({ pen, dot, pts: plan.subarray(i, i + n * 2) });
-        i += n * 2;
-      }
-      return chains;
-    });
-    Promise.all([hooks.client.exportGcode(profileJson, 200_000), planPromise])
+    const planPromise = hooks.drawing.selectedToolpath(tol);
+    Promise.all([hooks.drawing.gcode(profileJson), planPromise])
       .then(([json, chains]) => {
         const jobs = JSON.parse(json) as GcodeJob[];
         table.innerHTML = '';
@@ -939,26 +1054,7 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
           stats.textContent = `${frags} frags`;
           const time = tr.insertCell();
           time.className = 'num';
-          const est = estimatePlanMs(
-            chains.filter((c) => c.pen === job.pen),
-            () => {
-              const pd = hooks.pens.find((pp) => pp.name === job.penName) ?? pen;
-              return pd ? { feed: pd.feed, penDelay: pd.penDelay } : undefined;
-            },
-            {
-              travelFeed: prof().machine.travelFeed,
-              acceleration: prof().ebb.acceleration,
-              travelAcceleration: prof().ebb.travelAcceleration,
-              junctionDeviation: prof().ebb.junctionDeviation,
-              minimumCruiseRatio: prof().ebb.minimumCruiseRatio,
-              lift: {
-                penUpPulse: prof().ebb.penUpPulse,
-                map: prof().ebb.liftMap,
-                marginPulses: prof().ebb.liftMarginPulses,
-                settleCurve: prof().ebb.settleCurve,
-              },
-            },
-          );
+          const est = estimatePlanMs(chains.filter((c) => c.pen === job.pen), penTimingOf(r.pens, hooks.pens), machineTiming(prof()));
           const mins = est.totalMs / 60000;
           time.title = 'Plot-time estimate: the EBB planner model with current machine settings';
           time.textContent =
@@ -968,7 +1064,7 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
             download(`occlude-${job.penName}.gcode`, job.gcode),
           );
           const sBtn = button('svg', async () => {
-            const svg = await hooks.client.exportSvg(r.paper.w, r.paper.h, undefined, job.pen);
+            const svg = await hooks.drawing.svg(undefined, job.pen);
             download(`occlude-${job.penName}.svg`, svg, 'image/svg+xml');
           });
           dl.append(gBtn, document.createTextNode(' '), sBtn);

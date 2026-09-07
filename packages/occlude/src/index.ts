@@ -99,7 +99,7 @@ export {
   parseToolpath, encodeToolpath, selectChains, selectAll, selectProgress, selectTime, selectedFlat,
   standaloneEstimate, fitDuration, planSchedule, chainsBounds,
 } from './plan.js';
-export { planBuffer, planSvg, planGcode, planToolpath } from './render.js';
+export { plan, planBuffer, planSvg, planGcode, planToolpath } from './render.js';
 export type { PlanChain, PlanSettings, DrawingPlan, PlanSelection, FlatChain, TimeSelection, FitResult } from './plan.js';
 export { PAPERS, paperSize } from './paper.js';
 export type { Paper, PaperChoice } from './paper.js';
@@ -128,7 +128,7 @@ export type { UiOpts, UiControl } from './ui.js';
 export {
   planPolyline, planDurationMs, segmentsToBlocks, estimatePlanMs, schedulePlan,
 } from './motion.js';
-export type {
+export type { PenTiming,
   MotionLimits, PlannedSegment, MotionBlock, Point, PlanEstimate, EstimateOpts, PlanSchedule,
 } from './motion.js';
 

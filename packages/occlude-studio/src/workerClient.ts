@@ -7,7 +7,7 @@
  * the worker's perspective; the watchdog is the only hard interruption.
  */
 
-import { decodeRender, type EncodedScene, type ProbeSummary, type RenderResult } from 'occlude';
+import { decodeRender, type EncodedScene, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
 import type { RunConfig } from './runner.js';
 
 export interface RenderRequest {
@@ -22,6 +22,15 @@ export interface RenderReply {
   seedUsed: string;
   /** `t.probe()` readouts from this run. */
   probes: Record<string, ProbeSummary>;
+  /** The ordered plan of this render: exact bytes, settings, identity. */
+  plan: { buffer: Float64Array; settings: PlanSettings; planHash: string };
+}
+
+/** A contiguous range of one plan, named by the plan's hash. */
+export interface PlanRange {
+  planHash: string;
+  from: number;
+  to: number;
 }
 
 /** Worker errors carry the sketch flag when execution (not geometry)
@@ -190,10 +199,16 @@ export class RenderClient {
             paper: EncodedScene['paper'];
             seedUsed: string;
             probes: Record<string, ProbeSummary>;
+            plan: Float64Array;
+            planSettings: PlanSettings;
+            planHash: string;
           };
           // decodeRender reads only pens/frame/paper from the scene half.
           const meta = { pens: m.pens, frame: m.frame, paper: m.paper } as EncodedScene;
-          resolve({ result: decodeRender(meta, m), seedUsed: m.seedUsed, probes: m.probes ?? {} });
+          resolve({
+            result: decodeRender(meta, m), seedUsed: m.seedUsed, probes: m.probes ?? {},
+            plan: { buffer: m.plan, settings: m.planSettings, planHash: m.planHash },
+          });
         },
         reject,
       };
@@ -209,28 +224,34 @@ export class RenderClient {
     });
   }
 
-  exportGcode(profileJson: string, budget: number): Promise<string> {
-    return this.request({ type: 'gcode', profileJson, budget }, 'json');
+  /** G-code jobs (JSON) of a plan range — encoded from the worker's plan,
+   * never planned again; rejects when the hash is not the current plan. */
+  planGcode(range: PlanRange, profileJson: string): Promise<string> {
+    return this.request({ type: 'plan-gcode', ...range, profileJson }, 'json');
   }
 
-  exportSvg(
-    width: number,
-    height: number,
-    background: string | undefined,
-    onlyPen: number,
-    budget = 200_000,
-  ): Promise<string> {
-    return this.request({ type: 'svg', width, height, background, onlyPen, budget }, 'svg');
+  planSvg(range: PlanRange, width: number, height: number, background: string | undefined, onlyPen = -1): Promise<string> {
+    return this.request({ type: 'plan-svg', ...range, width, height, background, onlyPen }, 'svg');
   }
 
-  exportToolpath(budget: number, tolerance: number): Promise<Float64Array> {
+  /** Sampled chains of a plan range: the toolpath layout, from `range.from`. */
+  planToolpath(range: PlanRange, tolerance: number): Promise<Float64Array> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
       this.pending.set(id, {
         resolve: (msg) => resolve((msg as { plan: Float64Array }).plan),
         reject,
       });
-      this.worker.postMessage({ type: 'toolpath', id, budget, tolerance });
+      this.worker.postMessage({ type: 'plan-toolpath', id, ...range, tolerance });
+    });
+  }
+
+  /** Make a saved plan the worker's current one (verified against its hash). */
+  loadPlan(buffer: Float64Array, settings: PlanSettings, planHash: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const id = this.nextId++;
+      this.pending.set(id, { resolve: () => resolve(), reject });
+      this.worker.postMessage({ type: 'plan-load', id, buffer, settings, planHash });
     });
   }
 
