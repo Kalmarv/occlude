@@ -415,6 +415,23 @@ Recorded here so the next entry starts from evidence, not from a guess:
 | `schedulePlan` (JS) | 20 ms |
 | `append` ×400 (quadratic by construction) | 23 ms |
 
+## Whole-set verification against the loop's baseline
+
+`renderhash --check` over **all 26 studio sketches**, seed 42, baseline
+`750214f` restored in place and then `beb30ae`: **26 of 26 hash identically.**
+The sketch-time ratios on that pass:
+
+| ≥ 1.4× faster | 1.05–1.4× faster | within noise |
+|---|---|---|
+| web-growth 2.50×, contour-portrait 2.52×, ring-growth-compact 1.90×, ring 1.81×, ring-growth-material 1.81×, ring-growth-alt 1.77×, lbg-stipple-2 1.62×, contours-3 1.47×, clearance-grid 1.46× | testing-fields 1.38×, Ivy2 1.37×, contours 1.25×, contours-2-multicolor-3 1.21×, Ivy 1.17×, contours-2 1.11×, contours-2-multicolor 1.08×, Ivy3 1.08×, convert 1.06× | flow-user, settle-sweep, lbg-stipple, church, beach-house, flow-portrait, messing-around, pen-width-test |
+
+The eight in the last column first appeared as 0.78–0.95× on a single pass.
+Re-measured interleaved, twice each, they are noise: beach-house 232/224 →
+204/233 ms, church 612/576 → 581/655 ms, flow-portrait 986/831 → 950/1029 ms,
+messing-around 346/324 → 309/339 ms, lbg-stipple 1201/1199 → 1169/1134 ms.
+All of them are dominated by encode and the wasm passes, which none of these
+entries touch, on a box shared with other services.
+
 ## Rejected, with reasons
 
 - **Scalar `rk4` / `dir` in `streamlines.ts`** (return into scratch variables
@@ -435,6 +452,14 @@ Recorded here so the next entry starts from evidence, not from a guess:
   plain array. Reverted — a duplicated loop and a branch for no measured
   benefit. `sumBy`'s cost is the accumulation and the `vx`/`vy` calls
   themselves.
+- **Caching the seeded `Rng` behind the module-level `noise()`**. Profiling
+  contours-2-multicolor-3 put 637 ms of self time in the simplex kernel, and a
+  micro-benchmark seemed to show the wrapper adding 17 ns to a 25 ns call
+  (`state.noise` 209 ms vs `rng.noise` 127 ms per five million). Building the
+  candidate — cache the state's `rng` behind an identity check — measured flat:
+  150/189 ms before, 161/160 ms after. The apparent overhead was the
+  micro-benchmark's own single, fully-inlined call site, not something the real
+  call sites pay. No change made.
 - **`Object.defineProperties` for the view brand** (one call instead of two):
   1 377 ms per two million views against 751 ms for two `defineProperty` calls —
   nearly twice as slow. See entry 3.
