@@ -292,4 +292,4 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
 
 ## Where to look things up
 
-`attribute` and `filter` are under *Making a material* and *Collections and selections* on [Materials](#/materials); the debug layer under *Inspecting a material*; `groupBy` and `segmentRuns` under *Collections and selections* and *Runs and bands*. Next, chapter 4: one edit became a pond; many edits in a row make it move and grow.
+`attribute` and `filter` are under *Making a material* and *Collections and selections* on [Materials](#/materials); the debug layer under *Inspecting a material*; `groupBy` and `segmentRuns` under *Collections and selections* and *Runs and bands*. Next, chapter 4 leaves the landscape behind: a bare ring, one small rule, and what happens when the rule acts forty times.
