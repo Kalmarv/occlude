@@ -1,26 +1,21 @@
 # Fields & variation
 
-Seeded randomness and noise, remapping and shaping values, scalar and vector fields over the page, and the contours and flow lines that read them.
+Seeded randomness and noise, independent streams, remapping and shaping values, scalar and vector fields over the page, and the contours and flow lines that read them. A field is a function that returns a value at a position, `(x, y) => number` for scalars and `(x, y) => [dx, dy]` for vectors. Fields are called in drawable units.
 
 ## Randomness
 
-All randomness is seeded by the sketch (`seed` in the config, or the URL's
-`?seed=`): the same seed always draws the same picture — on screen and on
-paper.
+All randomness derives from the sketch's seed (`seed` in the config, or `?seed=` in the URL). The same source and seed give the same geometry.
 
-### rnd / pick / chance
-
-`rnd()` 0–1, `rnd(n)` 0–n, `rnd(a, b)`; `pick(arr)` one element;
-`chance(p)` a boolean.
+`t.rnd()` returns 0 to 1, `t.rnd(n)` 0 to n, `t.rnd(a, b)` a to b. `t.pick(arr)` returns one element and `t.chance(p)` a boolean.
 
 ```ts live
 import { sketch, circle, rect } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) =>
-  t.times(60, () => {
-    const x = t.rnd(4, 96);
-    const y = t.rnd(4, 46);
-    const r = t.rnd(1, 5);
+  t.times(90, () => {
+    const x = t.rnd(8, 192);
+    const y = t.rnd(8, 92);
+    const r = t.rnd(2, 9);
     return t.chance(0.7) ? circle(x, y, r) : rect(x - r, y - r, r * 2, r * 2);
   }),
 );
@@ -28,30 +23,25 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) =>
 
 ### noise
 
-`noise(x, y?, z?)` — seeded smooth noise in −1…1. Sample it at a coarse
-scale for terrain, fine for texture; the same coordinates always return
-the same value within a seed.
+`t.noise(x, y?, z?)` is seeded smooth noise in the range −1 to 1. Sample it coarsely for terrain and finely for texture; within a seed the same coordinates always return the same value.
 
 ```ts live
 import { sketch, path } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) =>
   t.times(16, (k) => {
-    const p = path().moveTo(0, 48);
-    for (let x = 0; x <= 100; x += 2.5) {
-      p.lineTo(x, 44 - k * 2.4 - t.noise(x * 0.03 + k * 0.15, k * 0.5) * 9);
+    const p = path().moveTo(0, 92 - k * 5);
+    for (let x = 0; x <= 200; x += 4) {
+      p.lineTo(x, 88 - k * 5 - t.noise(x * 0.015 + k * 0.15, k * 0.5) * 14);
     }
     return p.build();
   }),
 );
 ```
 
-### stream
+### Independent streams
 
-`stream(name)` — an independent random stream keyed off the master seed
-(`rnd/pick/chance/noise` on it). Parts of a composition that draw from
-their own streams don't reshuffle each other when you edit one — iterate
-the stars without moving the mountains.
+`t.stream(name)` returns a random stream keyed off the seed, with its own `rnd`, `pick`, `chance` and `noise`. Parts of a drawing that read separate streams do not reshuffle one another when one of them changes: adding a star does not move the ridge.
 
 ```ts live
 import { sketch, circle, path } from 'occlude';
@@ -59,92 +49,129 @@ import { sketch, circle, path } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
   const stars = t.stream('stars');
   const ground = t.stream('ground');
-  const ridge = path().moveTo(0, 50);
-  for (let x = 0; x <= 100; x += 4) ridge.lineTo(x, 38 - ground.noise(x * 0.06) * 8);
+  const ridge = path().moveTo(0, 100);
+  for (let x = 0; x <= 200; x += 5) ridge.lineTo(x, 72 - ground.noise(x * 0.03) * 14);
+  ridge.lineTo(200, 100).close();
   return [
-    t.times(40, () => circle(stars.rnd(100), stars.rnd(26), stars.rnd(0.2, 0.7))),
-    ridge.build(),
+    t.times(70, () => circle(stars.rnd(200), stars.rnd(60), stars.rnd(0.3, 1.2))),
+    ridge.build({ opaque: true }),
   ];
 });
 ```
 
-### map / norm / invertRange & ease
+## Remapping and easing
 
-`map(v, a, b, c, d)` remaps ranges; `norm` to 0–1; `invertRange(v, max,
-min?)` mirrors a value within a range (`invert` now complements clip
-regions — see Combinators).
-`ease.*` reshapes a normalised t — when t drives spacing, local density is
-the curve's slope.
+`map(v, a, b, c, d)` remaps a value from one range to another, `norm(v, a, b)` to 0 to 1, and `invertRange(v, max, min?)` mirrors a value within a range. The `ease` object holds the standard easing curves (`ease.cubicIn`, `ease.bounceOut`, `ease.backInOut` and the rest). When an eased value drives spacing, the local density is the curve's slope.
 
 ```ts live
 import { sketch, line, ease } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => [
-  t.times(22, (k, u) => line(4, 3 + u * 20, 48, 3 + u * 20)),                 // linear
-  t.times(22, (k, u) => line(52, 3 + ease.cubicIn(u) * 20, 96, 3 + ease.cubicIn(u) * 20)),
-  t.times(22, (k, u) => line(4, 27 + ease.bounceOut(u) * 20, 48, 27 + ease.bounceOut(u) * 20)),
-  t.times(22, (k, u) => line(52, 27 + ease.backInOut(u) * 20, 96, 27 + ease.backInOut(u) * 20)),
+  t.times(22, (k, u) => line(6, 6 + u * 40, 96, 6 + u * 40)),                                   // linear
+  t.times(22, (k, u) => line(104, 6 + ease.cubicIn(u) * 40, 194, 6 + ease.cubicIn(u) * 40)),
+  t.times(22, (k, u) => line(6, 54 + ease.bounceOut(u) * 40, 96, 54 + ease.bounceOut(u) * 40)),
+  t.times(22, (k, u) => line(104, 54 + ease.backInOut(u) * 40, 194, 54 + ease.backInOut(u) * 40)),
 ]);
 ```
 
 ### shaper
 
-`shaper(points, { method? })` — the tone curve from image editors as a
-value: knots, a curve through them (Akima by default; `'cubic'` or
-`'linear'`), and the result is a function. **The knots define the area**:
-the input runs from the first knot's x to the last's, the output stays
-between the lowest and highest knot. `[[0, 0], [1, 1]]` is a unit tone
-curve; `[[0, 0.65], [1, 3.75]]` turns a 0–1 luminance straight into
-millimetres of spacing; `[[0, 1], [1, 0]]` inverts. Lift the middle and
-midtones rise, flatten an end and it clips, an S adds contrast. Generic,
-not image-specific: a field's contrast, an easing for a sweep, streamline
-spacing by tone. In the studio the knot literal gets a curve editor beside
-the `ui()` sliders, its corners labelled with the area — drag a knot,
-double-click empty space to add one, double-click a knot to remove it —
-and every change rewrites the array in the code, so the sketch stays the
-spec. The editor's box is the knots' span as written, fixed while you
-drag; give `{ bounds: [[x0, y0], [x1, y1]] }` to pin the area explicitly
-(the input runs x0–x1, the output is clamped to y0–y1) so it survives
-knots being dragged to the edge — and with bounds, every knot moves
-freely inside the box.
+`shaper(points, { method?, bounds? })` is the tone curve from image editors as a value: knots, a curve through them (Akima by default, `'cubic'` or `'linear'` on request), and the result is a function. The knots define the area: input runs from the first knot's x to the last's, and output stays between the lowest and highest knot. `[[0, 0], [1, 1]]` is a unit curve, `[[0, 0.65], [1, 3.75]]` turns a luminance straight into millimetres of spacing, `[[0, 1], [1, 0]]` inverts. Lift the middle and midtones rise; flatten an end and it clips; an S adds contrast.
+
+In the studio the knot literal gets a curve editor beside the sliders. Drag a knot, double-click empty space to add one, double-click a knot to remove it; each change rewrites the array in the code. `bounds: [[x0, y0], [x1, y1]]` pins the area so it survives a knot being dragged to an edge.
 
 ```ts live
 import { sketch, circle, shaper } from 'occlude';
 
-// Dot sizes through a drawn curve: an S pushes the mids apart.
+// Dot sizes through an S curve: the midtones spread apart.
 export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
   const tone = shaper([[0, 0], [0.3, 0.12], [0.7, 0.88], [1, 1]]);
-  return t.grid({ cols: 24, rows: 12 }).map((c) => {
-    const v = tone(t.noise(c.x / 22, c.y / 22) * 0.5 + 0.5);
-    return v > 0.03 ? circle(c.x + c.w / 2, c.y + c.h / 2, v * c.w * 0.48) : null;
+  return t.grid({ cols: 40, rows: 20 }).map((c) => {
+    const v = tone(t.noise(c.x / 40, c.y / 40) * 0.5 + 0.5);
+    return v > 0.03 ? circle(c.cx, c.cy, v * c.w * 0.48) : null;
   });
 });
 ```
 
+## Fields
+
+Any `(x, y) => number` is a scalar field, and any `(x, y) => [dx, dy]` a vector field. Sketch-time consumers (`isolines`, `streamlines`, `scatter`, fills) call them directly. Engine-side modifier parameters marked as fielded in Shapes & layout (`decimate` probabilities, `wobble` amount, `roughen` amount, `deform`'s vector) also accept one; those are sampled onto a raster at encode time, so the value varies over the page while the render stays deterministic.
+
+Four pure imports transform a field's sampling:
+
+| Function | Effect |
+|---|---|
+| `within(f, shape)` | bounds the domain to the shape; outside it the field is absent (generators make nothing, modifiers touch nothing, contours end at the edge) |
+| `rotate(f, deg)` | turns the sampling about the origin |
+| `translate(f, dx, dy)` | moves it |
+| `scale(f, s)` | scales it; `s` may be `[sx, sy]` |
+
+Transformed fields stay plain callables. Vector fields follow the same rule as iron filings: wrap a custom one in `vectorField(fn)` and rotation turns its arrows too; magnitudes never scale, so a 2 mm displacement stays 2 mm at any motif size. `grad(f)` and `curl(f)` lift a scalar field to a vector one: the gradient points uphill, and the curl is the gradient turned 90°, so it runs along the contours of `f`.
+
+```ts live
+import { sketch, circle, stroke, rotate, within } from 'occlude';
+
+// Grain bounded to a disc and rotated 30°. Contours end at the bound.
+export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
+  const grain = rotate((x, y) => t.noise(x / 8, y / 40), 30);
+  const f = within(grain, circle(100, 50, 42));
+  return [
+    circle(100, 50, 42),
+    t.isolines(f, [0.1, 0.35, 0.6], { step: 0.6 }).flat().map((c) => stroke(c)),
+  ];
+});
+```
+
+### Alignment
+
+Every consumer of a field takes `align`. `'paper'` (the default) samples the field in drawable coordinates, so a shape sees whatever part of the field it sits on. `'shape'` anchors the field to the shape: the shape's own centre becomes the field's origin, and the field turns with the shape's transforms, so identical shapes see identical values wherever they land. On a fill it applies to the fill's field parameters and its ruling; on a modifier's parameter object (`decimate: { fill: f, align: 'shape' }`, `wobble: { amount, align }`, `deform({ field, align })`) it applies to that modifier. A thousand shape-aligned uses share one raster; the anchor is a per-use transform.
+
+A field on a fill's decimate is a halftone. Here `dash` chops the hatch into short cells and a radial field erodes them away from the centre.
+
+```ts live
+import { sketch, rect, fill, modify, dash, decimate, mm } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 5 }, () =>
+  modify(
+    [dash(mm(1.2), mm(0.8)), decimate((x, y) => Math.hypot(x - 100, (y - 50) * 2) / 105)],
+    rect(4, 4, 192, 92, { fill: fill('hatch', { angle: 45, spacing: mm(1.1) }), stroke: false }),
+  ),
+);
+```
+
+The same erosion field used both ways. The left squares sample the page's radial gradient where they sit; the right squares are each eroded from their own centre and turned with their group.
+
+```ts live
+import { sketch, rect, fill, group, mm } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
+  const erode = (x, y) => Math.min(1, Math.hypot(x, y) / 18);
+  const hatch = fill('hatch', { angle: 0, spacing: mm(0.7) });
+  const onPaper = (x, y) =>
+    rect(x, y, 28, 28, { fill: hatch, stroke: false, decimate: { fill: (px, py) => erode(px - 100, py - 50), align: 'paper' } });
+  const onShape = (x, y) =>
+    group({ rotate: 15 },
+      rect(x, y, 28, 28, { fill: fill('hatch', { angle: 0, spacing: mm(0.7), align: 'shape' }), stroke: false, decimate: { fill: erode, align: 'shape' } }));
+  return [
+    t.times(3, (k) => onPaper(10 + k * 30, 36)),
+    t.times(3, (k) => onShape(112 + k * 26, 8 + k * 6)),
+  ];
+});
+```
+
+## Contours
+
 ### isolines
 
-`isolines(field, at, { step?, close? })` — contours of `field ≥ at` by
-marching squares over the drawable: the bridge from scalar fields to
-stampable geometry (noise blobs, metaballs via SDF fields, tonal bands
-from `image()` samplers). Returns plain contour data `{ pts, closed }`:
-`polygon(c.pts)` stamps one loop; `polygon(blobs.map((c) => c.pts))`
-lifts a whole level set into ONE shape (holes respected) for
-`clip`/`mask`/fills. A contour that exits the drawable edge comes back
-open (`closed: false`); pass `close: true` to close every region along
-the edge — the form `clip` and fills want. `stroke(c)` strokes a contour
-with the right seams and open ends (`polygon` always closes; a bare
-`[x, y][]` traces open). An array of levels marches
-them all over one shared field sampling. The step defaults to ~mm(1);
-crossings are edge-interpolated, so positional accuracy is far finer
-than the grid.
+`t.isolines(field, at, { step?, close? })` traces the contours where `field ≥ at` by marching squares over the drawable, and returns plain contour records `{ pts, closed }`. `polygon(c.pts)` stamps one loop; `polygon(blobs.map((c) => c.pts))` makes a whole level set into one shape with holes respected, for clipping, masking and filling. `stroke(c)` strokes a contour with its open ends kept. A contour that leaves the drawable comes back open; `close: true` closes every region along the edge, which is the form clips and fills want. An array of levels marches all of them over one sampling. `step` defaults to about 1 mm; crossings are edge-interpolated, so accuracy is finer than the grid.
 
 ```ts live
 import { sketch, polygon, fill, mm } from 'occlude';
 
-// Posterized tone: each level is opaque, so the denser inner hatch
-// REPLACES the coarse one where they overlap — fill means occlude.
+// Posterized tone. Each level is a filled shape and therefore opaque, so
+// the denser inner hatch replaces the coarse one where they overlap.
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
-  const field = (x, y) => t.noise(x / 16, y / 16);
+  const field = (x, y) => t.noise(x / 32, y / 32);
   return [
     t.isolines(field, 0.15, { close: true }).map((c) =>
       polygon(c.pts, { fill: fill('hatch', { angle: 30, spacing: mm(1.6) }) })),
@@ -154,27 +181,50 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 });
 ```
 
-### streamlines
+### distanceTo
 
-`t.streamlines(field, { spacing?, minSpacing?, step?, seeds? })` — evenly
-spaced streamlines of a vector field over the drawable (Jobard & Lefer):
-the bridge from vector fields to stampable geometry, the twin of
-`isolines` for flow. Returns open contours `{ pts, closed: false }`, so
-`stroke(c)` stamps them. Lines stop at the drawable edge, at a `within()`
-bound, and half a spacing from ink already laid, so they never cross or
-bunch. `spacing` is a length (default mm(1); at the nib width the result
-is a flow-following solid) **or a field of lengths**, `(x, y) => mm(…)` or
-bare units — density as tone, direction as flow; `minSpacing` (default
-mm(0.3)) is its floor.
-Deterministic: no seed, a pure function of the fields. Long continuous
-lines with few lifts are the cheapest ink a plotter can draw.
+`distanceTo(loops)` builds a signed distance field from boundary loops: positive inside, zero on the boundary, negative outside. `isolines(d, 2)` therefore traces a ring 2 units inside the boundary and `isolines(d, -2)` a halo 2 units outside; there is no separate offset function. Insideness is even-odd over the loops, so nesting makes holes and orientation does not matter. Open loops are closed with a chord. Distances come back in the units of the input points, and the field composes anywhere a field goes: scatter densities, decimate and deform parameters, not only contours.
+
+`t.polylines(shape, { tolerance? })` turns any shape into its polylines in drawable units, through the same lowering the shape is inked with (rect anchoring, arcs, the shape's own transforms, curves flattened at `tolerance`, default 0.05 mm). It is the bridge from shapes to everything that takes points.
+
+```ts live
+import { sketch, polygon, stroke, distanceTo } from 'occlude';
+
+// A blob echoed inward every 5 units and haloed once outside. Contours
+// that leave the drawable come back open, and stroke() draws them as such.
+export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
+  const blob = t.isolines((x, y) => t.noise(x / 28, y / 28), 0.3, { close: true, step: 1 });
+  const d = distanceTo(blob.map((c) => c.pts));
+  return [
+    polygon(blob.map((c) => c.pts)),
+    t.isolines(d, [5, 10, 15, 20, 25], { step: 0.7 }).flat().map((c) => stroke(c)),
+    t.isolines(d, -5, { step: 0.7 }).map((c) => stroke(c)),
+  ];
+});
+```
+
+```ts live
+import { sketch, rect, stroke } from 'occlude';
+
+// Rings around a rotated rectangle: its outline as polylines, then a
+// distance field, then contours. No geometry written by hand.
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const box = rect(100, 50, 56, 26, { rotate: 20, mode: 'center' });
+  const d = t.distanceTo(t.polylines(box));
+  return [box, t.isolines(d, [-6, -12, -18, -24, -30], { step: 0.6 }).flat().map((c) => stroke(c))];
+});
+```
+
+## Flow lines
+
+`t.streamlines(field, { spacing?, minSpacing?, step?, seeds? })` traces evenly spaced streamlines of a vector field over the drawable, after Jobard and Lefer. It returns open contours for `stroke()`. Lines stop at the drawable edge, at a `within()` bound, and half a spacing from ink already laid, so they never cross or bunch. `spacing` is a length (default 1 mm) or a field of lengths, which turns density into tone; `minSpacing` (default 0.3 mm) is its floor. The result is a pure function of the fields, with no seed involved. Long continuous lines with few pen lifts are the cheapest ink a plotter draws.
 
 ```ts live
 import { sketch, stroke, curl } from 'occlude';
 
-// The flow-field look: streamlines of the curl of noise never converge.
-export default sketch({ aspect: [3, 2], seed: 4 }, (t) => {
-  const flow = curl((x, y) => t.noise(x / 30, y / 30));
+// Streamlines of the curl of noise run along its contours and never converge.
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const flow = curl((x, y) => t.noise(x / 60, y / 60));
   return t.streamlines(flow, { spacing: 1.6 }).map((c) => stroke(c));
 });
 ```
@@ -182,175 +232,15 @@ export default sketch({ aspect: [3, 2], seed: 4 }, (t) => {
 ```ts live
 import { sketch, circle, stroke, curl, within, distanceTo } from 'occlude';
 
-// Hatch that wraps a form: the curl of a distance field runs along the
-// outline, and density from the distance fades it with the distance.
+// Hatch that wraps a form: the curl of its distance field runs along the
+// outline, and spacing grows with the distance so the hatch fades out.
 export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
-  const blob = circle(50, 25, 12);
-  const d = distanceTo(t.polylines(blob));
-  const around = within(curl(d), circle(50, 25, 24));
+  const form = circle(100, 50, 22);
+  const d = distanceTo(t.polylines(form));
+  const around = within(curl(d), circle(100, 50, 48));
   return [
-    blob,
-    t.streamlines(around, { spacing: (x, y) => 0.6 + d(x, y) * 0.25 }).map((c) => stroke(c)),
-  ];
-});
-```
-
-`grad(f, h?)` and `curl(f, h?)` are pure imports that lift a scalar field to
-a vector one: the gradient points uphill, the curl is the gradient turned
-90°, so it runs along `f`'s contours and never converges. A `within()`
-bound on `f` carries through. Streamlines of `curl(f)` at nib spacing are
-the isolines of `f`, densely — one mechanism seen twice.
-
-### fields
-
-Fields — any `(x, y) => number` — are citizens: `within(f, shape)` bounds
-a field's domain (outside it is ABSENT: generators make nothing there,
-modifiers touch nothing); `rotate(f, deg)`, `translate(f, dx, dy)`, and
-`scale(f, s)` transform the sampling explicitly (nothing is ambient —
-wanting a paper-pinned texture under a rotated motif means NOT
-transforming the field). Transformed fields stay plain callables, so
-lambdas remain the composition language. Vector fields (deform) follow
-the iron-filings rule — wrap custom ones in `vectorField(fn)` and
-rotation turns the arrows too; magnitudes never scale (a 2mm wobble is
-2mm at any motif size). Isoline contours truncate OPEN at a domain edge,
-exactly like the paper edge.
-
-**Anchoring at the point of use.** Every consumer of a field takes
-`align`: `'paper'` (default) samples the field in paper coordinates;
-`'shape'` anchors it to the shape — the shape's intrinsic bbox centre is
-field (0, 0) and the field turns with the motif's explicit transforms
-(group and shape-level `translate`/`rotate`/`scale`, mirrors included).
-One meaning everywhere: on a fill use it applies to the fill's field
-params and to the fill's own geometry (`ctx.anchor`), on a modifier's
-param object (`decimate: { fill: f, align: 'shape' }`, `wobble: {
-amount, align }`, `roughen({ amount, align })`, `deform({ field, align
-})`) to that modifier. Coordinate-placed shapes see identical marks
-wherever they sit (the halftone case); a thousand shape-aligned uses
-share ONE raster — the anchor is a per-use transform, never a per-shape
-grid. Engine-consumed modifier fields get `within()` bounds as exact
-vector regions: a bounded wobble stops on the line, not in a fade band
-(decimate judges each fragment once, at its midpoint — clip the ink with
-`clip()` if a fragment must be cut at the edge).
-
-```ts live
-import { sketch, circle, stroke, rotate, within } from 'occlude';
-
-// Grain bounded to a blob and rotated 30° — contours end at the bound.
-export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
-  const grain = rotate((x, y) => t.noise(x / 5, y / 22), 30);
-  const f = within(grain, circle(50, 25, 18));
-  return [
-    circle(50, 25, 18),
-    t.isolines(f, [0.1, 0.35, 0.6], { step: 0.4 }).flat().map((c) => stroke(c)),
-  ];
-});
-```
-
-### polylines
-
-`t.polylines(shape, { tolerance? })` — any shape value as its polylines:
-plain points in sketch coordinates, through the one lowerer (rectMode, arc
-commands, the shape's own `translate`/`rotate`/`scale`, curves flattened
-at `tolerance`, default 0.05 mm) — so the polylines are exactly what the
-shape inks. The bridge from shapes to everything that eats points:
-`distanceTo`, `polygon`, `stroke`, `points`. Closed shapes give closed
-polylines; an open path gives an open one.
-
-```ts live
-import { sketch, circle, rect, stroke } from 'occlude';
-
-// Rings around a rotated rect: the rect's own outline as polylines, then
-// distanceTo, then isolines — no geometry written by hand.
-export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
-  const box = rect(50, 25, 26, 14, { rotate: 20, mode: 'center' });
-  const d = t.distanceTo(t.polylines(box));
-  return [box, t.isolines(d, [-3, -6, -9, -12], { step: 0.5 }).flat().map((c) => stroke(c))];
-});
-```
-
-### distanceTo
-
-`distanceTo(loops)` — the bridge back from stampable geometry to scalar
-fields: a signed distance field from boundary loops. POSITIVE inside,
-zero on the boundary, negative outside — so `isolines(d, 2)` traces a
-ring 2 units deep (inset/offset IS this recipe; there is no `offset()`),
-and `isolines(d, -2)` traces a halo 2 units out. Insideness is even-odd
-over the loops like `polygon()`: nesting makes holes, orientation never
-matters; open loops get their closing chord. Strictly loops — wrapper
-records expose theirs (`distanceTo(blobs.map((c) => c.pts))`). Pure and
-deterministic; distances come back in the units of the input points, and
-it composes anywhere a field goes: scatter densities, decimate/deform
-params, not just contours.
-
-```ts live
-import { sketch, polygon, path, distanceTo } from 'occlude';
-
-// A blob filled with its own echo: rings every 2.5 units, plus a halo.
-// Contours that exit the drawable come back open — stamp those as open
-// paths (polygon() would close them with a chord across the page).
-export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
-  const stamp = (c) => {
-    if (c.closed) return polygon(c.pts);
-    const p = path().moveTo(...c.pts[0]);
-    for (const pt of c.pts.slice(1)) p.lineTo(...pt);
-    return p.build();
-  };
-  const blob = t.isolines((x, y) => t.noise(x / 14, y / 14), 0.3, {
-    close: true, step: 1,
-  });
-  const d = distanceTo(blob.map((c) => c.pts));
-  return [
-    polygon(blob.map((c) => c.pts)),
-    t.isolines(d, [2.5, 5, 7.5, 10, 12.5], { step: 0.7 }).flat().map(stamp),
-    t.isolines(d, -2.5, { step: 0.7 }).map(stamp),
-  ];
-});
-```
-
-## Fields
-
-Any scalar parameter marked "fielded" also takes `(x, y) => number` —
-called in user coordinates and rasterised over the page at encode time, so
-the value varies spatially. Deterministic and plotter-reproducible;
-anything goes inside (math, `noise`, image lookups).
-
-Fielded params: `decimate` probabilities, `wobble` amount, `roughen`
-amount, `deform`'s vector field. Each takes `align` beside the field
-(`'paper'` default, `'shape'` to anchor to the shape — see
-[fields](#fields)). A field on a fill's decimate is a halftone — here
-`dash` chops the hatch into cells and a radial field erodes them away
-from the centre:
-
-```ts live
-import { sketch, rect, fill, modify, dash, decimate, mm } from 'occlude';
-
-export default sketch({ aspect: [2, 1], seed: 5 }, () =>
-  modify(
-    [dash(mm(1.2), mm(0.8)), decimate((x, y) => Math.hypot(x - 50, (y - 25) * 2.1) / 52)],
-    rect(2, 3, 96, 44, { fill: fill('hatch', { angle: 45, spacing: mm(1.1) }), stroke: false }),
-  ),
-);
-```
-
-Shape-anchored modifier fields travel with their motif. The same erosion
-field, once paper-pinned (every square samples the paper's radial
-gradient where it sits) and once shape-anchored (every square is eroded
-from its own centre, turned with its group):
-
-```ts live
-import { sketch, rect, fill, group, mm } from 'occlude';
-
-export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
-  const erode = (x, y) => Math.min(1, Math.hypot(x, y) / 9);
-  const sq = (x, y, align) =>
-    rect(x, y, 14, 14, { fill: fill('hatch', { angle: 0, spacing: mm(0.7) }), stroke: false,
-      decimate: { fill: (px, py) => erode(px - 50, py - 25), align: 'paper' } });
-  const anchored = (x, y) =>
-    group({ rotate: 15 }, rect(x, y, 14, 14, { fill: fill('hatch', { angle: 0, spacing: mm(0.7), align: 'shape' }),
-      stroke: false, decimate: { fill: erode, align: 'shape' } }));
-  return [
-    t.times(3, (k) => sq(6 + k * 18, 6)),
-    t.times(3, (k) => anchored(60 + k * 12, -12 + k * 2)),
+    form,
+    t.streamlines(around, { spacing: (x, y) => 0.7 + Math.abs(d(x, y)) * 0.12 }).map((c) => stroke(c)),
   ];
 });
 ```
