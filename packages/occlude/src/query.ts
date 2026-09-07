@@ -58,8 +58,10 @@ export interface FirstHit {
 
 export interface EdgeQuery {
   /** The closest edge within `within` of `position` (inclusive), or null.
-   * Ties go to the earlier source edge. */
-  nearest(position: XY, opts: { within: number }): NearestHit | null;
+   * Ties go to the earlier source edge. `excludeIncident` skips every edge
+   * incident to that vertex of the source state, so a tip can sense the
+   * nearest line that is not its own stem. */
+  nearest(position: XY, opts: { within: number; excludeIncident?: Vertex | number }): NearestHit | null;
   /** The first edge a straight move from `from` to `to` would meet, by
    * smallest `along` then source edge order; endpoint contact counts.
    * `excludeIncident` skips every edge incident to that vertex of the
@@ -233,6 +235,18 @@ export function edges(m: Material): EdgeQuery {
       if (!Number.isFinite(within) || within < 0) throw new Error('query.nearest: within must be finite and non-negative');
       const px = vx(position);
       const py = vy(position);
+      let skipStart = -1;
+      let skipEnd = -1;
+      if (opts.excludeIncident !== undefined) {
+        const v = incidentRow(opts.excludeIncident);
+        if (vertexStart === null) buildAdjacency();
+        skipStart = vertexStart![v];
+        skipEnd = vertexStart![v + 1];
+      }
+      const isIncident = (e: number): boolean => {
+        for (let j = skipStart; j < skipEnd; j++) if (vertexEdges![j] === e) return true;
+        return false;
+      };
       queryId++;
       candN = 0;
       // the window is the box the full scan would have judged; rings inside it
@@ -264,6 +278,7 @@ export function edges(m: Material): EdgeQuery {
         gatherRing(k, cc, cr, c0, c1, r0, r1);
         for (; judged < candN; judged++) {
           const e = cand[judged];
+          if (skipStart >= 0 && isIncident(e)) continue;
           const dx = bx[e] - ax[e];
           const dy = by[e] - ay[e];
           const len2 = dx * dx + dy * dy;

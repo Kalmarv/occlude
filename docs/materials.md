@@ -283,7 +283,7 @@ export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
 
 ### Spatial queries
 
-`query.edges(material)` prepares a query over a frozen state's edges. `nearest(position, { within })` returns `{ edge, position, t, distance }` or null. `firstHit(from, to, { excludeIncident? })` returns the first edge a straight move would meet, `{ edge, position, t, along, distance, kind }`, with `kind` one of `crossing`, `touch` or `overlap`. Queries return information and never edit; results belong to the state they were asked of, and the index does not see additions made in the same step. Prepare once per state, outside the callback that uses it.
+`query.edges(material)` prepares a query over a frozen state's edges. `nearest(position, { within, excludeIncident? })` returns `{ edge, position, t, distance }` or null; with `excludeIncident` a tip senses the nearest line that is not its own stem. `firstHit(from, to, { excludeIncident? })` returns the first edge a straight move would meet, `{ edge, position, t, along, distance, kind }`, with `kind` one of `crossing`, `touch` or `overlap`. Queries return information and never edit; results belong to the state they were asked of, and the index does not see additions made in the same step. Prepare once per state, outside the callback that uses it.
 
 ```ts live
 import { sketch, stroke, circle, rect, query, material, append, ui } from 'occlude';

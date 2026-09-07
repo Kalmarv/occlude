@@ -123,6 +123,20 @@ describe('closeout (review of 793e35f)', () => {
     expect(q.nearest([4.9999999999, 10], { within: 1e-6 })!.edge.a.x).toBe(5);
   });
 
+  it('nearest with excludeIncident finds the closest line that is not the vertex\'s own, like firstHit', async () => {
+    const { query } = await import('../src/index.js');
+    // a tip at (10, 10) on a stem from (10, 0); a foreign wall along x = 13 and another along y = 20
+    const m = material([[10, 0], [10, 10], [13, 0], [13, 30], [0, 20], [30, 20]], { edges: [[0, 1], [2, 3], [4, 5]] });
+    const q = query.edges(m);
+    expect(q.nearest([10, 9], { within: 10 })!.edge.index).toBe(0); // its own stem is nearest
+    const other = q.nearest([10, 9], { within: 10, excludeIncident: m.vertex(1) });
+    expect(other!.edge.index).toBe(1);
+    expect(other!.distance).toBe(3);
+    expect(q.nearest([10, 9], { within: 10, excludeIncident: 1 })!.edge.index).toBe(1);
+    expect(q.nearest([10, 9], { within: 2, excludeIncident: 1 })).toBeNull();
+    expect(() => q.nearest([10, 9], { within: 10, excludeIncident: material([[0, 0]]).vertex(0) })).toThrow(/vertex of the queried material/);
+  });
+
   it('distributed resampling stays linear and exact; nearest with count 0 adds nothing and rejects bad counts', () => {
     const big = curve(Array.from({ length: 16000 }, (_, i) => [i * 0.1, Math.sin(i * 0.01)] as [number, number]), { closed: false })
       .edgeAttribute('w', (e) => e.index, { transfer: 'distribute' });
