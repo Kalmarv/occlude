@@ -549,8 +549,14 @@ export function buildBedLevel(
       el('span', 'lift-map-scale'),
       el('span', undefined, `most lift ${Math.min(...values)}`),
     );
+    // The bed at its true proportions: the frame is the bed, its padding the
+    // card's margin, and every cell keeps the cell's own mm aspect.
+    const bed = el('div', 'lift-map-bed');
+    bed.style.aspectRatio = `${map.bedW} / ${map.bedH}`;
+    bed.style.padding = `${(100 * map.margin) / map.bedH}% ${(100 * map.margin) / map.bedW}%`;
     const grid = el('div', 'lift-map-grid');
-    grid.style.gridTemplateColumns = `repeat(${map.cols}, max-content)`;
+    grid.style.gridTemplateColumns = `repeat(${map.cols}, minmax(0, 1fr))`;
+    grid.style.gridTemplateRows = `repeat(${map.rows}, minmax(0, 1fr))`;
     for (const cell of cells) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -562,7 +568,8 @@ export function buildBedLevel(
       b.onclick = () => { selected = { r: cell.r, c: cell.c }; renderMap(); };
       grid.append(b);
     }
-    mapGrid.append(legend, grid);
+    bed.append(grid);
+    mapGrid.append(legend, bed);
     const cell = selected && cells.find((c) => c.r === selected!.r && c.c === selected!.c);
     mapGrid.append(cell ? detailFor(map, cell) : hint('Click a cell to adjust it and test it.'));
   };
