@@ -866,6 +866,13 @@ function inspect(label: string, value: Material): void {
   recordInspection(label, value);
 }
 
+/** The host's automatic form of `inspect`: called for every variable the
+ * studio instruments, so it registers materials and ignores everything
+ * else without a word. */
+export function inspectIfMaterial(label: string, value: unknown): void {
+  if (value instanceof Material) recordInspection(label, value);
+}
+
 /** Path optimization for THIS sketch's plan (tour budget, bridging) — in
  * the program, so the same source plans the same way everywhere. */
 function planWith(opts: PlanOptions): void {

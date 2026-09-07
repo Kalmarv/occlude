@@ -155,6 +155,7 @@ export {
 } from './state.js';
 export type { ProbeSummary, InspectionEntry, InspectionPayload } from './state.js';
 export { userUnitsToPaper } from './record.js';
+export { inspectIfMaterial } from './api.js';
 
 // A fill file's `import … from 'occlude'` resolves to this very module: the
 // registry hands loaded fills the package's own namespace (self-import is

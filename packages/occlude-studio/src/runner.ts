@@ -12,6 +12,7 @@
 
 import * as occlude from 'occlude';
 import type { EncodedScene, PenDef, SketchDef } from 'occlude';
+import { INSPECT_HOOK, instrumentDeclarations } from './instrument.js';
 
 export interface RunOutcome {
   scene: EncodedScene | null;
@@ -27,7 +28,9 @@ export interface RunConfig {
   coarsen: number;
   /** Compute the debug ghost (post-modified pre-occlusion geometry). */
   debugGhost?: boolean;
-  /** Keep `t.inspect()` registrations for the material inspector. */
+  /** Material inspection on: every variable holding a Material is
+   * registered under its name (the emitted JS is instrumented), and
+   * `t.inspect()` registrations are kept. Off: neither costs anything. */
   inspect?: boolean;
   /** Seed for 'url'/default-seed sketches. The worker's own URL carries no
    * `?seed=`, so the host passes it explicitly; null/undefined lets the
@@ -51,8 +54,9 @@ export function runSketch(js: string, cfg: RunConfig): RunOutcome {
   };
   const module = { exports: {} as Record<string, unknown> };
   try {
-    const fn = new Function('require', 'exports', 'module', js);
-    fn(require, module.exports, module);
+    const code = cfg.inspect === true ? instrumentDeclarations(js) : js;
+    const fn = new Function('require', 'exports', 'module', INSPECT_HOOK, code);
+    fn(require, module.exports, module, occlude.inspectIfMaterial);
     const exp = module.exports;
     const def: SketchDef | undefined = occlude.isSketch(exp.default)
       ? exp.default

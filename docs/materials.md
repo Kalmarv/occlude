@@ -487,18 +487,17 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
 
 ### Inspecting a material
 
-`t.inspect(label, material)` registers a material for the studio's debug menu. It draws nothing, changes nothing, consumes no randomness and leaves the plan and exports as they are. With the Material layer on in the debug menu, the registered names appear in a list; choosing one overlays its points and edges on the drawing, and a declared column colours the chosen domain (point columns colour points, edge columns colour edges, the other stays neutral). Clicking a point or edge shows its row, coordinates and columns, with its incident edges and connected rows as links. Rows are indices in that state, not identities that survive a step, and the overlay shows the material's own coordinates: a `group({ translate })` around the strokes moves the ink, not the overlay.
+With the Material layer on in the studio's debug menu, every variable in the sketch that holds a material is listed under its own name: `seed` and `tree` below, with no call needed. Choosing one overlays its points and edges on the drawing, and a declared column colours the chosen domain (point columns colour points, edge columns colour edges, the other stays neutral). Clicking a point or edge shows its row, coordinates and columns, with its incident edges and connected rows as links. Rows are indices in that state, not identities that survive a step, and the overlay shows the material's own coordinates: a `group({ translate })` around the strokes moves the ink, not the overlay.
 
-A label used twice keeps the last value in its first position. It is not history: an inspect inside a step callback shows the final state, not every iteration. Only materials are accepted.
+The listing follows variable names, so a name assigned twice keeps its last value, and a variable inside a step callback shows the state of the last step, not every iteration. It is not history. `t.inspect(label, material)` registers a material under a label of your choosing, for an expression that never lands in a variable or a name that should read differently; it draws nothing, changes nothing and consumes no randomness. With the layer off, neither the listing nor the call costs anything, and the plan and exports are identical either way.
 
-The question this answers here: which points are still active tips after thirty steps, and where did the tree stop growing? Colour points by `active` and the tips light up; click one to see its heading and depth.
+The question this answers here: which points are still active tips after thirty steps, and where did the tree stop growing? Choose `tree`, colour points by `active`, and the tips light up; click one to see its heading and depth.
 
 ```ts live
 import { sketch, strokes, material, add } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
   const seed = material([[100, 98]], { active: 1, heading: -Math.PI / 2, depth: 0 });
-  t.inspect('seed', seed);
   const tree = seed.steps(30, (cur, next, k) => {
     const tips = cur.selectPoints((p) => p.active === 1 && p.y > 6 && p.x > 6 && p.x < 194);
     next.extend((p) => {
@@ -512,7 +511,6 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
     }, { where: tips });
     next.set(() => ({ active: 0 }), { where: tips });
   });
-  t.inspect('tree', tree);
   return strokes(tree);   // no dots for the tips: the inspector shows them
 });
 ```

@@ -165,7 +165,7 @@ export class Inspector {
     this.nameSel.disabled = names.length === 0;
     const noRegistry = names.length === 0;
     this.hint.hidden = !noRegistry;
-    if (noRegistry) this.hint.textContent = this.status || "no material registered — call t.inspect('name', material) in the sketch";
+    if (noRegistry) this.hint.textContent = this.status || 'no material in this run — every variable holding a material is listed by name; t.inspect(label, material) names one explicitly';
     const entry = m.names.find((e) => e.name === m.chosen);
     this.counts.textContent = entry ? `${entry.points} points · ${entry.edges} edges` : '';
     this.pointsBox.checked = m.showPoints;
