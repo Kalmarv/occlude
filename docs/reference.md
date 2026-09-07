@@ -1881,10 +1881,15 @@ selection with the walls between chosen cells removed.
 
 Numbers: orientation is decided exactly (Shewchuk's `orient2d`), so
 "crosses", "touches" and "collinear" never depend on an epsilon.
-Intersection positions are floating point; the one tolerance is that two
-events on the same edge within 1e-9 in parameter are the same event,
-which is how three lines through a point get one vertex. Endpoints merge
-only when exactly coincident; a gap stays a gap. Contours come out with
+Intersection positions are floating point; the one tolerance is event
+consolidation at 1e-9 in edge parameter, and it joins only events proven
+to be one point (three lines through a point: each pair's crossing agrees
+with the third; a crossing at a vertex: the vertex lies exactly on both
+edges). Merely close events stay distinct, and two distinct events on
+identical coordinates are rejected as ambiguous. A vertex an edge passes
+through (a T-junction) reconciles its attributes against that edge like
+a crossing does. Endpoints merge only when exactly coincident; a gap
+stays a gap. Contours come out with
 the outer boundary at positive signed area and holes negative — use
 `winding: 'evenodd'` and holes are unambiguous either way. Bridges and
 dangling branches inside a face are not part of its contours or its
@@ -1907,7 +1912,8 @@ once, or stroke only a selection's `boundaries()`.
 import { sketch, stroke, circle, polygon, fill, mm, material, append, curve } from 'occlude';
 
 // Crossings become cells. Left: a frame and five chords as drawn — the
-// lines merely cross, so nothing is enclosed and there are no faces.
+// frame alone encloses one face, and the chords merely cross it, so
+// faces() would refuse until the crossings are shared vertices.
 // Right: the same network planarized; every crossing is now a vertex
 // (marked) and each cell it encloses fills at its own angle. One chord
 // stops short of the frame: the gap stays a gap, so the hatch runs

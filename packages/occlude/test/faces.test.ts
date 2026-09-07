@@ -266,3 +266,76 @@ describe('faces', () => {
     expect(again.edgeCount).toBe(p.edgeCount);
   });
 });
+
+describe('review of 3df7b04', () => {
+  it('1. a T-junction reconciles the stem endpoint against the receiving edge', () => {
+    const bar = seg([0, 0], [10, 0]).attribute('age', 0);
+    const stem = seg([5, 0], [5, 5]).attribute('age', 9);
+    const t = append(bar, stem);
+    expect(() => t.planarize()).toThrow(/vertex 2 .*conflicting 'age' \(9 vs 0\)|conflicting 'age'/);
+    const seen: unknown[] = [];
+    const p = t.planarize({ point: (ev) => { seen.push(ev.candidates); return { age: 4 }; } });
+    expect(seen).toHaveLength(1);
+    expect((seen[0] as { vertex?: number }[])[0].vertex).toBe(2);
+    expect(p.attrs.age[2]).toBe(4);
+    // agreeing candidates need no resolver
+    const agree = append(seg([0, 0], [10, 0]).attribute('age', 0), seg([5, 0], [5, 5]).attribute('age', 0));
+    expect(agree.planarize().attrs.age[2]).toBe(0);
+  });
+
+  it('2. only proven shared events consolidate; distinct nearby crossings stay distinct', () => {
+    // two crossings 1e-10 apart along the horizontal: NOT one point
+    const near = append(append(seg([0, 0], [10, 0]), seg([5, -1], [5, 1])), seg([5 + 1e-10, -1], [5 + 2e-10, 1]));
+    const p = near.planarize();
+    expect(p.n).toBe(8);
+    expect(p.degree(6)).toBe(4);
+    expect(p.degree(7)).toBe(4);
+    // three lines through one point: proven by the third pairwise event
+    let star = append(seg([0, 0], [10, 10]), seg([0, 10], [10, 0]));
+    star = append(star, seg([5, 0], [5, 10]));
+    expect(star.planarize().degree(6)).toBe(6);
+    // a crossing at a vertex that lies on both edges joins that vertex
+    let through = append(seg([0, 0], [10, 0]), seg([5, -5], [5, 5]));
+    through = append(through, seg([5, 0], [9, 9])); // its endpoint (5,0) lies on both
+    const pt = through.planarize();
+    expect(pt.n).toBe(6);
+    expect(pt.degree(4)).toBe(5);
+  });
+
+  it('3. faces are translation invariant at large coordinate offsets', () => {
+    for (const off of [0, 1e6, 1e8]) {
+      const sq = square(off, off, 1);
+      const cells = sq.faces();
+      expect(cells.size).toBe(1);
+      expect(cells.faces[0].area).toBeCloseTo(1, 6);
+      expect(cells.faces[0].perimeter).toBeCloseTo(4, 6);
+      const nested = append(square(off, off, 30), square(off + 10, off + 10, 10)).faces();
+      expect(nested.faces.map((f) => +f.area.toFixed(3)).sort((p, q) => p - q)).toEqual([100, 800]);
+    }
+  });
+
+  it('4. holes touching at a corner are separate contours, in faces and in boundaries', () => {
+    let m = append(square(0, 0, 40), square(10, 10, 10));
+    m = append(m, square(20, 20, 10)); // touches the first inner square at (20,20)
+    const p = m.planarize();
+    const cells = p.faces();
+    expect(cells.size).toBe(3);
+    const outer = cells.faces.find((f) => f.area === 1400)!;
+    expect(outer.contours).toHaveLength(3);
+    for (const c of outer.contours) expect(c.pts).toHaveLength(4);
+    const sel = cells.select((f) => f.area === 1400);
+    const b = sel.boundaries();
+    expect(b).toHaveLength(3);
+    for (const c of b) expect(c.pts).toHaveLength(4);
+  });
+
+  it('5. face views are deeply frozen', () => {
+    const f = square().faces().faces[0];
+    expect(Object.isFrozen(f.contours)).toBe(true);
+    expect(Object.isFrozen(f.contours[0])).toBe(true);
+    expect(Object.isFrozen(f.contours[0].pts)).toBe(true);
+    expect(Object.isFrozen(f.contours[0].pts[0])).toBe(true);
+    expect(Object.isFrozen(f.bounds)).toBe(true);
+    expect(() => { (f.contours[0].pts[0] as number[])[0] = 99; }).toThrow();
+  });
+});

@@ -15,12 +15,16 @@
  * `orient2d` from robust-predicates (Shewchuk's adaptive predicate, public
  * domain), so "crosses", "touches" and "collinear" are never a matter of
  * epsilon. Intersection positions are computed in floating point; the
- * ONE tolerance is event consolidation: two events on the same edge whose
- * parameters differ by at most EVENT_TOL (1e-9) are one event — that is
- * how three lines through one point get one vertex although the three
- * pairwise intersections differ in the last bits. Coincident endpoints
- * merge only when their coordinates are exactly equal; nearby is not
- * coincident and gaps stay gaps.
+ * ONE tolerance is event consolidation, and it only ever joins events
+ * that are PROVEN to be one point: two crossings A×B and A×C within
+ * EVENT_TOL (1e-9) in parameter on A are one event when B×C exists at the
+ * matching parameters too (three lines through a point), and a crossing
+ * A×B joins a vertex V lying exactly on A when V lies exactly on B as
+ * well. Anything else that merely comes close stays distinct; if two
+ * distinct events land on identical coordinates the input is rejected as
+ * numerically ambiguous. Coincident endpoints merge only when their
+ * coordinates are exactly equal; nearby is not coincident and gaps stay
+ * gaps.
  *
  * Complexity: intersection uses a sweep over x-sorted edge boxes, so it is
  * O(E log E + P) for P box-overlapping pairs — O(E²) when everything
@@ -237,13 +241,12 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
     list.push(i);
     byPos.set(k, list);
   }
-  const mergedAttrs = new Map<number, Record<string, number>>();
+  const mergedRows = new Map<number, number[]>(); // representative → every row merged into it
   for (const rows of byPos.values()) {
     if (rows.length < 2) continue;
     const r = rows[0];
     for (const i of rows) rep[i] = r;
-    const event: PlanarEvent = { position: [m.x[r], m.y[r]], candidates: rows.map((i) => ({ vertex: i, attrs: interpolateAttrs(m, i, i, 0) })) };
-    mergedAttrs.set(r, reconcile(m, event, opts.point, `merged vertices ${rows.join(', ')}`));
+    mergedRows.set(r, rows);
   }
 
   // ---- segments on representatives; duplicate pairs are overlaps ----
@@ -269,61 +272,115 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
     if (shared >= 0) checkSharedOverlap(s, u, shared);
     else classify(s, u, events);
   });
-
-  // ---- consolidate: per edge, events within EVENT_TOL in parameter are one ----
-  interface Cut { t: number; group: number }
-  const cutsByEdge: Cut[][] = Array.from({ length: E }, () => []);
-  // groups: union-find over event slots; an existing vertex is its own slot kind
-  const parent: number[] = [];
-  const groupVertex: number[] = []; // existing vertex row or -1
-  const groupPos: [number, number][] = [];
-  const groupKey: [number, number][] = []; // (edge row, t) of first mention, for ordering
-  const groupEdges: { edge: number; t: number }[][] = [];
-  const find = (g: number): number => (parent[g] === g ? g : (parent[g] = find(parent[g])));
-  const newGroup = (vertex: number, pos: [number, number], edge: number, t: number) => {
-    const g = parent.length;
-    parent.push(g);
-    groupVertex.push(vertex);
-    groupPos.push(pos);
-    groupKey.push([edge, t]);
-    groupEdges.push([{ edge, t }]);
-    return g;
-  };
-  const union = (g1: number, g2: number, where: string) => {
-    const a = find(g1);
-    const b = find(g2);
-    if (a === b) return;
-    if (groupVertex[a] >= 0 && groupVertex[b] >= 0 && groupVertex[a] !== groupVertex[b]) {
-      throw new Error(`planarize: vertices ${groupVertex[a]} and ${groupVertex[b]} are closer than the event tolerance ${where} — they cannot be told apart; merge or move them`);
-    }
-    // keep the existing vertex, else the earlier key
-    const keep = groupVertex[a] >= 0 ? a : groupVertex[b] >= 0 ? b : groupKey[a][0] < groupKey[b][0] || (groupKey[a][0] === groupKey[b][0] && groupKey[a][1] <= groupKey[b][1]) ? a : b;
-    const drop = keep === a ? b : a;
-    parent[drop] = keep;
-    groupEdges[keep].push(...groupEdges[drop]);
-  };
-  const vertexGroup = new Map<number, number>();
-  for (const ev of events) {
-    if (ev.kind === 'contact') {
-      let g = vertexGroup.get(ev.vertex);
-      if (g === undefined) {
-        g = newGroup(ev.vertex, [m.x[ev.vertex], m.y[ev.vertex]], ev.edge, ev.t);
-        vertexGroup.set(ev.vertex, g);
-      } else groupEdges[g].push({ edge: ev.edge, t: ev.t });
-      cutsByEdge[ev.edge].push({ t: ev.t, group: g });
-    } else {
-      const g = newGroup(-1, [ev.x, ev.y], ev.i, ev.ti);
-      groupEdges[g].push({ edge: ev.j, t: ev.tj });
-      cutsByEdge[ev.i].push({ t: ev.ti, group: g });
-      cutsByEdge[ev.j].push({ t: ev.tj, group: g });
+  const crossOf = new Map<string, number>(); // "i,j" (i < j) → event
+  const contactOf = new Map<string, number>(); // "vertex,edge" → event
+  const contactsAt = new Map<number, number[]>(); // vertex → its contact events
+  for (let k = 0; k < events.length; k++) {
+    const ev = events[k];
+    if (ev.kind === 'cross') crossOf.set(`${ev.i},${ev.j}`, k);
+    else {
+      contactOf.set(`${ev.vertex},${ev.edge}`, k);
+      const list = contactsAt.get(ev.vertex) ?? [];
+      list.push(k);
+      contactsAt.set(ev.vertex, list);
     }
   }
+  const paramOf = (k: number, edge: number): number => {
+    const ev = events[k];
+    if (ev.kind === 'contact') return ev.t;
+    return ev.i === edge ? ev.ti : ev.tj;
+  };
+  const near = (a: number, b: number) => Math.abs(a - b) <= EVENT_TOL;
+
+  // ---- consolidate: union-find over events, joining only PROVEN shared points ----
+  const parent = events.map((_, k) => k);
+  const find = (g: number): number => (parent[g] === g ? g : (parent[g] = find(parent[g])));
+  const union = (a: number, b: number) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb);
+  };
+  for (const list of contactsAt.values()) for (let k = 1; k < list.length; k++) union(list[0], list[k]); // one vertex, one event
+  interface Cut { t: number; event: number }
+  const cutsByEdge: Cut[][] = Array.from({ length: E }, () => []);
+  for (let k = 0; k < events.length; k++) {
+    const ev = events[k];
+    if (ev.kind === 'contact') cutsByEdge[ev.edge].push({ t: ev.t, event: k });
+    else {
+      cutsByEdge[ev.i].push({ t: ev.ti, event: k });
+      cutsByEdge[ev.j].push({ t: ev.tj, event: k });
+    }
+  }
+  const otherEdge = (k: number, edge: number): number => {
+    const ev = events[k] as Extract<Event, { kind: 'cross' }>;
+    return ev.i === edge ? ev.j : ev.i;
+  };
+  /** Do events p and q on `edge` (both within tolerance there) provably meet at one point? */
+  const proven = (p: number, q: number, edge: number): boolean => {
+    const ep = events[p];
+    const eq = events[q];
+    if (ep.kind === 'contact' && eq.kind === 'contact') return false; // two distinct vertices
+    if (ep.kind === 'cross' && eq.kind === 'cross') {
+      const b = otherEdge(p, edge);
+      const c = otherEdge(q, edge);
+      if (b === c) return false;
+      const bc = crossOf.get(b < c ? `${b},${c}` : `${c},${b}`);
+      if (bc === undefined) return false;
+      return near(paramOf(bc, b), paramOf(p, b)) && near(paramOf(bc, c), paramOf(q, c));
+    }
+    const contact = (ep.kind === 'contact' ? ep : eq) as Extract<Event, { kind: 'contact' }>;
+    const cross = ep.kind === 'contact' ? q : p;
+    const b = otherEdge(cross, edge);
+    const onB = contactOf.get(`${contact.vertex},${b}`);
+    return onB !== undefined && near(paramOf(onB, b), paramOf(cross, b));
+  };
   for (let e = 0; e < E; e++) {
     const cuts = cutsByEdge[e];
     if (cuts.length < 2) continue;
     cuts.sort((p, q) => p.t - q.t);
-    for (let k = 1; k < cuts.length; k++) {
-      if (cuts[k].t - cuts[k - 1].t <= EVENT_TOL) union(cuts[k - 1].group, cuts[k].group, `on edge ${e}`);
+    for (let k = 0; k < cuts.length; k++) {
+      for (let l = k + 1; l < cuts.length && cuts[l].t - cuts[k].t <= EVENT_TOL; l++) {
+        if (proven(cuts[k].event, cuts[l].event, e)) union(cuts[k].event, cuts[l].event);
+      }
+    }
+  }
+  // groups: representative vertex (a contact's), position, ordering key, mentions
+  const groupVertex = new Map<number, number>();
+  const groupPos = new Map<number, [number, number]>();
+  const groupKey = new Map<number, [number, number]>();
+  const groupEdges = new Map<number, { edge: number; t: number }[]>();
+  for (let k = 0; k < events.length; k++) {
+    const g = find(k);
+    const ev = events[k];
+    const mentions = groupEdges.get(g) ?? [];
+    if (ev.kind === 'contact') {
+      groupVertex.set(g, ev.vertex);
+      groupPos.set(g, [m.x[ev.vertex], m.y[ev.vertex]]);
+      mentions.push({ edge: ev.edge, t: ev.t });
+    } else {
+      if (!groupPos.has(g)) groupPos.set(g, [ev.x, ev.y]);
+      mentions.push({ edge: ev.i, t: ev.ti }, { edge: ev.j, t: ev.tj });
+    }
+    groupEdges.set(g, mentions);
+    const key = groupKey.get(g);
+    const mine: [number, number] = ev.kind === 'contact' ? [ev.edge, ev.t] : [ev.i, ev.ti];
+    if (!key || mine[0] < key[0] || (mine[0] === key[0] && mine[1] < key[1])) groupKey.set(g, mine);
+  }
+
+  // ---- point attributes at existing vertices: merged rows and contacts reconcile alike ----
+  const resolvedAttrs = new Map<number, Record<string, number>>();
+  const contactVertices = new Set<number>();
+  for (const v of groupVertex.values()) contactVertices.add(rep[v]);
+  const touched = new Set<number>([...mergedRows.keys(), ...contactVertices]);
+  if (names.length) {
+    for (const v of Array.from(touched).sort((p, q) => p - q)) {
+      const rows = mergedRows.get(v) ?? [v];
+      const candidates: EventCandidate[] = rows.map((i) => ({ vertex: i, attrs: interpolateAttrs(m, i, i, 0) }));
+      const contacts = rows.flatMap((i) => contactsAt.get(i) ?? []).map((k) => events[k] as Extract<Event, { kind: 'contact' }>).sort((p, q) => p.edge - q.edge);
+      for (const c of contacts) candidates.push({ edge: c.edge, t: c.t, attrs: interpolateAttrs(m, segs[c.edge].a, segs[c.edge].b, c.t) });
+      if (candidates.length < 2) continue;
+      const event: PlanarEvent = { position: [m.x[v], m.y[v]], candidates };
+      resolvedAttrs.set(v, reconcile(m, event, opts.point, `vertex ${v}`));
     }
   }
 
@@ -338,14 +395,14 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
     rowMap[i] = ox.length;
     ox.push(m.x[i]);
     oy.push(m.y[i]);
-    const merged = mergedAttrs.get(i);
-    for (const name of names) oattrs[name].push(merged ? merged[name] : m.attrs[name][i]);
+    const resolved = resolvedAttrs.get(i);
+    for (const name of names) oattrs[name].push(resolved ? resolved[name] : m.attrs[name][i]);
   }
-  const roots = Array.from(new Set(parent.map((_, g) => find(g)))).filter((g) => groupVertex[g] < 0);
-  roots.sort((a, b) => groupKey[a][0] - groupKey[b][0] || groupKey[a][1] - groupKey[b][1]);
+  const roots = Array.from(new Set(parent.map((_, g) => find(g)))).filter((g) => !groupVertex.has(g));
+  roots.sort((a, b) => groupKey.get(a)![0] - groupKey.get(b)![0] || groupKey.get(a)![1] - groupKey.get(b)![1]);
   const groupRow = new Map<number, number>();
   for (const g of roots) {
-    const mentions = groupEdges[g].slice().sort((p, q) => p.edge - q.edge || p.t - q.t);
+    const mentions = groupEdges.get(g)!.slice().sort((p, q) => p.edge - q.edge || p.t - q.t);
     const seen = new Set<number>();
     const candidates: EventCandidate[] = [];
     for (const { edge, t } of mentions) {
@@ -353,16 +410,18 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
       seen.add(edge);
       candidates.push({ edge, t, attrs: interpolateAttrs(m, segs[edge].a, segs[edge].b, t) });
     }
-    const event: PlanarEvent = { position: groupPos[g], candidates };
-    const attrs = reconcile(m, event, opts.point, 'the crossing');
+    const pos = groupPos.get(g)!;
+    const event: PlanarEvent = { position: pos, candidates };
+    const attrs = names.length ? reconcile(m, event, opts.point, 'the crossing') : {};
     groupRow.set(g, ox.length);
-    ox.push(groupPos[g][0]);
-    oy.push(groupPos[g][1]);
+    ox.push(pos[0]);
+    oy.push(pos[1]);
     for (const name of names) oattrs[name].push(attrs[name]);
   }
   const rowOfGroup = (g: number): number => {
     const r = find(g);
-    return groupVertex[r] >= 0 ? rowMap[groupVertex[r]] : groupRow.get(r)!;
+    const v = groupVertex.get(r);
+    return v !== undefined ? rowMap[rep[v]] : groupRow.get(r)!;
   };
 
   // ---- child edges in parent, parameter order ----
@@ -374,12 +433,19 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
     const stops: { t: number; row: number }[] = [{ t: 0, row: rowMap[s.a] }];
     let lastGroup = -1;
     for (const c of cutsByEdge[e].sort((p, q) => p.t - q.t)) {
-      const g = find(c.group);
+      const g = find(c.event);
       if (g === lastGroup) continue;
       lastGroup = g;
       stops.push({ t: c.t, row: rowOfGroup(g) });
     }
     stops.push({ t: 1, row: rowMap[s.b] });
+    for (let k = 1; k < stops.length; k++) {
+      const p = stops[k - 1].row;
+      const q = stops[k].row;
+      if (p !== q && ox[p] === ox[q] && oy[p] === oy[q]) {
+        throw new Error(`planarize: two distinct events on edge ${e} (parameters ${stops[k - 1].t} and ${stops[k].t}) land on the same coordinates but are not provably one point — numerically ambiguous input; move the lines apart or make them meet exactly`);
+      }
+    }
     const parentView = m.edge(e);
     const parentAttrs: Record<string, number> = {};
     for (const name of enames) parentAttrs[name] = m.edgeAttrs[name][e];
@@ -461,21 +527,24 @@ function checkPlanar(m: Material): void {
   });
 }
 
-/** Simple cycles of a walk: a retraced edge (h then its twin later in the
- * cycle) is cut out, the part between them becoming its own cycle. */
-function splitWalk(walk: number[]): number[][] {
+/** Simple cycles of a walk: wherever the walk returns to a vertex it has
+ * already left (a retraced edge, a bridge, a pinch, two holes touching at
+ * a corner), the part between the two visits becomes its own cycle and
+ * the rest continues without it. Cycles shorter than three edges are
+ * retraced branches and vanish. */
+function splitWalk(walk: number[], tailOf: (h: number) => number): number[][] {
   const out: number[][] = [];
   const rec = (seq: number[]) => {
     const at = new Map<number, number>();
     for (let k = 0; k < seq.length; k++) {
-      const e = seq[k] >> 1;
-      const first = at.get(e);
+      const v = tailOf(seq[k]);
+      const first = at.get(v);
       if (first !== undefined) {
-        rec(seq.slice(first + 1, k));
-        rec([...seq.slice(0, first), ...seq.slice(k + 1)]);
+        rec(seq.slice(first, k));
+        rec([...seq.slice(0, first), ...seq.slice(k)]);
         return;
       }
-      at.set(e, k);
+      at.set(v, k);
     }
     if (seq.length >= 3) out.push(seq);
   };
@@ -564,12 +633,14 @@ export class Faces {
       const seq: number[] = [];
       let h = h0;
       let area = 0;
+      const x0 = m.x[tailOf(h0)]; // shoelace about a local origin: absolute coordinates cancel to zero far from (0, 0)
+      const y0 = m.y[tailOf(h0)];
       do {
         walkOf[h] = walks.length;
         seq.push(h);
         const a = tailOf(h);
         const b = headOf(h);
-        area += m.x[a] * m.y[b] - m.x[b] * m.y[a];
+        area += (m.x[a] - x0) * (m.y[b] - y0) - (m.x[b] - x0) * (m.y[a] - y0);
         h = next[h];
       } while (h !== h0);
       walks.push({ halfEdges: seq, area: area / 2, comp: comp[tailOf(h0)] });
@@ -616,7 +687,11 @@ export class Faces {
       for (const [e, c] of count) if (c === 1) p += edgeLength(2 * e);
       return p;
     };
-    const contoursOf = (seq: number[]): IsoContour[] => splitWalk(seq).map((cycle) => ({ pts: cycle.map((h) => [m.x[tailOf(h)], m.y[tailOf(h)]] as [number, number]), closed: true }));
+    const contoursOf = (seq: number[]): IsoContour[] => splitWalk(seq, tailOf).map((cycle) => contourOf(cycle));
+    const contourOf = (cycle: number[]): IsoContour => {
+      const pts = cycle.map((h) => Object.freeze([m.x[tailOf(h)], m.y[tailOf(h)]] as [number, number]));
+      return Object.freeze({ pts: Object.freeze(pts) as unknown as [number, number][], closed: true }) as IsoContour;
+    };
     const views: Face[] = [];
     for (let f = 0; f < faceWalk.length; f++) {
       const fw = walks[faceWalk[f]];
@@ -638,7 +713,7 @@ export class Faces {
         if (x > x1) x1 = x;
         if (y > y1) y1 = y;
       }
-      const view: Face = { index: f, area, perimeter, bounds: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, contours };
+      const view: Face = { index: f, area, perimeter, bounds: Object.freeze({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }), contours: Object.freeze(contours) as unknown as IsoContour[] };
       brandView(view, this, 'face');
       Object.freeze(view);
       views.push(view);
@@ -689,16 +764,17 @@ export class Faces {
     const out: IsoContour[] = [];
     for (let h0 = 0; h0 < H; h0++) {
       if (used[h0] || !isBoundary(h0)) continue;
-      const pts: [number, number][] = [];
+      const seq: number[] = [];
       let h = h0;
       do {
         used[h] = 1;
-        pts.push([m.x[tailOf(h)], m.y[tailOf(h)]]);
+        seq.push(h);
         let g = this.next[h];
         while (!isBoundary(g)) g = this.next[g ^ 1];
         h = g;
       } while (h !== h0);
-      out.push({ pts, closed: true });
+      // a walk through a vertex twice (holes touching at a corner) is two contours, not a figure eight
+      for (const cycle of splitWalk(seq, tailOf)) out.push({ pts: cycle.map((g) => [m.x[tailOf(g)], m.y[tailOf(g)]] as [number, number]), closed: true });
     }
     return out;
   }
