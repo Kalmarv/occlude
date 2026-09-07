@@ -52,7 +52,15 @@ impl SpatialIndex {
 
     /// Indices of boxes overlapping `query`, in ascending index order.
     pub fn query(&self, query: &BBox, out: &mut Vec<u32>) {
-        self.query_unsorted(query, out);
+        self.query_from(query, out, 0);
+    }
+
+    /// The same, with no index below `from`. Occluders are stored in
+    /// ascending rank, so `from` is how a caller asks for only the ones in
+    /// front of it — the ones behind were gathered and then discarded, which
+    /// on a deep stack is half the answer.
+    pub fn query_from(&self, query: &BBox, out: &mut Vec<u32>, from: u32) {
+        self.query_unsorted(query, out, from);
         out.sort_unstable();
         out.dedup();
     }
@@ -61,11 +69,11 @@ impl SpatialIndex {
     /// registers a box in every cell it covers. For a caller that reads them
     /// front-to-back and stops after one or two, `heapify` + `pop_max` beats
     /// sorting the whole answer to read the top of it.
-    pub fn query_unsorted(&self, query: &BBox, out: &mut Vec<u32>) {
+    pub fn query_unsorted(&self, query: &BBox, out: &mut Vec<u32>, from: u32) {
         out.clear();
         match self {
-            SpatialIndex::Grid(g) => g.query(query, out),
-            SpatialIndex::Bvh(b) => b.query(query, out),
+            SpatialIndex::Grid(g) => g.query(query, out, from),
+            SpatialIndex::Bvh(b) => b.query(query, out, from),
         }
     }
 }
@@ -181,7 +189,7 @@ impl UniformGrid {
         )
     }
 
-    fn query(&self, q: &BBox, out: &mut Vec<u32>) {
+    fn query(&self, q: &BBox, out: &mut Vec<u32>, from: u32) {
         if !self.bounds.overlaps(q) {
             return;
         }
@@ -189,7 +197,7 @@ impl UniformGrid {
         for cy in y0..=y1 {
             for cx in x0..=x1 {
                 for &i in &self.cells[cy * self.cols + cx] {
-                    if self.boxes[i as usize].overlaps(q) {
+                    if i >= from && self.boxes[i as usize].overlaps(q) {
                         out.push(i);
                     }
                 }
@@ -268,7 +276,7 @@ impl Bvh {
         node_idx
     }
 
-    fn query(&self, q: &BBox, out: &mut Vec<u32>) {
+    fn query(&self, q: &BBox, out: &mut Vec<u32>, from: u32) {
         if self.nodes.is_empty() {
             return;
         }
@@ -281,7 +289,7 @@ impl Bvh {
             if node.start != u32::MAX {
                 for k in node.start..node.start + node.count {
                     let i = self.order[k as usize];
-                    if self.boxes[i as usize].overlaps(q) {
+                    if i >= from && self.boxes[i as usize].overlaps(q) {
                         out.push(i);
                     }
                 }

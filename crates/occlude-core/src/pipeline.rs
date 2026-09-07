@@ -138,6 +138,10 @@ struct ClipCtx<'a> {
     occluders: &'a [Occluder],
     occ_index: &'a SpatialIndex,
     my_rank: usize,
+    /// The first occluder in front of this shape. Occluders are stored in
+    /// ascending rank, so everything below this index is behind us and would
+    /// be gathered only to be thrown away.
+    first_ahead: u32,
 }
 
 /// Provisional-origin marker for fill primitives generated inside a shape's
@@ -359,17 +363,13 @@ pub fn prepare(input: RenderInput) -> Prepared {
         // Later opaque regions overlapping this shape.
         {
             let _q = crate::profile::zone("4a cull-query");
-            occ_index.query(b, &mut query_buf);
+            occ_index.query_from(b, &mut query_buf, occluders.partition_point(|o| o.rank <= rank[i]) as u32);
         }
         let _c = crate::profile::zone("4b cull-contains");
-        let mut any_later = false;
+        let mut any_later = !query_buf.is_empty();
         let mut contained = false;
         for &oi in query_buf.iter() {
             let o = &occluders[oi as usize];
-            if o.rank <= rank[i] {
-                continue;
-            }
-            any_later = true;
             // Containment cull: fully inside one later opaque region.
             if o.region.bbox.contains_box(b) && region_contains_bbox(&o.region, b) {
                 #[cfg(feature = "cull-debug")]
@@ -458,6 +458,7 @@ impl Prepared {
                 occluders,
                 occ_index,
                 my_rank: rank[i],
+                first_ahead: occluders.partition_point(|o| o.rank <= rank[i]) as u32,
             };
             let shape_clips: Vec<(&Region, bool)> = s
                 .clips
@@ -1638,16 +1639,15 @@ fn clip_one(
     let pb = prim.bbox();
     {
         let _q = crate::profile::zone("5q clip-query");
-        ctx.occ_index.query_unsorted(&pb, query_buf);
+        ctx.occ_index.query_unsorted(&pb, query_buf, ctx.first_ahead);
         crate::index::heapify(query_buf);
     }
     // Fast path: nothing in front of this primitive and no clips — the
     // common case for long polylines where only a few segments cross an
     // occluder. No span work at all. Ascending ids are ascending rank, so
     // the heap's root — the largest id — settles it.
-    let any_later = query_buf
-        .first()
-        .is_some_and(|&oi| ctx.occluders[oi as usize].rank > ctx.my_rank);
+    // the query returned only occluders in front, so any at all is enough
+    let any_later = !query_buf.is_empty();
     if !any_later && clips.is_empty() {
         out.push(Frag::whole(origin, *prim, pen, shape));
         return;
@@ -1791,13 +1791,12 @@ fn point_visible(p: Vec2, clips: &[(&Region, bool)], ctx: &ClipCtx, query_buf: &
         }
     }
     let pb = BBox::new(p, p);
-    ctx.occ_index.query(&pb, query_buf);
+    ctx.occ_index.query_from(&pb, query_buf, ctx.first_ahead);
     // Nearest-rank occluder first: for a point, hidden-by-any is order-
     // independent, and the shape drawn right after this one is the likeliest
     // cover (nested contour bands: each band's dots are mostly under the
     // next band) — one test settles most dots instead of one per occluder.
-    let first_above = query_buf.partition_point(|&oi| ctx.occluders[oi as usize].rank <= ctx.my_rank);
-    for &oi in &query_buf[first_above..] {
+    for &oi in query_buf.iter() {
         let occ = &ctx.occluders[oi as usize];
         if !occ.region.on_boundary(p, crate::clip::ON_BOUNDARY_EPS) && occ.region.inside(p) {
             return false;

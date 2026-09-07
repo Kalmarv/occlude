@@ -831,3 +831,52 @@ fn the_heap_hands_back_exactly_the_descending_sorted_order() {
     let edge = [0u32, u32::MAX, 1, u32::MAX - 1, 0, u32::MAX];
     assert_eq!(drain(&edge), want(&edge));
 }
+
+/// The clip and cull passes ask the index for only the occluders in FRONT of
+/// them, by index, because occluders are stored in ascending rank. If the
+/// filter ever dropped one that is in front, ink would survive that should
+/// have been hidden — silently. This pins it against the unfiltered answer,
+/// on both index shapes (the uniform grid and the BVH the fat-box heuristic
+/// picks) and at every cut point.
+#[test]
+fn a_filtered_query_is_exactly_the_unfiltered_one_from_that_index_up() {
+    use occlude_core::bbox::BBox;
+    use occlude_core::index::SpatialIndex;
+
+    let mut s: u64 = 20_260_907;
+    let mut rnd = || {
+        s = s.wrapping_mul(6364136223846793005).wrapping_add(1);
+        ((s >> 33) as f64) / (u32::MAX as f64 / 2.0)
+    };
+    // fat boxes (the BVH branch) and small ones (the grid branch)
+    for fat in [false, true] {
+        let mut boxes: Vec<BBox> = Vec::new();
+        for _ in 0..300 {
+            let (x, y) = (rnd() * 100.0, rnd() * 100.0);
+            let (w, h) = if fat { (rnd() * 60.0 + 20.0, rnd() * 60.0 + 20.0) } else { (rnd() * 3.0 + 0.01, rnd() * 3.0 + 0.01) };
+            boxes.push(BBox::new(v(x, y), v(x + w, y + h)));
+        }
+        let index = SpatialIndex::build(&boxes);
+        let mut all: Vec<u32> = Vec::new();
+        let mut some: Vec<u32> = Vec::new();
+        let queries = [
+            BBox::new(v(0.0, 0.0), v(100.0, 100.0)),
+            BBox::new(v(45.0, 45.0), v(55.0, 55.0)),
+            BBox::new(v(-20.0, -20.0), v(-1.0, -1.0)),
+            BBox::new(v(50.0, 50.0), v(50.0, 50.0)),
+            BBox::new(v(99.0, 0.0), v(101.0, 100.0)),
+        ];
+        for q in &queries {
+            index.query(q, &mut all);
+            for from in [0u32, 1, 7, 150, 299, 300, 301, u32::MAX] {
+                index.query_from(q, &mut some, from);
+                let want: Vec<u32> = all.iter().copied().filter(|&i| i >= from).collect();
+                assert_eq!(some, want, "fat = {fat}, from = {from}");
+                // and it is still ascending and unique
+                for w in some.windows(2) {
+                    assert!(w[0] < w[1], "filtered query must stay sorted and unique");
+                }
+            }
+        }
+    }
+}

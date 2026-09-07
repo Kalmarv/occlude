@@ -763,6 +763,60 @@ reverse-sorted, all-equal, 200–800 element cases and the ends of the u32 range
 the current best, and heapify skipping length-2 inputs both fail it). Docs
 106/106, studio built with wasm md5 match, 81 studio tests.
 
+## Entry 13 — the query stops gathering occluders that are behind the shape (Rust)
+
+**Finding** (entry 12's own recorded lead). After the heap, the clip query's
+remaining cost was the **gather**: 185 ms of its 449 ms at 400 discs. It
+returned every occluder overlapping the primitive's box — including the ones
+*behind* the shape, which the caller then discarded. On a deep stack that is
+half the answer, gathered and heapified for nothing. Three call sites each
+threw them away in their own way: `clip_one` broke at the first
+`rank <= my_rank`, `point_visible` partitioned them off, the cull `continue`d
+past them.
+
+**Why it is safe.** `occluders` is built by walking shapes in z-rank order and
+pushing only the opaque ones, so occluder ids ascend strictly with rank — the
+property the reverse walk already relied on and the struct's doc comment
+already stated. The first occluder in front of a shape is therefore a
+`partition_point` over that array, computed once per shape.
+
+**Change.** `SpatialIndex::query_from(q, out, from)` skips indices below
+`from` in both the grid and the BVH scan; `query(q, out)` is unchanged for the
+callers that index something other than occluders (`cleanup.rs`, `region.rs`).
+`ClipCtx` carries `first_ahead`; `clip_one`'s `any_later` becomes
+`!query_buf.is_empty()`, `point_visible` drops its `partition_point`, and the
+cull drops its skip.
+
+**Measurement** (`bench/obench.mts`, µs/frag, two interleaved A/B pairs with
+the wasm rebuilt each way — against entry 12, not the original baseline):
+
+| workload | before | after |
+|---|---|---|
+| stack, 400 opaque discs | 231.4 / 243.5 | **185.1 / 186.8** — 1.28× |
+| concentric, 400 nested rings | 350.3 / 342.9 | **277.8 / 284.9** — 1.23× |
+| stack, 200 opaque discs | 91.6 / 91.6 | **76.8 / 75.8** — 1.20× |
+| concentric, 200 nested rings | 130.5 / 128.8 | **114.8 / 114.9** — 1.13× |
+| coincident, 300 identical discs | 1 332.1 / 1 311.6 | **1 182.1 / 1 190.5** — 1.12× |
+| cover, gauntlet, outlines | — | flat |
+
+Native, `examples/stack_bench.rs`: 400 discs **587 → 427 ms**, its query
+343 → 212 ms. Ordinary sketches improve slightly rather than regress — church
+`pass1` 45/46 → 40/38 and `pass2` 241/245 → 223/239, contours `pass2`
+770/747 → 740/711, Ivy and contours-2-multicolor flat.
+
+**Together with entry 12**, against `7d93015`: concentric 400 rings 570 → 281
+µs/frag (**2.03×**), stack 400 discs 272 → 186 (**1.46×**), coincident 300
+1 875 → 1 186 (**1.58×**).
+
+**Verification.** All 26 studio sketches hash identically; all four `plotstats`
+oracles byte-identical. 317 TS tests; 63 Rust tests, including a new one that
+pins `query_from` against the unfiltered `query` on both index shapes (the
+grid and the BVH the fat-box heuristic picks), at eight cut points including
+0, past the end and `u32::MAX`, checking the result stays sorted and unique —
+mutation-checked twice (`>` for `>=`, and dropping the grid's filter). Docs
+106/106, studio built with wasm md5 match, 81 studio tests.
+
+
 ## Rejected, with reasons
 - **A cached luminance plane for the image sampler** (`imageAsset.ts`). The
   samplers are the largest library-side cost in flow-user (~890 ms of self
