@@ -30,17 +30,19 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
 });
 ```
 
-`.cells()` gives the Voronoi cells of a set, one `{ site, pts }` per point clipped to the drawable, and `.mesh()` its Delaunay triangles. Both are plain data to filter and stamp; both also exist as pure imports over any array, `voronoi(points, bounds)` and `triangulate(points)`. Left, cells; right, triangles of the same scatter.
+`.cells()` gives the Voronoi cells of a set, one `{ site, pts }` per point clipped to the drawable, and `.mesh()` its Delaunay triangles. Both are plain data to filter and stamp; both also exist as pure imports over any array, `voronoi(points, bounds)` with the bounds to clip to, and `triangulate(points)`. Left, the cells of the points in the left half, clipped to it; right, the triangles of the points in the right half.
 
 ```ts live
-import { sketch, polygon, fill, mm } from 'occlude';
+import { sketch, polygon, fill, mm, voronoi, triangulate } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  const pts = t.scatter({ spacing: 9 }).relax(3).filter((p) => p.x < 98);
-  const set = t.points(pts.map((p) => [p.x, p.y]));
+  const pts = t.scatter({ spacing: 9 }).relax(3);
+  const left = pts.filter((p) => p.x < 96);
+  const right = pts.filter((p) => p.x > 104);
   return [
-    set.cells().map((c) => polygon(c.pts, t.chance(0.25) ? { fill: fill('hatch', { angle: t.rnd(180), spacing: mm(1.1) }) } : {})),
-    set.mesh().map((tri) => polygon(tri.map(([x, y]) => [x + 102, y]))),
+    voronoi(left, { x: 0, y: 0, w: 98, h: 100 }).map((c) =>
+      polygon(c.pts, t.chance(0.25) ? { fill: fill('hatch', { angle: t.rnd(180), spacing: mm(1.1) }) } : {})),
+    triangulate(right).map((tri) => polygon(tri)),
   ];
 });
 ```
