@@ -1,27 +1,30 @@
 # 10. Let a drawing respond
 
-**How can measurements become my own rule?** The standard operations of chapter 8 read a field and move points by rules that are theirs. A sketch can do the same thing with a rule that is yours: measure the regions its points own, decide what each point should do about what it finds, move it, and go round again. This is the drawing this chapter arrives at: a cellular arrangement that has crept toward two patches of light, cell by cell, while a share of its sites stayed pinned and kept the original structure showing through; drawn once as walls and once as the sites alone. By the end you will be able to point at the observation, the decision and the edit in code of your own, and know what each costs.
+**How can measurements become my own rule?** The standard operations of chapter 8 read a field and move points by rules that are theirs. A sketch can do the same thing with a rule that is yours: measure the regions its points own, decide what each point should do about what it finds, move it, and go round again. This is the drawing this chapter arrives at: sites drawn toward two patches of light and stopping, each for good, where its cell became bright enough, so that shells form around the light out of the order in which they arrived; drawn once as walls and once as the sites alone. By the end you will be able to point at the observation, the decision and the edit in code of your own, and know what each costs.
 
 ```ts live
-import { sketch, strokes, circle, distance, sub, mul, ui } from 'occlude';
+import { sketch, strokes, circle, label, distance, sub, mul, group, rect, within, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
-  const iterations = ui(12, { min: 0, max: 20, step: 1 });
-  const amount = ui(0.8, { min: 0, max: 1, step: 0.05, label: 'move fraction' });
-  const mobile = ui(0.7, { min: 0, max: 1, step: 0.05, label: 'mobile share' });
-  const glow = (x, y) => Math.min(1, Math.max(0, 1 - distance([x, y], [62, 42]) / 46) + Math.max(0, 1 - distance([x, y], [148, 64]) / 34) * 0.8);
-  const light = (x, y) => 0.005 + Math.pow(glow(x, y), 4);
-  const sites = t.relax(t.scatter({ spacing: 12 }), { iterations: 2 }).attribute('mobility', () => (t.chance(mobile) ? 1 : 0));
+  const iterations = ui(16, { min: 0, max: 24, step: 1 });
+  const bright = ui(0.12, { min: 0.02, max: 0.9, step: 0.02, label: 'bright enough to stop' });
+  const half = { x: 0, y: 0, w: 100, h: 100 };
+  const glow = (x, y) => Math.min(1, Math.max(0, 1 - distance([x, y], [30, 42]) / 30) + Math.max(0, 1 - distance([x, y], [72, 64]) / 22) * 0.9);
+  const light = (x, y) => 0.005 + Math.pow(glow(x, y), 3);
+  const sites = t.relax(t.scatter(within(() => 1, rect(0, 0, 100, 100)), { spacing: 7 }), { iterations: 2, bounds: half }).attribute('mobility', 1);
+  const started = Date.now();
   const settled = sites.steps(iterations, (current, next) => {
-    const diagram = t.voronoi(current);
+    const diagram = t.voronoi(current, { bounds: half });
     const measured = diagram.faces().measure(light, { resolution: 128 });
-    next.move((p) => {
-      const cell = diagram.cellOf(p);
-      const target = cell ? measured.forFace(cell).weightedCentroid : null;
-      return target ? mul(sub(target, p), amount * p.mobility) : [0, 0];
-    });
+    next.move((p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; });
+    next.set(() => ({ mobility: 0 }), { where: current.points.filter((p) => { const cell = diagram.cellOf(p); return cell !== undefined && measured.forFace(cell).mean > bright; }) });
   });
-  return [strokes(t.voronoi(settled)), settled.points.filter((p) => p.mobility === 0).map((p) => circle(p.x, p.y, 0.9))];
+  const took = Date.now() - started;
+  return [
+    strokes(t.voronoi(settled, { bounds: half })),
+    group({ translate: [100, 0] }, settled.points.map((p) => circle(p.x, p.y, p.mobility ? 0.5 : 1))),
+    label(`${iterations} rounds, ${sites.n} sites, ${took} ms`, 104, 97, 2.6),
+  ];
 });
 ```
 
@@ -104,57 +107,45 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
 
 `diagram` is built from `current` inside the rule, so `cellOf(p)` is asked of the state `p` belongs to. That is the ownership rule from chapters 3 and 9 doing useful work: a diagram of the previous step would refuse these points, and rightly, since its cells are not theirs.
 
-## Repeat, then change the response
+## Repeat, and then decide differently
 
-The same rule for several steps, and each step's diagram is built from the sites the last step moved: the cells crowd toward the light, and their walls shorten there. The light never changes; the measurement is the same question each time; the rule is the reader's, so the first thing to change is the response. A `mobility` attribute on the sites, 1 or 0, decided by a seeded coin, scales each site's move, so some sites go and some stay, and the pinned ones hold the original spacing around them.
+The same rule for several steps, and each step's diagram is built from the sites the last step moved: the cells crowd toward the light, and their walls shorten there. How far a site moves each step is the distance from its cell's plain centre to its weighted one, and that distance depends on how much the light changes across the cell: nearly nothing for a small cell under an even light, a good fraction of the cell for a cell that straddles the edge of a bright patch. With `move fraction` at 0.8 and a light with a hard edge, a dozen rounds is enough to see.
 
-```ts live focus=8,13
+```ts live focus=8-13
 import { sketch, strokes, circle, distance, sub, mul, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const iterations = ui(12, { min: 0, max: 20, step: 1 });
   const amount = ui(0.8, { min: 0, max: 1, step: 0.05, label: 'move fraction' });
-  const mobile = ui(0.7, { min: 0, max: 1, step: 0.05, label: 'mobile share' });
   const light = (x, y) => 0.005 + Math.pow(Math.max(0, 1 - distance([x, y], [100, 50]) / 60), 4);
-  const sites = t.relax(t.scatter({ spacing: 12 }), { iterations: 2 }).attribute('mobility', () => (t.chance(mobile) ? 1 : 0));
-  const settled = sites.steps(iterations, (current, next) => {
+  const sites = t.relax(t.scatter({ spacing: 12 }), { iterations: 2 });
+  const gathered = sites.steps(iterations, (current, next) => {
     const diagram = t.voronoi(current);
     const measured = diagram.faces().measure(light, { resolution: 128 });
     next.move((p) => {
       const cell = diagram.cellOf(p);
       const target = cell ? measured.forFace(cell).weightedCentroid : null;
-      return target ? mul(sub(target, p), amount * p.mobility) : [0, 0];
+      return target ? mul(sub(target, p), amount) : [0, 0];
     });
   });
-  return [strokes(t.voronoi(settled)), settled.points.filter((p) => p.mobility === 0).map((p) => circle(p.x, p.y, 0.9))];
+  return [strokes(t.voronoi(gathered)), gathered.points.map((p) => circle(p.x, p.y, 0.7))];
 });
 ```
 
-Set `mobile share` to 1 and the whole arrangement flows to the light and the edges of the sheet empty out into long cells. At 0.7 the pinned sites, marked, keep a lattice of the original structure between the clusters. Before you drag `move fraction` to 1: does a full move each step settle faster, or does something else happen?
+That is one response to the measurement: go where the light is in your cell. It is the standard one, the thing `t.relax` does with a density, and it produces one kind of structure: cells that shrink toward the light and stretch away from it, smoothly, everywhere at once.
 
-<details>
-<summary>What to look for</summary>
+**The same observation, a different decision.** Keep every line of the observation and change only what a site does with it. Second response: a site whose cell is bright enough stops, for good. It needs to remember that it stopped, so the sites carry a `mobility` attribute, 1 to start, and the rule sets it to 0 when the cell's `mean` crosses `bright`; the move is scaled by `mobility`, so a stopped site stays put while the others keep coming. The observation is identical: the diagram, the measurement, the same `mean` and `weightedCentroid` for every cell. Left, the first response; right, the second, from the same sites.
 
-At 1 each site jumps to its cell's weighted centre in one step, and the next step's cells are different enough that the centres move back part of the way: the arrangement settles by overshooting a little. At 0.8 it converges nearly as fast and more evenly. Below 0.5 nothing goes wrong, but the light is faint in its effect: each step moves a site only a fraction of an already small distance, because the weighted centre is never far from the plain centre of a cell, and twelve rounds are not enough to show it. This response is slow by nature; the move fraction and the contrast of the light are what make it visible.
-
-</details>
-
-## Compose and compare
-
-Two patches of light, unequal, raised to a high power so the light is a bright pool with dark surroundings rather than a slope, and a modest population. A gentle light barely moves the cells: the weighted centre of a cell sits close to its plain centre unless the light changes a lot across it, so this response is slow by nature, and the contrast is what makes it visible in a dozen rounds. The `mobile share` is what gives the composition its two layers: the moving sites cluster into the light and the pinned ones hold the ground between. Drawn as walls, the drawing is about the cells; drawn as marks at the same final sites, it is about the crowding, and chapter 8's tone comes back without any field being scattered. The label reports what the rule cost.
-
-```ts live focus=6-9,19-22
-import { sketch, strokes, circle, label, distance, sub, mul, group, rect, within, ui } from 'occlude';
+```ts live focus=17-21
+import { sketch, strokes, circle, distance, sub, mul, group, rect, within, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const iterations = ui(12, { min: 0, max: 20, step: 1 });
-  const mobile = ui(0.7, { min: 0, max: 1, step: 0.05, label: 'mobile share' });
-  const glow = (x, y) => Math.min(1, Math.max(0, 1 - distance([x, y], [30, 42]) / 30) + Math.max(0, 1 - distance([x, y], [72, 64]) / 22) * 0.8);
-  const light = (x, y) => 0.005 + Math.pow(glow(x, y), 4);
+  const bright = ui(0.35, { min: 0.05, max: 0.9, step: 0.05, label: 'bright enough to stop' });
   const half = { x: 0, y: 0, w: 100, h: 100 };
-  const sites = t.relax(t.scatter(within(() => 1, rect(0, 0, 100, 100)), { spacing: 11 }), { iterations: 2, bounds: half }).attribute('mobility', () => (t.chance(mobile) ? 1 : 0));
-  const started = Date.now();
-  const settled = sites.steps(iterations, (current, next) => {
+  const light = (x, y) => 0.005 + Math.pow(Math.max(0, 1 - distance([x, y], [50, 50]) / 34), 4);
+  const sites = t.relax(t.scatter(within(() => 1, rect(0, 0, 100, 100)), { spacing: 8 }), { iterations: 2, bounds: half }).attribute('mobility', 1);
+  const respond = (stopping) => sites.steps(iterations, (current, next) => {
     const diagram = t.voronoi(current, { bounds: half });
     const measured = diagram.faces().measure(light, { resolution: 128 });
     next.move((p) => {
@@ -162,36 +153,70 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
       const target = cell ? measured.forFace(cell).weightedCentroid : null;
       return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0];
     });
+    if (stopping) next.set(() => ({ mobility: 0 }), { where: current.points.filter((p) => { const cell = diagram.cellOf(p); return cell !== undefined && measured.forFace(cell).mean > bright; }) });
+  });
+  const gathered = respond(false);
+  const stopped = respond(true);
+  const marks = (m) => m.points.map((p) => circle(p.x, p.y, p.mobility ? 0.6 : 1.1));
+  return [strokes(t.voronoi(gathered, { bounds: half })), marks(gathered), group({ translate: [100, 0] }, strokes(t.voronoi(stopped, { bounds: half })), marks(stopped))];
+});
+```
+
+Watch the right side as `iterations` climbs. The first sites to stop are the ones already in the light, and they stop early, before they have crowded; the sites arriving from the dark cross the threshold at the edge of the bright patch and stop there, one after another, so a ring forms where the light becomes bright enough, and the middle stays as it was. The left side has no ring: its sites keep sliding inward until they pack against each other. Lower `bright enough to stop` and the ring grows outward and thins; raise it and only the innermost sites ever stop, and the two drawings converge. The larger marks are the stopped sites.
+
+Before reading on: the stopped sites make a shell. Is that shell a fact about the light, or about the order in which sites arrived?
+
+<details>
+<summary>What to look for</summary>
+
+Both, which is why it is interesting. Where the shell is, is a fact about the light: it lies along the contour of the light where a cell's mean crosses the threshold. What the shell is made of is a fact about history: the sites that reached it first stopped first, and the ones behind stopped behind them, so the shell has a thickness that the light alone does not have. A rule that only reads the present, like the first response, can only reproduce the light. A rule with memory, an attribute it writes, can make a structure the light does not contain. That is what a custom decision buys.
+
+</details>
+
+## Compose
+
+The second response, on a modest population with two patches of light, drawn twice from the same final sites: as walls, where the shells show as rings of small cells with open cells inside them; and as marks of two sizes, the stopped sites larger. The label reports what the rule cost, and the standard response is left out on purpose: at this point the decision is the drawing.
+
+```ts live focus=8-16
+import { sketch, strokes, circle, label, distance, sub, mul, group, rect, within, ui } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const iterations = ui(16, { min: 0, max: 24, step: 1 });
+  const bright = ui(0.12, { min: 0.02, max: 0.9, step: 0.02, label: 'bright enough to stop' });
+  const half = { x: 0, y: 0, w: 100, h: 100 };
+  const glow = (x, y) => Math.min(1, Math.max(0, 1 - distance([x, y], [30, 42]) / 30) + Math.max(0, 1 - distance([x, y], [72, 64]) / 22) * 0.9);
+  const light = (x, y) => 0.005 + Math.pow(glow(x, y), 3);
+  const sites = t.relax(t.scatter(within(() => 1, rect(0, 0, 100, 100)), { spacing: 7 }), { iterations: 2, bounds: half }).attribute('mobility', 1);
+  const started = Date.now();
+  const settled = sites.steps(iterations, (current, next) => {
+    const diagram = t.voronoi(current, { bounds: half });
+    const measured = diagram.faces().measure(light, { resolution: 128 });
+    next.move((p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; });
+    next.set(() => ({ mobility: 0 }), { where: current.points.filter((p) => { const cell = diagram.cellOf(p); return cell !== undefined && measured.forFace(cell).mean > bright; }) });
   });
   const took = Date.now() - started;
   return [
     strokes(t.voronoi(settled, { bounds: half })),
-    group({ translate: [100, 0] }, settled.points.map((p) => circle(p.x, p.y, 0.7))),
-    label(`${iterations} rounds, ${sites.n} sites, ${took} ms`, 4, 6, 3),
+    group({ translate: [100, 0] }, settled.points.map((p) => circle(p.x, p.y, p.mobility ? 0.5 : 1))),
+    label(`${iterations} rounds, ${sites.n} sites, ${took} ms`, 104, 97, 2.6),
   ];
 });
 ```
 
-Of the two, the marks are the stronger drawing at this seed: the walls draw every cell with the same weight and the light reads only as a change of cell size, while the marks make the light a density and the pinned lattice a texture, which is two kinds of information in one kind of ink. The walls would come into their own with chapter 9's borders, or chapter 6's selection of the small cells.
+Two lights of different size give two shells of different radius, and the smaller, weaker patch stops fewer sites, so its shell is thinner. Between the marks and the walls, the marks make the shells legible as rings of large dots with the arriving sites inside; the walls show the same rings as belts of small cells. Which to keep depends on whether the drawing is about the sites or about the space between them, and the two can be plotted in two pens on one sheet, which is chapter 11's business.
 
 ## What it costs
 
-`t.relax` does the plain version of this, sites to weighted centres, in a kernel that never builds a diagram, and it is many times faster than a round of `voronoi` plus `measure` plus a move. This chapter's rule is not an improvement on it; it is the same idea with the cells and the measurements exposed, which is what makes a different response possible: pinning, stopping, moving only some kinds, or pulling toward something other than the centre. When the response is the standard one, use the standard operation. The label above is the cost of having a choice.
+`t.relax` does the first response, sites to weighted centres, in a kernel that never builds a diagram, and it is many times faster than a round of `voronoi` plus `measure` plus a move. The custom rule is not an improvement on it; it is the same observation with the cells and the measurements exposed, which is what made the second response possible. When the response is the standard one, use the standard operation. The label above is the cost of having a choice, and the shells are what the choice bought.
 
 ## On your own
 
-Write a different response from the same measurements. Three that work: a site that finds its cell bright enough stops moving for good; only sites of one kind, by an attribute you declare, move at all; a site whose cell holds too little light is pulled toward a fixed point instead of its cell's centre. Each is a change to the decision, not to the observation or the edit.
+Write a third response from the same measurements, and say what structure it makes that the first two cannot. Two that work: only sites of one kind, by an attribute you declare, move at all, so the light sorts a mixed population; or a site whose cell holds too little light is pulled toward a fixed point instead of its cell's centre, so the dark has a direction of its own. Each is a change to the decision, not to the observation or the edit.
 
 <details>
 <summary>A hint, and one possible answer</summary>
 
-The decision is the line that computes `target`, and it can read `measured.forFace(cell).mean` as easily as `weightedCentroid`. To stop for good, a site needs to remember that it stopped: an attribute, set with `next.set` in the same rule when the mean crosses a threshold, and read the next step so the move is `[0, 0]`. One answer:
-
-```ts
-next.set((p) => ({ mobility: 0 }), { where: current.points.filter((p) => { const c = diagram.cellOf(p); return c && measured.forFace(c).mean > 0.5; }) });
-```
-
-placed before the move inside the rule, with `mobility` declared as 1 on every site. The move line does not change; the sites that reached the light stay, and the ones still in the dark keep coming.
+The decision is the line that computes `target`, and it can read anything the measurement holds. For the mixed population, declare `kind` on the sites as chapter 9 did and multiply the move by `p.kind`; the unmoved kind stays as a lattice and the moved kind gathers through it, which is a structure with two layers. For the dark's direction, `target` is a choice between two points: `mean < dim ? somewhere : weightedCentroid`, and `somewhere` is a fixed position, so the dark sites drain toward a corner while the lit ones gather, and the sheet divides into a place things go and a place they come from.
 
 </details>
 

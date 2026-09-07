@@ -188,7 +188,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
 });
 ```
 
-Three readings of one network, with the same selection. All the walls, as a line drawing: the crossings do the work and the tone is only where the lines crowd. The boundary of the chosen cells alone: a single outline around the cluster with the network gone, which is the drawing reduced to its decision. And the chosen cells filled with the walls faint, which is the print above. They are three fences' worth of code apart, and the third is the one that holds the page: the line drawing is even, the outline alone is thin, and the print has a place to look and room around it.
+Three readings of one network, with the same selection. All the walls, as a line drawing: the tone is wherever the lines crowd, which is the cluster, so the subject is there without any selection at all. The boundary of the chosen cells alone: an outline around the cluster with the network gone, the decision with nothing else on the page. And the chosen cells filled with the walls faint, which is the print above. Look at where your eye settles in each and how long it stays: in the first it finds the cluster and then reads the lines; in the second it has only the outline to hold; in the third it has the cluster, a texture inside it and quiet around it. Any of the three could be the print. What differs is how much the drawing decides for you and how much it leaves to the lines.
 
 ```ts live focus=18-20
 import { sketch, strokes, polygon, fill, mm, line, rect, append, group } from 'occlude';
