@@ -21,6 +21,68 @@ import type { Prim } from './prims.js';
 
 export const PLAN_SCHEMA = 1;
 
+/** The path-optimization inputs of a plan — the only knobs planning has.
+ * `optimize`: the 2-opt tour budget (`false` = nearest-neighbour order
+ * only, a number overrides, default 200 000). `bridge`: draw through
+ * sub-nib gaps instead of lifting — `false` never, a number is the gap
+ * in mm for every pen, default half the nib per pen. A sketch states
+ * them with `t.plan({...})`; `plan(result, opts)` takes them directly. */
+export interface PlanOptions {
+  optimize?: boolean | number;
+  bridge?: boolean | number;
+  /** Engine identity to fold into the plan's hash (a build stamp). */
+  engine?: string;
+}
+
+/** What part of the ordered plan a sketch asks to be drawn — code, so
+ * the same program and seed give the same ink. Exactly one range form:
+ * `chains` (whole chains, half-open), `progress` (a FRACTION OF CHAINS,
+ * not ink or time), or `minutes` (an interval of the full plan's
+ * estimated timeline, quantized to completed chains — needs a machine's
+ * timing). `budget` (minutes) then keeps the longest prefix of that
+ * range whose standalone estimate fits. Empty = the whole plan. */
+export interface DrawRequest {
+  chains?: [number, number];
+  progress?: [number, number];
+  minutes?: [number, number];
+  budget?: number;
+}
+
+const pair = (v: unknown, what: string): [number, number] => {
+  if (!Array.isArray(v) || v.length !== 2 || !v.every((x) => typeof x === 'number' && Number.isFinite(x))) throw new Error(`draw: ${what} must be [from, to] finite numbers`);
+  if (v[0] > v[1]) throw new Error(`draw: ${what} from ${v[0]} exceeds to ${v[1]}`);
+  return [v[0], v[1]];
+};
+
+/** Validate a sketch's request; the same object comes back normalized. */
+export function checkDrawRequest(req: DrawRequest): DrawRequest {
+  if (typeof req !== 'object' || req === null) throw new Error('draw: expected { chains | progress | minutes, budget? }');
+  const forms = (['chains', 'progress', 'minutes'] as const).filter((k) => req[k] !== undefined);
+  if (forms.length > 1) throw new Error(`draw: give one of chains, progress or minutes, not ${forms.join(' and ')}`);
+  const out: DrawRequest = {};
+  if (req.chains) {
+    const c = pair(req.chains, 'chains');
+    if (!Number.isInteger(c[0]) || !Number.isInteger(c[1]) || c[0] < 0) throw new Error('draw: chains must be non-negative integers');
+    out.chains = c;
+  }
+  if (req.progress) {
+    const p = pair(req.progress, 'progress');
+    if (p[0] < 0 || p[1] > 1) throw new Error('draw: progress must lie within [0, 1]');
+    out.progress = p;
+  }
+  if (req.minutes) {
+    const m = pair(req.minutes, 'minutes');
+    if (m[0] < 0) throw new Error('draw: minutes must be non-negative');
+    out.minutes = m;
+  }
+  if (req.budget !== undefined) {
+    if (typeof req.budget !== 'number' || !Number.isFinite(req.budget) || req.budget < 0) throw new Error('draw: budget must be a non-negative number of minutes');
+    out.budget = req.budget;
+  }
+  for (const k of Object.keys(req)) if (!['chains', 'progress', 'minutes', 'budget'].includes(k)) throw new Error(`draw: unknown option '${k}'`);
+  return out;
+}
+
 /** One pen-down run of the plan: native primitives, plan order. */
 export interface PlanChain {
   /** Row in the FULL plan — the identity every consumer shares. */
@@ -334,6 +396,69 @@ export function fitDuration(
   }
   const fitted = selection(plan, sel.fromChain, sel.fromChain + best);
   return { selection: fitted, estimatedMs: bestMs, unusedMs: opts.budgetMs - bestMs, dropped: sel.count - best };
+}
+
+/** Timing a request by minutes or budget needs: the plan's sampled
+ * chains and the machine's estimator inputs. */
+export interface DrawTiming {
+  flat: readonly FlatChain[];
+  penOf: (pen: number) => PenTiming | undefined;
+  opts: EstimateOpts;
+}
+
+export interface ResolvedDraw {
+  request: DrawRequest;
+  /** Before any budget fitting. */
+  selection: PlanSelection;
+  effective?: { fromMs: number; toMs: number };
+  fit?: FitResult & { budgetMs: number };
+  /** The selection every consumer uses: fitted when a budget was given. */
+  final: PlanSelection;
+  /** Standalone estimate of `final` and the whole plan's, when timed. */
+  estimate?: PlanEstimate;
+  fullMs?: number;
+}
+
+/** Resolve a sketch's `draw` request against a plan. Chain and progress
+ * forms need nothing else; minutes and budget need `timing`, and throw
+ * without it (the machine's clock is not the sketch's to know). A chain
+ * range past the plan's end clamps; the plan is never changed. */
+export function resolveDraw(plan: DrawingPlan, req: DrawRequest | undefined, timing?: DrawTiming): ResolvedDraw {
+  const r = checkDrawRequest(req ?? {});
+  const n = plan.chains.length;
+  const needsTime = r.minutes !== undefined || r.budget !== undefined;
+  if (needsTime && !timing) throw new Error('draw: a range in minutes or a budget needs the machine timing (pass timing, or choose chains / progress)');
+  if (timing && timing.flat.length !== n) throw new Error('draw: the toolpath does not cover the whole plan');
+  let selection: PlanSelection;
+  let effective: ResolvedDraw['effective'];
+  let schedule: PlanSchedule | undefined;
+  const scheduled = () => (schedule ??= schedulePlan(timing!.flat, timing!.penOf, timing!.opts));
+  if (r.chains) selection = selectChains(plan, { from: Math.min(r.chains[0], n), to: Math.min(r.chains[1], n) });
+  else if (r.progress) selection = selectProgress(plan, { from: r.progress[0], to: r.progress[1] });
+  else if (r.minutes) {
+    const total = scheduled().estimate.totalMs;
+    const t = selectTime(plan, timing!.flat, { fromMs: Math.min(r.minutes[0] * 60_000, total), toMs: Math.min(r.minutes[1] * 60_000, total) }, scheduled());
+    selection = t.selection;
+    effective = t.effective;
+  } else selection = selectAll(plan);
+  let fit: ResolvedDraw['fit'];
+  if (r.budget !== undefined) {
+    const budgetMs = r.budget * 60_000;
+    fit = { ...fitDuration(plan, timing!.flat, selection, { budgetMs }, timing!.penOf, timing!.opts), budgetMs };
+  }
+  const final = fit?.selection ?? selection;
+  const out: ResolvedDraw = { request: r, selection, effective, fit, final };
+  if (timing) {
+    out.estimate = standaloneEstimate(timing.flat, final, timing.penOf, timing.opts);
+    out.fullMs = scheduled().estimate.totalMs;
+  }
+  return out;
+}
+
+/** A plan value from bytes whose identity is already known or not needed
+ * (an export inside one process): the sync half of `makePlan`. */
+export function planValue(buffer: Float64Array, settings: PlanSettings, planHash: string): DrawingPlan {
+  return { schemaVersion: PLAN_SCHEMA, planHash, chains: decodePlanBuffer(buffer), settings, buffer };
 }
 
 /** Full-plan bounds of a set of flattened chains (paper mm). */

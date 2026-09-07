@@ -10,7 +10,8 @@
  * host runs elsewhere (the studio's main thread decodes posted buffers).
  */
 
-import { makePlan, parseToolpath, type DrawingPlan, type FlatChain, type PlanSelection, type PlanSettings } from './plan.js';
+import { makePlan, parseToolpath, planValue, resolveDraw, selectAll, type DrawRequest, type DrawTiming, type DrawingPlan, type FlatChain, type PlanOptions, type PlanSelection, type PlanSettings } from './plan.js';
+import type { EstimateOpts, PenTiming } from './motion.js';
 import {
   resolveFill, validateFillParams,
   type CustomPrimitive, type FillCtx, type FillRegion, type FillSpec,
@@ -126,7 +127,7 @@ export interface WasmModule {
     only_pen: number,
     tour_budget: number,
   ): string;
-  wasm_plan(prims: Float64Array, frags: Float64Array, pens_json: string, tour_budget: number): Float64Array;
+  wasm_plan(prims: Float64Array, frags: Float64Array, pens_json: string, tour_budget: number, bridge_gap: number): Float64Array;
   wasm_plan_svg(
     plan: Float64Array,
     pens_json: string,
@@ -203,6 +204,10 @@ export interface RenderResult {
   frame: Frame;
   /** Raw buffers for export calls. */
   raw: { prims: Float64Array; frags: Float64Array };
+  /** The sketch's own path optimization (`t.plan`) and the part of the
+   * plan it asks to draw (`t.draw`) — exports and the studio honour them. */
+  plan?: PlanOptions;
+  draw?: DrawRequest;
 }
 
 export interface RenderOptions {
@@ -259,6 +264,9 @@ export interface EncodedScene {
   pens: PenDef[];
   frame: Frame;
   paper: { w: number; h: number };
+  /** The sketch's own `t.plan({...})` and `t.draw({...})`, if any. */
+  plan?: PlanOptions;
+  draw?: DrawRequest;
 }
 
 /** One shape's between-pass fill: run against the FINAL outline pass 1
@@ -823,6 +831,8 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     pens,
     frame,
     paper: { w: paperW, h: paperH },
+    plan: state.planOptions ?? undefined,
+    draw: state.drawRequest ?? undefined,
   };
 }
 
@@ -882,6 +892,8 @@ export function decodeRender(scene: EncodedScene, raw: RawRender): RenderResult 
     paper: scene.paper,
     frame: scene.frame,
     raw: { prims: raw.prims, frags: raw.frags },
+    plan: scene.plan,
+    draw: scene.draw,
   };
 }
 
@@ -1083,8 +1095,24 @@ export interface GcodeJob {
 
 export interface ExportOptions extends RenderOptions {
   profile?: MachineProfileTS;
-  /** 2-opt iteration budget for the pen tour. */
+  /** 2-opt iteration budget for the pen tour; the sketch's own `t.plan`
+   * is the default. */
   optimize?: boolean | number;
+  /** Machine timing, needed only when the sketch draws by minutes or a
+   * budget (`t.draw({ minutes | budget })`). */
+  timing?: { penOf: (pen: number) => PenTiming | undefined; opts: EstimateOpts };
+}
+
+/** The sketch's requested range of its own plan, resolved: exports honour
+ * `t.draw` so the same program gives the same ink everywhere. */
+function requestedRange(result: RenderResult, opts: ExportOptions, tol: number): { buffer: Float64Array; from: number; to: number } {
+  const planOpts: PlanOptions = { ...(result.plan ?? {}), ...(opts.optimize !== undefined ? { optimize: opts.optimize } : {}) };
+  const pb = planBuffer(result, planOpts);
+  const p = planValue(pb.buffer, pb.settings, '');
+  let timing: DrawTiming | undefined;
+  if (opts.timing) timing = { flat: planToolpath(p, selectAll(p), tol), penOf: opts.timing.penOf, opts: opts.timing.opts };
+  const sel = resolveDraw(p, result.draw, timing).final;
+  return { buffer: pb.buffer, from: sel.fromChain, to: sel.toChain };
 }
 
 export function profileToJson(
@@ -1111,22 +1139,20 @@ export function exportGcode(a?: SketchDef | ExportOptions, b?: ExportOptions): G
   const opts = isSketch(a) ? (compileSketch(a), b ?? {}) : (a ?? {});
   const mod = requireWasm();
   const result = renderState({ ...opts, coarsen: 1 });
-  const json = mod.wasm_export_gcode(
-    result.raw.prims,
-    result.raw.frags,
-    pensToJson(result.pens),
-    profileToJson(opts.profile ?? {}, result.paper),
-    tourBudget(opts.optimize),
-  );
+  const profile = opts.profile ?? {};
+  const tol = Math.max(0.0001, Math.min(profile.resolution ?? 0.025, result.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)));
+  const range = requestedRange(result, opts, tol);
+  const json = mod.wasm_plan_gcode(range.buffer, pensToJson(result.pens), profileToJson(profile, result.paper), range.from, range.to);
   return JSON.parse(json) as GcodeJob[];
 }
 
-export interface SvgOptions extends RenderOptions {
+export interface SvgOptions extends ExportOptions {
   background?: string;
-  /** Restrict to one pen index. */
+  /** Restrict to one pen index (an execution filter over the plan). */
   onlyPen?: number;
   /** 2-opt tour budget; the SVG's paths are the plotted chains in plot
-   * order (merge → tour → bridge, as the G-code), default 200 000. */
+   * order (merge → tour → bridge, as the G-code). The sketch's `t.plan`
+   * is the default, then `optimize`, then 200 000. */
   tourBudget?: number;
 }
 
@@ -1156,17 +1182,26 @@ export function exportPng(a?: SketchDef | PngOptions, b?: PngOptions): Uint8Arra
 
 // ---- the ordered plan: planned once, exported many ways ----------------------------
 
+/** The bridge gap a pen gets under an option: the resolved number the
+ * plan's settings record, so the identity says what was bridged. */
+export function bridgeGapFor(pen: PenDef, bridge: PlanOptions['bridge']): number {
+  if (bridge === false) return 0;
+  if (typeof bridge === 'number') return Math.max(0, bridge);
+  return Math.max(pen.width, 0.05) * 0.5;
+}
+
 /** Plan a rendered result ONCE (merge → tour → bridge per pen, pen order):
  * the exact plan bytes and the settings that identify them. Feed
  * `makePlan` for the hashed value, then the `plan*` exporters. */
-export function planBuffer(result: RenderResult, opts: { tourBudget?: number; engine?: string } = {}): { buffer: Float64Array; settings: PlanSettings } {
-  const tourBudget = opts.tourBudget ?? 200_000;
-  const buffer = requireWasm().wasm_plan(result.raw.prims, result.raw.frags, pensToJson(result.pens), tourBudget);
+export function planBuffer(result: RenderResult, opts: PlanOptions = result.plan ?? {}): { buffer: Float64Array; settings: PlanSettings } {
+  const budget = tourBudget(opts.optimize);
+  const gap = opts.bridge === false ? 0 : typeof opts.bridge === 'number' ? Math.max(0, opts.bridge) : -1;
+  const buffer = requireWasm().wasm_plan(result.raw.prims, result.raw.frags, pensToJson(result.pens), budget, gap);
   const settings: PlanSettings = {
-    tourBudget,
+    tourBudget: budget,
     pens: result.pens.map((p) => ({ name: p.name, width: p.width })),
     paper: { w: result.paper.w, h: result.paper.h },
-    bridgeGapMm: result.pens.map((p) => Math.max(p.width, 0.05) * 0.5),
+    bridgeGapMm: result.pens.map((p) => bridgeGapFor(p, opts.bridge)),
     ...(opts.engine ? { engine: opts.engine } : {}),
   };
   return { buffer, settings };
@@ -1176,7 +1211,7 @@ export function planBuffer(result: RenderResult, opts: { tourBudget?: number; en
  * hashed, decoded, ready for `selectChains` & co. and the `plan*`
  * exporters. `plan(render(def))` is the whole story; nothing downstream
  * plans again. Async only because the identity is a SHA-256 digest. */
-export async function plan(result: RenderResult, opts: { tourBudget?: number; engine?: string } = {}): Promise<DrawingPlan> {
+export async function plan(result: RenderResult, opts: PlanOptions = result.plan ?? {}): Promise<DrawingPlan> {
   const { buffer, settings } = planBuffer(result, opts);
   return makePlan(buffer, settings);
 }
@@ -1212,14 +1247,7 @@ export function exportSvg(a?: SketchDef | SvgOptions, b?: SvgOptions): string {
   const opts = isSketch(a) ? (compileSketch(a), b ?? {}) : (a ?? {});
   const mod = requireWasm();
   const result = renderState({ ...opts, coarsen: 1 });
-  return mod.wasm_export_svg(
-    result.raw.prims,
-    result.raw.frags,
-    pensToJson(result.pens),
-    result.paper.w,
-    result.paper.h,
-    opts.background,
-    opts.onlyPen ?? -1,
-    opts.tourBudget ?? 200_000,
-  );
+  const tol = Math.max(0.0001, Math.min(0.025, result.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)));
+  const range = requestedRange(result, { ...opts, ...(opts.tourBudget !== undefined ? { optimize: opts.tourBudget } : {}) }, tol);
+  return mod.wasm_plan_svg(range.buffer, pensToJson(result.pens), result.paper.w, result.paper.h, opts.background, opts.onlyPen ?? -1, range.from, range.to);
 }

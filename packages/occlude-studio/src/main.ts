@@ -19,6 +19,7 @@ declare const __BUILD_STAMP__: string;
 import { encodeToolpath, scanUiControls } from 'occlude';
 import { RenderClient, type WorkerError } from './workerClient.js';
 import { Drawing, machineTiming, machineTolerance, penTimingOf } from './drawing.js';
+import { loadResult } from './resultsApi.js';
 import type { RenderResult } from 'occlude';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -68,7 +69,8 @@ async function boot(): Promise<void> {
   const showSelection = (): void => {
     const plan = drawing.plan;
     const sel = drawing.selection;
-    if (!plan || !sel || (sel.fromChain === 0 && sel.toChain === plan.chains.length)) preview.setSelection(null);
+    // A frozen result has no fragments: the plan IS the picture, always.
+    if (!plan || !sel || (!frozenId && sel.fromChain === 0 && sel.toChain === plan.chains.length)) preview.setSelection(null);
     else preview.setSelection({ chains: plan.chains, from: sel.fromChain, to: sel.toChain, showOmitted: drawing.showOmitted });
   };
   // Render-status ownership: the newest run's sequence number and the one
@@ -93,6 +95,9 @@ async function boot(): Promise<void> {
   // its session seed dies on watchdog respawn, so the main thread passes the
   // seed explicitly and captures whatever the worker actually used.
   let seed: string | null = new URL(location.href).searchParams.get('seed');
+  /** A saved result opened frozen: the source is NOT executed; the plan
+   * comes from the saved bytes and every consumer reads that. */
+  const frozenId: string | null = new URL(location.href).searchParams.get('result');
   let seedUsed: string | null = null; // what the worker actually rendered with
 
   function renderSeedControls(used: string): void {
@@ -131,6 +136,11 @@ async function boot(): Promise<void> {
 
   async function runInner(): Promise<void> {
     saveSketch(editor.getValue()); // persist BEFORE executing — survives anything
+    if (frozenId) {
+      statusMsg.className = 'status-err';
+      statusMsg.textContent = `showing saved result ${frozenId} — the source is not executed here; open the studio without ?result to render`;
+      return;
+    }
     if (!renderOn) {
       statusMsg.className = 'status-err';
       statusMsg.textContent = 'rendering paused — press ▶ render to run the sketch';
@@ -230,7 +240,7 @@ async function boot(): Promise<void> {
     // request re-resolves against it. A stale reply cannot outrun a newer
     // plan: setPlan is keyed by the plan it was given.
     if (latest) {
-      drawing.setPlan(reply.plan, result.pens).catch((err: unknown) => {
+      drawing.setPlan(reply.plan, result.pens, reply.draw ?? {}).catch((err: unknown) => {
         say('status-err', `plan: ${err instanceof Error ? err.message : String(err)}`);
       });
     }
@@ -273,6 +283,8 @@ async function boot(): Promise<void> {
     client,
     drawing,
     onSelectionView: showSelection,
+    frozenResult: () => frozenId,
+    build: __BUILD_STAMP__,
     onChanged: () => void run(),
     onPaperColor: (hex) => preview.setPaperColor(hex),
     lastResult: () => lastResult,
@@ -557,7 +569,38 @@ async function boot(): Promise<void> {
   dbgWire('dbg-bridges', 'bridges');
   dbgWire('dbg-cuts', 'cuts');
 
-  void run();
+  if (frozenId) {
+    // Preserved content, not regeneration: the saved plan bytes are verified
+    // against their hash, adopted by the worker, and shown as the drawing.
+    // Pens come from the record, not the mutable library.
+    void (async () => {
+      try {
+        const { meta, plan: bytes } = await loadResult(frozenId);
+        await client.loadPlan(bytes, meta.settings, meta.planHash);
+        const paper = meta.paper;
+        const frozen = {
+          frags: [], prims: [], pens: meta.pens, paper,
+          stats: { shapesIn: 0, fragments: 0, fillPrims: 0, clean: 0, culledContained: 0, culledOffPaper: 0, renderMs: 0 },
+          frame: { offsetX: 0, offsetY: 0, inner: { innerW: paper.w, innerH: paper.h } },
+          raw: { prims: new Float64Array(0), frags: new Float64Array(0) },
+        } as unknown as RenderResult;
+        lastResult = frozen;
+        preview.setResult(frozen);
+        await drawing.setPlan({ buffer: bytes, settings: meta.settings, planHash: meta.planHash }, meta.pens);
+        drawing.showOmitted = false;
+        showSelection();
+        preview.setSelection({ chains: drawing.plan!.chains, from: 0, to: drawing.plan!.chains.length, showOmitted: false });
+        statusMsg.className = 'status-ok';
+        statusMsg.textContent = `saved result ${frozenId}: ${meta.selection.count} chains of ${meta.provenance.sketch ?? 'a sketch'} (seed ${meta.provenance.seed ?? '—'}), frozen — source not executed`;
+        statusStats.textContent = `plan ${meta.planHash.slice(0, 12)}… · from ${meta.sourcePlanHash.slice(0, 12)}… chains ${meta.selection.from}–${meta.selection.to} · saved ${meta.savedAt.slice(0, 16).replace('T', ' ')} · build ${meta.build}`;
+      } catch (err) {
+        statusMsg.className = 'status-err';
+        statusMsg.textContent = `saved result ${frozenId}: ${err instanceof Error ? err.message : String(err)} — the SVG on the Results page is still usable`;
+      }
+    })();
+  } else {
+    void run();
+  }
 
   // Stale-tab guard: the server reports its build id; when a deploy changes
   // it, say so instead of letting the tab run old code silently.

@@ -53,6 +53,10 @@ export interface State {
   seedUsed: number | string;
   /** `t.probe(label, value)` readouts, reset per compile. */
   probes: Map<string, ProbeAccumulator>;
+  /** `t.plan({...})` and `t.draw({...})` of this run — the sketch's own say
+   * over path optimization and over which part of the plan is drawn. */
+  planOptions: import('./plan.js').PlanOptions | null;
+  drawRequest: import('./plan.js').DrawRequest | null;
   drawIndex: number;
 }
 
@@ -117,6 +121,8 @@ function freshState(opts: SketchOptions = {}): State {
     seedUsed: seed,
     drawIndex: 0,
     probes: new Map(),
+    planOptions: null,
+    drawRequest: null,
   };
 }
 

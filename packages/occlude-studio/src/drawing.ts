@@ -1,45 +1,22 @@
 /**
- * The studio's ordered-drawing state: ONE plan per successful render,
- * a selection request that re-resolves against whatever plan is current,
- * and the sampled toolpath of that plan cached per tolerance. Every
- * asynchronous answer is bound to the plan hash it was asked for, so a
- * reply for an old render can never dress a new plan.
- *
- * Selection changes never rerun the sketch, the solver or the tour: they
- * slice the plan the worker already holds.
+ * The studio's ordered-drawing state: ONE plan per successful render and
+ * the sketch's own `t.draw({...})` request resolved against it, with the
+ * sampled toolpath cached per tolerance. Every asynchronous answer is
+ * bound to the plan hash it was asked for, so a reply for an old render
+ * can never dress a new plan. Nothing here reruns the sketch, the solver
+ * or the tour: a selection slices the plan the worker already holds.
  */
 
 import {
-  openPlan, parseToolpath, selectAll, selectChains, selectProgress, selectTime, fitDuration, standaloneEstimate, planSchedule,
-  type DrawingPlan, type EstimateOpts, type FlatChain, type PenTiming, type PlanEstimate, type PlanSelection, type PlanSettings, type PlanSchedule, type PenDef,
+  openPlan, parseToolpath, resolveDraw, selectAll,
+  type DrawRequest, type DrawingPlan, type EstimateOpts, type FlatChain, type PenTiming, type PlanSelection, type PlanSettings, type PlanSchedule, type PenDef, type ResolvedDraw,
+  planSchedule,
 } from 'occlude';
 import type { RenderClient } from './workerClient.js';
 import type { MachineProfile } from './store.js';
 
-/** What the author asked for, in their own units — kept so a new plan can
- * answer the same question (and the saved result can say what was meant). */
-export type SelectionRequest =
-  | { kind: 'full' }
-  | { kind: 'chains'; from: number; to: number }
-  | { kind: 'progress'; from: number; to: number }
-  | { kind: 'time'; fromMs: number; toMs: number };
-
-export interface ResolvedSelection {
-  request: SelectionRequest;
-  /** Before any budget fitting. */
-  selection: PlanSelection;
-  /** The interval's effective boundaries when the request was by time. */
-  effective?: { fromMs: number; toMs: number };
-  /** Budget fitting, when asked: the fitted range and its cost. */
-  fit?: { budgetMs: number; selection: PlanSelection; estimatedMs: number; unusedMs: number; dropped: number };
-  /** Standalone estimate of the FINAL selection (fitted if fitting). */
-  estimate: PlanEstimate;
-  /** The plan's total, for context. */
-  fullMs: number;
-}
-
 /** THE timing model inputs for a machine profile — one spelling for the
- * export table, the simulation, the plot driver and the drawing panel. */
+ * export table, the simulation, the plot driver and the drawing readout. */
 export function machineTiming(prof: MachineProfile): EstimateOpts {
   return {
     travelFeed: prof.machine.travelFeed,
@@ -77,13 +54,13 @@ export class Drawing {
   plan: DrawingPlan | null = null;
   /** The render's pens (plan pen indices refer to these). */
   pens: PenDef[] = [];
-  request: SelectionRequest = { kind: 'full' };
-  budgetMs: number | null = null;
+  /** The sketch's request, as rendered. */
+  request: DrawRequest = {};
   /** Preview aid only: ghost the omitted ink. Never enters exports. */
   showOmitted = true;
   private flat = new Map<string, Promise<FlatChain[]>>();
   private listeners: (() => void)[] = [];
-  private resolved: ResolvedSelection | null = null;
+  private resolved: ResolvedDraw | null = null;
 
   constructor(
     private client: RenderClient,
@@ -99,31 +76,24 @@ export class Drawing {
     for (const fn of this.listeners) fn();
   }
 
-  /** A render landed: adopt its plan (verified) and re-resolve the standing request. */
-  async setPlan(reply: { buffer: Float64Array; settings: PlanSettings; planHash: string }, pens: PenDef[]): Promise<void> {
+  /** A render landed: adopt its plan (verified) and the sketch's request. */
+  async setPlan(reply: { buffer: Float64Array; settings: PlanSettings; planHash: string }, pens: PenDef[], request: DrawRequest = {}): Promise<void> {
     const plan = await openPlan(reply.buffer, reply.settings, reply.planHash);
     this.plan = plan;
     this.pens = pens;
+    this.request = request;
     this.resolved = null;
     await this.resolve();
   }
 
-  /** Change what is asked; resolves against the current plan. */
-  async select(request: SelectionRequest, budgetMs: number | null = this.budgetMs): Promise<ResolvedSelection | null> {
-    this.request = request;
-    this.budgetMs = budgetMs;
-    this.resolved = null;
-    return this.resolve();
-  }
-
-  get current(): ResolvedSelection | null {
+  get current(): ResolvedDraw | null {
     return this.resolved;
   }
 
   /** The selection every consumer draws, exports and plots. */
   get selection(): PlanSelection | null {
     if (!this.plan) return null;
-    return this.resolved?.fit?.selection ?? this.resolved?.selection ?? selectAll(this.plan);
+    return this.resolved?.final ?? selectAll(this.plan);
   }
 
   /** Sampled chains of the WHOLE plan at the machine tolerance, cached per
@@ -157,37 +127,13 @@ export class Drawing {
     return planSchedule(flat, t.penOf, t.opts);
   }
 
-  private async resolve(): Promise<ResolvedSelection | null> {
+  private async resolve(): Promise<ResolvedDraw | null> {
     const plan = this.plan;
     if (!plan) return null;
-    const req = this.request;
+    const flat = await this.toolpath();
+    if (this.plan !== plan) return this.resolved; // a newer plan landed meanwhile
     const t = this.timing();
-    let selection: PlanSelection;
-    let effective: ResolvedSelection['effective'];
-    let flat: FlatChain[] | null = null;
-    if (req.kind === 'full') selection = selectAll(plan);
-    else if (req.kind === 'chains') selection = selectChains(plan, { from: Math.min(req.from, plan.chains.length), to: Math.min(req.to, plan.chains.length) });
-    else if (req.kind === 'progress') selection = selectProgress(plan, req);
-    else {
-      flat = await this.toolpath();
-      if (this.plan !== plan) return this.resolved; // a newer plan landed meanwhile
-      const sched = planSchedule(flat, t.penOf, t.opts);
-      const total = sched.estimate.totalMs;
-      const ts = selectTime(plan, flat, { fromMs: Math.min(req.fromMs, total), toMs: Math.min(req.toMs, total) }, sched);
-      selection = ts.selection;
-      effective = ts.effective;
-    }
-    flat ??= await this.toolpath();
-    if (this.plan !== plan) return this.resolved;
-    const fullMs = planSchedule(flat, t.penOf, t.opts).estimate.totalMs;
-    let fit: ResolvedSelection['fit'];
-    if (this.budgetMs !== null) {
-      const f = fitDuration(plan, flat, selection, { budgetMs: this.budgetMs }, t.penOf, t.opts);
-      fit = { budgetMs: this.budgetMs, selection: f.selection, estimatedMs: f.estimatedMs, unusedMs: f.unusedMs, dropped: f.dropped };
-    }
-    const final = fit?.selection ?? selection;
-    const estimate = standaloneEstimate(flat, final, t.penOf, t.opts);
-    this.resolved = { request: req, selection, effective, fit, estimate, fullMs };
+    this.resolved = resolveDraw(plan, this.request, { flat, penOf: t.penOf, opts: t.opts });
     this.notify();
     return this.resolved;
   }

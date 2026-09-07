@@ -30,26 +30,24 @@ function mockClient(cs: PlanChain[], hash: string, log: string[]): RenderClient 
 }
 
 describe('Drawing state', () => {
-  it('re-resolves the standing request against a new plan and reports counts', async () => {
+  it('resolves the sketch\'s request against each new plan and reports counts', async () => {
     const a = chains(10);
     const bufA = encodePlanBuffer(a);
     const hashA = await hashPlan(bufA, settings);
     const log: string[] = [];
     const d = new Drawing(mockClient(a, hashA, log), timing);
     expect(d.selection).toBeNull();
-    await d.setPlan({ buffer: bufA, settings, planHash: hashA }, pens);
-    expect(d.selection).toMatchObject({ fromChain: 0, toChain: 10 });
-    const r = await d.select({ kind: 'progress', from: 0, to: 0.5 });
-    expect(r?.selection).toMatchObject({ fromChain: 0, toChain: 5, count: 5 });
-    expect(r?.estimate.totalMs).toBeGreaterThan(0);
-    expect(r?.fullMs).toBeGreaterThan(r!.estimate.totalMs);
+    await d.setPlan({ buffer: bufA, settings, planHash: hashA }, pens, { progress: [0, 0.5] });
+    const r = d.current!;
+    expect(r.final).toMatchObject({ fromChain: 0, toChain: 5, count: 5 });
+    expect(r.estimate!.totalMs).toBeGreaterThan(0);
+    expect(r.fullMs!).toBeGreaterThan(r.estimate!.totalMs);
     // the same request on a bigger plan resolves to its own chains
     const b = chains(20);
     const bufB = encodePlanBuffer(b);
     const hashB = await hashPlan(bufB, settings);
     const d2 = new Drawing(mockClient(b, hashB, log), timing);
-    d2.request = d.request;
-    await d2.setPlan({ buffer: bufB, settings, planHash: hashB }, pens);
+    await d2.setPlan({ buffer: bufB, settings, planHash: hashB }, pens, { progress: [0, 0.5] });
     expect(d2.selection).toMatchObject({ fromChain: 0, toChain: 10 });
     // one toolpath per (plan, tolerance): the cache is keyed by hash
     expect(log.filter((l) => l.startsWith(`toolpath ${hashA.slice(0, 6)}`)).length).toBe(1);
@@ -58,24 +56,25 @@ describe('Drawing state', () => {
     expect(await d2.selectedToolpath()).toHaveLength(10);
   });
 
-  it('a chain request beyond the new plan clamps; time and budget requests resolve through the schedule', async () => {
+  it('a chain request beyond the plan clamps; minutes and budget resolve through the schedule', async () => {
     const a = chains(6);
     const buf = encodePlanBuffer(a);
     const hash = await hashPlan(buf, settings);
     const d = new Drawing(mockClient(a, hash, []), timing);
-    d.request = { kind: 'chains', from: 2, to: 50 };
-    await d.setPlan({ buffer: buf, settings, planHash: hash }, pens);
+    await d.setPlan({ buffer: buf, settings, planHash: hash }, pens, { chains: [2, 50] });
     expect(d.selection).toMatchObject({ fromChain: 2, toChain: 6 });
-    const full = (await d.select({ kind: 'full' }))!.fullMs;
-    const t = await d.select({ kind: 'time', fromMs: 0, toMs: full / 2 });
-    expect(t?.selection.count).toBeGreaterThan(0);
-    expect(t?.selection.count).toBeLessThan(6);
-    expect(t?.effective?.toMs).toBeLessThanOrEqual(full / 2);
-    const fit = await d.select({ kind: 'full' }, 1);
-    expect(fit?.fit?.selection.count).toBe(0); // 1 ms fits nothing
+    await d.setPlan({ buffer: buf, settings, planHash: hash }, pens, {});
+    const full = d.current!.fullMs!;
+    await d.setPlan({ buffer: buf, settings, planHash: hash }, pens, { minutes: [0, full / 2 / 60_000] });
+    const t = d.current!;
+    expect(t.final.count).toBeGreaterThan(0);
+    expect(t.final.count).toBeLessThan(6);
+    expect(t.effective!.toMs).toBeLessThanOrEqual(full / 2);
+    await d.setPlan({ buffer: buf, settings, planHash: hash }, pens, { budget: 1 / 60_000 });
+    expect(d.current!.fit!.selection.count).toBe(0); // 1 ms fits nothing
     expect(d.selection?.count).toBe(0);
-    const fit2 = await d.select({ kind: 'full' }, full);
-    expect(fit2?.fit?.selection.count).toBe(6);
+    await d.setPlan({ buffer: buf, settings, planHash: hash }, pens, { budget: full / 60_000 });
+    expect(d.current!.fit!.selection.count).toBe(6);
   });
 
   it('a verified mismatch refuses the plan; exports of a stale hash are refused by the client', async () => {

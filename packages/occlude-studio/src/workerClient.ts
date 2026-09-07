@@ -7,7 +7,7 @@
  * the worker's perspective; the watchdog is the only hard interruption.
  */
 
-import { decodeRender, type EncodedScene, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
+import { decodeRender, type DrawRequest, type EncodedScene, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
 import type { RunConfig } from './runner.js';
 
 export interface RenderRequest {
@@ -24,6 +24,8 @@ export interface RenderReply {
   probes: Record<string, ProbeSummary>;
   /** The ordered plan of this render: exact bytes, settings, identity. */
   plan: { buffer: Float64Array; settings: PlanSettings; planHash: string };
+  /** The sketch's `t.draw({...})`, if it made one. */
+  draw?: DrawRequest;
 }
 
 /** A contiguous range of one plan, named by the plan's hash. */
@@ -202,12 +204,14 @@ export class RenderClient {
             plan: Float64Array;
             planSettings: PlanSettings;
             planHash: string;
+            draw?: DrawRequest;
           };
           // decodeRender reads only pens/frame/paper from the scene half.
           const meta = { pens: m.pens, frame: m.frame, paper: m.paper } as EncodedScene;
           resolve({
             result: decodeRender(meta, m), seedUsed: m.seedUsed, probes: m.probes ?? {},
             plan: { buffer: m.plan, settings: m.planSettings, planHash: m.planHash },
+            draw: m.draw,
           });
         },
         reject,

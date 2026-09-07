@@ -19,22 +19,27 @@ import { createSketchHandler } from './sketch-store.mjs';
 import { createAssetHandler } from './asset-store.mjs';
 // @ts-expect-error same
 import { createFillHandler } from './fill-store.mjs';
+// @ts-expect-error same
+import { createResultHandler } from './result-store.mjs';
 
 /** Sketch-store API in dev/preview; server.mjs hosts the same handler in prod. */
 function sketchStore(): Plugin {
   const handler = createSketchHandler(resolve(__dirname, 'sketches'));
   const assets = createAssetHandler(resolve(__dirname, 'assets'));
   const fills = createFillHandler(resolve(__dirname, 'fills'), resolve(__dirname, 'sketches'));
+  const results = createResultHandler(resolve(__dirname, 'results'));
   return {
     name: 'occlude-sketch-store',
     configureServer(server) {
       server.middlewares.use(assets);
       server.middlewares.use(fills);
+      server.middlewares.use(results);
       server.middlewares.use(handler);
     },
     configurePreviewServer(server) {
       server.middlewares.use(assets);
       server.middlewares.use(fills);
+      server.middlewares.use(results);
       server.middlewares.use(handler);
     },
   };
@@ -62,6 +67,7 @@ export default defineConfig({
         fills: resolve(__dirname, 'fills.html'),
         sketches: resolve(__dirname, 'sketches.html'),
         machine: resolve(__dirname, 'machine.html'),
+        results: resolve(__dirname, 'results.html'),
       },
     },
   },

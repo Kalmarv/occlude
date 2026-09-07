@@ -20,6 +20,7 @@
  *   stays usable — build() snapshots)
  */
 
+import { checkDrawRequest, type DrawRequest, type PlanOptions } from './plan.js';
 import { fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
 import { finiteCount } from './guard.js';
@@ -640,6 +641,8 @@ export interface Toolkit {
   polylines: typeof polylines;
   sample: typeof sample;
   probe: typeof probe;
+  plan: typeof planWith;
+  draw: typeof draw;
   distanceTo: typeof distanceTo;
   within: typeof within;
   rotate: typeof rotateField;
@@ -828,6 +831,26 @@ function probe<T>(label: string, value: T): T {
   return value;
 }
 
+/** Path optimization for THIS sketch's plan (tour budget, bridging) — in
+ * the program, so the same source plans the same way everywhere. */
+function planWith(opts: PlanOptions): void {
+  if (typeof opts !== 'object' || opts === null) throw new Error('plan: expected { optimize?, bridge? }');
+  for (const k of Object.keys(opts)) if (!['optimize', 'bridge'].includes(k)) throw new Error(`plan: unknown option '${k}'`);
+  if (opts.optimize !== undefined && typeof opts.optimize !== 'boolean' && !(typeof opts.optimize === 'number' && Number.isFinite(opts.optimize) && opts.optimize >= 0)) throw new Error('plan: optimize must be a boolean or a non-negative number');
+  if (opts.bridge !== undefined && typeof opts.bridge !== 'boolean' && !(typeof opts.bridge === 'number' && Number.isFinite(opts.bridge) && opts.bridge >= 0)) throw new Error('plan: bridge must be a boolean or a non-negative gap in mm');
+  getState().planOptions = { ...opts };
+}
+
+/** Which part of the ordered plan to draw — a prefix or interval by
+ * chains, fraction of chains, or minutes, with an optional budget —
+ * stated in the program (and tweakable with `ui()`), so preview, exports
+ * and the machine all draw exactly this. */
+function draw(req: DrawRequest): DrawRequest {
+  const r = checkDrawRequest(req);
+  getState().drawRequest = r;
+  return r;
+}
+
 /** Lift any point array into the Points vocabulary (relax/settle/cells/material). */
 function pointsOf(
   raw: readonly ({ x: number; y: number } | [number, number])[],
@@ -844,7 +867,7 @@ const TOOLKIT_BASE = {
   map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, isolines, streamlines, polylines, sample, probe, distanceTo, points: pointsOf, voronoi, triangulate, synth,
+  scatter, isolines, streamlines, polylines, sample, probe, plan: planWith, draw, distanceTo, points: pointsOf, voronoi, triangulate, synth,
   within, rotate: rotateField, translate: translateField, scale: scaleField,
   vectorField: vectorFieldMark,
   mm, w, h, s, long,

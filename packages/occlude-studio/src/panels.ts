@@ -19,7 +19,8 @@ import {
 } from './store.js';
 import { serialSupported, type PlotProgress } from './ebb.js';
 import { buildConnect, buildManualControls, buildProfileSelect, createSession } from './machine.js';
-import { machineTiming, machineTolerance, penTimingOf, type Drawing, type SelectionRequest } from './drawing.js';
+import { machineTiming, machineTolerance, penTimingOf, type Drawing } from './drawing.js';
+import { saveResult, selectionOf, type ResultMeta } from './resultsApi.js';
 import type { RenderClient } from './workerClient.js';
 import { button, checkbox, el, hint, numberInput, pairInput, row, segmented } from './widgets.js';
 
@@ -40,6 +41,10 @@ export interface PanelHooks {
   drawing: Drawing;
   /** Repaint the preview's selection view (a preview-only toggle moved). */
   onSelectionView(): void;
+  /** When the studio shows a frozen saved result instead of a render. */
+  frozenResult(): string | null;
+  /** Build stamp, for saved results. */
+  build: string;
   getSource(): string;
   openSketch(name: string, source: string): void;
   currentName(): string;
@@ -513,73 +518,20 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
 
 // ---- the ordered drawing: choose a prefix or interval of the plan ----
 
+/** djb2 of the source — provenance only, never an identity for a plan. */
+const hashSource = (src: string): string => {
+  let h = 5381;
+  for (let i = 0; i < src.length; i++) h = ((h * 33) ^ src.charCodeAt(i)) >>> 0;
+  return h.toString(16);
+};
+
 const fmtMin = (ms: number): string => (ms >= 60_000 ? `${(ms / 60_000).toFixed(1)} min` : `${Math.ceil(ms / 1000)} s`);
 
 function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
   const d = hooks.drawing;
-  type Mode = 'full' | 'prefix' | 'interval';
-  type Unit = 'chains' | 'progress' | 'time';
-  let mode: Mode = 'full';
-  let unit: Unit = 'chains';
-  let from = 0;
-  let to = 0;
-  let budgetOn = false;
-  let budgetMin = 20;
-
   const readout = document.createElement('div');
   readout.className = 'panel-hint drawing-readout';
-  const fromInput = numberInput(0, 1, (v) => { from = v; apply(); });
-  const toInput = numberInput(0, 1, (v) => { to = v; apply(); });
-  const fromRow = row('From', fromInput);
-  const toRow = row('To', toInput);
-  const unitSeg = segmented(
-    [
-      { key: 'chains' as const, label: 'chains', title: 'Whole chains of the plan, [from, to)' },
-      { key: 'progress' as const, label: '% chains', title: 'Fraction OF CHAINS — not ink, area or time' },
-      { key: 'time' as const, label: 'min', title: 'An interval of the full drawing\'s estimated timeline, quantized to whole chains' },
-    ],
-    unit,
-    (u) => { unit = u; syncInputs(); apply(); },
-  );
-  const modeSeg = segmented(
-    [
-      { key: 'full' as const, label: 'Full', title: 'The whole plan' },
-      { key: 'prefix' as const, label: 'Prefix', title: 'From the first chain up to a stopping point' },
-      { key: 'interval' as const, label: 'Interval', title: 'A contiguous middle stretch of the plan' },
-    ],
-    mode,
-    (m) => { mode = m; syncInputs(); apply(); },
-  );
-  const budgetInput = numberInput(budgetMin, 1, (v) => { budgetMin = v; apply(); });
-  const budgetBox = checkbox('Fit an estimated budget (min)', budgetOn, (v) => { budgetOn = v; apply(); });
-  const budgetRow = row('Budget', budgetInput, 'Longest prefix of the selection whose standalone estimate fits — travel in and final lift included; human waits not modelled');
   const omitted = checkbox('Ghost the omitted ink (preview only)', d.showOmitted, (v) => { d.showOmitted = v; hooks.onSelectionView(); });
-
-  const syncInputs = (): void => {
-    fromRow.style.display = mode === 'interval' ? '' : 'none';
-    toRow.style.display = mode === 'full' ? 'none' : '';
-    unitSeg.root.style.display = mode === 'full' ? 'none' : '';
-    const step = unit === 'chains' ? 1 : unit === 'progress' ? 1 : 0.5;
-    fromInput.step = String(step);
-    toInput.step = String(step);
-  };
-  const request = (): SelectionRequest => {
-    if (mode === 'full') return { kind: 'full' };
-    const a = mode === 'prefix' ? 0 : from;
-    if (unit === 'chains') return { kind: 'chains', from: Math.max(0, Math.round(a)), to: Math.max(0, Math.round(to)) };
-    if (unit === 'progress') return { kind: 'progress', from: Math.min(1, Math.max(0, a / 100)), to: Math.min(1, Math.max(0, to / 100)) };
-    return { kind: 'time', fromMs: Math.max(0, a) * 60_000, toMs: Math.max(0, to) * 60_000 };
-  };
-  const apply = (): void => {
-    const req = request();
-    if (req.kind !== 'full' && ((req.kind === 'chains' && req.from > req.to) || (req.kind === 'progress' && req.from > req.to) || (req.kind === 'time' && req.fromMs > req.toMs))) {
-      readout.textContent = 'from must not exceed to';
-      return;
-    }
-    void d.select(req, budgetOn ? budgetMin * 60_000 : null).catch((e: unknown) => {
-      readout.textContent = e instanceof Error ? e.message : String(e);
-    });
-  };
   const refresh = (): void => {
     const plan = d.plan;
     const r = d.current;
@@ -588,32 +540,84 @@ function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
       return;
     }
     const n = plan.chains.length;
-    const final = r.fit?.selection ?? r.selection;
+    const final = r.final;
     const parts: string[] = [];
+    const req = r.request;
+    const asked = req.chains ? `chains ${req.chains[0]}–${req.chains[1]}` : req.progress ? `${Math.round(req.progress[0] * 100)}–${Math.round(req.progress[1] * 100)}% of chains` : req.minutes ? `${req.minutes[0]}–${req.minutes[1]} min` : 'the whole plan';
+    parts.push(`t.draw: ${asked}${req.budget !== undefined ? `, budget ${req.budget} min` : ''}`);
     parts.push(`chains ${final.fromChain}–${final.toChain} of ${n} (${final.count} selected)`);
-    if (r.effective) parts.push(`effective ${fmtMin(r.effective.fromMs)}–${fmtMin(r.effective.toMs)} of ${fmtMin(r.fullMs)}`);
-    parts.push(`standalone ETA ${fmtMin(r.estimate.totalMs)}` + (final.count < n ? ` (full plan ${fmtMin(r.fullMs)})` : ''));
+    if (r.effective) parts.push(`effective ${fmtMin(r.effective.fromMs)}–${fmtMin(r.effective.toMs)}`);
+    if (r.estimate) parts.push(`standalone ETA ${fmtMin(r.estimate.totalMs)}` + (final.count < n && r.fullMs !== undefined ? ` (full plan ${fmtMin(r.fullMs)})` : ''));
     if (r.fit) parts.push(r.fit.dropped > 0 ? `budget: ${r.fit.dropped} chains dropped, ${fmtMin(r.fit.unusedMs)} unused` : `budget: fits, ${fmtMin(r.fit.unusedMs)} unused`);
+    parts.push(`path: tour ${plan.settings.tourBudget.toLocaleString()}, bridge ${plan.settings.bridgeGapMm.map((g) => g.toFixed(2)).join('/')} mm`);
     readout.textContent = parts.join(' · ');
-    // The inputs' ceilings follow the plan so the controls stay meaningful.
-    if (unit === 'chains') { toInput.max = String(n); fromInput.max = String(n); }
-    if (unit === 'progress') { toInput.max = '100'; fromInput.max = '100'; }
-    if (unit === 'time') { toInput.max = String(Math.ceil(r.fullMs / 60_000)); fromInput.max = toInput.max; }
   };
   d.onChange(refresh);
-  syncInputs();
   refresh();
 
+  // Save the chosen result: the SELECTED chains as a plan of their own
+  // (exact bytes), the frozen SVG of that selection, and every setting
+  // needed to read it back — published only when all of it is written.
+  const saveNote = document.createElement('div');
+  saveNote.className = 'panel-hint';
+  const saveBtn = button('Save result', async () => {
+    const plan = d.plan;
+    const r = d.current;
+    const result = hooks.lastResult();
+    if (!plan || !r || !result) return;
+    saveBtn.disabled = true;
+    try {
+      const final = r.final;
+      const { encodePlanBuffer, hashPlan } = await import('occlude');
+      const chains = plan.chains.slice(final.fromChain, final.toChain);
+      const bytes = encodePlanBuffer(chains);
+      const savedHash = await hashPlan(bytes, plan.settings);
+      const prof = hooks.profiles.find((p) => p.name === hooks.settings.activeProfile) ?? hooks.profiles[0];
+      const meta: ResultMeta = {
+        schemaVersion: plan.schemaVersion,
+        planHash: savedHash,
+        sourcePlanHash: plan.planHash,
+        selection: selectionOf(final),
+        request: r.request,
+        settings: plan.settings,
+        pens: result.pens.map((pen) => ({ name: pen.name, width: pen.width, color: pen.color, feed: pen.feed, penDown: pen.penDown, penUp: pen.penUp, penDelay: pen.penDelay })),
+        paper: { w: result.paper.w, h: result.paper.h },
+        profile: prof ? { name: prof.name, timing: machineTiming(prof), tolerance: machineTolerance(prof, result.pens) } : null,
+        eta: { standaloneMs: r.estimate?.totalMs ?? 0, fullMs: r.fullMs ?? 0 },
+        build: hooks.build,
+        provenance: { sketch: hooks.currentName() || null, sourceHash: hashSource(hooks.getSource()), seed: hooks.currentSeed() },
+        fullPlanSaved: false,
+      };
+      const svg = await d.svg(hooks.settings.paperColor, -1);
+      const id = await saveResult(meta, svg, bytes);
+      saveNote.innerHTML = '';
+      const link = document.createElement('a');
+      link.href = `/results.html#${id}`;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = id;
+      saveNote.append(`saved result `, link, ` — ${final.count} chains, ${fmtMin(r.estimate?.totalMs ?? 0)}`);
+    } catch (e) {
+      saveNote.textContent = e instanceof Error ? e.message : String(e);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+  saveBtn.className = 'primary';
+  saveBtn.title = 'Keep exactly this selection as resolved output — plan bytes, SVG and settings — so it can be shown, exported and plotted later without running the sketch';
+  const resultsLink = document.createElement('a');
+  resultsLink.href = '/results.html';
+  resultsLink.target = '_blank';
+  resultsLink.rel = 'noopener';
+  resultsLink.textContent = 'Results page';
+  const saveRow = el('div', 'row', saveBtn, resultsLink);
+
   body.append(
-    modeSeg.root,
-    unitSeg.root,
-    fromRow,
-    toRow,
-    budgetBox,
-    budgetRow,
-    omitted,
     readout,
-    hint('Selection reuses the plan as rendered: nothing is re-solved, reordered or re-bridged, and ink hidden by later shapes stays hidden. Exports, Simulate and Plot all use this selection.'),
+    omitted,
+    saveRow,
+    saveNote,
+    hint('The range is code: t.draw({ progress: [0, ui(0.3)] }) — or chains / minutes, with a budget — and t.plan({ optimize, bridge }) for the path. Nothing is re-solved, reordered or re-bridged by selecting, and ink hidden by later shapes stays hidden. Export, Simulate and Plot all draw exactly this.'),
   );
 }
 
@@ -767,13 +771,10 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     /** Identity of the plan and the selected range this progress is of. */
     planHash: string | null;
     selection: { from: number; to: number } | null;
+    /** When the plot ran from a saved result: its id — resume loads those bytes. */
+    resultId: string | null;
     ts: string;
   }
-  const hashSource = (src: string): string => {
-    let h = 5381;
-    for (let i = 0; i < src.length; i++) h = ((h * 33) ^ src.charCodeAt(i)) >>> 0;
-    return h.toString(16);
-  };
   let saved: SavedPlot | null = null;
   let lastSavedChain = -1;
   let lastSavedAt = 0;
@@ -787,8 +788,9 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     if (!saved) return;
     const pen = saved.penIndex === null ? 'all pens' : `pen ${saved.penIndex}`;
     const range = saved.selection ? `chains ${saved.selection.from}–${saved.selection.to} of the plan` : 'the whole plan';
+    const from = saved.resultId ? ` (saved result ${saved.resultId})` : '';
     savedText.textContent =
-      `Unfinished: ${saved.sketch}, ${pen}, ${range}, executed chain ${saved.chain} of ${saved.chainTotal}` +
+      `Unfinished: ${saved.sketch}${from}, ${pen}, ${range}, executed chain ${saved.chain} of ${saved.chainTotal}` +
       (saved.sourceChain !== null ? ` (plan row ${saved.sourceChain})` : '') +
       `, paper at ${saved.paperOffset[0]}, ${saved.paperOffset[1]} mm. ` +
       'After a power loss, re-park at the bed corner and Set bed origin first.';
@@ -827,6 +829,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         sourceChain: executed[chain]?.index ?? null,
         planHash: hooks.drawing.plan?.planHash ?? null,
         selection: sel ? { from: sel.fromChain, to: sel.toChain } : null,
+        resultId: hooks.frozenResult(),
         ts: new Date().toISOString(),
       });
       lastSavedChain = chain;
@@ -909,6 +912,11 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       // Identity, not heuristics: the current plan must BE the saved plan.
       const plan = hooks.drawing.plan;
       if (sv.planHash) {
+        if (sv.resultId && plan?.planHash !== sv.planHash) {
+          // The plot ran from saved bytes: load those, not the source.
+          location.href = `/?result=${encodeURIComponent(sv.resultId)}`;
+          return;
+        }
         if (!plan) throw new Error('resume: render the saved sketch first');
         if (plan.planHash !== sv.planHash) {
           throw new Error(

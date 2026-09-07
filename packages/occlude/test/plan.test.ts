@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  DEFAULT_PENS, circle, rect, sketch, stroke, render, exportSvg, initOcclude, estimatePlanMs, schedulePlan,
+  DEFAULT_PENS, circle, rect, sketch, stroke, render, exportSvg, exportGcode, initOcclude, estimatePlanMs, schedulePlan, resolveDraw,
   plan as planOf, planBuffer, planSvg, planGcode, planToolpath, makePlan, openPlan, hashPlan, canonicalJson,
   decodePlanBuffer, encodePlanBuffer, parseToolpath, encodeToolpath,
   selectChains, selectAll, selectProgress, selectTime, selectedFlat, standaloneEstimate, fitDuration,
@@ -189,6 +189,50 @@ describe('engine: one plan, every consumer', () => {
     expect(jobs.reduce((n, j) => n + (j.gcode.match(/G0 X/g)?.length ?? 0), 0)).toBe(sel.count + jobs.length); // one travel per chain + one home per job
     const other = await makePlan(buffer, { ...settings, tourBudget: 7 });
     expect(() => planSvg(p, selectChains(other, { from: 0, to: 1 }), r.pens)).toThrow(/another plan/);
+  });
+
+  it('t.draw and t.plan are the program: exports honour them, validation is strict', async () => {
+    const half = sketch({ aspect: [1, 1], seed: 1 }, (t) => {
+      t.draw({ progress: [0, 0.5] });
+      return t.times(8, (k) => stroke([[10, 10 + k * 8], [90, 12 + k * 8]]));
+    });
+    const whole = sketch({ aspect: [1, 1], seed: 1 }, (t) => t.times(8, (k) => stroke([[10, 10 + k * 8], [90, 12 + k * 8]])));
+    const paths = (svg: string) => svg.match(/<path/g)?.length ?? 0;
+    expect(paths(exportSvg(whole, { paper: 'Square20' }))).toBe(8);
+    expect(paths(exportSvg(half, { paper: 'Square20' }))).toBe(4);
+    const r = render(half, { paper: 'Square20' });
+    expect(r.draw).toEqual({ progress: [0, 0.5] });
+    expect(resolveDraw(await planOf(r), r.draw).final).toMatchObject({ fromChain: 0, toChain: 4 });
+    // G-code follows the same range
+    const jobs = exportGcode(half, { paper: 'Square20' });
+    expect(jobs[0].gcode.match(/G0 X/g)?.length).toBe(4 + 1);
+    // path options are the plan's: a different tour budget or bridging is a different plan
+    const tuned = sketch({ aspect: [1, 1], seed: 1 }, (t) => {
+      t.plan({ optimize: false, bridge: false });
+      return t.times(8, (k) => stroke([[10, 10 + k * 8], [90, 12 + k * 8]]));
+    });
+    const rt = render(tuned, { paper: 'Square20' });
+    expect(rt.plan).toEqual({ optimize: false, bridge: false });
+    const pt = await planOf(rt);
+    expect(pt.settings.tourBudget).toBe(0);
+    expect(pt.settings.bridgeGapMm).toEqual([0]);
+    expect(pt.planHash).not.toBe((await planOf(render(whole, { paper: 'Square20' }))).planHash);
+    // minutes need the machine's clock
+    const timed = sketch({ aspect: [1, 1], seed: 1 }, (t) => {
+      t.draw({ minutes: [0, 0.2], budget: 0.1 });
+      return t.times(8, (k) => stroke([[10, 10 + k * 8], [90, 12 + k * 8]]));
+    });
+    expect(() => exportSvg(timed, { paper: 'Square20' })).toThrow(/machine timing/);
+    const svgTimed = exportSvg(timed, { paper: 'Square20', timing: { penOf, opts: timing } });
+    expect(paths(svgTimed)).toBeGreaterThan(0);
+    expect(paths(svgTimed)).toBeLessThan(8);
+    // validation
+    const bad = (req: unknown) => sketch({ aspect: [1, 1], seed: 1 }, (t) => { t.draw(req as never); return stroke([[0, 0], [1, 1]]); });
+    expect(() => render(bad({ progress: [0.5, 0.2] }), { paper: 'Square20' })).toThrow(/exceeds/);
+    expect(() => render(bad({ chains: [0, 2], progress: [0, 1] }), { paper: 'Square20' })).toThrow(/one of/);
+    expect(() => render(bad({ progress: [0, 2] }), { paper: 'Square20' })).toThrow(/within \[0, 1\]/);
+    expect(() => render(bad({ nope: 1 }), { paper: 'Square20' })).toThrow(/unknown option/);
+    expect(() => render(sketch({ aspect: [1, 1], seed: 1 }, (t) => { t.plan({ optimize: -1 }); return stroke([[0, 0], [1, 1]]); }), { paper: 'Square20' })).toThrow(/optimize/);
   });
 
   it('selecting after visibility never reveals what later ink hid', async () => {

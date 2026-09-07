@@ -97,10 +97,10 @@ export { drawFragments, tracePrim } from './draw.js';
 export {
   PLAN_SCHEMA, decodePlanBuffer, encodePlanBuffer, canonicalJson, hashPlan, makePlan, openPlan,
   parseToolpath, encodeToolpath, selectChains, selectAll, selectProgress, selectTime, selectedFlat,
-  standaloneEstimate, fitDuration, planSchedule, chainsBounds,
+  standaloneEstimate, fitDuration, planSchedule, chainsBounds, resolveDraw, planValue, checkDrawRequest,
 } from './plan.js';
-export { plan, planBuffer, planSvg, planGcode, planToolpath } from './render.js';
-export type { PlanChain, PlanSettings, DrawingPlan, PlanSelection, FlatChain, TimeSelection, FitResult } from './plan.js';
+export { plan, planBuffer, planSvg, planGcode, planToolpath, bridgeGapFor } from './render.js';
+export type { PlanChain, PlanSettings, DrawingPlan, PlanSelection, FlatChain, TimeSelection, FitResult, PlanOptions, DrawRequest, DrawTiming, ResolvedDraw } from './plan.js';
 export { PAPERS, paperSize } from './paper.js';
 export type { Paper, PaperChoice } from './paper.js';
 export { DEFAULT_PENS } from './pens.js';

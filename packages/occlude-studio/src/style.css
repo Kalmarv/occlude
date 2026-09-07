@@ -2067,3 +2067,12 @@ button.armed {
   color: var(--ink-faint);
   white-space: nowrap;
 }
+
+/* ---- results page ---- */
+#results-main { max-width: 1100px; margin: 0 auto; padding: 1rem 1.5rem 3rem; }
+#results-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
+.result-card { background: var(--panel, #1c1d20); border: 1px solid var(--line, #2a2b2f); border-radius: 8px; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.result-svg { width: 100%; height: auto; background: #f6f2ea; border-radius: 4px; }
+.result-title { font-weight: 600; }
+.result-meta { font-size: 0.82rem; color: var(--muted, #9a9ca3); line-height: 1.5; }
+.drawing-readout { white-space: normal; }

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>occlude results</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="docs-body">
+    <header id="topbar">
+      <span class="wordmark">occlude<span class="wordmark-dot">·</span>results</span>
+      <div class="topbar-actions">
+        <a class="topbar-link" href="/" rel="noopener">Studio</a>
+        <a class="topbar-link" href="/sketches.html" rel="noopener">Sketches</a>
+        <a class="topbar-link" href="/fills.html" rel="noopener">Fills</a>
+        <a class="topbar-link" href="/machine.html" rel="noopener">Machine</a>
+        <a class="topbar-link" href="/docs.html" rel="noopener">Docs</a>
+      </div>
+    </header>
+    <main id="results-main">
+      <p class="assets-hint">
+        A saved result is a chosen ordered drawing kept as <b>resolved output</b>: the selected
+        chains as exact plan bytes, the frozen SVG of that selection, and the settings that made
+        it. It shows, exports and plots later without running the sketch — changing the source,
+        the pens or the machine never changes what was kept. Only the selection is saved, so a
+        reopened result cannot grow back into the rest of the plan.
+      </p>
+      <div id="results-list"></div>
+    </main>
+    <script type="module" src="/src/resultsPage.ts"></script>
+  </body>
+</html>

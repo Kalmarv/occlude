@@ -350,11 +350,17 @@ fn planned(plan: &[f64], from: u32, to: u32) -> Result<Vec<crate::gcode::Chain>,
 /// THE plan: merge → tour → bridge once, encoded with native primitives
 /// (`plan::encode_plan`). Every other export takes this buffer and a
 /// half-open chain range `[from, to)` and never plans again.
+/// `bridge_gap` < 0 is the default (half the nib per pen); 0 never
+/// bridges; a positive value is the gap in mm for every pen.
 #[wasm_bindgen]
-pub fn wasm_plan(prims: &[f64], frags: &[f64], pens_json: &str, tour_budget: u32) -> Result<Vec<f64>, JsValue> {
+pub fn wasm_plan(prims: &[f64], frags: &[f64], pens_json: &str, tour_budget: u32, bridge_gap: f64) -> Result<Vec<f64>, JsValue> {
     let pens = parse_pens(pens_json)?;
     let frags = decode_frags(prims, frags)?;
-    Ok(crate::plan::encode_plan(&crate::plan::plan_chains(&frags, &pens, tour_budget as usize)))
+    let opts = crate::plan::PlanOptions {
+        tour_budget: tour_budget as usize,
+        bridge: if bridge_gap < 0.0 { None } else { Some(bridge_gap) },
+    };
+    Ok(crate::plan::encode_plan(&crate::plan::plan_chains_with(&frags, &pens, opts)))
 }
 
 /// SVG of a plan range: exact curves, plot order, one <g> per pen.

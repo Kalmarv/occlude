@@ -11,15 +11,13 @@
  */
 
 import initCore, * as core from 'occlude-core';
-import { getProbeStats, hashPlan, renderEncoded, type PlanSettings, type WasmModule } from 'occlude';
+import { bridgeGapFor, getProbeStats, hashPlan, renderEncoded, tourBudget, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
 import { currentSeed, runSketch, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
 import { preloadFills } from './fillLoader.js';
 
 declare const __BUILD_STAMP__: string;
-/** Tour budget every consumer shares — the plan is the plan. */
-const TOUR_BUDGET = 200_000;
 
 interface RenderMsg {
   type: 'render';
@@ -87,8 +85,26 @@ function pensFrom(settings: PlanSettings): string {
 }
 const mod = core as unknown as WasmModule;
 
-let last: { prims: Float64Array; frags: Float64Array; pensJson: string } | null = null;
+let last: { prims: Float64Array; frags: Float64Array; pensJson: string; pens: { name: string; width: number; color: string; feed: number; penDown: number; penUp: number; penDelay: number }[]; paper: { w: number; h: number } } | null = null;
 let lastPlan: { buffer: Float64Array; settings: PlanSettings; planHash: string; pensJson: string } | null = null;
+
+/** THE plan of the last render under the given options. */
+async function planLast(opts: PlanOptions): Promise<{ buffer: Float64Array; settings: PlanSettings; planHash: string }> {
+  if (!last) throw new Error('nothing rendered yet');
+  const budget = tourBudget(opts.optimize);
+  const gap = opts.bridge === false ? 0 : typeof opts.bridge === 'number' ? Math.max(0, opts.bridge) : -1;
+  const buffer = mod.wasm_plan(last.prims, last.frags, last.pensJson, budget, gap);
+  const settings: PlanSettings = {
+    tourBudget: budget,
+    pens: last.pens.map((p) => ({ name: p.name, width: p.width })),
+    paper: { w: last.paper.w, h: last.paper.h },
+    bridgeGapMm: last.pens.map((p) => bridgeGapFor(p, opts.bridge)),
+    engine: typeof __BUILD_STAMP__ === 'string' ? __BUILD_STAMP__ : 'dev',
+  };
+  const planHash = await hashPlan(buffer, settings);
+  lastPlan = { buffer, settings, planHash, pensJson: last.pensJson };
+  return { buffer, settings, planHash };
+}
 
 const currentPlan = (msg: PlanRange) => {
   if (!lastPlan) throw new Error('nothing planned yet');
@@ -123,18 +139,10 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         }
         const scene = outcome.scene;
         const raw = renderEncoded(mod, scene);
-        last = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson };
-        // THE plan, once per render: everything downstream selects from it.
-        const planBuf = mod.wasm_plan(raw.prims, raw.frags, scene.pensJson, TOUR_BUDGET);
-        const settings: PlanSettings = {
-          tourBudget: TOUR_BUDGET,
-          pens: scene.pens.map((p) => ({ name: p.name, width: p.width })),
-          paper: { w: scene.paper.w, h: scene.paper.h },
-          bridgeGapMm: scene.pens.map((p) => Math.max(p.width, 0.05) * 0.5),
-          engine: typeof __BUILD_STAMP__ === 'string' ? __BUILD_STAMP__ : 'dev',
-        };
-        const planHash = await hashPlan(planBuf, settings);
-        lastPlan = { buffer: planBuf, settings, planHash, pensJson: scene.pensJson };
+        last = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper };
+        // THE plan, once per render, under the sketch's own t.plan({...}):
+        // everything downstream selects from it, as the sketch's t.draw says.
+        const { buffer: planBuf, settings, planHash } = await planLast(scene.plan ?? {});
         // Exports reuse the cached originals, so the preview gets COPIES —
         // and the copies are transferred, not structured-cloned a second
         // time. Decode metadata (pens/frame/paper) rides along so the main
@@ -162,6 +170,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
             plan,
             planSettings: settings,
             planHash,
+            draw: scene.draw,
           },
           { transfer },
         );

@@ -28,21 +28,45 @@ use crate::vec2::{v, Vec2};
 
 pub const PLAN_SCHEMA: f64 = 1.0;
 
-/// Sub-nib gap a pen draws through instead of lifting.
-pub fn bridge_gap(pen: &Pen) -> f64 {
-    pen.width.max(0.05) * 0.5
+/// Sub-nib gap a pen draws through instead of lifting, by default: half
+/// the nib. `bridge` overrides it for every pen: `Some(0.0)` never
+/// bridges, `Some(g)` bridges gaps up to `g` mm, `None` is the default.
+pub fn bridge_gap(pen: &Pen, bridge: Option<f64>) -> f64 {
+    match bridge {
+        Some(g) => g.max(0.0),
+        None => pen.width.max(0.05) * 0.5,
+    }
+}
+
+/// The path-optimization inputs of a plan — the only knobs planning has.
+#[derive(Debug, Clone, Copy)]
+pub struct PlanOptions {
+    /// 2-opt iteration budget for the tour; 0 keeps nearest-neighbour order.
+    pub tour_budget: usize,
+    /// Bridge gap override, see `bridge_gap`.
+    pub bridge: Option<f64>,
+}
+
+impl Default for PlanOptions {
+    fn default() -> PlanOptions {
+        PlanOptions { tour_budget: 200_000, bridge: None }
+    }
 }
 
 /// The full plan: for each pen in index order, merge → tour → bridge.
 pub fn plan_chains(frags: &[Frag], pens: &[Pen], tour_budget: usize) -> Vec<Chain> {
+    plan_chains_with(frags, pens, PlanOptions { tour_budget, bridge: None })
+}
+
+pub fn plan_chains_with(frags: &[Frag], pens: &[Pen], opts: PlanOptions) -> Vec<Chain> {
     let mut out: Vec<Chain> = Vec::new();
     for (pi, pen) in pens.iter().enumerate() {
         let chains = merge_chains(frags, pi as u32);
         if chains.is_empty() {
             continue;
         }
-        let chains = tour(chains, tour_budget);
-        out.extend(bridge_chains(chains, bridge_gap(pen)));
+        let chains = tour(chains, opts.tour_budget);
+        out.extend(bridge_chains(chains, bridge_gap(pen, opts.bridge)));
     }
     out
 }

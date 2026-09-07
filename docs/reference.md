@@ -2236,6 +2236,35 @@ const png  = exportPng(def, { paper: 'A4', scale: 11.81 });  // ≈ 300 dpi
   agree). Curves stay exact (arcs and cubics, no flattening); sub-nib gaps
   the nib physically spans are inked as bridges. `tourBudget` matches
   `optimize`; default 200 000.
+- **The ordered plan as a value.** `plan(render(def))` runs the merge →
+  tour → bridge ONCE and returns a `DrawingPlan`: its chains with native
+  primitives (arcs stay arcs, dots stay dots), the settings that made it,
+  and a SHA-256 `planHash` over both — the identity every export and the
+  machine share. Path optimization is the plan's, not an exporter's, and
+  the sketch states it: `t.plan({ optimize: 50_000, bridge: false })`
+  (`optimize` = tour budget, `false` keeps nearest-neighbour order;
+  `bridge` = draw through sub-nib gaps, `false` never, a number is the
+  gap in mm); `plan(r, opts)` takes the same options directly. Which part
+  is drawn is the sketch's too — `t.draw({ progress | chains | minutes,
+  budget? })`, resolved by `resolveDraw(plan, r.draw, timing?)`; the
+  exports honour it. Selections are
+  contiguous chain ranges of one exact plan and never re-plan, reorder,
+  reverse, merge or re-solve — dropping later ink does not reveal what it
+  hid: `selectChains(p, { from, to })` (half-open, whole chains),
+  `selectProgress(p, { from: 0, to: 0.3 })` (a fraction OF CHAINS: floor
+  of f·N, 1 → N), `selectTime(p, flat, { fromMs, toMs }, schedule)` (an
+  interval of the full timeline quantized to completed chains — the start
+  may resolve earlier than asked; a chain the interval ends inside is
+  excluded), `standaloneEstimate(...)` (a middle interval pays its own
+  travel-in and final lift — not a difference of timestamps) and
+  `fitDuration(p, flat, sel, { budgetMs }, penOf, timing)` (the longest
+  prefix of the selection that fits, priced from one schedule with the
+  terminal-lift rule, empty when the first chain alone does not fit).
+  Then `planSvg(p, sel, pens)`, `planGcode(p, sel, pens, profile)` and
+  `planToolpath(p, sel, tolerance)` encode that range; the full selection
+  is byte-for-byte the `exportSvg` output. `encodePlanBuffer(chains)` /
+  `decodePlanBuffer` are the exact bytes; `openPlan(bytes, settings,
+  hash)` rebuilds a saved plan and refuses a mismatch.
 - Headless CLI: `pnpm --filter occlude render <sketch.ts> --seed N --paper A4
   --out x.png [--svg x.svg]`.
 - A `Fragment` is `{ origin, t0, t1, pen, shape, dot, bridge, geom }` — a
@@ -2315,13 +2344,47 @@ Serial. What's under the hood, briefly, so its knobs make sense:
   origin* records where the sheet is as an offset, without zeroing. Plots
   draw at the offset; the map reads bed coordinates; Home returns to the
   bed corner.
-- **Resume**: progress (sketch, source hash, seed, pen, paper offset, chain
-  reached) is saved on the server every few chains. After a stop, a crashed
-  tab, or a power loss, *Resume saved plot* rebuilds the same plan and
-  carries on from that chain at the saved offset — after a power loss,
-  re-park at the bed corner and Set bed origin first. *Clear saved plot*
-  forgets it. A board that stops answering mid-plot is recovered
-  automatically (emergency stop, position re-read, the chain redone).
+- **Drawing as code**: which part of the ordered plan is drawn is the
+  sketch's own statement, not a panel setting — `t.draw({ progress: [0,
+  ui(0.3)] })` (a fraction OF CHAINS, not ink, area or time), `t.draw({
+  chains: [120, 400] })` (whole chains, half-open), `t.draw({ minutes:
+  [0, 20] })` (an interval of the full plan's estimated timeline,
+  quantized to completed chains; the readout shows the effective
+  boundaries) and `budget: 20` (keep the longest prefix of that range
+  whose standalone estimate fits — a middle stretch pays its own
+  travel-in and final lift). Path optimization is the plan's, in code
+  too: `t.plan({ optimize: 50_000, bridge: false })`. `ui()` makes any of
+  those numbers a slider. The Drawing panel only READS the result: the
+  resolved chain range and count (so two nearby values that choose the
+  same drawing say so), the standalone ETA against the full plan, the
+  path settings — and toggles a preview-only ghost of the omitted ink,
+  which never enters exports. Selecting never re-solves visibility,
+  reorders, reverses or re-bridges: ink a later shape hid stays hidden
+  when that shape is dropped. Export (SVG, G-code, the per-pen table),
+  Simulate, Plot and Frame all take the selection; Frame frames the
+  selected ink. Headless exports honour `t.draw` too (`exportSvg` /
+  `exportGcode`; a range in minutes or a budget needs `timing`).
+- **Save result**: keeps exactly this selection as resolved output — the
+  selected chains as a plan of their own (exact bytes), the frozen SVG of
+  them, pens, paper, machine profile and timing, build stamp, and the
+  sketch, source hash and seed as provenance — published only once every
+  part is written; records are immutable (delete is the only edit). The
+  Results page lists them; *Open frozen in studio* (`/?result=<id>`) shows,
+  exports and plots the saved bytes without executing the source and
+  without reading the mutable pen library, so later edits to the sketch,
+  the pens or the profile never change what was kept. Only the selection
+  is saved: a reopened result cannot grow back into the rest of the plan.
+- **Resume**: progress (the plan hash, the selected range, the executed
+  chain and its full-plan row, pen, paper offset, and the saved result it
+  ran from, if any) is saved on the server every few chains. After a
+  stop, a crashed tab, or a power loss, *Resume* carries on from that
+  chain at the saved offset — only when the current drawing IS the saved
+  plan (same hash) with the same range selected; a plot that ran from a
+  saved result reopens those bytes instead of regenerating. A mismatch
+  refuses rather than pretending. After a power loss, re-park at the bed
+  corner and Set bed origin first. *Forget* clears it. A board that stops
+  answering mid-plot is recovered automatically (emergency stop, position
+  re-read, the chain redone).
 - **Pen changes**: no changer — multi-pen sketches plot one pen per run
   via the Plot-pen select; "all pens (one run)" runs a whole multi-pen
   plan with the installed pen, each chain using its own logical pen's
