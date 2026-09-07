@@ -14,11 +14,22 @@ pub const ON_BOUNDARY_EPS: f64 = 1e-9;
 /// Refine the visible spans of `prim` against one region.
 /// `keep_inside = false`: occlusion — spans inside the region become hidden.
 /// `keep_inside = true`:  clip — spans outside the region become hidden.
-pub fn clip_spans(prim: &Primitive, spans: &mut Vec<Span>, region: &Region, keep_inside: bool) {
-    let mut out: Vec<Span> = Vec::with_capacity(spans.len() + 4);
+/// `scratch` is a caller-owned buffer, swapped in at the end: the clip loop
+/// calls this once per occluder per primitive, so allocating the output here
+/// was an allocation per call in the pipeline's innermost loop.
+pub fn clip_spans(
+    prim: &Primitive,
+    spans: &mut Vec<Span>,
+    region: &Region,
+    keep_inside: bool,
+    scratch: &mut Vec<Span>,
+) {
+    let out = scratch;
+    out.clear();
+    out.reserve(spans.len() + 4);
     for span in spans.iter() {
         if !span.visible {
-            out.push(span.clone());
+            out.push(*span);
             continue;
         }
         let piece = prim.sub(span.t0, span.t1);
@@ -33,7 +44,7 @@ pub fn clip_spans(prim: &Primitive, spans: &mut Vec<Span>, region: &Region, keep
             // Entirely clear of the region: occlusion keeps it, clip hides it.
             out.push(Span {
                 visible: !keep_inside,
-                ..span.clone()
+                ..*span
             });
             continue;
         }
@@ -49,7 +60,7 @@ pub fn clip_spans(prim: &Primitive, spans: &mut Vec<Span>, region: &Region, keep
             });
         }
     }
-    *spans = out;
+    std::mem::swap(spans, out);
 }
 
 /// Inside-ness of one crossing-free sub-span. The midpoint decides — except

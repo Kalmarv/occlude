@@ -321,7 +321,7 @@ fn line_clipped_by_circle_keeps_outside() {
         t1: 1.0,
         visible: true,
     }];
-    clip_spans(&subject, &mut spans, &region, false);
+    clip_spans(&subject, &mut spans, &region, false, &mut Vec::new());
     let vis: Vec<&Span> = spans.iter().filter(|s| s.visible).collect();
     assert_eq!(vis.len(), 2);
     // Visible: [-10,-5] and [5,10] → t ranges [0, .25] and [.75, 1].
@@ -338,7 +338,7 @@ fn line_inside_clip_region_keeps_inside() {
         t1: 1.0,
         visible: true,
     }];
-    clip_spans(&subject, &mut spans, &region, true);
+    clip_spans(&subject, &mut spans, &region, true, &mut Vec::new());
     let vis: Vec<&Span> = spans.iter().filter(|s| s.visible).collect();
     assert_eq!(vis.len(), 1);
     assert!((vis[0].t0 - 0.25).abs() < 1e-9 && (vis[0].t1 - 0.75).abs() < 1e-9);
@@ -353,7 +353,7 @@ fn fully_covered_line_hidden_without_intersections() {
         t1: 1.0,
         visible: true,
     }];
-    clip_spans(&subject, &mut spans, &region, false);
+    clip_spans(&subject, &mut spans, &region, false, &mut Vec::new());
     assert!(fully_hidden(&spans));
 }
 
@@ -367,7 +367,7 @@ fn tangent_line_draws_through() {
         t1: 1.0,
         visible: true,
     }];
-    clip_spans(&subject, &mut spans, &region, false);
+    clip_spans(&subject, &mut spans, &region, false, &mut Vec::new());
     let mut frags = Vec::new();
     spans_to_fragments(0, &subject, &spans, 0.2, 0, 0, &mut frags);
     assert_eq!(frags.len(), 1, "{frags:?}");
@@ -386,19 +386,19 @@ fn arc_tangent_to_boundary_classifies_by_its_body() {
 
     // clip (keep inside): the arc's body is inside — ALL of it stays.
     let mut spans = vec![Span { t0: 0.0, t1: 1.0, visible: true }];
-    clip_spans(&arc, &mut spans, &region, true);
+    clip_spans(&arc, &mut spans, &region, true, &mut Vec::new());
     let total: f64 = spans.iter().filter(|s| s.visible).map(|s| s.t1 - s.t0).sum();
     assert!((total - 1.0).abs() < 1e-6, "clip dropped a tangent arc: {spans:?}");
 
     // occlusion (keep outside): the same arc is hidden entirely.
     let mut spans = vec![Span { t0: 0.0, t1: 1.0, visible: true }];
-    clip_spans(&arc, &mut spans, &region, false);
+    clip_spans(&arc, &mut spans, &region, false, &mut Vec::new());
     assert!(fully_hidden(&spans), "occluder let a tangent arc through: {spans:?}");
 
     // And the mirror case: an arc wholly OUTSIDE grazing the same edge.
     let arc_out = Primitive::Arc(Arc::new(v(5.0, 11.0), 1.0, PI, PI)); // apex (5,10)
     let mut spans = vec![Span { t0: 0.0, t1: 1.0, visible: true }];
-    clip_spans(&arc_out, &mut spans, &region, true);
+    clip_spans(&arc_out, &mut spans, &region, true, &mut Vec::new());
     assert!(fully_hidden(&spans), "clip kept an outside tangent arc: {spans:?}");
 
     // The wild parameterization (start=π): apex at angle 3π/2 grazing the
@@ -407,7 +407,7 @@ fn arc_tangent_to_boundary_classifies_by_its_body() {
     let region2 = square_region(20.0, 10.0, 20.0, 10.0);
     let arc_top = Primitive::Arc(Arc::new(v(30.0, 11.8), 1.8, PI, PI)); // apex (30,10)
     let mut spans = vec![Span { t0: 0.0, t1: 1.0, visible: true }];
-    clip_spans(&arc_top, &mut spans, &region2, true);
+    clip_spans(&arc_top, &mut spans, &region2, true, &mut Vec::new());
     let total: f64 = spans.iter().filter(|s| s.visible).map(|s| s.t1 - s.t0).sum();
     assert!((total - 1.0).abs() < 1e-6, "clip dropped the start=π tangent arc: {spans:?}");
 }
@@ -422,7 +422,7 @@ fn stroke_on_boundary_stays_visible() {
         t1: 1.0,
         visible: true,
     }];
-    clip_spans(&subject, &mut spans, &region, false);
+    clip_spans(&subject, &mut spans, &region, false, &mut Vec::new());
     assert!(spans.iter().any(|s| s.visible), "{spans:?}");
     let total: f64 = spans
         .iter()
@@ -737,3 +737,43 @@ fn mirrored_s_cubics_are_not_deduped() {
     assert_eq!(out.frags.len(), 2, "both S-curves must draw");
 }
 
+
+/// The clip loop reads the occluder query as ascending ids — it breaks out of
+/// the front-to-back walk on the first occluder at or behind it, and decides
+/// its "nothing in front of me" fast path from the LAST id alone. Both are
+/// wrong if a query ever comes back unsorted or with repeats.
+#[test]
+fn spatial_index_queries_come_back_sorted_and_unique() {
+    use occlude_core::bbox::BBox;
+    use occlude_core::index::SpatialIndex;
+    // boxes that straddle many cells, so the grid pushes ids more than once
+    let mut boxes: Vec<BBox> = Vec::new();
+    let mut s: u64 = 12345;
+    let mut rnd = || {
+        s = s.wrapping_mul(6364136223846793005).wrapping_add(1);
+        ((s >> 33) as f64) / (u32::MAX as f64 / 2.0)
+    };
+    for _ in 0..400 {
+        let (x, y) = (rnd() * 100.0, rnd() * 100.0);
+        let (w, h) = (rnd() * 40.0 + 0.01, rnd() * 40.0 + 0.01);
+        boxes.push(BBox::new(v(x, y), v(x + w, y + h)));
+    }
+    let index = SpatialIndex::build(&boxes);
+    let mut out: Vec<u32> = Vec::new();
+    for q in [
+        BBox::new(v(0.0, 0.0), v(100.0, 100.0)),
+        BBox::new(v(40.0, 40.0), v(60.0, 60.0)),
+        BBox::new(v(-10.0, -10.0), v(1.0, 1.0)),
+        BBox::new(v(99.0, 99.0), v(99.5, 99.5)),
+        BBox::new(v(50.0, 50.0), v(50.0, 50.0)),
+    ] {
+        index.query(&q, &mut out);
+        for w in out.windows(2) {
+            assert!(w[0] < w[1], "query ids must ascend and not repeat: {out:?}");
+        }
+        // and every hit really does overlap
+        for &i in &out {
+            assert!(boxes[i as usize].overlaps(&q));
+        }
+    }
+}

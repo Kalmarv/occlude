@@ -46,7 +46,7 @@ impl Frag {
 /// A span of an origin primitive's parameter range with its visibility state.
 /// The clip layer maintains a full partition of [0, 1] per primitive so the
 /// cleanup neighbour rules can see hidden gaps.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Span {
     pub t0: f64,
     pub t1: f64,

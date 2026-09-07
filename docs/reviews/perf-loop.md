@@ -397,6 +397,121 @@ studio asset, never a personal one.
 
 ---
 
+## Entry 7 — the stipple fill judges its nearest cells first (`src/fills/stipple.ts`)
+
+**Finding.** With entries 1–6 landed, `generate` in the stipple fill was the
+largest library-side self time left: **948 ms across two sketches**
+(contours-2-multicolor and contours). Its Bridson loop judges each candidate
+against the 5 × 5 block of grid cells around it, minus the four corners, and it
+scanned them row by row from the top-left. Most candidates are rejected — that
+is what `K = 24` tries are for — and a rejecting neighbour is nearly always in
+the 3 × 3 core, so the scan walked past empty outer cells before finding it.
+
+**Change.** The block becomes a module-level `Int8Array` of 21 (dx, dy) offsets
+ordered nearest first — the candidate's own cell, the eight around it, then the
+twelve of the ring at distance two — and the nested loop with its clamped
+ranges and corner test becomes one flat loop over that table. `ok` is a pure
+any-overlap predicate that stops at the first hit, so the visiting order cannot
+change the answer; the distance test, its ±1e-9 hypot band and the `rnd()` draw
+order are untouched.
+
+**Verification.** All 26 studio sketches hash identically. Two new tests call
+the fill directly: every pair of dots brute-forced across four box shapes and
+densities — a neighbourhood cell left out of the table shows up as a pair
+closer than r, mutation-checked by deleting one offset — and purity given the
+same box, params and stream. 314 TS tests, docs 106/106, studio build with wasm
+md5 match, 81 studio tests, church oracle unchanged.
+
+**Measurement** (`renderhash`, seed 42, the `fills` column, three A/B pairs):
+
+| sketch | before | after |
+|---|---|---|
+| contours-2-multicolor | 629 / 597 / 632 ms | **500 / 491 / 513 ms** |
+| contours | 383 / 363 / 365 ms | **311 / 306 / 299 ms** |
+| contours-2-multicolor-3 | 244 / 218 / 237 ms | 169 / 224 / 210 ms |
+| Ivy (hatch, not stipple) | 86 / 67 / 89 ms | 84 / 69 / 90 ms — flat, as expected |
+
+About 1.2× on the stipple fill. Measured through `renderhash`, which runs under
+`tsx`; the change creates no functions, so the `__name` caveat does not apply.
+
+---
+
+## Entry 8 — the clip loop stops allocating a span vector per occluder (Rust)
+
+**Finding.** With the JS side worked through, the largest remaining number in
+the heaviest sketches was the occlusion pass (`pass2` ≈ 850 ms on `contours`).
+The crate has a feature-gated stage profiler; run natively on the committed
+`export_bench` scene (4 500 filled circles, 54 945 fragments, serial build, so
+it mirrors wasm):
+
+| zone | time |
+|---|---|
+| 5 clip+fills | 397 ms of 472 ms total |
+| 5b fills | 331 ms |
+| 5s clip-spans-loop | 169 ms |
+| 5q clip-query | 99 ms |
+| 5a outline-clip | 56 ms |
+| 6 dedupe | 44 ms |
+
+`clip_spans` — called **once per occluder per primitive**, the pipeline's
+innermost loop — built a fresh `Vec<Span>` on every call and assigned it over
+the old one. `clip_one` built another per primitive, and `clip_chain` a third
+per primitive of every fill chain.
+
+**Change.** `clip_spans` takes a caller-owned scratch vector and swaps it in at
+the end. `clip_one` takes a `ClipBufs` — the occluder query (already reused),
+the span partition and that scratch — created once per shape, so it stays
+per-task under rayon. `clip_chain` hoists its pair out of the per-primitive
+loop. `Span` gains `Copy`. And `clip_one`'s "nothing in front of me" fast path
+reads the **last** id instead of scanning the whole query: the index sorts and
+dedups, and ascending ids are ascending rank, which the loop below already
+relies on.
+
+**Verification.** All 26 studio sketches hash identically; 62 Rust tests pass
+under both feature sets, including a new one asserting that a spatial query
+comes back strictly ascending and unique across five query boxes on 400
+straddling boxes — mutation-checked by commenting out `sort_unstable`, which
+fails it. 314 TS tests, docs 106/106, church oracle 381.0 min / 16 515 travel
+mm, studio built with wasm md5 match, 81 studio tests.
+
+**Measurement.** Native `export_bench`, serial build, three runs each:
+**490 / 490 / 496 → 489 / 465 / 461 ms** (~5 %), fragment count identical.
+Through wasm the signal is weaker — the pass is more than clipping and the
+allocator differs — five A/B pairs of the `pass2` column:
+
+| sketch | before (medians of 5) | after (medians of 5) |
+|---|---|---|
+| contours-2-multicolor | 644, 583, 629, 609, 629 → **629** | 584, 576, 618, 556, 656 → **584** |
+| flow-user | 443, 513, 427, 453, 503 → **453** | 402, 407, 556, 434, 468 → **434** |
+| contours | 818, 846 | 845, 826 — flat |
+| church | 186, 235 | 203, 178 — flat |
+
+Kept: the native number is clean and repeatable, the wasm medians agree in
+direction, and an allocation-free innermost loop matches the `query_buf`
+pattern already there.
+
+---
+
+## Recorded, not acted on: a stipple fill covers the whole bbox, once per region
+
+Instrumenting `contours-2-multicolor` — eight nested contour bands, each
+filled: **eight `generate` calls, each over a bbox of ~68 000 units², which is
+essentially the whole 200 × 200 drawable, producing ~18 300 dots, 145 758 in
+total** — of which each band keeps only the ones the engine finds strictly
+inside it. The bands are thin, so most of every call's work is discarded.
+
+This is the contract, not a defect: the fill proposes candidates over the
+region's bbox and the engine clips. It cannot be fixed while keeping the ink.
+The dots are the Bridson loop's output over (bbox, r, stream), and each job's
+stream is `${seed}:fill:${job.order}`, so two regions with the same bbox and
+radius still draw different dots and no memo can help. Making `generate`
+region-aware would change every stipple drawing's ink.
+
+**A decision for Caleb, not the loop.**
+
+---
+
+
 ## Remaining measured bottlenecks (from `bench/prof.mts`, baseline 750214f)
 
 Recorded here so the next entry starts from evidence, not from a guess:

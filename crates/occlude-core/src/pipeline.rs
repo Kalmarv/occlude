@@ -466,7 +466,7 @@ impl Prepared {
                 .map(|(r, keep)| (r, *keep))
                 .chain(paper_region.iter().filter(|_| !clean[i]).map(|r| (r, true)))
                 .collect();
-            let mut query_buf: Vec<u32> = Vec::new();
+            let mut bufs = ClipBufs::default();
 
             // Stroke outline. Sub-nib judgement is per CONTOUR for closed
             // shapes: a tiny circle's arcs are each below the nib, but drawing
@@ -496,7 +496,7 @@ impl Prepared {
                             &shape_clips,
                             &ctx,
                             clean[i],
-                            &mut query_buf,
+                            &mut bufs,
                             &mut so.frags,
                         );
                     }
@@ -519,7 +519,7 @@ impl Prepared {
                 return so;
             };
             let threshold = pen_width(*fill_pen);
-            let gen_one = |prim: Primitive, so: &mut ShapeOut, query_buf: &mut Vec<u32>| {
+            let gen_one = |prim: Primitive, so: &mut ShapeOut, bufs: &mut ClipBufs| {
                 let origin = GEN_FLAG | so.gen_prims.len() as u32;
                 so.gen_prims.push(prim);
                 clip_one(
@@ -531,7 +531,7 @@ impl Prepared {
                     &shape_clips,
                     &ctx,
                     clean[i],
-                    query_buf,
+                    bufs,
                     &mut so.frags,
                 );
             };
@@ -540,17 +540,21 @@ impl Prepared {
             // pieces as connected RUNS exactly like an outline contour. A
             // lone ruling cut into disjoint pieces is several runs, judged
             // apart; a fine-stepped polyline is one run, drawable ink.
-            let clip_chain = |chain: &[Primitive], so: &mut ShapeOut, query_buf: &mut Vec<u32>| {
+            let clip_chain = |chain: &[Primitive], so: &mut ShapeOut, bufs: &mut ClipBufs| {
                 let from = so.frags.len();
+                // one pair of buffers for the whole chain, not one per primitive
+                let mut spans: Vec<Span> = Vec::new();
+                let mut scratch: Vec<Span> = Vec::new();
                 for prim in chain {
-                    let mut spans = vec![Span {
+                    spans.clear();
+                    spans.push(Span {
                         t0: 0.0,
                         t1: 1.0,
                         visible: true,
-                    }];
-                    clip_spans(prim, &mut spans, region, true);
+                    });
+                    clip_spans(prim, &mut spans, region, true, &mut scratch);
                     for sp in spans.iter().filter(|sp| sp.visible) {
-                        gen_one(prim.sub(sp.t0, sp.t1), so, query_buf);
+                        gen_one(prim.sub(sp.t0, sp.t1), so, bufs);
                     }
                 }
                 judge_runs(so, from, threshold, false, *fill_pen, i as u32);
@@ -559,7 +563,7 @@ impl Prepared {
                 FillKind::Pending => {
                     if let Some(Some(fill)) = supplied.get(i) {
                         for chain in &fill.chains {
-                            clip_chain(chain, &mut so, &mut query_buf);
+                            clip_chain(chain, &mut so, &mut bufs);
                         }
                         // Intentional taps: engine-stipple semantics — strictly
                         // inside the region (edge dots drop), occludable, never
@@ -568,7 +572,7 @@ impl Prepared {
                             if !region.inside(p) || region.on_boundary(p, 1e-9) {
                                 continue;
                             }
-                            if point_visible(p, &shape_clips, &ctx, &mut query_buf) {
+                            if point_visible(p, &shape_clips, &ctx, &mut bufs.query) {
                                 let origin = GEN_FLAG | so.gen_prims.len() as u32;
                                 let dotp = Primitive::Line(Line::new(p, p));
                                 so.gen_prims.push(dotp);
@@ -590,7 +594,7 @@ impl Prepared {
                     // Pre-generated ink carries no chain structure: each
                     // primitive is its own stroke.
                     for prim in prims {
-                        clip_chain(std::slice::from_ref(prim), &mut so, &mut query_buf);
+                        clip_chain(std::slice::from_ref(prim), &mut so, &mut bufs);
                     }
                 }
                 // Opaque with zero ink: the occluder was registered in
@@ -1592,6 +1596,17 @@ fn value_noise(seed: u64, x: f64, y: f64) -> f64 {
 /// Clip one primitive against its clips and the occluders in front of it
 /// and emit its visible PIECES. No nib judgment happens here — pieces are
 /// judged as connected runs by `judge_runs`, whatever path produced them.
+/// Scratch the clip loop reuses across primitives: the occluder query, the
+/// span partition, and the buffer `clip_spans` swaps with. `clip_one` runs
+/// once per primitive of every stroke and every fill chain, so a `Vec` built
+/// inside it is an allocation in the pipeline's innermost loop.
+#[derive(Default)]
+struct ClipBufs {
+    query: Vec<u32>,
+    spans: Vec<Span>,
+    scratch: Vec<Span>,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn clip_one(
     origin: u32,
@@ -1602,13 +1617,18 @@ fn clip_one(
     clips: &[(&Region, bool)],
     ctx: &ClipCtx,
     clean: bool,
-    query_buf: &mut Vec<u32>,
+    bufs: &mut ClipBufs,
     out: &mut Vec<Frag>,
 ) {
     if clean {
         out.push(Frag::whole(origin, *prim, pen, shape));
         return;
     }
+    let ClipBufs {
+        query: query_buf,
+        spans,
+        scratch,
+    } = bufs;
     // Per-primitive index query: only occluders near THIS primitive.
     let pb = prim.bbox();
     {
@@ -1617,22 +1637,24 @@ fn clip_one(
     }
     // Fast path: nothing in front of this primitive and no clips — the
     // common case for long polylines where only a few segments cross an
-    // occluder. No span allocation at all.
+    // occluder. No span work at all. The query returns ascending ids, and
+    // ascending ids are ascending rank, so the last one settles it.
     let any_later = query_buf
-        .iter()
-        .any(|&oi| ctx.occluders[oi as usize].rank > ctx.my_rank);
+        .last()
+        .is_some_and(|&oi| ctx.occluders[oi as usize].rank > ctx.my_rank);
     if !any_later && clips.is_empty() {
         out.push(Frag::whole(origin, *prim, pen, shape));
         return;
     }
-    let mut spans = vec![Span {
+    spans.clear();
+    spans.push(Span {
         t0: 0.0,
         t1: 1.0,
         visible: true,
-    }];
+    });
     for (clip, keep_inside) in clips {
-        clip_spans(prim, &mut spans, clip, *keep_inside);
-        if fully_hidden(&spans) {
+        clip_spans(prim, spans, clip, *keep_inside, scratch);
+        if fully_hidden(spans) {
             return;
         }
     }
@@ -1668,12 +1690,12 @@ fn clip_one(
                 continue;
             }
         }
-        clip_spans(prim, &mut spans, &occ.region, false);
-        if fully_hidden(&spans) {
+        clip_spans(prim, spans, &occ.region, false, scratch);
+        if fully_hidden(spans) {
             return;
         }
     }
-    spans_to_fragments(origin, prim, &spans, threshold, pen, shape, out);
+    spans_to_fragments(origin, prim, spans, threshold, pen, shape, out);
 }
 
 /// THE nib rule, in one place. The pieces pushed to `so.frags` since `from`
