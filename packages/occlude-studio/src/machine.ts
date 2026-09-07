@@ -508,6 +508,45 @@ export function buildCalibration(
   return el('div', 'calibration', mapStatus, list);
 }
 
+/** A ruler in inches along one edge of the bed plan, 0 at the bed origin;
+ * ticks every inch, halves shorter, labels on the whole inches. Positions
+ * are percentages, so the ruler follows the frame at any size. */
+function inchRuler(lengthMm: number, side: 'top' | 'left'): SVGSVGElement {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', `lift-map-ruler ${side}`);
+  const inches = lengthMm / 25.4;
+  const T = 18; // ruler thickness, px
+  for (let half = 0; half * 0.5 <= inches + 1e-9; half++) {
+    const at = (half * 0.5 * 25.4 * 100) / lengthMm;
+    const whole = half % 2 === 0;
+    const len = whole ? 7 : 4;
+    const line = document.createElementNS(NS, 'line');
+    if (side === 'top') {
+      line.setAttribute('x1', `${at}%`); line.setAttribute('x2', `${at}%`);
+      line.setAttribute('y1', String(T)); line.setAttribute('y2', String(T - len));
+    } else {
+      line.setAttribute('y1', `${at}%`); line.setAttribute('y2', `${at}%`);
+      line.setAttribute('x1', String(T)); line.setAttribute('x2', String(T - len));
+    }
+    svg.append(line);
+    if (whole) {
+      const text = document.createElementNS(NS, 'text');
+      text.textContent = String(half / 2);
+      if (side === 'top') {
+        text.setAttribute('x', `${at}%`); text.setAttribute('y', '8');
+        text.setAttribute('text-anchor', half === 0 ? 'start' : 'middle');
+      } else {
+        text.setAttribute('x', '8'); text.setAttribute('y', `${at}%`);
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('dominant-baseline', half === 0 ? 'hanging' : 'middle');
+      }
+      svg.append(text);
+    }
+  }
+  return svg;
+}
+
 /**
  * Bed level: the lift map as a heat grid of per-cell thresholds, one cell
  * selected for editing, and a one-cell check card so an adjustment can be
@@ -569,7 +608,12 @@ export function buildBedLevel(
       grid.append(b);
     }
     bed.append(grid);
-    mapGrid.append(legend, bed);
+    mapGrid.append(legend, el('div', 'lift-map-rulers',
+      el('span', 'lift-map-corner', 'in'),
+      inchRuler(map.bedW, 'top'),
+      inchRuler(map.bedH, 'left'),
+      bed,
+    ));
     const cell = selected && cells.find((c) => c.r === selected!.r && c.c === selected!.c);
     mapGrid.append(cell ? detailFor(map, cell) : hint('Click a cell to adjust it and test it.'));
   };

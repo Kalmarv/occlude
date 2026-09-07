@@ -1988,9 +1988,48 @@ button.armed {
   background: linear-gradient(90deg, hsl(205 55% 62%), hsl(112 55% 62%), hsl(20 55% 62%));
 }
 
+.lift-map-rulers {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-rows: 18px auto;
+  width: min(100%, 478px);
+}
+
+.lift-map-corner {
+  font-size: 9px;
+  color: var(--ink-dim);
+  align-self: end;
+  justify-self: end;
+  padding: 0 3px 2px 0;
+}
+
+.lift-map-ruler {
+  display: block;
+  overflow: visible;
+  stroke: var(--ink-dim);
+  stroke-width: 1;
+  fill: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 8.5px;
+}
+
+.lift-map-ruler text {
+  stroke: none;
+}
+
+.lift-map-ruler.top {
+  width: 100%;
+  height: 18px;
+}
+
+.lift-map-ruler.left {
+  width: 18px;
+  height: 100%;
+}
+
 .lift-map-bed {
   box-sizing: border-box;
-  width: min(100%, 460px);
+  width: 100%;
   border: 1px solid var(--panel-edge);
   border-radius: 4px;
   background: var(--well);
