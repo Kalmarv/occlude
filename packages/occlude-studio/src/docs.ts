@@ -339,10 +339,10 @@ function headings(md: string): { level: 2 | 3; text: string; id: string }[] {
 
 function buildTree(): void {
   tree.replaceChildren();
-  for (const group of ['topics', 'developer'] as const) {
+  for (const group of ['topics', 'workshop', 'developer'] as const) {
     const label = document.createElement('div');
     label.className = 'tree-group';
-    label.textContent = group === 'topics' ? 'topics' : 'developer notes';
+    label.textContent = group === 'topics' ? 'topics' : group === 'workshop' ? 'workshop' : 'developer notes';
     tree.append(label);
     for (const page of DOC_PAGES.filter((p) => p.group === group)) {
       const det = document.createElement('details');
