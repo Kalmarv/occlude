@@ -387,6 +387,24 @@ describe('review of fe26c3f', () => {
     });
   });
 
+  it('a single face navigates too: edges, points and boundaryEdges of one face, spur inside it included', () => {
+    // two squares sharing a wall, a spur inside the right one
+    const two = material([[0, 0], [10, 0], [20, 0], [20, 10], [10, 10], [0, 10], [17, 3]], { edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0], [1, 4], [2, 6]] });
+    const cells = two.faces();
+    const right = cells.filter((f) => f.bounds.x === 10).at(0);
+    expect(right.edges.length).toBe(5); // four walls and the spur
+    expect(right.boundaryEdges.length).toBe(4);
+    expect(right.points.length).toBe(5);
+    const shared = right.boundaryEdges.filter((e) => e.a.x === 10 && e.b.x === 10);
+    expect(shared.length).toBe(1);
+    const left = cells.filter((f) => f.bounds.x === 0).at(0);
+    expect(left.edges.has(shared.at(0))).toBe(true);
+    expect(left.edges.length).toBe(4);
+    // the same views through a selection, and the collection's own union stays the union
+    expect(cells.filter(() => true).at(1).edges.length).toBe(right.edges.length);
+    expect(cells.edges.length).toBe(8);
+  });
+
   it('4. measurements are frozen: the record and its coordinate tuples', () => {
     const cells = voronoi([[20, 20], [80, 30], [50, 70]], B);
     const measured = cells.faces().measure(() => 1);

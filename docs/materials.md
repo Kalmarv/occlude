@@ -618,7 +618,7 @@ The regions a network encloses are data too. `m.planarize()` makes every crossin
 | `point: (event) => attrs` | resolves competing point attributes at an event; needed only where the candidates disagree |
 | `edges: (parent, child) => attrs` | child edge attributes over the parent's |
 | `m.faces()` | the bounded faces as a collection: iterate, `length`, `at`, `map`, `filter`, `groupBy`, `boundaries()`; crossings without a shared vertex are an error that says to planarize |
-| `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds`, `contours` (closed records `polygon` and `stroke` accept) |
+| `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds`, `contours` (closed records `polygon` and `stroke` accept); and its own `edges`, `points`, `boundaryEdges`: the collection's navigation restricted to one face (`for (const e of f.edges)`) |
 | `cells.filter(f => bool)` | a fixed-membership face selection with `union`, `intersect`, `subtract` |
 | `cells.edges`, `sel.edges` | every source edge incident to the (selected) faces, once, as an edge selection: shared walls included, and a spur inside a face counts as that face's edge |
 | `cells.points`, `sel.points` | the endpoints of those edges, once |

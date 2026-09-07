@@ -512,6 +512,14 @@ export interface Face {
   /** Outer and hole boundaries; retraced bridges and branches excluded. */
   perimeter: number;
   bounds: { x: number; y: number; w: number; h: number };
+  /** This face's edges in the source material, once: its walls and any
+   * dangling edge inside it. */
+  readonly edges: EdgeSelection;
+  /** Endpoints of `edges`, once, in row order. */
+  readonly points: PointSelection;
+  /** Edges between this face and anything else (another face or the
+   * outside): the walls; edges inside the face are not boundary. */
+  readonly boundaryEdges: EdgeSelection;
   /** Closed contours: the outer boundary with positive signed area
    * (counter-clockwise in a y-up reading), holes negative. Bridges and
    * branches inside the face are not part of them. */
@@ -752,7 +760,16 @@ export class Faces {
       return Object.freeze({ pts: Object.freeze(pts) as unknown as [number, number][], closed: true }) as IsoContour;
     };
     const views: Face[] = [];
-    const faceProto = viewProto(this, 'face');
+    // Navigation per face reads the collection's incidence, like the
+    // collection's own `edges`/`points`/`boundaryEdges` restricted to one face.
+    const faceProto = Object.create(viewProto(this, 'face')) as Face;
+    const collection = this;
+    Object.defineProperties(faceProto, {
+      edges: { get(this: Face) { return new EdgeSelection(m, collection.edgeRowsWhere((l, r) => l === this.index || r === this.index)); } },
+      points: { get(this: Face) { return this.edges.points; } },
+      boundaryEdges: { get(this: Face) { return new EdgeSelection(m, collection.edgeRowsWhere((l, r) => (l === this.index) !== (r === this.index))); } },
+    });
+    Object.freeze(faceProto);
     for (let f = 0; f < faceWalk.length; f++) {
       const fw = walks[faceWalk[f]];
       let area = fw.area;
