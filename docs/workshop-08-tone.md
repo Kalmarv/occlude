@@ -1,24 +1,25 @@
 # 8. Put the ink where it matters
 
-**How can the arrangement of points make tone?** A pen draws lines of one weight. Grey comes from how close the marks are, and a drawing of identical dots can carry a full range of light and shade if the dots are placed by a rule that reads the tone it wants. This is the drawing this chapter arrives at: a light study of a round form lit from the upper left, its bright side almost empty and its shadow a dense curved crescent, made of dots of one size, each one where the density asked for it. By the end you will be able to choose between scattering, relaxing and settling for a reason, and say which quantity each one reads and which it writes.
+**How can the arrangement of points make tone?** A pen draws lines of one weight. Grey comes from how close the marks are, and a drawing of identical dots can carry a full range of light and shade if the dots are placed by a rule that reads the tone it wants. This is the drawing this chapter arrives at: a ball, lit from the upper left, its shadow shaped and its dark side dissolving into the ground it sits on, made of dots of one size, each one where the density asked for it. By the end you will be able to choose between scattering, relaxing and settling for a reason, and, more to the point, make a flat shape look round and say which of your decisions did it.
 
 ```ts live
 import { sketch, circle, distance, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
-  const spacing = ui(2.2, { min: 1.2, max: 5, step: 0.1 });
-  const iterations = ui(12, { min: 0, max: 30, step: 1, label: 'settle rounds' });
-  const contrast = ui(1.6, { min: 0.5, max: 3, step: 0.1 });
-  const body = (x, y) => distance([x, y], [100, 50]) < 42;
-  const light = (x, y) => Math.max(0, 1 - distance([x, y], [82, 34]) / 58);
-  const shade = (x, y) => (body(x, y) ? 0.06 + 0.94 * Math.pow(1 - light(x, y), contrast) : 0);
-  const seeds = t.scatter(shade, { spacing });
-  const settled = t.settle(seeds, { density: shade, spacing, iterations });
-  return settled.points.map((p) => circle(p.x, p.y, 0.45));
+  const highlight = [ui(84, { min: 40, max: 160, step: 1, label: 'highlight x' }), ui(34, { min: 10, max: 90, step: 1, label: 'highlight y' })];
+  const contrast = ui(1.8, { min: 0.6, max: 4, step: 0.1 });
+  const ground = ui(0.22, { min: 0, max: 0.5, step: 0.02, label: 'ground tone' });
+  const mark = ui(0.45, { min: 0.15, max: 0.8, step: 0.05, label: 'mark radius' });
+  const r = (x, y) => distance([x, y], [100, 50]);
+  const light = (x, y) => Math.max(0, 1 - distance([x, y], highlight) / 56);
+  const body = (x, y) => Math.max(0.06, Math.pow(1 - light(x, y), contrast) - 0.25 * Math.max(0, (r(x, y) - 28) / 12) * (1 - light(x, y)));
+  const shade = (x, y) => (r(x, y) < 40 ? body(x, y) : ground * Math.max(0, 1 - (r(x, y) - 40) / 20) * (y > 50 ? 1 : 0.2));
+  const seeds = t.scatter(shade, { spacing: 2 });
+  return t.settle(seeds, { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, mark));
 });
 ```
 
-Drag `contrast` from 0.5 to 3 with the rest fixed: the same form and the same light, and the dots move to say something different about them.
+Drag `highlight x` across the ball and back: the same dots, and the ball turns to face wherever the light is.
 
 ## Size or placement
 
@@ -35,7 +36,7 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
 });
 ```
 
-Which side would plot as a smoother grey, and why? A plotter draws every dot as the same nib touching paper: the left side's small dots become the same size as its large ones, and its tone collapses. The right side's tone is in the spacing, which the nib cannot change. That is why this chapter is about placement.
+Both are drawn by the same pen, and each circle is a ring of that pen's line, so the two carry their tone differently. On the left the ink per mark varies and the marks sit on a grid; a large circle is a visible ring, and the smallest ones, whose circumference falls below the nib, become single taps of the pen. On the right every mark is the same and only the gaps between them change. Which reads as a smoother grey from across the room, and which shows its construction? The rest of this chapter works with placement, because spacing is the quantity a pen leaves alone, but the left side is a legitimate drawing too, and chapter 11 comes back to how such marks survive at a size.
 
 ## Scatter from a field
 
@@ -108,46 +109,112 @@ Up, and by a lot: from 1,106 points to about 2,500 after ten rounds on this seed
 
 Three quantities, and they are not interchangeable: `density` is what the field says at a point, `demand` is what a settled point's region holds, and the dot's radius is a drawing decision that neither of them makes. The dots above are all the same size, and the tone is entirely theirs.
 
-## Compose tone
+## Make a flat shape round
 
-A round form on plenty of paper, lit from a point above and to its left. `body` says whether a position is on the form at all; `light` is 1 at the light's centre and falls off with distance; the shade is darkest where the light is weakest, with a floor of 0.06 so the bright side is not empty paper. `contrast` raises that to a power, which pushes the middle tones darker or lighter without moving the light. The dots are settled to the field at the chosen spacing. This is the drawing from the top of the page; the controls are its three decisions, and mark size is deliberately not one of them.
+A disc of one density is a disc: a flat grey coin, settled so its dots are even. Nothing on it says which way is up or where the light is. This is the start; every step after it is one decision about light.
 
-```ts live focus=7-9,11
+```ts live focus=4-5
+import { sketch, circle, distance } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const body = (x, y) => distance([x, y], [50, 50]) < 40;
+  const shade = (x, y) => (body(x, y) ? 0.5 : 0);
+  const seeds = t.scatter(shade, { spacing: 2 });
+  return t.settle(seeds, { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, 0.45));
+});
+```
+
+**Locate the highlight.** Light comes from somewhere. `light(x, y)` is 1 at a point and falls off with the distance from it, and the shade is `1 − light`: dense where the light is weak, sparse where it is strong. Put the highlight inside the disc, off centre, and the disc becomes a ball. Drag it; the ball turns to face the light. Put it at the centre and the ball is lit head-on and flattens again.
+
+```ts live focus=4-7
+import { sketch, circle, distance, ui } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const highlight = [ui(36, { min: 10, max: 90, step: 1, label: 'highlight x' }), ui(34, { min: 10, max: 90, step: 1, label: 'highlight y' })];
+  const body = (x, y) => distance([x, y], [50, 50]) < 40;
+  const light = (x, y) => Math.max(0, 1 - distance([x, y], highlight) / 56);
+  const shade = (x, y) => (body(x, y) ? 0.06 + 0.94 * (1 - light(x, y)) : 0);
+  const seeds = t.scatter(shade, { spacing: 2 });
+  return t.settle(seeds, { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, 0.45));
+});
+```
+
+The floor of 0.06 keeps the lit side from being empty paper: a ball has a bright side, not a missing one. Try 0 and the highlight becomes a hole.
+
+**Shape the shadow.** The shadow above is a smooth slope from light to dark. A ball in a room has more structure than that: the shade deepens quickly past the terminator, the line where the light stops reaching, and it lifts again near the far rim, where light bounced off the ground comes back. Two numbers do this. `contrast` raises the shade to a power, which moves the terminator and hardens the dark side; `rim` subtracts a little density near the edge on the shadow side, the reflected light. Turn `rim` to 0 and compare: the ball with reflected light sits on a surface, the one without floats.
+
+```ts live focus=6-9
+import { sketch, circle, distance, ui } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const contrast = ui(1.8, { min: 0.6, max: 4, step: 0.1 });
+  const rim = ui(0.25, { min: 0, max: 0.6, step: 0.05, label: 'rim light' });
+  const r = (x, y) => distance([x, y], [50, 50]);
+  const light = (x, y) => Math.max(0, 1 - distance([x, y], [36, 34]) / 56);
+  const bounce = (x, y) => rim * Math.max(0, (r(x, y) - 28) / 12) * (1 - light(x, y));
+  const shade = (x, y) => (r(x, y) < 40 ? Math.max(0.06, Math.pow(1 - light(x, y), contrast) - bounce(x, y)) : 0);
+  const seeds = t.scatter(shade, { spacing: 2 });
+  return t.settle(seeds, { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, 0.45));
+});
+```
+
+**Hard silhouette or disappearing edge.** The ball's edge is a cut: inside, density; outside, nothing. That is a ball against white, and its lit side is a crisp silhouette against the paper. The other choice is to let the shadow side dissolve into a ground: a faint density outside the ball, mostly below it where a surface would be, and the ball's dark rim no darker than it, so the edge disappears where the shadow is and shows only where the light is. Same ball, both ways. Which is in a room, and which is on a page?
+
+```ts live focus=8-9
+import { sketch, circle, distance, group, rect, within } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
+  const ball = (cx) => {
+    const r = (x, y) => distance([x, y], [cx, 50]);
+    const light = (x, y) => Math.max(0, 1 - distance([x, y], [cx - 14, 34]) / 56);
+    const body = (x, y) => Math.max(0.06, Math.pow(1 - light(x, y), 1.8) - 0.25 * Math.max(0, (r(x, y) - 28) / 12) * (1 - light(x, y)));
+    return { r, body };
+  };
+  const cut = ball(50);
+  const hard = within((x, y) => (cut.r(x, y) < 40 ? cut.body(x, y) : 0), rect(0, 0, 100, 100));
+  const soft = within((x, y) => (cut.r(x, y) < 40 ? cut.body(x, y) : 0.22 * Math.max(0, 1 - (cut.r(x, y) - 40) / 20) * (y > 50 ? 1 : 0.2)), rect(0, 0, 100, 100));
+  const study = (shade) => t.settle(t.scatter(shade, { spacing: 2 }), { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, 0.45));
+  return [study(hard), group({ translate: [100, 0] }, study(soft))];
+});
+```
+
+On the right the ground tone is a density of 0.22 at the ball's edge, a fifth of that above the ball's middle, fading to nothing twenty units out, and the ball's shadow side, at about the same density, has no edge against it; the silhouette survives only on the lit side, which is where a ball in a room shows its outline. On the left the dark rim is the strongest line in the drawing, and it says "disc" as much as "ball". Neither is wrong. The left is the version to choose when the drawing is about the shape; the right when it is about the light.
+
+**Tune the marks at the size they will be.** All of the above was judged at one size. A settled arrangement at spacing 2 on this sheet is dots about 3.6 mm apart at the densest, and a dot of radius 0.45 is a ring 1.6 mm across: a coarse stipple, readable at arm's length. The same study on A6, where the drawable is half the size, puts the densest dots 1.8 mm apart with the same 1.6 mm rings, and the shadow side closes up into rings that touch. That is a different drawing, and either the spacing or the mark has to change with the sheet: on the small sheet a mark of 0.25 keeps the shadow as a tone.
+
+```ts live paper=A6
+import { sketch, circle, distance, ui } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const mark = ui(0.45, { min: 0.15, max: 0.8, step: 0.05, label: 'mark radius' });
+  const r = (x, y) => distance([x, y], [50, 50]);
+  const light = (x, y) => Math.max(0, 1 - distance([x, y], [36, 34]) / 56);
+  const shade = (x, y) => (r(x, y) < 40 ? Math.max(0.06, Math.pow(1 - light(x, y), 1.8) - 0.25 * Math.max(0, (r(x, y) - 28) / 12) * (1 - light(x, y))) : 0);
+  const seeds = t.scatter(shade, { spacing: 2 });
+  return t.settle(seeds, { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, mark));
+});
+```
+
+**The drawing.** The ball with its highlight placed, its shadow shaped, its edge dissolving into a ground, on a sheet with room, and the mark sized for that sheet. The controls are the decisions in the order the page made them; none of them is the dot count.
+
+```ts live focus=4-7
 import { sketch, circle, distance, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
-  const spacing = ui(2.2, { min: 1.2, max: 5, step: 0.1 });
-  const iterations = ui(12, { min: 0, max: 30, step: 1, label: 'settle rounds' });
-  const contrast = ui(1.6, { min: 0.5, max: 3, step: 0.1 });
-  const body = (x, y) => distance([x, y], [100, 50]) < 42;
-  const light = (x, y) => Math.max(0, 1 - distance([x, y], [82, 34]) / 58);
-  const shade = (x, y) => (body(x, y) ? 0.06 + 0.94 * Math.pow(1 - light(x, y), contrast) : 0);
-  const seeds = t.scatter(shade, { spacing });
-  const settled = t.settle(seeds, { density: shade, spacing, iterations });
-  return settled.points.map((p) => circle(p.x, p.y, 0.45));
-});
-```
-
-Set `settle rounds` to 0 and the drawing is the scatter alone: the form is there, grainier and with a few clumps. At 12 the tone is even and the shadow's crescent has a clean edge. Which is the better drawing depends on what the grain is for; the settled one is the better study of light, and the scattered one is the better texture.
-
-The points decided nothing about the ink. The same settled points, drawn as small rings and as short strokes leaning one way, are different drawings of the same tone. A ring reads lighter than a dot of the same radius, so the rings' study is paler; the strokes add a direction the light never had.
-
-```ts live focus=11-14
-import { sketch, circle, line, distance, group } from 'occlude';
-
-export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
-  const body = (x, y) => distance([x, y], [50, 50]) < 40;
-  const light = (x, y) => Math.max(0, 1 - distance([x, y], [34, 34]) / 56);
-  const shade = (x, y) => (body(x, y) ? 0.06 + 0.94 * Math.pow(1 - light(x, y), 1.6) : 0);
+  const highlight = [ui(84, { min: 40, max: 160, step: 1, label: 'highlight x' }), ui(34, { min: 10, max: 90, step: 1, label: 'highlight y' })];
+  const contrast = ui(1.8, { min: 0.6, max: 4, step: 0.1 });
+  const ground = ui(0.22, { min: 0, max: 0.5, step: 0.02, label: 'ground tone' });
+  const mark = ui(0.45, { min: 0.15, max: 0.8, step: 0.05, label: 'mark radius' });
+  const r = (x, y) => distance([x, y], [100, 50]);
+  const light = (x, y) => Math.max(0, 1 - distance([x, y], highlight) / 56);
+  const body = (x, y) => Math.max(0.06, Math.pow(1 - light(x, y), contrast) - 0.25 * Math.max(0, (r(x, y) - 28) / 12) * (1 - light(x, y)));
+  const shade = (x, y) => (r(x, y) < 40 ? body(x, y) : ground * Math.max(0, 1 - (r(x, y) - 40) / 20) * (y > 50 ? 1 : 0.2));
   const seeds = t.scatter(shade, { spacing: 2 });
-  const settled = t.settle(seeds, { density: shade, spacing: 2, iterations: 12 });
-  const pts = settled.points;
-  return [
-    pts.map((p) => circle(p.x, p.y, 0.7)),
-    group({ translate: [100, 0] }, pts.map((p) => line(p.x - 0.6, p.y + 0.5, p.x + 0.6, p.y - 0.5))),
-  ];
+  return t.settle(seeds, { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, mark));
 });
 ```
+
+Set `ground tone` to 0 and the ball is cut out; move the highlight to the centre and it flattens; push `contrast` past 3 and the terminator becomes an edge of its own, a second silhouette inside the first, which is what a hard light does. The drawing at the top of the page is this one, and the reason it looks the way it does is four numbers you have now moved yourself.
 
 ## On your own
 
