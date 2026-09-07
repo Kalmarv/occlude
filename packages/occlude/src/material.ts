@@ -24,6 +24,7 @@
  */
 
 import { PointSelection, EdgeSelection } from './relation.js';
+import { planarize, faces, type PlanarizeOpts, type Faces } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import type { VectorFieldFn } from './shapes.js';
 import { distanceTo } from './distance.js';
@@ -165,8 +166,14 @@ const KIND = Symbol('view');
 /** Which kind of view this is — decided by the material that made it,
  * never by the presence of attribute names (an artist may call a column
  * `a`, `b` or `x`). `undefined` for anything that is not a view. */
-export function viewKind(view: unknown): 'vertex' | 'edge' | undefined {
-  return typeof view === 'object' && view !== null ? (view as Record<symbol, 'vertex' | 'edge'>)[KIND] : undefined;
+export function viewKind(view: unknown): 'vertex' | 'edge' | 'face' | undefined {
+  return typeof view === 'object' && view !== null ? (view as Record<symbol, 'vertex' | 'edge' | 'face'>)[KIND] : undefined;
+}
+
+/** @internal Stamp a view with its owner and kind (non-enumerable). */
+export function brandView(view: object, owner: object, kind: 'vertex' | 'edge' | 'face'): void {
+  Object.defineProperty(view, OWNER, { value: owner, enumerable: false });
+  Object.defineProperty(view, KIND, { value: kind, enumerable: false });
 }
 
 /** Column transfer policies a material remembers for its point columns
@@ -270,8 +277,7 @@ export class Material {
   vertex(i: number): Vertex {
     const v: Record<string, number> = { index: i, x: this.x[i], y: this.y[i] };
     for (const name in this.attrs) v[name] = this.attrs[name][i];
-    Object.defineProperty(v, OWNER, { value: this, enumerable: false });
-    Object.defineProperty(v, KIND, { value: 'vertex', enumerable: false });
+    brandView(v, this, 'vertex');
     return v as Vertex;
   }
 
@@ -306,8 +312,7 @@ export class Material {
     const attrs: Record<string, number> = {};
     for (const name in this.edgeAttrs) attrs[name] = this.edgeAttrs[name][e];
     const view: Edge = { a, b, length: distance(a, b), index: e, attrs };
-    Object.defineProperty(view, OWNER, { value: this, enumerable: false });
-    Object.defineProperty(view, KIND, { value: 'edge', enumerable: false });
+    brandView(view, this, 'edge');
     return view;
   }
 
@@ -346,6 +351,20 @@ export class Material {
     }
     if (ownerOf(p) !== this) throw new Error(`${what}: that vertex belongs to another state`);
     return p.index;
+  }
+
+  // ---- planar structure (see faces.ts) ----
+
+  /** Independent material in which every crossing and endpoint-on-edge
+   * contact of the sampled edges is a shared vertex. Explicit: nothing
+   * else planarizes. See `planarize` for the rules and the resolvers. */
+  planarize(opts: PlanarizeOpts = {}): Material {
+    return planarize(this, opts);
+  }
+
+  /** The bounded regions this (already planar) material encloses. */
+  faces(): Faces {
+    return faces(this);
   }
 
   // ---- selections (see relation.ts) ----
@@ -693,8 +712,8 @@ const ownerOf = (p: Vertex): Material | undefined => (p as unknown as Record<sym
 
 /** True when `view` (a vertex or edge view) came from `m` — this state,
  * not merely a material with the same shape. */
-export function ownedBy(view: Vertex | Edge, m: Material): boolean {
-  return (view as unknown as Record<symbol, Material>)[OWNER] === m;
+export function ownedBy(view: object, m: object): boolean {
+  return (view as unknown as Record<symbol, object>)[OWNER] === m;
 }
 
 // ---- constructors ----------------------------------------------------------------

@@ -26,7 +26,8 @@
   "dependencies": {
     "commons-math-interpolation": "^2.2.4",
     "d3-delaunay": "^6.0.4",
-    "occlude-core": "link:../../crates/occlude-core/pkg"
+    "occlude-core": "link:../../crates/occlude-core/pkg",
+    "robust-predicates": "3.0.3"
   },
   "devDependencies": {
     "@types/d3-delaunay": "^6.0.4",

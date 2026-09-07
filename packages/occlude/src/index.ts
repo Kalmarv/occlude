@@ -61,6 +61,8 @@ export {
 export { query } from './query.js';
 export { PointSelection, EdgeSelection, components, meanBy } from './relation.js';
 export type { Components } from './relation.js';
+export { planarize, faces, Faces, FaceSelection } from './faces.js';
+export type { Face, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
 export type { EdgeQuery, NearestHit, FirstHit } from './query.js';
 export type {
   Vertex, Edge, Curve, Next, Handle, Ref, ChildSpec, ChildInterval, SplitOpts, Snapshot, Transfer, TransferPolicy, NeighbourStats,

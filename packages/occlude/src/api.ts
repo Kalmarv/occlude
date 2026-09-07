@@ -206,17 +206,19 @@ export interface PolygonOpts extends ShapeOpts {
 
 /**
  * An area from its boundaries — the engine's Region concept as a value.
- * One contour or several, each a bare `[x, y][]`; the result clips, fills,
- * masks, and stamps as one thing. Strictly points: wrapper records expose
- * theirs (`polygon(blobs.map((c) => c.pts))`). No geometry is computed;
+ * One contour or several, each a bare `[x, y][]` or a closed-contour
+ * record `{ pts, closed }` (a face's contours, an isoline); the result
+ * clips, fills, masks, and stamps as one thing. No geometry is computed;
  * open contours get their closing chord. `winding` picks the fill rule.
  */
-export function polygon(contours: Contour | Contour[], opts: PolygonOpts = {}): ShapeValue {
+export function polygon(contours: Contour | Contour[] | IsoContour | IsoContour[], opts: PolygonOpts = {}): ShapeValue {
   const { winding = 'evenodd', ...rest } = opts;
+  const bare = (c: Contour | IsoContour): Contour => (Array.isArray(c) ? c : (c.pts as Contour));
   const loops: Contour[] =
-    contours.length > 0 && !Array.isArray(contours[0][0])
-      ? [contours as Contour]
-      : (contours as Contour[]);
+    !Array.isArray(contours) ? [bare(contours)]
+    : contours.length > 0 && !Array.isArray(contours[0]) ? (contours as IsoContour[]).map(bare)
+    : contours.length > 0 && !Array.isArray((contours as Contour)[0][0]) ? [contours as Contour]
+    : (contours as Contour[]).map(bare);
   const cmds: PathCmd[] = [];
   for (const loop of loops) {
     if (loop.length < 2) continue;

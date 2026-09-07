@@ -19,6 +19,9 @@ importers:
       occlude-core:
         specifier: link:../../crates/occlude-core/pkg
         version: link:../../crates/occlude-core/pkg
+      robust-predicates:
+        specifier: 3.0.3
+        version: 3.0.3
     devDependencies:
       '@types/d3-delaunay':
         specifier: ^6.0.4

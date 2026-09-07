@@ -1201,7 +1201,7 @@ list. A ring, an open chain, a branching tree and an unconnected cloud
 are all materials; a `Curve` is a chain the material hands back for drawing.
 Meshes are values: every operation returns a new one, so an evolution can
 be kept and any state chosen later. Indices are rows of one state, not
-identities. Five layers, kept apart:
+identities. Six layers, kept apart:
 
 | layer | what |
 |---|---|
@@ -1209,6 +1209,7 @@ identities. Five layers, kept apart:
 | numbers | `add sub mul length distance unit limit perp sum sumBy` — tuples out, either spelling in, nothing mutated |
 | rules | `.steps(n, (current, next, k) => …)` with collection edits; forces prepared once, evaluated at a point |
 | selection | `.selectPoints()`, `.selectEdges()` — source-bound, fixed; `.extract()` for independent material; `connectedPoints`, `components`, `meanBy` |
+| areas | `.planarize()` shares crossings on purpose; `.faces()` reads the bounded regions; `select` by area, `boundaries()` of a union |
 | drawing | `.curves()`, `segmentRuns`, `extent`, `banding` — then `stroke`, `polygon`, `circle` |
 
 All pure imports except `t.sample`, which reads the paper. The exact
@@ -1853,6 +1854,125 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   return [
     stroke(box.contour), stroke(disc.contour),
     measured.points.filter((p) => p.distance > 0.6).map((p) => circle(p.x, p.y, 0.15 + 1.15 * (p.distance / within))),
+  ];
+});
+```
+
+### planarize, faces, boundaries
+
+The spaces a network encloses are data too. `m.planarize()` is the
+explicit step that makes every crossing and every endpoint-on-edge
+contact a shared vertex — nothing else planarizes for you, because
+connecting lines that merely cross is a decision. `m.faces()` then reads
+the bounded regions of that planar state; a tree has none, a ring one, a
+square with a diagonal two. Faces are derived data of one state: select
+them by measurement, draw their contours, or outline the union of a
+selection with the walls between chosen cells removed.
+
+| value | meaning |
+|---|---|
+| `m.planarize({ point?, edges? })` | independent material: crossings and contacts shared, edges split in order, isolated points kept, iteration 0. Overlaps, duplicate edges, zero-length edges and non-finite input are errors naming the rows |
+| `point: (event) => attrs` | resolves competing point attributes at an event (`event.position`, `event.candidates[{ vertex? \| edge?, t?, attrs }]` by vertex then edge row); needed only where candidates disagree |
+| `edges: (parent, child) => attrs` | child edge attributes over the parent's, once per child `{ from, to, fraction }` (an unsplit edge has fraction 1) |
+| `m.faces()` | the bounded faces of a planar state: `source`, `size`, `iteration`, `faces[]`, `map`, `select(f => bool)`, `boundaries()`. Crossings without a shared vertex are an error that says to planarize |
+| `face` | `index`, `area` (outer minus holes), `perimeter` (outer and holes, no retraced branches), `bounds {x, y, w, h}`, `contours` (closed records `polygon` and `stroke` accept) |
+| `cells.select(f => bool)` | a fixed-membership face selection: `source` (the collection), `indices`, `size`, `has(face)`, `union / intersect / subtract` within one collection |
+| `sel.boundaries()` | closed contours around the union of the selected faces: shared walls omitted, walls against unselected faces or the outside kept, holes kept |
+
+Numbers: orientation is decided exactly (Shewchuk's `orient2d`), so
+"crosses", "touches" and "collinear" never depend on an epsilon.
+Intersection positions are floating point; the one tolerance is that two
+events on the same edge within 1e-9 in parameter are the same event,
+which is how three lines through a point get one vertex. Endpoints merge
+only when exactly coincident; a gap stays a gap. Contours come out with
+the outer boundary at positive signed area and holes negative — use
+`winding: 'evenodd'` and holes are unambiguous either way. Bridges and
+dangling branches inside a face are not part of its contours or its
+perimeter. Isolated points, even one lying on an edge, take part in no
+face.
+
+Measured (this machine): 82 grid lines with 1,681 crossings planarize in
+18 ms and give 1,600 faces in 33 ms; 400 random chords (18,915 vertices,
+36,630 edges) planarize in 118 ms and give 17,716 faces in 355 ms; a
+5,967-edge triangulation gives its 3,968 faces in 51 ms. Planarization
+sweeps x-sorted edge boxes, so it is O(E log E + overlapping pairs);
+face discovery is O(E log E) plus hole assignment across nested
+components.
+
+Drawing every face's contours repeats every shared wall. Say what you
+mean instead: fill the cells with `stroke: false` and stroke the network
+once, or stroke only a selection's `boundaries()`.
+
+```ts live
+import { sketch, stroke, circle, polygon, fill, mm, material, append, curve } from 'occlude';
+
+// Crossings become cells. Left: a frame and five chords as drawn — the
+// lines merely cross, so nothing is enclosed and there are no faces.
+// Right: the same network planarized; every crossing is now a vertex
+// (marked) and each cell it encloses fills at its own angle. One chord
+// stops short of the frame: the gap stays a gap, so the hatch runs
+// unbroken across it — the two sides are one cell.
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const chord = (a, b) => material([a, b], { edges: [[0, 1]] });
+  let net = curve([[4, 4], [46, 4], [46, 46], [4, 46]], { closed: true });
+  net = append(net, chord([4, 16], [46, 30]));
+  net = append(net, chord([12, 4], [30, 46]));
+  net = append(net, chord([4, 38], [46, 10]));
+  net = append(net, chord([34, 4], [40, 46]));
+  net = append(net, chord([20, 24], [46, 42])); // stops short of the left frame
+  const planar = net.planarize();
+  const cells = planar.faces();
+  const right = planar.steps(1, (_, next) => next.move(() => [50, 0]));
+  const over = (c) => ({ pts: c.pts.map(([x, y]) => [x + 50, y]), closed: true });
+  return [
+    net.curves().map((c) => stroke(c)),
+    cells.map((f, k) => polygon(f.contours.map(over), { winding: 'evenodd', fill: fill('hatch', { angle: (k * 37) % 180, spacing: mm(1.3) }), stroke: false })),
+    right.curves().map((c) => stroke(c)),
+    right.points.filter((p) => p.index >= net.n).map((p) => circle(p.x, p.y, 0.8, { pen: 'stabilo-88-blue' })),
+  ];
+});
+```
+
+```ts live
+import { sketch, stroke, polygon, fill, mm, connect, ui } from 'occlude';
+
+// Select by area. A jittered grid triangulated into cells; the cells at
+// least `minimum` in area fill, the rest stay empty, and the network is
+// stroked once. Drag `minimum` and watch membership change.
+export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
+  const minimum = ui(30, { min: 2, max: 60, step: 1, label: 'minimum area' });
+  const pts = t.times(11 * 6, (i) => [5 + (i % 11) * 9 + t.rnd(-3.5, 3.5), 5 + Math.floor(i / 11) * 8 + t.rnd(-3, 3)]);
+  const cells = connect.triangulate(pts).faces();
+  const chosen = cells.select((f) => f.area >= minimum);
+  return [
+    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 30, spacing: mm(1.4) }), stroke: false })),
+    cells.source.curves().map((c) => stroke(c, { pen: 'pigma-005-black' })),
+  ];
+});
+```
+
+```ts live
+import { sketch, stroke, polygon, fill, mm, append, curve, ui } from 'occlude';
+
+// Holes and removed walls. A ring split by a wall, with a smaller ring
+// inside: three faces. Left, the chosen faces drawn one by one — shared
+// walls are drawn twice, and the inner disk is a hole in the annulus
+// halves. Right, `chosen.boundaries()`: the wall between the two chosen
+// halves is gone and the hole is kept — until `inner` selects the disk
+// too, when that boundary disappears as well.
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const inner = ui(false, { label: 'select the inner disk' });
+  let net = append(curve([[6, 6], [44, 6], [44, 44], [6, 44]], { closed: true }), curve([[18, 18], [32, 18], [32, 32], [18, 32]], { closed: true }));
+  net = append(net, curve([[6, 25], [18, 25]], { closed: false }));   // a wall from the frame to the inner ring
+  net = append(net, curve([[32, 25], [44, 25]], { closed: false }));
+  const cells = net.planarize().faces();
+  const chosen = cells.select((f) => f.area > 300 || inner);          // the two halves, and the disk when asked
+  const hatch = fill('hatch', { angle: 45, spacing: mm(1.1) });
+  const right = (c) => ({ pts: c.pts.map(([x, y]) => [x + 50, y]), closed: true });
+  return [
+    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: hatch })),
+    polygon(chosen.boundaries().map(right), { winding: 'evenodd', fill: hatch, stroke: false }),
+    chosen.boundaries().map((c) => stroke(right(c), { pen: 'stabilo-88-blue' })), // after the fill: fills are opaque
   ];
 });
 ```
