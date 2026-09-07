@@ -11,7 +11,7 @@
  */
 
 import initCore, * as core from 'occlude-core';
-import { bridgeGapFor, getProbeStats, hashPlan, renderEncoded, tourBudget, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
+import { bridgeGapFor, getInspectionIndex, getProbeStats, hashPlan, inspectionPayload, renderEncoded, tourBudget, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
 import { currentSeed, runSketch, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
@@ -77,7 +77,17 @@ interface PngMsg {
   background: string | undefined;
 }
 
-type Msg = RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg;
+/** One registered material of a named execution (the render's id), as
+ * plain copies. A superseded execution is refused: its registry is gone
+ * with the state that held it. */
+interface InspectMsg {
+  type: 'inspect';
+  id: number;
+  executionId: number;
+  name: string;
+}
+
+type Msg = RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg;
 
 const ready = initCore();
 
@@ -85,6 +95,8 @@ const mod = core as unknown as WasmModule;
 
 let last: { prims: Float64Array; frags: Float64Array; pensJson: string; pens: { name: string; width: number; color: string; feed: number; penDown: number; penUp: number; penDelay: number }[]; paper: { w: number; h: number } } | null = null;
 let lastPlan: { buffer: Float64Array; settings: PlanSettings; planHash: string; pensJson: string } | null = null;
+/** The render whose sketch state (and inspection registry) is current. */
+let lastExecutionId = -1;
 
 /** THE plan of the last render under the given options. */
 async function planLast(opts: PlanOptions): Promise<{ buffer: Float64Array; settings: PlanSettings; planHash: string }> {
@@ -123,6 +135,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         // Custom fills too: fetched from the fill library (or the editor's
         // draft) and registered before encode resolves fill('name').
         await preloadFills(msg.js, msg.cfg.draftFill);
+        lastExecutionId = -1; // a failed run leaves no inspectable state
         const outcome = runSketch(msg.js, msg.cfg);
         if (outcome.error || !outcome.scene) {
           const err = outcome.error;
@@ -136,6 +149,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
           break;
         }
         const scene = outcome.scene;
+        lastExecutionId = msg.id;
         const raw = renderEncoded(mod, scene);
         last = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper };
         // THE plan, once per render, under the sketch's own t.plan({...}):
@@ -165,6 +179,8 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
             paper: scene.paper,
             seedUsed: currentSeed(),
             probes: getProbeStats(),
+            executionId: msg.id,
+            inspections: msg.cfg.inspect ? getInspectionIndex() : [],
             plan,
             planSettings: settings,
             planHash,
@@ -172,6 +188,16 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
           },
           { transfer },
         );
+        break;
+      }
+      case 'inspect': {
+        if (msg.executionId !== lastExecutionId) throw new Error('stale inspection: the drawing changed — this request was for an earlier render');
+        const payload = inspectionPayload(msg.name);
+        if (!payload) throw new Error(`no material registered as '${msg.name}' in this render`);
+        const transfer = [payload.x.buffer, payload.y.buffer, payload.edges.buffer] as ArrayBuffer[];
+        for (const a of Object.values(payload.attrs)) transfer.push(a.buffer as ArrayBuffer);
+        for (const a of Object.values(payload.edgeAttrs)) transfer.push(a.buffer as ArrayBuffer);
+        self.postMessage({ type: 'inspect', id: msg.id, executionId: msg.executionId, payload }, { transfer });
         break;
       }
       case 'plan-load': {

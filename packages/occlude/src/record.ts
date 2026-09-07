@@ -417,6 +417,16 @@ export function userToPaperMatrix(frame: Frame): Mat {
   return mul(translate(frame.offsetX, frame.offsetY), userFrameMatrix(frame));
 }
 
+/** User coordinates in bare units (what a material holds) → paper mm,
+ * through the frame's origin/yUp convention and the drawable offset. No
+ * drawing transform is applied: a `group({ translate })` around the ink
+ * does not move the material. */
+export function userUnitsToPaper(frame: Frame): (x: number, y: number) => [number, number] {
+  const m = userToPaperMatrix(frame);
+  const unit = unitMm(frame);
+  return (x, y) => apply(m, x * unit, y * unit);
+}
+
 /** One bare user unit in mm (percent of the drawable's short side). */
 export function unitMm(frame: Frame): number {
   return Math.min(frame.inner.innerW, frame.inner.innerH) / 100;

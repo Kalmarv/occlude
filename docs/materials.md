@@ -485,6 +485,38 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
 });
 ```
 
+### Inspecting a material
+
+`t.inspect(label, material)` registers a material for the studio's debug menu. It draws nothing, changes nothing, consumes no randomness and leaves the plan and exports as they are. With the Material layer on in the debug menu, the registered names appear in a list; choosing one overlays its points and edges on the drawing, and a declared column colours the chosen domain (point columns colour points, edge columns colour edges, the other stays neutral). Clicking a point or edge shows its row, coordinates and columns, with its incident edges and connected rows as links. Rows are indices in that state, not identities that survive a step, and the overlay shows the material's own coordinates: a `group({ translate })` around the strokes moves the ink, not the overlay.
+
+A label used twice keeps the last value in its first position. It is not history: an inspect inside a step callback shows the final state, not every iteration. Only materials are accepted.
+
+The question this answers here: which points are still active tips after thirty steps, and where did the tree stop growing? Colour points by `active` and the tips light up; click one to see its heading and depth.
+
+```ts live
+import { sketch, strokes, material, add } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
+  const seed = material([[100, 98]], { active: 1, heading: -Math.PI / 2, depth: 0 });
+  t.inspect('seed', seed);
+  const tree = seed.steps(30, (cur, next, k) => {
+    const tips = cur.selectPoints((p) => p.active === 1 && p.y > 6 && p.x > 6 && p.x < 194);
+    next.extend((p) => {
+      const turn = t.noise(p.x / 14, p.y / 14, k) * 0.3 - (p.heading + Math.PI / 2) * 0.1;
+      const fork = p.depth < 4 && t.chance(0.3);
+      const headings = fork ? [p.heading - 0.5 + turn, p.heading + 0.5 + turn] : [p.heading + turn];
+      return headings.map((h) => ({
+        position: add(p, [Math.cos(h) * 3.2, Math.sin(h) * 3.2]),
+        attributes: { active: 1, heading: h, depth: p.depth + (fork ? 1 : 0) },
+      }));
+    }, { where: tips });
+    next.set(() => ({ active: 0 }), { where: tips });
+  });
+  t.inspect('tree', tree);
+  return strokes(tree);   // no dots for the tips: the inspector shows them
+});
+```
+
 ### Editing a structure
 
 Structural helpers are ordinary functions over the edit interface:

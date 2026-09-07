@@ -7,6 +7,7 @@
 
 import { DEFAULT_PENS, type PenDef } from './pens.js';
 import { Rng } from './random.js';
+import type { Material } from './material.js';
 import type { L } from './units.js';
 
 export type Winding = 'nonzero' | 'evenodd';
@@ -53,6 +54,10 @@ export interface State {
   seedUsed: number | string;
   /** `t.probe(label, value)` readouts, reset per compile. */
   probes: Map<string, ProbeAccumulator>;
+  /** `t.inspect(label, material)` registrations of this run, in first-seen
+   * order; a reused label replaces its value in place. Kept only while the
+   * host has inspection on (`setInspectHint`), else always empty. */
+  inspections: Map<string, Material>;
   /** `t.plan({...})` and `t.draw({...})` of this run — the sketch's own say
    * over path optimization and over which part of the plan is drawn. */
   planOptions: import('./plan.js').PlanOptions | null;
@@ -78,6 +83,68 @@ let seedHint: number | string | null = null;
 
 export function setSeedHint(seed: number | string | null): void {
   seedHint = seed;
+}
+
+/** Host switch for `t.inspect`: off (the default) registers nothing, so a
+ * sketch that inspects costs the same as one that does not and no material
+ * outlives the run on its account. Like the other hints it survives
+ * sketch() resets. */
+let inspectHint = false;
+
+export function setInspectHint(on: boolean): void {
+  inspectHint = on;
+}
+
+export function getInspectHint(): boolean {
+  return inspectHint;
+}
+
+/** Register `value` under `label` for the debug inspector. Not history:
+ * the last registration under a label is the one kept. */
+export function recordInspection(label: string, value: Material): void {
+  const s = getState();
+  if (!inspectHint) return;
+  s.inspections.set(label, value);
+}
+
+/** What the current run registered: names and sizes, in registration order. */
+export interface InspectionEntry {
+  name: string;
+  points: number;
+  edges: number;
+}
+
+export function getInspectionIndex(): InspectionEntry[] {
+  const s = state;
+  if (!s) return [];
+  const out: InspectionEntry[] = [];
+  for (const [name, m] of s.inspections) out.push({ name, points: m.n, edges: m.edgeCount });
+  return out;
+}
+
+/** One registered material as plain transport: copies of its positions,
+ * edge list and declared columns, nothing branded, nothing shared with the
+ * material (so a transfer cannot detach what the sketch still holds). */
+export interface InspectionPayload {
+  name: string;
+  n: number;
+  x: Float64Array;
+  y: Float64Array;
+  /** `[a0, b0, a1, b1, …]`, stored order. */
+  edges: Uint32Array;
+  attrs: Record<string, Float64Array>;
+  edgeAttrs: Record<string, Float64Array>;
+  iteration: number;
+}
+
+export function inspectionPayload(name: string): InspectionPayload | null {
+  const m = state?.inspections.get(name);
+  if (!m) return null;
+  const attrs: Record<string, Float64Array> = {};
+  for (const k of Object.keys(m.attrs)) attrs[k] = m.attrs[k].slice();
+  const edgeAttrs: Record<string, Float64Array> = {};
+  for (const k of Object.keys(m.edgeAttrs)) edgeAttrs[k] = m.edgeAttrs[k].slice();
+  return { name, n: m.n, x: m.x.slice(), y: m.y.slice(), edges: m.edgeList.slice(), attrs, edgeAttrs, iteration: m.iteration };
 }
 
 function freshState(opts: SketchOptions = {}): State {
@@ -121,6 +188,7 @@ function freshState(opts: SketchOptions = {}): State {
     seedUsed: seed,
     drawIndex: 0,
     probes: new Map(),
+    inspections: new Map(),
     planOptions: null,
     drawRequest: null,
   };

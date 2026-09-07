@@ -149,8 +149,12 @@ export {
 export type { LiftMap, CellGeometry, SettlePoint, LiftModel } from './liftmap.js';
 
 // Host integration.
-export { setPenLibrary, setPaperHint, setSeedHint, getState, getProbeStats } from './state.js';
-export type { ProbeSummary } from './state.js';
+export {
+  setPenLibrary, setPaperHint, setSeedHint, getState, getProbeStats,
+  setInspectHint, getInspectHint, getInspectionIndex, inspectionPayload,
+} from './state.js';
+export type { ProbeSummary, InspectionEntry, InspectionPayload } from './state.js';
+export { userUnitsToPaper } from './record.js';
 
 // A fill file's `import … from 'occlude'` resolves to this very module: the
 // registry hands loaded fills the package's own namespace (self-import is

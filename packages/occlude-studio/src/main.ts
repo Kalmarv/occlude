@@ -2,6 +2,7 @@
 
 import './style.css';
 import { clearRuntimeMarkers, createEditor, setRuntimeMarker } from './editor.js';
+import { Inspector } from './inspector.js';
 import { buildRail } from './panels.js';
 import { Preview } from './preview.js';
 import {
@@ -81,6 +82,10 @@ async function boot(): Promise<void> {
   const editor = createEditor($('editor'), loadSketch());
   const preview = new Preview($('preview') as HTMLCanvasElement);
   preview.setPaperColor(settings.paperColor);
+  // The material inspector: its registry is made by the run, so flipping it
+  // reruns the sketch (like the occlusion ghost); everything after that is
+  // a repaint or one payload request.
+  const inspector = new Inspector(preview, client, () => void run());
   let lastResult: RenderResult | null = null;
   const activeProfile = () => profiles.find((p) => p.name === settings.activeProfile) ?? profiles[0];
   /** A frozen result runs under the settings it was SAVED with — its pens'
@@ -222,6 +227,7 @@ async function boot(): Promise<void> {
           defaultMarginPct: settings.defaultMarginPct,
           coarsen: 1,
           debugGhost: preview.debug.occluded,
+          inspect: inspector.enabled,
           seed,
         },
       });
@@ -277,6 +283,7 @@ async function boot(): Promise<void> {
       });
     }
     uiPanel.setProbes(reply.probes);
+    if (latest) inspector.onRender(reply);
     seedUsed = reply.seedUsed;
     renderSeedControls(reply.seedUsed);
   }
@@ -305,6 +312,7 @@ async function boot(): Promise<void> {
     result: () => lastResult,
     drawing,
     preview,
+    inspector,
     /** What the controls panel sees in the source right now (debugging). */
     controls: () => scanUiControls(editor.getValue()),
   };
@@ -627,6 +635,7 @@ async function boot(): Promise<void> {
         } as unknown as RenderResult;
         lastResult = frozen;
         preview.setResult(frozen);
+        inspector.clear('a saved result has no inspectable material — it is preserved output, not a run');
         await drawing.setPlan({ buffer: bytes, settings: meta.settings, planHash: meta.planHash }, meta.pens);
         drawing.showOmitted = false;
         showSelection();

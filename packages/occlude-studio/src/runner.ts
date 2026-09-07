@@ -27,6 +27,8 @@ export interface RunConfig {
   coarsen: number;
   /** Compute the debug ghost (post-modified pre-occlusion geometry). */
   debugGhost?: boolean;
+  /** Keep `t.inspect()` registrations for the material inspector. */
+  inspect?: boolean;
   /** Seed for 'url'/default-seed sketches. The worker's own URL carries no
    * `?seed=`, so the host passes it explicitly; null/undefined lets the
    * session seed roll. */
@@ -38,6 +40,7 @@ export interface RunConfig {
 
 export function runSketch(js: string, cfg: RunConfig): RunOutcome {
   occlude.setSeedHint(cfg.seed ?? null);
+  occlude.setInspectHint(cfg.inspect === true);
   occlude.setPenLibrary(cfg.pens);
   // Let bounds() see the real paper for aspect-'paper' sketches.
   const { w, h } = occlude.paperSize({ paper: cfg.paper as never, landscape: cfg.landscape });

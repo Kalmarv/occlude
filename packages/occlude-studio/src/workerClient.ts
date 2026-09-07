@@ -7,7 +7,7 @@
  * the worker's perspective; the watchdog is the only hard interruption.
  */
 
-import { decodeRender, pensToJson, type DrawRequest, type EncodedScene, type PenDef, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
+import { decodeRender, pensToJson, type DrawRequest, type EncodedScene, type InspectionEntry, type InspectionPayload, type PenDef, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
 import type { RunConfig } from './runner.js';
 
 export interface RenderRequest {
@@ -26,6 +26,10 @@ export interface RenderReply {
   plan: { buffer: Float64Array; settings: PlanSettings; planHash: string };
   /** The sketch's `t.draw({...})`, if it made one. */
   draw?: DrawRequest;
+  /** Identity of this execution in the worker: what an inspection request names. */
+  executionId: number;
+  /** `t.inspect()` registrations (names and sizes), when inspection was on. */
+  inspections: InspectionEntry[];
 }
 
 /** A contiguous range of one plan, named by the plan's hash. */
@@ -205,6 +209,8 @@ export class RenderClient {
             planSettings: PlanSettings;
             planHash: string;
             draw?: DrawRequest;
+            executionId: number;
+            inspections?: InspectionEntry[];
           };
           // decodeRender reads only pens/frame/paper from the scene half.
           const meta = { pens: m.pens, frame: m.frame, paper: m.paper } as EncodedScene;
@@ -212,6 +218,8 @@ export class RenderClient {
             result: decodeRender(meta, m), seedUsed: m.seedUsed, probes: m.probes ?? {},
             plan: { buffer: m.plan, settings: m.planSettings, planHash: m.planHash },
             draw: m.draw,
+            executionId: m.executionId,
+            inspections: m.inspections ?? [],
           });
         },
         reject,
@@ -247,6 +255,19 @@ export class RenderClient {
         reject,
       });
       this.worker.postMessage({ type: 'plan-toolpath', id, ...range, tolerance });
+    });
+  }
+
+  /** One registered material of the named execution, as plain copies.
+   * Rejects when that execution is no longer the worker's current one. */
+  inspectMaterial(executionId: number, name: string): Promise<InspectionPayload> {
+    return new Promise((resolve, reject) => {
+      const id = this.nextId++;
+      this.pending.set(id, {
+        resolve: (msg) => resolve((msg as { payload: InspectionPayload }).payload),
+        reject,
+      });
+      this.worker.postMessage({ type: 'inspect', id, executionId, name });
     });
   }
 

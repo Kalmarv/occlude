@@ -63,6 +63,12 @@ export class Preview {
   private paperColor = '#f6f2ea';
   private sim: PlotSim | null = null;
   private selection: SelectionView | null = null;
+  /** A debug overlay painted in paper mm over the ink (the inspector's
+   * material). Given the context (already in paper space) and the screen
+   * px per mm, so markers can keep a screen size. */
+  overlay: ((ctx: CanvasRenderingContext2D, pxPerMm: number) => void) | null = null;
+  /** A click (a pointer that did not drag) in paper mm, with px per mm. */
+  onClick: ((x: number, y: number, pxPerMm: number) => void) | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -475,14 +481,28 @@ export class Preview {
     this.draw();
   }
 
+  /** Screen (client) coordinates → paper mm. */
+  toPaper(clientX: number, clientY: number): [number, number] {
+    const rect = this.canvas.getBoundingClientRect();
+    return [(clientX - rect.left - this.panX) / this.scale, (clientY - rect.top - this.panY) / this.scale];
+  }
+
+  get pxPerMm(): number {
+    return this.scale;
+  }
+
   private bindInput(): void {
     let dragging = false;
     let lastX = 0;
     let lastY = 0;
+    let downX = 0;
+    let downY = 0;
+    let moved = 0;
     this.canvas.addEventListener('pointerdown', (e) => {
       dragging = true;
-      lastX = e.clientX;
-      lastY = e.clientY;
+      lastX = downX = e.clientX;
+      lastY = downY = e.clientY;
+      moved = 0;
       this.canvas.classList.add('panning');
       this.canvas.setPointerCapture(e.pointerId);
     });
@@ -492,11 +512,17 @@ export class Preview {
       this.panY += e.clientY - lastY;
       lastX = e.clientX;
       lastY = e.clientY;
+      moved = Math.max(moved, Math.hypot(e.clientX - downX, e.clientY - downY));
       this.draw();
     });
-    this.canvas.addEventListener('pointerup', () => {
+    this.canvas.addEventListener('pointerup', (e) => {
       dragging = false;
       this.canvas.classList.remove('panning');
+      // A press that stayed put is a click; a pan is not.
+      if (moved < 4 && this.onClick && this.result) {
+        const [x, y] = this.toPaper(e.clientX, e.clientY);
+        this.onClick(x, y, this.scale);
+      }
     });
     this.canvas.addEventListener(
       'wheel',
@@ -693,7 +719,13 @@ export class Preview {
       ctx.restore();
     }
 
-    if (this.debug.occluded || this.debug.bridges || this.debug.cuts) {
+    if (this.overlay) {
+      ctx.save();
+      this.overlay(ctx, this.scale);
+      ctx.restore();
+    }
+
+    if (this.debug.occluded || this.debug.bridges || this.debug.cuts || this.overlay) {
       // Drawable frame.
       ctx.save();
       ctx.strokeStyle = 'rgba(91, 139, 217, 0.6)';

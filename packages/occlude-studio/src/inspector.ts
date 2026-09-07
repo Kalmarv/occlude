@@ -1,0 +1,426 @@
+/**
+ * The material inspector's DOM and overlay: the Material section of the
+ * debug menu, the details pane, and the geometry painted over the ink.
+ * State and rules live in inspectorModel.ts; the worker holds the
+ * registry; this module only asks for one material at a time and paints
+ * what it was given. Nothing here reruns the sketch except the enable
+ * switch, which the host wires like the occlusion ghost.
+ */
+
+import { userUnitsToPaper, type RenderResult } from 'occlude';
+import { InspectorModel, NEUTRAL, colorFor, incidentEdges, otherEnd, prepare, type ColumnRange, type Selection } from './inspectorModel.js';
+import type { Preview } from './preview.js';
+import type { RenderClient, RenderReply } from './workerClient.js';
+
+const $ = (id: string): HTMLElement => {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`missing #${id}`);
+  return el;
+};
+
+const fmt = (v: number): string => (Number.isFinite(v) ? (Number.isInteger(v) ? String(v) : v.toFixed(3)) : String(v));
+
+export class Inspector {
+  readonly model = new InspectorModel();
+  private frame: RenderResult['frame'] | null = null;
+  /** The request in flight, so a late answer for another one is dropped. */
+  private loading: { executionId: number; name: string } | null = null;
+  private status = '';
+  /** Measured, for the report: the last payload's size and prep time. */
+  lastLoad: { name: string; bytes: number; prepMs: number; roundTripMs: number } | null = null;
+
+  private readonly enable = $('dbg-inspect') as HTMLInputElement;
+  private readonly body = $('dbg-material-body');
+  private readonly hint = $('dbg-material-hint');
+  private readonly nameSel = $('dbg-material-name') as HTMLSelectElement;
+  private readonly counts = $('dbg-material-counts');
+  private readonly pointsBox = $('dbg-material-points') as HTMLInputElement;
+  private readonly edgesBox = $('dbg-material-edges') as HTMLInputElement;
+  private readonly domainSel = $('dbg-material-domain') as HTMLSelectElement;
+  private readonly attrSel = $('dbg-material-attr') as HTMLSelectElement;
+  private readonly legend = $('dbg-material-legend');
+  private readonly pane = $('inspector-pane');
+  private readonly head = $('inspector-head');
+  private readonly selected = $('inspector-selected');
+  private readonly table = $('inspector-table') as HTMLTableElement;
+  private readonly pager = $('inspector-pager');
+
+  constructor(
+    private readonly preview: Preview,
+    private readonly client: RenderClient,
+    /** Called when the enable switch flips: the host reruns the sketch with
+     * inspection on or off (the registry lives in the worker's run). */
+    private readonly onEnable: (on: boolean) => void,
+  ) {
+    this.enable.onchange = () => {
+      this.model.enabled = this.enable.checked;
+      if (!this.model.enabled) {
+        this.model.reset();
+        this.loading = null;
+      }
+      this.sync();
+      this.onEnable(this.model.enabled);
+    };
+    this.nameSel.onchange = () => {
+      this.model.choose(this.nameSel.value || null);
+      this.fetch();
+      this.sync();
+    };
+    this.pointsBox.onchange = () => { this.model.showPoints = this.pointsBox.checked; this.repaint(); };
+    this.edgesBox.onchange = () => { this.model.showEdges = this.edgesBox.checked; this.repaint(); };
+    this.domainSel.onchange = () => {
+      this.model.setDomain(this.domainSel.value as 'points' | 'edges');
+      this.sync();
+    };
+    this.attrSel.onchange = () => {
+      this.model.attr = this.attrSel.value || null;
+      this.sync();
+    };
+    this.preview.onClick = (x, y, pxPerMm) => {
+      if (!this.model.enabled || !this.model.material) return;
+      // Eight screen pixels, whatever the zoom.
+      const sel = this.model.pick(x, y, 8 / pxPerMm);
+      this.model.select(sel);
+      this.sync();
+    };
+  }
+
+  get enabled(): boolean {
+    return this.model.enabled;
+  }
+
+  /** A render landed: adopt its registry and fetch the chosen material for
+   * this execution. Only meaningful for replies of the newest run. */
+  onRender(reply: RenderReply): void {
+    this.frame = reply.result.frame;
+    const name = this.model.onRender(reply.executionId, reply.inspections);
+    if (name !== null) this.fetch();
+    else this.loading = null;
+    this.sync();
+  }
+
+  /** The drawing is a saved plan or the worker was replaced: nothing to inspect. */
+  clear(reason: string): void {
+    this.model.reset();
+    this.loading = null;
+    this.status = reason;
+    this.sync();
+  }
+
+  private fetch(): void {
+    const { executionId, chosen } = this.model;
+    if (!this.model.enabled || chosen === null || executionId < 0 || !this.frame) return;
+    const want = { executionId, name: chosen };
+    this.loading = want;
+    this.status = `loading ${chosen}…`;
+    const toPaper = userUnitsToPaper(this.frame);
+    const t0 = performance.now();
+    this.client.inspectMaterial(executionId, chosen).then(
+      (raw) => {
+        if (this.loading?.executionId !== want.executionId || this.loading.name !== want.name) return;
+        this.loading = null;
+        const t1 = performance.now();
+        const m = prepare(raw, executionId, toPaper);
+        const prepMs = performance.now() - t1;
+        let bytes = raw.x.byteLength + raw.y.byteLength + raw.edges.byteLength;
+        for (const a of Object.values(raw.attrs)) bytes += a.byteLength;
+        for (const a of Object.values(raw.edgeAttrs)) bytes += a.byteLength;
+        this.lastLoad = { name: chosen, bytes, prepMs, roundTripMs: t1 - t0 };
+        this.status = this.model.acceptMaterial(m) ? '' : 'superseded';
+        this.sync();
+      },
+      (err: unknown) => {
+        if (this.loading?.executionId !== want.executionId || this.loading.name !== want.name) return;
+        this.loading = null;
+        this.status = err instanceof Error ? err.message : String(err);
+        this.sync();
+      },
+    );
+  }
+
+  private repaint(): void {
+    this.preview.overlay = this.model.enabled && this.model.material ? (ctx, pxPerMm) => this.paint(ctx, pxPerMm) : null;
+    this.preview.draw();
+  }
+
+  /** Reflect the model in every control and the pane, then repaint. */
+  sync(): void {
+    const m = this.model;
+    this.enable.checked = m.enabled;
+    this.body.hidden = !m.enabled;
+    this.pane.hidden = !m.enabled;
+    if (!m.enabled) {
+      this.hint.hidden = true;
+      this.repaint();
+      return;
+    }
+    // Names.
+    const names = m.names.map((e) => e.name);
+    if (names.join('\n') !== [...this.nameSel.options].map((o) => o.value).join('\n')) {
+      this.nameSel.replaceChildren(...names.map((n) => new Option(n, n)));
+    }
+    this.nameSel.value = m.chosen ?? '';
+    this.nameSel.disabled = names.length === 0;
+    const noRegistry = names.length === 0;
+    this.hint.hidden = !noRegistry;
+    if (noRegistry) this.hint.textContent = this.status || "no material registered — call t.inspect('name', material) in the sketch";
+    const entry = m.names.find((e) => e.name === m.chosen);
+    this.counts.textContent = entry ? `${entry.points} points · ${entry.edges} edges` : '';
+    this.pointsBox.checked = m.showPoints;
+    this.edgesBox.checked = m.showEdges;
+    this.domainSel.value = m.domain;
+    // Columns.
+    const cols = m.columns();
+    const wanted = ['', ...cols];
+    if (wanted.join('\n') !== [...this.attrSel.options].map((o) => o.value).join('\n')) {
+      this.attrSel.replaceChildren(new Option('none', ''), ...cols.map((c) => new Option(c, c)));
+    }
+    this.attrSel.value = m.attr ?? '';
+    this.attrSel.disabled = cols.length === 0;
+    this.renderLegend(m.range());
+    this.renderPane();
+    this.repaint();
+  }
+
+  private renderLegend(r: ColumnRange | null): void {
+    const m = this.model;
+    if (!r || m.attr === null) {
+      this.legend.replaceChildren();
+      return;
+    }
+    const bar = document.createElement('div');
+    bar.className = 'bar' + (r.kind === 'constant' ? ' constant' : '');
+    const ends = document.createElement('div');
+    ends.className = 'ends';
+    const note = r.missing > 0 ? ` · ${r.missing} unavailable (grey)` : '';
+    if (r.kind === 'range') ends.innerHTML = `<span>${fmt(r.min)}</span><span>${m.attr}${note}</span><span>${fmt(r.max)}</span>`;
+    else if (r.kind === 'constant') ends.innerHTML = `<span></span><span>${m.attr} = ${fmt(r.value)} (constant)${note}</span><span></span>`;
+    else ends.innerHTML = `<span></span><span>${m.attr}: no finite values${note}</span><span></span>`;
+    this.legend.replaceChildren(r.kind === 'empty' ? ends : bar, ...(r.kind === 'empty' ? [] : [ends]));
+  }
+
+  private renderPane(): void {
+    const m = this.model;
+    const mat = m.material;
+    if (!mat) {
+      this.head.textContent = this.status || (m.chosen ? `${m.chosen}: not loaded` : 'no material chosen');
+      this.selected.replaceChildren();
+      this.table.replaceChildren();
+      this.pager.replaceChildren();
+      return;
+    }
+    this.head.innerHTML = `<b>${mat.name}</b> · ${mat.n} points · ${mat.edges.length / 2} edges · iteration ${mat.iteration}` +
+      `<div class="sub">rows are indices in this state, in material coordinates before drawing transforms${this.status ? ' · ' + this.status : ''}</div>`;
+    this.renderSelected();
+    this.renderTable();
+  }
+
+  private link(sel: Selection, text: string): HTMLAnchorElement {
+    const a = document.createElement('a');
+    a.textContent = text;
+    a.onclick = () => {
+      this.model.select(sel);
+      this.sync();
+    };
+    return a;
+  }
+
+  private renderSelected(): void {
+    const m = this.model;
+    const mat = m.material!;
+    const sel = m.selection;
+    const box = this.selected;
+    box.replaceChildren();
+    if (!sel) {
+      box.textContent = 'click a point or edge in the preview, or a row below';
+      return;
+    }
+    const line = (html: string): HTMLDivElement => {
+      const d = document.createElement('div');
+      d.innerHTML = html;
+      box.append(d);
+      return d;
+    };
+    if (sel.kind === 'point') {
+      const i = sel.index;
+      line(`<b>point ${i}</b> at (${fmt(mat.x[i])}, ${fmt(mat.y[i])})`);
+      const attrs = Object.keys(mat.attrs).map((k) => `${k} = ${fmt(mat.attrs[k][i])}`).join(' · ');
+      line(attrs || 'no declared point columns');
+      const edges = incidentEdges(mat, i);
+      const d = line(`edges (${edges.length}): `);
+      for (const e of edges) d.append(this.link({ kind: 'edge', index: e }, `#${e}`));
+      const c = line('connected points: ');
+      if (edges.length === 0) c.append('none');
+      for (const e of edges) c.append(this.link({ kind: 'point', index: otherEnd(mat, e, i) }, `#${otherEnd(mat, e, i)}`));
+    } else {
+      const e = sel.index;
+      const a = mat.edges[2 * e];
+      const b = mat.edges[2 * e + 1];
+      const len = Math.hypot(mat.x[b] - mat.x[a], mat.y[b] - mat.y[a]);
+      line(`<b>edge ${e}</b> · length ${fmt(len)}`);
+      const attrs = Object.keys(mat.edgeAttrs).map((k) => `${k} = ${fmt(mat.edgeAttrs[k][e])}`).join(' · ');
+      line(attrs || 'no declared edge columns');
+      const d = line('endpoints: ');
+      d.append(this.link({ kind: 'point', index: a }, `#${a} (${fmt(mat.x[a])}, ${fmt(mat.y[a])})`));
+      d.append(this.link({ kind: 'point', index: b }, `#${b} (${fmt(mat.x[b])}, ${fmt(mat.y[b])})`));
+    }
+  }
+
+  /** One page of rows for the current domain; the DOM never exceeds a page. */
+  private renderTable(): void {
+    const m = this.model;
+    const mat = m.material!;
+    const points = m.domain === 'points';
+    const cols = points ? Object.keys(mat.attrs) : Object.keys(mat.edgeAttrs);
+    const range = m.range();
+    const values = m.values();
+    const total = m.rowCount();
+    const start = m.page * m.pageSize;
+    const end = Math.min(total, start + m.pageSize);
+    const head = document.createElement('tr');
+    for (const h of points ? ['row', 'x', 'y', ...cols] : ['row', 'a', 'b', 'length', ...cols]) {
+      const th = document.createElement('th');
+      th.textContent = h;
+      head.append(th);
+    }
+    const rows: HTMLTableRowElement[] = [head];
+    for (let r = start; r < end; r++) {
+      const tr = document.createElement('tr');
+      const sel = m.selection;
+      if (sel && sel.index === r && (sel.kind === 'point') === points) tr.className = 'selected';
+      const cells: string[] = [];
+      if (points) cells.push(fmt(mat.x[r]), fmt(mat.y[r]));
+      else {
+        const a = mat.edges[2 * r];
+        const b = mat.edges[2 * r + 1];
+        cells.push(String(a), String(b), fmt(Math.hypot(mat.x[b] - mat.x[a], mat.y[b] - mat.y[a])));
+      }
+      for (const c of cols) cells.push(fmt((points ? mat.attrs : mat.edgeAttrs)[c][r]));
+      const first = document.createElement('td');
+      if (values && range) {
+        const sw = document.createElement('span');
+        sw.className = 'swatch';
+        sw.style.background = colorFor(values[r], range) ?? NEUTRAL;
+        first.append(sw);
+      }
+      first.append(String(r));
+      tr.append(first);
+      for (const c of cells) {
+        const td = document.createElement('td');
+        td.textContent = c;
+        tr.append(td);
+      }
+      tr.onclick = () => {
+        m.select({ kind: points ? 'point' : 'edge', index: r });
+        this.sync();
+      };
+      rows.push(tr);
+    }
+    this.table.replaceChildren(...rows);
+    // Pager.
+    const pages = m.pageCount();
+    const prev = document.createElement('button');
+    prev.textContent = '‹';
+    prev.disabled = m.page === 0;
+    prev.onclick = () => { m.page--; this.sync(); };
+    const next = document.createElement('button');
+    next.textContent = '›';
+    next.disabled = m.page >= pages - 1;
+    next.onclick = () => { m.page++; this.sync(); };
+    const label = document.createElement('span');
+    label.textContent = total === 0 ? `no ${m.domain}` : `rows ${start}–${end - 1} of ${total} · page ${m.page + 1}/${pages}`;
+    const spacer = document.createElement('span');
+    spacer.className = 'spacer';
+    const go = document.createElement('input');
+    go.type = 'number';
+    go.placeholder = 'row';
+    go.title = 'Go to a row (select it)';
+    go.onchange = () => {
+      const r = Number(go.value);
+      if (Number.isInteger(r) && r >= 0 && r < total) {
+        m.select({ kind: points ? 'point' : 'edge', index: r });
+        this.sync();
+      }
+    };
+    this.pager.replaceChildren(prev, next, label, spacer, go);
+  }
+
+  /** The overlay: edges then points, the colour domain coloured, the other
+   * neutral, the selection ringed. Marker sizes are screen-constant. */
+  private paint(ctx: CanvasRenderingContext2D, pxPerMm: number): void {
+    const m = this.model;
+    const mat = m.material;
+    if (!mat) return;
+    const range = m.range();
+    const values = m.values();
+    const colourEdges = m.domain === 'edges' && values && range;
+    const colourPoints = m.domain === 'points' && values && range;
+    const e = mat.edges.length / 2;
+    const sel = m.selection;
+    if (m.showEdges) {
+      ctx.lineWidth = Math.max(0.1, 1.4 / pxPerMm);
+      ctx.lineCap = 'round';
+      if (colourEdges) {
+        for (let k = 0; k < e; k++) {
+          const c = colorFor(values![k], range!);
+          ctx.strokeStyle = c ?? NEUTRAL;
+          if (c === null) ctx.setLineDash([2 / pxPerMm, 2 / pxPerMm]);
+          ctx.beginPath();
+          ctx.moveTo(mat.px[mat.edges[2 * k]], mat.py[mat.edges[2 * k]]);
+          ctx.lineTo(mat.px[mat.edges[2 * k + 1]], mat.py[mat.edges[2 * k + 1]]);
+          ctx.stroke();
+          if (c === null) ctx.setLineDash([]);
+        }
+      } else {
+        ctx.strokeStyle = 'rgba(91, 139, 217, 0.8)';
+        ctx.beginPath();
+        for (let k = 0; k < e; k++) {
+          ctx.moveTo(mat.px[mat.edges[2 * k]], mat.py[mat.edges[2 * k]]);
+          ctx.lineTo(mat.px[mat.edges[2 * k + 1]], mat.py[mat.edges[2 * k + 1]]);
+        }
+        ctx.stroke();
+      }
+    }
+    if (m.showPoints) {
+      const r = 2.6 / pxPerMm;
+      if (colourPoints) {
+        for (let i = 0; i < mat.n; i++) {
+          const c = colorFor(values![i], range!);
+          ctx.fillStyle = c ?? NEUTRAL;
+          ctx.beginPath();
+          ctx.arc(mat.px[i], mat.py[i], r, 0, Math.PI * 2);
+          ctx.fill();
+          if (c === null) {
+            ctx.strokeStyle = '#3a3c40';
+            ctx.lineWidth = 0.8 / pxPerMm;
+            ctx.stroke();
+          }
+        }
+      } else {
+        ctx.fillStyle = 'rgba(91, 139, 217, 0.95)';
+        ctx.beginPath();
+        for (let i = 0; i < mat.n; i++) {
+          ctx.moveTo(mat.px[i] + r, mat.py[i]);
+          ctx.arc(mat.px[i], mat.py[i], r, 0, Math.PI * 2);
+        }
+        ctx.fill();
+      }
+    }
+    if (sel) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2.5 / pxPerMm;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      if (sel.kind === 'point') {
+        ctx.arc(mat.px[sel.index], mat.py[sel.index], 6 / pxPerMm, 0, Math.PI * 2);
+      } else {
+        ctx.moveTo(mat.px[mat.edges[2 * sel.index]], mat.py[mat.edges[2 * sel.index]]);
+        ctx.lineTo(mat.px[mat.edges[2 * sel.index + 1]], mat.py[mat.edges[2 * sel.index + 1]]);
+      }
+      ctx.stroke();
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 1 / pxPerMm;
+      ctx.stroke();
+    }
+  }
+}

@@ -32,7 +32,7 @@ import { type FieldAlign, Shape, geomClosed, type FieldFn, type ModifierValue, t
 import {
   bounds, chance, clip as legacyClip, margin, noise, pick, prob, push, rnd,
   sketch as legacySketch, stream, getState, unitScaleMm,
-  type SketchOptions, type Winding, recordProbe,
+  type SketchOptions, type Winding, recordProbe, recordInspection,
 } from './state.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
@@ -657,6 +657,7 @@ export interface Toolkit {
   polylines: typeof polylines;
   sample: typeof sample;
   probe: typeof probe;
+  inspect: typeof inspect;
   plan: typeof planWith;
   draw: typeof draw;
   distanceTo: typeof distanceTo;
@@ -851,6 +852,20 @@ function probe<T>(label: string, value: T): T {
   return value;
 }
 
+/**
+ * Register a material for the studio's debug inspector under `label`. Draws
+ * nothing, changes nothing, consumes no randomness, and leaves the plan
+ * and exports untouched; with inspection off in the host it is a type check
+ * and nothing more. Not history: a label used twice keeps the LAST value
+ * (in its first position), so an inspect inside a step callback shows the
+ * final state, not every iteration.
+ */
+function inspect(label: string, value: Material): void {
+  if (typeof label !== 'string' || label.length === 0) throw new Error('inspect: the label must be a non-empty string');
+  if (!(value instanceof Material)) throw new Error(`inspect('${label}'): expected a Material (from t.sample, material(), curve(), connect.*, steps, …)`);
+  recordInspection(label, value);
+}
+
 /** Path optimization for THIS sketch's plan (tour budget, bridging) — in
  * the program, so the same source plans the same way everywhere. */
 function planWith(opts: PlanOptions): void {
@@ -887,7 +902,7 @@ const TOOLKIT_BASE = {
   map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, isolines, streamlines, polylines, sample, probe, plan: planWith, draw, distanceTo, points: pointsOf, voronoi, triangulate, synth,
+  scatter, isolines, streamlines, polylines, sample, probe, inspect, plan: planWith, draw, distanceTo, points: pointsOf, voronoi, triangulate, synth,
   within, rotate: rotateField, translate: translateField, scale: scaleField,
   vectorField: vectorFieldMark,
   mm, w, h, s, long,
