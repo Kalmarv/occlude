@@ -56,10 +56,12 @@ export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fill
 export {
   material, curve, append, connect, Material, segmentRuns, neighbours, extent, banding,
   add, sub, mul, length, distance, unit, limit, perp, sum, sumBy,
-  force,
+  force, ownedBy,
 } from './material.js';
+export { query } from './query.js';
+export type { EdgeQuery, NearestHit, FirstHit } from './query.js';
 export type {
-  Vertex, Edge, Curve, Next, Handle, Ref, ChildSpec, Snapshot, Transfer, NeighbourStats,
+  Vertex, Edge, Curve, Next, Handle, Ref, ChildSpec, ChildInterval, SplitOpts, Snapshot, Transfer, TransferPolicy, NeighbourStats,
   SegmentRun, Sources, PointsLike, Vec, XY,
 } from './material.js';
 

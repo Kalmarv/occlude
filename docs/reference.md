@@ -1222,8 +1222,12 @@ end to end, several outlines separate chains in one material. `material(points,
 { edges?, ...columns })` — from tuples or `{x, y}` objects (a scatter
 point's `w` becomes a column), unconnected unless edges are given.
 `curve(pts, { closed?, ...columns })` — a ring or chain from positions.
-`m.attribute(name, constant | p => value)` adds a column and returns a
-new material. Access: `m.points` (vertex views `{ index, x, y, ...attrs }`),
+`m.attribute(name, constant | p => value, { transfer? })` adds a point
+column (with an optional `'nearest'` transfer policy for categorical
+values) and returns a new material; `m.edgeAttribute(name, constant | e
+=> value)` adds an EDGE column — each edge its own row, so a junction's
+three edges can carry three different rest lengths, read as
+`edge.attrs.rest`. Access: `m.points` (vertex views `{ index, x, y, ...attrs }`),
 `m.pts` (tuples), `m.x`/`m.y`/`m.attrs.age` (the columns), `m.connected(i)`,
 `m.degree(i)`, `m.edges`, `m.curves()`.
 
@@ -1495,20 +1499,48 @@ which starts as a copy:
 
 | edit | meaning |
 |---|---|
-| `next.move(p => vector, { where? })` / `next.move(i, vector)` | displacement; several moves add up |
-| `next.set(p => attrs, { where? })` / `next.set(i, attrs)` | write attributes; the last write of a key wins |
-| `next.splitEdges(e => bool, { at?, attributes, parent? })` | insert a vertex on each accepted edge of the MOVED state — moves first, then `where` sees each edge as it will be |
+| `next.move(p => vector, { where? })` / `next.move(ref, vector)` | displacement; several moves add up |
+| `next.set(p => attrs, { where? })` / `next.set(ref, attrs)` | write point attributes; the last write of a field wins |
+| `next.setEdges(e => attrs, { where? })` / `next.setEdge(edge, attrs)` | write edge attributes; the last write of a field wins |
 | `next.addPoint(position, attributes)` → handle | a new vertex; the handle names it within this batch |
-| `next.connect(a, b)` | an edge between rows and/or handles |
-| `next.extend(p => spec \| spec[], { where? })` | for each selected vertex, add the child(ren) `{ position, attributes }` and connect them to it |
+| `next.connect(a, b, edgeAttributes?)` | one undirected edge between rows, views or handles; an existing pair is left as it is |
+| `next.disconnect(edge \| e => bool)` | remove an edge, both points stay; repeating it is a no-op |
+| `next.remove(ref \| p => bool)` | delete a point and its incident edges; neighbours are never joined; repeating it is a no-op |
+| `next.split(edge, { at?, point?, edges? })` → handle | replace an edge with two through a new vertex; at 0 or 1, the existing endpoint |
+| `next.splitEdges(e => bool, { at?, point?, edges? })` | bulk split on the MOVED edges — moves first, then `where` sees each edge as it will be |
+| `next.extend(p => spec \| spec[], { where? })` | for each selected vertex, a new child `{ position, attributes }` or a connection `{ to }`, joined to it |
 
-Every attribute of a new vertex must be given: inheriting, interpolating
-or resetting is the rule's decision, never a silent default. `attributes`
-of a split may be a function of the edge, and `parent` rewrites the start
-vertex — how an attribute that belongs to the edge is divided between the
-children. Structural edits apply after moves and sets; a bad reference
-(a row that does not exist, a handle from another batch) is an error, not
-a dropped edit.
+A reference is a row of the current state, a vertex view of the current
+state, or a handle from this batch — never a bare number meaning an edge;
+edges are passed as views (`cur.edge(i)`, `cur.edges`, a query result).
+Views and handles are checked for ownership, not just range: a view of
+another material, or a handle from another step, is an error even when
+its row happens to exist.
+
+A new point or edge must name every declared column — inheriting is not
+a default for something with no source. A split has a source: the
+inserted vertex inherits its point attributes by each column's transfer
+policy (interpolate unless declared `nearest`), the child edges copy the
+parent's edge attributes, and `point` / `edges` overrides merge on top —
+a record, or a callback of the moved parent edge (and, for `edges`, the
+child's `{ from, to, fraction }` interval). Halve only at a midpoint; for
+other parameters conserve a length-like attribute with `fraction`. (The
+older `attributes` option is `point` by another name; `parent`, which
+rewrote the start vertex, is kept only for the old "edge attribute on
+its start vertex" idiom — real edge columns use `edges`.)
+
+Order and conflicts, so a batch is predictable: callbacks and selectors
+read the frozen current state; moves and attribute writes apply first;
+bulk split predicates and split transfer callbacks read that moved
+state; then removals, disconnections, splits (sorted along each original
+edge, equal parameters sharing one vertex), added points and connections
+resolve, and rows compact once. A removed point that is also moved, set,
+split or connected in the same step is a conflict, as are splitting and
+disconnecting one edge, or setting attributes on an edge being
+disconnected; an explicit disconnect of an edge dying with its point is
+allowed. Two different child-edge definitions on one parent in one batch
+conflict; the same definition again is fine. A conflicting or malformed
+batch throws and publishes nothing.
 
 By default only the final state is kept. `{ every: m }` also captures
 iteration 0, every m-th iteration, and the final one — each once, labelled
@@ -1578,6 +1610,89 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
     next.move((p) => mul(sum(avoid(p), gusts(p), [2, 0]), p.mobility * 0.18));
   });
   return [stroke(wall.contour), moved.points.map((p) => circle(p.x, p.y, 0.35))];
+});
+```
+
+### structure and queries
+
+Structural helpers are ordinary functions over the edit interface;
+nothing registers them. Three that come up:
+
+```ts
+// prune: drop the tips older than a lifespan, edges and all
+next.remove((p) => p.degree === 1 && p.age > lifespan);   // (degree is the sketch's own column)
+
+// replace an edge with a bend through a new junction
+function fork(next, edge, position) {
+  next.disconnect(edge);
+  const junction = next.addPoint(position, { age: 0 });
+  next.connect(edge.a, junction, { rest: edge.attrs.rest / 2 });
+  next.connect(junction, edge.b, { rest: edge.attrs.rest / 2 });
+  return junction;                      // a third branch can connect here
+}
+
+// attach a tip to the edge its next step would cross
+const edges = query.edges(current);     // prepared once for this state
+const hit = edges.firstHit(p, target, { excludeIncident: p });
+if (hit) next.connect(p, next.split(hit.edge, { at: hit.t }));
+```
+
+`query.edges(material)` prepares a query over a frozen state's sampled
+straight edges. `nearest(position, { within })` returns `{ edge,
+position, t, distance }` or null — `within` inclusive, ties to the earlier
+edge, a zero-length edge is a point with `t = 0`. `firstHit(from, to, {
+excludeIncident? })` returns the first edge a straight move would meet,
+`{ edge, position, t, along, distance, kind }`, by smallest `along` then
+edge order; `kind` is `crossing`, `touch` (endpoint contact, or a
+zero-length move) or `overlap` (collinear: the start of the overlapping
+interval). `t` is along the source edge in stored a → b order. Queries
+return information and never edit; results belong to the state they were
+asked of, and the index does not see additions made in the same step.
+Both walk every edge: about a millisecond per query on 20k edges.
+
+```ts live
+import { sketch, stroke, circle, material, query, add, mul, sub, unit } from 'occlude';
+
+// Growing tips join what they meet: each active tip looks one step
+// ahead with firstHit; a hit splits that edge and connects to it, a miss
+// extends. Junctions are ordinary vertices; curves() walks each arm once.
+export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
+  const seeds = material(t.times(7, (i) => [12 + i * 12.5, 46]), { active: 1, heading: -Math.PI / 2 });
+  const web = seeds.steps(34, (cur, next, k) => {
+    const edges = query.edges(cur);
+    next.extend((p) => {
+      const h = p.heading + t.noise(p.x / 8, p.y / 8, k * 0.01) * 0.7;
+      const target = add(p, [Math.cos(h) * 1.5, Math.sin(h) * 1.5]);
+      const hit = edges.firstHit(p, target, { excludeIncident: p });
+      if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: 0 } }) };
+      return { position: target, attributes: { active: 1, heading: h } };
+    }, { where: (p) => p.active === 1 && p.y > 4 });
+    next.set(() => ({ active: 0 }), { where: (p) => p.active === 1 });
+  });
+  return [web.curves().map((c) => stroke(c)), web.points.filter((p) => p.active).map((p) => circle(p.x, p.y, 0.5))];
+});
+```
+
+```ts live
+import { sketch, stroke, circle, force, sum, mul } from 'occlude';
+
+// Prune and re-knit: a grown ring loses every edge that stretched past a
+// breaking length, then the loose ends reconnect to the nearest other
+// end — remove, disconnect and connect as ordinary edits after growth.
+export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
+  const wander = force.drift(t.noise, { amount: 0.12, frequency: 0.1 });
+  const grown = t.sample(circle(50, 25, 5), { count: 30 }).attribute('age', 0).steps(120, (cur, next, k) => {
+    const pull = force.tension(cur, { rest: 0.9 });
+    const repel = force.separation(cur, { radius: 2.2, excludeConnected: true });
+    next.move((p) => mul(sum(pull(p), repel(p), wander(p, k)), 0.15));
+    next.set((p) => ({ age: p.age + 1 }));
+    next.splitEdges((e) => e.length > 1.1 && t.chance(0.3), { point: { age: 0 } });
+  });
+  const cut = grown.steps(1, (cur, next) => {
+    next.disconnect((e) => e.length > 1.05);
+    next.remove((p) => p.age < 4);
+  });
+  return cut.curves().map((c) => stroke(c));
 });
 ```
 

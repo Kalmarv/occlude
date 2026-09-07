@@ -300,17 +300,21 @@ describe('steps', () => {
     expect(next.next(4)).toBe(0);
   });
 
-  it('split predicates run in edge order on the moved edges, once per edge', () => {
+  it('split predicates run in edge order on the moved edges; equal parameters share a vertex, conflicts throw', () => {
     const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0 });
     const seen: [number, number][] = [];
     const out = start.steps(1, (cur, n) => {
       n.move(0, [-10, 0]);
-      n.splitEdges((e) => { seen.push([e.a.index, Math.round(e.length)]); return e.length > 15; }, { attributes: { age: 0 } });
-      n.splitEdges(() => true, { attributes: { age: 9 } }); // second request: only edges the first declined
+      n.splitEdges((e) => { seen.push([e.a.index, Math.round(e.length)]); return e.length > 15; }, { point: { age: 9 } });
+      n.splitEdges(() => true, { point: { age: 9 } }); // same parameter, same value: one vertex
     });
     expect(seen).toEqual([[0, 20], [1, 10], [2, 10], [3, 14]]);
-    // edge 0→1 split by the first request (age 0), the other three by the second (age 9)
-    expect(Array.from(out.attrs.age)).toEqual([0, 0, 0, 9, 0, 9, 0, 9]);
+    expect(out.n).toBe(8);
+    expect(Array.from(out.attrs.age)).toEqual([0, 9, 0, 9, 0, 9, 0, 9]);
+    expect(() => start.steps(1, (_, n) => {
+      n.splitEdges(() => true, { point: { age: 1 } });
+      n.splitEdges(() => true, { point: { age: 2 } }); // same parameter, different value
+    })).toThrow(/conflicting 'age'/);
   });
 
   it('edge attributes on the start vertex: a split divides them between the children, total preserved', () => {
@@ -335,15 +339,16 @@ describe('steps', () => {
     );
     expect(many.n).toBe(4 * 2 ** 10);
     expect(total(many)).toBeCloseTo(4, 9);
-    // the function form must still name every column
-    expect(() => start.steps(1, (_, n) => n.splitEdges(() => true, { attributes: () => ({ age: 0 }) }))).toThrow(/must give 'rest'/);
+    // the inserted vertex inherits what it is not told: rest interpolated, age interpolated
+    const inherited = start.steps(1, (_, n) => n.splitEdges(() => true, { point: { age: 0 } }));
+    expect(Array.from(inherited.attrs.rest).every((v) => v === 1)).toBe(true);
   });
 
-  it('refuses silent attribute loss and unknown attributes', () => {
+  it('a split inherits unnamed columns; a new point must name them; unknown names are refused', () => {
     const start = curve([[0, 0], [10, 0], [10, 10]], { age: 0, energy: 1 });
-    expect(() =>
-      start.steps(1, (_, n) => n.splitEdges(() => true, { attributes: { age: 0 } })),
-    ).toThrow(/must give 'energy'/);
+    const out = start.steps(1, (_, n) => n.splitEdges(() => true, { attributes: { age: 0 } }));
+    expect(Array.from(out.attrs.energy).every((v) => v === 1)).toBe(true);
+    expect(() => start.steps(1, (_, n) => n.addPoint([1, 1], { age: 0 }))).toThrow(/must give 'energy'/);
     expect(() => start.steps(1, (_, n) => n.set(0, { branch: 1 }))).toThrow(/no attribute 'branch'/);
   });
 });
@@ -618,5 +623,227 @@ describe('boundaries (review 2026-09-07)', () => {
     const chained = connect.chain(ringed);
     chained.y[0] = 42;
     expect(ringed.y[0]).toBe(0);
+  });
+});
+
+describe('structural editing (edges brief)', () => {
+  const Y = () => material([[0, 0], [10, 0], [20, 5], [20, -5], [30, 0]], { edges: [[0, 1], [1, 2], [1, 3], [3, 4]], age: [1, 2, 3, 4, 5] })
+    .edgeAttribute('rest', (e) => e.length)
+    .edgeAttribute('strength', 1);
+
+  it('edge attributes: per-edge rows, views expose them, columns survive steps and sets', () => {
+    const y = Y();
+    expect(y.edgeAttrNames).toEqual(['rest', 'strength']);
+    expect(y.edge(0).attrs.rest).toBeCloseTo(10);
+    expect(y.edge(1).attrs.rest).toBeCloseTo(Math.hypot(10, 5));
+    const out = y.steps(1, (cur, n) => {
+      n.move(() => [1, 0]);
+      n.setEdges((e) => ({ strength: e.attrs.strength * 0.5 }));
+      n.setEdges(() => ({ strength: 0 }), { where: (e) => e.length > 11 });
+      n.setEdge(cur.edge(0), { rest: 99 });
+    });
+    expect(Array.from(out.edgeAttrs.strength)).toEqual([0.5, 0, 0, 0]); // the three diagonals are longer than 11
+    expect(out.edge(0).attrs.rest).toBe(99);
+    expect(y.edge(0).attrs.rest).toBeCloseTo(10); // source untouched
+    expect(() => y.steps(1, (_, n) => n.setEdges(() => ({ tension: 1 })))).toThrow(/no edge attribute 'tension'/);
+  });
+
+  it('remove: an endpoint and a junction; incident edges go, survivors compact, attributes align', () => {
+    const y = Y();
+    const noTip = y.steps(1, (_, n) => n.remove(4));
+    expect(noTip.n).toBe(4);
+    expect(noTip.edgeCount).toBe(3);
+    expect(Array.from(noTip.attrs.age)).toEqual([1, 2, 3, 4]);
+    const noJunction = y.steps(1, (cur, n) => n.remove(cur.vertex(1)));
+    expect(noJunction.n).toBe(4);
+    expect(noJunction.edgeCount).toBe(1); // only 3–4 survives, re-based
+    expect(Array.from(noJunction.attrs.age)).toEqual([1, 3, 4, 5]);
+    expect(noJunction.edgeList[0]).toBe(2);
+    expect(noJunction.edgeList[1]).toBe(3);
+    expect(noJunction.edge(0).attrs.rest).toBeCloseTo(Math.hypot(10, 5));
+    expect(noJunction.degree(0)).toBe(0); // 0 is isolated now, never joined to anything
+    // idempotent, by predicate too
+    const twice = y.steps(1, (_, n) => { n.remove(4); n.remove(4); n.remove((p) => p.age === 5); });
+    expect(twice.n).toBe(4);
+  });
+
+  it('disconnect keeps the points; repeated disconnect is a no-op; predicate form', () => {
+    const y = Y();
+    const cut = y.steps(1, (cur, n) => { n.disconnect(cur.edge(1)); n.disconnect(cur.edge(1)); });
+    expect(cut.n).toBe(5);
+    expect(cut.edgeCount).toBe(3);
+    expect(cut.degree(2)).toBe(0);
+    const pruned = y.steps(1, (_, n) => n.disconnect((e) => e.length > 11));
+    expect(pruned.edgeCount).toBe(1); // the three ~11.18 diagonals go, the 10-long base stays
+  });
+
+  it('split returns a handle usable in the batch; foreign and stale references are refused', () => {
+    const y = Y();
+    const out = y.steps(1, (cur, n) => {
+      const mid = n.split(cur.edge(0), { at: 0.25 });
+      const leaf = n.addPoint([2.5, 8], { age: 0 });
+      n.connect(mid, leaf, { rest: 8, strength: 1 });
+    });
+    expect(out.n).toBe(7);
+    expect(out.pts[1]).toEqual([2.5, 0]); // inserted after the edge's start row
+    expect(out.attrs.age[1]).toBeCloseTo(1.25); // interpolated between 1 and 2
+    expect(out.edge(0).attrs.rest).toBeCloseTo(10); // children inherit the parent's rest
+    expect(out.edge(1).attrs.rest).toBeCloseTo(10);
+    expect(out.degree(1)).toBe(3);
+    const other = Y();
+    expect(() => y.steps(1, (_, n) => n.split(other.edge(0)))).toThrow(/another material/);
+    expect(() => y.steps(1, (_, n) => n.remove(other.vertex(0)))).toThrow(/another material/);
+    let stale: import('../src/material.js').Ref | null = null;
+    const a = y.steps(1, (cur, n) => { stale = n.split(cur.edge(0)); });
+    expect(() => a.steps(1, (cur, n) => { n.split(cur.edge(0)); n.connect(stale!, 4, { rest: 1, strength: 1 }); })).toThrow(/another edit batch/);
+  });
+
+  it('several splits of one edge: sorted parameters, equal ones merge, endpoints create nothing', () => {
+    const line = curve([[0, 0], [10, 0]], { closed: false, age: [0, 10] }).edgeAttribute('rest', 10);
+    const share = (p: import('../src/material.js').Edge, c: import('../src/material.js').ChildInterval) => ({ rest: p.attrs.rest * c.fraction });
+    const out = line.steps(1, (cur, n) => {
+      const e = cur.edge(0);
+      n.split(e, { at: 0.7, edges: share });
+      n.split(e, { at: 0.2, edges: share }); // the same definition again: fine
+      n.split(e, { at: 0.7, point: { age: 7 } });
+      const end = n.split(e, { at: 1 });
+      expect(end).toBe(1);
+    });
+    expect(out.pts.map(([x]) => x)).toEqual([0, 2, 7, 10]);
+    expect(Array.from(out.attrs.age)).toEqual([0, 2, 7, 10]);
+    const rests = Array.from(out.edgeAttrs.rest);
+    expect(rests.map((r) => +r.toFixed(9))).toEqual([2, 5, 3]);
+    expect(rests.reduce((a, b) => a + b, 0)).toBeCloseTo(10, 9);
+    expect(() => line.steps(1, (cur, n) => n.split(cur.edge(0), { at: 1, point: { age: 0 } }))).toThrow(/creates nothing/);
+    expect(() => line.steps(1, (cur, n) => n.split(cur.edge(0), { at: 1.5 }))).toThrow(/within \[0, 1\]/);
+    // distinct child-edge definitions on one parent are a conflict; the same one twice is fine
+    const same = (p: import('../src/material.js').Edge, c: import('../src/material.js').ChildInterval) => ({ rest: p.attrs.rest * c.fraction });
+    expect(() => line.steps(1, (cur, n) => { n.split(cur.edge(0), { at: 0.3, edges: same }); n.split(cur.edge(0), { at: 0.6, edges: same }); })).not.toThrow();
+    expect(() => line.steps(1, (cur, n) => { n.split(cur.edge(0), { at: 0.3, edges: same }); n.split(cur.edge(0), { at: 0.6, edges: () => ({ rest: 1 }) }); })).toThrow(/two different child-edge definitions/);
+  });
+
+  it('transfer policies: nearest copies (ties to a), per-operation overrides win, resample obeys them', () => {
+    const line = curve([[0, 0], [10, 0]], { closed: false }).attribute('kind', (p) => (p.x < 5 ? 1 : 2), { transfer: 'nearest' }).attribute('age', (p) => p.x);
+    const mid = line.steps(1, (cur, n) => n.split(cur.edge(0)));
+    expect(mid.attrs.kind[1]).toBe(1); // midpoint tie → stored endpoint a
+    expect(mid.attrs.age[1]).toBe(5);
+    const later = line.steps(1, (cur, n) => n.split(cur.edge(0), { at: 0.75 }));
+    expect(later.attrs.kind[1]).toBe(2);
+    const forced = line.steps(1, (cur, n) => n.split(cur.edge(0), { at: 0.75, point: { kind: 9 } }));
+    expect(forced.attrs.kind[1]).toBe(9);
+    const rs = line.resample({ count: 5 });
+    expect(Array.from(rs.attrs.kind)).toEqual([1, 1, 1, 2, 2]);
+    expect(Array.from(rs.attrs.age)).toEqual([0, 2.5, 5, 7.5, 10]);
+  });
+
+  it('conflicts throw and publish nothing', () => {
+    const y = Y();
+    const before = { pts: y.pts, edges: Array.from(y.edgeList), age: Array.from(y.attrs.age) };
+    expect(() => y.steps(1, (_, n) => { n.remove(1); n.move(1, [1, 0]); })).toThrow(/removed and also moved/);
+    expect(() => y.steps(1, (_, n) => { n.remove((p) => p.age === 2); n.set(() => ({ age: 0 })); })).toThrow(/use a selector/);
+    expect(() => y.steps(1, (cur, n) => { n.split(cur.edge(0)); n.disconnect(cur.edge(0)); })).toThrow(/split and disconnected/);
+    expect(() => y.steps(1, (cur, n) => { n.setEdge(cur.edge(0), { strength: 0 }); n.disconnect(cur.edge(0)); })).toThrow(/attributes set and is disconnected/);
+    expect(() => y.steps(1, (cur, n) => { n.remove(0); n.split(cur.edge(0)); })).toThrow(/vertices is removed/);
+    expect(() => y.steps(1, (_, n) => { n.remove(0); n.connect(0, 4, { rest: 1, strength: 1 }); })).toThrow(/is removed in this step/);
+    expect(() => y.steps(1, (_, n) => n.connect(0, 4))).toThrow(/must give 'rest'/);
+    expect(() => y.steps(1, (_, n) => n.addPoint([NaN, 0], { age: 0 }))).toThrow(/not finite/);
+    // explicit disconnect of an edge dying with its point is allowed
+    expect(() => y.steps(1, (cur, n) => { n.remove(4); n.disconnect(cur.edge(3)); })).not.toThrow();
+    expect(y.pts).toEqual(before.pts);
+    expect(Array.from(y.edgeList)).toEqual(before.edges);
+    expect(Array.from(y.attrs.age)).toEqual(before.age);
+    // attributes set on an edge that is then split feed the children
+    const fed = y.steps(1, (cur, n) => { n.setEdge(cur.edge(0), { strength: 7 }); n.split(cur.edge(0)); });
+    expect(fed.edge(0).attrs.strength).toBe(7);
+    expect(fed.edge(1).attrs.strength).toBe(7);
+  });
+
+  it('extend to a fresh child, an existing point, and a split result; one, many, none', () => {
+    const line = curve([[0, 0], [10, 0], [20, 0]], { closed: false, active: [0, 0, 1] });
+    const out = line.steps(1, (cur, n) => {
+      n.extend((p) => [
+        { position: [25, 5], attributes: { active: 1 } },
+        { to: 0 },
+        { to: n.split(cur.edge(0), { at: 0.5 }) },
+      ], { where: (p) => p.active === 1 });
+      n.extend(() => [], { where: (p) => p.active === 0 });
+    });
+    expect(out.n).toBe(5);
+    expect(out.degree(3)).toBe(4); // the tip: its chain edge, the new child, vertex 0, and the split vertex
+    expect(out.isConnected(3, 0)).toBe(true); // rows: 0, split(1), 1→2, 2→3, child→4
+    expect(out.isConnected(3, 1)).toBe(true);
+    expect(out.isConnected(3, 4)).toBe(true);
+    expect(() => line.steps(1, (_, n) => n.extend(() => ({ position: [1, 1], attributes: { active: 0 }, to: 0 } as never)))).toThrow(/exactly one of/);
+  });
+
+  it('a stale handle never resolves even when its row exists', () => {
+    const line = curve([[0, 0], [10, 0]], { closed: false });
+    let h: import('../src/material.js').Ref | null = null;
+    const a = line.steps(1, (_, n) => { h = n.addPoint([5, 5], {}); });
+    expect(a.n).toBe(3);
+    expect(() => a.steps(1, (_, n) => { n.addPoint([9, 9], {}); n.connect(h!, 0); })).toThrow(/another edit batch/);
+  });
+});
+
+describe('query.edges', () => {
+  const sq = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]]);
+  it('nearest: within is inclusive, ties go to the earlier edge, zero-length edges are points', async () => {
+    const { query } = await import('../src/query.js');
+    const q = query.edges(sq());
+    expect(q.nearest([5, -3], { within: 2 })).toBeNull();
+    const hit = q.nearest([5, -3], { within: 3 })!;
+    expect(hit.edge.index).toBe(0);
+    expect(hit.t).toBeCloseTo(0.5);
+    expect(hit.position).toEqual([5, 0]);
+    expect(hit.distance).toBeCloseTo(3);
+    const centre = q.nearest([5, 5], { within: 100 })!;
+    expect(centre.edge.index).toBe(0); // all four at distance 5: the first wins
+    const dot = material([[3, 3], [3, 3]], { edges: [[0, 1]] });
+    const d = query.edges(dot).nearest([4, 3], { within: 5 })!;
+    expect(d.t).toBe(0);
+    expect(d.distance).toBeCloseTo(1);
+    expect(() => q.nearest([0, 0], { within: -1 })).toThrow(/non-negative/);
+  });
+
+  it('firstHit: miss, crossing, endpoint touch, overlap, equal-hit tie, exclusion, point query', async () => {
+    const { query } = await import('../src/query.js');
+    const m = sq();
+    const q = query.edges(m);
+    expect(q.firstHit([5, 5], [6, 6])).toBeNull();
+    const cross = q.firstHit([5, 5], [5, 15])!;
+    expect(cross.edge.index).toBe(2);
+    expect(cross.kind).toBe('crossing');
+    expect(cross.along).toBeCloseTo(0.5);
+    expect(cross.t).toBeCloseTo(0.5);
+    expect(cross.distance).toBeCloseTo(5);
+    expect(cross.position[1]).toBeCloseTo(10);
+    const touch = q.firstHit([5, 5], [10, 10])!;
+    expect(touch.kind).toBe('touch');
+    expect(touch.edge.index).toBe(1); // edges 1 and 2 both meet at (10,10): earlier wins
+    const overlap = q.firstHit([-5, 0], [15, 0])!;
+    expect(overlap.kind).toBe('overlap');
+    expect(overlap.along).toBeCloseTo(0.25); // enters the edge at x = 0
+    expect(overlap.edge.index).toBe(0);
+    // edge 0 (0→1) is incident to vertex 0: excluded, so the move meets nothing
+    expect(q.firstHit([5, 5], [5, -5], { excludeIncident: m.vertex(0) })).toBeNull();
+    expect(q.firstHit([5, 5], [5, -5])!.edge.index).toBe(0);
+  });
+
+  it('firstHit respects excludeIncident and refuses foreign vertices', async () => {
+    const { query } = await import('../src/query.js');
+    const m = sq();
+    const q = query.edges(m);
+    // moving from vertex 0 outward must not hit its own edges
+    expect(q.firstHit([0, 0], [5, 0], { excludeIncident: m.vertex(0) })).toBeNull();
+    expect(q.firstHit([0, 0], [5, 0], { excludeIncident: 0 })).toBeNull();
+    expect(() => q.firstHit([0, 0], [5, 0], { excludeIncident: sq().vertex(0) })).toThrow(/vertex of the queried material/);
+    const point = q.firstHit([10, 5], [10, 5])!;
+    expect(point.kind).toBe('touch');
+    expect(point.along).toBe(0);
+    expect(point.edge.index).toBe(1);
+    // the index is of the state it was built for: later moves do not change it
+    const moved = m.steps(1, (_, n) => n.move(() => [100, 0]));
+    expect(q.firstHit([5, 5], [5, 15])!.edge.index).toBe(2);
+    expect(query.edges(moved).firstHit([5, 5], [5, 15])).toBeNull();
   });
 });

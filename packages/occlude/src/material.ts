@@ -131,6 +131,8 @@ export interface Edge {
   length: number;
   /** Row of this edge in the material's edge list. */
   index: number;
+  /** This edge's attribute row: `edge.attrs.rest`. */
+  attrs: Record<string, number>;
 }
 
 /** A chain of a material for drawing: stampable as-is (`stroke(curve)`), with
@@ -158,6 +160,11 @@ export type Transfer =
 
 const OWNER = Symbol('material');
 
+/** Column transfer policies a material remembers for its point columns
+ * (`attribute(name, value, { transfer })`), used as the default by `split`
+ * and `resample`; a per-operation override wins. */
+export type TransferPolicy = 'interpolate' | 'nearest';
+
 export class Material {
   readonly n: number;
   readonly x: Float64Array;
@@ -176,6 +183,10 @@ export class Material {
    * `every`-th after it, and the final one, each once, oldest first.
    * Snapshots carry no history of their own. */
   readonly history: readonly Snapshot[];
+  /** Edge attribute columns by name, each `edgeCount` long. */
+  readonly edgeAttrs: Readonly<Record<string, Float64Array>>;
+  /** Declared transfer policy per point column (default interpolate). */
+  readonly transfers: Readonly<Record<string, TransferPolicy>>;
   private readonly adj: number[][];
 
   /** @internal Use `material()`/`curve()`/`t.sample()`. Columns are
@@ -192,8 +203,18 @@ export class Material {
     edgeList: Uint32Array,
     iteration = 0,
     history: readonly Snapshot[] = [],
+    edgeAttrs: Record<string, Float64Array> = {},
+    transfers: Record<string, TransferPolicy> = {},
   ) {
     if (x.length !== y.length) throw new Error('material: x and y columns differ in length');
+    for (const [name, col] of Object.entries(edgeAttrs)) {
+      if (col.length !== edgeList.length / 2) {
+        throw new Error(`material: edge attribute '${name}' has ${col.length} values for ${edgeList.length / 2} edges`);
+      }
+      if (name === 'a' || name === 'b' || name === 'length' || name === 'index') {
+        throw new Error(`material: '${name}' is a reserved edge field`);
+      }
+    }
     for (const [name, col] of Object.entries(attrs)) {
       if (col.length !== x.length) {
         throw new Error(`material: attribute '${name}' has ${col.length} values for ${x.length} vertices`);
@@ -210,6 +231,8 @@ export class Material {
     this.edgeList = edgeList;
     this.iteration = iteration;
     this.history = history;
+    this.edgeAttrs = edgeAttrs;
+    this.transfers = transfers;
     const adj: number[][] = Array.from({ length: this.n }, () => []);
     for (let e = 0; e < edgeList.length; e += 2) {
       const a = edgeList[e];
@@ -221,6 +244,8 @@ export class Material {
     }
     this.adj = adj;
     Object.freeze(this.attrs);
+    Object.freeze(this.edgeAttrs);
+    Object.freeze(this.transfers);
     Object.freeze(this.history);
     Object.freeze(this);
   }
@@ -259,14 +284,26 @@ export class Material {
     return this.edgeList.length / 2;
   }
 
+  /** Names of the edge attribute columns. */
+  get edgeAttrNames(): string[] {
+    return Object.keys(this.edgeAttrs);
+  }
+
+  /** The edge at row `e` as a view (a → b in stored order, with attrs). */
+  edge(e: number): Edge {
+    const a = this.vertex(this.edgeList[2 * e]);
+    const b = this.vertex(this.edgeList[2 * e + 1]);
+    const attrs: Record<string, number> = {};
+    for (const name in this.edgeAttrs) attrs[name] = this.edgeAttrs[name][e];
+    const view: Edge = { a, b, length: distance(a, b), index: e, attrs };
+    Object.defineProperty(view, OWNER, { value: this, enumerable: false });
+    return view;
+  }
+
   /** Every edge as views, stored order. */
   get edges(): Edge[] {
     const out: Edge[] = [];
-    for (let e = 0; e < this.edgeList.length; e += 2) {
-      const a = this.vertex(this.edgeList[e]);
-      const b = this.vertex(this.edgeList[e + 1]);
-      out.push({ a, b, length: distance(a, b), index: e / 2 });
-    }
+    for (let e = 0; e < this.edgeCount; e++) out.push(this.edge(e));
     return out;
   }
 
@@ -363,27 +400,57 @@ export class Material {
   // ---- derived material ----
 
   /** A new material with a column set: a constant, or one value per vertex. */
-  attribute(name: string, value: number | ((p: Vertex) => number)): Material {
+  attribute(name: string, value: number | ((p: Vertex) => number), opts: { transfer?: TransferPolicy } = {}): Material {
     const col = new Float64Array(this.n);
     if (typeof value === 'number') col.fill(value);
     else for (let i = 0; i < this.n; i++) col[i] = value(this.vertex(i));
-    return new Material(copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), [name]: col }, this.edgeList, this.iteration);
+    const transfers = { ...this.transfers };
+    if (opts.transfer) transfers[name] = opts.transfer;
+    else delete transfers[name];
+    return new Material(
+      copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), [name]: col }, this.edgeList, this.iteration, [],
+      copyAttrs(this.edgeAttrs), transfers,
+    );
   }
 
-  /** A new material with these edges added (undirected; duplicates dropped). */
-  withEdges(pairs: readonly (readonly [number, number])[]): Material {
+  /** A new material with an EDGE column set: a constant, or one value per
+   * edge from its view (`e => e.length`). Each edge has its own row — a
+   * junction's three edges can carry three different rest lengths. */
+  edgeAttribute(name: string, value: number | ((e: Edge) => number)): Material {
+    const col = new Float64Array(this.edgeCount);
+    if (typeof value === 'number') col.fill(value);
+    else for (let e = 0; e < this.edgeCount; e++) col[e] = value(this.edge(e));
+    return new Material(
+      copy(this.x), copy(this.y), copyAttrs(this.attrs), this.edgeList, this.iteration, [],
+      { ...copyAttrs(this.edgeAttrs), [name]: col }, { ...this.transfers },
+    );
+  }
+
+  /** A new material with these edges added (undirected; an existing pair
+   * is left as it is). When edge columns are declared, `edgeAttributes`
+   * must give every column for the new edges. */
+  withEdges(pairs: readonly (readonly [number, number])[], edgeAttributes: Record<string, number> = {}): Material {
     const list = Array.from(this.edgeList);
     const seen = new Set<number>();
     for (let e = 0; e < list.length; e += 2) seen.add(pairKey(list[e], list[e + 1]));
+    const names = this.edgeAttrNames;
+    const cols: Record<string, number[]> = {};
+    for (const name of names) cols[name] = Array.from(this.edgeAttrs[name]);
+    let added = 0;
     for (const [a, b] of pairs) {
       if (a === b) throw new Error(`connect: edge ${a}–${b} joins a vertex to itself`);
       if (a >= this.n || b >= this.n) throw new Error(`connect: edge ${a}–${b} names a vertex beyond ${this.n - 1}`);
       const k = pairKey(a, b);
       if (seen.has(k)) continue;
+      if (added === 0 && names.length > 0) checkAttrs(edgeAttributes, names, 'a new edge');
       seen.add(k);
       list.push(a, b);
+      for (const name of names) cols[name].push(edgeAttributes[name]);
+      added++;
     }
-    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), this.iteration);
+    const edgeAttrs: Record<string, Float64Array> = {};
+    for (const name of names) edgeAttrs[name] = Float64Array.from(cols[name]);
+    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), this.iteration, [], edgeAttrs, { ...this.transfers });
   }
 
   /**
@@ -404,12 +471,17 @@ export class Material {
       if (this.adj[i].length > 2) throw new Error(`resample: vertex ${i} is a junction — chains only`);
     }
     const names = this.attrNames;
-    const transfer = opts.transfer ?? {};
+    const transfer: Record<string, Transfer> = { ...this.transfers, ...(opts.transfer ?? {}) };
     const ox: number[] = [];
     const oy: number[] = [];
     const oattrs: Record<string, number[]> = {};
     for (const name of names) oattrs[name] = [];
     const edges: number[] = [];
+    const enames = this.edgeAttrNames;
+    const eattrs: Record<string, number[]> = {};
+    for (const name of enames) eattrs[name] = [];
+    const storedRow = new Map<number, number>();
+    for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(this.edgeList[2 * e], this.edgeList[2 * e + 1]), e);
     const place = (a: number, b: number, t: number) => {
       ox.push(this.x[a] + (this.x[b] - this.x[a]) * t);
       oy.push(this.y[a] + (this.y[b] - this.y[a]) * t);
@@ -437,16 +509,27 @@ export class Material {
       const idx = c.indices;
       const first = ox.length;
       const samples = alongChain(idx.map((i) => [this.x[i], this.y[i]] as [number, number]), c.closed, opts);
+      // A new edge takes the edge attributes of the source edge its start
+      // sample lies on.
+      const rowAt = (k: number) => storedRow.get(pairKey(idx[samples[k].seg], idx[(samples[k].seg + 1) % idx.length]))!;
       for (let k = 0; k < samples.length; k++) {
         const { seg, t } = samples[k];
         place(idx[seg], idx[(seg + 1) % idx.length], t);
-        if (k > 0) edges.push(first + k - 1, first + k);
+        if (k > 0) {
+          edges.push(first + k - 1, first + k);
+          for (const name of enames) eattrs[name].push(this.edgeAttrs[name][rowAt(k - 1)]);
+        }
       }
-      if (c.closed && samples.length > 1) edges.push(first + samples.length - 1, first);
+      if (c.closed && samples.length > 1) {
+        edges.push(first + samples.length - 1, first);
+        for (const name of enames) eattrs[name].push(this.edgeAttrs[name][rowAt(samples.length - 1)]);
+      }
     }
     const attrs: Record<string, Float64Array> = {};
     for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
-    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), this.iteration);
+    const edgeAttrs: Record<string, Float64Array> = {};
+    for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
+    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), this.iteration, [], edgeAttrs, { ...this.transfers });
   }
 
   // ---- the iteration verb ----
@@ -467,7 +550,7 @@ export class Material {
   steps(n: number, rule: (current: Material, next: Next, k: number) => void, opts: { every?: number } = {}): Material {
     const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
     const snaps: Snapshot[] = [];
-    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), this.edgeList, this.iteration);
+    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), this.edgeList, this.iteration, [], copyAttrs(this.edgeAttrs), { ...this.transfers });
     if (every) snaps.push({ iteration: this.iteration, material: base });
     let cur = base;
     for (let k = 0; k < n; k++) {
@@ -475,7 +558,9 @@ export class Material {
       if (every && (k + 1) % every === 0 && k + 1 < n) snaps.push({ iteration: cur.iteration, material: cur });
     }
     if (every && n > 0) snaps.push({ iteration: cur.iteration, material: cur });
-    return every ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), cur.edgeList, cur.iteration, snaps) : cur;
+    return every
+      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), cur.edgeList, cur.iteration, snaps, copyAttrs(cur.edgeAttrs), { ...cur.transfers })
+      : cur;
   }
 }
 
@@ -542,6 +627,12 @@ const copyAttrs = (attrs: Readonly<Record<string, Float64Array>>): Record<string
 };
 
 const ownerOf = (p: Vertex): Material | undefined => (p as unknown as Record<symbol, Material>)[OWNER];
+
+/** True when `view` (a vertex or edge view) came from `m` — this state,
+ * not merely a material with the same shape. */
+export function ownedBy(view: Vertex | Edge, m: Material): boolean {
+  return (view as unknown as Record<symbol, Material>)[OWNER] === m;
+}
 
 // ---- constructors ----------------------------------------------------------------
 
@@ -631,18 +722,18 @@ function chainEdges(n: number, closed: boolean): [number, number][] {
  * route: chain and ring use the supplied row order. */
 export const connect = {
   /** Consecutive rows joined, open. */
-  chain(m: PointsLike): Material {
+  chain(m: PointsLike, edgeAttributes?: Record<string, number>): Material {
     const mm = material(m);
-    return mm.withEdges(chainEdges(mm.n, false));
+    return mm.withEdges(chainEdges(mm.n, false), edgeAttributes);
   },
   /** Consecutive rows joined and the last joined back to the first. */
-  ring(m: PointsLike): Material {
+  ring(m: PointsLike, edgeAttributes?: Record<string, number>): Material {
     const mm = material(m);
-    return mm.withEdges(chainEdges(mm.n, true));
+    return mm.withEdges(chainEdges(mm.n, true), edgeAttributes);
   },
   /** Each vertex joined to its `count` nearest others (undirected, no
    * duplicates, self excluded; ties broken by lower row). */
-  nearest(m: PointsLike, opts: { count: number }): Material {
+  nearest(m: PointsLike, opts: { count: number; edgeAttributes?: Record<string, number> }): Material {
     const mm = material(m);
     const pairs: [number, number][] = [];
     for (let i = 0; i < mm.n; i++) {
@@ -656,21 +747,21 @@ export const connect = {
       cand.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
       for (const [, j] of cand.slice(0, opts.count)) pairs.push([i, j]);
     }
-    return mm.withEdges(pairs);
+    return mm.withEdges(pairs, opts.edgeAttributes);
   },
   /** Row i of `a` joined to row i of `b`, in one material (a's rows first).
    * Lengths must match; coincident points stay distinct. */
-  pairs(a: PointsLike, b: PointsLike): Material {
+  pairs(a: PointsLike, b: PointsLike, edgeAttributes?: Record<string, number>): Material {
     const ma = material(a);
     const mb = material(b);
     if (ma.n !== mb.n) throw new Error(`connect.pairs: ${ma.n} and ${mb.n} points — lengths must match`);
     const joined = append(ma, mb);
     const pairs: [number, number][] = [];
     for (let i = 0; i < ma.n; i++) pairs.push([i, ma.n + i]);
-    return joined.withEdges(pairs);
+    return joined.withEdges(pairs, edgeAttributes);
   },
   /** Delaunay triangulation edges over the vertices. */
-  triangulate(m: PointsLike): Material {
+  triangulate(m: PointsLike, edgeAttributes?: Record<string, number>): Material {
     const mm = material(m);
     const tris = delaunayTriangles(mm.pts);
     // triangulate() returns coordinate triples; map back to rows by position
@@ -681,15 +772,20 @@ export const connect = {
       const r = tri.map(([x, y]) => rowOf.get(`${x},${y}`)!);
       pairs.push([r[0], r[1]], [r[1], r[2]], [r[2], r[0]]);
     }
-    return mm.withEdges(pairs);
+    return mm.withEdges(pairs, edgeAttributes);
   },
 };
 
 /** Two materials as one: b's rows after a's, b's edges re-based. Both must
  * have the same columns, or `fill` must give the value a column takes on
  * the side that lacks it — nothing is dropped silently. */
-export function append(a: Material, b: Material, opts: { fill?: Record<string, number> } = {}): Material {
+export function append(
+  a: Material,
+  b: Material,
+  opts: { fill?: Record<string, number>; edgeFill?: Record<string, number> } = {},
+): Material {
   const fill = opts.fill ?? {};
+  const edgeFill = opts.edgeFill ?? {};
   const names = Array.from(new Set([...a.attrNames, ...b.attrNames]));
   for (const k of names) {
     if (!(k in a.attrs) || !(k in b.attrs)) {
@@ -698,6 +794,18 @@ export function append(a: Material, b: Material, opts: { fill?: Record<string, n
         throw new Error(`append: the ${side} material has no '${k}' — give fill: { ${k}: … } or match the columns`);
       }
     }
+  }
+  const enames = Array.from(new Set([...a.edgeAttrNames, ...b.edgeAttrNames]));
+  for (const k of enames) {
+    if (!(k in a.edgeAttrs) || !(k in b.edgeAttrs)) {
+      if (!(k in edgeFill)) {
+        const side = k in a.edgeAttrs ? 'second' : 'first';
+        throw new Error(`append: the ${side} material has no edge column '${k}' — give edgeFill: { ${k}: … } or match the columns`);
+      }
+    }
+  }
+  for (const k of Object.keys(a.transfers)) {
+    if (k in b.transfers && b.transfers[k] !== a.transfers[k]) throw new Error(`append: '${k}' has transfer '${a.transfers[k]}' on one side and '${b.transfers[k]}' on the other`);
   }
   const x = new Float64Array(a.n + b.n);
   const y = new Float64Array(a.n + b.n);
@@ -717,67 +825,122 @@ export function append(a: Material, b: Material, opts: { fill?: Record<string, n
   const edges = new Uint32Array(a.edgeList.length + b.edgeList.length);
   edges.set(a.edgeList);
   for (let e = 0; e < b.edgeList.length; e++) edges[a.edgeList.length + e] = b.edgeList[e] + a.n;
-  return new Material(x, y, attrs, edges);
+  const edgeAttrs: Record<string, Float64Array> = {};
+  for (const k of enames) {
+    const col = new Float64Array(a.edgeCount + b.edgeCount);
+    if (k in a.edgeAttrs) col.set(a.edgeAttrs[k]);
+    else col.fill(edgeFill[k], 0, a.edgeCount);
+    if (k in b.edgeAttrs) col.set(b.edgeAttrs[k], a.edgeCount);
+    else col.fill(edgeFill[k], a.edgeCount);
+    edgeAttrs[k] = col;
+  }
+  return new Material(x, y, attrs, edges, 0, [], edgeAttrs, { ...b.transfers, ...a.transfers });
 }
 
 // ---- one step ---------------------------------------------------------------------
 
-/** A vertex added in this edit batch, usable before the batch resolves —
- * and only there: a handle carries its batch and is refused by any other. */
+/** A vertex added or split in this edit batch, usable before the batch
+ * resolves — and only there: a handle carries its batch and is refused by
+ * any other. Opaque: no coordinates to read. */
 export interface Handle {
   readonly __handle: number;
   readonly __batch: object;
 }
 
-export type Ref = number | Handle;
+/** A point reference an edit accepts: a row of the current state, a
+ * vertex view of the current state, or a handle from this batch. A bare
+ * number always means a row. */
+export type Ref = number | Vertex | Handle;
 
-const isHandle = (r: Ref): r is Handle => typeof r === 'object' && r !== null && '__handle' in r;
+const isHandle = (r: unknown): r is Handle => typeof r === 'object' && r !== null && '__handle' in r;
+const isVertexView = (r: unknown): r is Vertex => typeof r === 'object' && r !== null && 'index' in r && !('__handle' in r);
 
-/** One child of `extend`: where it goes and what it carries (every
- * column, explicitly). */
-export interface ChildSpec {
-  position: XY;
-  attributes: Record<string, number>;
+/** One child of `extend`: a new point (`position` + `attributes`) or an
+ * existing target (`to`); either way an edge from the parent, carrying
+ * `edgeAttributes` when edge columns are declared. */
+export type ChildSpec =
+  | { position: XY; attributes: Record<string, number>; edgeAttributes?: Record<string, number>; to?: undefined }
+  | { to: Ref; edgeAttributes?: Record<string, number>; position?: undefined };
+
+/** The interval of a split child edge in the ORIGINAL edge's parameter
+ * space: `from` → `to`, and its share `fraction = to - from`. */
+export interface ChildInterval {
+  from: number;
+  to: number;
+  fraction: number;
+}
+
+export interface SplitOpts {
+  /** Fraction along the edge (stored a → b), default 0.5; 0 or 1 return
+   * the existing endpoint and create nothing. */
+  at?: number;
+  /** Point attributes for the inserted vertex, merged over the inherited
+   * ones (declared transfer policies, interpolate by default): a partial
+   * record, or a callback of the moved parent edge and `at`. */
+  point?: Record<string, number> | ((e: Edge, at: number) => Record<string, number>);
+  /** Edge attributes for each child edge, merged over the parent's
+   * (updated) values: a partial record, or a callback of the moved parent
+   * edge and the child's interval. */
+  edges?: Record<string, number> | ((e: Edge, child: ChildInterval) => Record<string, number>);
+  /** Migration: the pre-edge-column spelling of `point` (a full or partial
+   * record, or a callback of the edge). */
+  attributes?: Record<string, number> | ((e: Edge) => Record<string, number>);
+  /** Migration: rewrite the START vertex's point attributes on split. Only
+   * meaningful for the old "edge attribute on its start vertex" idiom;
+   * real edge columns use `edges`. */
+  parent?: (e: Edge) => Record<string, number>;
 }
 
 /**
- * The next state under construction. Every vertex starts as a copy of
- * the current one — position, attributes, connections — so a rule only
- * states what changes. All callbacks see the FROZEN current state; no
- * edit changes what a later callback reads. Order of application:
- * moves and sets first (moves add up, the last set of a key wins), then
- * `splitEdges` on the MOVED edges, then `addPoint`/`extend`/`connect`.
+ * The next state under construction. Every vertex and edge starts as a
+ * copy of the current one, so a rule only states what changes. All
+ * callbacks and selectors see the FROZEN current state; no edit changes
+ * what a later callback reads. Order of resolution: moves and attribute
+ * writes first (moves add up, the last write of a field wins), then bulk
+ * `splitEdges` predicates on the MOVED edges, then structural requests —
+ * removals, disconnections, splits (sorted along each original edge),
+ * added points, connections — then one compaction. A conflicting batch
+ * (see the table in the docs) throws and publishes nothing.
  */
 export interface Next {
   /** Displace one vertex, or every vertex `where` says (all by default). */
-  move(index: number, by: XY): void;
+  move(index: Ref, by: XY): void;
   move(by: (p: Vertex) => XY, opts?: { where?: (p: Vertex) => boolean }): void;
-  /** Write attributes on one vertex, or on every vertex `where` says.
-   * Unknown names are an error: columns are declared, not invented mid-rule. */
-  set(index: number, attrs: Record<string, number>): void;
+  /** Write point attributes on one vertex, or on every vertex `where`
+   * says. Unknown names are an error: columns are declared, not invented. */
+  set(index: Ref, attrs: Record<string, number>): void;
   set(attrs: (p: Vertex) => Record<string, number>, opts?: { where?: (p: Vertex) => boolean }): void;
-  /**
-   * Split edges of the MOVED state, inserting a vertex at fraction `at`
-   * (default 0.5) along each edge `where` accepts. The new vertex gets
-   * `attributes`, a constant or a function of the split edge — every
-   * column, explicitly. `parent` rewrites the start vertex (an EDGE
-   * attribute kept there, divided between the children). Each edge splits
-   * at most once per step; requests evaluate in edge order.
-   */
-  splitEdges(
-    where: (e: Edge) => boolean,
-    opts: {
-      at?: number;
-      attributes: Record<string, number> | ((e: Edge) => Record<string, number>);
-      parent?: (e: Edge) => Record<string, number>;
-    },
-  ): void;
-  /** A new vertex; the handle names it within this batch. */
+  /** Write edge attributes on one edge of the current state. */
+  setEdge(edge: Edge, attrs: Record<string, number>): void;
+  /** Write edge attributes on every edge `where` says (all by default). */
+  setEdges(attrs: (e: Edge) => Record<string, number>, opts?: { where?: (e: Edge) => boolean }): void;
+  /** A new vertex; the handle names it within this batch. Every declared
+   * point column must be given. */
   addPoint(position: XY, attributes: Record<string, number>): Handle;
-  /** An edge between existing rows and/or new handles. */
-  connect(a: Ref, b: Ref): void;
+  /** One undirected connection. An existing pair is left as it is (use
+   * `setEdge` to change its attributes); a self-connection is an error.
+   * Every declared edge column must be given. */
+  connect(a: Ref, b: Ref, edgeAttributes?: Record<string, number>): void;
+  /** Remove an edge; both points stay. Repeating it is a no-op. A
+   * predicate removes every current edge it accepts. */
+  disconnect(edge: Edge): void;
+  disconnect(where: (e: Edge) => boolean): void;
+  /** Delete a point and its incident edges; the neighbours are never
+   * joined. Repeating it is a no-op. A predicate removes every current
+   * vertex it accepts. */
+  remove(point: Ref): void;
+  remove(where: (p: Vertex) => boolean): void;
+  /** Replace an edge of the current state with two child edges through a
+   * new vertex at `at` (default 0.5), returning its handle — or, at 0 or
+   * 1, the existing endpoint row. Several splits of one edge form one
+   * chain in parameter order; equal parameters share a vertex. */
+  split(edge: Edge, opts?: SplitOpts): Ref;
+  /** Bulk split on the MOVED edges — same machinery and defaults as
+   * `split`; `where` sees each edge as it will be after the moves. */
+  splitEdges(where: (e: Edge) => boolean, opts?: SplitOpts): void;
   /** For every current vertex `where` says: add the child (or children)
-   * `spec` describes and connect each to its parent. */
+   * `spec` describes — a new point, or a connection to an existing target
+   * (`{ to }`) — and connect each to its parent. `[]` means none. */
   extend(spec: (p: Vertex) => ChildSpec | ChildSpec[], opts?: { where?: (p: Vertex) => boolean }): void;
 }
 
@@ -786,169 +949,386 @@ function checkAttrs(attrs: Record<string, number>, names: string[], what: string
     if (!(name in attrs)) throw new Error(`steps: must give '${name}' for ${what} (every attribute is a choice)`);
   }
   for (const name in attrs) {
-    if (!names.includes(name)) throw new Error(`steps: no attribute '${name}' — declare it in material()/curve()`);
+    if (!names.includes(name)) throw new Error(`steps: no attribute '${name}' — declare it first`);
   }
+  for (const name in attrs) {
+    if (!Number.isFinite(attrs[name])) throw new Error(`steps: '${name}' for ${what} is not a finite number`);
+  }
+}
+
+function finiteXY(v: XY, what: string): [number, number] {
+  const x = vx(v);
+  const y = vy(v);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`steps: ${what} is not finite`);
+  return [x, y];
+}
+
+interface SplitRequest {
+  at: number;
+  point?: SplitOpts['point'];
+  edges?: SplitOpts['edges'];
+  attributes?: SplitOpts['attributes'];
+  parent?: SplitOpts['parent'];
+  /** Handle allotted to the inserted vertex (bulk splits get none). */
+  handle?: number;
 }
 
 function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: number) => void): Material {
   const n = cur.n;
+  const m = cur.edgeCount;
   const names = cur.attrNames;
+  const enames = cur.edgeAttrNames;
+  const batch = {};
+
+  // ---- what the rule records ----
   const nx = Float64Array.from(cur.x);
   const ny = Float64Array.from(cur.y);
   const nattrs: Record<string, Float64Array> = {};
   for (const name of names) nattrs[name] = Float64Array.from(cur.attrs[name]);
-  const splits: {
-    where: (e: Edge) => boolean;
-    at: number;
-    attributes: Record<string, number> | ((e: Edge) => Record<string, number>);
-    parent?: (e: Edge) => Record<string, number>;
-  }[] = [];
+  const neattrs: Record<string, Float64Array> = {};
+  for (const name of enames) neattrs[name] = Float64Array.from(cur.edgeAttrs[name]);
+  const touchedPoint = new Set<number>(); // rows an explicit move/set named
+  const touchedEdge = new Set<number>(); // edge rows setEdge/setEdges named
+  const removed = new Set<number>();
+  const disconnected = new Set<number>();
+  const splits = new Map<number, SplitRequest[]>(); // by ORIGINAL edge row
+  const bulkSplits: { where: (e: Edge) => boolean; opts: SplitOpts }[] = [];
   const added: { x: number; y: number; attrs: Record<string, number> }[] = [];
-  const links: [Ref, Ref][] = [];
-  const batch = {};
-  const points = cur.points; // frozen views, built once for the collection forms
+  const links: { a: Ref; b: Ref; attrs: Record<string, number> }[] = [];
+  const points = cur.points; // frozen views for the collection forms
+  let edgeViews: Edge[] | null = null;
+  const currentEdges = () => (edgeViews ??= cur.edges);
+
+  const rowOf = (r: Ref, what: string): number => {
+    if (isHandle(r)) throw new Error(`steps: ${what} cannot be a handle here`);
+    if (isVertexView(r)) {
+      if (ownerOf(r) !== cur) throw new Error(`steps: ${what} is a vertex of another material`);
+      return r.index;
+    }
+    if (!Number.isInteger(r) || r < 0 || r >= n) throw new Error(`steps: ${what}: no vertex ${String(r)} in this state (${n} rows)`);
+    return r;
+  };
+  const edgeRow = (e: Edge, what: string): number => {
+    if (typeof e !== 'object' || e === null || !('index' in e) || !('a' in e)) throw new Error(`steps: ${what} must be an edge view`);
+    if (ownerOf(e as unknown as Vertex) !== cur) throw new Error(`steps: ${what} is an edge of another material (or another state)`);
+    return e.index;
+  };
+  const writePoint = (index: number, attrs: Record<string, number>) => {
+    for (const [name, v] of Object.entries(attrs)) {
+      const col = nattrs[name];
+      if (!col) throw new Error(`steps: no attribute '${name}' — declare it first`);
+      if (!Number.isFinite(v)) throw new Error(`steps: '${name}' is not a finite number`);
+      col[index] = v;
+    }
+  };
+  const writeEdge = (row: number, attrs: Record<string, number>) => {
+    for (const [name, v] of Object.entries(attrs)) {
+      const col = neattrs[name];
+      if (!col) throw new Error(`steps: no edge attribute '${name}' — declare it with edgeAttribute()`);
+      if (!Number.isFinite(v)) throw new Error(`steps: '${name}' is not a finite number`);
+      col[row] = v;
+    }
+  };
+  const recordSplit = (row: number, req: SplitRequest) => {
+    const list = splits.get(row) ?? [];
+    list.push(req);
+    splits.set(row, list);
+  };
 
   const next: Next = {
-    move(a: number | ((p: Vertex) => XY), b?: XY | { where?: (p: Vertex) => boolean }) {
-      if (typeof a === 'number') {
-        const by = b as XY;
-        nx[a] += vx(by);
-        ny[a] += vy(by);
-        return;
-      }
-      const where = (b as { where?: (p: Vertex) => boolean } | undefined)?.where;
-      for (const p of points) {
-        if (where && !where(p)) continue;
-        const by = a(p);
-        nx[p.index] += vx(by);
-        ny[p.index] += vy(by);
-      }
-    },
-    set(a: number | ((p: Vertex) => Record<string, number>), b?: Record<string, number> | { where?: (p: Vertex) => boolean }) {
-      const write = (index: number, attrs: Record<string, number>) => {
-        for (const [name, v] of Object.entries(attrs)) {
-          const col = nattrs[name];
-          if (!col) throw new Error(`steps: no attribute '${name}' — declare it in material()/curve()`);
-          col[index] = v;
+    move(a: Ref | ((p: Vertex) => XY), b?: XY | { where?: (p: Vertex) => boolean }) {
+      if (typeof a === 'function') {
+        const where = (b as { where?: (p: Vertex) => boolean } | undefined)?.where;
+        for (const p of points) {
+          if (where && !where(p)) continue;
+          const [dx, dy] = finiteXY(a(p), 'a move');
+          nx[p.index] += dx;
+          ny[p.index] += dy;
+          touchedPoint.add(p.index);
         }
-      };
-      if (typeof a === 'number') {
-        write(a, b as Record<string, number>);
         return;
       }
-      const where = (b as { where?: (p: Vertex) => boolean } | undefined)?.where;
-      for (const p of points) {
-        if (where && !where(p)) continue;
-        write(p.index, a(p));
-      }
+      const row = rowOf(a, 'move');
+      const [dx, dy] = finiteXY(b as XY, 'a move');
+      nx[row] += dx;
+      ny[row] += dy;
+      touchedPoint.add(row);
     },
-    splitEdges(where, opts) {
-      if (typeof opts.attributes !== 'function') checkAttrs(opts.attributes, names, 'the new vertex');
-      splits.push({ where, at: opts.at ?? 0.5, attributes: opts.attributes, parent: opts.parent });
+    set(a: Ref | ((p: Vertex) => Record<string, number>), b?: Record<string, number> | { where?: (p: Vertex) => boolean }) {
+      if (typeof a === 'function') {
+        const where = (b as { where?: (p: Vertex) => boolean } | undefined)?.where;
+        for (const p of points) {
+          if (where && !where(p)) continue;
+          writePoint(p.index, a(p));
+          touchedPoint.add(p.index);
+        }
+        return;
+      }
+      const row = rowOf(a, 'set');
+      writePoint(row, b as Record<string, number>);
+      touchedPoint.add(row);
+    },
+    setEdge(edge, attrs) {
+      const row = edgeRow(edge, 'setEdge');
+      writeEdge(row, attrs);
+      touchedEdge.add(row);
+    },
+    setEdges(attrs, opts) {
+      for (const e of currentEdges()) {
+        if (opts?.where && !opts.where(e)) continue;
+        writeEdge(e.index, attrs(e));
+        touchedEdge.add(e.index);
+      }
     },
     addPoint(position, attributes) {
       checkAttrs(attributes, names, 'a new vertex');
-      added.push({ x: vx(position), y: vy(position), attrs: attributes });
+      const [x, y] = finiteXY(position, 'a new vertex');
+      added.push({ x, y, attrs: { ...attributes } });
       return { __handle: added.length - 1, __batch: batch };
     },
-    connect(a, b) {
-      links.push([a, b]);
+    connect(a, b, edgeAttributes = {}) {
+      checkAttrs(edgeAttributes, enames, 'a new edge');
+      links.push({ a, b, attrs: { ...edgeAttributes } });
+    },
+    disconnect(edge: Edge | ((e: Edge) => boolean)) {
+      if (typeof edge === 'function') {
+        for (const e of currentEdges()) if (edge(e)) disconnected.add(e.index);
+        return;
+      }
+      disconnected.add(edgeRow(edge, 'disconnect'));
+    },
+    remove(point: Ref | ((p: Vertex) => boolean)) {
+      if (typeof point === 'function') {
+        for (const p of points) if (point(p)) removed.add(p.index);
+        return;
+      }
+      removed.add(rowOf(point, 'remove'));
+    },
+    split(edge, opts = {}) {
+      const row = edgeRow(edge, 'split');
+      const at = opts.at ?? 0.5;
+      if (!Number.isFinite(at) || at < 0 || at > 1) throw new Error(`steps: split at ${at} — must be within [0, 1]`);
+      if (at === 0 || at === 1) {
+        if (opts.point || opts.edges || opts.attributes || opts.parent) {
+          throw new Error('steps: a split at an endpoint creates nothing — point/edge overrides would modify existing data');
+        }
+        return at === 0 ? cur.edgeList[2 * row] : cur.edgeList[2 * row + 1];
+      }
+      const handle = added.length;
+      added.push({ x: NaN, y: NaN, attrs: {} }); // placeholder: resolved by the split
+      recordSplit(row, { at, point: opts.point, edges: opts.edges, attributes: opts.attributes, parent: opts.parent, handle });
+      return { __handle: handle, __batch: batch };
+    },
+    splitEdges(where, opts = {}) {
+      const at = opts.at ?? 0.5;
+      if (!Number.isFinite(at) || at <= 0 || at >= 1) throw new Error(`steps: splitEdges at ${at} — must be inside (0, 1)`);
+      bulkSplits.push({ where, opts });
     },
     extend(spec, opts) {
       for (const p of points) {
         if (opts?.where && !opts.where(p)) continue;
         const specs = spec(p);
-        for (const s of Array.isArray(specs) ? specs : [specs]) {
-          const h = next.addPoint(s.position, s.attributes);
-          links.push([p.index, h]);
+        for (const sp of Array.isArray(specs) ? specs : [specs]) {
+          const hasPos = sp.position !== undefined;
+          const hasTo = sp.to !== undefined;
+          if (hasPos === hasTo) throw new Error('steps: extend needs exactly one of { position } (a new child) or { to } (an existing target)');
+          const target: Ref = hasPos ? next.addPoint(sp.position!, (sp as { attributes: Record<string, number> }).attributes) : sp.to!;
+          next.connect(p.index, target, sp.edgeAttributes ?? {});
         }
       }
     },
   };
   rule(cur, next, k);
 
-  // Splits read the moved state; a split vertex is inserted right after
-  // its edge's start row (keeps row order along a chain, hence the same
-  // neighbour-grid order as before) and the edge becomes two.
-  const moved = new Material(nx, ny, nattrs, cur.edgeList, cur.iteration + 1);
-  const rowMap = new Int32Array(n); // old row → new row
+  // ---- the moved state: bulk split predicates and transfer callbacks read it ----
+  const moved = new Material(nx, ny, nattrs, cur.edgeList, cur.iteration + 1, [], neattrs, { ...cur.transfers });
+  const movedEdges = moved.edges;
+  for (const { where, opts } of bulkSplits) {
+    for (const e of movedEdges) {
+      if (!where(e)) continue;
+      recordSplit(e.index, { at: opts.at ?? 0.5, point: opts.point, edges: opts.edges, attributes: opts.attributes, parent: opts.parent });
+    }
+  }
+
+  // ---- conflicts ----
+  const incident = (row: number) => removed.has(cur.edgeList[2 * row]) || removed.has(cur.edgeList[2 * row + 1]);
+  for (const row of removed) {
+    if (touchedPoint.has(row)) throw new Error(`steps: vertex ${row} is removed and also moved or set in this step — use a selector that excludes it`);
+  }
+  for (const [row] of splits) {
+    if (disconnected.has(row)) throw new Error(`steps: edge ${row} is split and disconnected in the same step`);
+    if (incident(row)) throw new Error(`steps: edge ${row} is split but one of its vertices is removed in this step`);
+  }
+  for (const row of touchedEdge) {
+    if (disconnected.has(row)) throw new Error(`steps: edge ${row} has attributes set and is disconnected in the same step`);
+  }
+
+  // ---- resolve splits per original edge: sorted, deduplicated, one definition each ----
+  interface Cut { at: number; row: number; point: Record<string, number>; explicit: Record<string, number> }
+  const cutsByEdge = new Map<number, Cut[]>();
+  const childEdgeOverride = new Map<number, SplitOpts['edges']>();
+  const sameDef = (a: unknown, b: unknown) => a === b || (typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b));
+  for (const [row, reqs] of splits) {
+    const parentEdge = movedEdges[row];
+    // legacy `parent`: rewrite the start vertex's point attributes
+    for (const r of reqs) {
+      if (r.parent) {
+        const upd = r.parent(parentEdge);
+        writePoint(parentEdge.a.index, upd);
+      }
+    }
+    // one child-edge definition per parent per batch
+    let edgesDef: SplitOpts['edges'] = undefined;
+    let haveDef = false;
+    for (const r of reqs) {
+      if (r.edges === undefined) continue;
+      if (!haveDef) { edgesDef = r.edges; haveDef = true; }
+      else if (!sameDef(edgesDef, r.edges)) throw new Error(`steps: edge ${row} is split with two different child-edge definitions in one step`);
+    }
+    childEdgeOverride.set(row, edgesDef);
+    // inherited point attributes at each parameter, then explicit overrides
+    const byAt = new Map<number, Cut>();
+    const pa = parentEdge.a;
+    const pb = parentEdge.b;
+    const inherit = (at: number): Record<string, number> => {
+      const out: Record<string, number> = {};
+      for (const name of names) {
+        const va = nattrs[name][pa.index];
+        const vb = nattrs[name][pb.index];
+        out[name] = cur.transfers[name] === 'nearest' ? (at <= 0.5 ? va : vb) : va + (vb - va) * at;
+      }
+      return out;
+    };
+    for (const r of reqs) {
+      const explicit: Record<string, number> = {};
+      const legacy = typeof r.attributes === 'function' ? r.attributes(parentEdge) : r.attributes;
+      if (legacy) Object.assign(explicit, legacy);
+      const pt = typeof r.point === 'function' ? r.point(parentEdge, r.at) : r.point;
+      if (pt) Object.assign(explicit, pt);
+      for (const name in explicit) {
+        if (!names.includes(name)) throw new Error(`steps: no attribute '${name}' — declare it first`);
+        if (!Number.isFinite(explicit[name])) throw new Error(`steps: '${name}' for a split vertex is not a finite number`);
+      }
+      const existing = byAt.get(r.at);
+      if (existing) {
+        // the same parameter twice: explicit overrides may agree or add, never disagree
+        for (const name in explicit) {
+          if (name in existing.explicit && existing.explicit[name] !== explicit[name]) {
+            throw new Error(`steps: edge ${row} split at ${r.at} twice with conflicting '${name}' (${existing.explicit[name]} vs ${explicit[name]})`);
+          }
+          existing.explicit[name] = explicit[name];
+          existing.point[name] = explicit[name];
+        }
+        continue;
+      }
+      byAt.set(r.at, { at: r.at, row: -1, point: { ...inherit(r.at), ...explicit }, explicit });
+    }
+    const cuts = Array.from(byAt.values()).sort((p, q) => p.at - q.at);
+    cutsByEdge.set(row, cuts);
+    // handles for split vertices resolve to the cut at their parameter
+    for (const r of reqs) if (r.handle !== undefined) (added[r.handle] as { cutOf?: [number, number] }).cutOf = [row, r.at];
+  }
+
+  // ---- compact rows: survivors in order, split vertices after their edge's start row, new points last ----
+  const rowMap = new Int32Array(n).fill(-1);
   const ox: number[] = [];
   const oy: number[] = [];
   const oattrs: Record<string, number[]> = {};
   for (const name of names) oattrs[name] = [];
-  const insertAfter = new Map<number, { x: number; y: number; attrs: Record<string, number>; edge: number; at: number }[]>();
-  const parentWrites = new Map<number, Record<string, number>>();
-  if (splits.length > 0) {
-    const edges = moved.edges;
-    for (const e of edges) {
-      for (const s of splits) {
-        if (!s.where(e)) continue;
-        const born = typeof s.attributes === 'function' ? s.attributes(e) : s.attributes;
-        if (typeof s.attributes === 'function') checkAttrs(born, names, 'the new vertex');
-        if (s.parent) {
-          const upd = s.parent(e);
-          for (const name in upd) if (!names.includes(name)) throw new Error(`steps: no attribute '${name}' — declare it in material()/curve()`);
-          parentWrites.set(e.a.index, { ...(parentWrites.get(e.a.index) ?? {}), ...upd });
-        }
-        const list = insertAfter.get(e.a.index) ?? [];
-        list.push({ x: e.a.x + (e.b.x - e.a.x) * s.at, y: e.a.y + (e.b.y - e.a.y) * s.at, attrs: born, edge: e.index, at: s.at });
-        insertAfter.set(e.a.index, list);
-        break;
-      }
-    }
+  const cutRow = new Map<string, number>(); // `${edge}@${at}` → row
+  const insertAfter = new Map<number, [number, Cut][]>();
+  for (const [row, cuts] of cutsByEdge) {
+    const a = cur.edgeList[2 * row];
+    const list = insertAfter.get(a) ?? [];
+    for (const c of cuts) list.push([row, c]);
+    insertAfter.set(a, list);
   }
-  const splitRow = new Map<number, number>(); // edge row → new vertex row
   for (let i = 0; i < n; i++) {
+    if (removed.has(i)) continue;
     rowMap[i] = ox.length;
     ox.push(nx[i]);
     oy.push(ny[i]);
-    const pw = parentWrites.get(i);
-    for (const name of names) oattrs[name].push(pw && name in pw ? pw[name] : nattrs[name][i]);
-    for (const ins of insertAfter.get(i) ?? []) {
-      splitRow.set(ins.edge, ox.length);
-      ox.push(ins.x);
-      oy.push(ins.y);
-      for (const name of names) oattrs[name].push(ins.attrs[name]);
+    for (const name of names) oattrs[name].push(nattrs[name][i]);
+    for (const [row, c] of insertAfter.get(i) ?? []) {
+      const e = movedEdges[row];
+      cutRow.set(`${row}@${c.at}`, ox.length);
+      ox.push(e.a.x + (e.b.x - e.a.x) * c.at);
+      oy.push(e.a.y + (e.b.y - e.a.y) * c.at);
+      for (const name of names) oattrs[name].push(c.point[name]);
     }
   }
-  const handleRow = new Int32Array(added.length);
-  for (let a = 0; a < added.length; a++) {
-    handleRow[a] = ox.length;
-    ox.push(added[a].x);
-    oy.push(added[a].y);
-    for (const name of names) oattrs[name].push(added[a].attrs[name]);
+  const handleRow = new Int32Array(added.length).fill(-1);
+  for (let h = 0; h < added.length; h++) {
+    const cutOf = (added[h] as { cutOf?: [number, number] }).cutOf;
+    if (cutOf) {
+      handleRow[h] = cutRow.get(`${cutOf[0]}@${cutOf[1]}`)!;
+      continue;
+    }
+    handleRow[h] = ox.length;
+    ox.push(added[h].x);
+    oy.push(added[h].y);
+    for (const name of names) oattrs[name].push(added[h].attrs[name]);
   }
+
+  // ---- edges: survivors (split into chains), then new connections ----
   const edges: number[] = [];
-  for (let e = 0; e < cur.edgeCount; e++) {
+  const eattrs: Record<string, number[]> = {};
+  for (const name of enames) eattrs[name] = [];
+  const pushEdge = (a: number, b: number, attrs: Record<string, number>) => {
+    edges.push(a, b);
+    for (const name of enames) eattrs[name].push(attrs[name]);
+  };
+  for (let e = 0; e < m; e++) {
+    if (disconnected.has(e) || incident(e)) continue;
     const a = rowMap[cur.edgeList[2 * e]];
     const b = rowMap[cur.edgeList[2 * e + 1]];
-    const mid = splitRow.get(e);
-    if (mid === undefined) edges.push(a, b);
-    else edges.push(a, mid, mid, b);
+    const parentAttrs: Record<string, number> = {};
+    for (const name of enames) parentAttrs[name] = neattrs[name][e];
+    const cuts = cutsByEdge.get(e);
+    if (!cuts) {
+      pushEdge(a, b, parentAttrs);
+      continue;
+    }
+    const override = childEdgeOverride.get(e);
+    const stops = [0, ...cuts.map((c) => c.at), 1];
+    const rows = [a, ...cuts.map((c) => cutRow.get(`${e}@${c.at}`)!), b];
+    for (let i = 0; i + 1 < stops.length; i++) {
+      const child: ChildInterval = { from: stops[i], to: stops[i + 1], fraction: stops[i + 1] - stops[i] };
+      const extra = typeof override === 'function' ? override(movedEdges[e], child) : override ?? {};
+      for (const name in extra) {
+        if (!enames.includes(name)) throw new Error(`steps: no edge attribute '${name}' — declare it with edgeAttribute()`);
+        if (!Number.isFinite(extra[name])) throw new Error(`steps: '${name}' for a child edge is not a finite number`);
+      }
+      pushEdge(rows[i], rows[i + 1], { ...parentAttrs, ...extra });
+    }
   }
-  const resolve = (r: Ref): number => {
+  const resolve = (r: Ref, what: string): number => {
     if (isHandle(r)) {
-      if (r.__batch !== batch) throw new Error('connect: that handle belongs to another edit batch (another step)');
-      if (r.__handle < 0 || r.__handle >= added.length) throw new Error('connect: unknown handle');
+      if (r.__batch !== batch) throw new Error(`steps: ${what}: that handle belongs to another edit batch (another step)`);
+      if (r.__handle < 0 || r.__handle >= added.length) throw new Error(`steps: ${what}: unknown handle`);
       return handleRow[r.__handle];
     }
-    if (!Number.isInteger(r) || r < 0 || r >= n) throw new Error(`connect: no vertex ${r} in this state (${n} rows)`);
-    return rowMap[r];
+    const row = rowOf(r, what);
+    if (removed.has(row)) throw new Error(`steps: ${what}: vertex ${row} is removed in this step`);
+    return rowMap[row];
   };
   const have = new Set<number>();
   for (let e = 0; e < edges.length; e += 2) have.add(pairKey(edges[e], edges[e + 1]));
-  for (const [a, b] of links) {
-    const ra = resolve(a);
-    const rb = resolve(b);
-    if (ra === rb) throw new Error(`connect: edge ${ra}–${rb} joins a vertex to itself`);
-    const k = pairKey(ra, rb);
-    if (have.has(k)) continue; // connecting an existing pair is a no-op, not a second edge
-    have.add(k);
-    edges.push(ra, rb);
+  for (const l of links) {
+    const ra = resolve(l.a, 'connect');
+    const rb = resolve(l.b, 'connect');
+    if (ra === rb) throw new Error(`steps: connect: edge ${ra}–${rb} joins a vertex to itself`);
+    const key = pairKey(ra, rb);
+    if (have.has(key)) continue; // an existing pair is left as it is
+    have.add(key);
+    pushEdge(ra, rb, l.attrs);
   }
+
   const attrs: Record<string, Float64Array> = {};
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), cur.iteration + 1);
+  const edgeAttrs: Record<string, Float64Array> = {};
+  for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), cur.iteration + 1, [], edgeAttrs, { ...cur.transfers });
 }
 
 // ---- spatial neighbours -----------------------------------------------------------
