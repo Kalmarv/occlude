@@ -44,14 +44,24 @@ export interface StreamOpts {
   maxLength?: L;
 }
 
+/** Separation grid: `head[cell]` is the newest point stored in that cell and
+ * `before[i]` the one stored before it, -1 terminating — an intrusive linked
+ * list over two Int32Arrays, the shape `scatter`'s neighbour grid already
+ * uses. A `Map<number, number[]>` made every cell probe a hash lookup and a
+ * pointer chase into a separate array, and a separation test probes
+ * (2r+1)² cells, nearly all of them empty. */
 interface Grid {
   cell: number;
   ox: number;
   oy: number;
   cols: number;
   rows: number;
-  cells: Map<number, number[]>; // cell index → indices into pts
-  pts: number[]; // x0, y0, x1, y1, …
+  head: Int32Array;
+  before: Int32Array;
+  /** Points stored so far — the index the next one will take. */
+  n: number;
+  px: Float64Array;
+  py: Float64Array;
 }
 
 function gridKey(g: Grid, x: number, y: number): number | null {
@@ -63,31 +73,41 @@ function gridKey(g: Grid, x: number, y: number): number | null {
 
 function gridAdd(g: Grid, x: number, y: number): void {
   const k = gridKey(g, x, y);
-  if (k === null) return;
-  const i = g.pts.length / 2;
-  g.pts.push(x, y);
-  const list = g.cells.get(k);
-  if (list) list.push(i);
-  else g.cells.set(k, [i]);
+  if (k === null) return; // outside the grid: never stored, never numbered
+  if (g.n === g.px.length) {
+    const cap = g.n * 2;
+    const nx = new Float64Array(cap); nx.set(g.px); g.px = nx;
+    const ny = new Float64Array(cap); ny.set(g.py); g.py = ny;
+    const nb = new Int32Array(cap); nb.set(g.before); g.before = nb;
+  }
+  const i = g.n++;
+  g.px[i] = x;
+  g.py[i] = y;
+  g.before[i] = g.head[k];
+  g.head[k] = i;
 }
 
 /** Is any stored point within `d` of (x, y)? `skipFrom` ignores the most
- * recent points (the line being drawn must not collide with itself). */
+ * recent points (the line being drawn must not collide with itself).
+ * A pure any-hit predicate that returns on the first one, so the order the
+ * cells and their chains are walked in cannot change the answer. */
 function gridNear(g: Grid, x: number, y: number, d: number, skipFrom: number): boolean {
   const r = Math.ceil(d / g.cell);
   const cx = Math.floor((x - g.ox) / g.cell);
   const cy = Math.floor((y - g.oy) / g.cell);
   const d2 = d * d;
-  for (let j = cy - r; j <= cy + r; j++) {
-    if (j < 0 || j >= g.rows) continue;
-    for (let i = cx - r; i <= cx + r; i++) {
-      if (i < 0 || i >= g.cols) continue;
-      const list = g.cells.get(j * g.cols + i);
-      if (!list) continue;
-      for (const p of list) {
+  const j0 = Math.max(0, cy - r);
+  const j1 = Math.min(g.rows - 1, cy + r);
+  const i0 = Math.max(0, cx - r);
+  const i1 = Math.min(g.cols - 1, cx + r);
+  const { head, before, px, py, cols } = g;
+  for (let j = j0; j <= j1; j++) {
+    const row = j * cols;
+    for (let i = i0; i <= i1; i++) {
+      for (let p = head[row + i]; p >= 0; p = before[p]) {
         if (p >= skipFrom) continue;
-        const dx = g.pts[p * 2] - x;
-        const dy = g.pts[p * 2 + 1] - y;
+        const dx = px[p] - x;
+        const dy = py[p] - y;
         if (dx * dx + dy * dy < d2) return true;
       }
     }
@@ -122,7 +142,14 @@ export function streamlinesOf(env: IsoEnv, field: VectorFieldFn, opts: StreamOpt
   if (!Number.isFinite(cols * rows) || cols * rows > 1 << 24) {
     throw new Error(`streamlines: separation grid is ${cols}×${rows} — spacing too small for this drawable`);
   }
-  const grid: Grid = { cell: cellU, ox: b.x, oy: b.y, cols, rows, cells: new Map(), pts: [] };
+  const grid: Grid = {
+    cell: cellU, ox: b.x, oy: b.y, cols, rows,
+    head: new Int32Array(cols * rows).fill(-1),
+    before: new Int32Array(1024).fill(-1),
+    n: 0,
+    px: new Float64Array(1024),
+    py: new Float64Array(1024),
+  };
 
   const inside = (x: number, y: number): boolean =>
     x >= b.x && y >= b.y && x <= b.x + b.w && y <= b.y + b.h;
@@ -180,7 +207,7 @@ export function streamlinesOf(env: IsoEnv, field: VectorFieldFn, opts: StreamOpt
       // right beside the seed. Past K steps only the last K own points are
       // skipped, so a line closing on itself stops like any other.
       const K = Math.ceil((sp / stepU) * 1.5);
-      const ownSkip = i < K ? skipFrom : Math.max(skipFrom, grid.pts.length / 2 - K);
+      const ownSkip = i < K ? skipFrom : Math.max(skipFrom, grid.n - K);
       if (gridNear(grid, nx, ny, sp * 0.5, ownSkip)) break;
       out.push([nx, ny]);
       gridAdd(grid, nx, ny);
@@ -214,7 +241,7 @@ export function streamlinesOf(env: IsoEnv, field: VectorFieldFn, opts: StreamOpt
     // A seed too close to existing ink (within the full spacing) is dropped:
     // seeds are spawned AT one spacing, so anything nearer is a duplicate.
     if (gridNear(grid, sx, sy, sp0 * 0.9, Infinity)) continue;
-    const mark = grid.pts.length / 2;
+    const mark = grid.n;
     gridAdd(grid, sx, sy);
     const fwd = half(sx, sy, 1, mark);
     const back = half(sx, sy, -1, mark);

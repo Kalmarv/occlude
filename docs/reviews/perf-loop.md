@@ -492,6 +492,67 @@ pattern already there.
 
 ---
 
+## Entry 9 — the streamline separation grid becomes two typed arrays (`src/streamlines.ts`)
+
+**Finding.** `gridNear` — the separation test a traced line makes at every
+integration step — was **415 ms of self time on flow-user**, the largest
+library-side number left. Its grid was `Map<number, number[]>`: a hash lookup
+*and* a pointer chase into a separate JS array for every cell probed, and a
+test probes (2r+1)² cells, nearly all of them empty. `scatterPoints` already
+replaced exactly this shape with an intrusive linked list over two
+`Int32Array`s, for exactly this reason; streamlines had not followed.
+
+**Change.** `head[cell]` is the newest point stored in that cell and
+`before[i]` the one stored before it, −1 terminating; the coordinates move to
+two growable `Float64Array`s. The cell ranges are clamped once instead of
+tested per row and column. `gridNear` is a pure any-hit predicate that returns
+on the first one, so walking the chains newest-first cannot change the answer;
+a point outside the grid is still neither stored nor numbered, so `skipFrom`
+and the point indices are the same integers as before.
+
+**Verification.**
+
+- Differential against `HEAD`'s `streamlines.ts`: **440 comparisons over
+  25 759 019 points, 0 mismatches** — every coordinate of every traced line
+  and the thrown message. Ten vector fields (uniform, swirl, radial, a still
+  centre, noisy, a NaN hole, a half-absent domain, ±Infinity, all-zero, and
+  one that flips sign across bands), five spacings from 0.6 to 40, four
+  bounds (including a 4 × 400 sliver and a 3 × 3 box), with and without an
+  explicit step, plus 40 variable-spacing runs carrying `minSpacing`,
+  `maxLength` and explicit seeds.
+- A new test in `test/streamlines.test.ts`: the grid at its edges and in
+  degenerate drawables — one cell wide, one cell tall, a 7 × 7 box, and a
+  separation radius larger than the whole grid — plus seeds sitting exactly on
+  the drawable's corners. Every point stays inside, and the half-spacing
+  separation holds in each.
+- Gates: 315 TS tests, all **26 studio sketches hash identically**, docs
+  106/106, studio build with wasm md5 match, 81 studio tests, church oracle
+  381.0 min / 16 515 travel mm.
+
+**Measurement** (`bench/ibench.mts` run against `dist`, two interleaved A/B
+pairs, medians of 3; contour counts identical on every row):
+
+| workload | before | after |
+|---|---|---|
+| swirl, spacing 3 | 44 / 29 ms | **19 / 19 ms** |
+| swirl, spacing 1 | 254 / 221 ms | **152 / 139 ms** |
+| noisy, spacing 2 | 70 / 68 ms | **45 / 50 ms** |
+| noisy, spacing 0.6 (dense) | 281 / 287 ms | **183 / 187 ms** |
+| variable spacing | 133 / 129 ms | **87 / 88 ms** |
+| a field that gives out over a disc | 64 / 65 ms | **37 / 35 ms** |
+| fine step, spacing 2 | 291 / 265 ms | **223 / 196 ms** |
+
+About 1.5× across the board. End to end (`renderhash`, seed 42, the sketch
+column, three A/B pairs): flow-user 3 729 / 3 503 / 3 493 → **3 013 / 2 848 /
+2 764 ms**, flow-portrait 754 / 628 / 755 → 664 / 591 / 628 ms, testing-fields
+186 / 195 / 160 → 165 / 150 / 164 ms.
+
+*(This is the file where a scalar `rk4` was tried and reverted — see Rejected.
+The grid, not the tuples, was the cost.)*
+
+---
+
+
 ## Recorded, not acted on: a stipple fill covers the whole bbox, once per region
 
 Instrumenting `contours-2-multicolor` — eight nested contour bands, each

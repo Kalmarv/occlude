@@ -63,6 +63,30 @@ describe('streamlines', () => {
     expect(lines.length).toBeLessThan(30);
   });
 
+  it('the separation grid holds at its edges and in degenerate drawables', () => {
+    // A grid one cell wide, one cell tall, and one where the separation
+    // radius spans the whole grid: the neighbour walk must clamp, not skip.
+    for (const [w, h, spacing] of [[2, 200, 5], [200, 2, 5], [7, 7, 3], [40, 40, 60]] as const) {
+      const e: IsoEnv = { bounds: { x: 0, y: 0, w, h }, len: (l) => (typeof l === 'number' ? l : l.value) };
+      const lines = streamlinesOf(e, uniform, { spacing }).map((c) => c.pts);
+      for (const l of lines) {
+        for (const [x, y] of l) {
+          expect(x).toBeGreaterThanOrEqual(0);
+          expect(y).toBeGreaterThanOrEqual(0);
+          expect(x).toBeLessThanOrEqual(w);
+          expect(y).toBeLessThanOrEqual(h);
+        }
+      }
+      if (lines.length > 1) expect(minGapBetweenLines(lines)).toBeGreaterThan(spacing * 0.5 - 1e-6);
+    }
+    // Lines that run right along the drawable's edge still separate: seeds
+    // on the boundary, and a field that pushes straight at it.
+    const edge: IsoEnv = { bounds: { x: -50, y: -50, w: 100, h: 100 }, len: (l) => (typeof l === 'number' ? l : l.value) };
+    const out = streamlinesOf(edge, uniform, { spacing: 4, seeds: [[-50, -50], [-50, 50], [50, -50], [50, 50], [0, 0]] }).map((c) => c.pts);
+    expect(out.length).toBeGreaterThan(3);
+    expect(minGapBetweenLines(out)).toBeGreaterThan(4 * 0.5 - 1e-6);
+  });
+
   it('variable spacing: lines crowd where the spacing field is small', () => {
     // Tight on the left half, loose on the right.
     const spacing = (x: number) => (x < 50 ? 2 : 8);
