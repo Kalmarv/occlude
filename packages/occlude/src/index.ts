@@ -56,7 +56,7 @@ export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fill
 // material with its outline's connectivity).
 export {
   material, curve, append, connect, Material, segmentRuns, neighbours, extent, banding,
-  add, sub, mul, length, distance, unit, limit, perp, sum, sumBy,
+  add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy,
   force, ownedBy,
 } from './material.js';
 export { query } from './query.js';

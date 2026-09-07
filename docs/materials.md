@@ -89,7 +89,7 @@ A material is a set of vertices, each with `x`, `y` and any named attribute colu
 | Layer | Vocabulary |
 |---|---|
 | making | `t.sample(shape)`, `material(points)`, `curve(pts)`, `connect.*`, `.attribute()`, `.resample()` |
-| vectors | `add sub mul length distance unit limit perp sum sumBy`: tuples in either spelling, tuples out, nothing mutated |
+| vectors | `add sub mul length distance unit limit perp dot cross fromAngle angleOf sum sumBy`: tuples in either spelling, tuples out, nothing mutated; angles in radians |
 | rules | `.steps(n, (current, next, k) => …)` with the collection edits; forces prepared once and evaluated at a point |
 | collections | `.points`, `.edges`, `.faces()`: iterate, `length`, `at`, `map`, `filter` (a selection), `groupBy` (selections by key); `.extract()` for independent material; `connectedPoints`, `components`, `meanBy` |
 | areas | `.planarize()` shares crossings on purpose; `.faces()` reads the enclosed regions; `boundaries()` outlines a union |
@@ -115,7 +115,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
-`m.attribute(name, constant | p => value, { transfer? })` adds a point column and returns a new material; `m.edgeAttribute(name, constant | e => value)` adds an edge column, each edge its own row. Read `m.points` (vertex views `{ index, x, y, ...attrs }`), `m.pts` (tuples), `m.x`, `m.y` and `m.attrs.age` (the columns), `m.connected(i)`, `m.degree(i)`, `m.edges` and `m.curves()`.
+`m.attribute(name, constant | p => value, { transfer? })` adds a point column and returns a new material; `m.attributes({ a: …, b: … }, { transfer?: { a: … } })` adds several at once, every initializer reading the material as it is, so no column sees another's new value. `m.edgeAttribute(name, constant | e => value)` and `m.edgeAttributes({ … })` do the same for edge columns, each edge its own row. Read `m.points` (vertex views `{ index, x, y, ...attrs }`), `m.pts` (tuples), `m.x`, `m.y` and `m.attrs.age` (the columns), `m.connected(i)`, `m.degree(i)`, `m.edges` and `m.curves()`.
 
 ```ts live
 import { sketch, circle, material } from 'occlude';
@@ -136,7 +136,7 @@ export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
 
 ### Connections
 
-`connect.chain(m)` and `connect.ring(m)` join consecutive rows in the given order. `connect.nearest(m, { count })` joins each vertex to its `count` nearest others, undirected and without duplicates. `connect.pairs(a, b)` joins row i of `a` to row i of `b` in one material. `connect.triangulate(m)` adds the Delaunay edges. `append(a, b)` puts two materials in one.
+`connect.chain(m)` and `connect.ring(m)` join consecutive rows in the given order. `connect.nearest(m, { count })` joins each vertex to its `count` nearest others, undirected and without duplicates. `connect.pairs(a, b)` joins row i of `a` to row i of `b` in one material. `connect.triangulate(m)` adds the Delaunay edges. `append(a, b, { fill?, edgeFill? })` puts two materials in one: both need the same columns, or `fill: { active: 0 }` says what the side without `active` gets, and only that side; a missing column with no fill is an error, never a silent zero. A column both sides declare must agree on its transfer policy; a column one side declares keeps that side's policy for the filled rows too.
 
 ```ts live
 import { sketch, stroke, material, connect } from 'occlude';
@@ -152,7 +152,7 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
 
 ### Vectors
 
-Vectors are tuples `[x, y]`. Every operation accepts `[x, y]` or `{ x, y }` (so a vertex view goes straight in), returns a fresh tuple and mutates nothing. `unit([0, 0])` is `[0, 0]`, so coincident points contribute no direction and no NaN. `mul` is scalar multiplication; `limit(v, max)` caps a length; `sumBy(items, fn)` totals a vector function over a collection.
+Vectors are tuples `[x, y]`. Every operation accepts `[x, y]` or `{ x, y }` (so a vertex view goes straight in), returns a fresh tuple and mutates nothing. `unit([0, 0])` is `[0, 0]`, so coincident points contribute no direction and no NaN. `mul` is scalar multiplication; `limit(v, max)` caps a length; `sumBy(items, fn)` totals a vector function over a collection. `dot(a, b)` and `cross(a, b)` are the two products, the cross a signed number: positive when `b` lies on the side `perp(a)` points to, negative on the other, zero when parallel or when either is the zero vector, so `Math.sign(cross(heading, toward))` is the side test a steering rule needs. `fromAngle(radians)` is the unit vector `[cos, sin]` and `angleOf(v)` its inverse through `atan2`, both in radians from +x toward +y; `angleOf([0, 0])` is 0.
 
 ```ts live
 import { sketch, line, circle, sub, mul, unit, length, sumBy } from 'occlude';
@@ -322,7 +322,7 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 | `next.remove(ref \| p => bool)` | delete a point and its incident edges; neighbours are never joined |
 | `next.split(edge, { at?, point?, edges? })` → handle | replace an edge with two through a new vertex |
 | `next.splitEdges(e => bool, { at?, point?, edges? })` | bulk split on the moved edges: moves apply first, then the predicate sees each edge as it will be |
-| `next.extend(p => spec \| spec[], { where? })` | for each selected vertex, a new child `{ position, attributes }` or a connection `{ to }`, joined to it |
+| `next.extend(p => spec \| spec[], { where?, inherit? })` | for each selected vertex, a new child `{ position, attributes }` or a connection `{ to }`, joined to it; with `inherit: true` a child starts from its parent's columns and `attributes` are overrides, and a `to` target is never changed |
 
 A reference is a row of the current state, a vertex view of it, or a handle from this batch. Views are checked for ownership: a view of another material or a handle from another step is an error even when its row exists. A new point or edge must name every declared column. A split has a source, so the inserted vertex inherits by each column's transfer policy and the child edges copy the parent's edge attributes, with `point` and `edges` overrides on top.
 

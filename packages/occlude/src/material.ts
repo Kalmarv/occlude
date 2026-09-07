@@ -96,6 +96,32 @@ export function perp(v: XY): Vec {
   return [-vy(v), vx(v)];
 }
 
+/** Dot product `a · b`: zero when the two are perpendicular or either is the zero vector. */
+export function dot(a: XY, b: XY): number {
+  return vx(a) * vx(b) + vy(a) * vy(b);
+}
+
+/** Signed 2D cross product `a × b = ax·by − ay·bx`. Positive when `b` lies
+ * on the side of `a` that `perp(a)` points to (a quarter turn from +x
+ * toward +y, which is clockwise as drawn, since y grows downward), negative
+ * on the other side, zero when the two are parallel or either is the zero
+ * vector. `Math.sign(cross(heading, toward))` is the side test. */
+export function cross(a: XY, b: XY): number {
+  return vx(a) * vy(b) - vy(a) * vx(b);
+}
+
+/** The unit vector at `angle` radians, `[cos, sin]`: angles here are
+ * radians from +x toward +y, the same convention `angleOf` reads. */
+export function fromAngle(angle: number): Vec {
+  return [Math.cos(angle), Math.sin(angle)];
+}
+
+/** The angle of `v` in radians, from +x toward +y (`Math.atan2(y, x)`),
+ * in (−π, π]; the zero vector gives 0. */
+export function angleOf(v: XY): number {
+  return Math.atan2(vy(v), vx(v));
+}
+
 /** Component-wise sum of any number of vectors, left to right. */
 export function sum(...vs: readonly XY[]): Vec {
   let x = 0;
@@ -516,16 +542,32 @@ export class Material {
 
   /** A new material with a column set: a constant, or one value per vertex. */
   attribute(name: string, value: number | ((p: Vertex) => number), opts: { transfer?: TransferPolicy } = {}): Material {
-    const col = new Float64Array(this.n);
-    if (typeof value === 'number') col.fill(value);
-    else for (let i = 0; i < this.n; i++) col[i] = value(this.vertex(i));
-    // A value update keeps the column's declared policy; only an explicit
-    // `transfer` changes it (an explicit 'interpolate' restores the default).
+    return this.attributes({ [name]: value }, opts.transfer ? { transfer: { [name]: opts.transfer } } : {});
+  }
+
+  /** A new material with several point columns set at once. Every
+   * initializer reads THIS state: a callback sees the vertex as it is here,
+   * so no column can read another's newly computed value, and the order of
+   * the keys does not matter. `transfer` declares policies per column; a
+   * value update keeps a column's declared policy, and an explicit
+   * `'interpolate'` restores the default. */
+  attributes(values: Record<string, number | ((p: Vertex) => number)>, opts: { transfer?: Record<string, TransferPolicy> } = {}): Material {
+    const cols: Record<string, Float64Array> = {};
+    for (const name of Object.keys(values)) {
+      const value = values[name];
+      const col = new Float64Array(this.n);
+      if (typeof value === 'number') col.fill(value);
+      else for (let i = 0; i < this.n; i++) col[i] = value(this.vertex(i));
+      cols[name] = col;
+    }
     const transfers = { ...this.transfers };
-    if (opts.transfer === 'interpolate') delete transfers[name];
-    else if (opts.transfer) transfers[name] = opts.transfer;
+    for (const [name, policy] of Object.entries(opts.transfer ?? {})) {
+      if (!(name in values)) throw new Error(`attributes: transfer names '${name}', which is not being set`);
+      if (policy === 'interpolate') delete transfers[name];
+      else transfers[name] = policy;
+    }
     return new Material(
-      copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), [name]: col }, copyEdges(this.edgeList), this.iteration, [],
+      copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), ...cols }, copyEdges(this.edgeList), this.iteration, [],
       copyAttrs(this.edgeAttrs), transfers, { ...this.edgeTransfers },
     );
   }
@@ -537,15 +579,32 @@ export class Material {
    * `'distribute'` for a length-proportional quantity); a value update
    * keeps the declared policy, an explicit `'copy'` restores the default. */
   edgeAttribute(name: string, value: number | ((e: Edge) => number), opts: { transfer?: EdgeTransfer } = {}): Material {
-    const col = new Float64Array(this.edgeCount);
-    if (typeof value === 'number') col.fill(value);
-    else for (let e = 0; e < this.edgeCount; e++) col[e] = value(this.edge(e));
+    return this.edgeAttributes({ [name]: value }, opts.transfer ? { transfer: { [name]: opts.transfer } } : {});
+  }
+
+  /** A new material with several edge columns set at once; every
+   * initializer reads THIS state's edges, so a decision about a wall can
+   * be written in one pass next to another decision about the same wall,
+   * and neither sees the other's result. `transfer` is per column, as for
+   * `edgeAttribute`. */
+  edgeAttributes(values: Record<string, number | ((e: Edge) => number)>, opts: { transfer?: Record<string, EdgeTransfer> } = {}): Material {
+    const cols: Record<string, Float64Array> = {};
+    for (const name of Object.keys(values)) {
+      const value = values[name];
+      const col = new Float64Array(this.edgeCount);
+      if (typeof value === 'number') col.fill(value);
+      else for (let e = 0; e < this.edgeCount; e++) col[e] = value(this.edge(e));
+      cols[name] = col;
+    }
     const edgeTransfers = { ...this.edgeTransfers };
-    if (opts.transfer === 'copy') delete edgeTransfers[name];
-    else if (opts.transfer) edgeTransfers[name] = opts.transfer;
+    for (const [name, policy] of Object.entries(opts.transfer ?? {})) {
+      if (!(name in values)) throw new Error(`edgeAttributes: transfer names '${name}', which is not being set`);
+      if (policy === 'copy') delete edgeTransfers[name];
+      else edgeTransfers[name] = policy;
+    }
     return new Material(
       copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), this.iteration, [],
-      { ...copyAttrs(this.edgeAttrs), [name]: col }, { ...this.transfers }, edgeTransfers,
+      { ...copyAttrs(this.edgeAttrs), ...cols }, { ...this.transfers }, edgeTransfers,
     );
   }
 
@@ -1049,6 +1108,18 @@ export const connect = {
 /** Two materials as one: b's rows after a's, b's edges re-based. Both must
  * have the same columns, or `fill` must give the value a column takes on
  * the side that lacks it — nothing is dropped silently. */
+/**
+ * One material from two: `b`'s rows after `a`'s, edges renumbered. Both
+ * sides must have the same point and edge columns, or the caller says what
+ * a side that lacks a column gets: `fill: { active: 0 }` writes 0 into
+ * `active` on the side that has no `active`, and only there; values a side
+ * already has are never touched, and a missing column with no fill is an
+ * error naming it, never a silent zero. A column both sides declare must
+ * agree on its transfer policy (a column nobody declared interpolates); a
+ * column only one side declares keeps that side's policy, filled rows
+ * included. `edgeFill` does the same for edge columns, whose default
+ * policy is `'copy'`.
+ */
 export function append(
   a: Material,
   b: Material,
@@ -1139,9 +1210,12 @@ const isVertexView = (r: unknown): r is Vertex => viewKind(r) === 'vertex';
 
 /** One child of `extend`: a new point (`position` + `attributes`) or an
  * existing target (`to`); either way an edge from the parent, carrying
- * `edgeAttributes` when edge columns are declared. */
+ * `edgeAttributes` when edge columns are declared. A new point must name
+ * every declared column, unless `extend` runs with `inherit: true`, in
+ * which case it starts from its parent's values and `attributes` are the
+ * overrides. */
 export type ChildSpec =
-  | { position: XY; attributes: Record<string, number>; edgeAttributes?: Record<string, number>; to?: undefined }
+  | { position: XY; attributes?: Record<string, number>; edgeAttributes?: Record<string, number>; to?: undefined }
   | { to: Ref; edgeAttributes?: Record<string, number>; position?: undefined };
 
 /** The interval of a split child edge in the ORIGINAL edge's parameter
@@ -1231,7 +1305,10 @@ export interface Next {
   /** For every current vertex `where` says: add the child (or children)
    * `spec` describes — a new point, or a connection to an existing target
    * (`{ to }`) — and connect each to its parent. `[]` means none. */
-  extend(spec: (p: Vertex) => ChildSpec | ChildSpec[], opts?: { where?: PointWhere }): void;
+  /** With `inherit: true`, every new child starts from its parent's point
+   * attributes and the spec's `attributes` override them; a child that
+   * connects to an existing vertex (`to`) never changes that vertex. */
+  extend(spec: (p: Vertex) => ChildSpec | ChildSpec[], opts?: { where?: PointWhere; inherit?: boolean }): void;
 }
 
 function checkAttrs(attrs: Record<string, number>, names: string[], what: string, opts: { complete?: boolean } = {}): void {
@@ -1460,6 +1537,12 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
     },
     extend(spec, opts) {
       const where = pointTest(opts?.where, 'extend');
+      const inherit = opts?.inherit === true;
+      const inherited = (p: Vertex): Record<string, number> => {
+        const out: Record<string, number> = {};
+        for (const name of names) out[name] = cur.attrs[name][p.index];
+        return out;
+      };
       for (const p of points) {
         if (where && !where(p)) continue;
         const specs = spec(p);
@@ -1467,7 +1550,8 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
           const hasPos = sp.position !== undefined;
           const hasTo = sp.to !== undefined;
           if (hasPos === hasTo) throw new Error('steps: extend needs exactly one of { position } (a new child) or { to } (an existing target)');
-          const target: Ref = hasPos ? next.addPoint(sp.position!, (sp as { attributes: Record<string, number> }).attributes) : sp.to!;
+          const own = (sp as { attributes?: Record<string, number> }).attributes ?? {};
+          const target: Ref = hasPos ? next.addPoint(sp.position!, inherit ? { ...inherited(p), ...own } : own) : sp.to!;
           next.connect(p.index, target, sp.edgeAttributes ?? {});
         }
       }

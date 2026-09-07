@@ -14,9 +14,12 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density });
   const diagram = t.voronoi(sites);
   const cells = diagram.faces();
-  const contrast = (faces, e) => { const [a, b] = faces.facesOf(e); return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
-  const withOpen = diagram.edgeAttribute('open', (e) => { const [a, b] = cells.facesOf(e); return b !== undefined && a.area > field && b.area > field ? 1 : 0; });
-  const marked = withOpen.edgeAttribute('border', (e) => (contrast(withOpen.faces(), e) > ratio ? 1 : 0));
+  const beside = (e) => cells.facesOf(e);
+  const contrast = (e) => { const [a, b] = beside(e); return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
+  const marked = diagram.edgeAttributes({
+    open: (e) => { const [a, b] = beside(e); return b !== undefined && a.area > field && b.area > field ? 1 : 0; },
+    border: (e) => (contrast(e) > ratio ? 1 : 0),
+  });
   const cleared = marked.steps(1, (current, next) => next.disconnect((e) => e.attrs.open === 1));
   const country = cleared.faces().filter((f) => f.area > field);
   return [
@@ -233,7 +236,7 @@ The two hatched countries are the same shape. The left still knows its sites, so
 
 **The map.** The decisions in order: a town placed and given an edge, that edge found by the contrast of small cells against large, the fences cleared from the countryside so it is one open area, that area hatched lightly, the town's walls left fine and its edge heavy. Clearing is the choice here, not a necessity; the same drawing can be made from the kept cells with `boundaries()`, and the reason to clear is only that nothing on this page needs the sites afterwards. This is the drawing from the top of the page. Every control is one of those decisions; the seed is not one of them, and a different seed gives a different town of the same kind.
 
-```ts live focus=8-14
+```ts live focus=8-16
 import { sketch, strokes, polygon, fill, mm, distance, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
@@ -245,9 +248,12 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density });
   const diagram = t.voronoi(sites);
   const cells = diagram.faces();
-  const contrast = (faces, e) => { const [a, b] = faces.facesOf(e); return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
-  const withOpen = diagram.edgeAttribute('open', (e) => { const [a, b] = cells.facesOf(e); return b !== undefined && a.area > field && b.area > field ? 1 : 0; });
-  const marked = withOpen.edgeAttribute('border', (e) => (contrast(withOpen.faces(), e) > ratio ? 1 : 0));
+  const beside = (e) => cells.facesOf(e);
+  const contrast = (e) => { const [a, b] = beside(e); return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
+  const marked = diagram.edgeAttributes({
+    open: (e) => { const [a, b] = beside(e); return b !== undefined && a.area > field && b.area > field ? 1 : 0; },
+    border: (e) => (contrast(e) > ratio ? 1 : 0),
+  });
   const cleared = marked.steps(1, (current, next) => next.disconnect((e) => e.attrs.open === 1));
   const country = cleared.faces().filter((f) => f.area > field);
   return [
@@ -258,7 +264,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
 });
 ```
 
-Each attribute is written on a material and read through that material's own faces: `open` on the diagram, `border` on the material that already carries `open`, because an edge view belongs to the state it was taken from and the faces have to be asked of that state. Both attributes then ride through the clearing, so the heavy walls are still the ones the ratio chose, on the material that no longer has the fences. That is the reason to write a decision down as data before an edit: it survives the edit, and the edit does not have to know about it.
+Both decisions are written in one pass with `edgeAttributes`, each reading the diagram's own walls and faces, so neither needs the other to exist first. Both then ride through the clearing, so the heavy walls are still the ones the ratio chose, on the material that no longer has the fences. That is the reason to write a decision down as data before an edit: it survives the edit, and the edit does not have to know about it.
 
 ## On your own
 
