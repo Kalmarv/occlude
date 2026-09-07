@@ -61,17 +61,25 @@ pub fn plan_chains(frags: &[Frag], pens: &[Pen], tour_budget: usize) -> Vec<Chai
 pub fn plan_chains_with(frags: &[Frag], pens: &[Pen], opts: PlanOptions) -> Vec<Chain> {
     let mut out: Vec<Chain> = Vec::new();
     for (pi, pen) in pens.iter().enumerate() {
-        let chains = merge_chains(frags, pi as u32);
+        let chains = {
+            let _z = crate::profile::zone("p1 merge");
+            merge_chains(frags, pi as u32)
+        };
         if chains.is_empty() {
             continue;
         }
-        let chains = tour(chains, opts.tour_budget);
+        let chains = {
+            let _z = crate::profile::zone("p2 tour");
+            tour(chains, opts.tour_budget)
+        };
+        let _z = crate::profile::zone("p3 bridge");
         out.extend(bridge_chains(chains, bridge_gap(pen, opts.bridge)));
     }
     out
 }
 
 pub fn encode_plan(chains: &[Chain]) -> Vec<f64> {
+    let _z = crate::profile::zone("p4 encode");
     let mut out: Vec<f64> = vec![PLAN_SCHEMA, chains.len() as f64];
     for c in chains {
         out.push(c.pen as f64);

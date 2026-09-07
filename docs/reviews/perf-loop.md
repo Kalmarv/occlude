@@ -704,6 +704,32 @@ dependency we already have. **Left alone on master; noted as a candidate for
 exploratory work.**
 
 ## Rejected, with reasons
+- **A compressed endpoint index for `merge_chains`** (`gcode.rs`). The plan is
+  the phase `renderhash` never shows: the studio worker builds it once per
+  render before it can display anything, and `bench/planbench.mts` (new) puts
+  it at **675 ms on flow-user's 4 634 ms render, 109 ms on church's 582 ms** —
+  10–16 % of the wait. Native stage timers (`examples/plan_bench.rs`, new) put
+  **600 ms of the 734 ms plan inside `merge_chains`**, and inside that, 248 ms
+  building `by_end` — a `HashMap<(i64,i64), Vec<usize>>`, so about a million
+  small allocations on a dense drawing. Replacing it with dense endpoint ids, a
+  CSR block and a per-bucket cursor (bucket order preserved exactly, so the
+  walk picks the same piece) measured **734 → 595 ms natively, merge 600 → 447
+  ms — 19 %** — with the chain count, the plan buffer size and all four
+  `plotstats` oracles byte-identical.
+
+  Through **wasm it is 2.5 %**: six A/B pairs on flow-user, medians 670 → 653
+  ms, winning four of six; church and contours flat. The allocator that ships
+  is not the one the native profiler measures, and a change that removes small
+  allocations flatters itself natively. 2.5 % does not pay for forty lines and
+  a macro. **Reverted** — the wasm rebuilt to the identical md5, which is its
+  own proof that nothing shipped.
+
+  **Kept from it:** the four plan-stage `profile::zone`s in `plan.rs` (a major
+  stage that had no profiling coverage, and zero cost without the feature),
+  `examples/plan_bench.rs`, and `bench/planbench.mts`. The lesson is in
+  `bench/README.md` beside the `tsx` one.
+
+
 - **Hoisting the pixel block out of the image sampler** (`imageAsset.ts`).
   The samplers were ~888 ms of self time on flow-user, and a `dir` query does
   four samples of four pixels each, so `px.data`, `px.width` and `px.height`
