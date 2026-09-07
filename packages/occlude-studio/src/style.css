@@ -1841,7 +1841,10 @@ button.armed {
 .drawing-readout { white-space: normal; }
 
 /* ---- docs: sidebar tree, full-width topic pages, editable live examples ---- */
-.docs-body { overflow: hidden; display: flex; height: 100vh; }
+.docs-body { overflow-y: auto; }
+.docs-body #topbar { position: sticky; top: 0; z-index: 2; }
+/* The docs site alone is two independently scrolling columns: the sidebar and the page. */
+.docs-site { overflow: hidden; display: flex; height: 100vh; }
 #docs-side {
   flex: none; width: 240px; height: 100vh; overflow-y: auto; scrollbar-width: thin;
   display: flex; flex-direction: column; background: var(--panel);
@@ -1909,7 +1912,7 @@ button.armed {
 .live-open:hover, .live-btn:hover { color: var(--ink); border-color: var(--ink-dim); }
 .live-error { padding: 10px; color: var(--warn); font-family: var(--mono); font-size: 12px; }
 @media (max-width: 800px) {
-  .docs-body { flex-direction: column; }
+  .docs-site { flex-direction: column; }
   #docs-side { width: 100%; height: auto; max-height: 40vh; border-right: none; border-bottom: 1px solid var(--panel-edge); }
   .docs-content { height: auto; flex: 1; padding: 16px; }
 }
