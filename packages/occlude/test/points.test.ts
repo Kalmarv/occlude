@@ -302,3 +302,116 @@ describe('face measurements', () => {
     expect(annulus.filter(() => false).measure(() => 1).length).toBe(0);
   });
 });
+
+describe('review of fe26c3f', () => {
+  const B = { x: 0, y: 0, w: 100, h: 100 };
+  const rectArea = (cells: Material) => cells.faces().map((f) => f.area).reduce((a, b) => a + b, 0);
+
+  it('1. regular polygons and grids: cocircular sites meet at one corner, faces are the sites, area is the rectangle', () => {
+    for (const n of [3, 4, 5, 6, 7, 8, 9, 12, 20, 50]) {
+      const pts = Array.from({ length: n }, (_, i) => [50 + 30 * Math.cos((2 * Math.PI * i) / n), 50 + 30 * Math.sin((2 * Math.PI * i) / n)] as [number, number]);
+      const cells = voronoi(pts, B);
+      expect(cells.faces().length, `${n}-gon`).toBe(n);
+      expect(rectArea(cells)).toBeCloseTo(10000, 6);
+      // the centre is one vertex of degree n (for n ≥ 4 every wall meets there)
+      const centre = cells.points.filter((p) => Math.abs(p.x - 50) < 1e-6 && Math.abs(p.y - 50) < 1e-6);
+      expect(centre.length).toBe(1);
+      expect(cells.degree(centre.at(0))).toBe(n);
+      for (const f of cells.faces()) expect(cells.siteOf(f)).toBeDefined();
+    }
+    // a lattice: every interior corner has four cells
+    const grid: [number, number][] = [];
+    for (let j = 0; j < 5; j++) for (let i = 0; i < 6; i++) grid.push([10 + i * 16, 10 + j * 20]);
+    const cells = voronoi(grid, B);
+    expect(cells.faces().length).toBe(30);
+    expect(rectArea(cells)).toBeCloseTo(10000, 6);
+    expect(cells.points.filter((p) => cells.degree(p) === 4).length).toBe(20);
+    // a jittered lattice at awkward scale and offset
+    const far = grid.map(([x, y]) => [x * 1e-3 + 1234.5, y * 1e-3 + 6789.25] as [number, number]);
+    const fb = { x: 1234.5, y: 6789.25, w: 0.1, h: 0.1 };
+    expect(rectArea(voronoi(far, fb))).toBeCloseTo(0.01, 9);
+  });
+
+  it('2. sites given as a point collection or selection keep their source: correspondence answers for that material', () => {
+    const m = material([[10, 10], [80, 20], [40, 70], [90, 90]]).attribute('tag', (p) => p.index);
+    const all = voronoi(m.points, B);
+    expect(all.faces().length).toBe(4);
+    expect(all.cellOf(m.vertex(0))).toBeDefined();
+    expect(all.siteOf(all.cellOf(m.vertex(2))!)!.tag).toBe(2);
+    const part = m.points.filter((p) => p.x < 85);
+    const some = voronoi(part, B);
+    expect(some.faces().length).toBe(3);
+    expect(some.cellOf(m.vertex(3))).toBeUndefined(); // not a site of this construction
+    expect(some.cellOf(m.vertex(1))!.area).toBeGreaterThan(0);
+    expect(some.siteOf(some.faces().at(0))!.index).toBeLessThan(3);
+    // the same through the toolkit
+    run((t) => {
+      const c = t.voronoi(part, { bounds: B });
+      expect(c.cellOf(m.vertex(0))).toBeDefined();
+      expect(c.faces().length).toBe(3);
+    });
+    // bare points are a new material: a vertex of the original is not a site
+    const bare = voronoi(m.points.map((p) => [p.x, p.y] as [number, number]), B);
+    expect(() => bare.cellOf(m.vertex(0))).toThrow(/another state/);
+  });
+
+  it('3. settle: a point hook overrides inherited child attributes; a record or a callback of the parent; bounded to declared columns', () => {
+    run((t) => {
+      const src = material(t.grid({ cols: 6, rows: 6 }).map((c) => [c.cx, c.cy] as [number, number])).attribute('species', (p) => p.index % 3).attribute('age', 9);
+      // demand 1 on the left splits every cell there; 0.2 on the right keeps its points as they are
+      const dense = (x: number) => (x < 50 ? 1 : 0.2);
+      const plain = t.settle(src, { density: dense, spacing: 12, iterations: 6 });
+      expect(plain.n).toBeGreaterThan(src.n);
+      expect(Array.from(plain.attrs.age).every((a) => a === 9)).toBe(true);
+      // children reset age, keep species
+      const reset = t.settle(src, { density: dense, spacing: 12, iterations: 6, point: { age: 0 } });
+      expect(reset.n).toBe(plain.n);
+      const ages = Array.from(reset.attrs.age);
+      expect(ages.filter((a) => a === 0).length).toBeGreaterThan(0);
+      expect(ages.filter((a) => a === 9).length).toBeGreaterThan(0);
+      expect(ages.every((a) => a === 0 || a === 9)).toBe(true);
+      expect(Array.from(reset.attrs.species)).toEqual(Array.from(plain.attrs.species));
+      // a callback sees the parent as it splits: position, attributes, demand
+      const seen: number[] = [];
+      const derived = t.settle(src, { density: dense, spacing: 12, iterations: 6, point: (parent) => { seen.push(parent.demand); expect(parent.species).toBeGreaterThanOrEqual(0); expect(Number.isFinite(parent.x)).toBe(true); return { age: parent.age - 1 }; } });
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((d) => d > 1)).toBe(true); // only over-demand cells split
+      const dAges = Array.from(derived.attrs.age);
+      expect(Math.min(...dAges)).toBeLessThan(8); // a child of a child
+      expect(dAges.every((a) => a <= 9)).toBe(true);
+      expect(derived.attrNames).toEqual(['species', 'age', 'demand']);
+      // bounded: only declared columns, never demand, finite values
+      expect(() => t.settle(src, { density: dense, spacing: 12, iterations: 2, point: { colour: 1 } })).toThrow(/no attribute 'colour'/);
+      expect(() => t.settle(src, { density: dense, spacing: 12, iterations: 2, point: { demand: 1 } })).toThrow(/'demand' is computed/);
+      expect(() => t.settle(src, { density: dense, spacing: 12, iterations: 2, point: () => ({ age: NaN }) })).toThrow(/not a finite number/);
+    });
+  });
+
+  it('4. measurements are frozen: the record and its coordinate tuples', () => {
+    const cells = voronoi([[20, 20], [80, 30], [50, 70]], B);
+    const measured = cells.faces().measure(() => 1);
+    const r = measured.forFace(cells.faces().at(0));
+    expect(Object.isFrozen(r)).toBe(true);
+    expect(Object.isFrozen(r.centroid)).toBe(true);
+    expect(Object.isFrozen(r.weightedCentroid)).toBe(true);
+    expect(() => { (r as { integral: number }).integral = 123; }).toThrow();
+    expect(() => { (r.centroid as unknown as number[])[0] = 0; }).toThrow();
+    expect(measured.forFace(cells.faces().at(0)).integral).toBe(r.integral);
+    const bare = cells.faces().measure().forFace(cells.faces().at(1));
+    expect(Object.isFrozen(bare)).toBe(true);
+    expect(Object.isFrozen(bare.centroid)).toBe(true);
+  });
+
+  it('5. non-finite density is absent in the raster, as in face measurement', () => {
+    const inf = densityRaster(() => Infinity, B, 4);
+    expect(Math.max(...Array.from(inf.dens))).toBe(0);
+    const mixed = densityRaster((x) => (x < 50 ? Infinity : 0.5), B, 4);
+    expect(Math.max(...Array.from(mixed.dens))).toBe(0.5);
+    expect(Array.from(mixed.dens).filter((v) => v === 0).length).toBe(mixed.dens.length / 2);
+    const cells = voronoi([[25, 50], [75, 50]], B);
+    const m = cells.faces().measure((x) => (x < 50 ? Infinity : 0.5));
+    const left = m.forFace(cells.cellOf(cells.siteOf(cells.faces().at(0))!)!);
+    for (const r of m) if (r.centroid[0] < 50) expect(r.samples).toBe(0); else expect(r.mean).toBeCloseTo(0.5, 6);
+    expect(left).toBeDefined();
+  });
+});

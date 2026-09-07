@@ -44,7 +44,7 @@ import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { sketchFrame, unitMm } from './record.js';
 import { boundaryLoops, type Boundary } from './boundary.js';
 import { Material, material as materialOf, alongChain, checkSampling, type PointsLike } from './material.js';
-import { voronoiOf } from './voronoi.js';
+import { voronoi } from './voronoi.js';
 import { distanceTo } from './distance.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
@@ -766,10 +766,11 @@ function settle(m: Material, opts: SettleOpts): Material {
 
 /** Voronoi cells of `sites` as material (see voronoi.ts), clipped to the
  * drawable unless `bounds` is given. `cells.cellOf(site)` and
- * `cells.siteOf(face)` relate the result to its sites. */
+ * `cells.siteOf(face)` relate the result to its sites; a material or a
+ * point selection of one stays the sites, bare points become one. */
 function voronoiTk(sites: PointsLike, opts: { bounds?: PointBounds } = {}): Material {
   const b = bounds();
-  return voronoiOf(materialOf(sites as never), opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h });
+  return voronoi(sites, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h });
 }
 
 /**

@@ -25,20 +25,28 @@ import type { Bounds } from './points.js';
 import { ownedBy, viewKind } from './material.js';
 import type { IsoContour } from './isolines.js';
 
+/** One face's measurement. Records and their coordinate tuples are frozen. */
 export interface FaceMeasure {
-  face: Face;
+  readonly face: Face;
   /** Geometric area, holes subtracted (the face's own `area`). */
-  area: number;
+  readonly area: number;
   /** Geometric area centroid, holes respected. */
-  centroid: [number, number];
+  readonly centroid: readonly [number, number];
   /** ∫ field dA over the face; NaN when no field was given. */
-  integral: number;
+  readonly integral: number;
   /** integral / area; NaN when no field was given. */
-  mean: number;
+  readonly mean: number;
   /** Density-weighted centre, or null when the density contract fails. */
-  weightedCentroid: [number, number] | null;
+  readonly weightedCentroid: readonly [number, number] | null;
   /** How many raster samples fell inside the face (0 for none). */
-  samples: number;
+  readonly samples: number;
+}
+
+/** A finished record: the tuples and the record itself frozen. */
+function freezeMeasure(r: { face: Face; area: number; centroid: [number, number]; integral: number; mean: number; weightedCentroid: [number, number] | null; samples: number }): FaceMeasure {
+  Object.freeze(r.centroid);
+  if (r.weightedCentroid) Object.freeze(r.weightedCentroid);
+  return Object.freeze(r);
 }
 
 export interface MeasureOpts {
@@ -117,7 +125,8 @@ export class FaceMeasurements implements Iterable<FaceMeasure> {
 
 export function measureFaces(source: Faces, members: readonly Face[], field: ((x: number, y: number) => number) | undefined, opts: MeasureOpts = {}): FaceMeasurements {
   // Geometry first: exact from the contours.
-  const results: FaceMeasure[] = members.map((face) => {
+  type Draft = { face: Face; area: number; centroid: [number, number]; integral: number; mean: number; weightedCentroid: [number, number] | null; samples: number };
+  const results: Draft[] = members.map((face) => {
     let a = 0;
     let mx = 0;
     let my = 0;
@@ -130,7 +139,7 @@ export function measureFaces(source: Faces, members: readonly Face[], field: ((x
     const centroid: [number, number] = a !== 0 ? [mx / a, my / a] : [NaN, NaN];
     return { face, area: face.area, centroid, integral: NaN, mean: NaN, weightedCentroid: null, samples: 0 };
   });
-  if (!field || members.length === 0) return new FaceMeasurements(source, results);
+  if (!field || members.length === 0) return new FaceMeasurements(source, results.map(freezeMeasure));
   // The raster.
   let b = opts.bounds;
   if (!b) {
@@ -192,5 +201,5 @@ export function measureFaces(source: Faces, members: readonly Face[], field: ((x
     r.weightedCentroid = !negative && integral > 0 ? [wx / integral, wy / integral] : null;
     r.samples = samples;
   }
-  return new FaceMeasurements(source, results);
+  return new FaceMeasurements(source, results.map(freezeMeasure));
 }

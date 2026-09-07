@@ -63,7 +63,16 @@ export interface SettleOpts {
   iterations?: number;
   bounds?: Bounds;
   resolution?: number;
+  /** Point attributes for each child a split inserts, merged over the
+   * inherited ones (a copy of the parent's): a partial record of declared
+   * columns, or a callback of the parent as it is when it splits (its
+   * position and attributes, `demand` included). `demand` is computed and
+   * cannot be given. */
+  point?: Record<string, number> | ((parent: SettleParent) => Record<string, number>);
 }
+
+/** The splitting parent as a `settle` child hook sees it. */
+export type SettleParent = Readonly<{ x: number; y: number; demand: number } & Record<string, number>>;
 
 /** A density raster over `bounds`: cell centres at (i + ½)·cw, values
  * clamped to 0…1, non-positive and non-finite samples empty. */
@@ -85,7 +94,7 @@ export function densityRaster(field: FieldFn2, bounds: Bounds, resolution: numbe
   for (let j = 0; j < rows; j++) {
     for (let i = 0; i < cols; i++) {
       const v = field(bounds.x + (i + 0.5) * cw, bounds.y + (j + 0.5) * cw);
-      dens[j * cols + i] = v > 0 ? Math.min(1, v) : 0;
+      dens[j * cols + i] = Number.isFinite(v) && v > 0 ? Math.min(1, v) : 0;
     }
   }
   return { cols, rows, cw, bounds, dens };
@@ -168,7 +177,8 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
  * centroids; the thresholds tighten with the round. Point-only input:
  * connected material is refused. Survivors keep their declared columns,
  * children copy their parent's (a copied value is duplicated, not shared
- * out), and `demand` is written for every point of the result.
+ * out) merged with `opts.point`, and `demand` is written for every point
+ * of the result.
  */
 export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): Material {
   if (m.edgeCount > 0) throw new Error(`settle: the input has ${m.edgeCount} edges — settling changes the point count, so it takes point-only material; extract the points first (m.points.extract())`);
@@ -185,9 +195,31 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
   // a full-demand hex cell at `spacing` holds. Cells above split, below die.
   const cap = ((spacingU * spacingU * 0.866) / (cw * cw)) * 1.0;
 
+  const names = m.attrNames.filter((name) => name !== 'demand');
+  const hook = opts.point;
+  if (hook !== undefined && typeof hook !== 'function' && (typeof hook !== 'object' || hook === null)) throw new Error('settle: point must be a record of attributes or a callback of the parent');
+  const checkOverride = (o: Record<string, number>): Record<string, number> => {
+    for (const name in o) {
+      if (name === 'demand') throw new Error("settle: 'demand' is computed by settle and cannot be given for a child");
+      if (!names.includes(name)) throw new Error(`settle: no attribute '${name}' — declare it first`);
+      if (!Number.isFinite(o[name])) throw new Error(`settle: '${name}' for a child is not a finite number`);
+    }
+    return o;
+  };
+  const constOverride = hook && typeof hook !== 'function' ? checkOverride(hook) : null;
   let coords = coordsOf(m);
   let parent = Int32Array.from({ length: m.n }, (_, i) => i);
+  // Overrides accumulated along a point's line of descent (null: pure inheritance).
+  let over: (Record<string, number> | null)[] = Array.from({ length: m.n }, () => null);
   let demand = new Float64Array(m.n);
+  /** The parent as the hook sees it: current position, inherited and overridden attributes, demand. */
+  const parentRecord = (p: number, x: number, y: number, d: number): SettleParent => {
+    const r: Record<string, number> = { x, y };
+    for (const name of names) r[name] = m.attrs[name][parent[p]];
+    Object.assign(r, over[p]);
+    r.demand = d;
+    return Object.freeze(r) as SettleParent;
+  };
   for (let it = 0; it < n && coords.length > 0; it++) {
     const count = coords.length / 2;
     const { w, cx, cy } = accumulateCells(coords, raster);
@@ -195,6 +227,7 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
     const nx: number[] = [];
     const ny: number[] = [];
     const np: number[] = [];
+    const no: (Record<string, number> | null)[] = [];
     const nd: number[] = [];
     for (let p = 0; p < count; p++) {
       if (w[p] <= 0) continue; // starved of any density: dies
@@ -209,10 +242,17 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
         ny.push(my + Math.sin(a) * r, my - Math.sin(a) * r);
         np.push(parent[p], parent[p]);
         nd.push(d, d);
+        if (hook === undefined) no.push(over[p], over[p]);
+        else {
+          const given = constOverride ?? checkOverride((hook as (parent: SettleParent) => Record<string, number>)(parentRecord(p, coords[2 * p], coords[2 * p + 1], d)));
+          const merged = { ...over[p], ...given };
+          no.push(merged, { ...merged });
+        }
       } else {
         nx.push(mx);
         ny.push(my);
         np.push(parent[p]);
+        no.push(over[p]);
         nd.push(d);
       }
     }
@@ -222,6 +262,7 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
       coords[2 * k + 1] = ny[k];
     }
     parent = Int32Array.from(np);
+    over = no;
     demand = Float64Array.from(nd);
   }
   const count = coords.length / 2;
@@ -232,11 +273,10 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
     y[k] = coords[2 * k + 1];
   }
   const attrs: Record<string, Float64Array> = {};
-  for (const name of m.attrNames) {
-    if (name === 'demand') continue;
+  for (const name of names) {
     const src = m.attrs[name];
     const col = new Float64Array(count);
-    for (let k = 0; k < count; k++) col[k] = src[parent[k]];
+    for (let k = 0; k < count; k++) col[k] = over[k]?.[name] ?? src[parent[k]];
     attrs[name] = col;
   }
   attrs.demand = demand;

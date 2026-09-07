@@ -8,13 +8,18 @@
  * is the segment between the circumcentres of two neighbouring triangles,
  * every hull wall a ray from a circumcentre away from the hull, both
  * clipped to the rectangle; a corner is shared because it is the same
- * circumcentre, never because two polygons happened to agree. Exactly
- * coincident circumcentres (cocircular sites) collapse to one corner, and
- * the zero-length walls between them are dropped.
+ * circumcentre, never because two polygons happened to agree. Cocircular
+ * sites (a grid, a regular polygon) give one corner per cluster of
+ * circumcentres that differ only by rounding: circumcentres closer than
+ * 1e-9 of the diagram's scale are one vertex, and the zero-length walls
+ * between them are dropped.
  *
  * The result carries a correspondence to its sites: `cells.cellOf(site)`
  * and `cells.siteOf(face)`, both ownership-checked, valid for the frozen
- * result and its selections only. Editing or extracting the result makes
+ * result and its selections only. Sites given as a point selection (a
+ * material's `points`, or a filtered part of it) keep their source: the
+ * correspondence answers for that source's vertices, and rows outside the
+ * selection have no cell. Editing or extracting the result makes
  * new material with no correspondence; a moved site set needs a new
  * construction. Nothing here is live.
  *
@@ -25,7 +30,18 @@
 
 import { Delaunay } from 'd3-delaunay';
 import { Material, attachVoronoi, material, type PointsLike } from './material.js';
+import { PointSelection } from './relation.js';
 import type { Bounds } from './points.js';
+
+/** Sites for a construction: a material (every row) or a point selection
+ * of one (the selected rows, correspondence to that source). */
+export type Sites = Material | PointSelection<unknown>;
+
+/** The source material and the site rows of a construction. */
+function sitesOf(sites: Sites): { source: Material; rows: readonly number[] } {
+  if (sites instanceof PointSelection) return { source: sites.source, rows: sites.indices };
+  return { source: sites, rows: Array.from({ length: sites.n }, (_, i) => i) };
+}
 
 interface RectClip {
   x0: number;
@@ -68,6 +84,46 @@ function perimeterParam(x: number, y: number, r: RectClip): number {
   return 2 * w + h + (r.y1 - y);
 }
 
+/** Width and height of a site set's bounding box. */
+function extent(sites: { x: ArrayLike<number>; y: ArrayLike<number>; n: number }): [number, number] {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (let i = 0; i < sites.n; i++) {
+    if (sites.x[i] < x0) x0 = sites.x[i];
+    if (sites.x[i] > x1) x1 = sites.x[i];
+    if (sites.y[i] < y0) y0 = sites.y[i];
+    if (sites.y[i] > y1) y1 = sites.y[i];
+  }
+  return sites.n ? [x1 - x0, y1 - y0] : [0, 0];
+}
+
+/** Circumcentres within `eps` of one another become one exact coordinate
+ * (the lowest triangle's), so cocircular sites meet at a single corner.
+ * A sort along x and a sweep make it near-linear; clusters are chained
+ * (a is within eps of b, b of c), which is what rounding produces. */
+function mergeClose(cc: Float64Array, eps: number): Float64Array {
+  const n = cc.length / 2;
+  const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => cc[2 * a] - cc[2 * b] || cc[2 * a + 1] - cc[2 * b + 1] || a - b);
+  const rep = new Int32Array(n).fill(-1);
+  const out = Float64Array.from(cc);
+  for (let k = 0; k < n; k++) {
+    const i = order[k];
+    if (rep[i] !== -1) continue;
+    rep[i] = i;
+    for (let j = k + 1; j < n && cc[2 * order[j]] - cc[2 * i] <= eps; j++) {
+      const o = order[j];
+      if (rep[o] === -1 && Math.abs(cc[2 * o + 1] - cc[2 * i + 1]) <= eps) rep[o] = i;
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    out[2 * i] = cc[2 * rep[i]];
+    out[2 * i + 1] = cc[2 * rep[i] + 1];
+  }
+  return out;
+}
+
 /** @internal The walls of the clipped diagram before they become material:
  * vertex coordinates, edge pairs, and each edge's origin (for diagnosis). */
 export interface VoronoiWalls {
@@ -79,15 +135,16 @@ export interface VoronoiWalls {
 }
 
 /** The material of a rectangle-clipped Voronoi diagram of `sites`. */
-export function voronoiOf(sites: Material, bounds: Bounds): Material {
+export function voronoiOf(sites: Sites, bounds: Bounds): Material {
+  const { source, rows } = sitesOf(sites);
   const { vx, vy, edges, del } = voronoiWalls(sites, bounds);
-  const n = sites.n;
   const m = new Material(Float64Array.from(vx), Float64Array.from(vy), {}, Uint32Array.from(edges));
   // Faces ↔ sites: a cell is convex, so its area centroid lies inside it and
-  // names the site by nearest-site search.
+  // names the site by nearest-site search. Site numbers are rows of the
+  // source; rows outside a selection have no cell.
   const cells = m.faces(); // cached on the material: every later faces() is this collection
   const siteOfFace = new Int32Array(cells.length).fill(-1);
-  const faceOfSite = new Int32Array(n).fill(-1);
+  const faceOfSite = new Int32Array(source.n).fill(-1);
   if (del) {
     for (const f of cells) {
       const outer = f.contours[0].pts;
@@ -105,21 +162,25 @@ export function voronoiOf(sites: Material, bounds: Bounds): Material {
       if (a2 === 0) continue;
       cx /= 3 * a2;
       cy /= 3 * a2;
-      const s = del.find(cx, cy);
-      if (s < 0 || faceOfSite[s] !== -1) continue;
+      const k = del.find(cx, cy);
+      if (k < 0) continue;
+      const s = rows[k];
+      if (faceOfSite[s] !== -1) continue;
       siteOfFace[f.index] = s;
       faceOfSite[s] = f.index;
     }
   }
-  attachVoronoi(m, { sites, siteOfFace, faceOfSite, cells });
+  attachVoronoi(m, { sites: source, siteOfFace, faceOfSite, cells });
   return m;
 }
 
 /** @internal */
-export function voronoiWalls(sites: Material, bounds: Bounds): VoronoiWalls {
+export function voronoiWalls(sitesIn: Sites, bounds: Bounds): VoronoiWalls {
   if (!(bounds.w > 0) || !(bounds.h > 0)) throw new Error('voronoi: bounds must have positive width and height');
   const rect: RectClip = { x0: bounds.x, y0: bounds.y, x1: bounds.x + bounds.w, y1: bounds.y + bounds.h };
-  const n = sites.n;
+  const { source, rows } = sitesOf(sitesIn);
+  const n = rows.length;
+  const sites = { x: rows.map((r) => source.x[r]), y: rows.map((r) => source.y[r]), n };
   const vx: number[] = [];
   const vy: number[] = [];
   const vertexAt = new Map<string, number>();
@@ -210,7 +271,7 @@ export function voronoiWalls(sites: Material, bounds: Bounds): VoronoiWalls {
     } else if (hull.length > 2) {
       const tri = del.triangles;
       const half = del.halfedges;
-      const cc = del.voronoi([rect.x0, rect.y0, rect.x1, rect.y1]).circumcenters;
+      const cc = mergeClose(del.voronoi([rect.x0, rect.y0, rect.x1, rect.y1]).circumcenters, 1e-9 * Math.max(rect.x1 - rect.x0, rect.y1 - rect.y0, ...extent(sites)));
       const next = (e: number): number => (e % 3 === 2 ? e - 2 : e + 1);
       const prev = (e: number): number => (e % 3 === 0 ? e + 2 : e - 1);
       for (let e = 0; e < tri.length; e++) {
@@ -221,6 +282,7 @@ export function voronoiWalls(sites: Material, bounds: Bounds): VoronoiWalls {
         if (h >= 0) {
           if (h < e) continue; // its twin already added this wall
           const u = Math.floor(h / 3);
+          if (cc[2 * u] === x0 && cc[2 * u + 1] === y0) continue; // merged circumcentres: no wall between them
           wall(x0, y0, cc[2 * u] - x0, cc[2 * u + 1] - y0, 0, 1, 'wall', [cc[2 * u], cc[2 * u + 1]]);
         } else {
           // Hull edge a → b: the wall is a ray from the circumcentre,
@@ -253,8 +315,10 @@ export function voronoiWalls(sites: Material, bounds: Bounds): VoronoiWalls {
   return { vx, vy, edges, kinds, del };
 }
 
-/** Voronoi cells of any point set (a material, a point collection or bare
- * points) clipped to `bounds`, as material with the site correspondence. */
+/** Voronoi cells of any point set clipped to `bounds`, as material with
+ * the site correspondence. A material or a point selection of one keeps
+ * its identity as the sites (`cellOf` answers for that source's vertices);
+ * bare points become a new material that is the sites. */
 export function voronoi(points: PointsLike, bounds: Bounds): Material {
-  return voronoiOf(material(points), bounds);
+  return voronoiOf(points instanceof PointSelection ? points : material(points), bounds);
 }
