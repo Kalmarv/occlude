@@ -109,10 +109,9 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const marked = diagram.edgeAttribute('same', (e) => { const [a, b] = cells.facesOf(e); return b !== undefined && kind(a) === kind(b) ? 1 : 0; });
   const merged = marked.steps(1, (current, next) => next.disconnect((e) => e.attrs.same === 1));
   const regions = merged.faces();
-  const hatch = fill('hatch', { angle: 45, spacing: mm(1.4) });
   return [
     strokes(diagram), sites.points.map((p) => circle(p.x, p.y, 1.6, { pen: p.kind ? 'stabilo-88-blue' : 'pigma-01-black' })),
-    group({ translate: [100, 0] }, regions.map((f) => polygon(f.contours, { winding: 'evenodd', fill: hatch, stroke: false })), strokes(merged)),
+    group({ translate: [100, 0] }, regions.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: f.index ? 135 : 45, spacing: mm(1.4) }), stroke: false })), strokes(merged)),
   ];
 });
 ```
