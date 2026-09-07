@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { initOcclude, render, sketch } from '../src/index.js';
 import { isolinesOf, type IsoContour, type IsoEnv } from '../src/isolines.js';
-import type { IsoContour as PublicIsoContour, RenderOptions, SketchDef } from '../src/index.js';
+import type { Material, RenderOptions, SketchDef } from '../src/index.js';
 
 beforeAll(async () => {
   const wasmPath = fileURLToPath(
@@ -142,18 +142,18 @@ describe('isolines: grid sizing', () => {
 
 describe('isolines: toolkit + engine integration', () => {
   it('is deterministic through the toolkit', () => {
-    const capture: PublicIsoContour[][] = [];
+    const capture: Material[] = [];
     const def = sketch({ seed: 7 }, (t) => {
       capture.push(
         t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1, { close: true }),
       );
-      return capture[capture.length - 1].map((c) => t.polygon(c.pts));
+      return capture[capture.length - 1].curves().map((c) => t.polygon(c));
     });
     sq(def);
     sq(def);
     expect(capture).toHaveLength(2);
-    expect(JSON.stringify(capture[0])).toBe(JSON.stringify(capture[1]));
-    expect(capture[0].length).toBeGreaterThan(0);
+    expect(JSON.stringify(capture[0].curves())).toBe(JSON.stringify(capture[1].curves()));
+    expect(capture[0].curves().length).toBeGreaterThan(0);
   });
 
   it('polygon() lifts annulus loops into one evenodd shape whose hole stays empty', () => {
@@ -162,7 +162,7 @@ describe('isolines: toolkit + engine integration', () => {
         (x, y) => 20 - Math.abs(Math.hypot(x - 50, y - 50) - 25),
         10,
       );
-      return [t.polygon(band.map((c) => c.pts), { fill: t.fill('hatch', { angle: 0, spacing: t.mm(1.5) }) })];
+      return [t.polygon(band, { fill: t.fill('hatch', { angle: 0, spacing: t.mm(1.5) }) })];
     });
     const out = sq(def);
     // Paper 200×200mm, user units ×2: band radii 30–70mm around (100,100).
@@ -182,7 +182,7 @@ describe('isolines: toolkit + engine integration', () => {
     // region is trivially closed: it fills nothing, occludes nothing.
     const def = sketch({ seed: 1 }, (t) => [
       t.polygon(
-        t.isolines((x, y) => t.noise(x / 20, y / 20), 2, { close: true }).map((c) => c.pts),
+        t.isolines((x, y) => t.noise(x / 20, y / 20), 2, { close: true }),
         { fill: t.fill('stipple') },
       ),
       t.circle(50, 50, 10),
@@ -199,9 +199,7 @@ describe('isolines: toolkit + engine integration', () => {
       sketch({ seed: 3 }, (t) => {
         const album = t.grid({ cols: 12, rows: 12 }).map((c) => t.circle(c.cx, c.cy, 2));
         if (kind === 'all') return album;
-        const r = t.polygon(
-          t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1, { close: true }).map((c) => c.pts),
-        );
+        const r = t.polygon(t.isolines((x, y) => t.noise(x / 20, y / 20), 0.1, { close: true }));
         return [kind === 'in' ? t.clip(r, album) : t.clip(t.invert(r), album)];
       });
     const ink = (def: SketchDef): number =>
@@ -228,7 +226,7 @@ describe('isolines: toolkit + engine integration', () => {
         (x, y) => 20 - Math.abs(Math.hypot(x - 50, y - 50) - 25),
         10,
       );
-      return [t.clip(t.polygon(band.map((c) => c.pts)), t.line(0, 50, 100, 50))];
+      return [t.clip(t.polygon(band), t.line(0, 50, 100, 50))];
     });
     const out = sq(def);
     const lens = out.frags.filter((f) => !f.dot).map(fragLenOf).sort((a, b) => a - b);

@@ -119,6 +119,9 @@ export type { IsoContour, IsoOpts } from './isolines.js';
 // isolines (offsetting is a recipe), scatter, decimate, deform.
 export { distanceTo } from './distance.js';
 export type { DistanceField } from './distance.js';
+// The one boundary contract of polygon, distanceTo and force.boundary.
+export { boundaryLoops } from './boundary.js';
+export type { Boundary } from './boundary.js';
 // Fields as citizens: explicit transforms, domain bounds, vector marking.
 export { rotate, translate, scale, within, vectorField, grad, curl } from './field.js';
 

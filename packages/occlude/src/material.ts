@@ -28,6 +28,7 @@ import { planarize, faces, type PlanarizeOpts, type Faces } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import type { VectorFieldFn } from './shapes.js';
 import { distanceTo } from './distance.js';
+import { boundaryLoops, type Boundary } from './boundary.js';
 import { grad } from './field.js';
 import { Delaunay } from 'd3-delaunay';
 import { orient2d } from 'robust-predicates';
@@ -468,7 +469,9 @@ export class Material {
    * degree-2 vertices, and end at the next endpoint or junction; edges
    * left over belong to pure cycles, which come back closed. Every edge
    * is covered once; a junction vertex appears in each chain that meets
-   * it. Isolated vertices are not chains — see `points`.
+   * it. Chains come in row order of their first vertex, so a material
+   * built from contours keeps contour order. Isolated vertices are not
+   * chains — see `points`.
    */
   curves(): Curve[] {
     const n = this.n;
@@ -507,7 +510,10 @@ export class Material {
     for (let e = 0; e < m; e++) {
       if (!used[e]) out.push(walk(this.edgeList[2 * e], e, false));
     }
-    return out;
+    // Chains in row order of their first vertex (stable): material built
+    // from contours draws them in contour order whether they are open or
+    // closed; a junction's arms keep their edge order.
+    return out.sort((a, b) => a.indices[0] - b.indices[0]);
   }
 
   // ---- derived material ----
@@ -1874,13 +1880,13 @@ export function attract(
  * inside the boundary loops, grows linearly to `strength` at the edge, and
  * keeps pushing inward outside — direction from the signed distance field
  * (`distanceTo`: positive inside, holes respected; contours chord-closed).
- * Loops are plain points: `t.polylines(rect(...))`, a material's `curves()`
+ * Loops are any boundary: `t.material(rect(...))`, a chain material's curves,
  * pts, isolines' pts. Sampled obstacles are `separation`; this is the
  * continuous boundary.
  */
-export function boundary(loops: readonly (readonly XY[])[], opts: { radius: number; strength?: number }): (p: XY) => Vec {
+export function boundary(loops: Boundary, opts: { radius: number; strength?: number }): (p: XY) => Vec {
   const { radius, strength = 1 } = opts;
-  const inside = distanceTo(loops.map((l) => l.map((q) => asXY(q))));
+  const inside = distanceTo(boundaryLoops(loops, 'force.boundary'));
   const inward = grad(inside);
   return (p) => {
     const d = inside(vx(p), vy(p));

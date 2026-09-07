@@ -109,7 +109,7 @@ Four pure imports transform a field's sampling:
 Transformed fields stay plain callables. Vector fields follow the same rule as iron filings: wrap a custom one in `vectorField(fn)` and rotation turns its arrows too; magnitudes never scale, so a 2 mm displacement stays 2 mm at any motif size. `grad(f)` and `curl(f)` lift a scalar field to a vector one: the gradient points uphill, and the curl is the gradient turned 90°, so it runs along the contours of `f`.
 
 ```ts live
-import { sketch, circle, stroke, rotate, within } from 'occlude';
+import { sketch, circle, strokes, rotate, within } from 'occlude';
 
 // Grain bounded to a disc and rotated 30°. Contours end at the bound.
 export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
@@ -117,7 +117,7 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
   const f = within(grain, circle(100, 50, 42));
   return [
     circle(100, 50, 42),
-    t.isolines(f, [0.1, 0.35, 0.6], { step: 0.6 }).flat().map((c) => stroke(c)),
+    strokes(t.isolines(f, [0.1, 0.35, 0.6], { step: 0.6 })),
   ];
 });
 ```
@@ -163,84 +163,105 @@ export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
 
 ### isolines
 
-`t.isolines(field, at, { step?, close? })` traces the contours where `field ≥ at` by marching squares over the drawable, and returns plain contour records `{ pts, closed }`. `polygon(c.pts)` stamps one loop; `polygon(blobs.map((c) => c.pts))` makes a whole level set into one shape with holes respected, for clipping, masking and filling. `stroke(c)` strokes a contour with its open ends kept. A contour that leaves the drawable comes back open; `close: true` closes every region along the edge, which is the form clips and fills want. An array of levels marches all of them over one sampling. `step` defaults to about 1 mm; crossings are edge-interpolated, so accuracy is finer than the grid.
+`t.isolines(field, at, { step?, close? })` traces the contours where `field ≥ at` by marching squares over the drawable and returns them as one material: each contour a chain (a ring when closed), separate contours separate, and every edge carrying its requested `level`. `strokes(m)` draws them; `polygon(m)` makes a whole level set into one area with holes respected, for clipping, masking and filling; `m.selectEdges((e) => e.attrs.level === 0.4)` picks a level; and `.steps()`, `.attribute()` and the rest of Materials apply as they do to any material. A contour that leaves the drawable comes back open; `close: true` closes every region along the edge, which is the form clips and fills want. An array of levels marches all of them over one sampling, in the order given; a level that produces nothing adds nothing. `step` defaults to about 1 mm; crossings are edge-interpolated, so accuracy is finer than the grid.
 
 ```ts live
 import { sketch, polygon, fill, mm } from 'occlude';
 
-// Posterized tone. Each level is a filled shape and therefore opaque, so
-// the denser inner hatch replaces the coarse one where they overlap.
+// Posterized tone. Each contour is filled on its own and is therefore
+// opaque, so the denser inner hatch replaces the coarse one where they
+// overlap. polygon(material) would instead make one even-odd area of all
+// the contours of a level, with nested contours as holes.
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const field = (x, y) => t.noise(x / 32, y / 32);
   return [
-    t.isolines(field, 0.15, { close: true }).map((c) =>
-      polygon(c.pts, { fill: fill('hatch', { angle: 30, spacing: mm(1.6) }) })),
-    t.isolines(field, 0.5, { close: true }).map((c) =>
-      polygon(c.pts, { fill: fill('hatch', { angle: 120, spacing: mm(0.7) }) })),
+    t.isolines(field, 0.15, { close: true }).curves().map((c) =>
+      polygon(c, { fill: fill('hatch', { angle: 30, spacing: mm(1.6) }) })),
+    t.isolines(field, 0.5, { close: true }).curves().map((c) =>
+      polygon(c, { fill: fill('hatch', { angle: 120, spacing: mm(0.7) }) })),
+  ];
+});
+```
+
+Contours changed by their level. The outer level is left as it came; the inner one is relaxed for a few steps, then both are drawn with the pen chosen per level.
+
+```ts live
+import { sketch, strokes, force, mul } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
+  const contours = t.isolines((x, y) => t.noise(x / 30, y / 30), [0.1, 0.45], { step: 1 });
+  const inner = contours.selectEdges((e) => e.attrs.level === 0.45).extract();
+  const softened = inner.steps(12, (cur, next) => {
+    const smooth = force.relax(cur, { amount: 0.5 });
+    next.move((p) => mul(smooth(p), 1), { where: (p) => cur.degree(p) === 2 });
+  });
+  return [
+    strokes(contours.selectEdges((e) => e.attrs.level === 0.1), { pen: 'pigma-005-black' }),
+    strokes(softened, { pen: 'stabilo-88-blue' }),
   ];
 });
 ```
 
 ### distanceTo
 
-`distanceTo(loops)` builds a signed distance field from boundary loops: positive inside, zero on the boundary, negative outside. `isolines(d, 2)` therefore traces a ring 2 units inside the boundary and `isolines(d, -2)` a halo 2 units outside; there is no separate offset function. Insideness is even-odd over the loops, so nesting makes holes and orientation does not matter. Open loops are closed with a chord. Distances come back in the units of the input points, and the field composes anywhere a field goes: scatter densities, decimate and deform parameters, not only contours.
+`distanceTo(boundary)` builds a signed distance field from a boundary: positive inside, zero on the boundary, negative outside. `isolines(d, 2)` therefore traces a ring 2 units inside the boundary and `isolines(d, -2)` a halo 2 units outside; there is no separate offset function. Insideness is even-odd over the loops, so nesting makes holes and orientation does not matter. Distances come back in the units of the input points, and the field composes anywhere a field goes: scatter densities, decimate and deform parameters, not only contours.
 
-`t.polylines(shape, { tolerance? })` turns any shape into its polylines in drawable units, through the same lowering the shape is inked with (rect anchoring, arcs, the shape's own transforms, curves flattened at `tolerance`, default 0.05 mm). It is the bridge from shapes to everything that takes points.
+The boundary is whatever `polygon` and `force.boundary` also take: plain loops (`[[x, y], …]`, one or several), contour records such as a face's contours, or a chain material, which is how a shape gets there (`t.material(rect(…))`) and what `t.isolines` returns. A closed chain is a loop; an open chain is closed with a chord; separate components are separate loops; isolated points add nothing; and a material that branches is refused with the way out named, because a network has no single inside. Nothing is welded or planarized on the way.
 
 ```ts live
-import { sketch, polygon, stroke, distanceTo } from 'occlude';
+import { sketch, polygon, strokes, distanceTo } from 'occlude';
 
 // A blob echoed inward every 5 units and haloed once outside. Contours
-// that leave the drawable come back open, and stroke() draws them as such.
+// that leave the drawable come back open, and strokes() draws them as such.
 export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const blob = t.isolines((x, y) => t.noise(x / 28, y / 28), 0.3, { close: true, step: 1 });
-  const d = distanceTo(blob.map((c) => c.pts));
+  const d = distanceTo(blob);
   return [
-    polygon(blob.map((c) => c.pts)),
-    t.isolines(d, [5, 10, 15, 20, 25], { step: 0.7 }).flat().map((c) => stroke(c)),
-    t.isolines(d, -5, { step: 0.7 }).map((c) => stroke(c)),
+    polygon(blob),
+    strokes(t.isolines(d, [5, 10, 15, 20, 25], { step: 0.7 })),
+    strokes(t.isolines(d, -5, { step: 0.7 })),
   ];
 });
 ```
 
 ```ts live
-import { sketch, rect, stroke } from 'occlude';
+import { sketch, rect, strokes } from 'occlude';
 
-// Rings around a rotated rectangle: its outline as polylines, then a
+// Rings around a rotated rectangle: its boundary as material, then a
 // distance field, then contours. No geometry written by hand.
 export default sketch({ aspect: [2, 1] }, (t) => {
   const box = rect(100, 50, 56, 26, { rotate: 20, mode: 'center' });
-  const d = t.distanceTo(t.polylines(box));
-  return [box, t.isolines(d, [-6, -12, -18, -24, -30], { step: 0.6 }).flat().map((c) => stroke(c))];
+  const d = t.distanceTo(t.material(box));
+  return [box, strokes(t.isolines(d, [-6, -12, -18, -24, -30], { step: 0.6 }))];
 });
 ```
 
 ## Flow lines
 
-`t.streamlines(field, { spacing?, minSpacing?, step?, seeds? })` traces evenly spaced streamlines of a vector field over the drawable, after Jobard and Lefer. It returns open contours for `stroke()`. Lines stop at the drawable edge, at a `within()` bound, and half a spacing from ink already laid, so they never cross or bunch. `spacing` is a length (default 1 mm) or a field of lengths, which turns density into tone; `minSpacing` (default 0.3 mm) is its floor. The result is a pure function of the fields, with no seed involved. Long continuous lines with few pen lifts are the cheapest ink a plotter draws.
+`t.streamlines(field, { spacing?, minSpacing?, step?, seeds? })` traces evenly spaced streamlines of a vector field over the drawable, after Jobard and Lefer, and returns them as one material of open chains: `strokes(m)` draws them, and a chain can carry attributes or be stepped like any material. Lines stop at the drawable edge, at a `within()` bound, and half a spacing from ink already laid, so they never cross or bunch. `spacing` is a length (default 1 mm) or a field of lengths, which turns density into tone; `minSpacing` (default 0.3 mm) is its floor. The result is a pure function of the fields, with no seed involved. Long continuous lines with few pen lifts are the cheapest ink a plotter draws.
 
 ```ts live
-import { sketch, stroke, curl } from 'occlude';
+import { sketch, strokes, curl } from 'occlude';
 
 // Streamlines of the curl of noise run along its contours and never converge.
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const flow = curl((x, y) => t.noise(x / 60, y / 60));
-  return t.streamlines(flow, { spacing: 1.6 }).map((c) => stroke(c));
+  return strokes(t.streamlines(flow, { spacing: 1.6 }));
 });
 ```
 
 ```ts live
-import { sketch, circle, stroke, curl, within, distanceTo } from 'occlude';
+import { sketch, circle, strokes, curl, within, distanceTo } from 'occlude';
 
 // Hatch that wraps a form: the curl of its distance field runs along the
 // outline, and spacing grows with the distance so the hatch fades out.
 export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
   const form = circle(100, 50, 22);
-  const d = distanceTo(t.polylines(form));
+  const d = distanceTo(t.material(form));
   const around = within(curl(d), circle(100, 50, 48));
   return [
     form,
-    t.streamlines(around, { spacing: (x, y) => 0.7 + Math.abs(d(x, y)) * 0.12 }).map((c) => stroke(c)),
+    strokes(t.streamlines(around, { spacing: (x, y) => 0.7 + Math.abs(d(x, y)) * 0.12 })),
   ];
 });
 ```

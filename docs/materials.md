@@ -64,7 +64,21 @@ All are pure imports except `t.sample`, which reads the paper. Shapes stay exact
 
 ### Making a material
 
-`t.sample(shape, { count | spacing, tolerance? })` turns each outline of a shape into a chain: a closed outline becomes a ring, an open one a chain from end to end, several outlines separate chains in one material. `material(points, { edges?, ...columns })` builds one from tuples or `{ x, y }` objects (a scatter point's `w` becomes a column), unconnected unless edges are given. `curve(pts, { closed?, ...columns })` makes a ring or chain from positions.
+Two conversions take a shape into material. `t.material(shape, { tolerance? })` keeps the boundary's own vertices: a rectangle's four corners, a regular polygon's vertices, a path's points, with curved portions flattened at the tolerance (default 0.05 mm). `t.sample(shape, { count | spacing, tolerance? })` redistributes points along the boundary by arc length instead, so four samples of a rectangle need not land on its corners. Both make a ring from a closed outline (without a duplicate seam vertex), a chain from an open one, and separate chains for separate outlines, welding nothing. `material(points, { edges?, ...columns })` builds one from tuples or `{ x, y }` objects (a scatter point's `w` becomes a column), unconnected unless edges are given, and `curve(pts, { closed?, ...columns })` makes a ring or chain from positions. `t.isolines` and `t.streamlines` return material too, so field-generated contours arrive ready for the same operations.
+
+A hexagon's corners pulled toward the centre by an amount that alternates around the ring. Nothing is computed by hand: the corners are the material's rows, and the drawing is the polygon of the result.
+
+```ts live
+import { sketch, ngon, polygon, strokes, sub, mul } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const corners = t.material(ngon(100, 50, 6, 40));
+  const star = corners.steps(1, (cur, next) => {
+    next.move((p) => mul(sub([100, 50], p), p.index % 2 ? 0.45 : 0), { where: () => true });
+  });
+  return [strokes(corners, { pen: 'pigma-005-black' }), polygon(star, { pen: 'stabilo-88-blue' })];
+});
+```
 
 `m.attribute(name, constant | p => value, { transfer? })` adds a point column and returns a new material; `m.edgeAttribute(name, constant | e => value)` adds an edge column, each edge its own row. Read `m.points` (vertex views `{ index, x, y, ...attrs }`), `m.pts` (tuples), `m.x`, `m.y` and `m.attrs.age` (the columns), `m.connected(i)`, `m.degree(i)`, `m.edges` and `m.curves()`.
 
@@ -297,7 +311,7 @@ next.move((p) => mul(repel(p), speed));
 | `force.separation(sources, { radius, excludeConnected? })` | any points | away from every source within the radius, linearly to zero at the edge |
 | `force.attract(sources, { radius, strength?, excludeConnected? })` | any points | toward each source, `strength` when touching, zero at the radius |
 | `force.drift(noise, { amount, frequency?, rate? })` | a noise function (pass `t.noise`) | a direction read from the noise, turning slowly with the iteration |
-| `force.boundary(loops, { radius, strength? })` | boundary loops | inward within `radius` of the edge and everywhere outside |
+| `force.boundary(boundary, { radius, strength? })` | a boundary: loops, contour records or a chain material (see Fields & variation) | inward within `radius` of the edge and everywhere outside |
 | `force.vortex(centre, { strength, falloff? })` | a point | tangential around the centre, fading with distance |
 | `force.field(vectorField, { strength? })` | a `grad`, `curl` or hand-written field | the field at p |
 | `force.relax(m, { amount? })` | the state; reads connections | toward the mean of the connected neighbours (Laplacian smoothing) |

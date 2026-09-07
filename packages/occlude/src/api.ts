@@ -41,7 +41,8 @@ import {
 } from './points.js';
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
-import { lowerToUserLoops, sketchFrame, unitMm } from './record.js';
+import { sketchFrame, unitMm } from './record.js';
+import { boundaryLoops, type Boundary } from './boundary.js';
 import { Material, material as materialOf, alongChain, checkSampling } from './material.js';
 import { distanceTo } from './distance.js';
 import {
@@ -223,19 +224,15 @@ export interface PolygonOpts extends ShapeOpts {
 
 /**
  * An area from its boundaries — the engine's Region concept as a value.
- * One contour or several, each a bare `[x, y][]` or a closed-contour
- * record `{ pts, closed }` (a face's contours, an isoline); the result
+ * One loop or several (`[x, y][]`), contour records (a face's contours),
+ * or a chain material (`t.material(rect(…))`, `t.isolines(…)`); the result
  * clips, fills, masks, and stamps as one thing. No geometry is computed;
- * open contours get their closing chord. `winding` picks the fill rule.
+ * open contours get their closing chord; a branching material is refused.
+ * `winding` picks the fill rule.
  */
-export function polygon(contours: Contour | Contour[] | IsoContour | IsoContour[], opts: PolygonOpts = {}): ShapeValue {
+export function polygon(contours: Boundary | Contour | Contour[], opts: PolygonOpts = {}): ShapeValue {
   const { winding = 'evenodd', ...rest } = opts;
-  const bare = (c: Contour | IsoContour): Contour => (Array.isArray(c) ? c : (c.pts as Contour));
-  const loops: Contour[] =
-    !Array.isArray(contours) ? [bare(contours)]
-    : contours.length > 0 && !Array.isArray(contours[0]) ? (contours as IsoContour[]).map(bare)
-    : contours.length > 0 && !Array.isArray((contours as Contour)[0][0]) ? [contours as Contour]
-    : (contours as Contour[]).map(bare);
+  const loops = boundaryLoops(contours as Boundary, 'polygon') as unknown as Contour[];
   const cmds: PathCmd[] = [];
   for (const loop of loops) {
     if (loop.length < 2) continue;
@@ -263,8 +260,8 @@ export function ngon(
  * Draw along a contour with the pen — `polygon`'s open-minded sibling. A
  * bare `[x, y][]` strokes an OPEN polyline (polygon always closes); an
  * `IsoContour` honors its `closed` flag, so isolines/rings stamp with the
- * right seams and the right open ends in one call:
- * `t.isolines(f, 0.3).map((c) => stroke(c))`.
+ * right seams and the right open ends in one call; `strokes(material)`
+ * does it for every chain of a material.
  */
 export function stroke(
   contour: IsoContour | [L, L][],
@@ -654,7 +651,9 @@ export interface Toolkit {
   scatter: typeof scatter;
   isolines: typeof isolines;
   streamlines: typeof streamlines;
-  polylines: typeof polylines;
+  /** A shape's boundary as material with its own vertices: corners kept,
+   * curves flattened. `sample` redistributes instead. */
+  material: typeof materialFromShape;
   sample: typeof sample;
   probe: typeof probe;
   inspect: typeof inspect;
@@ -746,68 +745,129 @@ function scatter(
   return scatterPoints(pointsEnv(), field, opts);
 }
 
-/** Contours of `{ field ≥ at }` via marching squares over the drawable —
- * plain data: stamp with `stroke(c)`, or assemble into one area with
- * `polygon(cs.map((c) => c.pts))` and clip/fill from there. Open at the drawable edge
- * by default; `{ close: true }` closes regions along it. An `at` array
- * marches every level over one shared field sampling. */
-function isolines(field: FieldFn2, at: number, opts?: IsoOpts): IsoContour[];
-function isolines(field: FieldFn2, at: number[], opts?: IsoOpts): IsoContour[][];
-function isolines(
-  field: FieldFn2,
-  at: number | number[],
-  opts: IsoOpts = {},
-): IsoContour[] | IsoContour[][] {
+/**
+ * Contours as one material: each contour a chain (a ring when closed), in
+ * the order they came, never joined to each other. Every edge of an
+ * isoline carries its requested `level` as a categorical edge column
+ * (subdivision copies it).
+ */
+function contourMaterial(groups: readonly { contours: readonly IsoContour[]; level?: number }[], withLevel: boolean): Material {
+  let n = 0;
+  let e = 0;
+  for (const g of groups) for (const c of g.contours) {
+    n += c.pts.length;
+    e += c.closed && c.pts.length > 2 ? c.pts.length : Math.max(0, c.pts.length - 1);
+  }
+  const x = new Float64Array(n);
+  const y = new Float64Array(n);
+  const edges = new Uint32Array(2 * e);
+  const level = withLevel ? new Float64Array(e) : null;
+  let vi = 0;
+  let ei = 0;
+  for (const g of groups) for (const c of g.contours) {
+    const first = vi;
+    const m = c.pts.length;
+    for (let k = 0; k < m; k++) {
+      x[vi] = c.pts[k][0];
+      y[vi] = c.pts[k][1];
+      vi++;
+    }
+    const segs = c.closed && m > 2 ? m : Math.max(0, m - 1);
+    for (let k = 0; k < segs; k++) {
+      edges[2 * ei] = first + k;
+      edges[2 * ei + 1] = first + ((k + 1) % m);
+      if (level) level[ei] = g.level as number;
+      ei++;
+    }
+  }
+  return new Material(x, y, {}, edges, 0, [], level ? { level } : {}, {}, level ? { level: 'copy' } : {});
+}
+
+/** Contours of `{ field ≥ at }` via marching squares over the drawable, as
+ * one material: each contour a chain (a ring when closed), separate
+ * contours separate, every edge carrying its `level`. Draw with
+ * `strokes(m)`, fill or clip with `polygon(m)`, pick levels with
+ * `m.selectEdges((e) => e.level === 0.4)`, or step it like any material.
+ * Open at the drawable edge by default; `{ close: true }` closes regions
+ * along it. An `at` array marches every level over one shared field
+ * sampling, in the order given. */
+function isolines(field: FieldFn2, at: number | number[], opts: IsoOpts = {}): Material {
   const b = bounds();
   const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: sketchLen(b) };
-  return Array.isArray(at)
-    ? isolinesOf(env, field, at, opts)
-    : isolinesOf(env, field, at, opts);
+  const levels = Array.isArray(at) ? at : [at];
+  const perLevel = isolinesOf(env, field, levels, opts);
+  return contourMaterial(levels.map((level, k) => ({ contours: perLevel[k], level })), true);
 }
 
 /** Evenly spaced streamlines of a vector field over the drawable (Jobard &
- * Lefer) — plain open contours, stamped with `stroke(c)`. `spacing` is a
+ * Lefer) as one material of open chains — `strokes(m)` draws them, and
+ * `.attribute()`/`.steps()` work on them like any material. `spacing` is a
  * length or a scalar field of lengths: density as tone, direction as flow.
- * Lines stop at the drawable edge, at a `within()` bound, and half a spacing
- * from ink already laid. Deterministic, no seed. */
-function streamlines(field: VectorFieldFn, opts: StreamOpts = {}): IsoContour[] {
+ * Lines stop at the drawable edge, at a `within()` bound, and half a
+ * spacing from ink already laid. Deterministic, no seed. */
+function streamlines(field: VectorFieldFn, opts: StreamOpts = {}): Material {
   const b = bounds();
   const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: sketchLen(b) };
-  return streamlinesOf(env, field, opts);
+  return contourMaterial([{ contours: streamlinesOf(env, field, opts) }], false);
+}
+
+/** A shape's outlines in sketch units through THE lowerer (rectMode, arc
+ * commands, the shape's own transform opts, curves flattened at
+ * `tolerance`), each with its own closure. Shared by `material` and
+ * `sample`. */
+function shapeContours(shape: ShapeValue, tolerance: L | undefined): { pts: [number, number][]; closed: boolean }[] {
+  if (!shape || typeof shape !== 'object' || !('geom' in shape) || !('opts' in shape)) {
+    throw new Error('expected a shape value (circle, rect, path, polygon, …); for points use the pure material(points)');
+  }
+  const frame = sketchFrame();
+  const unit = unitMm(frame);
+  const tol = tolerance !== undefined ? resolveLen(tolerance, frame.inner) : 0.05;
+  const o = shape.opts;
+  return lowerToUserContours(shape.geom, { translate: o.translate, rotate: o.rotate, scale: o.scale }, frame, tol)
+    .map((c) => ({ closed: c.closed, pts: c.pts.map(([x, y]) => [x / unit, y / unit] as [number, number]) }));
 }
 
 /**
- * A shape's polylines: its outline as plain points in sketch coordinates,
- * the bridge from any shape value to everything that eats points —
- * `distanceTo`, `polygon`, `stroke`, scatter bounds. Lowered by THE lowerer
- * (rectMode, arc commands, the shape's own transform opts, curves
- * flattened at `tolerance`, default 0.05 mm), so the polylines are what
- * the shape inks. Closed shapes give closed polylines; a line or open path
- * gives an open one (area consumers treat it as chord-closed, like
- * `polygon`).
+ * A shape's boundary as material with the boundary's OWN vertices: a
+ * rectangle's four corners, a regular polygon's vertices, a path's points,
+ * with curved portions flattened at `tolerance` (default 0.05 mm). Each
+ * outline is a chain (a ring when closed, without a duplicate seam vertex),
+ * separate outlines stay separate, nothing is welded. `sample` is the other
+ * conversion: it redistributes points along the boundary by arc length and
+ * need not land on a corner. Coordinates are sketch units, before any
+ * drawing transform around the shape.
  */
-function polylines(shape: ShapeValue, opts: { tolerance?: L } = {}): [number, number][][] {
-  const frame = sketchFrame();
-  const unit = unitMm(frame);
-  const tol = opts.tolerance !== undefined ? resolveLen(opts.tolerance, frame.inner) : 0.05;
-  const o = shape.opts;
-  return lowerToUserLoops(
-    shape.geom,
-    { translate: o.translate, rotate: o.rotate, scale: o.scale },
-    frame,
-    tol,
-  ).map((loop) => loop.map(([x, y]) => [x / unit, y / unit] as [number, number]));
+function materialFromShape(shape: ShapeValue, opts: { tolerance?: L } = {}): Material {
+  const pts: [number, number][] = [];
+  const edges: [number, number][] = [];
+  for (const c of shapeContours(shape, opts.tolerance)) {
+    let poly = c.pts;
+    // A closed outline comes back with its start repeated at the end: the
+    // ring closes with an edge, not a coincident vertex.
+    if (c.closed && poly.length > 1) {
+      const a = poly[0];
+      const z = poly[poly.length - 1];
+      if (Math.abs(a[0] - z[0]) <= 1e-9 && Math.abs(a[1] - z[1]) <= 1e-9) poly = poly.slice(0, -1);
+    }
+    const first = pts.length;
+    for (let k = 0; k < poly.length; k++) {
+      pts.push(poly[k]);
+      if (k > 0) edges.push([first + k - 1, first + k]);
+    }
+    if (c.closed && poly.length > 2) edges.push([first + poly.length - 1, first]);
+  }
+  return materialOf(pts, { edges });
 }
 
 /**
  * A shape as sampled material — the explicit, lossy step from exact
  * geometry to points you can move one by one. Each outline of the shape
- * (see `t.polylines`) becomes a chain of the returned material with `count`
- * vertices, or as many as fit at `spacing`, evenly spaced by arc length:
- * a closed outline is a ring (no duplicate seam), an open one a chain
- * from end to end; several outlines are separate chains in one material.
- * Positions and connectivity only — attributes come from
- * `.attribute()`: `t.sample(circle(50, 50, 6), { count: 48 }).attribute('age', 0)`.
+ * becomes a chain of the returned material with `count` vertices, or as
+ * many as fit at `spacing`, evenly spaced by arc length: a closed outline
+ * is a ring (no duplicate seam), an open one a chain from end to end;
+ * several outlines are separate chains in one material. Sampling does not
+ * keep the shape's own vertices — `t.material(shape)` does. Positions and
+ * connectivity only — attributes come from `.attribute()`.
  */
 function sample(
   shape: ShapeValue,
@@ -820,12 +880,8 @@ function sample(
   if (spacingU !== undefined && !(spacingU > 0)) throw new Error('sample: spacing must be positive');
   const pts: [number, number][] = [];
   const edges: [number, number][] = [];
-  const tol = opts.tolerance !== undefined ? resolveLen(opts.tolerance, frame.inner) : 0.05;
-  const o = shape.opts;
   // Each outline keeps its OWN closure: a path may hold a ring and a chain.
-  const contours = lowerToUserContours(shape.geom, { translate: o.translate, rotate: o.rotate, scale: o.scale }, frame, tol)
-    .map((c) => ({ closed: c.closed, pts: c.pts.map(([x, y]) => [x / unit, y / unit] as [number, number]) }));
-  for (const { pts: poly, closed } of contours) {
+  for (const { pts: poly, closed } of shapeContours(shape, opts.tolerance)) {
     const samples = alongChain(poly, closed, { count: opts.count, spacing: spacingU });
     const first = pts.length;
     for (let k = 0; k < samples.length; k++) {
@@ -909,7 +965,7 @@ const TOOLKIT_BASE = {
   map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, isolines, streamlines, polylines, sample, probe, inspect, plan: planWith, draw, distanceTo, points: pointsOf, voronoi, triangulate, synth,
+  scatter, isolines, streamlines, material: materialFromShape, sample, probe, inspect, plan: planWith, draw, distanceTo, points: pointsOf, voronoi, triangulate, synth,
   within, rotate: rotateField, translate: translateField, scale: scaleField,
   vectorField: vectorFieldMark,
   mm, w, h, s, long,

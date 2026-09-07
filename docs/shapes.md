@@ -97,7 +97,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) =>
 
 ### polygon
 
-`polygon(contours, opts?)` makes one area from its boundaries: a single contour (`[[x, y], …]`) or several (`[[[x, y], …], …]`). Each contour is closed with a chord if it is not already. The result is one shape, so it clips, fills, masks and stamps as one thing. It takes plain points; records that carry points expose them (`polygon(blobs.map((c) => c.pts))`).
+`polygon(boundary, opts?)` makes one area from its boundaries: a single loop (`[[x, y], …]`), several loops, contour records such as a face's contours, or a chain material (`t.material(rect(…))`, `t.isolines(…)`). Each loop is closed with a chord if it is not already, and a material that branches is refused because a network has no single inside. The result is one shape, so it clips, fills, masks and stamps as one thing.
 
 `winding` picks the fill rule where boundaries nest or cross. `'evenodd'` (default) makes every enclosed boundary a hole whatever its orientation, so a ring is an annulus and a pentagram has an empty centre. `'nonzero'` fills the pentagram solid.
 
@@ -171,7 +171,7 @@ import { sketch, clip, invert, polygon, circle } from 'occlude';
 // One boundary from a noise level set; fat dots inside it, fine dots outside.
 export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const blobs = t.isolines((x, y) => t.noise(x / 28, y / 28), 0.1, { close: true });
-  const region = polygon(blobs.map((c) => c.pts));
+  const region = polygon(blobs);
   const dots = (r) => t.grid({ cols: 40, rows: 20 }).map((c) => circle(c.cx, c.cy, r));
   return [
     clip(region, dots(2.1)),

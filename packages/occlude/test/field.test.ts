@@ -3,8 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   circle, compileSketch, deform, encodeScene, fill, group, initOcclude, mm, path, rect, render,
-  rotate, scale, setPaperHint, sketch, stroke, translate, vectorField, within,
-} from '../src/index.js';
+  rotate, scale, setPaperHint, sketch, stroke, translate, vectorField, within, strokes , type Material } from '../src/index.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
 import type { RenderOptions, SketchDef } from '../src/index.js';
 
@@ -316,34 +315,38 @@ describe('engine field uses: exact domains, shape anchoring, shared grids', () =
   });
 });
 
-describe('loops: any shape as plain point loops', () => {
+describe('t.material: any shape as chain material with its own vertices', () => {
   it('is the lowerer in sketch coordinates — a circle at its radius, a rect on its mode', () => {
-    let circ: [number, number][][] = [];
-    let rc: [number, number][][] = [];
-    let open: [number, number][][] = [];
+    let circ: Material | null = null;
+    let rc: Material | null = null;
+    let open: Material | null = null;
     compileSketch(sketch({ rectMode: 'center' }, (t) => {
-      circ = t.polylines(circle(50, 25, 15));
-      rc = t.polylines(rect(50, 50, 20, 10, { rotate: 0 }));
-      open = t.polylines(stroke({ pts: [[0, 0], [10, 0], [10, 10]], closed: false }));
+      circ = t.material(circle(50, 25, 15));
+      rc = t.material(rect(50, 50, 20, 10, { rotate: 0 }));
+      open = t.material(stroke({ pts: [[0, 0], [10, 0], [10, 10]], closed: false }));
       return circle(0, 0, 1);
     }));
-    expect(circ).toHaveLength(1);
-    expect(circ[0].length).toBeGreaterThan(50);
-    for (const [x, y] of circ[0]) expect(Math.hypot(x - 50, y - 25)).toBeCloseTo(15, 1);
-    const xs = rc[0].map((p) => p[0]);
-    const ys = rc[0].map((p) => p[1]);
+    expect(circ!.curves()).toHaveLength(1);
+    expect(circ!.n).toBeGreaterThan(50);
+    expect(circ!.closed).toBe(true);
+    for (const [x, y] of circ!.pts) expect(Math.hypot(x - 50, y - 25)).toBeCloseTo(15, 1);
+    expect(rc!.n).toBe(4);
+    const xs = rc!.pts.map((p) => p[0]);
+    const ys = rc!.pts.map((p) => p[1]);
     expect(Math.min(...xs)).toBeCloseTo(40, 6);
     expect(Math.max(...xs)).toBeCloseTo(60, 6);
     expect(Math.min(...ys)).toBeCloseTo(45, 6);
     expect(Math.max(...ys)).toBeCloseTo(55, 6);
-    expect(open[0][0]).toEqual([0, 0]);
-    expect(open[0][open[0].length - 1]).toEqual([10, 10]);
+    expect(open!.n).toBe(3);
+    expect(open!.closed).toBe(false);
+    expect(open!.pts[0]).toEqual([0, 0]);
+    expect(open!.pts[2]).toEqual([10, 10]);
   });
 
-  it('composes: distanceTo(t.polylines(circle)) is the circle\'s signed distance', () => {
+  it('composes: distanceTo(t.material(circle)) is the circle\'s signed distance', () => {
     let seen = NaN;
     compileSketch(sketch({}, (t) => {
-      const d = t.distanceTo(t.polylines(circle(50, 50, 25)));
+      const d = t.distanceTo(t.material(circle(50, 50, 25)));
       seen = d(50, 50);
       return circle(0, 0, 1);
     }));
@@ -403,7 +406,7 @@ describe('stroke: contour stamping without the seam foot-gun', () => {
         (x: number, y: number) => t.noise(x / 5, y / 22),
         circle(50, 50, 40),
       );
-      return t.isolines(f, 0.2, { step: 0.2 }).map((c) => stroke(c));
+      return strokes(t.isolines(f, 0.2, { step: 0.2 }));
     });
     const out = sq(def);
     const drawn = out.frags.filter((fr) => !fr.dot);

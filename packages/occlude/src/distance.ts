@@ -17,6 +17,8 @@
  * field over a fine isolines grid stays fast for contour-heavy loops.
  */
 
+import { boundaryLoops, type Boundary } from './boundary.js';
+
 export type DistanceField = (x: number, y: number) => number;
 
 interface Seg {
@@ -27,14 +29,17 @@ interface Seg {
 }
 
 /**
- * Signed distance to the boundary of the area enclosed by `loops`
- * (even-odd): positive inside, negative outside. Strictly loops, like
- * `polygon()`: wrapper records expose theirs
- * (`distanceTo(blobs.map((c) => c.pts))`). With no usable loops the field
- * is -Infinity everywhere — non-finite samples count as outside, so
- * isolines over an empty field yields no contours rather than throwing.
+ * Signed distance to the boundary of the area enclosed by `boundary`
+ * (even-odd): positive inside, negative outside. The boundary is plain
+ * loops, contour records (an isoline, a face's contours) or a chain
+ * material (`t.material(rect(…))`, `t.isolines(…)`), all resolved the way
+ * `polygon()` resolves them; a branching material is refused. With no
+ * usable loops the field is -Infinity everywhere — non-finite samples count
+ * as outside, so isolines over an empty field yields no contours rather
+ * than throwing.
  */
-export function distanceTo(loops: [number, number][][]): DistanceField {
+export function distanceTo(boundary: Boundary): DistanceField {
+  const loops = boundaryLoops(boundary, 'distanceTo');
   const segs: Seg[] = [];
   let minX = Infinity;
   let minY = Infinity;

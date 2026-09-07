@@ -80,11 +80,11 @@ describe('distanceTo: signed distance field', () => {
         const cs = t.isolines(d, level, { step: 0.5 });
         let minX = Infinity;
         let maxX = -Infinity;
-        for (const c of cs) for (const [x] of c.pts) {
+        for (const [x] of cs.pts) {
           minX = Math.min(minX, x);
           maxX = Math.max(maxX, x);
         }
-        capture.push({ level, count: cs.length, span: maxX - minX });
+        capture.push({ level, count: cs.curves().length, span: maxX - minX });
       }
       return [t.rect(0, 0, 1, 1)];
     });
