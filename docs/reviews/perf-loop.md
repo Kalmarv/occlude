@@ -452,6 +452,25 @@ entries touch, on a box shared with other services.
   plain array. Reverted — a duplicated loop and a branch for no measured
   benefit. `sumBy`'s cost is the accumulation and the `vx`/`vy` calls
   themselves.
+- **Numeric keys and a hoisted `paramOn` in `planarize`** (`faces.ts`).
+  `planarize` builds four string-keyed maps — `${x},${y}` per participating
+  row, `${a},${b}` per edge, `${i},${j}` per crossing, `${vertex},${edge}` per
+  contact — and `classify` declared its `paramOn` helper inside itself. The
+  same treatment as entry 2 was written and proved identical (the faces
+  differential, strengthened to **707 comparisons, 0 mismatches**, now with 80
+  grid-snapped networks carrying two attribute columns so the merged-row
+  groups and the attribute reconciliation both run, and a twelve-row
+  single-point merge). Measured on `dist`, interleaved, two pairs: planarize
+  400 chords 130/138 → 115/143 ms and 1 500 chords 2 311/2 253 → 2 204/2 286 ms
+  — flat; 3 000 chords (1.01 M vertices) 12 220/12 182 → 11 740/11 494 ms, a
+  repeatable ~4 %. These maps are built once over n and E, not in an inner
+  loop, so the strings only start to matter at a million vertices — a
+  twelve-second pathological planarization, not drawing or interaction. The
+  `byPos` rewrite needs about fifteen lines of bucket handling to stay exactly
+  ordered; 4 % there does not pay for it. Reverted. The **large-scale rows are
+  kept** in `bench/fbench.mts` (1 500 and 3 000 chords, their own generator so
+  the older fixtures keep their values) — the harness had no planarization
+  bigger than 400 chords.
 - **Caching the seeded `Rng` behind the module-level `noise()`**. Profiling
   contours-2-multicolor-3 put 637 ms of self time in the simplex kernel, and a
   micro-benchmark seemed to show the wrapper adding 17 ns to a 25 ns call

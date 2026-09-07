@@ -22,6 +22,23 @@ const fc = pn.faces();
 console.log(`  -> ${fc.faces.length} faces`);
 med('faces.select area>1 + boundaries', () => fc.select((f) => f.area > 1).boundaries());
 
+// Demanding: planarization at the scale where the event bookkeeping, not the
+// sweep, decides the cost — a million vertices out of three thousand chords.
+// Its own generator, so the fixtures below keep the values they always had.
+{
+  let bs = 31;
+  const brnd = () => ((bs = (bs * 48271) % 2147483647) / 2147483647) * 100;
+  for (const [chords, runs] of [[1500, 3], [3000, 1]] as const) {
+    const pts: [number, number][] = [];
+    const eds: [number, number][] = [];
+    for (let i = 0; i < chords; i++) { pts.push([brnd(), brnd()], [brnd(), brnd()]); eds.push([2 * i, 2 * i + 1]); }
+    const big = material(pts, { edges: eds });
+    let out: ReturnType<typeof big.planarize> | undefined;
+    med(`planarize ${chords} chords${runs === 1 ? ' (single run)' : ''}`, () => { out = big.planarize(); }, runs);
+    console.log(`  -> ${out!.n} vertices ${out!.edgeCount} edges`);
+  }
+}
+
 const tri = connect.triangulate(Array.from({ length: 5000 }, () => [rnd(), rnd()] as [number, number]));
 med(`faces of a ${tri.n}-point triangulation (${tri.edgeCount} edges)`, () => tri.faces());
 
