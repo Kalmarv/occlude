@@ -10,6 +10,7 @@
  * host runs elsewhere (the studio's main thread decodes posted buffers).
  */
 
+import { parseToolpath, type DrawingPlan, type FlatChain, type PlanSelection, type PlanSettings } from './plan.js';
 import {
   resolveFill, validateFillParams,
   type CustomPrimitive, type FillCtx, type FillRegion, type FillSpec,
@@ -125,6 +126,19 @@ export interface WasmModule {
     only_pen: number,
     tour_budget: number,
   ): string;
+  wasm_plan(prims: Float64Array, frags: Float64Array, pens_json: string, tour_budget: number): Float64Array;
+  wasm_plan_svg(
+    plan: Float64Array,
+    pens_json: string,
+    width: number,
+    height: number,
+    background: string | undefined,
+    only_pen: number,
+    from: number,
+    to: number,
+  ): string;
+  wasm_plan_gcode(plan: Float64Array, pens_json: string, profile_json: string, from: number, to: number): string;
+  wasm_plan_toolpath(plan: Float64Array, tolerance: number, from: number, to: number): Float64Array;
   wasm_export_png(
     prims: Float64Array,
     frags: Float64Array,
@@ -1138,6 +1152,47 @@ export function exportPng(a?: SketchDef | PngOptions, b?: PngOptions): Uint8Arra
     opts.scale ?? 4,
     opts.background,
   );
+}
+
+// ---- the ordered plan: planned once, exported many ways ----------------------------
+
+/** Plan a rendered result ONCE (merge → tour → bridge per pen, pen order):
+ * the exact plan bytes and the settings that identify them. Feed
+ * `makePlan` for the hashed value, then the `plan*` exporters. */
+export function planBuffer(result: RenderResult, opts: { tourBudget?: number; engine?: string } = {}): { buffer: Float64Array; settings: PlanSettings } {
+  const tourBudget = opts.tourBudget ?? 200_000;
+  const buffer = requireWasm().wasm_plan(result.raw.prims, result.raw.frags, pensToJson(result.pens), tourBudget);
+  const settings: PlanSettings = {
+    tourBudget,
+    pens: result.pens.map((p) => ({ name: p.name, width: p.width })),
+    paper: { w: result.paper.w, h: result.paper.h },
+    bridgeGapMm: result.pens.map((p) => Math.max(p.width, 0.05) * 0.5),
+    ...(opts.engine ? { engine: opts.engine } : {}),
+  };
+  return { buffer, settings };
+}
+
+const checkSelection = (plan: DrawingPlan, sel: PlanSelection): void => {
+  if (sel.sourcePlanHash !== plan.planHash) throw new Error('that selection belongs to another plan');
+};
+
+/** SVG of a selection: the same chains, order and native curves the plan
+ * holds — no planning happens here. `onlyPen` is an execution filter. */
+export function planSvg(plan: DrawingPlan, sel: PlanSelection, pens: PenDef[], opts: { background?: string; onlyPen?: number } = {}): string {
+  checkSelection(plan, sel);
+  return requireWasm().wasm_plan_svg(plan.buffer, pensToJson(pens), plan.settings.paper.w, plan.settings.paper.h, opts.background, opts.onlyPen ?? -1, sel.fromChain, sel.toChain);
+}
+
+/** G-code jobs (one per pen present) of a selection. */
+export function planGcode(plan: DrawingPlan, sel: PlanSelection, pens: PenDef[], profile: MachineProfileTS = {}): GcodeJob[] {
+  checkSelection(plan, sel);
+  return JSON.parse(requireWasm().wasm_plan_gcode(plan.buffer, pensToJson(pens), profileToJson(profile, plan.settings.paper), sel.fromChain, sel.toChain)) as GcodeJob[];
+}
+
+/** Sampled chains of a selection at `tolerance` mm, source indices kept. */
+export function planToolpath(plan: DrawingPlan, sel: PlanSelection, tolerance: number): FlatChain[] {
+  checkSelection(plan, sel);
+  return parseToolpath(requireWasm().wasm_plan_toolpath(plan.buffer, tolerance, sel.fromChain, sel.toChain), sel.fromChain);
 }
 
 /** Render exactly and export SVG: exact curves, one path per plotted chain

@@ -92,6 +92,15 @@ export type {
 } from './render.js';
 export { initOcclude } from './init.js';
 export { drawFragments, tracePrim } from './draw.js';
+// The ordered drawing plan as a value: decode/encode, identity, selections,
+// standalone timing and duration fitting (never re-plans).
+export {
+  PLAN_SCHEMA, decodePlanBuffer, encodePlanBuffer, canonicalJson, hashPlan, makePlan, openPlan,
+  parseToolpath, encodeToolpath, selectChains, selectAll, selectProgress, selectTime, selectedFlat,
+  standaloneEstimate, fitDuration, planSchedule, chainsBounds,
+} from './plan.js';
+export { planBuffer, planSvg, planGcode, planToolpath } from './render.js';
+export type { PlanChain, PlanSettings, DrawingPlan, PlanSelection, FlatChain, TimeSelection, FitResult } from './plan.js';
 export { PAPERS, paperSize } from './paper.js';
 export type { Paper, PaperChoice } from './paper.js';
 export { DEFAULT_PENS } from './pens.js';

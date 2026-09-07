@@ -48,12 +48,9 @@ fn main() {
     let out = render(&input);
     println!("fragments: {}", out.frags.len());
     let t = std::time::Instant::now();
-    let jobs = export_gcode(
-        &out.frags,
-        &[Pen::default()],
-        &MachineProfile::default(),
-        200_000,
-    );
+    let pens = [Pen::default()];
+    let chains = occlude_core::plan::plan_chains(&out.frags, &pens, 200_000);
+    let jobs = export_gcode(&chains, &pens, &MachineProfile::default());
     println!(
         "export: {:?}  ink={:.0}mm travel={:.0}mm",
         t.elapsed(),

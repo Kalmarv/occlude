@@ -31,15 +31,15 @@ fn golden_svg_stable() {
         _ => (105.0, 148.0),
     };
     let out = prepare(d.input).finish(d.supplied);
+    let chains = occlude_core::plan::plan_chains(&out.frags, &pens, 200_000);
     let svg = to_svg(
-        &out.frags,
+        &chains,
         &pens,
         &SvgOptions {
             width: w,
             height: h,
             background: None,
             only_pen: None,
-            tour_budget: 200_000,
         },
     );
     let path = golden_path();

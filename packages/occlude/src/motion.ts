@@ -244,6 +244,12 @@ export interface PlanEstimate {
 export interface PlanSchedule {
   chainStartMs: number[];
   chainDurMs: number[];
+  /** The up-settle each chain was charged (rising to the lift of the travel
+   * OUT of it; the last chain rises to full lift). */
+  chainUpMs: number[];
+  /** What that up-settle would cost at FULL lift — the terminal rule when
+   * the plot ends after this chain. `fitDuration` prices prefixes with it. */
+  chainUpFullMs: number[];
   estimate: PlanEstimate;
 }
 
@@ -283,6 +289,8 @@ export function schedulePlan(
   };
   const chainStartMs: number[] = [];
   const chainDurMs: number[] = [];
+  const chainUpMs: number[] = [];
+  const chainUpFullMs: number[] = [];
   let clock = 0;
   const lift: LiftModel = o.lift ?? { penUpPulse: 0, marginPulses: 0 };
   const full = Math.round(lift.penUpPulse);
@@ -328,8 +336,10 @@ export function schedulePlan(
     clock += travelMs;
     chainStartMs.push(clock);
     chainDurMs.push(down + drawMs + up);
+    chainUpMs.push(up);
+    chainUpFullMs.push(settleAtLift(penDelay, full, lift));
     clock += down + drawMs + up;
   });
   est.totalMs = est.drawMs + est.travelMs + est.cycleMs;
-  return { chainStartMs, chainDurMs, estimate: est };
+  return { chainStartMs, chainDurMs, chainUpMs, chainUpFullMs, estimate: est };
 }

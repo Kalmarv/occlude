@@ -19,6 +19,7 @@ pub mod raster;
 pub mod region;
 pub mod rng;
 pub mod route;
+pub mod plan;
 pub mod snap;
 pub mod svg;
 pub mod vec2;

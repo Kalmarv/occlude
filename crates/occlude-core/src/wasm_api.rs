@@ -259,7 +259,8 @@ pub fn wasm_export_gcode(
     let profile: MachineProfile = serde_json::from_str(profile_json)
         .map_err(|e| JsValue::from_str(&format!("bad profile json: {e}")))?;
     let frags = decode_frags(prims, frags)?;
-    let jobs = export_gcode(&frags, &pens, &profile, tour_budget as usize);
+    let chains = crate::plan::plan_chains(&frags, &pens, tour_budget as usize);
+    let jobs = export_gcode(&chains, &pens, &profile);
     serde_json::to_string(&jobs).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
@@ -324,21 +325,71 @@ pub fn wasm_export_svg(
     let pens: Vec<Pen> = serde_json::from_str(pens_json)
         .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
     let frags = decode_frags(prims, frags)?;
-    Ok(to_svg(
-        &frags,
-        &pens,
-        &SvgOptions {
-            width,
-            height,
-            background,
-            only_pen: if only_pen >= 0 {
-                Some(only_pen as u32)
-            } else {
-                None
-            },
-            tour_budget: tour_budget as usize,
-        },
-    ))
+    let chains = crate::plan::plan_chains(&frags, &pens, tour_budget as usize);
+    Ok(to_svg(&chains, &pens, &SvgOptions { width, height, background, only_pen: pen_filter(only_pen) }))
+}
+
+fn pen_filter(only_pen: i32) -> Option<u32> {
+    if only_pen >= 0 {
+        Some(only_pen as u32)
+    } else {
+        None
+    }
+}
+
+fn parse_pens(pens_json: &str) -> Result<Vec<Pen>, JsValue> {
+    serde_json::from_str(pens_json).map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))
+}
+
+fn planned(plan: &[f64], from: u32, to: u32) -> Result<Vec<crate::gcode::Chain>, JsValue> {
+    let chains = crate::plan::decode_plan(plan).map_err(|e| JsValue::from_str(&e))?;
+    let slice = crate::plan::range(&chains, from as usize, to as usize).map_err(|e| JsValue::from_str(&e))?;
+    Ok(slice.to_vec())
+}
+
+/// THE plan: merge → tour → bridge once, encoded with native primitives
+/// (`plan::encode_plan`). Every other export takes this buffer and a
+/// half-open chain range `[from, to)` and never plans again.
+#[wasm_bindgen]
+pub fn wasm_plan(prims: &[f64], frags: &[f64], pens_json: &str, tour_budget: u32) -> Result<Vec<f64>, JsValue> {
+    let pens = parse_pens(pens_json)?;
+    let frags = decode_frags(prims, frags)?;
+    Ok(crate::plan::encode_plan(&crate::plan::plan_chains(&frags, &pens, tour_budget as usize)))
+}
+
+/// SVG of a plan range: exact curves, plot order, one <g> per pen.
+#[wasm_bindgen]
+pub fn wasm_plan_svg(
+    plan: &[f64],
+    pens_json: &str,
+    width: f64,
+    height: f64,
+    background: Option<String>,
+    only_pen: i32,
+    from: u32,
+    to: u32,
+) -> Result<String, JsValue> {
+    let pens = parse_pens(pens_json)?;
+    let chains = planned(plan, from, to)?;
+    Ok(to_svg(&chains, &pens, &SvgOptions { width, height, background, only_pen: pen_filter(only_pen) }))
+}
+
+/// G-code jobs (one per pen present) of a plan range.
+#[wasm_bindgen]
+pub fn wasm_plan_gcode(plan: &[f64], pens_json: &str, profile_json: &str, from: u32, to: u32) -> Result<String, JsValue> {
+    let pens = parse_pens(pens_json)?;
+    let profile: MachineProfile = serde_json::from_str(profile_json)
+        .map_err(|e| JsValue::from_str(&format!("bad profile json: {e}")))?;
+    let chains = planned(plan, from, to)?;
+    let jobs = export_gcode(&chains, &pens, &profile);
+    serde_json::to_string(&jobs).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+/// Sampled toolpath of a plan range (`[pen, dot, n, x0, y0, …]` per chain).
+#[wasm_bindgen]
+pub fn wasm_plan_toolpath(plan: &[f64], tolerance: f64, from: u32, to: u32) -> Result<Vec<f64>, JsValue> {
+    let chains = planned(plan, from, to)?;
+    Ok(crate::plan::toolpath(&chains, tolerance))
 }
 
 /// Toolpath export for the animated plot preview: chains in ACTUAL plot
@@ -355,46 +406,7 @@ pub fn wasm_export_toolpath(
     tour_budget: u32,
     tolerance: f64,
 ) -> Result<Vec<f64>, JsValue> {
-    let pens: Vec<Pen> = serde_json::from_str(pens_json)
-        .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
+    let pens = parse_pens(pens_json)?;
     let frags = decode_frags(prims, frags)?;
-    let mut out: Vec<f64> = Vec::new();
-    let mut pts: Vec<crate::vec2::Vec2> = Vec::new();
-    for pi in 0..pens.len() {
-        let chains = crate::gcode::merge_chains(&frags, pi as u32);
-        if chains.is_empty() {
-            continue;
-        }
-        let chains = crate::gcode::tour(chains, tour_budget as usize);
-        // Consecutive chains with sub-nib gaps draw through instead of
-        // lifting; the nib hides the bridge.
-        let chains = crate::route::bridge_chains(chains, pens[pi].width.max(0.05) * 0.5);
-        for chain in chains {
-            out.push(pi as f64);
-            out.push(if chain.dot { 1.0 } else { 0.0 });
-            pts.clear();
-            if chain.dot {
-                let p = chain.start();
-                out.push(1.0);
-                out.push(p.x);
-                out.push(p.y);
-                continue;
-            }
-            // Flatten the whole chain; consecutive primitives share endpoints,
-            // so drop each primitive's duplicated first point.
-            let mut all: Vec<crate::vec2::Vec2> = Vec::new();
-            for prim in &chain.prims {
-                pts.clear();
-                prim.flatten(tolerance.max(0.01), &mut pts);
-                let skip = usize::from(!all.is_empty());
-                all.extend(pts.iter().skip(skip));
-            }
-            out.push(all.len() as f64);
-            for p in &all {
-                out.push(p.x);
-                out.push(p.y);
-            }
-        }
-    }
-    Ok(out)
+    Ok(crate::plan::toolpath(&crate::plan::plan_chains(&frags, &pens, tour_budget as usize), tolerance))
 }

@@ -4,11 +4,9 @@
 //! is the drawing the pen lays down (law 5): bridged sub-nib gaps are inked,
 //! and path order is plot order. Dots become filled circles at nib radius.
 
-use crate::fragment::Frag;
-use crate::gcode::{merge_chains, tour, Chain};
+use crate::gcode::Chain;
 use crate::pipeline::Pen;
 use crate::primitive::Primitive;
-use crate::route::bridge_chains;
 use std::fmt::Write;
 
 pub struct SvgOptions {
@@ -16,22 +14,8 @@ pub struct SvgOptions {
     pub width: f64,
     pub height: f64,
     pub background: Option<String>,
-    /// Restrict output to one pen index.
+    /// Restrict output to one pen index (an execution filter over the plan).
     pub only_pen: Option<u32>,
-    /// 2-opt iteration budget for the tour — the same number the G-code and
-    /// toolpath exports take, so all three agree on the order.
-    pub tour_budget: usize,
-}
-
-/// The chains a pen plots, in plot order: exactly what `export_gcode` and the
-/// toolpath export produce for that pen.
-pub fn plotted_chains(frags: &[Frag], pen_index: u32, pen: &Pen, tour_budget: usize) -> Vec<Chain> {
-    let chains = merge_chains(frags, pen_index);
-    if chains.is_empty() {
-        return chains;
-    }
-    let chains = tour(chains, tour_budget);
-    bridge_chains(chains, pen.width.max(0.05) * 0.5)
 }
 
 /// Escape arbitrary text for use inside an XML attribute value.
@@ -51,7 +35,9 @@ fn xml_escape(s: &str) -> String {
     out
 }
 
-pub fn to_svg(frags: &[Frag], pens: &[Pen], opts: &SvgOptions) -> String {
+/// Encode PLANNED chains (`plan::plan_chains` or a range of it): one <g> per
+/// pen, one <path> per chain in plan order. Never plans.
+pub fn to_svg(chains: &[Chain], pens: &[Pen], opts: &SvgOptions) -> String {
     let mut s = String::new();
     let _ = write!(
         s,
@@ -74,7 +60,7 @@ pub fn to_svg(frags: &[Frag], pens: &[Pen], opts: &SvgOptions) -> String {
                 continue;
             }
         }
-        let chains = plotted_chains(frags, pi as u32, pen, opts.tour_budget);
+        let chains: Vec<&Chain> = chains.iter().filter(|c| c.pen == pi as u32).collect();
         if chains.is_empty() {
             continue;
         }

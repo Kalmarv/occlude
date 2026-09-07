@@ -212,8 +212,16 @@ pub fn tour(mut chains: Vec<Chain>, budget: usize) -> Vec<Chain> {
     }
     let span_x = (maxx - minx).max(1e-9);
     let span_y = (maxy - miny).max(1e-9);
-    // ~2 chains per cell on average.
-    let cell = ((span_x * span_y) / (n as f64 / 2.0)).sqrt().max(1e-6);
+    // ~2 chains per cell on average — but never finer than the long axis
+    // split into 2n cells: when every endpoint lies on one line (a row of
+    // exact circles all start at angle 0) the box has no area and the cell
+    // collapsed to microns, and the ring walk below became quadratic in
+    // the number of rings (minutes for twelve circles). The search stops
+    // exactly, so the cell size never changes the order it finds.
+    let cell = ((span_x * span_y) / (n as f64 / 2.0))
+        .sqrt()
+        .max(span_x.max(span_y) / (2.0 * n as f64))
+        .max(1e-6);
     let cols = ((span_x / cell).floor() as usize + 1).max(1);
     let rows = ((span_y / cell).floor() as usize + 1).max(1);
     let cell_of = |p: Vec2| -> (usize, usize) {
@@ -259,10 +267,7 @@ pub fn tour(mut chains: Vec<Chain>, budget: usize) -> Vec<Chain> {
             if best.0 <= ring_min || r as usize > max_ring {
                 break;
             }
-            for cy in (py - r)..=(py + r) {
-                if cy < 0 || cy >= rows as i64 {
-                    continue;
-                }
+            for cy in (py - r).max(0)..=(py + r).min(rows as i64 - 1) {
                 let edge_row = cy == py - r || cy == py + r;
                 let mut cx = px - r;
                 while cx <= px + r {
@@ -336,25 +341,16 @@ pub struct GcodeJob {
     pub travel_mm: f64,
 }
 
-/// One G-code job per pen present in the fragment list.
-pub fn export_gcode(
-    frags: &[Frag],
-    pens: &[Pen],
-    profile: &MachineProfile,
-    tour_budget: usize,
-) -> Vec<GcodeJob> {
+/// One G-code job per pen present in the PLANNED chains (`plan::plan_chains`
+/// or a range of it), in plan order — this encodes the plan, it never plans.
+pub fn export_gcode(chains: &[Chain], pens: &[Pen], profile: &MachineProfile) -> Vec<GcodeJob> {
     let mut jobs = Vec::new();
     for (pi, pen) in pens.iter().enumerate() {
-        let chains = merge_chains(frags, pi as u32);
-        if chains.is_empty() {
+        let mine: Vec<Chain> = chains.iter().filter(|c| c.pen == pi as u32).cloned().collect();
+        if mine.is_empty() {
             continue;
         }
-        let chains = tour(chains, tour_budget);
-        // Sub-nib gaps between consecutive chains draw through instead of
-        // lifting. (Euler routing is toolpath-only: it flattens, and the
-        // G-code path keeps arcs for G2/G3.)
-        let chains = crate::route::bridge_chains(chains, pen.width.max(0.05) * 0.5);
-        jobs.push(emit_pen_job(pi as u32, pen, &chains, profile));
+        jobs.push(emit_pen_job(pi as u32, pen, &mine, profile));
     }
     jobs
 }

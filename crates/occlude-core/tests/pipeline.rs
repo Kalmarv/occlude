@@ -345,24 +345,23 @@ fn export_gcode_and_svg_smoke() {
     ];
     let out = render(&input(shapes));
     let pens = vec![Pen::default()];
+    let plotted = occlude_core::plan::plan_chains(&out.frags, &pens, 20_000);
     let svg = to_svg(
-        &out.frags,
+        &plotted,
         &pens,
         &SvgOptions {
             width: 100.0,
             height: 100.0,
             background: Some("#f8f5ee".into()),
             only_pen: None,
-            tour_budget: 20_000,
         },
     );
     assert!(svg.contains("<path"), "svg has geometry");
-    let jobs = export_gcode(&out.frags, &pens, &MachineProfile::default(), 20_000);
+    let jobs = export_gcode(&plotted, &pens, &MachineProfile::default());
     // Law 5: the SVG is the plotted drawing — one <path> per chain the G-code
     // plots, in the same order, bridging included (so its ink ≥ the raw
     // fragments' ink by exactly the bridged gaps, never less).
     let svg_paths = svg.matches("<path").count();
-    let plotted = occlude_core::svg::plotted_chains(&out.frags, 0, &pens[0], 20_000);
     assert_eq!(svg_paths, plotted.iter().filter(|c| !c.dot).count());
     let chained_ink: f64 = plotted.iter().map(|c| c.ink_length()).sum();
     let frag_ink: f64 = out.frags.iter().filter(|f| !f.dot).map(|f| f.geom.length()).sum();
