@@ -32,7 +32,7 @@ Drag `area below` down to 10 and the drawing is a bare network; up to 600 and ne
 
 ## Same ink, different connections
 
-A frame, its four corners kept by `t.material` as chapter 2 showed, and three chords that cross it and each other, sampled to two points each and put into one material with `append`. Left, as built: eight pieces of line laid over each other, crossing on paper and nowhere else. Right, the same material after `planarize()`: every place two connections cross has become a point they share, marked in blue, and the connections are split there. The ink is identical. The labels count the connections in each.
+A frame, its four corners kept by `t.material` as chapter 2 showed, and three chords that cross it and each other, sampled to two points each and put into one material with `append`. Left, as built: seven pieces of line laid over each other, crossing on paper and nowhere else. Right, the same material after `planarize()`: every place two connections cross has become a point they share, marked in blue, and the connections are split there. The ink is identical. The labels count the connections in each.
 
 ```ts live focus=8-9
 import { sketch, strokes, circle, label, line, rect, append, group } from 'occlude';

@@ -32,6 +32,7 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'workshop-04', title: '4. Make it change', file: 'workshop-04-change.md', live: true, group: 'workshop' },
   { slug: 'workshop-05', title: '5. Let lines notice each other', file: 'workshop-05-notice.md', live: true, group: 'workshop' },
   { slug: 'workshop-06', title: '6. Discover the spaces between lines', file: 'workshop-06-spaces.md', live: true, group: 'workshop' },
+  { slug: 'workshop-07', title: '7. Read an invisible landscape', file: 'workshop-07-field.md', live: true, group: 'workshop' },
   { slug: 'architecture', title: 'Architecture', file: 'architecture.md', live: false, group: 'developer' },
   { slug: 'device-notes', title: 'Device notes', file: 'device-notes.md', live: false, group: 'developer' },
   { slug: 'idraw-log', title: 'iDraw log (2026)', file: 'idraw-integration.md', live: false, group: 'developer' },
