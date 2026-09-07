@@ -36,14 +36,15 @@ import {
 } from './state.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
-  liftPoints, scatterPoints, triangulate, voronoi,
+  scatterPoints, relaxMaterial, settleMaterial, type RelaxOpts, type SettleOpts, type Bounds as PointBounds,
   type FieldFn2, type ScatterOpts,
 } from './points.js';
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { sketchFrame, unitMm } from './record.js';
 import { boundaryLoops, type Boundary } from './boundary.js';
-import { Material, material as materialOf, alongChain, checkSampling } from './material.js';
+import { Material, material as materialOf, alongChain, checkSampling, type PointsLike } from './material.js';
+import { voronoiOf } from './voronoi.js';
 import { distanceTo } from './distance.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
@@ -665,9 +666,12 @@ export interface Toolkit {
   translate: typeof translateField;
   scale: typeof scaleField;
   vectorField: typeof vectorFieldMark;
-  points: typeof pointsOf;
-  voronoi: typeof voronoi;
-  triangulate: typeof triangulate;
+  /** Lloyd relaxation of a material's points within the drawable (or given bounds). */
+  relax: typeof relax;
+  /** Weighted Linde-Buzo-Gray settling of point-only material toward a density. */
+  settle: typeof settle;
+  /** Voronoi cells of a point set as material, clipped to the drawable (or given bounds). */
+  voronoi: typeof voronoiTk;
   /** Random expressions to explore as fields/warps; `.source` is the
    * deliverable. On the toolkit because its probe bounds default to the
    * drawable. */
@@ -731,18 +735,41 @@ function pointsEnv(): import('./points.js').PointsEnv {
   };
 }
 
-/** Field-modulated Poisson-disk points; `.settle(n)` refines toward the
- * weighted Linde-Buzo-Gray distribution. */
-function scatter(field: FieldFn2 | undefined, opts: ScatterOpts): import('./points.js').Points;
-function scatter(opts: ScatterOpts): import('./points.js').Points;
+/** Field-modulated Poisson-disk points as point-only material with a
+ * `density` column (the field at each point). `t.relax` and `t.settle`
+ * refine it; `t.voronoi` reads its cells. */
+function scatter(field: FieldFn2 | undefined, opts: ScatterOpts): Material;
+function scatter(opts: ScatterOpts): Material;
 function scatter(
   a: FieldFn2 | ScatterOpts | undefined,
   b?: ScatterOpts,
-): import('./points.js').Points {
+): Material {
   const field = typeof a === 'function' ? a : undefined;
   const opts = (typeof a === 'function' || a === undefined ? b : a) as ScatterOpts;
   if (!opts?.spacing) throw new Error('scatter: { spacing } is required');
   return scatterPoints(pointsEnv(), field, opts);
+}
+
+/** Lloyd relaxation: each point to the density-weighted centroid of its
+ * cell, `iterations` times; count, edges and columns kept. */
+function relax(m: Material, opts: RelaxOpts = {}): Material {
+  return relaxMaterial(pointsEnv(), materialOf(m as never), opts);
+}
+
+/** Weighted Linde-Buzo-Gray settling toward `density` at `spacing`:
+ * relaxation plus population control on point-only material; survivors
+ * keep their columns, children copy their parent's, `demand` is written.
+ * Split directions come from the sketch's seeded stream. */
+function settle(m: Material, opts: SettleOpts): Material {
+  return settleMaterial(pointsEnv(), materialOf(m as never), opts);
+}
+
+/** Voronoi cells of `sites` as material (see voronoi.ts), clipped to the
+ * drawable unless `bounds` is given. `cells.cellOf(site)` and
+ * `cells.siteOf(face)` relate the result to its sites. */
+function voronoiTk(sites: PointsLike, opts: { bounds?: PointBounds } = {}): Material {
+  const b = bounds();
+  return voronoiOf(materialOf(sites as never), opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h });
 }
 
 /**
@@ -950,14 +977,6 @@ function draw(req: DrawRequest): DrawRequest {
   return r;
 }
 
-/** Lift any point array into the Points vocabulary (relax/settle/cells/mesh); `material(points)` turns it into material. */
-function pointsOf(
-  raw: readonly ({ x: number; y: number } | [number, number])[],
-  opts: { field?: FieldFn2; spacing?: L; resolution?: number } = {},
-): import('./points.js').Points {
-  return liftPoints(pointsEnv(), raw, opts);
-}
-
 const TOOLKIT_BASE = {
   circle, ellipse, rect, line, polygon, ngon, stroke, path, group, clip, mask, decimate, wobble, modify,
   dash, smooth, roughen, deform, noiseField, label,
@@ -966,7 +985,7 @@ const TOOLKIT_BASE = {
   map: mapRange, norm: normRange, invert, invertRange, ease,
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, isolines, streamlines, material: materialFromShape, sample, probe, inspect, plan: planWith, draw, distanceTo, points: pointsOf, voronoi, triangulate, synth,
+  scatter, isolines, streamlines, material: materialFromShape, sample, probe, inspect, plan: planWith, draw, distanceTo, relax, settle, voronoi: voronoiTk, synth,
   within, rotate: rotateField, translate: translateField, scale: scaleField,
   vectorField: vectorFieldMark,
   mm, w, h, s, long,

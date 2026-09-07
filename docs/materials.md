@@ -4,46 +4,81 @@ Geometry as data you can hold: points with attributes, edges between them, selec
 
 ## Point distributions
 
-`t.scatter(field?, { spacing })` places Poisson-disk points over the drawable. Where the field (0 to 1) is high the local spacing tightens; where it is 0 nothing is placed. Every island of the field is sampled. Each point is `{ x, y, w }`, with `w` the local demand.
+`t.scatter(field?, { spacing })` places Poisson-disk points over the drawable and returns point-only material with one computed column, `density`: the field's value at each point, 0 to 1. Where the field is high the local spacing tightens; where it is 0 nothing is placed, and every island of the field is sampled. The material remembers nothing about the field or the spacing; the refinement operations take them as inputs.
 
 ```ts live
 import { sketch, circle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const field = (x, y) => Math.max(0, 1 - Math.hypot(x - 100, (y - 50) * 2) / 90);
-  return t.scatter(field, { spacing: 3.4 }).map((p) => circle(p.x, p.y, 0.7 + p.w * 0.9));
+  return t.scatter(field, { spacing: 3.4 }).points.map((p) => circle(p.x, p.y, 0.7 + p.density * 0.9));
 });
 ```
 
-`.relax(n)` runs Lloyd relaxation toward field-weighted cell centroids: spacing evens out and the count stays fixed. `.settle(n)` adds population control, splitting the point of an overloaded cell and removing a starved one, so the count converges to the field's ink budget (weighted Linde-Buzo-Gray stippling). Both work on any array lifted with `t.points(arr, { field?, spacing? })`. Left, a plain grid; right, the same grid after twelve settle passes over a tone field.
+Two standard refinements, both explicit about what they read:
+
+| Operation | Effect |
+|---|---|
+| `t.relax(m, { iterations?, density?, bounds?, resolution? })` | Lloyd relaxation: each point moves to the density-weighted centroid of its cell within the bounds (default the drawable). Count, edges and every column are kept; nothing is written. |
+| `t.settle(m, { density, spacing, iterations?, bounds?, resolution? })` | Weighted Linde-Buzo-Gray settling: relaxation plus population control. A point whose cell holds more demand than one point's capacity at `spacing` splits, a starved one dies, so the count converges to the density's ink budget. Point-only input; survivors keep their columns, children copy their parent's, and `demand` is written: cell demand over capacity, 1 for a full cell. |
+
+Three quantities, three names: `density` is the field at a point, `demand` a cell's integrated density over one point's capacity, and a cell's mean density is `integral / area` from `faces().measure(field)` below. Left, a plain grid; right, the same grid after twelve settle passes over a tone field, dots sized by demand.
 
 ```ts live
-import { sketch, circle } from 'occlude';
+import { sketch, circle, material } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const dark = (x, y) => Math.max(0.03, 1 - Math.hypot(x - 50, (y - 50) * 1.8) / 50);
-  const gridPts = t.grid({ cols: 15, rows: 15 }).map((c) => [c.cx / 2, c.cy]);
+  const grid = material(t.grid({ cols: 15, rows: 15 }).map((c) => [c.cx / 2, c.cy]));
+  const settled = t.settle(grid, { density: dark, spacing: 4.8, iterations: 12 });
   return [
-    gridPts.map(([x, y]) => circle(x, y, 0.6)),
-    t.points(gridPts, { field: dark, spacing: 4.8 }).settle(12).map((p) => circle(p.x + 100, p.y, 0.7 + p.w * 0.8)),
+    grid.points.map((p) => circle(p.x, p.y, 0.6)),
+    settled.points.map((p) => circle(p.x + 100, p.y, 0.7 + p.demand * 0.8)),
   ];
 });
 ```
 
-`.cells()` gives the Voronoi cells of a set, one `{ site, pts }` per point clipped to the drawable, and `.mesh()` its Delaunay triangles. Both are plain data to filter and stamp; both also exist as pure imports over any array, `voronoi(points, bounds)` with the bounds to clip to, and `triangulate(points)`. Left, the cells of the points in the left half, clipped to it; right, the triangles of the points in the right half.
+`t.voronoi(sites, { bounds? })` builds the Voronoi cells of a point set as material: its vertices are the cell corners, its edges the walls, and `faces()` reads the cells. Adjacent cells share their corners and one wall, the clipping rectangle (the drawable by default) is explicit, and the result relates to its sites in both directions: `cells.cellOf(site)` gives a site's face, `cells.siteOf(face)` a face's site vertex, both checked against the exact site material. Sites and corners are different point sets: the sites are your input, the corners are what the cells are made of. Delaunay connectivity stays a connection between the sites, `connect.triangulate(sites)`, whose `faces()` are the triangles. The pure form `voronoi(points, bounds)` takes explicit bounds. Left, the cells of the points in the left half, filled at random; right, the triangles of the points in the right half.
 
 ```ts live
-import { sketch, polygon, fill, mm, voronoi, triangulate } from 'occlude';
+import { sketch, polygon, fill, mm, strokes, connect } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  const pts = t.scatter({ spacing: 9 }).relax(3);
-  const left = pts.filter((p) => p.x < 96);
-  const right = pts.filter((p) => p.x > 104);
+  const pts = t.relax(t.scatter({ spacing: 9 }), { iterations: 3 });
+  const left = pts.points.filter((p) => p.x < 96);
+  const right = pts.points.filter((p) => p.x > 104);
+  const cells = t.voronoi(left, { bounds: { x: 0, y: 0, w: 98, h: 100 } });
   return [
-    voronoi(left, { x: 0, y: 0, w: 98, h: 100 }).map((c) =>
-      polygon(c.pts, t.chance(0.25) ? { fill: fill('hatch', { angle: t.rnd(180), spacing: mm(1.1) }) } : {})),
-    triangulate(right).map((tri) => polygon(tri)),
+    cells.faces().map((f) => polygon(f.contours, t.chance(0.25) ? { fill: fill('hatch', { angle: t.rnd(180), spacing: mm(1.1) }), stroke: false } : { stroke: false })),
+    strokes(cells),
+    strokes(connect.triangulate(right)),
   ];
+});
+```
+
+A cell is not a live construction: moving a site or a wall does not rebuild anything, and material edited or extracted from the result has no correspondence any more (asking gives an error that says so). Construct the cells again when the sites have moved.
+
+### Density-driven stippling
+
+Scatter, settle toward a tone, then one custom relaxation pass written from the same ingredients the standard recipe uses: the cells of the current points, their density-weighted centres from `measure`, and a partial move toward them. The declared `side` column survives settling and picks the pen; the computed `demand` sizes the dots. With the material layer on in the debug menu, `seeds`, `settled` and `nudged` are all there to inspect.
+
+```ts live
+import { sketch, circle, mul, sub } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const tone = (x, y) => Math.max(0, 1 - Math.hypot(x - 100, (y - 50) * 1.6) / 70) * (0.6 + 0.4 * t.noise(x / 20, y / 20));
+  const seeds = t.scatter(tone, { spacing: 3 }).attribute('side', (p) => (p.x < 100 ? 0 : 1));
+  const settled = t.settle(seeds, { density: tone, spacing: 3, iterations: 20 });
+  const nudged = settled.steps(2, (current, next) => {
+    const cells = t.voronoi(current);
+    const measured = cells.faces().measure(tone, { resolution: 200 });
+    next.move((p) => {
+      const face = cells.cellOf(p);
+      const target = face ? measured.forFace(face).weightedCentroid : null;
+      return target ? mul(sub(target, p), 0.3) : [0, 0];
+    });
+  });
+  return nudged.points.map((p) => circle(p.x, p.y, 0.35 + 0.45 * Math.min(1.5, p.demand), { pen: p.side ? 'stabilo-88-blue' : 'pigma-005-black' }));
 });
 ```
 
@@ -85,14 +120,15 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 ```ts live
 import { sketch, circle, material } from 'occlude';
 
-// A scatter's w becomes a column, a derived column is added, and two
+// A scatter's density is a column, a derived column is added, and two
 // readings of the same material sit side by side: dots sized by w on
 // the left, the far ones ringed on the right.
 export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
-  const cloud = material(t.scatter((x, y) => 1 - Math.hypot(x - 50, y - 50) / 60, { spacing: 6 }).filter((p) => p.x < 98))
+  const cloud = t.scatter((x, y) => 1 - Math.hypot(x - 50, y - 50) / 60, { spacing: 6 })
+    .points.filter((p) => p.x < 98).extract()
     .attribute('far', (p) => Math.hypot(p.x - 50, p.y - 50) > 28 ? 1 : 0);
   return [
-    cloud.points.map((p) => circle(p.x, p.y, 0.6 + p.w * 2)),
+    cloud.points.map((p) => circle(p.x, p.y, 0.6 + p.density * 2)),
     cloud.points.filter((p) => p.far).map((p) => circle(p.x + 100, p.y, 3)),
   ];
 });
@@ -107,7 +143,7 @@ import { sketch, stroke, material, connect } from 'occlude';
 
 // Two ways to connect one cloud: nearest-3 on the left, Delaunay on the right.
 export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
-  const pts = t.scatter({ spacing: 10 }).map((p) => [p.x / 2 + 2, p.y]);
+  const pts = t.scatter({ spacing: 10 }).points.map((p) => [p.x / 2 + 2, p.y]);
   const left = connect.nearest(material(pts), { count: 3 });
   const right = connect.triangulate(material(pts.map(([x, y]) => [x + 100, y])));
   return [left, right].flatMap((m) => m.curves().map((c) => stroke(c)));
@@ -419,7 +455,7 @@ A point cloud with no topology at all: a band of dots streams left to right on a
 import { sketch, stroke, circle, material, curl, force, sum, mul } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
-  const cloud = material(t.scatter({ spacing: 4 }).map((p) => [p.x / 5 + 4, p.y]))
+  const cloud = material(t.scatter({ spacing: 4 }).points.map((p) => [p.x / 5 + 4, p.y]))
     .attribute('mobility', (p) => 0.6 + 0.4 * t.noise(p.y / 12));
   const wall = t.sample(circle(92, 50, 16), { spacing: 1.6 });
   const avoid = force.separation(wall, { radius: 18 });
@@ -584,7 +620,15 @@ The regions a network encloses are data too. `m.planarize()` makes every crossin
 | `m.faces()` | the bounded faces as a collection: iterate, `length`, `at`, `map`, `filter`, `groupBy`, `boundaries()`; crossings without a shared vertex are an error that says to planarize |
 | `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds`, `contours` (closed records `polygon` and `stroke` accept) |
 | `cells.filter(f => bool)` | a fixed-membership face selection with `union`, `intersect`, `subtract` |
-| `sel.boundaries()` | closed contours around the union of the selected faces: shared walls omitted, holes kept |
+| `cells.edges`, `sel.edges` | every source edge incident to the (selected) faces, once, as an edge selection: shared walls included, and a spur inside a face counts as that face's edge |
+| `cells.points`, `sel.points` | the endpoints of those edges, once |
+| `cells.boundaryEdges`, `sel.boundaryEdges` | edges between the selected union and its exterior: walls between two selected faces are excluded, a hole's boundary stays |
+| `sel.boundaries()` | closed contours around the union of the selected faces: a drawing view of the same boundary |
+| `cells.measure(field?, { resolution?, bounds? })` | per-face geometric `area` and `centroid` (holes respected) and, given a field, its `integral`, `mean` and density-weighted `weightedCentroid`; `forFace(face)` looks one up |
+
+A detached segment floating inside a face belongs to no face: its walk encloses nothing, so `edges` leaves it out and `boundaryEdges` never sees it.
+
+Measurements are midpoint sums on a square raster (cells of the long side of `bounds` over `resolution`, default 256; bounds default to the measured faces' box), each raster centre inside a face contributing its sample times the cell area, non-finite samples absent. The error scales with the cell size. A density-weighted centre needs a nonnegative field with positive total; with a negative sample or zero total it is null, while a signed field still has an integral and a mean. A measurement is a frozen result about its exact faces, not geometry, and does not follow later edits.
 
 Orientation is decided exactly (Shewchuk's `orient2d`), so crossing, touching and collinear never depend on an epsilon. Endpoints merge only when exactly coincident; a gap stays a gap. Contours come out with the outer boundary at positive area and holes negative, so `winding: 'evenodd'` handles them either way. Drawing every face's contours repeats every shared wall; fill the cells with `stroke: false` and stroke the network once, or stroke only a selection's `boundaries()`.
 
@@ -635,6 +679,68 @@ export default sketch({ aspect: [2, 1] }, (t) => {
       polygon(chosen.boundaries(), { winding: 'evenodd', fill: hatch, stroke: false }),
       strokes(chosen.boundaries(), { pen: 'stabilo-88-blue' }),
     ),
+  ];
+});
+```
+
+### Editable cellular drawing
+
+Voronoi cells as ordinary material. The large cells are selected; their internal walls are the edges the selection has that are not on its boundary, and one structural edit disconnects them, so the rooms open into each other. The edited material draws like any other; it is no longer anyone's Voronoi cell, and asking it for a site is an error by design.
+
+```ts live
+import { sketch, strokes, polygon, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
+  const sites = t.relax(t.scatter({ spacing: 14 }), { iterations: 2 });
+  const cells = t.voronoi(sites);
+  const rooms = cells.faces().filter((f) => f.area > 260);
+  const internal = rooms.edges.filter((e) => !rooms.boundaryEdges.has(e));
+  const rows = new Set(internal.indices);
+  const opened = cells.steps(1, (cur, next) => next.disconnect((e) => rows.has(e.index)));
+  // The boundary goes down first: ink laid on ink already there is dropped,
+  // so the black walls yield to the blue boundary where they coincide.
+  return [
+    rooms.map((f) => polygon(f.contours, { fill: fill('hatch', { angle: 30, spacing: mm(1.6) }), stroke: false })),
+    strokes(rooms.boundaryEdges, { pen: 'stabilo-88-blue' }),
+    strokes(opened, { pen: 'pigma-005-black' }),
+  ];
+});
+```
+
+### Branching responding to enclosed space
+
+Trunks grow up from the bottom edge and now and then throw a side branch; a tip that meets a wall joins it, and every join encloses a region. After the growth the network is planarized (two tips that crossed in the same step become a shared vertex; the resolver settles their conflicting headings) and its faces are measured against a light field. The bright, roomy cells are hatched and their outline drawn in blue, laid down before the black network so the shared walls keep the blue (ink on ink is dropped), which is a drawing decision the enclosed space made. A network that encloses nothing is drawn as it is.
+
+```ts live
+import { sketch, strokes, polygon, fill, mm, material, query, add } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
+  const seeds = material(t.times(9, (i) => [16 + i * 21, 94]), { active: 1, heading: -Math.PI / 2 });
+  const web = seeds.steps(50, (cur, next, k) => {
+    const edges = query.edges(cur);
+    const tips = cur.points.filter((p) => p.active === 1 && p.y > 8 && p.x > 6 && p.x < 194);
+    next.extend((p) => {
+      const h = p.heading + t.noise(p.x / 16, p.y / 16, k * 0.01) * 0.5;
+      const headings = t.chance(0.08) ? [h, h + (t.chance(0.5) ? 1.2 : -1.2)] : [h];
+      return headings.map((hh) => {
+        const target = add(p, [Math.cos(hh) * 3, Math.sin(hh) * 3]);
+        const hit = edges.firstHit(p, target, { excludeIncident: p });
+        if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: 0 } }) };
+        return { position: target, attributes: { active: 1, heading: hh } };
+      });
+    }, { where: tips });
+    next.set(() => ({ active: 0 }), { where: tips });
+  });
+  const planar = web.planarize({ point: () => ({ active: 0, heading: 0 }) });
+  const enclosed = planar.faces();
+  if (enclosed.length === 0) return strokes(web);
+  const light = (x, y) => Math.max(0, 1 - Math.hypot(x - 70, y - 40) / 90);
+  const measured = enclosed.measure(light, { resolution: 200 });
+  const lit = enclosed.filter((f) => f.area > 25 && measured.forFace(f).mean > 0.5);
+  return [
+    lit.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 60, spacing: mm(1.2) }), stroke: false })),
+    strokes(lit.boundaryEdges, { pen: 'stabilo-88-blue' }),
+    strokes(planar, { pen: 'pigma-005-black' }),
   ];
 });
 ```

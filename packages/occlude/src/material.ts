@@ -25,7 +25,7 @@
 
 import { PointSelection, EdgeSelection } from './relation.js';
 import { walkChains } from './chains.js';
-import { planarize, faces, type PlanarizeOpts, type Faces } from './faces.js';
+import { planarize, faces, type PlanarizeOpts, type Faces, type Face } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import type { VectorFieldFn } from './shapes.js';
 import { distanceTo } from './distance.js';
@@ -229,6 +229,7 @@ export class Material {
    * step makes a state per iteration, and most never ask. The box is
    * mutable inside a frozen material. */
   private readonly adjBox: { rows: number[][] | null };
+  private readonly facesBox: { faces: Faces | null };
   private readonly vertexProto: object;
   private readonly edgeProto: object;
 
@@ -285,6 +286,7 @@ export class Material {
       if (a === b) throw new Error(`material: edge ${a}–${b} joins a vertex to itself`);
     }
     this.adjBox = { rows: null };
+    this.facesBox = { faces: null };
     this.vertexProto = viewProto(this, 'vertex');
     this.edgeProto = viewProto(this, 'edge');
     Object.freeze(this.attrs);
@@ -412,8 +414,35 @@ export class Material {
   }
 
   /** The bounded regions this (already planar) material encloses. */
+  /** The bounded faces of this state (see faces.ts). A frozen state has one
+   * face collection: repeated calls return the same object, so a face view
+   * from any call is accepted by every consumer of this material's faces. */
   faces(): Faces {
-    return faces(this);
+    return (this.facesBox.faces ??= faces(this));
+  }
+
+  /** For material made by `t.voronoi`: the cell (a face of this material's
+   * `faces()`) of a site vertex, or undefined when the site has no cell
+   * (clipped away, or a duplicate of an earlier site). */
+  cellOf(site: Vertex): Face | undefined {
+    const links = voronoiLinks.get(this);
+    if (!links) throw new Error('cellOf: this material has no Voronoi correspondence — it was not made by voronoi(), or it has been edited or extracted since; construct the cells again from the current sites');
+    if (!ownedBy(site, links.sites)) throw new Error('cellOf: that vertex is not a site of this diagram (it belongs to another state)');
+    const f = links.faceOfSite[site.index];
+    return f < 0 ? undefined : links.cells.at(f);
+  }
+
+  /** For material made by `t.voronoi`: the site vertex whose cell `face`
+   * is, or undefined for a face no site owns. Faces from any `faces()` of
+   * the same result are accepted. */
+  siteOf(face: Face): Vertex | undefined {
+    const links = voronoiLinks.get(this);
+    if (!links) throw new Error('siteOf: this material has no Voronoi correspondence — it was not made by voronoi(), or it has been edited or extracted since; construct the cells again from the current sites');
+    if (viewKind(face) !== 'face') throw new Error('siteOf: expected a face view');
+    const owner = ownerOfView(face) as { source?: Material } | undefined;
+    if (!owner || owner.source !== this) throw new Error('siteOf: that face belongs to another material\'s cells');
+    const s = links.siteOfFace[face.index];
+    return s < 0 ? undefined : links.sites.vertex(s);
   }
 
   /** Chain convenience: the row before `i` along a stored edge into it,
@@ -815,6 +844,27 @@ const copyAttrs = (attrs: Readonly<Record<string, Float64Array>>): Record<string
 };
 
 const ownerOf = (p: Vertex): Material | undefined => (p as unknown as Record<symbol, Material>)[OWNER];
+
+/** @internal The owner recorded on any view (a material or a face collection). */
+export function ownerOfView(view: object): object | undefined {
+  return (view as Record<symbol, object>)[OWNER];
+}
+
+/** What a Voronoi construction knows about its sites, kept beside the
+ * result (not inside it): the frozen result and its selections answer
+ * `cellOf`/`siteOf`; any edited or extracted material does not. */
+export interface VoronoiLinks {
+  sites: Material;
+  siteOfFace: Int32Array;
+  faceOfSite: Int32Array;
+  cells: Faces;
+}
+const voronoiLinks = new WeakMap<Material, VoronoiLinks>();
+
+/** @internal */
+export function attachVoronoi(m: Material, links: VoronoiLinks): void {
+  voronoiLinks.set(m, links);
+}
 
 /** True when `view` (a vertex or edge view) came from `m` — this state,
  * not merely a material with the same shape. */

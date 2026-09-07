@@ -35,7 +35,8 @@
 
 import { orient2d } from 'robust-predicates';
 import { Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Edge } from './material.js';
-import { groupRows } from './relation.js';
+import { groupRows, EdgeSelection, PointSelection } from './relation.js';
+import { measureFaces, type FaceMeasurements, type MeasureOpts } from './measure.js';
 import type { IsoContour } from './isolines.js';
 
 const EVENT_TOL = 1e-9;
@@ -519,7 +520,8 @@ export interface Face {
 
 interface Walk {
   halfEdges: number[]; // in walk order
-  area: number; // signed shoelace of the raw walk
+  cycles: number[][]; // its simple cycles (splitWalk); retraced parts gone
+  area: number; // signed shoelace summed over the cycles
   comp: number;
 }
 
@@ -681,18 +683,26 @@ export class Faces {
       if (walkOf[h0] !== -1) continue;
       const seq: number[] = [];
       let h = h0;
-      let area = 0;
-      const x0 = m.x[tailOf(h0)]; // shoelace about a local origin: absolute coordinates cancel to zero far from (0, 0)
-      const y0 = m.y[tailOf(h0)];
       do {
         walkOf[h] = walks.length;
         seq.push(h);
-        const a = tailOf(h);
-        const b = headOf(h);
-        area += (m.x[a] - x0) * (m.y[b] - y0) - (m.x[b] - x0) * (m.y[a] - y0);
         h = next[h];
       } while (h !== h0);
-      walks.push({ halfEdges: seq, area: area / 2, comp: comp[tailOf(h0)] });
+      // The signed area is summed over the walk's simple cycles, so a walk
+      // that only retraces (a tree, a spur) is exactly zero: summing the
+      // raw walk leaves a rounding residue that would make a face of it.
+      const cycles = splitWalk(seq, tailOf);
+      let area = 0;
+      for (const cycle of cycles) {
+        const x0 = m.x[tailOf(cycle[0])]; // shoelace about a local origin: absolute coordinates cancel to zero far from (0, 0)
+        const y0 = m.y[tailOf(cycle[0])];
+        for (const c of cycle) {
+          const a = tailOf(c);
+          const b = headOf(c);
+          area += (m.x[a] - x0) * (m.y[b] - y0) - (m.x[b] - x0) * (m.y[a] - y0);
+        }
+      }
+      walks.push({ halfEdges: seq, cycles, area: area / 2, comp: comp[tailOf(h0)] });
     }
     // bounded faces: positive walks, in walk order (deterministic: lowest half-edge first)
     const faceWalk: number[] = [];
@@ -736,7 +746,7 @@ export class Faces {
       for (const [e, c] of count) if (c === 1) p += edgeLength(2 * e);
       return p;
     };
-    const contoursOf = (seq: number[]): IsoContour[] => splitWalk(seq, tailOf).map((cycle) => contourOf(cycle));
+    const contoursOf = (w: Walk): IsoContour[] => w.cycles.map((cycle) => contourOf(cycle));
     const contourOf = (cycle: number[]): IsoContour => {
       const pts = cycle.map((h) => Object.freeze([m.x[tailOf(h)], m.y[tailOf(h)]] as [number, number]));
       return Object.freeze({ pts: Object.freeze(pts) as unknown as [number, number][], closed: true }) as IsoContour;
@@ -747,11 +757,11 @@ export class Faces {
       const fw = walks[faceWalk[f]];
       let area = fw.area;
       let perimeter = perimeterOf(fw.halfEdges);
-      const contours = contoursOf(fw.halfEdges);
+      const contours = contoursOf(fw);
       for (const hw of holesOf[f]) {
         area += walks[hw].area; // negative
         perimeter += perimeterOf(walks[hw].halfEdges);
-        contours.push(...contoursOf(walks[hw].halfEdges));
+        contours.push(...contoursOf(walks[hw]));
       }
       let x0 = Infinity;
       let y0 = Infinity;
@@ -811,6 +821,37 @@ export class Faces {
   has(face: Face): boolean {
     if (viewKind(face) !== 'face') throw new Error('faces.has: expected a face view');
     return ownedBy(face, this);
+  }
+
+  /** @internal Edge rows chosen by the faces on their two sides
+   * (`faceOf` of each half-edge, -1 outside). */
+  edgeRowsWhere(pick: (left: number, right: number) => boolean): number[] {
+    const rows: number[] = [];
+    for (let e = 0; e < this.faceOf.length / 2; e++) if (pick(this.faceOf[2 * e], this.faceOf[2 * e + 1])) rows.push(e);
+    return rows;
+  }
+
+  /** Every source edge incident to a bounded face, once: the walls, and
+   * any dangling edge lying inside a face (both its sides are that face). */
+  get edges(): EdgeSelection {
+    return new EdgeSelection(this.source, this.edgeRowsWhere((l, r) => l >= 0 || r >= 0));
+  }
+
+  /** Endpoints of `edges`, once, in row order. */
+  get points(): PointSelection {
+    return this.edges.points;
+  }
+
+  /** Edges separating the union of all bounded faces from the outside:
+   * walls between two faces and edges inside a face are not boundary. */
+  get boundaryEdges(): EdgeSelection {
+    return new EdgeSelection(this.source, this.edgeRowsWhere((l, r) => (l >= 0) !== (r >= 0)));
+  }
+
+  /** Measure every face: geometric area and centroid, and with `field` its
+   * integral, mean and density-weighted centre (see measure.ts). */
+  measure(field?: (x: number, y: number) => number, opts?: MeasureOpts): FaceMeasurements {
+    return measureFaces(this, this.faces, field, opts);
   }
 
   /** The faces `fn` picks — membership decided now and fixed. */
@@ -930,6 +971,32 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
 
   groupBy<G>(classify: (f: Face, index: number) => G): FaceSelection<G>[] {
     return groupRows(this, (f) => f.index, classify).map(({ key, rows }) => new FaceSelection(this.source, rows, key));
+  }
+
+  /** Every source edge incident to a selected face, once, including
+   * internal walls between two selected faces and dangling edges inside
+   * a selected face. */
+  get edges(): EdgeSelection {
+    const sel = this.set;
+    return new EdgeSelection(this.source.source, this.source.edgeRowsWhere((l, r) => sel.has(l) || sel.has(r)));
+  }
+
+  /** Endpoints of `edges`, once, in row order. */
+  get points(): PointSelection {
+    return this.edges.points;
+  }
+
+  /** Edges between the selected union and its exterior: a wall with a
+   * selected face on exactly one side. Walls between two selected faces
+   * and edges inside a face are excluded; a hole's boundary stays. */
+  get boundaryEdges(): EdgeSelection {
+    const sel = this.set;
+    return new EdgeSelection(this.source.source, this.source.edgeRowsWhere((l, r) => sel.has(l) !== sel.has(r)));
+  }
+
+  /** Measure the selected faces (see `Faces.measure`). */
+  measure(field?: (x: number, y: number) => number, opts?: MeasureOpts): FaceMeasurements {
+    return measureFaces(this.source, this.indices.map((i) => this.source.faces[i]), field, opts);
   }
 
   /** True when `face` is a selected view OF THIS COLLECTION. */

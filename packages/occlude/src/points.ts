@@ -1,35 +1,39 @@
 /**
- * Point distributions as a first-class, composable value. One generic entry
- * (`scatter`: field-modulated Poisson-disk) plus refinement verbs — the
- * named algorithms are recipes, not API surface:
+ * Point generation and refinement as material operations. `scatter` places
+ * field-modulated Poisson-disk points and returns point-only material with
+ * one computed column, `density`, the field's value at each point. `relax`
+ * (Lloyd) and `settle` (weighted Linde-Buzo-Gray) are explicit operations
+ * on a material with their density, spacing, bounds and raster resolution
+ * as inputs — nothing about how a material was made is remembered inside
+ * it. The numerical kernel is the same as before this consolidation: a
+ * density raster over the bounds, every raster sample assigned to its
+ * nearest site, per-site integrated demand and density-weighted centroid.
  *
- *   scatter(field, { spacing })              field-following blue noise
- *   scatter(field, { spacing }).relax(3)     … + Lloyd relaxation
- *   scatter(field, { spacing }).settle(30)   weighted Linde-Buzo-Gray
- *
- * `cells()` (Voronoi) and `mesh()` (Delaunay) are pure views, also exported
- * as plain functions over arbitrary point arrays. Everything is seeded and
- * deterministic; `relax`/`settle` return NEW Points (value semantics).
+ * Three quantities are kept apart by name: `density` is the field at a
+ * point; `demand` (written by settle) is a cell's integrated density
+ * divided by the capacity one point carries at the given spacing, so 1 is
+ * a full cell; a cell's mean density is `integral / area`, which
+ * `faces().measure(field)` reports for any face.
  */
 
 import { Delaunay } from 'd3-delaunay';
+import { Material } from './material.js';
 import type { L } from './units.js';
 
 export type FieldFn2 = (x: number, y: number) => number;
 
-export interface ScatterPoint {
+export interface Bounds {
   x: number;
   y: number;
-  /** Local field demand at settle/relax time (≈ relative darkness); 1 for
-   * points that never went through a weighted pass. */
   w: number;
+  h: number;
 }
 
 export interface PointsEnv {
   /** Seeded [0,1) stream — all randomness flows through this. */
   rnd(): number;
   /** Drawable bounds in user units. */
-  bounds: { x: number; y: number; w: number; h: number };
+  bounds: Bounds;
   /** Resolve a length (mm()/w()/…) to user units. */
   len(l: L): number;
 }
@@ -37,201 +41,216 @@ export interface PointsEnv {
 export interface ScatterOpts {
   /** Target point spacing where the field is 1 (denser nowhere). */
   spacing: L;
-  /** Density raster resolution used by relax/settle (per long side). */
+}
+
+export interface RelaxOpts {
+  /** Lloyd rounds (default 1). */
+  iterations?: number;
+  /** Weighting density (0…1; default uniform). */
+  density?: FieldFn2;
+  /** Cells are clipped to these bounds (default: the drawable). */
+  bounds?: Bounds;
+  /** Density raster resolution along the bounds' long side (default 256, clamped 32…512). */
   resolution?: number;
 }
 
-const asXY = (p: ScatterPoint | { x: number; y: number } | [number, number]): [number, number] =>
-  Array.isArray(p) ? [p[0], p[1]] : [p.x, p.y];
-
-/** Voronoi cells of arbitrary points, clipped to a rect. Pure. `site` is
- * the INPUT point itself — identity and metadata (e.g. a scatter point's
- * demand weight) ride along untouched; tuples exist only inside the
- * boundary loop, where vertices are anonymous. */
-export function voronoi<P extends ScatterPoint | { x: number; y: number } | [number, number]>(
-  points: readonly P[],
-  bounds: { x: number; y: number; w: number; h: number },
-): { site: P; pts: [number, number][] }[] {
-  if (points.length === 0) return [];
-  const flat = points.map(asXY);
-  const d = Delaunay.from(flat);
-  const v = d.voronoi([bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h]);
-  const out: { site: P; pts: [number, number][] }[] = [];
-  for (let i = 0; i < flat.length; i++) {
-    const pts = v.cellPolygon(i) as [number, number][] | null;
-    if (!pts || pts.length < 3) continue;
-    // d3 closes the ring with a duplicate vertex; drop it (a zero-length
-    // closing segment would otherwise reach the engine).
-    const [fx, fy] = pts[0];
-    const [lx, ly] = pts[pts.length - 1];
-    if (fx === lx && fy === ly) pts.pop();
-    if (pts.length >= 3) out.push({ site: points[i], pts });
-  }
-  return out;
+export interface SettleOpts {
+  /** Demand density, 0…1 (values outside are clamped). */
+  density: FieldFn2;
+  /** Spacing at density 1: a full-demand hexagonal cell at this spacing is one point's capacity. */
+  spacing: L;
+  /** Rounds (default 10). */
+  iterations?: number;
+  bounds?: Bounds;
+  resolution?: number;
 }
 
-/** Delaunay triangulation of arbitrary points. Pure. */
-export function triangulate(
-  points: readonly (ScatterPoint | { x: number; y: number } | [number, number])[],
-): [[number, number], [number, number], [number, number]][] {
-  if (points.length < 3) return [];
-  const flat = points.map(asXY);
-  const d = Delaunay.from(flat);
-  const out: [[number, number], [number, number], [number, number]][] = [];
-  for (let t = 0; t < d.triangles.length; t += 3) {
-    out.push([flat[d.triangles[t]], flat[d.triangles[t + 1]], flat[d.triangles[t + 2]]]);
-  }
-  return out;
+/** A density raster over `bounds`: cell centres at (i + ½)·cw, values
+ * clamped to 0…1, non-positive and non-finite samples empty. */
+export interface DensityRaster {
+  cols: number;
+  rows: number;
+  cw: number;
+  bounds: Bounds;
+  dens: Float64Array;
 }
 
-/** Array-like point set carrying its field + spacing so refinement verbs
- * compose. `map` etc. return plain arrays (species override). */
-export class Points extends Array<ScatterPoint> {
-  static override get [Symbol.species](): ArrayConstructor {
-    return Array;
-  }
-
-  private env!: PointsEnv;
-  private field!: FieldFn2;
-  private spacingU!: number; // user units
-  private resolution!: number;
-
-  static make(
-    pts: ScatterPoint[],
-    env: PointsEnv,
-    field: FieldFn2,
-    spacingU: number,
-    resolution: number,
-  ): Points {
-    const p = new Points();
-    p.push(...pts);
-    p.env = env;
-    p.field = field;
-    p.spacingU = spacingU;
-    p.resolution = resolution;
-    return p;
-  }
-
-  private derive(pts: ScatterPoint[]): Points {
-    return Points.make(pts, this.env, this.field, this.spacingU, this.resolution);
-  }
-
-  /** Voronoi cells of this set, clipped to the drawable (or given) bounds.
-   * Each cell's `site` is the scatter point itself (with its `w`). */
-  cells(bounds = this.env.bounds): { site: ScatterPoint; pts: [number, number][] }[] {
-    return voronoi(this, bounds);
-  }
-
-  /** Delaunay triangulation of this set. */
-  mesh(): [[number, number], [number, number], [number, number]][] {
-    return triangulate(this);
-  }
-
-  /** n rounds of Lloyd relaxation toward field-weighted cell centroids —
-   * spacing evens out, density keeps following the field, count is fixed. */
-  relax(n = 1): Points {
-    return this.iterate(n, false);
-  }
-
-  /** n rounds of the full adaptive loop — relax PLUS population control:
-   * overloaded cells split their point, starved cells lose theirs, so the
-   * count converges to the field's ink budget. scatter + settle is the
-   * weighted Linde-Buzo-Gray stippling algorithm. */
-  settle(n = 10): Points {
-    if (Number.isNaN(this.spacingU)) {
-      throw new Error(
-        "points(...).settle() needs a spacing — pass { spacing: mm(…) } to t.points() (it defines a point's ink capacity)",
-      );
+export function densityRaster(field: FieldFn2, bounds: Bounds, resolution: number | undefined): DensityRaster {
+  const R = Math.max(32, Math.min(512, resolution ?? 256));
+  const long = Math.max(bounds.w, bounds.h);
+  const cw = long / R;
+  const cols = Math.max(2, Math.round(bounds.w / cw));
+  const rows = Math.max(2, Math.round(bounds.h / cw));
+  const dens = new Float64Array(cols * rows);
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const v = field(bounds.x + (i + 0.5) * cw, bounds.y + (j + 0.5) * cw);
+      dens[j * cols + i] = v > 0 ? Math.min(1, v) : 0;
     }
-    return this.iterate(n, true);
   }
+  return { cols, rows, cw, bounds, dens };
+}
 
-  private iterate(n: number, adapt: boolean): Points {
-    const { bounds } = this.env;
-    const R = this.resolution;
-    const long = Math.max(bounds.w, bounds.h);
-    const cw = long / R;
-    const cols = Math.max(2, Math.round(bounds.w / cw));
-    const rows = Math.max(2, Math.round(bounds.h / cw));
-    // Density raster, sampled once per verb call.
-    const dens = new Float64Array(cols * rows);
-    for (let j = 0; j < rows; j++) {
-      for (let i = 0; i < cols; i++) {
-        const v = this.field(bounds.x + (i + 0.5) * cw, bounds.y + (j + 0.5) * cw);
-        dens[j * cols + i] = v > 0 ? Math.min(1, v) : 0;
+/** Every raster sample goes to its nearest site: per site the integrated
+ * density (`w`) and the density-weighted coordinate sums. */
+export function accumulateCells(coords: Float64Array, raster: DensityRaster): { w: Float64Array; cx: Float64Array; cy: Float64Array } {
+  const n = coords.length / 2;
+  const del = new Delaunay(coords);
+  const w = new Float64Array(n);
+  const cx = new Float64Array(n);
+  const cy = new Float64Array(n);
+  const { cols, rows, cw, bounds, dens } = raster;
+  let found = 0;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const d = dens[j * cols + i];
+      if (d === 0) continue;
+      const x = bounds.x + (i + 0.5) * cw;
+      const y = bounds.y + (j + 0.5) * cw;
+      found = del.find(x, y, found);
+      w[found] += d;
+      cx[found] += d * x;
+      cy[found] += d * y;
+    }
+  }
+  return { w, cx, cy };
+}
+
+const coordsOf = (m: Material): Float64Array => {
+  const c = new Float64Array(m.n * 2);
+  for (let i = 0; i < m.n; i++) {
+    c[2 * i] = m.x[i];
+    c[2 * i + 1] = m.y[i];
+  }
+  return c;
+};
+
+const copyColumns = (cols: Readonly<Record<string, Float64Array>>): Record<string, Float64Array> => {
+  const out: Record<string, Float64Array> = {};
+  for (const k in cols) out[k] = Float64Array.from(cols[k]);
+  return out;
+};
+
+/**
+ * Lloyd relaxation: each point moves to the density-weighted centroid of
+ * its nearest-site cell within the bounds, `iterations` times. Count,
+ * rows, edges and every declared column are kept; a point whose cell holds
+ * no density stays where it is. Writes no computed column.
+ */
+export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {}): Material {
+  const n = opts.iterations ?? 1;
+  if (!Number.isInteger(n) || n < 0) throw new Error('relax: iterations must be a non-negative integer');
+  const bounds = opts.bounds ?? env.bounds;
+  const raster = densityRaster(opts.density ?? (() => 1), bounds, opts.resolution);
+  const coords = coordsOf(m);
+  for (let it = 0; it < n && m.n > 0; it++) {
+    const { w, cx, cy } = accumulateCells(coords, raster);
+    for (let p = 0; p < m.n; p++) {
+      if (w[p] <= 0) continue;
+      coords[2 * p] = cx[p] / w[p];
+      coords[2 * p + 1] = cy[p] / w[p];
+    }
+  }
+  const x = new Float64Array(m.n);
+  const y = new Float64Array(m.n);
+  for (let p = 0; p < m.n; p++) {
+    x[p] = coords[2 * p];
+    y[p] = coords[2 * p + 1];
+  }
+  return new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), m.iteration, [], copyColumns(m.edgeAttrs), { ...m.transfers }, { ...m.edgeTransfers });
+}
+
+/**
+ * Weighted Linde-Buzo-Gray settling: relaxation plus population control.
+ * Each round, a point whose cell's demand exceeds its capacity splits into
+ * two (placed either side of the weighted centroid, direction from the
+ * seeded stream), one whose cell is starved dies, the rest move to their
+ * centroids; the thresholds tighten with the round. Point-only input:
+ * connected material is refused. Survivors keep their declared columns,
+ * children copy their parent's (a copied value is duplicated, not shared
+ * out), and `demand` is written for every point of the result.
+ */
+export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): Material {
+  if (m.edgeCount > 0) throw new Error(`settle: the input has ${m.edgeCount} edges — settling changes the point count, so it takes point-only material; extract the points first (m.points.extract())`);
+  if (typeof opts?.density !== 'function') throw new Error('settle: { density } is required — the field the point count follows');
+  if (opts.spacing === undefined) throw new Error('settle: { spacing } is required — it sets one point\'s capacity');
+  const spacingU = env.len(opts.spacing);
+  if (!(spacingU > 0)) throw new Error('settle: { spacing } must be a positive length — it sets one point\'s capacity');
+  const n = opts.iterations ?? 10;
+  if (!Number.isInteger(n) || n < 0) throw new Error('settle: iterations must be a non-negative integer');
+  const bounds = opts.bounds ?? env.bounds;
+  const raster = densityRaster(opts.density, bounds, opts.resolution);
+  const cw = raster.cw;
+  // Capacity: integrated density a single point should carry — the amount
+  // a full-demand hex cell at `spacing` holds. Cells above split, below die.
+  const cap = ((spacingU * spacingU * 0.866) / (cw * cw)) * 1.0;
+
+  let coords = coordsOf(m);
+  let parent = Int32Array.from({ length: m.n }, (_, i) => i);
+  let demand = new Float64Array(m.n);
+  for (let it = 0; it < n && coords.length > 0; it++) {
+    const count = coords.length / 2;
+    const { w, cx, cy } = accumulateCells(coords, raster);
+    const h = 0.5 * (1 - it / n);
+    const nx: number[] = [];
+    const ny: number[] = [];
+    const np: number[] = [];
+    const nd: number[] = [];
+    for (let p = 0; p < count; p++) {
+      if (w[p] <= 0) continue; // starved of any density: dies
+      const mx = cx[p] / w[p];
+      const my = cy[p] / w[p];
+      const d = w[p] / cap;
+      if (w[p] < cap * (1 - h) * 0.3) continue; // starved
+      if (w[p] > cap * (1 + h)) {
+        const a = env.rnd() * Math.PI * 2;
+        const r = spacingU * 0.35;
+        nx.push(mx + Math.cos(a) * r, mx - Math.cos(a) * r);
+        ny.push(my + Math.sin(a) * r, my - Math.sin(a) * r);
+        np.push(parent[p], parent[p]);
+        nd.push(d, d);
+      } else {
+        nx.push(mx);
+        ny.push(my);
+        np.push(parent[p]);
+        nd.push(d);
       }
     }
-    // Capacity: integrated density a single point should carry — the amount
-    // a full-demand hex cell at `spacing` holds. Cells above split, below
-    // die (settle only).
-    const cap = ((this.spacingU * this.spacingU * 0.866) / (cw * cw)) * 1.0;
-
-    let pts: ScatterPoint[] = [...this];
-    for (let it = 0; it < n && pts.length > 0; it++) {
-      // Flat coordinates straight into Delaunay. `Delaunay.from` would build
-      // an [x, y] tuple per point and then copy it into a Float64Array of its
-      // own; at 50 settle rounds that was hundreds of thousands of throwaway
-      // arrays. Same numbers reach Delaunator either way.
-      const coords = new Float64Array(pts.length * 2);
-      for (let p = 0; p < pts.length; p++) {
-        coords[p * 2] = pts[p].x;
-        coords[p * 2 + 1] = pts[p].y;
-      }
-      const del = new Delaunay(coords);
-      const w = new Float64Array(pts.length);
-      const cx = new Float64Array(pts.length);
-      const cy = new Float64Array(pts.length);
-      let found = 0;
-      for (let j = 0; j < rows; j++) {
-        for (let i = 0; i < cols; i++) {
-          const d = dens[j * cols + i];
-          if (d === 0) continue;
-          const x = bounds.x + (i + 0.5) * cw;
-          const y = bounds.y + (j + 0.5) * cw;
-          found = del.find(x, y, found);
-          w[found] += d;
-          cx[found] += d * x;
-          cy[found] += d * y;
-        }
-      }
-      const h = adapt ? 0.5 * (1 - it / n) : 0;
-      const next: ScatterPoint[] = [];
-      for (let p = 0; p < pts.length; p++) {
-        if (w[p] <= 0) {
-          if (!adapt) next.push(pts[p]); // keep orphans under pure relax
-          continue;
-        }
-        const mx = cx[p] / w[p];
-        const my = cy[p] / w[p];
-        const demand = w[p] / cap;
-        if (adapt && w[p] < cap * (1 - h) * 0.3) continue; // starved
-        if (adapt && w[p] > cap * (1 + h)) {
-          const a = this.env.rnd() * Math.PI * 2;
-          const r = this.spacingU * 0.35;
-          next.push({ x: mx + Math.cos(a) * r, y: my + Math.sin(a) * r, w: demand });
-          next.push({ x: mx - Math.cos(a) * r, y: my - Math.sin(a) * r, w: demand });
-        } else {
-          next.push({ x: mx, y: my, w: demand });
-        }
-      }
-      pts = next;
+    coords = new Float64Array(nx.length * 2);
+    for (let k = 0; k < nx.length; k++) {
+      coords[2 * k] = nx[k];
+      coords[2 * k + 1] = ny[k];
     }
-    return this.derive(pts);
+    parent = Int32Array.from(np);
+    demand = Float64Array.from(nd);
   }
+  const count = coords.length / 2;
+  const x = new Float64Array(count);
+  const y = new Float64Array(count);
+  for (let k = 0; k < count; k++) {
+    x[k] = coords[2 * k];
+    y[k] = coords[2 * k + 1];
+  }
+  const attrs: Record<string, Float64Array> = {};
+  for (const name of m.attrNames) {
+    if (name === 'demand') continue;
+    const src = m.attrs[name];
+    const col = new Float64Array(count);
+    for (let k = 0; k < count; k++) col[k] = src[parent[k]];
+    attrs[name] = col;
+  }
+  attrs.demand = demand;
+  return new Material(x, y, attrs, new Uint32Array(0), m.iteration, [], {}, { ...m.transfers }, {});
 }
 
 /** Field-modulated Poisson-disk sampling (Bridson, variable radius): local
  * spacing = `spacing / sqrt(field)`, so demand-1 areas pack at `spacing`
- * and empty areas stay empty. The generic scatter entry point. */
-export function scatterPoints(
-  env: PointsEnv,
-  field: FieldFn2 | undefined,
-  opts: ScatterOpts,
-): Points {
+ * and empty areas stay empty. Returns point-only material with a `density`
+ * column: the field's value at each point, clamped to 0…1. */
+export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts: ScatterOpts): Material {
   const f: FieldFn2 = field ?? (() => 1);
   const spacingU = env.len(opts.spacing);
   if (!(spacingU > 0)) throw new Error('scatter: spacing must be a positive length');
-  const resolution = Math.max(32, Math.min(512, opts.resolution ?? 256));
   const { bounds } = env;
   const rMin = spacingU; // full-demand radius
   const rMax = spacingU * 6; // demand below (1/6)² is treated as empty
@@ -246,27 +265,21 @@ export function scatterPoints(
   const rows = Math.max(1, Math.ceil(bounds.h / cell));
   // Neighbour buckets as an intrusive linked list over two Int32Arrays:
   // `head[cell]` is the newest point in that cell, `nextOf[i]` the one
-  // before it, -1 terminating. The old shape was number[][], so every cell
-  // probe was a pointer chase into a separate JS array — and `fits` probes
-  // (2*reach+1)^2 = 441 cells per candidate, nearly all of them empty.
-  // Both consumers (`fits`, `anyWithin`) are pure any-overlap predicates
-  // that return on the first hit, so bucket ORDER cannot change the answer.
+  // before it, -1 terminating. Both consumers (`fits`, `anyWithin`) are
+  // pure any-overlap predicates that return on the first hit, so bucket
+  // ORDER cannot change the answer.
   const head = new Int32Array(cols * rows).fill(-1);
   let nextCap = 1024;
   let nextOf = new Int32Array(nextCap).fill(-1);
-  const pts: ScatterPoint[] = [];
+  const px: number[] = [];
+  const py: number[] = [];
+  const density: number[] = [];
   // Each placed point's radius, kept from the moment it was computed: the
-  // field is a pure function of position (contract), so the value is the
-  // same one `rOf` would return again — and the neighbour test asked for it
-  // once per neighbour per candidate, which made the field the hot spot.
+  // field is a pure function of position (contract).
   const radii: number[] = [];
-  // Candidate reach is sized by the field's WORST case (rMax = 6 * spacing),
-  // so every candidate scanned (2*10+1)^2 = 441 cells. No ALREADY-PLACED
-  // neighbour can exceed the largest radius placed so far, so the largest
-  // distance that can matter for a candidate of radius r is
-  // (r + rMaxSeen) / 2 — track it and size the scan per candidate. `fits` is
-  // a pure any-overlap predicate over a superset, so this cannot change which
-  // points are placed.
+  // Candidate reach is sized by the largest radius placed so far: no
+  // already-placed neighbour can exceed it, so (r + rMaxSeen) / 2 bounds the
+  // distance that can matter. A pure any-overlap predicate over a superset.
   const reachMax = Math.ceil(rMax / cell) + 1;
   let rMaxSeen = 0;
   const col = (x: number): number => Math.min(cols - 1, Math.max(0, Math.floor((x - bounds.x) / cell)));
@@ -282,11 +295,10 @@ export function scatterPoints(
         const ni = ci + di;
         if (ni < 0 || ni >= cols) continue;
         for (let k = head[nj * cols + ni]; k >= 0; k = nextOf[k]) {
-          const q = pts[k];
           const need = (r + radii[k]) / 2;
           if (!Number.isFinite(need)) continue;
-          const dx = q.x - x;
-          const dy = q.y - y;
+          const dx = px[k] - x;
+          const dy = py[k] - y;
           if (dx * dx + dy * dy < need * need) return false;
         }
       }
@@ -295,7 +307,7 @@ export function scatterPoints(
   };
   const put = (x: number, y: number, r: number): void => {
     if (r > rMaxSeen) rMaxSeen = r;
-    const id = pts.length;
+    const id = px.length;
     if (id >= nextCap) {
       nextCap *= 2;
       const g = new Int32Array(nextCap).fill(-1);
@@ -306,12 +318,14 @@ export function scatterPoints(
     nextOf[id] = head[c];
     head[c] = id;
     radii.push(r);
-    pts.push({ x, y, w: Math.min(1, Math.max(0, f(x, y))) });
+    px.push(x);
+    py.push(y);
+    density.push(Math.min(1, Math.max(0, f(x, y))));
   };
 
   // Seed: rejection-sample a first point inside the field.
   const active: number[] = [];
-  for (let tries = 0; tries < 500 && pts.length === 0; tries++) {
+  for (let tries = 0; tries < 500 && px.length === 0; tries++) {
     const x = bounds.x + env.rnd() * bounds.w;
     const y = bounds.y + env.rnd() * bounds.h;
     const r0 = rOf(x, y);
@@ -324,20 +338,22 @@ export function scatterPoints(
   const flood = (): void => {
     while (active.length > 0) {
       const pick = Math.floor(env.rnd() * active.length);
-      const base = pts[active[pick]];
-      const rb = radii[active[pick]];
+      const bi = active[pick];
+      const bx = px[bi];
+      const by = py[bi];
+      const rb = radii[bi];
       let placed = false;
       for (let k = 0; k < K; k++) {
         const a = env.rnd() * Math.PI * 2;
         const rr = rb * (1 + env.rnd());
-        const x = base.x + Math.cos(a) * rr;
-        const y = base.y + Math.sin(a) * rr;
+        const x = bx + Math.cos(a) * rr;
+        const y = by + Math.sin(a) * rr;
         if (x < bounds.x || y < bounds.y || x > bounds.x + bounds.w || y > bounds.y + bounds.h) {
           continue;
         }
         const r = rOf(x, y);
         if (!Number.isFinite(r) || !fits(x, y, r)) continue;
-        active.push(pts.length);
+        active.push(px.length);
         put(x, y, r);
         placed = true;
         break;
@@ -351,12 +367,11 @@ export function scatterPoints(
   flood();
 
   // Bridson grows from its seed and cannot cross a stretch of empty field
-  // wider than its candidate reach (2·rMax), so a field made of ISLANDS —
-  // the bright parts of a key on black — kept only the island the first
-  // point landed in, chosen by the seed. Scan the field for non-empty
-  // places no point can see, seed each, and flood again.
-  // A field the first flood already covered draws nothing here, so its
-  // points (and everything downstream in the stream) are unchanged.
+  // wider than its candidate reach, so a field made of ISLANDS kept only
+  // the island the first point landed in. Scan the field for non-empty
+  // places no point can see, seed each, and flood again. A field the first
+  // flood already covered draws nothing here, so its points (and everything
+  // downstream in the stream) are unchanged.
   const anyWithin = (x: number, y: number, dist: number): boolean => {
     const ci = col(x);
     const cj = row(y);
@@ -369,17 +384,14 @@ export function scatterPoints(
         const ni = ci + di;
         if (ni < 0 || ni >= cols) continue;
         for (let k = head[nj * cols + ni]; k >= 0; k = nextOf[k]) {
-          const q = pts[k];
-          const dx = q.x - x;
-          const dy = q.y - y;
+          const dx = px[k] - x;
+          const dy = py[k] - y;
           if (dx * dx + dy * dy <= d2) return true;
         }
       }
     }
     return false;
   };
-  // Scan at twice the minimum spacing: any island that can hold a point
-  // is at least that wide, so a cell centre lands in it.
   const scan = 2 * rMin;
   const sc = Math.max(1, Math.ceil(bounds.w / scan));
   const sr = Math.max(1, Math.ceil(bounds.h / scan));
@@ -397,7 +409,7 @@ export function scatterPoints(
           if (x < bounds.x || y < bounds.y || x > bounds.x + bounds.w || y > bounds.y + bounds.h) continue;
           const r = rOf(x, y);
           if (!Number.isFinite(r) || !fits(x, y, r)) continue;
-          active.push(pts.length);
+          active.push(px.length);
           put(x, y, r);
           seeded++;
           flood();
@@ -407,23 +419,5 @@ export function scatterPoints(
     }
     if (seeded === 0) break;
   }
-  return Points.make(pts, env, f, spacingU, resolution);
-}
-
-/** Lift an arbitrary point collection into a Points value so the verbs
- * (`relax`/`settle`/`cells`/`mesh`) apply to hand-rolled data. `settle`
- * requires `spacing`; the field defaults to uniform. */
-export function liftPoints(
-  env: PointsEnv,
-  raw: readonly ({ x: number; y: number } | [number, number])[],
-  opts: { field?: FieldFn2; spacing?: L; resolution?: number } = {},
-): Points {
-  const spacingU = opts.spacing !== undefined ? env.len(opts.spacing) : NaN;
-  const pts = raw.map((p) => {
-    const [x, y] = asXY(p);
-    return { x, y, w: 1 };
-  });
-  const res = Math.max(32, Math.min(512, opts.resolution ?? 256));
-  const field = opts.field ?? (() => 1);
-  return Points.make(pts, env, field, spacingU, res);
+  return new Material(Float64Array.from(px), Float64Array.from(py), { density: Float64Array.from(density) }, new Uint32Array(0));
 }

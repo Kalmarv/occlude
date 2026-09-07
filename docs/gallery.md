@@ -86,10 +86,10 @@ export default sketch({ aspect: [1, 1], seed: 17 }, (t) => {
 
 ### Triangulated cells
 
-After the tutorial's triangular mesh: rows of jittered points, alternate rows shifted half a cell, and every triangle given its own tone. The tutorial zig-zags the rows into triangle strips; here the same points are Delaunay-triangulated with `t.points(pts).mesh()`, so the topology is the triangulation's rather than the strips'. Grey has no pen, so tone is hatch spacing from a noise field sampled at each triangle's centre, and the filled triangles are opaque, so shared edges draw once. ([original](https://generativeartistry.com/tutorials/triangular-mesh/))
+After the tutorial's triangular mesh: rows of jittered points, alternate rows shifted half a cell, and every triangle given its own tone. The tutorial zig-zags the rows into triangle strips; here the same points are Delaunay-triangulated with `connect.triangulate`, whose faces are the triangles, so the topology is the triangulation's rather than the strips'. Grey has no pen, so tone is hatch spacing from a noise field sampled at each triangle's centroid, and the filled triangles are opaque, so shared edges draw once. ([original](https://generativeartistry.com/tutorials/triangular-mesh/))
 
 ```ts live
-import { sketch, polygon, fill, mm } from 'occlude';
+import { sketch, polygon, fill, mm, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 31 }, (t) => {
   const gap = 100 / 8;
@@ -102,11 +102,9 @@ export default sketch({ aspect: [1, 1], seed: 31 }, (t) => {
     }
   }
   const tone = (x, y) => (t.noise(x / 40, y / 40) + 1) / 2;
-  return t.points(pts).mesh().map((tri) => {
-    const cx = (tri[0][0] + tri[1][0] + tri[2][0]) / 3;
-    const cy = (tri[0][1] + tri[1][1] + tri[2][1]) / 3;
-    return polygon(tri, { fill: fill('hatch', { angle: 45, spacing: mm(0.5 + tone(cx, cy) * 2.5) }) });
-  });
+  const triangles = connect.triangulate(pts).faces();
+  return triangles.measure().map(({ face, centroid: [cx, cy] }) =>
+    polygon(face.contours, { fill: fill('hatch', { angle: 45, spacing: mm(0.5 + tone(cx, cy) * 2.5) }) }));
 });
 ```
 
@@ -165,15 +163,19 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
 
 ### Circles in Voronoi cells
 
-A different algorithm with a related look: blue-noise centres from `t.scatter`, each centre's Voronoi cell from `.cells()`, and a circle inscribed in its own cell, which can never touch a neighbour. The radius is the distance from the centre to the cell boundary, and the density is a field, so the packing tightens toward the sheet's edge.
+A different algorithm with a related look: blue-noise centres from `t.scatter`, each centre's Voronoi cell from `t.voronoi`, and a circle inscribed in its own cell, which can never touch a neighbour. The radius is the distance from the site to its cell's boundary, and the density is a field, so the packing tightens toward the sheet's edge.
 
 ```ts live
 import { sketch, circle, distanceTo } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const density = (x, y) => 0.1 + 0.9 * Math.min(1, Math.hypot(x - 50, y - 50) / 60);
-  return t.scatter(density, { spacing: 6 }).relax(2).cells().map((c) =>
-    circle(c.site.x, c.site.y, distanceTo([c.pts])(c.site.x, c.site.y) * 0.92));
+  const sites = t.relax(t.scatter(density, { spacing: 6 }), { iterations: 2, density });
+  const cells = t.voronoi(sites);
+  return sites.points.map((p) => {
+    const cell = cells.cellOf(p);
+    return cell && circle(p.x, p.y, distanceTo(cell.contours)(p.x, p.y) * 0.92);
+  });
 });
 ```
 

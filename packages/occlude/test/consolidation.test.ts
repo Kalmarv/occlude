@@ -75,9 +75,9 @@ describe('Stage A repairs (con2)', () => {
     it('A7 the settle guard survives relax(); A8 t.plan rejects engine with a reason; A9 the doc verb exists', () => {
       let notes: string[] = [];
       render(sketch({ aspect: [1, 1], seed: 1 }, (t) => {
-        const p = t.points([[10, 10], [20, 20], [30, 10]]);
-        expect(() => p.settle(1)).toThrow(/needs a spacing/);
-        expect(() => p.relax(1).settle(1)).toThrow(/needs a spacing/);
+        const p = material([[10, 10], [20, 20], [30, 10]]);
+        expect(() => t.settle(p, { density: () => 1 } as never)).toThrow(/spacing/);
+        expect(() => t.settle(t.relax(p), { density: () => 1 } as never)).toThrow(/spacing/);
         expect(() => t.plan({ engine: 'x' } as never)).toThrow(/engine identity is the host's/);
         notes.push('ok');
         return stroke([[0, 0], [1, 1]]);

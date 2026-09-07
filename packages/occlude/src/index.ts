@@ -112,8 +112,12 @@ export type { Prim } from './prims.js';
 export { subPrim, evalPrim } from './prims.js';
 
 // Point-distribution duals: pure, so they take arbitrary point arrays.
-export { voronoi, triangulate, Points } from './points.js';
-export type { ScatterPoint, ScatterOpts } from './points.js';
+export type { ScatterOpts, RelaxOpts, SettleOpts, Bounds } from './points.js';
+// Voronoi cells as material, with the cell ↔ site correspondence on the result.
+export { voronoi } from './voronoi.js';
+export type { VoronoiLinks } from './material.js';
+export { FaceMeasurements } from './measure.js';
+export type { FaceMeasure, MeasureOpts } from './measure.js';
 export type { IsoContour, IsoOpts } from './isolines.js';
 // Loops → signed distance field (positive inside): pure, composes with
 // isolines (offsetting is a recipe), scatter, decimate, deform.

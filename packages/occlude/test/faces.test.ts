@@ -199,6 +199,19 @@ describe('faces', () => {
     expect(ic.boundaries()).toHaveLength(1);
   });
 
+  it('a tree with non-collinear branches has no face: its walk area is exactly zero, not a rounding residue', () => {
+    // A branching tree at awkward coordinates: the raw shoelace of the walk
+    // around it left ±1e-13, which made a face with no contours.
+    const pts: [number, number][] = [[56.28, 63.65], [53.36, 64.32], [50.58, 65.46], [47.61, 65.89], [49.01, 68.54], [47.85, 62.9], [49.86, 65.66], [59.14, 64.57]];
+    const tree = material(pts, { edges: [[0, 1], [1, 2], [2, 3], [3, 4], [3, 5], [4, 6], [0, 7]] });
+    expect(tree.faces().length).toBe(0);
+    expect(euler(tree)).toBe(0);
+    // the same tree floating inside a ring belongs to no face and takes nothing from it
+    const inside = append(square(0, 0, 200), tree);
+    expect(areas(inside)).toEqual([40000]);
+    expect(inside.faces().faces[0].contours).toHaveLength(1);
+  });
+
   it('regions meeting at a vertex stay separate faces and separate contours', () => {
     const touching = append(square(), square(10, 10)); // corner (10,10) twice → planarize merges them
     expect(() => touching.faces()).toThrow(/coincide but are distinct/);
@@ -218,7 +231,8 @@ describe('faces', () => {
     const big = cells.filter((f) => f.area >= 25);
     expect(big.length).toBe(4);
     expect(big.has(cells.faces[0])).toBe(true);
-    expect(big.has(grid.faces().faces[0])).toBe(false); // another collection of the same state
+    expect(big.has(grid.faces().faces[0])).toBe(true); // faces() is cached: one collection per state
+    expect(big.has(connect.triangulate(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]])).faces().faces[0])).toBe(false); // another state
     expect(() => big.has(grid.vertex(0) as never)).toThrow(/vertex view/);
     expect(() => big.has(grid.edge(0) as never)).toThrow(/edge view/);
     expect(() => cells.has({ index: 0, area: 1 } as never)).toThrow(/face view/);
@@ -226,7 +240,7 @@ describe('faces', () => {
     expect(none.boundaries()).toEqual([]);
     expect(big.subtract(none).indices).toEqual([0, 1, 2, 3]);
     expect(big.intersect(cells.filter((f) => f.index < 2)).indices).toEqual([0, 1]);
-    expect(() => big.union(grid.faces().filter(() => true))).toThrow(/different face collections/);
+    expect(() => big.union(connect.triangulate(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]])).faces().filter(() => true))).toThrow(/different face collections/);
     expect(() => big.union({} as FaceSelection)).toThrow(/face selection/);
     expect(cells.map((f) => f.index)).toEqual([0, 1, 2, 3]);
     expect(Object.isFrozen(cells.faces[0])).toBe(true);

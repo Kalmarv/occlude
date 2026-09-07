@@ -5,8 +5,7 @@ import {
   compileSketch, getProbeStats,
   fill,
   circle, ellipse, exportGcode, exportPng, exportSvg, initOcclude,
-  line, mask, mm, ngon, polygon, rect, render, sketch, w,
-} from '../src/index.js';
+  line, mask, mm, ngon, polygon, rect, render, sketch, w, material, connect } from '../src/index.js';
 import { evalPrim } from '../src/index.js';
 import type { Fragment, Prim, RenderOptions, SketchDef } from '../src/index.js';
 
@@ -841,7 +840,7 @@ describe('tap dots decode at their true position', () => {
   });
 });
 
-describe('points: scatter / relax / settle / cells / mesh', () => {
+describe('points: scatter / relax / settle / voronoi', () => {
   const field = (x: number, y: number) => (x < 50 ? 1 : 0.08);
 
   it('scatter follows the field and is deterministic per seed', () => {
@@ -850,10 +849,10 @@ describe('points: scatter / relax / settle / cells / mesh', () => {
     const run = () =>
       sketch({ aspect: [1, 1], seed: 5 }, (t) => {
         const pts = t.scatter(field, { spacing: 3 });
-        const left = pts.filter((p) => p.x < 50).length;
-        const right = pts.length - left;
+        const left = pts.points.filter((p) => p.x < 50).length;
+        const right = pts.n - left;
         a = b;
-        b = [pts.length, left, right, pts[0]?.x ?? 0];
+        b = [pts.n, left, right, pts.x[0] ?? 0];
         expect(left).toBeGreaterThan(right * 2); // dense side dominates
         return circle(50, 50, 10);
       });
@@ -865,32 +864,30 @@ describe('points: scatter / relax / settle / cells / mesh', () => {
   it('relax keeps count; settle adapts it toward the ink budget', () => {
     const def = sketch({ aspect: [1, 1], seed: 9 }, (t) => {
       const pts = t.scatter(field, { spacing: 3 });
-      expect(pts.relax(2).length).toBe(pts.length);
-      const settled = pts.settle(12);
-      expect(settled.length).toBeGreaterThan(10);
+      expect(t.relax(pts, { iterations: 2, density: field }).n).toBe(pts.n);
+      const settled = t.settle(pts, { density: field, spacing: 3, iterations: 12 });
+      expect(settled.n).toBeGreaterThan(10);
       // settled points still respect the field
-      const left = settled.filter((p) => p.x < 50).length;
-      expect(left).toBeGreaterThan((settled.length - left) * 2);
-      // verbs work on arbitrary lifted arrays too
-      const gridPts = [];
+      const left = settled.points.filter((p) => p.x < 50).length;
+      expect(left).toBeGreaterThan((settled.n - left) * 2);
+      // the operations take any point material
+      const gridPts: [number, number][] = [];
       for (let i = 5; i < 100; i += 10) for (let j = 5; j < 100; j += 10) gridPts.push([i, j]);
-      const lifted = t.points(gridPts, { field, spacing: 3 });
-      expect(lifted.relax(1).length).toBe(gridPts.length);
-      expect(() => t.points(gridPts).settle(2)).toThrow(/spacing/);
+      expect(t.relax(material(gridPts), { density: field }).n).toBe(gridPts.length);
+      expect(() => t.settle(material(gridPts), { density: field } as never)).toThrow(/spacing/);
       return circle(50, 50, 10);
     });
     sq(def);
   });
 
-  it('voronoi and triangulate are pure imports over bare arrays', async () => {
-    const { voronoi, triangulate } = await import('../src/index.js');
+  it('voronoi is a pure import over bare arrays, returning material with faces', async () => {
+    const { voronoi } = await import('../src/index.js');
     const pts = [[10, 10], [90, 10], [50, 80], [30, 40]] as [number, number][];
     const cells = voronoi(pts, { x: 0, y: 0, w: 100, h: 100 });
-    expect(cells.length).toBe(4);
-    for (const c of cells) expect(c.pts.length).toBeGreaterThanOrEqual(3);
-    // site is the INPUT point itself — identity preserved, metadata rides.
-    for (const c of cells) expect(pts).toContain(c.site);
-    expect(triangulate(pts).length).toBe(3); // one interior point -> 3 triangles
+    expect(cells.faces().length).toBe(4);
+    for (const f of cells.faces()) expect(f.contours[0].pts.length).toBeGreaterThanOrEqual(3);
+    // Delaunay stays a connection between the sites: one interior point -> 3 triangles.
+    expect(connect.triangulate(pts).faces().length).toBe(3);
   });
 });
 
@@ -1266,7 +1263,7 @@ describe('scatter covers every island of a field', () => {
       compileSketch(sketch({ seed }, (t) => {
         const f = (x: number, y: number) =>
           Math.hypot(x - 20, y - 50) < 8 || Math.hypot(x - 80, y - 50) < 8 ? 1 : 0;
-        for (const p of t.scatter(f, { spacing: 1 })) {
+        for (const p of t.scatter(f, { spacing: 1 }).points) {
           if (p.x < 50) left++;
           else right++;
         }
