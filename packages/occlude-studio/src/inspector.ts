@@ -26,6 +26,11 @@ export class Inspector {
   /** The request in flight, so a late answer for another one is dropped. */
   private loading: { executionId: number; name: string } | null = null;
   private status = '';
+  /** A row under the pointer in the details pane, ringed in the sketch. */
+  private hover: Selection | null = null;
+  /** When the current selection was made: drives the flash. */
+  private flashAt = 0;
+  private flashRaf = 0;
   /** Measured, for the report: the last payload's size and prep time. */
   lastLoad: { name: string; bytes: number; prepMs: number; roundTripMs: number } | null = null;
 
@@ -39,6 +44,7 @@ export class Inspector {
   private readonly domainSel = $('dbg-material-domain') as HTMLSelectElement;
   private readonly attrSel = $('dbg-material-attr') as HTMLSelectElement;
   private readonly legend = $('dbg-material-legend');
+  private readonly menu = $('debug-menu') as HTMLDetailsElement;
   private readonly pane = $('inspector-pane');
   private readonly head = $('inspector-head');
   private readonly selected = $('inspector-selected');
@@ -76,17 +82,53 @@ export class Inspector {
       this.model.attr = this.attrSel.value || null;
       this.sync();
     };
+    // The pane lives with the debug menu: closed menu, no pane, no picking.
+    this.menu.addEventListener('toggle', () => this.sync());
+    this.bindDrag();
     this.preview.onClick = (x, y, pxPerMm) => {
-      if (!this.model.enabled || !this.model.material) return;
+      if (!this.model.enabled || !this.model.material || !this.menu.open) return;
       // Eight screen pixels, whatever the zoom.
-      const sel = this.model.pick(x, y, 8 / pxPerMm);
-      this.model.select(sel);
-      this.sync();
+      this.choose(this.model.pick(x, y, 8 / pxPerMm));
     };
   }
 
   get enabled(): boolean {
     return this.model.enabled;
+  }
+
+  /** Drag the pane by its header; the corner handle resizes it (CSS). Once
+   * moved it is anchored top-left so a resize grows from where it sits. */
+  private bindDrag(): void {
+    const pane = this.pane;
+    const head = pane; // any press on the pane that is not on a control or the table drags it
+    head.addEventListener('pointerdown', (e) => {
+      if ((e.target as HTMLElement).closest('button, a, input, .inspector-table-wrap, .inspector-pager')) return;
+      // The resize handle lives in the bottom-right corner: leave it to the browser.
+      const rr = pane.getBoundingClientRect();
+      if (e.clientX > rr.right - 18 && e.clientY > rr.bottom - 18) return;
+      const bench = pane.parentElement!;
+      const b = bench.getBoundingClientRect();
+      const r = pane.getBoundingClientRect();
+      const dx = e.clientX - r.left;
+      const dy = e.clientY - r.top;
+      pane.style.left = `${r.left - b.left}px`;
+      pane.style.top = `${r.top - b.top}px`;
+      pane.style.bottom = 'auto';
+      head.setPointerCapture(e.pointerId);
+      const move = (ev: PointerEvent) => {
+        const x = Math.max(0, Math.min(b.width - 60, ev.clientX - b.left - dx));
+        const y = Math.max(0, Math.min(b.height - 30, ev.clientY - b.top - dy));
+        pane.style.left = `${x}px`;
+        pane.style.top = `${y}px`;
+      };
+      const up = () => {
+        head.removeEventListener('pointermove', move);
+        head.removeEventListener('pointerup', up);
+      };
+      head.addEventListener('pointermove', move);
+      head.addEventListener('pointerup', up);
+      e.preventDefault();
+    });
   }
 
   /** A render landed: adopt its registry and fetch the chosen material for
@@ -150,7 +192,7 @@ export class Inspector {
     this.body.hidden = !m.enabled;
     // The pane appears only while something is selected; the overlay alone
     // is the resting state.
-    this.pane.hidden = !(m.enabled && m.material && m.selection);
+    this.pane.hidden = !(m.enabled && m.material && m.selection && this.menu.open);
     if (!m.enabled) {
       this.hint.hidden = true;
       this.repaint();
@@ -214,21 +256,39 @@ export class Inspector {
     this.head.innerHTML = `<b>${mat.name}</b> · ${mat.n} points · ${mat.edges.length / 2} edges · iteration ${mat.iteration}` +
       `<button class="inspector-close" title="Clear the selection and hide this pane">×</button>` +
       `<div class="sub">rows are indices in this state, in material coordinates before drawing transforms${this.status ? ' · ' + this.status : ''}</div>`;
-    (this.head.querySelector('.inspector-close') as HTMLButtonElement).onclick = () => {
-      m.select(null);
-      this.sync();
-    };
+    (this.head.querySelector('.inspector-close') as HTMLButtonElement).onclick = () => this.choose(null);
     this.renderSelected();
     this.renderTable();
+  }
+
+  /** Select, flash, and refresh. */
+  private choose(sel: Selection | null): void {
+    this.model.select(sel);
+    this.hover = null;
+    this.flashAt = sel ? performance.now() : 0;
+    this.sync();
+    if (sel) this.animateFlash();
+  }
+
+  private static readonly FLASH_MS = 650;
+
+  private animateFlash(): void {
+    if (this.flashRaf) cancelAnimationFrame(this.flashRaf);
+    const tick = () => {
+      this.flashRaf = 0;
+      if (performance.now() - this.flashAt >= Inspector.FLASH_MS) return;
+      this.preview.draw();
+      this.flashRaf = requestAnimationFrame(tick);
+    };
+    this.flashRaf = requestAnimationFrame(tick);
   }
 
   private link(sel: Selection, text: string): HTMLAnchorElement {
     const a = document.createElement('a');
     a.textContent = text;
-    a.onclick = () => {
-      this.model.select(sel);
-      this.sync();
-    };
+    a.onclick = () => this.choose(sel);
+    a.onmouseenter = () => { this.hover = sel; this.preview.draw(); };
+    a.onmouseleave = () => { this.hover = null; this.preview.draw(); };
     return a;
   }
 
@@ -285,13 +345,18 @@ export class Inspector {
     const start = m.page * m.pageSize;
     const end = Math.min(total, start + m.pageSize);
     const head = document.createElement('tr');
-    for (const h of points ? ['row', 'x', 'y', ...cols] : ['row', 'a', 'b', 'length', ...cols]) {
+    for (const h of m.sortKeys()) {
       const th = document.createElement('th');
-      th.textContent = h;
+      const active = m.sort?.key === h;
+      th.textContent = h + (active ? (m.sort!.dir === 1 ? ' ▲' : ' ▼') : '');
+      th.title = 'Sort by this column (again: descending, again: stored order)';
+      th.onclick = () => { m.toggleSort(h); this.sync(); };
       head.append(th);
     }
     const rows: HTMLTableRowElement[] = [head];
-    for (let r = start; r < end; r++) {
+    const order = m.order();
+    for (let pos = start; pos < end; pos++) {
+      const r = order ? order[pos] : pos;
       const tr = document.createElement('tr');
       const sel = m.selection;
       if (sel && sel.index === r && (sel.kind === 'point') === points) tr.className = 'selected';
@@ -317,13 +382,13 @@ export class Inspector {
         td.textContent = c;
         tr.append(td);
       }
-      tr.onclick = () => {
-        m.select({ kind: points ? 'point' : 'edge', index: r });
-        this.sync();
-      };
+      tr.onclick = () => this.choose({ kind: points ? 'point' : 'edge', index: r });
+      tr.onmouseenter = () => { this.hover = { kind: points ? 'point' : 'edge', index: r }; this.preview.draw(); };
+      tr.onmouseleave = () => { this.hover = null; this.preview.draw(); };
       rows.push(tr);
     }
     this.table.replaceChildren(...rows);
+    this.table.querySelector('tr.selected')?.scrollIntoView({ block: 'nearest' });
     // Pager.
     const pages = m.pageCount();
     const prev = document.createElement('button');
@@ -344,10 +409,7 @@ export class Inspector {
     go.title = 'Go to a row (select it)';
     go.onchange = () => {
       const r = Number(go.value);
-      if (Number.isInteger(r) && r >= 0 && r < total) {
-        m.select({ kind: points ? 'point' : 'edge', index: r });
-        this.sync();
-      }
+      if (Number.isInteger(r) && r >= 0 && r < total) this.choose({ kind: points ? 'point' : 'edge', index: r });
     };
     this.pager.replaceChildren(prev, next, label, spacer, go);
   }
@@ -413,21 +475,41 @@ export class Inspector {
         ctx.fill();
       }
     }
-    if (sel) {
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2.5 / pxPerMm;
+    const mark = (which: Selection, radius: number, width: number, colour: string, halo: boolean): void => {
       ctx.setLineDash([]);
+      ctx.lineCap = 'round';
       ctx.beginPath();
-      if (sel.kind === 'point') {
-        ctx.arc(mat.px[sel.index], mat.py[sel.index], 6 / pxPerMm, 0, Math.PI * 2);
+      if (which.kind === 'point') {
+        ctx.arc(mat.px[which.index], mat.py[which.index], radius / pxPerMm, 0, Math.PI * 2);
       } else {
-        ctx.moveTo(mat.px[mat.edges[2 * sel.index]], mat.py[mat.edges[2 * sel.index]]);
-        ctx.lineTo(mat.px[mat.edges[2 * sel.index + 1]], mat.py[mat.edges[2 * sel.index + 1]]);
+        ctx.moveTo(mat.px[mat.edges[2 * which.index]], mat.py[mat.edges[2 * which.index]]);
+        ctx.lineTo(mat.px[mat.edges[2 * which.index + 1]], mat.py[mat.edges[2 * which.index + 1]]);
       }
+      if (halo) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.lineWidth = (width + 3) / pxPerMm;
+        ctx.stroke();
+      }
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = width / pxPerMm;
       ctx.stroke();
-      ctx.strokeStyle = '#111';
-      ctx.lineWidth = 1 / pxPerMm;
-      ctx.stroke();
+    };
+    if (this.hover && !(sel && this.hover.kind === sel.kind && this.hover.index === sel.index)) {
+      mark(this.hover, 8, 2.5, '#3ad0ff', true);
+    }
+    if (sel) {
+      // A quiet persistent ring, and on selection a glow that expands and fades.
+      mark(sel, 7, 2, '#ff6a1a', true);
+      const t = (performance.now() - this.flashAt) / Inspector.FLASH_MS;
+      if (t >= 0 && t < 1) {
+        const ease = 1 - t * t;
+        ctx.save();
+        ctx.globalAlpha = ease * 0.9;
+        ctx.shadowColor = '#ff6a1a';
+        ctx.shadowBlur = 10 * ease;
+        mark(sel, 8 + 18 * t, sel.kind === 'point' ? 3 + 3 * ease : 4 + 10 * ease, '#ff8a3a', false);
+        ctx.restore();
+      }
     }
   }
 }

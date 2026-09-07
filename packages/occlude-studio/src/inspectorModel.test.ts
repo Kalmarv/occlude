@@ -123,4 +123,28 @@ describe('InspectorModel', () => {
     expect(im.names).toEqual([]);
     expect(im.executionId).toBe(-1);
   });
+
+  it('sorts by a column as a permutation, non-finite last, and pages to the selected row', () => {
+    const im = new InspectorModel();
+    im.enabled = true;
+    im.onRender(1, [{ name: 'm', points: 4, edges: 3 }]);
+    im.acceptMaterial(prepare(payload({ attrs: { age: Float64Array.of(3, NaN, 1, 2) } }), 1, identity));
+    expect(im.order()).toBeNull();
+    im.toggleSort('age');
+    expect(Array.from(im.order()!)).toEqual([2, 3, 0, 1]);
+    im.toggleSort('age');
+    expect(Array.from(im.order()!)).toEqual([0, 3, 2, 1]);
+    im.toggleSort('age');
+    expect(im.sort).toBeNull();
+    im.toggleSort('x');
+    expect(Array.from(im.order()!)).toEqual([0, 3, 1, 2]); // ties keep row order
+    expect(im.positionOf(1)).toBe(2);
+    im.setDomain('edges');
+    expect(im.sort).toBeNull();
+    im.toggleSort('length');
+    expect(Array.from(im.order()!)).toEqual([0, 1, 2]);
+    im.toggleSort('b');
+    im.toggleSort('b');
+    expect(Array.from(im.order()!)).toEqual([2, 1, 0]);
+  });
 });

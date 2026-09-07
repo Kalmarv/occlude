@@ -164,6 +164,86 @@ export class InspectorModel {
   selection: Selection | null = null;
   page = 0;
   readonly pageSize = 50;
+  /** Column sort of the row table; null is stored order. */
+  sort: { key: string; dir: 1 | -1 } | null = null;
+  private orderCache: { material: LoadedMaterial; domain: Domain; key: string; dir: 1 | -1; order: Uint32Array } | null = null;
+
+  /** Sortable column keys of the current domain, in table order. */
+  sortKeys(): string[] {
+    const m = this.material;
+    if (!m) return [];
+    return this.domain === 'points' ? ['row', 'x', 'y', ...Object.keys(m.attrs)] : ['row', 'a', 'b', 'length', ...Object.keys(m.edgeAttrs)];
+  }
+
+  /** Click a header: ascending, then descending, then stored order. */
+  toggleSort(key: string): void {
+    if (!this.sort || this.sort.key !== key) this.sort = { key, dir: 1 };
+    else if (this.sort.dir === 1) this.sort = { key, dir: -1 };
+    else this.sort = null;
+    this.page = this.selection ? Math.floor(this.positionOf(this.selection.index) / this.pageSize) : 0;
+  }
+
+  /** The values a sort key reads, as a typed column (built per call for the
+   * derived ones, cached with the order). */
+  private sortColumn(key: string): ArrayLike<number> | null {
+    const m = this.material!;
+    if (this.domain === 'points') {
+      if (key === 'x') return m.x;
+      if (key === 'y') return m.y;
+      return m.attrs[key] ?? null;
+    }
+    const e = m.edges.length / 2;
+    if (key === 'a' || key === 'b') {
+      const off = key === 'a' ? 0 : 1;
+      const col = new Float64Array(e);
+      for (let k = 0; k < e; k++) col[k] = m.edges[2 * k + off];
+      return col;
+    }
+    if (key === 'length') {
+      const col = new Float64Array(e);
+      for (let k = 0; k < e; k++) {
+        const a = m.edges[2 * k];
+        const b = m.edges[2 * k + 1];
+        col[k] = Math.hypot(m.x[b] - m.x[a], m.y[b] - m.y[a]);
+      }
+      return col;
+    }
+    return m.edgeAttrs[key] ?? null;
+  }
+
+  /** Row indices in table order: null means stored order. Non-finite
+   * values sort last whichever direction; equal values keep row order. */
+  order(): Uint32Array | null {
+    const m = this.material;
+    const sort = this.sort;
+    if (!m || !sort || sort.key === 'row') return null;
+    const c = this.orderCache;
+    if (c && c.material === m && c.domain === this.domain && c.key === sort.key && c.dir === sort.dir) return c.order;
+    const col = this.sortColumn(sort.key);
+    const n = this.rowCount();
+    const order = new Uint32Array(n);
+    for (let i = 0; i < n; i++) order[i] = i;
+    if (col) {
+      const dir = sort.dir;
+      order.sort((i, j) => {
+        const a = col[i];
+        const b = col[j];
+        const fa = Number.isFinite(a);
+        const fb = Number.isFinite(b);
+        if (fa !== fb) return fa ? -1 : 1;
+        if (fa && a !== b) return (a < b ? -1 : 1) * dir;
+        return i - j;
+      });
+    }
+    this.orderCache = { material: m, domain: this.domain, key: sort.key, dir: sort.dir, order };
+    return order;
+  }
+
+  /** Where a row sits in table order. */
+  positionOf(row: number): number {
+    const o = this.order();
+    return o ? o.indexOf(row) : row;
+  }
 
   /** A render landed: adopt its registry, keep the chosen name if it is
    * still there, drop the row selection. Returns the name to fetch (null
@@ -190,6 +270,7 @@ export class InspectorModel {
     this.selection = null;
     this.page = 0;
     if (this.attr !== null && !this.columns().includes(this.attr)) this.attr = null;
+    if (this.sort && !this.sortKeys().includes(this.sort.key)) this.sort = null;
     return true;
   }
 
@@ -206,6 +287,7 @@ export class InspectorModel {
     this.domain = d;
     this.attr = null;
     this.selection = null;
+    this.sort = null;
     this.page = 0;
   }
 
@@ -243,7 +325,7 @@ export class InspectorModel {
     this.selection = sel;
     if (sel) {
       const domain: Domain = sel.kind === 'point' ? 'points' : 'edges';
-      if (domain === this.domain) this.page = Math.floor(sel.index / this.pageSize);
+      if (domain === this.domain) this.page = Math.floor(this.positionOf(sel.index) / this.pageSize);
     }
   }
 

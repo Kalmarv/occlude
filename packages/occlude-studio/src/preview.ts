@@ -516,6 +516,7 @@ export class Preview {
       this.draw();
     });
     this.canvas.addEventListener('pointerup', (e) => {
+      if (!dragging) return; // a press that began elsewhere (a panel over the bench) is not ours
       dragging = false;
       this.canvas.classList.remove('panning');
       // A press that stayed put is a click; a pan is not.
