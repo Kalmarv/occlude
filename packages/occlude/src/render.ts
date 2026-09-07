@@ -1193,7 +1193,7 @@ export function bridgeGapFor(pen: PenDef, bridge: PlanOptions['bridge']): number
 /** Plan a rendered result ONCE (merge → tour → bridge per pen, pen order):
  * the exact plan bytes and the settings that identify them. Feed
  * `makePlan` for the hashed value, then the `plan*` exporters. */
-export function planBuffer(result: RenderResult, opts: PlanOptions = result.plan ?? {}): { buffer: Float64Array; settings: PlanSettings } {
+export function planBuffer(result: RenderResult, opts: PlanOptions = result.plan ?? {}, engine?: string): { buffer: Float64Array; settings: PlanSettings } {
   const budget = tourBudget(opts.optimize);
   const gap = opts.bridge === false ? 0 : typeof opts.bridge === 'number' ? Math.max(0, opts.bridge) : -1;
   const buffer = requireWasm().wasm_plan(result.raw.prims, result.raw.frags, pensToJson(result.pens), budget, gap);
@@ -1202,7 +1202,7 @@ export function planBuffer(result: RenderResult, opts: PlanOptions = result.plan
     pens: result.pens.map((p) => ({ name: p.name, width: p.width })),
     paper: { w: result.paper.w, h: result.paper.h },
     bridgeGapMm: result.pens.map((p) => bridgeGapFor(p, opts.bridge)),
-    ...(opts.engine ? { engine: opts.engine } : {}),
+    ...(engine ? { engine } : {}),
   };
   return { buffer, settings };
 }
@@ -1211,8 +1211,8 @@ export function planBuffer(result: RenderResult, opts: PlanOptions = result.plan
  * hashed, decoded, ready for `selectChains` & co. and the `plan*`
  * exporters. `plan(render(def))` is the whole story; nothing downstream
  * plans again. Async only because the identity is a SHA-256 digest. */
-export async function plan(result: RenderResult, opts: PlanOptions = result.plan ?? {}): Promise<DrawingPlan> {
-  const { buffer, settings } = planBuffer(result, opts);
+export async function plan(result: RenderResult, opts: PlanOptions = result.plan ?? {}, engine?: string): Promise<DrawingPlan> {
+  const { buffer, settings } = planBuffer(result, opts, engine);
   return makePlan(buffer, settings);
 }
 

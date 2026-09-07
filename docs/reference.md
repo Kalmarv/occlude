@@ -1356,7 +1356,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
     const pull = force.tension(cur, { rest: 1 });
     const repel = force.separation(cur, { radius: 2.2, excludeConnected: true });
     next.move((p) => mul(sum(pull(p), repel(p), shove(p), wander(p, k)), 0.18));
-    next.splitEdges((e) => e.length > 1.1 && t.chance(0.3), { attributes: {} });
+    next.splitEdges((e) => e.length > 1.1 && t.chance(0.3));
   });
   return [posts.map(([x, y]) => circle(x, y, 2)), stroke(grown.contour)];
 });
@@ -1483,7 +1483,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
     const pull = force.tension(cur, { rest: 1 });
     const repel = force.separation(cur, { radius: 2.2, excludeConnected: true });
     next.move((p) => mul(sum(pull(p), repel(p), keep(p), toward(p), wander(p, k)), 0.18));
-    next.splitEdges((e) => e.length > 1.1 && t.chance(0.3), { attributes: {} });
+    next.splitEdges((e) => e.length > 1.1 && t.chance(0.3));
   });
   return [frame, anchors.map(([x, y]) => circle(x, y, 1.2)), stroke(grown.contour)];
 });
@@ -1509,7 +1509,7 @@ which starts as a copy:
 | `next.disconnect(edge \| e => bool)` | remove an edge, both points stay; repeating it is a no-op |
 | `next.remove(ref \| p => bool)` | delete a point and its incident edges; neighbours are never joined; repeating it is a no-op |
 | `next.split(edge, { at?, point?, edges? })` → handle | replace an edge with two through a new vertex; at 0 or 1, the existing endpoint. Options are recorded as they are at the call (records copied, callbacks kept) |
-| `next.splitEdges(e => bool, { at?, point?, edges? })` | bulk split on the MOVED edges — moves first, then `where` sees each edge as it will be |
+| `next.splitEdges(e => bool, { at?, point?, edges? })` | bulk split on the MOVED edges — moves first, then `where` sees each edge as it will be; at 0 or 1 nothing is created (the same rule as `split`) |
 | `next.extend(p => spec \| spec[], { where? })` | for each selected vertex, a new child `{ position, attributes }` or a connection `{ to }`, joined to it |
 
 A reference is a row of the current state, a vertex view of the current
@@ -1563,7 +1563,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
     const repel = force.separation(cur, { radius: 2, excludeConnected: true });
     next.move((p) => mul(sum(pull(p), repel(p), wander(p, k)), 0.15));
     next.set((p) => ({ age: p.age + 1 }));
-    next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
+    next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { point: { age: 0 } });
   });
   return stroke(grown.contour);
 });
@@ -2044,7 +2044,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
     const repel = force.separation(cur, { radius: 2, excludeConnected: true });
     next.move((p) => mul(sum(pull(p), repel(p), wander(p, k)), 0.15));
     next.set((p) => ({ age: p.age + 1 }));
-    next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { attributes: { age: 0 } });
+    next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { point: { age: 0 } });
   });
   const [young, old] = extent(last.attrs.age);
   const band = banding({ min: young, max: old, count: 2 });

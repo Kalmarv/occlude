@@ -30,8 +30,6 @@ export const PLAN_SCHEMA = 1;
 export interface PlanOptions {
   optimize?: boolean | number;
   bridge?: boolean | number;
-  /** Engine identity to fold into the plan's hash (a build stamp). */
-  engine?: string;
 }
 
 /** What part of the ordered plan a sketch asks to be drawn — code, so

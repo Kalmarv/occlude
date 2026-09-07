@@ -21,6 +21,7 @@
  */
 
 import { checkDrawRequest, type DrawRequest, type PlanOptions } from './plan.js';
+import { lowerToUserContours } from './record.js';
 import { fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
 import { finiteCount } from './guard.js';
@@ -799,12 +800,16 @@ function sample(
   checkSampling('sample', { count: opts.count, spacing: opts.spacing === undefined ? undefined : 1 });
   const frame = sketchFrame();
   const unit = unitMm(frame);
-  const closed = geomClosed(shape.geom);
   const spacingU = opts.spacing !== undefined ? resolveLen(opts.spacing, frame.inner) / unit : undefined;
   if (spacingU !== undefined && !(spacingU > 0)) throw new Error('sample: spacing must be positive');
   const pts: [number, number][] = [];
   const edges: [number, number][] = [];
-  for (const poly of polylines(shape, { tolerance: opts.tolerance })) {
+  const tol = opts.tolerance !== undefined ? resolveLen(opts.tolerance, frame.inner) : 0.05;
+  const o = shape.opts;
+  // Each outline keeps its OWN closure: a path may hold a ring and a chain.
+  const contours = lowerToUserContours(shape.geom, { translate: o.translate, rotate: o.rotate, scale: o.scale }, frame, tol)
+    .map((c) => ({ closed: c.closed, pts: c.pts.map(([x, y]) => [x / unit, y / unit] as [number, number]) }));
+  for (const { pts: poly, closed } of contours) {
     const samples = alongChain(poly, closed, { count: opts.count, spacing: spacingU });
     const first = pts.length;
     for (let k = 0; k < samples.length; k++) {
@@ -835,7 +840,7 @@ function probe<T>(label: string, value: T): T {
  * the program, so the same source plans the same way everywhere. */
 function planWith(opts: PlanOptions): void {
   if (typeof opts !== 'object' || opts === null) throw new Error('plan: expected { optimize?, bridge? }');
-  for (const k of Object.keys(opts)) if (!['optimize', 'bridge'].includes(k)) throw new Error(`plan: unknown option '${k}'`);
+  for (const k of Object.keys(opts)) if (!['optimize', 'bridge'].includes(k)) throw new Error(`plan: unknown option '${k}' (the sketch sets optimize and bridge; engine identity is the host's)`);
   if (opts.optimize !== undefined && typeof opts.optimize !== 'boolean' && !(typeof opts.optimize === 'number' && Number.isFinite(opts.optimize) && opts.optimize >= 0)) throw new Error('plan: optimize must be a boolean or a non-negative number');
   if (opts.bridge !== undefined && typeof opts.bridge !== 'boolean' && !(typeof opts.bridge === 'number' && Number.isFinite(opts.bridge) && opts.bridge >= 0)) throw new Error('plan: bridge must be a boolean or a non-negative gap in mm');
   getState().planOptions = { ...opts };
@@ -851,7 +856,7 @@ function draw(req: DrawRequest): DrawRequest {
   return r;
 }
 
-/** Lift any point array into the Points vocabulary (relax/settle/cells/material). */
+/** Lift any point array into the Points vocabulary (relax/settle/cells/mesh); `material(points)` turns it into material. */
 function pointsOf(
   raw: readonly ({ x: number; y: number } | [number, number])[],
   opts: { field?: FieldFn2; spacing?: L; resolution?: number } = {},

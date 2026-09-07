@@ -7,6 +7,7 @@
  * it; intersection results downstream are never snapped.
  */
 
+import { geomClosed } from './shapes.js';
 import { apply, conformalScale, det, IDENTITY, isConformal, mul, rotate, scale as mscale, translate, type Mat } from './matrix.js';
 import { arcToCubics, flattenPrim, snapPrim, type Prim } from './prims.js';
 import type { Shape, ShapeGeom, PathCmd } from './shapes.js';
@@ -435,8 +436,23 @@ export function lowerToUserLoops(
   frame: Frame,
   tol = 0.05,
 ): [number, number][][] {
+  return lowerToUserContours(geom, opts, frame, tol).map((c) => c.pts);
+}
+
+/** `lowerToUserLoops` with each contour's OWN closure: a path's closed
+ * subpath (its `close` lands back on its start) is closed, an open one
+ * is open, whatever its neighbours do; every other geometry closes as a
+ * whole. Sampling reads this, so a path holding a square and an L gives
+ * a ring and a chain. */
+export function lowerToUserContours(
+  geom: ShapeGeom,
+  opts: TransformOp,
+  frame: Frame,
+  tol = 0.05,
+): { pts: [number, number][]; closed: boolean }[] {
   const rz = new Resolver(frame);
   const m = composeChain([opts], rz);
+  const wholeClosed = geomClosed(geom);
   return lowerGeom(geom, rz).map((contour) => {
     const pts: [number, number][] = [];
     for (const p of contour) {
@@ -445,7 +461,13 @@ export function lowerToUserLoops(
         for (let i = pts.length > 0 ? 1 : 0; i < fp.length; i++) pts.push(fp[i]);
       }
     }
-    return pts;
+    let closed = wholeClosed;
+    if (geom.kind === 'path') {
+      const a = pts[0];
+      const z = pts[pts.length - 1];
+      closed = pts.length > 2 && !!a && !!z && Math.abs(a[0] - z[0]) <= 1e-9 && Math.abs(a[1] - z[1]) <= 1e-9;
+    }
+    return { pts, closed };
   });
 }
 

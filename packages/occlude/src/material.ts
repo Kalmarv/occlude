@@ -29,7 +29,8 @@ import type { IsoContour } from './isolines.js';
 import type { VectorFieldFn } from './shapes.js';
 import { distanceTo } from './distance.js';
 import { grad } from './field.js';
-import { triangulate as delaunayTriangles } from './points.js';
+import { Delaunay } from 'd3-delaunay';
+import { orient2d } from 'robust-predicates';
 
 // ---- points and vectors ---------------------------------------------------------
 
@@ -468,9 +469,11 @@ export class Material {
     const col = new Float64Array(this.n);
     if (typeof value === 'number') col.fill(value);
     else for (let i = 0; i < this.n; i++) col[i] = value(this.vertex(i));
+    // A value update keeps the column's declared policy; only an explicit
+    // `transfer` changes it (an explicit 'interpolate' restores the default).
     const transfers = { ...this.transfers };
-    if (opts.transfer) transfers[name] = opts.transfer;
-    else delete transfers[name];
+    if (opts.transfer === 'interpolate') delete transfers[name];
+    else if (opts.transfer) transfers[name] = opts.transfer;
     return new Material(
       copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), [name]: col }, copyEdges(this.edgeList), this.iteration, [],
       copyAttrs(this.edgeAttrs), transfers,
@@ -500,13 +503,21 @@ export class Material {
     const names = this.edgeAttrNames;
     const cols: Record<string, number[]> = {};
     for (const name of names) cols[name] = Array.from(this.edgeAttrs[name]);
-    let added = 0;
+    // Contract: unknown columns and non-finite values are always an error;
+    // every declared column must be given as soon as ONE edge would be
+    // added (one record serves every new edge); endpoints are validated
+    // for every pair; existing pairs are left as they are; a call that
+    // adds nothing needs no attributes.
+    checkAttrs(edgeAttributes, names, 'a new edge', { complete: false });
     for (const [a, b] of pairs) {
       if (a === b) throw new Error(`connect: edge ${a}–${b} joins a vertex to itself`);
-      if (a >= this.n || b >= this.n) throw new Error(`connect: edge ${a}–${b} names a vertex beyond ${this.n - 1}`);
+      if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0 || a >= this.n || b >= this.n) throw new Error(`connect: edge ${a}–${b} names a vertex beyond ${this.n - 1}`);
+    }
+    if (pairs.some(([a, b]) => !seen.has(pairKey(a, b)))) checkAttrs(edgeAttributes, names, 'a new edge');
+    let added = 0;
+    for (const [a, b] of pairs) {
       const k = pairKey(a, b);
       if (seen.has(k)) continue;
-      if (added === 0 && names.length > 0) checkAttrs(edgeAttributes, names, 'a new edge');
       seen.add(k);
       list.push(a, b);
       for (const name of names) cols[name].push(edgeAttributes[name]);
@@ -843,16 +854,32 @@ export const connect = {
     return joined.withEdges(pairs, edgeAttributes);
   },
   /** Delaunay triangulation edges over the vertices. */
+  /** Delaunay edges over the rows, by index. Coincident rows: the FIRST
+   * row at a position takes part in the triangulation and its edges; later
+   * rows at the same position stay isolated (they are still rows). Fewer
+   * than three distinct positions, or all collinear, give no edges. */
   triangulate(m: PointsLike, edgeAttributes?: Record<string, number>): Material {
     const mm = material(m);
-    const tris = delaunayTriangles(mm.pts);
-    // triangulate() returns coordinate triples; map back to rows by position
-    const rowOf = new Map<string, number>();
-    for (let i = 0; i < mm.n; i++) rowOf.set(`${mm.x[i]},${mm.y[i]}`, i);
+    const firstAt = new Map<string, number>();
+    const unique: number[] = [];
+    for (let i = 0; i < mm.n; i++) {
+      const k = `${mm.x[i]},${mm.y[i]}`;
+      if (firstAt.has(k)) continue;
+      firstAt.set(k, i);
+      unique.push(i);
+    }
+    if (unique.length < 3) return mm.withEdges([], edgeAttributes);
+    // All collinear: no triangle exists (d3 would perturb the points into a
+    // sliver); decided exactly.
+    const [u0, u1] = unique;
+    if (unique.every((row) => orient2d(mm.x[u0], mm.y[u0], mm.x[u1], mm.y[u1], mm.x[row], mm.y[row]) === 0)) return mm.withEdges([], edgeAttributes);
+    const tri = Delaunay.from(unique.map((row) => [mm.x[row], mm.y[row]] as [number, number])).triangles;
     const pairs: [number, number][] = [];
-    for (const tri of tris) {
-      const r = tri.map(([x, y]) => rowOf.get(`${x},${y}`)!);
-      pairs.push([r[0], r[1]], [r[1], r[2]], [r[2], r[0]]);
+    for (let k = 0; k + 2 < tri.length; k += 3) {
+      const a = unique[tri[k]];
+      const b = unique[tri[k + 1]];
+      const c = unique[tri[k + 2]];
+      pairs.push([a, b], [b, c], [c, a]);
     }
     return mm.withEdges(pairs, edgeAttributes);
   },
@@ -1219,7 +1246,14 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
     },
     splitEdges(where, opts = {}) {
       const at = opts.at ?? 0.5;
-      if (!Number.isFinite(at) || at <= 0 || at >= 1) throw new Error(`steps: splitEdges at ${at} — must be inside (0, 1)`);
+      if (!Number.isFinite(at) || at < 0 || at > 1) throw new Error(`steps: splitEdges at ${at} — must be within [0, 1]`);
+      // The same rule as split: an endpoint parameter creates nothing (a
+      // single split returns the existing endpoint; here there is nothing
+      // to return), and overrides that would rewrite existing data refuse.
+      if (at === 0 || at === 1) {
+        if (opts.point || opts.edges || opts.attributes || opts.parent) throw new Error('steps: a split at an endpoint creates nothing — point/edge overrides would modify existing data');
+        return;
+      }
       bulkSplits.push({ where, req: splitRequest(opts, at) });
     },
     extend(spec, opts) {
@@ -1263,6 +1297,13 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   const cutsByEdge = new Map<number, Cut[]>();
   const childEdgeOverride = new Map<number, SplitOpts['edges']>();
   const sameDef = (a: unknown, b: unknown) => a === b || (typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b));
+  // Legacy `parent` rewrites land on the moved columns, but every split
+  // inherits from the state as it stood BEFORE any of them: the frozen
+  // moved state is what all callbacks read, so a rewrite on one edge can
+  // never change what a split on another edge inherits.
+  const inheritFrom: Record<string, Float64Array> = {};
+  const anyParent = Array.from(splits.values()).some((reqs) => reqs.some((r) => r.parent));
+  for (const name of names) inheritFrom[name] = anyParent ? Float64Array.from(nattrs[name]) : nattrs[name];
   for (const [row, reqs] of splits) {
     const parentEdge = movedEdges[row];
     // legacy `parent`: rewrite the start vertex's point attributes
@@ -1288,8 +1329,8 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
     const inherit = (at: number): Record<string, number> => {
       const out: Record<string, number> = {};
       for (const name of names) {
-        const va = nattrs[name][pa.index];
-        const vb = nattrs[name][pb.index];
+        const va = inheritFrom[name][pa.index];
+        const vb = inheritFrom[name][pb.index];
         out[name] = cur.transfers[name] === 'nearest' ? (at <= 0.5 ? va : vb) : va + (vb - va) * at;
       }
       return out;
@@ -1449,8 +1490,24 @@ export function neighbours(m: Material, opts: { radius: number; stats?: Neighbou
   const radius = opts.radius;
   const cell = radius;
   const stats = opts.stats;
+  // Cells are indexed row-major over the material's own extent — no packed
+  // key, so no two cells can share an index whatever the coordinates.
+  let minx = Infinity;
+  let miny = Infinity;
+  let maxx = -Infinity;
+  let maxy = -Infinity;
+  for (let i = 0; i < m.n; i++) {
+    if (m.x[i] < minx) minx = m.x[i];
+    if (m.x[i] > maxx) maxx = m.x[i];
+    if (m.y[i] < miny) miny = m.y[i];
+    if (m.y[i] > maxy) maxy = m.y[i];
+  }
+  const gx0 = Number.isFinite(minx) ? Math.floor(minx / cell) : 0;
+  const gy0 = Number.isFinite(miny) ? Math.floor(miny / cell) : 0;
+  const cols = Number.isFinite(maxx) ? Math.floor(maxx / cell) - gx0 + 1 : 1;
+  const rows = Number.isFinite(maxy) ? Math.floor(maxy / cell) - gy0 + 1 : 1;
   const grid = new Map<number, number[]>();
-  const key = (gx: number, gy: number) => gx * 65536 + gy;
+  const key = (gx: number, gy: number) => (gx - gx0 < 0 || gx - gx0 >= cols || gy - gy0 < 0 || gy - gy0 >= rows ? -1 : (gy - gy0) * cols + (gx - gx0));
   for (let i = 0; i < m.n; i++) {
     const k = key(Math.floor(m.x[i] / cell), Math.floor(m.y[i] / cell));
     const bucket = grid.get(k);
@@ -1467,7 +1524,9 @@ export function neighbours(m: Material, opts: { radius: number; stats?: Neighbou
     if (stats) stats.queries++;
     for (let gx = cx - 1; gx <= cx + 1; gx++) {
       for (let gy = cy - 1; gy <= cy + 1; gy++) {
-        const bucket = grid.get(key(gx, gy));
+        const k = key(gx, gy);
+        if (k < 0) continue;
+        const bucket = grid.get(k);
         if (!bucket) continue;
         if (stats) stats.candidates += bucket.length;
         for (const j of bucket) {

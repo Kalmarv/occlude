@@ -138,6 +138,11 @@ export class Points extends Array<ScatterPoint> {
    * count converges to the field's ink budget. scatter + settle is the
    * weighted Linde-Buzo-Gray stippling algorithm. */
   settle(n = 10): Points {
+    if (Number.isNaN(this.spacingU)) {
+      throw new Error(
+        "points(...).settle() needs a spacing — pass { spacing: mm(…) } to t.points() (it defines a point's ink capacity)",
+      );
+    }
     return this.iterate(n, true);
   }
 
@@ -420,15 +425,5 @@ export function liftPoints(
   });
   const res = Math.max(32, Math.min(512, opts.resolution ?? 256));
   const field = opts.field ?? (() => 1);
-  const set = Points.make(pts, env, field, spacingU, res);
-  if (Number.isNaN(spacingU)) {
-    const original = set.settle.bind(set);
-    void original;
-    set.settle = () => {
-      throw new Error(
-        "points(...).settle() needs a spacing — pass { spacing: mm(…) } to t.points() (it defines a point's ink capacity)",
-      );
-    };
-  }
-  return set;
+  return Points.make(pts, env, field, spacingU, res);
 }
