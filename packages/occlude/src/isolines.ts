@@ -197,42 +197,40 @@ function marchLevel(
       const code =
         (va >= lvl ? 1 : 0) | (vb >= lvl ? 2 : 0) | (vc >= lvl ? 4 : 0) | (vd >= lvl ? 8 : 0);
       if (code === 0 || code === 15) continue;
-      // Crossing coordinates as scalars. Tx/Bx/Ly/Ry are the only varying
-      // components; the other component of each is a grid line.
-      const Tx = (): number => xTx(i, va, vb);
+      // Crossing coordinates as scalars. The x of a top/bottom crossing and
+      // the y of a left/right crossing are the only varying components; the
+      // other component of each is a grid line. Each case reads only the
+      // crossings it needs, so an edge with no crossing is never divided.
       const Ty = py(j);
-      const Bx = (): number => xTx(i, vd, vc);
       const By = py(j + 1);
       const Lx = px(i);
-      const Ly = (): number => yLy(j, va, vd);
       const Rx = px(i + 1);
-      const Ry = (): number => yLy(j, vb, vc);
       switch (code) {
-        case 1: emit(Lx, Ly(), Tx(), Ty); break;
-        case 2: emit(Tx(), Ty, Rx, Ry()); break;
-        case 3: emit(Lx, Ly(), Rx, Ry()); break;
-        case 4: emit(Rx, Ry(), Bx(), By); break;
+        case 1: emit(Lx, yLy(j, va, vd), xTx(i, va, vb), Ty); break;
+        case 2: emit(xTx(i, va, vb), Ty, Rx, yLy(j, vb, vc)); break;
+        case 3: emit(Lx, yLy(j, va, vd), Rx, yLy(j, vb, vc)); break;
+        case 4: emit(Rx, yLy(j, vb, vc), xTx(i, vd, vc), By); break;
         case 5: {
           // Saddle: the cell-centre average decides which diagonal connects.
           const centre = (va + vb + vc + vd) / 4 >= lvl;
-          if (centre) { emit(Rx, Ry(), Tx(), Ty); emit(Lx, Ly(), Bx(), By); }
-          else { emit(Lx, Ly(), Tx(), Ty); emit(Rx, Ry(), Bx(), By); }
+          if (centre) { emit(Rx, yLy(j, vb, vc), xTx(i, va, vb), Ty); emit(Lx, yLy(j, va, vd), xTx(i, vd, vc), By); }
+          else { emit(Lx, yLy(j, va, vd), xTx(i, va, vb), Ty); emit(Rx, yLy(j, vb, vc), xTx(i, vd, vc), By); }
           break;
         }
-        case 6: emit(Tx(), Ty, Bx(), By); break;
-        case 7: emit(Lx, Ly(), Bx(), By); break;
-        case 8: emit(Bx(), By, Lx, Ly()); break;
-        case 9: emit(Bx(), By, Tx(), Ty); break;
+        case 6: emit(xTx(i, va, vb), Ty, xTx(i, vd, vc), By); break;
+        case 7: emit(Lx, yLy(j, va, vd), xTx(i, vd, vc), By); break;
+        case 8: emit(xTx(i, vd, vc), By, Lx, yLy(j, va, vd)); break;
+        case 9: emit(xTx(i, vd, vc), By, xTx(i, va, vb), Ty); break;
         case 10: {
           const centre = (va + vb + vc + vd) / 4 >= lvl;
-          if (centre) { emit(Tx(), Ty, Lx, Ly()); emit(Bx(), By, Rx, Ry()); }
-          else { emit(Tx(), Ty, Rx, Ry()); emit(Bx(), By, Lx, Ly()); }
+          if (centre) { emit(xTx(i, va, vb), Ty, Lx, yLy(j, va, vd)); emit(xTx(i, vd, vc), By, Rx, yLy(j, vb, vc)); }
+          else { emit(xTx(i, va, vb), Ty, Rx, yLy(j, vb, vc)); emit(xTx(i, vd, vc), By, Lx, yLy(j, va, vd)); }
           break;
         }
-        case 11: emit(Bx(), By, Rx, Ry()); break;
-        case 12: emit(Rx, Ry(), Lx, Ly()); break;
-        case 13: emit(Rx, Ry(), Tx(), Ty); break;
-        default: emit(Tx(), Ty, Lx, Ly()); break; // 14
+        case 11: emit(xTx(i, vd, vc), By, Rx, yLy(j, vb, vc)); break;
+        case 12: emit(Rx, yLy(j, vb, vc), Lx, yLy(j, va, vd)); break;
+        case 13: emit(Rx, yLy(j, vb, vc), xTx(i, va, vb), Ty); break;
+        default: emit(xTx(i, va, vb), Ty, Lx, yLy(j, va, vd)); break; // 14
       }
     }
   }

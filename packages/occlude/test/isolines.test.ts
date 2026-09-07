@@ -237,3 +237,91 @@ describe('isolines: toolkit + engine integration', () => {
     for (const l of lens) expect(Math.abs(l - 40)).toBeLessThan(1.5);
   });
 });
+
+describe('isolines: every crossing sits where its own grid edge says', () => {
+  /** Independent oracle for the whole case table: a contour point must lie on
+   * a sample edge, and the level must fall at exactly that fraction between
+   * the edge's two samples. It knows nothing about which case emits which
+   * crossing — the part the case table decides. */
+  const audit = (field: (x: number, y: number) => number, at: number, step: number, close: boolean) => {
+    const cs = isolinesOf(env, field, at, { step, close });
+    const b = env.bounds;
+    const gw = Math.max(2, Math.ceil(b.w / step) + 1);
+    const gh = Math.max(2, Math.ceil(b.h / step) + 1);
+    const sx = b.w / (gw - 1);
+    const sy = b.h / (gh - 1);
+    const onLine = (v: number, origin: number, s: number) => {
+      const k = Math.round((v - origin) / s);
+      return Math.abs(origin + k * s - v) < 1e-9 ? k : null;
+    };
+    let audited = 0;
+    for (const c of cs) {
+      for (const [x, y] of c.pts) {
+        const i = onLine(x, b.x, sx);
+        const j = onLine(y, b.y, sy);
+        // `close` clamps border points onto the drawable, and the colinear
+        // merge drops interior points; a merged corner sits on both lines.
+        if (i === null && j === null) throw new Error(`point ${x},${y} is on no grid line`);
+        if (i !== null && j !== null) continue; // a grid corner: nothing to interpolate
+        if (i === null) {
+          // on a horizontal sample edge at row j: interpolate in x
+          const jj = j as number;
+          const ii = Math.floor((x - b.x) / sx);
+          if (ii < 0 || ii + 1 > gw - 1 || jj < 0 || jj > gh - 1) continue; // the closing ring
+          const va = field(b.x + ii * sx, b.y + jj * sy);
+          const vb = field(b.x + (ii + 1) * sx, b.y + jj * sy);
+          if (!Number.isFinite(va) || !Number.isFinite(vb)) continue;
+          const t = (x - (b.x + ii * sx)) / sx;
+          expect(va + (vb - va) * t).toBeCloseTo(at, 9);
+          audited++;
+        } else {
+          const ii = i as number;
+          const jj = Math.floor((y - b.y) / sy);
+          if (jj < 0 || jj + 1 > gh - 1 || ii < 0 || ii > gw - 1) continue;
+          const va = field(b.x + ii * sx, b.y + jj * sy);
+          const vd = field(b.x + ii * sx, b.y + (jj + 1) * sy);
+          if (!Number.isFinite(va) || !Number.isFinite(vd)) continue;
+          const t = (y - (b.y + jj * sy)) / sy;
+          expect(va + (vd - va) * t).toBeCloseTo(at, 9);
+          audited++;
+        }
+      }
+    }
+    return audited;
+  };
+
+  it('audits crossings across fields that exercise the whole case table', () => {
+    let total = 0;
+    const fields: [string, (x: number, y: number) => number][] = [
+      ['wavy', (x, y) => Math.sin(x * 0.1) * Math.cos(y * 0.1) + Math.sin((x + y) * 0.05) * 0.6],
+      ['bowl', (x, y) => 30 - Math.hypot(x - 50, y - 50)],
+      ['plane +x', (x) => x / 100 - 0.5],
+      ['plane +y', (_x, y) => y / 100 - 0.5],
+      ['plane diag', (x, y) => (x + y) / 200 - 0.5],
+      ['plane anti-diag', (x, y) => (x - y) / 200],
+      ['saddle', (x, y) => (x - 50) * (y - 50) / 2500],
+      ['holed', (x, y) => (Math.hypot(x - 50, y - 50) < 15 ? NaN : Math.sin(x * 0.1) * Math.cos(y * 0.1))],
+    ];
+    for (const [, f] of fields) {
+      for (const step of [1, 3.7]) {
+        for (const close of [false, true]) total += audit(f, 0, step, close);
+      }
+    }
+    expect(total).toBeGreaterThan(2000);
+  });
+
+  it('a saddle takes the diagonal the cell-centre average asks for', () => {
+    // one cell, corners high on one diagonal and low on the other
+    const cell = (tl: number, tr: number, br: number, bl: number) => (x: number, y: number) =>
+      (x < 50 ? (y < 50 ? tl : bl) : (y < 50 ? tr : br));
+    const one: IsoEnv = { bounds: { x: 0, y: 0, w: 100, h: 100 }, len: (l) => (typeof l === 'number' ? l : l.value) };
+    // centre average above the level: the two crossings pair across the high diagonal
+    const high = isolinesOf(one, cell(1, -0.5, 1, -0.5), 0, { step: 100 });
+    // centre average below it: the other pairing
+    const low = isolinesOf(one, cell(0.5, -1, 0.5, -1), 0, { step: 100 });
+    expect(high).toHaveLength(2);
+    expect(low).toHaveLength(2);
+    const ends = (cs: IsoContour[]) => cs.map((c) => c.pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' → ')).sort();
+    expect(ends(high)).not.toEqual(ends(low));
+  });
+});

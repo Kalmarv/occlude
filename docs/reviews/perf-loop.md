@@ -266,6 +266,84 @@ demanding cases — a 200 000-vertex ring, 2 000 steps of a small ring, and
 
 ---
 
+## Entry 5 — marching squares stops building four closures per crossing cell (`src/isolines.ts`)
+
+**Finding (and a correction to the method).** Profiling the contour sketches put
+272 ms of self time in `marchLevel` and 82 ms in `__name`. `__name` is
+**esbuild's**: `tsx` stamps every function expression with
+`Object.defineProperty(fn, 'name', …)` at *creation*. The compiled library
+(`tsc` → `dist/`) and the Vite studio bundle contain none of it, so any bench
+run through `tsx` overstates a closure-building hot path. Measured on the same
+code, 9 levels over an 801² grid: **419 ms under tsx, 282 ms on `dist`.** This
+is recorded at the top of `bench/README.md`; every entry from here on confirms
+a closure-heavy result against the compiled library.
+
+The real finding underneath: `marchLevel` declared four arrow functions
+(`Tx`, `Bx`, `Ly`, `Ry`) *inside the cell loop*, wrapping the already-hoisted
+`xTx` / `yLy` helpers so a case could take only the crossings it needed. They
+capture `i` and the four corner samples — which forces those variables into a
+heap-allocated scope context on **every iteration of the inner loop**, not just
+the ones that build a closure.
+
+**Change.** The four wrappers are deleted; each case calls `xTx(i, va, vb)`,
+`xTx(i, vd, vc)`, `yLy(j, va, vd)` or `yLy(j, vb, vc)` directly. Same
+expressions, same evaluation order, same laziness — an edge with no crossing is
+still never divided. The emitted coordinates are bit-identical by construction.
+
+**Why cells with no crossing got faster too.** They did not stop doing work of
+their own; they stopped paying for the context the closures required. The
+all-absent field, which `continue`s before the switch on every cell, went
+30 → 13 ms — the clearest evidence that the cost was the captured scope, not
+the closures' own allocation.
+
+**Verification.**
+
+- Differential against `HEAD`'s `isolines.ts`: **4 293 comparisons, 0
+  mismatches** — every point of every contour, the `closed` flag and the thrown
+  message. 13 fields (wavy, dense, bowl, plane, a constant field exactly *at*
+  the level, all-absent, a NaN hole, a half-absent domain, ±Infinity, a saddle
+  grid, stair steps, spikes), 8 level sets (including a repeated level and
+  ±1e-12), 5 steps (0.5 … 25), 4 bounds (including 1 × 1 and a 200 × 3 sliver),
+  `close` on and off, plus 120 random pure fields. *(The first run showed 120
+  mismatches — all of them the harness's own bug: the random fields called the
+  seeded generator inside the field, so they were not pure. Fixed in the
+  harness, not the library.)*
+- Two regression tests in `test/isolines.test.ts`: an audit that every contour
+  point lies on a sample edge with the level falling at exactly that fraction
+  between the edge's two samples — an oracle that knows nothing about which
+  case emits which crossing — over eight fields × two steps × `close` on/off
+  (2 000+ crossings audited); and a one-cell saddle taking the diagonal the
+  centre average asks for. Mutation-checked: swapping a crossing in case 2 and
+  in the rarely-hit case 11 both fail the audit.
+- Gates: 311 TS tests, docs 106/106, studio build with wasm md5 match, 81
+  studio tests, church oracle 381.0 min / 16 515 travel mm, `renderhash --check`
+  identical on all six reference sketches *and* on contours-3, contours,
+  contour-portrait and testing-fields.
+
+**Measurement** (`bench/ibench.mts`, new; run against `dist`, interleaved A/B,
+two alternating pairs, medians of 3–5):
+
+| workload | before | after |
+|---|---|---|
+| 9 levels, step 0.25 (801² grid), wavy | 299 / 262 ms | **105 / 110 ms** |
+| 40 levels, step 0.5 (401² grid) | 314 / 297 ms | **127 / 134 ms** |
+| 20 levels, smooth bowl (few long contours) | 35 / 33 ms | **12 / 11 ms** |
+| 9 levels, step 1 (201² grid) | 27 / 23 ms | 12 / 19 ms |
+| one level, step 0.1 (2001² = 4 M samples) | 421 / 431 ms | 295 / 307 ms |
+| one level, dense field, step 0.5 | 57 / 59 ms | 42 / 38 ms |
+| 9 levels, a hole of absent samples | 30 / 24 ms | 16 / 14 ms |
+| constant field, no crossings at all | 25 / 27 ms | 15 / 18 ms |
+| all-absent field | 30 / 32 ms | 13 / 15 ms |
+
+End to end (`renderhash`, seed 42, same hashes before and after):
+contour-portrait 1 565 → 592 ms, contours 2 645 → 1 980 ms, contours-3
+1 467 → 1 177 ms.
+
+**Harness extension.** `bench/ibench.mts` is new, and `bench/README.md` now
+opens with how to read a `tsx` number.
+
+---
+
 ## Remaining measured bottlenecks (from `bench/prof.mts`, baseline 750214f)
 
 Recorded here so the next entry starts from evidence, not from a guess:
@@ -276,7 +354,7 @@ Recorded here so the next entry starts from evidence, not from a guess:
 | `faces()` of 80 000 disjoint-segment vertices — the angular sort and the face walk | 79 ms |
 | `sumBy` over a growth step's neighbour lists | 296 ms of a 3 089 ms render |
 | `stepOnce` — copy, compaction, split bookkeeping, and an `adj` array-of-arrays rebuilt per state | 171 ms of the same |
-| isolines / contours — not yet profiled | — |
+| isolines: `field` callback sampling — 287 ms of a 4 M-sample grid is the artist's own field function | — |
 | growth step, 5 000-vertex ring | 53 ms (separation evaluate 24, `steps` 12) |
 | `pn.edges` (35 k views) | 63 ms |
 | `wasm_plan` on 3 600 circles | 66 ms |
