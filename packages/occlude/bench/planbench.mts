@@ -15,7 +15,8 @@ import { transformSync } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import * as core from 'occlude-core';
 import * as occlude from '../src/index.js';
-import { compileSketch, initOcclude, isSketch, render, pensToJson, type SketchDef } from '../src/index.js';
+import { compileSketch, decodeRender, encodeScene, initOcclude, isSketch, render, renderEncoded, pensToJson, type SketchDef } from '../src/index.js';
+import * as coreMod from 'occlude-core';
 import { preloadAssetsFromDisk } from '../tools/asset-preload.js';
 import { preloadFillsFromDisk } from '../tools/fill-preload.js';
 
@@ -38,6 +39,7 @@ for (const file of process.argv.slice(2)) {
   const sketchMs: number[] = [];
   const planMs: number[] = [];
   const hashMs: number[] = [];
+  const decodeMs: number[] = [];
   let frags = 0;
   let planBytes = 0;
   for (let i = 0; i < 3; i++) {
@@ -55,10 +57,17 @@ for (const file of process.argv.slice(2)) {
     hashMs.push(t3 - t2);
     planBytes = buf.length * 8;
     void h;
+    // What the MAIN THREAD then does with the worker's buffers: decode every
+    // primitive and every fragment into objects before it can draw a pixel.
+    const scene2 = (compileSketch(def, { seed: 42 }), encodeScene({ paper: 'A4' }));
+    const raw2 = renderEncoded(coreMod as never, scene2);
+    const t4 = performance.now();
+    decodeRender(scene2, raw2);
+    decodeMs.push(performance.now() - t4);
     sketchMs.push(t1 - t0);
     planMs.push(t2 - t1);
     frags = r.frags.length;
   }
-  sketchMs.sort((a, b) => a - b); planMs.sort((a, b) => a - b); hashMs.sort((a, b) => a - b);
-  console.log(`${basename(file, '.ts').padEnd(24)} frags ${String(frags).padStart(7)}  render ${sketchMs[1].toFixed(0).padStart(6)}   wasm_plan ${planMs[1].toFixed(0).padStart(5)}   sha256 ${hashMs[1].toFixed(0).padStart(4)} ms   plan ${(planBytes / 1024).toFixed(0)} KB`);
+  sketchMs.sort((a, b) => a - b); planMs.sort((a, b) => a - b); hashMs.sort((a, b) => a - b); decodeMs.sort((a, b) => a - b);
+  console.log(`${basename(file, '.ts').padEnd(24)} frags ${String(frags).padStart(7)}  render ${sketchMs[1].toFixed(0).padStart(6)}   wasm_plan ${planMs[1].toFixed(0).padStart(5)}   sha256 ${hashMs[1].toFixed(0).padStart(4)}   decodeRender ${decodeMs[1].toFixed(0).padStart(5)} ms   plan ${(planBytes / 1024).toFixed(0)} KB`);
 }
