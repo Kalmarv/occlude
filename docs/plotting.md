@@ -1,210 +1,96 @@
 # Plotting & saving
 
-Paper and pens, the ordered drawing and choosing a range of it, export, simulation, saved results, and running the machine.
+The route from a sketch to paper: paper and pens, choosing which part of the ordered drawing to plot, export, simulation, saved results, and running the machine. Machine internals and calibration procedures are in the Device notes.
 
-## Render & export
+## Paper and pens
+
+Papers: `PAPERS` holds A3 to A6, Letter and Square20; a custom size is `{ paper: { w, h } }`. The studio's Paper panel picks the sheet, landscape, the margin, and the paper colour. Colour paints under the ink in the preview and in both exports so that, say, a white gel pen on black stock reads on screen as it will on paper; it changes nothing about the ink or the plot.
+
+A pen is `{ name, width, color, feed, penDown, penUp, penDelay, reinkMm? }`. `width` in millimetres is what the nib rule reads. Unknown pen names are an error, so a shared sketch fails loudly rather than plotting with the wrong nib. `DEFAULT_PENS` ships a starter set; the studio keeps its own library on the server and hands it to the engine with `setPenLibrary(pens)`. Pens with a `reinkMm` budget (paint markers, dip pens, brushes) pause the plot at the first stroke boundary past that many drawn millimetres and wait for Resume; 0 turns it off.
+
+## The ordered drawing
+
+Rendering produces the visible ink. Planning turns that ink into an order: fragments merge into chains, the chains are toured (nearest neighbour then 2-opt within a budget), and sub-nib gaps are bridged. `plan(render(def))` runs this once and returns a `DrawingPlan`: the chains with their native primitives, the settings that made them, and a hash over both that every export and the machine share.
+
+The sketch states its path settings and which part is drawn:
 
 ```ts
-await initOcclude();                         // once, before the first render
-const out  = render(def, { paper: 'A4' });   // out.frags, out.prims, out.stats
-const jobs = exportGcode(def, { paper: 'A4', profile: { zMode: true } });
-const svg  = exportSvg(def, { paper: 'A4', background: '#f6f2ea', onlyPen: 0 });
-const png  = exportPng(def, { paper: 'A4', scale: 11.81 });  // ≈ 300 dpi
+t.plan({ optimize: 50_000, bridge: false });   // tour budget (false keeps nearest-neighbour order); bridge gap in mm, or false
+t.draw({ progress: [0, 0.3] });                // a fraction of the chains, in plan order
+t.draw({ chains: [120, 400] });                // whole chains, half-open
+t.draw({ minutes: [0, 20], budget: 20 });      // an interval of the estimated timeline; budget keeps the longest prefix that fits
 ```
 
-- `render` options: `paper` (preset name or `{ paper, landscape }`),
-  `coarsen` (preview coarsening; 1 = exact), `stretch` (fill the paper,
-  non-uniform), `unbounded` (skip the paper clip).
-- `exportGcode` returns one job per pen:
-  `{ pen, penName, gcode, inkMm, travelMm }`. `optimize` sets the 2-opt
-  tour budget (`false` disables, a number overrides). Plot time is not on
-  the job: `estimatePlanMs` over the toolpath is the one model (law 4),
-  shared by the driver, the export panel, plotstats and the simulation.
-- `exportSvg` is the plotted drawing, not the raw fragments: one `<path>` per
-  chain the pen draws, in plot order, after the same merge → tour → bridge
-  the G-code and the machine run (law 5 — preview, export and machine
-  agree). Curves stay exact (arcs and cubics, no flattening); sub-nib gaps
-  the nib physically spans are inked as bridges. `tourBudget` matches
-  `optimize`; default 200 000.
-- **The ordered plan as a value.** `plan(render(def))` runs the merge →
-  tour → bridge ONCE and returns a `DrawingPlan`: its chains with native
-  primitives (arcs stay arcs, dots stay dots), the settings that made it,
-  and a SHA-256 `planHash` over both — the identity every export and the
-  machine share. Path optimization is the plan's, not an exporter's, and
-  the sketch states it: `t.plan({ optimize: 50_000, bridge: false })`
-  (`optimize` = tour budget, `false` keeps nearest-neighbour order;
-  `bridge` = draw through sub-nib gaps, `false` never, a number is the
-  gap in mm); `plan(r, opts)` takes the same options directly. Which part
-  is drawn is the sketch's too — `t.draw({ progress | chains | minutes,
-  budget? })`, resolved by `resolveDraw(plan, r.draw, timing?)`; the
-  exports honour it. Selections are
-  contiguous chain ranges of one exact plan and never re-plan, reorder,
-  reverse, merge or re-solve — dropping later ink does not reveal what it
-  hid: `selectChains(p, { from, to })` (half-open, whole chains),
-  `selectProgress(p, { from: 0, to: 0.3 })` (a fraction OF CHAINS: floor
-  of f·N, 1 → N), `selectTime(p, flat, { fromMs, toMs }, schedule)` (an
-  interval of the full timeline quantized to completed chains — the start
-  may resolve earlier than asked; a chain the interval ends inside is
-  excluded), `standaloneEstimate(...)` (a middle interval pays its own
-  travel-in and final lift — not a difference of timestamps) and
-  `fitDuration(p, flat, sel, { budgetMs }, penOf, timing)` (the longest
-  prefix of the selection that fits, priced from one schedule with the
-  terminal-lift rule, empty when the first chain alone does not fit).
-  Then `planSvg(p, sel, pens)`, `planGcode(p, sel, pens, profile)` and
-  `planToolpath(p, sel, tolerance)` encode that range; the full selection
-  is byte-for-byte the `exportSvg` output. `encodePlanBuffer(chains)` /
-  `decodePlanBuffer` are the exact bytes; `openPlan(bytes, settings,
-  hash)` rebuilds a saved plan and refuses a mismatch.
+A selection is a contiguous range of one exact plan. It never re-plans, reorders, reverses, merges or re-solves visibility, so dropping later ink does not reveal what it hid. `progress` is a fraction of chains, not of ink, area or time. `minutes` and `budget` use the machine profile's estimate and are quantized to completed chains; the Drawing panel shows the effective boundaries. `ui()` turns any of those numbers into a slider.
+
+The Drawing panel only reads the result: the resolved chain range, the estimate for that range against the whole, the path settings, and a preview-only ghost of the omitted ink that never enters an export. Export, Simulate, Plot and Frame all take the selection.
+
 ```ts live
 import { sketch, stroke, ui } from 'occlude';
 
-// The plan is an order, and t.draw chooses a range OF THAT ORDER — not a
-// region of the page. Forty short strokes laid out as a spiral: the tour
-// starts nearest the origin and works outward, so the first 40 % of the
-// chains is the inner part of the spiral — heavy here, the rest ghosted
-// as the docs page shows an ordered selection. Drag `part` in the studio.
+// t.draw chooses a range of the plan's order, not a region of the page.
+// The tour starts nearest the origin and works outward, so the first
+// 40 % of the chains is the inner part of this spiral; the rest is ghosted.
 export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
   const part = ui(0.4, { min: 0, max: 1, step: 0.05 });
   t.draw({ progress: [0, part] });
-  return t.times(40, (k, u) => {
-    const a = u * Math.PI * 5;
-    const r = 3 + u * 20;
-    const [x, y] = [50 + Math.cos(a) * r * 1.8, 25 + Math.sin(a) * r];
-    return stroke([[x - 1.5, y], [x + 1.5, y]]);
+  return t.times(60, (k, u) => {
+    const a = u * Math.PI * 6;
+    const r = 4 + u * 42;
+    const [x, y] = [100 + Math.cos(a) * r * 1.9, 50 + Math.sin(a) * r];
+    return stroke([[x - 3, y], [x + 3, y]]);
   });
 });
 ```
 
-- Headless CLI: `pnpm --filter occlude render <sketch.ts> --seed N --paper A4
-  --out x.png [--svg x.svg]`.
-- A `Fragment` is `{ origin, t0, t1, pen, shape, dot, bridge, geom }` — a
-  sub-range of an original primitive with exact geometry in paper mm
-  (`bridge` marks connectors inserted by the bridge opt).
-  `drawFragments(ctx, frags, pens)` paints them on a Canvas 2D context
-  scaled to 1 unit = 1 mm.
-- Plot statistics: `pnpm --filter occlude plotstats <sketch.ts…> [--seed N]`
-  reports pen lifts, ink/travel mm, estimated plot time, and optimization
-  bounds per sketch — the before/after oracle for toolpath changes.
+## Export
 
-## Pens & paper
+From the studio's Export panel: SVG, G-code per pen, and PNG, all of the current selection. Headless:
 
-- Pens: `{ name, width, color, feed, penDown, penUp, penDelay, reinkMm? }` —
-  width in mm is the system's one tolerance. Unknown pen names throw, so shared
-  sketches fail loudly. `DEFAULT_PENS` ships a starter set; the studio
-  persists its own library server-side and injects it via
-  `setPenLibrary(pens)`.
-- Papers: `PAPERS` has A3–A6, Letter, Square20; custom sizes via
-  `{ paper: { w, h } }`.
-- Paper colour: the studio's Paper panel carries the stock you actually
-  loaded (natural white through kraft and black, or any colour by hand).
-  It paints under the ink in the preview AND in both exports — the preview
-  is ink-truth, so a white gel pen on black stock reads on screen the way
-  it will on paper. It changes nothing about the ink or the plot, so
-  setting it never re-renders.
+```ts
+await initOcclude();                          // once, before the first render
+const out  = render(def, { paper: 'A4' });    // out.frags, out.prims, out.stats
+const jobs = exportGcode(def, { paper: 'A4', profile });   // one job per pen: { pen, penName, gcode, inkMm, travelMm }
+const svg  = exportSvg(def, { paper: 'A4', background: '#f6f2ea', onlyPen: 0 });
+const png  = exportPng(def, { paper: 'A4', scale: 11.81 }); // ≈ 300 dpi
+```
 
-## Plotting from the studio
+`render` options: `paper` (a preset name or `{ paper, landscape }`), `coarsen` (preview coarsening; 1 is exact), `stretch` (fill the paper non-uniformly), `unbounded` (skip the paper clip). The SVG is the plotted drawing rather than the raw fragments: one path per chain in plot order, after the same merge, tour and bridge the G-code and the machine use, with arcs and cubics kept exact. Both exports honour `t.draw`; a range in minutes or a budget needs `timing` from a machine profile.
 
-The Plot panel drives an EBB-family (AxiDraw/iDraw) machine over Web
-Serial. What's under the hood, briefly, so its knobs make sense:
+The plan API is available directly when a tool needs the pieces: `selectChains`, `selectProgress`, `selectTime` and `fitDuration` pick a range; `resolveDraw(plan, req, timing?)` is what `t.draw` goes through; `planSvg`, `planGcode` and `planToolpath` encode a range; `encodePlanBuffer` and `decodePlanBuffer` are the exact bytes, and `openPlan(bytes, settings, hash)` rebuilds a saved plan and refuses a mismatch.
 
-- **Motion**: host-side look-ahead planning (junction deviation, min-cruise)
-  emitted as hardware-interpolated constant-acceleration `LM` commands
-  (25 kHz ramps in firmware; falls back to `XM` packets below firmware
-  2.5.3 or via the checkbox). Separate acceleration for pen-up travel.
-- **Pen cycles**: per-pen `feed` and `penDelay` (the settle at FULL lift).
-  With a **lift map** on the machine profile, every travel takes the
-  smallest lift that clears along its path (less a margin), and the
-  **settle curve** scales the pen's settle down for that lift — the big
-  lever on hatch/stipple plots, now per travel and per bed position rather
-  than a fixed 40% hop within a distance. Driver and estimator price the
-  cycle through one function (`settleAtLift`), so the ETA stays honest.
-- **Re-ink pauses**: pens with a `reinkMm` budget (paint markers that need
-  pumping, dip pens, brushes) auto-pause at the first stroke boundary past
-  that many drawn mm: the carriage parks at the paper origin — the
-  gantry's stiffest corner, clear of wet ink — and waits for Resume.
-  Steppers stay energized while parked, so handling the pen won't shift
-  registration; pump against a scrap sheet, or unclamp the pen and mark
-  its clamp depth with a tape collar so it re-seats identically. 0 = off.
-- **Position integrity**: the board's step counters are checked against
-  dead reckoning at connect, every 500 chains, and at plot end — lost
-  commands are healed automatically and flagged. Visible drift mid-plot:
-  Pause → jog the pen onto the origin mark → Set origin → Resume (the
-  interrupted stroke's remainder stays pen-up; the next chain re-inks).
-- **Two origins**: *Set bed origin* zeroes the machine at the bed corner
-  the lift map was measured from (same corner every time); *Set paper
-  origin* records where the sheet is as an offset, without zeroing. Plots
-  draw at the offset; the map reads bed coordinates; Home returns to the
-  bed corner.
-- **Drawing as code**: which part of the ordered plan is drawn is the
-  sketch's own statement, not a panel setting — `t.draw({ progress: [0,
-  ui(0.3)] })` (a fraction OF CHAINS, not ink, area or time), `t.draw({
-  chains: [120, 400] })` (whole chains, half-open), `t.draw({ minutes:
-  [0, 20] })` (an interval of the full plan's estimated timeline,
-  quantized to completed chains; the readout shows the effective
-  boundaries) and `budget: 20` (keep the longest prefix of that range
-  whose standalone estimate fits — a middle stretch pays its own
-  travel-in and final lift). Path optimization is the plan's, in code
-  too: `t.plan({ optimize: 50_000, bridge: false })`. `ui()` makes any of
-  those numbers a slider. The Drawing panel only READS the result: the
-  resolved chain range and count (so two nearby values that choose the
-  same drawing say so), the standalone ETA against the full plan, the
-  path settings — and toggles a preview-only ghost of the omitted ink,
-  which never enters exports. Selecting never re-solves visibility,
-  reorders, reverses or re-bridges: ink a later shape hid stays hidden
-  when that shape is dropped. Export (SVG, G-code, the per-pen table),
-  Simulate, Plot and Frame all take the selection; Frame frames the
-  selected ink. Headless exports honour `t.draw` too (`exportSvg` /
-  `exportGcode`; a range in minutes or a budget needs `timing`).
-- **Save result**: keeps exactly this selection as resolved output — the
-  selected chains as a plan of their own (exact bytes), the frozen SVG of
-  them, pens, paper, machine profile and timing, build stamp, and the
-  sketch, source hash and seed as provenance — published only once every
-  part is written; records are immutable (delete is the only edit). The
-  Results page lists them; *Open frozen in studio* (`/?result=<id>`) shows,
-  exports and plots the saved bytes without executing the source and
-  without reading the mutable pen library, so later edits to the sketch,
-  the pens or the profile never change what was kept. Only the selection
-  is saved: a reopened result cannot grow back into the rest of the plan.
-- **Resume**: progress (the plan hash, the selected range, the executed
-  chain and its full-plan row, pen, paper offset, and the saved result it
-  ran from, if any) is saved on the server every few chains. After a
-  stop, a crashed tab, or a power loss, *Resume* carries on from that
-  chain at the saved offset — only when the current drawing IS the saved
-  plan (same hash) with the same range selected; a plot that ran from a
-  saved result reopens those bytes instead of regenerating. A mismatch
-  refuses rather than pretending. After a power loss, re-park at the bed
-  corner and Set bed origin first. *Forget* clears it. A board that stops
-  answering mid-plot is recovered automatically (emergency stop, position
-  re-read, the chain redone).
-- **Pen changes**: no changer — multi-pen sketches plot one pen per run
-  via the Plot-pen select; "all pens (one run)" runs a whole multi-pen
-  plan with the installed pen, each chain using its own logical pen's
-  feed/settle.
-- **Diagnostics** (Machine page → Calibration): registration probe (step loss),
-  backlash squares, corner ringing at three feeds (junction-deviation
-  tuning), plus the `settle-sweep` sketch for finding a pen's true
-  `penDelay` floor. **Download serial log** exports the full timestamped
-  command transcript — the first artifact to grab when anything misbehaves.
-- **Pen-height cards** (Machine page → Calibration, in run order): the servo is open loop and
-  the gantry sags, so the only sensor is ink. Seat the pen on a shim the
-  same way every time, then let the paper answer in pulse units: the
-  **lift traverse** sweeps the raised pen across the whole bed at six lift
-  pulses (ink between the edge ticks = where that lift dragged; minutes),
-  the **lift grid** hops within each bed cell at the same pulses (a zigzag
-  joining the dash ends = dragged; the last clean strip is that cell's
-  clearance threshold; the slow truth for short hops), **settle × lift** finds the settle each
-  lift needs, and the **down sweep** finds the pen-down pulse at which the
-  horn fully releases the pen (first solid hatch patch). The cards are read
-  by eye and pasted into the panel (diagonal counts per cell; settle per
-  ladder column) to become the profile's `liftMap` and `settleCurve`.
-  Machine profile fields are `penUpPulse` (SC,4) and `penDownPulse` (SC,5).
-- **ETA**: totals come from the planner's actual trapezoids and blend
-  toward measured throughput as the plot runs — the number is honest.
-- **Draft plots**: `decimate(0.7, everything)` makes a fast structural
-  test plot with a fraction of the ink budget; the seed keeps it
-  reproducible when you re-plot the full version.
+Command line:
 
-Real bridge numbers from a shaded A4 piece, for calibration: no bridge
-≈ 34,000 lifts / ~11 h; `bridge: mm(0.5)` ≈ 4.4 h; `mm(0.7)` ≈ 2.9 h;
-`mm(1)` ≈ 2.3 h — the Debug view's red connectors show what each
-tolerance costs visually.
+```sh
+pnpm --filter occlude render sketch.ts --seed 7 --paper A4 --out out.png [--svg out.svg]
+pnpm --filter occlude plotstats sketch.ts --seed 7     # pen lifts, ink and travel mm, estimated time, tour bounds
+```
+
+`plotstats` is the before-and-after check for any change that affects toolpaths. Plot time everywhere comes from one estimator, `estimatePlanMs`, shared by the driver, the export panel, `plotstats` and the simulation.
+
+## Simulation
+
+Simulate animates the selected plan with the machine profile's timing: the pen's route, lifts and settles in order, at the estimated speed. It is the way to see the order a tour produced and to judge whether a bridge tolerance or a `t.draw` range does what you meant before the machine moves.
+
+## Saved results
+
+Save result keeps exactly the current selection as resolved output: the selected chains as a plan of their own, their frozen SVG, the pens, paper, machine profile and timing, the build stamp, and the sketch source, its hash and the seed as provenance. Records are written whole and are immutable; delete is the only edit. The Results page lists them. Open frozen in studio (`/?result=<id>`) shows, exports and plots the saved bytes without executing the source and without reading the pen library, so later edits to the sketch, the pens or the profile never change what was kept. Only the selection is saved, so a reopened result cannot grow back into the rest of the plan.
+
+## Setting up
+
+1. Connect on the Plot panel (Web Serial, Chrome or Edge, over HTTPS or localhost).
+2. Park the carriage at the bed corner the machine's lift map was measured from and Set bed origin. Place the sheet and Set paper origin, which records an offset without zeroing.
+3. Frame traces the selected ink's bounding box pen-up at the paper offset. Adjust the sheet until it lands where you want it.
+4. Pick the pen to plot. There is no pen changer, so a multi-pen sketch plots one pen per run; "all pens (one run)" plots the whole plan with the installed pen, each chain at its own logical pen's feed and settle.
+
+## Plot, pause, resume
+
+Plot runs the selection. Progress is saved on the server every few chains: the plan hash, the selected range, the executed chain, the pen, the paper offset, and the saved result it ran from if any. After a stop, a crashed tab or a power loss, Resume continues from that chain at the saved offset, provided the current drawing is the saved plan (same hash) with the same range. A plot that ran from a saved result reopens those bytes instead of regenerating. A mismatch refuses rather than guessing; Forget clears the record. After a power loss, re-park at the bed corner and Set bed origin first.
+
+Visible drift mid-plot: Pause, jog the pen onto the origin mark, Set origin, Resume. The interrupted stroke's remainder stays pen-up and the next chain re-inks. A board that stops answering is recovered automatically: emergency stop, position re-read, the chain redone. The estimate blends toward measured throughput as the plot runs.
+
+A draft plot for checking placement and structure: wrap the drawing in `decimate(0.7)` and plot with a fraction of the ink; the seed keeps the full version identical when you remove it.
+
+## Calibration
+
+The Machine page holds the machine profile (bed size, feeds, accelerations, servo pulses, settle, optional lift map) and the calibration cards: a registration probe for step loss, backlash squares, corner ringing at three feeds, the pen-height cards (lift traverse, lift grid, settle by lift, down sweep) and a settle sweep for a pen's true delay floor. Download serial log exports the full timestamped command transcript, the first thing to collect when anything misbehaves. The Device notes describe each procedure and what the numbers feed.

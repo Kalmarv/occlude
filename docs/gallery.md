@@ -1,33 +1,14 @@
-# Gallery — classics, transposed
+# Gallery
 
-Canonical generative pieces rewritten in occlude, each in up to three
-forms. **As written** is the literal transposition: same algorithm, same
-look, proof the vocabulary covers it. **The occlude way** is what the
-piece becomes when fill means occlude, the pen's time is a design
-dimension, and fields are citizens. **Simpler** is the same picture in the
-fewest moves. Every fence renders live through the real engine and is
-checked by `pnpm --filter occlude docs:check`, so the gallery doubles as a
-regression corpus.
-
-Every piece is credited to its author. The originals are linked; only
-their ideas are borrowed, never their code.
+Credited generative classics rewritten in occlude, one drawing per piece, live on the page and checked by the same tool as the rest of the docs. Where two constructions of a piece are genuinely different drawings, both appear under their own titles. The originals are linked; their ideas are borrowed, never their code.
 
 ## Generative Artistry
 
-Nine short tutorials by Tim Holman and Ruth John
-([generativeartistry.com](https://generativeartistry.com), MIT). Each
-one reconstructs a classic — Nees, Molnár, Riley, Mondrian — in a few
-lines of canvas code, which makes them the canon to test a new
-vocabulary against.
+Nine short tutorials by Tim Holman and Ruth John ([generativeartistry.com](https://generativeartistry.com), MIT), each reconstructing a classic by Nees, Molnár, Kolomyjec, Mondrian and others in a few lines of canvas code.
 
-### Tiled Lines
+### Tiled lines
 
-After the one-line BASIC program `10 PRINT CHR$(205.5+RND(1)); : GOTO
-10` — every cell of a grid gets one diagonal, flipped by a coin.
-([original](https://generativeartistry.com/tutorials/tiled-lines/))
-
-**As written.** A grid, a coin, a line. `t.grid` hands out the cells and
-`t.chance` is the coin; the seed makes the coin fair forever.
+After the one-line BASIC program `10 PRINT CHR$(205.5+RND(1)); : GOTO 10`: every cell of a grid gets one diagonal, flipped by a coin. `t.grid` hands out the cells and `t.chance` is the coin. Diagonals that meet at a corner are joined by the toolpath planner, so the pen draws far fewer strokes than there are cells. ([original](https://generativeartistry.com/tutorials/tiled-lines/))
 
 ```ts live
 import { sketch, line } from 'occlude';
@@ -41,61 +22,9 @@ export default sketch({ aspect: [1, 1], seed: 10 }, (t) =>
 );
 ```
 
-**The occlude way** is the same code. The screen draws 256 segments;
-the pen draws 73 strokes, because diagonals that meet at a cell corner
-are one path and the toolpath planner chains them on its own (measured
-with `plotstats`). Nothing to add: the literal form is the idiomatic one.
+### Ridges
 
-### Joy Division
-
-Peter Saville's cover for *Unknown Pleasures*: stacked pulse traces, each
-one hiding the traces behind it. The tutorial fakes the hiding by
-painting each ridge's interior with `destination-out` before stroking
-it. ([original](https://generativeartistry.com/tutorials/joy-division/))
-
-**As written.** The same points, the same midpoint quadratics, the same
-envelope that lets the middle jump and pins the edges. The one
-substitution is forced by paper: an eraser is not a pen. The painted-out
-interior becomes a `mask` — the same closed polygon, occluding and
-drawing nothing — and the engine cuts the ridges behind it exactly.
-
-```ts live
-import { sketch, path, mask } from 'occlude';
-
-export default sketch({ aspect: [1, 1], seed: 24 }, (t) => {
-  const size = 100, step = size / 32;
-  const lines = [];
-  for (let y = step; y <= size - step; y += step) {
-    const pts = [];
-    for (let x = step; x <= size - step; x += step) {
-      const toCenter = Math.abs(x - size / 2);
-      const variance = Math.max(size / 2 - 15 - toCenter, 0);
-      pts.push([x, y - t.rnd() * variance / 2]);
-    }
-    lines.push(pts);
-  }
-  return lines.slice(5).map((pts) => {
-    const p = path().moveTo(pts[0][0], pts[0][1]);
-    let j = 0;
-    for (; j < pts.length - 2; j++) {
-      const xc = (pts[j][0] + pts[j + 1][0]) / 2;
-      const yc = (pts[j][1] + pts[j + 1][1]) / 2;
-      p.quadTo(pts[j][0], pts[j][1], xc, yc);
-    }
-    p.quadTo(pts[j][0], pts[j][1], pts[j + 1][0], pts[j + 1][1]);
-    const stroke = p.build();
-    return [stroke, mask(p.close().build())];
-  });
-});
-```
-
-**The occlude way.** A ridge is plain data — a list of points — so the
-stroke is `stroke`, the open-minded sibling of `polygon`, and the hill
-behind it is the same points closed down to the page bottom and masked.
-Top ridge first: later wins, so each hill hides the ones behind it, with
-no chord and no builder. The jitter becomes seeded `noise` so each trace
-is a pulse rather than static, and the envelope an `ease` curve instead
-of a clamp.
+After Peter Saville's cover for *Unknown Pleasures*: stacked pulse traces, each hiding the traces behind it. The tutorial paints each ridge's interior out before stroking it; on paper the interior becomes a mask, the same points closed down to the page bottom, and the engine cuts the ridges behind it exactly. The pulse is seeded noise under an eased envelope that pins the edges. ([original](https://generativeartistry.com/tutorials/joy-division/))
 
 ```ts live
 import { sketch, stroke, polygon, mask, ease } from 'occlude';
@@ -115,61 +44,9 @@ export default sketch({ aspect: [1, 1], seed: 24 }, (t) => {
 });
 ```
 
-### Cubic Disarray
+### Cubic disarray
 
-Georg Nees, *Schotter* (1968): a grid of squares that keeps its
-composure at the top and tumbles as it falls, each square rotated and
-shifted by an amount that grows with its row.
-([original](https://generativeartistry.com/tutorials/cubic-disarray/))
-
-**As written.** Rotation and displacement scale with the row, sign by
-coin, magnitude by `rnd`. Transforms pivot on the user origin, so each
-square is a `group` translated to its centre first and rotated there.
-
-```ts live
-import { sketch, rect, group } from 'occlude';
-
-export default sketch({ aspect: [1, 1], seed: 17 }, (t) => {
-  const size = 100, sq = size / 11, displacement = 4.5, rotation = 20;
-  const cells = [];
-  for (let x = sq; x < size - sq; x += sq) {
-    for (let y = sq; y <= size - sq; y += sq) {
-      const rot = (y / size) * t.pick([-1, 1]) * t.rnd() * rotation;
-      const shift = (y / size) * t.pick([-1, 1]) * t.rnd() * displacement;
-      cells.push(group({ translate: [x + shift, y], rotate: rot },
-        rect(-sq / 2, -sq / 2, sq, sq)));
-    }
-  }
-  return cells;
-});
-```
-
-**The occlude way.** Nees's plotter crossed the outlines where squares
-overlapped; ink cannot be erased. Here the squares are opaque, so the
-lower rows read as a pile: later wins, and every hidden edge is cut
-exactly at the square in front. The disorder is one number per row,
-`u`, shaped by an `ease` so the fall starts late and ends hard.
-
-```ts live
-import { sketch, rect, group, ease } from 'occlude';
-
-export default sketch({ aspect: [1, 1], seed: 17 }, (t) => {
-  const size = 100, n = 11, sq = size / n;
-  return t.times(n - 1, (row, u) => {
-    const fall = ease.quadIn((row + 1) / (n - 1));
-    return t.times(n - 1, (col) => {
-      const x = sq + col * sq, y = sq + row * sq;
-      return group(
-        { translate: [x + t.rnd(-1, 1) * fall * 5, y], rotate: t.rnd(-1, 1) * fall * 22 },
-        rect(-sq / 2, -sq / 2, sq, sq, { opaque: true }),
-      );
-    });
-  });
-});
-```
-
-**Simpler.** Per-shape `translate`/`rotate` opts are the group without
-the wrapper; the seed still owns the coin.
+Georg Nees, *Schotter* (1968): a grid of squares that keeps its composure at the top and tumbles as it falls, each square rotated and shifted by an amount that grows with its row. Per-shape `translate` and `rotate` pivot each square on its own centre. Nees's plotter crossed the outlines where squares overlapped, and so does this. ([original](https://generativeartistry.com/tutorials/cubic-disarray/))
 
 ```ts live
 import { sketch, rect } from 'occlude';
@@ -185,55 +62,31 @@ export default sketch({ aspect: [1, 1], seed: 17 }, (t) =>
 );
 ```
 
-### Triangular Mesh
+### Piled squares
 
-A grid of points, every row jittered and every other row shifted half a
-cell, zig-zagged into strips of triangles and each one painted a random
-grey. ([original](https://generativeartistry.com/tutorials/triangular-mesh/))
-
-**As written.** The same rows, the same alternating zig-zag bookkeeping.
-Grey has no pen, so tone becomes hatch spacing: a random spacing per
-triangle, and the fill makes every triangle opaque, so shared edges draw
-once and nothing shows through.
+A different composition on the same rule: the squares are opaque, so the lower rows read as a pile with every hidden edge cut at the square in front, and the fall is eased so it starts late and ends hard.
 
 ```ts live
-import { sketch, polygon, fill, mm } from 'occlude';
+import { sketch, rect, group, ease } from 'occlude';
 
-export default sketch({ aspect: [1, 1], seed: 31 }, (t) => {
-  const size = 100, gap = size / 8;
-  const lines = [];
-  let odd = false;
-  for (let y = gap / 2; y <= size; y += gap) {
-    odd = !odd;
-    const row = [];
-    for (let x = gap / 4; x <= size; x += gap) {
-      row.push([x + t.rnd(-0.4, 0.4) * gap + (odd ? gap / 2 : 0), y + t.rnd(-0.4, 0.4) * gap]);
-    }
-    lines.push(row);
-  }
-  const tris = [];
-  for (let i = 0; i < lines.length - 1; i++) {
-    odd = !odd;
-    const zig = [];
-    for (let j = 0; j < lines[i].length; j++) {
-      zig.push(odd ? lines[i][j] : lines[i + 1][j]);
-      zig.push(odd ? lines[i + 1][j] : lines[i][j]);
-    }
-    for (let j = 0; j < zig.length - 2; j++) {
-      tris.push(polygon([zig[j], zig[j + 1], zig[j + 2]], {
-        fill: fill('hatch', { angle: 45, spacing: mm(t.rnd(0.5, 3)) }),
-      }));
-    }
-  }
-  return tris;
+export default sketch({ aspect: [1, 1], seed: 17 }, (t) => {
+  const size = 100, n = 11, sq = size / n;
+  return t.times(n - 1, (row) => {
+    const fall = ease.quadIn((row + 1) / (n - 1));
+    return t.times(n - 1, (col) => {
+      const x = sq + col * sq, y = sq + row * sq;
+      return group(
+        { translate: [x + t.rnd(-1, 1) * fall * 5, y], rotate: t.rnd(-1, 1) * fall * 22 },
+        rect(-sq / 2, -sq / 2, sq, sq, { opaque: true }),
+      );
+    });
+  });
 });
 ```
 
-**The occlude way.** The zig-zag is bookkeeping for a triangulation, and
-a point set already knows its own: `t.points(pts).mesh()` is the Delaunay
-mesh of the same jittered rows. Tone stops being a coin and becomes a
-field sampled at each triangle's centre, so the greys drift across the
-sheet instead of flickering.
+### Triangulated cells
+
+After the tutorial's triangular mesh: rows of jittered points, alternate rows shifted half a cell, and every triangle given its own tone. The tutorial zig-zags the rows into triangle strips; here the same points are Delaunay-triangulated with `t.points(pts).mesh()`, so the topology is the triangulation's rather than the strips'. Grey has no pen, so tone is hatch spacing from a noise field sampled at each triangle's centre, and the filled triangles are opaque, so shared edges draw once. ([original](https://generativeartistry.com/tutorials/triangular-mesh/))
 
 ```ts live
 import { sketch, polygon, fill, mm } from 'occlude';
@@ -257,15 +110,9 @@ export default sketch({ aspect: [1, 1], seed: 31 }, (t) => {
 });
 ```
 
-### Un Deux Trois
+### Un deux trois
 
-Vera Molnár's *(Des)Ordres* family: a grid of cells, one short line in
-the top third, two in the middle, three at the bottom, each cell turned
-a little. ([original](https://generativeartistry.com/tutorials/un-deux-trois/))
-
-**As written.** The line positions are the tutorial's literal fractions
-of the cell; the rotation is its `Math.random() * 5` radians, in degrees.
-Each cell is a `group` translated to its centre, so the turn pivots there.
+Vera Molnár's *(Des)Ordres* family: a grid of cells with one short line in the top third, two in the middle and three at the bottom, each cell turned a little. The line positions are the tutorial's fractions of the cell and the rotation its `Math.random() * 5` radians, converted to degrees. Each cell is a group translated to its centre so the turn pivots there. ([original](https://generativeartistry.com/tutorials/un-deux-trois/))
 
 ```ts live
 import { sketch, line, group } from 'occlude';
@@ -286,36 +133,9 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
 });
 ```
 
-**The occlude way.** The thirds are a step function of the row and the
-turn is white noise; both are fields in disguise. Count from an eased
-row fraction, angle from `noise` sampled at the cell, and the grid of
-tics becomes a flow that reads as one gesture.
+### Circle packing
 
-```ts live
-import { sketch, line, group, ease } from 'occlude';
-
-export default sketch({ aspect: [1, 1], seed: 5 }, (t) =>
-  t.grid({ cols: 16, rows: 16 }).map((c) => {
-    const n = 1 + Math.floor(2.999 * ease.quadIn(c.j / 15));
-    const spread = n === 1 ? 0 : n === 2 ? 0.6 : 0.8;
-    return group(
-      { translate: [c.cx, c.cy], rotate: t.noise(c.cx / 30, c.cy / 30) * 90 },
-      t.times(n, (k, u) => {
-        const p = n === 1 ? 0 : (u - 0.5) * spread;
-        return line(p * c.w, -c.h / 2, p * c.w, c.h / 2);
-      }),
-    );
-  }),
-);
-```
-
-### Circle Packing
-
-Drop a tiny circle somewhere free, grow it until it touches a neighbour
-or the edge, repeat. ([original](https://generativeartistry.com/tutorials/circle-packing/))
-
-**As written.** The rejection loop and the grow loop, with `t.rnd` for
-the darts. Counts are trimmed for a docs page; the picture is the same.
+Drop a tiny circle somewhere free, grow it until it touches a neighbour or the edge, repeat. The rejection loop and the growth loop are the tutorial's, with `t.rnd` for the darts; counts are trimmed for the page. ([original](https://generativeartistry.com/tutorials/circle-packing/))
 
 ```ts live
 import { sketch, circle } from 'occlude';
@@ -343,12 +163,9 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
 });
 ```
 
-**The occlude way.** A packing is a point set with a radius rule. Blue
-noise from `t.scatter` gives the centres, `.cells()` gives each centre
-its Voronoi cell, and a circle inscribed in its own cell can never touch
-a neighbour: `distanceTo` the cell boundary is the radius. No darts, no
-collision test, and the density is a field, so the pack can tighten
-toward the edge of the sheet.
+### Circles in Voronoi cells
+
+A different algorithm with a related look: blue-noise centres from `t.scatter`, each centre's Voronoi cell from `.cells()`, and a circle inscribed in its own cell, which can never touch a neighbour. The radius is the distance from the centre to the cell boundary, and the density is a field, so the packing tightens toward the sheet's edge.
 
 ```ts live
 import { sketch, circle, distanceTo } from 'occlude';
@@ -360,16 +177,9 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
 });
 ```
 
-### Hypnotic Squares
+### Hypnotic squares
 
-William Kolomyjec's *Hypnotic Squares* (1971): a grid of squares, each
-holding a chain of smaller squares that shrink toward one of nine
-anchors — centred, or pulled to a side or a corner.
-([original](https://generativeartistry.com/tutorials/hypnotic-squares/))
-
-**As written.** Each tile picks a pull in x and y from −1, 0, 1; the
-chain is a loop that shrinks the square linearly and slides its corner
-toward the pull, relative to the square before it.
+William Kolomyjec's *Hypnotic Squares* (1971): a grid of squares, each holding a chain of smaller squares that shrink toward one of nine anchors, centred or pulled to a side or a corner. Each tile picks a pull in x and y from −1, 0, 1; the chain shrinks the square linearly and slides its corner toward the pull, relative to the square before it. ([original](https://generativeartistry.com/tutorials/hypnotic-squares/))
 
 ```ts live
 import { sketch, rect } from 'occlude';
@@ -394,36 +204,9 @@ export default sketch({ aspect: [1, 1], seed: 13 }, (t) => {
 });
 ```
 
-**The occlude way.** The chain is one square scaled about a pivot, and
-the pivot is the vanishing point: `group({ translate: pivot, scale })`
-pins the pivot first, so every smaller copy converges on it. Nine
-anchors become any point in the tile.
+### Composition after Mondrian
 
-```ts live
-import { sketch, rect, group } from 'occlude';
-
-export default sketch({ aspect: [1, 1], seed: 13 }, (t) =>
-  t.grid({ cols: 7, rows: 7 }).map((c) => {
-    const px = c.cx + t.pick([-1, 0, 1]) * c.w * 0.3;
-    const py = c.cy + t.pick([-1, 0, 1]) * c.h * 0.3;
-    return t.times(6, (k, u) =>
-      group({ translate: [px, py], scale: 1 - u * 0.88 }, rect(c.x - px, c.y - py, c.w, c.h)),
-    );
-  }),
-);
-```
-
-### Piet Mondrian
-
-*Composition* by recursion: a square split along a grid of lines, each
-line taking a piece with a coin, three pieces coloured.
-([original](https://generativeartistry.com/tutorials/piet-mondrian/))
-
-**As written.** The same split-with-a-coin over the same seven-step
-grid. Colour is a pen: the three coloured pieces get a `solid` fill in
-their own pen, everything else is outline. Adjacent pieces share edges
-and shared edges draw once. The pen names are the default library's;
-in a studio with its own pens, substitute three of yours.
+A square split along a seven-step grid, each line taking a piece with a coin, three pieces coloured. Colour is a pen: the three pieces get a solid fill in their own pen and everything else is outline. Adjacent pieces share edges, and shared edges draw once. The pen names are the default library's; substitute three of yours in a studio with its own pens, or give the three pieces three textures for a one-pen version. ([original](https://generativeartistry.com/tutorials/piet-mondrian/))
 
 ```ts live
 import { sketch, rect, fill } from 'occlude';
@@ -448,71 +231,9 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 });
 ```
 
-**The occlude way.** One pen. Colour becomes texture: the three
-pieces get three fills — `hatch`, `crosshatch`, `stipple` — and the
-plotter's Mondrian is a study in tone instead of hue.
+### Hours of dark
 
-```ts live
-import { sketch, rect, fill, mm } from 'occlude';
-
-export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
-  const size = 100, step = size / 7;
-  const fills = [
-    fill('hatch', { angle: 45, spacing: mm(0.9) }),
-    fill('crosshatch', { angles: [0, 90], spacing: mm(1.4) }),
-    fill('stipple', { density: 0.5 }),
-  ];
-  let pieces = [{ x: 0, y: 0, w: size, h: size, fill: null }];
-  const split = (axis, at) => {
-    pieces = pieces.flatMap((s) => {
-      const len = axis === 'x' ? s.w : s.h;
-      if (!(at > s[axis] && at < s[axis] + len) || !t.chance(0.5)) return [s];
-      return axis === 'x'
-        ? [{ ...s, w: at - s.x }, { ...s, x: at, w: s.x + s.w - at }]
-        : [{ ...s, h: at - s.y }, { ...s, y: at, h: s.y + s.h - at }];
-    });
-  };
-  for (let i = step; i < size; i += step) { split('y', i); split('x', i); }
-  for (const f of fills) pieces[Math.floor(t.rnd(pieces.length))].fill = f;
-  return pieces.map((s) => rect(s.x, s.y, s.w, s.h, s.fill ? { fill: s.fill } : {}));
-});
-```
-
-### Hours of Dark
-
-After Accurat's poster: one mark per day of the year, turned and
-thickened by how long the night is. The tutorial fakes the night with a
-cosine over the year.
-([original](https://generativeartistry.com/tutorials/hours-of-dark/))
-
-**As written.** 365 cells, column-major. Darkness is the cosine; the mark
-is a bar whose width follows it, turned from upright at midsummer to
-flat at the year's ends. A bar has width, so it is a `solid`-filled rect
-with no stroke, and a bar thinner than the nib is inked as one stroke:
-the nib is the only tolerance.
-
-```ts live
-import { sketch, rect, fill, group } from 'occlude';
-
-export default sketch({ aspect: [1, 1] }, (t) => {
-  const size = 100, days = 365, cols = 23, rows = Math.ceil(days / cols);
-  const cw = size / cols, ch = size / rows;
-  return t.times(days, (i) => {
-    const col = Math.floor(i / rows), row = i % rows;
-    const dark = Math.abs(Math.cos((i / days) * Math.PI));
-    const w = 0.2 + dark * 1.8, len = Math.min(cw, ch) * 0.8;
-    return group(
-      { translate: [col * cw + cw / 2, row * ch + ch / 2], rotate: -dark * 90 },
-      rect(-w / 2, -len / 2, w, len, { fill: fill('solid', { angle: 90 }), stroke: false }),
-    );
-  });
-});
-```
-
-**The occlude way.** The night is data, not a cosine: the sunrise
-equation gives real hours of dark for a latitude (six to eighteen hours
-mapped onto the same marks), and `ui` puts the latitude on a slider in
-the studio. Same marks, true shape of the year.
+After Accurat's poster: one mark per day of the year, column-major, turned and thickened by the length of the night. The tutorial approximates the night with a cosine over the year; this version computes hours of darkness from the sunrise equation for a latitude on a slider, with the solar declination approximated by a cosine of the day and no correction for refraction or altitude. Six to eighteen hours of dark map onto the same marks. A bar is a solid-filled rect with no stroke; a bar thinner than the nib is inked as one stroke. ([original](https://generativeartistry.com/tutorials/hours-of-dark/))
 
 ```ts live
 import { sketch, rect, fill, group, ui } from 'occlude';
