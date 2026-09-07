@@ -1,8 +1,20 @@
 # Benchmark harnesses (consolidation, 7 September 2026)
 
-Reproducible workloads behind the numbers in docs/reviews/con2-review.md.
-Run from `packages/occlude`: `pnpm exec tsx bench/<name>.mts`. Single
-process, warm where noted; report medians yourself when comparing.
+Reproducible workloads behind the numbers in docs/reviews/con2-review.md and
+docs/reviews/perf-loop.md. Run from `packages/occlude`:
+
+    pnpm --filter occlude bench            every harness, with headers
+    pnpm --filter occlude bench --quick    skip the slow ones
+    pnpm exec tsx bench/<name>.mts         just one
+
+Single process, warm where noted; report medians yourself when comparing.
+
+**These numbers are a regression check, not a comparison.** The log records
+what each row cost when it was last measured *on that box under that load*.
+A row that has drifted upward is the signal. To judge a change, run the
+harness either side of it, **interleaved** — a number against a remembered
+number is worse than no number, because it carries the authority of a
+measurement without the validity of one.
 
 | script | workload | what it measures |
 |---|---|---|

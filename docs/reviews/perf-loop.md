@@ -863,6 +863,27 @@ wall-clock flake recorded below — a Rust BVH traversal has no path to a mocked
 `Drawing` client.
 
 
+## Regression pass at `7430753` — the twelve accepted entries still hold
+
+Every harness re-run on this box, against what the entries recorded:
+
+| row | logged | now |
+|---|---|---|
+| 1 000 `firstHit`, whole-drawing moves (35 k edges) | 38 ms | 41 ms |
+| 1 000 `nearest` within 50 | 57 ms | 56 ms |
+| resample 16 000, copy / distribute | 11 / 11 ms | 11.2 / 10.4 ms |
+| `faces` of 35 288 planar edges | 161 ms | 159 ms |
+| `faces` of a 5 000-point triangulation | 72 ms | 68 ms |
+| isolines, 9 levels step 0.25 (on `dist`) | 105 / 110 ms | 113 ms |
+| streamlines, swirl spacing 1 (on `dist`) | 152 / 139 ms | 129 ms |
+| 100 000 isolated points, 50 move steps | 2 261 ms | 1 984 ms |
+| `connect.nearest` k=3, 4 000 pts | 21 ms | 20 ms |
+
+Nothing has drifted. `pnpm --filter occlude bench` now runs all twelve in one
+go (`--quick` skips the five slow ones); the two Rust harnesses are named at
+the top of `bench/all.mts`.
+
+
 ## Rejected, with reasons
 - **Caller-owned scratch for `clip_spans`'s inner allocations** (`clip.rs`,
   `region.rs`). With the query worked through (entries 12–14), the spans loop
