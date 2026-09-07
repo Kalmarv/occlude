@@ -40,7 +40,7 @@ import {
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { lowerToUserLoops, sketchFrame, unitMm } from './record.js';
-import { Material, material as materialOf } from './material.js';
+import { Material, material as materialOf, alongChain, checkSampling } from './material.js';
 import { distanceTo } from './distance.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
@@ -791,40 +791,25 @@ function sample(
   shape: ShapeValue,
   opts: { count?: number; spacing?: L; tolerance?: L },
 ): Material {
-  if ((opts.count === undefined) === (opts.spacing === undefined)) {
-    throw new Error('sample: give exactly one of { count, spacing }');
-  }
+  checkSampling('sample', { count: opts.count, spacing: opts.spacing === undefined ? undefined : 1 });
   const frame = sketchFrame();
   const unit = unitMm(frame);
   const closed = geomClosed(shape.geom);
   const spacingU = opts.spacing !== undefined ? resolveLen(opts.spacing, frame.inner) / unit : undefined;
+  if (spacingU !== undefined && !(spacingU > 0)) throw new Error('sample: spacing must be positive');
   const pts: [number, number][] = [];
   const edges: [number, number][] = [];
   for (const poly of polylines(shape, { tolerance: opts.tolerance })) {
-    const segs = closed ? poly.length : poly.length - 1;
-    const cum = [0];
-    for (let i = 0; i < segs; i++) {
-      const [x0, y0] = poly[i];
-      const [x1, y1] = poly[(i + 1) % poly.length];
-      cum.push(cum[i] + Math.hypot(x1 - x0, y1 - y0));
-    }
-    const total = cum[segs];
-    const count = opts.count ?? Math.max(closed ? 3 : 2, Math.round(total / spacingU!));
-    if (count < 1 || total === 0) continue;
+    const samples = alongChain(poly, closed, { count: opts.count, spacing: spacingU });
     const first = pts.length;
-    const steps = closed ? count : count - 1;
-    let seg = 0;
-    for (let k = 0; k < count; k++) {
-      const d = steps > 0 ? (total * k) / steps : 0;
-      while (seg < segs - 1 && cum[seg + 1] < d) seg++;
+    for (let k = 0; k < samples.length; k++) {
+      const { seg, t } = samples[k];
       const [x0, y0] = poly[seg];
       const [x1, y1] = poly[(seg + 1) % poly.length];
-      const len = cum[seg + 1] - cum[seg];
-      const u = len > 0 ? (d - cum[seg]) / len : 0;
-      pts.push([x0 + (x1 - x0) * u, y0 + (y1 - y0) * u]);
+      pts.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]);
       if (k > 0) edges.push([first + k - 1, first + k]);
     }
-    if (closed && count > 2) edges.push([first + count - 1, first]);
+    if (closed && samples.length > 2) edges.push([first + samples.length - 1, first]);
   }
   return materialOf(pts, { edges });
 }

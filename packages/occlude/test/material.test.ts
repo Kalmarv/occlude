@@ -475,7 +475,7 @@ describe('material: material beyond one chain', () => {
     expect(() => start.steps(1, (_, n) => n.connect(0, 7))).toThrow(/no vertex 7/);
     expect(() => start.steps(1, (_, n) => n.addPoint([0, 0], { active: 0 }))).toThrow(/must give 'generation'/);
     // a handle from one batch is meaningless in another: resolved only in its own step
-    expect(() => start.steps(1, (_, n) => n.connect(0, { __handle: 3 }))).toThrow(/unknown handle/);
+    expect(() => start.steps(1, (_, n) => n.connect(0, { __handle: 3, __batch: {} }))).toThrow(/another edit batch/);
   });
 
   it('nearby identity: membership in the source state, not coordinates or indices', () => {
@@ -540,5 +540,83 @@ describe('material: material beyond one chain', () => {
     expect(both.n).toBe(6);
     expect(both.isConnected(4, 5)).toBe(true);
     expect(tension(both, { rest: 0.5 })(both.vertex(4))).toEqual([0.5, 0]);
+  });
+});
+
+describe('boundaries (review 2026-09-07)', () => {
+  it('1. connecting an existing pair is idempotent — no second edge, no doubled tension', () => {
+    const c = curve([[0, 0], [10, 0], [10, 10]], { closed: false });
+    const pullBefore = tension(c, { rest: 1 })(c.vertex(0));
+    const out = c.steps(1, (_, n) => { n.connect(0, 1); n.connect(1, 0); n.connect(0, 1); });
+    expect(out.edgeCount).toBe(2);
+    expect(tension(out, { rest: 1 })(out.vertex(0))).toEqual(pullBefore);
+    expect(() => c.steps(1, (_, n) => n.connect(1, 1))).toThrow(/joins a vertex to itself/);
+  });
+
+  it('2. a handle is owned by its batch: one saved from an earlier step is refused', () => {
+    const start = curve([[0, 0], [10, 0]], { closed: false });
+    let saved: import('../src/material.js').Handle | null = null;
+    const a = start.steps(1, (_, n) => { saved = n.addPoint([5, 5], {}); });
+    expect(a.n).toBe(3);
+    expect(() => a.steps(1, (_, n) => { n.addPoint([9, 9], {}); n.connect(0, saved!); })).toThrow(/another edit batch/);
+  });
+
+  it('3. resample: correct spacing on open chains, isolated vertices kept, inputs validated', () => {
+    const line = curve([[0, 0], [10, 0]], { closed: false });
+    const even = line.resample({ spacing: 2 });
+    expect(even.n).toBe(6);
+    expect(even.pts.map(([x]) => x)).toEqual([0, 2, 4, 6, 8, 10]);
+    expect(() => line.resample({ count: 1 })).toThrow(/at least 2/);
+    expect(() => line.resample({ spacing: 0 })).toThrow(/positive/);
+    expect(() => line.resample({ spacing: -1 })).toThrow(/positive/);
+    const mixed = material([[0, 0], [10, 0], [50, 50]], { edges: [[0, 1]], age: [1, 2, 3] });
+    const r = mixed.resample({ spacing: 5 });
+    expect(r.n).toBe(4); // the isolated point first, then the 3-sample chain
+    expect(r.pts[0]).toEqual([50, 50]);
+    expect(r.attrs.age[0]).toBe(3);
+    expect(r.edgeCount).toBe(2);
+    expect(r.degree(0)).toBe(0);
+    // a zero-length chain does not loop forever
+    expect(curve([[3, 3], [3, 3]], { closed: false }).resample({ spacing: 1 }).n).toBe(1);
+  });
+
+  it('4. vertex views are valid point input: index is metadata, not a column', () => {
+    const c = curve([[0, 0], [5, 0], [5, 5]], { age: 7 });
+    const again = material(c.points);
+    expect(again.n).toBe(3);
+    expect(again.attrNames).toEqual(['age']);
+    expect(Array.from(again.attrs.age)).toEqual([7, 7, 7]);
+    const repel = separation(c.points, { radius: 100 });
+    expect(Number.isFinite(repel(c.vertex(0))[0])).toBe(true);
+  });
+
+  it('5. segmentRuns classifies in stored edge orientation whatever the walk direction', () => {
+    const m = material([[0, 0], [1, 0], [2, 0]], { edges: [[1, 0], [1, 2]], age: [0, 5, 9] });
+    const seen: [number, number][] = [];
+    segmentRuns(m, (a, b) => { seen.push([a.index, b.index]); return 'k'; });
+    expect(seen.sort()).toEqual([[1, 0], [1, 2]]);
+  });
+
+  it('6. append refuses to drop a column silently; fill makes the choice explicit', () => {
+    const a = curve([[0, 0], [1, 0]], { closed: false, age: 3 });
+    const b = curve([[5, 5], [6, 5]], { closed: false });
+    expect(() => append(a, b)).toThrow(/no 'age'.*fill/);
+    const joined = append(a, b, { fill: { age: 0 } });
+    expect(Array.from(joined.attrs.age)).toEqual([3, 3, 0, 0]);
+    expect(() => append(b, a)).toThrow(/first material has no 'age'/);
+  });
+
+  it('7. derived materials never share columns with their source', () => {
+    const src = curve([[0, 0], [1, 0], [1, 1]], { age: 1 });
+    const derived = src.attribute('extra', 2);
+    derived.x[0] = 99;
+    expect(src.x[0]).toBe(0);
+    const stepped = src.steps(2, () => undefined, { every: 1 });
+    stepped.history[0].material.x[1] = 99;
+    expect(src.x[1]).toBe(1);
+    const ringed = connect.ring(material([[0, 0], [1, 0]]));
+    const chained = connect.chain(ringed);
+    chained.y[0] = 42;
+    expect(ringed.y[0]).toBe(0);
   });
 });

@@ -178,11 +178,13 @@ export class Material {
   readonly history: readonly Snapshot[];
   private readonly adj: number[][];
 
-  /** @internal Use `material()`/`curve()`/`t.sample()`; columns are adopted, not
-   * copied. The library never writes to a material's columns after
-   * construction — every step builds new ones — so a snapshot stays what it
-   * was. (Typed arrays cannot be frozen; a sketch that writes `m.x[i] = …`
-   * is editing a value it was given, on its own head.) */
+  /** @internal Use `material()`/`curve()`/`t.sample()`. Columns are
+   * adopted by the constructor but no two materials ever share one: every
+   * derived material (attribute, connect, steps, resample, append) copies,
+   * and the library never writes to a column after construction. So a
+   * snapshot or a source cannot change under you. What remains: typed
+   * arrays cannot be frozen, so `m.x[i] = …` from a sketch does write —
+   * into that one material only. */
   constructor(
     x: Float64Array,
     y: Float64Array,
@@ -365,7 +367,7 @@ export class Material {
     const col = new Float64Array(this.n);
     if (typeof value === 'number') col.fill(value);
     else for (let i = 0; i < this.n; i++) col[i] = value(this.vertex(i));
-    return new Material(this.x, this.y, { ...this.attrs, [name]: col }, this.edgeList, this.iteration);
+    return new Material(copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), [name]: col }, this.edgeList, this.iteration);
   }
 
   /** A new material with these edges added (undirected; duplicates dropped). */
@@ -381,7 +383,7 @@ export class Material {
       seen.add(k);
       list.push(a, b);
     }
-    return new Material(this.x, this.y, this.attrs, Uint32Array.from(list), this.iteration);
+    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), this.iteration);
   }
 
   /**
@@ -397,9 +399,7 @@ export class Material {
    * per column to say otherwise — an `age` is a choice, not a mean).
    */
   resample(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer> }): Material {
-    if ((opts.spacing === undefined) === (opts.count === undefined)) {
-      throw new Error('resample: give exactly one of { spacing, count }');
-    }
+    checkSampling('resample', opts);
     for (let i = 0; i < this.n; i++) {
       if (this.adj[i].length > 2) throw new Error(`resample: vertex ${i} is a junction — chains only`);
     }
@@ -425,30 +425,24 @@ export class Material {
         oattrs[name].push(v);
       }
     };
+    // Isolated vertices are not chains: they come through unchanged.
+    for (let i = 0; i < this.n; i++) {
+      if (this.adj[i].length === 0) {
+        ox.push(this.x[i]);
+        oy.push(this.y[i]);
+        for (const name of names) oattrs[name].push(this.attrs[name][i]);
+      }
+    }
     for (const c of this.curves()) {
       const idx = c.indices;
-      const segs = c.closed ? idx.length : idx.length - 1;
-      const cum = [0];
-      for (let s = 0; s < segs; s++) {
-        const a = idx[s];
-        const b = idx[(s + 1) % idx.length];
-        cum.push(cum[s] + Math.hypot(this.x[b] - this.x[a], this.y[b] - this.y[a]));
-      }
-      const total = cum[segs];
-      const count = opts.count ?? Math.max(c.closed ? 3 : 2, Math.round(total / opts.spacing!));
-      const steps = c.closed ? count : count - 1;
       const first = ox.length;
-      let seg = 0;
-      for (let k = 0; k < count; k++) {
-        const d = steps > 0 ? (total * k) / steps : 0;
-        while (seg < segs - 1 && cum[seg + 1] < d) seg++;
-        const a = idx[seg];
-        const b = idx[(seg + 1) % idx.length];
-        const len = cum[seg + 1] - cum[seg];
-        place(a, b, len > 0 ? (d - cum[seg]) / len : 0);
+      const samples = alongChain(idx.map((i) => [this.x[i], this.y[i]] as [number, number]), c.closed, opts);
+      for (let k = 0; k < samples.length; k++) {
+        const { seg, t } = samples[k];
+        place(idx[seg], idx[(seg + 1) % idx.length], t);
         if (k > 0) edges.push(first + k - 1, first + k);
       }
-      if (c.closed && count > 1) edges.push(first + count - 1, first);
+      if (c.closed && samples.length > 1) edges.push(first + samples.length - 1, first);
     }
     const attrs: Record<string, Float64Array> = {};
     for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
@@ -473,7 +467,7 @@ export class Material {
   steps(n: number, rule: (current: Material, next: Next, k: number) => void, opts: { every?: number } = {}): Material {
     const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
     const snaps: Snapshot[] = [];
-    const base = new Material(this.x, this.y, { ...this.attrs }, this.edgeList, this.iteration);
+    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), this.edgeList, this.iteration);
     if (every) snaps.push({ iteration: this.iteration, material: base });
     let cur = base;
     for (let k = 0; k < n; k++) {
@@ -481,11 +475,71 @@ export class Material {
       if (every && (k + 1) % every === 0 && k + 1 < n) snaps.push({ iteration: cur.iteration, material: cur });
     }
     if (every && n > 0) snaps.push({ iteration: cur.iteration, material: cur });
-    return every ? new Material(cur.x, cur.y, { ...cur.attrs }, cur.edgeList, cur.iteration, snaps) : cur;
+    return every ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), cur.edgeList, cur.iteration, snaps) : cur;
   }
 }
 
+/** Sampling options shared by `t.sample` and `resample`: exactly one of
+ * `count` or `spacing`, both positive. */
+export function checkSampling(who: string, opts: { count?: number; spacing?: number }): void {
+  if ((opts.spacing === undefined) === (opts.count === undefined)) {
+    throw new Error(`${who}: give exactly one of { count, spacing }`);
+  }
+  if (opts.spacing !== undefined && !(opts.spacing > 0)) throw new Error(`${who}: spacing must be positive`);
+  if (opts.count !== undefined && (!Number.isInteger(opts.count) || opts.count < 2)) {
+    throw new Error(`${who}: count must be an integer of at least 2 (open) or 3 (closed)`);
+  }
+}
+
+/**
+ * Even samples along a polyline by arc length: for each sample, the
+ * segment it lies on and the fraction along it. An open chain gets
+ * `count` samples including both ends (`count - 1` gaps); a closed one
+ * `count` samples with no duplicate seam (`count` gaps). With `spacing`,
+ * the count is the number of gaps that best fits, at least 2 (open) or 3
+ * (closed) samples. A zero-length chain yields its first point.
+ */
+export function alongChain(
+  pts: readonly (readonly [number, number])[],
+  closed: boolean,
+  opts: { count?: number; spacing?: number },
+): { seg: number; t: number }[] {
+  const n = pts.length;
+  const segs = closed ? n : n - 1;
+  if (n === 0) return [];
+  const cum = [0];
+  for (let s = 0; s < segs; s++) {
+    const a = pts[s];
+    const b = pts[(s + 1) % n];
+    cum.push(cum[s] + Math.hypot(b[0] - a[0], b[1] - a[1]));
+  }
+  const total = cum[segs];
+  if (!(total > 0)) return [{ seg: 0, t: 0 }];
+  let count: number;
+  if (opts.count !== undefined) count = Math.max(closed ? 3 : 2, opts.count);
+  else {
+    const gaps = Math.max(closed ? 3 : 1, Math.round(total / opts.spacing!));
+    count = closed ? gaps : gaps + 1;
+  }
+  const gaps = closed ? count : count - 1;
+  const out: { seg: number; t: number }[] = [];
+  let seg = 0;
+  for (let k = 0; k < count; k++) {
+    const d = (total * k) / gaps;
+    while (seg < segs - 1 && cum[seg + 1] < d) seg++;
+    const len = cum[seg + 1] - cum[seg];
+    out.push({ seg, t: len > 0 ? Math.min(1, (d - cum[seg]) / len) : 0 });
+  }
+  return out;
+}
+
 const pairKey = (a: number, b: number) => (a < b ? a * 4294967296 + b : b * 4294967296 + a);
+const copy = (col: Float64Array) => Float64Array.from(col);
+const copyAttrs = (attrs: Readonly<Record<string, Float64Array>>): Record<string, Float64Array> => {
+  const out: Record<string, Float64Array> = {};
+  for (const k in attrs) out[k] = Float64Array.from(attrs[k]);
+  return out;
+};
 
 const ownerOf = (p: Vertex): Material | undefined => (p as unknown as Record<symbol, Material>)[OWNER];
 
@@ -515,7 +569,7 @@ export function material(
     x[i] = vx(p);
     y[i] = vy(p);
     if (!isArr(p)) {
-      for (const [k, v] of Object.entries(p)) if (k !== 'x' && k !== 'y' && typeof v === 'number') extra.add(k);
+      for (const [k, v] of Object.entries(p)) if (k !== 'x' && k !== 'y' && k !== 'index' && typeof v === 'number') extra.add(k);
     }
   }
   for (const k of extra) {
@@ -631,10 +685,20 @@ export const connect = {
   },
 };
 
-/** Two materials as one: b's rows after a's, b's edges re-based; only the
- * columns both have carry over. */
-export function append(a: Material, b: Material): Material {
-  const names = a.attrNames.filter((k) => b.attrNames.includes(k));
+/** Two materials as one: b's rows after a's, b's edges re-based. Both must
+ * have the same columns, or `fill` must give the value a column takes on
+ * the side that lacks it — nothing is dropped silently. */
+export function append(a: Material, b: Material, opts: { fill?: Record<string, number> } = {}): Material {
+  const fill = opts.fill ?? {};
+  const names = Array.from(new Set([...a.attrNames, ...b.attrNames]));
+  for (const k of names) {
+    if (!(k in a.attrs) || !(k in b.attrs)) {
+      if (!(k in fill)) {
+        const side = k in a.attrs ? 'second' : 'first';
+        throw new Error(`append: the ${side} material has no '${k}' — give fill: { ${k}: … } or match the columns`);
+      }
+    }
+  }
   const x = new Float64Array(a.n + b.n);
   const y = new Float64Array(a.n + b.n);
   x.set(a.x);
@@ -644,8 +708,10 @@ export function append(a: Material, b: Material): Material {
   const attrs: Record<string, Float64Array> = {};
   for (const k of names) {
     const col = new Float64Array(a.n + b.n);
-    col.set(a.attrs[k]);
-    col.set(b.attrs[k], a.n);
+    if (k in a.attrs) col.set(a.attrs[k]);
+    else col.fill(fill[k], 0, a.n);
+    if (k in b.attrs) col.set(b.attrs[k], a.n);
+    else col.fill(fill[k], a.n);
     attrs[k] = col;
   }
   const edges = new Uint32Array(a.edgeList.length + b.edgeList.length);
@@ -656,9 +722,11 @@ export function append(a: Material, b: Material): Material {
 
 // ---- one step ---------------------------------------------------------------------
 
-/** A vertex added in this edit batch, usable before the batch resolves. */
+/** A vertex added in this edit batch, usable before the batch resolves —
+ * and only there: a handle carries its batch and is refused by any other. */
 export interface Handle {
   readonly __handle: number;
+  readonly __batch: object;
 }
 
 export type Ref = number | Handle;
@@ -737,6 +805,7 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   }[] = [];
   const added: { x: number; y: number; attrs: Record<string, number> }[] = [];
   const links: [Ref, Ref][] = [];
+  const batch = {};
   const points = cur.points; // frozen views, built once for the collection forms
 
   const next: Next = {
@@ -780,7 +849,7 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
     addPoint(position, attributes) {
       checkAttrs(attributes, names, 'a new vertex');
       added.push({ x: vx(position), y: vy(position), attrs: attributes });
-      return { __handle: added.length - 1 };
+      return { __handle: added.length - 1, __batch: batch };
     },
     connect(a, b) {
       links.push([a, b]);
@@ -859,13 +928,24 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   }
   const resolve = (r: Ref): number => {
     if (isHandle(r)) {
+      if (r.__batch !== batch) throw new Error('connect: that handle belongs to another edit batch (another step)');
       if (r.__handle < 0 || r.__handle >= added.length) throw new Error('connect: unknown handle');
       return handleRow[r.__handle];
     }
     if (!Number.isInteger(r) || r < 0 || r >= n) throw new Error(`connect: no vertex ${r} in this state (${n} rows)`);
     return rowMap[r];
   };
-  for (const [a, b] of links) edges.push(resolve(a), resolve(b));
+  const have = new Set<number>();
+  for (let e = 0; e < edges.length; e += 2) have.add(pairKey(edges[e], edges[e + 1]));
+  for (const [a, b] of links) {
+    const ra = resolve(a);
+    const rb = resolve(b);
+    if (ra === rb) throw new Error(`connect: edge ${ra}–${rb} joins a vertex to itself`);
+    const k = pairKey(ra, rb);
+    if (have.has(k)) continue; // connecting an existing pair is a no-op, not a second edge
+    have.add(k);
+    edges.push(ra, rb);
+  }
   const attrs: Record<string, Float64Array> = {};
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), cur.iteration + 1);
@@ -1170,12 +1250,23 @@ export interface SegmentRun<K = number | string> extends IsoContour {
  */
 export function segmentRuns<K extends number | string>(m: Material, key: (a: Vertex, b: Vertex) => K): SegmentRun<K>[] {
   const runs: SegmentRun<K>[] = [];
+  // The classifier sees each edge in its STORED orientation (a → b as it
+  // was connected), whatever direction the drawing walk happens to take.
+  const stored = new Map<number, [number, number]>();
+  for (let e = 0; e < m.edgeList.length; e += 2) {
+    const a = m.edgeList[e];
+    const b = m.edgeList[e + 1];
+    if (!stored.has(pairKey(a, b))) stored.set(pairKey(a, b), [a, b]);
+  }
   for (const c of m.curves()) {
     const idx = c.indices;
     const segs = c.closed ? idx.length : idx.length - 1;
     if (segs <= 0) continue;
     const keys: K[] = [];
-    for (let s = 0; s < segs; s++) keys.push(key(m.vertex(idx[s]), m.vertex(idx[(s + 1) % idx.length])));
+    for (let s = 0; s < segs; s++) {
+      const [a, b] = stored.get(pairKey(idx[s], idx[(s + 1) % idx.length]))!;
+      keys.push(key(m.vertex(a), m.vertex(b)));
+    }
     let start = 0;
     if (c.closed) {
       // Begin where the first edge's run ends, so that run is drawn whole
