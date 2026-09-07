@@ -703,6 +703,62 @@ descent, and matching d3's `_step` means reimplementing the core of a
 dependency we already have. **Left alone on master; noted as a candidate for
 exploratory work.**
 
+## The next measured lead: the clip query sorts what it almost never reads
+
+**Heavy occlusion had no harness.** `bench/obench.mts` (new) is a scaling
+series rather than a single number, because what matters is whether the cost
+per shape stays flat as a stack deepens. It does not:
+
+| workload | 50 | 100 | 200 | 400 |
+|---|---|---|---|---|
+| opaque discs, each covering a third of the sheet | 53 ms | 126 ms | 308 ms | **949 ms** |
+| the same discs as outlines (nothing occludes) | 1 ms | 2 ms | 3 ms | 6 ms |
+| concentric nested rings | — | — | 94 ms | 305 ms |
+
+Outlines are perfectly linear; occlusion is **quadratic**. 300 identical
+coincident discs take 735 ms for 353 fragments.
+
+`crates/occlude-core/examples/stack_bench.rs` (new) says which stage, with
+`--features profile` at 400 discs (610 ms, 5 488 fragments):
+
+| zone | 100 | 200 | 400 |
+|---|---|---|---|
+| `5q clip-query` | 24 ms | 101 ms | **430 ms** |
+| `5s clip-spans-loop` | 20 ms | 51 ms | 102 ms |
+
+The **query** is the quadratic term, not the clipping. Splitting it further:
+of the 449 ms, **256 ms is `sort_unstable` + `dedup`** and 185 ms is the
+gather. These boxes are fat, so `SpatialIndex::build`'s overlap-depth
+heuristic has already chosen the BVH — which visits each leaf once, so the
+`dedup` finds nothing and the sort is the whole cost.
+
+**Why the sort is nearly all waste here.** The caller sorts so it can walk
+front-to-back and stop at its own rank, and it stops early: this fixture emits
+5 488 fragments from ~96 000 primitives, so **94 % are fully hidden after one
+or two occluders**. It sorts 400 ids to read two of them.
+
+A max-heap popped lazily gives the same descending order without sorting the
+tail. Measured (400 ids, 200 000 repetitions, checksums equal):
+
+| occluders actually read | sort + dedup | heap |
+|---|---|---|
+| 1 | 548 ms | **108 ms** |
+| 2 | 506 ms | **110 ms** |
+| 4 | 509 ms | **109 ms** |
+| all 400 | 544 ms | 1 308 ms |
+
+**5× when the loop exits early, 2.4× worse when it walks everything.** In this
+fixture 94 % exit early.
+
+**Not attempted this run.** It restructures `SpatialIndex::query`'s contract
+and both consumers (`clip_one`'s reverse walk and `point_visible`'s
+`partition_point`) — the engine's hottest path — and it has a real regression
+mode when fragments are mostly visible under many overlapping occluders. That
+deserves its own careful pass with the full differential, not the tail of a
+long session. The harnesses and the numbers are committed so it can start from
+evidence.
+
+
 ## Rejected, with reasons
 - **A cached luminance plane for the image sampler** (`imageAsset.ts`). The
   samplers are the largest library-side cost in flow-user (~890 ms of self
