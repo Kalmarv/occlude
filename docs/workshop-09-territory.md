@@ -21,8 +21,8 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const country = cleared.faces().filter((f) => f.area > field);
   return [
     country.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),
+    strokes(cleared.edges.filter((e) => e.attrs.border === 1), { pen: 'pigma-05-black' }),
     strokes(cleared, { pen: 'pigma-005-black' }),
-    strokes(cleared.edges.filter((e) => e.attrs.border === 1), { pen: 'pigma-01-black' }),
   ];
 });
 ```
@@ -113,7 +113,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const merged = marked.steps(1, (current, next) => next.disconnect((e) => e.attrs.same === 1));
   const regions = merged.faces();
   return [
-    strokes(diagram), sites.points.map((p) => circle(p.x, p.y, 1.6, { pen: p.kind ? 'stabilo-88-blue' : 'pigma-01-black' })),
+    strokes(diagram), sites.points.map((p) => circle(p.x, p.y, 1.6, { pen: p.kind ? 'stabilo-88-blue' : 'pigma-05-black' })),
     group({ translate: [100, 0] }, regions.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: f.index ? 135 : 45, spacing: mm(1.4) }), stroke: false })), strokes(merged)),
   ];
 });
@@ -157,7 +157,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
 
 Slide `edge sharpness` down to 1 and the town fades into the country with no edge anywhere; up to 12 and it ends at a line. Neither is the map yet, but the next decision depends on it, and it is worth knowing which you want before drawing any borders.
 
-**Which borders matter.** Every wall is drawn the same above, so the town's edge is only a change of texture. A border is a wall the drawing chooses to emphasise, and the choice here is not a category but a fact about the two cells beside the wall: where a small cell meets a large one, the town meets the country. `facesOf` gives both cells; the ratio of their areas is the test, and `ratio` is the control. The chosen walls go in the heavy pen.
+**Which borders matter.** Every wall is drawn the same above, so the town's edge is only a change of texture. A border is a wall the drawing chooses to emphasise, and the choice here is not a category but a fact about the two cells beside the wall: where a small cell meets a large one, the town meets the country. `facesOf` gives both cells; the ratio of their areas is the test, and `ratio` is the control. The chosen walls go in the heavy pen, drawn before the fine walls, because a stroke on a line that already has ink is dropped: heavy first, or the border comes out fine.
 
 ```ts live focus=9-12
 import { sketch, strokes, distance, ui } from 'occlude';
@@ -171,7 +171,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const cells = diagram.faces();
   const contrast = (e) => { const [a, b] = cells.facesOf(e); return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
   const border = cells.edges.filter((e) => contrast(e) > ratio);
-  return [strokes(cells.edges, { pen: 'pigma-005-black' }), strokes(border, { pen: 'pigma-01-black' })];
+  return [strokes(border, { pen: 'pigma-05-black' }), strokes(cells.edges, { pen: 'pigma-005-black' })];
 });
 ```
 
@@ -221,7 +221,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const country = cleared.faces().filter((f) => f.area > 90);
   return [
     town.map((f) => polygon(f.contours, { fill: fill('hatch', { angle: 45, spacing: mm(0.7 + 0.02 * distance([f.bounds.x, f.bounds.y], left.centre)) }), stroke: false })),
-    strokes(left.cells.edges, { pen: 'pigma-005-black' }), strokes(town.boundaryEdges, { pen: 'pigma-01-black' }),
+    strokes(town.boundaryEdges, { pen: 'pigma-05-black' }), strokes(left.cells.edges, { pen: 'pigma-005-black' }),
     country.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),
     strokes(cleared, { pen: 'pigma-005-black' }),
   ];
@@ -249,8 +249,8 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const country = cleared.faces().filter((f) => f.area > field);
   return [
     country.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),
+    strokes(cleared.edges.filter((e) => e.attrs.border === 1), { pen: 'pigma-05-black' }),
     strokes(cleared, { pen: 'pigma-005-black' }),
-    strokes(cleared.edges.filter((e) => e.attrs.border === 1), { pen: 'pigma-01-black' }),
   ];
 });
 ```

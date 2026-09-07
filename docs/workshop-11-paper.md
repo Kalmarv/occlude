@@ -33,7 +33,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
     const chosen = cells.filter((f) => f.area < 60);
     return [
       chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: mm(1.1 * (0.4 + 0.6 * Math.sqrt(f.area / 60))) }), stroke: false })),
-      strokes(cells.edges, { pen: 'pigma-005-black' }), strokes(chosen.boundaryEdges, { pen: 'pigma-01-black' }),
+      strokes(cells.edges, { pen: 'pigma-005-black' }), strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
     ];
   };
   return [build(0, 14, 20), build(100, 26, 20)];
@@ -80,7 +80,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const chosen = cells.filter((f) => f.area < 90);
   return [
     chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: mm(1.1 * (0.4 + 0.6 * Math.sqrt(f.area / 90))) }), stroke: false })),
-    strokes(cells.edges, { pen: 'pigma-005-black' }), strokes(chosen.boundaryEdges, { pen: 'pigma-01-black' }),
+    strokes(cells.edges, { pen: 'pigma-005-black' }), strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
   ];
 });
 ```

@@ -22,8 +22,8 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
     chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
+    strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
     strokes(cells.edges, { pen: 'pigma-005-black' }),
-    strokes(chosen.boundaryEdges, { pen: 'pigma-01-black' }),
   ];
 });
 ```
@@ -160,7 +160,7 @@ The boundary on the right is two loops: the frame, and the middle cell's outline
 
 The finished drawing. The frame is a rectangle's four corners. A chord is made by `through(x, y, angle)`: a line through a point at an angle, sampled to two points far beyond the frame, so that after planarizing it is cut wherever it crosses the frame or another chord. Two thirds of the chords pass through a patch around one point, `focus`; the rest are anywhere. The size of the patch decides whether the cluster is a burst of thin wedges or a cluster of small polygons; try `t.rnd(-6, 6)` in both and see the difference. The chords also cross each other outside the frame and enclose slivers there, so `inFrame` keeps only the faces whose `bounds` lie within it; the parts of the chords that border no kept cell are left out by `cells.edges`, which is why nothing has to be clipped.
 
-The composition has three controls, and each is a different kind of decision: `chords` changes the construction, `area below` changes the selection, `hatch` changes only the drawing. The heavy pen on `chosen.boundaryEdges` is what makes the cluster read as one thing.
+The composition has three controls, and each is a different kind of decision: `chords` changes the construction, `area below` changes the selection, `hatch` changes only the drawing. The heavy pen on `chosen.boundaryEdges` is what makes the cluster read as one thing, and it goes down before the fine walls: the boundary walls are also walls, and a stroke laid where ink already is does not draw, so drawn second the heavy pen would be dropped and the outline would come out fine. Order is a rule of the page, from chapter 1, and here it decides which pen a shared line gets.
 
 ```ts live focus=8-15,18-21
 import { sketch, strokes, polygon, fill, mm, line, rect, append, ui } from 'occlude';
@@ -182,8 +182,8 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
     chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
+    strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
     strokes(cells.edges, { pen: 'pigma-005-black' }),
-    strokes(chosen.boundaryEdges, { pen: 'pigma-01-black' }),
   ];
 });
 ```
@@ -208,8 +208,8 @@ export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
   const shade = chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false }));
   return [
     strokes(cells.edges),
-    group({ translate: [100, 0] }, strokes(chosen.boundaryEdges, { pen: 'pigma-01-black' })),
-    group({ translate: [200, 0] }, shade, strokes(cells.edges, { pen: 'pigma-005-black' }), strokes(chosen.boundaryEdges, { pen: 'pigma-01-black' })),
+    group({ translate: [100, 0] }, strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' })),
+    group({ translate: [200, 0] }, shade, strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }), strokes(cells.edges, { pen: 'pigma-005-black' })),
   ];
 });
 ```

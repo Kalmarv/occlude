@@ -42,6 +42,15 @@ export const DEFAULT_PENS: PenDef[] = [
     penDelay: 100,
   },
   {
+    name: 'pigma-05-black',
+    width: 0.45,
+    color: '#111111',
+    feed: 3000,
+    penDown: 0,
+    penUp: 5,
+    penDelay: 100,
+  },
+  {
     name: 'stabilo-88-green',
     width: 0.4,
     color: '#1d7a3c',
