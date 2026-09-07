@@ -11,14 +11,18 @@
  * parallel and collinear; ties resolve by source edge order.
  *
  * Complexity: preparation lays the endpoint columns out once and builds a
- * uniform grid over the edges' boxes (an edge is registered in every cell
- * its box covers; the cell is at least the mean edge extent, so long
- * edges do not multiply). `nearest` searches rings of cells outward and
- * stops once the best hit is nearer than the next ring; `firstHit` visits
- * the cells the move's box covers. Both see exactly the candidates a full
- * scan would judge (every edge whose box meets the query region) and
- * judge them in source-edge order, so ties resolve as before. A query
- * far longer than a cell degrades toward the full scan.
+ * uniform grid over the edges' boxes in one compressed block (an edge is
+ * registered in every cell its box covers; the cell is at least the mean
+ * edge extent, so long edges do not multiply). `nearest` searches rings
+ * of cells outward from the query point and stops once the nearest
+ * unvisited ring is further than the best hit so far; `firstHit` walks
+ * the corridor of cells the move itself crosses, not the box it spans, so
+ * a move across the whole drawing costs a diagonal of cells rather than
+ * the grid. Both see every edge that could win and settle on the same
+ * one a full scan would: the answer is the least `(distance, edge)` —
+ * respectively `(along, edge)` — pair, which does not depend on the order
+ * candidates are judged in, so pruning candidates that cannot win and
+ * judging the rest as they come is the same answer.
  */
 
 import { Material, ownedBy, type Edge, type Vertex, type XY } from './material.js';
@@ -96,55 +100,131 @@ export function edges(m: Material): EdgeQuery {
   const rows = Math.floor((maxy - miny) / cell) + 1;
   const col = (x: number) => Math.min(cols - 1, Math.max(0, Math.floor((x - minx) / cell)));
   const row = (y: number) => Math.min(rows - 1, Math.max(0, Math.floor((y - miny) / cell)));
-  const buckets: number[][] = Array.from({ length: cols * rows }, () => []);
+  // One compressed block instead of cols × rows arrays: count, prefix-sum, fill.
+  const cellStart = new Int32Array(cols * rows + 1);
+  const eC0 = new Int32Array(E);
+  const eC1 = new Int32Array(E);
+  const eR0 = new Int32Array(E);
+  const eR1 = new Int32Array(E);
   for (let e = 0; e < E; e++) {
     const c0 = col(Math.min(ax[e], bx[e]));
     const c1 = col(Math.max(ax[e], bx[e]));
     const r0 = row(Math.min(ay[e], by[e]));
     const r1 = row(Math.max(ay[e], by[e]));
-    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) buckets[r * cols + c].push(e);
+    eC0[e] = c0; eC1[e] = c1; eR0[e] = r0; eR1[e] = r1;
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) cellStart[r * cols + c + 1]++;
   }
+  for (let i = 0; i < cols * rows; i++) cellStart[i + 1] += cellStart[i];
+  const items = new Int32Array(cellStart[cols * rows]);
+  const cursor = cellStart.slice(0, cols * rows);
+  for (let e = 0; e < E; e++) {
+    for (let r = eR0[e]; r <= eR1[e]; r++) for (let c = eC0[e]; c <= eC1[e]; c++) items[cursor[r * cols + c]++] = e;
+  }
+
+  // ---- candidate gathering: each edge offered once per query, in no particular order ----
   const stamp = new Int32Array(E).fill(-1);
-  let query = 0;
-  /** Edges registered in the cells of a box, each once, in source order. */
-  const everyEdge = Array.from({ length: E }, (_, e) => e);
-  // The exact test accepts contacts within EPS × scale (scale ≤ the largest
-  // extent in play): the broad phase pads every query box by more than
-  // that, so a contact just across a cell boundary is still judged.
-  const pad = Math.max(1e-9, EPS * 1000 * Math.max(1, span));
-  const candidatesIn = (bx0: number, by0: number, bx1: number, by1: number): number[] => {
-    query++;
-    const x0 = bx0 - pad;
-    const y0 = by0 - pad;
-    const x1 = bx1 + pad;
-    const y1 = by1 + pad;
-    const out: number[] = [];
-    if (x1 < minx - cell || x0 > maxx + cell || y1 < miny - cell || y0 > maxy + cell) return out;
-    // a box over most of the grid would visit and sort nearly everything: the plain scan is cheaper
-    if ((row(y1) - row(y0) + 1) * (col(x1) - col(x0) + 1) > 0.4 * cols * rows) return everyEdge;
-    for (let r = row(y0); r <= row(y1); r++) {
-      for (let c = col(x0); c <= col(x1); c++) {
-        for (const e of buckets[r * cols + c]) {
-          if (stamp[e] === query) continue;
-          stamp[e] = query;
-          out.push(e);
-        }
-      }
+  let queryId = 0;
+  const cand = new Int32Array(E);
+  let candN = 0;
+  const pushCell = (cellIndex: number): void => {
+    const end = cellStart[cellIndex + 1];
+    for (let i = cellStart[cellIndex]; i < end; i++) {
+      const e = items[i];
+      if (stamp[e] === queryId) continue;
+      stamp[e] = queryId;
+      cand[candN++] = e;
     }
-    return out.sort((p, q) => p - q);
   };
-  const incidentRows = (v: Vertex | number): Set<number> => {
-    let row: number;
+  // The exact test accepts contacts within EPS × scale (scale ≤ the largest
+  // extent in play): every gathered region is padded by more than that, so
+  // a contact just across a cell boundary is still judged.
+  const pad = Math.max(1e-9, EPS * 1000 * Math.max(1, span));
+
+  /** The cells of the axis-aligned box, clipped to the grid. */
+  const gatherBox = (bx0: number, by0: number, bx1: number, by1: number): void => {
+    for (let r = row(by0); r <= row(by1); r++) {
+      for (let c = col(bx0); c <= col(bx1); c++) pushCell(r * cols + c);
+    }
+  };
+  /** The cells at Chebyshev distance `k` from (cc, cr), clipped to a window. */
+  const gatherRing = (k: number, cc: number, cr: number, c0: number, c1: number, r0: number, r1: number): void => {
+    if (k === 0) {
+      if (cc >= c0 && cc <= c1 && cr >= r0 && cr <= r1) pushCell(cr * cols + cc);
+      return;
+    }
+    const lo = Math.max(c0, cc - k);
+    const hi = Math.min(c1, cc + k);
+    if (cr - k >= r0 && cr - k <= r1) for (let c = lo; c <= hi; c++) pushCell((cr - k) * cols + c);
+    if (cr + k >= r0 && cr + k <= r1) for (let c = lo; c <= hi; c++) pushCell((cr + k) * cols + c);
+    const top = Math.max(r0, cr - k + 1);
+    const bot = Math.min(r1, cr + k - 1);
+    if (cc - k >= c0 && cc - k <= c1) for (let r = top; r <= bot; r++) pushCell(r * cols + (cc - k));
+    if (cc + k >= c0 && cc + k <= c1) for (let r = top; r <= bot; r++) pushCell(r * cols + (cc + k));
+  };
+  /** The cells the padded segment itself crosses — a corridor, not its box. */
+  const gatherSegment = (x0: number, y0: number, x1: number, y1: number): void => {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    if (dx === 0 && dy === 0) { gatherBox(x0 - pad, y0 - pad, x0 + pad, y0 + pad); return; }
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      const xlo = Math.min(x0, x1) - pad;
+      const xhi = Math.max(x0, x1) + pad;
+      const ylo = Math.min(y0, y1) - pad;
+      const yhi = Math.max(y0, y1) + pad;
+      const cA = col(xlo);
+      const cB = col(xhi);
+      for (let c = cA; c <= cB; c++) {
+        // border columns stand for everything beyond the grid, so their span is open
+        const lo = Math.max(xlo, c === 0 ? -Infinity : minx + c * cell);
+        const hi = Math.min(xhi, c === cols - 1 ? Infinity : minx + (c + 1) * cell);
+        const ea = y0 + dy * ((lo - x0) / dx);
+        const eb = y0 + dy * ((hi - x0) / dx);
+        const from = Math.max(ylo, Math.min(ea, eb) - pad);
+        const to = Math.min(yhi, Math.max(ea, eb) + pad);
+        for (let r = row(from); r <= row(to); r++) pushCell(r * cols + c);
+      }
+      return;
+    }
+    const ylo = Math.min(y0, y1) - pad;
+    const yhi = Math.max(y0, y1) + pad;
+    const xlo = Math.min(x0, x1) - pad;
+    const xhi = Math.max(x0, x1) + pad;
+    const rA = row(ylo);
+    const rB = row(yhi);
+    for (let r = rA; r <= rB; r++) {
+      const lo = Math.max(ylo, r === 0 ? -Infinity : miny + r * cell);
+      const hi = Math.min(yhi, r === rows - 1 ? Infinity : miny + (r + 1) * cell);
+      const ea = x0 + dx * ((lo - y0) / dy);
+      const eb = x0 + dx * ((hi - y0) / dy);
+      const from = Math.max(xlo, Math.min(ea, eb) - pad);
+      const to = Math.min(xhi, Math.max(ea, eb) + pad);
+      for (let c = col(from); c <= col(to); c++) pushCell(r * cols + c);
+    }
+  };
+
+  // ---- incident edges of a vertex: the adjacency is built once, when first asked ----
+  let vertexStart: Int32Array | null = null;
+  let vertexEdges: Int32Array | null = null;
+  const buildAdjacency = (): void => {
+    const start = new Int32Array(m.n + 1);
+    for (let e = 0; e < 2 * E; e++) start[m.edgeList[e] + 1]++;
+    for (let i = 0; i < m.n; i++) start[i + 1] += start[i];
+    const fill = start.slice(0, m.n);
+    const list = new Int32Array(2 * E);
+    for (let e = 0; e < E; e++) {
+      list[fill[m.edgeList[2 * e]]++] = e;
+      list[fill[m.edgeList[2 * e + 1]]++] = e;
+    }
+    vertexStart = start;
+    vertexEdges = list;
+  };
+  const incidentRow = (v: Vertex | number): number => {
     if (typeof v === 'number') {
       if (!Number.isInteger(v) || v < 0 || v >= m.n) throw new Error(`query: no vertex ${v} in the source material`);
-      row = v;
-    } else {
-      if (!ownedBy(v, m)) throw new Error('query: excludeIncident must be a vertex of the queried material');
-      row = v.index;
+      return v;
     }
-    const out = new Set<number>();
-    for (let e = 0; e < E; e++) if (m.edgeList[2 * e] === row || m.edgeList[2 * e + 1] === row) out.add(e);
-    return out;
+    if (!ownedBy(v, m)) throw new Error('query: excludeIncident must be a vertex of the queried material');
+    return v.index;
   };
 
   return {
@@ -153,40 +233,87 @@ export function edges(m: Material): EdgeQuery {
       if (!Number.isFinite(within) || within < 0) throw new Error('query.nearest: within must be finite and non-negative');
       const px = vx(position);
       const py = vy(position);
-      let best: NearestHit | null = null;
-      // every edge within `within` of the point has its box within `within` of it
-      for (const e of candidatesIn(px - within, py - within, px + within, py + within)) {
-        const dx = bx[e] - ax[e];
-        const dy = by[e] - ay[e];
-        const len2 = dx * dx + dy * dy;
-        let t = 0;
-        if (len2 > 0) t = Math.max(0, Math.min(1, ((px - ax[e]) * dx + (py - ay[e]) * dy) / len2));
-        const qx = ax[e] + dx * t;
-        const qy = ay[e] + dy * t;
-        const d = Math.hypot(px - qx, py - qy);
-        if (d > within) continue;
-        if (best === null || d < best.distance) best = { edge: m.edge(e), position: [qx, qy], t, distance: d };
+      queryId++;
+      candN = 0;
+      // the window is the box the full scan would have judged; rings inside it
+      // stop as soon as no unvisited cell can hold anything closer
+      const c0 = col(px - within - pad);
+      const c1 = col(px + within + pad);
+      const r0 = row(py - within - pad);
+      const r1 = row(py + within + pad);
+      const cc = col(px);
+      const cr = row(py);
+      const kMax = Math.max(cc - c0, c1 - cc, cr - r0, r1 - cr);
+      let bestE = -1;
+      let bestD = Infinity;
+      let bestT = 0;
+      let bestX = 0;
+      let bestY = 0;
+      let judged = 0;
+      for (let k = 0; k <= kMax; k++) {
+        if (k > 0) {
+          // everything left unvisited lies outside the square already covered
+          const x0 = minx + (cc - k + 1) * cell;
+          const x1 = minx + (cc + k) * cell;
+          const y0 = miny + (cr - k + 1) * cell;
+          const y1 = miny + (cr + k) * cell;
+          const reach = Math.max(0, Math.min(px - x0, x1 - px, py - y0, y1 - py));
+          if (reach > within + pad) break;
+          if (reach > bestD + pad) break;
+        }
+        gatherRing(k, cc, cr, c0, c1, r0, r1);
+        for (; judged < candN; judged++) {
+          const e = cand[judged];
+          const dx = bx[e] - ax[e];
+          const dy = by[e] - ay[e];
+          const len2 = dx * dx + dy * dy;
+          let t = 0;
+          if (len2 > 0) t = Math.max(0, Math.min(1, ((px - ax[e]) * dx + (py - ay[e]) * dy) / len2));
+          const qx = ax[e] + dx * t;
+          const qy = ay[e] + dy * t;
+          const d = Math.hypot(px - qx, py - qy);
+          if (d > within) continue;
+          if (bestE < 0 || d < bestD || (d === bestD && e < bestE)) {
+            bestE = e; bestD = d; bestT = t; bestX = qx; bestY = qy;
+          }
+        }
       }
-      return best;
+      return bestE < 0 ? null : { edge: m.edge(bestE), position: [bestX, bestY], t: bestT, distance: bestD };
     },
     firstHit(from, to, opts = {}) {
       const fx = vx(from);
       const fy = vy(from);
       const tx = vx(to);
       const ty = vy(to);
-      const skip = opts.excludeIncident !== undefined ? incidentRows(opts.excludeIncident) : null;
+      let skipStart = -1;
+      let skipEnd = -1;
+      if (opts.excludeIncident !== undefined) {
+        const v = incidentRow(opts.excludeIncident);
+        if (vertexStart === null) buildAdjacency();
+        skipStart = vertexStart![v];
+        skipEnd = vertexStart![v + 1];
+      }
       const sx = tx - fx;
       const sy = ty - fy;
       const slen = Math.hypot(sx, sy);
-      let best: FirstHit | null = null;
+      let bestE = -1;
+      let bestAlong = 0;
+      let bestT = 0;
+      let bestKind: FirstHit['kind'] = 'touch';
       const consider = (e: number, along: number, t: number, kind: FirstHit['kind']) => {
-        if (best !== null && along >= best.along) return;
-        const px = fx + sx * along;
-        const py = fy + sy * along;
-        best = { edge: m.edge(e), position: [px, py], t, along, distance: slen * along, kind };
+        if (bestE >= 0 && (along > bestAlong || (along === bestAlong && e > bestE))) return;
+        bestE = e; bestAlong = along; bestT = t; bestKind = kind;
       };
-      for (const e of candidatesIn(Math.min(fx, tx), Math.min(fy, ty), Math.max(fx, tx), Math.max(fy, ty))) {
-        if (skip && skip.has(e)) continue;
+      queryId++;
+      candN = 0;
+      gatherSegment(fx, fy, tx, ty);
+      for (let i = 0; i < candN; i++) {
+        const e = cand[i];
+        if (skipStart >= 0) {
+          let incident = false;
+          for (let j = skipStart; j < skipEnd; j++) if (vertexEdges![j] === e) { incident = true; break; }
+          if (incident) continue;
+        }
         const dx = bx[e] - ax[e];
         const dy = by[e] - ay[e];
         const scale = Math.max(1, Math.abs(dx), Math.abs(dy), Math.abs(sx), Math.abs(sy));
@@ -228,7 +355,15 @@ export function edges(m: Material): EdgeQuery {
         const atEnd = a2 <= tolA || a2 >= 1 - tolA || t2 <= tolT || t2 >= 1 - tolT;
         consider(e, a2, t2, atEnd ? 'touch' : 'crossing');
       }
-      return best;
+      if (bestE < 0) return null;
+      return {
+        edge: m.edge(bestE),
+        position: [fx + sx * bestAlong, fy + sy * bestAlong],
+        t: bestT,
+        along: bestAlong,
+        distance: slen * bestAlong,
+        kind: bestKind,
+      };
     },
   };
 }

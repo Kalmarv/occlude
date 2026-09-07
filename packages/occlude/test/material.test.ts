@@ -848,6 +848,88 @@ describe('query.edges', () => {
   });
 });
 
+describe('query.edges: pruning keeps the full scan’s answer', () => {
+  // 21 × 21 lattice of unit-spaced lines: query points and moves land exactly
+  // on cell boundaries, and every move spans many grid cells.
+  const lattice = () => {
+    const K = 20;
+    const pts: [number, number][] = [];
+    for (let i = 0; i <= K; i++) for (let j = 0; j <= K; j++) pts.push([i * 5, j * 5]);
+    const id = (i: number, j: number) => i * (K + 1) + j;
+    const eds: [number, number][] = [];
+    for (let i = 0; i <= K; i++) for (let j = 0; j < K; j++) { eds.push([id(i, j), id(i, j + 1)]); eds.push([id(j, i), id(j + 1, i)]); }
+    return material(pts, { edges: eds });
+  };
+  let s = 12345;
+  const rnd = () => ((s = (s * 48271) % 2147483647) / 2147483647);
+
+  it('a move across the whole drawing meets the first line it crosses, not a later one', async () => {
+    const { query } = await import('../src/query.js');
+    const q = query.edges(lattice());
+    for (let i = 0; i < 300; i++) {
+      // start and end off the lines, so the answer is a clean interior crossing
+      const from: [number, number] = [1 + rnd() * 98, 1 + rnd() * 98];
+      const to: [number, number] = [1 + rnd() * 98, 1 + rnd() * 98];
+      // analytic first crossing of a line x = 5k or y = 5k inside [0, 100]
+      let want = Infinity;
+      for (let k = 0; k <= 20; k++) {
+        for (const [p0, p1] of [[from[0], to[0]], [from[1], to[1]]] as [number, number][]) {
+          const d = p1 - p0;
+          if (d === 0) continue;
+          const a = (5 * k - p0) / d;
+          if (a > 0 && a <= 1) want = Math.min(want, a);
+        }
+      }
+      const hit = q.firstHit(from, to);
+      if (!Number.isFinite(want)) { expect(hit).toBeNull(); continue; }
+      expect(hit).not.toBeNull();
+      expect(hit!.along).toBeCloseTo(want, 9);
+    }
+  });
+
+  it('nearest over a wide radius agrees with a full scan, ties to the earlier edge', async () => {
+    const { query } = await import('../src/query.js');
+    const m = lattice();
+    const q = query.edges(m);
+    const scan = (px: number, py: number, within: number) => {
+      let bestE = -1;
+      let bestD = Infinity;
+      for (let e = 0; e < m.edgeCount; e++) {
+        const a = m.edgeList[2 * e];
+        const b = m.edgeList[2 * e + 1];
+        const dx = m.x[b] - m.x[a];
+        const dy = m.y[b] - m.y[a];
+        const len2 = dx * dx + dy * dy;
+        const t = len2 > 0 ? Math.max(0, Math.min(1, ((px - m.x[a]) * dx + (py - m.y[a]) * dy) / len2)) : 0;
+        const d = Math.hypot(px - (m.x[a] + dx * t), py - (m.y[a] + dy * t));
+        if (d <= within && d < bestD) { bestD = d; bestE = e; }
+      }
+      return bestE;
+    };
+    for (const within of [0, 1e-12, 2.5, 5, 60, 1e6]) {
+      for (let i = 0; i < 60; i++) {
+        const px = rnd() * 110 - 5;
+        const py = rnd() * 110 - 5;
+        expect(q.nearest([px, py], { within })?.edge.index ?? -1).toBe(scan(px, py, within));
+      }
+      // exactly on a lattice vertex: four edges at distance 0, the earliest wins
+      const on = q.nearest([25, 40], { within });
+      expect(on?.edge.index ?? -1).toBe(scan(25, 40, within));
+    }
+  });
+
+  it('a long edge beside short ones is still found from far along its length', async () => {
+    const { query } = await import('../src/query.js');
+    // the cell is at least the mean edge extent, so the long edge spans many cells
+    const m = material([[0, 0], [1000, 3], [1, 1], [1.2, 1], [999, 2], [999.5, 2.4]], { edges: [[0, 1], [2, 3], [4, 5]] });
+    const q = query.edges(m);
+    const mid = q.nearest([500, 1.5], { within: 1 })!;
+    expect(mid.edge.index).toBe(0);
+    expect(q.firstHit([500, -10], [500, 10])!.edge.index).toBe(0);
+    expect(q.nearest([500, 1.51], { within: 1e-6 })).toBeNull();
+  });
+});
+
 describe('correctness pass (review of 22c9887)', () => {
   it('1. recorded split options are copied at recording time; callbacks stay live', () => {
     const line = curve([[0, 0], [10, 0], [20, 0]], { closed: false, age: 0 });
