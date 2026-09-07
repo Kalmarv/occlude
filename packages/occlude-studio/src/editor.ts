@@ -31,6 +31,8 @@ export interface EditorOptions {
   uri?: string;
   /** Compact chrome for inline editors: no line highlight, smaller gutter. */
   inline?: boolean;
+  /** Inline editors: show fold controls (for `// #region` markers). */
+  folding?: boolean;
 }
 
 export interface Editor {
@@ -137,7 +139,7 @@ export function createEditor(container: HTMLElement, initial: string, opts: Edit
     renderLineHighlight: opts.inline ? 'none' : 'gutter',
     tabSize: 2,
     ...(opts.inline
-      ? { lineNumbersMinChars: 3, folding: false, wordWrap: 'on', scrollbar: { alwaysConsumeMouseWheel: false }, overviewRulerLanes: 0, hideCursorInOverviewRuler: true }
+      ? { lineNumbersMinChars: 3, folding: opts.folding ?? false, showFoldingControls: 'always', wordWrap: 'on', scrollbar: { alwaysConsumeMouseWheel: false }, overviewRulerLanes: 0, hideCursorInOverviewRuler: true }
       : {}),
   });
 

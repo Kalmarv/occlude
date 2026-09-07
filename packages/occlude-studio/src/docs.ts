@@ -135,10 +135,22 @@ function mountEditor(i: number, token: number): void {
   bar.append(err, spacer, reset);
   slot.code.replaceChildren(host, bar);
   slot.bar = bar;
-  const editor = createEditor(host, slot.live.src, { uri: `file:///docs/example-${token}-${i}.ts`, inline: true });
+  const foldable = /^\s*\/\/ ?#region/m.test(slot.live.src);
+  const editor = createEditor(host, slot.live.src, { uri: `file:///docs/example-${token}-${i}.ts`, inline: true, folding: foldable });
   editors.push(editor);
   slot.editor = editor;
-  reset.onclick = () => editor.setValue(slot.live.src);
+  // The lines this example is about (`focus=` in the fence) stay tinted;
+  // a `// #region` block (setup carried from an earlier stage) starts folded.
+  const focus = slot.live.meta.focus;
+  if (focus) {
+    editor.editor.createDecorationsCollection(focus.map(([a, b]) => ({
+      range: { startLineNumber: a, startColumn: 1, endLineNumber: b, endColumn: 1 },
+      options: { isWholeLine: true, className: 'live-focus', linesDecorationsClassName: 'live-focus-gutter' },
+    })));
+  }
+  const foldSetup = () => { if (foldable) void editor.editor.getAction('editor.foldAllMarkerRegions')?.run(); };
+  foldSetup();
+  reset.onclick = () => { editor.setValue(slot.live.src); foldSetup(); };
   let timer: ReturnType<typeof setTimeout> | null = null;
   editor.onChange(() => {
     reset.hidden = editor.getValue() === slot.live.src;

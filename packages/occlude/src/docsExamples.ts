@@ -35,12 +35,16 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
 ];
 
 /** Settings a live fence may carry after `ts live`: `paper=A5` or
- * `paper=120x80` (mm), `margin=8` (percent), `landscape`. Everything else
+ * `paper=120x80` (mm), `margin=8` (percent), `landscape`, `focus=10-13`
+ * (lines the editor highlights). Everything else
  * is the default sheet: Square20 at a 5 % margin, the drawable shown whole. */
 export interface LiveMeta {
   paper?: string;
   margin?: number;
   landscape?: boolean;
+  /** Line ranges (1-based, inclusive) the editor highlights as the lines
+   * this example is about: `focus=10-13,20`. */
+  focus?: [number, number][];
 }
 
 export function parseLiveMeta(info: string): LiveMeta {
@@ -50,7 +54,13 @@ export function parseLiveMeta(info: string): LiveMeta {
     if (k === 'paper' && v) meta.paper = v;
     else if (k === 'margin' && v && Number.isFinite(+v)) meta.margin = +v;
     else if (k === 'landscape') meta.landscape = true;
-    else throw new Error(`unknown live setting '${tok}' (paper=, margin=, landscape)`);
+    else if (k === 'focus' && v) {
+      meta.focus = v.split(',').map((part) => {
+        const [a, b] = part.split('-').map(Number);
+        if (!Number.isInteger(a) || a < 1 || (b !== undefined && (!Number.isInteger(b) || b < a))) throw new Error(`bad focus range '${part}' (lines like 10-13,20)`);
+        return [a, b ?? a];
+      });
+    } else throw new Error(`unknown live setting '${tok}' (paper=, margin=, landscape, focus=)`);
   }
   return meta;
 }
