@@ -4,7 +4,7 @@
  * and report the numbers that path-optimization passes would change —
  * measured before/after evidence, not guesses.
  *
- *   pnpm --filter occlude plotstats <sketch.ts...> [--seed N] [--paper A4]
+ *   pnpm --filter occlude plotstats <sketch.ts...> [--seed N] [--paper A4] [--pens docs]
  *        [--landscape] [--tolerance 0.025]
  *        [--profile profiles.json] [--travel MMPM=6000] [--accel MMS2=1000] [--taccel MMS2=2000]
  *   pnpm --filter occlude plotstats --fit    # learn wall-time correction
@@ -30,7 +30,7 @@ import { preloadFillsFromDisk } from './fill-preload.js';
 import * as occlude from '../src/index.js';
 import {
   compileSketch, initOcclude, isSketch, paperSize, pensToJson, render,
-  setPaperHint, setPenLibrary, type SketchDef,
+  setPaperHint, setPenLibrary, DEFAULT_PENS, type SketchDef,
 } from '../src/index.js';
 
 const args = process.argv.slice(2);
@@ -114,7 +114,7 @@ if (args.includes('--fit')) {
 }
 const optValues = new Set<number>();
 args.forEach((a, i) => {
-  if (a.startsWith('--') && ['seed', 'paper', 'tolerance', 'eps', 'profile', 'travel', 'accel', 'taccel'].includes(a.slice(2))) optValues.add(i + 1);
+  if (a.startsWith('--') && ['seed', 'paper', 'tolerance', 'eps', 'profile', 'travel', 'accel', 'taccel', 'pens'].includes(a.slice(2))) optValues.add(i + 1);
 });
 const files = args.filter((a, i) => !a.startsWith('--') && !optValues.has(i));
 const opt = (name: string): string | undefined => {
@@ -140,12 +140,17 @@ const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
 );
 await initOcclude(readFileSync(wasmPath));
-// Use the studio's shared pen library so sketches naming real pens work.
-try {
-  const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
-  setPenLibrary(JSON.parse(readFileSync(pensPath, 'utf8')));
-} catch {
-  // defaults
+// Use the studio's shared pen library so sketches naming real pens work,
+// or the docs' own pens with --pens docs.
+if (opt('pens') === 'docs') {
+  setPenLibrary(structuredClone(DEFAULT_PENS));
+} else {
+  try {
+    const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
+    setPenLibrary(JSON.parse(readFileSync(pensPath, 'utf8')));
+  } catch {
+    // defaults
+  }
 }
 const size = paperSize({ paper, landscape });
 setPaperHint(size.w, size.h);
