@@ -33,6 +33,18 @@ describe('selections', () => {
     expect(calls).toBe(0); // no re-evaluation
   });
 
+  it('domain comes from the view, not from attribute names', () => {
+    const m = material([[0, 0], [1, 0]], { edges: [[0, 1]], a: 1, b: 2, x2: 3 });
+    const pts = m.selectPoints(() => true);
+    expect(pts.has(m.vertex(0))).toBe(true);
+    const es = m.selectEdges(() => true);
+    expect(() => es.has(m.vertex(0) as never)).toThrow(/vertex view/);
+    expect(() => pts.has(m.edge(0) as never)).toThrow(/edge view/);
+    // the edit interface is just as strict: a vertex named a/b is not an edge
+    expect(() => m.steps(1, (cur, next) => next.split(cur.vertex(0) as never))).toThrow(/edge view/);
+    expect(m.steps(1, (cur, next) => next.move(cur.vertex(1), [1, 0])).x[1]).toBe(2);
+  });
+
   it('edge selections: views, deduplicated endpoints in source order, domain checks', () => {
     const m = Y();
     const strong = m.selectEdges((e) => e.attrs.strength >= 3);

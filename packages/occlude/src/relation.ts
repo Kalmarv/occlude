@@ -16,10 +16,11 @@
  * questions and stay different calls.
  */
 
-import { Material, ownedBy, type Curve, type Edge, type Vertex } from './material.js';
+import { Material, ownedBy, viewKind, type Curve, type Edge, type Vertex } from './material.js';
 
-const isEdgeView = (v: unknown): v is Edge => typeof v === 'object' && v !== null && 'a' in v && 'b' in v && 'index' in v;
-const isVertexView = (v: unknown): v is Vertex => typeof v === 'object' && v !== null && 'x' in v && 'y' in v && 'index' in v && !('a' in v);
+// Domain comes from the view's own marker, never from attribute names.
+const isEdgeView = (v: unknown): v is Edge => viewKind(v) === 'edge';
+const isVertexView = (v: unknown): v is Vertex => viewKind(v) === 'vertex';
 
 /** Rows in source order, deduplicated. */
 function rowsOf(indices: Iterable<number>): readonly number[] {

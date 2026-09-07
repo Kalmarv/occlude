@@ -1738,137 +1738,121 @@ prepared once outside the attribute callback; nearby points are
 `neighbours`. Connected and nearby are different questions.
 
 ```ts live
-import { sketch, stroke, circle, material, add } from 'occlude';
+import { sketch, stroke, circle, connect, ui } from 'occlude';
 
-// Active tips as dots: a tree grows by extension, then the tips are
-// selected from the final state and drawn as marks over its chains.
-export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
-  const seeds = material(t.times(5, (i) => [15 + i * 17.5, 46]), { active: 1, heading: -Math.PI / 2 });
-  const tree = seeds.steps(26, (cur, next, k) => {
-    next.extend((p) => {
-      const h = p.heading + t.noise(p.x / 9, p.y / 9, k * 0.02) * 0.6;
-      const kids = [{ position: add(p, [Math.cos(h) * 1.6, Math.sin(h) * 1.6]), attributes: { active: 1, heading: h } }];
-      if (t.chance(0.12)) kids.push({ position: add(p, [Math.cos(h + 0.8) * 1.6, Math.sin(h + 0.8) * 1.6]), attributes: { active: 1, heading: h + 0.8 } });
-      return kids;
-    }, { where: (p) => p.active === 1 && p.y > 4 });
-    next.set(() => ({ active: 0 }), { where: (p) => p.active === 1 });
-  });
-  const tips = tree.selectPoints((p) => p.active === 1);
-  return [tree.curves().map((c) => stroke(c)), tips.points.map((p) => circle(p.x, p.y, 0.6, { pen: 'stabilo-88-blue' }))];
-});
-```
-
-```ts live
-import { sketch, stroke, material, add } from 'occlude';
-
-// Strong edges only: an edge that has fed growth for twelve steps is
-// marked as carrying flow; that selection draws the trunk lines in a
-// heavy pen and the young wood faint. Same material, two selections.
-export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
-  const seeds = material(t.times(4, (i) => [20 + i * 20, 46]), { active: 1, heading: -Math.PI / 2, depth: 0 }).edgeAttribute('flow', 0);
-  const tree = seeds.steps(30, (cur, next, k) => {
-    next.extend((p) => {
-      const h = p.heading + t.noise(p.x / 9, p.y / 9, k * 0.03) * 0.35;
-      const kids = [{ position: add(p, [Math.cos(h) * 1.4, Math.sin(h) * 1.4]), attributes: { active: 1, heading: h, depth: p.depth + 1 }, edgeAttributes: { flow: 0 } }];
-      if (t.chance(0.09)) kids.push({ position: add(p, [Math.cos(h - 0.8) * 1.4, Math.sin(h - 0.8) * 1.4]), attributes: { active: 1, heading: h - 0.8, depth: p.depth + 1 }, edgeAttributes: { flow: 0 } });
-      return kids;
-    }, { where: (p) => p.active === 1 && p.y > 4 });
-    next.set(() => ({ active: 0 }), { where: (p) => p.active === 1 });
-    next.setEdges(() => ({ flow: 1 }), { where: (e) => e.attrs.flow === 0 && e.b.depth < k - 12 });
-  });
-  const strong = tree.selectEdges((e) => e.attrs.flow > 0);
-  const weak = tree.selectEdges(() => true).subtract(strong);
+// Selection: the edges longer than a threshold drawn heavy, the rest of
+// the mesh lightly (the complement is a selection too), and the points
+// the long edges touch as dots. Move `longest` and watch membership
+// change; nothing is rebuilt.
+export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
+  const longest = ui(9, { min: 3, max: 14, step: 0.5 });
+  const mesh = connect.triangulate(t.times(13 * 7, (i) => [6 + (i % 13) * 7.3 + t.rnd(-2.2, 2.2), 6 + Math.floor(i / 13) * 6.3 + t.rnd(-2, 2)]));
+  const long = mesh.selectEdges((e) => e.length > longest);
+  const rest = mesh.selectEdges(() => true).subtract(long);
   return [
-    strong.curves().map((c) => stroke(c, { pen: 'pigma-01-black' })),
-    weak.curves().map((c) => stroke(c, { pen: 'stabilo-88-green' })),
+    rest.curves().map((c) => stroke(c, { pen: 'pigma-005-black' })),
+    long.curves().map((c) => stroke(c, { pen: 'stabilo-88-blue' })),
+    long.points.map((p) => circle(p.x, p.y, 0.9, { pen: 'stabilo-88-blue' })),
   ];
 });
 ```
 
 ```ts live
-import { sketch, stroke, circle, force, mul, components } from 'occlude';
+import { sketch, stroke, circle, force, mul, ui } from 'occlude';
 
-// Extract and continue: one arm of a grown ring is cut out as its own
-// material and relaxed further on its own; the source ring is untouched.
-export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
-  const ring = t.sample(circle(32, 25, 12), { count: 40 }).attribute('age', 0).steps(30, (cur, next, k) => {
-    const pull = force.tension(cur, { rest: 1.4 });
-    const wander = force.drift(t.noise, { amount: 0.3, frequency: 0.08 });
-    next.move((p) => mul(pull(p), 0.3));
-    next.move((p) => wander(p, k));
-    next.set((p) => ({ age: p.age + 1 }));
-  });
-  const arm = ring.selectEdges((e) => e.a.x > 32 && e.b.x > 32);   // the right half's edges
-  const piece = arm.extract();                                        // fresh material, iteration 0
-  const settled = piece.steps(40, (cur, next) => {
+// Extraction, left to right: the source ring with its selected arc heavy
+// and the rest faint; the arc extracted as its own material, alone; the
+// extracted arc relaxed on its own, over the faint remainder — the source
+// never moves. `cut` is the selection's height.
+export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
+  const cut = ui(48, { min: 20, max: 80, step: 1 });
+  const ring = t.sample(circle(50, 50, 34), { count: 48 }).steps(1, (_, next) => next.move((p) => [t.rnd(-4, 4), t.rnd(-4, 4)]));
+  const arc = ring.selectEdges((e) => e.a.y < cut && e.b.y < cut);
+  const rest = ring.selectEdges(() => true).subtract(arc).extract();
+  const piece = arc.extract();                                       // iteration 0, no history, its own rows
+  const smooth = piece.steps(60, (cur, next) => {
     const relax = force.relax(cur);
-    next.move((p) => mul(relax(p), 0.4), { where: (p) => cur.degree(p.index) === 2 });
+    next.move((p) => mul(relax(p), 0.5), { where: (p) => cur.degree(p.index) === 2 });
   });
-  const moved = settled.steps(1, (_, next) => next.move(() => [36, 0]));
+  const at = (m, dx) => m.steps(1, (_, next) => next.move(() => [dx, 0]));
+  const faint = (m) => m.curves().map((c) => stroke(c, { pen: 'pigma-005-black' }));
+  const heavy = (m) => m.curves().map((c) => stroke(c, { pen: 'stabilo-88-blue' }));
+  const ends = (m, dx) => m.points.filter((p) => m.degree(p.index) === 1).map((p) => circle(p.x + dx, p.y, 1.2));
   return [
-    ring.curves().map((c) => stroke(c, { pen: 'stabilo-88-green' })),
-    moved.curves().map((c) => stroke(c)),
-    moved.points.filter((p) => moved.degree(p.index) === 1).map((p) => circle(p.x, p.y, 0.6)),
+    faint(rest), arc.curves().map((c) => stroke(c, { pen: 'stabilo-88-blue' })),
+    heavy(at(piece, 100)), ends(piece, 100),
+    faint(at(rest, 200)), heavy(at(smooth, 200)), ends(smooth, 200),
   ];
 });
 ```
 
 ```ts live
-import { sketch, stroke, circle, force, sum, mul, meanBy, segmentRuns, extent, banding } from 'occlude';
+import { sketch, stroke, connect, meanBy, segmentRuns, extent, banding } from 'occlude';
 
-// Neighbourhood age: each vertex takes the mean age of the vertices it is
-// connected to, then the strokes are banded on that column with the
-// existing helpers — a relation measured after growth, drawn by pen.
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  const wander = force.drift(t.noise, { amount: 0.1, frequency: 0.1 });
-  const grown = t.sample(circle(50, 25, 5), { count: 24 }).attribute('age', 0).steps(60, (cur, next, k) => {
-    const pull = force.tension(cur, { rest: 0.8 });
-    const repel = force.separation(cur, { radius: 2, excludeConnected: true });
-    next.move((p) => mul(sum(pull(p), repel(p), wander(p, k)), 0.15));
-    next.set((p) => ({ age: p.age + 1 }));
-    next.splitEdges((e) => e.length > 0.9 && t.chance(0.3), { point: { age: 0 } });
-  });
-  const marked = grown.attribute('neighbourAge', (p) => meanBy(grown.connectedPoints(p), (q) => q.age));
-  const [lo, hi] = extent(marked.attrs.neighbourAge);
-  const band = banding({ min: lo, max: hi, count: 3 });
-  const pens = ['stabilo-88-blue', 'stabilo-88-green', 'pigma-005-black'];
-  return segmentRuns(marked, (a, b) => band((a.neighbourAge + b.neighbourAge) / 2)).map((r) => stroke(r, { pen: pens[r.key] }));
-});
-```
-
-```ts live
-import { sketch, stroke, circle, connect, components, segmentRuns } from 'occlude';
-
-// Connected pieces: a jittered grid joined to nearest neighbours falls
-// into islands; components() labels each once, isolated points included,
-// and the label picks the pen. Labels belong to this state only.
-export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
-  const pts = t.times(9 * 5, (i) => [8 + (i % 9) * 10.5 + t.rnd(-3, 3), 6 + Math.floor(i / 9) * 9.5 + t.rnd(-3, 3)]);
-  const linked = connect.nearest(pts, { count: 1 });
-  const pieces = components(linked);
-  const labelled = linked.attribute('piece', (p) => pieces.label(p), { transfer: 'nearest' });
-  const pens = ['pigma-005-black', 'stabilo-88-blue', 'stabilo-88-green'];
+// Relational attributes: the same mesh twice. Left, every vertex has a
+// random `age` and the edges are banded on it — salt and pepper. Right,
+// `neighbourAge` is the mean over connected vertices, and the bands
+// become patches. Same geometry, one column derived from its neighbours.
+export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
+  const pts = t.times(9 * 8, (i) => [4 + (i % 9) * 5 + t.rnd(-1.4, 1.4), 4 + Math.floor(i / 9) * 6 + t.rnd(-1.6, 1.6)]);
+  const raw = connect.triangulate(pts).attribute('age', () => t.rnd(0, 1));
+  const smoothed = raw.attribute('neighbourAge', (p) => meanBy(raw.connectedPoints(p), (q) => q.age));
+  const right = smoothed.steps(1, (_, next) => next.move(() => [52, 0]));
+  const bands = (col) => { const [lo, hi] = extent(col); return banding({ min: lo, max: hi, count: 3 }); }; // each column on its own range
+  const rawBand = bands(raw.attrs.age);
+  const meanBand = bands(right.attrs.neighbourAge);
+  const pens = ['stabilo-88-blue', 'pigma-005-black', 'stabilo-88-green'];
   return [
-    segmentRuns(labelled, (a) => a.piece % 3).map((r) => stroke(r, { pen: pens[r.key] })),
-    labelled.points.filter((p) => labelled.degree(p.index) === 0).map((p) => circle(p.x, p.y, 0.8, { pen: pens[p.piece % 3] })),
+    segmentRuns(raw, (a, b) => rawBand((a.age + b.age) / 2)).map((r) => stroke(r, { pen: pens[r.key] })),
+    segmentRuns(right, (a, b) => meanBand((a.neighbourAge + b.neighbourAge) / 2)).map((r) => stroke(r, { pen: pens[r.key] })),
   ];
 });
 ```
 
 ```ts live
-import { sketch, stroke, circle, rect, query, material } from 'occlude';
+import { sketch, stroke, circle, material, append, connect, components, segmentRuns } from 'occlude';
 
-// Distance as a column: an obstacle's outline is prepared once as an edge
-// query, and every point of a cloud records how far it is from it (the
-// fallback is the artist's number). Dots shrink toward the wall.
+// Components: separate chains, a ring, and lone points in one material.
+// components() labels each piece once; the pen cycles by label and a
+// tally of label + 1 dots sits by the piece's first vertex, so every
+// label is readable even where the pens repeat. Isolated vertices are
+// pieces too.
+export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
+  const chain = (x, y, n) => connect.chain(t.times(n, (k) => [x + k * 3.2, y + t.noise(x + k, y) * 6]));
+  let all = append(chain(6, 10, 8), chain(40, 8, 10));
+  all = append(all, chain(72, 12, 7));
+  all = append(all, chain(10, 34, 12));
+  all = append(all, connect.ring(t.times(12, (k) => [66 + Math.cos(k / 12 * Math.PI * 2) * 8, 34 + Math.sin(k / 12 * Math.PI * 2) * 8])));
+  all = append(all, material([[50, 22], [88, 42], [30, 46], [92, 20]]));
+  const pieces = components(all);
+  const labelled = all.attribute('piece', (p) => pieces.label(p), { transfer: 'nearest' });
+  const pens = ['pigma-01-black', 'stabilo-88-blue', 'stabilo-88-green'];
+  const first = t.times(pieces.count, (label) => labelled.points.find((p) => p.piece === label));
+  return [
+    segmentRuns(labelled, (a) => a.piece).map((r) => stroke(r, { pen: pens[r.key % 3] })),
+    labelled.points.filter((p) => labelled.degree(p.index) === 0).map((p) => circle(p.x, p.y, 0.5, { pen: pens[p.piece % 3] })),
+    first.map((p) => t.times(p.piece + 1, (k) => circle(p.x + k * 1.5, p.y - 3.5, 0.45, { pen: pens[p.piece % 3] }))),
+  ];
+});
+```
+
+```ts live
+import { sketch, stroke, circle, rect, query, material, append, ui } from 'occlude';
+
+// Distance as a column: two obstacles' outlines are prepared once as an
+// edge query, and every point of an even grid records its distance to
+// the nearest sampled edge — a dot's size. Beyond `within` the query
+// answers null and the artist's fallback shows as the largest dots.
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
-  const wall = t.sample(rect(38, 12, 24, 26), { spacing: 1 });
-  const edges = query.edges(wall);                       // once, outside the callback
-  const cloud = material(t.times(420, () => [t.rnd(4, 96), t.rnd(4, 46)]));
-  const measured = cloud.attribute('distance', (p) => edges.nearest(p, { within: 14 })?.distance ?? 14);
+  const within = ui(12, { min: 3, max: 30, step: 1 });
+  const box = t.sample(rect(14, 12, 24, 22), { spacing: 1 });
+  const disc = t.sample(circle(68, 27, 11), { spacing: 1 });
+  const edges = query.edges(append(box, disc));                    // once, outside the callback
+  const grid = material(t.times(33 * 16, (i) => [2.5 + (i % 33) * 3, 2.5 + Math.floor(i / 33) * 3]));
+  const measured = grid.attribute('distance', (p) => edges.nearest(p, { within })?.distance ?? within);
   return [
-    stroke(wall.contour),
-    measured.points.filter((p) => p.distance > 0.8).map((p) => circle(p.x, p.y, 0.25 + p.distance * 0.06)),
+    stroke(box.contour), stroke(disc.contour),
+    measured.points.filter((p) => p.distance > 0.6).map((p) => circle(p.x, p.y, 0.15 + 1.15 * (p.distance / within))),
   ];
 });
 ```

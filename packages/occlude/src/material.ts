@@ -160,6 +160,14 @@ export type Transfer =
   | ((a: Vertex, b: Vertex, t: number) => number);
 
 const OWNER = Symbol('material');
+const KIND = Symbol('view');
+
+/** Which kind of view this is — decided by the material that made it,
+ * never by the presence of attribute names (an artist may call a column
+ * `a`, `b` or `x`). `undefined` for anything that is not a view. */
+export function viewKind(view: unknown): 'vertex' | 'edge' | undefined {
+  return typeof view === 'object' && view !== null ? (view as Record<symbol, 'vertex' | 'edge'>)[KIND] : undefined;
+}
 
 /** Column transfer policies a material remembers for its point columns
  * (`attribute(name, value, { transfer })`), used as the default by `split`
@@ -263,6 +271,7 @@ export class Material {
     const v: Record<string, number> = { index: i, x: this.x[i], y: this.y[i] };
     for (const name in this.attrs) v[name] = this.attrs[name][i];
     Object.defineProperty(v, OWNER, { value: this, enumerable: false });
+    Object.defineProperty(v, KIND, { value: 'vertex', enumerable: false });
     return v as Vertex;
   }
 
@@ -298,6 +307,7 @@ export class Material {
     for (const name in this.edgeAttrs) attrs[name] = this.edgeAttrs[name][e];
     const view: Edge = { a, b, length: distance(a, b), index: e, attrs };
     Object.defineProperty(view, OWNER, { value: this, enumerable: false });
+    Object.defineProperty(view, KIND, { value: 'edge', enumerable: false });
     return view;
   }
 
@@ -912,7 +922,7 @@ export interface Handle {
 export type Ref = number | Vertex | Handle;
 
 const isHandle = (r: unknown): r is Handle => typeof r === 'object' && r !== null && '__handle' in r;
-const isVertexView = (r: unknown): r is Vertex => typeof r === 'object' && r !== null && 'index' in r && !('__handle' in r);
+const isVertexView = (r: unknown): r is Vertex => viewKind(r) === 'vertex';
 
 /** One child of `extend`: a new point (`position` + `attributes`) or an
  * existing target (`to`); either way an edge from the parent, carrying
@@ -1070,7 +1080,7 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
     return r;
   };
   const edgeRow = (e: Edge, what: string): number => {
-    if (typeof e !== 'object' || e === null || !('index' in e) || !('a' in e)) throw new Error(`steps: ${what} must be an edge view`);
+    if (viewKind(e) !== 'edge') throw new Error(`steps: ${what} must be an edge view`);
     if (ownerOf(e as unknown as Vertex) !== cur) throw new Error(`steps: ${what} is an edge of another material (or another state)`);
     return e.index;
   };
