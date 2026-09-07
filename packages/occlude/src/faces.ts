@@ -834,6 +834,21 @@ export class Faces {
     return this.faces.every(fn);
   }
 
+  /** The faces on the two sides of a source edge: two for a wall between
+   * cells, one for a wall on the outside or a spur inside a face, none
+   * for an edge no face touches. The edge must be a view of the source
+   * state. */
+  facesOf(edge: Edge): Face[] {
+    if (viewKind(edge) !== 'edge') throw new Error('faces.facesOf: expected an edge view');
+    if (!ownedBy(edge, this.source)) throw new Error('faces.facesOf: that edge belongs to another state — take it from the material these faces were read from');
+    const l = this.faceOf[2 * edge.index];
+    const r = this.faceOf[2 * edge.index + 1];
+    const out: Face[] = [];
+    if (l >= 0) out.push(this.faces[l]);
+    if (r >= 0 && r !== l) out.push(this.faces[r]);
+    return out;
+  }
+
   /** True when `face` is a view of this collection. */
   has(face: Face): boolean {
     if (viewKind(face) !== 'face') throw new Error('faces.has: expected a face view');

@@ -622,6 +622,7 @@ The regions a network encloses are data too. `m.planarize()` makes every crossin
 | `cells.filter(f => bool)` | a fixed-membership face selection with `union`, `intersect`, `subtract` |
 | `cells.edges`, `sel.edges` | every source edge incident to the (selected) faces, once, as an edge selection: shared walls included, and a spur inside a face counts as that face's edge |
 | `cells.points`, `sel.points` | the endpoints of those edges, once |
+| `cells.facesOf(edge)` | the faces on the two sides of a source edge: two for a wall between cells, one for an outer wall or a spur, none for an edge no face touches; the reverse of `face.edges` |
 | `cells.boundaryEdges`, `sel.boundaryEdges` | edges between the selected union and its exterior: walls between two selected faces are excluded, a hole's boundary stays |
 | `sel.boundaries()` | closed contours around the union of the selected faces: a drawing view of the same boundary |
 | `cells.measure(field?, { resolution?, bounds? })` | per-face geometric `area` and `centroid` (holes respected) and, given a field, its `integral`, `mean` and density-weighted `weightedCentroid`; `forFace(face)` looks one up |

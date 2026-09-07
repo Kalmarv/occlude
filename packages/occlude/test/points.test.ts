@@ -405,6 +405,21 @@ describe('review of fe26c3f', () => {
     expect(cells.edges.length).toBe(8);
   });
 
+  it('facesOf: the faces on the two sides of an edge, ownership-checked', () => {
+    const two = material([[0, 0], [10, 0], [20, 0], [20, 10], [10, 10], [0, 10], [17, 3]], { edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0], [1, 4], [2, 6]] });
+    const cells = two.faces();
+    const shared = cells.facesOf(two.edge(6));
+    expect(shared.length).toBe(2);
+    expect(shared.map((f) => f.bounds.x).sort()).toEqual([0, 10]);
+    expect(cells.facesOf(two.edge(0)).length).toBe(1); // outer wall
+    expect(cells.facesOf(two.edge(7)).length).toBe(1); // the spur: one face on both sides
+    const lone = material([[30, 30], [40, 30]], { edges: [[0, 1]] });
+    expect(lone.faces().facesOf(lone.edge(0))).toEqual([]);
+    expect(() => cells.facesOf(lone.edge(0))).toThrow(/another state/);
+    // the same edge through a selection view of the source
+    expect(cells.facesOf(two.edges.filter((e) => e.index === 6).at(0)).length).toBe(2);
+  });
+
   it('4. measurements are frozen: the record and its coordinate tuples', () => {
     const cells = voronoi([[20, 20], [80, 30], [50, 70]], B);
     const measured = cells.faces().measure(() => 1);
