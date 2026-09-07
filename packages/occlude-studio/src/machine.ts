@@ -8,7 +8,9 @@
  * here is the machine's: origins, seat, lift, settle.
  */
 
-import { liftMapFromCounts, parseCounts, refineLiftMap, type PenDef } from 'occlude';
+import { liftMapFromCounts, parseCounts, refineLiftMap, type LiftMap, type PenDef } from 'occlude';
+
+import { cellTestPulses, heatColour, liftCells, nudgeCell, RUNG, setCellThreshold, type LiftCell } from './liftGrid.js';
 
 import {
   backlashSquares, calDots, calHatch, calLines, calSegments, cornerRinging,
@@ -332,13 +334,10 @@ export function buildProfileForm(m: MachineSession): HTMLElement {
  * button, and where its reading goes. Readings are typed in as they are read
  * off the paper and become profile state (lift map, settle curve).
  */
-export function buildCalibration(
-  m: MachineSession,
-  onProgress: (p: PlotProgress) => void,
-  basePen: () => PenDef | undefined,
-): HTMLElement {
+/** Plot one card on the connected machine; a no-op while disconnected or busy. */
+export function cardRunner(m: MachineSession, onProgress: (p: PlotProgress) => void): (d: Diagnostic) => Promise<void> {
   const { ebb } = m;
-  const run = async (d: Diagnostic): Promise<void> => {
+  return async (d: Diagnostic): Promise<void> => {
     if (!ebb.connected || ebb.plotting) return;
     try {
       await ebb.plot(
@@ -349,6 +348,14 @@ export function buildCalibration(
       m.showErr(e);
     }
   };
+}
+
+export function buildCalibration(
+  m: MachineSession,
+  onProgress: (p: PlotProgress) => void,
+  basePen: () => PenDef | undefined,
+): HTMLElement {
+  const run = cardRunner(m, onProgress);
 
   // Ladder: six lift pulses for the pen-height cards. 0/0 = wide first pass.
   let ladderFrom = 0;
@@ -499,6 +506,94 @@ export function buildCalibration(
       motion, timing),
   );
   return el('div', 'calibration', mapStatus, list);
+}
+
+/**
+ * Bed level: the lift map as a heat grid of per-cell thresholds, one cell
+ * selected for editing, and a one-cell check card so an adjustment can be
+ * verified without re-running the whole grid. Pulses, lower = more lift
+ * (see liftGrid.ts). Edits go straight into the active profile.
+ */
+export function buildBedLevel(
+  m: MachineSession,
+  onProgress: (p: PlotProgress) => void,
+  basePen: () => PenDef | undefined,
+): { root: HTMLElement; refresh: () => void } {
+  const run = cardRunner(m, onProgress);
+  const status = hint('');
+  const mapGrid = el('div', 'lift-map');
+  let selected: { r: number; c: number } | undefined;
+  const writeMap = (next: LiftMap): void => {
+    m.prof().ebb.liftMap = next;
+    m.persist();
+    renderMap();
+  };
+  const renderMap = (): void => {
+    const map = m.prof().ebb.liftMap;
+    const e = m.prof().ebb;
+    mapGrid.replaceChildren();
+    if (!map) {
+      status.textContent = 'No lift map: every travel is at full lift. Run the lift grid card under Calibration to measure one.';
+      return;
+    }
+    const cells = liftCells(map, e.liftMarginPulses, e.penUpPulse);
+    const values = cells.map((c) => c.value);
+    const unresolved = cells.filter((c) => c.threshold === null).length;
+    status.textContent =
+      `${map.cols}×${map.rows} cells over ${map.bedW}×${map.bedH} mm, row 0 at the bed origin. ` +
+      `Each cell holds the last pulse that cleared the paper there; the driver travels ${e.liftMarginPulses} pulses below it. ` +
+      `Lower pulse = more lift. A pen that drags in a cell wants that cell one rung (${RUNG}) lower. ` +
+      `${unresolved} cells unresolved (clean at every rung, counted as ${map.unresolvedAbove}).`;
+    const legend = el('div', 'lift-map-legend',
+      el('span', undefined, `least lift ${Math.max(...values)}`),
+      el('span', 'lift-map-scale'),
+      el('span', undefined, `most lift ${Math.min(...values)}`),
+    );
+    const grid = el('div', 'lift-map-grid');
+    grid.style.gridTemplateColumns = `repeat(${map.cols}, max-content)`;
+    for (const cell of cells) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'lift-cell' + (cell.threshold === null ? ' unresolved' : '') +
+        (selected && selected.r === cell.r && selected.c === cell.c ? ' selected' : '');
+      b.style.background = heatColour(cell.heat);
+      b.textContent = cell.threshold === null ? `≥${map.unresolvedAbove}` : String(cell.threshold);
+      b.title = `row ${cell.r}, col ${cell.c}: last clean ${cell.threshold ?? `≥ ${map.unresolvedAbove}`}, travels at ${cell.travel}`;
+      b.onclick = () => { selected = { r: cell.r, c: cell.c }; renderMap(); };
+      grid.append(b);
+    }
+    mapGrid.append(legend, grid);
+    const cell = selected && cells.find((c) => c.r === selected!.r && c.c === selected!.c);
+    mapGrid.append(cell ? detailFor(map, cell) : hint('Click a cell to adjust it and test it.'));
+  };
+  const detailFor = (map: LiftMap, cell: LiftCell): HTMLElement => {
+    const value = numberInput(cell.value, 100, (v) => writeMap(setCellThreshold(map, cell.r, cell.c, v)));
+    value.title = 'Last clean pulse in this cell.';
+    const less = button(`−${RUNG} (more lift)`, () => writeMap(nudgeCell(map, cell.r, cell.c, -RUNG)));
+    const more = button(`+${RUNG} (less lift)`, () => writeMap(nudgeCell(map, cell.r, cell.c, RUNG)));
+    const unresolved = button('unresolved', () => writeMap(setCellThreshold(map, cell.r, cell.c, null)));
+    unresolved.title = 'Clean at every rung of the ladder: counts as the ladder top.';
+    const pulses = cellTestPulses(cell);
+    const check = button(`Test this cell (${pulses.join(' / ')})`, () => {
+      const { bedW, bedH } = m.prof().machine;
+      return run(liftGrid(basePen(), {
+        bedW, bedH, cols: map.cols, rows: map.rows, pulses, dashes: 4,
+        only: (r, c) => r === cell.r && c === cell.c,
+      }));
+    });
+    check.title = pulses.length > 1
+      ? 'Dashes in this cell only: the left strip at the travel lift the driver uses here (should be clean), the right at the cell’s threshold (the last clean rung). Position at the bed origin first.'
+      : 'Dashes in this cell only, at the travel lift the driver uses here. Position at the bed origin first.';
+    return el('div', 'lift-detail',
+      el('span', 'cell-name', `row ${cell.r}, col ${cell.c}`),
+      value, less, more, unresolved,
+      el('span', undefined, `travels at ${cell.travel}`),
+      check,
+    );
+  };
+  renderMap();
+  m.onProfileSwitch(renderMap);
+  return { root: el('div', 'bed-level', status, mapGrid), refresh: renderMap };
 }
 
 /** Serial transcript: the first artifact when the machine misbehaves. */

@@ -12,6 +12,7 @@ import type { PenDef } from 'occlude';
 
 import { serialSupported, type PlotProgress } from './ebb.js';
 import {
+  buildBedLevel,
   buildCalibration, buildConnect, buildLog, buildManualControls, buildProfileForm,
   buildProfileSelect, createSession,
 } from './machine.js';
@@ -61,14 +62,24 @@ async function boot(): Promise<void> {
 
   // Calibration cards inherit the physical pen's tuning: the pen you'd plot
   // with. First library pen unless chosen here.
-  const penSelect = document.createElement('select');
-  for (const p of pens) {
-    const o = document.createElement('option');
-    o.value = p.name;
-    o.textContent = p.name;
-    penSelect.append(o);
-  }
-  const basePen = (): PenDef | undefined => pens.find((p) => p.name === penSelect.value) ?? pens[0];
+  // One choice, two tabs: each tab gets its own select, kept in step.
+  let chosenPen = pens[0]?.name ?? '';
+  const selects: HTMLSelectElement[] = [];
+  const penPicker = (): HTMLSelectElement => {
+    const sel = document.createElement('select');
+    for (const p of pens) {
+      const o = document.createElement('option');
+      o.value = p.name;
+      o.textContent = p.name;
+      sel.append(o);
+    }
+    sel.value = chosenPen;
+    sel.onchange = () => { chosenPen = sel.value; for (const other of selects) other.value = chosenPen; };
+    selects.push(sel);
+    return sel;
+  };
+  const penSelect = penPicker();
+  const basePen = (): PenDef | undefined => pens.find((p) => p.name === chosenPen) ?? pens[0];
 
   const profile = el('section', 'machine-tab', buildProfileForm(m));
   const calibration = el('section', 'machine-tab',
@@ -82,11 +93,24 @@ async function boot(): Promise<void> {
     ),
     buildCalibration(m, onProgress, basePen),
   );
+  const bed = buildBedLevel(m, onProgress, basePen);
+  const bedLevel = el('section', 'machine-tab',
+    el('div', 'cal-side',
+      el('h3', undefined, 'Position'),
+      hint('Park at the bed corner and Set bed origin before testing a cell; the check draws from there.'),
+      buildManualControls(m),
+      el('h3', undefined, 'Pen'),
+      hint('The check inherits this pen’s settle and width.'),
+      penPicker(),
+    ),
+    bed.root,
+  );
   const log = el('section', 'machine-tab', buildLog(m));
 
-  const tabs = { profile, calibration, log };
+  const tabs = { profile, calibration, bedLevel, log };
   const show = (key: keyof typeof tabs): void => {
     for (const [k, t] of Object.entries(tabs)) t.hidden = k !== key;
+    if (key === 'bedLevel') bed.refresh();
     location.hash = key;
   };
   const initial = (location.hash.slice(1) || 'calibration') as keyof typeof tabs;
@@ -94,12 +118,13 @@ async function boot(): Promise<void> {
     [
       { key: 'profile' as const, label: 'Profile', title: 'Bed, axes, servo, motion — set once' },
       { key: 'calibration' as const, label: 'Calibration', title: 'The cards, in order, and their readings' },
+      { key: 'bedLevel' as const, label: 'Bed level', title: 'The lift map cell by cell: see, adjust, test one cell' },
       { key: 'log' as const, label: 'Log', title: 'Serial transcript' },
     ],
     tabs[initial] ? initial : 'calibration',
     show,
   );
-  main.append(head, nav.root, profile, calibration, log);
+  main.append(head, nav.root, profile, calibration, bedLevel, log);
   show(tabs[initial] ? initial : 'calibration');
 }
 
