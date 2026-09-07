@@ -4,7 +4,7 @@
  * browser. The debug loop for "what does seed X actually look like".
  *
  *   pnpm --filter occlude render <sketch.ts> [--seed N] [--paper A4]
- *        [--landscape] [--scale 8] [--out out.png] [--svg out.svg]
+ *        [--landscape] [--scale 8] [--out out.png] [--svg out.svg] [--pens docs]
  *
  * The sketch must export a `sketch(config, fn)` definition (default export
  * preferred, else the first exported definition found).
@@ -52,11 +52,16 @@ const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
 );
 await initOcclude(readFileSync(wasmPath));
-try {
-  const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
-  occlude.setPenLibrary(JSON.parse(readFileSync(pensPath, 'utf8')));
-} catch {
-  // default pens
+if (opt('pens') === 'docs') {
+  // the docs' own pens, as the docs pages and their checker use them
+  occlude.setPenLibrary(structuredClone(occlude.DEFAULT_PENS));
+} else {
+  try {
+    const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
+    occlude.setPenLibrary(JSON.parse(readFileSync(pensPath, 'utf8')));
+  } catch {
+    // default pens
+  }
 }
 const size = paperSize({ paper: paper as never, landscape });
 setPaperHint(size.w, size.h);
