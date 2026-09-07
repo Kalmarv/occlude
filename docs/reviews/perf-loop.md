@@ -864,6 +864,31 @@ wall-clock flake recorded below — a Rust BVH traversal has no path to a mocked
 
 
 ## Rejected, with reasons
+- **Caller-owned scratch for `clip_spans`'s inner allocations** (`clip.rs`,
+  `region.rs`). With the query worked through (entries 12–14), the spans loop
+  is the largest piece of the occlusion path left — 135 ms of 427 at 400 discs.
+  Reading it: each call allocates four `Vec`s in the pipeline's innermost loop
+  — `crossings` returns one and builds a boundary-index query buffer inside
+  itself, and `split_at` builds two more. The same shape as the `ClipBufs` and
+  BVH-frame fixes, so it looked like a certainty.
+
+  It is not. A `ClipScratch` bundle (the span output, the crossing parameters,
+  the boundary query) with `crossings_into` writing into it measured **flat**:
+  native `stack_bench` 400 discs 408/396/400 → 391/407/395 ms, losing one pair
+  of three; native `export_bench` wall clock 0.54/0.55/0.55 → 0.53/0.54/0.55.
+  Through wasm, where dlmalloc might have flattered it, ~2 % on two sketches
+  and slightly *worse* on the third: contours `pass2` 740/717 → 710/714,
+  contours-2-multicolor 512/518 → 496/508, church 171/182 → 178/187.
+
+  The spans loop is geometry-bound, not allocation-bound — `intersect_pair`
+  and the point-in-region tests are the cost, and the heap walk means
+  `clip_spans` runs only a few times per primitive anyway. A new public
+  `ClipScratch` type, a split `crossings`/`crossings_into`, a changed
+  `clip_spans` signature and four test call sites do not buy 1–2 %. Reverted;
+  the wasm rebuilt to a different md5 only because the revert restored the
+  earlier source, and the gates pass on it unchanged.
+
+
 - **A cached luminance plane for the image sampler** (`imageAsset.ts`). The
   samplers are the largest library-side cost in flow-user (~890 ms of self
   time); every bilinear tap recomputes
