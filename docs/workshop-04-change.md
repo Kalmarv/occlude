@@ -1,216 +1,296 @@
-# 4. Make it change
+# 4. Repeat a change
 
-**How do I make geometry change over many steps?** By the end of this chapter you can run an edit repeatedly, combine a steady push with a force that keeps the shape in order, grow a shore by splitting stretched connections, and keep the intermediate states to draw. This is the drawing you are about to make: over forty steps the pond has swelled into a lake with a wrinkled shore, its earlier shores drawn faintly inside it, and the reeds still stand on the eastern side.
+**What happens when a small rule acts repeatedly?** One displacement is easy to picture. The same displacement applied forty times, with a second rule pulling the other way and new points appearing where the line has stretched, makes contours nobody drew. This is the drawing this chapter arrives at: one ring, grown by a rule of three named parts, with a few of its earlier states drawn lightly and the last one emphasised. By the end you will know which part of the rule moves, which restrains, which adds points, and how to keep the states you want to draw.
 
 ```ts live
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, force, add, sub, mul, strokes } from 'occlude';
+import { sketch, circle, strokes, force, sum, sub, mul, ui } from 'occlude';
 
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  // #region the landscape and the sampled shore from chapters 1 to 3 (unchanged)
-  const sky = t.times(8, (k, u) => line(0, 6 + u * 54, 200, 6 + u * 54));
-  const sun = circle(110, 58, 15, { pen: 'stabilo-88-blue' });
-  const sheet = rect(0, 0, 200, 100);
-  const farHill = clip(sheet, ellipse(70, 95, 70, 45, 0, { fill: fill('hatch', { angle: 60, spacing: mm(1.4) }) }));
-  const nearHill = clip(sheet, ellipse(140, 110, 60, 42, 0, { fill: fill('hatch', { angle: 120, spacing: mm(1.4) }) }));
-  const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
-  const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
-  // #endregion
-  const lake = shore.steps(40, (current, next) => {
-    const pull = force.tension(current, { rest: 4 });
-    next.move((p) => add(add(mul(sub(p, [140, 94]), 0.011), [t.noise(p.x / 12, p.y / 12) * 0.8, t.noise(p.x / 12 + 30, p.y / 12) * 0.8]), mul(pull(p), 0.5)));
-    next.splitEdges((e) => e.length > 6);
-  }, { every: 10 });
-  const reeds = lake.points.filter((p) => p.east === 1).map((p) => line(p.x, p.y, p.x + 1, p.y - 7));
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const steps = ui(40, { min: 0, max: 60, step: 1 });
+  const wrinkle = ui(0.9, { min: 0, max: 3, step: 0.1, label: 'wrinkle amount' });
+  const strength = ui(0.5, { min: 0, max: 1.5, step: 0.05, label: 'tension strength' });
+  const every = ui(8, { min: 1, max: 24, step: 1, label: 'draw every' });
+  const centre = [t.cx, t.cy];
+  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const outward = (p) => mul(sub(p, centre), 0.02);
+  const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
+  const grown = ring.steps(steps, (current, next) => {
+    const pull = force.tension(current, { rest: 2.5 });
+    next.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+    next.splitEdges((e) => e.length > 5);
+  }, { every });
+  const states = grown.history;
   return [
-    sky, sun, farHill, nearHill,
-    polygon(lake, { opaque: true }),
-    lake.history.map((h) => strokes(h.material, { pen: 'pigma-005-black' })),
-    reeds,
+    states.slice(0, -1).map((h) => strokes(h.material, { pen: 'pigma-005-black' })),
+    strokes(grown, { pen: 'stabilo-88-blue' }),
   ];
 });
 ```
 
-## Start here
+Drag `steps` to zero and back up. Everything on this page comes from what happens between those two ends.
 
-Chapter 3 ended here: one nudge, and reeds on the points that remember being east. The nudge is one call to `steps` with `1` as its count. Everything in this chapter comes from changing that number and what happens inside.
+## One move, then several
 
-```ts live
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, force, add, sub, mul } from 'occlude';
+Start with a ring and one rule: every point moves away from the centre. `sub(p, centre)` is the vector from the centre to the point; `mul(…, 0.06)` shortens it to six percent. That is the displacement, and `next.move` adds it to where the point already is. The blue ring is the original; the black one is after `steps` moves; the dots are its points.
 
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  // #region the landscape and the sampled shore from chapters 1 to 3 (unchanged)
-  const sky = t.times(8, (k, u) => line(0, 6 + u * 54, 200, 6 + u * 54));
-  const sun = circle(110, 58, 15, { pen: 'stabilo-88-blue' });
-  const sheet = rect(0, 0, 200, 100);
-  const farHill = clip(sheet, ellipse(70, 95, 70, 45, 0, { fill: fill('hatch', { angle: 60, spacing: mm(1.4) }) }));
-  const nearHill = clip(sheet, ellipse(140, 110, 60, 42, 0, { fill: fill('hatch', { angle: 120, spacing: mm(1.4) }) }));
-  const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
-  const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
-  // #endregion
-  const nudged = shore.steps(1, (current, next) => {
-    next.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
-  });
-  const reeds = nudged.points.filter((p) => p.east === 1).map((p) => line(p.x, p.y, p.x + 1, p.y - 7));
-  return [sky, sun, farHill, nearHill, polygon(nudged, { opaque: true }), reeds];
-});
-```
+Before you drag the slider: the displacement is six percent of the distance from the centre. Will the ring grow by the same amount each step, or by more each time?
 
-## Change it
+```ts live focus=4,7-8
+import { sketch, circle, strokes, sub, mul, ui } from 'occlude';
 
-**Do it forty times.** `steps(40, …)` runs the same edit forty times. Each run starts from the material the previous run produced: `current` is that material, and the noise is read at each point's new position, so the points follow the noise like leaves on a current. The noise is scaled down to `0.8` so forty small moves add up to about what one big one did. The `east` attribute rides along through every step, so the reeds still find their points.
-
-```ts live
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, force, add, sub, mul } from 'occlude';
-
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  // #region the landscape and the sampled shore from chapters 1 to 3 (unchanged)
-  const sky = t.times(8, (k, u) => line(0, 6 + u * 54, 200, 6 + u * 54));
-  const sun = circle(110, 58, 15, { pen: 'stabilo-88-blue' });
-  const sheet = rect(0, 0, 200, 100);
-  const farHill = clip(sheet, ellipse(70, 95, 70, 45, 0, { fill: fill('hatch', { angle: 60, spacing: mm(1.4) }) }));
-  const nearHill = clip(sheet, ellipse(140, 110, 60, 42, 0, { fill: fill('hatch', { angle: 120, spacing: mm(1.4) }) }));
-  const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
-  const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
-  // #endregion
-  const drifted = shore.steps(40, (current, next) => {
-    next.move((p) => [t.noise(p.x / 12, p.y / 12) * 0.8, t.noise(p.x / 12 + 30, p.y / 12) * 0.8]);
-  });
-  const reeds = drifted.points.filter((p) => p.east === 1).map((p) => line(p.x, p.y, p.x + 1, p.y - 7));
-  return [sky, sun, farHill, nearHill, polygon(drifted, { opaque: true }), reeds];
-});
-```
-
-The pond drifts and deforms, but it does not get bigger: noise moves points about, it does not push them apart.
-
-**Push outward.** To swell, every point moves a little away from a centre. `sub(p, [140, 94])` is the vector from that centre to the point, and `mul(v, 0.011)` scales it, so each step moves a point 1.1 percent further out. The centre sits a little below the pond's middle on purpose: the lake then grows up the hill more than off the bottom of the sheet. Two displacements are combined with `add`; all three helpers take and return `[x, y]` pairs, so the move is still a displacement.
-
-```ts live
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, force, add, sub, mul } from 'occlude';
-
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  // #region the landscape and the sampled shore from chapters 1 to 3 (unchanged)
-  const sky = t.times(8, (k, u) => line(0, 6 + u * 54, 200, 6 + u * 54));
-  const sun = circle(110, 58, 15, { pen: 'stabilo-88-blue' });
-  const sheet = rect(0, 0, 200, 100);
-  const farHill = clip(sheet, ellipse(70, 95, 70, 45, 0, { fill: fill('hatch', { angle: 60, spacing: mm(1.4) }) }));
-  const nearHill = clip(sheet, ellipse(140, 110, 60, 42, 0, { fill: fill('hatch', { angle: 120, spacing: mm(1.4) }) }));
-  const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
-  const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
-  // #endregion
-  const swollen = shore.steps(40, (current, next) => {
-    next.move((p) => add(mul(sub(p, [140, 94]), 0.011), [t.noise(p.x / 12, p.y / 12) * 0.8, t.noise(p.x / 12 + 30, p.y / 12) * 0.8]));
-  });
-  const reeds = swollen.points.filter((p) => p.east === 1).map((p) => line(p.x, p.y, p.x + 1, p.y - 7));
-  return [sky, sun, farHill, nearHill, polygon(swollen, { opaque: true }), reeds];
-});
-```
-
-Look at the shore: it is the same twenty-four points, spread further apart, so the outline is a bigger polygon with longer straight sides. The lake has grown but the shore has not.
-
-**Grow the shore where it stretches.** `next.splitEdges((e) => e.length > 6)` looks at every connection after the moves and inserts a point in the middle of each one longer than 6, so the shore gains points where it has been stretched, and the noise can bend the new, shorter connections. A force keeps the spacing from running away in the other direction: `force.tension(current, { rest: 4 })` is prepared once per step from `current` and gives, for a point, a pull toward each connected neighbour that is further than 4 away, by the extra distance, and nothing toward closer ones: a slack cord, not a spring. `pull(p)` is that vector, scaled by half and added to the move.
-
-```ts live
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, force, add, sub, mul } from 'occlude';
-
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  // #region the landscape and the sampled shore from chapters 1 to 3 (unchanged)
-  const sky = t.times(8, (k, u) => line(0, 6 + u * 54, 200, 6 + u * 54));
-  const sun = circle(110, 58, 15, { pen: 'stabilo-88-blue' });
-  const sheet = rect(0, 0, 200, 100);
-  const farHill = clip(sheet, ellipse(70, 95, 70, 45, 0, { fill: fill('hatch', { angle: 60, spacing: mm(1.4) }) }));
-  const nearHill = clip(sheet, ellipse(140, 110, 60, 42, 0, { fill: fill('hatch', { angle: 120, spacing: mm(1.4) }) }));
-  const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
-  const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
-  // #endregion
-  const lake = shore.steps(40, (current, next) => {
-    const pull = force.tension(current, { rest: 4 });
-    next.move((p) => add(add(mul(sub(p, [140, 94]), 0.011), [t.noise(p.x / 12, p.y / 12) * 0.8, t.noise(p.x / 12 + 30, p.y / 12) * 0.8]), mul(pull(p), 0.5)));
-    next.splitEdges((e) => e.length > 6);
-  });
-  const reeds = lake.points.filter((p) => p.east === 1).map((p) => line(p.x, p.y, p.x + 1, p.y - 7));
-  return [sky, sun, farHill, nearHill, polygon(lake, { opaque: true }), reeds];
-});
-```
-
-The force is prepared inside the rule, on `current`, because it reads the connections of the state being moved; a force prepared on `shore` would describe the pond before any step.
-
-A new point sits on a connection with two ends, and it has to have an `east` too. By default a numeric attribute is interpolated between the two ends: 1 between two eastern points, 0 between two western ones, and 0.5 on the two connections where the shore crosses from one side to the other. The reeds ask for `p.east === 1`, so a half-eastern point grows no reed, which is a fair answer here. When it is not, the split can say what a new point carries; that is `point` in `splitEdges`, on [Materials](#/materials) under *Movement and growth*.
-
-**Keep the states.** `{ every: 10 }` as a third argument records the state at iteration 0, every tenth iteration and the last, on the result's `history`. Each entry is a material of its own, so the earlier shores can be drawn faintly inside the lake: growth rings. This is the finished drawing from the top of the page.
-
-```ts live
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, force, add, sub, mul, strokes } from 'occlude';
-
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  // #region the landscape and the sampled shore from chapters 1 to 3 (unchanged)
-  const sky = t.times(8, (k, u) => line(0, 6 + u * 54, 200, 6 + u * 54));
-  const sun = circle(110, 58, 15, { pen: 'stabilo-88-blue' });
-  const sheet = rect(0, 0, 200, 100);
-  const farHill = clip(sheet, ellipse(70, 95, 70, 45, 0, { fill: fill('hatch', { angle: 60, spacing: mm(1.4) }) }));
-  const nearHill = clip(sheet, ellipse(140, 110, 60, 42, 0, { fill: fill('hatch', { angle: 120, spacing: mm(1.4) }) }));
-  const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
-  const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
-  // #endregion
-  const lake = shore.steps(40, (current, next) => {
-    const pull = force.tension(current, { rest: 4 });
-    next.move((p) => add(add(mul(sub(p, [140, 94]), 0.011), [t.noise(p.x / 12, p.y / 12) * 0.8, t.noise(p.x / 12 + 30, p.y / 12) * 0.8]), mul(pull(p), 0.5)));
-    next.splitEdges((e) => e.length > 6);
-  }, { every: 10 });
-  const reeds = lake.points.filter((p) => p.east === 1).map((p) => line(p.x, p.y, p.x + 1, p.y - 7));
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const steps = ui(0, { min: 0, max: 20, step: 1 });
+  const centre = [t.cx, t.cy];
+  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const outward = (p) => mul(sub(p, centre), 0.06);
+  const grown = ring.steps(steps, (current, next) => next.move((p) => outward(p)));
   return [
-    sky, sun, farHill, nearHill,
-    polygon(lake, { opaque: true }),
-    lake.history.map((h) => strokes(h.material, { pen: 'pigma-005-black' })),
-    reeds,
+    strokes(ring, { pen: 'stabilo-88-blue' }),
+    strokes(grown),
+    grown.points.map((p) => circle(p.x, p.y, 0.6)),
   ];
 });
 ```
 
-## Rows are not points
+<details>
+<summary>What to look for</summary>
 
-After growth the lake has more points than the shore had, and they are numbered afresh in every state. `lake.points.at(3)` is whatever sits in row 3 of the lake, not "the point that was row 3 of the shore". Anything you want to follow from state to state has to be an attribute, which is why `east` was written on the shore in chapter 3 and still means the same thing on the lake. Open the final sketch in the studio, switch on the Material layer, and compare `shore` and `lake` coloured by `east`: same sides, different rows.
+The ring grows by more each step. The displacement is a fraction of the distance from the centre, and after each step that distance is larger, so the next step is larger too: multiplication, not addition. Twelve steps at six percent is about twice the radius; twenty is about three times. If you want constant speed, make the displacement a fixed length instead of a fraction: `mul(unit(sub(p, centre)), 0.7)`, with `unit` from the same vocabulary, moves every point 0.7 outward whatever its distance.
 
-## Experiments
+The other thing to notice is what `next.move` does with the answer. `[dx, dy]` is added to the point's position; it is not the position. A rule that returns `[t.cx + 30, t.cy]` does not put every point at one place, it moves every point by the same amount. Chapter 2 said this; here it is the difference between a ring that grows and a ring that slides.
 
-**No split.** Predict: in the "grow the shore" sketch, delete the `splitEdges` line. What does the lake look like after forty steps? Change it. Observe: a smooth, slightly lumpy lake of the same size with no wrinkles, and the same thirteen reeds as the pond had. Explain: without splitting the shore keeps its twenty-four points, whose connections stretch to about 8; tension pulls but never adds, and noise bends a long connection much less than a short one. Growth of the shore, as opposed to the lake, is the split.
+</details>
 
-**No tension.** Predict: put the split back and instead delete `, mul(pull(p), 0.5)` from the move, so nothing pulls the points together. Change it. Observe: the shore explodes into a ragged blob of over two hundred points, with reeds everywhere, spilling over the hill and the sheet. Explain: every step the noise stretches some connection past 6, the split adds a point, and nothing ever shortens a connection again, so the count runs away. Tension is what makes the growth settle: the lake has 46 points with it and 227 without.
+## Make the motion uneven
+
+A ring that only expands stays a circle. Give each point a second displacement that depends on where it is: `uneven(p)` reads a noise at the point's position, twice, for `x` and for `y`. Noise is a smooth function of position, not a growth rule: it can move one side of the ring outward, the other inward, and slide a third part sideways. The short lines show the displacement each point would get, six times longer than it is, so you can see the field before it acts.
+
+```ts live focus=5,8,11
+import { sketch, circle, strokes, line, add, sub, mul, ui } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const steps = ui(0, { min: 0, max: 20, step: 1 });
+  const wrinkle = ui(1, { min: 0, max: 3, step: 0.1, label: 'wrinkle amount' });
+  const centre = [t.cx, t.cy];
+  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
+  const grown = ring.steps(steps, (current, next) => next.move((p) => uneven(p)));
+  return [
+    grown.points.map((p) => line(p.x, p.y, ...add(p, mul(uneven(p), 6)))),
+    strokes(ring, { pen: 'stabilo-88-blue' }),
+    strokes(grown),
+  ];
+});
+```
+
+Look at the arrows first, with `steps` at zero. Where neighbouring arrows point the same way, that part of the ring will slide. Where they point apart, the connection between those points will stretch; where they point together, it will shorten. Then drag `steps`. Does the ring get bigger?
+
+<details>
+<summary>What to look for</summary>
+
+At this seed the ring drifts and deforms more than it grows: some connections stretch to twice their length while others bunch up, and the whole thing slides a little, because the noise happens to have a net direction here. Change the seed in the config and the same rule gives a different answer. What holds in general is only this: a noise displacement changes the spacing between points unevenly, and it has no preference for outward. Growth, if you want it, is the job of `outward`.
+
+</details>
+
+## A competing rule
+
+The uneven motion pulls points apart in some places. Something can pull them back: a force. `force.tension(current, { rest: 2.5 })` is prepared once per step from `current`, and for a point it gives the vector toward each connected neighbour that is more than 2.5 away, by the extra distance. Nothing toward closer neighbours: a slack cord, not a spring. It is prepared inside the rule because it reads the connections and positions of the state being moved; the ring of the previous step is a different state with different positions.
+
+Two rings from the same start, the same seed and the same noise. Left, uneven motion alone. Right, with tension added, scaled by `strength`. `sum` adds any number of displacements.
+
+```ts live focus=10-13
+import { sketch, circle, strokes, group, force, sum, mul, ui } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
+  const steps = ui(16, { min: 0, max: 40, step: 1 });
+  const strength = ui(0.5, { min: 0, max: 1.5, step: 0.05, label: 'tension strength' });
+  const ring = t.sample(circle(50, 50, 14), { count: 36 });
+  const uneven = (p) => [t.noise(p.x / 14, p.y / 14), t.noise(p.x / 14 + 30, p.y / 14)];
+  const loose = ring.steps(steps, (current, next) => next.move((p) => uneven(p)));
+  const held = ring.steps(steps, (current, next) => {
+    const pull = force.tension(current, { rest: 2.5 });
+    next.move((p) => sum(uneven(p), mul(pull(p), strength)));
+  });
+  return [
+    strokes(loose), loose.points.map((p) => circle(p.x, p.y, 0.5)),
+    group({ translate: [100, 0] }, strokes(held), held.points.map((p) => circle(p.x, p.y, 0.5))),
+  ];
+});
+```
+
+What is tension opposing here? Set `strength` to zero and the two rings are the same; raise it and watch where the right ring differs from the left.
+
+<details>
+<summary>What to look for</summary>
+
+Tension acts only on connections longer than `rest`, so it changes the stretched parts of the ring and leaves the bunched parts alone: the right ring keeps its points more evenly spread along the stretched arcs, and its outline is smoother there. It cannot make a bunched arc spread out, because a short connection gives no pull. At high strength the ring pulls itself tight and the noise has less to work with, which is a choice, not a failure.
+
+</details>
+
+## Give long segments more detail
+
+Points are where a ring can bend. A stretched connection is a long straight side, and no displacement of its two ends will put a bend in the middle of it. `next.splitEdges((e) => e.length > 5)` looks at every connection after the moves and inserts a point in the middle of each one longer than 5. The label counts the points.
+
+Before you look: if the ring is subdivided at the end of a step, and nothing moves it afterwards, does its silhouette change?
+
+```ts live focus=9-12
+import { sketch, circle, strokes, label, sub, mul, ui } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const steps = ui(12, { min: 0, max: 20, step: 1 });
+  const split = ui(true, { label: 'subdivide' });
+  const centre = [t.cx, t.cy];
+  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const outward = (p) => mul(sub(p, centre), 0.06);
+  const grown = ring.steps(steps, (current, next) => {
+    next.move((p) => outward(p));
+    if (split) next.splitEdges((e) => e.length > 5);
+  });
+  return [
+    strokes(grown),
+    grown.points.map((p) => circle(p.x, p.y, 0.6)),
+    label(`${grown.n} points`, 4, 6, 4),
+  ];
+});
+```
+
+<details>
+<summary>What to look for</summary>
+
+Toggle `subdivide` with `steps` fixed: the outline is the same, and only the dots change. A midpoint inserted on a straight side lies on that side, and the outward push moves it exactly as the side would have moved, so subdivision on its own adds nothing you can see. Its effect arrives in later steps, when the new point is moved by something that treats it differently from its neighbours. Uneven motion is that something. With subdivision the count climbs as the ring grows; without it the ring has 36 points however large it gets, and a large ring of 36 points is a polygon.
+
+</details>
+
+## Put the rule together
+
+The three parts, named: `outward` moves, `uneven` disturbs, `pull` restrains, and the split adds points where the first two have stretched the ring. Nothing else. Each control belongs to one part.
+
+```ts live focus=9-13
+import { sketch, circle, strokes, force, sum, sub, mul, label, ui } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const steps = ui(30, { min: 0, max: 60, step: 1 });
+  const wrinkle = ui(0.9, { min: 0, max: 3, step: 0.1, label: 'wrinkle amount' });
+  const strength = ui(0.5, { min: 0, max: 1.5, step: 0.05, label: 'tension strength' });
+  const centre = [t.cx, t.cy];
+  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const outward = (p) => mul(sub(p, centre), 0.02);
+  const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
+  const grown = ring.steps(steps, (current, next) => {
+    const pull = force.tension(current, { rest: 2.5 });
+    next.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+    next.splitEdges((e) => e.length > 5);
+  });
+  return [strokes(grown), label(`${grown.n} points`, 4, 6, 4)];
+});
+```
+
+Try `wrinkle` at zero, then `strength` at zero, then both. Which of the three parts is responsible for the folds, and which for the folds not tearing apart?
+
+<details>
+<summary>What to look for</summary>
+
+With no wrinkle the ring is a growing circle that gains points and stays a circle: the outward push and the split cannot fold anything. With wrinkle and no tension the folds form and keep deepening, because a stretched part is split and the new points are pushed unevenly again. With both, the folds form and settle into a wavy contour, because tension keeps the spacing from running away between splits. At this seed forty steps is a pleasant contour and sixty a crowded one; the balance between `wrinkle` and `strength` is the drawing's character, and there is no correct value.
+
+</details>
+
+## Draw the process
+
+So far only the last state is drawn. `{ every: 8 }` as a third argument to `steps` keeps the state at iteration 0, every eighth iteration and the last, on the result's `history`. Each entry is a material of its own. Drawing them is what makes the growth visible as a sequence; keeping them is a separate choice from drawing them, and neither changes the final ring. The last state is drawn in blue over the lighter earlier ones.
+
+```ts live focus=8,15-19
+import { sketch, circle, strokes, force, sum, sub, mul, ui } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const steps = ui(40, { min: 0, max: 60, step: 1 });
+  const wrinkle = ui(0.9, { min: 0, max: 3, step: 0.1, label: 'wrinkle amount' });
+  const strength = ui(0.5, { min: 0, max: 1.5, step: 0.05, label: 'tension strength' });
+  const every = ui(8, { min: 1, max: 24, step: 1, label: 'draw every' });
+  const centre = [t.cx, t.cy];
+  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const outward = (p) => mul(sub(p, centre), 0.02);
+  const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
+  const grown = ring.steps(steps, (current, next) => {
+    const pull = force.tension(current, { rest: 2.5 });
+    next.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+    next.splitEdges((e) => e.length > 5);
+  }, { every });
+  const states = grown.history;
+  return [
+    states.slice(0, -1).map((h) => strokes(h.material, { pen: 'pigma-005-black' })),
+    strokes(grown, { pen: 'stabilo-88-blue' }),
+  ];
+});
+```
+
+This is the drawing from the top of the page. Drag `draw every` from 1 to 24 with `steps` at 40: the final ring never changes, and the drawing changes completely. Where does it stop reading as a sequence and start reading as a surface?
+
+## Two other readings of the same rule
+
+The rule is the same; the constants and what is drawn are not. Calm: little wrinkle, firm tension, a wide interval, so the states nest like contour lines on a map. The folds are gentle and the spacing between states is what carries the drawing.
+
+```ts live focus=4-7,18
+import { sketch, circle, strokes, force, sum, sub, mul, ui } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const steps = 60;
+  const wrinkle = 0.4;
+  const strength = 0.9;
+  const every = 6;
+  const centre = [t.cx, t.cy];
+  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const outward = (p) => mul(sub(p, centre), 0.018);
+  const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
+  const grown = ring.steps(steps, (current, next) => {
+    const pull = force.tension(current, { rest: 2.5 });
+    next.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+    next.splitEdges((e) => e.length > 5);
+  }, { every });
+  return grown.history.map((h) => strokes(h.material, { pen: 'pigma-005-black' }));
+});
+```
+
+Folded: the same constants, a shorter split length so the folds get more points to bend with, and only the last state drawn, as an area with a hatch, so the folds read as a shape rather than a path. Retaining history and drawing it are separate choices; here the history is not even kept. The thin spikes at its edge are places where the ring folded over itself; an area with a crossing in its outline is a subject for chapter 6.
+
+```ts live focus=4-6,12,15
+import { sketch, circle, polygon, fill, mm, force, sum, sub, mul } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const steps = 44;
+  const wrinkle = 0.9;
+  const strength = 0.5;
+  const centre = [t.cx, t.cy];
+  const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
+  const outward = (p) => mul(sub(p, centre), 0.02);
+  const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
+  const grown = ring.steps(steps, (current, next) => {
+    const pull = force.tension(current, { rest: 2.5 });
+    next.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+    next.splitEdges((e) => e.length > 4);
+  });
+  return polygon(grown, { winding: 'evenodd', fill: fill('hatch', { angle: 30, spacing: mm(1.1) }) });
+});
+```
+
+Of the three, the calm stack is the one that would be worth plotting as it is: its spacing is deliberate and the eye can follow one state at a time. The folded area is stronger as a single form, but the hatch is doing most of the work and the spikes are accidents rather than decisions. The first drawing sits between them, and its interest is in the transition from circle to contour, which is why its early states are drawn lightly and its last one emphasised. A wrinkle of 3 with a strength of 0 is worth trying once, and worth stopping at once.
+
+## Two questions before you go on
+
+Can you make a drawing whose early outlines matter more than its final one? Consider what you have: the history is a list of materials, and a list can be sliced, reversed, drawn in different pens or not at all.
+
+And a thing to be careful about: nothing in this rule promises that the ring never crosses itself. Tension keeps neighbours close; it says nothing about two distant parts of the ring folding into each other. Chapter 5 gives lines a way to notice each other, and chapter 6 deals with what happens when they cross.
 
 ## On your own
 
-Make the swelling slow down as the steps go on: the rule's third argument, `k`, is the step number from 0. Scale the outward push by `(1 - k / 40)` so the last steps barely push and the noise and tension tidy the shore.
+Slow the outward push over time, so the ring grows fast at first and then spends its later steps only folding, and choose which of its states to draw. Two things you have not used yet: the rule's third argument, `k`, is the step number, counting from 0; and a control can be a fraction as easily as a count.
 
 <details>
-<summary>A possible solution</summary>
+<summary>A hint, not the answer</summary>
 
-```ts live
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, force, add, sub, mul } from 'occlude';
-
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  // #region the landscape and the sampled shore from chapters 1 to 3 (unchanged)
-  const sky = t.times(8, (k, u) => line(0, 6 + u * 54, 200, 6 + u * 54));
-  const sun = circle(110, 58, 15, { pen: 'stabilo-88-blue' });
-  const sheet = rect(0, 0, 200, 100);
-  const farHill = clip(sheet, ellipse(70, 95, 70, 45, 0, { fill: fill('hatch', { angle: 60, spacing: mm(1.4) }) }));
-  const nearHill = clip(sheet, ellipse(140, 110, 60, 42, 0, { fill: fill('hatch', { angle: 120, spacing: mm(1.4) }) }));
-  const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
-  const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
-  // #endregion
-  const lake = shore.steps(40, (current, next, k) => {
-    const pull = force.tension(current, { rest: 4 });
-    const calm = 1 - k / 40;
-    next.move((p) => add(add(mul(sub(p, [140, 94]), 0.011 * calm), [t.noise(p.x / 12, p.y / 12) * 0.8, t.noise(p.x / 12 + 30, p.y / 12) * 0.8]), mul(pull(p), 0.5)));
-    next.splitEdges((e) => e.length > 6);
-  });
-  const reeds = lake.points.filter((p) => p.east === 1).map((p) => line(p.x, p.y, p.x + 1, p.y - 7));
-  return [sky, sun, farHill, nearHill, polygon(lake, { opaque: true }), reeds];
-});
-```
-
-`calm` goes from 1 down to nearly 0, so the lake ends a little smaller than before and its last steps are all wrinkle and no swell.
+`outward` is prepared once and knows nothing about time. Make the rule scale it: something of the form `mul(outward(p), 1 - k / steps)` gives a push that is full at the start and gone at the end; `1 - k / steps` squared, or a step function that switches the push off after a chosen iteration, are different drawings. Then decide about `every`: a growth that slows down puts its late states close together, so an even interval will crowd them, and drawing only the states before the push stops is one honest answer.
 
 </details>
 
 ## Where to look things up
 
-The full table of edits `next` accepts, `every` and `history`, and every force recipe are under *Movement and growth* on [Materials](#/materials); the vector helpers under *Vectors*. Next, chapter 5: the shore grows on its own. Chapter 5 grows lines that have to notice each other.
+`steps`, `every`, `history` and the edits `next` accepts are under *Movement and growth* on [Materials](#/materials); the force recipes, `tension` among them, under *Forces*; the vector helpers `sub`, `mul`, `sum` and `unit` under *Vectors*. Next, chapter 5: a line that grows from one end and decides where to go.

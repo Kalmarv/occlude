@@ -12,6 +12,7 @@
 import './style.css';
 import { marked } from 'marked';
 import { createEditor, type Editor } from './editor.js';
+import { UiPanel } from './uiPanel.js';
 import {
   DEFAULT_PENS, DOC_PAGES, decodePlanBuffer, docsPaper, drawFragments, evalPrim, liveExampleToJs, paperSize, parseLiveMeta, planValue, resolveDraw, tracePrim,
   type LiveMeta,
@@ -148,6 +149,14 @@ function mountEditor(i: number, token: number): void {
       options: { isWholeLine: true, className: 'live-focus', linesDecorationsClassName: 'live-focus-gutter' },
     })));
   }
+  // ui() literals in the example become sliders under the code, editing the
+  // literal like the studio's panel does; the change re-renders as any edit.
+  const controlsHost = document.createElement('div');
+  controlsHost.className = 'live-controls';
+  slot.code.append(controlsHost);
+  const panel = new UiPanel(controlsHost, editor, { inline: true });
+  panel.sync();
+  editor.onChange(() => panel.sync());
   const foldSetup = () => { if (foldable) void editor.editor.getAction('editor.foldAllMarkerRegions')?.run(); };
   foldSetup();
   reset.onclick = () => { editor.setValue(slot.live.src); foldSetup(); };

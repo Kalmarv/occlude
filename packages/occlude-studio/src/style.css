@@ -1892,6 +1892,10 @@ button.armed {
 .live-code pre { margin: 0; border: none; border-radius: 0; max-width: none; flex: 1; }
 .live-editor { flex: 1; min-height: 0; }
 .live-focus { background: rgba(120, 170, 255, 0.10); }
+.live-controls:empty { display: none; }
+.ui-panel-inline { padding: 4px 10px 8px; border-top: 1px solid var(--panel-edge); font-family: var(--mono); font-size: 11px; }
+.ui-panel-inline .ui-panel-head { cursor: default; padding: 4px 0; }
+.ui-panel-inline .ui-panel-body { display: flex; flex-direction: column; gap: 4px; }
 .live-focus-gutter { background: rgba(120, 170, 255, 0.55); width: 3px !important; margin-left: 2px; }
 .live-code-bar { display: flex; gap: 6px; align-items: center; padding: 4px 8px; background: var(--panel); border-top: 1px solid var(--panel-edge); font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
 .live-code-bar .spacer { flex: 1; }

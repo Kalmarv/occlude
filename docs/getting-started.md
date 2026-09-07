@@ -68,7 +68,7 @@ Every random value comes from the sketch's seed: `seed` in the config, or the UR
 
 ## Controls
 
-`ui(value, { min?, max?, step?, label? })` marks a literal number or boolean as tweakable. In the studio each one gets a slider over the preview, and dragging it rewrites the literal in your code, so the tuned sketch saves and replots exactly as seen. The label defaults to the variable name. Outside the studio `ui()` returns its value; that is what these pages render.
+`ui(value, { min?, max?, step?, label? })` marks a literal number or boolean as tweakable. In the studio each one gets a slider over the preview, and dragging it rewrites the literal in your code, so the tuned sketch saves and replots exactly as seen. The label defaults to the variable name. On these pages each `ui()` in a live example becomes a slider under its code, editing the literal in the same way. Anywhere else `ui()` returns its value.
 
 Any other number literal can be scrubbed in the studio's editor by Alt-dragging it (Shift for ten times the step, Ctrl for a tenth). `ui()` is for the values that deserve a labelled control.
 
