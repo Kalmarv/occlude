@@ -93,6 +93,8 @@ interface Slot {
   editor: Editor | null;
   version: number;
   bar: HTMLElement | null;
+  /** The controls panel's host over the preview, kept across renders. */
+  controls: HTMLElement | null;
 }
 const slots = new Map<number, Slot>();
 
@@ -106,6 +108,7 @@ function slotOf(i: number): Slot {
       editor: null,
       version: 0,
       bar: null,
+      controls: null,
     };
     slots.set(i, slot);
   }
@@ -149,12 +152,13 @@ function mountEditor(i: number, token: number): void {
       options: { isWholeLine: true, className: 'live-focus', linesDecorationsClassName: 'live-focus-gutter' },
     })));
   }
-  // ui() literals in the example become sliders under the code, editing the
-  // literal like the studio's panel does; the change re-renders as any edit.
+  // ui() literals in the example become the studio's controls panel over the
+  // preview, editing the literal as it does there; the change re-renders as any edit.
   const controlsHost = document.createElement('div');
   controlsHost.className = 'live-controls';
-  slot.code.append(controlsHost);
-  const panel = new UiPanel(controlsHost, editor, { inline: true });
+  slot.controls = controlsHost;
+  slot.out.append(controlsHost);
+  const panel = new UiPanel(controlsHost, editor);
   panel.sync();
   editor.onChange(() => panel.sync());
   const foldSetup = () => { if (foldable) void editor.editor.getAction('editor.foldAllMarkerRegions')?.run(); };
@@ -301,7 +305,7 @@ async function renderInto(slot: Slot, js: string, version: number, token: number
     actions.append(open, dl);
     el.style.aspectRatio = '';
     el.classList.remove('stale', 'live-error');
-    el.replaceChildren(canvas, label, actions);
+    el.replaceChildren(canvas, label, actions, ...(slot.controls ? [slot.controls] : []));
   } catch (e) {
     el.classList.remove('stale');
     el.textContent = `example failed: ${e instanceof Error ? e.message : String(e)}`;

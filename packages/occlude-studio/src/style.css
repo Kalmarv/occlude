@@ -190,7 +190,7 @@ body {
   cursor: grabbing;
 }
 
-#ui-panel {
+.ui-panel {
   position: absolute;
   top: 10px; /* the same band as the Simulate / Fit buttons, left-aligned */
   left: 10px;
@@ -206,12 +206,12 @@ body {
   z-index: 3;
 }
 
-#ui-panel.collapsed {
+.ui-panel.collapsed {
   min-width: 0;
   overflow: hidden;
 }
 
-#ui-panel:has(.ui-probe) {
+.ui-panel:has(.ui-probe) {
   max-width: 420px;
 }
 
@@ -262,8 +262,8 @@ body {
   white-space: pre;
 }
 
-#ui-panel.collapsed .ui-probes,
-#ui-panel.collapsed .ui-panel-body {
+.ui-panel.collapsed .ui-probes,
+.ui-panel.collapsed .ui-panel-body {
   display: none;
 }
 
@@ -1892,10 +1892,9 @@ button.armed {
 .live-code pre { margin: 0; border: none; border-radius: 0; max-width: none; flex: 1; }
 .live-editor { flex: 1; min-height: 0; }
 .live-focus { background: rgba(120, 170, 255, 0.10); }
-.live-controls:empty { display: none; }
-.ui-panel-inline { padding: 4px 10px 8px; border-top: 1px solid var(--panel-edge); font-family: var(--mono); font-size: 11px; }
-.ui-panel-inline .ui-panel-head { cursor: default; padding: 4px 0; }
-.ui-panel-inline .ui-panel-body { display: flex; flex-direction: column; gap: 4px; }
+.live-output { position: relative; }
+.live-controls { position: absolute; inset: 0; pointer-events: none; }
+.live-controls .ui-panel { pointer-events: auto; }
 .live-focus-gutter { background: rgba(120, 170, 255, 0.55); width: 3px !important; margin-left: 2px; }
 .live-code-bar { display: flex; gap: 6px; align-items: center; padding: 4px 8px; background: var(--panel); border-top: 1px solid var(--panel-edge); font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
 .live-code-bar .spacer { flex: 1; }

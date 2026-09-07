@@ -259,16 +259,12 @@ export class UiPanel {
   private controlCount = 0;
   private probeCount = 0;
 
-  constructor(host: HTMLElement, private ed: Editor, opts: { inline?: boolean } = {}) {
+  constructor(host: HTMLElement, private ed: Editor) {
     this.root = document.createElement('div');
+    this.root.className = 'ui-panel'; // the studio has one (its id); a docs page has one per example
+    if (host.id === 'bench') this.root.id = 'ui-panel';
     this.root.hidden = true;
-    if (opts.inline) {
-      // A docs page: the controls sit under the code, open, as part of the lesson.
-      this.root.className = 'ui-panel-inline';
-    } else {
-      this.root.id = 'ui-panel';
-      this.root.classList.add('collapsed'); // closed until asked; the sketch is the point
-    }
+    this.root.classList.add('collapsed'); // closed until asked; the sketch is the point
     const head = document.createElement('div');
     head.className = 'ui-panel-head';
     head.title = 'ui() values — dragging edits the literal in the code';
