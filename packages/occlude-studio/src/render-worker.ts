@@ -55,14 +55,17 @@ interface PlanToolpathMsg extends PlanRange {
   tolerance: number;
 }
 
-/** Adopt a saved plan (its exact bytes) as the current one — exports work
- * without any render, after the hash is verified. */
+/** Adopt a saved plan (its exact bytes AND its resolved pens) as the
+ * current one — exports work without any render, after the hash is
+ * verified, with the pens the result was saved with, never invented ones. */
 interface PlanLoadMsg {
   type: 'plan-load';
   id: number;
   buffer: Float64Array;
   settings: PlanSettings;
   planHash: string;
+  /** The saved record's pens, as `pensToJson` spells them. */
+  pensJson: string;
 }
 
 interface PngMsg {
@@ -78,11 +81,6 @@ type Msg = RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | Pl
 
 const ready = initCore();
 
-/** Pens JSON for a loaded (saved) plan: the settings' name/width with the
- * default colour — the SVG's stroke colour is the only cosmetic left. */
-function pensFrom(settings: PlanSettings): string {
-  return JSON.stringify(settings.pens.map((p) => ({ name: p.name, width: p.width, color: '#111111', feed: 3000, penDown: 0, penUp: 5, penDelay: 100 })));
-}
 const mod = core as unknown as WasmModule;
 
 let last: { prims: Float64Array; frags: Float64Array; pensJson: string; pens: { name: string; width: number; color: string; feed: number; penDown: number; penUp: number; penDelay: number }[]; paper: { w: number; h: number } } | null = null;
@@ -179,15 +177,16 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       case 'plan-load': {
         const planHash = await hashPlan(msg.buffer, msg.settings);
         if (planHash !== msg.planHash) throw new Error(`saved plan does not match its hash (${msg.planHash.slice(0, 12)}… vs ${planHash.slice(0, 12)}…)`);
-        // Pens for the exporters: the saved settings carry name + width; the
-        // rest of a pen (colour, feed…) is what the caller sends per export.
-        lastPlan = { buffer: msg.buffer, settings: msg.settings, planHash, pensJson: '' };
+        const pens = JSON.parse(msg.pensJson) as { name: string; width: number }[];
+        const same = pens.length === msg.settings.pens.length && pens.every((p, i) => p.name === msg.settings.pens[i].name && p.width === msg.settings.pens[i].width);
+        if (!same) throw new Error('saved plan: the pens given do not match the plan settings');
+        lastPlan = { buffer: msg.buffer, settings: msg.settings, planHash, pensJson: msg.pensJson };
         self.postMessage({ type: 'plan-load', id: msg.id, ok: true });
         break;
       }
       case 'plan-gcode': {
         const p = currentPlan(msg);
-        const json = mod.wasm_plan_gcode(p.buffer, p.pensJson || pensFrom(p.settings), msg.profileJson, msg.from, msg.to);
+        const json = mod.wasm_plan_gcode(p.buffer, p.pensJson, msg.profileJson, msg.from, msg.to);
         self.postMessage({ type: 'plan-gcode', id: msg.id, json });
         break;
       }
@@ -213,7 +212,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       }
       case 'plan-svg': {
         const p = currentPlan(msg);
-        const svg = mod.wasm_plan_svg(p.buffer, p.pensJson || pensFrom(p.settings), msg.width, msg.height, msg.background, msg.onlyPen, msg.from, msg.to);
+        const svg = mod.wasm_plan_svg(p.buffer, p.pensJson, msg.width, msg.height, msg.background, msg.onlyPen, msg.from, msg.to);
         self.postMessage({ type: 'plan-svg', id: msg.id, svg });
         break;
       }

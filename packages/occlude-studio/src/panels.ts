@@ -21,6 +21,18 @@ import { serialSupported, type PlotProgress } from './ebb.js';
 import { buildConnect, buildManualControls, buildProfileSelect, createSession } from './machine.js';
 import { machineTiming, machineTolerance, penTimingOf, type Drawing } from './drawing.js';
 import { saveResult, selectionOf, type ResultMeta } from './resultsApi.js';
+import { canonicalJson } from 'occlude';
+
+/** The execution settings a plot ran under — the part of "the same plot"
+ * that geometry identity does not cover: profile timing, flattening
+ * tolerance, and each pen's feed and settle. Compared as one string. */
+export interface ExecutionSettings {
+  profile: string;
+  tolerance: number;
+  timing: unknown;
+  pens: { name: string; feed: number; penDelay: number }[];
+}
+export const executionKey = (e: ExecutionSettings): string => canonicalJson(e);
 import type { RenderClient } from './workerClient.js';
 import { button, checkbox, el, hint, numberInput, pairInput, row, segmented } from './widgets.js';
 
@@ -43,6 +55,9 @@ export interface PanelHooks {
   onSelectionView(): void;
   /** When the studio shows a frozen saved result instead of a render. */
   frozenResult(): string | null;
+  /** The execution settings in force: the active profile and the pen
+   * library — or, for a frozen result, the settings it was saved with. */
+  execution(): ExecutionSettings;
   /** Build stamp, for saved results. */
   build: string;
   getSource(): string;
@@ -567,11 +582,18 @@ function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
     if (!plan || !r || !result) return;
     saveBtn.disabled = true;
     try {
+      // ONE consistent result: `plan` and `r` are captured now; every await
+      // below re-checks that no newer render replaced them, and the SVG is
+      // asked for by this plan's hash and range (the worker refuses a stale
+      // hash), so a save can never mix two renders.
       const final = r.final;
+      const captured = { planHash: plan.planHash, from: final.fromChain, to: final.toChain };
       const { encodePlanBuffer, hashPlan } = await import('occlude');
       const chains = plan.chains.slice(final.fromChain, final.toChain);
       const bytes = encodePlanBuffer(chains);
       const savedHash = await hashPlan(bytes, plan.settings);
+      const drifted = () => d.plan !== plan;
+      if (drifted()) throw new Error('the drawing changed while saving — nothing was saved; save again');
       const prof = hooks.profiles.find((p) => p.name === hooks.settings.activeProfile) ?? hooks.profiles[0];
       const meta: ResultMeta = {
         schemaVersion: plan.schemaVersion,
@@ -588,7 +610,8 @@ function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
         provenance: { sketch: hooks.currentName() || null, sourceHash: hashSource(hooks.getSource()), seed: hooks.currentSeed() },
         fullPlanSaved: false,
       };
-      const svg = await d.svg(hooks.settings.paperColor, -1);
+      const svg = await d.svgOf(captured, hooks.settings.paperColor, -1);
+      if (drifted()) throw new Error('the drawing changed while saving — nothing was saved; save again');
       const id = await saveResult(meta, svg, bytes);
       saveNote.innerHTML = '';
       const link = document.createElement('a');
@@ -773,6 +796,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     selection: { from: number; to: number } | null;
     /** When the plot ran from a saved result: its id — resume loads those bytes. */
     resultId: string | null;
+    /** Profile timing, tolerance and pen feed/settle the plot ran under. */
+    execution: ExecutionSettings | null;
     ts: string;
   }
   let saved: SavedPlot | null = null;
@@ -830,6 +855,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         planHash: hooks.drawing.plan?.planHash ?? null,
         selection: sel ? { from: sel.fromChain, to: sel.toChain } : null,
         resultId: hooks.frozenResult(),
+        execution: hooks.execution(),
         ts: new Date().toISOString(),
       });
       lastSavedChain = chain;
@@ -924,9 +950,20 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
             `open "${sv.sketch}" unchanged with seed ${sv.seed ?? '—'}, the same pens and paper`,
           );
         }
-        const cur = hooks.drawing.selection;
-        if (sv.selection && cur && (cur.fromChain !== sv.selection.from || cur.toChain !== sv.selection.to)) {
-          throw new Error(`resume: the saved plot selected chains ${sv.selection.from}–${sv.selection.to}; set the Drawing panel to that range first`);
+        const cur = await hooks.drawing.settled();
+        if (sv.selection && (cur.fromChain !== sv.selection.from || cur.toChain !== sv.selection.to)) {
+          throw new Error(`resume: the saved plot drew chains ${sv.selection.from}–${sv.selection.to}; the sketch's t.draw now resolves to ${cur.fromChain}–${cur.toChain}`);
+        }
+        // Execution identity too: the same geometry under other timing,
+        // tolerance or pen settle is a different plot.
+        if (sv.execution && executionKey(sv.execution) !== executionKey(hooks.execution())) {
+          const now = hooks.execution();
+          const diffs: string[] = [];
+          if (sv.execution.profile !== now.profile) diffs.push(`profile ${sv.execution.profile} → ${now.profile}`);
+          if (sv.execution.tolerance !== now.tolerance) diffs.push(`tolerance ${sv.execution.tolerance} → ${now.tolerance}`);
+          if (canonicalJson(sv.execution.timing) !== canonicalJson(now.timing)) diffs.push('machine timing');
+          if (canonicalJson(sv.execution.pens) !== canonicalJson(now.pens)) diffs.push('pen feed/settle');
+          throw new Error(`resume: execution settings changed since the plot (${diffs.join(', ') || 'settings'}) — restore them, or start a new plot`);
         }
       } else if (hooks.currentName() !== sv.sketch || hashSource(hooks.getSource()) !== sv.sourceHash || (hooks.currentSeed() ?? null) !== sv.seed) {
         throw new Error(`resume: load the saved sketch "${sv.sketch}" unchanged (seed ${sv.seed}) first — this record predates plan identities`);

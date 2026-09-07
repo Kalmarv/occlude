@@ -16,7 +16,7 @@ import { customFillNames, embedFills, importSketchWithFills } from './fillEmbed.
 import { UiPanel } from './uiPanel.js';
 
 declare const __BUILD_STAMP__: string;
-import { encodeToolpath, scanUiControls } from 'occlude';
+import { encodeToolpath, scanUiControls, type EstimateOpts, type PenDef, type PenTiming } from 'occlude';
 import { RenderClient, type WorkerError } from './workerClient.js';
 import { Drawing, machineTiming, machineTolerance, penTimingOf } from './drawing.js';
 import { loadResult } from './resultsApi.js';
@@ -59,13 +59,21 @@ async function boot(): Promise<void> {
   preview.setPaperColor(settings.paperColor);
   let lastResult: RenderResult | null = null;
   const activeProfile = () => profiles.find((p) => p.name === settings.activeProfile) ?? profiles[0];
+  /** A frozen result runs under the settings it was SAVED with — its pens'
+   * feed and settle, its profile's timing and tolerance — not the current
+   * library or the active profile. */
+  let frozenExecution: { name: string; opts: EstimateOpts; tolerance: number; pens: PenDef[] } | null = null;
+  const execution = (): { opts: EstimateOpts; penOf: (pen: number) => PenTiming | undefined; tolerance: number; profile: string; pens: PenDef[] } => {
+    if (frozenExecution) {
+      return { opts: frozenExecution.opts, penOf: penTimingOf(frozenExecution.pens, frozenExecution.pens), tolerance: frozenExecution.tolerance, profile: frozenExecution.name, pens: frozenExecution.pens };
+    }
+    const prof = activeProfile();
+    const rp = lastResult?.pens ?? [];
+    return { opts: machineTiming(prof), penOf: penTimingOf(rp, pens), tolerance: machineTolerance(prof, rp), profile: prof.name, pens: rp.map((p) => pens.find((q) => q.name === p.name) ?? p) };
+  };
   // THE ordered plan of the current render, and the selection of it that
   // the preview, exports, simulation and machine share.
-  const drawing = new Drawing(client, () => ({
-    opts: machineTiming(activeProfile()),
-    penOf: penTimingOf(lastResult?.pens ?? [], pens),
-    tolerance: machineTolerance(activeProfile(), lastResult?.pens ?? []),
-  }));
+  const drawing = new Drawing(client, () => execution());
   const showSelection = (): void => {
     const plan = drawing.plan;
     const sel = drawing.selection;
@@ -271,6 +279,7 @@ async function boot(): Promise<void> {
   (window as unknown as Record<string, unknown>).__occlude = {
     editor,
     result: () => lastResult,
+    drawing,
     preview,
     /** What the controls panel sees in the source right now (debugging). */
     controls: () => scanUiControls(editor.getValue()),
@@ -284,6 +293,10 @@ async function boot(): Promise<void> {
     drawing,
     onSelectionView: showSelection,
     frozenResult: () => frozenId,
+    execution: () => {
+      const e = execution();
+      return { profile: e.profile, tolerance: e.tolerance, timing: e.opts, pens: e.pens.map((p) => ({ name: p.name, feed: p.feed, penDelay: p.penDelay })) };
+    },
     build: __BUILD_STAMP__,
     onChanged: () => void run(),
     onPaperColor: (hex) => preview.setPaperColor(hex),
@@ -576,7 +589,9 @@ async function boot(): Promise<void> {
     void (async () => {
       try {
         const { meta, plan: bytes } = await loadResult(frozenId);
-        await client.loadPlan(bytes, meta.settings, meta.planHash);
+        if (!meta.profile) throw new Error('this result was saved without a machine profile; it can be shown and exported, not timed');
+        frozenExecution = { name: meta.profile.name, opts: meta.profile.timing as EstimateOpts, tolerance: meta.profile.tolerance, pens: meta.pens };
+        await client.loadPlan(bytes, meta.settings, meta.planHash, meta.pens);
         const paper = meta.paper;
         const frozen = {
           frags: [], prims: [], pens: meta.pens, paper,

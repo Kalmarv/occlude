@@ -61,6 +61,8 @@ export class Drawing {
   private flat = new Map<string, Promise<FlatChain[]>>();
   private listeners: (() => void)[] = [];
   private resolved: ResolvedDraw | null = null;
+  /** The resolution in flight for the current plan, if any. */
+  private pending: Promise<ResolvedDraw | null> | null = null;
 
   constructor(
     private client: RenderClient,
@@ -83,17 +85,31 @@ export class Drawing {
     this.pens = pens;
     this.request = request;
     this.resolved = null;
-    await this.resolve();
+    this.pending = this.resolve();
+    await this.pending;
+  }
+
+  /** The selection once the current plan's request has resolved. Never
+   * a stand-in: while resolution is pending this waits, and with no plan
+   * it throws. */
+  async settled(): Promise<PlanSelection> {
+    if (!this.plan) throw new Error('nothing rendered yet');
+    if (this.pending) await this.pending;
+    const sel = this.selection;
+    if (!sel) throw new Error('the drawing selection is not resolved yet');
+    return sel;
   }
 
   get current(): ResolvedDraw | null {
     return this.resolved;
   }
 
-  /** The selection every consumer draws, exports and plots. */
+  /** The selection every consumer draws, exports and plots — null until
+   * the request has resolved against the current plan (never "everything"
+   * as a stand-in: an export during that window would take all chains). */
   get selection(): PlanSelection | null {
-    if (!this.plan) return null;
-    return this.resolved?.final ?? selectAll(this.plan);
+    if (!this.plan || !this.resolved) return null;
+    return this.resolved.final;
   }
 
   /** Sampled chains of the WHOLE plan at the machine tolerance, cached per
@@ -113,10 +129,11 @@ export class Drawing {
     return p;
   }
 
-  /** The selected chains, sampled, source indices kept. */
+  /** The selected chains, sampled, source indices kept. Waits for the
+   * selection to resolve. */
   async selectedToolpath(tolerance?: number): Promise<FlatChain[]> {
-    const sel = this.selection;
-    if (!sel) return [];
+    if (!this.plan) return [];
+    const sel = await this.settled();
     const flat = await this.toolpath(tolerance);
     return flat.slice(sel.fromChain, sel.toChain);
   }
@@ -134,6 +151,7 @@ export class Drawing {
     if (this.plan !== plan) return this.resolved; // a newer plan landed meanwhile
     const t = this.timing();
     this.resolved = resolveDraw(plan, this.request, { flat, penOf: t.penOf, opts: t.opts });
+    this.pending = null;
     this.notify();
     return this.resolved;
   }
@@ -142,22 +160,35 @@ export class Drawing {
   async retime(): Promise<void> {
     this.flat.clear();
     this.resolved = null;
-    await this.resolve();
+    this.pending = this.resolve();
+    await this.pending;
   }
 
+  /** The resolved range of the current plan; throws while unresolved. */
   range(): { planHash: string; from: number; to: number } {
     const plan = this.plan;
+    if (!plan) throw new Error('nothing rendered yet');
     const sel = this.selection;
-    if (!plan || !sel) throw new Error('nothing rendered yet');
+    if (!sel) throw new Error('the drawing selection is not resolved yet');
     return { planHash: plan.planHash, from: sel.fromChain, to: sel.toChain };
   }
 
-  svg(background: string | undefined, onlyPen = -1): Promise<string> {
-    const plan = this.plan!;
-    return this.client.planSvg(this.range(), plan.settings.paper.w, plan.settings.paper.h, background, onlyPen);
+  /** SVG of the resolved selection (waits for resolution). */
+  async svg(background: string | undefined, onlyPen = -1): Promise<string> {
+    await this.settled();
+    return this.svgOf(this.range(), background, onlyPen);
   }
 
-  gcode(profileJson: string): Promise<string> {
+  /** SVG of an explicit range of an explicit plan — for a save that must
+   * not drift to a newer render; the worker refuses a stale hash. */
+  svgOf(range: { planHash: string; from: number; to: number }, background: string | undefined, onlyPen = -1): Promise<string> {
+    const plan = this.plan;
+    if (!plan) throw new Error('nothing rendered yet');
+    return this.client.planSvg(range, plan.settings.paper.w, plan.settings.paper.h, background, onlyPen);
+  }
+
+  async gcode(profileJson: string): Promise<string> {
+    await this.settled();
     return this.client.planGcode(this.range(), profileJson);
   }
 }

@@ -7,7 +7,7 @@
  * the worker's perspective; the watchdog is the only hard interruption.
  */
 
-import { decodeRender, type DrawRequest, type EncodedScene, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
+import { decodeRender, pensToJson, type DrawRequest, type EncodedScene, type PenDef, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
 import type { RunConfig } from './runner.js';
 
 export interface RenderRequest {
@@ -250,12 +250,13 @@ export class RenderClient {
     });
   }
 
-  /** Make a saved plan the worker's current one (verified against its hash). */
-  loadPlan(buffer: Float64Array, settings: PlanSettings, planHash: string): Promise<void> {
+  /** Make a saved plan the worker's current one (verified against its
+   * hash), with the pens it was saved with. */
+  loadPlan(buffer: Float64Array, settings: PlanSettings, planHash: string, pens: PenDef[]): Promise<void> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
       this.pending.set(id, { resolve: () => resolve(), reject });
-      this.worker.postMessage({ type: 'plan-load', id, buffer, settings, planHash });
+      this.worker.postMessage({ type: 'plan-load', id, buffer, settings, planHash, pensJson: pensToJson(pens) });
     });
   }
 
