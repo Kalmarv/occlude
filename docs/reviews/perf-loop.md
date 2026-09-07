@@ -704,6 +704,37 @@ dependency we already have. **Left alone on master; noted as a candidate for
 exploratory work.**
 
 ## Rejected, with reasons
+- **A cached luminance plane for the image sampler** (`imageAsset.ts`). The
+  samplers are the largest library-side cost in flow-user (~890 ms of self
+  time); every bilinear tap recomputes
+  `0.2126·r + 0.7152·g + 0.0722·b`, sixteen times per `dir` query. Caching it
+  as a `Float64Array` per asset would make a tap one read. Measured on
+  nyx.jpeg (879 × 879, a 6 MB plane): two million taps, **8 ms today against
+  9 ms from the plane**, identical sums. Three `Uint8ClampedArray` reads from
+  one cache line cost the same as one `Float64Array` read from a scattered
+  one — memory bandwidth decides this, not the arithmetic. Not attempted; the
+  sampler's cost is the scattered taps and the bilinear setup, neither of
+  which a plane helps.
+- **A shortcut for whole fragments in `decodeRender`.** The main thread builds
+  one `Prim` per primitive and one `Fragment` plus one sub-primitive per
+  fragment before it can draw: **249 ms on flow-user** (1.17 M objects), 21 ms
+  on church, 9 ms on contours (`bench/planbench.mts`). A fragment covering its
+  whole origin (`t0 = 0, t1 = 1`) looks like it could reuse the origin instead
+  of allocating. It cannot: `subPrim(p, 0, 1)` is **not bit-identical to `p`**
+  — a line's far endpoint comes back as `x0 + (x1 − x0)`, and a cubic's
+  control points through two de Casteljau splits with `a + 1·(b − a)`. Reusing
+  the origin would move the ink. Not attempted.
+- **A grid nearest-site query for the Lloyd loop** — the exploration queued
+  after `del.find` was found to be 90 % of the assignment. **Measured before
+  building it**, on the shape `iterate` actually uses (2 759 sites, a 256²
+  raster, row-major with the previous answer as hint): d3's hinted walk
+  **5 ms**, a uniform-grid ring search **20 ms** — four times slower. d3's
+  `find` descends from a hint, and a raster scan hands it an almost-perfect
+  one every time; a grid query throws that coherence away. The branch was not
+  written. (5 ms per round × 10 rounds is exactly the ~50 ms the assignment
+  costs, so the earlier 76 ns/call figure holds.)
+
+
 - **A compressed endpoint index for `merge_chains`** (`gcode.rs`). The plan is
   the phase `renderhash` never shows: the studio worker builds it once per
   render before it can display anything, and `bench/planbench.mts` (new) puts
