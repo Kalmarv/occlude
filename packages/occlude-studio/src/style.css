@@ -1926,7 +1926,9 @@ button.armed {
   background: rgba(35, 38, 41, 0.94); border: 1px solid var(--panel-edge); border-radius: 4px;
   padding: 8px 10px; font-family: var(--mono); font-size: 11px; color: var(--ink-dim); z-index: 3;
 }
-.inspector-head { color: var(--ink); line-height: 1.4; }
+.inspector-head { color: var(--ink); line-height: 1.4; position: relative; padding-right: 22px; }
+.inspector-close { position: absolute; right: 0; top: 0; font: inherit; font-size: 13px; line-height: 1; background: none; border: 1px solid var(--panel-edge); border-radius: 3px; color: var(--ink-dim); cursor: pointer; padding: 1px 5px; }
+.inspector-close:hover { color: var(--ink); }
 .inspector-head .sub { color: var(--ink-dim); }
 .inspector-selected { line-height: 1.45; border-top: 1px solid var(--panel-edge); padding-top: 6px; }
 .inspector-selected b { color: var(--ink); font-weight: 600; }
