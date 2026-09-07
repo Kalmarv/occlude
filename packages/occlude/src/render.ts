@@ -282,16 +282,47 @@ export interface FillJob {
   run(region: FillRegion, ctx: FillCtx): CustomPrimitive[];
 }
 
-function encodePrim(p: Prim, out: number[]): void {
+/** A growable Float64Array the encoder writes one primitive at a time
+ * straight into. A dense sketch encodes hundreds of thousands of primitives —
+ * six million numbers — and a `number[]` pays twice: once for the variadic
+ * push, again for the copy into the typed array the engine reads. */
+class PrimSink {
+  private a = new Float64Array(1024);
+  /** Numbers written — `n / PRIM_STRIDE` primitives. */
+  n = 0;
+
+  /** One primitive: exactly PRIM_STRIDE numbers, in stride order. */
+  row(k: number, a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number): void {
+    if (this.n + PRIM_STRIDE > this.a.length) {
+      let cap = this.a.length * 2;
+      while (cap < this.n + PRIM_STRIDE) cap *= 2;
+      const grown = new Float64Array(cap);
+      grown.set(this.a.subarray(0, this.n));
+      this.a = grown;
+    }
+    const t = this.a;
+    const o = this.n;
+    t[o] = k; t[o + 1] = a; t[o + 2] = b; t[o + 3] = c; t[o + 4] = d;
+    t[o + 5] = e; t[o + 6] = f; t[o + 7] = g; t[o + 8] = h;
+    this.n = o + PRIM_STRIDE;
+  }
+
+  /** The written prefix, as the engine reads it — a view, not a copy. */
+  view(): Float64Array {
+    return this.a.subarray(0, this.n);
+  }
+}
+
+function encodePrim(p: Prim, out: PrimSink): void {
   switch (p.t) {
     case 'line':
-      out.push(0, p.x0, p.y0, p.x1, p.y1, 0, 0, 0, 0);
+      out.row(0, p.x0, p.y0, p.x1, p.y1, 0, 0, 0, 0);
       break;
     case 'arc':
-      out.push(1, p.cx, p.cy, p.r, p.start, p.sweep, 0, 0, 0);
+      out.row(1, p.cx, p.cy, p.r, p.start, p.sweep, 0, 0, 0);
       break;
     case 'cubic':
-      out.push(2, p.x0, p.y0, p.c0x, p.c0y, p.c1x, p.c1y, p.x1, p.y1);
+      out.row(2, p.x0, p.y0, p.c0x, p.c0y, p.c1x, p.c1y, p.x1, p.y1);
       break;
   }
 }
@@ -358,7 +389,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     return i;
   };
 
-  const primsBuf: number[] = [];
+  const primsBuf = new PrimSink();
   const contours: number[] = [];
   const shapesU32: number[] = [];
   const shapesF64: number[] = [];
@@ -809,7 +840,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
   }
 
   return {
-    prims: new Float64Array(primsBuf),
+    prims: primsBuf.view(),
     contours: new Uint32Array(contours),
     shapesU32: new Uint32Array(shapesU32),
     shapesF64: new Float64Array(shapesF64),
@@ -919,7 +950,7 @@ export function runFillJobs(
 ): SuppliedFills {
   const fillsIndex: number[] = [];
   const fillChains: number[] = [];
-  const fillPrims: number[] = [];
+  const fillPrims = new PrimSink();
   const fillDots: number[] = [];
   for (let j = 0; j + 2 < jobsIndex.length; j += 3) {
     const shapeIdx = jobsIndex[j];
@@ -955,7 +986,7 @@ export function runFillJobs(
     // stroke, judged whole by the nib rule); any other primitive is a
     // chain of one.
     const pushChain = (prims: Prim[]): void => {
-      fillChains.push(fillPrims.length / PRIM_STRIDE, prims.length);
+      fillChains.push(fillPrims.n / PRIM_STRIDE, prims.length);
       for (const p of prims) encodePrim(p, fillPrims);
     };
     for (const cp of marks) {
@@ -998,7 +1029,7 @@ export function runFillJobs(
   return {
     fillsIndex: new Uint32Array(fillsIndex),
     fillChains: new Uint32Array(fillChains),
-    fillPrims: new Float64Array(fillPrims),
+    fillPrims: fillPrims.view(),
     fillDots: new Float64Array(fillDots),
   };
 }

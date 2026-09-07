@@ -588,6 +588,44 @@ md5 match, 81 studio tests, church oracle 381.0 min / 16 515 travel mm.
 ---
 
 
+## Entry 11 — primitives are encoded straight into a typed array (`src/render.ts`)
+
+**Finding.** `encode` is the largest phase after the sketch itself on a dense
+drawing. Instrumenting it: flow-user's `encodeScene` is **634 ms** and writes
+**6 106 986 numbers** — 678 554 primitives — into a JS `number[]` nine at a
+time, then copies the whole thing into a `Float64Array` for the engine. The
+copy is only 56 ms of that; the variadic pushes and the array's own growth are
+the rest. A micro-benchmark of 680 000 primitives: `number[]` push then
+convert **181 ms**, push alone 97 ms, growable `Float64Array` with indexed
+writes **61 ms**.
+
+**Change.** A small `PrimSink` — a growable `Float64Array` with a `row()` that
+writes exactly `PRIM_STRIDE` numbers and a `view()` returning the written
+prefix as a subarray. `encodePrim` writes into it; the scene's prim buffer and
+the fill prim buffer are both sinks now, and neither is copied at the end. No
+stride, order or value changes: the same nine numbers in the same slots.
+
+**Verification.** All 26 studio sketches hash identically. 317 TS tests,
+including a new one that encodes 3 000 vertical lines — far past the sink's
+first capacity and several doublings beyond — and checks the buffer's exact
+length, that every row is a line, that each row's x is strictly beyond the
+last (truncation, a lost prefix and a shifted stride all break it), and that
+the contour table agrees about the count. Mutation-checked: dropping one row
+during growth fails it. Docs 106/106, studio build with wasm md5 match, 81
+studio tests, church oracle 381.0 min / 16 515 travel mm.
+
+**Measurement** (`renderhash`, seed 42, the `encode` column, three A/B pairs):
+
+| sketch | before | after |
+|---|---|---|
+| flow-user (493 023 frags) | 734 / 622 / 747 ms | **649 / 582 / 626 ms** |
+| flow-portrait | 165 / 145 / 194 ms | **133 / 138 / 140 ms** |
+| church | 198 / 194 / 214 ms | 182 / 178 / 203 ms |
+| Ivy3 | 75 / 66 / 71 ms | 61 / 69 / 55 ms |
+
+---
+
+
 ## Recorded, not acted on: a stipple fill covers the whole bbox, once per region
 
 Instrumenting `contours-2-multicolor` — eight nested contour bands, each

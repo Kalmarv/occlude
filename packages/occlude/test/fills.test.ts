@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  BUILTIN_FILL_NAMES, circle, clearFills, compileSketch, encodeScene, fill, fillAsset, initOcclude,
+  BUILTIN_FILL_NAMES, circle, clearFills, compileSketch, encodeScene, fill, fillAsset, initOcclude, line,
   isBuiltinFill, loadFillModule, registerFill, render, renderEncoded, resolveFill, rulings,
   scanFillNames, sketch, type WasmModule,
 } from '../src/index.js';
@@ -204,6 +204,34 @@ describe('pass-1 handle lifetime', () => {
     );
     renderEncoded(mod, scene);
     expect(freed).toBe(0);
+  });
+});
+
+describe('the encoded primitive buffer', () => {
+  it('holds every primitive, in order, across the sink\'s growth', () => {
+    // Far past the sink's first capacity (1024 numbers = 113 primitives) and
+    // several doublings beyond, so a lost prefix or a short view shows up.
+    const N = 3000;
+    compileSketch(sketch({ seed: 1 }, () =>
+      Array.from({ length: N }, (_, i) => line(i * 0.03, 1, i * 0.03, 2))));
+    const scene = encodeScene({ paper: 'Square20' });
+    expect(scene.prims).toBeInstanceOf(Float64Array);
+    expect(scene.prims.length).toBe(N * 9);
+    // every row is a line, and the x of each is strictly beyond the last:
+    // truncation, a lost prefix and a shifted stride all break this
+    let prev = -Infinity;
+    for (let i = 0; i < N; i++) {
+      const o = i * 9;
+      expect(scene.prims[o]).toBe(0); // 'line'
+      const x0 = scene.prims[o + 1];
+      expect(Number.isFinite(x0)).toBe(true);
+      expect(x0).toBeGreaterThan(prev);
+      prev = x0;
+      expect(scene.prims[o + 3]).toBeCloseTo(x0, 9); // vertical: x1 === x0
+    }
+    // and the contour table agrees about how many there are
+    expect(scene.contours.length).toBe(N * 2);
+    expect(scene.contours[(N - 1) * 2]).toBe(N - 1);
   });
 });
 
