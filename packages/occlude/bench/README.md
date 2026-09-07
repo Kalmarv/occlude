@@ -1,7 +1,7 @@
 # Benchmark harnesses (consolidation, 7 September 2026)
 
-Reproducible workloads behind the numbers in docs/reviews/con2-review.md and
-docs/reviews/perf-loop.md. Run from `packages/occlude`:
+Reproducible workloads behind the numbers in working/con2-review.md and
+working/perf-loop.md. Run from `packages/occlude`:
 
     pnpm --filter occlude bench            every harness, with headers
     pnpm --filter occlude bench --quick    skip the slow ones

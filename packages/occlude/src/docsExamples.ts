@@ -29,8 +29,6 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'architecture', title: 'Architecture', file: 'architecture.md', live: false, group: 'developer' },
   { slug: 'device-notes', title: 'Device notes', file: 'device-notes.md', live: false, group: 'developer' },
   { slug: 'idraw-log', title: 'iDraw log (2026)', file: 'idraw-integration.md', live: false, group: 'developer' },
-  { slug: 'review', title: 'Consolidation review', file: 'reviews/con2-review.md', live: false, group: 'developer' },
-  { slug: 'conversion', title: 'Conversion notes', file: 'reviews/conversion.md', live: false, group: 'developer' },
 ];
 
 /** Settings a live fence may carry after `ts live`: `paper=A5` or

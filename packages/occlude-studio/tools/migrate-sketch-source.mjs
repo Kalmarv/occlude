@@ -9,7 +9,7 @@
  *   trace(...)    → stroke(...)      (draw along a contour)
  *   t.loops(...)  → t.polylines(...) (a shape's outline as points)
  *
- * 2026-09-07 material-native geometry (docs/reviews/conversion.md):
+ * 2026-09-07 material-native geometry (working/conversion-review.md):
  *   t.polylines(x) → t.material(x).curves().map((c) => c.pts)
  * `t.polylines` no longer exists; `t.material(x)` returns a Material, so
  * the rewrite keeps the array shape the caller expected by reading the
