@@ -280,8 +280,16 @@ impl Bvh {
         if self.nodes.is_empty() {
             return;
         }
-        let mut stack = vec![0u32];
-        while let Some(ni) = stack.pop() {
+        // A fixed frame instead of a Vec: the build splits at the median, so
+        // the tree is balanced and its depth is ceil(log2(leaves)) — at most
+        // 32 for a u32 count of boxes, half this frame. A Vec here was an
+        // allocation, and a couple of growths, on every query; a heavily
+        // occluded render makes one per primitive.
+        let mut stack = [0u32; 64];
+        let mut top = 1usize;
+        while top > 0 {
+            top -= 1;
+            let ni = stack[top];
             let node = &self.nodes[ni as usize];
             if !node.bbox.overlaps(q) {
                 continue;
@@ -294,8 +302,10 @@ impl Bvh {
                     }
                 }
             } else {
-                stack.push(ni + 1);
-                stack.push(node.right);
+                debug_assert!(top + 2 <= stack.len(), "bvh deeper than 64");
+                stack[top] = ni + 1;
+                stack[top + 1] = node.right;
+                top += 2;
             }
         }
     }

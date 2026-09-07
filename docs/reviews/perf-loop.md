@@ -817,6 +817,52 @@ mutation-checked twice (`>` for `>=`, and dropping the grid's filter). Docs
 106/106, studio built with wasm md5 match, 81 studio tests.
 
 
+## Entry 14 — the BVH walks a fixed frame instead of allocating one per query (Rust)
+
+**Finding** (entry 13's recorded lead). With the sort gone and the gather
+halved, splitting the query zone again at 400 discs gave gather 139 ms,
+heapify 79 ms, and the clip's own spans loop 135 ms. Inside the gather,
+`Bvh::query` opened with `let mut stack = vec![0u32]` — a heap allocation, and
+a couple of growths as it descended, **on every query**. A heavily occluded
+render makes one query per primitive: ~96 000 of them for this fixture.
+
+**Change.** A `[u32; 64]` frame with an explicit top. The build splits at the
+median, so the tree is balanced and its depth is `ceil(log2(leaves))` — at
+most 32 for a `u32` count of boxes, half the frame. A `debug_assert` states
+the bound.
+
+**Measurement.** Native `examples/stack_bench.rs`, 400 discs, three
+interleaved A/B pairs: **438 / 435 / 439 → 426 / 406 / 402 ms**, winning every
+pair with no overlap (~7.5 %). Through wasm (`bench/obench.mts`, µs/frag, two
+pairs) it is smaller but consistent in direction on nearly every row:
+
+| workload | before | after |
+|---|---|---|
+| stack, 50 discs | 20.8 / 20.1 | 18.2 / 18.8 |
+| stack, 100 discs | 34.7 / 34.6 | 31.5 / 33.6 |
+| stack, 200 discs | 76.5 / 78.0 | 73.6 / 71.9 |
+| concentric, 400 rings | 284.5 / 282.9 | 256.6 / 270.0 |
+| stack 400, coincident 300, cover, gauntlet, outlines | — | flat to slightly better |
+
+**A note on method.** The first two ad-hoc runs of this change read 442 and
+432 ms against a remembered 427 and looked like a *regression*; only the
+interleaved pairs showed it winning three for three. Single runs on this box
+are worth nothing at this margin — which is why every entry here interleaves.
+
+**Verification.** All 26 studio sketches hash identically; all four `plotstats`
+oracles byte-identical. 317 TS tests; 63 Rust tests — the filtered-query test
+gained a **deep-BVH case**: 20 000 fat boxes (depth ~15) checked against a
+full scan, since a build deeper than the frame would corrupt the traversal in
+release where the `debug_assert` is gone. Mutation-checked twice (both children
+pushed as the right subtree; the frame starting empty). Docs 106/106, studio
+built with wasm md5 match.
+
+**Failed gate, pre-existing:** the studio suite came back 80/81 once, then
+81/81 on four consecutive re-runs. That is the known `drawing.test.ts`
+wall-clock flake recorded below — a Rust BVH traversal has no path to a mocked
+`Drawing` client.
+
+
 ## Rejected, with reasons
 - **A cached luminance plane for the image sampler** (`imageAsset.ts`). The
   samplers are the largest library-side cost in flow-user (~890 ms of self

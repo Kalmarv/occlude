@@ -848,6 +848,28 @@ fn a_filtered_query_is_exactly_the_unfiltered_one_from_that_index_up() {
         s = s.wrapping_mul(6364136223846793005).wrapping_add(1);
         ((s >> 33) as f64) / (u32::MAX as f64 / 2.0)
     };
+    // A deep tree, against brute force: the BVH walks a fixed 64-entry frame,
+    // so a build that ever went deeper than that would corrupt the traversal
+    // in release. 20 000 median-split leaves is depth ~15; the absolute bound
+    // for a u32 count is 32.
+    {
+        let mut boxes: Vec<BBox> = Vec::new();
+        for _ in 0..20_000 {
+            let (x, y) = (rnd() * 1000.0, rnd() * 1000.0);
+            let (w, h) = (rnd() * 90.0 + 30.0, rnd() * 90.0 + 30.0); // fat: forces the BVH
+            boxes.push(BBox::new(v(x, y), v(x + w, y + h)));
+        }
+        let index = SpatialIndex::build(&boxes);
+        let mut got: Vec<u32> = Vec::new();
+        for _ in 0..40 {
+            let (x, y) = (rnd() * 1000.0, rnd() * 1000.0);
+            let q = BBox::new(v(x, y), v(x + rnd() * 50.0, y + rnd() * 50.0));
+            index.query(&q, &mut got);
+            let want: Vec<u32> = (0..boxes.len() as u32).filter(|&i| boxes[i as usize].overlaps(&q)).collect();
+            assert_eq!(got, want, "deep BVH query must match a full scan");
+        }
+    }
+
     // fat boxes (the BVH branch) and small ones (the grid branch)
     for fat in [false, true] {
         let mut boxes: Vec<BBox> = Vec::new();
