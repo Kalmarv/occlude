@@ -190,9 +190,9 @@ export class Inspector {
     const m = this.model;
     this.enable.checked = m.enabled;
     this.body.hidden = !m.enabled;
-    // The pane appears only while something is selected; the overlay alone
-    // is the resting state.
-    this.pane.hidden = !(m.enabled && m.material && m.selection && this.menu.open);
+    // The pane lives with the debug menu: open menu and material layer on,
+    // it shows; closed menu, it goes (the overlay stays with the layer).
+    this.pane.hidden = !(m.enabled && this.menu.open);
     if (!m.enabled) {
       this.hint.hidden = true;
       this.repaint();
@@ -254,7 +254,7 @@ export class Inspector {
       return;
     }
     this.head.innerHTML = `<b>${mat.name}</b> · ${mat.n} points · ${mat.edges.length / 2} edges · iteration ${mat.iteration}` +
-      `<button class="inspector-close" title="Clear the selection and hide this pane">×</button>` +
+      `<button class="inspector-close" title="Clear the selection">×</button>` +
       `<div class="sub">rows are indices in this state, in material coordinates before drawing transforms${this.status ? ' · ' + this.status : ''}</div>`;
     (this.head.querySelector('.inspector-close') as HTMLButtonElement).onclick = () => this.choose(null);
     this.renderSelected();
