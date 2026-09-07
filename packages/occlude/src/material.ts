@@ -1434,9 +1434,11 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
       const at = opts.at ?? 0.5;
       if (!Number.isFinite(at) || at < 0 || at > 1) throw new Error(`steps: split at ${at} — must be within [0, 1]`);
       if (at === 0 || at === 1) {
-        if (opts.point || opts.edges || opts.attributes || opts.parent) {
-          throw new Error('steps: a split at an endpoint creates nothing — point/edge overrides would modify existing data');
-        }
+        // Nothing is created, so the overrides, which describe what a
+        // created point or child edge would carry, have nothing to apply
+        // to: the existing endpoint is returned as it is. A `firstHit` that
+        // touches a vertex lands here, and a join rule should not have to
+        // special-case it.
         return at === 0 ? cur.edgeList[2 * row] : cur.edgeList[2 * row + 1];
       }
       const handle = added.length;

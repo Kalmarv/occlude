@@ -714,7 +714,10 @@ describe('structural editing (edges brief)', () => {
     const rests = Array.from(out.edgeAttrs.rest);
     expect(rests.map((r) => +r.toFixed(9))).toEqual([2, 5, 3]);
     expect(rests.reduce((a, b) => a + b, 0)).toBeCloseTo(10, 9);
-    expect(() => line.steps(1, (cur, n) => n.split(cur.edge(0), { at: 1, point: { age: 0 } }))).toThrow(/creates nothing/);
+    // a split at an endpoint creates nothing and returns the endpoint; overrides describe created data and do not apply
+    const untouched = line.steps(1, (cur, n) => n.split(cur.edge(0), { at: 1, point: { age: 0 } }));
+    expect(untouched.n).toBe(line.n);
+    expect(Array.from(untouched.attrs.age)).toEqual(Array.from(line.attrs.age));
     expect(() => line.steps(1, (cur, n) => n.split(cur.edge(0), { at: 1.5 }))).toThrow(/within \[0, 1\]/);
     // distinct child-edge definitions on one parent are a conflict; the same one twice is fine
     const same = (p: import('../src/material.js').Edge, c: import('../src/material.js').ChildInterval) => ({ rest: p.attrs.rest * c.fraction });
