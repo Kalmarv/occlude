@@ -704,6 +704,23 @@ dependency we already have. **Left alone on master; noted as a candidate for
 exploratory work.**
 
 ## Rejected, with reasons
+- **Hoisting the pixel block out of the image sampler** (`imageAsset.ts`).
+  The samplers were ~888 ms of self time on flow-user, and a `dir` query does
+  four samples of four pixels each, so `px.data`, `px.width` and `px.height`
+  were dozens of property loads per query. Hoisting `data`/`W`/`H` into the
+  sampler's scope and passing `data` to `channelValue` measured **flat and
+  inconsistent** — `edge` 144/183/162 → 176/137/145 ms, `dir` 130/177/162 →
+  151/147/152 ms, `lum` slightly worse — with identical sums. V8 already
+  hoists monomorphic loop-invariant property loads. Reverted.
+- **Typed sinks for the rest of the encode buffers.** After the prim sink
+  (entry 11), the remaining buffers were measured rather than assumed:
+  flow-user's are prims 6 106 986 numbers against contours 3 664, shapesU32
+  21 984, shapesF64 3 664, mods 7 328. Church is the only sketch where the
+  others come close (prims 627 084 against 585 000 across all the rest), worth
+  perhaps 35 ms of its 211 ms encode. Not enough for the surface area of five
+  more sinks at the wasm boundary. Not attempted.
+
+
 
 - **Scalar `rk4` / `dir` in `streamlines.ts`** (return into scratch variables
   instead of a tuple per sample; delete the per-step `al` closure that aligns
@@ -756,6 +773,20 @@ exploratory work.**
 - **Enumerable brand symbols in the view literal**: fast to build (38 ms) but a
   spread copy would then be *owned*, loosening the ownership contract. See
   entry 3.
+
+## Exploratory branches (never merged, never on master)
+
+- **`perf/explore-region-aware-stipple`** (`caaba95`, based on `43177bd`) —
+  makes the stipple fill refuse candidates outside the region instead of
+  proposing over the whole bbox, with re-seeding so disjoint islands are still
+  covered. **Measured 17× slower**, not faster: `region.contains` is an exact
+  point-in-contour test that the engine currently runs once per *accepted* dot
+  in Rust, and a region-aware fill must run it per *candidate* in JS. Full
+  write-up, including what it would take to work (a cheap conservative region
+  mask handed to fills — a fill-API capability, not a patch) and a
+  non-performance observation about bands being 1 % under-filled today, in
+  `docs/reviews/explore-region-aware-stipple.md` **on that branch**.
+
 
 ## Known flaky gate (pre-existing, not from this work)
 
