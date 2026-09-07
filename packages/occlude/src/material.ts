@@ -24,6 +24,7 @@
  */
 
 import { PointSelection, EdgeSelection } from './relation.js';
+import { walkChains } from './chains.js';
 import { planarize, faces, type PlanarizeOpts, type Faces } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import type { VectorFieldFn } from './shapes.js';
@@ -325,11 +326,11 @@ export class Material {
     return v as Vertex;
   }
 
-  /** Every vertex as a view, in row order. */
-  get points(): Vertex[] {
-    const out: Vertex[] = new Array(this.n);
-    for (let i = 0; i < this.n; i++) out[i] = this.vertex(i);
-    return out;
+  /** Every vertex, as a geometry collection: iterate, `length`, `at(i)`,
+   * `map` (an array), `find`, `filter` (a selection of this state) and
+   * `groupBy` (selections by key). Views are made as you read them. */
+  get points(): PointSelection {
+    return new PointSelection(this, null);
   }
 
   /** Positions as tuples, row order — what `polygon`, `distanceTo` eat. */
@@ -364,11 +365,11 @@ export class Material {
     return view as Edge;
   }
 
-  /** Every edge as views, stored order. */
-  get edges(): Edge[] {
-    const out: Edge[] = [];
-    for (let e = 0; e < this.edgeCount; e++) out.push(this.edge(e));
-    return out;
+  /** Every edge, stored order, as a geometry collection (see `points`);
+   * `filter` gives an edge selection whose chains and boundary are those
+   * of the selected edges alone. */
+  get edges(): EdgeSelection {
+    return new EdgeSelection(this, null);
   }
 
   /** Rows connected to `i` (a row or a vertex view of this state), in edge order. */
@@ -415,23 +416,6 @@ export class Material {
     return faces(this);
   }
 
-  // ---- selections (see relation.ts) ----
-
-  /** The vertices `where` picks, as a source-bound selection: membership
-   * is decided now and fixed; the views it hands out are this state's. */
-  selectPoints(where: (p: Vertex) => boolean): PointSelection {
-    const rows: number[] = [];
-    for (let i = 0; i < this.n; i++) if (where(this.vertex(i))) rows.push(i);
-    return new PointSelection(this, rows);
-  }
-
-  /** The edges `where` picks, as a source-bound selection. */
-  selectEdges(where: (e: Edge) => boolean): EdgeSelection {
-    const rows: number[] = [];
-    for (let e = 0; e < this.edgeCount; e++) if (where(this.edge(e))) rows.push(e);
-    return new EdgeSelection(this, rows);
-  }
-
   /** Chain convenience: the row before `i` along a stored edge into it,
    * -1 at an open end. On a junction, the first such row. */
   prev(v: Vertex | number): number {
@@ -474,46 +458,29 @@ export class Material {
    * chains — see `points`.
    */
   curves(): Curve[] {
-    const n = this.n;
+    return walkChains({
+      vertexCount: this.n,
+      edgeRows: this.edgeRowsAll(),
+      endpoints: (e) => [this.edgeList[2 * e], this.edgeList[2 * e + 1]],
+      x: this.x,
+      y: this.y,
+    });
+  }
+
+  /** Every edge row, once per call site that walks them. */
+  private edgeRowsAll(): ArrayLike<number> {
     const m = this.edgeCount;
-    const used = new Uint8Array(m);
-    // edge rows by vertex, in edge order
-    const rows: number[][] = Array.from({ length: n }, () => []);
-    for (let e = 0; e < m; e++) {
-      rows[this.edgeList[2 * e]].push(e);
-      rows[this.edgeList[2 * e + 1]].push(e);
-    }
-    const other = (e: number, v: number) => (this.edgeList[2 * e] === v ? this.edgeList[2 * e + 1] : this.edgeList[2 * e]);
-    const out: Curve[] = [];
-    const walk = (start: number, firstEdge: number, stopAtDegree: boolean): Curve => {
-      const indices = [start];
-      let v = start;
-      let e = firstEdge;
-      for (;;) {
-        used[e] = 1;
-        v = other(e, v);
-        indices.push(v);
-        if (stopAtDegree && this.adj[v].length !== 2) break;
-        if (v === start) break;
-        const nextE = rows[v].find((r) => !used[r]);
-        if (nextE === undefined) break;
-        e = nextE;
-      }
-      const closed = indices.length > 1 && indices[0] === indices[indices.length - 1];
-      if (closed) indices.pop();
-      return { indices, closed, pts: indices.map((i) => [this.x[i], this.y[i]] as [number, number]) };
-    };
-    for (let v = 0; v < n; v++) {
-      if (this.adj[v].length === 2) continue;
-      for (const e of rows[v]) if (!used[e]) out.push(walk(v, e, true));
-    }
-    for (let e = 0; e < m; e++) {
-      if (!used[e]) out.push(walk(this.edgeList[2 * e], e, false));
-    }
-    // Chains in row order of their first vertex (stable): material built
-    // from contours draws them in contour order whether they are open or
-    // closed; a junction's arms keep their edge order.
-    return out.sort((a, b) => a.indices[0] - b.indices[0]);
+    const rows = new Uint32Array(m);
+    for (let e = 0; e < m; e++) rows[e] = e;
+    return rows;
+  }
+
+  /** Highest vertex degree: 1 or 2 for chains and rings, more where the
+   * material branches. */
+  maxDegree(): number {
+    let best = 0;
+    for (const row of this.adj) if (row.length > best) best = row.length;
+    return best;
   }
 
   // ---- derived material ----
@@ -859,7 +826,7 @@ export function ownedBy(view: object, m: object): boolean {
 
 /** Points a material can be made from: tuples, `{x, y}` objects (extra numeric
  * fields such as a scatter point's `w` become columns), or a material. */
-export type PointsLike = readonly XY[] | Material;
+export type PointsLike = readonly XY[] | Iterable<XY> | Material;
 
 /**
  * Material from positions. Unconnected unless `edges` are given; extra
@@ -871,13 +838,15 @@ export function material(
   opts: { edges?: readonly (readonly [number, number])[] } & Record<string, number | ArrayLike<number> | readonly (readonly [number, number])[] | undefined> = {},
 ): Material {
   if (points instanceof Material) return points;
-  const n = points.length;
+  // A point collection (m.points, a selection) is a fine source of points.
+  const list: readonly XY[] = Array.isArray(points) ? (points as readonly XY[]) : Array.from(points as Iterable<XY>);
+  const n = list.length;
   const x = new Float64Array(n);
   const y = new Float64Array(n);
   const attrs: Record<string, Float64Array> = {};
   const extra = new Set<string>();
   for (let i = 0; i < n; i++) {
-    const p = points[i];
+    const p = list[i];
     x[i] = vx(p);
     y[i] = vy(p);
     if (!isArr(p)) {
@@ -887,7 +856,7 @@ export function material(
   for (const k of extra) {
     const col = new Float64Array(n);
     for (let i = 0; i < n; i++) {
-      const p = points[i];
+      const p = list[i];
       const v = isArr(p) ? undefined : (p as Record<string, unknown>)[k];
       if (typeof v !== 'number') throw new Error(`material: point ${i} has no numeric '${k}' — every point needs every column`);
       col[i] = v;
@@ -1270,7 +1239,7 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   const links: { a: Ref; b: Ref; attrs: Record<string, number> }[] = [];
   const points = cur.points; // frozen views for the collection forms
   let edgeViews: Edge[] | null = null;
-  const currentEdges = () => (edgeViews ??= cur.edges);
+  const currentEdges = () => (edgeViews ??= Array.from(cur.edges));
 
   const rowOf = (r: Ref, what: string): number => {
     if (isHandle(r)) throw new Error(`steps: ${what} cannot be a handle here`);
@@ -1487,7 +1456,7 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   const anyParent = Array.from(splits.values()).some((reqs) => reqs.some((r) => r.parent));
   for (const name of names) inheritFrom[name] = anyParent ? Float64Array.from(nattrs[name]) : nattrs[name];
   for (const [row, reqs] of splits) {
-    const parentEdge = movedEdges[row];
+    const parentEdge = movedEdges.at(row);
     // legacy `parent`: rewrite the start vertex's point attributes
     for (const r of reqs) {
       if (r.parent) {
@@ -1568,7 +1537,7 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
     oy.push(ny[i]);
     for (const name of names) oattrs[name].push(nattrs[name][i]);
     for (const [row, c] of insertAfter.get(i) ?? []) {
-      const e = movedEdges[row];
+      const e = movedEdges.at(row);
       cutRow.set(`${row}@${c.at}`, ox.length);
       ox.push(e.a.x + (e.b.x - e.a.x) * c.at);
       oy.push(e.a.y + (e.b.y - e.a.y) * c.at);
@@ -1612,7 +1581,7 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
     const rows = [a, ...cuts.map((c) => cutRow.get(`${e}@${c.at}`)!), b];
     for (let i = 0; i + 1 < stops.length; i++) {
       const child: ChildInterval = { from: stops[i], to: stops[i + 1], fraction: stops[i + 1] - stops[i] };
-      const extra = typeof override === 'function' ? override(movedEdges[e], child) : override ?? {};
+      const extra = typeof override === 'function' ? override(movedEdges.at(e), child) : override ?? {};
       for (const name in extra) {
         if (!enames.includes(name)) throw new Error(`steps: no edge attribute '${name}' — declare it with edgeAttribute()`);
         if (!Number.isFinite(extra[name])) throw new Error(`steps: '${name}' for a child edge is not a finite number`);

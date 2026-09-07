@@ -11,14 +11,14 @@ describe('selections', () => {
   it('membership is fixed at creation, in source order, with source-bound views', () => {
     const m = Y();
     let calls = 0;
-    const old = m.selectPoints((p) => (calls++, p.age >= 2));
+    const old = m.points.filter((p) => (calls++, p.age >= 2));
     expect(calls).toBe(6);
     expect(old.source).toBe(m);
-    expect(old.size).toBe(4);
+    expect(old.length).toBe(4);
     expect(old.indices).toEqual([2, 3, 4, 5]);
     expect(Object.isFrozen(old.indices)).toBe(true);
     expect(() => (old.indices as number[]).push(0)).toThrow();
-    expect(old.points.map((p) => p.index)).toEqual([2, 3, 4, 5]);
+    expect(old.map((p) => p.index)).toEqual([2, 3, 4, 5]);
     expect(old.has(m.vertex(3))).toBe(true);
     expect(old.has(m.vertex(0))).toBe(false);
     // the same rows of another state are not members
@@ -29,15 +29,15 @@ describe('selections', () => {
     expect(() => old.has(m.edge(0) as unknown as Vertex)).toThrow(/edge view/);
     expect(() => old.has(3 as unknown as Vertex)).toThrow(/vertex view/);
     calls = 0;
-    old.points;
+    [...old];
     expect(calls).toBe(0); // no re-evaluation
   });
 
   it('domain comes from the view, not from attribute names', () => {
     const m = material([[0, 0], [1, 0]], { edges: [[0, 1]], a: 1, b: 2, x2: 3 });
-    const pts = m.selectPoints(() => true);
+    const pts = m.points.filter(() => true);
     expect(pts.has(m.vertex(0))).toBe(true);
-    const es = m.selectEdges(() => true);
+    const es = m.edges.filter(() => true);
     expect(() => es.has(m.vertex(0) as never)).toThrow(/vertex view/);
     expect(() => pts.has(m.edge(0) as never)).toThrow(/edge view/);
     // the edit interface is just as strict: a vertex named a/b is not an edge
@@ -47,9 +47,9 @@ describe('selections', () => {
 
   it('edge selections: views, deduplicated endpoints in source order, domain checks', () => {
     const m = Y();
-    const strong = m.selectEdges((e) => e.attrs.strength >= 3);
+    const strong = m.edges.filter((e) => e.attrs.strength >= 3);
     expect(strong.indices).toEqual([2, 3]);
-    expect(strong.edges.map((e) => [e.a.index, e.b.index])).toEqual([[2, 3], [2, 4]]);
+    expect(strong.map((e) => [e.a.index, e.b.index])).toEqual([[2, 3], [2, 4]]);
     expect(strong.points.map((p) => p.index)).toEqual([2, 3, 4]); // 2 once
     expect(strong.has(m.edge(2))).toBe(true);
     expect(strong.has(m.edge(0))).toBe(false);
@@ -59,31 +59,31 @@ describe('selections', () => {
 
   it('union, intersect, subtract: overlap, empties, incompatible inputs', () => {
     const m = Y();
-    const a = m.selectPoints((p) => p.index <= 2);
-    const b = m.selectPoints((p) => p.index >= 2 && p.index <= 4);
+    const a = m.points.filter((p) => p.index <= 2);
+    const b = m.points.filter((p) => p.index >= 2 && p.index <= 4);
     expect(a.union(b).indices).toEqual([0, 1, 2, 3, 4]);
     expect(a.intersect(b).indices).toEqual([2]);
     expect(a.subtract(b).indices).toEqual([0, 1]);
     expect(b.subtract(a).indices).toEqual([3, 4]);
     expect(a.indices).toEqual([0, 1, 2]); // inputs untouched
-    const none = m.selectPoints(() => false);
-    expect(none.size).toBe(0);
+    const none = m.points.filter(() => false);
+    expect(none.length).toBe(0);
     expect(a.union(none).indices).toEqual(a.indices);
-    expect(a.intersect(none).size).toBe(0);
-    expect(none.subtract(a).size).toBe(0);
+    expect(a.intersect(none).length).toBe(0);
+    expect(none.subtract(a).length).toBe(0);
     expect(none.extract().n).toBe(0);
-    expect(() => a.union(Y().selectPoints(() => true))).toThrow(/different states/);
-    const e = m.selectEdges(() => true);
+    expect(() => a.union(Y().points.filter(() => true))).toThrow(/different states/);
+    const e = m.edges.filter(() => true);
     expect(() => a.union(e as unknown as PointSelection)).toThrow(/point selection/);
     expect(() => e.intersect(a as unknown as EdgeSelection)).toThrow(/edge selection/);
-    expect(e.subtract(m.selectEdges((x) => x.index === 0)).indices).toEqual([1, 2, 3]);
+    expect(e.subtract(m.edges.filter((x) => x.index === 0)).indices).toEqual([1, 2, 3]);
   });
 });
 
 describe('extraction', () => {
   it('point extraction keeps points and columns, no edges; induced edges keep existing connections only', () => {
     const m = Y();
-    const branchAndLoner = m.selectPoints((p) => p.index >= 2);
+    const branchAndLoner = m.points.filter((p) => p.index >= 2);
     const pts = branchAndLoner.extract();
     expect(pts.n).toBe(4);
     expect(pts.edgeCount).toBe(0);
@@ -108,9 +108,9 @@ describe('extraction', () => {
     const src = Y().attribute('kind', 7, { transfer: 'nearest' });
     // select the trunk in reverse-stored orientation to check it is kept
     const flipped = material([[0, 0], [10, 0], [20, 0]], { edges: [[2, 1], [1, 0]] }).edgeAttribute('strength', (e) => e.index + 10);
-    const rev = flipped.selectEdges(() => true).extract();
+    const rev = flipped.edges.filter(() => true).extract();
     expect(Array.from(rev.edgeList)).toEqual([2, 1, 1, 0]);
-    const branches = src.selectEdges((e) => e.index >= 2).extract();
+    const branches = src.edges.filter((e) => e.index >= 2).extract();
     expect(branches.n).toBe(3);
     expect(Array.from(branches.x)).toEqual([20, 30, 30]);
     expect(Array.from(branches.edgeList)).toEqual([0, 1, 0, 2]);
@@ -122,7 +122,7 @@ describe('extraction', () => {
     // independent: writing the copy leaves the source alone, and the source's views are not owned by it
     branches.x[0] = 999;
     expect(src.x[2]).toBe(20);
-    expect(src.selectEdges(() => true).has(branches.edge(0))).toBe(false);
+    expect(src.edges.filter(() => true).has(branches.edge(0))).toBe(false);
     // a split afterwards obeys the carried policy (nearest copies)
     const split = branches.steps(1, (cur, next) => next.split(cur.edge(0), { at: 0.3 }));
     expect(split.attrs.kind[1]).toBe(7);
@@ -131,14 +131,14 @@ describe('extraction', () => {
 
   it('continued editing and combining of extracted results through existing APIs', () => {
     const m = Y();
-    const branch = m.selectEdges((e) => e.index === 2).extract();
-    const other = m.selectEdges((e) => e.index === 3).extract();
+    const branch = m.edges.filter((e) => e.index === 2).extract();
+    const other = m.edges.filter((e) => e.index === 3).extract();
     const joined = append(branch, other);
     expect(joined.n).toBe(4);
     expect(joined.edgeCount).toBe(2);
     const paired = connect.pairs(branch, other, { strength: 0 });
     expect(paired.edgeCount).toBe(4);
-    const nearestPolicy = m.attribute('age', 1, { transfer: 'nearest' }).selectEdges(() => true).extract();
+    const nearestPolicy = m.attribute('age', 1, { transfer: 'nearest' }).edges.filter(() => true).extract();
     expect(() => append(branch, nearestPolicy)).toThrow(/transfer/);
   });
 });
@@ -146,32 +146,32 @@ describe('extraction', () => {
 describe('drawing selections', () => {
   it('curves of the selected graph: junctions and ends from selected edges only, indices are source rows', () => {
     const m = Y();
-    const all = m.selectEdges(() => true).curves();
+    const all = m.edges.filter(() => true).curves();
     expect(all).toHaveLength(3); // trunk, and two branches meeting at the junction 2
-    const noLeft = m.selectEdges((e) => e.index !== 2).curves();
+    const noLeft = m.edges.filter((e) => e.index !== 2).curves();
     expect(noLeft).toHaveLength(1);
     expect(noLeft[0].indices).toEqual([0, 1, 2, 4]); // vertex 2 is no longer a junction
     expect(noLeft[0].closed).toBe(false);
-    const ring = curve([[0, 0], [1, 0], [1, 1], [0, 1]], { closed: true }).selectEdges(() => true).curves();
+    const ring = curve([[0, 0], [1, 0], [1, 1], [0, 1]], { closed: true }).edges.filter(() => true).curves();
     expect(ring).toHaveLength(1);
     expect(ring[0].closed).toBe(true);
     // each selected edge exactly once across the chains
     const covered = all.flatMap((c) => c.indices.slice(0, -1).map((v, k) => [v, c.indices[k + 1]]));
     expect(covered).toHaveLength(4);
-    expect(m.selectEdges(() => false).curves()).toEqual([]);
+    expect(m.edges.filter(() => false).curves()).toEqual([]);
   });
 });
 
 describe('selections in edits', () => {
   it('a current-state selection drives existing selectors; outer selections do not rebind', () => {
     const m = Y();
-    const outer = m.selectPoints((p) => p.age >= 3);
+    const outer = m.points.filter((p) => p.age >= 3);
     const moved = m.steps(1, (current, next) => {
-      const old = current.selectPoints((p) => p.age >= 3);
+      const old = current.points.filter((p) => p.age >= 3);
       expect(current).not.toBe(m); // steps works on its own copy: the outer selection is of another state
       expect(outer.has(current.vertex(3))).toBe(false);
       next.move(() => [0, 5], { where: (p) => old.has(p) });
-      const strong = current.selectEdges((e) => e.attrs.strength >= 3);
+      const strong = current.edges.filter((e) => e.attrs.strength >= 3);
       next.setEdges(() => ({ strength: 100 }), { where: (e) => strong.has(e) });
       next.disconnect((e) => e.index === 0 && !strong.has(e));
     });
@@ -179,14 +179,14 @@ describe('selections in edits', () => {
     expect(Array.from(moved.edgeAttrs.strength)).toEqual([2, 100, 100]);
     // bulk split sees MOVED edges: a current-state selection cannot vouch for them
     const strongSplit = m.steps(1, (current, next) => {
-      const strong = current.selectEdges((e) => e.attrs.strength >= 3);
+      const strong = current.edges.filter((e) => e.attrs.strength >= 3);
       expect(() => next.splitEdges((e) => strong.has(e))).not.toThrow(); // recorded now…
     });
     // …but evaluated on moved views, which the selection does not own: nothing split
     expect(strongSplit.n).toBe(6);
     const explicit = m.steps(1, (current, next) => {
-      const strong = current.selectEdges((e) => e.attrs.strength >= 3);
-      for (const e of strong.edges) next.split(e);
+      const strong = current.edges.filter((e) => e.attrs.strength >= 3);
+      for (const e of strong) next.split(e);
     });
     expect(explicit.n).toBe(8);
   });

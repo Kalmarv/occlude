@@ -56,7 +56,7 @@ A material is a set of vertices, each with `x`, `y` and any named attribute colu
 | making | `t.sample(shape)`, `material(points)`, `curve(pts)`, `connect.*`, `.attribute()`, `.resample()` |
 | vectors | `add sub mul length distance unit limit perp sum sumBy`: tuples in either spelling, tuples out, nothing mutated |
 | rules | `.steps(n, (current, next, k) => …)` with the collection edits; forces prepared once and evaluated at a point |
-| selection | `.selectPoints()`, `.selectEdges()`, `.extract()`, `connectedPoints`, `components`, `meanBy` |
+| collections | `.points`, `.edges`, `.faces()`: iterate, `length`, `at`, `map`, `filter` (a selection), `groupBy` (selections by key); `.extract()` for independent material; `connectedPoints`, `components`, `meanBy` |
 | areas | `.planarize()` shares crossings on purpose; `.faces()` reads the enclosed regions; `boundaries()` outlines a union |
 | drawing | `.curves()`, `strokes()`, `segmentRuns`, `extent`, `banding`, then `stroke`, `polygon`, `circle` |
 
@@ -135,21 +135,24 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
-## Selections
+## Collections and selections
 
-A selection names part of one state, the points or edges a predicate picked, without copying positions or changing anything. The predicate runs once and membership is then fixed. `.points` and `.edges` are the source's own views, so array methods do the rest. Independent material is made on purpose with `extract()`.
+`m.points`, `m.edges` and `m.faces()` are geometry collections: iterate them, read `length`, take `at(i)`, `map` to an ordinary array, `find`, `filter` and `groupBy`. `filter` returns a selection: the same kind of collection, bound to the same state, holding the rows the predicate picked in source order, so it filters, iterates, maps and groups again like the whole. Nothing is copied or changed; views are the source's own, with their ownership. `groupBy(classifier)` splits a collection into an array of selections by key, in first-occurrence order, each carrying its `key`; the key is the classification that made the group, not a column, and a later state knows nothing of it. Independent material is made on purpose with `extract()`.
+
+A selection is consumed where its domain makes sense: `strokes(edges)` draws the selected chains, and `polygon`, `distanceTo` and `force.boundary` take an edge selection as a boundary of its own topology, so a ring picked out of a network is an area even though the network is not. A point selection contributes only the edges that already join its members. Faces are areas already: draw them one by one with `cells.map((f) => polygon(f.contours))` or outline their union with `boundaries()`.
 
 | Value | Meaning |
 |---|---|
-| `m.selectPoints(p => bool)`, `m.selectEdges(e => bool)` | a source-bound selection: `source`, `size`, `indices` (source rows, ascending), `has(view)`, `complement()` |
+| `coll.filter(v => bool)` | a selection of the same source: `source`, `length`, `indices` (source rows, ascending), `has(view)`, `complement()` |
+| `coll.groupBy(v => key)` | selections by key, first-occurrence order, rows in source order, keys compared as a Map compares them; each has `key` |
 | `sel.union(o)`, `intersect(o)`, `subtract(o)` | a new selection over the same source; equal rows in different states are not the same thing |
 | `points.extract()` | the selected points with every point column and no edges |
 | `points.inducedEdges()` | the source edges with both ends selected |
 | `edges.extract()` | the selected edges, their endpoints and both attribute domains |
-| `edges.points` | the endpoints, each once, in source order |
+| `edges.points` | the endpoints, each once, in source order, as a point selection |
 | `edges.curves()` | the selected edges as chains, each edge once; junctions and ends are those of the selected graph |
 
-Extracted material is a fresh evolution at iteration 0 with no history and its rows compacted in source order. Nothing is merged, welded or interpolated on the way. Inside a rule, select from `current`; a selection of another state answers `has` false for the current state's views.
+Extracted material is a fresh evolution at iteration 0 with no history and its rows compacted in source order. Nothing is merged, welded or interpolated on the way. Inside a rule, filter `current` and pass the selection as `where`; a selection of another state is refused there.
 
 ```ts live
 import { sketch, strokes, circle, connect, ui } from 'occlude';
@@ -159,7 +162,7 @@ import { sketch, strokes, circle, connect, ui } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
   const longest = ui(18, { min: 6, max: 28, step: 1 });
   const mesh = connect.triangulate(t.grid({ cols: 13, rows: 7 }).map((c) => [c.cx + t.rnd(-4.4, 4.4), c.cy + t.rnd(-4, 4)]));
-  const long = mesh.selectEdges((e) => e.length > longest);
+  const long = mesh.edges.filter((e) => e.length > longest);
   return [
     strokes(long.complement(), { pen: 'pigma-005-black' }),
     strokes(long, { pen: 'stabilo-88-blue' }),
@@ -178,7 +181,7 @@ import { sketch, strokes, circle, group, force, mul, ui } from 'occlude';
 export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
   const cut = ui(48, { min: 20, max: 80, step: 1 });
   const ring = t.sample(circle(50, 50, 34), { count: 48 }).steps(1, (_, next) => next.move(() => [t.rnd(-4, 4), t.rnd(-4, 4)]));
-  const arc = ring.selectEdges((e) => e.a.y < cut && e.b.y < cut);
+  const arc = ring.edges.filter((e) => e.a.y < cut && e.b.y < cut);
   const piece = arc.extract();
   const smooth = piece.steps(60, (cur, next) => {
     const relax = force.relax(cur);
@@ -210,7 +213,7 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
   const hot = [12, 39, 61];
   const raw = mesh.attribute('hot', (p) => (hot.includes(p.index) ? 1 : 0));
   const warm = raw.attribute('warmth', (p) => meanBy(raw.connectedPoints(p), (q) => q.hot));
-  const halo = warm.selectEdges((e) => e.a.warmth > 0 && e.b.warmth > 0);
+  const halo = warm.edges.filter((e) => e.a.warmth > 0 && e.b.warmth > 0);
   const marks = (m) => m.points.filter((p) => p.hot === 1).map((p) => circle(p.x, p.y, 2.2, { pen: 'stabilo-88-blue' }));
   return [
     strokes(raw, { pen: 'pigma-005-black' }), marks(raw),
@@ -460,7 +463,7 @@ import { sketch, strokes, circle, material, add } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
   const seed = material([[100, 98]], { active: 1, heading: -Math.PI / 2, depth: 0 });
   const tree = seed.steps(30, (cur, next, k) => {
-    const tips = cur.selectPoints((p) => p.active === 1 && p.y > 6 && p.x > 6 && p.x < 194);
+    const tips = cur.points.filter((p) => p.active === 1 && p.y > 6 && p.x > 6 && p.x < 194);
     next.extend((p) => {
       const turn = t.noise(p.x / 14, p.y / 14, k) * 0.3 - (p.heading + Math.PI / 2) * 0.1;
       const fork = p.depth < 4 && t.chance(0.3);
@@ -485,7 +488,7 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
   const seeds = material(t.times(7, (i) => [24 + i * 25, 94]), { active: 1, heading: -Math.PI / 2 });
   const web = seeds.steps(34, (cur, next, k) => {
     const edges = query.edges(cur);
-    const tips = cur.selectPoints((p) => p.active === 1 && p.y > 8 && p.x > 6 && p.x < 194);
+    const tips = cur.points.filter((p) => p.active === 1 && p.y > 8 && p.x > 6 && p.x < 194);
     next.extend((p) => {
       const h = p.heading + t.noise(p.x / 16, p.y / 16, k * 0.01) * 0.7;
       const target = add(p, [Math.cos(h) * 3, Math.sin(h) * 3]);
@@ -513,7 +516,7 @@ import { sketch, strokes, material, add } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
   const seed = material([[100, 98]], { active: 1, heading: -Math.PI / 2, depth: 0 });
   const tree = seed.steps(30, (cur, next, k) => {
-    const tips = cur.selectPoints((p) => p.active === 1 && p.y > 6 && p.x > 6 && p.x < 194);
+    const tips = cur.points.filter((p) => p.active === 1 && p.y > 6 && p.x > 6 && p.x < 194);
     next.extend((p) => {
       const turn = t.noise(p.x / 14, p.y / 14, k) * 0.3 - (p.heading + Math.PI / 2) * 0.1;
       const fork = p.depth < 4 && t.chance(0.3);
@@ -578,9 +581,9 @@ The regions a network encloses are data too. `m.planarize()` makes every crossin
 | `m.planarize({ point?, edges? })` | independent material with crossings and contacts shared and edges split in order; overlaps, duplicate edges and zero-length edges are errors naming the rows |
 | `point: (event) => attrs` | resolves competing point attributes at an event; needed only where the candidates disagree |
 | `edges: (parent, child) => attrs` | child edge attributes over the parent's |
-| `m.faces()` | the bounded faces: `faces[]`, `map`, `select(f => bool)`, `boundaries()`; crossings without a shared vertex are an error that says to planarize |
+| `m.faces()` | the bounded faces as a collection: iterate, `length`, `at`, `map`, `filter`, `groupBy`, `boundaries()`; crossings without a shared vertex are an error that says to planarize |
 | `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds`, `contours` (closed records `polygon` and `stroke` accept) |
-| `cells.select(f => bool)` | a fixed-membership face selection with `union`, `intersect`, `subtract` |
+| `cells.filter(f => bool)` | a fixed-membership face selection with `union`, `intersect`, `subtract` |
 | `sel.boundaries()` | closed contours around the union of the selected faces: shared walls omitted, holes kept |
 
 Orientation is decided exactly (Shewchuk's `orient2d`), so crossing, touching and collinear never depend on an epsilon. Endpoints merge only when exactly coincident; a gap stays a gap. Contours come out with the outer boundary at positive area and holes negative, so `winding: 'evenodd'` handles them either way. Drawing every face's contours repeats every shared wall; fill the cells with `stroke: false` and stroke the network once, or stroke only a selection's `boundaries()`.
@@ -624,7 +627,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   net = append(net, curve([[12, 50], [36, 50]], { closed: false }));
   net = append(net, curve([[64, 50], [88, 50]], { closed: false }));
   const cells = net.planarize().faces();
-  const chosen = cells.select((f) => f.area > 1200 || inner);
+  const chosen = cells.filter((f) => f.area > 1200 || inner);
   const hatch = fill('hatch', { angle: 45, spacing: mm(1.1) });
   return [
     chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: hatch })),
@@ -638,7 +641,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 ### Hatched cells
 
-A jittered grid triangulated, its cells banded by area, each band hatched at its own spacing so small cells read dense and large cells open, and the network stroked once over the fills. Drag `minimum` to leave the smallest cells empty.
+A jittered grid triangulated, its cells grouped by area band, each band hatched at its own spacing so small cells read dense and large cells open, and the network stroked once over the fills. The groups are face selections keyed by band; drag `minimum` to leave the smallest cells empty.
 
 ```ts live
 import { sketch, strokes, polygon, fill, mm, connect, banding, ui } from 'occlude';
@@ -646,11 +649,11 @@ import { sketch, strokes, polygon, fill, mm, connect, banding, ui } from 'occlud
 export default sketch({ aspect: [2, 1], seed: 33 }, (t) => {
   const minimum = ui(40, { min: 0, max: 160, step: 5, label: 'minimum area' });
   const cells = connect.triangulate(t.grid({ cols: 14, rows: 7 }).map((c) => [c.cx + t.rnd(-5.2, 5.2), c.cy + t.rnd(-4.8, 4.8)])).faces();
-  const chosen = cells.select((f) => f.area >= minimum);
   const band = banding.over(cells.map((f) => f.area), { count: 3 });
-  const hatches = [fill('hatch', { angle: 30, spacing: mm(1.3) }), fill('hatch', { angle: 30, spacing: mm(2.6) }), fill('hatch', { angle: 30, spacing: mm(5) })];
+  const spacing = [mm(1.3), mm(2.6), mm(5)];
   return [
-    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: hatches[band(f.area)], stroke: false })),
+    cells.filter((f) => f.area >= minimum).groupBy((f) => band(f.area)).map((group) =>
+      group.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 30, spacing: spacing[group.key] }), stroke: false }))),
     strokes(cells.source, { pen: 'pigma-005-black' }),
   ];
 });
@@ -728,7 +731,7 @@ export default sketch({ aspect: [2, 2], seed: 7 }, (t) => {
   const seeds = material(t.times(8, (i) => [8 + i * 4.8, 44]), { active: 1, heading: -Math.PI / 2, age: 0 });
   const web = seeds.steps(30, (cur, next, k) => {
     const edges = query.edges(cur);
-    const tips = cur.selectPoints((p) => p.active === 1 && p.y > 8 && p.x > 5 && p.x < 45);
+    const tips = cur.points.filter((p) => p.active === 1 && p.y > 8 && p.x > 5 && p.x < 45);
     next.extend((p) => {
       const h = p.heading + t.noise(p.x / 8, p.y / 8, k * 0.01) * 0.7;
       const target = add(p, [Math.cos(h) * 1.2, Math.sin(h) * 1.2]);
@@ -744,7 +747,7 @@ export default sketch({ aspect: [2, 2], seed: 7 }, (t) => {
   const pens = ['pigma-01-black', 'stabilo-88-green', 'stabilo-88-blue'];
   // a crossing's age is a decision, because the two edges' ages disagree
   const planar = web.planarize({ point: (ev) => ({ active: 0, heading: 0, age: Math.max(...ev.candidates.map((c) => c.attrs.age)) }) });
-  const cells = planar.faces().select((f) => f.area > 3);
+  const cells = planar.faces().filter((f) => f.area > 3);
   return [
     strokes(web),
     group({ translate: [50, 0] }, segmentRuns(web, (a, b) => band((a.age + b.age) / 2)).map((r) => stroke(r, { pen: pens[r.key] }))),

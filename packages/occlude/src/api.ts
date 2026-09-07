@@ -787,7 +787,8 @@ function contourMaterial(groups: readonly { contours: readonly IsoContour[]; lev
  * one material: each contour a chain (a ring when closed), separate
  * contours separate, every edge carrying its `level`. Draw with
  * `strokes(m)`, fill or clip with `polygon(m)`, pick levels with
- * `m.selectEdges((e) => e.level === 0.4)`, or step it like any material.
+ * `m.edges.filter((e) => e.attrs.level === 0.4)` or `m.edges.groupBy((e) =>
+ * e.attrs.level)`, or step it like any material.
  * Open at the drawable edge by default; `{ close: true }` closes regions
  * along it. An `at` array marches every level over one shared field
  * sampling, in the order given. */

@@ -163,7 +163,7 @@ export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
 
 ### isolines
 
-`t.isolines(field, at, { step?, close? })` traces the contours where `field ≥ at` by marching squares over the drawable and returns them as one material: each contour a chain (a ring when closed), separate contours separate, and every edge carrying its requested `level`. `strokes(m)` draws them; `polygon(m)` makes a whole level set into one area with holes respected, for clipping, masking and filling; `m.selectEdges((e) => e.attrs.level === 0.4)` picks a level; and `.steps()`, `.attribute()` and the rest of Materials apply as they do to any material. A contour that leaves the drawable comes back open; `close: true` closes every region along the edge, which is the form clips and fills want. An array of levels marches all of them over one sampling, in the order given; a level that produces nothing adds nothing. `step` defaults to about 1 mm; crossings are edge-interpolated, so accuracy is finer than the grid.
+`t.isolines(field, at, { step?, close? })` traces the contours where `field ≥ at` by marching squares over the drawable and returns them as one material: each contour a chain (a ring when closed), separate contours separate, and every edge carrying its requested `level`. `strokes(m)` draws them; `polygon(m)` makes a whole level set into one area with holes respected, for clipping, masking and filling; `m.edges.filter((e) => e.attrs.level === 0.4)` picks a level and `m.edges.groupBy((e) => e.attrs.level)` splits them all; and `.steps()`, `.attribute()` and the rest of Materials apply as they do to any material. A contour that leaves the drawable comes back open; `close: true` closes every region along the edge, which is the form clips and fills want. An array of levels marches all of them over one sampling, in the order given; a level that produces nothing adds nothing. `step` defaults to about 1 mm; crossings are edge-interpolated, so accuracy is finer than the grid.
 
 ```ts live
 import { sketch, polygon, fill, mm } from 'occlude';
@@ -183,20 +183,21 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 });
 ```
 
-Contours changed by their level. The outer level is left as it came; the inner one is relaxed for a few steps, then both are drawn with the pen chosen per level.
+Contour levels drawn differently. `edges.groupBy` splits the material into one selection per level, each carrying its level as `key`, and a selection is drawn or filled directly: here the lowest level is filled as an area, the middle one stroked, and the highest one softened for a few steps first, which is where an independent copy is made on purpose.
 
 ```ts live
-import { sketch, strokes, force, mul } from 'occlude';
+import { sketch, strokes, polygon, fill, force, mul, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
-  const contours = t.isolines((x, y) => t.noise(x / 30, y / 30), [0.1, 0.45], { step: 1 });
-  const inner = contours.selectEdges((e) => e.attrs.level === 0.45).extract();
-  const softened = inner.steps(12, (cur, next) => {
+  const contours = t.isolines((x, y) => t.noise(x / 30, y / 30), [0.1, 0.3, 0.5], { step: 1, close: true });
+  const [low, mid, high] = contours.edges.groupBy((e) => e.attrs.level);
+  const softened = high.extract().steps(12, (cur, next) => {
     const smooth = force.relax(cur, { amount: 0.5 });
-    next.move((p) => mul(smooth(p), 1), { where: (p) => cur.degree(p) === 2 });
+    next.move((p) => mul(smooth(p), 1), { where: cur.points.filter((p) => cur.degree(p) === 2) });
   });
   return [
-    strokes(contours.selectEdges((e) => e.attrs.level === 0.1), { pen: 'pigma-005-black' }),
+    polygon(low, { fill: fill('hatch', { angle: 30, spacing: mm(2.4) }), stroke: false }),
+    strokes(mid, { pen: 'pigma-005-black' }),
     strokes(softened, { pen: 'stabilo-88-blue' }),
   ];
 });

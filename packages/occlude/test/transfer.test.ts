@@ -15,7 +15,7 @@ describe('transfer contracts (con2 stage B)', () => {
     expect(rs.transfers.kind).toBe('nearest');
     expect(Array.from(rs.attrs.kind).every((v) => v === 1 || v === 2)).toBe(true);
     expect(rs.attrs.age[4]).toBeCloseTo(10, 6);
-    const ex = rs.selectEdges((e) => e.index < 4).extract();
+    const ex = rs.edges.filter((e) => e.index < 4).extract();
     expect(ex.transfers.kind).toBe('nearest');
     expect(ex.iteration).toBe(0);
     // an explicit per-operation rule wins over the policy for that call only
@@ -70,21 +70,21 @@ describe('transfer contracts (con2 stage B)', () => {
 
   it('where takes a selection of the current state — for points, edges and bulk splits — and refuses another state', () => {
     const m = curve([[0, 0], [10, 0], [20, 0], [30, 0]], { closed: false, active: [1, 0, 1, 0] });
-    const stale = m.selectPoints((p) => p.active === 1);
+    const stale = m.points.filter((p) => p.active === 1);
     const out = m.steps(1, (cur, next) => {
-      const tips = cur.selectPoints((p) => p.active === 1);
-      const longEdges = cur.selectEdges((e) => e.index >= 1);
+      const tips = cur.points.filter((p) => p.active === 1);
+      const longEdges = cur.edges.filter((e) => e.index >= 1);
       next.move(() => [0, 5], { where: tips });
       next.set(() => ({ active: 2 }), { where: tips });
       next.splitEdges(longEdges);
-      next.disconnect(cur.selectEdges((e) => e.index === 0));
+      next.disconnect(cur.edges.filter((e) => e.index === 0));
     });
     // rows 0 and 2 moved and set; the cuts of edges 1 and 2 sit after rows 1 and 2 and interpolate the MOVED state
     expect(Array.from(out.y)).toEqual([5, 0, 2.5, 5, 2.5, 0]);
     expect(Array.from(out.attrs.active)).toEqual([2, 0, 1, 2, 1, 0]);
     expect(out.edgeCount).toBe(4); // edge 0 gone; edges 1 and 2 split into two each
     expect(() => m.steps(1, (_, next) => next.move(() => [1, 0], { where: stale }))).toThrow(/another state/);
-    expect(() => m.steps(1, (cur, next) => next.remove(cur.selectEdges(() => true) as never))).toThrow(/point selection/);
+    expect(() => m.steps(1, (cur, next) => next.remove(cur.edges.filter(() => true) as never))).toThrow(/point selection/);
   });
 
   it('edges by row or view; vertex accessors take rows or views of this state', () => {
@@ -116,7 +116,7 @@ describe('transfer contracts (con2 stage B)', () => {
     expect(g.resample({ count: 6 }).iteration).toBe(3);
     expect(connect.chain(g).iteration).toBe(3);
     expect(append(g, g).iteration).toBe(0);
-    expect(g.selectEdges(() => true).extract().iteration).toBe(0);
+    expect(g.edges.filter(() => true).extract().iteration).toBe(0);
     expect(planarize(g).iteration).toBe(0);
   });
 });

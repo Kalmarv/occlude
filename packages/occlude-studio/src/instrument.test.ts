@@ -46,7 +46,7 @@ describe('instrumentDeclarations', () => {
   it('finds the statement end through nested brackets, arrows and inner statements', () => {
     const src = [
       'const web = start.steps(30, (cur, next, k) => {',
-      '  const tips = cur.selectPoints((p) => p.active === 1);',
+      '  const tips = cur.points.filter((p) => p.active === 1);',
       '  next.set(() => ({ active: 0 }), { where: tips });',
       '  if (k > 2) { const z = [1, 2].map((v) => v * 2); return z; }',
       '});',

@@ -13,16 +13,27 @@ import type { IsoContour } from './isolines.js';
 export type XYLike = readonly [number, number] | readonly number[] | { x: number; y: number };
 export type Loop = readonly XYLike[];
 
-/** The shape of a Material this module needs, without importing the class
- * (the class imports the consumers that import this). */
+/** What a material or an edge selection offers this module, without
+ * importing the classes (they import the consumers that import this):
+ * chains over its own topology, and that topology's highest degree. */
 export interface ChainSource {
-  n: number;
-  edgeList: Uint32Array;
   curves(): IsoContour[];
+  maxDegree(): number;
+}
+
+/** A point selection: its existing connections decide the boundary. */
+interface PointSource {
+  inducedEdges(): ChainSource;
+}
+
+/** A face collection or selection: explicit per-face areas only. */
+interface FaceSource {
+  boundaries(): IsoContour[];
+  map(fn: (f: { contours: IsoContour[] }) => unknown): unknown[];
 }
 
 /** Anything the area consumers take as a boundary. */
-export type Boundary = Loop | readonly Loop[] | IsoContour | readonly IsoContour[] | ChainSource;
+export type Boundary = Loop | readonly Loop[] | IsoContour | readonly IsoContour[] | ChainSource | PointSource;
 
 /** A point: a numeric pair (extra entries ignored) or an object with numeric x and y. */
 const isPoint = (v: unknown): v is XYLike =>
@@ -33,9 +44,11 @@ const isPoint = (v: unknown): v is XYLike =>
 const isLoop = (v: unknown): v is Loop => Array.isArray(v) && (v.length === 0 || isPoint(v[0]));
 const isContour = (v: unknown): v is IsoContour =>
   typeof v === 'object' && v !== null && !Array.isArray(v) && Array.isArray((v as { pts?: unknown }).pts);
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isChainSource = (v: unknown): v is ChainSource =>
-  typeof v === 'object' && v !== null && !Array.isArray(v) &&
-  typeof (v as { curves?: unknown }).curves === 'function' && (v as { edgeList?: unknown }).edgeList instanceof Uint32Array;
+  isObj(v) && typeof v.curves === 'function' && typeof v.maxDegree === 'function';
+const isPointSource = (v: unknown): v is PointSource => isObj(v) && typeof v.inducedEdges === 'function';
+const isFaceSource = (v: unknown): v is FaceSource => isObj(v) && typeof v.boundaries === 'function' && typeof v.curves !== 'function';
 
 const loopOf = (loop: Loop, who: string): [number, number][] =>
   loop.map((p, i) => {
@@ -52,19 +65,23 @@ const loopOf = (loop: Loop, who: string): [number, number][] =>
  * nothing. `who` names the caller in errors.
  */
 export function boundaryLoops(input: Boundary, who: string): [number, number][][] {
-  if (isChainSource(input)) {
-    const degree = new Uint32Array(input.n);
-    const e = input.edgeList;
-    for (let k = 0; k < e.length; k++) degree[e[k]]++;
-    for (let i = 0; i < input.n; i++) {
-      if (degree[i] > 2) {
-        throw new Error(
-          `${who}: this material branches (vertex ${i} has ${degree[i]} edges), so it has no single inside — ` +
-            'choose boundaries with selectEdges(…).extract(), or derive areas with planarize().faces()',
-        );
-      }
+  if (isFaceSource(input)) {
+    throw new Error(
+      `${who}: faces are areas already — draw each one, \`cells.map((f) => polygon(f.contours, …))\`, ` +
+        'or outline their union with cells.boundaries()',
+    );
+  }
+  // A point selection has no connectivity of its own: its existing edges decide.
+  const chains = isPointSource(input) ? input.inducedEdges() : input;
+  if (isChainSource(chains)) {
+    const degree = chains.maxDegree();
+    if (degree > 2) {
+      throw new Error(
+        `${who}: this ${'indices' in (input as object) ? 'selection' : 'material'} branches (a vertex has ${degree} edges), so it has no single inside — ` +
+          'pick one boundary with edges.filter(…), or derive areas with planarize().faces()',
+      );
     }
-    return input.curves().map((c) => c.pts);
+    return chains.curves().map((c) => c.pts);
   }
   if (isContour(input)) return [input.pts];
   if (!Array.isArray(input)) throw new Error(`${who}: expected loops, contour records or a chain material`);

@@ -42,3 +42,51 @@ Boundary detection decides by the first entry: a point (`[x, y]` or `{ x, y }`) 
 - `polygon(selection)` is not accepted; a selection needs `.extract()` first (or `.curves()`). Accepting anything with `curves()` would also admit selections; deferred so the contract stays "loops, contours, chain material".
 - `t.isolines` of a level array in a sketch that wants one area per level still writes the selection by hand; a `byLevel()` convenience was not added, per the brief's rule against grouping frameworks.
 - Points (`t.scatter`) and tessellations remain as they were (brief sections 10 and 11).
+
+
+# Collections and selections (follow-up)
+
+The second pass, resolving the friction listed above. Public surface after it:
+
+## Surface
+
+- `m.points`, `m.edges` and `m.faces()` are geometry collections: iterate, `length`, `at(i)`, `map` (an ordinary array), `find`, `some`, `every`, `forEach`, `filter` and `groupBy`. They are not arrays: `filter` returns a selection, `map` returns an array; index brackets and `slice` are not offered (`at(i)`, iteration and `map` cover the repository's uses).
+- `filter(pred)` returns a selection of the same domain, bound to the same state, rows in source order, views the source's own; a selection filters, iterates, maps and groups again. `has`, `indices`, `union`, `intersect`, `subtract`, `complement`, `extract` and (edges) `points`, `curves` and `endpointRows` are unchanged in meaning. `size` is now `length`.
+- `groupBy(classifier)` returns an ordinary array of selections in first-occurrence key order, rows in source order, Map key equality (no stringification), one classifier call per member, each selection carrying a readonly inferred `key`; filtering a group keeps its key; an empty input gives `[]`. The key is written into no column.
+- Removed: `selectPoints`, `selectEdges`, `Faces.select`, `PointSelection.points`, `EdgeSelection.edges` (a selection is its own collection), `size`. `where` in edit options is unchanged: filter to select, `where` to scope.
+- Boundary consumers (`polygon`, `distanceTo`, `force.boundary`) take an edge selection on its selected topology: chains are walked over the selected edges only (one shared walker for materials and selections, no temporary material), branching is judged on the selection, so a ring picked out of a network is an area and a subset that still branches is refused naming `edges.filter`. A point selection contributes the edges that already join its members. Faces and face selections are refused with the per-face form named: `cells.map((f) => polygon(f.contours, …))` or `boundaries()`.
+- `material(points)` accepts a point collection or selection as its point source.
+
+## Plumbing removed
+
+| Before | After |
+|---|---|
+| `polygon(m.selectEdges((e) => e.attrs.level === v).extract())` | `polygon(m.edges.filter((e) => e.attrs.level === v))` |
+| `levels.map((v) => polygon(m.selectEdges((e) => e.attrs.level === v).extract()))` | `m.edges.groupBy((e) => e.attrs.level).map((part) => polygon(part))` |
+| `cells.select(pred)`, `hatches[band(f.area)]` per face | `cells.filter(pred).groupBy((f) => band(f.area))`, spacing by `group.key` |
+| `cur.selectPoints((p) => p.active === 1)` as `where` | `cur.points.filter((p) => p.active === 1)` as `where` |
+
+## Preserved output and cost
+
+Every docs example (96) was hashed at the previous commit and after this change, ordered and order-insensitively. One example changed geometry, the Fields contour example that was rewritten to show `groupBy`; one changed draw order only, the hatched cells (now drawn band by band), with the order-insensitive hash identical; every other example is byte-identical.
+
+Dense workload (68,283 points, 68,115 edges from 40 isoline levels):
+
+| Operation | Time |
+|---|---|
+| `edges.filter(level === x)` | 7.4 ms (the old build-all-views-then-filter: 18.1 ms) |
+| `edges.groupBy(level)` into 40 groups | 14.7 ms |
+| `points.filter(x > 100)` | 9.5 ms |
+| iterate `m.points` summing x | 2.6 ms |
+| `strokes(group)` for all 40 groups | 24.6 ms |
+| `polygon(group)` for all 40 groups | 25.2 ms |
+| `strokes(m)` whole | 8.9 ms |
+
+`m.points` and `m.edges` allocate nothing for the whole collection (rows are implicit); views are made as they are read, once per member per pass. Per-group chain walks allocate degree arrays over the source's vertex count, which is why 40 group walks cost about three whole walks.
+
+## Limitations
+
+- Face extraction is not implemented (nothing to extract to); face selections group and filter but stay areas.
+- A group's key is a value on the selection, not a column: it does not travel through `extract()` or a later step. Write it with `attribute()` when it should.
+- Index brackets on collections are not supported; `at(i)` is the spelling.
+- Stored sketches: none used `selectPoints`, `selectEdges` or `faces().select`, so the earlier migration table is unchanged.

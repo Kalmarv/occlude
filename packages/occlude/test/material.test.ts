@@ -50,7 +50,7 @@ describe('forces', () => {
     for (let i = 0; i < 200; i++) pts.push([rnd() * 50, rnd() * 50]);
     const c = curve(pts);
     const near = neighbours(c, { radius: 4 });
-    for (const p of c.points.slice(0, 30)) {
+    for (const p of c.points.filter((p) => p.index < 30)) {
       const brute: number[] = [];
       for (let j = 0; j < c.n; j++) if (j !== p.index && distance(p, c.vertex(j)) < 4) brute.push(j);
       expect([...near(p)].sort((a, b) => a - b)).toEqual(brute);
@@ -64,7 +64,7 @@ describe('forces', () => {
     for (let i = 0; i < 200; i++) pts.push([rnd() * 50, rnd() * 50]);
     const c = curve(pts);
     const repel = separation(c, { radius: 4, excludeConnected: true });
-    for (const p of c.points.slice(0, 20)) {
+    for (const p of c.points.filter((p) => p.index < 20)) {
       let fx = 0;
       let fy = 0;
       for (let j = 0; j < c.n; j++) {

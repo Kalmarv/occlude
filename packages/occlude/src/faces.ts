@@ -35,6 +35,7 @@
 
 import { orient2d } from 'robust-predicates';
 import { Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Edge } from './material.js';
+import { groupRows } from './relation.js';
 import type { IsoContour } from './isolines.js';
 
 const EVENT_TOL = 1e-9;
@@ -772,12 +773,38 @@ export class Faces {
     Object.freeze(this);
   }
 
-  get size(): number {
+  get length(): number {
     return this.faces.length;
+  }
+
+  at(i: number): Face {
+    const f = this.faces[i];
+    if (!Number.isInteger(i) || !f) throw new Error(`faces.at: no member ${i} (${this.faces.length} members)`);
+    return f;
+  }
+
+  [Symbol.iterator](): Iterator<Face> {
+    return this.faces[Symbol.iterator]();
   }
 
   map<T>(fn: (f: Face, index: number) => T): T[] {
     return this.faces.map(fn);
+  }
+
+  forEach(fn: (f: Face, index: number) => void): void {
+    this.faces.forEach(fn);
+  }
+
+  find(fn: (f: Face, index: number) => boolean): Face | undefined {
+    return this.faces.find(fn);
+  }
+
+  some(fn: (f: Face, index: number) => boolean): boolean {
+    return this.faces.some(fn);
+  }
+
+  every(fn: (f: Face, index: number) => boolean): boolean {
+    return this.faces.every(fn);
   }
 
   /** True when `face` is a view of this collection. */
@@ -786,17 +813,22 @@ export class Faces {
     return ownedBy(face, this);
   }
 
-  /** The faces `where` picks — membership decided now and fixed. */
-  select(where: (f: Face) => boolean): FaceSelection {
+  /** The faces `fn` picks — membership decided now and fixed. */
+  filter(fn: (f: Face, index: number) => boolean): FaceSelection {
     const rows: number[] = [];
-    for (const f of this.faces) if (where(f)) rows.push(f.index);
+    this.faces.forEach((f, i) => { if (fn(f, i)) rows.push(f.index); });
     return new FaceSelection(this, rows);
+  }
+
+  /** Split the faces into selections by key: first-occurrence order. */
+  groupBy<G>(classify: (f: Face, index: number) => G): FaceSelection<G>[] {
+    return groupRows(this.faces, (f) => f.index, classify).map(({ key, rows }) => new FaceSelection(this, rows, key));
   }
 
   /** Outline of the union of every bounded face: inner walls gone, holes
    * against the outside kept. */
   boundaries(): IsoContour[] {
-    return this.select(() => true).boundaries();
+    return this.filter(() => true).boundaries();
   }
 
   /** @internal Closed contours around the union of the given faces. A
@@ -828,22 +860,26 @@ export class Faces {
   }
 }
 
-/** Faces of one collection chosen by a predicate; membership is fixed. */
-export class FaceSelection {
+/** Faces of one collection chosen by a filter; membership is fixed. A
+ * selection is itself a face collection: iterate, `length`, `at`, `map`,
+ * `filter`, `groupBy`; `key` is set on the selections `groupBy` makes. */
+export class FaceSelection<K = undefined> implements Iterable<Face> {
   /** The exact face collection selected from. */
   readonly source: Faces;
   readonly indices: readonly number[];
+  readonly key: K;
   private readonly set: Set<number>;
 
-  /** @internal Use `faces.select(pred)`. */
-  constructor(source: Faces, indices: Iterable<number>) {
+  /** @internal Use `faces.filter(pred)`. */
+  constructor(source: Faces, indices: Iterable<number>, key?: K) {
     this.source = source;
     this.indices = Object.freeze(Array.from(new Set(indices)).sort((p, q) => p - q));
     this.set = new Set(this.indices);
+    this.key = key as K;
     Object.freeze(this);
   }
 
-  get size(): number {
+  get length(): number {
     return this.indices.length;
   }
 
@@ -851,13 +887,49 @@ export class FaceSelection {
     return this.source.iteration;
   }
 
-  /** The selected faces as the collection's own views. */
-  get faces(): Face[] {
-    return this.indices.map((i) => this.source.faces[i]);
+  at(i: number): Face {
+    const row = this.indices[i];
+    if (!Number.isInteger(i) || row === undefined) throw new Error(`faces.at: no member ${i} (${this.indices.length} members)`);
+    return this.source.faces[row];
+  }
+
+  *[Symbol.iterator](): Iterator<Face> {
+    for (const i of this.indices) yield this.source.faces[i];
   }
 
   map<T>(fn: (f: Face, index: number) => T): T[] {
-    return this.faces.map(fn);
+    return this.indices.map((row, i) => fn(this.source.faces[row], i));
+  }
+
+  forEach(fn: (f: Face, index: number) => void): void {
+    this.indices.forEach((row, i) => fn(this.source.faces[row], i));
+  }
+
+  find(fn: (f: Face, index: number) => boolean): Face | undefined {
+    let i = 0;
+    for (const f of this) if (fn(f, i++)) return f;
+    return undefined;
+  }
+
+  some(fn: (f: Face, index: number) => boolean): boolean {
+    return this.find(fn) !== undefined;
+  }
+
+  every(fn: (f: Face, index: number) => boolean): boolean {
+    let i = 0;
+    for (const f of this) if (!fn(f, i++)) return false;
+    return true;
+  }
+
+  filter(fn: (f: Face, index: number) => boolean): FaceSelection<K> {
+    const rows: number[] = [];
+    let i = 0;
+    for (const f of this) if (fn(f, i++)) rows.push(f.index);
+    return new FaceSelection(this.source, rows, this.key);
+  }
+
+  groupBy<G>(classify: (f: Face, index: number) => G): FaceSelection<G>[] {
+    return groupRows(this, (f) => f.index, classify).map(({ key, rows }) => new FaceSelection(this.source, rows, key));
   }
 
   /** True when `face` is a selected view OF THIS COLLECTION. */
@@ -868,22 +940,22 @@ export class FaceSelection {
     return ownedBy(face, this.source) && this.set.has(face.index);
   }
 
-  private same(other: FaceSelection, what: string): void {
+  private same(other: FaceSelection<unknown>, what: string): void {
     if (!(other instanceof FaceSelection)) throw new Error(`selection.${what}: a face selection combines only with a face selection`);
     if (other.source !== this.source) throw new Error(`selection.${what}: the two selections come from different face collections`);
   }
 
-  union(other: FaceSelection): FaceSelection {
+  union(other: FaceSelection<unknown>): FaceSelection {
     this.same(other, 'union');
     return new FaceSelection(this.source, [...this.indices, ...other.indices]);
   }
 
-  intersect(other: FaceSelection): FaceSelection {
+  intersect(other: FaceSelection<unknown>): FaceSelection {
     this.same(other, 'intersect');
     return new FaceSelection(this.source, this.indices.filter((i) => other.set.has(i)));
   }
 
-  subtract(other: FaceSelection): FaceSelection {
+  subtract(other: FaceSelection<unknown>): FaceSelection {
     this.same(other, 'subtract');
     return new FaceSelection(this.source, this.indices.filter((i) => !other.set.has(i)));
   }
@@ -892,7 +964,7 @@ export class FaceSelection {
    * two selected faces vanish, walls against an unselected face or the
    * outside stay, holes stay holes. Empty selection, no contours. */
   boundaries(): IsoContour[] {
-    if (this.size === 0) return [];
+    if (this.length === 0) return [];
     return this.source.boundaryContours(this.set);
   }
 }

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  boundaryLoops, circle, compileSketch, connect, curve, distanceTo, force, initOcclude, line, material, ngon, path, polygon, rect,
+  append, boundaryLoops, circle, compileSketch, connect, curve, distanceTo, force, initOcclude, line, material, ngon, path, polygon, rect,
   render, setPaperHint, sketch, stroke, strokes, mm, type Material, type SketchDef,
 } from '../src/index.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
@@ -122,13 +122,13 @@ describe('isolines and streamlines as material', () => {
     const levels = new Set(Array.from(m!.edgeAttrs.level));
     expect([...levels].sort((a, b) => a - b)).toEqual([10, 25]);
     // Selecting by value takes both rings at level 10.
-    const ten = m!.selectEdges((e) => e.attrs.level === 10);
+    const ten = m!.edges.filter((e) => e.attrs.level === 10);
     expect(ten.curves()).toHaveLength(2);
-    expect(m!.selectEdges((e) => e.attrs.level === 25).curves()).toHaveLength(1);
+    expect(m!.edges.filter((e) => e.attrs.level === 25).curves()).toHaveLength(1);
     // A scalar level is the same material as a one-element array.
     let single: Material | null = null;
     run((t) => { single = t.isolines(bowl, 25, { step: 1 }); });
-    expect(single!.pts).toEqual(m!.selectEdges((e) => e.attrs.level === 25).extract().pts);
+    expect(single!.pts).toEqual(m!.edges.filter((e) => e.attrs.level === 25).extract().pts);
   });
 
   it('subdivision copies the level; an empty result is an empty material', () => {
@@ -220,7 +220,7 @@ describe('one boundary contract', () => {
     // A ring with a hole from two components of one material.
     const withHole = connect.ring(material(sq(0, 0, 30)));
     const hole = connect.ring(material(sq(10, 10, 10)));
-    const both = boundaryLoops({ n: 8, edgeList: Uint32Array.of(...withHole.edgeList, ...Array.from(hole.edgeList, (v) => v + 4)), curves: () => [...withHole.curves(), ...hole.curves()] }, 'test');
+    const both = boundaryLoops(append(withHole, hole), 'test');
     expect(both).toHaveLength(2);
     const d = distanceTo(both);
     expect(d(15, 15)).toBeCloseTo(-5, 9);
@@ -232,7 +232,7 @@ describe('one boundary contract', () => {
     expect(distanceTo(material([]))(1, 2)).toBe(-Infinity);
     // Branching is refused with the way out named.
     const y = material([[0, 0], [10, 0], [20, 10], [20, -10]], { edges: [[0, 1], [1, 2], [1, 3]] });
-    expect(() => distanceTo(y)).toThrow(/branches.*selectEdges.*faces/);
+    expect(() => distanceTo(y)).toThrow(/branches.*edges\.filter.*faces/);
     expect(() => polygon(y)).toThrow(/polygon: this material branches/);
     expect(() => force.boundary(y, { radius: 2 })).toThrow(/force.boundary: this material branches/);
     // Drawing a branching material still works.
