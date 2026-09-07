@@ -1,326 +1,230 @@
-# 6. Discover the spaces between lines
+# 6. Draw the spaces
 
-**Where are the spaces a drawing encloses, and how do I draw them?** By the end of this chapter you can turn a network that crosses itself into one whose crossings are shared points, read the regions it encloses, choose some of them, fill them, and outline them as one shape. This is the drawing you are about to make: the pockets between the reeds are hatched, the smaller the darker, and the edge of the whole reed bed is drawn in blue.
-
-```ts live
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, force, add, sub, mul, strokes, query } from 'occlude';
-
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  // #region the landscape, the lake and the reeds from chapters 1 to 5 (unchanged)
-  const sky = t.times(8, (k, u) => line(0, 6 + u * 54, 200, 6 + u * 54));
-  const sun = circle(110, 58, 15, { pen: 'stabilo-88-blue' });
-  const sheet = rect(0, 0, 200, 100);
-  const farHill = clip(sheet, ellipse(70, 95, 70, 45, 0, { fill: fill('hatch', { angle: 60, spacing: mm(1.4) }) }));
-  const nearHill = clip(sheet, ellipse(140, 110, 60, 42, 0, { fill: fill('hatch', { angle: 120, spacing: mm(1.4) }) }));
-  const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
-  const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
-  const lake = shore.steps(40, (current, next) => {
-    const pull = force.tension(current, { rest: 4 });
-    next.move((p) => add(add(mul(sub(p, [140, 94]), 0.011), [t.noise(p.x / 12, p.y / 12) * 0.8, t.noise(p.x / 12 + 30, p.y / 12) * 0.8]), mul(pull(p), 0.5)));
-    next.splitEdges((e) => e.length > 6);
-  });
-  const seeds = lake.attribute('active', (p) => p.east).attribute('heading', -Math.PI / 2);
-  const reeds = seeds.steps(14, (current, next, k) => {
-    const lines = query.edges(current);
-    const tips = current.points.filter((p) => p.active === 1);
-    next.extend((p) => {
-      let h = p.heading + t.noise(p.x / 6, p.y / 6, k) * 0.5;
-      const ahead = add(p, [Math.cos(h) * 3, Math.sin(h) * 3]);
-      const near = lines.nearest(ahead, { within: 3, excludeIncident: p });
-      if (near) {
-        const side = Math.sign(Math.cos(h) * (near.position[1] - p.y) - Math.sin(h) * (near.position[0] - p.x)) || 1;
-        h -= side * 0.4 * (1 - near.distance / 3);
-      }
-      const target = add(p, [Math.cos(h) * 1.5, Math.sin(h) * 1.5]);
-      const hit = lines.firstHit(p, target, { excludeIncident: p });
-      if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: h, east: 1 } }) };
-      return { position: target, attributes: { active: 1, heading: h, east: p.east } };
-    }, { where: tips });
-    next.set(() => ({ active: 0 }), { where: tips });
-  });
-  // #endregion
-  const net = reeds.planarize({ point: () => ({ active: 0, heading: 0, east: 0 }) });
-  const pockets = net.faces().filter((f) => f.area < 100);
-  return [
-    sky, sun, farHill, nearHill,
-    pockets.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 30, spacing: mm(0.5 + 1.2 * Math.sqrt(f.area / 100)) }), stroke: false })),
-    strokes(pockets.boundaryEdges, { pen: 'stabilo-88-blue' }),
-    polygon(lake, { opaque: true, stroke: false }),
-    strokes(net),
-  ];
-});
-```
-
-## Start here
-
-Chapter 5 ended with the reed bed, one material with the shore. Where two reeds lean on each other they enclose a space between them and the shore. The drawing shows those spaces; the material does not know them yet. Ask it: `reeds.faces()`. It refuses, with a message naming two connections that cross without sharing a point. Two tips stepped across each other in one step, as chapter 5 said they might, and a region bounded by a crossing is not a region the material can walk around.
+**What can the spaces between lines become?** Lines that cross divide the sheet into regions, and once the material knows those regions they can be chosen, filled, measured and outlined as easily as the lines themselves. This is the drawing this chapter arrives at: a frame crossed by chords, most of them passing near one point so the cells crowd there and open out everywhere else; the small cells are hatched, darker the smaller, and the edge of the whole hatched cluster is drawn heavier. By the end you will be able to say what a crossing is and is not, read the areas a network encloses, choose some by a property, and outline the chosen ones as one shape.
 
 ```ts live
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, force, add, sub, mul, strokes, query } from 'occlude';
+import { sketch, strokes, polygon, fill, mm, line, rect, append, ui } from 'occlude';
 
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  // #region the landscape, the lake and the reeds from chapters 1 to 5 (unchanged)
-  const sky = t.times(8, (k, u) => line(0, 6 + u * 54, 200, 6 + u * 54));
-  const sun = circle(110, 58, 15, { pen: 'stabilo-88-blue' });
-  const sheet = rect(0, 0, 200, 100);
-  const farHill = clip(sheet, ellipse(70, 95, 70, 45, 0, { fill: fill('hatch', { angle: 60, spacing: mm(1.4) }) }));
-  const nearHill = clip(sheet, ellipse(140, 110, 60, 42, 0, { fill: fill('hatch', { angle: 120, spacing: mm(1.4) }) }));
-  const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
-  const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
-  const lake = shore.steps(40, (current, next) => {
-    const pull = force.tension(current, { rest: 4 });
-    next.move((p) => add(add(mul(sub(p, [140, 94]), 0.011), [t.noise(p.x / 12, p.y / 12) * 0.8, t.noise(p.x / 12 + 30, p.y / 12) * 0.8]), mul(pull(p), 0.5)));
-    next.splitEdges((e) => e.length > 6);
-  });
-  const seeds = lake.attribute('active', (p) => p.east).attribute('heading', -Math.PI / 2);
-  const reeds = seeds.steps(14, (current, next, k) => {
-    const lines = query.edges(current);
-    const tips = current.points.filter((p) => p.active === 1);
-    next.extend((p) => {
-      let h = p.heading + t.noise(p.x / 6, p.y / 6, k) * 0.5;
-      const ahead = add(p, [Math.cos(h) * 3, Math.sin(h) * 3]);
-      const near = lines.nearest(ahead, { within: 3, excludeIncident: p });
-      if (near) {
-        const side = Math.sign(Math.cos(h) * (near.position[1] - p.y) - Math.sin(h) * (near.position[0] - p.x)) || 1;
-        h -= side * 0.4 * (1 - near.distance / 3);
-      }
-      const target = add(p, [Math.cos(h) * 1.5, Math.sin(h) * 1.5]);
-      const hit = lines.firstHit(p, target, { excludeIncident: p });
-      if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: h, east: 1 } }) };
-      return { position: target, attributes: { active: 1, heading: h, east: p.east } };
-    }, { where: tips });
-    next.set(() => ({ active: 0 }), { where: tips });
-  });
-  // #endregion
-  return [sky, sun, farHill, nearHill, polygon(lake, { opaque: true }), strokes(reeds)];
-});
-```
-
-## Change it
-
-**Make every crossing a point.** `reeds.planarize()` returns a new material in which every place two connections cross is a shared point, with the connections split there. Where two points meet in one, their attributes may disagree, and `point` says what the new point carries; it is only consulted where they do. Then `net.faces()` reads every enclosed region. Each face has an `area` and `contours`, the closed outlines `polygon` accepts, so every face can be hatched. The network is stroked once, after the hatch, so shared walls are drawn one time.
-
-```ts live focus=37-38,41-42
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, force, add, sub, mul, strokes, query } from 'occlude';
-
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  // #region the landscape, the lake and the reeds from chapters 1 to 5 (unchanged)
-  const sky = t.times(8, (k, u) => line(0, 6 + u * 54, 200, 6 + u * 54));
-  const sun = circle(110, 58, 15, { pen: 'stabilo-88-blue' });
-  const sheet = rect(0, 0, 200, 100);
-  const farHill = clip(sheet, ellipse(70, 95, 70, 45, 0, { fill: fill('hatch', { angle: 60, spacing: mm(1.4) }) }));
-  const nearHill = clip(sheet, ellipse(140, 110, 60, 42, 0, { fill: fill('hatch', { angle: 120, spacing: mm(1.4) }) }));
-  const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
-  const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
-  const lake = shore.steps(40, (current, next) => {
-    const pull = force.tension(current, { rest: 4 });
-    next.move((p) => add(add(mul(sub(p, [140, 94]), 0.011), [t.noise(p.x / 12, p.y / 12) * 0.8, t.noise(p.x / 12 + 30, p.y / 12) * 0.8]), mul(pull(p), 0.5)));
-    next.splitEdges((e) => e.length > 6);
-  });
-  const seeds = lake.attribute('active', (p) => p.east).attribute('heading', -Math.PI / 2);
-  const reeds = seeds.steps(14, (current, next, k) => {
-    const lines = query.edges(current);
-    const tips = current.points.filter((p) => p.active === 1);
-    next.extend((p) => {
-      let h = p.heading + t.noise(p.x / 6, p.y / 6, k) * 0.5;
-      const ahead = add(p, [Math.cos(h) * 3, Math.sin(h) * 3]);
-      const near = lines.nearest(ahead, { within: 3, excludeIncident: p });
-      if (near) {
-        const side = Math.sign(Math.cos(h) * (near.position[1] - p.y) - Math.sin(h) * (near.position[0] - p.x)) || 1;
-        h -= side * 0.4 * (1 - near.distance / 3);
-      }
-      const target = add(p, [Math.cos(h) * 1.5, Math.sin(h) * 1.5]);
-      const hit = lines.firstHit(p, target, { excludeIncident: p });
-      if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: h, east: 1 } }) };
-      return { position: target, attributes: { active: 1, heading: h, east: p.east } };
-    }, { where: tips });
-    next.set(() => ({ active: 0 }), { where: tips });
-  });
-  // #endregion
-  const net = reeds.planarize({ point: () => ({ active: 0, heading: 0, east: 0 }) });
-  const cells = net.faces();
+export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
+  const chords = ui(18, { min: 4, max: 40, step: 1 });
+  const limit = ui(90, { min: 10, max: 600, step: 10, label: 'area below' });
+  const gap = ui(1.1, { min: 0.4, max: 3, step: 0.1, label: 'hatch (mm)' });
+  const frame = t.material(rect(6, 6, 188, 88));
+  const through = (x, y, angle) => t.sample(line(x - Math.cos(angle) * 300, y - Math.sin(angle) * 300, x + Math.cos(angle) * 300, y + Math.sin(angle) * 300), { count: 2 });
+  const focus = [138, 58];
+  const lines = t.times(chords, (k) => (k % 3 === 0
+    ? through(t.rnd(6, 194), t.rnd(6, 94), t.rnd(Math.PI))
+    : through(focus[0] + t.rnd(-26, 26), focus[1] + t.rnd(-18, 18), t.rnd(Math.PI))));
+  const network = [frame, ...lines].reduce((a, b) => append(a, b));
+  const inFrame = (f) => f.bounds.x >= 6 && f.bounds.y >= 6 && f.bounds.x + f.bounds.w <= 194 && f.bounds.y + f.bounds.h <= 94;
+  const cells = network.planarize().faces().filter(inFrame);
+  const chosen = cells.filter((f) => f.area < limit);
+  const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
-    sky, sun, farHill, nearHill,
-    cells.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 30, spacing: mm(1) }), stroke: false })),
-    strokes(net),
+    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
+    strokes(cells.edges, { pen: 'pigma-005-black' }),
+    strokes(chosen.boundaryEdges, { pen: 'pigma-01-black' }),
   ];
 });
 ```
 
-Fourteen faces. Two of them are the lake, cut in two by a reed that grew across the water and joined the far shore; the rest are pockets between reeds. `winding: 'evenodd'` is there for faces with holes, which these do not have, but it costs nothing and is the safe default for contours.
+Drag `area below` down to 10 and the drawing is a bare network; up to 600 and nearly everything is tone. The threshold is the drawing's decision, and it is one number.
 
-**Choose the pockets.** A face collection filters like the point collections did: `cells.filter((f) => f.area < 100)` keeps the small regions and drops the two halves of the lake. The hatch spacing now depends on each pocket's area, so the small ones read dark.
+## Same ink, different connections
 
-```ts live focus=38,41
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, force, add, sub, mul, strokes, query } from 'occlude';
+A frame, its four corners kept by `t.material` as chapter 2 showed, and three chords that cross it and each other, sampled to two points each and put into one material with `append`. Left, as built: eight pieces of line laid over each other, crossing on paper and nowhere else. Right, the same material after `planarize()`: every place two connections cross has become a point they share, marked in blue, and the connections are split there. The ink is identical. The labels count the connections in each.
 
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  // #region the landscape, the lake and the reeds from chapters 1 to 5 (unchanged)
-  const sky = t.times(8, (k, u) => line(0, 6 + u * 54, 200, 6 + u * 54));
-  const sun = circle(110, 58, 15, { pen: 'stabilo-88-blue' });
-  const sheet = rect(0, 0, 200, 100);
-  const farHill = clip(sheet, ellipse(70, 95, 70, 45, 0, { fill: fill('hatch', { angle: 60, spacing: mm(1.4) }) }));
-  const nearHill = clip(sheet, ellipse(140, 110, 60, 42, 0, { fill: fill('hatch', { angle: 120, spacing: mm(1.4) }) }));
-  const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
-  const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
-  const lake = shore.steps(40, (current, next) => {
-    const pull = force.tension(current, { rest: 4 });
-    next.move((p) => add(add(mul(sub(p, [140, 94]), 0.011), [t.noise(p.x / 12, p.y / 12) * 0.8, t.noise(p.x / 12 + 30, p.y / 12) * 0.8]), mul(pull(p), 0.5)));
-    next.splitEdges((e) => e.length > 6);
-  });
-  const seeds = lake.attribute('active', (p) => p.east).attribute('heading', -Math.PI / 2);
-  const reeds = seeds.steps(14, (current, next, k) => {
-    const lines = query.edges(current);
-    const tips = current.points.filter((p) => p.active === 1);
-    next.extend((p) => {
-      let h = p.heading + t.noise(p.x / 6, p.y / 6, k) * 0.5;
-      const ahead = add(p, [Math.cos(h) * 3, Math.sin(h) * 3]);
-      const near = lines.nearest(ahead, { within: 3, excludeIncident: p });
-      if (near) {
-        const side = Math.sign(Math.cos(h) * (near.position[1] - p.y) - Math.sin(h) * (near.position[0] - p.x)) || 1;
-        h -= side * 0.4 * (1 - near.distance / 3);
-      }
-      const target = add(p, [Math.cos(h) * 1.5, Math.sin(h) * 1.5]);
-      const hit = lines.firstHit(p, target, { excludeIncident: p });
-      if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: h, east: 1 } }) };
-      return { position: target, attributes: { active: 1, heading: h, east: p.east } };
-    }, { where: tips });
-    next.set(() => ({ active: 0 }), { where: tips });
-  });
-  // #endregion
-  const net = reeds.planarize({ point: () => ({ active: 0, heading: 0, east: 0 }) });
-  const pockets = net.faces().filter((f) => f.area < 100);
+```ts live focus=8-9
+import { sketch, strokes, circle, label, line, rect, append, group } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const chord = (x0, y0, x1, y1) => t.sample(line(x0, y0, x1, y1), { count: 2 });
+  const network = [t.material(rect(10, 10, 80, 80)), chord(10, 34, 90, 62), chord(28, 10, 60, 90), chord(10, 74, 90, 26)]
+    .reduce((a, b) => append(a, b));
+  const planar = network.planarize();
+  const junctions = planar.points.filter((p) => p.index >= network.n);
   return [
-    sky, sun, farHill, nearHill,
-    pockets.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 30, spacing: mm(0.5 + 1.2 * Math.sqrt(f.area / 100)) }), stroke: false })),
-    strokes(net),
+    strokes(network), label(`${network.edgeCount} connections`, 12, 6, 3.4),
+    group({ translate: [100, 0] },
+      strokes(planar), label(`${planar.edgeCount} connections`, 12, 6, 3.4),
+      junctions.map((p) => circle(p.x, p.y, 1.6, { pen: 'stabilo-88-blue' })),
+    ),
   ];
 });
 ```
 
-Some pockets lie on the water: reeds growing up through the lake cut off patches of it, and those are faces like any other, so they are hatched too.
+Before reading on: the right side has more connections than the left, and exactly as many as it needs. Where do the extra ones come from, and why are the chord ends on the frame not marked?
 
-**Outline the bed, and put the water back.** `pockets.boundaryEdges` is a selection of the connections between the chosen pockets and everything else: the walls between two pockets are left out, so the selection outlines the reed bed as one shape. Drawn in blue, before the black network: where the two coincide, the pen rules keep the ink that is already there, so the blue survives and the black over it is dropped. And `polygon(lake, { opaque: true })` goes down after the hatch and the blue and before the network, so the hatch and the outline inside the water are hidden and the reeds standing in it are still drawn. Drawing order, from chapter 1, doing the selecting that geometry cannot. This is the finished drawing from the top of the page.
+<details>
+<summary>What to look for</summary>
 
-```ts live focus=42-44
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, force, add, sub, mul, strokes, query } from 'occlude';
+Each crossing splits both connections that pass through it, so a chord crossed twice becomes three connections, and the frame's side is split where a chord meets it. The chord ends are not marked because they existed before: they lie on the frame's sides, and planarize makes them shared points of the frame as well, but the marks are only the points that are new. Open the right sketch in the studio and click a blue point in the Material layer: it has four connections, two from each line. That is the whole change. Nothing was drawn; something became connected.
 
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  // #region the landscape, the lake and the reeds from chapters 1 to 5 (unchanged)
-  const sky = t.times(8, (k, u) => line(0, 6 + u * 54, 200, 6 + u * 54));
-  const sun = circle(110, 58, 15, { pen: 'stabilo-88-blue' });
-  const sheet = rect(0, 0, 200, 100);
-  const farHill = clip(sheet, ellipse(70, 95, 70, 45, 0, { fill: fill('hatch', { angle: 60, spacing: mm(1.4) }) }));
-  const nearHill = clip(sheet, ellipse(140, 110, 60, 42, 0, { fill: fill('hatch', { angle: 120, spacing: mm(1.4) }) }));
-  const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
-  const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
-  const lake = shore.steps(40, (current, next) => {
-    const pull = force.tension(current, { rest: 4 });
-    next.move((p) => add(add(mul(sub(p, [140, 94]), 0.011), [t.noise(p.x / 12, p.y / 12) * 0.8, t.noise(p.x / 12 + 30, p.y / 12) * 0.8]), mul(pull(p), 0.5)));
-    next.splitEdges((e) => e.length > 6);
-  });
-  const seeds = lake.attribute('active', (p) => p.east).attribute('heading', -Math.PI / 2);
-  const reeds = seeds.steps(14, (current, next, k) => {
-    const lines = query.edges(current);
-    const tips = current.points.filter((p) => p.active === 1);
-    next.extend((p) => {
-      let h = p.heading + t.noise(p.x / 6, p.y / 6, k) * 0.5;
-      const ahead = add(p, [Math.cos(h) * 3, Math.sin(h) * 3]);
-      const near = lines.nearest(ahead, { within: 3, excludeIncident: p });
-      if (near) {
-        const side = Math.sign(Math.cos(h) * (near.position[1] - p.y) - Math.sin(h) * (near.position[0] - p.x)) || 1;
-        h -= side * 0.4 * (1 - near.distance / 3);
-      }
-      const target = add(p, [Math.cos(h) * 1.5, Math.sin(h) * 1.5]);
-      const hit = lines.firstHit(p, target, { excludeIncident: p });
-      if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: h, east: 1 } }) };
-      return { position: target, attributes: { active: 1, heading: h, east: p.east } };
-    }, { where: tips });
-    next.set(() => ({ active: 0 }), { where: tips });
-  });
-  // #endregion
-  const net = reeds.planarize({ point: () => ({ active: 0, heading: 0, east: 0 }) });
-  const pockets = net.faces().filter((f) => f.area < 100);
+Crossing is a fact about ink. Connection is a decision about the material, and `planarize` is that decision made for every crossing at once. Chapter 5 made it one crossing at a time, with `firstHit`, and chose to make some crossings joins and leave others as they were.
+
+</details>
+
+## Reveal the areas
+
+`planar.faces()` reads the regions a connected network encloses: each one a face with an `area` and `contours`, the closed outlines `polygon` accepts. Hatched at a different angle each, they show themselves. Two frames, each with one chord and one more line: on the left the second line reaches both sides; on the right it stops short of the frame by a few units. Count the faces on each side before you check the label.
+
+```ts live focus=7-8
+import { sketch, strokes, polygon, fill, mm, label, line, rect, append, group } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const chord = (x0, y0, x1, y1) => t.sample(line(x0, y0, x1, y1), { count: 2 });
+  const build = (second) => [t.material(rect(10, 10, 80, 80)), chord(10, 50, 90, 50), second].reduce((a, b) => append(a, b));
+  const reaching = build(chord(50, 10, 50, 90)).planarize().faces();
+  const short = build(chord(50, 16, 50, 84)).planarize().faces();
+  const show = (cells) => [
+    cells.map((f, k) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: (k * 50) % 180, spacing: mm(1.2) }), stroke: false })),
+    strokes(cells.source),
+    label(`${cells.length} faces`, 12, 6, 3.4),
+  ];
+  return [show(reaching), group({ translate: [100, 0] }, show(short))];
+});
+```
+
+<details>
+<summary>What to look for</summary>
+
+Four faces on the left, two on the right. The short line crosses the horizontal chord and is connected to it there, but its ends hang free inside the frame, so what look like two cells on each side of it are one region with a line lying in it: you can walk from one side to the other around the line's end. A face needs a closed walk, and a gap of a few units is as open as a gap of forty. This is not a fault to be corrected; a line inside a region is a thing drawings have. It is only that it does not divide.
+
+</details>
+
+## Choose by a property
+
+A face collection filters like the point collections of chapter 3: `cells.filter((f) => f.area < limit)` is a selection of the faces below a threshold, and the threshold is live. The chosen faces are hatched; every wall is still drawn, lightly, so the unchosen cells stay visible.
+
+```ts live focus=7-9
+import { sketch, strokes, polygon, fill, mm, line, rect, append, ui } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const limit = ui(120, { min: 10, max: 800, step: 10, label: 'area below' });
+  const chord = (x0, y0, x1, y1) => t.sample(line(x0, y0, x1, y1), { count: 2 });
+  const network = [t.material(rect(6, 6, 188, 88)), ...t.times(9, () => chord(t.rnd(6, 194), 6, t.rnd(6, 194), 94)), ...t.times(4, () => chord(6, t.rnd(6, 94), 194, t.rnd(6, 94)))].reduce((a, b) => append(a, b));
+  const cells = network.planarize().faces();
+  const chosen = cells.filter((f) => f.area < limit);
+  const hatch = fill('hatch', { angle: 45, spacing: mm(1.2) });
   return [
-    sky, sun, farHill, nearHill,
-    pockets.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 30, spacing: mm(0.5 + 1.2 * Math.sqrt(f.area / 100)) }), stroke: false })),
-    strokes(pockets.boundaryEdges, { pen: 'stabilo-88-blue' }),
-    polygon(lake, { opaque: true, stroke: false }),
-    strokes(net),
+    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: hatch, stroke: false })),
+    strokes(cells.edges, { pen: 'pigma-005-black' }),
   ];
 });
 ```
 
-## Crossing is not connecting
+Selecting and styling are two decisions. The hatch above is the same in every chosen cell; below, its spacing comes from the cell's area through a named function, so a small cell is dark and a cell near the threshold is barely toned. Change `spacing` and nothing about which cells are chosen changes.
 
-Two strokes that cross on paper are not joined in the material, and no operation joins them for you, because whether crossing lines should meet is a decision about the drawing: a bridge over a river crosses it without touching. `planarize` is that decision made for the whole network at once; chapter 5's `firstHit` made it tip by tip during growth. Either way, a face exists only when the material can walk around it through shared points, which is why `faces()` refuses a network with an unshared crossing instead of guessing.
+```ts live focus=10-11
+import { sketch, strokes, polygon, fill, mm, line, rect, append, ui } from 'occlude';
 
-## Experiments
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const limit = ui(120, { min: 10, max: 800, step: 10, label: 'area below' });
+  const gap = ui(1.1, { min: 0.4, max: 3, step: 0.1, label: 'hatch (mm)' });
+  const chord = (x0, y0, x1, y1) => t.sample(line(x0, y0, x1, y1), { count: 2 });
+  const network = [t.material(rect(6, 6, 188, 88)), ...t.times(9, () => chord(t.rnd(6, 194), 6, t.rnd(6, 194), 94)), ...t.times(4, () => chord(6, t.rnd(6, 94), 194, t.rnd(6, 94)))].reduce((a, b) => append(a, b));
+  const cells = network.planarize().faces();
+  const chosen = cells.filter((f) => f.area < limit);
+  const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
+  return [
+    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
+    strokes(cells.edges, { pen: 'pigma-005-black' }),
+  ];
+});
+```
 
-**A tighter idea of a pocket.** Predict: change `f.area < 100` to `f.area < 30` in both places it appears in the finished sketch. How many pockets stay hatched, and what happens to the blue outline? Change it. Observe: five faces remain, one of them a sliver too thin to show a hatch line, and the blue outline breaks into separate loops around them instead of one edge around the bed. Explain: the outline is the boundary of the selection, whatever the selection is. Choose fewer pockets and the "reed bed" they add up to is smaller and comes apart.
+## Outline the selection as a whole
 
-**Faces without planarize.** Predict: replace `net.faces()` with `reeds.faces()` in the finished sketch. What does the preview show? Change it. Observe: no drawing, and an error under the code naming two connections that cross without a shared vertex and telling you to planarize. Explain: the two crossings chapter 5 left behind are enough to stop every face from being read, because a region with a crossing on its border has no single outline to walk.
+A selection of faces has two sets of connections. `chosen.edges` is every connection any chosen face touches, the walls between two chosen cells included. `chosen.boundaryEdges` is the connections between the chosen union and everything else: walls between two chosen cells are left out, so it outlines the union as one shape. The same nine-cell grid, the same selection, all cells but the middle one; left `edges`, right `boundaryEdges`.
+
+```ts live focus=8-10
+import { sketch, strokes, polygon, fill, mm, line, rect, append, group } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const chord = (x0, y0, x1, y1) => t.sample(line(x0, y0, x1, y1), { count: 2 });
+  const grid = [t.material(rect(10, 10, 80, 80)), chord(36, 10, 36, 90), chord(64, 10, 64, 90), chord(10, 36, 90, 36), chord(10, 64, 90, 64)].reduce((a, b) => append(a, b));
+  const cells = grid.planarize().faces();
+  const ring = cells.filter((f) => f.bounds.x !== 36 || f.bounds.y !== 36);
+  const hatch = fill('hatch', { angle: 45, spacing: mm(1.4) });
+  const shade = ring.map((f) => polygon(f.contours, { winding: 'evenodd', fill: hatch, stroke: false }));
+  return [
+    shade, strokes(ring.edges, { pen: 'stabilo-88-blue' }),
+    group({ translate: [100, 0] }, shade, strokes(ring.boundaryEdges, { pen: 'stabilo-88-blue' })),
+  ];
+});
+```
+
+The boundary on the right is two loops: the frame, and the middle cell's outline, which is a hole in the union. An outline is not a hull; it is every place the chosen and the unchosen meet, and a hole is such a place. `ring.boundaries()` gives the same loops as closed contours, for when the union should be filled as one area rather than outlined.
+
+## Make a cellular print
+
+The finished drawing. The frame is a rectangle's four corners. A chord is made by `through(x, y, angle)`: a line through a point at an angle, sampled to two points far beyond the frame, so that after planarizing it is cut wherever it crosses the frame or another chord. Two thirds of the chords pass through a patch around one point, `focus`; the rest are anywhere. The size of the patch decides whether the cluster is a burst of thin wedges or a cluster of small polygons; try `t.rnd(-6, 6)` in both and see the difference. The chords also cross each other outside the frame and enclose slivers there, so `inFrame` keeps only the faces whose `bounds` lie within it; the parts of the chords that border no kept cell are left out by `cells.edges`, which is why nothing has to be clipped.
+
+The composition has three controls, and each is a different kind of decision: `chords` changes the construction, `area below` changes the selection, `hatch` changes only the drawing. The heavy pen on `chosen.boundaryEdges` is what makes the cluster read as one thing.
+
+```ts live focus=8-15,18-21
+import { sketch, strokes, polygon, fill, mm, line, rect, append, ui } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
+  const chords = ui(18, { min: 4, max: 40, step: 1 });
+  const limit = ui(90, { min: 10, max: 600, step: 10, label: 'area below' });
+  const gap = ui(1.1, { min: 0.4, max: 3, step: 0.1, label: 'hatch (mm)' });
+  const frame = t.material(rect(6, 6, 188, 88));
+  const through = (x, y, angle) => t.sample(line(x - Math.cos(angle) * 300, y - Math.sin(angle) * 300, x + Math.cos(angle) * 300, y + Math.sin(angle) * 300), { count: 2 });
+  const focus = [138, 58];
+  const lines = t.times(chords, (k) => (k % 3 === 0
+    ? through(t.rnd(6, 194), t.rnd(6, 94), t.rnd(Math.PI))
+    : through(focus[0] + t.rnd(-26, 26), focus[1] + t.rnd(-18, 18), t.rnd(Math.PI))));
+  const network = [frame, ...lines].reduce((a, b) => append(a, b));
+  const inFrame = (f) => f.bounds.x >= 6 && f.bounds.y >= 6 && f.bounds.x + f.bounds.w <= 194 && f.bounds.y + f.bounds.h <= 94;
+  const cells = network.planarize().faces().filter(inFrame);
+  const chosen = cells.filter((f) => f.area < limit);
+  const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
+  return [
+    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
+    strokes(cells.edges, { pen: 'pigma-005-black' }),
+    strokes(chosen.boundaryEdges, { pen: 'pigma-01-black' }),
+  ];
+});
+```
+
+Three readings of one network, with the same selection. All the walls, as a line drawing: the crossings do the work and the tone is only where the lines crowd. The boundary of the chosen cells alone: a single outline around the cluster with the network gone, which is the drawing reduced to its decision. And the chosen cells filled with the walls faint, which is the print above. They are three fences' worth of code apart, and the third is the one that holds the page: the line drawing is even, the outline alone is thin, and the print has a place to look and room around it.
+
+```ts live focus=18-20
+import { sketch, strokes, polygon, fill, mm, line, rect, append, group } from 'occlude';
+
+export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
+  const frame = t.material(rect(4, 4, 92, 92));
+  const through = (x, y, angle) => t.sample(line(x - Math.cos(angle) * 300, y - Math.sin(angle) * 300, x + Math.cos(angle) * 300, y + Math.sin(angle) * 300), { count: 2 });
+  const focus = [68, 58];
+  const lines = t.times(18, (k) => (k % 3 === 0
+    ? through(t.rnd(4, 96), t.rnd(4, 96), t.rnd(Math.PI))
+    : through(focus[0] + t.rnd(-20, 20), focus[1] + t.rnd(-20, 20), t.rnd(Math.PI))));
+  const network = [frame, ...lines].reduce((a, b) => append(a, b));
+  const inFrame = (f) => f.bounds.x >= 4 && f.bounds.y >= 4 && f.bounds.x + f.bounds.w <= 96 && f.bounds.y + f.bounds.h <= 96;
+  const cells = network.planarize().faces().filter(inFrame);
+  const chosen = cells.filter((f) => f.area < 60);
+  const spacing = (f) => mm(1.1 * (0.4 + 0.6 * Math.sqrt(f.area / 60)));
+  const shade = chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false }));
+  return [
+    strokes(cells.edges),
+    group({ translate: [100, 0] }, strokes(chosen.boundaryEdges, { pen: 'pigma-01-black' })),
+    group({ translate: [200, 0] }, shade, strokes(cells.edges, { pen: 'pigma-005-black' }), strokes(chosen.boundaryEdges, { pen: 'pigma-01-black' })),
+  ];
+});
+```
 
 ## On your own
 
-Hatch each pocket at an angle of its own instead of 30 degrees everywhere, so neighbouring pockets read apart: use the face's `index`, for example `angle: (f.index * 40) % 180`.
+Make a bright passage through a dense drawing: raise the chord count until the cells are small everywhere, then choose which cells stay blank so that an unhatched path runs from one edge of the frame to the other, connected all the way. Area alone will not do it; the cells on the passage are as small as their neighbours. Two of this page's ideas and one of chapter 3's are enough.
 
 <details>
-<summary>A possible solution</summary>
+<summary>A hint, not the answer</summary>
 
-```ts live focus=41
-import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, force, add, sub, mul, strokes, query } from 'occlude';
-
-export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
-  // #region the landscape, the lake and the reeds from chapters 1 to 5 (unchanged)
-  const sky = t.times(8, (k, u) => line(0, 6 + u * 54, 200, 6 + u * 54));
-  const sun = circle(110, 58, 15, { pen: 'stabilo-88-blue' });
-  const sheet = rect(0, 0, 200, 100);
-  const farHill = clip(sheet, ellipse(70, 95, 70, 45, 0, { fill: fill('hatch', { angle: 60, spacing: mm(1.4) }) }));
-  const nearHill = clip(sheet, ellipse(140, 110, 60, 42, 0, { fill: fill('hatch', { angle: 120, spacing: mm(1.4) }) }));
-  const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
-  const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
-  const lake = shore.steps(40, (current, next) => {
-    const pull = force.tension(current, { rest: 4 });
-    next.move((p) => add(add(mul(sub(p, [140, 94]), 0.011), [t.noise(p.x / 12, p.y / 12) * 0.8, t.noise(p.x / 12 + 30, p.y / 12) * 0.8]), mul(pull(p), 0.5)));
-    next.splitEdges((e) => e.length > 6);
-  });
-  const seeds = lake.attribute('active', (p) => p.east).attribute('heading', -Math.PI / 2);
-  const reeds = seeds.steps(14, (current, next, k) => {
-    const lines = query.edges(current);
-    const tips = current.points.filter((p) => p.active === 1);
-    next.extend((p) => {
-      let h = p.heading + t.noise(p.x / 6, p.y / 6, k) * 0.5;
-      const ahead = add(p, [Math.cos(h) * 3, Math.sin(h) * 3]);
-      const near = lines.nearest(ahead, { within: 3, excludeIncident: p });
-      if (near) {
-        const side = Math.sign(Math.cos(h) * (near.position[1] - p.y) - Math.sin(h) * (near.position[0] - p.x)) || 1;
-        h -= side * 0.4 * (1 - near.distance / 3);
-      }
-      const target = add(p, [Math.cos(h) * 1.5, Math.sin(h) * 1.5]);
-      const hit = lines.firstHit(p, target, { excludeIncident: p });
-      if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: h, east: 1 } }) };
-      return { position: target, attributes: { active: 1, heading: h, east: p.east } };
-    }, { where: tips });
-    next.set(() => ({ active: 0 }), { where: tips });
-  });
-  // #endregion
-  const net = reeds.planarize({ point: () => ({ active: 0, heading: 0, east: 0 }) });
-  const pockets = net.faces().filter((f) => f.area < 100);
-  return [
-    sky, sun, farHill, nearHill,
-    pockets.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: (f.index * 40) % 180, spacing: mm(0.5 + 1.2 * Math.sqrt(f.area / 100)) }), stroke: false })),
-    strokes(pockets.boundaryEdges, { pen: 'stabilo-88-blue' }),
-    polygon(lake, { opaque: true, stroke: false }),
-    strokes(net),
-  ];
-});
-```
-
-`index` is the face's row in the collection, a fine source of variety and nothing more; chapter 4 said rows are not identities, and that holds for faces too.
+A face has a `bounds` and `contours`, so it has a position; a filter can ask where a cell is as well as how big it is. Distance from a line you choose, `Math.abs(…)` of something, keeps a band of cells blank. Then look at `chosen.boundaryEdges` for the passage: if the outline of the hatched cells has two separate loops, the passage is connected; if it is one loop, somewhere a hatched cell bridges it, and the band is too narrow there.
 
 </details>
 
 ## Where to look things up
 
-`planarize`, `faces`, face selections, `boundaryEdges` and `boundaries()` are under *Faces and boundaries* on [Materials](#/materials); the pen rules for ink on ink under *How shapes hide each other* on [Getting started](#/getting-started). Next, chapter 7 leaves the reeds and starts from a field: contours and flowing lines across the whole landscape.
+`planarize`, `faces`, face selections, `edges`, `boundaryEdges` and `boundaries()` are under *Faces and boundaries* on [Materials](#/materials); `append` under *Making a material*. Next, chapter 7 starts from something with no lines at all: a function that gives a number at every point.
