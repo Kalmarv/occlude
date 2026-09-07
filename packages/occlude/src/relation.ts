@@ -77,7 +77,8 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
   readonly key: K;
   private readonly rows: readonly number[] | null;
   private readonly set: Set<number> | null;
-  private cachedIndices: readonly number[] | null = null;
+  /** The lazily built full row list lives in a box, so the selection itself is frozen. */
+  private readonly cache: { indices: readonly number[] | null } = { indices: null };
 
   /** @internal Use `material.points` and `filter`. `rows` null means every row. */
   constructor(source: Material, rows: Iterable<number> | null, key?: K) {
@@ -85,12 +86,13 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     this.rows = rows === null ? null : rowsOf(rows);
     this.set = this.rows === null ? null : new Set(this.rows);
     this.key = key as K;
+    Object.freeze(this);
   }
 
   /** Selected rows of the source, ascending. Not identities across states. */
   get indices(): readonly number[] {
     if (this.rows !== null) return this.rows;
-    return (this.cachedIndices ??= Object.freeze(fullRows(this.source.n)));
+    return (this.cache.indices ??= Object.freeze(fullRows(this.source.n)));
   }
 
   get length(): number {
@@ -217,7 +219,8 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
   readonly key: K;
   private readonly rows: readonly number[] | null;
   private readonly set: Set<number> | null;
-  private cachedIndices: readonly number[] | null = null;
+  /** The lazily built full row list lives in a box, so the selection itself is frozen. */
+  private readonly cache: { indices: readonly number[] | null } = { indices: null };
 
   /** @internal Use `material.edges` and `filter`. `rows` null means every row. */
   constructor(source: Material, rows: Iterable<number> | null, key?: K) {
@@ -225,12 +228,13 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     this.rows = rows === null ? null : rowsOf(rows);
     this.set = this.rows === null ? null : new Set(this.rows);
     this.key = key as K;
+    Object.freeze(this);
   }
 
   /** Selected edge rows of the source, ascending. */
   get indices(): readonly number[] {
     if (this.rows !== null) return this.rows;
-    return (this.cachedIndices ??= Object.freeze(fullRows(this.source.edgeCount)));
+    return (this.cache.indices ??= Object.freeze(fullRows(this.source.edgeCount)));
   }
 
   get length(): number {

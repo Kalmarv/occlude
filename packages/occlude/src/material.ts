@@ -29,7 +29,7 @@ import { planarize, faces, type PlanarizeOpts, type Faces } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import type { VectorFieldFn } from './shapes.js';
 import { distanceTo } from './distance.js';
-import { boundaryLoops, type Boundary } from './boundary.js';
+import { numericLoops, type Boundary } from './boundary.js';
 import { grad } from './field.js';
 import { Delaunay } from 'd3-delaunay';
 import { orient2d } from 'robust-predicates';
@@ -1855,7 +1855,7 @@ export function attract(
  */
 export function boundary(loops: Boundary, opts: { radius: number; strength?: number }): (p: XY) => Vec {
   const { radius, strength = 1 } = opts;
-  const inside = distanceTo(boundaryLoops(loops, 'force.boundary'));
+  const inside = distanceTo(numericLoops(loops, 'force.boundary'));
   const inward = grad(inside);
   return (p) => {
     const d = inside(vx(p), vy(p));

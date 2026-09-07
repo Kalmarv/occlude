@@ -17,7 +17,7 @@
  * field over a fine isolines grid stays fast for contour-heavy loops.
  */
 
-import { boundaryLoops, type Boundary } from './boundary.js';
+import { numericLoops, type Boundary } from './boundary.js';
 
 export type DistanceField = (x: number, y: number) => number;
 
@@ -39,7 +39,7 @@ interface Seg {
  * than throwing.
  */
 export function distanceTo(boundary: Boundary): DistanceField {
-  const loops = boundaryLoops(boundary, 'distanceTo');
+  const loops = numericLoops(boundary, 'distanceTo');
   const segs: Seg[] = [];
   let minX = Infinity;
   let minY = Infinity;

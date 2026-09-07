@@ -9,8 +9,12 @@
  */
 
 import type { IsoContour } from './isolines.js';
+import { Len } from './units.js';
 
-export type XYLike = readonly [number, number] | readonly number[] | { x: number; y: number };
+/** A coordinate: a number, or a length such as `mm(10)` where the consumer
+ * draws (polygon); numeric consumers refuse lengths, see `numericLoops`. */
+type Coord = number | Len;
+export type XYLike = readonly [Coord, Coord] | readonly Coord[] | { x: number; y: number };
 export type Loop = readonly XYLike[];
 
 /** What a material or an edge selection offers this module, without
@@ -35,9 +39,10 @@ interface FaceSource {
 /** Anything the area consumers take as a boundary. */
 export type Boundary = Loop | readonly Loop[] | IsoContour | readonly IsoContour[] | ChainSource | PointSource;
 
-/** A point: a numeric pair (extra entries ignored) or an object with numeric x and y. */
+const isCoord = (v: unknown): v is Coord => typeof v === 'number' || v instanceof Len;
+/** A point: a coordinate pair (extra entries ignored) or an object with numeric x and y. */
 const isPoint = (v: unknown): v is XYLike =>
-  (Array.isArray(v) && v.length >= 2 && typeof v[0] === 'number' && typeof v[1] === 'number') ||
+  (Array.isArray(v) && v.length >= 2 && isCoord(v[0]) && isCoord(v[1])) ||
   (typeof v === 'object' && v !== null && !Array.isArray(v) &&
     typeof (v as { x?: unknown }).x === 'number' && typeof (v as { y?: unknown }).y === 'number');
 /** A loop: an array of points, or an empty array. */
@@ -93,4 +98,18 @@ export function boundaryLoops(input: Boundary, who: string): [number, number][][
   if (isPoint(first)) return [loopOf(input as Loop, who)];
   if (isLoop(first)) return (input as readonly Loop[]).map((l) => loopOf(l, who));
   throw new Error(`${who}: expected loops of points ([x, y] or { x, y }), contour records or a chain material`);
+}
+
+/** `boundaryLoops` for a consumer that computes with the coordinates: a
+ * length such as `mm(10)` is a drawing unit the sketch must resolve first. */
+export function numericLoops(input: Boundary, who: string): [number, number][][] {
+  const loops = boundaryLoops(input, who);
+  for (const loop of loops) {
+    for (const p of loop) {
+      if (typeof p[0] !== 'number' || typeof p[1] !== 'number') {
+        throw new Error(`${who}: coordinates must be numbers in the material's units; a length such as mm() is a drawing unit — resolve it in the sketch, or draw it with polygon`);
+      }
+    }
+  }
+  return loops;
 }

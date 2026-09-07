@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { append, connect, curve, distanceTo, force, material, polygon, strokes, type Material } from '../src/index.js';
+import { append, connect, curve, distanceTo, force, material, mm, polygon, strokes, type Material } from '../src/index.js';
 
 /** A Y: 0–1–2 trunk with branches 1–3 and 1–4, plus a loner 5. */
 const Y = (): Material =>
@@ -162,5 +162,35 @@ describe('groupBy', () => {
     expect(Array.from(independent.edgeAttrs.level)).toEqual([2, 2]);
     expect(branch.points.length).toBe(3);
     expect(m.points.filter((p) => p.age > 4).extract().n).toBe(1);
+  });
+
+  it('selections are frozen: key and source cannot be overwritten, the lazy row list still works', () => {
+    const m = Y();
+    const all = m.points;
+    const sel = m.edges.filter((e) => e.index < 2);
+    const group = m.points.groupBy((p) => p.age % 2)[0];
+    for (const s of [all, sel, group, m.edges]) expect(Object.isFrozen(s)).toBe(true);
+    expect(() => { (group as { key: unknown }).key = 'x'; }).toThrow();
+    expect(() => { (sel as { source: unknown }).source = Y(); }).toThrow();
+    expect(group.key).toBe(0);
+    expect(sel.source).toBe(m);
+    expect(all.indices).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(all.indices).toBe(all.indices); // cached once
+    expect(m.edges.indices).toEqual([0, 1, 2, 3]);
+  });
+});
+
+describe('unit-wrapped coordinates', () => {
+  it('polygon keeps mm() lengths in single and multiple loops; numeric consumers refuse them', () => {
+    const one = polygon([[mm(0), mm(0)], [mm(10), mm(0)], [mm(10), mm(10)]]);
+    const cmds = (one.geom as { cmds: { op: string; x?: unknown }[] }).cmds;
+    expect(cmds.map((c) => c.op)).toEqual(['move', 'line', 'line', 'close']);
+    expect(cmds[1].x).toBeInstanceOf(mm(1).constructor);
+    const two = polygon([[[mm(0), mm(0)], [mm(10), mm(0)], [mm(10), mm(10)]], [[mm(2), mm(2)], [mm(4), mm(2)], [4, 4]]]);
+    const cmds2 = (two.geom as { cmds: { op: string }[] }).cmds;
+    expect(cmds2.filter((c) => c.op === 'close')).toHaveLength(2);
+    expect(cmds2).toHaveLength(8);
+    expect(() => distanceTo([[[mm(0), mm(0)], [mm(10), mm(0)], [mm(10), mm(10)]]] as never)).toThrow(/coordinates must be numbers.*polygon/);
+    expect(() => force.boundary([[[mm(0), mm(0)], [mm(10), mm(0)]]] as never, { radius: 1 })).toThrow(/force.boundary: coordinates must be numbers/);
   });
 });

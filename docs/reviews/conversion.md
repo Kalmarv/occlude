@@ -90,3 +90,8 @@ Dense workload (68,283 points, 68,115 edges from 40 isoline levels):
 - A group's key is a value on the selection, not a column: it does not travel through `extract()` or a later step. Write it with `attribute()` when it should.
 - Index brackets on collections are not supported; `at(i)` is the spelling.
 - Stored sketches: none used `selectPoints`, `selectEdges` or `faces().select`, so the earlier migration table is unchanged.
+
+## Review fixes (50c6191 follow-up)
+
+- Boundary normalization accepts unit-wrapped coordinates (`mm(10)`) as points, so `polygon` keeps its length inputs in single and multiple loops; `distanceTo` and `force.boundary` go through `numericLoops`, which refuses a length with a message naming the way out. Covered by tests.
+- Point and edge selections are frozen again (the lazily built full row list lives in a private box), so `key` and `source` cannot be overwritten from a sketch; face selections were already frozen. Covered by tests.
