@@ -153,21 +153,93 @@ export default sketch({ aspect: [3, 1], seed: 9 }, (t) => {
 });
 ```
 
-The drawing on the left has seven lines' worth of information and empty ground between them; the one on the right has lines everywhere and no way to tell high from low. A flow study wants quiet areas, and `spacing` can be a field too: a function of position that says how far apart the lines are here. The second finished drawing uses the landscape itself, so the lines thin out on the high ground and crowd in the hollows, and the same function decides both where a line goes and how many there are.
+The drawing on the left has seven lines' worth of information and empty ground between them; the one on the right has lines everywhere and no way to tell high from low. Neither is a drawing yet. The rest of this page takes the flow and makes decisions about it, one at a time, and each decision is a reason for the next.
 
-```ts live focus=6-7
-import { sketch, strokes, curl, ui } from 'occlude';
+## Develop the flow
+
+**Everything competes equally.** The flow with one spacing across the whole sheet. Every whorl is drawn the same, every part of the sheet is as dense as every other, and the eye has nowhere to start. Look at it for a moment and notice where you look; there is no answer, and that is the problem to solve.
+
+```ts live focus=6
+import { sketch, strokes, curl } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
-  const scale = ui(50, { min: 12, max: 80, step: 1, label: 'noise scale' });
-  const spacing = ui(1.6, { min: 0.6, max: 4, step: 0.1, label: 'line spacing (mm)' });
-  const land = (x, y) => 0.5 + 0.5 * t.noise(x / scale, y / scale);
+  const land = (x, y) => 0.5 + 0.5 * t.noise(x / 50, y / 50);
   const along = curl(land);
-  return strokes(t.streamlines(along, { spacing: (x, y) => spacing * (0.5 + 4 * land(x, y)) }));
+  return strokes(t.streamlines(along, { spacing: 1.6 }));
 });
 ```
 
-Try `(0.5 + 4 * (1 - land(x, y)))` in the spacing, and the tone inverts: the hollows go quiet and the hills fill. Nothing about the flow changed. Between the contour map and this, the flow study is the stronger drawing at this seed: its tone is continuous and it has somewhere to rest, where the contour map is the same everywhere. A contour map with a `spacing` of its own, more levels near a chosen height and fewer elsewhere, would answer back.
+**Give one place emphasis.** `spacing` can be a function of position, and a function of position can say "close together here, far apart there". The simplest version: tight near a point you choose and opening with the distance from it. The flow is unchanged; only how many of its lines are drawn changes, and now there is a place to look and paper around it. Move `focus` about and watch the drawing reorganise around the choice.
+
+```ts live focus=6-8
+import { sketch, strokes, curl, distance, ui } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
+  const land = (x, y) => 0.5 + 0.5 * t.noise(x / 50, y / 50);
+  const along = curl(land);
+  const focus = [ui(70, { min: 10, max: 190, step: 1, label: 'focus x' }), ui(48, { min: 10, max: 90, step: 1, label: 'focus y' })];
+  const spacing = (x, y) => 1 + distance([x, y], focus) / 30;
+  return strokes(t.streamlines(along, { spacing }));
+});
+```
+
+Before going on, one question: does the density say anything about the landscape now? It does not. It says where you pointed. The flow still shows the hills, but the tone is a decision laid over them, not a reading of them.
+
+**Or let the land decide.** The other way to vary the density is from the field itself: `spacing` from `land`, so the hollows fill and the hills open, or the reverse. Now the tone means something, the height, but the emphasis is wherever the landscape happens to be low, which is many places at once. Compare the two: the focal version has one subject and says nothing about height; this one says height everywhere and has no subject.
+
+```ts live focus=6
+import { sketch, strokes, curl, ui } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
+  const land = (x, y) => 0.5 + 0.5 * t.noise(x / 50, y / 50);
+  const along = curl(land);
+  const spacing = (x, y) => 1.6 * (0.5 + 4 * land(x, y));
+  return strokes(t.streamlines(along, { spacing }));
+});
+```
+
+The two can be one function: `land` for the meaning and the distance from `focus` for the emphasis, multiplied. That is the spacing the final drawing uses, and it is worth writing yourself before reading it there.
+
+**Put something in the stream.** A drawing with one subject can take an interruption, and an interruption tests whether the flow survives it. Two ways to put a disc in the stream. Left: the lines are drawn and then cut, `clip(invert(disc), …)` keeping only the ink outside the disc; the flow passes behind the disc and comes out the other side unchanged. Right: the field itself is changed. `unit` makes the flow's direction a vector of length 1, and `away` is a push straight out from the disc's centre, as strong as the flow at the disc's edge and fading with the square of the distance; added together, the lines bend around the disc and close up again downstream, the way water goes round a stone. The flow's own strength is discarded on purpose: a streamline follows direction, and the push has to be measured against something of a known size.
+
+```ts live focus=8-10
+import { sketch, strokes, circle, clip, invert, curl, distance, sub, mul, add, unit, group, rect, within } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
+  const land = (x, y) => 0.5 + 0.5 * t.noise(x / 50, y / 50);
+  const along = curl(land);
+  const half = rect(0, 0, 98, 100);
+  const stone = [50, 50];
+  const away = (x, y) => mul(unit(sub([x, y], stone)), Math.min(1, Math.pow(12 / distance([x, y], stone), 2)));
+  const around = (x, y) => add(unit(along(x, y)), away(x, y));
+  return [
+    clip(invert(circle(50, 50, 12)), strokes(t.streamlines(within(along, half), { spacing: 1.6 }))),
+    group({ translate: [100, 0] }, strokes(t.streamlines(within(around, half), { spacing: 1.6 })), circle(50, 50, 12, { opaque: true, stroke: false })),
+  ];
+});
+```
+
+Which one preserves the flow? On the left the lines end at the disc's edge as if it were a hole in the paper, and the eye reads the disc as in front. On the right the lines are continuous and the disc is in the water. Neither is wrong; they are different stones. The cut disc is cheaper to reason about and the bent one is the only one that shows the flow was there.
+
+**The drawing.** The three decisions together: a spacing that means height and emphasises one place, a stone near the focus that the flow bends around, and a lot of open paper away from both. The controls are the decisions, and none of them is the noise.
+
+```ts live focus=6-11
+import { sketch, strokes, circle, curl, distance, sub, mul, add, unit, ui } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
+  const land = (x, y) => 0.5 + 0.5 * t.noise(x / 50, y / 50);
+  const along = curl(land);
+  const focus = [ui(74, { min: 10, max: 190, step: 1, label: 'focus x' }), ui(46, { min: 10, max: 90, step: 1, label: 'focus y' })];
+  const stone = [ui(96, { min: 10, max: 190, step: 1, label: 'stone x' }), 54];
+  const size = ui(9, { min: 0, max: 20, step: 0.5, label: 'stone size' });
+  const away = (x, y) => mul(unit(sub([x, y], stone)), Math.min(1, Math.pow(size / distance([x, y], stone), 2)));
+  const around = (x, y) => add(unit(along(x, y)), away(x, y));
+  const spacing = (x, y) => (0.7 + distance([x, y], focus) / 40) * (0.5 + 2.5 * land(x, y));
+  return [strokes(t.streamlines(around, { spacing })), size > 0 ? circle(stone[0], stone[1], size, { opaque: true, stroke: false }) : []];
+});
+```
+
+Set `stone size` to 0 and the drawing is the focal version with height in it; put the stone far from the focus and it is a second subject competing with the first; put it inside the focus and it is the subject, with the emphasis around it as its halo. Where you leave it is the drawing. What this page cannot tell you is which of those is right, only that each is a different sentence, and that you can now write any of them.
 
 ## Geometry as a field
 
@@ -185,12 +257,12 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 ## On your own
 
-Keep one scalar field, the landscape or one of your own, and make two drawings from it whose character differs, not by changing the field but by changing how its values become marks: contours, flow, marks on a grid, an area at one level, or something this page did not do. Then say, in a sentence, what each drawing's rule is following.
+Take the contour map from the start of the page, the one whose seven levels compete equally, and give it what the flow got: a subject. Not by changing the field. A place where the contours are drawn more finely, an interruption they go around or stop at, a level or two picked out in another pen from the grouping above, or something this page did not do. Then say, in a sentence, what the drawing is about.
 
 <details>
 <summary>A hint, not the answer</summary>
 
-`t.isolines(land, 0.6, { close: true })` is a closed outline of everything above 0.6, and `polygon` will fill it; a grid of marks whose size is `land` is the field as tone; `t.streamlines(grad(land))` runs across the contours instead of along them, downhill or up depending on a minus sign. Any two of these are two drawings; the sentence is the harder part, and the more useful one.
+Contours have no `spacing` control, but they have levels, and levels can be chosen per region: `within(land, shape)` traces contours inside a shape only, so a dense set of levels inside a disc and a sparse set outside it is two `isolines` calls. `t.isolines(land, 0.6, { close: true })` is a closed outline of everything above a height, which `polygon` fills and `clip` cuts with. The sentence is the harder part, and the more useful one.
 
 </details>
 
