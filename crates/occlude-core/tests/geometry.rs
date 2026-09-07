@@ -310,6 +310,34 @@ fn containment_tests() {
     assert!(big.contains_region(&sq));
 }
 
+#[test]
+fn containment_respects_holes_of_the_container() {
+    // A plate with a hole does not contain a fill whose outline coincides
+    // with the plate's outer contour: the fill spans the hole. Found in the
+    // wild as a full-sheet underlayer vanishing under a frame-closed
+    // isoline plate, holes and all.
+    let sq = |x: f64, y: f64, s: f64| -> Vec<Primitive> {
+        vec![
+            Primitive::Line(Line::new(v(x, y), v(x + s, y))),
+            Primitive::Line(Line::new(v(x + s, y), v(x + s, y + s))),
+            Primitive::Line(Line::new(v(x + s, y + s), v(x, y + s))),
+            Primitive::Line(Line::new(v(x, y + s), v(x, y))),
+        ]
+    };
+    let plate = Region::new(vec![sq(10., 10., 80.), sq(30., 30., 40.)], WindingRule::EvenOdd, true);
+    let twin = Region::new(vec![sq(10., 10., 80.)], WindingRule::NonZero, true);
+    let smaller = Region::new(vec![sq(12., 12., 76.)], WindingRule::NonZero, true);
+    let in_hole = Region::new(vec![sq(35., 35., 30.)], WindingRule::NonZero, true);
+    let in_band = Region::new(vec![sq(12., 12., 10.)], WindingRule::NonZero, true);
+    assert!(!plate.contains_region(&twin));
+    assert!(!plate.contains_region(&smaller));
+    assert!(!plate.contains_region(&in_hole));
+    assert!(plate.contains_region(&in_band));
+    // A container without holes still contains its exact twin.
+    let solid = Region::new(vec![sq(10., 10., 80.)], WindingRule::EvenOdd, true);
+    assert!(solid.contains_region(&twin));
+}
+
 // ---------- clip / classify ----------
 
 #[test]

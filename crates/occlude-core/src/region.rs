@@ -342,6 +342,22 @@ impl Region {
                 }
             }
         }
+        // ...and no piece of self's boundary lies strictly inside other.
+        // Other's boundary can sit entirely on or within self's outer
+        // contour while other's interior spans a hole of self — a full-sheet
+        // fill under a frame-closed isoline plate is exactly that: both
+        // boundaries are the frame, and the plate's holes are where the fill
+        // must survive. A boundary point of self strictly inside other has
+        // other's points on both of its sides, one of them outside self.
+        for sp in self.boundary() {
+            let ts = other.crossings(sp, &sp.bbox());
+            for (_, _, piece) in sp.split_at(&ts) {
+                let mid = piece.eval(0.5);
+                if other.inside(mid) && !other.on_boundary(mid, 1e-9) {
+                    return false;
+                }
+            }
+        }
         true
     }
 }
