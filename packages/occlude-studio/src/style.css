@@ -2082,3 +2082,103 @@ button.armed {
 .lift-detail input[type='number'] {
   width: 84px;
 }
+
+/* ---- plot only: the repair interval ---- */
+
+.repair {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 4px;
+}
+
+.repair.active {
+  border-color: var(--brass-dim);
+  border-left: 3px solid var(--brass);
+}
+
+.repair .row > label {
+  flex: none;
+  width: auto;
+}
+
+.repair input[type='number'] {
+  width: 64px;
+}
+
+.repair-dash {
+  color: var(--ink-dim);
+}
+
+.dual-range {
+  position: relative;
+  flex: 1;
+  height: 22px;
+}
+
+.dual-range-fill {
+  position: absolute;
+  top: 9px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--brass);
+  pointer-events: none;
+}
+
+.dual-range input[type='range'] {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  margin: 0;
+  background: transparent;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.dual-range input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  margin-top: 9px;
+  border-radius: 2px;
+  background: var(--well);
+}
+
+.dual-range input[type='range'].dual-range-hi::-webkit-slider-runnable-track {
+  background: transparent;
+}
+
+.dual-range input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  border: 1px solid var(--panel-edge);
+  background: var(--ink);
+  cursor: ew-resize;
+}
+
+.dual-range input[type='range']::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--well);
+}
+
+.dual-range input[type='range'].dual-range-hi::-moz-range-track {
+  background: transparent;
+}
+
+.dual-range input[type='range']::-moz-range-thumb {
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid var(--panel-edge);
+  background: var(--ink);
+  cursor: ew-resize;
+}

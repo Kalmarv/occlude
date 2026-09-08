@@ -8,7 +8,7 @@
  */
 
 import {
-  openPlan, parseToolpath, resolveDraw, selectAll,
+  openPlan, parseToolpath, resolveDraw, selectAll, selectChains,
   type DrawRequest, type DrawingPlan, type EstimateOpts, type FlatChain, type PenTiming, type PlanSelection, type PlanSettings, type PlanSchedule, type PenDef, type ResolvedDraw,
   planSchedule,
 } from 'occlude';
@@ -58,8 +58,15 @@ export class Drawing {
   request: DrawRequest = {};
   /** Preview aid only: ghost the omitted ink. Never enters exports. */
   showOmitted = true;
+  /** The repair: plot only this interval of the plan's timeline, in minutes,
+   * on top of the sketch's own request — studio state for redoing part of
+   * one sheet, never written to the source. Kept across re-renders and
+   * re-resolved against each new plan. */
+  repair: [number, number] | null = null;
+  private repaired: PlanSelection | null = null;
   private flat = new Map<string, Promise<FlatChain[]>>();
   private listeners: (() => void)[] = [];
+  private repairListeners: (() => void)[] = [];
   private resolved: ResolvedDraw | null = null;
   /** The resolution in flight for the current plan, if any. */
   private pending: Promise<ResolvedDraw | null> | null = null;
@@ -112,6 +119,53 @@ export class Drawing {
     return this.resolved.final;
   }
 
+  /** What the machine plots: the sketch's selection narrowed by the repair
+   * when one is set. Exports keep drawing the sketch's selection. */
+  get plotSelection(): PlanSelection | null {
+    return this.repaired ?? this.selection;
+  }
+
+  onRepairChange(fn: () => void): void {
+    this.repairListeners.push(fn);
+  }
+
+  /** Set (or clear) the repair interval, minutes of the plan's timeline. */
+  setRepair(minutes: [number, number] | null): void {
+    this.repair = minutes;
+    this.applyRepair();
+    for (const fn of this.repairListeners) fn();
+  }
+
+  private applyRepair(): void {
+    const plan = this.plan;
+    const sel = this.selection;
+    if (!plan || !sel || !this.repair) {
+      this.repaired = null;
+      return;
+    }
+    // Resolve the interval like a `minutes` request, then intersect with the
+    // sketch's own selection: the repair can only narrow what it would plot.
+    this.repaired = this.repairFor(plan, sel, this.repair);
+  }
+
+  private repairFor(plan: DrawingPlan, sel: PlanSelection, minutes: [number, number]): PlanSelection {
+    const flat = this.flatNow;
+    if (!flat) return sel;
+    const t = this.timing();
+    const r = resolveDraw(plan, { minutes: [Math.max(0, minutes[0]), Math.max(minutes[0], minutes[1])] }, { flat, penOf: t.penOf, opts: t.opts }).final;
+    const from = Math.max(sel.fromChain, r.fromChain);
+    const to = Math.min(sel.toChain, r.toChain);
+    return selectChains(plan, { from: Math.min(from, to), to });
+  }
+
+  /** The repair's resolved interval for a readout, or null. */
+  repairInfo(): { fromChain: number; toChain: number; count: number; totalMs: number } | null {
+    if (!this.repaired || !this.resolved) return null;
+    return { fromChain: this.repaired.fromChain, toChain: this.repaired.toChain, count: this.repaired.count, totalMs: this.resolved.fullMs ?? 0 };
+  }
+
+  private flatNow: FlatChain[] | null = null;
+
   /** Sampled chains of the WHOLE plan at the machine tolerance, cached per
    * (plan, tolerance); the request carries the plan hash it is for. */
   toolpath(tolerance = this.timing().tolerance): Promise<FlatChain[]> {
@@ -138,6 +192,15 @@ export class Drawing {
     return flat.slice(sel.fromChain, sel.toChain);
   }
 
+  /** The chains the machine plots: the selection narrowed by the repair. */
+  async plotToolpath(tolerance?: number): Promise<FlatChain[]> {
+    if (!this.plan) return [];
+    await this.settled();
+    const sel = this.plotSelection!;
+    const flat = await this.toolpath(tolerance);
+    return flat.slice(sel.fromChain, sel.toChain);
+  }
+
   async schedule(): Promise<PlanSchedule> {
     const flat = await this.toolpath();
     const t = this.timing();
@@ -150,7 +213,9 @@ export class Drawing {
     const flat = await this.toolpath();
     if (this.plan !== plan) return this.resolved; // a newer plan landed meanwhile
     const t = this.timing();
+    this.flatNow = flat;
     this.resolved = resolveDraw(plan, this.request, { flat, penOf: t.penOf, opts: t.opts });
+    this.applyRepair();
     this.pending = null;
     this.notify();
     return this.resolved;

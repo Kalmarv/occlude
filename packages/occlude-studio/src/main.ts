@@ -105,7 +105,7 @@ async function boot(): Promise<void> {
   const drawing = new Drawing(client, () => execution());
   const showSelection = (): void => {
     const plan = drawing.plan;
-    const sel = drawing.selection;
+    const sel = drawing.plotSelection;
     // A frozen result has no fragments: the plan IS the picture, always.
     if (!plan || !sel || (!frozenId && sel.fromChain === 0 && sel.toChain === plan.chains.length)) preview.setSelection(null);
     else preview.setSelection({ chains: plan.chains, from: sel.fromChain, to: sel.toChain, showOmitted: drawing.showOmitted });

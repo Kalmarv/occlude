@@ -56,6 +56,42 @@ describe('Drawing state', () => {
     expect(await d2.selectedToolpath()).toHaveLength(10);
   });
 
+  it('a repair narrows what plots, never widens it, survives a new plan, and clears', async () => {
+    const a = chains(10);
+    const buf = encodePlanBuffer(a);
+    const hash = await hashPlan(buf, settings);
+    const d = new Drawing(mockClient(a, hash, []), timing);
+    let changes = 0;
+    d.onRepairChange(() => { changes += 1; });
+    // the sketch draws the first 80%; the repair asks for the last half of the timeline
+    await d.setPlan({ buffer: buf, settings, planHash: hash }, pens, { progress: [0, 0.8] });
+    const total = d.current!.fullMs! / 60000;
+    expect(d.plotSelection).toEqual(d.selection);
+    d.setRepair([total / 2, total]);
+    expect(changes).toBe(1);
+    const p = d.plotSelection!;
+    expect(p.fromChain).toBeGreaterThan(0);
+    expect(p.toChain).toBe(8); // intersected with the sketch's own range
+    expect(p.count).toBe(p.toChain - p.fromChain);
+    expect(await d.plotToolpath()).toHaveLength(p.count);
+    expect(await d.selectedToolpath()).toHaveLength(8); // exports: the sketch's selection
+    expect(d.repairInfo()).toMatchObject({ fromChain: p.fromChain, toChain: 8 });
+    // a new plan re-resolves the same minutes
+    const b = chains(20);
+    const bufB = encodePlanBuffer(b);
+    const hashB = await hashPlan(bufB, settings);
+    const d2 = new Drawing(mockClient(b, hashB, []), timing);
+    d2.setRepair([0, total / 4]);
+    await d2.setPlan({ buffer: bufB, settings, planHash: hashB }, pens, {});
+    const q = d2.plotSelection!;
+    expect(q.fromChain).toBe(0);
+    expect(q.toChain).toBeLessThan(20);
+    expect(q.toChain).toBeGreaterThan(0);
+    d2.setRepair(null);
+    expect(d2.plotSelection).toEqual(d2.selection);
+    expect(d2.repairInfo()).toBeNull();
+  });
+
   it('a chain request beyond the plan clamps; minutes and budget resolve through the schedule', async () => {
     const a = chains(6);
     const buf = encodePlanBuffer(a);

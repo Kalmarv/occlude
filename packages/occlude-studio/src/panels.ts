@@ -21,6 +21,7 @@ import { serialSupported, type PlotProgress } from './ebb.js';
 import { buildConnect, buildManualControls, buildProfileSelect, createSession } from './machine.js';
 import { machineTiming, machineTolerance, penTimingOf, type Drawing } from './drawing.js';
 import { registrationMarks } from './diagnostics.js';
+import { dualRange } from './rangeSlider.js';
 import { saveResult, selectionOf, type ResultMeta } from './resultsApi.js';
 import { canonicalJson } from 'occlude';
 
@@ -761,7 +762,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     const tol = machineTolerance(prof(), penIndex === undefined ? r.pens : [r.pens[penIndex] ?? r.pens[0]]);
     // The SELECTED chains of the plan, source indices kept; the driver's
     // pen filter is an execution filter over that same sequence.
-    const flat = await hooks.drawing.selectedToolpath(tol);
+    const flat = await hooks.drawing.plotToolpath(tol);
     executed = penIndex === undefined ? flat : flat.filter((c) => c.pen === penIndex);
     const plan = encodeToolpath(flat);
     const bb = chainsBounds(executed);
@@ -845,7 +846,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     if (!r) return;
     const plan = await buildPlan(r, penIndex);
     if (!plan) return;
-    const sel = hooks.drawing.selection;
+    const sel = hooks.drawing.plotSelection;
     const record = (chain: number, chainTotal: number): void => {
       putProgress({
         sketch: hooks.currentName(),
@@ -921,7 +922,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     if (!r) return;
     try {
       // Policy: frame the SELECTED ink — what this run will put on paper.
-      const flat = await hooks.drawing.selectedToolpath(Math.max(0.0001, prof().machine.resolution));
+      const flat = await hooks.drawing.plotToolpath(Math.max(0.0001, prof().machine.resolution));
       const bb = chainsBounds(flat);
       // Pen-up perimeter of the selection's bounding box, at the paper
       // offset: the placement check no model can do.
@@ -943,7 +944,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     const r = hooks.lastResult();
     if (!r) return;
     try {
-      const flat = await hooks.drawing.selectedToolpath(Math.max(0.0001, prof().machine.resolution));
+      const flat = await hooks.drawing.plotToolpath(Math.max(0.0001, prof().machine.resolution));
       const bb = chainsBounds(flat);
       const raw = parseInt(penSelect.value, 10);
       const chosen = raw >= 0 ? r.pens[raw] : r.pens[0];
@@ -1010,6 +1011,50 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   const transport = el('div', 'transport', plotBtn, pauseBtn, stopBtn, frameBtn, marksBtn);
   const manual = buildManualControls(m);
 
+  // Plot only: a repair interval on the plan's timeline. Studio state, not
+  // the sketch's: it narrows what Plot, Frame and Marks run and what the
+  // preview keeps in ink, and is recorded with the plot's progress.
+  const d = hooks.drawing;
+  const repairText = hint('');
+  const fmtMinutes = (min: number): string => (min >= 10 ? min.toFixed(1) : min.toFixed(2));
+  const slider = dualRange({
+    min: 0, max: 1, step: 0.01, from: 0, to: 1,
+    onInput: (a, b) => d.setRepair([a, b]),
+  });
+  const fromIn = numberInput(0, 0.1, (v) => { const [, b] = slider.get(); d.setRepair([Math.max(0, v), Math.max(v, b)]); });
+  const toIn = numberInput(0, 0.1, (v) => { const [a] = slider.get(); d.setRepair([Math.min(a, v), v]); });
+  fromIn.title = 'Start of the repair, minutes into the plot';
+  toIn.title = 'End of the repair, minutes into the plot';
+  const clearRepair = button('Whole plan', () => d.setRepair(null));
+  clearRepair.className = 'danger-quiet';
+  const repairBox = el('div', 'repair',
+    el('div', 'row', el('label', undefined, 'Plot only'), slider.root),
+    el('div', 'row', fromIn, el('span', 'repair-dash', 'to'), toIn, el('span', undefined, 'min'), clearRepair),
+    repairText,
+  );
+  const showRepair = (): void => {
+    const total = (d.current?.fullMs ?? 0) / 60000;
+    slider.setMax(Math.max(0.01, +total.toFixed(2)));
+    const info = d.repairInfo();
+    if (!d.repair || !info) {
+      slider.set(0, total);
+      fromIn.value = '0';
+      toIn.value = fmtMinutes(total);
+      repairText.textContent = total > 0 ? `Whole plan: ${fmtMinutes(total)} min. Drag the handles to plot only an interval — a dried pen, a faint patch.` : '';
+      repairBox.classList.remove('active');
+      return;
+    }
+    const [a, b] = d.repair;
+    slider.set(Math.min(a, total), Math.min(b, total));
+    fromIn.value = fmtMinutes(a);
+    toIn.value = fmtMinutes(b);
+    repairText.textContent = `Plotting ${info.count.toLocaleString()} chains, rows ${info.fromChain}–${info.toChain} of the plan, ${fmtMinutes(a)}–${fmtMinutes(Math.min(b, total))} of ${fmtMinutes(total)} min. Exports still draw the whole selection.`;
+    repairBox.classList.add('active');
+  };
+  d.onRepairChange(() => { showRepair(); hooks.onSelectionView(); });
+  d.onChange(showRepair);
+  showRepair();
+
   body.append(
     el('div', 'plot-head', buildProfileSelect(m, hooks.profiles, false), connect.root),
     status,
@@ -1017,6 +1062,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     transport,
     bar,
     progressText,
+    repairBox,
     savedBox,
     el('h4', 'band-title', 'Manual control'),
     manual,
