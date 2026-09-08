@@ -678,6 +678,7 @@ export class Ebb {
 
   async jog(dxMm: number, dyMm: number, o: EbbOptions): Promise<void> {
     if (this.plotting && this.plotPause) this.pauseAdjusted = true;
+    if (!this.penIsUp) await this.penUp(300); // never drag: jogs and the frame trace travel raised
     const [x, y] = this.bedPosition(o);
     await this.cmd('EM,1,1');
     await this.moveRun([[x + dxMm, y + dyMm]], o.travelFeed, o);
@@ -983,7 +984,10 @@ export class Ebb {
 
     let stalls = 0;
     try {
-      if (first > 0) await this.penUp(300); // resuming: make sure we travel raised
+      // Raise before anything moves, whatever the tracker says: a plot can
+      // start after a seating, a stop mid-stroke, or a power loss, with the
+      // pen physically down and the first travel would draw a line.
+      await this.penUp(300);
       let chainIndex = first;
       while (chainIndex < chains.length) {
         const c = chains[chainIndex];

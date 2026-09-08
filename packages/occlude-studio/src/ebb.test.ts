@@ -369,6 +369,53 @@ describe('Ebb motor lifecycle', () => {
     expect(ebb.paused).toBe(false);
   });
 
+  test('a plot raises the pen before its first travel even from chain 0 with the pen down', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, swapXY: false, invertX: false };
+    const ebb = new Ebb();
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    await ebb.penDown(300); // seated, or left down by a stop
+    const mark = port.commands.length;
+    await ebb.plot(
+      new Float64Array([0, 0, 2, 20, 20, 40, 20]),
+      [{ name: 'test', width: 0.2, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150 }],
+      direct,
+      () => undefined,
+    );
+    const after = port.commands.slice(mark);
+    const up = after.findIndex((c) => c.startsWith('SP,1'));
+    const move = after.findIndex((c) => c.startsWith('XM,') || c.startsWith('LM,'));
+    expect(up).toBeGreaterThanOrEqual(0);
+    expect(move).toBeGreaterThan(up);
+  });
+
+  test('a jog with the pen down raises it first', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, swapXY: false, invertX: false };
+    const ebb = new Ebb();
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    await ebb.penDown(300);
+    const mark = port.commands.length;
+    await ebb.jog(10, 0, direct);
+    const after = port.commands.slice(mark);
+    const up = after.findIndex((c) => c.startsWith('SP,1'));
+    const move = after.findIndex((c) => c.startsWith('XM,') || c.startsWith('LM,'));
+    expect(up).toBeGreaterThanOrEqual(0);
+    expect(move).toBeGreaterThan(up);
+    // and not again once it is up
+    const again = port.commands.length;
+    await ebb.jog(10, 0, direct);
+    expect(port.commands.slice(again).some((c) => c.startsWith('SP,1'))).toBe(false);
+  });
+
   test('long cruise strokes retain their requested feed without packet explosion', async () => {
     const port = new FakePort();
     Object.defineProperty(globalThis, 'navigator', {
