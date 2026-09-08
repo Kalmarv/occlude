@@ -7,6 +7,7 @@
 
 import { DEFAULT_PENS, type PenDef } from './pens.js';
 import { Rng } from './random.js';
+import { parseSeed } from './draws.js';
 import type { Material } from './material.js';
 import type { L } from './units.js';
 
@@ -63,6 +64,14 @@ export interface State {
   planOptions: import('./plan.js').PlanOptions | null;
   drawRequest: import('./plan.js').DrawRequest | null;
   drawIndex: number;
+  /** Addressed draws (see draws.ts): the seed's overrides, the site stack
+   * the tagged code maintains, the per-site draw counters, which overrides
+   * were used, and the log of every addressed draw this run. */
+  overrides: Record<string, number>;
+  siteStack: string[];
+  siteCounts: Map<string, number>;
+  overrideHits: Set<string>;
+  drawLog: { addr: string; f: number }[];
 }
 
 let state: State | null = null;
@@ -170,6 +179,10 @@ function freshState(opts: SketchOptions = {}): State {
   } else {
     seed = opts.seed;
   }
+  // A seed may carry draw overrides as a tail: the base seeds the streams,
+  // the tail is answered by address (see draws.ts).
+  const parsed = parseSeed(seed);
+  seed = typeof seed === 'number' ? seed : parsed.seed;
   const lib = new Map<string, PenDef>();
   for (const p of externalPenLib ?? DEFAULT_PENS) lib.set(p.name, { ...p });
   return {
@@ -187,6 +200,11 @@ function freshState(opts: SketchOptions = {}): State {
     rng: new Rng(seed),
     seedUsed: seed,
     drawIndex: 0,
+    overrides: parsed.overrides,
+    siteStack: [],
+    siteCounts: new Map(),
+    overrideHits: new Set(),
+    drawLog: [],
     probes: new Map(),
     inspections: new Map(),
     planOptions: null,
@@ -410,22 +428,74 @@ export function clip(
 
 // ---- randomness (one stream per sketch) ----
 
+/**
+ * One unit float from `rng`, addressed when a tagged call site is on the
+ * stack: `site:k` for the k-th draw that site made this run. An override at
+ * that address is returned instead, and the stream has still advanced, so
+ * every later draw is what the seed alone would have given.
+ */
+function unitDraw(rng: Rng, s: State): number {
+  const f = rng.float();
+  const site = s.siteStack[s.siteStack.length - 1];
+  if (site === undefined) return f;
+  const k = s.siteCounts.get(site) ?? 0;
+  s.siteCounts.set(site, k + 1);
+  const addr = `${site}:${k}`;
+  const o = s.overrides[addr];
+  if (o !== undefined) s.overrideHits.add(addr);
+  const v = o ?? f;
+  s.drawLog.push({ addr, f: v });
+  return v;
+}
+
+/** The tagged code's hook: run `fn` with `site` on the draw stack. */
+export function drawAt<T>(site: string, fn: () => T): T {
+  const s = getState();
+  s.siteStack.push(site);
+  try {
+    return fn();
+  } finally {
+    s.siteStack.pop();
+  }
+}
+
+/** Every addressed draw of the current run, in order: the material an
+ * evolution grid mutates. */
+export function getDrawLog(): { addr: string; f: number }[] {
+  return state ? state.drawLog.slice() : [];
+}
+
+/** The seed's overrides and which of them a draw actually used; the rest
+ * name addresses this source no longer has. */
+export function getOverrideReport(): { overrides: Record<string, number>; hit: string[]; dropped: string[] } {
+  if (!state) return { overrides: {}, hit: [], dropped: [] };
+  const keys = Object.keys(state.overrides);
+  return {
+    overrides: { ...state.overrides },
+    hit: keys.filter((k) => state!.overrideHits.has(k)),
+    dropped: keys.filter((k) => !state!.overrideHits.has(k)),
+  };
+}
+
 export function rnd(): number;
 export function rnd(n: number): number;
 export function rnd(a: number, b: number): number;
 export function rnd(a?: number, b?: number): number {
-  const f = getState().rng.float();
+  const s = getState();
+  const f = unitDraw(s.rng, s);
   if (a === undefined) return f;
   if (b === undefined) return f * a;
   return a + f * (b - a);
 }
 
 export function pick<T>(arr: readonly T[]): T {
-  return arr[Math.floor(getState().rng.float() * arr.length)];
+  const s = getState();
+  return arr[Math.floor(unitDraw(s.rng, s) * arr.length)];
 }
 
 export function chance(p: number): boolean {
-  return getState().rng.float() < p;
+  const s = getState();
+  return unitDraw(s.rng, s) < p;
 }
 
 export function prob<T>(p: number, fn: () => T, elseFn?: () => T): T | undefined {
@@ -453,18 +523,19 @@ export interface RandomStream {
  * a composition can be iterated on in isolation.
  */
 export function stream(name: string): RandomStream {
-  const rng = new Rng(`${getState().seedUsed}:stream:${name}`);
+  const s = getState();
+  const rng = new Rng(`${s.seedUsed}:stream:${name}`);
   const rnd = (a?: number, b?: number): number => {
-    const f = rng.float();
+    const f = unitDraw(rng, s);
     if (a === undefined) return f;
     if (b === undefined) return f * a;
     return a + f * (b - a);
   };
   return {
     rnd: rnd as RandomStream['rnd'],
-    pick: <T>(arr: readonly T[]): T => arr[Math.floor(rng.float() * arr.length)],
-    chance: (p) => rng.float() < p,
-    prob: (p, fn, elseFn) => (rng.float() < p ? fn() : elseFn?.()),
+    pick: <T>(arr: readonly T[]): T => arr[Math.floor(unitDraw(rng, s) * arr.length)],
+    chance: (p) => unitDraw(rng, s) < p,
+    prob: (p, fn, elseFn) => (unitDraw(rng, s) < p ? fn() : elseFn?.()),
     noise: (x, y = 0, z = 0) => rng.noise(x, y, z),
   };
 }

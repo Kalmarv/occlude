@@ -132,6 +132,8 @@ export { rotate, translate, scale, within, vectorField, grad, curl } from './fie
 
 // Tweakable values (identity at runtime; the studio scans + builds sliders).
 export { ui, scanUiControls } from './ui.js';
+export { parseSeed, formatSeed, tagDraws, siteId, DRAW_HOOK, type ParsedSeed, type DrawSite } from './draws.js';
+export { drawAt, getDrawLog, getOverrideReport } from './state.js';
 export type { UiOpts, UiControl } from './ui.js';
 
 // Motion planning + the plot-time ground-truth model (shared by the EBB
