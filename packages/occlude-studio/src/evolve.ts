@@ -62,7 +62,7 @@ export function mutate(centre: Candidate, draws: Draws, heat: Map<string, number
 export function cool(heat: Map<string, number>, draws: Draws, from: Candidate, picked: Candidate): void {
   for (const addr of draws.addrs) {
     const changed = picked.overrides[addr] !== undefined && picked.overrides[addr] !== from.overrides[addr];
-    heat.set(addr, changed ? 1 : Math.max(0.05, (heat.get(addr) ?? 1) * 0.7));
+    heat.set(addr, changed ? 1 : Math.max(0.2, (heat.get(addr) ?? 1) * 0.85));
   }
 }
 

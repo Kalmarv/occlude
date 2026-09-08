@@ -32,9 +32,9 @@ describe('evolve: mutation and cooling', () => {
     const picked: Candidate = { seed: '7', overrides: { 'a:0': 0.5, 'b:1': 0.25 } };
     cool(heat, draws, from, picked);
     expect(heat.get('b:1')).toBe(1);
-    expect(heat.get('a:0')).toBeCloseTo(0.7); // unchanged between the two: cooled
-    expect(heat.get('c:0')).toBeCloseTo(0.7);
+    expect(heat.get('a:0')).toBeCloseTo(0.85); // unchanged between the two: cooled
+    expect(heat.get('c:0')).toBeCloseTo(0.85);
     for (let i = 0; i < 20; i++) cool(heat, draws, picked, picked);
-    expect(heat.get('c:0')).toBe(0.05); // the floor
+    expect(heat.get('c:0')).toBe(0.2); // the floor: a settled draw still moves sometimes
   });
 });

@@ -65,7 +65,7 @@ async function boot(): Promise<void> {
         paper: settings.paper === 'Custom' ? settings.customPaper : settings.paper,
         landscape: settings.landscape,
         defaultMarginPct: settings.defaultMarginPct,
-        coarsen: 2,
+        coarsen: 1,
         seed: formatSeed(cand.seed, cand.overrides),
         draws: wantDraws,
       },
@@ -238,7 +238,7 @@ async function boot(): Promise<void> {
     const t = tiles[i];
     if (!t.cand) return;
     if (i === 4) {
-      T = Math.max(0, T * 0.67);
+      T = Math.max(0.2, T * 0.85); // cool gently, never all the way: the grid keeps some variety
       tempIn.value = String(T);
       tempText();
       await regenerate();
@@ -248,7 +248,7 @@ async function boot(): Promise<void> {
     centre = { seed: t.cand.seed, overrides: { ...t.cand.overrides } };
     if (centre.seed === from.seed) cool(heat, centreDraws, from, centre);
     else heat.clear();
-    T = Math.max(0, T * 0.67);
+    T = Math.max(0.2, T * 0.85); // cool gently, never all the way: the grid keeps some variety
     tempIn.value = String(T);
     tempText();
     pushLineage();
