@@ -114,8 +114,20 @@ async function boot(): Promise<void> {
     tiles.push({ root, canvas, note, preview, cand: null, result: null });
     grid.append(root);
     root.onclick = () => { hideZoom(); const t = tiles[i]; if (t.cand) void choose(i); };
-    root.onmouseenter = () => { clearTimeout(zoomTimer); zoomTimer = window.setTimeout(() => showZoom(i), 350); };
-    root.onmouseleave = hideZoom;
+    // Only the sheet itself arms the zoom, not the dark margin around it.
+    let overPaper = false;
+    root.onmousemove = (e) => {
+      const t = tiles[i];
+      if (!t.result) return;
+      const [x, y] = t.preview.toPaper(e.clientX, e.clientY);
+      const inside = x >= 0 && y >= 0 && x <= t.result.paper.w && y <= t.result.paper.h;
+      if (inside === overPaper) return;
+      overPaper = inside;
+      clearTimeout(zoomTimer);
+      if (inside) zoomTimer = window.setTimeout(() => showZoom(i), 600);
+      else zoom.hidden = true;
+    };
+    root.onmouseleave = () => { overPaper = false; hideZoom(); };
   }
   tiles[4].root.classList.add('centre');
 
