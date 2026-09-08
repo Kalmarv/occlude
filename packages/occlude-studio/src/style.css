@@ -2104,8 +2104,23 @@ button.armed {
   width: auto;
 }
 
+.repair .row {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.repair .row > button {
+  flex: none;
+  white-space: nowrap;
+}
+
 .repair input[type='number'] {
-  width: 64px;
+  width: 76px;
+  flex: none;
+}
+
+#preview.painting {
+  cursor: crosshair;
 }
 
 .repair-dash {

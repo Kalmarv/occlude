@@ -19,7 +19,7 @@ import {
 } from './store.js';
 import { serialSupported, type PlotProgress } from './ebb.js';
 import { buildConnect, buildManualControls, buildProfileSelect, createSession } from './machine.js';
-import { machineTiming, machineTolerance, penTimingOf, type Drawing } from './drawing.js';
+import { machineTiming, machineTolerance, penTimingOf, type Drawing, type RegionBlob } from './drawing.js';
 import { registrationMarks } from './diagnostics.js';
 import { dualRange } from './rangeSlider.js';
 import { saveResult, selectionOf, type ResultMeta } from './resultsApi.js';
@@ -75,6 +75,12 @@ export interface PanelHooks {
     start(plan: Float64Array, pens: PenDef[]): void;
     progress(chain: number): void;
     end(): void;
+  };
+  /** The region brush over the preview and its blob overlay. */
+  brush: {
+    start(fn: (x: number, y: number, phase: 'down' | 'move' | 'up') => void): void;
+    stop(): void;
+    show(blobs: RegionBlob[] | null): void;
   };
 }
 
@@ -798,6 +804,10 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     /** Identity of the plan and the selected range this progress is of. */
     planHash: string | null;
     selection: { from: number; to: number } | null;
+    /** The repairs in force and the executed set's identity, so a resume
+     * restores exactly the chains this record counts. */
+    repair?: { minutes: [number, number] | null; region: RegionBlob[] | null };
+    executed?: string | null;
     /** When the plot ran from a saved result: its id — resume loads those bytes. */
     resultId: string | null;
     /** Profile timing, tolerance and pen feed/settle the plot ran under. */
@@ -816,7 +826,9 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     savedBox.hidden = !saved;
     if (!saved) return;
     const pen = saved.penIndex === null ? 'all pens' : `pen ${saved.penIndex}`;
-    const range = saved.selection ? `chains ${saved.selection.from}–${saved.selection.to} of the plan` : 'the whole plan';
+    const range = saved.repair?.region
+      ? `a painted region (${saved.executed?.split(':')[0] ?? '?'} chains)`
+      : saved.selection ? `chains ${saved.selection.from}–${saved.selection.to} of the plan` : 'the whole plan';
     const from = saved.resultId ? ` (saved result ${saved.resultId})` : '';
     savedText.textContent =
       `Unfinished: ${saved.sketch}${from}, ${pen}, ${range}, executed chain ${saved.chain} of ${saved.chainTotal}` +
@@ -858,6 +870,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         sourceChain: executed[chain]?.index ?? null,
         planHash: hooks.drawing.plan?.planHash ?? null,
         selection: sel ? { from: sel.fromChain, to: sel.toChain } : null,
+        repair: { minutes: hooks.drawing.repair, region: hooks.drawing.region },
+        executed: hooks.drawing.plotFingerprint(),
         resultId: hooks.frozenResult(),
         execution: hooks.execution(),
         ts: new Date().toISOString(),
@@ -978,9 +992,18 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
             `open "${sv.sketch}" unchanged with seed ${sv.seed ?? '—'}, the same pens and paper`,
           );
         }
-        const cur = await hooks.drawing.settled();
-        if (sv.selection && (cur.fromChain !== sv.selection.from || cur.toChain !== sv.selection.to)) {
-          throw new Error(`resume: the saved plot drew chains ${sv.selection.from}–${sv.selection.to}; the sketch's t.draw now resolves to ${cur.fromChain}–${cur.toChain}`);
+        await hooks.drawing.settled();
+        if (sv.repair) hooks.drawing.setRepairs(sv.repair.minutes, sv.repair.region);
+        if (sv.executed) {
+          const now = hooks.drawing.plotFingerprint();
+          if (now !== sv.executed) {
+            throw new Error(`resume: the saved plot executed ${sv.executed.split(':')[0]} chains; the same sketch, repairs and t.draw now give ${now?.split(':')[0] ?? '?'} — the plan or the selection changed`);
+          }
+        } else {
+          const cur = hooks.drawing.plotSelection!;
+          if (sv.selection && (cur.fromChain !== sv.selection.from || cur.toChain !== sv.selection.to)) {
+            throw new Error(`resume: the saved plot drew chains ${sv.selection.from}–${sv.selection.to}; the sketch's t.draw now resolves to ${cur.fromChain}–${cur.toChain}`);
+          }
         }
         // Execution identity too: the same geometry under other timing,
         // tolerance or pen settle is a different plot.
@@ -1025,30 +1048,66 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   const toIn = numberInput(0, 0.1, (v) => { const [a] = slider.get(); d.setRepair([Math.min(a, v), v]); });
   fromIn.title = 'Start of the repair, minutes into the plot';
   toIn.title = 'End of the repair, minutes into the plot';
-  const clearRepair = button('Whole plan', () => d.setRepair(null));
+  const clearRepair = button('Whole plan', () => { paintOff(); d.setRepairs(null, null); });
   clearRepair.className = 'danger-quiet';
+  // Region: paint blobs over the preview; chains with ink under any blob
+  // are in. Painting is additive; Clear region starts over.
+  let radius = 8;
+  const radiusIn = numberInput(radius, 1, (v) => { radius = Math.max(0.5, v); });
+  radiusIn.title = 'Brush radius, mm';
+  const paintBtn = button('Paint region', () => (paintBtn.classList.contains('armed') ? paintOff() : paintOn()));
+  paintBtn.title = 'Circle-select over the preview: drag to paint the patch to redo. Wheel still zooms; pan with the right button or after Done.';
+  const clearRegion = button('Clear region', () => { d.setRegion(null); });
+  clearRegion.className = 'danger-quiet';
+  let blobs: RegionBlob[] = [];
+  const paintOn = (): void => {
+    blobs = d.region ? [...d.region] : [];
+    paintBtn.classList.add('armed');
+    paintBtn.textContent = 'Done painting';
+    hooks.brush.start((x, y, phase) => {
+      const last = blobs[blobs.length - 1];
+      const apart = !last || Math.hypot(x - last.x, y - last.y) >= radius / 3;
+      if (phase === 'down' || apart) {
+        blobs.push({ x, y, r: radius });
+        hooks.brush.show(blobs);
+      }
+      if (phase === 'up') d.setRegion(blobs); // commit the stroke, close or not
+    });
+  };
+  const paintOff = (): void => {
+    paintBtn.classList.remove('armed');
+    paintBtn.textContent = 'Paint region';
+    hooks.brush.stop();
+    if (blobs.length) d.setRegion(blobs);
+  };
   const repairBox = el('div', 'repair',
     el('div', 'row', el('label', undefined, 'Plot only'), slider.root),
     el('div', 'row', fromIn, el('span', 'repair-dash', 'to'), toIn, el('span', undefined, 'min'), clearRepair),
+    el('div', 'row', paintBtn, el('span', 'repair-dash', 'radius'), radiusIn, el('span', undefined, 'mm'), clearRegion),
     repairText,
   );
   const showRepair = (): void => {
     const total = (d.current?.fullMs ?? 0) / 60000;
     slider.setMax(Math.max(0.01, +total.toFixed(2)));
     const info = d.repairInfo();
+    hooks.brush.show(d.region);
+    const idx = d.plotIndices();
+    const region = d.region ? ` · region of ${d.region.length} dabs` : '';
     if (!d.repair || !info) {
       slider.set(0, total);
       fromIn.value = '0';
       toIn.value = fmtMinutes(total);
-      repairText.textContent = total > 0 ? `Whole plan: ${fmtMinutes(total)} min. Drag the handles to plot only an interval — a dried pen, a faint patch.` : '';
-      repairBox.classList.remove('active');
+      repairText.textContent = d.region && idx
+        ? `Plotting ${idx.length.toLocaleString()} chains under the painted region${region}. Exports still draw the whole selection.`
+        : total > 0 ? `Whole plan: ${fmtMinutes(total)} min. Drag the handles for an interval, or paint a region — a dried pen, a faint patch.` : '';
+      repairBox.classList.toggle('active', !!d.region);
       return;
     }
     const [a, b] = d.repair;
     slider.set(Math.min(a, total), Math.min(b, total));
     fromIn.value = fmtMinutes(a);
     toIn.value = fmtMinutes(b);
-    repairText.textContent = `Plotting ${info.count.toLocaleString()} chains, rows ${info.fromChain}–${info.toChain} of the plan, ${fmtMinutes(a)}–${fmtMinutes(Math.min(b, total))} of ${fmtMinutes(total)} min. Exports still draw the whole selection.`;
+    repairText.textContent = `Plotting ${(idx?.length ?? info.count).toLocaleString()} chains, rows ${info.fromChain}–${info.toChain} of the plan, ${fmtMinutes(a)}–${fmtMinutes(Math.min(b, total))} of ${fmtMinutes(total)} min${region}. Exports still draw the whole selection.`;
     repairBox.classList.add('active');
   };
   d.onRepairChange(() => { showRepair(); hooks.onSelectionView(); });

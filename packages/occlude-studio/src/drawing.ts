@@ -15,6 +15,45 @@ import {
 import type { RenderClient } from './workerClient.js';
 import type { MachineProfile } from './store.js';
 
+/** One brush dab of a region repair, paper mm. */
+export interface RegionBlob {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** A stable fingerprint of an executed chain list: what a resume must match. */
+export function chainsFingerprint(indices: readonly number[]): string {
+  let h = 2166136261;
+  for (const i of indices) {
+    h ^= i;
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return `${indices.length}:${h.toString(16)}`;
+}
+
+/** Source indices of the chains under any blob, from a full-plan toolpath. */
+export function chainsUnder(flat: readonly FlatChain[], blobs: readonly RegionBlob[], from: number, to: number): number[] {
+  const out: number[] = [];
+  for (let i = from; i < to; i++) {
+    const c = flat[i];
+    if (!c) continue;
+    const pts = c.pts;
+    let hit = false;
+    for (let k = 0; k < pts.length && !hit; k += 2) {
+      const x = pts[k];
+      const y = pts[k + 1];
+      for (const b of blobs) {
+        const dx = x - b.x;
+        const dy = y - b.y;
+        if (dx * dx + dy * dy <= b.r * b.r) { hit = true; break; }
+      }
+    }
+    if (hit) out.push(i);
+  }
+  return out;
+}
+
 /** THE timing model inputs for a machine profile — one spelling for the
  * export table, the simulation, the plot driver and the drawing readout. */
 export function machineTiming(prof: MachineProfile): EstimateOpts {
@@ -64,6 +103,10 @@ export class Drawing {
    * re-resolved against each new plan. */
   repair: [number, number] | null = null;
   private repaired: PlanSelection | null = null;
+  /** The region repair: blobs painted over the preview, paper mm. A chain
+   * is in when any of its ink lies under a blob. Combines with the
+   * interval: both narrow. */
+  region: RegionBlob[] | null = null;
   private flat = new Map<string, Promise<FlatChain[]>>();
   private listeners: (() => void)[] = [];
   private repairListeners: (() => void)[] = [];
@@ -136,6 +179,42 @@ export class Drawing {
     for (const fn of this.repairListeners) fn();
   }
 
+  /** Set (or clear) the region repair. */
+  setRegion(blobs: RegionBlob[] | null): void {
+    this.region = blobs && blobs.length ? blobs : null;
+    for (const fn of this.repairListeners) fn();
+  }
+
+  /** Both repairs at once (a resume restoring a record). */
+  setRepairs(minutes: [number, number] | null, blobs: RegionBlob[] | null): void {
+    this.repair = minutes;
+    this.region = blobs && blobs.length ? blobs : null;
+    this.applyRepair();
+    for (const fn of this.repairListeners) fn();
+  }
+
+  /** Source indices of the chains the machine plots: the selection, narrowed
+   * by the interval and by the region. Null until resolved. */
+  plotIndices(): number[] | null {
+    const base = this.plotSelection;
+    if (!base || !this.flatNow) return null;
+    if (this.region) return chainsUnder(this.flatNow, this.region, base.fromChain, base.toChain);
+    const out: number[] = [];
+    for (let i = base.fromChain; i < base.toChain; i++) out.push(i);
+    return out;
+  }
+
+  /** What a plot record stores and a resume checks: the executed set's identity. */
+  plotFingerprint(): string | null {
+    const idx = this.plotIndices();
+    return idx ? chainsFingerprint(idx) : null;
+  }
+
+  /** Whether any repair narrows the plot right now. */
+  get repairing(): boolean {
+    return this.repaired !== null || this.region !== null;
+  }
+
   private applyRepair(): void {
     const plan = this.plan;
     const sel = this.selection;
@@ -192,13 +271,14 @@ export class Drawing {
     return flat.slice(sel.fromChain, sel.toChain);
   }
 
-  /** The chains the machine plots: the selection narrowed by the repair. */
+  /** The chains the machine plots: the selection narrowed by the repairs. */
   async plotToolpath(tolerance?: number): Promise<FlatChain[]> {
     if (!this.plan) return [];
     await this.settled();
-    const sel = this.plotSelection!;
     const flat = await this.toolpath(tolerance);
-    return flat.slice(sel.fromChain, sel.toChain);
+    const idx = this.plotIndices();
+    if (!idx) return [];
+    return idx.map((i) => flat[i]);
   }
 
   async schedule(): Promise<PlanSchedule> {

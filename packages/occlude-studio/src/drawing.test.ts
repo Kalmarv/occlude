@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { encodePlanBuffer, encodeToolpath, hashPlan, type FlatChain, type PlanChain, type PlanSettings } from 'occlude';
-import { Drawing } from './drawing.js';
+import { Drawing, chainsFingerprint, chainsUnder } from './drawing.js';
 import type { RenderClient } from './workerClient.js';
 
 const settings: PlanSettings = { tourBudget: 1, pens: [{ name: 'a', width: 0.3 }], paper: { w: 100, h: 50 }, bridgeGapMm: [0.15] };
@@ -90,6 +90,35 @@ describe('Drawing state', () => {
     d2.setRepair(null);
     expect(d2.plotSelection).toEqual(d2.selection);
     expect(d2.repairInfo()).toBeNull();
+  });
+
+  it('a region keeps the chains with ink under a blob; the executed set has a stable fingerprint', async () => {
+    const a = chains(10); // chain i runs from (10i, 0) to (10i + 5, 20)
+    const buf = encodePlanBuffer(a);
+    const hash = await hashPlan(buf, settings);
+    const d = new Drawing(mockClient(a, hash, []), timing);
+    await d.setPlan({ buffer: buf, settings, planHash: hash }, pens, {});
+    expect(d.plotIndices()).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    // a dab over chain 3's start, and one over the ends of chains 6 and 7
+    d.setRegion([{ x: 30, y: 0, r: 2 }, { x: 70, y: 20, r: 6 }]);
+    expect(d.plotIndices()).toEqual([3, 6, 7]);
+    expect(d.repairing).toBe(true);
+    expect((await d.plotToolpath()).map((c) => c.index)).toEqual([3, 6, 7]);
+    expect(await d.selectedToolpath()).toHaveLength(10); // exports untouched
+    const fp = d.plotFingerprint()!;
+    expect(fp.startsWith('3:')).toBe(true);
+    expect(chainsFingerprint([3, 6, 7])).toBe(fp);
+    expect(chainsFingerprint([3, 6, 8])).not.toBe(fp);
+    // the interval and the region both narrow
+    const total = d.current!.fullMs! / 60000;
+    d.setRepairs([0, total / 2], d.region);
+    expect(d.plotIndices()).toEqual([3]);
+    d.setRepairs(null, null);
+    expect(d.repairing).toBe(false);
+    expect(d.plotIndices()).toHaveLength(10);
+    // the pure helper, on its own
+    expect(chainsUnder(flatOf(a), [{ x: 95, y: 20, r: 1 }], 0, 10)).toEqual([9]);
+    expect(chainsUnder(flatOf(a), [{ x: 95, y: 20, r: 1 }], 0, 9)).toEqual([]);
   });
 
   it('a chain request beyond the plan clamps; minutes and budget resolve through the schedule', async () => {

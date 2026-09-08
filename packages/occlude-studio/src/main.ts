@@ -107,8 +107,15 @@ async function boot(): Promise<void> {
     const plan = drawing.plan;
     const sel = drawing.plotSelection;
     // A frozen result has no fragments: the plan IS the picture, always.
-    if (!plan || !sel || (!frozenId && sel.fromChain === 0 && sel.toChain === plan.chains.length)) preview.setSelection(null);
-    else preview.setSelection({ chains: plan.chains, from: sel.fromChain, to: sel.toChain, showOmitted: drawing.showOmitted });
+    if (!plan || !sel || (!frozenId && !drawing.region && sel.fromChain === 0 && sel.toChain === plan.chains.length)) preview.setSelection(null);
+    else {
+      let keep: Uint8Array | undefined;
+      if (drawing.region) {
+        keep = new Uint8Array(plan.chains.length);
+        for (const i of drawing.plotIndices() ?? []) keep[i] = 1;
+      }
+      preview.setSelection({ chains: plan.chains, from: sel.fromChain, to: sel.toChain, keep, showOmitted: drawing.showOmitted });
+    }
   };
   // Render-status ownership: the newest run's sequence number and the one
   // elapsed-time ticker (see runInner).
@@ -398,6 +405,11 @@ async function boot(): Promise<void> {
       start: (plan, pens) => preview.startLive(plan, pens),
       progress: (chain) => preview.liveProgress(chain),
       end: () => preview.endLive(),
+    },
+    brush: {
+      start: (fn) => { preview.brush = fn; $('preview').classList.add('painting'); },
+      stop: () => { preview.brush = null; $('preview').classList.remove('painting'); },
+      show: (blobs) => { preview.regionBlobs = blobs; preview.draw(); },
     },
   });
 

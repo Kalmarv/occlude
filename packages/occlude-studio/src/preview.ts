@@ -16,6 +16,8 @@ export interface SelectionView {
   chains: NativeChain[];
   from: number;
   to: number;
+  /** When set, membership per chain index (1 = in) overrides the range. */
+  keep?: Uint8Array;
   showOmitted: boolean;
 }
 
@@ -69,6 +71,11 @@ export class Preview {
   overlay: ((ctx: CanvasRenderingContext2D, pxPerMm: number) => void) | null = null;
   /** A click (a pointer that did not drag) in paper mm, with px per mm. */
   onClick: ((x: number, y: number, pxPerMm: number) => void) | null = null;
+  /** A brush over the sheet: while set, presses paint instead of panning.
+   * Called with paper mm and the phase of the stroke. */
+  brush: ((x: number, y: number, phase: 'down' | 'move' | 'up') => void) | null = null;
+  /** The region repair's blobs, drawn over the ink in paper mm. */
+  regionBlobs: { x: number; y: number; r: number }[] | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -112,7 +119,8 @@ export class Preview {
   /** The selected chains in real ink from their native primitives (arcs
    * stay arcs), the omitted ones ghosted when asked. */
   private drawSelection(ctx: CanvasRenderingContext2D, view: SelectionView, pens: PenDef[]): void {
-    const { chains, from, to } = view;
+    const { chains, from, to, keep } = view;
+    const inside = (i: number): boolean => (keep ? keep[i] === 1 : i >= from && i < to);
     if (view.showOmitted) {
       ctx.save();
       ctx.strokeStyle = 'rgba(91, 139, 217, 0.45)';
@@ -121,7 +129,7 @@ export class Preview {
       ctx.setLineDash([0.8, 0.8]);
       ctx.beginPath();
       for (let i = 0; i < chains.length; i++) {
-        if (i >= from && i < to) continue;
+        if (inside(i)) continue;
         for (const p of chains[i].prims) tracePrim(ctx, p);
       }
       ctx.stroke();
@@ -132,7 +140,8 @@ export class Preview {
     ctx.lineJoin = 'round';
     let pen = -1;
     ctx.beginPath();
-    for (let i = from; i < to; i++) {
+    for (let i = 0; i < chains.length; i++) {
+      if (!inside(i)) continue;
       const c = chains[i];
       if (c.pen !== pen) {
         ctx.stroke();
@@ -498,7 +507,15 @@ export class Preview {
     let downX = 0;
     let downY = 0;
     let moved = 0;
+    let painting = false;
     this.canvas.addEventListener('pointerdown', (e) => {
+      if (this.brush && e.button === 0) {
+        painting = true;
+        this.canvas.setPointerCapture(e.pointerId);
+        const [x, y] = this.toPaper(e.clientX, e.clientY);
+        this.brush(x, y, 'down');
+        return;
+      }
       dragging = true;
       lastX = downX = e.clientX;
       lastY = downY = e.clientY;
@@ -507,6 +524,11 @@ export class Preview {
       this.canvas.setPointerCapture(e.pointerId);
     });
     this.canvas.addEventListener('pointermove', (e) => {
+      if (painting && this.brush) {
+        const [x, y] = this.toPaper(e.clientX, e.clientY);
+        this.brush(x, y, 'move');
+        return;
+      }
       if (!dragging) return;
       this.panX += e.clientX - lastX;
       this.panY += e.clientY - lastY;
@@ -516,6 +538,14 @@ export class Preview {
       this.draw();
     });
     this.canvas.addEventListener('pointerup', (e) => {
+      if (painting) {
+        painting = false;
+        if (this.brush) {
+          const [x, y] = this.toPaper(e.clientX, e.clientY);
+          this.brush(x, y, 'up');
+        }
+        return;
+      }
       if (!dragging) return; // a press that began elsewhere (a panel over the bench) is not ours
       dragging = false;
       this.canvas.classList.remove('panning');
@@ -716,6 +746,20 @@ export class Preview {
           ctx.arc(x, y, rad, 0, Math.PI * 2);
           ctx.fill();
         }
+      }
+      ctx.restore();
+    }
+
+    if (this.regionBlobs && this.regionBlobs.length) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(214, 168, 68, 0.18)';
+      ctx.strokeStyle = 'rgba(214, 168, 68, 0.9)';
+      ctx.lineWidth = 0.9 / this.scale;
+      for (const b of this.regionBlobs) {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
       }
       ctx.restore();
     }
