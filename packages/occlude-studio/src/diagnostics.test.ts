@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
-  backlashSquares, cornerRinging, downSweep, liftGrid, liftTraverse, registrationProbe, settleLift,
+  backlashSquares, cornerRinging, downSweep, liftGrid, liftTraverse, registrationMarks, registrationProbe, settleLift,
 } from './diagnostics.js';
 
 /** Mirror of ebb.plot()'s plan parser. */
@@ -163,5 +163,19 @@ describe('lift traverse', () => {
       expect(x).toBeGreaterThanOrEqual(0); expect(x).toBeLessThanOrEqual(304.8);
       expect(y).toBeGreaterThanOrEqual(0); expect(y).toBeLessThanOrEqual(431.8);
     }
+  });
+
+  test('registration marks: a cross on the near corner and one on the far corner, with the pen’s tuning', () => {
+    const base = { name: 'posca', width: 1, color: '#000', feed: 3500, penDown: 0, penUp: 5, penDelay: 400 };
+    const d = registrationMarks(base, { x: 10, y: 20, w: 100, h: 60 }, 3);
+    const chains = parse(d.plan);
+    expect(chains).toHaveLength(4);
+    expect(mid(chains[0].pts)).toEqual([10, 20]);
+    expect(mid(chains[1].pts)).toEqual([10, 20]);
+    expect(mid(chains[2].pts)).toEqual([110, 80]);
+    expect(mid(chains[3].pts)).toEqual([110, 80]);
+    expect(chains[0].pts[0]).toEqual([7, 17]);
+    expect(d.pens[0].feed).toBe(3500);
+    expect(d.pens[0].penDelay).toBe(400);
   });
 });

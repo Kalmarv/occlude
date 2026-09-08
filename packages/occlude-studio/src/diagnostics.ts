@@ -125,6 +125,25 @@ export function registrationProbe(base?: PenDef): Diagnostic {
   return { plan: encode(chains), pens: [pen('probe', base?.feed ?? 3000, base)] };
 }
 
+/**
+ * Registration marks for a pen change: a small ✕ centred on the plan's
+ * near corner and another on its far corner, in plan (paper) coordinates
+ * so the driver places them with the paper offset like the plot itself.
+ * Draw them with the first pen, tape over, swap, draw again with the next:
+ * the crosses coincide iff the new pen sits where the old one did. Each
+ * arm is `size` mm.
+ */
+export function registrationMarks(base: PenDef | undefined, bb: { x: number; y: number; w: number; h: number }, size = 4): Diagnostic {
+  const chains: Chain[] = [];
+  const cross = (cx: number, cy: number): void => {
+    chains.push({ pen: 0, pts: [[cx - size, cy - size], [cx + size, cy + size]] });
+    chains.push({ pen: 0, pts: [[cx - size, cy + size], [cx + size, cy - size]] });
+  };
+  cross(bb.x, bb.y);
+  cross(bb.x + bb.w, bb.y + bb.h);
+  return { plan: encode(chains), pens: [pen('marks', base?.feed ?? 3000, base)] };
+}
+
 /** Left square: every edge drawn twice from the same end. Right square:
  * every edge there-and-back in one stroke. Footprint ~45×20mm. */
 export function backlashSquares(base?: PenDef): Diagnostic {

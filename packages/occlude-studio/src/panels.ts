@@ -20,6 +20,7 @@ import {
 import { serialSupported, type PlotProgress } from './ebb.js';
 import { buildConnect, buildManualControls, buildProfileSelect, createSession } from './machine.js';
 import { machineTiming, machineTolerance, penTimingOf, type Drawing } from './drawing.js';
+import { registrationMarks } from './diagnostics.js';
 import { saveResult, selectionOf, type ResultMeta } from './resultsApi.js';
 import { canonicalJson } from 'occlude';
 
@@ -930,6 +931,26 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     }
   });
   frameBtn.title = 'Trace the plan’s bounding box pen-up from the paper origin — see where the piece lands before committing ink';
+  // Registration marks: a ✕ on the plan's near and far corner, drawn with
+  // the selected pen. Between pens: marks, tape, swap, marks again — the
+  // crosses coincide iff the new pen sits where the old one did.
+  const marksBtn = button('Marks', async () => {
+    if (!ebb.connected || ebb.plotting) return;
+    const r = hooks.lastResult();
+    if (!r) return;
+    try {
+      const flat = await hooks.drawing.selectedToolpath(Math.max(0.0001, prof().machine.resolution));
+      const bb = chainsBounds(flat);
+      const raw = parseInt(penSelect.value, 10);
+      const chosen = raw >= 0 ? r.pens[raw] : r.pens[0];
+      const pen = chosen ? hooks.pens.find((p) => p.name === chosen.name) ?? chosen : undefined;
+      const d = registrationMarks(pen, bb);
+      await ebb.plot(d.plan, d.pens, m.opts(), onProgress);
+    } catch (e) {
+      showErr(e);
+    }
+  });
+  marksBtn.title = 'Draw a small ✕ on the plan’s near and far corners with the selected pen. Before a pen change: marks, tape over them, swap pens, marks again — line the crosses up and the pens are registered.';
 
   const resumeBtn = button('Resume', async () => {
     if (!ebb.connected || ebb.plotting || !saved) return;
@@ -982,7 +1003,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   savedBox.append(savedText, el('div', 'row', resumeBtn, clearSavedBtn));
 
   const connect = buildConnect(m);
-  const transport = el('div', 'transport', plotBtn, pauseBtn, stopBtn, frameBtn);
+  const transport = el('div', 'transport', plotBtn, pauseBtn, stopBtn, frameBtn, marksBtn);
   const manual = buildManualControls(m);
 
   body.append(
