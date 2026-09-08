@@ -10,7 +10,7 @@
  */
 import './style.css';
 
-import { formatSeed, liveExampleToJs, parseSeed, type PenDef } from 'occlude';
+import { formatSeed, liveExampleToJs, parseSeed, type PenDef, type RenderResult } from 'occlude';
 
 import { Preview } from './preview.js';
 import { RenderClient } from './workerClient.js';
@@ -74,18 +74,48 @@ async function boot(): Promise<void> {
     return p;
   };
 
+  const sizeCanvas = (canvas: HTMLCanvasElement): void => {
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, canvas.clientWidth);
+    const h = Math.max(1, canvas.clientHeight);
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+    }
+  };
+
   // ---- grid
   const grid = el('div', 'evolve-grid');
-  const tiles: { root: HTMLDivElement; canvas: HTMLCanvasElement; note: HTMLDivElement; preview: Preview; cand: Candidate | null }[] = [];
+  const tiles: { root: HTMLDivElement; canvas: HTMLCanvasElement; note: HTMLDivElement; preview: Preview; cand: Candidate | null; result: RenderResult | null }[] = [];
+  // Hover: the tile large, in a panel over the grid, after a short rest so
+  // sweeping the mouse across doesn't flicker. Pointer-transparent: the
+  // click beneath still picks.
+  const zoomCanvas = document.createElement('canvas');
+  const zoom = el('div', 'evolve-zoom', zoomCanvas);
+  zoom.hidden = true;
+  const zoomPreview = new Preview(zoomCanvas);
+  zoomPreview.setPaperColor(settings.paperColor);
+  let zoomTimer = 0;
+  const showZoom = (i: number): void => {
+    const t = tiles[i];
+    if (!t.result) return;
+    zoom.hidden = false;
+    sizeCanvas(zoomCanvas);
+    zoomPreview.setResult(t.result);
+    zoomPreview.fit();
+  };
+  const hideZoom = (): void => { clearTimeout(zoomTimer); zoom.hidden = true; };
   for (let i = 0; i < 9; i++) {
     const canvas = document.createElement('canvas');
     const note = el('div', 'evolve-note');
     const root = el('div', 'evolve-tile', canvas, note);
     const preview = new Preview(canvas);
     preview.setPaperColor(settings.paperColor);
-    tiles.push({ root, canvas, note, preview, cand: null });
+    tiles.push({ root, canvas, note, preview, cand: null, result: null });
     grid.append(root);
-    root.onclick = () => { const t = tiles[i]; if (t.cand) void choose(i); };
+    root.onclick = () => { hideZoom(); const t = tiles[i]; if (t.cand) void choose(i); };
+    root.onmouseenter = () => { clearTimeout(zoomTimer); zoomTimer = window.setTimeout(() => showZoom(i), 350); };
+    root.onmouseleave = hideZoom;
   }
   tiles[4].root.classList.add('centre');
 
@@ -119,17 +149,7 @@ async function boot(): Promise<void> {
     el('div', 'evolve-readout', seedText, status),
     el('div', 'evolve-group', keepBtn, openBtn),
   );
-  main.append(grid, bar, strip);
-
-  const sizeCanvas = (canvas: HTMLCanvasElement): void => {
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.max(1, canvas.clientWidth);
-    const h = Math.max(1, canvas.clientHeight);
-    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
-    }
-  };
+  main.append(grid, bar, strip, zoom);
 
   const showSeed = (): void => {
     const n = Object.keys(centre.overrides).length;
@@ -146,6 +166,7 @@ async function boot(): Promise<void> {
       const reply = await renderOn(i, cand, wantDraws);
       if (gen !== generation || !reply) return null;
       sizeCanvas(t.canvas);
+      t.result = reply.result;
       t.preview.setResult(reply.result);
       t.preview.fit();
       const n = Object.keys(cand.overrides).length;
