@@ -2197,3 +2197,7 @@ button.armed {
   background: var(--ink);
   cursor: ew-resize;
 }
+
+.status-warn {
+  color: var(--warn);
+}

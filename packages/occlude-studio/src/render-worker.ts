@@ -13,7 +13,7 @@
 import initCore, * as core from 'occlude-core';
 import { bridgeGapFor, getInspectionIndex, getProbeStats, hashPlan, inspectionPayload, renderEncoded, tourBudget, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
-import { currentSeed, runSketch, type RunConfig } from './runner.js';
+import { currentDraws, currentOverrides, currentSeed, runSketch, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
 import { preloadFills } from './fillLoader.js';
 
@@ -178,6 +178,8 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
             frame: scene.frame,
             paper: scene.paper,
             seedUsed: currentSeed(),
+            overrides: currentOverrides(),
+            draws: msg.cfg.draws ? currentDraws() : undefined,
             probes: getProbeStats(),
             executionId: msg.id,
             inspections: msg.cfg.inspect ? getInspectionIndex() : [],

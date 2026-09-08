@@ -39,6 +39,8 @@ export interface RunConfig {
   /** A fill being drafted in the editor (unsaved): its emitted JS stands in
    * for the library copy under this name for the render. */
   draftFill?: { name: string; js: string };
+  /** Return the run's addressed draws (the evolution grid's material). */
+  draws?: boolean;
 }
 
 export function runSketch(js: string, cfg: RunConfig): RunOutcome {
@@ -54,9 +56,12 @@ export function runSketch(js: string, cfg: RunConfig): RunOutcome {
   };
   const module = { exports: {} as Record<string, unknown> };
   try {
-    const code = cfg.inspect === true ? instrumentDeclarations(js) : js;
-    const fn = new Function('require', 'exports', 'module', INSPECT_HOOK, code);
-    fn(require, module.exports, module, occlude.inspectIfMaterial);
+    // Draw sites are always tagged (cheap, and what makes a seed's
+    // overrides land); declarations only when the material layer is on.
+    const tagged = occlude.tagDraws(js).js;
+    const code = cfg.inspect === true ? instrumentDeclarations(tagged) : tagged;
+    const fn = new Function('require', 'exports', 'module', INSPECT_HOOK, occlude.DRAW_HOOK, code);
+    fn(require, module.exports, module, occlude.inspectIfMaterial, occlude.drawAt);
     const exp = module.exports;
     const def: SketchDef | undefined = occlude.isSketch(exp.default)
       ? exp.default
@@ -78,6 +83,24 @@ export function runSketch(js: string, cfg: RunConfig): RunOutcome {
   }
 }
 
+/** The seed as the run used it: the base plus the overrides that landed,
+ * as one string. Overrides naming addresses this source no longer has are
+ * left out, so a stale tail sheds itself on the next run. */
 export function currentSeed(): string {
-  return String(occlude.getState().seedUsed);
+  const r = occlude.getOverrideReport();
+  const hit: Record<string, number> = {};
+  for (const k of r.hit) hit[k] = r.overrides[k];
+  return occlude.formatSeed(String(occlude.getState().seedUsed), hit);
+}
+
+/** Which overrides the run used and which it dropped. */
+export function currentOverrides(): { hit: string[]; dropped: string[] } {
+  const r = occlude.getOverrideReport();
+  return { hit: r.hit, dropped: r.dropped };
+}
+
+/** The run's addressed draws as flat arrays, for transfer. */
+export function currentDraws(): { addrs: string[]; f: Float64Array } {
+  const log = occlude.getDrawLog();
+  return { addrs: log.map((d) => d.addr), f: Float64Array.from(log.map((d) => d.f)) };
 }

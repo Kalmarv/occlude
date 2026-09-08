@@ -1,3 +1,4 @@
+import { formatSeed } from 'occlude';
 /** Client for the server-side sketch store (see vite.config.ts). */
 
 export interface SketchMeta {
@@ -45,9 +46,20 @@ export interface SketchInfo extends SketchMeta {
 }
 
 export interface SnapshotMeta {
+  /** The base seed; draw overrides, when the drawing was evolved, ride in
+   * `overrides` (see the library's draws.ts) and `parent` names the
+   * snapshot it was evolved from. */
   seed?: string | number | null;
+  overrides?: Record<string, number>;
+  parent?: string | null;
   label?: string;
   at?: string;
+}
+
+/** The one-string seed a snapshot opens with: base plus overrides. */
+export function snapshotSeed(meta: SnapshotMeta): string | null {
+  if (meta.seed === null || meta.seed === undefined) return null;
+  return formatSeed(String(meta.seed), meta.overrides ?? {});
 }
 
 export interface Snapshot {

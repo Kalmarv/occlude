@@ -19,7 +19,12 @@ export interface RenderRequest {
  * state to read it from anymore). */
 export interface RenderReply {
   result: RenderResult;
+  /** The seed as used: base plus the overrides that landed, one string. */
   seedUsed: string;
+  /** Overrides the run used, and those naming addresses the source no longer has. */
+  overrides: { hit: string[]; dropped: string[] };
+  /** The run's addressed draws, when asked for (`cfg.draws`). */
+  draws?: { addrs: string[]; f: Float64Array };
   /** `t.probe()` readouts from this run. */
   probes: Record<string, ProbeSummary>;
   /** The ordered plan of this render: exact bytes, settings, identity. */
@@ -204,6 +209,8 @@ export class RenderClient {
             frame: EncodedScene['frame'];
             paper: EncodedScene['paper'];
             seedUsed: string;
+            overrides?: { hit: string[]; dropped: string[] };
+            draws?: { addrs: string[]; f: Float64Array };
             probes: Record<string, ProbeSummary>;
             plan: Float64Array;
             planSettings: PlanSettings;
@@ -215,7 +222,7 @@ export class RenderClient {
           // decodeRender reads only pens/frame/paper from the scene half.
           const meta = { pens: m.pens, frame: m.frame, paper: m.paper } as EncodedScene;
           resolve({
-            result: decodeRender(meta, m), seedUsed: m.seedUsed, probes: m.probes ?? {},
+            result: decodeRender(meta, m), seedUsed: m.seedUsed, overrides: m.overrides ?? { hit: [], dropped: [] }, draws: m.draws, probes: m.probes ?? {},
             plan: { buffer: m.plan, settings: m.planSettings, planHash: m.planHash },
             draw: m.draw,
             executionId: m.executionId,

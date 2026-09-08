@@ -241,8 +241,11 @@ export function createSketchHandler(dir) {
             const meta = JSON.parse((await readBody(req)).toString('utf8') || '{}');
             // Make sure the tag points at the source as saved.
             await sg.commit(dir, [`${name}.ts`], `save ${name}`);
+            const overrides = meta.overrides && typeof meta.overrides === 'object' ? meta.overrides : undefined;
             const id = await sg.snapshot(dir, name, {
               seed: meta.seed ?? null,
+              ...(overrides && Object.keys(overrides).length ? { overrides } : {}),
+              ...(meta.parent ? { parent: String(meta.parent) } : {}),
               label: String(meta.label ?? ''),
               at: new Date().toISOString(),
             });

@@ -12,7 +12,7 @@
 import './style.css';
 import {
   deleteSketchByName, deleteSnapshot, forkSketch, forkSnapshot, listSketchInfo,
-  loadSketchAt, loadSketchByName, loadSnapshot, openInStudio, sketchHistory, thumbUrl,
+  loadSketchAt, loadSketchByName, loadSnapshot, openInStudio, sketchHistory, snapshotSeed, thumbUrl,
   type Commit, type SketchInfo, type Snapshot,
 } from './sketchApi.js';
 import { openGallery } from './snapshotGallery.js';
@@ -346,11 +346,11 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
       }, 'Flip through this sketch’s snapshots, starting here'),
       btn('open', async () => {
         const { source, meta: m } = await loadSnapshot(name, s.id);
-        openInStudio(name, source, m.seed);
+        openInStudio(name, source, snapshotSeed(m));
       }, 'Open this frozen source with its seed (saving writes the sketch head)'),
       btn('fork', async () => {
         const made = await forkSnapshot(name, s.id);
-        openInStudio(made, await loadSketchByName(made), s.meta.seed);
+        openInStudio(made, await loadSketchByName(made), snapshotSeed(s.meta));
       }, 'A new sketch from this frozen source'),
       btn('delete', async () => {
         if (!confirm(`Delete this snapshot of '${name}'?`)) return;

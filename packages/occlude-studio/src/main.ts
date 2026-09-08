@@ -17,7 +17,7 @@ import { customFillNames, embedFills, importSketchWithFills } from './fillEmbed.
 import { UiPanel } from './uiPanel.js';
 
 declare const __BUILD_STAMP__: string;
-import { encodeToolpath, scanUiControls, type EstimateOpts, type PenDef, type PenTiming } from 'occlude';
+import { parseSeed, encodeToolpath, scanUiControls, type EstimateOpts, type PenDef, type PenTiming } from 'occlude';
 import { RenderClient, type WorkerError } from './workerClient.js';
 import { Drawing, machineTiming, machineTolerance, penTimingOf } from './drawing.js';
 import { loadResult } from './resultsApi.js';
@@ -144,10 +144,25 @@ async function boot(): Promise<void> {
   const frozenId: string | null = new URL(location.href).searchParams.get('result');
   let seedUsed: string | null = null; // what the worker actually rendered with
 
+  let lastOverrides: { hit: string[]; dropped: string[] } = { hit: [], dropped: [] };
   function renderSeedControls(used: string): void {
     statusSeed.innerHTML = '';
     const label = document.createElement('span');
-    label.textContent = `seed ${used}`;
+    const { seed: base, overrides } = parseSeed(used);
+    const n = Object.keys(overrides).length;
+    label.textContent = n ? `seed ${base} +${n}` : `seed ${used}`;
+    if (n || lastOverrides.dropped.length) {
+      const lines = Object.keys(overrides).sort().map((k) => `${k} = ${overrides[k].toFixed(4)}`);
+      if (lastOverrides.dropped.length) lines.push(`dropped (no such draw now): ${lastOverrides.dropped.join(', ')}`);
+      label.title = `${n} draw${n === 1 ? '' : 's'} overridden by evolution\n${lines.join('\n')}`;
+    }
+    if (lastOverrides.dropped.length) {
+      const dropped = document.createElement('span');
+      dropped.className = 'status-warn';
+      dropped.textContent = `${lastOverrides.dropped.length} dropped`;
+      dropped.title = 'Overrides naming draws this source no longer makes; the seed decides those again';
+      label.append(' ', dropped);
+    }
     const reroll = document.createElement('button');
     reroll.textContent = 'reroll';
     reroll.title = 'New random seed';
@@ -292,6 +307,7 @@ async function boot(): Promise<void> {
     uiPanel.setProbes(reply.probes);
     if (latest) inspector.onRender(reply);
     seedUsed = reply.seedUsed;
+    lastOverrides = reply.overrides;
     renderSeedControls(reply.seedUsed);
   }
 
@@ -433,7 +449,8 @@ async function boot(): Promise<void> {
         status(false, 'name the sketch to snapshot it (title bar)');
         return;
       }
-      const id = await createSnapshot(name, { seed, label: '' });
+      const parsed = parseSeed(seed ?? '');
+      const id = await createSnapshot(name, { seed: seed === null ? null : parsed.seed, overrides: parsed.overrides, label: '' });
       const png = await thumbFromCanvas($('preview') as HTMLCanvasElement);
       if (png) await putThumb(name, png, id);
       status(true, `snapshot of '${name}' saved (seed ${seed ?? '—'})`);
