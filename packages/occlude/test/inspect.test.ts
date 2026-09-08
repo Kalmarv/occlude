@@ -59,7 +59,7 @@ describe('t.inspect: the debug registry', () => {
       const p = inspectionPayload('stations')!;
       expect(p.n).toBe(4);
       expect(p.edges.length / 2).toBe(4); // a closed walk
-      expect(Object.keys(p.attrs).sort()).toEqual(['chain', 'heading', 's', 'u']);
+      expect(Object.keys(p.attrs).sort()).toEqual(['chain', 'heading', 'length', 's', 'u']);
     } finally {
       setInspectHint(false);
     }

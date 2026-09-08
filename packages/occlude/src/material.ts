@@ -177,8 +177,8 @@ export interface Curve extends IsoContour {
  * belongs to no state. Position, the unit tangent of the polyline segment
  * under it (a station on a vertex takes the bisector of the segments that
  * meet there), the normal (the tangent turned a quarter turn, `perp`), the heading in
- * radians, arc length `s` from the chain's start and its fraction `u`, and
- * the chain (an index into `curves()`). Point columns arrive in `attrs` by
+ * radians, arc length `s` from the chain's start, its fraction `u`, the
+ * chain's whole `length`, and the chain (an index into `curves()`). Point columns arrive in `attrs` by
  * each column's transfer policy, edge columns in `edgeAttrs` by theirs: a
  * `'copy'` column is the edge under the station, a `'distribute'` column
  * the sum over the run of chain nearer this station than its neighbours,
@@ -192,6 +192,8 @@ export interface Station {
   heading: number;
   s: number;
   u: number;
+  /** The whole chain's arc length: the same on every station of the chain. */
+  length: number;
   chain: number;
   closed: boolean;
   attrs: Record<string, number>;
@@ -902,6 +904,7 @@ export class Material {
           heading: Math.atan2(tangent[1], tangent[0]),
           s: sAt,
           u: total > 0 ? sAt / total : 0,
+          length: total,
           chain,
           closed: c.closed,
           attrs,
@@ -1126,7 +1129,7 @@ export function stationsMaterial(stations: readonly Station[]): Material {
     if (k > 0 && stations[k - 1].chain !== q.chain) runStart = k;
     if (last && q.closed && k > runStart + 1) edges.push([k, runStart]);
   });
-  for (const name of ['heading', 's', 'u', 'chain'] as const) {
+  for (const name of ['heading', 's', 'u', 'length', 'chain'] as const) {
     if (name in cols) continue;
     cols[name] = stations.map((q) => q[name]);
   }

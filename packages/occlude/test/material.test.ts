@@ -528,6 +528,7 @@ describe('material: material beyond one chain', () => {
     expect(st.map((q) => q.attrs.kind)).toEqual([1, 1, 2, 2, 2]);
     expect(st.map((q) => q.s)).toEqual([0, 5, 10, 15, 20]);
     expect(st.map((q) => q.u)).toEqual([0, 0.25, 0.5, 0.75, 1]);
+    expect(st.every((q) => q.length === 20)).toBe(true);
     // tangent follows the segment under the station; on the corner, the bisector
     expect(st[1].tangent).toEqual([1, 0]);
     expect(st[2].tangent[0]).toBeCloseTo(Math.SQRT1_2);
@@ -553,6 +554,7 @@ describe('material: material beyond one chain', () => {
     const two = material([[0, 0], [4, 0], [20, 0], [20, 3]], { edges: [[0, 1], [2, 3]] });
     const both = two.along({ count: 2 });
     expect(both.map((q) => q.chain)).toEqual([0, 0, 1, 1]);
+    expect(both.map((q) => q.length)).toEqual([4, 4, 3, 3]);
     expect(both[3].tangent).toEqual([0, 1]);
     expect(() => material([[0, 0], [1, 0], [2, 0], [1, 1]], { edges: [[0, 1], [1, 2], [1, 3]] }).along({ spacing: 1 })).toThrow(/junction/);
     expect(() => ring.along({ spacing: 5, count: 3 })).toThrow(/exactly one/);
