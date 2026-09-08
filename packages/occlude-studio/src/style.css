@@ -2279,46 +2279,89 @@ button.armed {
 }
 
 .evolve-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: auto minmax(200px, 1fr) minmax(0, 2fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 12px;
   border: 1px solid var(--panel-edge);
   border-radius: 6px;
   background: var(--panel);
 }
 
-.evolve-bar .row {
-  flex-wrap: wrap;
-  gap: 10px;
+.evolve-group {
+  display: flex;
+  gap: 6px;
+}
+
+.evolve-group button {
+  padding: 6px 12px;
+}
+
+.evolve-group button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.evolve-variation {
+  display: flex;
   align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.evolve-bar .row > button {
-  flex: none;
-}
-
-.evolve-bar label.row {
+.evolve-variation input[type='range'] {
   flex: 1;
-  min-width: 220px;
+  min-width: 80px;
 }
 
-.evolve-bar input[type='range'] {
-  flex: 1;
-}
-
-.evolve-temp,
-.evolve-seed {
-  font-family: var(--mono);
+.evolve-caption {
+  font-family: var(--sans);
   font-size: 12px;
   color: var(--ink-dim);
   white-space: nowrap;
 }
 
+.evolve-temp {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  width: 4ch;
+  text-align: right;
+}
+
+.evolve-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .evolve-seed {
-  flex: 1;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.evolve-status {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 900px) {
+  .evolve-bar {
+    grid-template-columns: auto 1fr auto;
+  }
+  .evolve-readout {
+    grid-column: 1 / -1;
+  }
 }
 
 .evolve-lineage {
@@ -2338,6 +2381,7 @@ button.armed {
   flex: none;
 }
 
-.evolve-crumb:last-child {
+.evolve-crumb.current {
   border-color: var(--brass);
+  box-shadow: 0 0 0 1px var(--brass);
 }

@@ -99,13 +99,14 @@ async function boot(): Promise<void> {
   tempIn.title = 'How far the variations stray: 1 is nearly a new seed, 0 is the same drawing';
   tempIn.oninput = () => { T = Number(tempIn.value); tempText(); };
   const tempLabel = el('span', 'evolve-temp');
-  const tempText = (): void => { tempLabel.textContent = `variation ${Math.round(T * 100)}%`; };
+  const tempText = (): void => { tempLabel.textContent = `${Math.round(T * 100)}%`; };
   tempText();
   const seedText = el('span', 'evolve-seed');
-  const status = hint('');
+  const status = el('span', 'evolve-status');
   const againBtn = button('Again', () => void regenerate());
   againBtn.title = 'Eight new variations of the middle at this variation level';
   const keepBtn = button('Keep', () => void keep(false));
+  keepBtn.className = 'primary';
   keepBtn.title = 'Snapshot the middle drawing: source, seed and the overridden draws';
   const openBtn = button('Open in studio', () => void keep(true));
   openBtn.title = 'Keep, then open the drawing in the studio';
@@ -113,9 +114,10 @@ async function boot(): Promise<void> {
   backBtn.title = 'Return to the previous pick';
   const strip = el('div', 'evolve-lineage');
   const bar = el('div', 'evolve-bar',
-    el('div', 'row', backBtn, againBtn, el('label', 'row', tempIn, tempLabel)),
-    el('div', 'row', seedText, keepBtn, openBtn),
-    status,
+    el('div', 'evolve-group', backBtn, againBtn),
+    el('label', 'evolve-variation', el('span', 'evolve-caption', 'variation'), tempIn, tempLabel),
+    el('div', 'evolve-readout', seedText, status),
+    el('div', 'evolve-group', keepBtn, openBtn),
   );
   main.append(grid, bar, strip);
 
@@ -194,6 +196,9 @@ async function boot(): Promise<void> {
     img.onclick = () => void jumpTo(at);
     strip.append(img);
     strip.scrollLeft = strip.scrollWidth;
+    for (const c of strip.children) c.classList.remove('current');
+    img.classList.add('current');
+    syncButtons();
   };
 
   const choose = async (i: number): Promise<void> => {
@@ -223,6 +228,9 @@ async function boot(): Promise<void> {
     centre = { seed: entry.cand.seed, overrides: { ...entry.cand.overrides } };
     lineage.length = at + 1;
     for (const img of [...strip.children].slice(at + 1)) img.remove();
+    for (const c of strip.children) c.classList.remove('current');
+    strip.children[at]?.classList.add('current');
+    syncButtons();
     await regenerate();
   };
 
@@ -230,6 +238,7 @@ async function boot(): Promise<void> {
     if (lineage.length < 2) return;
     await jumpTo(lineage.length - 2);
   };
+  const syncButtons = (): void => { backBtn.disabled = lineage.length < 2; };
 
   /** Keep: one snapshot of the middle. A head start keeps on the sketch;
    * a snapshot or version start keeps on a fork from there, so the tag
