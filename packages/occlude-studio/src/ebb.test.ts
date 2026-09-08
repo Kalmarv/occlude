@@ -304,6 +304,71 @@ describe('Ebb motor lifecycle', () => {
     expect(parked).toBe(true);
   });
 
+  test('dots count a nib width of ink toward the re-ink budget', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, swapXY: false, invertX: false };
+    // Twelve dots of a 1mm nib and a 10mm budget: a pause after the tenth,
+    // never after the last.
+    const dots: number[] = [];
+    for (let i = 0; i < 12; i++) dots.push(0, 1, 1, 5 + i * 3, 5);
+    const ebb = new Ebb();
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    let pauses = 0;
+    let lastDrawn = 0;
+    await ebb.plot(
+      new Float64Array(dots),
+      [{ name: 'posca', width: 1, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150, reinkMm: 10 }],
+      direct,
+      (p: PlotProgress) => {
+        lastDrawn = p.drawnMm;
+        if (p.state === 'paused') {
+          pauses += 1;
+          ebb.resume();
+        }
+      },
+    );
+    expect(pauses).toBe(1);
+    expect(lastDrawn).toBe(12);
+  });
+
+  test('a pen lowered during a re-ink pause (seating) is raised before the travel out', async () => {
+    const port = new FakePort();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { serial: { requestPort: async () => port } },
+    });
+    const direct = { ...opts, swapXY: false, invertX: false };
+    const plan = new Float64Array([0, 0, 2, 5, 5, 25, 5, 0, 0, 2, 25, 15, 5, 15]);
+    const ebb = new Ebb();
+    await ebb.connect({ penUpPulse: direct.penUpPulse, penDownPulse: direct.penDownPulse });
+    let seatAt = -1;
+    await ebb.plot(
+      plan,
+      [{ name: 'posca', width: 1, color: '#000', feed: 3600, penDown: 0, penUp: 5, penDelay: 150, reinkMm: 10 }],
+      direct,
+      (p: PlotProgress) => {
+        if (p.state === 'paused' && seatAt < 0) {
+          expect(ebb.paused).toBe(true);
+          void ebb.penDown(300).then(() => {
+            seatAt = port.commands.length;
+            ebb.resume();
+          });
+        }
+      },
+    );
+    expect(seatAt).toBeGreaterThan(0);
+    const after = port.commands.slice(seatAt);
+    const up = after.findIndex((c) => c.startsWith('SP,1'));
+    const move = after.findIndex((c) => c.startsWith('XM,'));
+    expect(up).toBeGreaterThanOrEqual(0);
+    expect(move).toBeGreaterThan(up);
+    expect(ebb.paused).toBe(false);
+  });
+
   test('long cruise strokes retain their requested feed without packet explosion', async () => {
     const port = new FakePort();
     Object.defineProperty(globalThis, 'navigator', {

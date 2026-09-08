@@ -235,6 +235,10 @@ export interface PlanEstimate {
   commands: number;
   chains: number;
   dots: number;
+  /** Distances, mm: pen-down drawing (dots contribute nothing here — see
+   * `dots`) and pen-up travel between chains, from the plot's start. */
+  drawMm: number;
+  travelMm: number;
 }
 
 /** Per-chain timeline of a plan, ms: when each chain's pen cycle begins
@@ -286,6 +290,7 @@ export function schedulePlan(
   const est: PlanEstimate = {
     totalMs: 0, drawMs: 0, travelMs: 0, cycleMs: 0,
     commands: 0, chains: chains.length, dots: 0,
+    drawMm: 0, travelMm: 0,
   };
   const chainStartMs: number[] = [];
   const chainDurMs: number[] = [];
@@ -308,6 +313,7 @@ export function schedulePlan(
       travelAccel,
     );
     est.travelMs += travelMs;
+    est.travelMm += Math.hypot(travel[1][0] - travel[0][0], travel[1][1] - travel[0][1]);
     est.commands += 3; // travel + pen down + pen up
     let drawMs = 0;
     if (c.dot) {
@@ -317,6 +323,9 @@ export function schedulePlan(
       for (let k = 0; k < c.pts.length; k += 2) poly.push([c.pts[k], c.pts[k + 1]]);
       drawMs = planDurationMs(planPolyline(poly, limits(feed / 60, drawAccel)), drawAccel);
       est.drawMs += drawMs;
+      for (let k = 1; k < poly.length; k++) {
+        est.drawMm += Math.hypot(poly[k][0] - poly[k - 1][0], poly[k][1] - poly[k - 1][1]);
+      }
       est.commands += poly.length - 1;
     }
     // Pen-cycle cost mirrors the plot loop: the pen falls from the lift it

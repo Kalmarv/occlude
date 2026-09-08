@@ -193,7 +193,9 @@ export function buildManualControls(m: MachineSession): HTMLElement {
     'Repeatable seating: parks the horn at the seat pulse with the pen down so the slider sits off its stop. ' +
     'Loosen the clamp, let the pen fall to the paper, clamp, press again to restore the down pulse.';
   const seat = button('Seat pen', async () => {
-    if (!ebb.connected || ebb.plotting) return;
+    // Allowed mid-plot only at a pause: a re-ink pause parks at the bed
+    // origin for exactly this, and the resume re-raises the pen.
+    if (!ebb.connected || (ebb.plotting && !ebb.paused)) return;
     try {
       const e = m.prof().ebb;
       if (!seating) {

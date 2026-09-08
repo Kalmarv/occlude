@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { planPolyline } from '../src/motion.js';
+import { estimatePlanMs, planPolyline } from '../src/motion.js';
 
 const limits = {
   maxVelocity: 60,
@@ -166,5 +166,21 @@ describe('segmentsToBlocks', () => {
       const t = (2 * d) / Math.max(1e-9, b.v0 + b.v1);
       expect(t).toBeLessThanOrEqual(0.2501);
     }
+  });
+});
+
+describe('estimatePlanMs distances', () => {
+  test('sums pen-down mm and pen-up travel mm from the origin; dots draw nothing', () => {
+    const chains = [
+      { pen: 0, dot: false, pts: [10, 0, 10, 30, 40, 30] }, // travel 10, draw 30 + 30
+      { pen: 0, dot: true, pts: [40, 40] }, // travel 10, a dot
+      { pen: 0, dot: false, pts: [40, 40, 40, 0] }, // travel 0, draw 40
+    ];
+    const est = estimatePlanMs(chains, () => ({ feed: 3000, penDelay: 200 }), {
+      travelFeed: 6000, acceleration: 1000, travelAcceleration: 2000, junctionDeviation: 0.02, minimumCruiseRatio: 0.5,
+    });
+    expect(est.drawMm).toBeCloseTo(100);
+    expect(est.travelMm).toBeCloseTo(20);
+    expect(est.dots).toBe(1);
   });
 });

@@ -741,12 +741,14 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     }
     bar.value = p.totalMs > 0 ? Math.min(1, p.elapsedMs / p.totalMs) : 0;
     const eta = Math.max(0, p.etaMs / 60000);
+    const mm = `${Math.round(p.drawnMm).toLocaleString()} / ${Math.round(p.drawMm).toLocaleString()} mm`;
+    const reink = p.reinkInMm !== undefined ? ` · re-ink in ${Math.round(p.reinkInMm).toLocaleString()} mm` : '';
     const base =
       p.state === 'done'
-        ? 'done'
+        ? `done · ${mm}`
         : p.state === 'stopped'
-          ? 'stopped'
-          : `${p.state} · ${p.penName} · ${eta.toFixed(1)} min left`;
+          ? `stopped · ${mm}`
+          : `${p.state} · ${p.penName} · ${eta.toFixed(1)} min left · ${mm}${reink}`;
     progressText.textContent = p.warning ? `${base} · ⚠ ${p.warning}` : base;
     pauseBtn.textContent = p.state === 'paused' ? 'Resume' : 'Pause';
     body.classList.toggle('plotting', p.state === 'plotting' || p.state === 'paused');
@@ -1101,9 +1103,19 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
           time.className = 'num';
           const est = estimatePlanMs(chains.filter((c) => c.pen === job.pen), penTimingOf(r.pens, hooks.pens), machineTiming(prof()));
           const mins = est.totalMs / 60000;
-          time.title = 'Plot-time estimate: the EBB planner model with current machine settings';
+          const inkMm = est.drawMm + est.dots * (pen?.width ?? 0);
+          const reinkMm = hooks.pens.find((x) => x.name === pen?.name)?.reinkMm ?? pen?.reinkMm ?? 0;
+          const pumps = reinkMm > 0 ? Math.floor(inkMm / reinkMm) : 0;
+          time.title =
+            'Plot-time estimate: the EBB planner model with current machine settings. ' +
+            `Ink: ${Math.round(est.drawMm).toLocaleString()} mm of strokes` +
+            (est.dots ? ` + ${est.dots.toLocaleString()} dots` : '') +
+            `; travel ${Math.round(est.travelMm).toLocaleString()} mm.` +
+            (reinkMm > 0 ? ` Re-ink every ${reinkMm} mm → ${pumps} pause${pumps === 1 ? '' : 's'}.` : '');
           time.textContent =
-            mins >= 1 ? `~${mins.toFixed(1)}min` : `~${Math.ceil(est.totalMs / 1000)}s`;
+            (mins >= 1 ? `~${mins.toFixed(1)}min` : `~${Math.ceil(est.totalMs / 1000)}s`) +
+            ` · ${Math.round(inkMm).toLocaleString()} mm` +
+            (reinkMm > 0 ? ` · ${pumps} re-ink` : '');
           const dl = tr.insertCell();
           const gBtn = button('gcode', () =>
             download(`occlude-${job.penName}.gcode`, job.gcode),

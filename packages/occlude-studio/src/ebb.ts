@@ -108,6 +108,12 @@ export interface PlotProgress {
   etaMs: number;
   /** Anomaly report, e.g. a position-drift correction. Sticky per plot. */
   warning?: string;
+  /** Ink so far / in the whole run, mm of pen-down drawing (dots count a
+   * nib width each), and how many mm remain before the next re-ink pause
+   * when the pen has a re-ink budget. */
+  drawnMm: number;
+  drawMm: number;
+  reinkInMm?: number;
   /** Chain currently being drawn (plan order) / total — drives the live
    * plot view in the preview. */
   chain?: number;
@@ -766,6 +772,11 @@ export class Ebb {
     await new Promise((r) => setTimeout(r, 300));
   }
 
+  /** A plot is underway and waiting at a pause (user, or re-ink). */
+  get paused(): boolean {
+    return this.plotting && this.plotPause;
+  }
+
   pause(): void {
     this.plotPause = true;
   }
@@ -874,7 +885,9 @@ export class Ebb {
     const wallStart = Date.now();
     let pausedWallMs = 0;
     let curChain = 0;
-    let inkedMm = 0; // drawn mm since the last re-ink pause (pen.reinkMm)
+    let inkedMm = 0; // ink since the last re-ink pause (pen.reinkMm)
+    let drawnMm = 0; // ink over the whole run
+    let reinkInMm: number | undefined;
     const report = (state: PlotProgress['state'], penName = ''): void => {
       const modelRemaining = Math.max(0, totalMs - elapsedMs);
       let etaMs = modelRemaining;
@@ -887,6 +900,7 @@ export class Ebb {
       }
       onProgress({
         sent, total, elapsedMs, totalMs, penName, state, etaMs, warning,
+        drawnMm, drawMm: estimate.drawMm, reinkInMm,
         chain: curChain, chainTotal: chains.length,
         ...(state === 'done' || state === 'stopped'
           ? { wallMs: Date.now() - wallStart - pausedWallMs, estimate }
@@ -1014,6 +1028,9 @@ export class Ebb {
               await downFor(c); // this chain's landing pulse, if overridden
             }
             if (!wasUp && !this.pauseAdjusted) await this.penDown(settle);
+            // Seating a marker during a re-ink pause leaves the pen DOWN at
+            // the park; the travel out must not draw a line from there.
+            if (wasUp && !this.penIsUp) await this.penUp(settle);
           }
         };
         if (this.plotAbort) break;
@@ -1052,20 +1069,30 @@ export class Ebb {
         // corner, clear of wet ink) and wait for Resume; the next chain's
         // travel returns from there naturally. Steppers stay energized
         // throughout, holding position against the handling.
+        // A dot is a pen-down too: it lays about a nib width of ink, and a
+        // stipple of thousands of them would otherwise never trigger a pump.
+        let ink = c.dot ? (pen?.width ?? 0) : 0;
         if (!c.dot) {
           for (let k = 2; k < c.pts.length; k += 2) {
-            inkedMm += Math.hypot(c.pts[k] - c.pts[k - 2], c.pts[k + 1] - c.pts[k - 1]);
+            ink += Math.hypot(c.pts[k] - c.pts[k - 2], c.pts[k + 1] - c.pts[k - 1]);
           }
         }
+        inkedMm += ink;
+        drawnMm += ink;
         const reinkAt = pen?.reinkMm ?? 0;
+        reinkInMm = reinkAt > 0 ? Math.max(0, reinkAt - inkedMm) : undefined;
         if (reinkAt > 0 && inkedMm >= reinkAt && chainIndex < chains.length - 1 && !this.plotAbort) {
+          // Park at the BED origin: the corner Set origin zeroed, off the
+          // sheet when the paper is offset, so a marker can be pumped and
+          // reseated (Seat pen lowers it) without marking the drawing.
           await setLiftFull();
-          await this.moveRun([[offX, offY]], o.travelFeed, o);
-          warning = `re-ink ${penName}: ${Math.round(inkedMm)}mm drawn — pump/refill, then Resume`;
+          await this.moveRun([[0, 0]], o.travelFeed, o);
+          warning = `re-ink ${penName}: ${Math.round(inkedMm)}mm since the last — parked at the bed origin; pump/refill, reseat if needed, then Resume`;
           this.plotPause = true;
           await pauseUp();
           warning = undefined;
           inkedMm = 0;
+          reinkInMm = reinkAt;
         }
         // Position health check while the pen is already up between chains.
         // Sparse on purpose: each check drains the FIFO (waits out queued
