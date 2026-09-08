@@ -864,7 +864,11 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       lastSavedChain = chain;
       lastSavedAt = Date.now();
     };
-    hooks.livePlot.start(plan, r.pens);
+    // The live view walks what the machine executes: the driver reports
+    // chain indices into the pen-filtered list, so with a pen selected the
+    // view must be built from that list, not the whole plan, or it follows
+    // the other pen's chains.
+    hooks.livePlot.start(encodeToolpath(executed), r.pens);
     try {
       await ebb.plot(
         plan, r.pens, m.opts(),
