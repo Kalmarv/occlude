@@ -208,7 +208,16 @@ export function createSketchHandler(dir) {
         if (!/^[0-9a-f]{4,40}$/.test(snapId ?? '')) return send(400, '{"error":"bad sha"}');
         const src = await sg.sourceAt(dir, name, snapId).catch(() => null);
         if (src === null) return send(404, '{"error":"no such version"}');
+        if (sub2 === 'js') {
+          try { return send(200, stripFillTypes(src), 'text/javascript'); } catch (e) { return send(400, JSON.stringify({ error: String(e?.message ?? e) })); }
+        }
         return send(200, src, 'text/plain');
+      }
+      if (sub === 'js') {
+        // Type-stripped head source, for pages without a TypeScript worker (Evolve).
+        if (req.method !== 'GET') return send(405, '{"error":"method"}');
+        if (!existsSync(file)) return send(404, '{"error":"not found"}');
+        try { return send(200, stripFillTypes(await fs.readFile(file, 'utf8')), 'text/javascript'); } catch (e) { return send(400, JSON.stringify({ error: String(e?.message ?? e) })); }
       }
       if (sub === 'fork') {
         if (req.method !== 'POST') return send(405, '{"error":"method"}');

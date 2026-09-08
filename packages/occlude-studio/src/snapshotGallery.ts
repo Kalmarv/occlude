@@ -19,7 +19,7 @@
  * geometry; the stock and nibs are current.
  */
 
-import {
+import { snapshotSeed,
   forkSnapshot, listSketchInfo, loadSnapshot, openInStudio, sketchHistory, snapshotJs, thumbUrl,
   type Snapshot,
 } from './sketchApi.js';
@@ -147,7 +147,7 @@ export function openGallery(opts: GalleryOpts): void {
           landscape: settings.landscape,
           defaultMarginPct: settings.defaultMarginPct,
           coarsen: 1,
-          seed: s.meta.seed ?? null,
+          seed: snapshotSeed(s.meta),
         },
       });
       if (!reply || mine !== renderSeq) return; // superseded, or you flipped on

@@ -2201,3 +2201,143 @@ button.armed {
 .status-warn {
   color: var(--warn);
 }
+
+/* ---- Evolve page ---- */
+
+.evolve-body {
+  overflow: hidden;
+}
+
+.evolve-body main {
+  height: calc(100vh - 42px);
+  box-sizing: border-box;
+  padding: 10px 14px 12px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  gap: 10px;
+}
+
+.evolve-title {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  margin-left: 14px;
+}
+
+.evolve-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-height: 0;
+}
+
+.evolve-tile {
+  position: relative;
+  min-height: 0;
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  background: var(--panel);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.evolve-tile:hover {
+  border-color: var(--brass-dim);
+}
+
+.evolve-tile.centre {
+  border-color: var(--brass);
+  box-shadow: 0 0 0 1px var(--brass);
+  cursor: default;
+}
+
+.evolve-tile.pending::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--panel) 60%, transparent);
+}
+
+.evolve-tile canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.evolve-note {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evolve-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.evolve-bar .row {
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.evolve-bar .row > button {
+  flex: none;
+}
+
+.evolve-bar label.row {
+  flex: 1;
+  min-width: 220px;
+}
+
+.evolve-bar input[type='range'] {
+  flex: 1;
+}
+
+.evolve-temp,
+.evolve-seed {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.evolve-seed {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.evolve-lineage {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 0;
+  min-height: 46px;
+}
+
+.evolve-crumb {
+  height: 42px;
+  width: auto;
+  border: 1px solid var(--panel-edge);
+  border-radius: 3px;
+  cursor: pointer;
+  flex: none;
+}
+
+.evolve-crumb:last-child {
+  border-color: var(--brass);
+}

@@ -10,7 +10,7 @@ import {
   loadUi, saveSketch, saveSketchName, saveUi,
 } from './store.js';
 import { listFills, loadFill, saveFill } from './fillApi.js';
-import {
+import { evolveUrl,
   createSnapshot, forkSketch, loadSketchByName, putThumb, thumbFromCanvas,
 } from './sketchApi.js';
 import { customFillNames, embedFills, importSketchWithFills } from './fillEmbed.js';
@@ -456,6 +456,18 @@ async function boot(): Promise<void> {
       status(true, `snapshot of '${name}' saved (seed ${seed ?? '—'})`);
     } catch (err) {
       status(false, `snapshot failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  ($('btn-evolve') as HTMLButtonElement).onclick = async () => {
+    try {
+      const name = await rail.saveCurrent();
+      if (!name) {
+        status(false, 'name and save the sketch before evolving it');
+        return;
+      }
+      location.href = evolveUrl({ name }, seedUsed);
+    } catch (err) {
+      status(false, `evolve failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
   ($('btn-fork') as HTMLButtonElement).onclick = async () => {

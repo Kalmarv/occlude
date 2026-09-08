@@ -68,6 +68,7 @@ export default defineConfig({
         sketches: resolve(__dirname, 'sketches.html'),
         machine: resolve(__dirname, 'machine.html'),
         results: resolve(__dirname, 'results.html'),
+        evolve: resolve(__dirname, 'evolve.html'),
       },
     },
   },

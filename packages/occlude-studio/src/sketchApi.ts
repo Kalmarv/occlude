@@ -185,3 +185,28 @@ export function openInStudio(name: string, source: string, seed?: string | numbe
   localStorage.setItem('occlude.sketchName', name);
   location.href = seed !== undefined && seed !== null ? `/?seed=${encodeURIComponent(String(seed))}` : '/';
 }
+
+/** A source reference the Evolve page can render: the head, a snapshot, or a version. */
+export interface SourceRef {
+  name: string;
+  snap?: string;
+  sha?: string;
+}
+
+/** Type-stripped JS of a source reference, ready for the render worker. */
+export async function loadSketchJs(ref: SourceRef): Promise<string> {
+  const base = `/api/sketches/${encodeURIComponent(ref.name)}`;
+  const url = ref.snap ? `${base}/snapshots/${ref.snap}/js` : ref.sha ? `${base}/at/${encodeURIComponent(ref.sha)}/js` : `${base}/js`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`source not found (${res.status})`);
+  return res.text();
+}
+
+/** The Evolve page for a source reference and a seed. */
+export function evolveUrl(ref: SourceRef, seed: string | number | null | undefined): string {
+  const u = new URLSearchParams({ sketch: ref.name });
+  if (ref.snap) u.set('snap', ref.snap);
+  if (ref.sha) u.set('at', ref.sha);
+  if (seed !== null && seed !== undefined) u.set('seed', String(seed));
+  return `/evolve.html?${u.toString()}`;
+}

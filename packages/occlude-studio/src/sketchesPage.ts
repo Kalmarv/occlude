@@ -12,7 +12,7 @@
 import './style.css';
 import {
   deleteSketchByName, deleteSnapshot, forkSketch, forkSnapshot, listSketchInfo,
-  loadSketchAt, loadSketchByName, loadSnapshot, openInStudio, sketchHistory, snapshotSeed, thumbUrl,
+  evolveUrl, loadSketchAt, loadSketchByName, loadSnapshot, openInStudio, sketchHistory, snapshotSeed, thumbUrl,
   type Commit, type SketchInfo, type Snapshot,
 } from './sketchApi.js';
 import { openGallery } from './snapshotGallery.js';
@@ -348,6 +348,8 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
         const { source, meta: m } = await loadSnapshot(name, s.id);
         openInStudio(name, source, snapshotSeed(m));
       }, 'Open this frozen source with its seed (saving writes the sketch head)'),
+      btn('evolve', () => { location.href = evolveUrl({ name, snap: s.id }, snapshotSeed(s.meta)); },
+        'Choose among variations of this drawing: a grid of seeds and draw overrides, kept as snapshots'),
       btn('fork', async () => {
         const made = await forkSnapshot(name, s.id);
         openInStudio(made, await loadSketchByName(made), snapshotSeed(s.meta));
@@ -365,6 +367,8 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
     meta.append(el('div', 'lineage-sub', `${head ? `@ ${head.sha} · ${when(head.time)}` : ''}`));
     actions.append(
       btn('open', async () => openInStudio(name, await loadSketchByName(name)), 'Open the sketch in the studio'),
+      btn('evolve', () => { location.href = evolveUrl({ name }, null); },
+        'Choose among variations of this sketch: a grid of seeds and draw overrides, kept as snapshots'),
       btn('fork', () => forkNow(name), 'A new sketch from the current source'),
       deleteSketch,
     );
@@ -375,6 +379,8 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
     actions.append(
       btn('open', async () => openInStudio(name, await loadSketchAt(name, c.sha)),
         'Open the source as it was at this save (saving writes the sketch head)'),
+      btn('evolve', () => { location.href = evolveUrl({ name, sha: c.sha }, null); },
+        'Choose among variations of this version (kept as snapshots of a fork from here)'),
       btn('fork from here', () => forkNow(name, c.sha), 'A new sketch branching from this save'),
     );
   }
