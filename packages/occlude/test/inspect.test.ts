@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  circle, compileSketch, getInspectHint, getInspectionIndex, inspectionPayload, material, setInspectHint, sketch, stroke,
+  circle, compileSketch, getInspectHint, getInspectionIndex, inspectIfMaterial, inspectionPayload, material, setInspectHint, sketch, stroke,
   userUnitsToPaper,
 } from '../src/index.js';
 import { makeFrame } from '../src/record.js';
@@ -38,6 +38,28 @@ describe('t.inspect: the debug registry', () => {
       expect(index[1]).toEqual({ name: 'grown', points: 3, edges: 2 });
       compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 10)));
       expect(getInspectionIndex()).toEqual([]);
+    } finally {
+      setInspectHint(false);
+    }
+  });
+
+  it('the stations of along() register as a material of their own', () => {
+    setInspectHint(true);
+    try {
+      compileSketch(sketch({ seed: 1 }, (t) => {
+        const ring = t.sample(circle(50, 50, 20), { count: 8 });
+        const stations = ring.along({ count: 4 });
+        inspectIfMaterial('stations', stations); // what the studio's instrumentation calls
+        t.inspect('named', stations);
+        inspectIfMaterial('nothing', [1, 2, 3]);
+        expect(() => t.inspect('bad', [] as never)).toThrow(/expected a Material/);
+        return stroke(ring.contour);
+      }));
+      expect(getInspectionIndex().map((e) => e.name)).toEqual(['stations', 'named']);
+      const p = inspectionPayload('stations')!;
+      expect(p.n).toBe(4);
+      expect(p.edges.length / 2).toBe(4); // a closed walk
+      expect(Object.keys(p.attrs).sort()).toEqual(['chain', 'heading', 's', 'u']);
     } finally {
       setInspectHint(false);
     }

@@ -1095,6 +1095,44 @@ export function ownedBy(view: object, m: object): boolean {
 
 /** Points a material can be made from: tuples, `{x, y}` objects (extra numeric
  * fields such as a scatter point's `w` become columns), or a material. */
+/** Is this an array of stations, as `along` returns? Empty arrays are not. */
+export function isStations(v: unknown): v is readonly Station[] {
+  if (!Array.isArray(v) || v.length === 0) return false;
+  const q = v[0] as Record<string, unknown>;
+  return typeof q === 'object' && q !== null && Array.isArray(q.tangent) && typeof q.heading === 'number'
+    && typeof q.s === 'number' && typeof q.chain === 'number' && typeof q.attrs === 'object';
+}
+
+/**
+ * Stations as a material, for drawing them or for the inspector: a vertex
+ * per station in walk order, edges along each chain's walk (wrapping when
+ * the chain is closed), and columns `heading`, `s`, `u`, `chain` plus the
+ * station's transferred point and edge columns under their own names (a
+ * transferred column keeps its name; an intrinsic of the same name gives
+ * way). Nothing connects back to the source material.
+ */
+export function stationsMaterial(stations: readonly Station[]): Material {
+  const cols: Record<string, number[]> = {};
+  const put = (name: string, k: number, v: number) => {
+    (cols[name] ??= new Array(stations.length).fill(NaN))[k] = v;
+  };
+  const edges: [number, number][] = [];
+  let runStart = 0;
+  stations.forEach((q, k) => {
+    for (const name of Object.keys(q.attrs)) put(name, k, q.attrs[name]);
+    for (const name of Object.keys(q.edgeAttrs)) put(name, k, q.edgeAttrs[name]);
+    if (k > 0 && stations[k - 1].chain === q.chain) edges.push([k - 1, k]);
+    const last = k === stations.length - 1 || stations[k + 1].chain !== q.chain;
+    if (k > 0 && stations[k - 1].chain !== q.chain) runStart = k;
+    if (last && q.closed && k > runStart + 1) edges.push([k, runStart]);
+  });
+  for (const name of ['heading', 's', 'u', 'chain'] as const) {
+    if (name in cols) continue;
+    cols[name] = stations.map((q) => q[name]);
+  }
+  return material(stations.map((q) => [q.x, q.y] as [number, number]), { edges, ...cols });
+}
+
 export type PointsLike = readonly XY[] | Iterable<XY> | Material;
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  add, append, banding, connect, curve, distance, extent, length, limit, material, mul, neighbours, perp, segmentRuns, sub, sum, sumBy, unit,
+  add, append, banding, connect, curve, distance, extent, isStations, length, limit, material, mul, neighbours, perp, segmentRuns, stationsMaterial, sub, sum, sumBy, unit,
   force, type Material, type Next,
 } from '../src/material.js';
 const { adjacent, attract, boundary, drift, field, nearby, relax, separation, tension, vortex } = force;
@@ -574,6 +574,25 @@ describe('material: material beyond one chain', () => {
     expect(ends[0].tangent).toEqual([1, 0]);
     expect(ends[2].tangent).toEqual([0, 1]);
     expect(ends[2].u).toBe(1);
+  });
+
+  it('stationsMaterial: a vertex per station, the walk as edges, columns by name', () => {
+    const ring = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: [1, 2, 3, 4] })
+      .edgeAttribute('ink', 10, { transfer: 'distribute' });
+    const open = curve([[20, 0], [30, 0]], { closed: false, age: 5 });
+    const both = append(ring, open, { edgeFill: { ink: 0 } });
+    const sm = stationsMaterial(both.along());
+    expect(sm.n).toBe(6);
+    expect(sm.edgeCount).toBe(5); // a closed walk of four, an open walk of two
+    expect(sm.pts[4]).toEqual([20, 0]);
+    expect(Array.from(sm.attrs.age)).toEqual([1, 2, 3, 4, 5, 5]);
+    expect(Array.from(sm.attrs.chain)).toEqual([0, 0, 0, 0, 1, 1]);
+    expect(Array.from(sm.attrs.s)).toEqual([0, 10, 20, 30, 0, 10]);
+    expect(sm.attrs.ink[0]).toBeCloseTo(10);
+    expect(sm.attrs.heading[0]).toBeCloseTo(-Math.PI / 4); // seam: bisector of the closing edge (down) and the first (right)
+    expect(isStations(both.along())).toBe(true);
+    expect(isStations([])).toBe(false);
+    expect(isStations(both.pts)).toBe(false);
   });
 
   it('extent and banding', () => {

@@ -43,7 +43,7 @@ import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { sketchFrame, unitMm } from './record.js';
 import { boundaryLoops, type Boundary } from './boundary.js';
-import { Material, material as materialOf, alongChain, checkSampling, type PointsLike } from './material.js';
+import { Material, material as materialOf, alongChain, checkSampling, isStations, stationsMaterial, type PointsLike, type Station } from './material.js';
 import { voronoi } from './voronoi.js';
 import { distanceTo } from './distance.js';
 import {
@@ -945,17 +945,20 @@ function probe<T>(label: string, value: T): T {
  * (in its first position), so an inspect inside a step callback shows the
  * final state, not every iteration.
  */
-function inspect(label: string, value: Material): void {
+function inspect(label: string, value: Material | readonly Station[]): void {
   if (typeof label !== 'string' || label.length === 0) throw new Error('inspect: the label must be a non-empty string');
-  if (!(value instanceof Material)) throw new Error(`inspect('${label}'): expected a Material (from t.sample, material(), curve(), connect.*, steps, …)`);
-  recordInspection(label, value);
+  if (value instanceof Material) return recordInspection(label, value);
+  if (isStations(value)) return recordInspection(label, stationsMaterial(value));
+  throw new Error(`inspect('${label}'): expected a Material (from t.sample, material(), curve(), connect.*, steps, …) or the stations of along()`);
 }
 
 /** The host's automatic form of `inspect`: called for every variable the
- * studio instruments, so it registers materials and ignores everything
- * else without a word. */
+ * studio instruments, so it registers materials — and the stations of
+ * `along()`, as a material of their own — and ignores everything else
+ * without a word. */
 export function inspectIfMaterial(label: string, value: unknown): void {
   if (value instanceof Material) recordInspection(label, value);
+  else if (isStations(value)) recordInspection(label, stationsMaterial(value));
 }
 
 /** Path optimization for THIS sketch's plan (tour budget, bridging) — in
