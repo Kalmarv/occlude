@@ -517,6 +517,65 @@ describe('material: material beyond one chain', () => {
     expect(() => material([[0, 0], [1, 0], [2, 0], [1, 1]], { edges: [[0, 1], [1, 2], [1, 3]] }).resample({ spacing: 1 })).toThrow(/junction/);
   });
 
+  it('along: stations by arc length with tangents and transferred columns; the material untouched', () => {
+    const open = curve([[0, 0], [10, 0], [10, 10]], { closed: false, age: [0, 10, 20], kind: [1, 2, 2] });
+    const st = open.along({ count: 5, transfer: { kind: 'nearest' } });
+    expect(st).toHaveLength(5);
+    expect(open.n).toBe(3); // nothing rebuilt
+    expect([st[0].x, st[0].y]).toEqual([0, 0]);
+    expect([st[4].x, st[4].y]).toEqual([10, 10]);
+    expect(st.map((q) => q.attrs.age)).toEqual([0, 5, 10, 15, 20]);
+    expect(st.map((q) => q.attrs.kind)).toEqual([1, 1, 2, 2, 2]);
+    expect(st.map((q) => q.s)).toEqual([0, 5, 10, 15, 20]);
+    expect(st.map((q) => q.u)).toEqual([0, 0.25, 0.5, 0.75, 1]);
+    // tangent follows the segment under the station; on the corner, the bisector
+    expect(st[1].tangent).toEqual([1, 0]);
+    expect(st[2].tangent[0]).toBeCloseTo(Math.SQRT1_2);
+    expect(st[2].tangent[1]).toBeCloseTo(Math.SQRT1_2);
+    expect(st[0].tangent).toEqual([1, 0]); // an open end: its one segment
+    expect(st[3].heading).toBeCloseTo(Math.PI / 2);
+    expect(st[1].normal).toEqual([-0, 1]);
+    expect(st.every((q) => q.chain === 0 && !q.closed)).toBe(true);
+  });
+
+  it('along: closed chains, several chains, and edge columns by copy and distribute', () => {
+    const ring = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 7 })
+      .edgeAttribute('side', (e) => (e.a.y === e.b.y ? 1 : 2))
+      .edgeAttribute('ink', 10, { transfer: 'distribute' });
+    const st = ring.along({ spacing: 5 });
+    expect(st).toHaveLength(8);
+    expect([st[0].x, st[0].y]).toEqual([0, 0]); // seam first, never repeated
+    expect(st.every((q) => q.closed && q.attrs.age === 7)).toBe(true);
+    expect(st.map((q) => q.edgeAttrs.side)).toEqual([1, 1, 2, 2, 1, 1, 2, 2]);
+    // every station owns 5 of the 40 units of chain: an eighth of the 40 ink
+    for (const q of st) expect(q.edgeAttrs.ink).toBeCloseTo(5);
+    expect(st.reduce((a, q) => a + q.edgeAttrs.ink, 0)).toBeCloseTo(40);
+    const two = material([[0, 0], [4, 0], [20, 0], [20, 3]], { edges: [[0, 1], [2, 3]] });
+    const both = two.along({ count: 2 });
+    expect(both.map((q) => q.chain)).toEqual([0, 0, 1, 1]);
+    expect(both[3].tangent).toEqual([0, 1]);
+    expect(() => material([[0, 0], [1, 0], [2, 0], [1, 1]], { edges: [[0, 1], [1, 2], [1, 3]] }).along({ spacing: 1 })).toThrow(/junction/);
+    expect(() => ring.along({ spacing: 5, count: 3 })).toThrow(/exactly one/);
+  });
+
+  it('along(): the vertices themselves, exact columns, bisector tangents', () => {
+    const sq = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: [1, 2, 3, 4] })
+      .edgeAttribute('ink', 10, { transfer: 'distribute' });
+    const st = sq.along();
+    expect(st.map((q) => [q.x, q.y])).toEqual([[0, 0], [10, 0], [10, 10], [0, 10]]);
+    expect(st.map((q) => q.attrs.age)).toEqual([1, 2, 3, 4]);
+    expect(st.map((q) => q.s)).toEqual([0, 10, 20, 30]);
+    expect(st[1].tangent[0]).toBeCloseTo(Math.SQRT1_2); // corner: bisector of right and up
+    expect(st[1].tangent[1]).toBeCloseTo(Math.SQRT1_2);
+    for (const q of st) expect(q.edgeAttrs.ink).toBeCloseTo(10); // half of each adjacent edge
+    const open = curve([[0, 0], [10, 0], [10, 10]], { closed: false });
+    const ends = open.along();
+    expect(ends).toHaveLength(3);
+    expect(ends[0].tangent).toEqual([1, 0]);
+    expect(ends[2].tangent).toEqual([0, 1]);
+    expect(ends[2].u).toBe(1);
+  });
+
   it('extent and banding', () => {
     expect(extent([3, -1, 7])).toEqual([-1, 7]);
     expect(extent([])).toEqual([0, 0]);

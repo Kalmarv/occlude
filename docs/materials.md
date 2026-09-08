@@ -93,7 +93,7 @@ A material is a set of vertices, each with `x`, `y` and any named attribute colu
 | rules | `.steps(n, (current, next, k) => …)` with the collection edits; forces prepared once and evaluated at a point |
 | collections | `.points`, `.edges`, `.faces()`: iterate, `length`, `at`, `map`, `filter` (a selection), `groupBy` (selections by key); `.extract()` for independent material; `connectedPoints`, `components`, `meanBy` |
 | areas | `.planarize()` shares crossings on purpose; `.faces()` reads the enclosed regions; `boundaries()` outlines a union |
-| drawing | `.curves()`, `strokes()`, `segmentRuns`, `extent`, `banding`, then `stroke`, `polygon`, `circle` |
+| drawing | `.curves()`, `.along()` for stations to place things at, `strokes()`, `segmentRuns`, `extent`, `banding`, then `stroke`, `polygon`, `circle` |
 
 All are pure imports except `t.sample`, which reads the paper. Shapes stay exact through the engine; sampling is the one explicit lossy step into this vocabulary.
 
@@ -790,6 +790,31 @@ export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
 });
 ```
 
+`m.along({ spacing | count, transfer? })` or plain `m.along()` is the other side of resampling: it reads evenly spaced *stations* off the chains and leaves the material alone. Blender calls it curve to points. A station is plain data, owned by no state: `x, y`, the unit `tangent` of the segment under it, the `normal`, the `heading` in radians, arc length `s` from the chain's start and its fraction `u`, the `chain` and whether it is `closed`. Point columns arrive in `attrs` by each column's transfer policy (per-call `transfer` overrides, as in `resample`), edge columns in `edgeAttrs` by theirs: `'copy'` is the edge under the station, `'distribute'` the sum over the run of chain nearer this station than its neighbours, so the stations' shares add up to the chain's total. Same sampling rules as `resample`: open chains include both ends, closed ones start at the seam and never repeat it, each chain is walked on its own, isolated vertices give nothing, a junction is an error. With neither `spacing` nor `count`, `along()` is a station at every vertex in walk order, the chain's own corners as `t.material` keeps them, with the vertex's own column values; a station on a vertex, however it got there, takes the bisector of the two segments meeting as its tangent. Use `resample` when the material itself must be even; use `along` to put things on it. Headings are radians, like every angle in the vector vocabulary; `degrees(h)` is the bridge to a shape's `rotate`.
+
+A warped ring drawn as itself, with a square stamped at every station, turned to the curve's heading and sized by a `weight` column that was declared on four vertices and interpolated onto the stations. The ring keeps its own vertices; nothing was resampled.
+
+```ts live
+import { sketch, circle, polygon, rect, degrees } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
+  const ring = t.sample(circle(100, 50, 30), { count: 64 })
+    .attribute('weight', (p) => 0.5 + 0.5 * Math.sin(Math.atan2(p.y - 50, p.x - 100) * 2))
+    .steps(1, (cur, next) => {
+      next.move((p) => [Math.sin(p.y / 6) * 9, Math.cos(p.x / 7) * 5]);
+    });
+  const stamps = ring.along({ spacing: 5 }).map((st) => {
+    const size = 1.5 + 3 * st.attrs.weight;
+    return rect(-size / 2, -size / 2, size, size, {
+      translate: [st.x, st.y],
+      rotate: degrees(st.heading),
+      opaque: true,
+    });
+  });
+  return [polygon(ring), stamps];
+});
+```
+
 Attributes carry across operations by a policy declared once on the column and honoured everywhere; a per-operation option overrides for that call.
 
 | Operation | Point columns | Edge columns | Rows and iteration |
@@ -799,6 +824,7 @@ Attributes carry across operations by a policy declared once on the column and h
 | `append(a, b, { fill, edgeFill })` | columns must match or be filled | same | b's rows after a's; iteration 0 |
 | `split`, `splitEdges`, `extend`, `addPoint` | a split vertex inherits by the policy, then `point` overrides; a new point must give every column | children copy or share the parent, then `edges(parent, child)` overrides | iteration +1 per step |
 | `resample` | by the policy, or a per-call `transfer: { col: 'nearest' \| constant \| fn }` | `'copy'` takes the source edge under the new edge's midpoint; `'distribute'` sums each covered source edge's share | rows renumbered; iteration kept |
+| `along` | into each station's `attrs` by the policy, or a per-call `transfer` | into `edgeAttrs`: `'copy'` takes the edge under the station; `'distribute'` sums the share of chain nearer this station than its neighbours | no rows: stations are plain data; the material is untouched |
 | `planarize` | candidates from every edge through the event; disagreeing ones need `point(event)` | children copy or share, then `edges(parent, child)` | iteration 0 |
 | `extract()` | copied | copied | rows compacted in source order; iteration 0 |
 

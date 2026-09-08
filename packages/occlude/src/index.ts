@@ -68,12 +68,12 @@ export { planarize, faces, Faces, FaceSelection } from './faces.js';
 export type { Face, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
 export type { EdgeQuery, NearestHit, FirstHit } from './query.js';
 export type {
-  Vertex, Edge, Curve, Next, Handle, Ref, ChildSpec, ChildInterval, SplitOpts, Snapshot, Transfer, TransferPolicy, NeighbourStats,
+  Vertex, Edge, Curve, Station, Next, Handle, Ref, ChildSpec, ChildInterval, SplitOpts, Snapshot, Transfer, TransferPolicy, NeighbourStats,
   SegmentRun, Sources, PointsLike, Vec, XY,
 } from './material.js';
 
 // Units.
-export { w, h, s, long, mm, Len } from './units.js';
+export { w, h, s, long, mm, degrees, radians, Len } from './units.js';
 export type { L } from './units.js';
 
 // Pure helpers. Randomness (rnd/noise/stream/…) and layout (bounds/grid)

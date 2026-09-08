@@ -172,6 +172,32 @@ export interface Curve extends IsoContour {
   indices: number[];
 }
 
+/**
+ * A place on a chain, read off it by arc length (`along`): plain data that
+ * belongs to no state. Position, the unit tangent of the polyline segment
+ * under it (a station on a vertex takes the bisector of the segments that
+ * meet there), the normal (the tangent turned a quarter turn, `perp`), the heading in
+ * radians, arc length `s` from the chain's start and its fraction `u`, and
+ * the chain (an index into `curves()`). Point columns arrive in `attrs` by
+ * each column's transfer policy, edge columns in `edgeAttrs` by theirs: a
+ * `'copy'` column is the edge under the station, a `'distribute'` column
+ * the sum over the run of chain nearer this station than its neighbours,
+ * so the stations' shares add up to the chain's total.
+ */
+export interface Station {
+  x: number;
+  y: number;
+  tangent: [number, number];
+  normal: [number, number];
+  heading: number;
+  s: number;
+  u: number;
+  chain: number;
+  closed: boolean;
+  attrs: Record<string, number>;
+  edgeAttrs: Record<string, number>;
+}
+
 /** One captured state of a `steps()` run. Never touched by later steps. */
 export interface Snapshot {
   iteration: number;
@@ -750,6 +776,140 @@ export class Material {
     const edgeAttrs: Record<string, Float64Array> = {};
     for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
     return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), this.iteration, [], edgeAttrs, { ...this.transfers }, { ...this.edgeTransfers });
+  }
+
+  /**
+   * Stations along the material's chains, evenly by arc length, without
+   * touching the material — Blender's curve-to-points. Where `t.sample`
+   * turns a shape into even vertices and `resample` rebuilds a chain
+   * evenly, `along` reads even places off it: for stamping shapes along a
+   * curve, dashes, labels, or anything placed by position and direction.
+   * The same sampling rules as `resample`: one of `count` or `spacing`,
+   * or neither for a station at every vertex, in walk order (the chain's
+   * own corners, as `t.material` keeps them); open chains include both ends, closed chains start at the
+   * seam and never repeat it; every chain is walked on its own, in
+   * `curves()` order; isolated vertices give nothing; a junction is an
+   * error. Columns come across by their transfer policies (see `Station`),
+   * `transfer` overriding point columns per call as in `resample`.
+   */
+  along(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer> } = {}): Station[] {
+    const atVertices = opts.spacing === undefined && opts.count === undefined;
+    if (!atVertices) checkSampling('along', opts);
+    for (let i = 0; i < this.n; i++) {
+      if (this.adj[i].length > 2) throw new Error(`along: vertex ${i} is a junction — chains only`);
+    }
+    const names = this.attrNames;
+    const transfer: Record<string, Transfer> = { ...this.transfers, ...(opts.transfer ?? {}) };
+    const enames = this.edgeAttrNames;
+    const storedRow = new Map<number, number>();
+    for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(this.edgeList[2 * e], this.edgeList[2 * e + 1]), e);
+    const out: Station[] = [];
+    this.curves().forEach((c, chain) => {
+      const idx = c.indices;
+      const pts = idx.map((i) => [this.x[i], this.y[i]] as [number, number]);
+      const segs = c.closed ? idx.length : idx.length - 1;
+      // No sampling option: the chain's own vertices, in walk order.
+      const samples = atVertices
+        ? idx.map((_, k) => (k < segs ? { seg: k, t: 0 } : { seg: segs - 1, t: 1 }))
+        : alongChain(pts, c.closed, opts);
+      const cum = chainLengths(pts, c.closed);
+      const total = cum[segs];
+      const rowOfSeg = (sg: number) => storedRow.get(pairKey(idx[sg], idx[(sg + 1) % idx.length]))!;
+      const at = (k: number) => cum[samples[k].seg] + samples[k].t * (cum[samples[k].seg + 1] - cum[samples[k].seg]);
+      const dir = (sg: number): [number, number] => {
+        const a = pts[sg];
+        const b = pts[(sg + 1) % idx.length];
+        const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        return len > 0 ? [(b[0] - a[0]) / len, (b[1] - a[1]) / len] : [1, 0];
+      };
+      // The tangent at a vertex is the bisector of the segments meeting
+      // there (an open chain's end has one); elsewhere the segment's own.
+      const tangentAtVertex = (v: number): [number, number] => {
+        const hasPrev = c.closed || v > 0;
+        const hasNext = c.closed || v < segs;
+        const before = hasPrev ? dir((v - 1 + segs) % segs) : null;
+        const after = hasNext ? dir(v % segs) : null;
+        if (!before) return after!;
+        if (!after) return before;
+        const sx = before[0] + after[0];
+        const sy = before[1] + after[1];
+        const len = Math.hypot(sx, sy);
+        return len > 1e-9 ? [sx / len, sy / len] : after; // a hairpin: carry on
+      };
+      const tangentAt = (seg: number, t: number): [number, number] => {
+        if (t <= 1e-9) return tangentAtVertex(seg);
+        if (t >= 1 - 1e-9) return tangentAtVertex(seg + 1);
+        return dir(seg);
+      };
+      // The share of chain a station owns for 'distribute' columns: from
+      // half way to the previous station to half way to the next; the ends
+      // of an open chain own their outer half, a closed chain wraps.
+      const owned = (k: number): [number, number] => {
+        const here = at(k);
+        if (c.closed) {
+          const prev = k === 0 ? at(samples.length - 1) - total : at(k - 1);
+          const next = k === samples.length - 1 ? at(0) + total : at(k + 1);
+          return [(prev + here) / 2, (here + next) / 2];
+        }
+        return [k === 0 ? 0 : (at(k - 1) + here) / 2, k === samples.length - 1 ? total : (here + at(k + 1)) / 2];
+      };
+      const shareOver = (name: string, d0: number, d1: number): number => {
+        let sum = 0;
+        const span = (from: number, to: number) => {
+          for (let sg = 0; sg < segs; sg++) {
+            const len = cum[sg + 1] - cum[sg];
+            if (len <= 0) continue;
+            const overlap = Math.min(to, cum[sg + 1]) - Math.max(from, cum[sg]);
+            if (overlap > 0) sum += this.edgeAttrs[name][rowOfSeg(sg)] * (overlap / len);
+          }
+        };
+        // a wrapped range on a closed chain is two plain ranges
+        if (d0 < 0) { span(d0 + total, total); span(0, d1); }
+        else if (d1 > total) { span(d0, total); span(0, d1 - total); }
+        else span(d0, d1);
+        return sum;
+      };
+      samples.forEach(({ seg, t }, k) => {
+        const a = idx[seg];
+        const b = idx[(seg + 1) % idx.length];
+        const onVertexAhead = t >= 1 - 1e-9 && seg + 1 < segs;
+        const tangent = tangentAt(seg, t);
+        const attrs: Record<string, number> = {};
+        for (const name of names) {
+          const rule = transfer[name] ?? 'interpolate';
+          const va = this.attrs[name][a];
+          const vb = this.attrs[name][b];
+          if (rule === 'interpolate') attrs[name] = va + (vb - va) * t;
+          else if (rule === 'nearest') attrs[name] = t <= 0.5 ? va : vb;
+          else if (typeof rule === 'number') attrs[name] = rule;
+          else attrs[name] = rule(this.vertex(a), this.vertex(b), t);
+        }
+        const edgeAttrs: Record<string, number> = {};
+        for (const name of enames) {
+          if (this.edgeTransfers[name] === 'distribute') {
+            const [d0, d1] = owned(k);
+            edgeAttrs[name] = shareOver(name, d0, d1);
+          } else {
+            edgeAttrs[name] = this.edgeAttrs[name][rowOfSeg(onVertexAhead ? seg + 1 : seg)];
+          }
+        }
+        const sAt = at(k);
+        out.push({
+          x: pts[seg][0] + (pts[(seg + 1) % idx.length][0] - pts[seg][0]) * t,
+          y: pts[seg][1] + (pts[(seg + 1) % idx.length][1] - pts[seg][1]) * t,
+          tangent,
+          normal: perp(tangent) as [number, number],
+          heading: Math.atan2(tangent[1], tangent[0]),
+          s: sAt,
+          u: total > 0 ? sAt / total : 0,
+          chain,
+          closed: c.closed,
+          attrs,
+          edgeAttrs,
+        });
+      });
+    });
+    return out;
   }
 
   // ---- the iteration verb ----

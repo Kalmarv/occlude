@@ -31,6 +31,12 @@ export const long = (n: number): Len => new Len('long', n);
 /** Real millimetres — for anything physical. */
 export const mm = (n: number): Len => new Len('mm', n);
 
+/** Angles: the vector vocabulary (`angleOf`, `fromAngle`, a station's
+ * `heading`) speaks radians; shapes and fills (`rotate`, an ellipse's
+ * rotation, a hatch `angle`) speak degrees. These are the bridge. */
+export const degrees = (radians: number): number => (radians * 180) / Math.PI;
+export const radians = (degrees: number): number => (degrees * Math.PI) / 180;
+
 /** Resolution context: the drawable (inner) area in mm. */
 export interface UnitCtx {
   innerW: number;
