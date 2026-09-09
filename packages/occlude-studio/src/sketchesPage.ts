@@ -16,6 +16,7 @@ import {
   type Commit, type SketchInfo, type Snapshot,
 } from './sketchApi.js';
 import { openGallery } from './snapshotGallery.js';
+import { mendThumbs, type ThumbTarget } from './thumbMender.js';
 
 const main = document.getElementById('sketches-families')!;
 const NS = 'http://www.w3.org/2000/svg';
@@ -472,6 +473,12 @@ async function refresh(): Promise<void> {
   roots.sort((a, b) => b.mtime - a.mtime);
   main.className = 'lineage-grid';
   main.replaceChildren(...roots.map((r) => family(r, all, rows, refresh)));
+  // Missing thumbnails are regenerated in the background and painted in as
+  // they land — snapshots first, newest first, then the sketches' own.
+  const targets: ThumbTarget[] = [];
+  for (const r of rows) for (const sn of r.snapshots) targets.push({ name: r.info.name, snap: sn.id, meta: sn.meta });
+  for (const r of rows) if (!r.info.thumb) targets.push({ name: r.info.name });
+  void mendThumbs(targets);
 }
 
 (window as unknown as Record<string, unknown>).__sketches = { refresh };

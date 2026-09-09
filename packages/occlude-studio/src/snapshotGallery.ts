@@ -20,7 +20,7 @@
  */
 
 import { snapshotSeed,
-  forkSnapshot, listSketchInfo, loadSnapshot, openInStudio, sketchHistory, snapshotJs, thumbUrl,
+  forkSnapshot, listSketchInfo, loadSnapshot, openInStudio, putThumb, sketchHistory, snapshotJs, thumbUrl,
   type Snapshot,
 } from './sketchApi.js';
 import { liveExampleToJs } from 'occlude';
@@ -158,6 +158,12 @@ export function openGallery(opts: GalleryOpts): void {
       rendered.set(k, url);
       img.src = url;
       img.classList.remove('thumb');
+      // A snapshot the server had no thumbnail for gets this one, scaled to
+      // the lineage size, so the Sketches page stops showing it empty.
+      if (!missing.hidden) {
+        const small = await client.exportPng(reply.result.paper.w, reply.result.paper.h, 360 / Math.max(1, reply.result.paper.w), settings.paperColor);
+        void putThumb(s.name, new Blob([small as BlobPart], { type: 'image/png' }), s.id).catch(() => undefined);
+      }
     } catch (e) {
       // A snapshot whose source no longer runs still has its thumbnail. Keep
       // it, but say so — a silently blurry image looks like a bug.

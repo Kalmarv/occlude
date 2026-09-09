@@ -184,6 +184,7 @@ export function createSketchHandler(dir) {
       };
       if (sub === 'thumb') {
         const tp = join(thumbs, `${name}.png`);
+        if (req.method === 'HEAD') { res.statusCode = existsSync(tp) ? 200 : 404; res.setHeader('cache-control', 'no-store'); return res.end(); }
         if (req.method === 'GET') {
           const bytes = await fs.readFile(tp).catch(() => null);
           return bytes ? png(200, bytes) : send(404, '{"error":"no thumb"}');
@@ -265,6 +266,7 @@ export function createSketchHandler(dir) {
         if (!SNAP_ID.test(snapId)) return send(400, '{"error":"bad snapshot id"}');
         if (sub2 === 'thumb') {
           const tp = join(thumbs, `${name}@${snapId}.png`);
+          if (req.method === 'HEAD') { res.statusCode = existsSync(tp) ? 200 : 404; res.setHeader('cache-control', 'no-store'); return res.end(); }
           if (req.method === 'GET') {
             const bytes = await fs.readFile(tp).catch(() => null);
             return bytes ? png(200, bytes) : send(404, '{"error":"no thumb"}');
