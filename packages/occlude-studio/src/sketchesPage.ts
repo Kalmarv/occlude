@@ -478,7 +478,10 @@ async function refresh(): Promise<void> {
   const targets: ThumbTarget[] = [];
   for (const r of rows) for (const sn of r.snapshots) targets.push({ name: r.info.name, snap: sn.id, meta: sn.meta });
   for (const r of rows) if (!r.info.thumb) targets.push({ name: r.info.name });
-  void mendThumbs(targets);
+  // A card's picture is an <img> that removed itself on 404, so a mended
+  // sketch thumbnail needs the page redrawn once the pass is over.
+  let cardMended = false;
+  void mendThumbs(targets, (t) => { if (!t.snap) cardMended = true; }).then(() => { if (cardMended) void refresh(); });
 }
 
 (window as unknown as Record<string, unknown>).__sketches = { refresh };
