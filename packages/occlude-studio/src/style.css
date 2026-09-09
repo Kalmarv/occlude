@@ -302,8 +302,8 @@ body {
   display: flex;
   gap: 8px;
   align-items: center;
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--sans);
+  font-size: 12px;
 }
 
 .hud-menu {
@@ -312,11 +312,12 @@ body {
 
 .hud-menu > summary {
   list-style: none;
-  color: var(--ink-dim);
-  background: rgba(35, 38, 41, 0.85);
-  border: 1px solid var(--panel-edge);
-  border-radius: 3px;
-  padding: 3px 8px;
+  color: var(--muted);
+  font-weight: 500;
+  background: var(--raised);
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--r-sm);
+  padding: 4px 10px;
   cursor: pointer;
   user-select: none;
 }
@@ -329,14 +330,15 @@ body {
 .hud-menu-body {
   position: absolute;
   right: 0;
-  top: calc(100% + 4px);
-  background: var(--panel);
-  border: 1px solid var(--panel-edge);
-  border-radius: 4px;
-  padding: 6px 10px;
+  top: calc(100% + 6px);
+  background: var(--raised);
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   white-space: nowrap;
   z-index: 5;
 }
@@ -357,11 +359,11 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: var(--ink-dim);
-  background: rgba(35, 38, 41, 0.85);
-  border: 1px solid var(--panel-edge);
-  border-radius: 3px;
-  padding: 3px 8px;
+  color: var(--muted);
+  background: var(--raised);
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--r-sm);
+  padding: 4px 10px;
   cursor: pointer;
   user-select: none;
 }
@@ -1530,8 +1532,16 @@ progress.plot-progress::-moz-progress-bar {
 
 .jog-pad .jog-step {
   text-align: center;
-  font-family: var(--mono);
-  font-size: 11.5px;
+  padding-left: 4px;
+  padding-right: 4px;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.jog-pad .jog-step::-webkit-inner-spin-button,
+.jog-pad .jog-step::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
 }
 
 .origins {
@@ -1918,12 +1928,12 @@ button.armed {
 
 /* ---- material inspector (debug menu) ---- */
 .hud-menu-group { border-top: 1px solid var(--panel-edge); margin-top: 4px; padding-top: 4px; display: flex; flex-direction: column; gap: 4px; min-width: 200px; }
-.hud-menu-group select { font: inherit; font-size: 11px; background: var(--well); color: var(--ink); border: 1px solid var(--panel-edge); border-radius: 3px; padding: 2px 4px; max-width: 100%; }
+.hud-menu-group select { font: inherit; font-size: 12px; background: var(--control); color: var(--ink); border: 1px solid var(--edge); border-radius: var(--r-sm); padding: 3px 6px; max-width: 100%; }
 .hud-row { display: flex; gap: 4px; }
 .hud-row select { flex: 1; min-width: 0; }
 .hud-counts { color: var(--ink-dim); }
-.hud-hint { color: var(--ink-dim); font-size: 10.5px; max-width: 220px; line-height: 1.4; }
-.hud-legend { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--ink-dim); }
+.hud-hint { color: var(--muted); font-size: 11.5px; max-width: 220px; line-height: 1.4; }
+.hud-legend { display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; color: var(--muted); }
 .hud-legend .bar { height: 8px; border-radius: 2px; background: linear-gradient(90deg, rgb(59,111,214), rgb(232,197,71), rgb(217,79,59)); }
 .hud-legend .bar.constant { background: rgb(232,197,71); }
 .hud-legend .ends { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
@@ -1932,7 +1942,7 @@ button.armed {
   resize: both; overflow: hidden;
   display: flex; flex-direction: column; gap: 6px;
   background: var(--raised); border: 1px solid var(--edge-strong); border-radius: var(--r-md); box-shadow: var(--shadow-2);
-  padding: 8px 10px; font-family: var(--sans); font-size: 12px; color: var(--muted); z-index: 3;
+  padding: 10px 12px; font-family: var(--sans); font-size: 12px; color: var(--muted); z-index: 3;
 }
 #inspector-pane[hidden] { display: none; }
 .inspector-head { color: var(--ink); line-height: 1.4; font-weight: 500; position: relative; padding-right: 22px; user-select: none; }
@@ -1940,24 +1950,26 @@ button.armed {
 #inspector-pane:active { cursor: grabbing; }
 .inspector-table-wrap, .inspector-pager, #inspector-pane a, #inspector-pane button, #inspector-pane input { cursor: default; }
 #inspector-pane a { cursor: pointer; }
-.inspector-close { position: absolute; right: 0; top: 0; font: inherit; font-size: 13px; line-height: 1; background: none; border: 1px solid var(--panel-edge); border-radius: 3px; color: var(--ink-dim); cursor: pointer; padding: 1px 5px; }
-.inspector-close:hover { color: var(--ink); }
-.inspector-head .sub { color: var(--ink-dim); }
-.inspector-selected { line-height: 1.45; border-top: 1px solid var(--panel-edge); padding-top: 6px; }
+.inspector-close { position: absolute; right: -2px; top: -2px; width: 22px; height: 22px; display: grid; place-items: center; font: inherit; font-size: 14px; line-height: 1; background: none; border: none; box-shadow: none; border-radius: var(--r-sm); color: var(--muted); cursor: pointer; padding: 0; }
+.inspector-close:hover { color: var(--ink); background: var(--control); }
+.inspector-head .sub { color: var(--muted); font-weight: 400; }
+.inspector-selected { line-height: 1.45; border-top: 1px solid var(--edge); padding-top: 8px; }
 .inspector-selected b { color: var(--ink); font-weight: 600; }
 .inspector-selected a { color: var(--accent); text-decoration: none; cursor: pointer; margin-right: 6px; }
 .inspector-selected a:hover { text-decoration: underline; }
-.inspector-table-wrap { overflow: auto; min-height: 0; flex: 1; border-top: 1px solid var(--panel-edge); }
+.inspector-table-wrap { overflow: auto; min-height: 0; flex: 1; border-top: 1px solid var(--edge); }
 .inspector-table { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 11.5px; font-variant-numeric: tabular-nums; }
-.inspector-table th, .inspector-table td { text-align: right; padding: 1px 6px; white-space: nowrap; }
-.inspector-table th { color: var(--ink-dim); font-weight: 500; position: sticky; top: 0; background: var(--raised); }
+.inspector-table th, .inspector-table td { text-align: right; padding: 3px 6px; white-space: nowrap; }
+.inspector-table th { font-family: var(--sans); font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); position: sticky; top: 0; background: var(--raised); padding-top: 6px; padding-bottom: 4px; }
 .inspector-table th:first-child, .inspector-table td:first-child { text-align: left; }
 .inspector-table tr { cursor: pointer; }
 .inspector-table tr:hover td { color: var(--ink); }
-.inspector-table tr.selected td { color: #fff; background: rgba(255, 106, 26, 0.35); box-shadow: inset 0 0 0 1px #ff6a1a; }
+.inspector-table tr:hover td { background: var(--control); }
+.inspector-table tr.selected td { color: var(--ink); background: var(--accent-soft); }
 .inspector-table td .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
-.inspector-pager { display: flex; gap: 6px; align-items: center; }
-.inspector-pager button, .inspector-pager input { font: inherit; font-size: 11px; background: var(--well); color: var(--ink); border: 1px solid var(--panel-edge); border-radius: 3px; padding: 1px 6px; }
+.inspector-pager { display: flex; gap: 6px; align-items: center; padding-top: 2px; }
+.inspector-pager button { padding: 2px 9px; font-size: 12px; }
+.inspector-pager input { width: 5em; padding: 3px 7px; font-size: 12px; }
 .inspector-pager input { width: 5em; }
 .inspector-pager .spacer { flex: 1; }
 
@@ -2085,8 +2097,8 @@ button.armed {
 .repair {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
+  gap: 10px;
+  padding: 12px 12px 10px;
   border: 1px solid var(--edge);
   border-radius: var(--r-md);
 }
@@ -2102,18 +2114,21 @@ button.armed {
   width: auto;
 }
 
-.repair .row {
-  flex-wrap: wrap;
-  row-gap: 6px;
-}
-
 .repair .row > button {
   flex: none;
   white-space: nowrap;
 }
 
+.repair .row.grid2 > button {
+  flex: 1;
+}
+
 .repair input[type='number'] {
-  width: 76px;
+  flex: 1;
+  min-width: 3em;
+}
+
+.repair .repair-dash {
   flex: none;
 }
 

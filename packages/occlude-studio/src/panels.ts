@@ -645,12 +645,12 @@ function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
   resultsLink.textContent = 'Results page';
   const saveRow = el('div', 'row', saveBtn, resultsLink);
 
+  readout.title = 'The range is code: t.draw({ progress: [0, ui(0.3)] }) — or chains / minutes, with a budget — and t.plan({ optimize, bridge }) for the path. Nothing is re-solved, reordered or re-bridged by selecting, and ink hidden by later shapes stays hidden. Export, Simulate and Plot all draw exactly this.';
   body.append(
     readout,
     omitted,
     saveRow,
     saveNote,
-    hint('The range is code: t.draw({ progress: [0, ui(0.3)] }) — or chains / minutes, with a budget — and t.plan({ optimize, bridge }) for the path. Nothing is re-solved, reordered or re-bridged by selecting, and ink hidden by later shapes stays hidden. Export, Simulate and Plot all draw exactly this.'),
   );
 }
 
@@ -1052,11 +1052,14 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   toIn.title = 'End of the repair, minutes into the plot';
   const clearRepair = button('Whole plan', () => { paintOff(); d.setRepairs(null, null); });
   clearRepair.className = 'danger-quiet';
+  clearRepair.title = 'Drop the interval and the painted region: plot everything selected';
+  slider.root.title = 'Drag the handles to plot only an interval of the plan, in minutes — a dried pen, a faint patch. Exports still draw the whole selection.';
   // Region: paint blobs over the preview; chains with ink under any blob
   // are in. Painting is additive; Clear region starts over.
   let radius = 8;
   const radiusIn = numberInput(radius, 1, (v) => { radius = Math.max(0.5, v); });
   radiusIn.title = 'Brush radius, mm';
+  radiusIn.setAttribute('aria-label', 'Brush radius, mm');
   const paintBtn = button('Paint region', () => (paintBtn.classList.contains('armed') ? paintOff() : paintOn()));
   paintBtn.title = 'Circle-select over the preview: drag to paint the patch to redo. Wheel still zooms; pan with the right button or after Done.';
   const clearRegion = button('Clear region', () => { d.setRegion(null); });
@@ -1082,10 +1085,13 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     hooks.brush.stop();
     if (blobs.length) d.setRegion(blobs);
   };
+  const repairLabel = el('label', undefined, 'Plot only');
+  repairLabel.title = 'Narrows what Plot, Frame and Marks run and what the preview keeps in ink. Studio state, not the sketch: exports still draw the whole selection.';
   const repairBox = el('div', 'repair',
-    el('div', 'row', el('label', undefined, 'Plot only'), slider.root),
-    el('div', 'row', fromIn, el('span', 'repair-dash', 'to'), toIn, el('span', undefined, 'min'), clearRepair),
-    el('div', 'row', paintBtn, el('span', 'repair-dash', 'radius'), radiusIn, el('span', undefined, 'mm'), clearRegion),
+    el('div', 'row', repairLabel, slider.root),
+    el('div', 'row', fromIn, el('span', 'repair-dash', 'to'), toIn, el('span', 'repair-dash', 'min')),
+    el('div', 'row', paintBtn, radiusIn, el('span', 'repair-dash', 'mm')),
+    el('div', 'row grid2', clearRepair, clearRegion),
     repairText,
   );
   const showRepair = (): void => {
@@ -1100,8 +1106,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       fromIn.value = '0';
       toIn.value = fmtMinutes(total);
       repairText.textContent = d.region && idx
-        ? `Plotting ${idx.length.toLocaleString()} chains under the painted region${region}. Exports still draw the whole selection.`
-        : total > 0 ? `Whole plan: ${fmtMinutes(total)} min. Drag the handles for an interval, or paint a region — a dried pen, a faint patch.` : '';
+        ? `${idx.length.toLocaleString()} chains under the region${region}`
+        : total > 0 ? `Whole plan · ${fmtMinutes(total)} min` : '';
       repairBox.classList.toggle('active', !!d.region);
       return;
     }
@@ -1109,7 +1115,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     slider.set(Math.min(a, total), Math.min(b, total));
     fromIn.value = fmtMinutes(a);
     toIn.value = fmtMinutes(b);
-    repairText.textContent = `Plotting ${(idx?.length ?? info.count).toLocaleString()} chains, rows ${info.fromChain}–${info.toChain} of the plan, ${fmtMinutes(a)}–${fmtMinutes(Math.min(b, total))} of ${fmtMinutes(total)} min${region}. Exports still draw the whole selection.`;
+    repairText.textContent = `${(idx?.length ?? info.count).toLocaleString()} chains · rows ${info.fromChain}–${info.toChain} · ${fmtMinutes(a)}–${fmtMinutes(Math.min(b, total))} of ${fmtMinutes(total)} min${region}`;
+    repairText.title = 'Exports still draw the whole selection.';
     repairBox.classList.add('active');
   };
   d.onRepairChange(() => { showRepair(); hooks.onSelectionView(); });

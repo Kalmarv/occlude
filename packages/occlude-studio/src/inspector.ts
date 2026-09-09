@@ -255,7 +255,8 @@ export class Inspector {
     }
     this.head.innerHTML = `<b>${mat.name}</b> · ${mat.n} points · ${mat.edges.length / 2} edges · iteration ${mat.iteration}` +
       `<button class="inspector-close" title="Clear the selection">×</button>` +
-      `<div class="sub">rows are indices in this state, in material coordinates before drawing transforms${this.status ? ' · ' + this.status : ''}</div>`;
+      (this.status ? `<div class="sub">${this.status}</div>` : '');
+    this.head.title = 'Rows are indices in this state, in material coordinates before drawing transforms';
     (this.head.querySelector('.inspector-close') as HTMLButtonElement).onclick = () => this.choose(null);
     this.renderSelected();
     this.renderTable();
