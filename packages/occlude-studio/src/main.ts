@@ -18,7 +18,7 @@ import { UiPanel } from './uiPanel.js';
 
 declare const __BUILD_STAMP__: string;
 import { parseSeed, encodeToolpath, scanUiControls, type EstimateOpts, type PenDef, type PenTiming } from 'occlude';
-import { RenderClient, type WorkerError } from './workerClient.js';
+import { type RenderDraws, RenderClient, type WorkerError } from './workerClient.js';
 import { Drawing, machineTiming, machineTolerance, penTimingOf } from './drawing.js';
 import { loadResult } from './resultsApi.js';
 import type { RenderResult } from 'occlude';
@@ -145,6 +145,7 @@ async function boot(): Promise<void> {
   let seedUsed: string | null = null; // what the worker actually rendered with
 
   let lastOverrides: { hit: string[]; dropped: string[] } = { hit: [], dropped: [] };
+  let lastDraws: RenderDraws | null = null;
   function renderSeedControls(used: string): void {
     statusSeed.innerHTML = '';
     const label = document.createElement('span');
@@ -251,6 +252,7 @@ async function boot(): Promise<void> {
           debugGhost: preview.debug.occluded,
           inspect: inspector.enabled,
           seed,
+          draws: true, // the run's draws, for Freeze
         },
       });
     } catch (err) {
@@ -308,6 +310,7 @@ async function boot(): Promise<void> {
     if (latest) inspector.onRender(reply);
     seedUsed = reply.seedUsed;
     lastOverrides = reply.overrides;
+    lastDraws = reply.draws ?? null;
     renderSeedControls(reply.seedUsed);
   }
 
@@ -359,6 +362,7 @@ async function boot(): Promise<void> {
     currentSeed: () => seedUsed,
     getSource: () => editor.getValue(),
     replaceSource: (source) => editor.replaceValue(source),
+    lastDraws: () => lastDraws,
     openSketch: (name, source) => {
       sketchName = name;
       saveSketchName(name);

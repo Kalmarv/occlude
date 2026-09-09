@@ -73,6 +73,9 @@ const isIdentChar = (c: string): boolean => /[A-Za-z0-9_$]/.test(c);
 export interface DrawSite {
   id: string;
   text: string;
+  /** Offsets of the call in the input, so a freeze can write over it. */
+  start: number;
+  end: number;
 }
 
 /**
@@ -88,12 +91,13 @@ export interface DrawSite {
 export function tagDraws(js: string, hook = DRAW_HOOK): { js: string; sites: DrawSite[] } {
   const sites: DrawSite[] = [];
   const seen = new Map<string, number>();
-  return { js: tagWithin(js, hook, sites, seen), sites };
+  return { js: tagWithin(js, hook, sites, seen, 0), sites };
 }
 
 /** One pass over `js`; a wrapped call's arguments are passed through again
- * so a draw nested in another's arguments gets its own site. */
-function tagWithin(js: string, hook: string, sites: DrawSite[], seen: Map<string, number>): string {
+ * so a draw nested in another's arguments gets its own site. `base` is
+ * where this text sits in the whole, for the sites' offsets. */
+function tagWithin(js: string, hook: string, sites: DrawSite[], seen: Map<string, number>, base: number): string {
   const out: string[] = [];
   const n = js.length;
   let i = 0;
@@ -202,8 +206,8 @@ function tagWithin(js: string, hook: string, sites: DrawSite[], seen: Map<string
           const nth = seen.get(text) ?? 0;
           seen.set(text, nth + 1);
           const id = siteId(nth === 0 ? text : `${text}#${nth}`);
-          sites.push({ id, text });
-          const args = tagWithin(js.slice(k + 1, end - 1), hook, sites, seen);
+          sites.push({ id, text, start: base + start, end: base + end });
+          const args = tagWithin(js.slice(k + 1, end - 1), hook, sites, seen, base + k + 1);
           out.push(js.slice(last, start), `${hook}(${JSON.stringify(id)}, () => ${js.slice(start, k + 1)}${args}))`);
           last = end;
           i = end;

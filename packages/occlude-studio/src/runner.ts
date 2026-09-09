@@ -99,8 +99,9 @@ export function currentOverrides(): { hit: string[]; dropped: string[] } {
   return { hit: r.hit, dropped: r.dropped };
 }
 
-/** The run's addressed draws as flat arrays, for transfer. */
-export function currentDraws(): { addrs: string[]; f: Float64Array } {
+/** The run's addressed draws as flat arrays, for transfer: address, unit
+ * float, and what the call made of it (a number, an index, a boolean). */
+export function currentDraws(): { addrs: string[]; f: Float64Array; values: (number | boolean | null)[] } {
   const log = occlude.getDrawLog();
-  return { addrs: log.map((d) => d.addr), f: Float64Array.from(log.map((d) => d.f)) };
+  return { addrs: log.map((d) => d.addr), f: Float64Array.from(log.map((d) => d.f)), values: log.map((d) => d.value ?? null) };
 }

@@ -19,6 +19,7 @@ describe('tagDraws', () => {
     const { js, sites } = tagDraws(src);
     expect(sites.map((s) => s.text)).toEqual(['t.rnd(10, 100)', 'legs.rnd(0, a)', 'rnd()', 't.pick([1, 2])', 't.chance(0.5)']);
     for (const s of sites) expect(js).toContain(`__occlude_draw("${s.id}", () => ${s.text})`);
+    for (const s of sites) expect(src.slice(s.start, s.end)).toBe(s.text); // offsets point at the call in the input
     expect(new Set(sites.map((s) => s.id)).size).toBe(5);
   });
 
@@ -37,6 +38,8 @@ describe('tagDraws', () => {
     expect(sites.map((s) => s.text).sort()).toEqual(['rnd(1)', 't.rnd(rnd(1), 2)'].sort()); // the nested draw gets its own site
     expect(js).toContain('__occlude_draw("');
     expect(js.match(/__occlude_draw\(/g)).toHaveLength(2);
+    const inner = sites.find((s) => s.text === 'rnd(1)')!;
+    expect(src.slice(inner.start, inner.end)).toBe('rnd(1)'); // a nested site's offsets are absolute too
     expect(js).toContain('function rnd(a) { return a; }');
     expect(js).toContain(`t.stream('a').rnd(1, 2)`);
     expect(js).toContain('"t.rnd(3, 4)"');
@@ -59,6 +62,7 @@ describe('addressed draws at run time', () => {
     const plain = run('7', body);
     const log = getDrawLog();
     expect(log.map((d) => d.addr)).toEqual(['s1:0', 's2:0', 's2:1']);
+    expect(log[0].value).toBe(plain[0]); // what the call made of its float
     expect(getOverrideReport()).toEqual({ overrides: {}, hit: [], dropped: [] });
     const evolved = run('7~s2.1=0.5', body);
     expect(evolved[0]).toBe(plain[0]);
@@ -66,7 +70,7 @@ describe('addressed draws at run time', () => {
     expect(evolved[2]).toBe(55); // 10 + 0.5 * 90
     expect(evolved[3]).toBe(plain[3]); // the stream still advanced past the override
     expect(getOverrideReport()).toEqual({ overrides: { 's2:1': 0.5 }, hit: ['s2:1'], dropped: [] });
-    expect(getDrawLog()[2]).toEqual({ addr: 's2:1', f: 0.5 });
+    expect(getDrawLog()[2]).toEqual({ addr: 's2:1', f: 0.5, value: 55 });
   });
 
   it('a stale address is reported dropped; named streams address on their own', () => {
@@ -81,5 +85,6 @@ describe('addressed draws at run time', () => {
     const v = run('3~a.1=0.99,b.0=0.01', body);
     expect(v[1]).toBe(3); // pick index floor(0.99 * 4)
     expect(v[2]).toBe(1); // 0.01 < 0.5
+    expect(getDrawLog().map((d) => d.value)).toEqual([expect.any(Number), 3, true]);
   });
 });

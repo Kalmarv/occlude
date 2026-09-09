@@ -71,7 +71,18 @@ export interface State {
   siteStack: string[];
   siteCounts: Map<string, number>;
   overrideHits: Set<string>;
-  drawLog: { addr: string; f: number }[];
+  drawLog: DrawEntry[];
+  /** The entry the draw in progress logged, for its caller to complete. */
+  lastDraw: DrawEntry | null;
+}
+
+/** One addressed draw: its address, the unit float it returned, and what
+ * the call made of it — a number from `rnd`, an index from `pick`, a
+ * boolean from `chance`/`prob` — so a frozen sketch can write it back. */
+export interface DrawEntry {
+  addr: string;
+  f: number;
+  value?: number | boolean;
 }
 
 let state: State | null = null;
@@ -205,6 +216,7 @@ function freshState(opts: SketchOptions = {}): State {
     siteCounts: new Map(),
     overrideHits: new Set(),
     drawLog: [],
+    lastDraw: null,
     probes: new Map(),
     inspections: new Map(),
     planOptions: null,
@@ -437,6 +449,7 @@ export function clip(
 function unitDraw(rng: Rng, s: State): number {
   const f = rng.float();
   const site = s.siteStack[s.siteStack.length - 1];
+  s.lastDraw = null;
   if (site === undefined) return f;
   const k = s.siteCounts.get(site) ?? 0;
   s.siteCounts.set(site, k + 1);
@@ -444,8 +457,15 @@ function unitDraw(rng: Rng, s: State): number {
   const o = s.overrides[addr];
   if (o !== undefined) s.overrideHits.add(addr);
   const v = o ?? f;
-  s.drawLog.push({ addr, f: v });
+  const entry: DrawEntry = { addr, f: v };
+  s.drawLog.push(entry);
+  s.lastDraw = entry;
   return v;
+}
+
+/** Record what a draw's caller made of the unit float. */
+function madeOf(s: State, value: number | boolean): void {
+  if (s.lastDraw) s.lastDraw.value = value;
 }
 
 /** The tagged code's hook: run `fn` with `site` on the draw stack. */
@@ -461,8 +481,8 @@ export function drawAt<T>(site: string, fn: () => T): T {
 
 /** Every addressed draw of the current run, in order: the material an
  * evolution grid mutates. */
-export function getDrawLog(): { addr: string; f: number }[] {
-  return state ? state.drawLog.slice() : [];
+export function getDrawLog(): DrawEntry[] {
+  return state ? state.drawLog.map((d) => ({ ...d })) : [];
 }
 
 /** The seed's overrides and which of them a draw actually used; the rest
@@ -483,19 +503,23 @@ export function rnd(a: number, b: number): number;
 export function rnd(a?: number, b?: number): number {
   const s = getState();
   const f = unitDraw(s.rng, s);
-  if (a === undefined) return f;
-  if (b === undefined) return f * a;
-  return a + f * (b - a);
+  const v = a === undefined ? f : b === undefined ? f * a : a + f * (b - a);
+  madeOf(s, v);
+  return v;
 }
 
 export function pick<T>(arr: readonly T[]): T {
   const s = getState();
-  return arr[Math.floor(unitDraw(s.rng, s) * arr.length)];
+  const i = Math.floor(unitDraw(s.rng, s) * arr.length);
+  madeOf(s, i);
+  return arr[i];
 }
 
 export function chance(p: number): boolean {
   const s = getState();
-  return unitDraw(s.rng, s) < p;
+  const v = unitDraw(s.rng, s) < p;
+  madeOf(s, v);
+  return v;
 }
 
 export function prob<T>(p: number, fn: () => T, elseFn?: () => T): T | undefined {
@@ -527,15 +551,20 @@ export function stream(name: string): RandomStream {
   const rng = new Rng(`${s.seedUsed}:stream:${name}`);
   const rnd = (a?: number, b?: number): number => {
     const f = unitDraw(rng, s);
-    if (a === undefined) return f;
-    if (b === undefined) return f * a;
-    return a + f * (b - a);
+    const v = a === undefined ? f : b === undefined ? f * a : a + f * (b - a);
+    madeOf(s, v);
+    return v;
+  };
+  const chanceOf = (p: number): boolean => {
+    const v = unitDraw(rng, s) < p;
+    madeOf(s, v);
+    return v;
   };
   return {
     rnd: rnd as RandomStream['rnd'],
-    pick: <T>(arr: readonly T[]): T => arr[Math.floor(unitDraw(rng, s) * arr.length)],
-    chance: (p) => unitDraw(rng, s) < p,
-    prob: (p, fn, elseFn) => (unitDraw(rng, s) < p ? fn() : elseFn?.()),
+    pick: <T>(arr: readonly T[]): T => { const i = Math.floor(unitDraw(rng, s) * arr.length); madeOf(s, i); return arr[i]; },
+    chance: chanceOf,
+    prob: (p, fn, elseFn) => (chanceOf(p) ? fn() : elseFn?.()),
     noise: (x, y = 0, z = 0) => rng.noise(x, y, z),
   };
 }

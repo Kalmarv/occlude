@@ -10,6 +10,13 @@
 import { decodeRender, pensToJson, type DrawRequest, type EncodedScene, type InspectionEntry, type InspectionPayload, type PenDef, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
 import type { RunConfig } from './runner.js';
 
+/** A run's addressed draws: address, unit float, and what the call made of it. */
+export interface RenderDraws {
+  addrs: string[];
+  f: Float64Array;
+  values: (number | boolean | null)[];
+}
+
 export interface RenderRequest {
   js: string;
   cfg: RunConfig;
@@ -24,7 +31,7 @@ export interface RenderReply {
   /** Overrides the run used, and those naming addresses the source no longer has. */
   overrides: { hit: string[]; dropped: string[] };
   /** The run's addressed draws, when asked for (`cfg.draws`). */
-  draws?: { addrs: string[]; f: Float64Array };
+  draws?: RenderDraws;
   /** `t.probe()` readouts from this run. */
   probes: Record<string, ProbeSummary>;
   /** The ordered plan of this render: exact bytes, settings, identity. */
@@ -210,7 +217,7 @@ export class RenderClient {
             paper: EncodedScene['paper'];
             seedUsed: string;
             overrides?: { hit: string[]; dropped: string[] };
-            draws?: { addrs: string[]; f: Float64Array };
+            draws?: RenderDraws;
             probes: Record<string, ProbeSummary>;
             plan: Float64Array;
             planSettings: PlanSettings;
