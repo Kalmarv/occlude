@@ -183,7 +183,35 @@ export function thumbFromCanvas(canvas: HTMLCanvasElement, width = 360): Promise
 export function openInStudio(name: string, source: string, seed?: string | number | null): void {
   localStorage.setItem('occlude.sketch', source);
   localStorage.setItem('occlude.sketchName', name);
-  location.href = seed !== undefined && seed !== null ? `/?seed=${encodeURIComponent(String(seed))}` : '/';
+  location.href = withSeed('/', seed ?? null);
+}
+
+/**
+ * Where a seed rides in a URL. A plain seed is a query parameter, as it
+ * always was. A seed with overrides can run to tens of kilobytes (one entry
+ * per pinned draw), past what a server accepts in a request line — so it
+ * rides in the fragment, which never leaves the browser. Readers accept
+ * both.
+ */
+const SEED_IN_QUERY_MAX = 200;
+export function withSeed(href: string, seed: string | number | null): string {
+  const u = new URL(href, location.origin);
+  u.searchParams.delete('seed');
+  u.hash = '';
+  if (seed === null || seed === undefined) return u.pathname + u.search;
+  const str = String(seed);
+  if (str.length <= SEED_IN_QUERY_MAX) u.searchParams.set('seed', str);
+  else u.hash = `seed=${encodeURIComponent(str)}`;
+  return u.pathname + u.search + u.hash;
+}
+
+/** The seed a URL carries, from the query or the fragment. */
+export function seedOf(href: string): string | null {
+  const u = new URL(href, location.origin);
+  const q = u.searchParams.get('seed');
+  if (q !== null && q !== '') return q;
+  const h = new URLSearchParams(u.hash.replace(/^#/, '')).get('seed');
+  return h !== null && h !== '' ? h : null;
 }
 
 /** A source reference the Evolve page can render: the head, a snapshot, or a version. */
@@ -207,8 +235,7 @@ export function evolveUrl(ref: SourceRef, seed: string | number | null | undefin
   const u = new URLSearchParams({ sketch: ref.name });
   if (ref.snap) u.set('snap', ref.snap);
   if (ref.sha) u.set('at', ref.sha);
-  if (seed !== null && seed !== undefined) u.set('seed', String(seed));
-  return `/evolve.html?${u.toString()}`;
+  return withSeed(`/evolve.html?${u.toString()}`, seed ?? null);
 }
 
 /** Type-stripped JS of a source that is not on the server (an unsaved buffer). */

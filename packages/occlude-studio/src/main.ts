@@ -10,7 +10,7 @@ import {
   loadUi, saveSketch, saveSketchName, saveUi,
 } from './store.js';
 import { listFills, loadFill, saveFill } from './fillApi.js';
-import { stashLive,
+import { seedOf, stashLive, withSeed,
   createSnapshot, forkSketch, loadSketchByName, putThumb, thumbFromCanvas,
 } from './sketchApi.js';
 import { customFillNames, embedFills, importSketchWithFills } from './fillEmbed.js';
@@ -138,7 +138,7 @@ async function boot(): Promise<void> {
   // Seed ownership lives HERE now: the worker has no ?seed= in its URL and
   // its session seed dies on watchdog respawn, so the main thread passes the
   // seed explicitly and captures whatever the worker actually used.
-  let seed: string | null = new URL(location.href).searchParams.get('seed');
+  let seed: string | null = seedOf(location.href);
   /** A saved result opened frozen: the source is NOT executed; the plan
    * comes from the saved bytes and every consumer reads that. */
   const frozenId: string | null = new URL(location.href).searchParams.get('result');
@@ -169,18 +169,14 @@ async function boot(): Promise<void> {
     reroll.title = 'New random seed';
     reroll.onclick = () => {
       seed = String(Math.floor(Math.random() * 2 ** 31));
-      const url = new URL(location.href);
-      url.searchParams.set('seed', seed);
-      history.replaceState(null, '', url);
+      history.replaceState(null, '', withSeed(location.href, seed));
       void run();
     };
     const share = document.createElement('button');
     share.textContent = 'copy url';
     share.title = 'Copy a shareable URL with this seed';
     share.onclick = () => {
-      const url = new URL(location.href);
-      url.searchParams.set('seed', used);
-      void navigator.clipboard.writeText(url.toString());
+      void navigator.clipboard.writeText(new URL(withSeed(location.href, used), location.origin).toString());
     };
     statusSeed.append(label, reroll, share);
   }
@@ -469,8 +465,7 @@ async function boot(): Promise<void> {
     stashLive({ name: sketchName.trim(), source: editor.getValue() });
     const u = new URLSearchParams({ live: '1' });
     if (sketchName.trim()) u.set('sketch', sketchName.trim());
-    if (seedUsed !== null) u.set('seed', seedUsed);
-    location.href = `/evolve.html?${u.toString()}`;
+    location.href = withSeed(`/evolve.html?${u.toString()}`, seedUsed);
   };
   ($('btn-fork') as HTMLButtonElement).onclick = async () => {
     try {

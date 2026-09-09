@@ -16,7 +16,7 @@ import { Preview } from './preview.js';
 import { RenderClient } from './workerClient.js';
 import { loadPens, loadSettings } from './store.js';
 import {
-  createSnapshot, forkSketch, forkSnapshot, loadSketchByName, loadSketchJs, loadSnapshot, openInStudio, putThumb, saveSketchByName, takeLive, thumbFromCanvas, transpileSource,
+  createSnapshot, forkSketch, forkSnapshot, loadSketchByName, loadSketchJs, loadSnapshot, openInStudio, putThumb, saveSketchByName, seedOf, takeLive, thumbFromCanvas, transpileSource,
   type SourceRef,
 } from './sketchApi.js';
 import { button, el, hint } from './widgets.js';
@@ -42,7 +42,7 @@ async function boot(): Promise<void> {
   // ESM→CJS rewrite the docs examples and the snapshot gallery use.
   const js = liveExampleToJs(live ? await transpileSource(live.source) : await loadSketchJs(ref));
   const startMeta = ref.snap ? (await loadSnapshot(name, ref.snap)).meta : null;
-  const seedParam = params.get('seed');
+  const seedParam = seedOf(location.href);
   const parsed = parseSeed(seedParam ?? (startMeta?.seed != null ? formatSeed(String(startMeta.seed), startMeta.overrides ?? {}) : String(Math.floor(Math.random() * 2 ** 31))));
   title.textContent = live ? `${name || 'untitled'} · unsaved` : `${name}${ref.snap ? ` · snapshot ${ref.snap}` : ref.sha ? ` @ ${ref.sha}` : ''}`;
 
