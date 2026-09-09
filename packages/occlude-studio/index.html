@@ -53,14 +53,6 @@
              title="Drag to resize the editor"></div>
         <section id="bench">
           <canvas id="preview"></canvas>
-          <section id="inspector-pane" hidden>
-            <div class="inspector-head" id="inspector-head"></div>
-            <div class="inspector-selected" id="inspector-selected"></div>
-            <div class="inspector-table-wrap">
-              <table class="inspector-table" id="inspector-table"></table>
-            </div>
-            <div class="inspector-pager" id="inspector-pager"></div>
-          </section>
           <div id="bench-hud">
             <button id="btn-plot" title="Simulate the plot on screen — tour order at real feed rates">▶ Simulate</button>
             <select id="plot-speed" title="Plot speed multiplier">
@@ -76,25 +68,6 @@
                 <label><input type="checkbox" id="dbg-occluded" /> occluded</label>
                 <label><input type="checkbox" id="dbg-bridges" /> bridges</label>
                 <label><input type="checkbox" id="dbg-cuts" /> cuts</label>
-                <div class="hud-menu-group" id="dbg-material">
-                  <label><input type="checkbox" id="dbg-inspect" /> geometry</label>
-                  <div id="dbg-material-body" hidden>
-                    <select id="dbg-material-name" title="Captured geometry and fields"></select>
-                    <div class="hud-counts" id="dbg-material-counts"></div>
-                    <label><input type="checkbox" id="dbg-material-points" checked /> points</label>
-                    <label><input type="checkbox" id="dbg-material-edges" checked /> edges</label>
-                    <div class="hud-row">
-                      <select id="dbg-material-domain" title="Which rows the colour reads">
-                        <option value="points">point columns</option>
-                        <option value="edges">edge columns</option>
-                      </select>
-                      <select id="dbg-material-attr" title="The column to colour by"></select>
-                    </div>
-                    <div class="hud-legend" id="dbg-material-legend"></div>
-                    <div class="hud-hint">Geometry at the captured step.</div>
-                  </div>
-                  <div class="hud-hint" id="dbg-material-hint" hidden></div>
-                </div>
               </div>
             </details>
           </div>

@@ -14,7 +14,7 @@ import {
 import { loadSketchByName, saveSketchByName } from './sketchApi.js';
 import {
   DEFAULT_SKETCH, NEW_SKETCH, PAPER_COLORS,
-  download, loadUi, savePens, saveProfiles, saveSettings, saveUi,
+  download, savePens, saveProfiles, saveSettings, saveUi, type RailMode, type UiPrefs,
   type MachineProfile, type Settings,
 } from './store.js';
 import { serialSupported, type PlotProgress } from './ebb.js';
@@ -42,6 +42,8 @@ import { confirmDialog, notify } from './wa.js';
 import { button, checkbox, el, hint, numberInput, pairInput, row, segmented } from './widgets.js';
 
 export interface PanelHooks {
+  /** The page's UI preferences — one object, shared with the host. */
+  ui: UiPrefs;
   pens: PenDef[];
   settings: Settings;
   /** Server-shared machine profiles; settings.activeProfile picks one. */
@@ -94,6 +96,10 @@ export interface PanelHooks {
 export interface Rail {
   refreshExport(): void;
   refreshSketches(): void;
+  /** The Inspect tab's content root; the inspector fills it. */
+  inspectRoot: HTMLElement;
+  setMode(mode: RailMode): void;
+  onMode(fn: (mode: RailMode) => void): void;
   /** Save the current sketch under its name (Ctrl+S path). Resolves with the
    * saved name, or null when there is no name yet. */
   saveCurrent(): Promise<string | null>;
@@ -108,25 +114,31 @@ export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
   rail.innerHTML = '';
   // Two modes, two rhythms: composing the drawing (every minute) and running
   // the machine (every plot). Each fits one screen; the switch is remembered.
-  const ui = loadUi();
+  const ui = hooks.ui;
   const compose = el('div', 'rail-mode compose');
   const plot = el('div', 'rail-mode plot');
-  const setMode = (mode: 'compose' | 'plot'): void => {
+  const inspect = el('div', 'rail-mode inspect');
+  const modeListeners: ((mode: RailMode) => void)[] = [];
+  const setMode = (mode: RailMode): void => {
     compose.hidden = mode !== 'compose';
     plot.hidden = mode !== 'plot';
+    inspect.hidden = mode !== 'inspect';
     rail.dataset.mode = mode;
     ui.railMode = mode;
     saveUi(ui);
+    modes.set(mode);
+    for (const fn of modeListeners) fn(mode);
   };
   const modes = segmented(
     [
       { key: 'compose' as const, label: 'Compose', title: 'Sketch, paper, pens, export' },
       { key: 'plot' as const, label: 'Plot', title: 'Connect, position, plot' },
+      { key: 'inspect' as const, label: 'Inspect', title: 'Captured geometry and fields of the last run' },
     ],
     ui.railMode,
     setMode,
   );
-  rail.append(modes.root, compose, plot);
+  rail.append(modes.root, compose, plot, inspect);
 
   const sketchesPanel = panel('Sketch', true);
   const paperPanel = panel('Paper', true);
@@ -148,6 +160,9 @@ export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
   return {
     refreshExport,
     refreshSketches: sketches.refresh,
+    inspectRoot: inspect,
+    setMode,
+    onMode: (fn) => { modeListeners.push(fn); },
     saveCurrent: sketches.save,
   };
 }

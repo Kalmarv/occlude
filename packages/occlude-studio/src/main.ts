@@ -85,8 +85,8 @@ async function boot(): Promise<void> {
   // The material inspector: its registry is made by the run, so flipping it
   // reruns the sketch (like the occlusion ghost); everything after that is
   // a repaint or one payload request.
-  const inspector = new Inspector(preview, client, () => void run());
-  editor.onInspectGeometry(request => inspector.openGeometry(request));
+  let inspector!: Inspector;
+  editor.onInspectGeometry((request) => { rail.setMode('inspect'); inspector.openGeometry(request); });
   let lastResult: RenderResult | null = null;
   const activeProfile = () => profiles.find((p) => p.name === settings.activeProfile) ?? profiles[0];
   /** A frozen result runs under the settings it was SAVED with — its pens'
@@ -355,7 +355,9 @@ async function boot(): Promise<void> {
     controls: () => scanUiControls(editor.getValue()),
   };
 
+  const ui = loadUi();
   const rail = buildRail($('rail'), {
+    ui,
     pens,
     profiles,
     settings,
@@ -445,6 +447,12 @@ async function boot(): Promise<void> {
       show: (blobs) => { preview.regionBlobs = blobs; preview.draw(); },
     },
   });
+  // The inspector fills the rail's Inspect tab: opening the tab captures
+  // (a rerun with instrumentation), leaving it drops the registry.
+  inspector = new Inspector(preview, client, () => void run(), rail.inspectRoot);
+  rail.onMode((mode) => { inspector.setActive(mode === 'inspect'); applyUi(); });
+  // Reopened on the Inspect tab: the boot run below captures; no extra run.
+  if (ui.railMode === 'inspect') inspector.setActive(true, false);
 
   drawing.onChange(() => {
     showSelection();
@@ -536,9 +544,9 @@ async function boot(): Promise<void> {
   );
 
   // ---- layout: resizable editor + collapsible rail ----
-  const ui = loadUi();
   const workbench = $('workbench');
   const railBtn = $('btn-rail') as HTMLButtonElement;
+  const INSPECT_RAIL_W = 440;
   const applyUi = (): void => {
     if (ui.editorW !== null) {
       workbench.style.setProperty('--editor-w', `${ui.editorW}px`);
@@ -547,8 +555,10 @@ async function boot(): Promise<void> {
     }
     // Inline style would beat .rail-collapsed's `--rail-w: 0` — only pin
     // the custom width while the rail is open (grey-column regression).
-    if (ui.railW !== null && ui.railOpen) {
-      workbench.style.setProperty('--rail-w', `${ui.railW}px`);
+    // The Inspect tab has its own width: tables and heatmaps want room.
+    const railW = ui.railMode === 'inspect' ? ui.inspectW ?? INSPECT_RAIL_W : ui.railW;
+    if (railW !== null && ui.railOpen) {
+      workbench.style.setProperty('--rail-w', `${railW}px`);
     } else {
       workbench.style.removeProperty('--rail-w');
     }
@@ -604,10 +614,11 @@ async function boot(): Promise<void> {
     $('rail-resizer'),
     (ev) => {
       const max = Math.max(320, window.innerWidth * 0.5);
-      ui.railW = Math.min(max, Math.max(220, window.innerWidth - ev.clientX));
+      const w = Math.min(max, Math.max(220, window.innerWidth - ev.clientX));
+      if (ui.railMode === 'inspect') ui.inspectW = w; else ui.railW = w;
     },
     () => {
-      ui.railW = null;
+      if (ui.railMode === 'inspect') ui.inspectW = null; else ui.railW = null;
     },
   );
 

@@ -7,6 +7,9 @@ import {
 } from './geometryPreview.js';
 import type { Frame, Prim } from 'occlude';
 
+/** A design token's current value, for canvas painting. */
+export const cssVar = (name: string): string => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#888';
+
 const readable = (value: unknown): string =>
   JSON.stringify(value, (_key, v) =>
     typeof v === 'number' && Number.isFinite(v) ? Number(v.toPrecision(6)) : v,
@@ -141,7 +144,7 @@ export class GeometryPreviewPanel {
       button,
       error,
     );
-    this.content.textContent = `${entry.kind === 'vector' ? 'Vector magnitude heatmap with arrows' : 'Scalar heatmap'}. Cell-centre samples in sketch coordinates. The graph’s y axis increases upward. Resolution and bounds changes update the grid.`;
+    this.content.textContent = `${entry.kind === 'vector' ? 'Vector magnitude with direction arrows' : 'Scalar values'}, sampled at cell centres in sketch coordinates, y up. Edit the bounds or resolution to re-sample.`;
   }
   show(data: GeometryPreview): void {
     this.data = data;
@@ -152,24 +155,27 @@ export class GeometryPreviewPanel {
       return;
     }
     const note = document.createElement('p');
-    note.textContent = data.note;
+    note.className = 'inspect-hint';
+    note.textContent = data.kind === 'native' && data.renderedTruncated ? `${data.note} Post-modifier ink was cut at the fragment limit.` : data.note;
     this.content.append(note);
     if (data.kind === 'native') {
       this.nativeSelected = null;
       this.rendered = data.renderedContours !== undefined;
       const modes = document.createElement('div');
-      modes.className = 'geometry-mode-toggle';
+      modes.className = 'segmented';
       const pre = document.createElement('button'),
         post = document.createElement('button');
       pre.textContent = 'Pre-modifier';
+      pre.title = 'The native geometry with its enclosing placement, before modifiers';
       post.textContent = 'Post-modifier';
       post.disabled = data.renderedContours === undefined;
-      post.title =
-        'Actual visible ink, including clipping, fills and occlusion';
+      post.title = data.renderedTruncated
+        ? 'Visible ink, cut at the fragment limit — the overlay is partial'
+        : 'The actual visible ink, including clipping, fills and occlusion';
       const setMode = (rendered: boolean) => {
         this.rendered = rendered;
-        pre.setAttribute('aria-pressed', String(!rendered));
-        post.setAttribute('aria-pressed', String(rendered));
+        pre.classList.toggle('active', !rendered);
+        post.classList.toggle('active', rendered);
         this.onChange();
       };
       pre.onclick = () => setMode(false);
@@ -379,8 +385,9 @@ export class GeometryPreviewPanel {
       top = 12,
       size = 280,
       cell = size / n;
+    const ground = cssVar('--control'), check1 = cssVar('--edge-strong'), check2 = cssVar('--raised'), text = cssVar('--muted');
     const grid = () => {
-      ctx.fillStyle = '#20242a';
+      ctx.fillStyle = ground;
       ctx.fillRect(0, 0, 360, 330);
       for (let y = 0; y < n; y++)
         for (let x = 0; x < n; x++) {
@@ -388,8 +395,8 @@ export class GeometryPreviewPanel {
           ctx.fillStyle = Number.isFinite(value)
             ? fieldColor(value, data.min, data.max, data.vector)
             : (x + y) % 2
-              ? '#666b74'
-              : '#383d45';
+              ? check1
+              : check2;
           ctx.fillRect(
             left + x * cell,
             top + (n - y - 1) * cell,
@@ -425,8 +432,8 @@ export class GeometryPreviewPanel {
             ctx.stroke();
           }
       }
-      ctx.fillStyle = '#c9ced5';
-      ctx.font = '11px monospace';
+      ctx.fillStyle = text;
+      ctx.font = `11px ${cssVar('--mono')}`;
       ctx.textAlign = 'left';
       ctx.fillText(fmt(b.xMin), left, top + size + 17);
       ctx.textAlign = 'right';
@@ -453,7 +460,7 @@ export class GeometryPreviewPanel {
         py = b.yMin + ((y + 0.5) / n) * (b.yMax - b.yMin);
       output.textContent = `x ${fmt(px)} · y ${fmt(py)} · ${data.vector ? `vector (${fmt(data.u![i])}, ${fmt(data.v![i])}) · magnitude ` : 'value '}${fmt(data.values[i])}`;
       grid();
-      ctx.strokeStyle = '#fff';
+      ctx.strokeStyle = cssVar('--ink');
       ctx.lineWidth = 1.5;
       ctx.strokeRect(left + x * cell, top + (n - y - 1) * cell, cell, cell);
     };
@@ -505,7 +512,10 @@ export class GeometryPreviewPanel {
       lg.fillRect(i, 0, 1, 12);
     }
     const caption = document.createElement('p');
-    caption.textContent = `${fmt(lo)} ${diverging ? '← 0 →' : '→'} ${fmt(hi)} · sampled min ${data.min === null ? 'none' : fmt(data.min)} / max ${data.max === null ? 'none' : fmt(data.max)}. ${data.invalid} unavailable (checkerboard), ${data.errors} errors. ${n} × ${n} cell centres; ${fmt(data.elapsedMs)} ms. Peaks between samples may be missed.${data.error ? ` First error: ${data.error}` : ''}`;
+    caption.className = 'inspect-hint';
+    caption.textContent = `${fmt(lo)} ${diverging ? '← 0 →' : '→'} ${fmt(hi)} · min ${data.min === null ? 'none' : fmt(data.min)} · max ${data.max === null ? 'none' : fmt(data.max)} · ${n} × ${n} in ${fmt(data.elapsedMs)} ms`
+      + (data.invalid ? ` · ${data.invalid} unavailable (checkerboard)` : '') + (data.errors ? ` · ${data.errors} errors` : '')
+      + (data.truncated ? ' · stopped at the time limit' : '') + (data.error ? ` · first error: ${data.error}` : '');
     if (data.min === null) {
       legend.hidden = true;
       caption.textContent = `No finite samples. ${data.invalid} unavailable (checkerboard), ${data.errors} errors.${data.error ? ` First error: ${data.error}` : ''}`;
@@ -522,8 +532,8 @@ export class GeometryPreviewPanel {
       for (let i = 0; i < data.directions.length; i += stride) {
         const d = data.directions[i];
         for (const [dx, dy, color] of [
-          [d.tx, d.ty, '#f1b478'],
-          [d.nx, d.ny, '#8dd5a8'],
+          [d.tx, d.ty, cssVar('--kind-sample')],
+          [d.nx, d.ny, cssVar('--kind-area')],
         ] as const) {
           const len = Math.hypot(dx, dy);
           if (!len) continue;
@@ -539,7 +549,7 @@ export class GeometryPreviewPanel {
       }
     }
     if (data.kind === 'native') {
-      ctx.strokeStyle = '#cfb2ff';
+      ctx.strokeStyle = cssVar('--kind-path');
       ctx.beginPath();
       const selected =
         this.nativeSelected === null ? data : data.items[this.nativeSelected];
@@ -548,8 +558,8 @@ export class GeometryPreviewPanel {
         : selected.contours;
       for (const c of contours) for (const p of c) strokePrim(ctx, p);
       ctx.stroke();
-      ctx.strokeStyle = '#c8b3e788';
-      ctx.fillStyle = '#dfcdff';
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = cssVar('--kind-path');
       ctx.lineWidth = 1 / pxPerMm;
       let handles = 0;
       for (const c of contours)
@@ -572,10 +582,11 @@ export class GeometryPreviewPanel {
                 4 / pxPerMm,
               );
           }
+      ctx.globalAlpha = 1;
     }
     if (data.kind === 'faces') {
-      ctx.fillStyle = '#91d9a744';
-      ctx.strokeStyle = '#91d9a7';
+      ctx.strokeStyle = cssVar('--kind-area');
+      ctx.fillStyle = cssVar('--kind-area');
       for (const f of data.faces) {
         ctx.beginPath();
         for (const c of f.contours) {
@@ -584,7 +595,9 @@ export class GeometryPreviewPanel {
           for (const p of c.slice(1)) ctx.lineTo(...p);
           ctx.closePath();
         }
+        ctx.globalAlpha = 0.25;
         ctx.fill('evenodd');
+        ctx.globalAlpha = 1;
         ctx.stroke();
       }
     }

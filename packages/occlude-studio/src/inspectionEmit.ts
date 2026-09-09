@@ -112,6 +112,9 @@ export function emitInspection(
       order: number;
     }[] = [],
     statements: { pos: number; text: string }[] = [];
+  // A declaration's initializer is captured under the variable's name; the
+  // call it is made of would be the same value twice in the list.
+  const initializers = new Set<ts.Node>();
   const hook = (
     start: number,
     end: number,
@@ -176,7 +179,10 @@ export function emitInspection(
           pos: statement.end,
           text: ` ${INSPECT_HOOK}(${JSON.stringify(identity.id)}, ${name.text}, ${JSON.stringify(identity.meta)});`,
         });
-    } else wrap(target.initializer, identity);
+    } else {
+      wrap(target.initializer, identity);
+      initializers.add(init);
+    }
   });
   before.params.forEach((param, i) => {
     if (!T.isIdentifier(param.name)) return;
@@ -233,6 +239,7 @@ export function emitInspection(
     const target = after.expressions[i];
     if (target.kind !== node.kind)
       throw new Error('Draw tagging changed expression order');
+    if (initializers.has(target)) return;
     // End mappings are not always emitted. The original callee/property token
     // disambiguates nested expressions sharing a start; source-map start plus
     // AST node kind and property/callee name must agree.

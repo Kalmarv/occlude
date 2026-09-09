@@ -564,14 +564,14 @@ function combinePreviews(
       items: previews.flatMap((p, i) =>
         p.items.map((item) => ({ ...item, occurrence: i + 1 })),
       ),
-      note: `${previews.length} occurrences. ${'note' in first ? first.note : ''}`,
+      note: previews[0].note,
     };
   }
   if (previews.every((p): p is FacesPreview => p.kind === 'faces'))
     return {
       kind: 'faces',
       faces: previews.flatMap((p) => p.faces),
-      note: `${previews.length} occurrences. ${'note' in first ? first.note : ''}`,
+      note: previews[0].note,
     };
   if (!previews.every((p): p is GraphPreview => p.kind === 'graph'))
     throw new Error('This capture contains incompatible geometry kinds');
@@ -640,6 +640,6 @@ function combinePreviews(
     occurrences,
     edgeOccurrences,
     directions: previews.flatMap((p) => p.directions ?? []),
-    note: `All ${previews.length} occurrences, kept as separate geometry. Source coordinates; later placements are not inferred.`,
+    note: 'Every occurrence, kept as separate geometry. Source coordinates; later placements are not inferred.',
   };
 }

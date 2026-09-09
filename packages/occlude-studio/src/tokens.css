@@ -31,6 +31,12 @@
   --warn: #e0b04a;
   --danger: #ef6b5e;
   --toolpath: #5b9dff;
+  /* Geometry kinds, shared by the editor hints and the Inspect tab. */
+  --kind-graph: #8fc9e8;
+  --kind-path: #c6aff0;
+  --kind-area: #9cd5b0;
+  --kind-sample: #edbc8b;
+  --kind-field: #dfc977;
 
   /* type */
   --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
