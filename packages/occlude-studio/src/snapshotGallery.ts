@@ -188,7 +188,8 @@ export function openGallery(opts: GalleryOpts): void {
     img.classList.toggle('thumb', !done);
     img.onerror = () => { img.hidden = true; missing.hidden = false; };
     void realRender(s);
-    const seed = s.meta.seed ?? '—';
+    const n = Object.keys(s.meta.overrides ?? {}).length;
+    const seed = s.meta.seed === null || s.meta.seed === undefined ? '—' : n ? `${s.meta.seed} +${n}` : String(s.meta.seed);
     title.textContent = s.meta.label ? `${s.name} · ${s.meta.label}` : s.name;
     const at = s.meta.at ? new Date(s.meta.at) : null;
     sub.textContent =
@@ -231,13 +232,13 @@ export function openGallery(opts: GalleryOpts): void {
     button('open in studio', 'Load this snapshot’s source and seed into the studio', async () => {
       const s = shots[i];
       const { source, meta } = await loadSnapshot(s.name, s.id);
-      openInStudio(s.name, source, meta.seed);
+      openInStudio(s.name, source, snapshotSeed(meta));
     }),
     button('fork', 'Start a new sketch from this snapshot', async () => {
       const s = shots[i];
       const made = await forkSnapshot(s.name, s.id);
       const { source, meta } = await loadSnapshot(s.name, s.id);
-      openInStudio(made, source, meta.seed);
+      openInStudio(made, source, snapshotSeed(meta));
     }),
     button('all sketches', 'Show every snapshot in the library (A)', () => toggleAll()),
   );
