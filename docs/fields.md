@@ -4,9 +4,7 @@ Seeded randomness and noise, independent streams, remapping and shaping values, 
 
 ## Inspecting a field
 
-Open this example in Studio and click the icon beside `height` or `flow`. Clicking an icon enables inspection directly. Vector fields sample automatically when opened; scalar fields offer **Sample field**. Both draw coarse XY heatmaps at cell centres: 32 × 32 by default, with 16, 64 and 128 available. The default bounds are the current sketch's drawable coordinates, including centered origins. Bounds and resolution are editable and resample automatically (bounds edits have a short typing debounce).
-
-Scalar colors show values; negative scalar values use a diverging scale centered on zero. Vector colors show magnitude and arrows show direction. The legend reports sampled minima/maxima. Checkerboard cells are unavailable or non-finite values, not zeros. Hover a cell—or focus the graph and use arrow keys—to read its sampled coordinates and value without evaluating the field again. The graph's y axis increases upward regardless of the sketch's drawing orientation.
+A field is a function, so there is nothing to draw until something reads it. The studio's Inspect tab samples one for you: pick a scalar or vector field in the list and it is evaluated at the centres of a 32 × 32 grid over the drawable (16, 64 and 128 are there too, and the bounds are editable) and drawn as a heatmap, vectors by magnitude with an arrow per cell. Negative scalars get a diverging scale about zero. A cell the field could not give a finite number for is checkered, not zero. Hover a cell, or focus the graph and use the arrow keys, to read the sampled coordinates and value. Sampling stops after a second and a half and shows what it got, so a slow field is inspectable at a coarser grid. It is a sampled view: peaks between cell centres are missed.
 
 ```ts live
 import { sketch, circle, distanceTo, vectorField } from 'occlude';
@@ -18,8 +16,6 @@ export default sketch({ aspect: 'square', seed: 42 }, t =>
   t.grid({ cols: 16, rows: 16 }).map(({ cx: x, cy: y }) => circle(x, y, 0.6 + Math.max(0, height(x, y)) / 20)),
 );
 ```
-
-Sampling happens when opening a vector inspector, changing grid settings, or clicking **Sample field**; identical requests reuse one of four cached grids. A field created repeatedly in a loop has an occurrence selector, so each captured function can be sampled. Editing or rerunning invalidates the cache. Treat fields as pure spatial functions for repeatable previews. Coarse sampling can miss peaks and discontinuities between cells; this is a sampled view, not an exact range guarantee. Cell errors are counted, and previews have a time limit so a runaway sampler can be stopped by replacing its worker.
 
 ## Randomness
 

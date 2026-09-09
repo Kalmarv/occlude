@@ -66,7 +66,11 @@ export class Inspector {
   private hover: Selection | null = null;
   private flashAt = 0;
   private flashRaf = 0;
-  private graphSourceRows: { points?: number[]; edges?: number[]; occurrences?: number[]; edgeOccurrences?: number[] } | null = null;
+  private graphSourceRows: { capture?: string; points?: number[]; edges?: number[]; pointEdges?: number[]; occurrences?: number[]; edgeOccurrences?: number[] } | null = null;
+  /** The capture the shown one was taken from (selection, faces, stations). */
+  private sourceCapture: string | null = null;
+  /** A row to select once the capture drilled into has loaded. */
+  private pendingSelect: Selection | null = null;
   /** Measured, for the report: the last payload's size and prep time. */
   lastLoad: { name: string; bytes: number; prepMs: number; roundTripMs: number } | null = null;
 
@@ -96,10 +100,12 @@ export class Inspector {
   ) {
     this.build(host);
     this.panel.onChange = () => this.repaint();
+    this.panel.onDrill = (capture, sel) => this.drillTo(capture, sel);
     this.preview.onClick = (x, y, pxPerMm) => {
-      if (!this.active || !this.model.material) return;
+      if (!this.active) return;
       // Eight screen pixels, whatever the zoom.
-      this.choose(this.model.pick(x, y, 8 / pxPerMm));
+      if (this.model.material) this.choose(this.model.pick(x, y, 8 / pxPerMm));
+      else this.panel.pick(x, y, 8 / pxPerMm);
     };
   }
 
@@ -264,6 +270,15 @@ export class Inspector {
     return this.model.names.find((e) => e.name === this.model.chosen);
   }
 
+  /** Open another capture and select one of its rows: a station's edge,
+   * a face's wall, a selection's source point. */
+  private drillTo(capture: string, sel: Selection): void {
+    if (!this.model.names.some((e) => e.name === capture)) return;
+    if (this.model.chosen === capture && this.model.material) { this.choose(sel); return; }
+    this.pendingSelect = sel;
+    this.chooseEntry(capture);
+  }
+
   private chooseEntry(name: string | null): void {
     this.model.choose(name);
     this.lastKey = this.chosenEntry() ? keyOf(this.chosenEntry()!) : null;
@@ -307,12 +322,28 @@ export class Inspector {
         if (raw.kind === 'graph') {
           const t1 = performance.now();
           const m = prepare(raw.material, executionId, toPaper);
-          this.graphSourceRows = { points: raw.sourcePoints, edges: raw.sourceEdges, occurrences: raw.occurrences, edgeOccurrences: raw.edgeOccurrences };
+          this.graphSourceRows = { capture: raw.sourceCapture, points: raw.sourcePoints, edges: raw.sourceEdges, pointEdges: raw.sourcePointEdges, occurrences: raw.occurrences, edgeOccurrences: raw.edgeOccurrences };
+          this.sourceCapture = raw.sourceCapture ?? null;
           const arrays = [raw.material.x, raw.material.y, raw.material.edges, ...Object.values(raw.material.attrs), ...Object.values(raw.material.edgeAttrs)];
           this.lastLoad = { name: chosen, bytes: arrays.reduce((n, a) => n + a.byteLength, 0), prepMs: performance.now() - t1, roundTripMs: t1 - t0 };
           this.model.acceptMaterial(m);
+          // Colour by the first declared column: values are the point.
+          const cols = this.model.columns();
+          if (this.model.attr === null && cols.length) this.model.attr = cols[0];
+          if (this.pendingSelect) {
+            const sel = this.pendingSelect;
+            this.pendingSelect = null;
+            if (sel.kind === 'point' ? sel.index < m.n : sel.index < m.edges.length / 2) {
+              if ((sel.kind === 'point') !== (this.model.domain === 'points')) this.model.setDomain(sel.kind === 'point' ? 'points' : 'edges');
+              this.model.select(sel);
+              this.flashAt = performance.now();
+              this.animateFlash();
+            }
+          }
         } else {
           this.graphSourceRows = null;
+          this.sourceCapture = raw.kind === 'faces' ? raw.sourceCapture ?? null : null;
+          this.pendingSelect = null;
         }
         this.panel.show(raw);
         this.status = '';
@@ -392,6 +423,21 @@ export class Inspector {
     if (entry.source) facts.push(`line ${entry.source.line}`);
     if (entry.occurrences > 1 && entry.retainedOccurrences < entry.occurrences) facts.push(`${entry.retainedOccurrences} of ${entry.occurrences} retained`);
     this.summary.append(el('div', 'inspect-summary-facts', facts.join(' · ')));
+    const mat = m.material;
+    if (mat) {
+      const cols = [...Object.keys(mat.attrs), ...Object.keys(mat.edgeAttrs).map((k) => `${k} (edge)`)];
+      if (cols.length) this.summary.append(el('div', 'inspect-summary-facts', `columns: ${cols.join(', ')}`));
+    }
+    const from = this.sourceCapture && this.model.names.find((e) => e.name === this.sourceCapture);
+    if (from) {
+      const line = el('div', 'inspect-summary-facts', 'from ');
+      const a = document.createElement('a');
+      a.textContent = labelOf(from);
+      a.title = 'The material this was taken from';
+      a.onclick = () => this.chooseEntry(from.name);
+      line.append(a);
+      this.summary.append(line);
+    }
     if (info) this.summary.append(el('div', 'inspect-summary-desc', info.description));
 
     const graph = !!m.material;
@@ -479,9 +525,21 @@ export class Inspector {
       box.append(d);
       return d;
     };
+    const src = this.graphSourceRows;
+    const drill = (kind: 'point' | 'edge', index: number | undefined, what: string): void => {
+      if (index === undefined || index < 0 || !src?.capture) return;
+      const cap = this.model.names.find((e) => e.name === src.capture);
+      if (!cap) return;
+      const a = document.createElement('a');
+      a.textContent = `${what} ${index} in ${labelOf(cap)}`;
+      a.onclick = () => this.drillTo(src.capture!, { kind, index });
+      line('source: ', a);
+    };
     if (sel.kind === 'point') {
       const i = sel.index;
       line(el('b', undefined, `point ${i}`), ` at (${fmt(mat.x[i])}, ${fmt(mat.y[i])})`);
+      drill('point', src?.points?.[i], 'point');
+      drill('edge', src?.pointEdges?.[i], 'on edge');
       const attrs = Object.keys(mat.attrs).map((k) => `${k} = ${fmt(mat.attrs[k][i])}`).join(' · ');
       line(attrs || 'no declared point columns');
       const edges = incidentEdges(mat, i);
@@ -496,6 +554,7 @@ export class Inspector {
       const b = mat.edges[2 * e + 1];
       const len = Math.hypot(mat.x[b] - mat.x[a], mat.y[b] - mat.y[a]);
       line(el('b', undefined, `edge ${e}`), ` · length ${fmt(len)}`);
+      drill('edge', src?.edges?.[e], 'edge');
       const attrs = Object.keys(mat.edgeAttrs).map((k) => `${k} = ${fmt(mat.edgeAttrs[k][e])}`).join(' · ');
       line(attrs || 'no declared edge columns');
       const d = line('endpoints: ');
@@ -515,10 +574,23 @@ export class Inspector {
     const order = m.order();
     const keys = m.sortKeys();
     const src = this.graphSourceRows;
-    const rowLabel = (r: number): string => {
-      const sourceRow = src?.[points ? 'points' : 'edges']?.[r];
+    const capture = src?.capture && this.model.names.some((e) => e.name === src.capture) ? src.capture : undefined;
+    const rowLabel = (r: number): string | Node => {
+      const sourceRow = points ? (src?.points?.[r] ?? src?.pointEdges?.[r]) : src?.edges?.[r];
+      const sourceKind: 'point' | 'edge' = points && src?.points ? 'point' : 'edge';
       const occurrence = src?.[points ? 'occurrences' : 'edgeOccurrences']?.[r];
-      return sourceRow === undefined ? String(r) : `${r} (src ${sourceRow}${occurrence ? ` · #${occurrence}` : ''})`;
+      if (sourceRow === undefined || sourceRow < 0) return String(r);
+      const span = document.createElement('span');
+      span.append(`${r} `);
+      const ref = document.createElement(capture ? 'a' : 'span');
+      ref.className = 'vtable-src';
+      ref.textContent = `${sourceKind === 'edge' && points ? 'on edge' : 'src'} ${sourceRow}${occurrence ? ` · #${occurrence}` : ''}`;
+      if (capture) {
+        ref.title = 'This row in the source material';
+        (ref as HTMLAnchorElement).onclick = (ev) => { ev.stopPropagation(); this.drillTo(capture, { kind: sourceKind, index: sourceRow }); };
+      }
+      span.append(ref);
+      return span;
     };
     this.table.set({
       columns: keys.map((k, i) => ({ key: k, label: k, align: i === 0 ? 'left' : 'right' })),

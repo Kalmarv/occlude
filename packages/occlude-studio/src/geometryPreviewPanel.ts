@@ -3,9 +3,48 @@ import {
   defaultFieldBounds,
   type GeometryPreview,
   type FieldPreview,
+  type NativeItem,
   type PreviewOptions,
 } from './geometryPreview.js';
-import type { Frame, Prim } from 'occlude';
+import { evalPrim, type Frame, type Prim } from 'occlude';
+import { ramp } from './inspectorModel.js';
+
+/** Distance from a point to a primitive, in the primitive's units: exact
+ * for a line, sampled along arcs and cubics. */
+function distToPrim(p: Prim, x: number, y: number): number {
+  if (p.t === 'line') {
+    const dx = p.x1 - p.x0, dy = p.y1 - p.y0;
+    const l2 = dx * dx + dy * dy;
+    const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - p.x0) * dx + (y - p.y0) * dy) / l2));
+    return Math.hypot(x - (p.x0 + dx * t), y - (p.y0 + dy * t));
+  }
+  let best = Infinity;
+  for (let i = 0; i <= 12; i++) {
+    const [px, py] = evalPrim(p, i / 12);
+    best = Math.min(best, Math.hypot(x - px, y - py));
+  }
+  return best;
+}
+
+/** Even-odd containment across a face's contours (holes included). */
+function insideContours(contours: [number, number][][], x: number, y: number): boolean {
+  let inside = false;
+  for (const c of contours) {
+    for (let i = 0, j = c.length - 1; i < c.length; j = i++) {
+      const [xi, yi] = c[i], [xj, yj] = c[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/** The point a vertex row of a `points` geometry lands on, in paper mm:
+ * contour i's primitive i starts there. */
+function vertexOf(item: NativeItem, i: number): [number, number] | null {
+  const prim = item.contours[0]?.[i];
+  if (!prim) return null;
+  return prim.t === 'arc' ? [prim.cx + prim.r * Math.cos(prim.start), prim.cy + prim.r * Math.sin(prim.start)] : [prim.x0, prim.y0];
+}
 
 /** A design token's current value, for canvas painting. */
 export const cssVar = (name: string): string => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#888';
@@ -57,6 +96,15 @@ export class GeometryPreviewPanel {
   onChange: () => void = () => {};
   private rendered = true;
   private nativeSelected: number | null = null;
+  /** A native item or face under the pointer in the table, lit in the preview. */
+  private hoverIndex: number | null = null;
+  /** A vertex row of the selected item under the pointer. */
+  private vertexMark: [number, number] | null = null;
+  private faceSelected: number | null = null;
+  private selectNative: ((index: number | null) => void) | null = null;
+  /** Follow a connection into another capture's rows. */
+  onDrill: (capture: string, sel: { kind: 'point' | 'edge'; index: number }) => void = () => {};
+  private selectFace: ((index: number | null) => void) | null = null;
   private sampleTimer: ReturnType<typeof setTimeout> | undefined;
   constructor() {
     this.host.className = 'geometry-preview-panel';
@@ -66,6 +114,9 @@ export class GeometryPreviewPanel {
   clear(): void {
     clearTimeout(this.sampleTimer);
     this.data = null;
+    this.nativeSelected = this.hoverIndex = this.faceSelected = null;
+    this.vertexMark = null;
+    this.selectNative = this.selectFace = null;
     this.controls.replaceChildren();
     this.content.replaceChildren();
     this.host.hidden = true;
@@ -191,9 +242,15 @@ export class GeometryPreviewPanel {
       const listLabel = polygons ? 'polygons' : 'geometry';
       const selectItem = (index: number | null) => {
         this.nativeSelected = index;
+        this.hoverIndex = null;
+        this.vertexMark = null;
         showView();
         this.onChange();
       };
+      this.selectNative = selectItem;
+      const visibleOf = (item: NativeItem): number => item.renderedContours?.reduce((n, c) => n + c.length, 0) ?? 0;
+      const maxVisible = Math.max(1, ...data.items.map(visibleOf));
+      const hover = (index: number | null) => { this.hoverIndex = index; this.onChange(); };
       const showView = () => {
         view.replaceChildren();
         if (this.nativeSelected === null) {
@@ -234,18 +291,27 @@ export class GeometryPreviewPanel {
                 geom.cmds?.filter((c: { op: string }) => c.op !== 'close')
                   .length ??
                 '—';
+              const visible = item.renderedContours ? visibleOf(item) : null;
               for (const value of [
                 index + 1,
                 item.kind,
                 count,
-                item.renderedContours?.reduce((n,c)=>n+c.length,0) ?? '—',
+                visible ?? '—',
                 opts.opaque || opts.fill ? 'yes' : 'no',
               ]) {
                 const td = document.createElement('td');
                 td.textContent = String(value);
                 tr.append(td);
               }
+              if (visible !== null) {
+                const sw = document.createElement('span');
+                sw.className = 'swatch';
+                sw.style.background = ramp(visible / maxVisible);
+                tr.cells[0].prepend(sw);
+              }
               tr.onclick = () => selectItem(index);
+              tr.onmouseenter = () => hover(index);
+              tr.onmouseleave = () => hover(null);
               tr.onkeydown = (e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
@@ -337,6 +403,10 @@ export class GeometryPreviewPanel {
             .slice(0, 200)
             .forEach((value: Record<string, unknown>, i: number) => {
               const tr = document.createElement('tr');
+              if (geom.pts) {
+                tr.onmouseenter = () => { this.vertexMark = vertexOf(item, i); this.onChange(); };
+                tr.onmouseleave = () => { this.vertexMark = null; this.onChange(); };
+              }
               for (const v of [i, ...keys.map((k) => value[k])]) {
                 const td = document.createElement('td');
                 td.textContent =
@@ -360,13 +430,39 @@ export class GeometryPreviewPanel {
     if (data.kind === 'faces') {
       const list = document.createElement('div');
       list.className = 'geometry-face-list';
-      for (const f of data.faces.slice(0, 100)) {
-        const row = document.createElement('p');
-        row.textContent = `Face ${f.index}: area ${fmt(f.area)}, perimeter ${fmt(f.perimeter)}, ${Math.max(0, f.contours.length - 1)} holes · source edges ${f.sourceEdges.slice(0, 24).join(', ')}${f.sourceEdges.length > 24 ? ' …' : ''}`;
+      const rows: HTMLElement[] = [];
+      const maxArea = Math.max(1e-9, ...data.faces.map((f) => Math.abs(f.area)));
+      const select = (index: number | null) => {
+        this.faceSelected = index;
+        rows.forEach((row, i) => row.setAttribute('aria-selected', String(i === index)));
+        rows[index ?? -1]?.scrollIntoView({ block: 'nearest' });
+        this.onChange();
+      };
+      this.selectFace = select;
+      data.faces.forEach((f, i) => {
+        const row = document.createElement('button');
+        row.className = 'geometry-face-row';
+        const sw = document.createElement('span');
+        sw.className = 'swatch';
+        sw.style.background = ramp(Math.abs(f.area) / maxArea);
+        row.append(sw, `face ${f.index} · area ${fmt(f.area)} · perimeter ${fmt(f.perimeter)}${f.contours.length > 1 ? ` · ${f.contours.length - 1} holes` : ''} · walls `);
+        f.sourceEdges.slice(0, 12).forEach((e, k) => {
+          if (k) row.append(', ');
+          if (data.sourceCapture) {
+            const a = document.createElement('a');
+            a.textContent = String(e);
+            a.title = 'This wall in the source material';
+            a.onclick = (ev) => { ev.stopPropagation(); this.onDrill(data.sourceCapture!, { kind: 'edge', index: e }); };
+            row.append(a);
+          } else row.append(String(e));
+        });
+        if (f.sourceEdges.length > 12) row.append(' …');
+        row.onclick = () => select(this.faceSelected === i ? null : i);
+        row.onmouseenter = () => { this.hoverIndex = i; this.onChange(); };
+        row.onmouseleave = () => { this.hoverIndex = null; this.onChange(); };
+        rows.push(row);
         list.append(row);
-      }
-      if (data.faces.length > 100)
-        list.append(`Showing details for 100 of ${data.faces.length} faces.`);
+      });
       this.content.append(list);
     }
   }
@@ -522,6 +618,33 @@ export class GeometryPreviewPanel {
     }
     this.content.append(canvas, output, legend, caption);
   }
+  /** A click on the preview, in paper mm with a tolerance: the nearest
+   * native item's outline, or the face under the point. True when it chose. */
+  pick(x: number, y: number, tol: number): boolean {
+    const data = this.data;
+    if (!data) return false;
+    if (data.kind === 'native') {
+      let best = tol, hit: number | null = null;
+      data.items.forEach((item, i) => {
+        const contours = this.rendered ? (item.renderedContours ?? item.contours) : item.contours;
+        for (const c of contours) for (const p of c) {
+          const d = distToPrim(p, x, y);
+          if (d < best) { best = d; hit = i; }
+        }
+      });
+      if (hit === null && this.nativeSelected === null) return false;
+      this.selectNative?.(hit);
+      return true;
+    }
+    if (data.kind === 'faces') {
+      const hit = data.faces.findIndex((f) => insideContours(f.contours, x, y));
+      if (hit < 0 && this.faceSelected === null) return false;
+      this.selectFace?.(hit < 0 ? null : hit);
+      return true;
+    }
+    return false;
+  }
+
   paint(ctx: CanvasRenderingContext2D, pxPerMm: number): void {
     const data = this.data;
     if (!data || data.kind === 'field') return;
@@ -549,15 +672,44 @@ export class GeometryPreviewPanel {
       }
     }
     if (data.kind === 'native') {
-      ctx.strokeStyle = cssVar('--kind-path');
-      ctx.beginPath();
-      const selected =
-        this.nativeSelected === null ? data : data.items[this.nativeSelected];
-      const contours = this.rendered
-        ? (selected.renderedContours ?? selected.contours)
-        : selected.contours;
-      for (const c of contours) for (const p of c) strokePrim(ctx, p);
-      ctx.stroke();
+      // Every item in its colour (visible ink, when rendered), the selected
+      // one on top in the accent, a hovered one lit; the rest step back
+      // while something is selected.
+      const kindColour = cssVar('--kind-path');
+      const visibleOf = (item: NativeItem): number => item.renderedContours?.reduce((n, c) => n + c.length, 0) ?? 0;
+      const maxVisible = Math.max(1, ...data.items.map(visibleOf));
+      const contoursOf = (item: NativeItem): Prim[][] => (this.rendered ? (item.renderedContours ?? item.contours) : item.contours);
+      const drawItem = (item: NativeItem, colour: string, width: number, alpha: number) => {
+        ctx.strokeStyle = colour;
+        ctx.lineWidth = width / pxPerMm;
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        for (const c of contoursOf(item)) for (const p of c) strokePrim(ctx, p);
+        ctx.stroke();
+      };
+      const sel = this.nativeSelected;
+      data.items.forEach((item, i) => {
+        if (i === sel || i === this.hoverIndex) return;
+        const colour = this.rendered && item.renderedContours ? ramp(visibleOf(item) / maxVisible) : kindColour;
+        drawItem(item, colour, 1.6, sel === null ? 0.9 : 0.35);
+      });
+      if (this.hoverIndex !== null && this.hoverIndex !== sel && data.items[this.hoverIndex]) drawItem(data.items[this.hoverIndex], cssVar('--ink'), 2.2, 1);
+      if (sel !== null && data.items[sel]) {
+        drawItem(data.items[sel], cssVar('--bg'), 4.5, 0.9);
+        drawItem(data.items[sel], cssVar('--accent'), 2.4, 1);
+      }
+      if (this.vertexMark) {
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = cssVar('--accent');
+        ctx.beginPath();
+        ctx.arc(this.vertexMark[0], this.vertexMark[1], 4 / pxPerMm, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = cssVar('--bg');
+        ctx.lineWidth = 1.2 / pxPerMm;
+        ctx.stroke();
+      }
+      const selected = sel === null ? data : data.items[sel];
+      const contours = this.rendered ? (selected.renderedContours ?? selected.contours) : selected.contours;
       ctx.globalAlpha = 0.6;
       ctx.fillStyle = cssVar('--kind-path');
       ctx.lineWidth = 1 / pxPerMm;
@@ -585,9 +737,10 @@ export class GeometryPreviewPanel {
       ctx.globalAlpha = 1;
     }
     if (data.kind === 'faces') {
-      ctx.strokeStyle = cssVar('--kind-area');
-      ctx.fillStyle = cssVar('--kind-area');
-      for (const f of data.faces) {
+      const area = cssVar('--kind-area'), accent = cssVar('--accent'), ink = cssVar('--ink');
+      const maxArea = Math.max(1e-9, ...data.faces.map((f) => Math.abs(f.area)));
+      data.faces.forEach((f, i) => {
+        const chosen = i === this.faceSelected, lit = i === this.hoverIndex;
         ctx.beginPath();
         for (const c of f.contours) {
           if (!c.length) continue;
@@ -595,11 +748,14 @@ export class GeometryPreviewPanel {
           for (const p of c.slice(1)) ctx.lineTo(...p);
           ctx.closePath();
         }
-        ctx.globalAlpha = 0.25;
+        ctx.fillStyle = chosen ? accent : ramp(Math.abs(f.area) / maxArea);
+        ctx.globalAlpha = chosen ? 0.45 : lit ? 0.4 : this.faceSelected === null ? 0.25 : 0.12;
         ctx.fill('evenodd');
         ctx.globalAlpha = 1;
+        ctx.strokeStyle = chosen ? accent : lit ? ink : area;
+        ctx.lineWidth = (chosen || lit ? 2.2 : 1.4) / pxPerMm;
         ctx.stroke();
-      }
+      });
     }
     ctx.restore();
   }

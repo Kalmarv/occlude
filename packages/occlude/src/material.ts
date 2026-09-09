@@ -196,6 +196,11 @@ export interface Station {
   length: number;
   chain: number;
   closed: boolean;
+  /** Where on the source material the station sits: the edge row of its
+   * segment and that segment's endpoint rows. Provenance, not geometry. */
+  edge: number;
+  a: number;
+  b: number;
   attrs: Record<string, number>;
   edgeAttrs: Record<string, number>;
 }
@@ -912,11 +917,17 @@ export class Material {
           length: total,
           chain,
           closed: c.closed,
+          edge: rowOfSeg(onVertexAhead ? seg + 1 : seg),
+          a,
+          b,
           attrs,
           edgeAttrs,
         });
       });
     });
+    // The stations know their material (for the inspector's drill-down);
+    // the brand rides on the array, out of sight of iteration and JSON.
+    Object.defineProperty(out, OWNER, { value: this, enumerable: false });
     return out;
   }
 

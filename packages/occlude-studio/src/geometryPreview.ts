@@ -42,8 +42,12 @@ export type PreviewOptions = {
 export type GraphPreview = {
   kind: 'graph';
   material: InspectionPayload;
+  /** The capture this one was taken from, when that material is captured too. */
+  sourceCapture?: string;
   sourcePoints?: number[];
   sourceEdges?: number[];
+  /** For stations: the source edge each point row sits on. */
+  sourcePointEdges?: number[];
   occurrences?: number[];
   edgeOccurrences?: number[];
   directions?: {
@@ -77,6 +81,7 @@ export type NativePreview = {
 };
 export type FacesPreview = {
   kind: 'faces';
+  sourceCapture?: string;
   faces: {
     index: number;
     area: number;
@@ -206,6 +211,20 @@ export function sampleField(
     truncated,
   };
 }
+/** The capture holding exactly this object, if any: the same material a
+ * selection, a face collection or a run of stations was taken from. */
+function captureOf(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  for (const entry of getInspectionIndex()) {
+    try {
+      if (getInspectionValues(entry.name).includes(value)) return entry.name;
+    } catch {
+      // a limited capture retained nothing
+    }
+  }
+  return undefined;
+}
+
 function copyMaterial(name: string, m: Material): InspectionPayload {
   const arrays = [
     m.x,
@@ -308,6 +327,7 @@ function previewValue(
     return {
       kind: 'graph',
       material: copyMaterial(name, value.extract()),
+      sourceCapture: captureOf(value.source),
       sourcePoints: [
         ...(value instanceof PointSelection
           ? value.indices
@@ -356,6 +376,8 @@ function previewValue(
     return {
       kind: 'graph',
       material: m,
+      sourceCapture: captureOf(inspectionOwner(value)),
+      sourcePointEdges: stations.map((s) => s.edge),
       directions,
       note: 'Orange = tangent; green = normal. Direction ticks show at most 2,000 stations; all rows remain available. Station, point and edge columns stay separate.',
     };
@@ -387,6 +409,7 @@ function previewValue(
     return {
       kind: 'faces',
       faces: output,
+      sourceCapture: captureOf(value instanceof Faces ? value.source : value instanceof FaceSelection ? value.source.source : (inspectionOwner(value) as Faces | undefined)?.source),
       note: 'Each face retains its holes and source edge rows. Areas and perimeters are in material units.',
     };
   }
@@ -401,6 +424,7 @@ function previewValue(
       return {
         kind: 'graph',
         material: copyMaterial(name, selected.extract()),
+        sourceCapture: captureOf(owner),
         sourcePoints: [
           ...(selected instanceof PointSelection
             ? selected.indices
@@ -571,6 +595,7 @@ function combinePreviews(
     return {
       kind: 'faces',
       faces: previews.flatMap((p) => p.faces),
+      sourceCapture: previews[0].sourceCapture,
       note: previews[0].note,
     };
   if (!previews.every((p): p is GraphPreview => p.kind === 'graph'))
@@ -600,7 +625,8 @@ function combinePreviews(
     occurrences: number[] = [],
     edgeOccurrences: number[] = [];
   const sourcePoints: number[] = [],
-    sourceEdges: number[] = [];
+    sourceEdges: number[] = [],
+    sourcePointEdges: number[] = [];
   let pointOffset = 0,
     edgeOffset = 0;
   previews.forEach((p, i) => {
@@ -615,6 +641,7 @@ function combinePreviews(
     for (let j = 0; j < m.n; j++) {
       occurrences.push(i + 1);
       sourcePoints.push(p.sourcePoints?.[j] ?? j);
+      sourcePointEdges.push(p.sourcePointEdges?.[j] ?? -1);
     }
     for (let j = 0; j < m.edges.length / 2; j++) {
       edgeOccurrences.push(i + 1);
@@ -635,8 +662,10 @@ function combinePreviews(
       edgeAttrs,
       iteration: first.kind === 'graph' ? first.material.iteration : 0,
     },
+    sourceCapture: previews[0].sourceCapture,
     sourcePoints,
     sourceEdges,
+    sourcePointEdges: sourcePointEdges.some((e) => e >= 0) ? sourcePointEdges : undefined,
     occurrences,
     edgeOccurrences,
     directions: previews.flatMap((p) => p.directions ?? []),

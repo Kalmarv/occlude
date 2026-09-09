@@ -3345,3 +3345,65 @@ button.armed {
 .vtable[hidden] {
   display: none;
 }
+
+.geometry-face-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.geometry-face-row {
+  flex: none;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  padding: 3px 8px;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.geometry-face-row:hover {
+  background: var(--control);
+  color: var(--ink);
+}
+
+.geometry-face-row[aria-selected='true'] {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.geometry-object-table .swatch,
+.geometry-face-row .swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.vtable-src {
+  color: var(--faint);
+  font-size: 10.5px;
+}
+
+a.vtable-src {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+a.vtable-src:hover,
+.geometry-face-row a:hover {
+  text-decoration: underline;
+}
+
+.geometry-face-row a {
+  color: var(--accent);
+  cursor: pointer;
+}
