@@ -958,9 +958,10 @@ function inspect(label: string, value: Material | readonly Station[]): void {
  * without a word. */
 export function inspectIfMaterial(label: string, value: unknown, source?: InspectionSource): void {
   if (!getInspectHint()) return;
-  if (value instanceof Material) recordInspection(label, value, source);
-  else if (isStations(value) || source?.kind === 'stations' && Array.isArray(value) && value.length === 0) recordInspection(label, value, source);
-  else if (source) forgetInspection(label);
+  // Snapshot a mutable builder; all other supported geometry is retained as
+  // its own value. The adapter does no field sampling or topology traversal.
+  recordInspection(label, value instanceof PathValue ? value.build() : value, source);
+
 }
 
 /** Path optimization for THIS sketch's plan (tour budget, bridging) — in

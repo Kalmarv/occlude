@@ -34,3 +34,21 @@
 .geometry-inspection-card { padding: 12px; border-bottom: 1px solid #414750; }
 .geometry-inspection-card p { margin: 8px 0; line-height: 1.5; }
 .geometry-inspection-card button { margin: 4px 8px 0 0; padding: 5px 8px; cursor: pointer; }
+.geometry-preview-panel { padding: 12px; border-bottom: 1px solid #414750; }
+.geometry-preview-panel > div:first-child { display:flex; flex-wrap:wrap; gap:8px; }
+.geometry-preview-panel label { display:flex; flex-direction:column; gap:3px; font-size:11px; }
+.geometry-preview-panel input { width:72px; padding:4px; color:#ddd; background:#20242a; border:1px solid #505661; border-radius:3px; }
+.geometry-preview-panel select,.geometry-preview-panel button { padding:5px; color:#ddd; background:#30353d; border:1px solid #505661; border-radius:3px; cursor:pointer; }
+.geometry-preview-panel p { margin:8px 0; line-height:1.5; }
+.geometry-preview-panel canvas { width:100%; max-width:360px; height:auto; margin-top:8px; display:block; }
+.geometry-preview-panel .field-legend { max-width:280px; height:12px; }
+.geometry-preview-panel output { display:block; min-height:32px; font:11px/1.5 monospace; }
+.geometry-preview-panel .field-error { color:#ffb2a7; min-height:0; width:100%; }
+.geometry-face-list { max-height:180px; overflow:auto; }
+#inspector-pane.geometry-expanded { display:block; height:auto; max-height:min(640px, calc(100% - 20px)); overflow:auto; width:400px; max-width:calc(100% - 20px); }
+#inspector-pane.geometry-expanded .inspector-table-wrap { max-height:250px; overflow:auto; margin-top:8px; }
+#inspector-pane.geometry-expanded > * { margin-bottom:8px; }
+#inspector-pane.geometry-expanded .geometry-inspection-card { padding:4px 0 8px; }
+#inspector-pane.geometry-expanded .geometry-preview-panel { padding:4px 0 8px; }
+.geometry-inspection-card { position:relative; padding-right:26px !important; }
+.geometry-inspection-card .geometry-source-close { position:absolute; right:0; top:0; border:0; background:none; color:#c9ced5; font-size:20px; line-height:20px; padding:0 4px; margin:0; }

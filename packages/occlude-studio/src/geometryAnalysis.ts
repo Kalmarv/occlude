@@ -76,9 +76,27 @@ export function analyzeGeometry(T: typeof ts, program: ts.Program, fileName: str
             ? checker.getShorthandAssignmentValueSymbol(parent) : checker.getSymbolAtLocation(node);
           const origin = isCall ? (T.isVariableDeclaration(call.parent) && call.parent.initializer === call ? call.parent : undefined)
             : symbol?.valueDeclaration;
-          const sourceStart = origin && T.isVariableDeclaration(origin) && T.isIdentifier(origin.name) && origin.initializer && origin.getSourceFile() === file
+          const sourceStart = origin && (T.isVariableDeclaration(origin) && !!origin.initializer || T.isParameter(origin)) && T.isIdentifier(origin.name) && origin.getSourceFile() === file
             ? origin.name.getStart(file) : undefined;
-          out.push({ sourceStart, start, end: node.end, role: isCall ? 'call' : declaration ? 'declaration' : 'value', ...type });
+          const expression = isCall ? call : T.isPropertyAccessExpression(parent) && parent.name === node ? parent : undefined;
+          // A callee property must retain its receiver. Optional chains and
+          // write positions are left uninstrumented instead of changing them.
+          const isWrite = (expression: ts.Node): boolean => {
+            let target=expression;
+            while(target.parent && (T.isParenthesizedExpression(target.parent)||T.isNonNullExpression(target.parent)||T.isAsExpression(target.parent)||T.isSatisfiesExpression(target.parent)
+              ||T.isArrayLiteralExpression(target.parent)||T.isObjectLiteralExpression(target.parent)||T.isSpreadElement(target.parent)||T.isSpreadAssignment(target.parent)
+              ||T.isPropertyAssignment(target.parent)&&target.parent.initializer===target))target=target.parent;
+            const p=target.parent;
+            return T.isBinaryExpression(p)&&p.left===target&&p.operatorToken.kind>=T.SyntaxKind.FirstAssignment&&p.operatorToken.kind<=T.SyntaxKind.LastAssignment
+              ||T.isPrefixUnaryExpression(p)||T.isPostfixUnaryExpression(p)||T.isDeleteExpression(p)
+              ||(T.isForInStatement(p)||T.isForOfStatement(p))&&p.initializer===target;
+          };
+          const captureExpression = expression && !isWrite(expression) && !(expression.flags & T.NodeFlags.OptionalChain)
+            && !(T.isCallExpression(expression.parent) && expression.parent.expression === expression)
+            && !(T.isTaggedTemplateExpression(expression.parent) && expression.parent.tag === expression) ? expression : undefined;
+          const expressionStart = captureExpression?.getStart(file), expressionEnd = captureExpression?.end;
+          out.push({ sourceStart: expressionStart ?? sourceStart, sourceEnd: expressionEnd ?? (origin && (T.isVariableDeclaration(origin) || T.isParameter(origin)) ? origin.name.end : undefined), expressionStart, expressionEnd,
+            start, end: node.end, role: isCall ? 'call' : declaration ? 'declaration' : 'value', ...type });
         }
       }
     }

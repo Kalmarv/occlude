@@ -227,6 +227,11 @@ export function viewKind(view: unknown): 'vertex' | 'edge' | 'face' | undefined 
   return typeof view === 'object' && view !== null ? (view as Record<symbol, 'vertex' | 'edge' | 'face'>)[KIND] : undefined;
 }
 
+/** @internal The owning state of a branded view, for inspection provenance. */
+export function inspectionOwner(view: unknown): unknown {
+  return typeof view === 'object' && view !== null ? (view as Record<symbol, unknown>)[OWNER] : undefined;
+}
+
 /** @internal The prototype every view of one owner and kind shares. The
  * brand lives on it — reachable through the chain by `ownedBy` and
  * `viewKind`, and invisible to `Object.keys`, `for…in`, spread and JSON

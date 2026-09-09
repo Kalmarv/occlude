@@ -14,6 +14,8 @@ import initCore, * as core from 'occlude-core';
 import { bridgeGapFor, clearInspections, getInspectionDropped, getInspectionIndex, getProbeStats, hashPlan, inspectionPayload, renderEncoded, tourBudget, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
 import { currentDraws, currentOverrides, currentSeed, runSketch, type RunConfig } from './runner.js';
+import { defaultFieldBounds, geometryPreview, type GeometryPreview, type PreviewOptions } from './geometryPreview.js';
+import type { Frame } from '../../occlude/src/record.js';
 import { preloadAssets } from './assetLoader.js';
 import { preloadFills } from './fillLoader.js';
 
@@ -87,7 +89,7 @@ interface InspectMsg {
   name: string;
 }
 
-type Msg = RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg | { type: 'release-inspections' };
+type Msg = RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg | { type: 'release-inspections' } | { type:'inspect-geometry'; id:number; executionId:number; name:string; options:PreviewOptions };
 
 const ready = initCore();
 
@@ -98,6 +100,8 @@ let lastPlan: { buffer: Float64Array; settings: PlanSettings; planHash: string; 
 /** The render whose sketch state (and inspection registry) is current. */
 let lastExecutionId = -1;
 let inspectionGeneration = 0;
+let inspectionFrame:Frame|null=null;
+const fieldCache=new Map<string,GeometryPreview>();
 
 /** THE plan of the last render under the given options. */
 async function planLast(opts: PlanOptions): Promise<{ buffer: Float64Array; settings: PlanSettings; planHash: string }> {
@@ -126,11 +130,13 @@ const currentPlan = (msg: PlanRange) => {
 self.onmessage = async (e: MessageEvent<Msg>) => {
   await ready;
   const msg = e.data;
-  if (msg.type === 'release-inspections') { inspectionGeneration++; clearInspections(); lastExecutionId = -1; return; }
+  if (msg.type === 'release-inspections') { inspectionGeneration++; fieldCache.clear(); clearInspections(); lastExecutionId = -1; return; }
   try {
     switch (msg.type) {
       case 'render': {
         const captureGeneration = ++inspectionGeneration;
+        fieldCache.clear();
+        inspectionFrame=null;
         clearInspections();
         lastExecutionId = -1;
         // Assets referenced by literal name are fetched/decoded here in the
@@ -172,6 +178,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         const inspectionCurrent = msg.cfg.inspect && captureGeneration === inspectionGeneration;
         if (!inspectionCurrent) clearInspections();
         lastExecutionId = inspectionCurrent ? msg.id : -1;
+        inspectionFrame=inspectionCurrent?scene.frame:null;
         self.postMessage(
           {
             type: 'render',
@@ -200,6 +207,19 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         );
         break;
       }
+      case 'inspect-geometry': {
+        if(msg.executionId!==lastExecutionId || !inspectionFrame)throw new Error('Stale capture — rerun the sketch before inspecting');
+        const bounds = msg.options?.bounds ?? defaultFieldBounds(inspectionFrame);
+        const key=JSON.stringify([msg.executionId,msg.name,!!msg.options?.sample,msg.options?.resolution ?? 32,bounds.xMin,bounds.xMax,bounds.yMin,bounds.yMax]);
+        let payload=fieldCache.get(key);
+        if(!payload) {
+          payload=geometryPreview(msg.name,inspectionFrame,msg.options);
+          if(payload.kind==='field') { if(fieldCache.size>=4)fieldCache.delete(fieldCache.keys().next().value!);fieldCache.set(key,payload); }
+        }
+        // Structured cloning preserves cached buffers and the live geometry.
+        self.postMessage({type:'inspect-geometry',id:msg.id,payload});
+        break;
+      }
       case 'inspect': {
         if (msg.executionId !== lastExecutionId) throw new Error('stale inspection: the drawing changed — this request was for an earlier render');
         const payload = inspectionPayload(msg.name);
@@ -212,6 +232,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       }
       case 'plan-load': {
         inspectionGeneration++;
+        fieldCache.clear();
         clearInspections();
         lastExecutionId = -1;
         const planHash = await hashPlan(msg.buffer, msg.settings);

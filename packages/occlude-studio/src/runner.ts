@@ -10,6 +10,7 @@
  * wedges the worker — killed by the client watchdog — never the tab.
  */
 
+import { carryModuleInspections } from '../../occlude/src/state.js';
 import * as occlude from 'occlude';
 import type { EncodedScene, PenDef, SketchDef } from 'occlude';
 import { INSPECT_HOOK, instrumentDeclarations } from './instrument.js';
@@ -76,7 +77,8 @@ export function runSketch(js: string, cfg: RunConfig): RunOutcome {
         "no sketch exported — write `export default sketch({ … }, (toolkit) => tree)`",
       );
     }
-    occlude.compileSketch(def, { marginPct: cfg.defaultMarginPct });
+    const carry = cfg.inspect ? carryModuleInspections() : null;
+    occlude.compileSketch(carry ? { ...def, fn: t => { carry(); return def.fn(t); } } : def, { marginPct: cfg.defaultMarginPct });
     const scene = occlude.encodeScene({
       paper: { paper: cfg.paper as never, landscape: cfg.landscape },
       coarsen: cfg.coarsen,

@@ -9,6 +9,8 @@
 
 import { userUnitsToPaper, type RenderResult } from 'occlude';
 import { InspectorModel, NEUTRAL, colorFor, incidentEdges, otherEnd, prepare, type ColumnRange, type Selection } from './inspectorModel.js';
+import { GeometryPreviewPanel } from './geometryPreviewPanel.js';
+import type { PreviewOptions } from './geometryPreview.js';
 import { GEOMETRY_TYPES, type GeometryInspectionRequest } from './geometryTypes.js';
 import type { Preview } from './preview.js';
 import type { RenderClient, RenderReply } from './workerClient.js';
@@ -30,6 +32,8 @@ export class Inspector {
   private sourceRequest: GeometryInspectionRequest | null = null;
   private readonly sourceCard = document.createElement('div');
   private dropped = 0;
+  private readonly geometryPanel = new GeometryPreviewPanel();
+  private previewSerial = 0;
   /** A row under the pointer in the details pane, ringed in the sketch. */
   private hover: Selection | null = null;
   /** When the current selection was made: drives the flash. */
@@ -63,11 +67,12 @@ export class Inspector {
     private readonly onEnable: (on: boolean) => void,
   ) {
     this.sourceCard.className = 'geometry-inspection-card';
-    this.pane.prepend(this.sourceCard);
+    this.pane.prepend(this.sourceCard, this.geometryPanel.host);
     this.enable.onchange = () => {
       this.model.enabled = this.enable.checked;
       if (!this.model.enabled) {
         this.model.reset();
+        this.previewSerial++; this.geometryPanel.clear();
         this.loading = null;
       }
       this.sync();
@@ -93,7 +98,7 @@ export class Inspector {
     this.menu.addEventListener('toggle', () => this.sync());
     this.bindDrag();
     this.preview.onClick = (x, y, pxPerMm) => {
-      if (!this.model.enabled || !this.model.material || !this.menu.open) return;
+      if (!this.model.enabled || !this.model.material || !(this.menu.open || this.sourceRequest)) return;
       // Eight screen pixels, whatever the zoom.
       this.choose(this.model.pick(x, y, 8 / pxPerMm));
     };
@@ -105,7 +110,7 @@ export class Inspector {
 
   openGeometry(request: GeometryInspectionRequest): void {
     this.sourceRequest = request;
-    this.menu.open = true;
+    this.menu.open = false;
     this.selectSource();
     this.sync();
   }
@@ -113,6 +118,7 @@ export class Inspector {
   /** Called immediately on edits/input changes, before debounce or compilation. */
   invalidate(reason = 'Previous run — rerun to inspect current values'): void {
     this.model.reset();
+    this.previewSerial++; this.geometryPanel.clear();
     this.frame = null;
     this.loading = null;
     this.status = reason;
@@ -121,11 +127,12 @@ export class Inspector {
 
   private sourceEntry() {
     const r = this.sourceRequest;
-    return r && this.model.names.find(e => e.source?.document === r.document && e.source.revision === r.revision && e.source.start === r.annotation.sourceStart);
+    return r && this.model.names.find(e => e.source?.document === r.document && e.source.revision === r.revision && e.source.start === r.annotation.sourceStart && e.source.end === r.annotation.sourceEnd);
   }
 
   private selectSource(): void {
     if (!this.sourceRequest) return;
+    this.previewSerial++; this.geometryPanel.clear();
     const entry = this.sourceEntry();
     this.loading = null;
     this.model.choose(entry?.name ?? null);
@@ -144,11 +151,12 @@ export class Inspector {
     const description = document.createElement('p');
     description.textContent = info.description;
     const state = document.createElement('p');
-    const supported = !r.annotation.array && ['material', 'stations'].includes(r.annotation.kind) && r.annotation.sourceStart !== undefined;
+    const supported = r.annotation.sourceStart !== undefined;
     const entry = this.sourceEntry();
-    state.textContent = !supported ? 'Live preview is currently available for captured Material and Stations declarations. This expression has static type information only.'
-      : !this.enabled ? 'Inspection is off. Enable it to run the sketch and capture values.'
-      : entry ? `${entry.points} points${entry.edges === undefined ? '' : ` · ${entry.edges} edges`} · declaration line ${entry.source?.line ?? "?"} · latest of ${entry.occurrences ?? 1} initialization(s)${entry.limited ? ` · ${entry.limited}` : ''}`
+    description.hidden=!!entry && this.enabled;
+    state.textContent = !supported ? 'This token has no supported capture site. Inspect its declaration or a complete expression.'
+      : !this.enabled ? 'Inspection is off. Enable it to capture values; fields are sampled separately on request.'
+      : entry ? `${entry.summary ?? `${entry.points} points`} · ${entry.source?.expression ? 'expression' : 'capture'} line ${entry.source?.line ?? "?"} · latest of ${entry.occurrences ?? 1} capture(s)${entry.limited ? ` · ${entry.limited}` : ''}`
       : this.model.executionId < 0 ? this.status || 'Waiting for an inspected run.'
       : 'Not captured in this source revision. The declaration may not have executed, may no longer hold geometry, or may exceed the capture limit.';
     this.sourceCard.append(title, description, state);
@@ -159,8 +167,8 @@ export class Inspector {
       this.sourceCard.append(enable);
     }
     const close = document.createElement('button');
-    close.textContent = 'Close type details';
-    close.onclick = () => { this.sourceRequest = null; this.sync(); };
+    close.textContent = '×';close.title='Close inspector';close.setAttribute('aria-label','Close inspector');close.className='geometry-source-close';
+    close.onclick = () => { this.sourceRequest = null;this.previewSerial++;this.model.choose(null);this.geometryPanel.clear();this.sync(); };
     this.sourceCard.append(close);
   }
 
@@ -170,7 +178,7 @@ export class Inspector {
     const pane = this.pane;
     const head = pane; // any press on the pane that is not on a control or the table drags it
     head.addEventListener('pointerdown', (e) => {
-      if ((e.target as HTMLElement).closest('button, a, input, .inspector-table-wrap, .inspector-pager')) return;
+      if ((e.target as HTMLElement).closest('button, a, input, select, canvas, label, output, .inspector-table-wrap, .inspector-pager')) return;
       // The resize handle lives in the bottom-right corner: leave it to the browser.
       const rr = pane.getBoundingClientRect();
       if (e.clientX > rr.right - 18 && e.clientY > rr.bottom - 18) return;
@@ -214,45 +222,51 @@ export class Inspector {
   /** The drawing is a saved plan or the worker was replaced: nothing to inspect. */
   clear(reason: string): void {
     this.model.reset();
+    this.previewSerial++; this.geometryPanel.clear();
     this.frame = null;
     this.loading = null;
     this.status = reason;
     this.sync();
   }
 
-  private fetch(): void {
+  private fetch(options?: PreviewOptions): void {
     const { executionId, chosen } = this.model;
     if (!this.model.enabled || chosen === null || executionId < 0 || !this.frame) return;
+    const entry=this.model.names.find(e=>e.name===chosen)!;
+    const serial=++this.previewSerial;
+    if(!options) this.geometryPanel.clear();
+    this.model.material=null;
+    if(!options && (entry.kind==='scalar'||entry.kind==='vector')) {
+      this.loading=null;this.status='';
+      this.geometryPanel.fieldControls(entry,this.frame,opts=>{this.fetch(opts);this.sync();});
+      this.sync();return;
+    }
     const want = { executionId, name: chosen };
     this.loading = want;
-    this.status = `loading ${this.model.names.find(e => e.name === chosen)?.source?.label ?? chosen}…`;
+    this.status = `loading ${entry.source?.label ?? chosen}…`;
     const toPaper = userUnitsToPaper(this.frame);
     const t0 = performance.now();
-    this.client.inspectMaterial(executionId, chosen).then(
-      (raw) => {
-        if (this.loading?.executionId !== want.executionId || this.loading.name !== want.name) return;
-        this.loading = null;
-        const t1 = performance.now();
-        const m = prepare(raw, executionId, toPaper);
-        const prepMs = performance.now() - t1;
-        let bytes = raw.x.byteLength + raw.y.byteLength + raw.edges.byteLength;
-        for (const a of Object.values(raw.attrs)) bytes += a.byteLength;
-        for (const a of Object.values(raw.edgeAttrs)) bytes += a.byteLength;
-        this.lastLoad = { name: chosen, bytes, prepMs, roundTripMs: t1 - t0 };
-        this.status = this.model.acceptMaterial(m) ? '' : 'superseded';
-        this.sync();
-      },
-      (err: unknown) => {
-        if (this.loading?.executionId !== want.executionId || this.loading.name !== want.name) return;
-        this.loading = null;
-        this.status = err instanceof Error ? err.message : String(err);
-        this.sync();
-      },
-    );
+    this.client.inspectGeometry(executionId,chosen,options).then(raw=>{
+      if(serial!==this.previewSerial || this.model.executionId!==executionId || this.model.chosen!==chosen)return;
+      this.loading=null;
+      if(raw.kind==='graph') {
+        const t1=performance.now(),m=prepare(raw.material,executionId,toPaper);
+        // Source rows are transport metadata, not invented geometry attributes.
+        this.graphSourceRows={points:raw.sourcePoints,edges:raw.sourceEdges};
+        const bytes=raw.material.x.byteLength+raw.material.y.byteLength+raw.material.edges.byteLength+Object.values(raw.material.attrs).reduce((n,a)=>n+a.byteLength,0)+Object.values(raw.material.edgeAttrs).reduce((n,a)=>n+a.byteLength,0);
+        this.lastLoad={name:chosen,bytes,prepMs:performance.now()-t1,roundTripMs:t1-t0};
+        this.model.acceptMaterial(m);
+      } else this.graphSourceRows=null;
+      this.geometryPanel.show(raw);this.status='';this.sync();
+    },err=>{
+      if(serial!==this.previewSerial || this.model.executionId!==executionId || this.model.chosen!==chosen)return;
+      this.loading=null;this.status=err instanceof Error?err.message:String(err);this.sync();
+    });
   }
+  private graphSourceRows: {points?:number[];edges?:number[]}|null=null;
 
   private repaint(): void {
-    this.preview.overlay = this.model.enabled && this.model.material ? (ctx, pxPerMm) => this.paint(ctx, pxPerMm) : null;
+    this.preview.overlay = this.model.enabled ? (ctx,pxPerMm)=>{if(this.model.material)this.paint(ctx,pxPerMm);this.geometryPanel.paint(ctx,pxPerMm);} : null;
     this.preview.draw();
   }
 
@@ -263,8 +277,9 @@ export class Inspector {
     this.body.hidden = !m.enabled;
     // The pane lives with the debug menu: open menu and material layer on,
     // it shows; closed menu, it goes (the overlay stays with the layer).
-    this.pane.hidden = !((m.enabled || this.sourceRequest) && this.menu.open);
+    this.pane.hidden = !(this.sourceRequest || m.enabled && this.menu.open);
     this.renderSourceCard();
+    this.pane.classList.toggle('geometry-expanded',this.model.enabled && !this.geometryPanel.host.hidden);
     const hideRows = !m.enabled || !!this.sourceRequest && !this.sourceEntry();
     for (const el of [this.head, this.selected, this.table, this.pager]) el.hidden = hideRows;
     if (!m.enabled) {
@@ -284,7 +299,9 @@ export class Inspector {
     this.hint.hidden = !noRegistry;
     if (noRegistry) this.hint.textContent = this.status || 'no captured material in this run — initialize a named Material or Stations variable, or use t.inspect(label, material)';
     const entry = m.names.find((e) => e.name === m.chosen);
-    this.counts.textContent = (entry ? `${entry.points} points${entry.edges === undefined ? '' : ` · ${entry.edges} edges`}` : '') + (this.dropped ? ' · capture limit reached' : '');
+    this.counts.textContent = (entry ? entry.summary ?? `${entry.points} points` : '') + (this.dropped ? ' · capture limit reached' : '');
+    const graph=!!m.material;
+    for(const control of [this.pointsBox,this.edgesBox,this.domainSel])control.disabled=!graph;
     this.pointsBox.checked = m.showPoints;
     this.edgesBox.checked = m.showEdges;
     this.domainSel.value = m.domain;
@@ -322,7 +339,7 @@ export class Inspector {
     const m = this.model;
     const mat = m.material;
     if (!mat) {
-      this.head.textContent = this.status || (m.chosen ? `${m.names.find(e => e.name === m.chosen)?.source?.label ?? m.chosen}: not loaded` : 'no material chosen');
+      this.head.textContent = this.status || '';
       this.selected.replaceChildren();
       this.table.replaceChildren();
       this.pager.replaceChildren();
@@ -452,7 +469,8 @@ export class Inspector {
         sw.style.background = colorFor(values[r], range) ?? NEUTRAL;
         first.append(sw);
       }
-      first.append(String(r));
+      const sourceRow=this.graphSourceRows?.[points?'points':'edges']?.[r];
+      first.append(String(r)+(sourceRow===undefined?'':` (source ${sourceRow})`));
       tr.append(first);
       for (const c of cells) {
         const td = document.createElement('td');

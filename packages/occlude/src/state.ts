@@ -8,6 +8,7 @@
 import { DEFAULT_PENS, type PenDef } from './pens.js';
 import { Rng } from './random.js';
 import { parseSeed } from './draws.js';
+import { describeInspectionValue, type InspectionKind } from './inspectionValues.js';
 import { Material, stationsMaterial, type Station } from './material.js';
 import type { L } from './units.js';
 
@@ -129,11 +130,12 @@ export interface InspectionSource {
   end: number;
   label: string;
   line: number;
-  kind?: 'stations';
+  kind?: string;
+  expression?: boolean;
 }
 
 interface InspectionCapture {
-  value: Material | readonly Station[] | null;
+  value: unknown;
   entry: InspectionEntry;
   rows: number;
 }
@@ -157,20 +159,20 @@ export function forgetInspection(label: string): void {
   }
 }
 
-export function recordInspection(label: string, value: Material | readonly Station[], source?: InspectionSource): void {
-  if (!inspectHint || !state) return;
-  const s = state;
+export function recordInspection(label: string, value: unknown, source?: InspectionSource): void {
+  if (!inspectHint) return;
+  const description = describeInspectionValue(value, source?.kind);
+  if (!description) { forgetInspection(label); return; }
+  const s = getState();
   const old = s.inspections.get(label);
   if (!old && s.inspections.size >= INSPECTION_LIMITS.captures) { s.inspectionDropped++; return; }
-  const points = value instanceof Material ? value.n : value.length;
-  const edges = value instanceof Material ? value.edgeCount : undefined;
-  const rows = points + (edges ?? points);
+  const { points, edges, rows, kind, summary } = description;
   const retained = s.inspectionRows - (old?.rows ?? 0);
   const limited = rows > INSPECTION_LIMITS.previewRows || retained + rows > INSPECTION_LIMITS.rows;
   s.inspectionRows = retained + (limited ? 0 : rows);
   s.inspections.set(label, {
     value: limited ? null : value, rows: limited ? 0 : rows,
-    entry: { name: label, points, edges, source, occurrences: (old?.entry.occurrences ?? 0) + 1,
+    entry: { name: label, points, edges, kind, summary, source, occurrences: (old?.entry.occurrences ?? 0) + 1,
       limited: limited ? 'Preview exceeds the inspection retention limit' : undefined },
   });
 }
@@ -179,6 +181,8 @@ export interface InspectionEntry {
   /** Opaque capture key; automatic captures use source identity, not names. */
   name: string;
   points: number;
+  kind?: InspectionKind;
+  summary?: string;
   /** Stations derive connections only when a preview is requested. */
   edges?: number;
   source?: InspectionSource;
@@ -188,6 +192,20 @@ export interface InspectionEntry {
 
 export function getInspectionIndex(): InspectionEntry[] {
   return state ? [...state.inspections.values()].map(c => c.entry) : [];
+}
+
+/** Carry module-scope captures across the sketch's initial state reset,
+ * within the same host execution. The returned callback retains only the
+ * already bounded registry, not the previous sketch state. */
+export function carryModuleInspections(): () => void {
+  const inspections=state?.inspections, rows=state?.inspectionRows??0, dropped=state?.inspectionDropped??0;
+  return () => { if(state && inspections && inspectHint) { state.inspections=inspections;state.inspectionRows=rows;state.inspectionDropped=dropped; } };
+}
+
+export function getInspectionValue(name: string): unknown {
+  const capture = state?.inspections.get(name);
+  if (capture?.entry.limited) throw new Error(capture.entry.limited);
+  return capture?.value;
 }
 
 export function getInspectionDropped(): number { return state?.inspectionDropped ?? 0; }
@@ -211,7 +229,8 @@ export function inspectionPayload(name: string): InspectionPayload | null {
   const capture = state?.inspections.get(name);
   if (!capture) return null;
   if (!capture.value) throw new Error(capture.entry.limited ?? 'Capture unavailable');
-  const m = capture.value instanceof Material ? capture.value : stationsMaterial(capture.value);
+  const m = capture.value instanceof Material ? capture.value : capture.entry.kind === 'stations' ? stationsMaterial(capture.value as readonly Station[]) : null;
+  if (!m) throw new Error('This capture needs a geometry preview');
   const attrs: Record<string, Float64Array> = {};
   for (const k of Object.keys(m.attrs)) attrs[k] = m.attrs[k].slice();
   const edgeAttrs: Record<string, Float64Array> = {};

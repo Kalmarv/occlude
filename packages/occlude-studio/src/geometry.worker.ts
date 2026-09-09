@@ -18,7 +18,7 @@ class GeometryWorker extends WorkerBase {
     const file = program?.getSourceFile(fileName);
     if (!program || !file) throw new Error('Source is not ready for inspection');
     const version = this.getScriptVersion(fileName);
-    return { js: emitInspection(ts.typescript, file.text, fileName, version, program.getCompilerOptions(), new Set(analyzeGeometry(ts.typescript, program, fileName, [{ start: 0, end: file.text.length }]).filter(a => a.role === 'declaration' && a.kind === 'stations').map(a => a.start))), version };
+    return { js: emitInspection(ts.typescript, file.text, fileName, version, program.getCompilerOptions(), analyzeGeometry(ts.typescript, program, fileName, [{ start: 0, end: file.text.length }])), version };
   }
 
   getGeometryAnnotations(fileName: string, ranges: { start: number; end: number }[]): GeometryAnalysis {

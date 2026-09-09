@@ -8,6 +8,7 @@
  */
 
 import { decodeRender, pensToJson, type DrawRequest, type EncodedScene, type InspectionEntry, type InspectionPayload, type PenDef, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
+import type { GeometryPreview, PreviewOptions } from './geometryPreview.js';
 import type { RunConfig } from './runner.js';
 
 /** A run's addressed draws: address, unit float, and what the call made of it. */
@@ -105,10 +106,10 @@ export class RenderClient {
    * runaway parameter). Terminate it — wasm state, sketch runtime, asset
    * cache and all — and start fresh; every render request carries the full
    * source + config, so a fresh worker self-heals on the next run. */
-  private respawnStuckWorker(): void {
+  private respawnStuckWorker(reason?: string): void {
     this.worker.terminate();
     const err = new Error(
-      `render timed out after ${RENDER_TIMEOUT_MS / 1000}s — likely a runaway ` +
+      reason ?? `render timed out after ${RENDER_TIMEOUT_MS / 1000}s — likely a runaway ` +
         'loop or parameter (tiny spacing/step or a huge count); the renderer was restarted',
     );
     for (const p of this.pending.values()) p.reject(err);
@@ -281,6 +282,15 @@ export class RenderClient {
 
   /** One registered material of the named execution, as plain copies.
    * Rejects when that execution is no longer the worker's current one. */
+  inspectGeometry(executionId:number,name:string,options:PreviewOptions={}):Promise<GeometryPreview> {
+    return new Promise((resolve,reject)=>{
+      const id=this.nextId++;
+      const timeout=setTimeout(()=>{if(this.pending.has(id))this.respawnStuckWorker('Geometry preview timed out; renderer restarted. Rerun the sketch to capture values again.');},5000);
+      this.pending.set(id,{resolve:msg=>{clearTimeout(timeout);resolve((msg as {payload:GeometryPreview}).payload);},reject:err=>{clearTimeout(timeout);reject(err);}});
+      this.worker.postMessage({type:'inspect-geometry',id,executionId,name,options});
+    });
+  }
+
   inspectMaterial(executionId: number, name: string): Promise<InspectionPayload> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
