@@ -18,6 +18,8 @@ import {
 } from './machine.js';
 import { loadPens, loadProfiles, loadSettings } from './store.js';
 import { el, hint, segmented } from './widgets.js';
+import { mountShell } from './shell.js';
+mountShell('machine');
 
 const main = document.getElementById('machine-main')!;
 

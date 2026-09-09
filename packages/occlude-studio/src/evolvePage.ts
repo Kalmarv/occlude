@@ -21,6 +21,8 @@ import {
 } from './sketchApi.js';
 import { button, el, hint } from './widgets.js';
 import { AGAIN_WARMTH, cool, mulberry32, mutate, reheat, type Candidate, type Draws } from './evolve.js';
+import { mountShell } from './shell.js';
+mountShell('evolve');
 
 const main = document.getElementById('evolve-main')!;
 const title = document.getElementById('evolve-title')!;
@@ -44,7 +46,9 @@ async function boot(): Promise<void> {
   const startMeta = ref.snap ? (await loadSnapshot(name, ref.snap)).meta : null;
   const seedParam = seedOf(location.href);
   const parsed = parseSeed(seedParam ?? (startMeta?.seed != null ? formatSeed(String(startMeta.seed), startMeta.overrides ?? {}) : String(Math.floor(Math.random() * 2 ** 31))));
-  title.textContent = live ? `${name || 'untitled'} · unsaved` : `${name}${ref.snap ? ` · snapshot ${ref.snap}` : ref.sha ? ` @ ${ref.sha}` : ''}`;
+  title.replaceChildren(name || 'untitled', Object.assign(document.createElement('small'), {
+    textContent: live ? 'unsaved buffer' : ref.snap ? `snapshot ${ref.snap}` : ref.sha ? `@ ${ref.sha}` : 'current source',
+  }));
 
   // ---- state
   let centre: Candidate = { seed: parsed.seed, overrides: parsed.overrides };

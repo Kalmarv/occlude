@@ -8,6 +8,7 @@
  */
 
 import './style.css';
+import './wa.js';
 import {
   BUILTIN_FILL_NAMES, FILL_NAME_RE, drawFragments, evalPrim, isBuiltinFill,
   type PenDef, type RenderResult,
@@ -19,6 +20,8 @@ import { BUILTIN_FILL_SOURCES, cloneSource } from './builtinFills.js';
 import { canonicalFillSource, freshFillName } from './fillEmbed.js';
 import { NEW_FILL, loadPens, loadSettings } from './store.js';
 import { warnOnEdit } from './fillWarn.js';
+import { mountShell } from './shell.js';
+mountShell('fills');
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const grid = $('fills-grid');

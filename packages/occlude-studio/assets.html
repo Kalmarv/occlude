@@ -12,19 +12,13 @@
       rel="stylesheet"
     />
   </head>
-  <body class="docs-body">
-    <header id="topbar">
-      <span class="wordmark">occlude<span class="wordmark-dot">·</span>assets</span>
-      <div class="topbar-actions">
-        <button id="btn-upload" title="Upload SVGs or images">Upload</button>
-        <a class="topbar-link" href="/" rel="noopener">Studio</a>
-        <a class="topbar-link" href="/sketches.html" rel="noopener">Sketches</a>
-        <a class="topbar-link" href="/fills.html" rel="noopener">Fills</a>
-        <a class="topbar-link" href="/machine.html" rel="noopener">Machine</a>
-        <a class="topbar-link" href="/docs.html" rel="noopener">Docs</a>
+  <body class="shell-body">
+    <aside id="side"></aside>
+    <main id="assets-main" class="page">
+      <div class="page-head">
+        <div><h1>Assets</h1><div class="sub">Images and SVGs a sketch can reference by name</div></div>
+        <div class="page-actions"><wa-button id="btn-upload" variant="brand" title="Upload SVGs or images">Upload</wa-button></div>
       </div>
-    </header>
-    <main id="assets-main">
       <p id="assets-hint" class="assets-hint">
         Drop files anywhere or press Upload. Reference by literal name in a sketch:
         <code>svg(asset('name.svg'), …)</code> for vectors,

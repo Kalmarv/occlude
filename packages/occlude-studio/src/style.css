@@ -802,7 +802,6 @@ button.primary {
 #assets-main {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 20px 24px 60px;
 }
 
 .assets-hint {
@@ -1060,7 +1059,6 @@ body.scrubbing * {
 #fills-main {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 18px 24px 40px;
 }
 
 .fill-thumb {
@@ -1483,10 +1481,9 @@ button.armed {
 }
 
 /* ---- machine page ---- */
-.machine-body main {
+#machine-main {
   max-width: 1080px;
   margin: 0 auto;
-  padding: 18px 24px 48px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -1729,7 +1726,7 @@ button.armed {
 }
 
 /* ---- results page ---- */
-#results-main { max-width: 1100px; margin: 0 auto; padding: 1rem 1.5rem 3rem; }
+#results-main { max-width: 1100px; margin: 0 auto; }
 #results-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
 .result-card { background: var(--panel, #1c1d20); border: 1px solid var(--line, #2a2b2f); border-radius: 8px; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
 .result-svg { width: 100%; height: auto; background: #f6f2ea; border-radius: 4px; }
@@ -2099,17 +2096,27 @@ button.armed {
 
 /* ---- Evolve page ---- */
 
-.evolve-body {
+#evolve-main {
+  height: 100vh;
   overflow: hidden;
+  box-sizing: border-box;
+  padding: 14px 18px 12px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 10px;
 }
 
-.evolve-body main {
-  height: calc(100vh - 42px);
-  box-sizing: border-box;
-  padding: 10px 14px 12px;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto;
-  gap: 10px;
+#evolve-main .evolve-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+#evolve-main .evolve-title small {
+  font: 12.5px var(--mono);
+  color: var(--muted);
+  margin-left: 10px;
 }
 
 .evolve-title {

@@ -12,19 +12,13 @@
       rel="stylesheet"
     />
   </head>
-  <body class="docs-body">
-    <header id="topbar">
-      <span class="wordmark">occlude<span class="wordmark-dot">·</span>fills</span>
-      <div class="topbar-actions">
-        <button id="btn-new" title="Draft a new fill file">New fill</button>
-        <a class="topbar-link" href="/" rel="noopener">Studio</a>
-        <a class="topbar-link" href="/sketches.html" rel="noopener">Sketches</a>
-        <a class="topbar-link" href="/assets.html" rel="noopener">Assets</a>
-        <a class="topbar-link" href="/machine.html" rel="noopener">Machine</a>
-        <a class="topbar-link" href="/docs.html" rel="noopener">Docs</a>
+  <body class="shell-body">
+    <aside id="side"></aside>
+    <main id="fills-main" class="page">
+      <div class="page-head">
+        <div><h1>Fills</h1><div class="sub">Textures a shape can carry, as files</div></div>
+        <div class="page-actions"><wa-button id="btn-new" variant="brand" title="Draft a new fill file">New fill</wa-button></div>
       </div>
-    </header>
-    <main id="fills-main">
       <p class="assets-hint">
         Fill files, used from a sketch as <code>fill('name', { … })</code>. Built-ins are
         ink-immutable — clone one to change it. Saving a fill that saved sketches use warns

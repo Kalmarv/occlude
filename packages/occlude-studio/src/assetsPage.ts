@@ -5,9 +5,12 @@
  */
 
 import './style.css';
+import './wa.js';
 import {
   deleteAsset, listAssets, renameAsset, uploadAsset, type AssetInfo,
 } from './assetApi.js';
+import { mountShell } from './shell.js';
+mountShell('assets');
 
 const grid = document.getElementById('assets-grid')!;
 

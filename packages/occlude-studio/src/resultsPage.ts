@@ -7,6 +7,8 @@
 
 import './style.css';
 import { deleteResult, listResults, resultSvgUrl, type SavedResult } from './resultsApi.js';
+import { mountShell } from './shell.js';
+mountShell('results');
 
 const main = document.getElementById('results-list')!;
 
