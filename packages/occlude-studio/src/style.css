@@ -1005,7 +1005,7 @@ body.dropping {
 }
 
 .lineage-dot.plain {
-  fill: var(--edge-strong);
+  fill: var(--muted);
 }
 
 .lineage-fork {
