@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import type { InspectionEntry } from 'occlude';
 import type { InspectionPayload } from 'occlude';
 import { InspectorModel, colorFor, columnRange, incidentEdges, otherEnd, pickEdge, pickPoint, prepare, ramp } from './inspectorModel.js';
 
@@ -62,26 +61,24 @@ describe('prepare and picking', () => {
   });
 });
 
-const entry = (name: string, points: number, edges: number): InspectionEntry => ({ name, points, edges, occurrences: 1, retainedOccurrences: 1 });
-
 describe('InspectorModel', () => {
   it('keeps the chosen name across renders when present, clears the selection, ignores stale payloads', () => {
     const im = new InspectorModel();
     im.enabled = true;
-    expect(im.onRender(1, [entry('source', 4, 3), entry('grown', 9, 8)])).toBe('source');
+    expect(im.onRender(1, [{ name: 'source', points: 4, edges: 3 }, { name: 'grown', points: 9, edges: 8 }])).toBe('source');
     im.choose('grown');
     expect(im.acceptMaterial(prepare(payload({ name: 'grown' }), 1, identity))).toBe(true);
     im.select({ kind: 'point', index: 2 });
-    // A newer render: the name survives, the selection does not, the old material is cleared immediately.
-    expect(im.onRender(2, [entry('grown', 9, 8)])).toBe('grown');
+    // A newer render: the name survives, the selection does not, the old material waits for its replacement.
+    expect(im.onRender(2, [{ name: 'grown', points: 9, edges: 8 }])).toBe('grown');
     expect(im.selection).toBeNull();
-    expect(im.material).toBeNull();
+    expect(im.material?.executionId).toBe(1);
     // The old execution's payload arriving late is ignored.
     expect(im.acceptMaterial(prepare(payload({ name: 'grown' }), 1, identity))).toBe(false);
     expect(im.acceptMaterial(prepare(payload({ name: 'grown' }), 2, identity))).toBe(true);
     expect(im.material?.executionId).toBe(2);
     // The name vanishes: fall back to the first registered.
-    expect(im.onRender(3, [entry('other', 1, 0)])).toBe('other');
+    expect(im.onRender(3, [{ name: 'other', points: 1, edges: 0 }])).toBe('other');
     expect(im.material).toBeNull();
     // Nothing registered at all.
     expect(im.onRender(4, [])).toBeNull();
@@ -91,7 +88,7 @@ describe('InspectorModel', () => {
   it('colours the selected domain only and pages to the selected row', () => {
     const im = new InspectorModel();
     im.enabled = true;
-    im.onRender(1, [entry('m', 4, 3)]);
+    im.onRender(1, [{ name: 'm', points: 4, edges: 3 }]);
     im.acceptMaterial(prepare(payload(), 1, identity));
     expect(im.columns()).toEqual(['age']);
     im.attr = 'age';
@@ -112,7 +109,7 @@ describe('InspectorModel', () => {
   it('picks through the visibility toggles and resets cleanly', () => {
     const im = new InspectorModel();
     im.enabled = true;
-    im.onRender(1, [entry('m', 4, 3)]);
+    im.onRender(1, [{ name: 'm', points: 4, edges: 3 }]);
     im.acceptMaterial(prepare(payload(), 1, identity));
     expect(im.pick(10, 0.2, 0.5)).toEqual({ kind: 'point', index: 1 });
     im.showPoints = false;
@@ -130,7 +127,7 @@ describe('InspectorModel', () => {
   it('sorts by a column as a permutation, non-finite last, and pages to the selected row', () => {
     const im = new InspectorModel();
     im.enabled = true;
-    im.onRender(1, [entry('m', 4, 3)]);
+    im.onRender(1, [{ name: 'm', points: 4, edges: 3 }]);
     im.acceptMaterial(prepare(payload({ attrs: { age: Float64Array.of(3, NaN, 1, 2) } }), 1, identity));
     expect(im.order()).toBeNull();
     im.toggleSort('age');

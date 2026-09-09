@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  circle, compileSketch, getInspectHint, getInspectionIndex, inspectValue, inspectionPayload, material, setInspectHint, sketch, stroke,
-  userUnitsToPaper, clearInspections, getInspectionDropped, getInspectionValue, INSPECTION_LIMITS, type InspectionSource,
+  circle, compileSketch, getInspectHint, getInspectionIndex, inspectIfMaterial, inspectionPayload, material, setInspectHint, sketch, stroke,
+  userUnitsToPaper,
 } from '../src/index.js';
 import { makeFrame } from '../src/record.js';
 import { getState } from '../src/state.js';
@@ -22,7 +22,7 @@ describe('t.inspect: the debug registry', () => {
     expect(inspectionPayload('a')).toBeNull();
   });
 
-  it('keeps registration order, replaces a reused label in place, and lives until the host clears it', () => {
+  it('keeps registration order, replaces a reused label in place, and resets per compile', () => {
     setInspectHint(true);
     try {
       compileSketch(sketch({ seed: 1 }, (t) => {
@@ -34,13 +34,9 @@ describe('t.inspect: the debug registry', () => {
       }));
       const index = getInspectionIndex();
       expect(index.map((e) => e.name)).toEqual(['source', 'grown']);
-      expect(index[0]).toMatchObject({ name: 'source', points: 3, edges: 3, occurrences: 2 });
-      expect(index[1]).toMatchObject({ name: 'grown', points: 3, edges: 2, occurrences: 1 });
-      // The registry outlives the sketch state (module-scope captures come
-      // before compileSketch); the host clears it at the start of a run.
+      expect(index[0]).toEqual({ name: 'source', points: 3, edges: 3 });
+      expect(index[1]).toEqual({ name: 'grown', points: 3, edges: 2 });
       compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 10)));
-      expect(getInspectionIndex().map((e) => e.name)).toEqual(['source', 'grown']);
-      clearInspections();
       expect(getInspectionIndex()).toEqual([]);
     } finally {
       setInspectHint(false);
@@ -53,9 +49,9 @@ describe('t.inspect: the debug registry', () => {
       compileSketch(sketch({ seed: 1 }, (t) => {
         const ring = t.sample(circle(50, 50, 20), { count: 8 });
         const stations = ring.along({ count: 4 });
-        inspectValue('stations', stations); // what the studio's instrumentation calls
+        inspectIfMaterial('stations', stations); // what the studio's instrumentation calls
         t.inspect('named', stations);
-        inspectValue('nothing', [1, 2, 3]);
+        inspectIfMaterial('nothing', [1, 2, 3]);
         expect(() => t.inspect('bad', [] as never)).toThrow(/expected a Material/);
         return stroke(ring.contour);
       }));
@@ -109,7 +105,7 @@ describe('t.inspect: the debug registry', () => {
       expect(p.x.byteLength).toBe(0);
       expect(held!.x.byteLength).toBe(24);
       expect(held!.attrs.w[1]).toBe(30);
-      expect(inspectionPayload('m')!.x.byteLength).toBe(24);
+      expect(getState().inspections.get('m')!.x.byteLength).toBe(24);
     } finally {
       setInspectHint(false);
     }
@@ -144,66 +140,5 @@ describe('userUnitsToPaper', () => {
     expect([x, y]).toEqual([100, 50]);
     const [, up] = userUnitsToPaper(c)(0, 10);
     expect(up).toBeCloseTo(42); // y up: 10 units = 8 mm above the centre
-  });
-});
-
-describe('bounded source captures', () => {
-  const source: InspectionSource = { document: 'file:///sketch.ts', revision: '3', start: 10, end: 16, label: 'points', line: 1 };
-  it('counts repeated site occurrences; a run of the site that yields no geometry keeps what it captured', () => {
-    setInspectHint(true);
-    try {
-      compileSketch(sketch({ seed: 1 }, () => {
-        for (let i = 0; i < 100; i++) inspectValue('source-id', two(), source);
-        expect(getInspectionIndex()[0]).toMatchObject({ occurrences: 100, retainedOccurrences: 100, source });
-        inspectValue('source-id', null, source);
-        expect(getInspectionIndex()[0]).toMatchObject({ occurrences: 100, retainedOccurrences: 100 });
-        // An explicit label, by contrast, is forgotten when it stops being geometry.
-        inspectValue('explicit', two());
-        inspectValue('explicit', null);
-        expect(getInspectionIndex().map((e) => e.name)).toEqual(['source-id']);
-        return circle(50,50,20);
-      }));
-    } finally { setInspectHint(false); }
-  });
-  it('limits distinct handles and reports captures beyond the limit', () => {
-    setInspectHint(true);
-    try {
-      compileSketch(sketch({ seed: 1 }, () => {
-        const shared = two();
-        for (let i = 0; i < INSPECTION_LIMITS.captures + 5; i++) inspectValue(String(i), shared, source);
-        return circle(50,50,20);
-      }));
-      expect(getInspectionIndex()).toHaveLength(INSPECTION_LIMITS.captures);
-      expect(getInspectionDropped()).toBe(5);
-      clearInspections();
-      expect(getInspectionIndex()).toEqual([]);
-      expect(inspectionPayload('0')).toBeNull();
-    } finally { setInspectHint(false); }
-  });
-  it('retains an oversized summary without retaining its preview value', () => {
-    setInspectHint(true);
-    try {
-      compileSketch(sketch({ seed: 1 }, () => {
-        const oversized = material(Array.from({length: INSPECTION_LIMITS.previewRows + 1}, () => [0,0] as [number,number]));
-        inspectValue('large', oversized, source);
-        return circle(50,50,20);
-      }));
-      expect(getInspectionIndex()[0].limited).toMatch(/limit/);
-      expect(() => inspectionPayload('large')).toThrow(/limit/);
-      expect(() => getInspectionValue('large')).toThrow(/limit/);
-    } finally { setInspectHint(false); }
-  });
-  it('distinguishes a statically known empty stations array from an uncaptured value', () => {
-    setInspectHint(true);
-    try {
-      compileSketch(sketch({ seed: 1 }, () => {
-        inspectValue('empty', [], { ...source, kind: 'stations' });
-        return circle(50,50,20);
-      }));
-      expect(getInspectionIndex()[0].points).toBe(0);
-      expect(inspectionPayload('empty')!.n).toBe(0);
-      setInspectHint(false);
-      expect(getInspectionIndex()).toEqual([]);
-    } finally { setInspectHint(false); }
   });
 });

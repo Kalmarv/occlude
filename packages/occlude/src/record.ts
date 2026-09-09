@@ -449,14 +449,6 @@ export function lowerToUserLoops(
   return lowerToUserContours(geom, opts, frame, tol).map((c) => c.pts);
 }
 
-/** Native inspection geometry in paper mm, preserving arcs/cubics. No fills,
- * clipping, modifiers, flattening or quantization are applied. */
-export function inspectionPrimitives(geom: ShapeGeom, transforms: TransformOp[], frame: Frame): Prim[][] {
-  const rz = new Resolver(frame);
-  const matrix = mul(userToPaperMatrix(frame), composeChain(transforms, rz));
-  return lowerGeom(geom, rz).map((contour) => contour.flatMap((p) => transformPrim(p, matrix)));
-}
-
 /** `lowerToUserLoops` with each contour's OWN closure: a path's closed
  * subpath (its `close` lands back on its start) is closed, an open one
  * is open, whatever its neighbours do; every other geometry closes as a

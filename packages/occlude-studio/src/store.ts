@@ -18,16 +18,12 @@ export interface UiPrefs {
   railOpen: boolean;
   /** Rail width, CSS px; null = default (280px). */
   railW: number | null;
-  /** The Inspect tab's own width: tables and heatmaps want more room. */
-  inspectW: number | null;
-  /** Rail mode: composing the drawing, running the machine, or inspecting geometry. */
-  railMode: RailMode;
+  /** Rail mode: composing the drawing, or running the machine. */
+  railMode: 'compose' | 'plot';
 }
 
-export type RailMode = 'compose' | 'plot' | 'inspect';
-
 export function loadUi(): UiPrefs {
-  const defaults: UiPrefs = { editorW: null, railOpen: true, railW: null, inspectW: null, railMode: 'compose' };
+  const defaults: UiPrefs = { editorW: null, railOpen: true, railW: null, railMode: 'compose' };
   try {
     const raw = localStorage.getItem(KEYS.ui);
     if (raw) return { ...defaults, ...(JSON.parse(raw) as Partial<UiPrefs>) };

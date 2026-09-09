@@ -161,18 +161,11 @@ export type { LiftMap, CellGeometry, SettlePoint, LiftModel } from './liftmap.js
 // Host integration.
 export {
   setPenLibrary, setPaperHint, setSeedHint, getState, getProbeStats,
+  setInspectHint, getInspectHint, getInspectionIndex, inspectionPayload,
 } from './state.js';
-export type { ProbeSummary, TransformOp } from './state.js';
-export {
-  setInspectHint, getInspectHint, getInspectionIndex, inspectionPayload, clearInspections, getInspectionDropped,
-  getInspectionValue, getInspectionValues, getInspectionPlacements, INSPECTION_LIMITS, INSPECT_HOOK,
-} from './inspection.js';
-export type { InspectionEntry, InspectionPayload, InspectionSource, InspectionPlacement } from './inspection.js';
-export { userUnitsToPaper, inspectionPrimitives, sketchFrame } from './record.js';
-export type { Frame } from './record.js';
-export { inspectionOwner } from './material.js';
-export { decodeFragments } from './render.js';
-export { inspectValue } from './api.js';
+export type { ProbeSummary, InspectionEntry, InspectionPayload } from './state.js';
+export { userUnitsToPaper } from './record.js';
+export { inspectIfMaterial } from './api.js';
 
 // A fill file's `import … from 'occlude'` resolves to this very module: the
 // registry hands loaded fills the package's own namespace (self-import is
@@ -193,5 +186,3 @@ setOccludeModule(() =>
     ),
   ),
 );
-
-export type { InspectionKind } from './inspectionValues.js';

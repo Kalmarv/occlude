@@ -247,25 +247,25 @@ export class InspectorModel {
 
   /** A render landed: adopt its registry, keep the chosen name if it is
    * still there, drop the row selection. Returns the name to fetch (null
-   * when nothing is chosen or registered). The old material is released immediately;
-   * rows are shown only for the current execution. */
+   * when nothing is chosen or registered). The old material stays until
+   * its replacement arrives, like the old drawing does. */
   onRender(executionId: number, names: InspectionEntry[]): string | null {
     this.executionId = executionId;
     this.names = names;
     this.selection = null;
     if (!this.enabled) return null;
+    const before = this.chosen;
     if (this.chosen !== null && !names.some((e) => e.name === this.chosen)) this.chosen = null;
     if (this.chosen === null && names.length > 0) this.chosen = names[0].name;
-    // The old rows and sort cache belong to the previous execution.
-    this.orderCache = null;
-    this.material = null; // old rows must never appear under a new execution
+    // A different name (or none): the old material is not what is asked for.
+    if (this.chosen !== before) this.material = null;
     return this.chosen;
   }
 
   /** Adopt a loaded material; a payload for another execution or a name no
    * longer chosen is ignored. */
   acceptMaterial(m: LoadedMaterial): boolean {
-    if (!this.enabled || m.executionId !== this.executionId || m.name !== this.chosen) return false;
+    if (m.executionId !== this.executionId || m.name !== this.chosen) return false;
     this.material = m;
     this.selection = null;
     this.page = 0;
@@ -277,7 +277,6 @@ export class InspectorModel {
   choose(name: string | null): void {
     if (name === this.chosen) return;
     this.chosen = name;
-    this.orderCache = null;
     this.material = null;
     this.selection = null;
     this.page = 0;
@@ -350,7 +349,6 @@ export class InspectorModel {
   reset(): void {
     this.executionId = -1;
     this.names = [];
-    this.orderCache = null;
     this.material = null;
     this.selection = null;
     this.page = 0;

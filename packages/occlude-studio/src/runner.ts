@@ -12,6 +12,7 @@
 
 import * as occlude from 'occlude';
 import type { EncodedScene, PenDef, SketchDef } from 'occlude';
+import { INSPECT_HOOK, instrumentDeclarations } from './instrument.js';
 
 export interface RunOutcome {
   scene: EncodedScene | null;
@@ -27,9 +28,9 @@ export interface RunConfig {
   coarsen: number;
   /** Compute the debug ghost (post-modified pre-occlusion geometry). */
   debugGhost?: boolean;
-  /** Inspection on: `js` is the studio's inspection emit — draw sites
-   * tagged and capture hooks inserted — and every capture is kept for the
-   * Inspect tab. Off: `js` is plain emit, tagged here; nothing is kept. */
+  /** Material inspection on: every variable holding a Material is
+   * registered under its name (the emitted JS is instrumented), and
+   * `t.inspect()` registrations are kept. Off: neither costs anything. */
   inspect?: boolean;
   /** Seed for 'url'/default-seed sketches. The worker's own URL carries no
    * `?seed=`, so the host passes it explicitly; null/undefined lets the
@@ -57,13 +58,10 @@ export function runSketch(js: string, cfg: RunConfig): RunOutcome {
   try {
     // Draw sites are always tagged (cheap, and what makes a seed's
     // overrides land); declarations only when the material layer is on.
-    const code = cfg.inspect === true ? js : occlude.tagDraws(js).js;
-    const fn = new Function('require', 'exports', 'module', occlude.INSPECT_HOOK, occlude.DRAW_HOOK, code);
-    const capture = (name: string, value: unknown, source?: occlude.InspectionSource): unknown => {
-      occlude.inspectValue(name, value, source);
-      return value;
-    };
-    fn(require, module.exports, module, capture, occlude.drawAt);
+    const tagged = occlude.tagDraws(js).js;
+    const code = cfg.inspect === true ? instrumentDeclarations(tagged) : tagged;
+    const fn = new Function('require', 'exports', 'module', INSPECT_HOOK, occlude.DRAW_HOOK, code);
+    fn(require, module.exports, module, occlude.inspectIfMaterial, occlude.drawAt);
     const exp = module.exports;
     const def: SketchDef | undefined = occlude.isSketch(exp.default)
       ? exp.default

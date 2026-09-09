@@ -2,32 +2,6 @@
 
 Geometry as data you can hold: points with attributes, edges between them, selections of parts, rules that move and grow them, the regions they enclose, and drawing one material several ways. The page runs from sampled points, through connections and selections, to movement and growth, then faces and resampling, and ends with a worked study that reads one material four ways.
 
-## Inspecting geometry in the studio
-
-The studio's **Inspect** tab (the third rail tab, beside Compose and Plot) lists everything the last run made: materials, selections, stations, faces, shapes and paths, and scalar and vector fields, each with its kind, its line and a count. Opening the tab reruns the sketch with capture on; leaving it turns capture off, so a sketch costs nothing extra while you are not looking. Filter the list by kind or by name, and pick one to see it in the preview and in a table below.
-
-A material shows its points and edges as rows, sortable by any column and coloured by a column of your choice, with the same colour painted over the ink. Click a point or edge in the preview, or a row, to read its columns, its edges and its neighbours. Stations show `station.`, `point.` and `edge.` columns apart, with tangent and normal ticks over the ink. Faces list area, perimeter, holes and walls, and a click in the preview picks the face under it. Shapes and paths list one row per shape; click a row, or the shape itself in the preview, to isolate it and read its options and its vertices or path commands, either as the native geometry with its placement (**Pre-modifier**) or as the ink that survived fills, clipping and occlusion (**Post-modifier**). Fields are sampled on a grid over the drawable and drawn as a heatmap, vectors with arrows; hover a cell to read the sample.
-
-Connections carry across captures. A selection knows the material it was taken from, a station the edge it sits on, a face its walls: the source row is a link in the table and in the detail, and following it opens that capture with the row selected.
-
-Every capture is keyed by its source position, so two variables of the same name in different scopes stay apart, and a site that runs in a loop keeps every occurrence (up to the limits: 256 captures, a million rows, ten thousand occurrences per site; beyond them a capture keeps its summary and says so). Editing the source or changing an input dims the list until the next run lands. The **Hints** menu on the tab puts each kind's icon in front of geometry in the editor; the icons show while the tab is open, and clicking one selects that value. `t.inspect(label, value)` names a capture explicitly.
-
-```ts live
-import { sketch, circle, strokes } from 'occlude';
-
-export default sketch({ aspect: [1, 1] }, t => {
-  const outline = circle(50, 50, 40);
-  const boundary = t.sample(outline, { count: 24 });
-  const stations = boundary.along({ count: 12 });
-  const upper = boundary.points.filter(p => p.y < 50);
-  return [
-    strokes(boundary),
-    stations.map(s => circle(s.x, s.y, 0.6)),
-    upper.map(p => circle(p.x, p.y, 1.2)),
-  ];
-});
-```
-
 ## Point distributions
 
 `t.scatter(field?, { spacing })` places Poisson-disk points over the drawable and returns point-only material with one computed column, `density`: the field's value at each point, 0 to 1. Where the field is high the local spacing tightens; where it is 0 nothing is placed, and every island of the field is sampled. The material remembers nothing about the field or the spacing; the refinement operations take them as inputs.
@@ -816,7 +790,7 @@ export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
 });
 ```
 
-`m.along({ spacing | count, transfer? })` or plain `m.along()` is the other side of resampling: it reads evenly spaced *stations* off the chains and leaves the material alone. Blender calls it curve to points. A station is plain data, owned by no state: `x, y`, the unit `tangent` of the segment under it, the `normal`, the `heading` in radians, arc length `s` from the chain's start and its fraction `u`, the chain's whole `length`, the `chain` and whether it is `closed`, and where it came from: the source `edge` row and that segment's endpoint rows `a` and `b`. Point columns arrive in `attrs` by each column's transfer policy (per-call `transfer` overrides, as in `resample`), edge columns in `edgeAttrs` by theirs: `'copy'` is the edge under the station, `'distribute'` the sum over the run of chain nearer this station than its neighbours, so the stations' shares add up to the chain's total. Same sampling rules as `resample`: open chains include both ends, closed ones start at the seam and never repeat it, each chain is walked on its own, isolated vertices give nothing, a junction is an error. With neither `spacing` nor `count`, `along()` is a station at every vertex in walk order, the chain's own corners as `t.material` keeps them, with the vertex's own column values; a station on a vertex, however it got there, takes the bisector of the two segments meeting as its tangent. Use `resample` when the material itself must be even; use `along` to put things on it. Stations are not drawn, but a variable holding them appears in the studio's Inspect tab like a material, with a vertex per station, the walk as edges, and `heading`, `s`, `u`, `length`, `chain` and the transferred columns to colour by; `stationsMaterial(stations)` is that conversion for a sketch that wants to draw or connect them. Headings are radians, like every angle in the vector vocabulary; `degrees(h)` is the bridge to a shape's `rotate`.
+`m.along({ spacing | count, transfer? })` or plain `m.along()` is the other side of resampling: it reads evenly spaced *stations* off the chains and leaves the material alone. Blender calls it curve to points. A station is plain data, owned by no state: `x, y`, the unit `tangent` of the segment under it, the `normal`, the `heading` in radians, arc length `s` from the chain's start and its fraction `u`, the chain's whole `length`, the `chain` and whether it is `closed`. Point columns arrive in `attrs` by each column's transfer policy (per-call `transfer` overrides, as in `resample`), edge columns in `edgeAttrs` by theirs: `'copy'` is the edge under the station, `'distribute'` the sum over the run of chain nearer this station than its neighbours, so the stations' shares add up to the chain's total. Same sampling rules as `resample`: open chains include both ends, closed ones start at the seam and never repeat it, each chain is walked on its own, isolated vertices give nothing, a junction is an error. With neither `spacing` nor `count`, `along()` is a station at every vertex in walk order, the chain's own corners as `t.material` keeps them, with the vertex's own column values; a station on a vertex, however it got there, takes the bisector of the two segments meeting as its tangent. Use `resample` when the material itself must be even; use `along` to put things on it. Stations are not drawn, but a variable holding them appears in the studio's Material layer like a material, with a vertex per station, the walk as edges, and `heading`, `s`, `u`, `length`, `chain` and the transferred columns to colour by; `stationsMaterial(stations)` is that conversion for a sketch that wants to draw or connect them. Headings are radians, like every angle in the vector vocabulary; `degrees(h)` is the bridge to a shape's `rotate`.
 
 A warped ring drawn as itself, with a square stamped at every station, turned to the curve's heading and sized by a `weight` column that was declared on four vertices and interpolated onto the stations. The ring keeps its own vertices; nothing was resampled.
 

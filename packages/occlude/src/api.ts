@@ -32,9 +32,8 @@ import { type FieldAlign, Shape, geomClosed, type FieldFn, type ModifierValue, t
 import {
   bounds, chance, clip as legacyClip, margin, noise, pick, prob, push, rnd,
   sketch as legacySketch, stream, getState, unitScaleMm,
-  type SketchOptions, type Winding, recordProbe,
+  type SketchOptions, type Winding, recordProbe, recordInspection,
 } from './state.js';
-import { recordInspection, recordInspectionPlacement, getInspectHint, type InspectionSource } from './inspection.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
   scatterPoints, relaxMaterial, settleMaterial, type RelaxOpts, type SettleOpts, type Bounds as PointBounds,
@@ -949,16 +948,17 @@ function probe<T>(label: string, value: T): T {
 function inspect(label: string, value: Material | readonly Station[]): void {
   if (typeof label !== 'string' || label.length === 0) throw new Error('inspect: the label must be a non-empty string');
   if (value instanceof Material) return recordInspection(label, value);
-  if (isStations(value)) return recordInspection(label, value);
+  if (isStations(value)) return recordInspection(label, stationsMaterial(value));
   throw new Error(`inspect('${label}'): expected a Material (from t.sample, material(), curve(), connect.*, steps, …) or the stations of along()`);
 }
 
-/** The host's automatic capture: the studio's emitted code calls this for
- * every geometry-typed declaration and expression it instrumented, with the
- * site's source identity. Anything that is not inspectable geometry is
- * ignored without a word; a path builder is snapshotted, since it mutates. */
-export function inspectValue(label: string, value: unknown, source?: InspectionSource): void {
-  recordInspection(label, value instanceof PathValue ? value.build() : value, source);
+/** The host's automatic form of `inspect`: called for every variable the
+ * studio instruments, so it registers materials — and the stations of
+ * `along()`, as a material of their own — and ignores everything else
+ * without a word. */
+export function inspectIfMaterial(label: string, value: unknown): void {
+  if (value instanceof Material) recordInspection(label, value);
+  else if (isStations(value)) recordInspection(label, stationsMaterial(value));
 }
 
 /** Path optimization for THIS sketch's plan (tour budget, bridging) — in
@@ -1036,13 +1036,6 @@ export function compileSketch(
 }
 
 function emit(tree: Tree, ctx: EmitCtx): void {
-  if (!getInspectHint() || !tree || typeof tree !== 'object') return emitTree(tree, ctx);
-  const state = getState(), start = state.shapes.length, transforms = [...state.tfChain];
-  emitTree(tree, ctx);
-  recordInspectionPlacement(tree, { start, end: state.shapes.length, transforms });
-}
-
-function emitTree(tree: Tree, ctx: EmitCtx): void {
   if (!tree) return;
   if (Array.isArray(tree)) {
     for (const child of tree) emit(child, ctx);

@@ -2,21 +2,6 @@
 
 Seeded randomness and noise, independent streams, remapping and shaping values, scalar and vector fields over the page, and the contours and flow lines that read them. A field is a function that returns a value at a position, `(x, y) => number` for scalars and `(x, y) => [dx, dy]` for vectors. Fields are called in drawable units.
 
-## Inspecting a field
-
-A field is a function, so there is nothing to draw until something reads it. The studio's Inspect tab samples one for you: pick a scalar or vector field in the list and it is evaluated at the centres of a 32 × 32 grid over the drawable (16, 64 and 128 are there too, and the bounds are editable) and drawn as a heatmap, vectors by magnitude with an arrow per cell. Negative scalars get a diverging scale about zero. A cell the field could not give a finite number for is checkered, not zero. Hover a cell, or focus the graph and use the arrow keys, to read the sampled coordinates and value. Sampling stops after a second and a half and shows what it got, so a slow field is inspectable at a coarser grid. It is a sampled view: peaks between cell centres are missed.
-
-```ts live
-import { sketch, circle, distanceTo, vectorField } from 'occlude';
-
-const height = distanceTo([[[20, 20], [80, 20], [80, 80], [20, 80]]]);
-const flow = vectorField((x, y) => [-(y - 50) / 50, (x - 50) / 50]);
-
-export default sketch({ aspect: 'square', seed: 42 }, t =>
-  t.grid({ cols: 16, rows: 16 }).map(({ cx: x, cy: y }) => circle(x, y, 0.6 + Math.max(0, height(x, y)) / 20)),
-);
-```
-
 ## Randomness
 
 All randomness derives from the sketch's seed (`seed` in the config, or `?seed=` in the URL). The same source and seed give the same geometry.
