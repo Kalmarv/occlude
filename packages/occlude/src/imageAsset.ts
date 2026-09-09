@@ -133,7 +133,15 @@ export interface ImageSampler {
   edge(x: number, y: number, area?: number): number;
   /** Gradient direction of luminance, radians (perpendicular = contour). */
   dir(x: number, y: number, area?: number): number;
+  /** A channel as a scalar field over the sheet, `(x, y) => number`, so an
+   * image drives anything a field drives: `t.isolines(img.field('lum'), …)`,
+   * `t.scatter(img.field('dark'), …)`, `t.streamlines(curl(img.field('lum')))`,
+   * a modifier's amount. `dark` is `1 − lum`; `area` averages as the
+   * samplers do. Outside the placed rect the field is 0. */
+  field(channel?: ImageChannel, opts?: { area?: number }): (x: number, y: number) => number;
 }
+
+export type ImageChannel = 'lum' | 'dark' | 'a' | 'edge';
 
 /**
  * A sampler over an uploaded image, mapped into sketch space. Draws
@@ -192,6 +200,12 @@ export function image(name: string, place: ImagePlacement = {}): ImageSampler {
     return raw / 255;
   };
 
+  const edge = (x: number, y: number, area?: number): number => {
+    const eps = 1 / sx; // one source pixel, in sketch units
+    const gx = sample(LUM, x + eps, y, area) - sample(LUM, x - eps, y, area);
+    const gy = sample(LUM, x, y + eps, area) - sample(LUM, x, y - eps, area);
+    return Math.hypot(gx, gy) / 2;
+  };
   return {
     width,
     height,
@@ -200,17 +214,22 @@ export function image(name: string, place: ImagePlacement = {}): ImageSampler {
     a: (x, y, area) => sample(3, x, y, area),
     bands: (x, y, n, area) =>
       Math.min(Math.max(1, Math.floor(n)) - 1, Math.floor(sample(LUM, x, y, area) * n)),
-    edge: (x, y, area) => {
-      const eps = 1 / sx; // one source pixel, in sketch units
-      const gx = sample(LUM, x + eps, y, area) - sample(LUM, x - eps, y, area);
-      const gy = sample(LUM, x, y + eps, area) - sample(LUM, x, y - eps, area);
-      return Math.hypot(gx, gy) / 2;
-    },
+    edge,
     dir: (x, y, area) => {
       const eps = 1 / sx;
       const gx = sample(LUM, x + eps, y, area) - sample(LUM, x - eps, y, area);
       const gy = sample(LUM, x, y + eps, area) - sample(LUM, x, y - eps, area);
       return Math.atan2(gy, gx);
+    },
+    field(channel = 'lum', opts = {}) {
+      const area = opts.area;
+      switch (channel) {
+        case 'lum': return (x, y) => sample(LUM, x, y, area);
+        case 'dark': return (x, y) => 1 - sample(LUM, x, y, area);
+        case 'a': return (x, y) => sample(3, x, y, area);
+        case 'edge': return (x, y) => edge(x, y, area);
+        default: throw new Error(`image.field: unknown channel '${String(channel)}' — lum, dark, a or edge`);
+      }
     },
   };
 }

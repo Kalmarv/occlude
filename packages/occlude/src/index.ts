@@ -41,7 +41,7 @@ export type { FieldAlign } from './shapes.js';
 export { svg } from './svgin.js';
 export {
   asset, image, scanAssetNames, registerTextAsset, registerImageAsset, clearAssets,
-  type ImageSampler, type ImagePlacement, type AssetPixels,
+  type ImageSampler, type ImagePlacement, type AssetPixels, type ImageChannel,
 } from './imageAsset.js';
 export { label, labelWidth } from './font.js';
 export { liveExampleToJs, DOC_PAGES, parseLiveMeta, docsPaper } from './docsExamples.js';

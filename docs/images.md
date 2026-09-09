@@ -39,6 +39,24 @@ const church = svg(asset('church.svg'), { width: b.w, bridge: mm(0.7) });
 | `img.bands(x, y, n, area?)` | tone posterized into `n` levels, 0 the darkest |
 | `img.edge(x, y, area?)` | luminance gradient magnitude, high at boundaries |
 | `img.dir(x, y, area?)` | the gradient's angle |
+| `img.field(channel?, { area? })` | a channel as a scalar field: `'lum'` (the default), `'dark'` for `1 − lum`, `'a'`, `'edge'` |
+
+A field is what the rest of the toolkit reads, so `img.field` puts an image behind any of them without a wrapper: contours of tone with `t.isolines`, stipples that crowd where it is dark with `t.scatter`, flow along its edges with `t.streamlines(curl(img.field()))`, or a modifier amount. Outside the placed rectangle the field is 0.
+
+```ts live
+import { sketch, strokes, image, curl, within, circle } from 'occlude';
+
+// Tone as contours, and streamlines along the edges where the picture is dark.
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
+  const img = image('ivy.png', { x: 8, y: 2, width: 84 });
+  const tone = img.field('lum', { area: 0.8 });
+  const dark = img.field('dark', { area: 0.8 });
+  return [
+    strokes(t.isolines(tone, [0.3, 0.5, 0.7])),
+    strokes(t.streamlines(within(curl(tone), circle(50, 50, 46)), { spacing: (x, y) => 0.8 + (1 - dark(x, y)) * 5 })),
+  ];
+});
+```
 
 Dots sized by darkness, averaged over each grid cell, with the alpha channel as the subject mask:
 

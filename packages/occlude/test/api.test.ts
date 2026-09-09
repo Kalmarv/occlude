@@ -1148,6 +1148,17 @@ describe('image assets', () => {
     // rgb/alpha shape.
     expect(img.rgb(45, 15)).toEqual([1, 1, 1]);
     expect(img.a(45, 15)).toBe(1);
+    // Channels as fields: the same numbers as the samplers, with `area`
+    // carried, so isolines/scatter/streamlines read the image directly.
+    const lum = img.field(), dark = img.field('dark'), alpha = img.field('a'), edge = img.field('edge');
+    expect(lum(45, 15)).toBeCloseTo(1, 5);
+    expect(dark(45, 15)).toBeCloseTo(0, 5);
+    expect(dark(15, 15)).toBeCloseTo(1, 5);
+    expect(alpha(45, 15)).toBe(1);
+    expect(edge(30, 15)).toBeCloseTo(img.edge(30, 15), 9);
+    expect(img.field('lum', { area: 25 })(30, 20)).toBeCloseTo(0.5, 5);
+    expect(lum(0, 0)).toBe(0);
+    expect(() => img.field('hue' as never)).toThrow(/unknown channel/);
     // Text assets + literal scanning.
     registerTextAsset('x.svg', '<svg/>');
     expect(asset('x.svg')).toBe('<svg/>');
