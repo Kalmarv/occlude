@@ -17,6 +17,7 @@ const edgeSelection = spines.edges;
 const regions = spines.faces();
 const shape = circle(0, 0, 1);
 const many = [shape];
+const nested = [[shape], [shape]];
 const polyline = spines.curves()[0];
 declare const maybe: Network | undefined;
 const optional = maybe;
@@ -64,6 +65,7 @@ describe('geometry classification from actual Occlude types', () => {
     expect(named('stations')[0]?.kind).toBe('stations');
     expect(named('readonlyStations')[0]?.kind).toBe('stations');
     expect(named('many')[0]).toMatchObject({ kind: 'shape', array: true });
+    expect(named('nested')[0]).toMatchObject({kind:'shape',array:true,arrayDepth:2});
     expect(named('optional')[0]).toMatchObject({ kind: 'material', optional: true });
   });
   it('does not guess from structural lookalikes, names, any, or mixed unions', () => {

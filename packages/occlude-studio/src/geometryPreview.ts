@@ -7,7 +7,7 @@ import {
   EdgeSelection,
   Faces,
   FaceSelection,
-  getInspectionValue,
+  type InspectionEntry,
   getInspectionIndex,
   userUnitsToPaper,
   INSPECTION_LIMITS,
@@ -19,6 +19,10 @@ import {
   type Edge,
   type Vertex,
 } from 'occlude';
+import {
+  getInspectionValues,
+  getInspectionPlacements,
+} from '../../occlude/src/state.js';
 import { inspectionOwner } from '../../occlude/src/material.js';
 import { inspectionPrimitives, type Frame } from '../../occlude/src/record.js';
 import type { Prim } from '../../occlude/src/prims.js';
@@ -34,12 +38,15 @@ export type PreviewOptions = {
   bounds?: FieldBounds;
   resolution?: number;
   sample?: boolean;
+  occurrence?: number;
 };
 export type GraphPreview = {
   kind: 'graph';
   material: InspectionPayload;
   sourcePoints?: number[];
   sourceEdges?: number[];
+  occurrences?: number[];
+  edgeOccurrences?: number[];
   directions?: {
     x: number;
     y: number;
@@ -50,9 +57,18 @@ export type GraphPreview = {
   }[];
   note: string;
 };
+export type NativeItem = {
+  occurrence: number;
+  kind: string;
+  geometry: string;
+  options: string;
+};
 export type NativePreview = {
   kind: 'native';
   contours: Prim[][];
+  shapeIds: number[];
+  renderedContours?: Prim[][];
+  items: NativeItem[];
   note: string;
 };
 export type FacesPreview = {
@@ -207,10 +223,57 @@ export function geometryPreview(
   frame: Frame,
   options: PreviewOptions = {},
 ): GeometryPreview {
-  const value = getInspectionValue(name),
+  const values = getInspectionValues(name),
     entry = getInspectionIndex().find((e) => e.name === name);
-  if (!entry || value == null)
+  if (!entry || !values.length)
     throw new Error('Capture is no longer available');
+  if (entry.kind === 'scalar' || entry.kind === 'vector') {
+    const index = options.occurrence ?? 0;
+    if (!Number.isInteger(index) || index < 0 || index >= values.length)
+      throw new Error('Field occurrence is unavailable');
+    return previewValue(name, frame, options, values[index], entry);
+  }
+  const previews: GeometryPreview[] = [];
+  let bytes = 0,
+    segments = 0;
+  for (const value of values) {
+    const p = previewValue(name, frame, options, value, entry);
+    if (p.kind === 'graph')
+      bytes +=
+        [
+          p.material.x,
+          p.material.y,
+          p.material.edges,
+          ...Object.values(p.material.attrs),
+          ...Object.values(p.material.edgeAttrs),
+        ].reduce((n, a) => n + a.byteLength, 0) +
+        (p.directions?.length ?? 0) * 48;
+    if (p.kind === 'native') {
+      const n = p.contours.reduce((n, c) => n + c.length, 0);
+      segments += n;
+      bytes +=
+        n * 128 +
+        p.items.reduce(
+          (n, i) => n + 2 * (i.geometry.length + i.options.length),
+          0,
+        );
+    }
+    if (bytes > 32 * 1024 * 1024 || segments > 20000)
+      throw new Error(
+        'Combined preview exceeds its 32 MiB or 20,000 segment limit',
+      );
+    previews.push(p);
+  }
+  return combinePreviews(name, previews);
+}
+
+function previewValue(
+  name: string,
+  frame: Frame,
+  options: PreviewOptions,
+  value: unknown,
+  entry: InspectionEntry,
+): GeometryPreview {
   const toPaper = userUnitsToPaper(frame);
   if (entry.kind === 'scalar' || entry.kind === 'vector') {
     if (!options.sample)
@@ -376,6 +439,7 @@ export function geometryPreview(
     };
   }
   const contours: Prim[][] = [];
+  const items: NativeItem[] = [];
   let rows = 0;
   const visit = (node: Tree, transforms: TransformOp[], depth: number) => {
     if (depth > 32)
@@ -416,6 +480,18 @@ export function geometryPreview(
     rows += cost;
     if (rows > 20_000)
       throw new Error('Native preview exceeds 20,000 segments');
+    items.push({
+      occurrence: 1,
+      kind: shape.geom.kind,
+      geometry: JSON.stringify(shape.geom),
+      options: JSON.stringify(
+        {
+          ...shape.opts,
+          ...(transforms.length ? { enclosing: transforms } : {}),
+        },
+        (_key, value) => (typeof value === 'function' ? '[function]' : value),
+      ),
+    });
     const lowered = inspectionPrimitives(
       shape.geom,
       [...transforms, shape.opts],
@@ -423,10 +499,120 @@ export function geometryPreview(
     );
     contours.push(...lowered);
   };
-  visit(value as Tree, [], 0);
+  const placements = getInspectionPlacements(value);
+  for (const placement of placements.length ? placements : [{ transforms: [] }])
+    visit(value as Tree, [...placement.transforms], 0);
   return {
     kind: 'native',
     contours,
-    note: 'Native arcs and cubic curves, with this value’s own transforms. Before fills, clipping, modifiers and any enclosing drawing transforms. Non-uniformly transformed arcs use the renderer’s cubic representation.',
+    items,
+    shapeIds: [
+      ...new Set(
+        placements.flatMap((p) =>
+          Array.from({ length: p.end - p.start }, (_, i) => p.start + i),
+        ),
+      ),
+    ],
+    note: placements.length
+      ? 'Captured outlines include their enclosing drawing transforms. Captured outlines are before fills, clipping and modifiers; Rendered result shows the actual visible ink.'
+      : 'Source geometry: this value was not placed in the returned drawing. No enclosing transforms can be inferred.',
+  };
+}
+
+/** Combine loop occurrences without connecting unrelated graphs or flattening attribute domains. */
+function combinePreviews(
+  name: string,
+  previews: GeometryPreview[],
+): GeometryPreview {
+  const first = previews[0];
+  if (previews.length === 1) return first;
+  if (previews.every((p): p is NativePreview => p.kind === 'native')) {
+    const contours = previews.flatMap((p) => p.contours);
+    if (contours.reduce((n, c) => n + c.length, 0) > 20000)
+      throw new Error('Combined preview exceeds 20,000 segments');
+    return {
+      kind: 'native',
+      contours,
+      shapeIds: [...new Set(previews.flatMap((p) => p.shapeIds))],
+      items: previews.flatMap((p, i) =>
+        p.items.map((item) => ({ ...item, occurrence: i + 1 })),
+      ),
+      note: `${previews.length} occurrences. ${'note' in first ? first.note : ''}`,
+    };
+  }
+  if (previews.every((p): p is FacesPreview => p.kind === 'faces'))
+    return {
+      kind: 'faces',
+      faces: previews.flatMap((p) => p.faces),
+      note: `${previews.length} occurrences. ${'note' in first ? first.note : ''}`,
+    };
+  if (!previews.every((p): p is GraphPreview => p.kind === 'graph'))
+    throw new Error('This capture contains incompatible geometry kinds');
+  const n = previews.reduce((n, p) => n + p.material.n, 0),
+    edgeCount = previews.reduce((n, p) => n + p.material.edges.length / 2, 0);
+  const pointKeys = [
+      ...new Set(previews.flatMap((p) => Object.keys(p.material.attrs))),
+    ],
+    edgeKeys = [
+      ...new Set(previews.flatMap((p) => Object.keys(p.material.edgeAttrs))),
+    ];
+  if (
+    8 * (n * (3 + pointKeys.length) + edgeCount * (3 + edgeKeys.length)) >
+    32 * 1024 * 1024
+  )
+    throw new Error('Combined preview exceeds 32 MiB');
+  const attrs = Object.fromEntries(
+      pointKeys.map((k) => [k, new Float64Array(n).fill(NaN)]),
+    ),
+    edgeAttrs = Object.fromEntries(
+      edgeKeys.map((k) => [k, new Float64Array(edgeCount).fill(NaN)]),
+    );
+  const x = new Float64Array(n),
+    y = new Float64Array(n),
+    edges = new Uint32Array(edgeCount * 2),
+    occurrences: number[] = [],
+    edgeOccurrences: number[] = [];
+  const sourcePoints: number[] = [],
+    sourceEdges: number[] = [];
+  let pointOffset = 0,
+    edgeOffset = 0;
+  previews.forEach((p, i) => {
+    const m = p.material;
+    x.set(m.x, pointOffset);
+    y.set(m.y, pointOffset);
+    for (let j = 0; j < m.edges.length; j++)
+      edges[edgeOffset * 2 + j] = m.edges[j] + pointOffset;
+    for (const [k, v] of Object.entries(m.attrs)) attrs[k].set(v, pointOffset);
+    for (const [k, v] of Object.entries(m.edgeAttrs))
+      edgeAttrs[k].set(v, edgeOffset);
+    for (let j = 0; j < m.n; j++) {
+      occurrences.push(i + 1);
+      sourcePoints.push(p.sourcePoints?.[j] ?? j);
+    }
+    for (let j = 0; j < m.edges.length / 2; j++) {
+      edgeOccurrences.push(i + 1);
+      sourceEdges.push(p.sourceEdges?.[j] ?? j);
+    }
+    pointOffset += m.n;
+    edgeOffset += m.edges.length / 2;
+  });
+  return {
+    kind: 'graph',
+    material: {
+      name,
+      n,
+      x,
+      y,
+      edges,
+      attrs,
+      edgeAttrs,
+      iteration: first.kind === 'graph' ? first.material.iteration : 0,
+    },
+    sourcePoints,
+    sourceEdges,
+    occurrences,
+    edgeOccurrences,
+    directions: previews.flatMap((p) => p.directions ?? []),
+    note: `All ${previews.length} occurrences, kept as separate geometry. Source coordinates; later placements are not inferred.`,
   };
 }

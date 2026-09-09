@@ -162,10 +162,14 @@ describe('no stand-in selection while resolving', () => {
     const buf = encodePlanBuffer(a);
     const hash = await hashPlan(buf, settings);
     const asked: string[] = [];
-    // a slow toolpath: the selection stays pending for a while
+    // Hold resolution explicitly; hashing may take longer than a timer tick.
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const blocked = new Promise<void>(resolve => { release = resolve; });
     const client = {
       planToolpath: async (range: { planHash: string; from: number; to: number }) => {
-        await new Promise((r) => setTimeout(r, 30));
+        entered();
+        await blocked;
         return encodeToolpath(flatOf(a).slice(range.from, range.to));
       },
       planSvg: async (range: { planHash: string; from: number; to: number }) => { asked.push(`${range.from}-${range.to}`); return '<svg/>'; },
@@ -174,11 +178,12 @@ describe('no stand-in selection while resolving', () => {
     const d = new Drawing(client, timing);
     const landing = d.setPlan({ buffer: buf, settings, planHash: hash }, pens, { chains: [0, 2] });
     // before anything resolved: no selection, no range, no stand-in
-    await new Promise((r) => setTimeout(r, 0));
+    await started;
     expect(d.selection).toBeNull();
     expect(() => d.range()).toThrow(/not resolved/);
     const svg = d.svg(undefined); // waits
     const tp = d.selectedToolpath();
+    release();
     await landing;
     await svg;
     expect(asked).toEqual(['0-2']);

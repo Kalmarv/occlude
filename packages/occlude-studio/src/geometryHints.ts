@@ -43,7 +43,7 @@ export function attachGeometryHints(editor: monaco.editor.IStandaloneCodeEditor,
     decorations.set(mode === 'off' ? [] : annotations.flatMap(a => {
       const info = GEOMETRY_TYPES[a.kind];
       const start = model.getPositionAt(a.start), end = model.getPositionAt(a.end);
-      const label = `${info.label}${a.array ? '[]' : ''}${a.optional ? ' (optional)' : ''}`;
+      const label = `${info.label}${a.array ? '[]'.repeat(a.arrayDepth ?? 1) : ''}${a.optional ? ' (optional)' : ''}`;
       const hover = { value: `**${a.role === 'call' ? 'Returns ' : ''}${label}**\n\n${info.description}\n\n${info.use}\n\n---\nStatic type information.${onInspect ? ' Click the icon to inspect this value.' : ''}`, isTrusted: false };
       return [{
         range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),

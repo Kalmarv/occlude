@@ -4,7 +4,7 @@ Seeded randomness and noise, independent streams, remapping and shaping values, 
 
 ## Inspecting a field
 
-Open this example in Studio and click the icon beside `height` or `flow`. **Enable inspection** captures the function without sampling it. **Sample field** draws a coarse XY heatmap at cell centres: 32 × 32 by default, with 16, 64 and 128 available. The default bounds are the current sketch's drawable coordinates, including centered origins. Bounds and resolution are editable; changing them takes effect when you sample again.
+Open this example in Studio and click the icon beside `height` or `flow`. Clicking an icon enables inspection directly. Vector fields sample automatically when opened; scalar fields offer **Sample field**. Both draw coarse XY heatmaps at cell centres: 32 × 32 by default, with 16, 64 and 128 available. The default bounds are the current sketch's drawable coordinates, including centered origins. Bounds and resolution are editable and resample automatically (bounds edits have a short typing debounce).
 
 Scalar colors show values; negative scalar values use a diverging scale centered on zero. Vector colors show magnitude and arrows show direction. The legend reports sampled minima/maxima. Checkerboard cells are unavailable or non-finite values, not zeros. Hover a cell—or focus the graph and use arrow keys—to read its sampled coordinates and value without evaluating the field again. The graph's y axis increases upward regardless of the sketch's drawing orientation.
 
@@ -19,7 +19,7 @@ export default sketch({ aspect: 'square', seed: 42 }, t =>
 );
 ```
 
-Sampling calls the captured function only on request; identical requests reuse one of four cached grids. Editing or rerunning invalidates the cache. Treat fields as pure spatial functions for repeatable previews. Coarse sampling can miss peaks and discontinuities between cells; this is a sampled view, not an exact range guarantee. Cell errors are counted, and previews have a time limit so a runaway sampler can be stopped by replacing its worker.
+Sampling happens when opening a vector inspector, changing grid settings, or clicking **Sample field**; identical requests reuse one of four cached grids. A field created repeatedly in a loop has an occurrence selector, so each captured function can be sampled. Editing or rerunning invalidates the cache. Treat fields as pure spatial functions for repeatable previews. Coarse sampling can miss peaks and discontinuities between cells; this is a sampled view, not an exact range guarantee. Cell errors are counted, and previews have a time limit so a runaway sampler can be stopped by replacing its worker.
 
 ## Randomness
 

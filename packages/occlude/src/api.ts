@@ -32,7 +32,7 @@ import { type FieldAlign, Shape, geomClosed, type FieldFn, type ModifierValue, t
 import {
   bounds, chance, clip as legacyClip, margin, noise, pick, prob, push, rnd,
   sketch as legacySketch, stream, getState, unitScaleMm,
-  type SketchOptions, type Winding, recordProbe, recordInspection, forgetInspection, getInspectHint, type InspectionSource,
+  type SketchOptions, type Winding, recordProbe, recordInspection, recordInspectionPlacement, forgetInspection, getInspectHint, type InspectionSource,
 } from './state.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
@@ -1039,6 +1039,13 @@ export function compileSketch(
 }
 
 function emit(tree: Tree, ctx: EmitCtx): void {
+  if (!getInspectHint() || !tree || typeof tree !== 'object') return emitTree(tree, ctx);
+  const state = getState(), start = state.shapes.length, transforms = [...state.tfChain];
+  emitTree(tree, ctx);
+  recordInspectionPlacement(tree, { start, end: state.shapes.length, transforms });
+}
+
+function emitTree(tree: Tree, ctx: EmitCtx): void {
   if (!tree) return;
   if (Array.isArray(tree)) {
     for (const child of tree) emit(child, ctx);

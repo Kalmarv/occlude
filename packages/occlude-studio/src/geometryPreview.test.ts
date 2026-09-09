@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import ts from 'typescript';
 import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import {
+  getInspectionValues,
+  getInspectionPlacements,
+} from '../../occlude/src/state.js';
+import {
+  initOcclude,
+  render,
   material,
   circle,
   path,
@@ -12,6 +19,7 @@ import {
   setInspectHint,
   DEFAULT_PENS,
 } from 'occlude';
+import { decodeFragments } from '../../occlude/src/render.js';
 import { sketchFrame } from '../../occlude/src/record.js';
 import {
   sampleField,
@@ -47,7 +55,8 @@ function compile(source: string) {
   };
 }
 const cfg = {
-  pens: DEFAULT_PENS,
+  pens: [...DEFAULT_PENS, { ...DEFAULT_PENS[0], name: 'micron-01' }],
+  seed: 42,
   paper: 'A4',
   landscape: false,
   defaultMarginPct: 5,
@@ -116,6 +125,107 @@ describe('field grids', () => {
   });
 });
 describe('geometry captures', () => {
+  it('retains every loop occurrence, separates graph connectivity, and records final placements', async () => {
+    await initOcclude(
+      readFileSync(
+        resolve('../../crates/occlude-core/pkg/occlude_core_bg.wasm'),
+      ),
+    );
+    const source = `import {sketch,circle,polygon,smooth} from 'occlude';
+      export default sketch({seed:42},t=>{
+        const stations=t.sample(circle(50,50,20),{count:8}).along({count:8});
+        const pieces=stations.map(s=>{
+          const ring=t.sample(circle(s.x,s.y,2),{count:3});
+          const piece=polygon([[0,0],[4,0],[0,4]],{translate:[s.x,s.y],opaque:true});
+          return [smooth(2,piece)];
+        });
+        return t.group({translate:[10,20],scale:0.5},pieces);
+      });`;
+    const compiled = compile(source),
+      plain = runSketch(
+        ts.transpileModule(source, { compilerOptions: options }).outputText,
+        cfg,
+      ),
+      draws = currentDraws();
+    const inspected = runSketch(compiled.js, {
+      ...cfg,
+      inspect: true,
+      inspectionCompiled: true,
+    });
+    expect(inspected.error).toBeNull();
+    expect(inspected.scene).toEqual(plain.scene);
+    expect(currentDraws()).toEqual(draws);
+    const entries = getInspectionIndex(),
+      piece = entries.find((e) => e.source?.label === 'piece')!,
+      ring = entries.find((e) => e.source?.label === 'ring')!,
+      pieces = entries.find((e) => e.source?.label === 'pieces')!;
+    expect(piece.retainedOccurrences).toBe(8);
+    expect(getInspectionValues(piece.name)).toHaveLength(8);
+    expect(
+      getInspectionPlacements(getInspectionValues(piece.name)[0])[0].transforms,
+    ).toContainEqual({ translate: [10, 20], rotate: undefined, scale: 0.5 });
+    const graph = geometryPreview(ring.name, sketchFrame());
+    expect(graph.kind).toBe('graph');
+    if (graph.kind === 'graph') {
+      expect(graph.material.n).toBe(24);
+      expect(graph.material.edges.length).toBe(48);
+      expect(graph.occurrences).toEqual(
+        Array.from({ length: 24 }, (_, i) => Math.floor(i / 3) + 1),
+      );
+    }
+    const native = geometryPreview(piece.name, sketchFrame());
+    expect(native.kind).toBe('native');
+    if (native.kind === 'native') {
+      expect(native.items).toHaveLength(8);
+      expect(native.shapeIds).toHaveLength(8);
+      expect(JSON.parse(native.items[0].options).opaque).toBe(true);
+      const actual = render({ paper: 'A4' }),
+        ids = new Set(native.shapeIds);
+      const visible = decodeFragments(
+        actual.raw.prims,
+        actual.raw.frags,
+        ids,
+        100000,
+      ).frags;
+      expect(visible).toEqual(actual.frags.filter((f) => ids.has(f.shape)));
+      expect(visible.length).toBeGreaterThan(native.contours.flat().length);
+      expect(() =>
+        decodeFragments(actual.raw.prims, actual.raw.frags, ids, 1),
+      ).toThrow(/exceeds/);
+    }
+    expect(geometryPreview(pieces.name, sketchFrame()).kind).toBe('native');
+    setInspectHint(false);
+  });
+  it('captures the saved along sketch, including its nested map and every polygon', () => {
+    const source = readFileSync(resolve('sketches/along.ts'), 'utf8'),
+      compiled = compile(source);
+    const plain = runSketch(
+        ts.transpileModule(source, { compilerOptions: options }).outputText,
+        cfg,
+      ),
+      draws = currentDraws();
+    const inspected = runSketch(compiled.js, {
+      ...cfg,
+      inspect: true,
+      inspectionCompiled: true,
+    });
+    expect(inspected.error).toBeNull();
+    expect(inspected.scene).toEqual(plain.scene);
+    expect(currentDraws()).toEqual(draws);
+    const entries = getInspectionIndex(),
+      polygon = entries.find((e) => e.source?.label === 'polygon')!,
+      mapped = entries.find((e) => e.source?.label === 'map')!;
+    expect(mapped).toBeDefined();
+    expect(polygon.retainedOccurrences).toBe(polygon.occurrences);
+    expect(polygon.occurrences).toBeGreaterThan(2);
+    const p = geometryPreview(polygon.name, sketchFrame());
+    expect(p.kind).toBe('native');
+    if (p.kind === 'native') {
+      expect(p.items).toHaveLength(polygon.occurrences!);
+      expect(p.shapeIds).toHaveLength(polygon.occurrences!);
+    }
+    setInspectHint(false);
+  });
   it('captures module fields and nested inline selections without changing scene or draw addresses', () => {
     const source = `import {sketch,circle,strokes,type FieldFn} from 'occlude';
    const density:FieldFn=(x,y)=>x-y;

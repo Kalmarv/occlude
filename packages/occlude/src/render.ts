@@ -876,28 +876,36 @@ export interface RawRender {
   renderMs: number;
 }
 
-/** Decode a raw wasm result against its scene into a full RenderResult. */
-export function decodeRender(scene: EncodedScene, raw: RawRender): RenderResult {
+/** Decode visible fragments for the canvas and demand-driven inspection. */
+export function decodeFragments(prims: Float64Array, fragments: Float64Array, shapes?: ReadonlySet<number>, limit = Infinity): { prims: Prim[]; frags: Fragment[] } {
   const outPrims: Prim[] = [];
-  for (let off = 0; off < raw.prims.length; off += PRIM_STRIDE) {
-    outPrims.push(decodePrim(raw.prims, off));
+  if (!shapes) for (let off = 0; off < prims.length; off += PRIM_STRIDE) {
+    outPrims.push(decodePrim(prims, off));
   }
   const frags: Fragment[] = [];
-  for (let off = 0; off < raw.frags.length; off += FRAG_STRIDE) {
-    const origin = raw.frags[off];
-    const t0f = raw.frags[off + 1];
-    const t1f = raw.frags[off + 2];
+  for (let off = 0; off < fragments.length; off += FRAG_STRIDE) {
+    if(shapes && !shapes.has(fragments[off + 4]))continue;
+    if(frags.length>=limit)throw new Error(`Rendered preview exceeds ${limit.toLocaleString('en-US')} fragments`);
+    const origin = fragments[off];
+    const t0f = fragments[off + 1];
+    const t1f = fragments[off + 2];
     frags.push({
       origin,
       t0: t0f,
       t1: t1f,
-      pen: raw.frags[off + 3],
-      shape: raw.frags[off + 4],
-      dot: (raw.frags[off + 5] & 1) !== 0,
-      bridge: (raw.frags[off + 5] & 2) !== 0,
-      geom: subPrim(outPrims[origin], t0f, t1f),
+      pen: fragments[off + 3],
+      shape: fragments[off + 4],
+      dot: (fragments[off + 5] & 1) !== 0,
+      bridge: (fragments[off + 5] & 2) !== 0,
+      geom: subPrim(outPrims[origin] ?? (outPrims[origin] = decodePrim(prims, origin * PRIM_STRIDE)), t0f, t1f),
     });
   }
+  return {prims:outPrims,frags};
+}
+
+/** Decode a raw wasm result against its scene into a full RenderResult. */
+export function decodeRender(scene: EncodedScene, raw: RawRender): RenderResult {
+  const {frags,prims:outPrims} = decodeFragments(raw.prims, raw.frags);
   let ghost: Prim[] | undefined;
   if (raw.ghost && raw.ghost.length > 0) {
     ghost = [];

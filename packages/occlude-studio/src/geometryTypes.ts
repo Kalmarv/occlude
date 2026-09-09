@@ -28,6 +28,7 @@ export interface GeometryAnnotation {
   end: number;
   kind: GeometryKind;
   array: boolean;
+  arrayDepth?: number;
   optional: boolean;
 }
 export interface GeometryAnalysis {

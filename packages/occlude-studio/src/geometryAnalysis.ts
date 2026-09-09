@@ -12,7 +12,7 @@ const symbols: Record<string, Record<string, GeometryKind>> = {
   'distance.ts': { DistanceField: 'scalar' },
 };
 
-type Classification = Pick<GeometryAnnotation, 'kind' | 'array' | 'optional'>;
+type Classification = Pick<GeometryAnnotation, 'kind' | 'array' | 'arrayDepth' | 'optional'>;
 
 export function analyzeGeometry(T: typeof ts, program: ts.Program, fileName: string, ranges: { start: number; end: number }[]): GeometryAnnotation[] {
   const file = program.getSourceFile(fileName);
@@ -40,15 +40,15 @@ export function analyzeGeometry(T: typeof ts, program: ts.Program, fileName: str
       const concrete = type.types.filter(t => !(t.flags & (T.TypeFlags.Null | T.TypeFlags.Undefined)));
       const members = concrete.map(t => classify(t, depth + 1));
       const first = members[0];
-      if (first && members.every(m => m && m.kind === first.kind && m.array === first.array)) {
+      if (first && members.every(m => m && m.kind === first.kind && m.array === first.array && m.arrayDepth === first.arrayDepth)) {
         result = { ...first, optional: concrete.length !== type.types.length || members.some(m => m!.optional) };
       }
     }
     if (!result && checker.isArrayType(type)) {
       const item = checker.getTypeArguments(type as ts.TypeReference)[0];
       const child = item && classify(item, depth + 1);
-      if (child && !child.array && !child.optional) {
-        result = { kind: child.kind === 'station' ? 'stations' : child.kind, array: child.kind !== 'station', optional: false };
+      if (child && !child.optional && (!child.array || child.kind === 'shape' || child.kind === 'drawing')) {
+        result = { kind: child.kind === 'station' ? 'stations' : child.kind, array: child.kind !== 'station', arrayDepth: child.kind === 'station' ? 0 : (child.arrayDepth ?? 0) + 1, optional: false };
       }
     }
     memo.set(type, result);

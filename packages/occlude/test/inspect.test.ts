@@ -145,7 +145,7 @@ describe('userUnitsToPaper', () => {
 
 describe('bounded source captures', () => {
   const source: InspectionSource = { document: 'file:///sketch.ts', revision: '3', start: 10, end: 16, label: 'points', line: 1 };
-  it('keeps one value per declaration and drops a formerly material value on its latest execution', () => {
+  it('counts repeated declaration occurrences and drops a formerly material site when it stops producing geometry', () => {
     setInspectHint(true);
     try {
       compileSketch(sketch({ seed: 1 }, () => {

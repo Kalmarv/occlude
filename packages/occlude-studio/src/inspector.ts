@@ -29,6 +29,7 @@ export class Inspector {
   /** The request in flight, so a late answer for another one is dropped. */
   private loading: { executionId: number; name: string } | null = null;
   private status = '';
+  private pinned = false;
   private sourceRequest: GeometryInspectionRequest | null = null;
   private readonly sourceCard = document.createElement('div');
   private dropped = 0;
@@ -66,20 +67,24 @@ export class Inspector {
      * inspection on or off (the registry lives in the worker's run). */
     private readonly onEnable: (on: boolean) => void,
   ) {
+    this.geometryPanel.onChange = () => this.repaint();
     this.sourceCard.className = 'geometry-inspection-card';
     this.pane.prepend(this.sourceCard, this.geometryPanel.host);
+    const close = document.createElement('button');
+    close.textContent='×';close.title='Close inspector';close.setAttribute('aria-label','Close inspector');close.className='geometry-source-close';close.onclick=()=>this.close();this.pane.append(close);
     this.enable.onchange = () => {
-      this.model.enabled = this.enable.checked;
-      if (!this.model.enabled) {
-        this.model.reset();
-        this.previewSerial++; this.geometryPanel.clear();
-        this.loading = null;
-      }
+      if (!this.enable.checked) {this.close();return;}
+      this.model.enabled = true;
+      this.pinned = true;
+      this.menu.open = false;
+      this.model.showPoints = this.model.showEdges = true;
       this.sync();
-      this.onEnable(this.model.enabled);
+      this.onEnable(true);
     };
     this.nameSel.onchange = () => {
       this.sourceRequest = null;
+      this.pinned = true;
+      this.menu.open = false;
       this.model.choose(this.nameSel.value || null);
       this.fetch();
       this.sync();
@@ -98,7 +103,7 @@ export class Inspector {
     this.menu.addEventListener('toggle', () => this.sync());
     this.bindDrag();
     this.preview.onClick = (x, y, pxPerMm) => {
-      if (!this.model.enabled || !this.model.material || !(this.menu.open || this.sourceRequest)) return;
+      if (!this.model.enabled || !this.model.material || !(this.menu.open || this.pinned)) return;
       // Eight screen pixels, whatever the zoom.
       this.choose(this.model.pick(x, y, 8 / pxPerMm));
     };
@@ -110,8 +115,31 @@ export class Inspector {
 
   openGeometry(request: GeometryInspectionRequest): void {
     this.sourceRequest = request;
+    this.pinned = true;
     this.menu.open = false;
+    if (!this.model.enabled) {
+      this.pointsBox.checked = this.edgesBox.checked = true;
+      this.model.showPoints = this.model.showEdges = true;
+      this.enable.checked = true;
+      this.enable.dispatchEvent(new Event('change'));
+    }
     this.selectSource();
+    this.sync();
+  }
+
+  private close(): void {
+    this.sourceRequest = null;
+    this.pinned = false;
+    this.menu.open = false;
+    this.previewSerial++;
+    this.geometryPanel.clear();
+    this.model.reset();
+    this.model.enabled = false;
+    this.model.showPoints = this.model.showEdges = false;
+    this.loading = null;
+    for (const input of this.menu.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) input.checked = false;
+    this.preview.debug.occluded = this.preview.debug.bridges = this.preview.debug.cuts = false;
+    this.onEnable(false);
     this.sync();
   }
 
@@ -136,7 +164,7 @@ export class Inspector {
     const entry = this.sourceEntry();
     this.loading = null;
     this.model.choose(entry?.name ?? null);
-    if (entry && !entry.limited) this.fetch();
+    if (entry && (!entry.limited || entry.retainedOccurrences)) this.fetch();
   }
 
   private renderSourceCard(): void {
@@ -147,7 +175,7 @@ export class Inspector {
     const info = GEOMETRY_TYPES[r.annotation.kind];
     const title = document.createElement('strong');
     title.className = `geometry-type-${info.color}`;
-    title.textContent = `${info.icon} ${r.label} · ${info.label}${r.annotation.array ? '[]' : ''}${r.annotation.optional ? ' (optional)' : ''}`;
+    title.textContent = `${info.icon} ${r.label} · ${info.label}${r.annotation.array ? '[]'.repeat(r.annotation.arrayDepth ?? 1) : ''}${r.annotation.optional ? ' (optional)' : ''}`;
     const description = document.createElement('p');
     description.textContent = info.description;
     const state = document.createElement('p');
@@ -156,20 +184,11 @@ export class Inspector {
     description.hidden=!!entry && this.enabled;
     state.textContent = !supported ? 'This token has no supported capture site. Inspect its declaration or a complete expression.'
       : !this.enabled ? 'Inspection is off. Enable it to capture values; fields are sampled separately on request.'
-      : entry ? `${entry.summary ?? `${entry.points} points`} · ${entry.source?.expression ? 'expression' : 'capture'} line ${entry.source?.line ?? "?"} · latest of ${entry.occurrences ?? 1} capture(s)${entry.limited ? ` · ${entry.limited}` : ''}`
+      : entry ? `${entry.summary ?? `${entry.points} points`} · ${entry.source?.expression ? 'expression' : 'capture'} line ${entry.source?.line ?? "?"} · ${entry.retainedOccurrences ?? 1} of ${entry.occurrences ?? 1} occurrences${entry.limited ? ` · ${entry.limited}` : ''}`
       : this.model.executionId < 0 ? this.status || 'Waiting for an inspected run.'
       : 'Not captured in this source revision. The declaration may not have executed, may no longer hold geometry, or may exceed the capture limit.';
     this.sourceCard.append(title, description, state);
-    if (!this.enabled && supported) {
-      const enable = document.createElement('button');
-      enable.textContent = 'Enable inspection';
-      enable.onclick = () => { this.enable.checked = true; this.enable.dispatchEvent(new Event('change')); };
-      this.sourceCard.append(enable);
-    }
-    const close = document.createElement('button');
-    close.textContent = '×';close.title='Close inspector';close.setAttribute('aria-label','Close inspector');close.className='geometry-source-close';
-    close.onclick = () => { this.sourceRequest = null;this.previewSerial++;this.model.choose(null);this.geometryPanel.clear();this.sync(); };
-    this.sourceCard.append(close);
+
   }
 
   /** Drag the pane by its header; the corner handle resizes it (CSS). Once
@@ -239,7 +258,9 @@ export class Inspector {
     if(!options && (entry.kind==='scalar'||entry.kind==='vector')) {
       this.loading=null;this.status='';
       this.geometryPanel.fieldControls(entry,this.frame,opts=>{this.fetch(opts);this.sync();});
-      this.sync();return;
+      this.sync();
+      if(entry.kind==='vector')this.fetch({sample:true,resolution:32});
+      return;
     }
     const want = { executionId, name: chosen };
     this.loading = want;
@@ -252,7 +273,7 @@ export class Inspector {
       if(raw.kind==='graph') {
         const t1=performance.now(),m=prepare(raw.material,executionId,toPaper);
         // Source rows are transport metadata, not invented geometry attributes.
-        this.graphSourceRows={points:raw.sourcePoints,edges:raw.sourceEdges};
+        this.graphSourceRows={points:raw.sourcePoints,edges:raw.sourceEdges,occurrences:raw.occurrences,edgeOccurrences:raw.edgeOccurrences};
         const bytes=raw.material.x.byteLength+raw.material.y.byteLength+raw.material.edges.byteLength+Object.values(raw.material.attrs).reduce((n,a)=>n+a.byteLength,0)+Object.values(raw.material.edgeAttrs).reduce((n,a)=>n+a.byteLength,0);
         this.lastLoad={name:chosen,bytes,prepMs:performance.now()-t1,roundTripMs:t1-t0};
         this.model.acceptMaterial(m);
@@ -263,7 +284,7 @@ export class Inspector {
       this.loading=null;this.status=err instanceof Error?err.message:String(err);this.sync();
     });
   }
-  private graphSourceRows: {points?:number[];edges?:number[]}|null=null;
+  private graphSourceRows: {points?:number[];edges?:number[];occurrences?:number[];edgeOccurrences?:number[]}|null=null;
 
   private repaint(): void {
     this.preview.overlay = this.model.enabled ? (ctx,pxPerMm)=>{if(this.model.material)this.paint(ctx,pxPerMm);this.geometryPanel.paint(ctx,pxPerMm);} : null;
@@ -277,7 +298,7 @@ export class Inspector {
     this.body.hidden = !m.enabled;
     // The pane lives with the debug menu: open menu and material layer on,
     // it shows; closed menu, it goes (the overlay stays with the layer).
-    this.pane.hidden = !(this.sourceRequest || m.enabled && this.menu.open);
+    this.pane.hidden = !(this.pinned || m.enabled && this.menu.open);
     this.renderSourceCard();
     this.pane.classList.toggle('geometry-expanded',this.model.enabled && !this.geometryPanel.host.hidden);
     const hideRows = !m.enabled || !!this.sourceRequest && !this.sourceEntry();
@@ -347,10 +368,8 @@ export class Inspector {
     }
     const displayName = m.names.find(e => e.name === mat.name)?.source?.label ?? mat.name;
     this.head.innerHTML = `<b>${displayName}</b> · ${mat.n} points · ${mat.edges.length / 2} edges · iteration ${mat.iteration}` +
-      `<button class="inspector-close" title="Clear the selection">×</button>` +
       (this.status ? `<div class="sub">${this.status}</div>` : '');
     this.head.title = 'Rows are indices in this state, in material coordinates before drawing transforms';
-    (this.head.querySelector('.inspector-close') as HTMLButtonElement).onclick = () => this.choose(null);
     this.renderSelected();
     this.renderTable();
   }
@@ -470,7 +489,8 @@ export class Inspector {
         first.append(sw);
       }
       const sourceRow=this.graphSourceRows?.[points?'points':'edges']?.[r];
-      first.append(String(r)+(sourceRow===undefined?'':` (source ${sourceRow})`));
+      const occurrence=this.graphSourceRows?.[points?'occurrences':'edgeOccurrences']?.[r];
+      first.append(String(r)+(sourceRow===undefined?'':` (source ${sourceRow}${occurrence ? ` · occurrence ${occurrence}` : ''})`));
       tr.append(first);
       for (const c of cells) {
         const td = document.createElement('td');

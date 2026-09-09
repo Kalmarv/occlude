@@ -136,6 +136,7 @@ export interface InspectionSource {
 
 interface InspectionCapture {
   value: unknown;
+  values: unknown[];
   entry: InspectionEntry;
   rows: number;
 }
@@ -144,7 +145,18 @@ interface InspectionCapture {
  * Oversized values have a summary but no retained preview handle. */
 export const INSPECTION_LIMITS = { captures: 256, rows: 1_000_000, previewRows: 250_000 } as const;
 
+export interface InspectionPlacement { start: number; end: number; transforms: TransformOp[] }
+let inspectionPlacements = new WeakMap<object, InspectionPlacement[]>();
+export function recordInspectionPlacement(value: object, placement: InspectionPlacement): void {
+  const list = inspectionPlacements.get(value) ?? [];
+  list.push(placement);
+  inspectionPlacements.set(value, list);
+}
+export function getInspectionPlacements(value: unknown): readonly InspectionPlacement[] {
+  return value && typeof value === 'object' ? inspectionPlacements.get(value) ?? [] : [];
+}
 export function clearInspections(): void {
+  inspectionPlacements = new WeakMap();
   if (!state) return;
   state.inspections.clear();
   state.inspectionRows = 0;
@@ -167,13 +179,19 @@ export function recordInspection(label: string, value: unknown, source?: Inspect
   const old = s.inspections.get(label);
   if (!old && s.inspections.size >= INSPECTION_LIMITS.captures) { s.inspectionDropped++; return; }
   const { points, edges, rows, kind, summary } = description;
-  const retained = s.inspectionRows - (old?.rows ?? 0);
-  const limited = rows > INSPECTION_LIMITS.previewRows || retained + rows > INSPECTION_LIMITS.rows;
+  const append = !!source && !!old;
+  const retained = s.inspectionRows - (append ? 0 : old?.rows ?? 0);
+  const limited = rows + (append ? old.rows : 0) > INSPECTION_LIMITS.previewRows || retained + rows > INSPECTION_LIMITS.rows || (append && old.values.length >= 10000);
+  const values = append ? old.values : [];
+  if (!limited) values.push(value);
   s.inspectionRows = retained + (limited ? 0 : rows);
+  const totalPoints = append ? old.entry.points + (limited ? 0 : points) : points;
+  const totalEdges = edges === undefined ? undefined : append ? (old.entry.edges ?? 0) + (limited ? 0 : edges) : edges;
   s.inspections.set(label, {
-    value: limited ? null : value, rows: limited ? 0 : rows,
-    entry: { name: label, points, edges, kind, summary, source, occurrences: (old?.entry.occurrences ?? 0) + 1,
-      limited: limited ? 'Preview exceeds the inspection retention limit' : undefined },
+    value: limited ? (append ? old.value : null) : value, values, rows: (append ? old.rows : 0) + (limited ? 0 : rows),
+    entry: { name: label, points: totalPoints, edges: totalEdges, kind, summary: append ? `${values.length} occurrences · ${totalPoints ? `${totalPoints} points${totalEdges === undefined ? '' : ` / ${totalEdges} edges`}` : kind}` : summary, source, occurrences: (old?.entry.occurrences ?? 0) + 1,
+      retainedOccurrences: values.length,
+      limited: limited || source && values.length < (old?.entry.occurrences ?? 0) + 1 ? `Inspection limit reached; retained ${values.length} of ${(old?.entry.occurrences ?? 0) + 1} occurrences` : undefined },
   });
 }
 
@@ -187,6 +205,7 @@ export interface InspectionEntry {
   edges?: number;
   source?: InspectionSource;
   occurrences?: number;
+  retainedOccurrences?: number;
   limited?: string;
 }
 
@@ -200,6 +219,12 @@ export function getInspectionIndex(): InspectionEntry[] {
 export function carryModuleInspections(): () => void {
   const inspections=state?.inspections, rows=state?.inspectionRows??0, dropped=state?.inspectionDropped??0;
   return () => { if(state && inspections && inspectHint) { state.inspections=inspections;state.inspectionRows=rows;state.inspectionDropped=dropped; } };
+}
+
+export function getInspectionValues(name: string): readonly unknown[] {
+  const capture = state?.inspections.get(name);
+  if (capture?.entry.limited && !capture.values.length) throw new Error(capture.entry.limited);
+  return capture?.values ?? [];
 }
 
 export function getInspectionValue(name: string): unknown {
@@ -371,6 +396,7 @@ export function getProbeStats(): Record<string, ProbeSummary> {
 
 /** Start (or restart) a sketch. Clears all recorded shapes. */
 export function sketch(opts: SketchOptions = {}): void {
+  inspectionPlacements = new WeakMap();
   state = freshState(opts);
 }
 

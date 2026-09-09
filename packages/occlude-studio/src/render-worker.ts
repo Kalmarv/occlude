@@ -15,6 +15,7 @@ import { bridgeGapFor, clearInspections, getInspectionDropped, getInspectionInde
 
 import { currentDraws, currentOverrides, currentSeed, runSketch, type RunConfig } from './runner.js';
 import { defaultFieldBounds, geometryPreview, type GeometryPreview, type PreviewOptions } from './geometryPreview.js';
+import { decodeFragments } from '../../occlude/src/render.js';
 import type { Frame } from '../../occlude/src/record.js';
 import { preloadAssets } from './assetLoader.js';
 import { preloadFills } from './fillLoader.js';
@@ -210,10 +211,13 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       case 'inspect-geometry': {
         if(msg.executionId!==lastExecutionId || !inspectionFrame)throw new Error('Stale capture — rerun the sketch before inspecting');
         const bounds = msg.options?.bounds ?? defaultFieldBounds(inspectionFrame);
-        const key=JSON.stringify([msg.executionId,msg.name,!!msg.options?.sample,msg.options?.resolution ?? 32,bounds.xMin,bounds.xMax,bounds.yMin,bounds.yMax]);
+        const key=JSON.stringify([msg.executionId,msg.name,!!msg.options?.sample,msg.options?.resolution ?? 32,msg.options?.occurrence ?? 0,bounds.xMin,bounds.xMax,bounds.yMin,bounds.yMax]);
         let payload=fieldCache.get(key);
         if(!payload) {
           payload=geometryPreview(msg.name,inspectionFrame,msg.options);
+          if(payload.kind==='native' && payload.shapeIds.length && last) {
+            payload.renderedContours=decodeFragments(last.prims,last.frags,new Set(payload.shapeIds),100000).frags.map(f=>[f.geom]);
+          }
           if(payload.kind==='field') { if(fieldCache.size>=4)fieldCache.delete(fieldCache.keys().next().value!);fieldCache.set(key,payload); }
         }
         // Structured cloning preserves cached buffers and the live geometry.

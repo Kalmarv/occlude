@@ -67,7 +67,7 @@ describe('inspected execution equivalence', () => {
     expect(inspected.scene).toEqual(plain.scene);
     expect(currentDraws()).toEqual(draws);
     const captures = getInspectionIndex();
-    expect(captures.map(c => [c.points,c.occurrences])).toEqual([[8,1],[3,2]]);
+    expect(captures.map(c => [c.points,c.occurrences])).toEqual([[8,1],[6,2]]);
     expect(new Set(captures.map(c=>c.source!.start)).size).toBe(2);
     setInspectHint(false);
   });

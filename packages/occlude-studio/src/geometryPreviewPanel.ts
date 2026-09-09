@@ -8,6 +8,10 @@ import {
 import type { Frame } from '../../occlude/src/record.js';
 import type { Prim } from '../../occlude/src/prims.js';
 
+const readable = (value: unknown): string =>
+  JSON.stringify(value, (_key, v) =>
+    typeof v === 'number' && Number.isFinite(v) ? Number(v.toPrecision(6)) : v,
+  );
 const fmt = (v: number) =>
   Number.isFinite(v) ? Number(v.toPrecision(5)).toString() : 'unavailable';
 /** Pure colour mapping, shared by grid and legend. Missing is not zero. */
@@ -48,12 +52,16 @@ export class GeometryPreviewPanel {
   private controls = document.createElement('div');
   private content = document.createElement('div');
   private data: GeometryPreview | null = null;
+  onChange: () => void = () => {};
+  private rendered = true;
+  private sampleTimer: ReturnType<typeof setTimeout> | undefined;
   constructor() {
     this.host.className = 'geometry-preview-panel';
     this.host.append(this.controls, this.content);
     this.host.hidden = true;
   }
   clear(): void {
+    clearTimeout(this.sampleTimer);
     this.data = null;
     this.controls.replaceChildren();
     this.content.replaceChildren();
@@ -83,6 +91,12 @@ export class GeometryPreviewPanel {
     for (const n of [16, 32, 64, 128])
       resolution.add(new Option(`${n} × ${n}`, String(n)));
     resolution.value = '32';
+    const occurrence = document.createElement('select');
+    occurrence.setAttribute('aria-label', 'Field occurrence');
+    const count = entry.retainedOccurrences ?? 1;
+    for (let i = 0; i < count; i++)
+      occurrence.add(new Option(`Occurrence ${i + 1} of ${count}`, String(i)));
+    occurrence.hidden = count <= 1;
     const button = document.createElement('button');
     button.textContent = 'Sample field';
     const error = document.createElement('output');
@@ -108,24 +122,26 @@ export class GeometryPreviewPanel {
         sample: true,
         bounds: chosen,
         resolution: Number(resolution.value),
+        occurrence: Number(occurrence.value),
       });
     };
     for (const { input } of inputs)
       input.oninput = () => {
-        error.textContent =
-          'Bounds changed — click Sample field to update the grid.';
+        clearTimeout(this.sampleTimer);
+        this.sampleTimer = setTimeout(() => button.click(), 300);
       };
-    resolution.onchange = () => {
-      error.textContent =
-        'Resolution changed — click Sample field to update the grid.';
+    resolution.onchange = occurrence.onchange = () => {
+      clearTimeout(this.sampleTimer);
+      button.click();
     };
     this.controls.append(
       ...inputs.map((i) => i.label),
       resolution,
+      occurrence,
       button,
       error,
     );
-    this.content.textContent = `${entry.kind === 'vector' ? 'Vector magnitude heatmap with arrows' : 'Scalar heatmap'}. Cell-centre samples in sketch coordinates. The graph’s y axis increases upward. No sampling until requested.`;
+    this.content.textContent = `${entry.kind === 'vector' ? 'Vector magnitude heatmap with arrows' : 'Scalar heatmap'}. Cell-centre samples in sketch coordinates. The graph’s y axis increases upward. Resolution and bounds changes update the grid.`;
   }
   show(data: GeometryPreview): void {
     this.data = data;
@@ -139,6 +155,98 @@ export class GeometryPreviewPanel {
     note.textContent = data.note;
     this.content.append(note);
     if (data.kind === 'native') {
+      this.rendered = data.renderedContours !== undefined;
+      const mode = document.createElement('select');
+      mode.setAttribute('aria-label', 'Geometry overlay');
+      if (data.renderedContours !== undefined)
+        mode.add(new Option('Rendered result · actual position', 'rendered'));
+      mode.add(new Option('Captured outlines · before modifiers', 'captured'));
+      mode.value = this.rendered ? 'rendered' : 'captured';
+      mode.onchange = () => {
+        this.rendered = mode.value === 'rendered';
+        this.onChange();
+      };
+      this.content.append(mode);
+      const attributes = document.createElement('div');
+      const select = document.createElement('select');
+      select.setAttribute('aria-label', 'Geometry attributes');
+      data.items.forEach((item, i) =>
+        select.add(
+          new Option(
+            `Occurrence ${item.occurrence} · ${item.kind} ${i + 1}`,
+            String(i),
+          ),
+        ),
+      );
+      const details = document.createElement('div');
+      const showAttributes = () => {
+        details.replaceChildren();
+        const item = data.items[Number(select.value)];
+        if (!item) return;
+        const opts = JSON.parse(item.options),
+          geom = JSON.parse(item.geometry);
+        const table = document.createElement('table');
+        table.className = 'geometry-attributes';
+        const row = (key: string, value: unknown) => {
+          const tr = document.createElement('tr'),
+            th = document.createElement('th'),
+            td = document.createElement('td');
+          th.textContent = key;
+          td.textContent = typeof value === 'string' ? value : readable(value);
+          tr.append(th, td);
+          table.append(tr);
+        };
+        row('Geometry', item.kind);
+        for (const [key, value] of Object.entries(opts)) row(key, value);
+        if (!Object.keys(opts).length) row('Options', 'Defaults');
+        for (const [key, value] of Object.entries(geom))
+          if (key !== 'kind' && key !== 'cmds' && key !== 'pts')
+            row(key, value);
+        details.append(table);
+        const commands = geom.cmds ?? geom.pts;
+        if (commands) {
+          const title = document.createElement('strong');
+          title.textContent = `${commands.length} ${geom.cmds ? 'path commands' : 'vertices'} · source coordinates`;
+          details.append(title);
+          const wrap = document.createElement('div');
+          wrap.className = 'geometry-command-table';
+          const rows = document.createElement('table');
+          const keys = [
+            ...new Set<string>(commands.flatMap((v: object) => Object.keys(v))),
+          ];
+          const header = document.createElement('tr');
+          for (const key of ['#', ...keys]) {
+            const th = document.createElement('th');
+            th.textContent = key;
+            header.append(th);
+          }
+          rows.append(header);
+          commands
+            .slice(0, 200)
+            .forEach((value: Record<string, unknown>, i: number) => {
+              const tr = document.createElement('tr');
+              for (const v of [i, ...keys.map((k) => value[k])]) {
+                const td = document.createElement('td');
+                td.textContent =
+                  v === undefined
+                    ? ''
+                    : typeof v === 'string'
+                      ? v
+                      : readable(v);
+                tr.append(td);
+              }
+              rows.append(tr);
+            });
+          wrap.append(rows);
+          details.append(wrap);
+          if (commands.length > 200)
+            details.append('Showing the first 200 rows.');
+        }
+      };
+      select.onchange = showAttributes;
+      attributes.append(select, details);
+      this.content.append(attributes);
+      showAttributes();
       const prims = data.contours.flat(),
         counts = { line: 0, arc: 0, cubic: 0 };
       for (const p of prims) counts[p.t]++;
@@ -336,13 +444,16 @@ export class GeometryPreviewPanel {
     if (data.kind === 'native') {
       ctx.strokeStyle = '#cfb2ff';
       ctx.beginPath();
-      for (const c of data.contours) for (const p of c) strokePrim(ctx, p);
+      const contours = this.rendered
+        ? (data.renderedContours ?? data.contours)
+        : data.contours;
+      for (const c of contours) for (const p of c) strokePrim(ctx, p);
       ctx.stroke();
       ctx.strokeStyle = '#c8b3e788';
       ctx.fillStyle = '#dfcdff';
       ctx.lineWidth = 1 / pxPerMm;
       let handles = 0;
-      for (const c of data.contours)
+      for (const c of contours)
         for (const p of c)
           if (p.t === 'cubic' && handles++ < 300) {
             ctx.beginPath();
