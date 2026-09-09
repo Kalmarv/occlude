@@ -207,9 +207,9 @@ function buildSketchesPanel(
   });
   saveBtn.className = 'primary';
   saveBtn.title = 'Save to the studio server under the title-bar name (Ctrl+S)';
-  const importBtn2 = button('Import .ts', hooks.importSketchFile);
+  const importBtn2 = button('Import', hooks.importSketchFile);
   importBtn2.title = 'Load a .ts sketch file into the editor';
-  const dlBtn = button('Download .ts', hooks.downloadSketchFile);
+  const dlBtn = button('Download', hooks.downloadSketchFile);
   dlBtn.title = 'Download the current sketch as a .ts file';
   const newBtn = button('New', async () => {
     // Losing work needs a prompt; losing nothing shouldn't. Named sketches
@@ -226,6 +226,7 @@ function buildSketchesPanel(
     hooks.openSketch('', NEW_SKETCH);
   });
   newBtn.title = 'Start a fresh sketch — name it in the top bar, then Save';
+  actionRow.className = 'row grid2';
   actionRow.append(newBtn, saveBtn, importBtn2, dlBtn);
 
   // Freeze: write the last render's drawn values back as literals, so an
@@ -265,29 +266,6 @@ function ago(mtime: number): string {
 }
 
 // ---- pens ----
-
-function strokeSample(canvas: HTMLCanvasElement, pen: PenDef): void {
-  const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth || 200;
-  const h = 14;
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  const ctx = canvas.getContext('2d')!;
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, w, h);
-  ctx.strokeStyle = pen.color;
-  // Sample at 2px/mm so nib widths are visibly different.
-  ctx.lineWidth = Math.max(0.5, pen.width * 4);
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  for (let x = 4; x <= w - 4; x += 2) {
-    const t = (x - 4) / (w - 8);
-    const y = h / 2 + Math.sin(t * Math.PI * 3) * 3.2;
-    if (x === 4) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-  ctx.stroke();
-}
 
 function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
   let selected: number | null = null;
@@ -406,9 +384,13 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
       const meta = document.createElement('span');
       meta.className = 'pen-meta';
       meta.textContent = `${pen.width.toFixed(2)}mm`;
-      const sample = document.createElement('canvas');
-      sample.className = 'pen-sample';
-      row.append(name, meta, sample);
+      // The pen as a line: its colour, its width (exaggerated a little so
+      // a 0.2 and a 0.8 read apart at this size).
+      const line = document.createElement('span');
+      line.className = 'pen-line';
+      line.style.setProperty('--pen-color', pen.color);
+      line.style.setProperty('--pen-w', String(pen.width));
+      row.append(name, line, meta);
       row.onclick = () => {
         selected = selected === i ? null : i;
         renderList();
@@ -419,7 +401,6 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
       } else {
         list.append(row);
       }
-      requestAnimationFrame(() => strokeSample(sample, pen));
     });
     if (calCount > 0) {
       summary.textContent = `${calCount} calibration pens`;
