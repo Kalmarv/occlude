@@ -643,6 +643,9 @@ export interface Toolkit {
   times: typeof times;
   range: typeof range;
   bounds: typeof bounds;
+  /** A length as a number of drawable units: `t.len(mm(2))` for arithmetic
+   * on physical sizes (a bare number comes back unchanged). */
+  len: (l: L) => number;
   /** Drawable extent in bare units — the same numbers `bounds()` returns. */
   width: number;
   height: number;
@@ -990,6 +993,7 @@ const TOOLKIT_BASE = {
   times, range,
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
   scatter, isolines, streamlines, material: materialFromShape, sample, probe, inspect, plan: planWith, draw, distanceTo, relax, settle, voronoi: voronoiTk, synth,
+  len: (l: L): number => sketchLen(bounds())(l),
   within, rotate: rotateField, translate: translateField, scale: scaleField,
   vectorField: vectorFieldMark,
   mm, w, h, s, long,

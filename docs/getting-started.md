@@ -44,10 +44,11 @@ A bare number is a percentage of the drawable's short side. On a 2:1 drawable th
 | Unit | Meaning |
 |---|---|
 | `mm(v)` | physical millimetres, the same on any paper |
+| `t.len(v)` | any of the above as a number of drawable units, for arithmetic on a physical size |
 | `w(v)`, `h(v)` | percent of the drawable's width or height |
 | `s(v)` | percent of the long side |
 
-They mix freely and resolve when the paper is known. Use bare units for composition and `mm()` for anything that should stay the same size on paper: hatch spacing, dot sizes, wobble amplitude.
+They mix freely and resolve when the paper is known. Use bare units for composition and `mm()` for anything that should stay the same size on paper: hatch spacing, dot sizes, wobble amplitude. A shape argument takes `mm()` directly; when a physical size has to be computed with, `t.len(mm(2))` is that size in drawable units.
 
 ```ts live
 import { sketch, rect, label, mm, w } from 'occlude';
