@@ -201,9 +201,9 @@ export class GeometryPreviewPanel {
             header = document.createElement('tr');
           for (const text of [
             '#',
-            'Occurrence',
             'Type',
             'Vertices',
+            'Visible',
             'Opaque',
           ]) {
             const th = document.createElement('th');
