@@ -47,9 +47,10 @@ export function mountShell(active: PageKey, footer?: string): void {
   const brand = document.createElement('a');
   brand.className = 'brand';
   brand.href = '/';
-  const mark = document.createElement('span');
+  const mark = document.createElement('img');
   mark.className = 'mark';
-  mark.textContent = 'o';
+  mark.src = '/favicon.svg';
+  mark.alt = '';
   brand.append(mark, 'occlude');
   const nav = document.createElement('nav');
   nav.className = 'nav';

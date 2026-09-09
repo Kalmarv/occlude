@@ -134,7 +134,7 @@ export function buildProfileSelect(
   select.onchange = () => m.switchProfile(select.value);
   m.onProfileSwitch(render);
   render();
-  const wrap = el('div', 'row', select);
+  const wrap = el('div', 'row profile-row', select);
   if (manage) {
     const dup = button('Duplicate', async () => {
       const name = (await promptDialog({
