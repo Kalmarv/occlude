@@ -4,9 +4,16 @@ Geometry as data you can hold: points with attributes, edges between them, selec
 
 ## Seeing types in the editor
 
-The **Types** menu in the editor switches geometry hints between **Icons + labels**, **Icons**, and **Off**. Bold colored highlights identify geometry throughout expressions: materials, shapes, stations, and selections. Function and method names are colored by their return type; references and callback parameters by their value type. Declarations also get icons and optional labels. Hover a highlighted token or badge for a description and useful operations. The preference is shared by Studio and tutorial editors.
+**Icons** is the default. The **Types** menu in the editor switches geometry hints between **Icons + labels**, **Icons**, and **Off**. Bold colored highlights identify geometry throughout expressions: materials, shapes, stations, and selections. Function and method names are colored by their return type; references and callback parameters by their value type. Every highlighted token includes its icon in the same colored section. Declarations can also show optional labels. Hover a highlighted token or badge for a description and useful operations. The preference is shared by Studio and tutorial editors.
 
 These hints use static TypeScript information. They do not run the sketch, retain intermediate geometry, or enable the Material inspector. Runtime counts and geometry inspection still require enabling inspection explicitly. A Shape badge does not claim a particular curve representation, and a vector sampler type does not prove it has field metadata.
+
+In Studio, click a geometry icon (or use **Inspect geometry at cursor** in the editor command palette) to open its type details. This does not execute the sketch. **Enable inspection** explicitly reruns it to capture Material and Stations declarations. Click their declaration or reference icons to select the captured value; captures belong to the declaration's initialization, not an arbitrary point later in the program. Other geometry families show static descriptions for now. Tutorial editors provide highlighting and hover; open the example in Studio for runtime inspection.
+
+Each capture is associated with its source location and revision, so identical names in different scopes remain separate. Repeated initializations keep only their latest value and an occurrence count. Editing, changing run inputs, or disabling inspection clears the previous live details. Unexecuted declarations are shown as uncaptured; statically typed empty stations remain valid empty captures.
+
+Capture retention is limited to 256 entries and one million point/edge rows across entries; individual previews are limited to 250,000 rows. Oversized values keep only a summary, and the inspector reports limits. These are row/handle limits, not a byte budget for attributes or growth history. Station connections are derived only when their preview is requested. Preview coordinates remain the material's own coordinates mapped to paper, before any enclosing drawing transforms.
+
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';

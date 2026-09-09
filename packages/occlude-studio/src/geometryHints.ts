@@ -1,18 +1,18 @@
 import * as monaco from 'monaco-editor';
-import { GEOMETRY_TYPES, type GeometryAnalysis, type GeometryAnnotation } from './geometryTypes.js';
+import { GEOMETRY_TYPES, type GeometryAnalysis, type GeometryAnnotation, type GeometryInspectionRequest } from './geometryTypes.js';
 import './geometryHints.css';
 
 type Mode = 'off' | 'icons' | 'labels';
 const key = 'occlude.geometryHints';
 const event = 'occlude-geometry-hints';
-let mode: Mode = 'labels';
+let mode: Mode = 'icons';
 try {
   const saved = localStorage.getItem(key);
   if (saved === 'off' || saved === 'icons' || saved === 'labels') mode = saved;
 } catch { /* Preferences are optional. */ }
 
 /** Static-only UI: no runner, capture, or geometry evaluation dependencies. */
-export function attachGeometryHints(editor: monaco.editor.IStandaloneCodeEditor): monaco.IDisposable {
+export function attachGeometryHints(editor: monaco.editor.IStandaloneCodeEditor, onInspect?: (request: GeometryInspectionRequest) => void): monaco.IDisposable {
   const model = editor.getModel()!;
   const decorations = editor.createDecorationsCollection();
   let disposed = false, visible = false, running = false, pending = false;
@@ -44,17 +44,23 @@ export function attachGeometryHints(editor: monaco.editor.IStandaloneCodeEditor)
       const info = GEOMETRY_TYPES[a.kind];
       const start = model.getPositionAt(a.start), end = model.getPositionAt(a.end);
       const label = `${info.label}${a.array ? '[]' : ''}${a.optional ? ' (optional)' : ''}`;
-      const hover = { value: `**${a.role === 'call' ? 'Returns ' : ''}${label}**\n\n${info.description}\n\n${info.use}\n\n---\nStatic type information. Runtime inspection is unchanged.`, isTrusted: false };
+      const hover = { value: `**${a.role === 'call' ? 'Returns ' : ''}${label}**\n\n${info.description}\n\n${info.use}\n\n---\nStatic type information.${onInspect ? ' Click the icon to inspect this value.' : ''}`, isTrusted: false };
       return [{
         range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
         options: {
           description: 'geometry-type',
           stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-          inlineClassName: `geometry-type-token geometry-type-${info.color}`,
+          inlineClassName: `geometry-type-token ${a.role === 'declaration' && mode === 'labels' ? 'geometry-type-has-label' : ''} geometry-type-${info.color}`,
           inlineClassNameAffectsLetterSpacing: true,
-          after: a.role === 'declaration' ? {
-            content: mode === 'icons' ? ` ${info.icon} ` : ` ${info.icon} ${label} `,
-            inlineClassName: `geometry-type-badge geometry-type-${info.color}`,
+          before: {
+            content: `${info.icon} `,
+            inlineClassName: `geometry-type-badge geometry-type-icon geometry-type-${info.color}`,
+            inlineClassNameAffectsLetterSpacing: true,
+            cursorStops: monaco.editor.InjectedTextCursorStops.None,
+          },
+          after: a.role === 'declaration' && mode === 'labels' ? {
+            content: ` ${label}`,
+            inlineClassName: `geometry-type-label geometry-type-${info.color}`,
             inlineClassNameAffectsLetterSpacing: true,
             cursorStops: monaco.editor.InjectedTextCursorStops.None,
           } : undefined,
@@ -126,7 +132,20 @@ export function attachGeometryHints(editor: monaco.editor.IStandaloneCodeEditor)
     if (visible) schedule(); else clearTimeout(timer);
   });
   observer.observe(editor.getDomNode()!);
+  const inspectAt = (offset: number) => {
+    const annotation = annotations.find(a => a.start === offset) ?? annotations.find(a => offset >= a.start && offset < a.end);
+    if (annotation) onInspect?.({ document: model.uri.toString(), revision: String(model.getVersionId()), annotation, label: model.getValue().slice(annotation.start, annotation.end) });
+  };
+  const action = editor.addAction({ id: 'occlude.inspectGeometry', label: 'Inspect geometry at cursor',
+    run: () => { const position = editor.getPosition(); if (position) inspectAt(model.getOffsetAt(position)); },
+  });
   const subscriptions = [
+    action,
+    editor.onMouseDown(e => {
+      if (e.target.position && e.target.element?.closest('.geometry-type-icon')) {
+        inspectAt(model.getOffsetAt(e.target.position));
+      }
+    }),
     model.onDidChangeContent(() => { clear(); failures = 0; schedule(); }),
     editor.onDidScrollChange(() => schedule()),
     editor.onDidLayoutChange(() => schedule()),

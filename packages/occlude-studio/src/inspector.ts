@@ -9,6 +9,7 @@
 
 import { userUnitsToPaper, type RenderResult } from 'occlude';
 import { InspectorModel, NEUTRAL, colorFor, incidentEdges, otherEnd, prepare, type ColumnRange, type Selection } from './inspectorModel.js';
+import { GEOMETRY_TYPES, type GeometryInspectionRequest } from './geometryTypes.js';
 import type { Preview } from './preview.js';
 import type { RenderClient, RenderReply } from './workerClient.js';
 
@@ -26,6 +27,9 @@ export class Inspector {
   /** The request in flight, so a late answer for another one is dropped. */
   private loading: { executionId: number; name: string } | null = null;
   private status = '';
+  private sourceRequest: GeometryInspectionRequest | null = null;
+  private readonly sourceCard = document.createElement('div');
+  private dropped = 0;
   /** A row under the pointer in the details pane, ringed in the sketch. */
   private hover: Selection | null = null;
   /** When the current selection was made: drives the flash. */
@@ -58,6 +62,8 @@ export class Inspector {
      * inspection on or off (the registry lives in the worker's run). */
     private readonly onEnable: (on: boolean) => void,
   ) {
+    this.sourceCard.className = 'geometry-inspection-card';
+    this.pane.prepend(this.sourceCard);
     this.enable.onchange = () => {
       this.model.enabled = this.enable.checked;
       if (!this.model.enabled) {
@@ -68,6 +74,7 @@ export class Inspector {
       this.onEnable(this.model.enabled);
     };
     this.nameSel.onchange = () => {
+      this.sourceRequest = null;
       this.model.choose(this.nameSel.value || null);
       this.fetch();
       this.sync();
@@ -94,6 +101,67 @@ export class Inspector {
 
   get enabled(): boolean {
     return this.model.enabled;
+  }
+
+  openGeometry(request: GeometryInspectionRequest): void {
+    this.sourceRequest = request;
+    this.menu.open = true;
+    this.selectSource();
+    this.sync();
+  }
+
+  /** Called immediately on edits/input changes, before debounce or compilation. */
+  invalidate(reason = 'Previous run — rerun to inspect current values'): void {
+    this.model.reset();
+    this.frame = null;
+    this.loading = null;
+    this.status = reason;
+    this.sync();
+  }
+
+  private sourceEntry() {
+    const r = this.sourceRequest;
+    return r && this.model.names.find(e => e.source?.document === r.document && e.source.revision === r.revision && e.source.start === r.annotation.sourceStart);
+  }
+
+  private selectSource(): void {
+    if (!this.sourceRequest) return;
+    const entry = this.sourceEntry();
+    this.loading = null;
+    this.model.choose(entry?.name ?? null);
+    if (entry && !entry.limited) this.fetch();
+  }
+
+  private renderSourceCard(): void {
+    const r = this.sourceRequest;
+    this.sourceCard.replaceChildren();
+    if (!r) { this.sourceCard.hidden = true; return; }
+    this.sourceCard.hidden = false;
+    const info = GEOMETRY_TYPES[r.annotation.kind];
+    const title = document.createElement('strong');
+    title.className = `geometry-type-${info.color}`;
+    title.textContent = `${info.icon} ${r.label} · ${info.label}${r.annotation.array ? '[]' : ''}${r.annotation.optional ? ' (optional)' : ''}`;
+    const description = document.createElement('p');
+    description.textContent = info.description;
+    const state = document.createElement('p');
+    const supported = !r.annotation.array && ['material', 'stations'].includes(r.annotation.kind) && r.annotation.sourceStart !== undefined;
+    const entry = this.sourceEntry();
+    state.textContent = !supported ? 'Live preview is currently available for captured Material and Stations declarations. This expression has static type information only.'
+      : !this.enabled ? 'Inspection is off. Enable it to run the sketch and capture values.'
+      : entry ? `${entry.points} points${entry.edges === undefined ? '' : ` · ${entry.edges} edges`} · declaration line ${entry.source?.line ?? "?"} · latest of ${entry.occurrences ?? 1} initialization(s)${entry.limited ? ` · ${entry.limited}` : ''}`
+      : this.model.executionId < 0 ? this.status || 'Waiting for an inspected run.'
+      : 'Not captured in this source revision. The declaration may not have executed, may no longer hold geometry, or may exceed the capture limit.';
+    this.sourceCard.append(title, description, state);
+    if (!this.enabled && supported) {
+      const enable = document.createElement('button');
+      enable.textContent = 'Enable inspection';
+      enable.onclick = () => { this.enable.checked = true; this.enable.dispatchEvent(new Event('change')); };
+      this.sourceCard.append(enable);
+    }
+    const close = document.createElement('button');
+    close.textContent = 'Close type details';
+    close.onclick = () => { this.sourceRequest = null; this.sync(); };
+    this.sourceCard.append(close);
   }
 
   /** Drag the pane by its header; the corner handle resizes it (CSS). Once
@@ -136,7 +204,9 @@ export class Inspector {
   onRender(reply: RenderReply): void {
     this.frame = reply.result.frame;
     const name = this.model.onRender(reply.executionId, reply.inspections);
-    if (name !== null) this.fetch();
+    this.dropped = reply.inspectionsDropped ?? 0;
+    if (this.sourceRequest) this.selectSource();
+    else if (name !== null) this.fetch();
     else this.loading = null;
     this.sync();
   }
@@ -144,6 +214,7 @@ export class Inspector {
   /** The drawing is a saved plan or the worker was replaced: nothing to inspect. */
   clear(reason: string): void {
     this.model.reset();
+    this.frame = null;
     this.loading = null;
     this.status = reason;
     this.sync();
@@ -154,7 +225,7 @@ export class Inspector {
     if (!this.model.enabled || chosen === null || executionId < 0 || !this.frame) return;
     const want = { executionId, name: chosen };
     this.loading = want;
-    this.status = `loading ${chosen}…`;
+    this.status = `loading ${this.model.names.find(e => e.name === chosen)?.source?.label ?? chosen}…`;
     const toPaper = userUnitsToPaper(this.frame);
     const t0 = performance.now();
     this.client.inspectMaterial(executionId, chosen).then(
@@ -192,8 +263,12 @@ export class Inspector {
     this.body.hidden = !m.enabled;
     // The pane lives with the debug menu: open menu and material layer on,
     // it shows; closed menu, it goes (the overlay stays with the layer).
-    this.pane.hidden = !(m.enabled && this.menu.open);
+    this.pane.hidden = !((m.enabled || this.sourceRequest) && this.menu.open);
+    this.renderSourceCard();
+    const hideRows = !m.enabled || !!this.sourceRequest && !this.sourceEntry();
+    for (const el of [this.head, this.selected, this.table, this.pager]) el.hidden = hideRows;
     if (!m.enabled) {
+      for (const el of [this.head, this.selected, this.table, this.pager]) el.replaceChildren();
       this.hint.hidden = true;
       this.repaint();
       return;
@@ -201,15 +276,15 @@ export class Inspector {
     // Names.
     const names = m.names.map((e) => e.name);
     if (names.join('\n') !== [...this.nameSel.options].map((o) => o.value).join('\n')) {
-      this.nameSel.replaceChildren(...names.map((n) => new Option(n, n)));
+      this.nameSel.replaceChildren(...names.map((n) => new Option(m.names.find(e => e.name === n)?.source ? `${m.names.find(e => e.name === n)!.source!.label} · line ${m.names.find(e => e.name === n)!.source!.line}` : n, n)));
     }
     this.nameSel.value = m.chosen ?? '';
     this.nameSel.disabled = names.length === 0;
     const noRegistry = names.length === 0;
     this.hint.hidden = !noRegistry;
-    if (noRegistry) this.hint.textContent = this.status || 'no material in this run — every variable holding a material is listed by name; t.inspect(label, material) names one explicitly';
+    if (noRegistry) this.hint.textContent = this.status || 'no captured material in this run — initialize a named Material or Stations variable, or use t.inspect(label, material)';
     const entry = m.names.find((e) => e.name === m.chosen);
-    this.counts.textContent = entry ? `${entry.points} points · ${entry.edges} edges` : '';
+    this.counts.textContent = (entry ? `${entry.points} points${entry.edges === undefined ? '' : ` · ${entry.edges} edges`}` : '') + (this.dropped ? ' · capture limit reached' : '');
     this.pointsBox.checked = m.showPoints;
     this.edgesBox.checked = m.showEdges;
     this.domainSel.value = m.domain;
@@ -247,13 +322,14 @@ export class Inspector {
     const m = this.model;
     const mat = m.material;
     if (!mat) {
-      this.head.textContent = this.status || (m.chosen ? `${m.chosen}: not loaded` : 'no material chosen');
+      this.head.textContent = this.status || (m.chosen ? `${m.names.find(e => e.name === m.chosen)?.source?.label ?? m.chosen}: not loaded` : 'no material chosen');
       this.selected.replaceChildren();
       this.table.replaceChildren();
       this.pager.replaceChildren();
       return;
     }
-    this.head.innerHTML = `<b>${mat.name}</b> · ${mat.n} points · ${mat.edges.length / 2} edges · iteration ${mat.iteration}` +
+    const displayName = m.names.find(e => e.name === mat.name)?.source?.label ?? mat.name;
+    this.head.innerHTML = `<b>${displayName}</b> · ${mat.n} points · ${mat.edges.length / 2} edges · iteration ${mat.iteration}` +
       `<button class="inspector-close" title="Clear the selection">×</button>` +
       (this.status ? `<div class="sub">${this.status}</div>` : '');
     this.head.title = 'Rows are indices in this state, in material coordinates before drawing transforms';

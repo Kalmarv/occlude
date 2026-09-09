@@ -71,7 +71,15 @@ export function analyzeGeometry(T: typeof ts, program: ts.Program, fileName: str
       const start = node.getStart(file);
       if (!isName && ranges.some(r => start >= r.start && start <= r.end)) {
         const type = classify(checker.getTypeAtLocation(isCall ? call : node));
-        if (type) out.push({ start, end: node.end, role: isCall ? 'call' : declaration ? 'declaration' : 'value', ...type });
+        if (type) {
+          const symbol = T.isShorthandPropertyAssignment(parent)
+            ? checker.getShorthandAssignmentValueSymbol(parent) : checker.getSymbolAtLocation(node);
+          const origin = isCall ? (T.isVariableDeclaration(call.parent) && call.parent.initializer === call ? call.parent : undefined)
+            : symbol?.valueDeclaration;
+          const sourceStart = origin && T.isVariableDeclaration(origin) && T.isIdentifier(origin.name) && origin.initializer && origin.getSourceFile() === file
+            ? origin.name.getStart(file) : undefined;
+          out.push({ sourceStart, start, end: node.end, role: isCall ? 'call' : declaration ? 'declaration' : 'value', ...type });
+        }
       }
     }
     T.forEachChild(node, visit);

@@ -42,6 +42,7 @@ export interface RenderReply {
   executionId: number;
   /** `t.inspect()` registrations (names and sizes), when inspection was on. */
   inspections: InspectionEntry[];
+  inspectionsDropped?: number;
 }
 
 /** A contiguous range of one plan, named by the plan's hash. */
@@ -198,6 +199,10 @@ export class RenderClient {
     this.worker.postMessage({ type: 'render', id, js: req.js, cfg: req.cfg });
   }
 
+  releaseInspections(): void {
+    this.worker.postMessage({ type: 'release-inspections' });
+  }
+
   /** Run + render a sketch. Resolves null when superseded by a newer request. */
   render(req: RenderRequest): Promise<RenderReply | null> {
     return new Promise((resolve, reject) => {
@@ -225,6 +230,7 @@ export class RenderClient {
             draw?: DrawRequest;
             executionId: number;
             inspections?: InspectionEntry[];
+            inspectionsDropped?: number;
           };
           // decodeRender reads only pens/frame/paper from the scene half.
           const meta = { pens: m.pens, frame: m.frame, paper: m.paper } as EncodedScene;
@@ -234,6 +240,7 @@ export class RenderClient {
             draw: m.draw,
             executionId: m.executionId,
             inspections: m.inspections ?? [],
+            inspectionsDropped: m.inspectionsDropped ?? 0,
           });
         },
         reject,

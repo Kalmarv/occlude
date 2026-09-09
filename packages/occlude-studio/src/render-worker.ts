@@ -11,7 +11,7 @@
  */
 
 import initCore, * as core from 'occlude-core';
-import { bridgeGapFor, getInspectionIndex, getProbeStats, hashPlan, inspectionPayload, renderEncoded, tourBudget, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
+import { bridgeGapFor, clearInspections, getInspectionDropped, getInspectionIndex, getProbeStats, hashPlan, inspectionPayload, renderEncoded, tourBudget, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
 import { currentDraws, currentOverrides, currentSeed, runSketch, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
@@ -87,7 +87,7 @@ interface InspectMsg {
   name: string;
 }
 
-type Msg = RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg;
+type Msg = RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg | { type: 'release-inspections' };
 
 const ready = initCore();
 
@@ -97,6 +97,7 @@ let last: { prims: Float64Array; frags: Float64Array; pensJson: string; pens: { 
 let lastPlan: { buffer: Float64Array; settings: PlanSettings; planHash: string; pensJson: string } | null = null;
 /** The render whose sketch state (and inspection registry) is current. */
 let lastExecutionId = -1;
+let inspectionGeneration = 0;
 
 /** THE plan of the last render under the given options. */
 async function planLast(opts: PlanOptions): Promise<{ buffer: Float64Array; settings: PlanSettings; planHash: string }> {
@@ -125,9 +126,13 @@ const currentPlan = (msg: PlanRange) => {
 self.onmessage = async (e: MessageEvent<Msg>) => {
   await ready;
   const msg = e.data;
+  if (msg.type === 'release-inspections') { inspectionGeneration++; clearInspections(); lastExecutionId = -1; return; }
   try {
     switch (msg.type) {
       case 'render': {
+        const captureGeneration = ++inspectionGeneration;
+        clearInspections();
+        lastExecutionId = -1;
         // Assets referenced by literal name are fetched/decoded here in the
         // worker (fetch + OffscreenCanvas are worker-native) before the
         // synchronous sketch executes.
@@ -135,9 +140,9 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         // Custom fills too: fetched from the fill library (or the editor's
         // draft) and registered before encode resolves fill('name').
         await preloadFills(msg.js, msg.cfg.draftFill);
-        lastExecutionId = -1; // a failed run leaves no inspectable state
-        const outcome = runSketch(msg.js, msg.cfg);
+        const outcome = runSketch(msg.js, { ...msg.cfg, inspect: msg.cfg.inspect && captureGeneration === inspectionGeneration });
         if (outcome.error || !outcome.scene) {
+          clearInspections();
           const err = outcome.error;
           self.postMessage({
             type: 'error',
@@ -149,7 +154,6 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
           break;
         }
         const scene = outcome.scene;
-        lastExecutionId = msg.id;
         const raw = renderEncoded(mod, scene);
         last = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper };
         // THE plan, once per render, under the sketch's own t.plan({...}):
@@ -165,6 +169,9 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         const plan = planBuf.slice();
         const transfer: ArrayBuffer[] = [prims.buffer, frags.buffer, plan.buffer];
         if (ghost) transfer.push(ghost.buffer);
+        const inspectionCurrent = msg.cfg.inspect && captureGeneration === inspectionGeneration;
+        if (!inspectionCurrent) clearInspections();
+        lastExecutionId = inspectionCurrent ? msg.id : -1;
         self.postMessage(
           {
             type: 'render',
@@ -182,7 +189,8 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
             draws: msg.cfg.draws ? currentDraws() : undefined,
             probes: getProbeStats(),
             executionId: msg.id,
-            inspections: msg.cfg.inspect ? getInspectionIndex() : [],
+            inspections: inspectionCurrent ? getInspectionIndex() : [],
+            inspectionsDropped: getInspectionDropped(),
             plan,
             planSettings: settings,
             planHash,
@@ -203,6 +211,9 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         break;
       }
       case 'plan-load': {
+        inspectionGeneration++;
+        clearInspections();
+        lastExecutionId = -1;
         const planHash = await hashPlan(msg.buffer, msg.settings);
         if (planHash !== msg.planHash) throw new Error(`saved plan does not match its hash (${msg.planHash.slice(0, 12)}… vs ${planHash.slice(0, 12)}…)`);
         const pens = JSON.parse(msg.pensJson) as { name: string; width: number }[];
@@ -246,6 +257,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       }
     }
   } catch (err) {
+    if (msg.type === 'render') { clearInspections(); lastExecutionId = -1; }
     self.postMessage({
       type: 'error',
       id: msg.id,

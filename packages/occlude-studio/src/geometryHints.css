@@ -1,22 +1,19 @@
-.monaco-editor .geometry-type-token {
+.monaco-editor .geometry-type-token,
+.monaco-editor .geometry-type-badge,
+.monaco-editor .geometry-type-label {
   font-weight: 700;
-  border-radius: 3px;
+  font-style: normal;
   background: color-mix(in srgb, currentColor 16%, transparent);
 }
-.monaco-editor .geometry-type-badge {
-  font-size: 10px;
-  font-style: normal;
-  border-radius: 3px;
-  margin-left: 5px;
-  padding: 1px 3px;
-  background: #ffffff09;
-  border: 1px solid #ffffff12;
-}
-.monaco-editor .geometry-type-graph { color: #8fc9e8 !important; }
-.monaco-editor .geometry-type-path { color: #c6aff0 !important; }
-.monaco-editor .geometry-type-area { color: #9cd5b0 !important; }
-.monaco-editor .geometry-type-sample { color: #edbc8b !important; }
-.monaco-editor .geometry-type-field { color: #dfc977 !important; }
+.monaco-editor .geometry-type-token { border-radius: 0 3px 3px 0; }
+.monaco-editor .geometry-type-token.geometry-type-has-label { border-radius: 0; }
+.monaco-editor .geometry-type-icon { border-radius: 3px 0 0 3px; cursor: pointer; }
+.monaco-editor .geometry-type-label { border-radius: 0 3px 3px 0; }
+.monaco-editor .geometry-type-graph, .geometry-inspection-card .geometry-type-graph { color: #8fc9e8 !important; }
+.monaco-editor .geometry-type-path, .geometry-inspection-card .geometry-type-path { color: #c6aff0 !important; }
+.monaco-editor .geometry-type-area, .geometry-inspection-card .geometry-type-area { color: #9cd5b0 !important; }
+.monaco-editor .geometry-type-sample, .geometry-inspection-card .geometry-type-sample { color: #edbc8b !important; }
+.monaco-editor .geometry-type-field, .geometry-inspection-card .geometry-type-field { color: #dfc977 !important; }
 .geometry-hints-control {
   display: flex; align-items: center; gap: 7px;
   margin: 0 16px 7px 0; padding: 4px 6px;
@@ -34,3 +31,6 @@
   .monaco-editor .geometry-type-badge { color: CanvasText !important; border-color: CanvasText; }
   .geometry-hints-control { color: CanvasText; background: Canvas; border-color: CanvasText; }
 }
+.geometry-inspection-card { padding: 12px; border-bottom: 1px solid #414750; }
+.geometry-inspection-card p { margin: 8px 0; line-height: 1.5; }
+.geometry-inspection-card button { margin: 4px 8px 0 0; padding: 5px 8px; cursor: pointer; }

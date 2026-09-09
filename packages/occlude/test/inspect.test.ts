@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   circle, compileSketch, getInspectHint, getInspectionIndex, inspectIfMaterial, inspectionPayload, material, setInspectHint, sketch, stroke,
-  userUnitsToPaper,
+  userUnitsToPaper, clearInspections, getInspectionDropped, INSPECTION_LIMITS, type InspectionSource,
 } from '../src/index.js';
 import { makeFrame } from '../src/record.js';
 import { getState } from '../src/state.js';
@@ -34,8 +34,8 @@ describe('t.inspect: the debug registry', () => {
       }));
       const index = getInspectionIndex();
       expect(index.map((e) => e.name)).toEqual(['source', 'grown']);
-      expect(index[0]).toEqual({ name: 'source', points: 3, edges: 3 });
-      expect(index[1]).toEqual({ name: 'grown', points: 3, edges: 2 });
+      expect(index[0]).toMatchObject({ name: 'source', points: 3, edges: 3, occurrences: 2 });
+      expect(index[1]).toMatchObject({ name: 'grown', points: 3, edges: 2, occurrences: 1 });
       compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 10)));
       expect(getInspectionIndex()).toEqual([]);
     } finally {
@@ -105,7 +105,7 @@ describe('t.inspect: the debug registry', () => {
       expect(p.x.byteLength).toBe(0);
       expect(held!.x.byteLength).toBe(24);
       expect(held!.attrs.w[1]).toBe(30);
-      expect(getState().inspections.get('m')!.x.byteLength).toBe(24);
+      expect(inspectionPayload('m')!.x.byteLength).toBe(24);
     } finally {
       setInspectHint(false);
     }
@@ -140,5 +140,62 @@ describe('userUnitsToPaper', () => {
     expect([x, y]).toEqual([100, 50]);
     const [, up] = userUnitsToPaper(c)(0, 10);
     expect(up).toBeCloseTo(42); // y up: 10 units = 8 mm above the centre
+  });
+});
+
+describe('bounded source captures', () => {
+  const source: InspectionSource = { document: 'file:///sketch.ts', revision: '3', start: 10, end: 16, label: 'points', line: 1 };
+  it('keeps one value per declaration and drops a formerly material value on its latest execution', () => {
+    setInspectHint(true);
+    try {
+      compileSketch(sketch({ seed: 1 }, () => {
+        for (let i = 0; i < 100; i++) inspectIfMaterial('source-id', two(), source);
+        expect(getInspectionIndex()[0]).toMatchObject({ occurrences: 100, source });
+        inspectIfMaterial('source-id', null, source);
+        expect(getInspectionIndex()).toEqual([]);
+        return circle(50,50,20);
+      }));
+    } finally { setInspectHint(false); }
+  });
+  it('limits distinct handles and reports captures beyond the limit', () => {
+    setInspectHint(true);
+    try {
+      compileSketch(sketch({ seed: 1 }, () => {
+        const shared = two();
+        for (let i = 0; i < INSPECTION_LIMITS.captures + 5; i++) inspectIfMaterial(String(i), shared, source);
+        return circle(50,50,20);
+      }));
+      expect(getInspectionIndex()).toHaveLength(INSPECTION_LIMITS.captures);
+      expect(getInspectionDropped()).toBe(5);
+      clearInspections();
+      expect(getInspectionIndex()).toEqual([]);
+      expect(inspectionPayload('0')).toBeNull();
+    } finally { setInspectHint(false); }
+  });
+  it('retains an oversized summary without retaining its preview value', () => {
+    setInspectHint(true);
+    try {
+      compileSketch(sketch({ seed: 1 }, () => {
+        const oversized = material(Array.from({length: INSPECTION_LIMITS.previewRows + 1}, () => [0,0] as [number,number]));
+        inspectIfMaterial('large', oversized, source);
+        return circle(50,50,20);
+      }));
+      expect(getInspectionIndex()[0].limited).toMatch(/limit/);
+      expect(() => inspectionPayload('large')).toThrow(/limit/);
+      expect(getState().inspections.get('large')!.value).toBeNull();
+    } finally { setInspectHint(false); }
+  });
+  it('distinguishes a statically known empty stations array from an uncaptured value', () => {
+    setInspectHint(true);
+    try {
+      compileSketch(sketch({ seed: 1 }, () => {
+        inspectIfMaterial('empty', [], { ...source, kind: 'stations' });
+        return circle(50,50,20);
+      }));
+      expect(getInspectionIndex()[0].points).toBe(0);
+      expect(inspectionPayload('empty')!.n).toBe(0);
+      setInspectHint(false);
+      expect(getInspectionIndex()).toEqual([]);
+    } finally { setInspectHint(false); }
   });
 });

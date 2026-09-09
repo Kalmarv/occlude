@@ -69,10 +69,10 @@ describe('InspectorModel', () => {
     im.choose('grown');
     expect(im.acceptMaterial(prepare(payload({ name: 'grown' }), 1, identity))).toBe(true);
     im.select({ kind: 'point', index: 2 });
-    // A newer render: the name survives, the selection does not, the old material waits for its replacement.
+    // A newer render: the name survives, the selection does not, the old material is cleared immediately.
     expect(im.onRender(2, [{ name: 'grown', points: 9, edges: 8 }])).toBe('grown');
     expect(im.selection).toBeNull();
-    expect(im.material?.executionId).toBe(1);
+    expect(im.material).toBeNull();
     // The old execution's payload arriving late is ignored.
     expect(im.acceptMaterial(prepare(payload({ name: 'grown' }), 1, identity))).toBe(false);
     expect(im.acceptMaterial(prepare(payload({ name: 'grown' }), 2, identity))).toBe(true);

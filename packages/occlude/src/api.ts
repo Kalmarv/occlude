@@ -32,7 +32,7 @@ import { type FieldAlign, Shape, geomClosed, type FieldFn, type ModifierValue, t
 import {
   bounds, chance, clip as legacyClip, margin, noise, pick, prob, push, rnd,
   sketch as legacySketch, stream, getState, unitScaleMm,
-  type SketchOptions, type Winding, recordProbe, recordInspection,
+  type SketchOptions, type Winding, recordProbe, recordInspection, forgetInspection, getInspectHint, type InspectionSource,
 } from './state.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
@@ -948,7 +948,7 @@ function probe<T>(label: string, value: T): T {
 function inspect(label: string, value: Material | readonly Station[]): void {
   if (typeof label !== 'string' || label.length === 0) throw new Error('inspect: the label must be a non-empty string');
   if (value instanceof Material) return recordInspection(label, value);
-  if (isStations(value)) return recordInspection(label, stationsMaterial(value));
+  if (isStations(value)) return recordInspection(label, value);
   throw new Error(`inspect('${label}'): expected a Material (from t.sample, material(), curve(), connect.*, steps, …) or the stations of along()`);
 }
 
@@ -956,9 +956,11 @@ function inspect(label: string, value: Material | readonly Station[]): void {
  * studio instruments, so it registers materials — and the stations of
  * `along()`, as a material of their own — and ignores everything else
  * without a word. */
-export function inspectIfMaterial(label: string, value: unknown): void {
-  if (value instanceof Material) recordInspection(label, value);
-  else if (isStations(value)) recordInspection(label, stationsMaterial(value));
+export function inspectIfMaterial(label: string, value: unknown, source?: InspectionSource): void {
+  if (!getInspectHint()) return;
+  if (value instanceof Material) recordInspection(label, value, source);
+  else if (isStations(value) || source?.kind === 'stations' && Array.isArray(value) && value.length === 0) recordInspection(label, value, source);
+  else if (source) forgetInspection(label);
 }
 
 /** Path optimization for THIS sketch's plan (tour budget, bridging) — in

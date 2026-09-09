@@ -7,6 +7,7 @@ import * as monaco from 'monaco-editor';
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import { attachScrubbing } from './scrub.js';
 import TsWorker from './geometry.worker?worker';
+import type { GeometryInspectionRequest } from './geometryTypes.js';
 import { attachGeometryHints } from './geometryHints.js';
 
 // EVERY source file of the occlude package becomes a Monaco extra lib —
@@ -40,8 +41,9 @@ export interface Editor {
   model: monaco.editor.ITextModel;
   editor: monaco.editor.IStandaloneCodeEditor;
   /** Transpile the current sketch to CommonJS JS (or null on syntax errors). */
-  emit(): Promise<{ js: string | null; errors: string[] }>;
+  emit(inspect?: boolean): Promise<{ js: string | null; errors: string[] }>;
   onChange(fn: () => void): void;
+  onInspectGeometry(fn: (request: GeometryInspectionRequest) => void): void;
   setValue(src: string): void;
   /** Replace the whole text as one undoable edit (setValue clears history). */
   replaceValue(src: string): void;
@@ -148,12 +150,14 @@ export function createEditor(container: HTMLElement, initial: string, opts: Edit
 
   // Alt-drag any number literal to change it (scrubby sliders).
   attachScrubbing(editor);
-  const geometryHints = attachGeometryHints(editor);
+  let inspectGeometry: ((request: GeometryInspectionRequest) => void) | undefined;
+  const geometryHints = attachGeometryHints(editor, opts.inline ? undefined : request => inspectGeometry?.(request));
 
   return {
     model,
     editor,
-    async emit() {
+    async emit(inspect = false) {
+      const version = model.getVersionId();
       // The TS language service registers asynchronously after the first
       // typescript model exists; at boot it may not be ready yet.
       const getWorker = await (async () => {
@@ -169,7 +173,7 @@ export function createEditor(container: HTMLElement, initial: string, opts: Edit
       const client = await getWorker(uri);
       const [syntactic, out] = await Promise.all([
         client.getSyntacticDiagnostics(uri.toString()),
-        client.getEmitOutput(uri.toString()),
+        inspect ? Promise.resolve(null) : client.getEmitOutput(uri.toString()),
       ]);
       const errors = syntactic.map((d) => {
         const pos = d.start !== undefined ? model.getPositionAt(d.start) : null;
@@ -178,9 +182,15 @@ export function createEditor(container: HTMLElement, initial: string, opts: Edit
         return pos ? `line ${pos.lineNumber}: ${msg}` : msg;
       });
       if (errors.length > 0) return { js: null, errors };
-      const file = out.outputFiles.find((f) => f.name.endsWith('.js'));
+      if (inspect) {
+        const captured = await (client as typeof client & { getInspectionEmit(file: string): Promise<{ js: string; version: string }> }).getInspectionEmit(uri.toString());
+        if (captured.version !== String(version) || model.getVersionId() !== version) return { js: null, errors: ['Source changed while compiling'] };
+        return { js: captured.js, errors: [] };
+      }
+      const file = out!.outputFiles.find((f) => f.name.endsWith('.js'));
       return { js: file?.text ?? null, errors: [] };
     },
+    onInspectGeometry(fn) { inspectGeometry = fn; },
     onChange(fn) {
       model.onDidChangeContent(() => fn());
     },

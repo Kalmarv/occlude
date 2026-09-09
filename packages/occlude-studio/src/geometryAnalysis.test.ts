@@ -8,6 +8,7 @@ const source = `
 import { material as make, circle, type Material as Network, type Station, type FieldFn, type VectorFieldFn } from '../occlude/src/index.js';
 const spines = make([[0, 0], [1, 1]]);
 const renamed = spines;
+const packed = {spines};
 function helper() { return make([[2, 3]]); }
 const fromHelper = helper();
 const stations = spines.along();
@@ -83,6 +84,7 @@ describe('geometry classification from actual Occlude types', () => {
     expect(tokens('filter')[0]).toMatchObject({ role: 'call', kind: 'points' });
     expect(tokens('p').map(a => a.role)).toEqual(['declaration', 'value']);
     expect(tokens('spines').some(a => a.role === 'value')).toBe(true);
+    expect(annotations.find(a => a.start === source.indexOf('spines};'))?.sourceStart).toBe(named('spines')[0].start);
     expect(tokens('Network')).toEqual([]);
     expect(tokens('helper')).toHaveLength(1);
     expect(tokens('helper')[0].role).toBe('call');

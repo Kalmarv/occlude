@@ -161,9 +161,9 @@ export type { LiftMap, CellGeometry, SettlePoint, LiftModel } from './liftmap.js
 // Host integration.
 export {
   setPenLibrary, setPaperHint, setSeedHint, getState, getProbeStats,
-  setInspectHint, getInspectHint, getInspectionIndex, inspectionPayload,
+  setInspectHint, getInspectHint, getInspectionIndex, inspectionPayload, clearInspections, getInspectionDropped, INSPECTION_LIMITS,
 } from './state.js';
-export type { ProbeSummary, InspectionEntry, InspectionPayload } from './state.js';
+export type { ProbeSummary, InspectionEntry, InspectionPayload, InspectionSource } from './state.js';
 export { userUnitsToPaper } from './record.js';
 export { inspectIfMaterial } from './api.js';
 

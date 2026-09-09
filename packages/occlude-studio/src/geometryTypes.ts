@@ -19,6 +19,7 @@ export const GEOMETRY_TYPES = {
 
 export type GeometryKind = keyof typeof GEOMETRY_TYPES;
 export interface GeometryAnnotation {
+  sourceStart?: number;
   role: 'declaration' | 'value' | 'call';
   start: number;
   end: number;
@@ -29,4 +30,11 @@ export interface GeometryAnnotation {
 export interface GeometryAnalysis {
   version: string;
   annotations: GeometryAnnotation[];
+}
+
+export interface GeometryInspectionRequest {
+  document: string;
+  revision: string;
+  annotation: GeometryAnnotation;
+  label: string;
 }

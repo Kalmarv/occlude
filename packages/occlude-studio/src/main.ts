@@ -86,6 +86,7 @@ async function boot(): Promise<void> {
   // reruns the sketch (like the occlusion ghost); everything after that is
   // a repaint or one payload request.
   const inspector = new Inspector(preview, client, () => void run());
+  editor.onInspectGeometry(request => inspector.openGeometry(request));
   let lastResult: RenderResult | null = null;
   const activeProfile = () => profiles.find((p) => p.name === settings.activeProfile) ?? profiles[0];
   /** A frozen result runs under the settings it was SAVED with — its pens'
@@ -182,15 +183,21 @@ async function boot(): Promise<void> {
   }
 
   async function run(): Promise<void> {
+    const ticket = ++runSeq;
+    if (pending !== null) { clearTimeout(pending); pending = null; }
+    if (ticker) { clearInterval(ticker); ticker = null; }
+    inspector.invalidate();
+    client.releaseInspections();
     try {
-      await runInner();
+      await runInner(ticket);
     } catch (err) {
+      if (ticket !== runSeq) return;
       statusMsg.className = 'status-err';
       statusMsg.textContent = err instanceof Error ? err.message : String(err);
     }
   }
 
-  async function runInner(): Promise<void> {
+  async function runInner(ticket: number): Promise<void> {
     saveSketch(editor.getValue()); // persist BEFORE executing — survives anything
     if (frozenId) {
       statusMsg.className = 'status-err';
@@ -202,10 +209,13 @@ async function boot(): Promise<void> {
       statusMsg.textContent = 'rendering paused — press ▶ render to run the sketch';
       return;
     }
-    const emitted = await editor.emit();
+    const inspecting = inspector.enabled;
+    const emitted = await editor.emit(inspecting);
+    if (ticket !== runSeq) return;
     if (!emitted.js) {
       statusMsg.className = 'status-err';
       statusMsg.textContent = emitted.errors[0] ?? 'syntax error';
+      inspector.invalidate('Current source could not compile — no live capture');
       return;
     }
 
@@ -216,7 +226,7 @@ async function boot(): Promise<void> {
     // PREVIOUS result: say so, with the elapsed time, and dim it. One
     // ticker for the whole page, owned by the newest run: an older run
     // still in flight must neither write the status nor clear the ticker.
-    const myRun = ++runSeq;
+    const myRun = ticket;
     const started = performance.now();
     preview.setStale(lastResult !== null);
     if (ticker) clearInterval(ticker);
@@ -246,7 +256,8 @@ async function boot(): Promise<void> {
           defaultMarginPct: settings.defaultMarginPct,
           coarsen: 1,
           debugGhost: preview.debug.occluded,
-          inspect: inspector.enabled,
+          inspect: inspecting,
+          inspectionCompiled: inspecting,
           seed,
           draws: true, // the run's draws, for Freeze
         },
@@ -254,6 +265,7 @@ async function boot(): Promise<void> {
     } catch (err) {
       if ((err as WorkerError).sketch) setRuntimeMarker(editor.model, err);
       if (!finish()) return; // superseded: the newer run reports
+      inspector.invalidate('Current run failed — no live capture');
       statusMsg.className = 'status-err';
       statusMsg.textContent =
         (err instanceof Error ? err.message : String(err)) +
@@ -311,6 +323,10 @@ async function boot(): Promise<void> {
   }
 
   function scheduleRun(): void {
+    runSeq++;
+    inspector.invalidate('Previous run — source changed');
+    client.releaseInspections();
+    if (ticker) { clearInterval(ticker); ticker = null; }
     if (pending !== null) clearTimeout(pending);
     pending = window.setTimeout(() => {
       pending = null;
