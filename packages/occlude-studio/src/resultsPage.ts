@@ -9,6 +9,7 @@ import './style.css';
 import { deleteResult, listResults, resultSvgUrl, type SavedResult } from './resultsApi.js';
 import './wa.js';
 import { confirmDialog, notify } from './wa.js';
+import { iconButton, withIcon } from './icons.js';
 import { mountShell } from './shell.js';
 mountShell('results');
 
@@ -51,9 +52,9 @@ function card(r: SavedResult): HTMLElement {
   ].join(' · ');
   const actions = el('div', 'row');
   actions.append(
-    btn('Open frozen in studio', () => { location.href = `/?result=${encodeURIComponent(r.id)}`; }, 'Show, export and plot this exact result — the source is not run'),
-    btn('SVG', () => { const a = document.createElement('a'); a.href = resultSvgUrl(r.id); a.download = `occlude-${r.id}.svg`; a.click(); }),
-    btn('Delete', async () => {
+    withIcon(btn('Open', () => { location.href = `/?result=${encodeURIComponent(r.id)}`; }, 'Show, export and plot this exact result — the source is not run'), 'open'),
+    withIcon(btn('SVG', () => { const a = document.createElement('a'); a.href = resultSvgUrl(r.id); a.download = `occlude-${r.id}.svg`; a.click(); }, 'Download the SVG'), 'download'),
+    iconButton('trash', 'Delete this result', async () => {
       if (!(await confirmDialog({ title: 'Delete result', body: `Delete saved result ${r.id}? This is the only copy of its resolved ink.`, confirm: 'Delete', danger: true }))) return;
       await deleteResult(r.id);
       c.remove();

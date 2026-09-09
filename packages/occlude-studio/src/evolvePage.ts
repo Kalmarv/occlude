@@ -13,6 +13,7 @@ import './style.css';
 import { formatSeed, liveExampleToJs, parseSeed, type PenDef, type RenderResult } from 'occlude';
 
 import './wa.js';
+import { iconButton, withIcon } from './icons.js';
 import { promptDialog } from './wa.js';
 import { Preview } from './preview.js';
 import { RenderClient } from './workerClient.js';
@@ -158,7 +159,7 @@ async function boot(): Promise<void> {
   // Before that you are still hunting for something worth branching from,
   // and the first Agains are just more of the same spread.
   const WARM_AFTER_PICKS = 2;
-  const againBtn = button('Again', () => {
+  const againBtn = withIcon(button('Again', () => {
     if (lineage.length > WARM_AFTER_PICKS) {
       reheat(heat);
       T = Math.min(1, T * AGAIN_WARMTH);
@@ -166,14 +167,14 @@ async function boot(): Promise<void> {
       tempText();
     }
     void regenerate();
-  });
+  }), 'again');
   againBtn.title = 'Eight new variations of the middle; once a lineage is a couple of picks deep, each Again is a touch wider';
-  const keepBtn = button('Keep', () => void keep(false));
-  keepBtn.className = 'primary';
+  const keepBtn = withIcon(button('Keep', () => void keep(false)), 'keep');
+  keepBtn.classList.add('primary');
   keepBtn.title = 'Snapshot the middle drawing: source, seed and the overridden draws';
-  const openBtn = button('Open in studio', () => void keep(true));
+  const openBtn = withIcon(button('Open in studio', () => void keep(true)), 'open');
   openBtn.title = 'Keep, then open the drawing in the studio';
-  const backBtn = button('Back', () => void back());
+  const backBtn = iconButton('back', 'Back', () => void back());
   backBtn.title = 'Return to the previous pick';
   const strip = el('div', 'evolve-lineage');
   const bar = el('div', 'evolve-bar',

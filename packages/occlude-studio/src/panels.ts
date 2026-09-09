@@ -37,6 +37,7 @@ export interface ExecutionSettings {
 }
 export const executionKey = (e: ExecutionSettings): string => canonicalJson(e);
 import type { RenderDraws, RenderClient } from './workerClient.js';
+import { iconButton, relabel, setIcon, withIcon } from './icons.js';
 import { confirmDialog, notify } from './wa.js';
 import { button, checkbox, el, hint, numberInput, pairInput, row, segmented } from './widgets.js';
 
@@ -197,7 +198,7 @@ function buildSketchesPanel(
     hooks.afterSave(name);
     return name;
   }
-  const saveBtn = button('Save', async () => {
+  const saveBtn = withIcon(button('Save', async () => {
     try {
       if ((await save()) === null) {
         notify('Name the sketch first — the title field in the top bar.', 'warning');
@@ -205,14 +206,14 @@ function buildSketchesPanel(
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e), 'danger');
     }
-  });
-  saveBtn.className = 'primary';
+  }), 'save');
+  saveBtn.classList.add('primary');
   saveBtn.title = 'Save to the studio server under the title-bar name (Ctrl+S)';
-  const importBtn2 = button('Import', hooks.importSketchFile);
+  const importBtn2 = withIcon(button('Import', hooks.importSketchFile), 'import');
   importBtn2.title = 'Load a .ts sketch file into the editor';
-  const dlBtn = button('Download', hooks.downloadSketchFile);
+  const dlBtn = withIcon(button('Download', hooks.downloadSketchFile), 'download');
   dlBtn.title = 'Download the current sketch as a .ts file';
-  const newBtn = button('New', async () => {
+  const newBtn = withIcon(button('New', async () => {
     // Losing work needs a prompt; losing nothing shouldn't. Named sketches
     // are dirty when the editor drifted from the server copy; unnamed ones
     // when they aren't just a pristine starter.
@@ -225,7 +226,7 @@ function buildSketchesPanel(
       return;
     }
     hooks.openSketch('', NEW_SKETCH);
-  });
+  }), 'new');
   newBtn.title = 'Start a fresh sketch — name it in the top bar, then Save';
   actionRow.className = 'row grid2';
   actionRow.append(newBtn, saveBtn, importBtn2, dlBtn);
@@ -234,14 +235,14 @@ function buildSketchesPanel(
   // evolved drawing becomes numbers you can edit. A draw that ran more
   // than once has no single value and stays a draw; the seed (with any
   // overrides those still need) is pinned in the sketch's options.
-  const freezeBtn = button('Freeze', () => {
+  const freezeBtn = withIcon(button('Freeze', () => {
     const draws = hooks.lastDraws();
     const seed = hooks.currentSeed();
     if (!draws || seed === null) { notify('Render the sketch first — Freeze writes back the values of the last render.', 'warning'); return; }
     const { source, frozen, kept } = freeze(hooks.getSource(), draws, seed);
     hooks.replaceSource(source);
     if (kept) notify(`${frozen} draw${frozen === 1 ? '' : 's'} written as literals; ${kept} site${kept === 1 ? '' : 's'} run more than once and stay draws — the seed is pinned in the sketch options so the drawing is unchanged.`, 'brand', 9000);
-  });
+  }), 'freeze');
   freezeBtn.title = 'Replace each once-run random call with the value it drew in the last render, and pin the seed in the sketch options. Ctrl+Z undoes it.';
   const freezeRow = el('div', 'row', freezeBtn);
 
@@ -276,7 +277,7 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
   const actions = document.createElement('div');
   actions.className = 'row';
 
-  const addBtn = button('Add pen', () => {
+  const addBtn = withIcon(button('Add pen', () => {
     hooks.pens.push({
       name: `pen-${hooks.pens.length + 1}`,
       width: 0.3,
@@ -289,8 +290,8 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
     selected = hooks.pens.length - 1;
     persist();
     renderList();
-  });
-  const importBtn = button('Import', () => {
+  }), 'new');
+  const importBtn = withIcon(button('Import', () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
@@ -309,10 +310,10 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
       }
     };
     input.click();
-  });
-  const exportBtn = button('Export', () => {
+  }), 'import');
+  const exportBtn = withIcon(button('Export', () => {
     download('pens.json', JSON.stringify(hooks.pens, null, 2), 'application/json');
-  });
+  }), 'export');
   actions.append(addBtn, importBtn, exportBtn);
 
   function persist(): void {
@@ -351,12 +352,12 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
       };
       form.append(l, input);
     }
-    const del = button('Delete pen', () => {
+    const del = withIcon(button('Delete pen', () => {
       hooks.pens.splice(selected!, 1);
       selected = null;
       persist();
       renderList();
-    });
+    }), 'trash');
     del.style.gridColumn = '1 / -1';
     form.append(del);
     editHost.append(form);
@@ -585,7 +586,7 @@ function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
   // needed to read it back — published only when all of it is written.
   const saveNote = document.createElement('div');
   saveNote.className = 'panel-hint';
-  const saveBtn = button('Save result', async () => {
+  const saveBtn = withIcon(button('Save result', async () => {
     const plan = d.plan;
     const r = d.current;
     const result = hooks.lastResult();
@@ -635,8 +636,8 @@ function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
     } finally {
       saveBtn.disabled = false;
     }
-  });
-  saveBtn.className = 'primary';
+  }), 'save');
+  saveBtn.classList.add('primary');
   saveBtn.title = 'Keep exactly this selection as resolved output — plan bytes, SVG and settings — so it can be shown, exported and plotted later without running the sketch';
   const resultsLink = document.createElement('a');
   resultsLink.href = '/results.html';
@@ -760,7 +761,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
           ? `stopped · ${mm}`
           : `${p.state} · ${p.penName} · ${eta.toFixed(1)} min left · ${mm}${reink}`;
     progressText.textContent = p.warning ? `${base} · ⚠ ${p.warning}` : base;
-    pauseBtn.textContent = p.state === 'paused' ? 'Resume' : 'Pause';
+    setIcon(pauseBtn, p.state === 'paused' ? 'play' : 'pause', p.state === 'paused' ? 'Resume' : 'Pause');
     body.classList.toggle('plotting', p.state === 'plotting' || p.state === 'paused');
   }
 
@@ -910,7 +911,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     }
   };
 
-  const plotBtn = button('Plot', async () => {
+  const plotBtn = iconButton('play', 'Plot', async () => {
     if (!ebb.connected || ebb.plotting) return;
     const r = hooks.lastResult();
     if (!r) return;
@@ -923,16 +924,16 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       showErr(e);
     }
   });
-  plotBtn.className = 'plot-go';
+  plotBtn.classList.add('plot-go');
   plotBtn.title = 'Plot on the connected machine — pen and paper, for real';
-  const pauseBtn = button('Pause', () => {
+  const pauseBtn = iconButton('pause', 'Pause', () => {
     if (!ebb.plotting) return;
-    if (pauseBtn.textContent === 'Pause') ebb.pause();
+    if (pauseBtn.title === 'Pause') ebb.pause();
     else ebb.resume();
   });
-  const stopBtn = button('Stop', () => void ebb.stop().catch(showErr));
+  const stopBtn = iconButton('stop', 'Stop', () => void ebb.stop().catch(showErr));
   stopBtn.className = 'plot-stop';
-  const frameBtn = button('Frame', async () => {
+  const frameBtn = iconButton('frame', 'Frame — trace the drawable outline pen-up', async () => {
     if (!ebb.connected || ebb.plotting) return;
     const r = hooks.lastResult();
     if (!r) return;
@@ -951,11 +952,11 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       showErr(e);
     }
   });
-  frameBtn.title = 'Trace the plan’s bounding box pen-up from the paper origin — see where the piece lands before committing ink';
+  frameBtn.title = 'Frame — trace the plan’s bounding box pen-up from the paper origin — see where the piece lands before committing ink';
   // Registration marks: a ✕ on the plan's near and far corner, drawn with
   // the selected pen. Between pens: marks, tape, swap, marks again — the
   // crosses coincide iff the new pen sits where the old one did.
-  const marksBtn = button('Marks', async () => {
+  const marksBtn = iconButton('marks', 'Marks — draw registration crosses at the corners', async () => {
     if (!ebb.connected || ebb.plotting) return;
     const r = hooks.lastResult();
     if (!r) return;
@@ -971,7 +972,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       showErr(e);
     }
   });
-  marksBtn.title = 'Draw a small ✕ on the plan’s near and far corners with the selected pen. Before a pen change: marks, tape over them, swap pens, marks again — line the crosses up and the pens are registered.';
+  marksBtn.title = 'Marks — draw a small ✕ on the plan’s near and far corners with the selected pen. Before a pen change: marks, tape over them, swap pens, marks again — line the crosses up and the pens are registered.';
 
   const resumeBtn = button('Resume', async () => {
     if (!ebb.connected || ebb.plotting || !saved) return;
@@ -1060,7 +1061,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   const radiusIn = numberInput(radius, 1, (v) => { radius = Math.max(0.5, v); });
   radiusIn.title = 'Brush radius, mm';
   radiusIn.setAttribute('aria-label', 'Brush radius, mm');
-  const paintBtn = button('Paint region', () => (paintBtn.classList.contains('armed') ? paintOff() : paintOn()));
+  const paintBtn: HTMLButtonElement = withIcon(button('Paint region', () => (paintBtn.classList.contains('armed') ? paintOff() : paintOn())), 'brush');
   paintBtn.title = 'Circle-select over the preview: drag to paint the patch to redo. Wheel still zooms; pan with the right button or after Done.';
   const clearRegion = button('Clear region', () => { d.setRegion(null); });
   clearRegion.className = 'danger-quiet';
@@ -1068,7 +1069,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   const paintOn = (): void => {
     blobs = d.region ? [...d.region] : [];
     paintBtn.classList.add('armed');
-    paintBtn.textContent = 'Done painting';
+    relabel(paintBtn, 'Done painting');
     hooks.brush.start((x, y, phase) => {
       const last = blobs[blobs.length - 1];
       const apart = !last || Math.hypot(x - last.x, y - last.y) >= radius / 3;
@@ -1081,7 +1082,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   };
   const paintOff = (): void => {
     paintBtn.classList.remove('armed');
-    paintBtn.textContent = 'Paint region';
+    relabel(paintBtn, 'Paint region');
     hooks.brush.stop();
     if (blobs.length) d.setRegion(blobs);
   };

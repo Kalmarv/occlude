@@ -25,7 +25,7 @@ body {
 #topbar {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   padding: 0 14px;
   height: 40px;
   background: var(--panel);
@@ -76,7 +76,8 @@ body {
 .topbar-actions {
   margin-left: auto;
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  align-items: center;
 }
 
 /* ---- workbench ---- */
@@ -126,19 +127,66 @@ body {
 }
 
 /* The panels toggle: a hamburger at the far right of the top bar. */
-#btn-rail {
+.icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 30px;
   height: 28px;
   padding: 0;
-  margin-left: 6px;
   flex: none;
+  color: var(--muted);
 }
 
-#btn-rail svg {
+.icon-btn:hover {
+  color: var(--ink);
+}
+
+.icon-btn svg {
   display: block;
+  flex: none;
+  width: 17px;
+  height: 17px;
+}
+
+.evolve-group .icon-btn {
+  padding: 0;
+  width: 32px;
+  height: 30px;
+}
+
+svg.icon {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A word with its icon in front. */
+button.has-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+button.has-icon svg.icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  opacity: 0.85;
+}
+
+.icon-btn.primary,
+.icon-btn.danger-quiet {
+  color: inherit;
+}
+
+#btn-rail {
+  margin-left: 6px;
 }
 
 #btn-rail[aria-pressed='false'] {
@@ -855,6 +903,22 @@ button.primary:hover {
   background: var(--control);
 }
 
+.topbar-home {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-left: -4px;
+  color: var(--muted);
+  border-radius: var(--r-sm);
+  text-decoration: none;
+}
+
+.topbar-home:hover {
+  color: var(--ink);
+  background: var(--control);
+}
+
 /* Actions on the left, pages on the right: a hairline between the groups. */
 .topbar-actions > .topbar-link:first-of-type {
   margin-left: 10px;
@@ -1120,9 +1184,12 @@ body.dropping {
   gap: 6px;
 }
 
+.lineage-actions {
+  align-items: center;
+}
+
 .lineage-actions button {
-  font-size: 10.5px;
-  padding: 1px 7px;
+  font-size: 11.5px;
 }
 
 /* ---- editor scrubbing: Alt-drag a number literal ---- */
@@ -1450,6 +1517,11 @@ body.scrubbing * {
   display: grid;
   grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
   gap: 6px;
+}
+
+/* Frame and Marks read as a pair apart from the transport proper. */
+.transport > :nth-child(4) {
+  margin-left: 6px;
 }
 
 .transport button {
@@ -2819,3 +2891,15 @@ button.armed {
 #toasts .toast.leaving { opacity: 0; transform: translateY(6px); transition: opacity 200ms, transform 200ms; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { #toasts .toast { animation: none; } }
+
+/* Transport: icon buttons fill their grid cells. */
+.transport .icon-btn {
+  width: auto;
+  height: auto;
+  padding: 7px 6px;
+}
+
+.transport .icon-btn svg {
+  width: 18px;
+  height: 18px;
+}

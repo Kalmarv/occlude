@@ -14,6 +14,7 @@
 import './style.css';
 import './wa.js';
 import { confirmDialog, notify, promptDialog } from './wa.js';
+import { iconButton, withIcon, type IconName } from './icons.js';
 import { mountShell } from './shell.js';
 import { NEW_SKETCH } from './store.js';
 import {
@@ -48,6 +49,12 @@ const btn = (label: string, fn: () => void | Promise<void>, title?: string): HTM
     e.stopPropagation();
     void Promise.resolve(fn()).catch((err) => notify(err instanceof Error ? err.message : String(err), 'danger'));
   };
+  return b;
+};
+
+const ibtn = (name: IconName, label: string, fn: () => void | Promise<void>): HTMLButtonElement => {
+  const b = iconButton(name, label, () => Promise.resolve(fn()).catch((err) => notify(err instanceof Error ? err.message : String(err), 'danger')));
+  b.onclick = (e) => { e.stopPropagation(); void Promise.resolve(fn()).catch((err) => notify(err instanceof Error ? err.message : String(err), 'danger')); };
   return b;
 };
 
@@ -393,7 +400,7 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
   const actions = el('div', 'lineage-actions');
   // Deleting a sketch is the one destructive action here (saves cannot be
   // deleted: git is the history), so it asks for the name to be typed.
-  const deleteSketch = btn('delete sketch', async () => {
+  const deleteSketch = withIcon(btn('Delete sketch', async () => {
     closePopover();
     const typed = await promptDialog({
       title: `Delete '${name}'?`,
@@ -406,7 +413,7 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
     if (typed === null) return;
     await deleteSketchByName(name);
     await refresh();
-  });
+  }), 'trash');
   deleteSketch.className += ' danger-quiet';
   if (sel.kind === 'snapshot') {
     const s = sel.snapshot;
@@ -416,21 +423,20 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
       (s.meta.label && s.meta.seed != null ? ` · seed ${s.meta.seed}` : '') +
       (s.meta.at ? ` · ${when(Date.parse(s.meta.at))}` : '')));
     actions.append(
-      btn('gallery', () => {
+      ibtn('gallery', 'Gallery — flip through this sketch’s snapshots, starting here', () => {
         closePopover();
         openGallery({ shots: sel.row.snapshots, index: sel.row.snapshots.indexOf(s), scope: name });
-      }, 'Flip through this sketch’s snapshots, starting here'),
-      btn('open', async () => {
+      }),
+      ibtn('open', 'Open this frozen source with its seed in the studio (saving writes the sketch head)', async () => {
         const { source, meta: m } = await loadSnapshot(name, s.id);
         openInStudio(name, source, snapshotSeed(m));
-      }, 'Open this frozen source with its seed (saving writes the sketch head)'),
-      btn('evolve', () => { location.href = evolveUrl({ name, snap: s.id }, snapshotSeed(s.meta)); },
-        'Choose among variations of this drawing: a grid of seeds and draw overrides, kept as snapshots'),
-      btn('fork', async () => {
+      }),
+      ibtn('evolve', 'Evolve — choose among variations of this drawing, kept as snapshots', () => { location.href = evolveUrl({ name, snap: s.id }, snapshotSeed(s.meta)); }),
+      ibtn('fork', 'Fork — a new sketch from this frozen source', async () => {
         const made = await forkSnapshot(name, s.id);
         openInStudio(made, await loadSketchByName(made), snapshotSeed(s.meta));
-      }, 'A new sketch from this frozen source'),
-      btn('delete', async () => {
+      }),
+      ibtn('trash', 'Delete this snapshot', async () => {
         closePopover();
         if (!(await confirmDialog({ title: 'Delete this snapshot?', body: `The snapshot of '${name}' and its thumbnail are removed; the save it froze stays.`, confirm: 'Delete', danger: true }))) return;
         await deleteSnapshot(name, s.id);
@@ -442,10 +448,9 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
     meta.append(el('div', 'lineage-name', `${name} · current`));
     meta.append(el('div', 'lineage-sub', `${head ? `@ ${head.sha} · ${when(head.time)}` : ''}`));
     actions.append(
-      btn('open', async () => openInStudio(name, await loadSketchByName(name)), 'Open the sketch in the studio'),
-      btn('evolve', () => { location.href = evolveUrl({ name }, null); },
-        'Choose among variations of this sketch: a grid of seeds and draw overrides, kept as snapshots'),
-      btn('fork', () => forkNow(name), 'A new sketch from the current source'),
+      ibtn('open', 'Open the sketch in the studio', async () => openInStudio(name, await loadSketchByName(name))),
+      ibtn('evolve', 'Evolve — choose among variations of this sketch, kept as snapshots', () => { location.href = evolveUrl({ name }, null); }),
+      ibtn('fork', 'Fork — a new sketch from the current source', () => forkNow(name)),
     );
     // Only the sketch's own row offers deletion — never a row in its history,
     // where 'delete' reads as 'delete this save' and it is not.
@@ -456,11 +461,9 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
     meta.append(el('div', 'lineage-name', c.subject));
     meta.append(el('div', 'lineage-sub', `${name} @ ${c.sha} · ${when(c.time)}`));
     actions.append(
-      btn('open', async () => openInStudio(name, await loadSketchAt(name, c.sha)),
-        'Open the source as it was at this save (saving writes the sketch head)'),
-      btn('evolve', () => { location.href = evolveUrl({ name, sha: c.sha }, null); },
-        'Choose among variations of this version (kept as snapshots of a fork from here)'),
-      btn('fork from here', () => forkNow(name, c.sha), 'A new sketch branching from this save'),
+      ibtn('open', 'Open the source as it was at this save (saving writes the sketch head)', async () => openInStudio(name, await loadSketchAt(name, c.sha))),
+      ibtn('evolve', 'Evolve this version (kept as snapshots of a fork from here)', () => { location.href = evolveUrl({ name, sha: c.sha }, null); }),
+      ibtn('fork', 'Fork from here — a new sketch branching from this save', () => forkNow(name, c.sha)),
     );
   }
   pop.append(meta, actions);

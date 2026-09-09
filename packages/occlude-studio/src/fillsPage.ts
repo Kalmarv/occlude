@@ -21,6 +21,7 @@ import { canonicalFillSource, freshFillName } from './fillEmbed.js';
 import { NEW_FILL, loadPens, loadSettings } from './store.js';
 import { warnOnEdit } from './fillWarn.js';
 import { confirmDialog, notify } from './wa.js';
+import { iconButton, type IconName } from './icons.js';
 import { mountShell } from './shell.js';
 mountShell('fills');
 
@@ -245,25 +246,21 @@ async function boot(): Promise<void> {
       meta.append(nm, t);
       const actions = document.createElement('div');
       actions.className = 'asset-actions';
-      const b = (label: string, fn: () => void | Promise<void>): HTMLButtonElement => {
-        const x = document.createElement('button');
-        x.textContent = label;
-        x.onclick = () => void Promise.resolve(fn()).catch((e) => notify(e instanceof Error ? e.message : String(e), 'danger'));
-        return x;
-      };
+      const b = (name: IconName, label: string, fn: () => void | Promise<void>): HTMLButtonElement =>
+        iconButton(name, label, () => Promise.resolve(fn()).catch((e) => notify(e instanceof Error ? e.message : String(e), 'danger')));
       actions.append(
-        b(builtin ? 'view' : 'edit', async () => {
+        b(builtin ? 'view' : 'edit', builtin ? 'View the source' : 'Edit', async () => {
           const s = await source();
           if (s !== null) await openEditor(name, s, builtin);
         }),
-        b('clone', async () => {
+        b('clone', 'Clone into a fill of your own', async () => {
           const s = await source();
           if (s !== null) await openEditor(freshFillName(name, await taken()), cloneSource(name, s), false);
         }),
       );
       if (!builtin) {
         actions.append(
-          b('delete', async () => {
+          b('trash', 'Delete this fill', async () => {
             const uses = await fillUses(name);
             const warn = uses.length > 0 ? ` Saved sketches use it: ${uses.join(', ')}.` : '';
             if (!(await confirmDialog({ title: 'Delete fill', body: `Delete fill '${name}' from the library?${warn}`, confirm: 'Delete', danger: true }))) return;

@@ -18,6 +18,7 @@ import {
 } from './diagnostics.js';
 import { Ebb, type EbbOptions, type PlotProgress } from './ebb.js';
 import { download, saveProfiles, saveSettings, type MachineProfile, type Settings } from './store.js';
+import { withIcon } from './icons.js';
 import { confirmDialog, promptDialog } from './wa.js';
 import { button, checkbox, el, hint, numberInput, row } from './widgets.js';
 
@@ -189,8 +190,8 @@ export function buildManualControls(m: MachineSession): HTMLElement {
     el('span'), jog(0, 1, '↓', 'jog down'), el('span'),
   );
 
-  const penUp = button('Pen up', () => void ebb.penUp().catch(m.showErr));
-  const penDown = button('Pen down', () => void ebb.penDown().catch(m.showErr));
+  const penUp = withIcon(button('Pen up', () => void ebb.penUp().catch(m.showErr)), 'penUp');
+  const penDown = withIcon(button('Pen down', () => void ebb.penDown().catch(m.showErr)), 'penDown');
   // Seating: the servo as the shim. Step 1 parks the horn at the seat pulse
   // with the pen down so the slider sits off its stop; loosen, let the pen
   // fall to the paper, clamp. Step 2 restores the down pulse: the paper holds

@@ -487,30 +487,33 @@ async function boot(): Promise<void> {
     }
   };
 
-  // Ctrl/Cmd+S saves to the server-side sketch library, not the web page.
+  // Save: the top bar's icon and Ctrl/Cmd+S, to the server-side sketch
+  // library, not the web page.
+  const saveNow = (): void => {
+    editor
+      .format()
+      .then(() => rail.saveCurrent())
+      .then((name) => {
+        if (name) {
+          statusMsg.className = 'status-ok';
+          statusMsg.textContent = `saved '${name}'`;
+        } else {
+          statusMsg.className = 'status-err';
+          statusMsg.textContent = 'name the sketch to save it (title bar)';
+        }
+      })
+      .catch((err: unknown) => {
+        statusMsg.className = 'status-err';
+        statusMsg.textContent = `save failed: ${err instanceof Error ? err.message : String(err)}`;
+      });
+  };
+  ($('btn-save-top') as HTMLButtonElement).onclick = saveNow;
   window.addEventListener(
     'keydown',
     (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
-        editor
-          .format()
-          .then(() => rail.saveCurrent())
-          .then((name) => {
-            if (name) {
-              statusMsg.className = 'status-ok';
-              statusMsg.textContent = `saved '${name}'`;
-            } else {
-              statusMsg.className = 'status-err';
-              statusMsg.textContent = 'name the sketch to save it (Sketches panel)';
-            }
-          })
-          .catch((err: unknown) => {
-            statusMsg.className = 'status-err';
-            statusMsg.textContent = `save failed: ${
-              err instanceof Error ? err.message : String(err)
-            }`;
-          });
+        saveNow();
       }
     },
     true,

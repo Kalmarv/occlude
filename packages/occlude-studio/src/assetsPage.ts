@@ -10,6 +10,7 @@ import {
   deleteAsset, listAssets, renameAsset, uploadAsset, type AssetInfo,
 } from './assetApi.js';
 import { confirmDialog, notify, promptDialog } from './wa.js';
+import { iconButton, setIcon } from './icons.js';
 import { mountShell } from './shell.js';
 mountShell('assets');
 
@@ -76,9 +77,7 @@ async function refresh(): Promise<void> {
 
     const actions = document.createElement('div');
     actions.className = 'asset-actions';
-    const rename = document.createElement('button');
-    rename.textContent = 'rename';
-    rename.onclick = async () => {
+    const rename = iconButton('rename', 'Rename', async () => {
       const to = (await promptDialog({ title: 'Rename asset', body: 'Extension included.', placeholder: a.name, confirm: 'Rename' }))?.trim();
       if (!to || to === a.name) return;
       try {
@@ -87,22 +86,17 @@ async function refresh(): Promise<void> {
       } catch (e) {
         notify(e instanceof Error ? e.message : String(e), 'danger');
       }
-    };
-    const copy = document.createElement('button');
-    copy.textContent = 'copy ref';
-    copy.title = snippetFor(a.name);
-    copy.onclick = async () => {
+    });
+    const copy = iconButton('copy', `Copy the reference: ${snippetFor(a.name)}`, async () => {
       await navigator.clipboard.writeText(snippetFor(a.name));
-      copy.textContent = 'copied!';
-      setTimeout(() => (copy.textContent = 'copy ref'), 1200);
-    };
-    const del = document.createElement('button');
-    del.textContent = 'delete';
-    del.onclick = async () => {
+      setIcon(copy, 'check', 'Copied');
+      setTimeout(() => setIcon(copy, 'copy', `Copy the reference: ${snippetFor(a.name)}`), 1200);
+    });
+    const del = iconButton('trash', 'Delete this asset', async () => {
       if (!(await confirmDialog({ title: 'Delete asset', body: `Delete '${a.name}' from the server?`, confirm: 'Delete', danger: true }))) return;
       await deleteAsset(a.name);
       await refresh();
-    };
+    });
     actions.append(rename, copy, del);
     card.append(actions);
 

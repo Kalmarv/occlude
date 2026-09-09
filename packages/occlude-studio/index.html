@@ -15,21 +15,33 @@
   <body>
     <div id="app">
       <header id="topbar">
+        <a class="icon-btn topbar-home" href="/sketches.html" title="Sketches — the library" aria-label="Sketches">
+          <svg class="icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M3 11.5 12 4l9 7.5" /><path d="M5.5 10v10h13V10" /><path d="M10 20v-6h4v6" />
+          </svg>
+        </a>
         <span class="wordmark">occlude<span class="wordmark-dot">·</span>studio</span>
         <input id="sketch-title" class="sketch-title" placeholder="untitled sketch" spellcheck="false" />
         <div class="topbar-actions">
-          <button id="btn-snapshot" title="Freeze this source with the current seed (Sketches page)">Snapshot</button>
-          <button id="btn-fork" title="Copy this sketch into a new one and keep going there">Fork</button>
-          <button id="btn-evolve" title="Choose among variations of this drawing (saves the sketch first)">Evolve</button>
-          <a class="topbar-link" href="/sketches.html" target="_blank" rel="noopener">Sketches</a>
+          <button id="btn-save-top" class="icon-btn" title="Save (Ctrl+S)" aria-label="Save">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v13H5z" /><path d="M8 4v5h7V4" /><path d="M8 20v-6h8v6" /></svg>
+          </button>
+          <button id="btn-snapshot" class="icon-btn" title="Snapshot — freeze this source with the current seed" aria-label="Snapshot">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
+          </button>
+          <button id="btn-fork" class="icon-btn" title="Fork — copy this sketch into a new one and keep going there" aria-label="Fork">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="5" r="2.2" /><circle cx="18" cy="5" r="2.2" /><circle cx="12" cy="19" r="2.2" /><path d="M6 7.5v2a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4v-2" /><path d="M12 13.5v3" /></svg>
+          </button>
+          <button id="btn-evolve" class="icon-btn" title="Evolve — choose among variations of this drawing" aria-label="Evolve">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c3 4 3 8 0 12" /><path d="M12 3c-3 4-3 8 0 12" /><path d="M12 15v6" /><path d="M6 8c2 0 4 1 6 3M18 8c-2 0-4 1-6 3" /></svg>
+          </button>
           <a class="topbar-link" href="/fills.html" target="_blank" rel="noopener">Fills</a>
           <a class="topbar-link" href="/assets.html" target="_blank" rel="noopener">Assets</a>
           <a class="topbar-link" href="/machine.html" target="_blank" rel="noopener">Machine</a>
           <a class="topbar-link" href="/docs.html" target="_blank" rel="noopener">Docs</a>
         </div>
         <button id="btn-rail" class="icon-btn" title="Show or hide the panels" aria-pressed="true" aria-label="Panels">
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-            <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none" />
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M15 4v16" /></svg>
           </svg>
         </button>
       </header>
