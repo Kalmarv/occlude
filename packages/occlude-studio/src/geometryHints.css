@@ -62,3 +62,13 @@
 .geometry-command-table table { width:100%; border-collapse:collapse; }
 .geometry-command-table th { position:sticky; top:0; background:var(--raised); }
 .geometry-command-table th, .geometry-command-table td { text-align:left; padding:3px 5px; border-bottom:1px solid var(--edge); white-space:nowrap; }
+
+.geometry-mode-toggle { display:flex; gap:4px; margin:8px 0; }
+.geometry-mode-toggle button { flex:1; }
+.geometry-mode-toggle button[aria-pressed="true"] { background:#765995; color:#fff; border-color:#b29ace; }
+.geometry-object-table tr[role="button"] { cursor:pointer; }
+.geometry-object-table tr[role="button"]:hover, .geometry-object-table tr[role="button"]:focus { background:#a987df28; outline:1px solid #a987df88; }
+.geometry-object-pager { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:8px 0; }
+
+#inspector-pane > .geometry-source-close { position:absolute; top:8px; right:8px; z-index:2; padding:0 5px; font-size:18px; line-height:22px; }
+.geometry-mode-toggle button[aria-pressed="false"] { background:var(--raised); color:var(--muted); border-color:var(--edge-strong); }

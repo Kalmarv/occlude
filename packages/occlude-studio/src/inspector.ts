@@ -197,7 +197,7 @@ export class Inspector {
     const pane = this.pane;
     const head = pane; // any press on the pane that is not on a control or the table drags it
     head.addEventListener('pointerdown', (e) => {
-      if ((e.target as HTMLElement).closest('button, a, input, select, canvas, label, output, .inspector-table-wrap, .inspector-pager')) return;
+      if ((e.target as HTMLElement).closest('button, [role=button], table, a, input, select, canvas, label, output, .inspector-table-wrap, .inspector-pager')) return;
       // The resize handle lives in the bottom-right corner: leave it to the browser.
       const rr = pane.getBoundingClientRect();
       if (e.clientX > rr.right - 18 && e.clientY > rr.bottom - 18) return;

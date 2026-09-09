@@ -54,6 +54,7 @@ export class GeometryPreviewPanel {
   private data: GeometryPreview | null = null;
   onChange: () => void = () => {};
   private rendered = true;
+  private nativeSelected: number | null = null;
   private sampleTimer: ReturnType<typeof setTimeout> | undefined;
   constructor() {
     this.host.className = 'geometry-preview-panel';
@@ -155,34 +156,140 @@ export class GeometryPreviewPanel {
     note.textContent = data.note;
     this.content.append(note);
     if (data.kind === 'native') {
+      this.nativeSelected = null;
       this.rendered = data.renderedContours !== undefined;
-      const mode = document.createElement('select');
-      mode.setAttribute('aria-label', 'Geometry overlay');
-      if (data.renderedContours !== undefined)
-        mode.add(new Option('Rendered result · actual position', 'rendered'));
-      mode.add(new Option('Captured outlines · before modifiers', 'captured'));
-      mode.value = this.rendered ? 'rendered' : 'captured';
-      mode.onchange = () => {
-        this.rendered = mode.value === 'rendered';
+      const modes = document.createElement('div');
+      modes.className = 'geometry-mode-toggle';
+      const pre = document.createElement('button'),
+        post = document.createElement('button');
+      pre.textContent = 'Pre-modifier';
+      post.textContent = 'Post-modifier';
+      post.disabled = data.renderedContours === undefined;
+      post.title =
+        'Actual visible ink, including clipping, fills and occlusion';
+      const setMode = (rendered: boolean) => {
+        this.rendered = rendered;
+        pre.setAttribute('aria-pressed', String(!rendered));
+        post.setAttribute('aria-pressed', String(rendered));
         this.onChange();
       };
-      this.content.append(mode);
-      const attributes = document.createElement('div');
-      const select = document.createElement('select');
-      select.setAttribute('aria-label', 'Geometry attributes');
-      data.items.forEach((item, i) =>
-        select.add(
-          new Option(
-            `Occurrence ${item.occurrence} · ${item.kind} ${i + 1}`,
-            String(i),
-          ),
-        ),
-      );
-      const details = document.createElement('div');
-      const showAttributes = () => {
-        details.replaceChildren();
-        const item = data.items[Number(select.value)];
-        if (!item) return;
+      pre.onclick = () => setMode(false);
+      post.onclick = () => setMode(true);
+      modes.append(pre, post);
+      this.content.append(modes);
+      setMode(this.rendered);
+      const view = document.createElement('div');
+      this.content.append(view);
+      let page = 0;
+      const pageSize = 50;
+      const polygons = data.items.every((item) => item.kind === 'polygon');
+      const listLabel = polygons ? 'polygons' : 'geometry';
+      const selectItem = (index: number | null) => {
+        this.nativeSelected = index;
+        showView();
+        this.onChange();
+      };
+      const showView = () => {
+        view.replaceChildren();
+        if (this.nativeSelected === null) {
+          const title = document.createElement('p');
+          title.textContent = `${data.items.length} ${listLabel} · click a row to inspect and isolate it`;
+          view.append(title);
+          const wrap = document.createElement('div');
+          wrap.className = 'geometry-command-table geometry-object-table';
+          const table = document.createElement('table'),
+            header = document.createElement('tr');
+          for (const text of [
+            '#',
+            'Occurrence',
+            'Type',
+            'Vertices',
+            'Opaque',
+          ]) {
+            const th = document.createElement('th');
+            th.textContent = text;
+            header.append(th);
+          }
+          table.append(header);
+          data.items
+            .slice(page * pageSize, (page + 1) * pageSize)
+            .forEach((item, offset) => {
+              const index = page * pageSize + offset,
+                geom = JSON.parse(item.geometry),
+                opts = JSON.parse(item.options),
+                tr = document.createElement('tr');
+              tr.tabIndex = 0;
+              tr.setAttribute('role', 'button');
+              tr.setAttribute(
+                'aria-label',
+                `Inspect ${item.kind} ${index + 1}`,
+              );
+              const count =
+                geom.pts?.length ??
+                geom.cmds?.filter((c: { op: string }) => c.op !== 'close')
+                  .length ??
+                '—';
+              for (const value of [
+                index + 1,
+                item.kind,
+                count,
+                item.renderedContours?.reduce((n,c)=>n+c.length,0) ?? '—',
+                opts.opaque || opts.fill ? 'yes' : 'no',
+              ]) {
+                const td = document.createElement('td');
+                td.textContent = String(value);
+                tr.append(td);
+              }
+              tr.onclick = () => selectItem(index);
+              tr.onkeydown = (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  selectItem(index);
+                }
+              };
+              table.append(tr);
+            });
+          wrap.append(table);
+          view.append(wrap);
+          if (data.items.length > pageSize) {
+            const pager = document.createElement('div');
+            pager.className = 'geometry-object-pager';
+            const prev = document.createElement('button'),
+              next = document.createElement('button'),
+              range = document.createElement('span');
+            prev.textContent = 'Previous';
+            next.textContent = 'Next';
+            prev.setAttribute('aria-label', 'Previous geometries');
+            next.setAttribute('aria-label', 'Next geometries');
+            prev.disabled = page === 0;
+            next.disabled = (page + 1) * pageSize >= data.items.length;
+            prev.onclick = () => {
+              page--;
+              showView();
+            };
+            next.onclick = () => {
+              page++;
+              showView();
+            };
+            range.textContent = `${page * pageSize + 1}–${Math.min((page + 1) * pageSize, data.items.length)} of ${data.items.length}`;
+            pager.append(prev, range, next);
+            view.append(pager);
+          }
+          return;
+        }
+        const item = data.items[this.nativeSelected];
+        const back = document.createElement('button');
+        back.textContent = `← All ${listLabel} (${data.items.length})`;
+        back.onclick = () => selectItem(null);
+        view.append(back);
+        const title = document.createElement('h4');
+        title.textContent = `${item.kind} ${this.nativeSelected + 1} · occurrence ${item.occurrence}`;
+        view.append(title);
+        const counts=document.createElement('p');
+        counts.textContent=`Pre-modifier: ${item.contours.reduce((n,c)=>n+c.length,0)} segments · Post-modifier: ${item.renderedContours?.reduce((n,c)=>n+c.length,0) ?? 'unavailable'} visible fragments`;
+        view.append(counts);
+        const details = document.createElement('div');
+        view.append(details);
         const opts = JSON.parse(item.options),
           geom = JSON.parse(item.geometry);
         const table = document.createElement('table');
@@ -243,16 +350,7 @@ export class GeometryPreviewPanel {
             details.append('Showing the first 200 rows.');
         }
       };
-      select.onchange = showAttributes;
-      attributes.append(select, details);
-      this.content.append(attributes);
-      showAttributes();
-      const prims = data.contours.flat(),
-        counts = { line: 0, arc: 0, cubic: 0 };
-      for (const p of prims) counts[p.t]++;
-      this.content.append(
-        `${counts.line} lines · ${counts.arc} arcs · ${counts.cubic} cubics. Control handles shown for up to 300 cubics.`,
-      );
+      showView();
     }
     if (data.kind === 'faces') {
       const list = document.createElement('div');
@@ -444,9 +542,11 @@ export class GeometryPreviewPanel {
     if (data.kind === 'native') {
       ctx.strokeStyle = '#cfb2ff';
       ctx.beginPath();
+      const selected =
+        this.nativeSelected === null ? data : data.items[this.nativeSelected];
       const contours = this.rendered
-        ? (data.renderedContours ?? data.contours)
-        : data.contours;
+        ? (selected.renderedContours ?? selected.contours)
+        : selected.contours;
       for (const c of contours) for (const p of c) strokePrim(ctx, p);
       ctx.stroke();
       ctx.strokeStyle = '#c8b3e788';

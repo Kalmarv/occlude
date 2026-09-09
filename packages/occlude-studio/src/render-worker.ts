@@ -15,6 +15,7 @@ import { bridgeGapFor, clearInspections, getInspectionDropped, getInspectionInde
 
 import { currentDraws, currentOverrides, currentSeed, runSketch, type RunConfig } from './runner.js';
 import { defaultFieldBounds, geometryPreview, type GeometryPreview, type PreviewOptions } from './geometryPreview.js';
+import type { Prim } from '../../occlude/src/prims.js';
 import { decodeFragments } from '../../occlude/src/render.js';
 import type { Frame } from '../../occlude/src/record.js';
 import { preloadAssets } from './assetLoader.js';
@@ -216,7 +217,11 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         if(!payload) {
           payload=geometryPreview(msg.name,inspectionFrame,msg.options);
           if(payload.kind==='native' && payload.shapeIds.length && last) {
-            payload.renderedContours=decodeFragments(last.prims,last.frags,new Set(payload.shapeIds),100000).frags.map(f=>[f.geom]);
+            const visible=decodeFragments(last.prims,last.frags,new Set(payload.shapeIds),100000).frags;
+            payload.renderedContours=visible.map(f=>[f.geom]);
+            const byShape=new Map<number,Prim[]>();
+            for(const f of visible){const ink=byShape.get(f.shape)??[];ink.push(f.geom);byShape.set(f.shape,ink);}
+            for(const item of payload.items)if(item.shapeIds.length)item.renderedContours=item.shapeIds.map(id=>byShape.get(id)??[]);
           }
           if(payload.kind==='field') { if(fieldCache.size>=4)fieldCache.delete(fieldCache.keys().next().value!);fieldCache.set(key,payload); }
         }

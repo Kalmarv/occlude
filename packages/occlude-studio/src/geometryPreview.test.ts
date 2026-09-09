@@ -178,6 +178,12 @@ describe('geometry captures', () => {
     if (native.kind === 'native') {
       expect(native.items).toHaveLength(8);
       expect(native.shapeIds).toHaveLength(8);
+      expect(native.items.map((item) => item.shapeIds)).toEqual(
+        native.shapeIds.map((id) => [id]),
+      );
+      expect(native.items.flatMap((item) => item.contours)).toEqual(
+        native.contours,
+      );
       expect(JSON.parse(native.items[0].options).opaque).toBe(true);
       const actual = render({ paper: 'A4' }),
         ids = new Set(native.shapeIds);

@@ -58,6 +58,9 @@ export type GraphPreview = {
   note: string;
 };
 export type NativeItem = {
+  contours: Prim[][];
+  shapeIds: number[];
+  renderedContours?: Prim[][];
   occurrence: number;
   kind: string;
   geometry: string;
@@ -440,6 +443,7 @@ function previewValue(
   }
   const contours: Prim[][] = [];
   const items: NativeItem[] = [];
+  let shapeCursor: number | null = null;
   let rows = 0;
   const visit = (node: Tree, transforms: TransformOp[], depth: number) => {
     if (depth > 32)
@@ -480,9 +484,23 @@ function previewValue(
     rows += cost;
     if (rows > 20_000)
       throw new Error('Native preview exceeds 20,000 segments');
+    const lowered = inspectionPrimitives(
+      shape.geom,
+      [...transforms, shape.opts],
+      frame,
+    );
     items.push({
       occurrence: 1,
-      kind: shape.geom.kind,
+      kind:
+        shape.geom.kind === 'path' &&
+        shape.geom.cmds.some((c) => c.op === 'close') &&
+        shape.geom.cmds.every(
+          (c) => c.op === 'move' || c.op === 'line' || c.op === 'close',
+        )
+          ? 'polygon'
+          : shape.geom.kind,
+      contours: lowered,
+      shapeIds: shapeCursor === null ? [] : [shapeCursor++],
       geometry: JSON.stringify(shape.geom),
       options: JSON.stringify(
         {
@@ -492,16 +510,15 @@ function previewValue(
         (_key, value) => (typeof value === 'function' ? '[function]' : value),
       ),
     });
-    const lowered = inspectionPrimitives(
-      shape.geom,
-      [...transforms, shape.opts],
-      frame,
-    );
     contours.push(...lowered);
   };
   const placements = getInspectionPlacements(value);
-  for (const placement of placements.length ? placements : [{ transforms: [] }])
+  for (const placement of placements.length
+    ? placements
+    : [{ transforms: [] }]) {
+    shapeCursor = 'start' in placement ? placement.start : null;
     visit(value as Tree, [...placement.transforms], 0);
+  }
   return {
     kind: 'native',
     contours,
@@ -514,7 +531,7 @@ function previewValue(
       ),
     ],
     note: placements.length
-      ? 'Captured outlines include their enclosing drawing transforms. Captured outlines are before fills, clipping and modifiers; Rendered result shows the actual visible ink.'
+      ? 'Both views use the final drawing placement. Post-modifier shows visible ink, including clipping, fills and occlusion.'
       : 'Source geometry: this value was not placed in the returned drawing. No enclosing transforms can be inferred.',
   };
 }
