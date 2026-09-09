@@ -66,3 +66,10 @@ export function cool(heat: Map<string, number>, draws: Draws, from: Candidate, p
   }
 }
 
+
+/** Again: the inverse of a pick. Every draw warms a step (a pick cools by
+ * 0.85, so this is ÷0.85, capped at 1): asking for more of the same is
+ * asking for wider, and nothing needs a control of its own. */
+export function reheat(heat: Map<string, number>): void {
+  for (const [addr, h] of heat) heat.set(addr, Math.min(1, h / 0.85));
+}

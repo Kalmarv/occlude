@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { cool, mutate, type Candidate } from './evolve.js';
+import { cool, mutate, reheat, type Candidate } from './evolve.js';
 
 const draws = { addrs: ['a:0', 'a:1', 'b:0', 'b:1', 'c:0'], f: Float64Array.of(0.1, 0.2, 0.3, 0.4, 0.5) };
 const seq = (values: number[]) => { let i = 0; return () => values[i++ % values.length]; };
@@ -36,5 +36,13 @@ describe('evolve: mutation and cooling', () => {
     expect(heat.get('c:0')).toBeCloseTo(0.85);
     for (let i = 0; i < 20; i++) cool(heat, draws, picked, picked);
     expect(heat.get('c:0')).toBe(0.2); // the floor: a settled draw still moves sometimes
+  });
+
+  test('again warms every draw one pick\'s worth, capped at one', () => {
+    const heat = new Map<string, number>([['a:0', 1], ['b:0', 0.85], ['c:0', 0.2]]);
+    reheat(heat);
+    expect(heat.get('a:0')).toBe(1);
+    expect(heat.get('b:0')).toBeCloseTo(1);
+    expect(heat.get('c:0')).toBeCloseTo(0.2 / 0.85);
   });
 });
