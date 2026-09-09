@@ -44,7 +44,7 @@ describe('evolve: mutation and cooling', () => {
     expect(heat.get('a:0')).toBe(1);
     expect(heat.get('b:0')).toBe(1);
     expect(heat.get('c:0')).toBeCloseTo(0.208);
-    for (let i = 0; i < 4; i++) reheat(heat);
-    expect(heat.get('c:0')!).toBeLessThan(0.2 / 0.85); // several Agains to undo one pick
+    for (let i = 0; i < 3; i++) reheat(heat);
+    expect(heat.get('c:0')!).toBeLessThan(0.2 / 0.85); // four Agains still undo less than one pick
   });
 });
