@@ -148,16 +148,20 @@ async function boot(): Promise<void> {
   tempText();
   const seedText = el('span', 'evolve-seed');
   const status = el('span', 'evolve-status');
-  // Again warms a little: the draws and the variation both nudge up, so
-  // pressing it again and again because nothing appealed widens the grid.
+  // Again warms a little — but only once a lineage is a couple of picks deep.
+  // Before that you are still hunting for something worth branching from,
+  // and the first Agains are just more of the same spread.
+  const WARM_AFTER_PICKS = 2;
   const againBtn = button('Again', () => {
-    reheat(heat);
-    T = Math.min(1, T * AGAIN_WARMTH);
-    tempIn.value = String(T);
-    tempText();
+    if (lineage.length > WARM_AFTER_PICKS) {
+      reheat(heat);
+      T = Math.min(1, T * AGAIN_WARMTH);
+      tempIn.value = String(T);
+      tempText();
+    }
     void regenerate();
   });
-  againBtn.title = 'Eight new variations of the middle, a touch wider each time';
+  againBtn.title = 'Eight new variations of the middle; once a lineage is a couple of picks deep, each Again is a touch wider';
   const keepBtn = button('Keep', () => void keep(false));
   keepBtn.className = 'primary';
   keepBtn.title = 'Snapshot the middle drawing: source, seed and the overridden draws';
