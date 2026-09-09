@@ -11,13 +11,13 @@
  */
 
 import initCore, * as core from 'occlude-core';
-import { bridgeGapFor, clearInspections, getInspectionDropped, getInspectionIndex, getProbeStats, hashPlan, inspectionPayload, renderEncoded, tourBudget, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
+import {
+  bridgeGapFor, clearInspections, decodeFragments, getInspectionDropped, getInspectionIndex, getProbeStats, hashPlan, renderEncoded, tourBudget,
+  type Frame, type PlanOptions, type PlanSettings, type Prim, type WasmModule,
+} from 'occlude';
 
 import { currentDraws, currentOverrides, currentSeed, runSketch, type RunConfig } from './runner.js';
 import { defaultFieldBounds, geometryPreview, type GeometryPreview, type PreviewOptions } from './geometryPreview.js';
-import type { Prim } from '../../occlude/src/prims.js';
-import { decodeFragments } from '../../occlude/src/render.js';
-import type { Frame } from '../../occlude/src/record.js';
 import { preloadAssets } from './assetLoader.js';
 import { preloadFills } from './fillLoader.js';
 
@@ -81,17 +81,25 @@ interface PngMsg {
   background: string | undefined;
 }
 
-/** One registered material of a named execution (the render's id), as
- * plain copies. A superseded execution is refused: its registry is gone
- * with the state that held it. */
-interface InspectMsg {
-  type: 'inspect';
+/** One capture of a named execution (the render's id), as a preview built
+ * on demand. A superseded execution is refused: its registry is gone. */
+interface InspectGeometryMsg {
+  type: 'inspect-geometry';
   id: number;
   executionId: number;
   name: string;
+  options: PreviewOptions;
 }
 
-type Msg = RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg | { type: 'release-inspections' } | { type:'inspect-geometry'; id:number; executionId:number; name:string; options:PreviewOptions };
+/** The host left inspection: drop the registry without waiting for a run. */
+interface ReleaseInspectionsMsg {
+  type: 'release-inspections';
+}
+
+type Msg = RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectGeometryMsg | ReleaseInspectionsMsg;
+
+/** Visible fragments a post-modifier preview may carry. */
+const RENDERED_FRAGMENT_LIMIT = 100_000;
 
 const ready = initCore();
 
@@ -101,9 +109,21 @@ let last: { prims: Float64Array; frags: Float64Array; pensJson: string; pens: { 
 let lastPlan: { buffer: Float64Array; settings: PlanSettings; planHash: string; pensJson: string } | null = null;
 /** The render whose sketch state (and inspection registry) is current. */
 let lastExecutionId = -1;
+/** Bumped whenever the registry is invalidated, so a render that started
+ * under an older generation does not publish captures. */
 let inspectionGeneration = 0;
-let inspectionFrame:Frame|null=null;
-const fieldCache=new Map<string,GeometryPreview>();
+let inspectionFrame: Frame | null = null;
+/** Sampled fields by request, a few deep: bounds edits re-sample often. */
+const fieldCache = new Map<string, GeometryPreview>();
+const FIELD_CACHE_SIZE = 4;
+
+function dropInspections(): void {
+  inspectionGeneration++;
+  fieldCache.clear();
+  inspectionFrame = null;
+  clearInspections();
+  lastExecutionId = -1;
+}
 
 /** THE plan of the last render under the given options. */
 async function planLast(opts: PlanOptions): Promise<{ buffer: Float64Array; settings: PlanSettings; planHash: string }> {
@@ -132,15 +152,12 @@ const currentPlan = (msg: PlanRange) => {
 self.onmessage = async (e: MessageEvent<Msg>) => {
   await ready;
   const msg = e.data;
-  if (msg.type === 'release-inspections') { inspectionGeneration++; fieldCache.clear(); clearInspections(); lastExecutionId = -1; return; }
+  if (msg.type === 'release-inspections') { dropInspections(); return; }
   try {
     switch (msg.type) {
       case 'render': {
-        const captureGeneration = ++inspectionGeneration;
-        fieldCache.clear();
-        inspectionFrame=null;
-        clearInspections();
-        lastExecutionId = -1;
+        dropInspections();
+        const captureGeneration = inspectionGeneration;
         // Assets referenced by literal name are fetched/decoded here in the
         // worker (fetch + OffscreenCanvas are worker-native) before the
         // synchronous sketch executes.
@@ -180,7 +197,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         const inspectionCurrent = msg.cfg.inspect && captureGeneration === inspectionGeneration;
         if (!inspectionCurrent) clearInspections();
         lastExecutionId = inspectionCurrent ? msg.id : -1;
-        inspectionFrame=inspectionCurrent?scene.frame:null;
+        inspectionFrame = inspectionCurrent ? scene.frame : null;
         self.postMessage(
           {
             type: 'render',
@@ -210,40 +227,43 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         break;
       }
       case 'inspect-geometry': {
-        if(msg.executionId!==lastExecutionId || !inspectionFrame)throw new Error('Stale capture — rerun the sketch before inspecting');
-        const bounds = msg.options?.bounds ?? defaultFieldBounds(inspectionFrame);
-        const key=JSON.stringify([msg.executionId,msg.name,!!msg.options?.sample,msg.options?.resolution ?? 32,msg.options?.occurrence ?? 0,bounds.xMin,bounds.xMax,bounds.yMin,bounds.yMax]);
-        let payload=fieldCache.get(key);
-        if(!payload) {
-          payload=geometryPreview(msg.name,inspectionFrame,msg.options);
-          if(payload.kind==='native' && payload.shapeIds.length && last) {
-            const visible=decodeFragments(last.prims,last.frags,new Set(payload.shapeIds),100000).frags;
-            payload.renderedContours=visible.map(f=>[f.geom]);
-            const byShape=new Map<number,Prim[]>();
-            for(const f of visible){const ink=byShape.get(f.shape)??[];ink.push(f.geom);byShape.set(f.shape,ink);}
-            for(const item of payload.items)if(item.shapeIds.length)item.renderedContours=item.shapeIds.map(id=>byShape.get(id)??[]);
-          }
-          if(payload.kind==='field') { if(fieldCache.size>=4)fieldCache.delete(fieldCache.keys().next().value!);fieldCache.set(key,payload); }
+        if (msg.executionId !== lastExecutionId || !inspectionFrame) {
+          throw new Error('stale inspection: the drawing changed — rerun the sketch before inspecting');
         }
-        // Structured cloning preserves cached buffers and the live geometry.
-        self.postMessage({type:'inspect-geometry',id:msg.id,payload});
-        break;
-      }
-      case 'inspect': {
-        if (msg.executionId !== lastExecutionId) throw new Error('stale inspection: the drawing changed — this request was for an earlier render');
-        const payload = inspectionPayload(msg.name);
-        if (!payload) throw new Error(`no material registered as '${msg.name}' in this render`);
-        const transfer = [payload.x.buffer, payload.y.buffer, payload.edges.buffer] as ArrayBuffer[];
-        for (const a of Object.values(payload.attrs)) transfer.push(a.buffer as ArrayBuffer);
-        for (const a of Object.values(payload.edgeAttrs)) transfer.push(a.buffer as ArrayBuffer);
-        self.postMessage({ type: 'inspect', id: msg.id, executionId: msg.executionId, payload }, { transfer });
+        const bounds = msg.options?.bounds ?? defaultFieldBounds(inspectionFrame);
+        const key = JSON.stringify([
+          msg.executionId, msg.name, !!msg.options?.sample, msg.options?.resolution ?? 32, msg.options?.occurrence ?? 0,
+          bounds.xMin, bounds.xMax, bounds.yMin, bounds.yMax,
+        ]);
+        let payload = fieldCache.get(key);
+        if (!payload) {
+          payload = geometryPreview(msg.name, inspectionFrame, msg.options);
+          if (payload.kind === 'native' && payload.shapeIds.length && last) {
+            // Post-modifier: the renderer's own visible fragments of these shapes.
+            const { frags, truncated } = decodeFragments(last.prims, last.frags, new Set(payload.shapeIds), RENDERED_FRAGMENT_LIMIT);
+            payload.renderedContours = frags.map((f) => [f.geom]);
+            payload.renderedTruncated = truncated;
+            const byShape = new Map<number, Prim[]>();
+            for (const f of frags) {
+              const ink = byShape.get(f.shape) ?? [];
+              ink.push(f.geom);
+              byShape.set(f.shape, ink);
+            }
+            for (const item of payload.items) {
+              if (item.shapeIds.length) item.renderedContours = item.shapeIds.map((id) => byShape.get(id) ?? []);
+            }
+          }
+          if (payload.kind === 'field') {
+            if (fieldCache.size >= FIELD_CACHE_SIZE) fieldCache.delete(fieldCache.keys().next().value!);
+            fieldCache.set(key, payload);
+          }
+        }
+        // Structured clone, not transfer: a cached grid is served again.
+        self.postMessage({ type: 'inspect-geometry', id: msg.id, payload });
         break;
       }
       case 'plan-load': {
-        inspectionGeneration++;
-        fieldCache.clear();
-        clearInspections();
-        lastExecutionId = -1;
+        dropInspections();
         const planHash = await hashPlan(msg.buffer, msg.settings);
         if (planHash !== msg.planHash) throw new Error(`saved plan does not match its hash (${msg.planHash.slice(0, 12)}… vs ${planHash.slice(0, 12)}…)`);
         const pens = JSON.parse(msg.pensJson) as { name: string; width: number }[];

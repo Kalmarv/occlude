@@ -1,7 +1,6 @@
 import type ts from 'typescript';
 import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
-import { tagDraws, DRAW_HOOK } from '../../occlude/src/draws.js';
-import { INSPECT_HOOK } from './instrument.js';
+import { tagDraws, DRAW_HOOK, INSPECT_HOOK } from 'occlude';
 import type { GeometryAnnotation } from './geometryTypes.js';
 
 /** Source maps associate emitted AST nodes with source spans. Draw tagging

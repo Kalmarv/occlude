@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  circle, compileSketch, getInspectHint, getInspectionIndex, inspectIfMaterial, inspectionPayload, material, setInspectHint, sketch, stroke,
-  userUnitsToPaper, clearInspections, getInspectionDropped, INSPECTION_LIMITS, type InspectionSource,
+  circle, compileSketch, getInspectHint, getInspectionIndex, inspectValue, inspectionPayload, material, setInspectHint, sketch, stroke,
+  userUnitsToPaper, clearInspections, getInspectionDropped, getInspectionValue, INSPECTION_LIMITS, type InspectionSource,
 } from '../src/index.js';
 import { makeFrame } from '../src/record.js';
 import { getState } from '../src/state.js';
@@ -22,7 +22,7 @@ describe('t.inspect: the debug registry', () => {
     expect(inspectionPayload('a')).toBeNull();
   });
 
-  it('keeps registration order, replaces a reused label in place, and resets per compile', () => {
+  it('keeps registration order, replaces a reused label in place, and lives until the host clears it', () => {
     setInspectHint(true);
     try {
       compileSketch(sketch({ seed: 1 }, (t) => {
@@ -36,7 +36,11 @@ describe('t.inspect: the debug registry', () => {
       expect(index.map((e) => e.name)).toEqual(['source', 'grown']);
       expect(index[0]).toMatchObject({ name: 'source', points: 3, edges: 3, occurrences: 2 });
       expect(index[1]).toMatchObject({ name: 'grown', points: 3, edges: 2, occurrences: 1 });
+      // The registry outlives the sketch state (module-scope captures come
+      // before compileSketch); the host clears it at the start of a run.
       compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 10)));
+      expect(getInspectionIndex().map((e) => e.name)).toEqual(['source', 'grown']);
+      clearInspections();
       expect(getInspectionIndex()).toEqual([]);
     } finally {
       setInspectHint(false);
@@ -49,9 +53,9 @@ describe('t.inspect: the debug registry', () => {
       compileSketch(sketch({ seed: 1 }, (t) => {
         const ring = t.sample(circle(50, 50, 20), { count: 8 });
         const stations = ring.along({ count: 4 });
-        inspectIfMaterial('stations', stations); // what the studio's instrumentation calls
+        inspectValue('stations', stations); // what the studio's instrumentation calls
         t.inspect('named', stations);
-        inspectIfMaterial('nothing', [1, 2, 3]);
+        inspectValue('nothing', [1, 2, 3]);
         expect(() => t.inspect('bad', [] as never)).toThrow(/expected a Material/);
         return stroke(ring.contour);
       }));
@@ -145,14 +149,18 @@ describe('userUnitsToPaper', () => {
 
 describe('bounded source captures', () => {
   const source: InspectionSource = { document: 'file:///sketch.ts', revision: '3', start: 10, end: 16, label: 'points', line: 1 };
-  it('counts repeated declaration occurrences and drops a formerly material site when it stops producing geometry', () => {
+  it('counts repeated site occurrences; a run of the site that yields no geometry keeps what it captured', () => {
     setInspectHint(true);
     try {
       compileSketch(sketch({ seed: 1 }, () => {
-        for (let i = 0; i < 100; i++) inspectIfMaterial('source-id', two(), source);
-        expect(getInspectionIndex()[0]).toMatchObject({ occurrences: 100, source });
-        inspectIfMaterial('source-id', null, source);
-        expect(getInspectionIndex()).toEqual([]);
+        for (let i = 0; i < 100; i++) inspectValue('source-id', two(), source);
+        expect(getInspectionIndex()[0]).toMatchObject({ occurrences: 100, retainedOccurrences: 100, source });
+        inspectValue('source-id', null, source);
+        expect(getInspectionIndex()[0]).toMatchObject({ occurrences: 100, retainedOccurrences: 100 });
+        // An explicit label, by contrast, is forgotten when it stops being geometry.
+        inspectValue('explicit', two());
+        inspectValue('explicit', null);
+        expect(getInspectionIndex().map((e) => e.name)).toEqual(['source-id']);
         return circle(50,50,20);
       }));
     } finally { setInspectHint(false); }
@@ -162,7 +170,7 @@ describe('bounded source captures', () => {
     try {
       compileSketch(sketch({ seed: 1 }, () => {
         const shared = two();
-        for (let i = 0; i < INSPECTION_LIMITS.captures + 5; i++) inspectIfMaterial(String(i), shared, source);
+        for (let i = 0; i < INSPECTION_LIMITS.captures + 5; i++) inspectValue(String(i), shared, source);
         return circle(50,50,20);
       }));
       expect(getInspectionIndex()).toHaveLength(INSPECTION_LIMITS.captures);
@@ -177,19 +185,19 @@ describe('bounded source captures', () => {
     try {
       compileSketch(sketch({ seed: 1 }, () => {
         const oversized = material(Array.from({length: INSPECTION_LIMITS.previewRows + 1}, () => [0,0] as [number,number]));
-        inspectIfMaterial('large', oversized, source);
+        inspectValue('large', oversized, source);
         return circle(50,50,20);
       }));
       expect(getInspectionIndex()[0].limited).toMatch(/limit/);
       expect(() => inspectionPayload('large')).toThrow(/limit/);
-      expect(getState().inspections.get('large')!.value).toBeNull();
+      expect(() => getInspectionValue('large')).toThrow(/limit/);
     } finally { setInspectHint(false); }
   });
   it('distinguishes a statically known empty stations array from an uncaptured value', () => {
     setInspectHint(true);
     try {
       compileSketch(sketch({ seed: 1 }, () => {
-        inspectIfMaterial('empty', [], { ...source, kind: 'stations' });
+        inspectValue('empty', [], { ...source, kind: 'stations' });
         return circle(50,50,20);
       }));
       expect(getInspectionIndex()[0].points).toBe(0);

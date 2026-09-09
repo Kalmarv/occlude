@@ -18,15 +18,14 @@ import {
   type Tree,
   type Edge,
   type Vertex,
-} from 'occlude';
-import {
+  type Frame,
+  type Prim,
+  type TransformOp,
   getInspectionValues,
   getInspectionPlacements,
-} from '../../occlude/src/state.js';
-import { inspectionOwner } from '../../occlude/src/material.js';
-import { inspectionPrimitives, type Frame } from '../../occlude/src/record.js';
-import type { Prim } from '../../occlude/src/prims.js';
-import type { TransformOp } from '../../occlude/src/state.js';
+  inspectionOwner,
+  inspectionPrimitives,
+} from 'occlude';
 
 export type FieldBounds = {
   xMin: number;
@@ -71,6 +70,8 @@ export type NativePreview = {
   contours: Prim[][];
   shapeIds: number[];
   renderedContours?: Prim[][];
+  /** The visible ink was cut at the fragment limit; post-modifier is partial. */
+  renderedTruncated?: boolean;
   items: NativeItem[];
   note: string;
 };
@@ -99,6 +100,8 @@ export type FieldPreview = {
   errors: number;
   error?: string;
   elapsedMs: number;
+  /** Sampling stopped at the time limit; cells after it are unavailable. */
+  truncated?: boolean;
 };
 export type GeometryPreview =
   GraphPreview | NativePreview | FacesPreview | FieldPreview;
@@ -126,6 +129,10 @@ export function validateFieldOptions(
   )
     throw new Error('Field bounds must be finite, with min smaller than max');
 }
+/** A field is sampled on the render worker's thread; past this the grid
+ * is returned as far as it got. */
+export const SAMPLE_TIME_LIMIT_MS = 1500;
+
 export function sampleField(
   fn: (x: number, y: number) => unknown,
   vector: boolean,
@@ -141,8 +148,9 @@ export function sampleField(
     max = -Infinity,
     invalid = 0,
     errors = 0,
+    truncated = false,
     error: string | undefined;
-  for (let y = 0; y < resolution; y++)
+  sampling: for (let y = 0; y < resolution; y++)
     for (let x = 0; x < resolution; x++) {
       // Cell centres: hover reads exactly these samples, never calls the field.
       const px =
@@ -175,10 +183,11 @@ export function sampleField(
         errors++;
         error ??= (e instanceof Error ? e.message : String(e)).slice(0, 512);
       }
-      if (performance.now() - start > 1500)
-        throw new Error(
-          'Field sampling exceeded 1.5 seconds; try a coarser grid or a cheaper field',
-        );
+      if (performance.now() - start > SAMPLE_TIME_LIMIT_MS) {
+        truncated = true;
+        invalid += resolution * resolution - i - 1;
+        break sampling;
+      }
     }
   return {
     kind: 'field',
@@ -194,6 +203,7 @@ export function sampleField(
     errors,
     error,
     elapsedMs: performance.now() - start,
+    truncated,
   };
 }
 function copyMaterial(name: string, m: Material): InspectionPayload {

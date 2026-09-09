@@ -5,8 +5,8 @@ import { readFileSync } from 'node:fs';
 import {
   getInspectionValues,
   getInspectionPlacements,
-} from '../../occlude/src/state.js';
-import {
+  decodeFragments,
+  sketchFrame,
   initOcclude,
   render,
   material,
@@ -14,13 +14,11 @@ import {
   path,
   sketch,
   compileSketch,
-  inspectIfMaterial,
+  inspectValue,
   getInspectionIndex,
   setInspectHint,
   DEFAULT_PENS,
 } from 'occlude';
-import { decodeFragments } from '../../occlude/src/render.js';
-import { sketchFrame } from '../../occlude/src/record.js';
 import {
   sampleField,
   geometryPreview,
@@ -150,7 +148,6 @@ describe('geometry captures', () => {
     const inspected = runSketch(compiled.js, {
       ...cfg,
       inspect: true,
-      inspectionCompiled: true,
     });
     expect(inspected.error).toBeNull();
     expect(inspected.scene).toEqual(plain.scene);
@@ -195,9 +192,9 @@ describe('geometry captures', () => {
       ).frags;
       expect(visible).toEqual(actual.frags.filter((f) => ids.has(f.shape)));
       expect(visible.length).toBeGreaterThan(native.contours.flat().length);
-      expect(() =>
-        decodeFragments(actual.raw.prims, actual.raw.frags, ids, 1),
-      ).toThrow(/exceeds/);
+      const cut = decodeFragments(actual.raw.prims, actual.raw.frags, ids, 1);
+      expect(cut.frags).toHaveLength(1);
+      expect(cut.truncated).toBe(true);
     }
     expect(geometryPreview(pieces.name, sketchFrame()).kind).toBe('native');
     setInspectHint(false);
@@ -213,7 +210,6 @@ describe('geometry captures', () => {
     const inspected = runSketch(compiled.js, {
       ...cfg,
       inspect: true,
-      inspectionCompiled: true,
     });
     expect(inspected.error).toBeNull();
     expect(inspected.scene).toEqual(plain.scene);
@@ -248,7 +244,6 @@ describe('geometry captures', () => {
     const inspected = runSketch(compiled.js, {
       ...cfg,
       inspect: true,
-      inspectionCompiled: true,
     });
     expect(inspected.error).toBeNull();
     expect(inspected.scene).toEqual(plain.scene);
@@ -289,7 +284,6 @@ describe('geometry captures', () => {
     const inspected = runSketch(compiled.js, {
       ...cfg,
       inspect: true,
-      inspectionCompiled: true,
     });
     expect(inspected.error).toBeNull();
     expect(inspected.scene).toEqual(plain.scene);
@@ -329,7 +323,7 @@ describe('geometry captures', () => {
             ],
           },
         );
-        inspectIfMaterial('faces', m.faces());
+        inspectValue('faces', m.faces());
         return circle(50, 50, 20);
       }),
     );
@@ -361,7 +355,7 @@ describe('geometry captures', () => {
             weight: [0, 1, 2],
           },
         );
-        inspectIfMaterial(
+        inspectValue(
           'sel',
           m.edges.filter((e) => e.index === 1),
         );
@@ -381,7 +375,7 @@ describe('geometry captures', () => {
     setInspectHint(true);
     compileSketch(
       sketch({ seed: 42 }, () => {
-        inspectIfMaterial(
+        inspectValue(
           'native',
           path().moveTo(10, 10).bezierTo(20, 0, 30, 40, 50, 50).build(),
         );
@@ -405,7 +399,7 @@ describe('geometry captures', () => {
           ],
           { edges: [[0, 1]], same: 2 },
         ).edgeAttribute('same', 7);
-        inspectIfMaterial('stations', m.along({ count: 3 }));
+        inspectValue('stations', m.along({ count: 3 }));
         return circle(50, 50, 20);
       }),
     );

@@ -5,8 +5,7 @@ import {
   type FieldPreview,
   type PreviewOptions,
 } from './geometryPreview.js';
-import type { Frame } from '../../occlude/src/record.js';
-import type { Prim } from '../../occlude/src/prims.js';
+import type { Frame, Prim } from 'occlude';
 
 const readable = (value: unknown): string =>
   JSON.stringify(value, (_key, v) =>

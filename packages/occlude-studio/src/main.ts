@@ -257,7 +257,7 @@ async function boot(): Promise<void> {
           coarsen: 1,
           debugGhost: preview.debug.occluded,
           inspect: inspecting,
-          inspectionCompiled: inspecting,
+         
           seed,
           draws: true, // the run's draws, for Freeze
         },

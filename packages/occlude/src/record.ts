@@ -454,7 +454,7 @@ export function lowerToUserLoops(
 export function inspectionPrimitives(geom: ShapeGeom, transforms: TransformOp[], frame: Frame): Prim[][] {
   const rz = new Resolver(frame);
   const matrix = mul(userToPaperMatrix(frame), composeChain(transforms, rz));
-  return lowerGeom(geom, rz).map(contour => contour.flatMap(p => transformPrim(p, matrix)));
+  return lowerGeom(geom, rz).map((contour) => contour.flatMap((p) => transformPrim(p, matrix)));
 }
 
 /** `lowerToUserLoops` with each contour's OWN closure: a path's closed

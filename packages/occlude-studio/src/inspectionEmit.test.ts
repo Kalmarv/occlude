@@ -3,7 +3,7 @@ import ts from 'typescript';
 import { emitInspection } from './inspectionEmit.js';
 import { runSketch, currentDraws } from './runner.js';
 import { DEFAULT_PENS, getInspectionIndex, setInspectHint } from 'occlude';
-import { tagDraws } from '../../occlude/src/draws.js';
+import { tagDraws } from 'occlude';
 
 const options = { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS };
 const emit = (source: string) => emitInspection(ts, source, 'file:///sketch.ts', '7', options);
@@ -61,7 +61,7 @@ describe('inspected execution equivalence', () => {
     const cfg = { pens: DEFAULT_PENS, paper: 'A4', landscape: false, defaultMarginPct: 5, coarsen: 1, draws: true };
     const plain = runSketch(ts.transpileModule(source, {compilerOptions:options}).outputText, cfg);
     const draws = currentDraws();
-    const inspected = runSketch(emit(source), {...cfg, inspect:true, inspectionCompiled:true});
+    const inspected = runSketch(emit(source), {...cfg, inspect:true});
     expect(plain.error).toBeNull();
     expect(inspected.error).toBeNull();
     expect(inspected.scene).toEqual(plain.scene);

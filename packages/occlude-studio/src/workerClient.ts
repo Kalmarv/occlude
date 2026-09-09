@@ -7,7 +7,7 @@
  * the worker's perspective; the watchdog is the only hard interruption.
  */
 
-import { decodeRender, pensToJson, type DrawRequest, type EncodedScene, type InspectionEntry, type InspectionPayload, type PenDef, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
+import { decodeRender, pensToJson, type DrawRequest, type EncodedScene, type InspectionEntry, type PenDef, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
 import type { GeometryPreview, PreviewOptions } from './geometryPreview.js';
 import type { RunConfig } from './runner.js';
 
@@ -70,6 +70,8 @@ interface Pending {
  * memory. Sketch execution lives in the worker too now, so this watchdog
  * replaces the old main-thread crash sentinel. */
 const RENDER_TIMEOUT_MS = 20_000;
+/** A preview is a bounded sample or a copy; ten seconds is a wedged worker. */
+const INSPECT_TIMEOUT_MS = 10_000;
 /** A newer request arriving while a render has already run this long
  * pre-empts it: the worker is respawned and the new request runs at once.
  * That is what makes ctrl+z a cancel — undo the change, the previous code
@@ -280,25 +282,23 @@ export class RenderClient {
     });
   }
 
-  /** One registered material of the named execution, as plain copies.
-   * Rejects when that execution is no longer the worker's current one. */
-  inspectGeometry(executionId:number,name:string,options:PreviewOptions={}):Promise<GeometryPreview> {
-    return new Promise((resolve,reject)=>{
-      const id=this.nextId++;
-      const timeout=setTimeout(()=>{if(this.pending.has(id))this.respawnStuckWorker('Geometry preview timed out; renderer restarted. Rerun the sketch to capture values again.');},5000);
-      this.pending.set(id,{resolve:msg=>{clearTimeout(timeout);resolve((msg as {payload:GeometryPreview}).payload);},reject:err=>{clearTimeout(timeout);reject(err);}});
-      this.worker.postMessage({type:'inspect-geometry',id,executionId,name,options});
-    });
-  }
-
-  inspectMaterial(executionId: number, name: string): Promise<InspectionPayload> {
+  /** One capture of the named execution as a preview built on demand.
+   * Rejects when that execution is no longer the worker's current one. A
+   * preview that wedges the worker (a field that never returns) is treated
+   * like a runaway render: the worker is replaced. */
+  inspectGeometry(executionId: number, name: string, options: PreviewOptions = {}): Promise<GeometryPreview> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
+      const timeout = setTimeout(() => {
+        if (this.pending.has(id)) {
+          this.respawnStuckWorker(`inspection timed out after ${INSPECT_TIMEOUT_MS / 1000}s — the renderer was restarted; rerun the sketch to capture again`);
+        }
+      }, INSPECT_TIMEOUT_MS);
       this.pending.set(id, {
-        resolve: (msg) => resolve((msg as { payload: InspectionPayload }).payload),
-        reject,
+        resolve: (msg) => { clearTimeout(timeout); resolve((msg as { payload: GeometryPreview }).payload); },
+        reject: (err) => { clearTimeout(timeout); reject(err); },
       });
-      this.worker.postMessage({ type: 'inspect', id, executionId, name });
+      this.worker.postMessage({ type: 'inspect-geometry', id, executionId, name, options });
     });
   }
 

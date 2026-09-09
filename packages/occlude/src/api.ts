@@ -32,8 +32,9 @@ import { type FieldAlign, Shape, geomClosed, type FieldFn, type ModifierValue, t
 import {
   bounds, chance, clip as legacyClip, margin, noise, pick, prob, push, rnd,
   sketch as legacySketch, stream, getState, unitScaleMm,
-  type SketchOptions, type Winding, recordProbe, recordInspection, recordInspectionPlacement, forgetInspection, getInspectHint, type InspectionSource,
+  type SketchOptions, type Winding, recordProbe,
 } from './state.js';
+import { recordInspection, recordInspectionPlacement, getInspectHint, type InspectionSource } from './inspection.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
   scatterPoints, relaxMaterial, settleMaterial, type RelaxOpts, type SettleOpts, type Bounds as PointBounds,
@@ -952,16 +953,12 @@ function inspect(label: string, value: Material | readonly Station[]): void {
   throw new Error(`inspect('${label}'): expected a Material (from t.sample, material(), curve(), connect.*, steps, …) or the stations of along()`);
 }
 
-/** The host's automatic form of `inspect`: called for every variable the
- * studio instruments, so it registers materials — and the stations of
- * `along()`, as a material of their own — and ignores everything else
- * without a word. */
-export function inspectIfMaterial(label: string, value: unknown, source?: InspectionSource): void {
-  if (!getInspectHint()) return;
-  // Snapshot a mutable builder; all other supported geometry is retained as
-  // its own value. The adapter does no field sampling or topology traversal.
+/** The host's automatic capture: the studio's emitted code calls this for
+ * every geometry-typed declaration and expression it instrumented, with the
+ * site's source identity. Anything that is not inspectable geometry is
+ * ignored without a word; a path builder is snapshotted, since it mutates. */
+export function inspectValue(label: string, value: unknown, source?: InspectionSource): void {
   recordInspection(label, value instanceof PathValue ? value.build() : value, source);
-
 }
 
 /** Path optimization for THIS sketch's plan (tour budget, bridging) — in

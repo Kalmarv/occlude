@@ -10,10 +10,8 @@
  * wedges the worker — killed by the client watchdog — never the tab.
  */
 
-import { carryModuleInspections } from '../../occlude/src/state.js';
 import * as occlude from 'occlude';
 import type { EncodedScene, PenDef, SketchDef } from 'occlude';
-import { INSPECT_HOOK, instrumentDeclarations } from './instrument.js';
 
 export interface RunOutcome {
   scene: EncodedScene | null;
@@ -29,12 +27,10 @@ export interface RunConfig {
   coarsen: number;
   /** Compute the debug ghost (post-modified pre-occlusion geometry). */
   debugGhost?: boolean;
-  /** Material inspection on: every variable holding a Material is
-   * registered under its name (the emitted JS is instrumented), and
-   * `t.inspect()` registrations are kept. Off: neither costs anything. */
+  /** Inspection on: `js` is the studio's inspection emit — draw sites
+   * tagged and capture hooks inserted — and every capture is kept for the
+   * Inspect tab. Off: `js` is plain emit, tagged here; nothing is kept. */
   inspect?: boolean;
-  /** Source-mapped emit already includes draw tagging and capture hooks. */
-  inspectionCompiled?: boolean;
   /** Seed for 'url'/default-seed sketches. The worker's own URL carries no
    * `?seed=`, so the host passes it explicitly; null/undefined lets the
    * session seed roll. */
@@ -61,13 +57,13 @@ export function runSketch(js: string, cfg: RunConfig): RunOutcome {
   try {
     // Draw sites are always tagged (cheap, and what makes a seed's
     // overrides land); declarations only when the material layer is on.
-    const tagged = cfg.inspectionCompiled ? js : occlude.tagDraws(js).js;
-    const code = cfg.inspect === true && !cfg.inspectionCompiled ? instrumentDeclarations(tagged) : tagged;
-    const fn = new Function('require', 'exports', 'module', INSPECT_HOOK, occlude.DRAW_HOOK, code);
-    fn(require, module.exports, module, (name: string, value: unknown, source?: occlude.InspectionSource) => {
-      if (cfg.inspect) occlude.inspectIfMaterial(name, value, source);
+    const code = cfg.inspect === true ? js : occlude.tagDraws(js).js;
+    const fn = new Function('require', 'exports', 'module', occlude.INSPECT_HOOK, occlude.DRAW_HOOK, code);
+    const capture = (name: string, value: unknown, source?: occlude.InspectionSource): unknown => {
+      occlude.inspectValue(name, value, source);
       return value;
-    }, occlude.drawAt);
+    };
+    fn(require, module.exports, module, capture, occlude.drawAt);
     const exp = module.exports;
     const def: SketchDef | undefined = occlude.isSketch(exp.default)
       ? exp.default
@@ -77,8 +73,7 @@ export function runSketch(js: string, cfg: RunConfig): RunOutcome {
         "no sketch exported — write `export default sketch({ … }, (toolkit) => tree)`",
       );
     }
-    const carry = cfg.inspect ? carryModuleInspections() : null;
-    occlude.compileSketch(carry ? { ...def, fn: t => { carry(); return def.fn(t); } } : def, { marginPct: cfg.defaultMarginPct });
+    occlude.compileSketch(def, { marginPct: cfg.defaultMarginPct });
     const scene = occlude.encodeScene({
       paper: { paper: cfg.paper as never, landscape: cfg.landscape },
       coarsen: cfg.coarsen,

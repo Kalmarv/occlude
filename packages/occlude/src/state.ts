@@ -8,8 +8,6 @@
 import { DEFAULT_PENS, type PenDef } from './pens.js';
 import { Rng } from './random.js';
 import { parseSeed } from './draws.js';
-import { describeInspectionValue, type InspectionKind } from './inspectionValues.js';
-import { Material, stationsMaterial, type Station } from './material.js';
 import type { L } from './units.js';
 
 export type Winding = 'nonzero' | 'evenodd';
@@ -56,12 +54,6 @@ export interface State {
   seedUsed: number | string;
   /** `t.probe(label, value)` readouts, reset per compile. */
   probes: Map<string, ProbeAccumulator>;
-  /** `t.inspect(label, material)` registrations of this run, in first-seen
-   * order; a reused label replaces its value in place. Kept only while the
-   * host has inspection on (`setInspectHint`), else always empty. */
-  inspections: Map<string, InspectionCapture>;
-  inspectionRows: number;
-  inspectionDropped: number;
   /** `t.plan({...})` and `t.draw({...})` of this run — the sketch's own say
    * over path optimization and over which part of the plan is drawn. */
   planOptions: import('./plan.js').PlanOptions | null;
@@ -106,161 +98,6 @@ let seedHint: number | string | null = null;
 
 export function setSeedHint(seed: number | string | null): void {
   seedHint = seed;
-}
-
-/** Host switch for `t.inspect`: off (the default) registers nothing, so a
- * sketch that inspects costs the same as one that does not and no material
- * outlives the run on its account. Like the other hints it survives
- * sketch() resets. */
-let inspectHint = false;
-
-export function setInspectHint(on: boolean): void {
-  inspectHint = on;
-  clearInspections();
-}
-
-export function getInspectHint(): boolean {
-  return inspectHint;
-}
-
-export interface InspectionSource {
-  document: string;
-  revision: string;
-  start: number;
-  end: number;
-  label: string;
-  line: number;
-  kind?: string;
-  expression?: boolean;
-}
-
-interface InspectionCapture {
-  value: unknown;
-  values: unknown[];
-  entry: InspectionEntry;
-  rows: number;
-}
-
-/** Bounded handles and row retention; no geometry history is serialized.
- * Oversized values have a summary but no retained preview handle. */
-export const INSPECTION_LIMITS = { captures: 256, rows: 1_000_000, previewRows: 250_000 } as const;
-
-export interface InspectionPlacement { start: number; end: number; transforms: TransformOp[] }
-let inspectionPlacements = new WeakMap<object, InspectionPlacement[]>();
-export function recordInspectionPlacement(value: object, placement: InspectionPlacement): void {
-  const list = inspectionPlacements.get(value) ?? [];
-  list.push(placement);
-  inspectionPlacements.set(value, list);
-}
-export function getInspectionPlacements(value: unknown): readonly InspectionPlacement[] {
-  return value && typeof value === 'object' ? inspectionPlacements.get(value) ?? [] : [];
-}
-export function clearInspections(): void {
-  inspectionPlacements = new WeakMap();
-  if (!state) return;
-  state.inspections.clear();
-  state.inspectionRows = 0;
-  state.inspectionDropped = 0;
-}
-
-export function forgetInspection(label: string): void {
-  const old = state?.inspections.get(label);
-  if (old && state) {
-    state.inspectionRows -= old.rows;
-    state.inspections.delete(label);
-  }
-}
-
-export function recordInspection(label: string, value: unknown, source?: InspectionSource): void {
-  if (!inspectHint) return;
-  const description = describeInspectionValue(value, source?.kind);
-  if (!description) { forgetInspection(label); return; }
-  const s = getState();
-  const old = s.inspections.get(label);
-  if (!old && s.inspections.size >= INSPECTION_LIMITS.captures) { s.inspectionDropped++; return; }
-  const { points, edges, rows, kind, summary } = description;
-  const append = !!source && !!old;
-  const retained = s.inspectionRows - (append ? 0 : old?.rows ?? 0);
-  const limited = rows + (append ? old.rows : 0) > INSPECTION_LIMITS.previewRows || retained + rows > INSPECTION_LIMITS.rows || (append && old.values.length >= 10000);
-  const values = append ? old.values : [];
-  if (!limited) values.push(value);
-  s.inspectionRows = retained + (limited ? 0 : rows);
-  const totalPoints = append ? old.entry.points + (limited ? 0 : points) : points;
-  const totalEdges = edges === undefined ? undefined : append ? (old.entry.edges ?? 0) + (limited ? 0 : edges) : edges;
-  s.inspections.set(label, {
-    value: limited ? (append ? old.value : null) : value, values, rows: (append ? old.rows : 0) + (limited ? 0 : rows),
-    entry: { name: label, points: totalPoints, edges: totalEdges, kind, summary: append ? `${values.length} occurrences · ${totalPoints ? `${totalPoints} points${totalEdges === undefined ? '' : ` / ${totalEdges} edges`}` : kind}` : summary, source, occurrences: (old?.entry.occurrences ?? 0) + 1,
-      retainedOccurrences: values.length,
-      limited: limited || source && values.length < (old?.entry.occurrences ?? 0) + 1 ? `Inspection limit reached; retained ${values.length} of ${(old?.entry.occurrences ?? 0) + 1} occurrences` : undefined },
-  });
-}
-
-export interface InspectionEntry {
-  /** Opaque capture key; automatic captures use source identity, not names. */
-  name: string;
-  points: number;
-  kind?: InspectionKind;
-  summary?: string;
-  /** Stations derive connections only when a preview is requested. */
-  edges?: number;
-  source?: InspectionSource;
-  occurrences?: number;
-  retainedOccurrences?: number;
-  limited?: string;
-}
-
-export function getInspectionIndex(): InspectionEntry[] {
-  return state ? [...state.inspections.values()].map(c => c.entry) : [];
-}
-
-/** Carry module-scope captures across the sketch's initial state reset,
- * within the same host execution. The returned callback retains only the
- * already bounded registry, not the previous sketch state. */
-export function carryModuleInspections(): () => void {
-  const inspections=state?.inspections, rows=state?.inspectionRows??0, dropped=state?.inspectionDropped??0;
-  return () => { if(state && inspections && inspectHint) { state.inspections=inspections;state.inspectionRows=rows;state.inspectionDropped=dropped; } };
-}
-
-export function getInspectionValues(name: string): readonly unknown[] {
-  const capture = state?.inspections.get(name);
-  if (capture?.entry.limited && !capture.values.length) throw new Error(capture.entry.limited);
-  return capture?.values ?? [];
-}
-
-export function getInspectionValue(name: string): unknown {
-  const capture = state?.inspections.get(name);
-  if (capture?.entry.limited) throw new Error(capture.entry.limited);
-  return capture?.value;
-}
-
-export function getInspectionDropped(): number { return state?.inspectionDropped ?? 0; }
-
-/** One registered material as plain transport: copies of its positions,
- * edge list and declared columns, nothing branded, nothing shared with the
- * material (so a transfer cannot detach what the sketch still holds). */
-export interface InspectionPayload {
-  name: string;
-  n: number;
-  x: Float64Array;
-  y: Float64Array;
-  /** `[a0, b0, a1, b1, …]`, stored order. */
-  edges: Uint32Array;
-  attrs: Record<string, Float64Array>;
-  edgeAttrs: Record<string, Float64Array>;
-  iteration: number;
-}
-
-export function inspectionPayload(name: string): InspectionPayload | null {
-  const capture = state?.inspections.get(name);
-  if (!capture) return null;
-  if (!capture.value) throw new Error(capture.entry.limited ?? 'Capture unavailable');
-  const m = capture.value instanceof Material ? capture.value : capture.entry.kind === 'stations' ? stationsMaterial(capture.value as readonly Station[]) : null;
-  if (!m) throw new Error('This capture needs a geometry preview');
-  const attrs: Record<string, Float64Array> = {};
-  for (const k of Object.keys(m.attrs)) attrs[k] = m.attrs[k].slice();
-  const edgeAttrs: Record<string, Float64Array> = {};
-  for (const k of Object.keys(m.edgeAttrs)) edgeAttrs[k] = m.edgeAttrs[k].slice();
-  return { name, n: m.n, x: m.x.slice(), y: m.y.slice(), edges: m.edgeList.slice(), attrs, edgeAttrs, iteration: m.iteration };
 }
 
 function freshState(opts: SketchOptions = {}): State {
@@ -314,9 +151,6 @@ function freshState(opts: SketchOptions = {}): State {
     drawLog: [],
     lastDraw: null,
     probes: new Map(),
-    inspections: new Map(),
-    inspectionRows: 0,
-    inspectionDropped: 0,
     planOptions: null,
     drawRequest: null,
   };
@@ -396,7 +230,6 @@ export function getProbeStats(): Record<string, ProbeSummary> {
 
 /** Start (or restart) a sketch. Clears all recorded shapes. */
 export function sketch(opts: SketchOptions = {}): void {
-  inspectionPlacements = new WeakMap();
   state = freshState(opts);
 }
 

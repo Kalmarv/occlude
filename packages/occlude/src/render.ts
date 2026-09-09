@@ -876,19 +876,28 @@ export interface RawRender {
   renderMs: number;
 }
 
-/** Decode visible fragments for the canvas and demand-driven inspection. */
-export function decodeFragments(prims: Float64Array, fragments: Float64Array, shapes?: ReadonlySet<number>, limit = Infinity): { prims: Prim[]; frags: Fragment[] } {
+/** Decode visible fragments for the canvas, or — given `shapes` — only the
+ * fragments of those shapes, decoding the primitives they need on demand.
+ * With a `limit`, decoding stops there and says so, rather than failing. */
+export function decodeFragments(
+  prims: Float64Array,
+  fragments: Float64Array,
+  shapes?: ReadonlySet<number>,
+  limit = Infinity,
+): { prims: Prim[]; frags: Fragment[]; truncated: boolean } {
   const outPrims: Prim[] = [];
-  if (!shapes) for (let off = 0; off < prims.length; off += PRIM_STRIDE) {
-    outPrims.push(decodePrim(prims, off));
+  if (!shapes) {
+    for (let off = 0; off < prims.length; off += PRIM_STRIDE) outPrims.push(decodePrim(prims, off));
   }
   const frags: Fragment[] = [];
+  let truncated = false;
   for (let off = 0; off < fragments.length; off += FRAG_STRIDE) {
-    if(shapes && !shapes.has(fragments[off + 4]))continue;
-    if(frags.length>=limit)throw new Error(`Rendered preview exceeds ${limit.toLocaleString('en-US')} fragments`);
+    if (shapes && !shapes.has(fragments[off + 4])) continue;
+    if (frags.length >= limit) { truncated = true; break; }
     const origin = fragments[off];
     const t0f = fragments[off + 1];
     const t1f = fragments[off + 2];
+    const prim = outPrims[origin] ?? (outPrims[origin] = decodePrim(prims, origin * PRIM_STRIDE));
     frags.push({
       origin,
       t0: t0f,
@@ -897,15 +906,15 @@ export function decodeFragments(prims: Float64Array, fragments: Float64Array, sh
       shape: fragments[off + 4],
       dot: (fragments[off + 5] & 1) !== 0,
       bridge: (fragments[off + 5] & 2) !== 0,
-      geom: subPrim(outPrims[origin] ?? (outPrims[origin] = decodePrim(prims, origin * PRIM_STRIDE)), t0f, t1f),
+      geom: subPrim(prim, t0f, t1f),
     });
   }
-  return {prims:outPrims,frags};
+  return { prims: outPrims, frags, truncated };
 }
 
 /** Decode a raw wasm result against its scene into a full RenderResult. */
 export function decodeRender(scene: EncodedScene, raw: RawRender): RenderResult {
-  const {frags,prims:outPrims} = decodeFragments(raw.prims, raw.frags);
+  const { frags, prims: outPrims } = decodeFragments(raw.prims, raw.frags);
   let ghost: Prim[] | undefined;
   if (raw.ghost && raw.ghost.length > 0) {
     ghost = [];
