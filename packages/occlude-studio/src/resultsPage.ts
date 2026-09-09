@@ -7,6 +7,8 @@
 
 import './style.css';
 import { deleteResult, listResults, resultSvgUrl, type SavedResult } from './resultsApi.js';
+import './wa.js';
+import { confirmDialog, notify } from './wa.js';
 import { mountShell } from './shell.js';
 mountShell('results');
 
@@ -22,7 +24,7 @@ const btn = (label: string, fn: () => void | Promise<void>, title?: string): HTM
   const b = document.createElement('button');
   b.textContent = label;
   if (title) b.title = title;
-  b.onclick = () => void Promise.resolve(fn()).catch((err) => alert(err instanceof Error ? err.message : String(err)));
+  b.onclick = () => void Promise.resolve(fn()).catch((err) => notify(err instanceof Error ? err.message : String(err), 'danger'));
   return b;
 };
 const fmtMin = (ms: number): string => (ms >= 60_000 ? `${(ms / 60_000).toFixed(1)} min` : `${Math.ceil(ms / 1000)} s`);
@@ -52,7 +54,7 @@ function card(r: SavedResult): HTMLElement {
     btn('Open frozen in studio', () => { location.href = `/?result=${encodeURIComponent(r.id)}`; }, 'Show, export and plot this exact result — the source is not run'),
     btn('SVG', () => { const a = document.createElement('a'); a.href = resultSvgUrl(r.id); a.download = `occlude-${r.id}.svg`; a.click(); }),
     btn('Delete', async () => {
-      if (!confirm(`Delete saved result ${r.id}? This is the only copy of its resolved ink.`)) return;
+      if (!(await confirmDialog({ title: 'Delete result', body: `Delete saved result ${r.id}? This is the only copy of its resolved ink.`, confirm: 'Delete', danger: true }))) return;
       await deleteResult(r.id);
       c.remove();
     }),

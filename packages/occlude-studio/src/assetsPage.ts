@@ -9,6 +9,7 @@ import './wa.js';
 import {
   deleteAsset, listAssets, renameAsset, uploadAsset, type AssetInfo,
 } from './assetApi.js';
+import { confirmDialog, notify, promptDialog } from './wa.js';
 import { mountShell } from './shell.js';
 mountShell('assets');
 
@@ -78,13 +79,13 @@ async function refresh(): Promise<void> {
     const rename = document.createElement('button');
     rename.textContent = 'rename';
     rename.onclick = async () => {
-      const to = prompt('New name (extension included):', a.name)?.trim();
+      const to = (await promptDialog({ title: 'Rename asset', body: 'Extension included.', placeholder: a.name, confirm: 'Rename' }))?.trim();
       if (!to || to === a.name) return;
       try {
         await renameAsset(a.name, to);
         await refresh();
       } catch (e) {
-        alert(e instanceof Error ? e.message : String(e));
+        notify(e instanceof Error ? e.message : String(e), 'danger');
       }
     };
     const copy = document.createElement('button');
@@ -98,7 +99,7 @@ async function refresh(): Promise<void> {
     const del = document.createElement('button');
     del.textContent = 'delete';
     del.onclick = async () => {
-      if (!confirm(`Delete asset '${a.name}' from the server?`)) return;
+      if (!(await confirmDialog({ title: 'Delete asset', body: `Delete '${a.name}' from the server?`, confirm: 'Delete', danger: true }))) return;
       await deleteAsset(a.name);
       await refresh();
     };
@@ -114,7 +115,7 @@ async function uploadFiles(files: Iterable<File>): Promise<void> {
     for (const file of files) await uploadAsset(file);
     await refresh();
   } catch (e) {
-    alert(e instanceof Error ? e.message : String(e));
+    notify(e instanceof Error ? e.message : String(e), 'danger');
   }
 }
 

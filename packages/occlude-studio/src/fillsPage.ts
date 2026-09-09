@@ -20,6 +20,7 @@ import { BUILTIN_FILL_SOURCES, cloneSource } from './builtinFills.js';
 import { canonicalFillSource, freshFillName } from './fillEmbed.js';
 import { NEW_FILL, loadPens, loadSettings } from './store.js';
 import { warnOnEdit } from './fillWarn.js';
+import { confirmDialog, notify } from './wa.js';
 import { mountShell } from './shell.js';
 mountShell('fills');
 
@@ -141,8 +142,13 @@ async function boot(): Promise<void> {
     return !!editor && !!open && !open.readOnly && editor.getValue() !== open.baseline;
   }
 
-  function openEditor(name: string, source: string, readOnly: boolean): void {
-    if (dirty() && !confirm(`Discard unsaved changes to fill '${open!.name}'?`)) return;
+  async function discardOk(): Promise<boolean> {
+    if (!dirty()) return true;
+    return confirmDialog({ title: 'Discard changes', body: `Discard unsaved changes to fill '${open!.name}'?`, confirm: 'Discard', danger: true });
+  }
+
+  async function openEditor(name: string, source: string, readOnly: boolean): Promise<void> {
+    if (!(await discardOk())) return;
     editorSection.hidden = false;
     if (!editor) {
       editor = createEditor($('editor'), source);
@@ -160,8 +166,8 @@ async function boot(): Promise<void> {
     schedulePreview();
   }
 
-  function closeEditor(): void {
-    if (dirty() && !confirm(`Discard unsaved changes to fill '${open!.name}'?`)) return;
+  async function closeEditor(): Promise<void> {
+    if (!(await discardOk())) return;
     open = null;
     editorSection.hidden = true;
   }
@@ -170,15 +176,15 @@ async function boot(): Promise<void> {
     if (!editor || !open || open.readOnly) return;
     let name = nameInput.value.trim();
     if (!name) {
-      alert('Name the fill first.');
+      notify('Name the fill first.', 'warning');
       return;
     }
     if (!FILL_NAME_RE.test(name)) {
-      alert("Fill names: letters, digits, - and _ (max 64) — they are fill('name') literals.");
+      notify("Fill names: letters, digits, - and _ (max 64) — they are fill('name') literals.", 'warning');
       return;
     }
     if (isBuiltinFill(name)) {
-      alert(`'${name}' is a built-in fill — built-ins never change; pick another name.`);
+      notify(`'${name}' is a built-in fill — built-ins never change; pick another name.`, 'warning');
       return;
     }
     await editor.format();
@@ -242,17 +248,17 @@ async function boot(): Promise<void> {
       const b = (label: string, fn: () => void | Promise<void>): HTMLButtonElement => {
         const x = document.createElement('button');
         x.textContent = label;
-        x.onclick = () => void Promise.resolve(fn()).catch((e) => alert(e instanceof Error ? e.message : String(e)));
+        x.onclick = () => void Promise.resolve(fn()).catch((e) => notify(e instanceof Error ? e.message : String(e), 'danger'));
         return x;
       };
       actions.append(
         b(builtin ? 'view' : 'edit', async () => {
           const s = await source();
-          if (s !== null) openEditor(name, s, builtin);
+          if (s !== null) await openEditor(name, s, builtin);
         }),
         b('clone', async () => {
           const s = await source();
-          if (s !== null) openEditor(freshFillName(name, await taken()), cloneSource(name, s), false);
+          if (s !== null) await openEditor(freshFillName(name, await taken()), cloneSource(name, s), false);
         }),
       );
       if (!builtin) {
@@ -260,9 +266,9 @@ async function boot(): Promise<void> {
           b('delete', async () => {
             const uses = await fillUses(name);
             const warn = uses.length > 0 ? ` Saved sketches use it: ${uses.join(', ')}.` : '';
-            if (!confirm(`Delete fill '${name}' from the library?${warn}`)) return;
+            if (!(await confirmDialog({ title: 'Delete fill', body: `Delete fill '${name}' from the library?${warn}`, confirm: 'Delete', danger: true }))) return;
             await deleteFill(name);
-            if (open?.name === name) closeEditor();
+            if (open?.name === name) await closeEditor();
             await refresh();
           }),
         );
@@ -290,16 +296,16 @@ async function boot(): Promise<void> {
     }
   }
 
-  $('btn-new').onclick = () => openEditor('', NEW_FILL, false);
-  $('btn-save').onclick = () => void save().catch((e) => alert(e instanceof Error ? e.message : String(e)));
-  $('btn-close').onclick = closeEditor;
+  $('btn-new').onclick = () => void openEditor('', NEW_FILL, false);
+  $('btn-save').onclick = () => void save().catch((e) => notify(e instanceof Error ? e.message : String(e), 'danger'));
+  $('btn-close').onclick = () => void closeEditor();
   nameInput.onchange = schedulePreview;
   window.addEventListener(
     'keydown',
     (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
-        if (open) void save().catch((err) => alert(err instanceof Error ? err.message : String(err)));
+        if (open) void save().catch((err) => notify(err instanceof Error ? err.message : String(err), 'danger'));
       }
     },
     true,

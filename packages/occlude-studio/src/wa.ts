@@ -87,3 +87,23 @@ export function promptDialog(opts: { title: string; body?: string; label?: strin
     requestAnimationFrame(() => { dlg.open = true; });
   });
 }
+
+/** A passing notice in the corner: what alert() was for, without the stop. */
+export function notify(message: string, variant: 'neutral' | 'brand' | 'danger' | 'warning' | 'success' = 'neutral', ms = 5000): void {
+  let host = document.getElementById('toasts');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'toasts';
+    document.body.append(host);
+  }
+  const c = document.createElement('wa-callout');
+  c.setAttribute('variant', variant);
+  c.setAttribute('appearance', 'filled outlined');
+  c.setAttribute('size', 'small');
+  c.textContent = message;
+  c.className = 'toast';
+  host.append(c);
+  const go = (): void => { c.classList.add('leaving'); setTimeout(() => c.remove(), 220); };
+  c.addEventListener('click', go);
+  setTimeout(go, ms);
+}

@@ -18,6 +18,7 @@ import {
 } from './diagnostics.js';
 import { Ebb, type EbbOptions, type PlotProgress } from './ebb.js';
 import { download, saveProfiles, saveSettings, type MachineProfile, type Settings } from './store.js';
+import { confirmDialog, promptDialog } from './wa.js';
 import { button, checkbox, el, hint, numberInput, row } from './widgets.js';
 
 export interface MachineSession {
@@ -135,17 +136,23 @@ export function buildProfileSelect(
   render();
   const wrap = el('div', 'row', select);
   if (manage) {
-    const dup = button('Duplicate', () => {
-      const name = prompt('New profile name', `${m.prof().name} copy`)?.trim();
-      if (!name || profiles.some((pp) => pp.name === name)) return;
+    const dup = button('Duplicate', async () => {
+      const name = (await promptDialog({
+        title: 'Duplicate profile',
+        body: 'Copy the active profile under a new name.',
+        placeholder: `${m.prof().name} copy`,
+        confirm: 'Duplicate',
+        validate: (v) => (!v.trim() ? 'Name the profile.' : profiles.some((pp) => pp.name === v.trim()) ? 'A profile with that name exists.' : null),
+      }))?.trim();
+      if (!name) return;
       profiles.push({ ...structuredClone(m.prof()), name });
       m.persist();
       m.switchProfile(name);
     });
     dup.title = 'Copy the active profile (e.g. a large-format regime of the same machine)';
-    const del = button('Delete', () => {
+    const del = button('Delete', async () => {
       if (profiles.length <= 1) return;
-      if (!confirm(`Delete machine profile '${m.prof().name}'?`)) return;
+      if (!(await confirmDialog({ title: 'Delete profile', body: `Delete machine profile '${m.prof().name}'?`, confirm: 'Delete', danger: true }))) return;
       const i = profiles.findIndex((pp) => pp.name === m.prof().name);
       profiles.splice(i, 1);
       m.persist();

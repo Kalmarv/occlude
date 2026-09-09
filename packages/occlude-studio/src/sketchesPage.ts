@@ -11,7 +11,7 @@
 
 import './style.css';
 import './wa.js';
-import { confirmDialog, promptDialog } from './wa.js';
+import { confirmDialog, notify, promptDialog } from './wa.js';
 import { mountShell } from './shell.js';
 import { NEW_SKETCH } from './store.js';
 import {
@@ -44,7 +44,7 @@ const btn = (label: string, fn: () => void | Promise<void>, title?: string): HTM
   if (title) b.title = title;
   b.onclick = (e) => {
     e.stopPropagation();
-    void Promise.resolve(fn()).catch((err) => alert(err instanceof Error ? err.message : String(err)));
+    void Promise.resolve(fn()).catch((err) => notify(err instanceof Error ? err.message : String(err), 'danger'));
   };
   return b;
 };

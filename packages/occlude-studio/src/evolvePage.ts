@@ -12,6 +12,8 @@ import './style.css';
 
 import { formatSeed, liveExampleToJs, parseSeed, type PenDef, type RenderResult } from 'occlude';
 
+import './wa.js';
+import { promptDialog } from './wa.js';
 import { Preview } from './preview.js';
 import { RenderClient } from './workerClient.js';
 import { loadPens, loadSettings } from './store.js';
@@ -302,10 +304,15 @@ async function boot(): Promise<void> {
       if (live) {
         // The buffer is saved now, once, so the tag has a source to sit on.
         if (!target) {
-          const asked = prompt('Name the sketch to keep this drawing:')?.trim() ?? '';
-          if (!asked) return;
-          if (!/^[a-zA-Z0-9 _-]{1,64}$/.test(asked)) throw new Error('names are letters, digits, spaces, _ and -');
-          target = asked;
+          const asked = await promptDialog({
+            title: 'Name the sketch',
+            body: 'The drawing is kept as a snapshot of a saved sketch; this buffer has no name yet.',
+            placeholder: 'sketch name',
+            confirm: 'Keep',
+            validate: (v) => (/^[a-zA-Z0-9 _-]{1,64}$/.test(v.trim()) ? null : 'Letters, digits, spaces, _ and - (max 64).'),
+          });
+          if (asked === null) return;
+          target = asked.trim();
         }
         await saveSketchByName(target, live.source);
       } else if (ref.snap) target = await forkSnapshot(name, ref.snap);

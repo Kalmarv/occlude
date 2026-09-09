@@ -37,6 +37,7 @@ export interface ExecutionSettings {
 }
 export const executionKey = (e: ExecutionSettings): string => canonicalJson(e);
 import type { RenderDraws, RenderClient } from './workerClient.js';
+import { confirmDialog, notify } from './wa.js';
 import { button, checkbox, el, hint, numberInput, pairInput, row, segmented } from './widgets.js';
 
 export interface PanelHooks {
@@ -188,7 +189,7 @@ function buildSketchesPanel(
     const name = hooks.currentName().trim();
     if (!name) return null;
     if (!/^[a-zA-Z0-9 _-]{1,64}$/.test(name)) {
-      alert('Names: letters, digits, spaces, - and _ (max 64).');
+      notify('Names: letters, digits, spaces, - and _ (max 64).', 'warning');
       return null;
     }
     await saveSketchByName(name, hooks.getSource());
@@ -199,10 +200,10 @@ function buildSketchesPanel(
   const saveBtn = button('Save', async () => {
     try {
       if ((await save()) === null) {
-        alert('Name the sketch first — the title field in the top bar.');
+        notify('Name the sketch first — the title field in the top bar.', 'warning');
       }
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      notify(e instanceof Error ? e.message : String(e), 'danger');
     }
   });
   saveBtn.className = 'primary';
@@ -220,7 +221,7 @@ function buildSketchesPanel(
     const dirty = name
       ? await loadSketchByName(name).then((saved) => saved !== src, () => true)
       : src !== DEFAULT_SKETCH && src !== NEW_SKETCH;
-    if (dirty && !confirm('Replace the editor with a fresh sketch? Unsaved changes are lost.')) {
+    if (dirty && !(await confirmDialog({ title: 'New sketch', body: 'Replace the editor with a fresh sketch? Unsaved changes are lost.', confirm: 'Replace', danger: true }))) {
       return;
     }
     hooks.openSketch('', NEW_SKETCH);
@@ -236,10 +237,10 @@ function buildSketchesPanel(
   const freezeBtn = button('Freeze', () => {
     const draws = hooks.lastDraws();
     const seed = hooks.currentSeed();
-    if (!draws || seed === null) { alert('Render the sketch first — Freeze writes back the values of the last render.'); return; }
+    if (!draws || seed === null) { notify('Render the sketch first — Freeze writes back the values of the last render.', 'warning'); return; }
     const { source, frozen, kept } = freeze(hooks.getSource(), draws, seed);
     hooks.replaceSource(source);
-    if (kept) alert(`${frozen} draw${frozen === 1 ? '' : 's'} written as literals; ${kept} site${kept === 1 ? '' : 's'} run more than once and stay draws — the seed is pinned in the sketch options so the drawing is unchanged.`);
+    if (kept) notify(`${frozen} draw${frozen === 1 ? '' : 's'} written as literals; ${kept} site${kept === 1 ? '' : 's'} run more than once and stay draws — the seed is pinned in the sketch options so the drawing is unchanged.`, 'brand', 9000);
   });
   freezeBtn.title = 'Replace each once-run random call with the value it drew in the last render, and pin the seed in the sketch options. Ctrl+Z undoes it.';
   const freezeRow = el('div', 'row', freezeBtn);
@@ -304,7 +305,7 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
         persist();
         renderList();
       } catch (e) {
-        alert(`Pen import failed: ${e instanceof Error ? e.message : e}`);
+        notify(`Pen import failed: ${e instanceof Error ? e.message : e}`, 'danger');
       }
     };
     input.click();
