@@ -358,6 +358,7 @@ async function boot(): Promise<void> {
     lastResult: () => lastResult,
     currentSeed: () => seedUsed,
     getSource: () => editor.getValue(),
+    replaceSource: (source) => editor.replaceValue(source),
     openSketch: (name, source) => {
       sketchName = name;
       saveSketchName(name);

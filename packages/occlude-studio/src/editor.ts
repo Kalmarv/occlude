@@ -42,6 +42,8 @@ export interface Editor {
   emit(): Promise<{ js: string | null; errors: string[] }>;
   onChange(fn: () => void): void;
   setValue(src: string): void;
+  /** Replace the whole text as one undoable edit (setValue clears history). */
+  replaceValue(src: string): void;
   getValue(): string;
   /** Built-in fills open read-only: ink-immutable, clone to change. */
   setReadOnly(on: boolean): void;
@@ -186,6 +188,11 @@ export function createEditor(container: HTMLElement, initial: string, opts: Edit
       } catch {
         // unparseable source — leave it as typed
       }
+    },
+    replaceValue(src) {
+      editor.pushUndoStop();
+      editor.executeEdits('replace', [{ range: model.getFullModelRange(), text: src }]);
+      editor.pushUndoStop();
     },
     setValue(src) {
       model.setValue(src);

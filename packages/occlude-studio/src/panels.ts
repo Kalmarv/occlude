@@ -21,6 +21,7 @@ import { serialSupported, type PlotProgress } from './ebb.js';
 import { buildConnect, buildManualControls, buildProfileSelect, createSession } from './machine.js';
 import { machineTiming, machineTolerance, penTimingOf, type Drawing, type RegionBlob } from './drawing.js';
 import { registrationMarks } from './diagnostics.js';
+import { fuckItUp } from './chaos.js';
 import { dualRange } from './rangeSlider.js';
 import { saveResult, selectionOf, type ResultMeta } from './resultsApi.js';
 import { canonicalJson } from 'occlude';
@@ -63,6 +64,8 @@ export interface PanelHooks {
   /** Build stamp, for saved results. */
   build: string;
   getSource(): string;
+  /** Replace the editor's text as one undoable edit (a rewrite of the sketch). */
+  replaceSource(source: string): void;
   openSketch(name: string, source: string): void;
   currentName(): string;
   setName(name: string): void;
@@ -223,6 +226,16 @@ function buildSketchesPanel(
   newBtn.title = 'Start a fresh sketch — name it in the top bar, then Save';
   actionRow.append(newBtn, saveBtn, importBtn2, dlBtn);
 
+  // Every number in the sketch becomes a random draw around itself; undo
+  // with Ctrl+Z. Strength is how far either side, as a percentage.
+  let chaosPct = 30;
+  const chaosIn = numberInput(chaosPct, 5, (v) => { chaosPct = Math.max(0, v); });
+  chaosIn.title = 'How far each number may stray, percent either side';
+  const chaosBtn = button('Fuck it up', () => hooks.replaceSource(fuckItUp(hooks.getSource(), chaosPct / 100)));
+  chaosBtn.className = 'danger-quiet';
+  chaosBtn.title = 'Rewrite every number literal as t.rnd(lo, hi) around itself — the sketch’s options, ui() controls, zeros and strings excepted. Ctrl+Z undoes it.';
+  const chaosRow = el('div', 'row', chaosBtn, chaosIn, el('span', 'panel-hint', '%'));
+
   const hint = document.createElement('div');
   hint.className = 'panel-hint';
   const link = document.createElement('a');
@@ -232,7 +245,7 @@ function buildSketchesPanel(
   link.textContent = 'Sketches page';
   hint.append('Saved on the studio server — browse, fork and snapshot on the ', link, '.');
 
-  body.append(actionRow, hint);
+  body.append(actionRow, chaosRow, hint);
   return { refresh: () => undefined, save };
 }
 
