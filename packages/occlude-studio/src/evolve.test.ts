@@ -38,11 +38,13 @@ describe('evolve: mutation and cooling', () => {
     expect(heat.get('c:0')).toBe(0.2); // the floor: a settled draw still moves sometimes
   });
 
-  test('again warms every draw one pick\'s worth, capped at one', () => {
-    const heat = new Map<string, number>([['a:0', 1], ['b:0', 0.85], ['c:0', 0.2]]);
+  test('again warms every draw a little, capped at one', () => {
+    const heat = new Map<string, number>([['a:0', 1], ['b:0', 0.98], ['c:0', 0.2]]);
     reheat(heat);
     expect(heat.get('a:0')).toBe(1);
-    expect(heat.get('b:0')).toBeCloseTo(1);
-    expect(heat.get('c:0')).toBeCloseTo(0.2 / 0.85);
+    expect(heat.get('b:0')).toBe(1);
+    expect(heat.get('c:0')).toBeCloseTo(0.208);
+    for (let i = 0; i < 4; i++) reheat(heat);
+    expect(heat.get('c:0')!).toBeLessThan(0.2 / 0.85); // several Agains to undo one pick
   });
 });

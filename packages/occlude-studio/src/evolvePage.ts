@@ -20,7 +20,7 @@ import {
   type SourceRef,
 } from './sketchApi.js';
 import { button, el, hint } from './widgets.js';
-import { cool, mulberry32, mutate, reheat, type Candidate, type Draws } from './evolve.js';
+import { AGAIN_WARMTH, cool, mulberry32, mutate, reheat, type Candidate, type Draws } from './evolve.js';
 
 const main = document.getElementById('evolve-main')!;
 const title = document.getElementById('evolve-title')!;
@@ -148,16 +148,16 @@ async function boot(): Promise<void> {
   tempText();
   const seedText = el('span', 'evolve-seed');
   const status = el('span', 'evolve-status');
-  // Again warms: the draws and the variation both step back up by one pick's
-  // worth, so pressing it because nothing appealed widens the next grid.
+  // Again warms a little: the draws and the variation both nudge up, so
+  // pressing it again and again because nothing appealed widens the grid.
   const againBtn = button('Again', () => {
     reheat(heat);
-    T = Math.min(1, T / 0.85);
+    T = Math.min(1, T * AGAIN_WARMTH);
     tempIn.value = String(T);
     tempText();
     void regenerate();
   });
-  againBtn.title = 'Eight new variations of the middle, a step wider than the last: draws that had settled warm up again';
+  againBtn.title = 'Eight new variations of the middle, a touch wider each time';
   const keepBtn = button('Keep', () => void keep(false));
   keepBtn.className = 'primary';
   keepBtn.title = 'Snapshot the middle drawing: source, seed and the overridden draws';
