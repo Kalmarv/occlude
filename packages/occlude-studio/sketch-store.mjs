@@ -327,12 +327,10 @@ export function createSketchHandler(dir) {
         return send(200, '{"ok":true}');
       }
       if (req.method === 'DELETE') {
-        // The file, its snapshots (tags + thumbs), and its thumb go; the
-        // commits stay — git is the history.
-        for (const s of await sg.snapshots(dir, name).catch(() => [])) {
-          await sg.deleteSnapshot(dir, name, s.id).catch(() => undefined);
-          await fs.unlink(join(thumbs, `${name}@${s.id}.png`)).catch(() => undefined);
-        }
+        // The file and its thumb go; the commits AND the snapshot tags stay —
+        // git is the history, and a deleted sketch can be restored whole from
+        // it (checkout the file from the delete commit's parent; the tags are
+        // still there). Snapshot thumbs stay with their tags.
         await sg.remove(dir, `${name}.ts`, `delete ${name}`).catch(() => undefined);
         await fs.unlink(file).catch(() => undefined);
         await fs.unlink(join(thumbs, `${name}.png`)).catch(() => undefined);

@@ -16,7 +16,7 @@ import { Preview } from './preview.js';
 import { RenderClient } from './workerClient.js';
 import { loadPens, loadSettings } from './store.js';
 import {
-  createSnapshot, forkSketch, forkSnapshot, loadSketchByName, loadSketchJs, loadSnapshot, openInStudio, putThumb, thumbFromCanvas,
+  createSnapshot, forkSketch, forkSnapshot, loadSketchByName, loadSketchJs, loadSnapshot, openInStudio, putThumb, saveSketchByName, takeLive, thumbFromCanvas, transpileSource,
   type SourceRef,
 } from './sketchApi.js';
 import { button, el, hint } from './widgets.js';
@@ -27,8 +27,11 @@ const title = document.getElementById('evolve-title')!;
 
 async function boot(): Promise<void> {
   const params = new URL(location.href).searchParams;
-  const name = params.get('sketch');
-  if (!name) {
+  // Live: the studio's unsaved buffer, handed over without a save. Keep
+  // saves it first (under a name it asks for if the sketch has none).
+  const live = params.get('live') ? takeLive() : null;
+  const name = params.get('sketch') ?? live?.name ?? '';
+  if (!name && !live) {
     main.append(hint('Open Evolve from the Sketches page, or from the studio’s Evolve button.'));
     return;
   }
@@ -37,11 +40,11 @@ async function boot(): Promise<void> {
   const settings = loadSettings();
   // The server strips types; the worker evaluates CommonJS — the same
   // ESM→CJS rewrite the docs examples and the snapshot gallery use.
-  const js = liveExampleToJs(await loadSketchJs(ref));
+  const js = liveExampleToJs(live ? await transpileSource(live.source) : await loadSketchJs(ref));
   const startMeta = ref.snap ? (await loadSnapshot(name, ref.snap)).meta : null;
   const seedParam = params.get('seed');
   const parsed = parseSeed(seedParam ?? (startMeta?.seed != null ? formatSeed(String(startMeta.seed), startMeta.overrides ?? {}) : String(Math.floor(Math.random() * 2 ** 31))));
-  title.textContent = `${name}${ref.snap ? ` · snapshot ${ref.snap}` : ref.sha ? ` @ ${ref.sha}` : ''}`;
+  title.textContent = live ? `${name || 'untitled'} · unsaved` : `${name}${ref.snap ? ` · snapshot ${ref.snap}` : ref.sha ? ` @ ${ref.sha}` : ''}`;
 
   // ---- state
   let centre: Candidate = { seed: parsed.seed, overrides: parsed.overrides };
@@ -280,7 +283,16 @@ async function boot(): Promise<void> {
     keepBtn.disabled = openBtn.disabled = true;
     try {
       let target = name;
-      if (ref.snap) target = await forkSnapshot(name, ref.snap);
+      if (live) {
+        // The buffer is saved now, once, so the tag has a source to sit on.
+        if (!target) {
+          const asked = prompt('Name the sketch to keep this drawing:')?.trim() ?? '';
+          if (!asked) return;
+          if (!/^[a-zA-Z0-9 _-]{1,64}$/.test(asked)) throw new Error('names are letters, digits, spaces, _ and -');
+          target = asked;
+        }
+        await saveSketchByName(target, live.source);
+      } else if (ref.snap) target = await forkSnapshot(name, ref.snap);
       else if (ref.sha) target = await forkSketch(name, undefined, ref.sha);
       const id = await createSnapshot(target, {
         seed: centre.seed,
@@ -291,7 +303,7 @@ async function boot(): Promise<void> {
       const png = await thumbFromCanvas(tiles[4].canvas);
       if (png) await putThumb(target, png, id);
       status.textContent = `kept as snapshot ${id} of ${target}`;
-      if (thenOpen) openInStudio(target, await loadSketchByName(target), formatSeed(centre.seed, centre.overrides));
+      if (thenOpen) openInStudio(target, live ? live.source : await loadSketchByName(target), formatSeed(centre.seed, centre.overrides));
     } catch (e) {
       status.textContent = `keep failed: ${e instanceof Error ? e.message : String(e)}`;
     } finally {

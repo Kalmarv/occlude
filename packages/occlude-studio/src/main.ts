@@ -10,7 +10,7 @@ import {
   loadUi, saveSketch, saveSketchName, saveUi,
 } from './store.js';
 import { listFills, loadFill, saveFill } from './fillApi.js';
-import { evolveUrl,
+import { stashLive,
   createSnapshot, forkSketch, loadSketchByName, putThumb, thumbFromCanvas,
 } from './sketchApi.js';
 import { customFillNames, embedFills, importSketchWithFills } from './fillEmbed.js';
@@ -463,17 +463,14 @@ async function boot(): Promise<void> {
       status(false, `snapshot failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
-  ($('btn-evolve') as HTMLButtonElement).onclick = async () => {
-    try {
-      const name = await rail.saveCurrent();
-      if (!name) {
-        status(false, 'name and save the sketch before evolving it');
-        return;
-      }
-      location.href = evolveUrl({ name }, seedUsed);
-    } catch (err) {
-      status(false, `evolve failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  // Evolve renders the editor's buffer as it is; nothing is saved until a
+  // Keep on that page, which saves the source first so the tag has one.
+  ($('btn-evolve') as HTMLButtonElement).onclick = () => {
+    stashLive({ name: sketchName.trim(), source: editor.getValue() });
+    const u = new URLSearchParams({ live: '1' });
+    if (sketchName.trim()) u.set('sketch', sketchName.trim());
+    if (seedUsed !== null) u.set('seed', seedUsed);
+    location.href = `/evolve.html?${u.toString()}`;
   };
   ($('btn-fork') as HTMLButtonElement).onclick = async () => {
     try {

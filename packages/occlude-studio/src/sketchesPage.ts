@@ -326,12 +326,17 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
   };
   const meta = el('div', 'lineage-row-meta');
   const actions = el('div', 'lineage-actions');
+  // Deleting a sketch is the one destructive action here (saves cannot be
+  // deleted: git is the history), so it asks for the name to be typed.
   const deleteSketch = btn('delete sketch', async () => {
-    if (!confirm(`Delete sketch '${name}' from the library? (git keeps its saves)`)) return;
+    const typed = prompt(`Delete the sketch '${name}' from the library?\nIts saves and snapshots stay in git and can be restored. Type the name to confirm:`);
+    if (typed === null) return;
+    if (typed.trim() !== name) { alert('Not deleted — the name did not match.'); return; }
     closePopover();
     await deleteSketchByName(name);
     await refresh();
   });
+  deleteSketch.className += ' danger-quiet';
   if (sel.kind === 'snapshot') {
     const s = sel.snapshot;
     preview(thumbUrl(name, s.id));
@@ -370,8 +375,11 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
       btn('evolve', () => { location.href = evolveUrl({ name }, null); },
         'Choose among variations of this sketch: a grid of seeds and draw overrides, kept as snapshots'),
       btn('fork', () => forkNow(name), 'A new sketch from the current source'),
-      deleteSketch,
     );
+    // Only the sketch's own row offers deletion — never a row in its history,
+    // where 'delete' reads as 'delete this save' and it is not.
+    if (sel.kind === 'current') actions.append(deleteSketch);
+    else meta.append(el('div', 'lineage-sub', 'A save cannot be deleted: git keeps every one. Delete the sketch from its own row.'));
   } else {
     const c = sel.commit;
     meta.append(el('div', 'lineage-name', c.subject));

@@ -15,6 +15,7 @@ import http from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSketchHandler } from './sketch-store.mjs';
+import { stripFillTypes } from './fill-transpile.mjs';
 import { createAssetHandler } from './asset-store.mjs';
 import { createFillHandler } from './fill-store.mjs';
 import { createResultHandler } from './result-store.mjs';
@@ -58,6 +59,24 @@ const server = http.createServer((req, res) => {
     res.setHeader('content-type', 'application/json');
     res.setHeader('cache-control', 'no-store');
     res.end(JSON.stringify({ build: buildId }));
+    return;
+  }
+  if (url.pathname === '/api/transpile' && req.method === 'POST') {
+    // Type-stripped JS of a source that is not (yet) on the server — the
+    // Evolve page rendering the editor's unsaved buffer.
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      res.setHeader('cache-control', 'no-store');
+      try {
+        res.setHeader('content-type', 'text/javascript');
+        res.end(stripFillTypes(Buffer.concat(chunks).toString('utf8')));
+      } catch (e) {
+        res.statusCode = 400;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ error: String(e?.message ?? e) }));
+      }
+    });
     return;
   }
   if (url.pathname.startsWith('/api/assets')) {

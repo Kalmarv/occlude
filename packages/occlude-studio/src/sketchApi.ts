@@ -210,3 +210,25 @@ export function evolveUrl(ref: SourceRef, seed: string | number | null | undefin
   if (seed !== null && seed !== undefined) u.set('seed', String(seed));
   return `/evolve.html?${u.toString()}`;
 }
+
+/** Type-stripped JS of a source that is not on the server (an unsaved buffer). */
+export async function transpileSource(source: string): Promise<string> {
+  const res = await fetch('/api/transpile', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: source });
+  if (!res.ok) throw new Error(`transpile failed (${res.status})`);
+  return res.text();
+}
+
+/** The editor's buffer handed to the Evolve page without saving it. */
+export const LIVE_KEY = 'occlude.evolve.live';
+export interface LiveHandoff {
+  name: string;
+  source: string;
+}
+export function stashLive(h: LiveHandoff): void {
+  localStorage.setItem(LIVE_KEY, JSON.stringify(h));
+}
+export function takeLive(): LiveHandoff | null {
+  const raw = localStorage.getItem(LIVE_KEY);
+  if (!raw) return null;
+  try { return JSON.parse(raw) as LiveHandoff; } catch { return null; }
+}
