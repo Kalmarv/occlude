@@ -6,7 +6,8 @@
 import * as monaco from 'monaco-editor';
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import { attachScrubbing } from './scrub.js';
-import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
+import TsWorker from './geometry.worker?worker';
+import { attachGeometryHints } from './geometryHints.js';
 
 // EVERY source file of the occlude package becomes a Monaco extra lib —
 // globbed, so a new module (ease.ts once, memorably) can never be left
@@ -147,6 +148,7 @@ export function createEditor(container: HTMLElement, initial: string, opts: Edit
 
   // Alt-drag any number literal to change it (scrubby sliders).
   attachScrubbing(editor);
+  const geometryHints = attachGeometryHints(editor);
 
   return {
     model,
@@ -207,6 +209,7 @@ export function createEditor(container: HTMLElement, initial: string, opts: Edit
       return editor.getContentHeight();
     },
     dispose() {
+      geometryHints.dispose();
       editor.dispose();
       model.dispose();
     },

@@ -1,0 +1,36 @@
+.monaco-editor .geometry-type-token {
+  font-weight: 700;
+  border-radius: 3px;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+.monaco-editor .geometry-type-badge {
+  font-size: 10px;
+  font-style: normal;
+  border-radius: 3px;
+  margin-left: 5px;
+  padding: 1px 3px;
+  background: #ffffff09;
+  border: 1px solid #ffffff12;
+}
+.monaco-editor .geometry-type-graph { color: #8fc9e8 !important; }
+.monaco-editor .geometry-type-path { color: #c6aff0 !important; }
+.monaco-editor .geometry-type-area { color: #9cd5b0 !important; }
+.monaco-editor .geometry-type-sample { color: #edbc8b !important; }
+.monaco-editor .geometry-type-field { color: #dfc977 !important; }
+.geometry-hints-control {
+  display: flex; align-items: center; gap: 7px;
+  margin: 0 16px 7px 0; padding: 4px 6px;
+  color: #aeb7c2; background: #1a1c1ff2;
+  border: 1px solid #34383e; border-radius: 4px;
+  font: 11px 'IBM Plex Sans', sans-serif;
+}
+.geometry-hints-control select {
+  color: #dce2e9; background: #25292e;
+  border: 1px solid #414750; border-radius: 3px;
+  font: inherit; padding: 2px 4px;
+}
+.geometry-hints-control select:focus-visible { outline: 2px solid #8fc9e8; outline-offset: 2px; }
+@media (forced-colors: active) {
+  .monaco-editor .geometry-type-badge { color: CanvasText !important; border-color: CanvasText; }
+  .geometry-hints-control { color: CanvasText; background: Canvas; border-color: CanvasText; }
+}

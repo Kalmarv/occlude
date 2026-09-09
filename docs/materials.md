@@ -2,6 +2,28 @@
 
 Geometry as data you can hold: points with attributes, edges between them, selections of parts, rules that move and grow them, the regions they enclose, and drawing one material several ways. The page runs from sampled points, through connections and selections, to movement and growth, then faces and resampling, and ends with a worked study that reads one material four ways.
 
+## Seeing types in the editor
+
+The **Types** menu in the editor switches geometry hints between **Icons + labels**, **Icons**, and **Off**. Bold colored highlights identify geometry throughout expressions: materials, shapes, stations, and selections. Function and method names are colored by their return type; references and callback parameters by their value type. Declarations also get icons and optional labels. Hover a highlighted token or badge for a description and useful operations. The preference is shared by Studio and tutorial editors.
+
+These hints use static TypeScript information. They do not run the sketch, retain intermediate geometry, or enable the Material inspector. Runtime counts and geometry inspection still require enabling inspection explicitly. A Shape badge does not claim a particular curve representation, and a vector sampler type does not prove it has field metadata.
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, t => {
+  const outline = circle(50, 50, 40);
+  const boundary = t.sample(outline, { count: 24 });
+  const stations = boundary.along({ count: 12 });
+  const upper = boundary.points.filter(p => p.y < 50);
+  return [
+    strokes(boundary),
+    stations.map(s => circle(s.x, s.y, 0.6)),
+    upper.map(p => circle(p.x, p.y, 1.2)),
+  ];
+});
+```
+
 ## Point distributions
 
 `t.scatter(field?, { spacing })` places Poisson-disk points over the drawable and returns point-only material with one computed column, `density`: the field's value at each point, 0 to 1. Where the field is high the local spacing tightens; where it is 0 nothing is placed, and every island of the field is sampled. The material remembers nothing about the field or the spacing; the refinement operations take them as inputs.
