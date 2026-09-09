@@ -10,6 +10,10 @@
  */
 
 import './style.css';
+import './wa.js';
+import { confirmDialog, promptDialog } from './wa.js';
+import { mountShell } from './shell.js';
+import { NEW_SKETCH } from './store.js';
 import {
   deleteSketchByName, deleteSnapshot, forkSketch, forkSnapshot, listSketchInfo,
   evolveUrl, loadSketchAt, loadSketchByName, loadSnapshot, openInStudio, sketchHistory, snapshotSeed, thumbUrl,
@@ -330,10 +334,16 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
   // Deleting a sketch is the one destructive action here (saves cannot be
   // deleted: git is the history), so it asks for the name to be typed.
   const deleteSketch = btn('delete sketch', async () => {
-    const typed = prompt(`Delete the sketch '${name}' from the library?\nIts saves and snapshots stay in git and can be restored. Type the name to confirm:`);
-    if (typed === null) return;
-    if (typed.trim() !== name) { alert('Not deleted — the name did not match.'); return; }
     closePopover();
+    const typed = await promptDialog({
+      title: `Delete '${name}'?`,
+      body: 'Its saves and snapshots stay in git and can be restored. Type the name to confirm.',
+      placeholder: name,
+      confirm: 'Delete',
+      danger: true,
+      validate: (v) => (v.trim() === name ? null : 'The name does not match.'),
+    });
+    if (typed === null) return;
     await deleteSketchByName(name);
     await refresh();
   });
@@ -361,8 +371,8 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
         openInStudio(made, await loadSketchByName(made), snapshotSeed(s.meta));
       }, 'A new sketch from this frozen source'),
       btn('delete', async () => {
-        if (!confirm(`Delete this snapshot of '${name}'?`)) return;
         closePopover();
+        if (!(await confirmDialog({ title: 'Delete this snapshot?', body: `The snapshot of '${name}' and its thumbnail are removed; the save it froze stays.`, confirm: 'Delete', danger: true }))) return;
         await deleteSnapshot(name, s.id);
         await refresh();
       }),
@@ -400,40 +410,51 @@ function openPopover(sel: Selection, anchor: Element, refresh: () => Promise<voi
 
 const openFamilies = new Set<string>();
 
+const CALIBRATION = /^(settle|cal|lift|down|traverse|pen-width|clearance)/;
+
+interface FamilyFacts {
+  evolved: boolean;
+  forks: number;
+  snaps: number;
+  calibration: boolean;
+}
+
 function family(root: SketchInfo, all: SketchInfo[], rows: Row[], refresh: () => Promise<void>): HTMLElement {
-  const sec = el('section', 'lineage-family');
+  const sec = el('article', 'card');
   const ordered = orderRows(root, all, new Map(rows.map((r) => [r.info.name, r])));
   const forks = ordered.length - 1;
   const snaps = ordered.reduce((n, r) => n + r.snapshots.length, 0);
   const saves = ordered.reduce((n, r) => n + r.commits.length, 0);
-  const counts =
-    `${saves} save${saves === 1 ? '' : 's'}` +
-    (forks ? ` · ${forks} fork${forks === 1 ? '' : 's'}` : '') +
-    (snaps ? ` · ${snaps} snapshot${snaps === 1 ? '' : 's'}` : '');
+  const evolved = ordered.some((r) => r.snapshots.some((sn) => sn.meta.overrides && Object.keys(sn.meta.overrides).length > 0));
+  const facts: FamilyFacts = { evolved, forks, snaps, calibration: CALIBRATION.test(root.name) };
+  (sec as HTMLElement & { facts?: FamilyFacts }).facts = facts;
+  sec.dataset.name = ordered.map((r) => r.info.name).join(' ');
   // The entry is the family's most recent render: whichever sketch in it
   // was saved last.
   const latest = ordered.reduce((a, b) => (b.info.mtime > a.info.mtime ? b : a), ordered[0]);
-  const pic = el('div', 'lineage-entry');
+  const thumb = el('div', 'thumb');
   const img = document.createElement('img');
   img.src = `${thumbUrl(latest.info.name)}?t=${Date.now()}`;
   img.alt = '';
   img.loading = 'lazy';
-  img.onerror = () => { img.remove(); pic.classList.add('empty'); pic.textContent = 'no render yet'; };
-  pic.append(img);
-  const head = el('div', 'lineage-head');
-  const text = el('div', 'lineage-row-meta');
-  text.append(el('h3', undefined, root.name), el('span', 'lineage-sub',
-    counts + (latest.info.name !== root.name ? ` · latest: ${latest.info.name}` : '') + ` · ${ago(latest.info.mtime)}`));
-  head.append(pic, text);
-  if (snaps > 0) {
-    // Flipping through the family's frozen renders, largest the window
-    // allows — the lineage graph shows where they came from, not which one
-    // to print.
-    const all = ordered.flatMap((r) => r.snapshots);
-    head.append(btn('gallery', () => openGallery({ shots: all, scope: root.name }),
-      `Flip through this family’s ${snaps} snapshot${snaps === 1 ? '' : 's'}`));
-  }
-  sec.append(head);
+  img.onerror = () => { img.remove(); thumb.textContent = 'no render yet'; };
+  thumb.append(img);
+  const body = el('div', 'card-body');
+  const head = el('div', 'card-head');
+  head.append(el('h3', undefined, root.name));
+  const meta = el('div', 'meta');
+  meta.append(el('span', undefined, `${saves} save${saves === 1 ? '' : 's'}`));
+  if (latest.info.name !== root.name) meta.append(el('span', 'dot', '·'), el('span', undefined, `latest ${latest.info.name}`));
+  meta.append(el('span', 'dot', '·'), el('span', undefined, ago(latest.info.mtime)));
+  const chips = el('div', 'chips');
+  if (evolved) chips.append(el('span', 'chip chip-accent', 'evolved'));
+  if (snaps) chips.append(el('span', 'chip', `${snaps} snapshot${snaps === 1 ? '' : 's'}`));
+  if (forks) chips.append(el('span', 'chip', `${forks} fork${forks === 1 ? '' : 's'}`));
+  if (facts.calibration) chips.append(el('span', 'chip', 'calibration'));
+  body.append(head, meta, chips);
+  const face = el('div', 'card-face');
+  face.append(thumb, body);
+  sec.append(face);
 
   let graph: HTMLElement | null = null;
   const setOpen = (open: boolean): void => {
@@ -441,13 +462,46 @@ function family(root: SketchInfo, all: SketchInfo[], rows: Row[], refresh: () =>
     sec.classList.toggle('open', open);
     closePopover();
     graph?.remove();
-    graph = open ? lineage(ordered, (sel, anchor) => openPopover(sel, anchor, refresh)) : null;
-    if (graph) sec.append(graph);
+    graph = null;
+    if (open) {
+      graph = el('div', 'card-graph');
+      if (snaps > 0) {
+        const allSnaps = ordered.flatMap((r) => r.snapshots);
+        const gal = document.createElement('wa-button');
+        gal.className = 'card-gallery';
+        gal.setAttribute('size', 'small');
+        gal.setAttribute('appearance', 'outlined');
+        gal.textContent = `Gallery · ${snaps}`;
+        gal.title = `Flip through this family’s ${snaps} snapshot${snaps === 1 ? '' : 's'}`;
+        gal.addEventListener('click', (e) => { e.stopPropagation(); openGallery({ shots: allSnaps, scope: root.name }); });
+        graph.append(gal);
+      }
+      graph.append(lineage(ordered, (sel, anchor) => openPopover(sel, anchor, refresh)));
+      sec.append(graph);
+    }
   };
-  head.onclick = () => setOpen(!openFamilies.has(root.name));
-  head.title = 'Show the family’s saves, forks, and snapshots';
+  face.onclick = () => setOpen(!openFamilies.has(root.name));
+  face.title = 'Show the family’s saves, forks, and snapshots';
   setOpen(openFamilies.has(root.name));
   return sec;
+}
+
+// ---- filters and search over the cards ----
+let filter = 'all';
+let query = '';
+function applyFilters(): void {
+  let shown = 0;
+  for (const card of main.querySelectorAll<HTMLElement & { facts?: FamilyFacts }>('.card')) {
+    const f = card.facts ?? { evolved: false, forks: 0, snaps: 0, calibration: false };
+    const byFilter = filter === 'all' || (filter === 'evolved' && f.evolved) || (filter === 'forks' && f.forks > 0)
+      || (filter === 'snapshots' && f.snaps > 0) || (filter === 'calibration' && f.calibration);
+    const byQuery = !query || (card.dataset.name ?? '').toLowerCase().includes(query);
+    card.hidden = !(byFilter && byQuery);
+    if (!card.hidden) shown += 1;
+  }
+  const count = document.getElementById('sketches-count');
+  const total = main.querySelectorAll('.card').length;
+  if (count) count.textContent = shown === total ? `${total} famil${total === 1 ? 'y' : 'ies'}` : `${shown} of ${total} families`;
 }
 
 async function refresh(): Promise<void> {
@@ -471,8 +525,11 @@ async function refresh(): Promise<void> {
   }));
   const roots = all.filter((s) => s.parent === null || !all.some((p) => p.name === s.parent));
   roots.sort((a, b) => b.mtime - a.mtime);
-  main.className = 'lineage-grid';
+  main.className = 'cards';
   main.replaceChildren(...roots.map((r) => family(r, all, rows, refresh)));
+  const sub = document.getElementById('sketches-sub');
+  if (sub) sub.textContent = `${all.length} sketch${all.length === 1 ? '' : 'es'} · ${hist.reduce((n, h) => n + h.snapshots.length, 0)} snapshots`;
+  applyFilters();
   // Missing thumbnails are regenerated in the background and painted in as
   // they land — snapshots first, newest first, then the sketches' own.
   const targets: ThumbTarget[] = [];
@@ -485,4 +542,17 @@ async function refresh(): Promise<void> {
 }
 
 (window as unknown as Record<string, unknown>).__sketches = { refresh };
+mountShell('sketches');
+document.getElementById('sketches-filter')?.addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest('button[data-filter]') as HTMLButtonElement | null;
+  if (!b) return;
+  filter = b.dataset.filter ?? 'all';
+  for (const o of b.parentElement!.querySelectorAll('button')) o.classList.toggle('on', o === b);
+  applyFilters();
+});
+document.getElementById('sketches-search')?.addEventListener('input', (e) => {
+  query = ((e.target as HTMLInputElement).value ?? '').trim().toLowerCase();
+  applyFilters();
+});
+document.getElementById('sketches-new')?.addEventListener('click', () => openInStudio('', NEW_SKETCH));
 void refresh();

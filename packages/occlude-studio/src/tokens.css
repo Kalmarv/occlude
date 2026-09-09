@@ -1,0 +1,96 @@
+/* occlude — the design system, one place.
+   Four surface steps do the depth; one accent (moss) marks what is on,
+   live, primary or a link; sans for labels and prose, mono for names,
+   values and code. Web Awesome's semantic variables are mapped onto these
+   so its components wear the same skin, and the studio's older names are
+   aliased so every page follows without a rewrite. */
+
+:root,
+.wa-dark {
+  color-scheme: dark;
+
+  /* surfaces, darkest to lightest */
+  --bg: #101215;
+  --panel: #171a1e;
+  --raised: #1e2227;
+  --control: #262b31;
+  --edge: rgba(255, 255, 255, 0.06);
+  --edge-strong: rgba(255, 255, 255, 0.12);
+
+  /* text */
+  --ink: #e7e9ec;
+  --muted: #9aa1aa;
+  --faint: #5f6670;
+
+  /* the one accent, and the paper */
+  --accent: #3ddc84;
+  --on-accent: #0b0c0e;
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  --accent-edge: color-mix(in srgb, var(--accent) 40%, transparent);
+  --paper: #f4f1ea;
+  --warn: #e0b04a;
+  --danger: #ef6b5e;
+  --toolpath: #5b9dff;
+
+  /* type */
+  --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+
+  /* shape */
+  --r-lg: 14px;
+  --r-md: 10px;
+  --r-sm: 7px;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.45);
+
+  /* ---- the studio's older names, aliased ---- */
+  --deck: var(--bg);
+  --panel-edge: var(--edge-strong);
+  --well: var(--control);
+  --bench: #0b0d0f;
+  --ink-dim: var(--muted);
+  --ink-faint: var(--faint);
+  --brass: var(--accent);
+  --brass-dim: var(--accent-edge);
+
+  /* ---- Web Awesome, dressed the same ---- */
+  --wa-color-surface-default: var(--bg);
+  --wa-color-surface-lowered: var(--panel);
+  --wa-color-surface-raised: var(--raised);
+  --wa-color-surface-border: var(--edge-strong);
+  --wa-color-text-normal: var(--ink);
+  --wa-color-text-quiet: var(--muted);
+  --wa-color-text-link: var(--accent);
+  --wa-color-brand-fill-loud: var(--accent);
+  --wa-color-brand-fill-normal: color-mix(in srgb, var(--accent) 28%, var(--panel));
+  --wa-color-brand-fill-quiet: var(--accent-soft);
+  --wa-color-brand-on-loud: var(--on-accent);
+  --wa-color-brand-on-normal: var(--accent);
+  --wa-color-brand-on-quiet: var(--accent);
+  --wa-color-brand-border-loud: var(--accent);
+  --wa-color-brand-border-normal: var(--accent-edge);
+  --wa-color-brand-border-quiet: var(--accent-edge);
+  --wa-color-neutral-fill-loud: #3a4048;
+  --wa-color-neutral-fill-normal: var(--control);
+  --wa-color-neutral-fill-quiet: var(--raised);
+  --wa-color-neutral-on-loud: var(--ink);
+  --wa-color-neutral-on-normal: var(--ink);
+  --wa-color-neutral-on-quiet: var(--ink);
+  --wa-color-neutral-border-loud: var(--edge-strong);
+  --wa-color-neutral-border-normal: var(--edge-strong);
+  --wa-color-neutral-border-quiet: var(--edge);
+  --wa-color-danger-fill-loud: var(--danger);
+  --wa-color-warning-fill-loud: var(--warn);
+  --wa-font-family-body: var(--sans);
+  --wa-font-family-heading: var(--sans);
+  --wa-font-family-longform: var(--sans);
+  --wa-font-family-code: var(--mono);
+  --wa-font-size-m: 13.5px;
+  --wa-font-size-s: 12.5px;
+  --wa-border-radius-s: var(--r-sm);
+  --wa-border-radius-m: var(--r-md);
+  --wa-border-radius-l: var(--r-lg);
+  --wa-focus-ring-color: var(--accent);
+  --wa-shadow-s: var(--shadow-1);
+  --wa-shadow-m: var(--shadow-2);
+}

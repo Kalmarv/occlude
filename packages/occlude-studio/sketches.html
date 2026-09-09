@@ -8,28 +8,31 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
   </head>
-  <body class="docs-body">
-    <header id="topbar">
-      <span class="wordmark">occlude<span class="wordmark-dot">·</span>sketches</span>
-      <div class="topbar-actions">
-        <a class="topbar-link" href="/" rel="noopener">Studio</a>
-        <a class="topbar-link" href="/fills.html" rel="noopener">Fills</a>
-        <a class="topbar-link" href="/assets.html" rel="noopener">Assets</a>
-        <a class="topbar-link" href="/machine.html" rel="noopener">Machine</a>
-        <a class="topbar-link" href="/docs.html" rel="noopener">Docs</a>
+  <body class="shell-body">
+    <aside id="side"></aside>
+    <main id="sketches-main" class="page">
+      <div class="page-head">
+        <div><h1>Sketches</h1><div class="sub" id="sketches-sub"></div></div>
+        <div class="page-actions">
+          <wa-input id="sketches-search" placeholder="Search sketches…" with-clear size="medium"></wa-input>
+          <wa-button id="sketches-new" variant="brand">New sketch</wa-button>
+        </div>
       </div>
-    </header>
-    <main id="sketches-main">
-      <p class="assets-hint">
-        Every save is a dot and time runs up the page. A <b>fork</b> splits off the save it was taken
-        from and climbs its own chain; a <b>snapshot</b> hangs off the save it froze, seed and all,
-        and the current render tops each chain. Click a card to open its family; click a dot or a
-        picture for a preview and its open, fork, and delete buttons.
-      </p>
+      <div class="toolbar">
+        <div class="seg" id="sketches-filter">
+          <button class="on" data-filter="all">All</button>
+          <button data-filter="evolved">Evolved</button>
+          <button data-filter="forks">Forks</button>
+          <button data-filter="snapshots">Snapshots</button>
+          <button data-filter="calibration">Calibration</button>
+        </div>
+        <span class="spacer"></span>
+        <span class="count" id="sketches-count"></span>
+      </div>
       <div id="sketches-families"></div>
     </main>
     <script type="module" src="/src/sketchesPage.ts"></script>
