@@ -1,10 +1,12 @@
 /**
  * The Sketches page: the library as lineages. A family is a root sketch
  * and every fork descended from it, drawn as one upward graph — the root
- * chain starts at the bottom, every save is a dot, time climbs, a fork
- * splits off the save it was taken from into its own chain, a snapshot
- * hangs off the save it froze as a picture to the right, and the current
- * render tops each chain. Clicking a dot or a picture opens a popover
+ * chain starts at the bottom, time climbs, a fork splits off the save it
+ * was taken from into its own chain, snapshots fan off the save they
+ * froze as pictures to the right, and the current render tops each
+ * chain. Only saves with a picture are dots; the plain saves between
+ * them fold into a hairline with a count that opens on click. Clicking
+ * a dot or a picture opens a popover
  * beside it — a larger preview, the details, and open/fork/delete. The
  * server keeps the truth in git; this page only reads it.
  */
@@ -89,7 +91,8 @@ const STUB = 16;       // node → picture elbow
 const PIC_W = 110, PIC_H = 76;      // snapshot picture
 const CUR_W = 130, CUR_H = 90;      // current render, centred above the chain
 const LABEL_H = 54;
-const GAP = 8;         // between stacked pictures
+const GAP = 8;         // between pictures in a fan
+const RUN_H = 30;      // a folded run of plain saves
 const PAD_T = 12, PAD_B = 18, PAD_R = 24;
 
 /** Root first, then each fork under its parent (oldest fork first). */
@@ -133,13 +136,19 @@ function snapshotAnchor(row: Row, s: Snapshot): Commit | undefined {
   return [...row.commits].reverse().find((c) => c.time <= at) ?? row.commits[row.commits.length - 1];
 }
 
-function lineage(rows: Row[], pick: (s: Selection, anchor: Element) => void): HTMLElement {
-  // One time axis for the family: every save of every member, oldest at
-  // the bottom. Coordinates are computed y-up and flipped at the end.
-  const all = rows.flatMap((r) => r.commits.map((c) => ({ row: r, c })));
-  all.sort((a, b) => a.c.time - b.c.time || a.c.sha.localeCompare(b.c.sha));
-  const laneX = (row: Row): number => X0 + rows.indexOf(row) * LANE;
-  // Which save each snapshot hangs off, per chain.
+/** Runs of plain saves the user has opened up into dots, keyed by
+ * `name:firstSha`. Page state; a refresh keeps it. */
+const expandedRuns = new Set<string>();
+
+type Item =
+  | { kind: 'commit'; row: Row; c: Commit; time: number; plain: boolean; run?: string }
+  | { kind: 'run'; row: Row; key: string; commits: Commit[]; time: number };
+
+function lineage(rows: Row[], pick: (s: Selection, anchor: Element) => void, rerender: () => void): HTMLElement {
+  // Only pictures are nodes: a save with a snapshot hanging off it, the
+  // head under its current render, the save a fork left from, and the
+  // fork's own first save. The plain saves between them fold into a
+  // hairline with a count, which opens into dots on demand.
   const anchored = new Map<Row, Map<string, Snapshot[]>>();
   for (const row of rows) {
     const bySha = new Map<string, Snapshot[]>();
@@ -149,123 +158,174 @@ function lineage(rows: Row[], pick: (s: Selection, anchor: Element) => void): HT
     }
     anchored.set(row, bySha);
   }
-  // A save's row is as tall as the pictures hanging off it, so pictures
-  // sit level with their save instead of piling up the gutter.
+  const forkOrigins = new Set<string>();
+  for (const row of rows) {
+    const parent = rows.find((r) => r.info.name === row.info.parent);
+    if (!parent || row.commits.length === 0) continue;
+    const from = forkPoint(row, parent);
+    if (from) forkOrigins.add(from.sha);
+  }
+  const kept = (row: Row, c: Commit): boolean =>
+    c === row.commits[0] || c === row.commits[row.commits.length - 1] ||
+    (anchored.get(row)?.get(c.sha)?.length ?? 0) > 0 || forkOrigins.has(c.sha) || /^fork /.test(c.subject);
+
+  // Each chain as a sequence of items, oldest first.
+  const items: Item[] = [];
+  for (const row of rows) {
+    let run: Commit[] = [];
+    const flush = (): void => {
+      if (run.length === 0) return;
+      const key = `${row.info.name}:${run[0].sha}`;
+      if (expandedRuns.has(key)) {
+        for (const c of run) items.push({ kind: 'commit', row, c, time: c.time, plain: true, run: key });
+      } else {
+        items.push({ kind: 'run', row, key, commits: run, time: run[0].time });
+      }
+      run = [];
+    };
+    for (const c of row.commits) {
+      if (kept(row, c)) { flush(); items.push({ kind: 'commit', row, c, time: c.time, plain: false }); }
+      else run.push(c);
+    }
+    flush();
+  }
+  // One time axis for the family, y-up, flipped at the end.
+  items.sort((a, b) => a.time - b.time || (a.kind === 'commit' ? a.c.sha : a.key).localeCompare(b.kind === 'commit' ? b.c.sha : b.key));
   const yUpOf = new Map<string, number>();
   let cursor = PAD_B;
-  for (const e of all) {
-    yUpOf.set(e.c.sha, cursor);
-    const n = anchored.get(e.row)?.get(e.c.sha)?.length ?? 0;
-    const isHead = e.row.commits[e.row.commits.length - 1] === e.c;
-    cursor += Math.max(ROW, n * (PIC_H + GAP) + (isHead ? CUR_H + GAP + LABEL_H : 0));
+  for (const it of items) {
+    if (it.kind === 'run') { yUpOf.set(it.key, cursor + RUN_H / 2); cursor += RUN_H; continue; }
+    const n = anchored.get(it.row)?.get(it.c.sha)?.length ?? 0;
+    const isHead = it.row.commits[it.row.commits.length - 1] === it.c;
+    // A fanned save sits in the middle of its pictures' height, so the
+    // fan never reaches into the neighbours' rows.
+    const band = n > 0 ? PIC_H + GAP : ROW;
+    yUpOf.set(it.c.sha, cursor + (n > 0 ? band / 2 : 0));
+    cursor += band + (isHead ? CUR_H + GAP + LABEL_H : 0);
   }
-
-  interface Pic { row: Row; x: number; bottom: number; w: number; h: number; node: Commit; snap?: Snapshot }
-  const pics: Pic[] = [];
-  let top = 0;
-  for (const row of rows) {
-    if (row.commits.length === 0) continue;
-    // Pictures stack up the lane's gutter: each sits level with its save
-    // unless the one below is in the way, then it rides above it.
-    let ceiling = -Infinity;
-    const place = (node: Commit, w: number, h: number, snap?: Snapshot): void => {
-      // Snapshots hang level with their save in the gutter; the current
-      // render caps the chain, centred above the last save and clear of
-      // any fork curving off it.
-      const bottom = snap
-        ? Math.max(yUpOf.get(node.sha)! - h / 2, ceiling + GAP)
-        : Math.max(yUpOf.get(node.sha)! + 14, ceiling + GAP);
-      ceiling = bottom + h;
-      pics.push({ row, x: snap ? laneX(row) + STUB + 10 : laneX(row) - w / 2, bottom, w, h, node, snap });
-    };
-    const bySha = anchored.get(row)!;
-    for (const c of row.commits) {
-      const snaps = (bySha.get(c.sha) ?? []).sort((a, b) => a.id.localeCompare(b.id));
-      for (const s of snaps) place(c, PIC_W, PIC_H, s);
-    }
-    const head = row.commits[row.commits.length - 1];
-    place(head, CUR_W, CUR_H);
-    top = Math.max(top, ceiling + LABEL_H);
-  }
-  const H = top + PAD_T;
-  const W = X0 + rows.length * LANE + PAD_R;
+  const H = cursor + PAD_T;
   const Y = (yUp: number): number => H - yUp;
-
+  // Lanes: each chain is as wide as its widest fan of pictures.
+  const laneXs: number[] = [];
+  let x = X0;
+  for (const row of rows) {
+    laneXs.push(x);
+    const fan = Math.max(0, ...[...(anchored.get(row)?.values() ?? [])].map((v) => v.length));
+    x += Math.max(LANE, STUB + 10 + fan * (PIC_W + GAP) + 40);
+  }
+  const laneX = (row: Row): number => laneXs[rows.indexOf(row)];
+  const W = x + PAD_R;
   const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H }, 'lineage') as SVGSVGElement;
 
-  // Chains.
+  // Rails: solid between nodes, a hairline through a folded run.
   for (const row of rows) {
-    if (row.commits.length === 0) continue;
-    const x = laneX(row);
-    const y1 = Y(yUpOf.get(row.commits[0].sha)!), y2 = Y(yUpOf.get(row.commits[row.commits.length - 1].sha)!);
-    svg.append(svgEl('line', { x1: x, x2: x, y1, y2 }, 'lineage-rail'));
+    const mine = items.filter((it) => it.row === row);
+    const yOf = (it: Item): number => Y(yUpOf.get(it.kind === 'run' ? it.key : it.c.sha)!);
+    for (let i = 1; i < mine.length; i++) {
+      const a = mine[i - 1], b = mine[i];
+      const thin = a.kind === 'run' || b.kind === 'run';
+      svg.append(svgEl('line', { x1: laneX(row), x2: laneX(row), y1: yOf(a), y2: yOf(b) }, thin ? 'lineage-rail thin' : 'lineage-rail'));
+    }
   }
   // Fork connectors: from the parent's save up and over to the fork's first save.
   for (const row of rows) {
     const parent = rows.find((r) => r.info.name === row.info.parent);
     if (!parent || row.commits.length === 0) continue;
     const from = forkPoint(row, parent);
-    if (!from) continue;
+    if (!from || !yUpOf.has(from.sha)) continue;
     const x1 = laneX(parent), y1 = Y(yUpOf.get(from.sha)!);
     const x2 = laneX(row), y2 = Y(yUpOf.get(row.commits[0].sha)!);
     const my = (y1 + y2) / 2;
     svg.append(svgEl('path', { d: `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}` }, 'lineage-fork'));
   }
-  // Pictures with their elbows.
-  for (const p of pics) {
-    const nx = laneX(p.row), ny = Y(yUpOf.get(p.node.sha)!);
-    const py = Y(p.bottom + p.h / 2);
-    svg.append(p.snap
-      ? svgEl('path', { d: `M ${nx} ${ny} H ${nx + STUB / 2} V ${py} H ${p.x}` }, 'lineage-stub')
-      : svgEl('path', { d: `M ${nx} ${ny} V ${Y(p.bottom)}` }, 'lineage-stub current'));
-    const g = svgEl('g', {}, 'lineage-pic' + (p.snap ? '' : ' current'));
-    const sel: Selection = p.snap ? { kind: 'snapshot', row: p.row, snapshot: p.snap } : { kind: 'current', row: p.row };
-    g.append(svgEl('rect', { x: p.x, y: Y(p.bottom + p.h), width: p.w, height: p.h, rx: 3 }, 'lineage-paper'));
-    const img = svgEl('image', {
-      x: p.x + 2, y: Y(p.bottom + p.h) + 2, width: p.w - 4, height: p.h - 4,
-      href: `${thumbUrl(p.row.info.name, p.snap?.id)}?t=${Date.now()}`, preserveAspectRatio: 'xMidYMid meet',
-    });
-    g.append(img);
-    g.append(svgEl('rect', { x: p.x, y: Y(p.bottom + p.h), width: p.w, height: p.h, rx: 3 }, 'lineage-frame'));
+  // Pictures: a fan of snapshots level with their save, and the current
+  // render capping each chain above its head.
+  const picture = (row: Row, px: number, py: number, w: number, h: number, snap?: Snapshot): void => {
+    const g = svgEl('g', {}, 'lineage-pic' + (snap ? '' : ' current'));
+    const sel: Selection = snap ? { kind: 'snapshot', row, snapshot: snap } : { kind: 'current', row };
+    g.append(svgEl('rect', { x: px, y: py, width: w, height: h, rx: 4 }, 'lineage-paper'));
+    g.append(svgEl('image', {
+      x: px + 2, y: py + 2, width: w - 4, height: h - 4,
+      href: `${thumbUrl(row.info.name, snap?.id)}?t=${Date.now()}`, preserveAspectRatio: 'xMidYMid meet',
+    }));
+    g.append(svgEl('rect', { x: px, y: py, width: w, height: h, rx: 4 }, 'lineage-frame'));
     const title = svgEl('title', {});
-    if (p.snap) {
-      const s = p.snap;
-      title.textContent = `snapshot · ${s.meta.label || 'seed ' + (s.meta.seed ?? '—')} · ${s.meta.at ? when(Date.parse(s.meta.at)) : s.id}`;
-      if (s.meta.label) {
-        const cap = svgEl('text', { x: p.x + 5, y: Y(p.bottom) - 5 }, 'lineage-cap');
-        cap.textContent = s.meta.label;
+    if (snap) {
+      title.textContent = `snapshot · ${snap.meta.label || 'seed ' + (snap.meta.seed ?? '—')} · ${snap.meta.at ? when(Date.parse(snap.meta.at)) : snap.id}`;
+      if (snap.meta.label) {
+        const cap = svgEl('text', { x: px + 5, y: py + h - 5 }, 'lineage-cap');
+        cap.textContent = snap.meta.label;
         g.append(cap);
       }
     } else {
-      title.textContent = `${p.row.info.name} · current`;
+      title.textContent = `${row.info.name} · current`;
     }
     g.addEventListener('click', (e) => { e.stopPropagation(); pick(sel, g); });
     g.append(title);
     svg.append(g);
-  }
-  // Dots on top of everything.
-  for (const row of rows) {
-    const x = laneX(row);
-    const head = row.commits[row.commits.length - 1];
-    for (const c of row.commits) {
-      const y = Y(yUpOf.get(c.sha)!);
-      const isFork = /^fork /.test(c.subject);
-      const sel: Selection = { kind: 'commit', row, commit: c };
-      const g = svgEl('g', {}, 'lineage-commit');
-      const title = svgEl('title', {});
-      title.textContent = `${c.sha} · ${when(c.time)} · ${c.subject}`;
-      g.append(title, svgEl('circle', { cx: x, cy: y, r: 10 }, 'lineage-hit'));
-      g.append(svgEl('circle', { cx: x, cy: y, r: c === head ? 5.5 : 3.5 },
-        `lineage-dot${isFork ? ' fork' : ''}${c === head ? ' head' : ''}`));
-      g.addEventListener('click', (e) => { e.stopPropagation(); pick(sel, g); });
-      svg.append(g);
+  };
+  const curTop = new Map<Row, { x: number; y: number }>();
+  for (const it of items) {
+    if (it.kind !== 'commit') continue;
+    const nx = laneX(it.row), ny = Y(yUpOf.get(it.c.sha)!);
+    const snaps = (anchored.get(it.row)?.get(it.c.sha) ?? []).sort((a, b) => a.id.localeCompare(b.id));
+    if (snaps.length) {
+      const x0 = nx + STUB + 10;
+      const xEnd = x0 + (snaps.length - 1) * (PIC_W + GAP);
+      svg.append(svgEl('path', { d: `M ${nx} ${ny} H ${xEnd}` }, 'lineage-stub'));
+      snaps.forEach((snap, i) => picture(it.row, x0 + i * (PIC_W + GAP), ny - PIC_H / 2, PIC_W, PIC_H, snap));
+    }
+    const isHead = it.row.commits[it.row.commits.length - 1] === it.c;
+    if (isHead) {
+      const lift = snaps.length ? PIC_H / 2 + GAP : 14;
+      const bottom = yUpOf.get(it.c.sha)! + lift;
+      svg.append(svgEl('path', { d: `M ${nx} ${ny} V ${Y(bottom)}` }, 'lineage-stub current'));
+      picture(it.row, nx - CUR_W / 2, Y(bottom + CUR_H), CUR_W, CUR_H);
+      curTop.set(it.row, { x: nx - CUR_W / 2, y: Y(bottom + CUR_H + LABEL_H) });
     }
   }
-  // Labels: name, counts, and actions above each chain's current render.
+  // Dots on the nodes, and the folded runs' counts.
+  for (const it of items) {
+    const x = laneX(it.row);
+    if (it.kind === 'run') {
+      const y = Y(yUpOf.get(it.key)!);
+      const g = svgEl('g', {}, 'lineage-run');
+      const n = it.commits.length;
+      const t = svgEl('text', { x: x + 12, y: y + 4 }, 'lineage-run-label');
+      t.textContent = `${n} save${n === 1 ? '' : 's'}`;
+      const title = svgEl('title', {});
+      title.textContent = `${when(it.commits[0].time)} – ${when(it.commits[n - 1].time)} · click to show each save`;
+      g.append(svgEl('rect', { x: x - 10, y: y - RUN_H / 2, width: 90, height: RUN_H }, 'lineage-hit'), t, title);
+      g.addEventListener('click', (e) => { e.stopPropagation(); expandedRuns.add(it.key); rerender(); });
+      svg.append(g);
+      continue;
+    }
+    const c = it.c, row = it.row;
+    const y = Y(yUpOf.get(c.sha)!);
+    const head = row.commits[row.commits.length - 1];
+    const isFork = /^fork /.test(c.subject);
+    const sel: Selection = { kind: 'commit', row, commit: c };
+    const g = svgEl('g', {}, 'lineage-commit');
+    const title = svgEl('title', {});
+    title.textContent = `${c.sha} · ${when(c.time)} · ${c.subject}`;
+    g.append(title, svgEl('circle', { cx: x, cy: y, r: 10 }, 'lineage-hit'));
+    g.append(svgEl('circle', { cx: x, cy: y, r: c === head ? 5.5 : it.plain ? 2.5 : 4 },
+      `lineage-dot${isFork ? ' fork' : ''}${c === head ? ' head' : ''}${it.plain ? ' plain' : ''}`));
+    g.addEventListener('click', (e) => { e.stopPropagation(); pick(sel, g); });
+    svg.append(g);
+    // The first dot of an opened run carries the fold.
+    if (it.run && items.find((o) => o.kind === 'commit' && o.run === it.run) === it) {
+      const f = svgEl('text', { x: x + 12, y: y + 4 }, 'lineage-run-label');
+      f.textContent = 'fold';
+      f.addEventListener('click', (e) => { e.stopPropagation(); expandedRuns.delete(it.run!); rerender(); });
+      svg.append(f);
+    }
+  }
+  // Labels: name and counts above each chain's current render.
   for (const row of rows) {
-    const cur = pics.find((p) => p.row === row && !p.snap);
-    if (!cur) continue;
-    const fo = svgEl('foreignObject', { x: cur.x, y: Y(cur.bottom + cur.h + LABEL_H), width: LANE - 20, height: LABEL_H });
+    const at = curTop.get(row);
+    if (!at) continue;
+    const fo = svgEl('foreignObject', { x: at.x, y: at.y, width: LANE - 20, height: LABEL_H });
     const box = el('div', 'lineage-label');
     box.append(el('div', 'lineage-name', row.info.name));
     const n = row.commits.length, k = row.snapshots.length;
@@ -476,7 +536,7 @@ function family(root: SketchInfo, all: SketchInfo[], rows: Row[], refresh: () =>
         gal.addEventListener('click', (e) => { e.stopPropagation(); openGallery({ shots: allSnaps, scope: root.name }); });
         graph.append(gal);
       }
-      graph.append(lineage(ordered, (sel, anchor) => openPopover(sel, anchor, refresh)));
+      graph.append(lineage(ordered, (sel, anchor) => openPopover(sel, anchor, refresh), () => setOpen(true)));
       sec.append(graph);
     }
   };

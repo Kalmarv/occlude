@@ -977,8 +977,35 @@ body.dropping {
 }
 
 .lineage-rail {
-  stroke: var(--ink-dim);
+  stroke: var(--edge-strong);
   stroke-width: 2;
+}
+
+.lineage-rail.thin {
+  stroke: var(--edge);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.lineage-run {
+  cursor: pointer;
+}
+
+.lineage-run-label {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  fill: var(--faint);
+  cursor: pointer;
+  user-select: none;
+}
+
+.lineage-run:hover .lineage-run-label,
+.lineage-run-label:hover {
+  fill: var(--ink);
+}
+
+.lineage-dot.plain {
+  fill: var(--edge-strong);
 }
 
 .lineage-fork {
