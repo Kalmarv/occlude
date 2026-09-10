@@ -315,7 +315,7 @@ const BOUND_LOOPS = new WeakMap<ShapeValue, { sig: string; idx: LoopIndex }>();
  * Built once per bound AND frame, not once per sample: the loop index, the
  * length resolution and the winding rule are fixed for a given bound, and a
  * bounded field is asked millions of times. */
-export function containsTest(shape: ShapeValue): (x: number, y: number) => boolean {
+function containsTest(shape: ShapeValue): (x: number, y: number) => boolean {
   const frame = sketchFrame();
   const sig = `${frame.origin}|${String(frame.yUp)}|${frame.rectMode}|${frame.inner.innerW},${frame.inner.innerH}`;
   let prepared = BOUND_LOOPS.get(shape);

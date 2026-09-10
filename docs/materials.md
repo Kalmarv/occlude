@@ -941,6 +941,8 @@ A cut vertex takes its columns by the column's declared policy — `'interpolate
 
 `area` is anything an area consumer takes: a shape (lowered here, so it agrees with what the shape inks), a face, loops, a chain material or a selection.
 
+`within` reads the **fill** of the area, not its contours. A shape's own rule decides what is filled: under `'nonzero'`, an interior contour — a nested loop wound the same way — has fill on both sides and is not a boundary at all, so a point on it is inside, a material edge along it is not cut, and a face may cross or enclose it. A genuine hole, or an exterior edge, is a boundary: a point or a run lying along it is out, and a face whose interior covers one is refused. Loops and faces carry no rule of their own and read even-odd.
+
 Keeping points inside an area has its own option on the point operations: `bounds` is the numeric envelope a raster needs, `within` is the area. For a rectangle the two are the same run; for anything else — a disc, a face, a traced contour — the operation works over the area's box and the result is trimmed to the area, so counts near a curved boundary thin out. A disc of evenly spaced dots, with nothing outside it:
 
 ```ts live

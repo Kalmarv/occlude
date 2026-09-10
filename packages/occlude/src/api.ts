@@ -53,8 +53,9 @@ import { voronoi } from './voronoi.js';
 import { distanceTo } from './distance.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
-  vectorField as vectorFieldMark, within as withinField, containsTest,
+  vectorField as vectorFieldMark, within as withinField,
 } from './field.js';
+import { areaFill, interiorPoint } from './area.js';
 import { ui } from './ui.js';
 import { h, long, mm, s, w, resolveLen, Len, type L } from './units.js';
 import { synth } from './synth.js';
@@ -339,33 +340,18 @@ export function withinAny(
     throw new Error(`within: faces must be 'contained' or 'centroid', got '${String(opts.faces)}'`);
   }
   const loops = numericAreaLoops(area, 'within');
-  // Insideness: loops and faces are even-odd, as `distanceTo` documents, but a
-  // shape area carries its OWN rule — the one lowerer, exactly as the field
-  // bound reads it — and a path's `nonzero` can say "inside" where even-odd
-  // says "in a hole". Winding only ever ADDS insideness, so it is a union over
-  // the signed field, and the field's own reading of the boundary (zero, which
-  // a material cuts at and a face keeps a wall along) is untouched.
-  const sdf = distanceTo(loops);
+  // The FILLED REGION, not the contours: under a nonzero rule an interior
+  // contour has fill on both sides and is not a boundary at all, so points on
+  // it are inside, material along it is not cut, and a face may cross or
+  // enclose it. A shape area brings its own rule; loops and faces carry none
+  // and read even-odd, exactly as `distanceTo` documents.
   const shapeArea = isShapeValue(area) ? area : null;
-  // Only a `nonzero` path can disagree with the loop field: a single loop, a
-  // rect, an ellipse or an even-odd path all read the same either way, so they
-  // keep the field's own answer exactly. Where the rules CAN differ — a
-  // `nonzero` path's interior loops — the shape's own test is a union over it.
-  const rule = shapeArea && shapeArea.geom.kind === 'path' ? shapeArea.geom.winding : undefined;
-  const contains = rule === 'nonzero' && shapeArea ? containsTest(shapeArea) : null;
-  const inside = contains
-    ? (px: number, py: number): number => {
-        const d = sdf(px, py);
-        // Strictly outside by the loops, but the shape's own rule says inside
-        // (a `nonzero` interior loop): the winding ADDS insideness and nothing
-        // else. A point the field reads as ON the boundary (d === 0) keeps that
-        // reading — a material cuts there and a face keeps a wall along it.
-        return d > 0 ? 1 : d < 0 && contains(px, py) ? 1 : d;
-      }
-    : sdf;
+  const rule = shapeArea && shapeArea.geom.kind === 'path' ? shapeArea.geom.winding : 'evenodd';
+  const fill = areaFill(loops, rule);
+  const inside = fill.at;
   if (x instanceof Material) {
     if (opts.faces !== undefined) throw new Error("within: 'faces' is for a face collection — a material is cut at the boundary");
-    return withinMaterial(x, loops, { ...opts, inside });
+    return withinMaterial(x, loops, { ...opts, inside, crossings: fill.crossings });
   }
   if (x instanceof PointSelection) return x.filter((p) => inside(p.x, p.y) > 0);
   const faces: Faces | FaceSelection = x;
@@ -391,18 +377,26 @@ export function withinAny(
         const p = c.pts[k];
         if (!(inside(p[0], p[1]) >= 0)) return false;
         const q = c.pts[(k + 1) % c.pts.length];
-        if (loopCrossings(loops, p[0], p[1], q[0], q[1]).length > 0) return false;
+        // Only a REAL boundary stops a face: an interior contour may be crossed
+        // freely, since the fill is on both of its sides.
+        if (fill.crossings(p[0], p[1], q[0], q[1]).length > 0) return false;
       }
     }
-    // Every vertex inside and no edge crossing still leaves the reverse case:
-    // an area loop — a container hole, or an island — lying strictly inside
-    // the face, whose excluded space the face would cover. The face's own
-    // contours say what is inside IT (its own holes are holes), and a loop
-    // running ALONG the face's edge is on the boundary, not in it, so a wall
-    // the face shares with the area passes.
+    // A face must also have somewhere of its own inside the fill: a wall it
+    // shares with the boundary says nothing by itself, and the same walls bound
+    // the annulus and the hole it encloses.
+    const probe = interiorPoint(f.contours.map((c) => c.pts));
+    if (probe && !(inside(probe[0], probe[1]) > 0)) return false;
+    // Every vertex inside and no edge crossing still leaves the reverse case: a
+    // real boundary — a hole, or an island — lying strictly inside the face,
+    // whose excluded space the face would cover. Each real segment is tested at
+    // its ends and its middle; the face's own contours say what is inside IT,
+    // so a wall the face shares with the boundary is ON it, not in it, and
+    // passes.
     const faceInside = distanceTo(f.contours);
-    for (const loop of loops) {
-      for (const [px, py] of loop) if (faceInside(px, py) > 0) return false;
+    for (const s of fill.boundary) {
+      const [ax, ay, bx, by] = s;
+      if (faceInside(ax, ay) > 0 || faceInside(bx, by) > 0 || faceInside((ax + bx) / 2, (ay + by) / 2) > 0) return false;
     }
     return true;
   };

@@ -1195,14 +1195,21 @@ export function loopCrossings(
 export function withinMaterial(
   m: Material,
   area: Boundary,
-  opts: { transfer?: Record<string, Transfer>; inside?: (x: number, y: number) => number } = {},
+  opts: {
+    transfer?: Record<string, Transfer>;
+    inside?: (x: number, y: number) => number;
+    crossings?: (ax: number, ay: number, bx: number, by: number) => { t: number; x: number; y: number }[];
+  } = {},
 ): Material {
   const loops = numericLoops(area, 'within');
-  // The caller may bring its own insideness — `within` does, for a shape area,
-  // whose own winding rule is not `distanceTo`'s even-odd. Same convention
-  // either way: positive inside, zero on the boundary (which counts as
-  // OUTSIDE here, the rule the engine's clip uses), negative outside.
+  // The caller may bring its own insideness and its own crossing set — `within`
+  // does, for an area whose real boundary is not its loops (an interior contour
+  // under a nonzero rule is not a boundary at all; see area.ts). Same
+  // conventions either way: positive inside, zero on the boundary (which counts
+  // as OUTSIDE here, the rule the engine's clip uses), negative outside.
   const inside = opts.inside ?? distanceTo(loops);
+  const crossings = opts.crossings
+    ?? ((ax: number, ay: number, bx: number, by: number) => loopCrossings(loops, ax, ay, bx, by));
   const names = m.attrNames;
   const transfer: Record<string, Transfer> = { ...m.transfers, ...(opts.transfer ?? {}) };
   const enames = m.edgeAttrNames;
@@ -1254,7 +1261,7 @@ export function withinMaterial(
   for (let e = 0; e < m.edgeCount; e++) {
     const a = m.edgeList[2 * e];
     const b = m.edgeList[2 * e + 1];
-    const cuts = loopCrossings(loops, m.x[a], m.y[a], m.x[b], m.y[b]);
+    const cuts = crossings(m.x[a], m.y[a], m.x[b], m.y[b]);
     const marks: { t: number; x: number; y: number }[] = [
       { t: 0, x: m.x[a], y: m.y[a] },
       ...cuts,

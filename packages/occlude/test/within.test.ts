@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import {
   append, circle, clip, compileSketch, initOcclude, material, path, polygon, rect, render,
   setPaperHint, sketch, within,
-  type Face, type Material, type PointSelection, type SketchDef, type ShapeValue, type Toolkit, type XY,
+  type Face, type Faces, type Material, type PointSelection, type SketchDef, type ShapeValue, type Toolkit, type XY,
 } from '../src/index.js';
 import type { Loop } from '../src/boundary.js';
 import { scatterPoints } from '../src/points.js';
@@ -267,6 +267,106 @@ describe('within: the point operations', () => {
     const env = { rnd: () => 0.5, bounds: { x: 0, y: 0, w: 100, h: 100 }, len: () => 5 };
     expect(() => scatterPoints(env, undefined, { spacing: 5, within: circle(50, 50, 20) }))
       .toThrow(/lowered by the toolkit/);
+  });
+});
+
+describe('within: the filled region, not the contours', () => {
+  /** The task's area: a square with a concentric inner square, both wound the
+   * same way (`nonzero` says solid, `evenodd` says ring). */
+  const nested = (opts: { inner?: 'same' | 'reversed'; winding?: 'nonzero' | 'evenodd' } = {}): ShapeValue => {
+    const { inner = 'same', winding = 'nonzero' } = opts;
+    const b = path({ winding })
+      .moveTo(10, 10).lineTo(90, 10).lineTo(90, 90).lineTo(10, 90).close();
+    return (inner === 'same'
+      ? b.moveTo(40, 40).lineTo(60, 40).lineTo(60, 60).lineTo(40, 60)
+      : b.moveTo(40, 40).lineTo(40, 60).lineTo(60, 60).lineTo(60, 40))
+      .close().build();
+  };
+
+  const rectFace = (x0: number, y0: number, x1: number, y1: number): Faces =>
+    material([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
+      .planarize().faces();
+
+  it('counts a point on an interior contour as inside, for a material and a selection', () => {
+    let vertices = -1;
+    let selected = -1;
+    run((t) => {
+      const area = nested();
+      // [50, 40] lies ON the inner contour. Under nonzero the space on both
+      // sides of that contour is filled, so it is not a boundary at all.
+      vertices = t.within(material([[50, 40], [20, 20]]), area).n;
+      selected = t.within(material([[50, 40], [20, 20]]).points, area).length;
+    });
+    expect(vertices).toBe(2);
+    expect(selected).toBe(2);
+  });
+
+  it('keeps an edge lying along an interior contour, whole', () => {
+    let pts = '';
+    let edges = 0;
+    run((t) => {
+      const kept = t.within(chord(45, 40, 55, 40), nested());
+      pts = pointsOf(kept);
+      edges = kept.edgeCount;
+    });
+    expect(edges).toBe(1);
+    expect(pts).toBe('45,40 55,40'); // not clipped, not dropped
+  });
+
+  it('keeps faces that enclose or cross an interior contour', () => {
+    let enclosing = 0;
+    let crossing = 0;
+    run((t) => {
+      enclosing = t.within(rectFace(20, 20, 80, 80), nested()).length;
+      crossing = t.within(rectFace(30, 45, 50, 55), nested()).length;
+    });
+    expect(enclosing).toBe(1);
+    expect(crossing).toBe(1);
+  });
+
+  it('still treats the inner region as a real hole when the rule says so', () => {
+    let evenoddFaces = 0;
+    let reversedFaces = 0;
+    let evenoddSpan = 0;
+    let reversedSpan = 0;
+    run((t) => {
+      const ring = nested({ winding: 'evenodd' });
+      const reversed = nested({ inner: 'reversed' });
+      evenoddFaces = t.within(rectFace(20, 20, 80, 80), ring).length;
+      reversedFaces = t.within(rectFace(20, 20, 80, 80), reversed).length;
+      for (const [area, which] of [[ring, 'e'], [reversed, 'r']] as const) {
+        const kept = t.within(chord(-50, 50, 150, 50), area);
+        let mm = 0;
+        for (let e = 0; e < kept.edgeCount; e++) {
+          const [a, b] = [kept.edgeList[2 * e], kept.edgeList[2 * e + 1]];
+          mm += Math.abs(kept.pts[b][0] - kept.pts[a][0]);
+        }
+        if (which === 'e') evenoddSpan = mm; else reversedSpan = mm;
+      }
+    });
+    expect(evenoddFaces).toBe(0); // the face covers the hole
+    expect(reversedFaces).toBe(0);
+    expect(evenoddSpan).toBeCloseTo(60, 6); // 10…40 and 60…90
+    expect(reversedSpan).toBeCloseTo(60, 6);
+  });
+
+  it('keeps an annular face that shares the genuine hole boundary', () => {
+    let kept = 0;
+    let contours = 0;
+    run((t) => {
+      const area = nested({ winding: 'evenodd' });
+      const outer = [[10, 10], [90, 10], [90, 90], [10, 90]] as XY[];
+      const holePts = [[40, 40], [60, 40], [60, 60], [40, 60]] as XY[];
+      const ring = append(
+        material(outer, { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] }),
+        material(holePts, { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] }),
+      ).planarize().faces();
+      const faces = [...t.within(ring, area, { faces: 'contained' })];
+      kept = faces.length;
+      contours = faces[0]?.contours.length ?? 0;
+    });
+    expect(kept).toBe(1); // its wall runs along the hole, not across it
+    expect(contours).toBe(2); // outer + hole
   });
 });
 
