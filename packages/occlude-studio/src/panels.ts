@@ -953,16 +953,18 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     }
   });
   frameBtn.title = 'Frame — trace the plan’s bounding box pen-up from the paper origin — see where the piece lands before committing ink';
-  // Registration marks: a ✕ on the plan's near and far corner, drawn with
-  // the selected pen. Between pens: marks, tape, swap, marks again — the
-  // crosses coincide iff the new pen sits where the old one did.
-  const marksBtn = iconButton('marks', 'Marks — draw registration crosses at the corners', async () => {
+  // Registration corners: a right angle at the sheet's top-left and another
+  // at its bottom-right, drawn with the selected pen. Between pens: marks,
+  // tape, swap, marks again — the brackets coincide iff the new pen sits
+  // where the old one did, and the pair traces the sheet's bounds.
+  const marksBtn = iconButton('marks', 'Marks — draw a right angle at the sheet’s top-left and bottom-right', async () => {
     if (!ebb.connected || ebb.plotting) return;
     const r = hooks.lastResult();
     if (!r) return;
     try {
-      const flat = await hooks.drawing.plotToolpath(Math.max(0.0001, prof().machine.resolution));
-      const bb = chainsBounds(flat);
+      // The sheet in paper mm: the diagnostic is plotted with the paper offset,
+      // so (0,0) is the sheet's own corner.
+      const bb = { x: 0, y: 0, w: r.paper.w, h: r.paper.h };
       const raw = parseInt(penSelect.value, 10);
       const chosen = raw >= 0 ? r.pens[raw] : r.pens[0];
       const pen = chosen ? hooks.pens.find((p) => p.name === chosen.name) ?? chosen : undefined;
@@ -972,7 +974,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       showErr(e);
     }
   });
-  marksBtn.title = 'Marks — draw a small ✕ on the plan’s near and far corners with the selected pen. Before a pen change: marks, tape over them, swap pens, marks again — line the crosses up and the pens are registered.';
+  marksBtn.title = 'Marks — draw a right angle at the sheet’s top-left and bottom-right with the selected pen, the legs running inward so the pair traces the sheet’s bounds. Before a pen change: marks, tape over them, swap pens, marks again — line the brackets up and the pens are registered.';
 
   const resumeBtn = button('Resume', async () => {
     if (!ebb.connected || ebb.plotting || !saved) return;

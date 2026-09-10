@@ -126,21 +126,23 @@ export function registrationProbe(base?: PenDef): Diagnostic {
 }
 
 /**
- * Registration marks for a pen change: a small ✕ centred on the plan's
- * near corner and another on its far corner, in plan (paper) coordinates
- * so the driver places them with the paper offset like the plot itself.
- * Draw them with the first pen, tape over, swap, draw again with the next:
- * the crosses coincide iff the new pen sits where the old one did. Each
- * arm is `size` mm.
+ * Registration corners for a pen change: one right angle at the sheet's
+ * (0,0) and one at its bottom-right, each leg `size` mm inward along the
+ * sheet's edges — the pair shows the sheet's bounds as well as the pen's
+ * registration. In plan (paper) coordinates, so the driver places them with
+ * the paper offset like the plot itself. Draw them with the first pen, tape
+ * over, swap, draw again with the next: the two brackets coincide iff the
+ * new pen sits where the old one did.
  */
 export function registrationMarks(base: PenDef | undefined, bb: { x: number; y: number; w: number; h: number }, size = 4): Diagnostic {
-  const chains: Chain[] = [];
-  const cross = (cx: number, cy: number): void => {
-    chains.push({ pen: 0, pts: [[cx - size, cy - size], [cx + size, cy + size]] });
-    chains.push({ pen: 0, pts: [[cx - size, cy + size], [cx + size, cy - size]] });
-  };
-  cross(bb.x, bb.y);
-  cross(bb.x + bb.w, bb.y + bb.h);
+  const chains: Chain[] = [
+    // A right angle THROUGH the corner: the vertex is the sheet's corner, the
+    // legs run inward, so the mark reads as the page bound and not as a mark
+    // beside it. Top-left: down the left edge, then along the top.
+    { pen: 0, pts: [[bb.x, bb.y + size], [bb.x, bb.y], [bb.x + size, bb.y]] },
+    // Bottom-right: up the right edge, then along the bottom.
+    { pen: 0, pts: [[bb.x + bb.w, bb.y + bb.h - size], [bb.x + bb.w, bb.y + bb.h], [bb.x + bb.w - size, bb.y + bb.h]] },
+  ];
   return { plan: encode(chains), pens: [pen('marks', base?.feed ?? 3000, base)] };
 }
 

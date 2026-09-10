@@ -165,16 +165,23 @@ describe('lift traverse', () => {
     }
   });
 
-  test('registration marks: a cross on the near corner and one on the far corner, with the pen’s tuning', () => {
+  test('registration corners: a right angle through the sheet’s (0,0) and its bottom-right, legs inward', () => {
     const base = { name: 'posca', width: 1, color: '#000', feed: 3500, penDown: 0, penUp: 5, penDelay: 400 };
-    const d = registrationMarks(base, { x: 10, y: 20, w: 100, h: 60 }, 3);
+    const d = registrationMarks(base, { x: 0, y: 0, w: 148, h: 100 }, 3);
     const chains = parse(d.plan);
-    expect(chains).toHaveLength(4);
-    expect(mid(chains[0].pts)).toEqual([10, 20]);
-    expect(mid(chains[1].pts)).toEqual([10, 20]);
-    expect(mid(chains[2].pts)).toEqual([110, 80]);
-    expect(mid(chains[3].pts)).toEqual([110, 80]);
-    expect(chains[0].pts[0]).toEqual([7, 17]);
+    expect(chains).toHaveLength(2);
+    // The vertex IS the sheet corner — not a mark beside it — and the legs run
+    // inward along the two edges.
+    expect(chains[0].pts).toEqual([[0, 3], [0, 0], [3, 0]]);
+    expect(chains[1].pts).toEqual([[148, 97], [148, 100], [145, 100]]);
+    for (const c of chains) {
+      const [a, v, b] = c.pts;
+      const leg1 = [v[0] - a[0], v[1] - a[1]];
+      const leg2 = [b[0] - v[0], b[1] - v[1]];
+      expect(leg1[0] * leg2[0] + leg1[1] * leg2[1]).toBe(0); // perpendicular
+      expect(Math.hypot(leg1[0], leg1[1])).toBeCloseTo(3); // legs are `size`
+      expect(Math.hypot(leg2[0], leg2[1])).toBeCloseTo(3);
+    }
     expect(d.pens[0].feed).toBe(3500);
     expect(d.pens[0].penDelay).toBe(400);
   });
