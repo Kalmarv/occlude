@@ -42,7 +42,7 @@ import {
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { sketchFrame, unitMm } from './record.js';
-import { boundaryLoops, type Boundary } from './boundary.js';
+import { boundaryLoops, type Boundary, type LoopPoints } from './boundary.js';
 import { Material, material as materialOf, alongChain, checkSampling, isStations, stationsMaterial, type PointsLike, type Station } from './material.js';
 import { voronoi } from './voronoi.js';
 import { distanceTo } from './distance.js';

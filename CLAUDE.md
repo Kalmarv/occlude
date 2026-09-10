@@ -91,7 +91,9 @@ rasters are implementation numbers. They are not tenants.
   once per issue.
 - **When patches stack, stop and rearchitect.**
 - **Definition of done:** tests (Rust + TS) + live reference entry
-  (`pnpm --filter occlude docs:check`) + studio build + wasm md5 match
+  (`pnpm --filter occlude docs:check`) + `pnpm build` at the root — the
+  library typecheck AND the studio bundle, since neither `pnpm test` nor
+  the studio build alone typechecks `src` — + wasm md5 match
   (`crates/occlude-core/pkg/*.wasm` == `packages/occlude-studio/dist/assets/*.wasm`)
   + docs ink unchanged when the change should not move ink
   (`pnpm --filter occlude docs:hashes -- --check`, against the committed
