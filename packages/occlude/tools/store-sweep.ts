@@ -22,6 +22,14 @@ import * as occlude from '../src/index.js';
 import { preloadAssetsFromDisk } from './asset-preload.js';
 import { preloadFillsFromDisk } from './fill-preload.js';
 
+// `--migrate` compiles the store as the STORE MIGRATION would rewrite it, in
+// memory, which is the fast pre-check for tools/verify-sketch-migration.mjs
+// (that one proves byte-identical ink; this one only says it still loads).
+const migrate = process.argv.includes('--migrate');
+const migrateSketchSource = migrate
+  ? (await import('../../occlude-studio/tools/migrate-sketch-source.mjs')).migrateSketchSource
+  : null;
+
 const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
 );
@@ -45,7 +53,8 @@ try {
 
 let failed = 0;
 for (const file of files) {
-  const js = transformSync(readFileSync(store + file, 'utf8'), { loader: 'ts', format: 'cjs' }).code;
+  const source = readFileSync(store + file, 'utf8');
+  const js = transformSync(migrateSketchSource ? migrateSketchSource(source) : source, { loader: 'ts', format: 'cjs' }).code;
   preloadAssetsFromDisk(js);
   preloadFillsFromDisk(js);
   const module = { exports: {} as Record<string, unknown> };

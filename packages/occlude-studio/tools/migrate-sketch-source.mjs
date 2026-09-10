@@ -129,7 +129,7 @@ export function strokeChain(producer, steps) {
   if (!map || map.name !== 'map' || steps.length !== (flat ? 2 : 1)) return null;
   const m = /^\s*\((\w+)\)\s*=>\s*([\s\S]*?)\s*,?\s*$/.exec(map.args);
   if (!m) return null;
-  const stroke = /^stroke\(\s*[A-Za-z_$][\w$]*\s*(?:,\s*([\s\S]*?))?\s*\)$/.exec(m[1]);
+  const stroke = /^stroke\(\s*[A-Za-z_$][\w$]*\s*(?:,\s*([\s\S]*?))?\s*\)$/.exec(m[2]);
   if (!stroke) return null;
   const opts = stroke[1];
   return { text: `strokes(${producer}${opts ? `, ${opts}` : ''})`, consumed: map.end };
@@ -156,7 +156,7 @@ function rewriteFieldResults(src) {
     const { steps, end } = readChain(rest);
     if (steps.length === 0) return null;
     void end;
-    return levelGroupChain(producer, steps) ?? strokeChain(producer, steps) ?? curveChain(producer, steps);
+    return strokeChain(producer, steps) ?? curveChain(producer, steps);
   });
 }
 
@@ -177,6 +177,8 @@ export function rewriteProducers(src, producers, rewrite) {
     let name = null;
     let emitFrom = i;
     let open = -1;
+    let joinAt = -1;
+    let tokenEnd = -1;
     for (const p of producers) {
       if (src.startsWith(p, i) && !/[\w$.]/.test(src[i - 1] ?? ' ') && !/[\w$]/.test(src[i + p.length] ?? ' ')) {
         name = p;
@@ -190,6 +192,7 @@ export function rewriteProducers(src, producers, rewrite) {
       // call with no receiver; the scan stays forward-only.
       let at = i;
       while (at < src.length && /[\w$]/.test(src[at])) at++;
+      tokenEnd = at;
       while (at < src.length && /\s/.test(src[at])) at++;
       if (src[at] === '.') {
         for (const p of producers) {
@@ -199,13 +202,16 @@ export function rewriteProducers(src, producers, rewrite) {
             break;
           }
         }
+        // `t` + `.isolines(…)`: the gap was only line breaking.
+        if (name !== null) joinAt = at;
       }
       if (name === null) continue;
     }
     if (src[open] !== '(') continue;
     const end = closeOfCall(src, open);
     if (end < 0) continue;
-    const r = rewrite(src.slice(emitFrom, end), src.slice(end));
+    const producerText = joinAt < 0 ? src.slice(emitFrom, end) : src.slice(emitFrom, tokenEnd) + src.slice(joinAt, end);
+    const r = rewrite(producerText, src.slice(end));
     if (!r) continue;
     out += src.slice(last, emitFrom) + r.text;
     last = end + r.consumed;
@@ -236,6 +242,145 @@ function rewriteScatterSettle(src) {
   });
 }
 
+/**
+ * A result kept in a variable: `const blobs = isolines(…); … blobs.map(…)`.
+ * The call-site rules above cannot see this shape — the consumer is elsewhere
+ * — so the names bound to a producer are collected first and their uses
+ * rewritten: inside a `polygon(...)` the point arrays ARE the material's
+ * chains (`blobs.map((c) => c.pts)` → `blobs`), and a per-contour map reads
+ * the chain records (`blobs.map(…)` → `blobs.curves().map(…)`). Name-based and
+ * word-bounded, so a `blobs` that came from anywhere else is left alone.
+ */
+function rewriteBindings(src) {
+  const bound = new Set();
+  for (const m of src.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:t\.)?(?:isolines|streamlines)\s*\(/g)) {
+    bound.add(m[1]);
+  }
+  let out = src;
+  for (const name of bound) {
+    const n = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(
+      new RegExp(`((?:t\\.)?polygon\\(\\s*)${n}\\.map\\(\\s*\\(\\w+\\)\\s*=>\\s*\\w+\\.pts\\s*\\)`, 'g'),
+      `$1${name}`,
+    );
+    out = out.replace(new RegExp(`\\b${n}\\.flat\\(\\)\\.map\\(`, 'g'), `${name}.curves().map(`);
+    out = out.replace(new RegExp(`\\b${n}\\.map\\(`, 'g'), `${name}.curves().map(`);
+  }
+  return out;
+}
+
+/**
+ * A scatter or settle result is a point-only MATERIAL now, not an Array
+ * subclass: `.map`/`.filter`/`.length` on it read its points, so they become
+ * `.points.map(…)` and friends. Both the chained form and a result kept in a
+ * variable (`const pts = t.settle(…)`) are handled — the names are collected
+ * the same way `rewriteBindings` collects contour producers.
+ */
+function rewriteCloudConsumers(src) {
+  const direct = rewriteProducers(src, ['t.scatter', 'scatter', 't.settle', 'settle'], (producer, rest) => {
+    const m = /^(\s*)\.(map|filter|forEach|some|every|find)\s*\(/.exec(rest);
+    if (m) return { text: `${producer}.points.${m[2]}(`, consumed: m[0].length };
+    const len = /^(\s*)\.length\b/.exec(rest);
+    return len ? { text: `${producer}.n`, consumed: len[0].length } : null;
+  });
+  const names = new Set();
+  for (const m of direct.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:t\.)?(?:scatter|settle)\s*\(/g)) {
+    names.add(m[1]);
+  }
+  let out = direct;
+  for (const name of names) {
+    const n = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`\\b${n}\\.(map|filter|forEach|some|every|find)\\(`, 'g'), `${name}.points.$1(`);
+    out = out.replace(new RegExp(`\\b${n}\\.length\\b`, 'g'), `${n}.n`);
+  }
+  return out;
+}
+
+/** `strokes(…)` is introduced by the rewrites above; a source that never drew
+ * with it has no import for it. Added to the `occlude` import, once. */
+function addStrokesImport(src) {
+  if (!/\bstrokes\s*\(/.test(src) || /\bstrokes\b/.test(src.slice(0, src.indexOf('from')))) return src;
+  return src.replace(/(import\s*\{)([^}]*)(\}\s*from\s*['"]occlude['"])/, (all, open, names, close) =>
+    `${open}${names.trimEnd().replace(/,$/, '')}, strokes ${close}`,
+  );
+}
+
+/** Split top-level commas of a call's argument text (nesting and literals
+ * respected), so the requested level list can be read back from the call. */
+function splitArgs(args) {
+  const out = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < args.length; i++) {
+    const c = args[i];
+    if (c === '"' || c === "'" || c === '`') {
+      for (i++; i < args.length && args[i] !== c; i++) if (args[i] === '\\') i++;
+      continue;
+    }
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') depth--;
+    else if (c === ',' && depth === 0) {
+      out.push(args.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(args.slice(start));
+  return out.map((a) => a.trim()).filter((a) => a !== '');
+}
+
+/**
+ * `const X = isolines(f, levels, o).map((cs, i) => polygon(cs.map((c) => c.pts), p));`
+ * → the material bound once, then the map over the REQUESTED levels:
+ *
+ *   const __iso = isolines(f, levels, o);
+ *   const X = levels.map((lvl, i) => polygon(__iso.edges.filter((e) => e.attrs.level === lvl), p));
+ *
+ * Grouping the produced edges by level would read well, but a level with no
+ * contours produces no group, so the old array's empty slot would vanish —
+ * one shape fewer, which shifts every later shape's draw index and with it the
+ * seeded fill sub-stream, so the hatch phase of everything after it moves.
+ * Mapping the requested levels keeps the empty slot (an empty selection is the
+ * same no-op path the old empty array made) and the index the callback sees is
+ * the level's own index, as before.
+ */
+function rewriteLevelStatement(src) {
+  const re = /(^|\n)([ \t]*)(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*((?:t\.)?isolines\s*)\(/g;
+  let out = '';
+  let last = 0;
+  for (const m of src.matchAll(re)) {
+    const [full, nl, indent, name, callee] = m;
+    const open = m.index + full.length - 1;
+    const close = closeOfCall(src, open);
+    if (close < 0) continue;
+    const args = src.slice(open + 1, close - 1);
+    const { steps } = readChain(src.slice(close));
+    if (steps.length !== 1 || steps[0].name !== 'map') continue;
+    // The callback's shape: (cs, i) => polygon(cs.map((c) => c.pts), opts)
+    const shape = /^\s*\((\w+)\s*,\s*(\w+)\)\s*=>\s*polygon\(/.exec(steps[0].args);
+    if (!shape) continue;
+    const [, cs, index] = shape;
+    const optsText = /polygon\(\s*\w+\.map\(\s*\(\w+\)\s*=>\s*\w+\.pts\s*\)\s*(?:,\s*([\s\S]*?))?\s*\)\s*,?\s*$/.exec(steps[0].args);
+    if (!optsText) continue;
+    // Any other use of the callback's first parameter expected a CONTOUR ARRAY,
+    // which is now the level value: refuse rather than change its meaning.
+    const body = steps[0].args.slice(steps[0].args.indexOf('=>') + 2);
+    const uses = body.split(new RegExp(`\\b${cs}\\b`)).length - 1;
+    if (uses !== 1) continue;
+    const parts = splitArgs(args);
+    if (parts.length < 2) continue;
+    const levels = parts[1];
+    const opts = optsText[1]?.replace(/,\s*$/, '');
+    const r = { consumed: steps[0].end };
+    const replacement =
+      `${nl}${indent}const __iso = ${callee}(${args});` +
+      `${nl}${indent}const ${name} = ${levels}.map((${cs}, ${index}) => polygon(` +
+      `__iso.edges.filter((e) => e.attrs.level === ${cs})${opts ? `, ${opts}` : ''}))`;
+    out += src.slice(last, m.index) + replacement;
+    last = close + r.consumed;
+  }
+  return out + src.slice(last);
+}
+
 export function migrateSketchSource(src) {
   // Bare identifiers (imports, destructures, calls) and the toolkit-prefixed
   // spellings `t.region` / `t.trace` / `t.loops`. Other receivers are left
@@ -247,7 +392,12 @@ export function migrateSketchSource(src) {
     .replace(/(?<![\w.$])trace(?![\w$])/g, 'stroke')
     .replace(/\bt\.trace(?![\w$])/g, 't.stroke')
     .replace(/\bt\.loops(?![\w$])/g, 't.polylines');
-  return rewriteScatterSettle(rewriteFieldResults(rewritePolylines(renamed)));
+  const rewritten = rewriteScatterSettle(
+    rewriteCloudConsumers(
+      rewriteFieldResults(rewriteBindings(rewriteLevelStatement(rewritePolylines(renamed)))),
+    ),
+  );
+  return addStrokesImport(rewritten);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
