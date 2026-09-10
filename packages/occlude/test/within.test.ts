@@ -371,6 +371,40 @@ describe('within: the filled region, not the contours', () => {
 });
 
 describe('within: holes and winding', () => {
+  it('uses the union boundary of intersecting nonzero contours for every consumer', () => {
+    run((t) => {
+      const a: Loop = [[10, 10], [70, 10], [70, 70], [10, 70]];
+      const b: Loop = [[40, 40], [90, 40], [90, 90], [40, 90]];
+      const area = polygon([a, b], { winding: 'nonzero' });
+      expect(pointsOf(t.within(chord(0, 20, 100, 20), area))).toBe('10,20 70,20');
+      expect(pointsOf(t.within(chord(0, 50, 100, 50), area))).toBe('10,50 90,50');
+      const points = material([[70, 20], [70, 50], [95, 50]]);
+      expect(pointsOf(t.within(points, area))).toBe('70,50');
+      expect(t.within(points.points, area).indices).toEqual([1]);
+      const face = t.material(rect(60, 45, 20, 20)).planarize().faces();
+      expect(t.within(face, area).length).toBe(1); // crosses the redundant edge at x=70
+    });
+  });
+
+  it('reinforces or cancels coincident contours according to winding', () => {
+    run((t) => {
+      const loop: Loop = [[10, 10], [70, 10], [70, 70], [10, 70]];
+      const solid = polygon([loop, loop], { winding: 'nonzero' });
+      const cancelled = polygon([loop, [...loop].reverse()], { winding: 'nonzero' });
+      const parity = polygon([loop, loop]);
+      const face = t.material(rect(10, 10, 60, 60)).planarize().faces();
+      expect(t.within(face, solid).length).toBe(1);
+      expect(pointsOf(t.within(chord(0, 20, 100, 20), solid))).toBe('10,20 70,20');
+      for (const empty of [cancelled, parity]) {
+        expect(t.within(face, empty).length).toBe(0);
+        const points = material([[40, 10], [40, 40]]);
+        expect(t.within(points, empty).n).toBe(0);
+        expect(t.within(points.points, empty).length).toBe(0);
+        expect(t.within(chord(0, 20, 100, 20), empty).edgeCount).toBe(0);
+      }
+    });
+  });
+
   it('refuses a face whose interior covers a container hole', () => {
     let spanning = 0;
     let withoutHole = 0;
@@ -404,9 +438,8 @@ describe('within: holes and winding', () => {
         .build();
       const bounded = within(() => 1, nested);
       byField = Number.isFinite(bounded(50, 50)) ? 1 : 0;
-      // The trim cuts at every contour it was given, so the inner loop still
-      // splits the run into three edges — an extra vertex, no ink change.
-      // What must hold is the COVERAGE: the whole 10…90 span survives. Under
+      // The redundant inner contour does not cut the run. The whole 10…90
+      // span survives. Under
       // an even-odd reading the middle was a hole and only 10…40 and 60…90 did.
       const kept = t.within(chord(-50, 50, 150, 50), nested);
       let mm = 0;

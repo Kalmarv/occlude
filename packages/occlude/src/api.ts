@@ -45,7 +45,7 @@ import { sketchFrame, unitMm } from './record.js';
 import { boundaryLoops, numericLoops, type Boundary, type LoopPoints } from './boundary.js';
 import {
   Material, material as materialOf, alongChain, checkSampling, isStations, stationsMaterial,
-  loopCrossings, withinMaterial, type PointsLike, type Station, type Transfer,
+  withinMaterial, type PointsLike, type Station, type Transfer,
 } from './material.js';
 import { PointSelection } from './relation.js';
 import { Faces, FaceSelection, type Face } from './faces.js';

@@ -1,29 +1,17 @@
 /**
- * The filled region an area names — winding-aware, so a contour that is not a
- * boundary of the fill is never read as one.
+ * A filled region and its actual boundary. Source edges are split at crossings
+ * and overlap endpoints before classification: fill can change along an edge.
+ * Side winding uses an infinitesimal normal, evaluated lexicographically rather
+ * than by moving a finite distance. Original directed edges retain multiplicity,
+ * so coincident edges reinforce or cancel according to the requested fill rule.
  *
- * The area consumers ask two questions: is this point inside the filled region,
- * and where does a segment cross the region's BOUNDARY. Under `evenodd` every
- * contour is a boundary — crossing one flips parity, so the two sides always
- * differ — and the answers are exactly the loops. Under `nonzero` a contour can
- * have filled space on BOTH sides: a nested loop wound the same way is interior
- * geometry, not a hole. Then it is not a boundary at all — a point on it is
- * inside, a material edge along it is not cut, and a face may cross or enclose
- * it — while the fill itself is `winding ≠ 0`, which is what `polygon` and the
- * engine's clip read.
- *
- * So the whole job is to classify each input segment: boundary or interior.
- * The probe distance is derived from the geometry rather than chosen — for a
- * segment's midpoint, a fraction of the distance to the nearest OTHER segment,
- * so a probe cannot cross anything, and the two probes on a side must agree
- * (the distance halves until they do). A probe reads a winding number, which is
- * exact away from the loops; the only tolerance in the file is the float-noise
- * guard that decides whether a POINT lies on a segment, scaled by the area's
- * own size, and it is a millionth of the 0.005 mm input grid.
- *
- * Pure: loops and a rule in, predicates out. No seed, no paper, no state.
+ * Intersection coordinates are floating point; orientation signs use adaptive
+ * predicates. Point-on-edge recognition has a coordinate-roundoff tolerance,
+ * not a geometric offset. With n source edges and k split pieces, preparation
+ * is O(n² + nk), sampling O(n + k). Dense intersections can make k quadratic.
  */
 
+import { orient2d } from 'robust-predicates';
 import { distanceTo } from './distance.js';
 import { loopCrossings } from './material.js';
 
@@ -74,101 +62,137 @@ function dist2ToSeg(px: number, py: number, s: Seg): number {
  * lowering or `polygon`'s boundary resolution has already closed them).
  */
 export function areaFill(loops: readonly (readonly Pt[])[], rule: 'evenodd' | 'nonzero'): AreaFill {
-  // Even-odd: every contour is a boundary, every answer is the loops' own, and
-  // this must stay bit-identical to what the area consumers did before.
-  if (rule === 'evenodd') {
-    const sdf = distanceTo(loops);
-    const segs = segmentsOf(loops);
+  const segs = segmentsOf(loops);
+  const { pieces, overlaps } = splitSegments(segs);
+  // Without coincident edges, parity flips at every contour. Preserve the
+  // existing indexed distance field and crossing arithmetic on this common path.
+  if (rule === 'evenodd' && !overlaps) {
     return {
-      at: sdf,
+      at: distanceTo(loops),
       crossings: (ax, ay, bx, by) => loopCrossings(loops, ax, ay, bx, by),
-      boundary: segs.map((s) => [s.ax, s.ay, s.bx, s.by] as [number, number, number, number]),
+      boundary: segs.map((s) => [s.ax, s.ay, s.bx, s.by]),
     };
   }
 
-  const segs = segmentsOf(loops);
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  for (const s of segs) {
-    x0 = Math.min(x0, s.ax, s.bx);
-    x1 = Math.max(x1, s.ax, s.bx);
-    y0 = Math.min(y0, s.ay, s.by);
-    y1 = Math.max(y1, s.ay, s.by);
-  }
-  const eps = 1e-9 * (1 + Math.max(0, x1 - x0) + Math.max(0, y1 - y0));
-
-  /** The winding number at a point away from the loops (the classic
-   * half-open ray cast: an edge counts when it crosses the ray upward to the
-   * right, or downward to the left). */
-  const winding = (x: number, y: number): number => {
+  const filled = (w: number): boolean => rule === 'nonzero' ? w !== 0 : w % 2 !== 0;
+  // robust-predicates uses the opposite sign from the usual cross product.
+  const side = (s: Seg, x: number, y: number): number =>
+    -orient2d(s.ax, s.ay, s.bx, s.by, x, y);
+  // Evaluate at (x, y) + ε(nx, ny), ε positive and infinitesimal: compare
+  // the constant term first and use the normal only to break an exact tie.
+  const winding = (x: number, y: number, source?: Seg, nx = 0, ny = 0): number => {
     let w = 0;
     for (const s of segs) {
-      const side = (s.bx - s.ax) * (y - s.ay) - (x - s.ax) * (s.by - s.ay);
-      if (s.ay <= y) {
-        if (s.by > y && side > 0) w++;
-      } else if (s.by <= y && side < 0) w--;
+      // For a point infinitesimally displaced from a piece, collinear source
+      // edges have exactly zero constant term, even if its midpoint rounded.
+      const collinear = source && side(s, source.ax, source.ay) === 0 && side(s, source.bx, source.by) === 0;
+      const constant = collinear ? 0 : side(s, x, y);
+      const sign = Math.sign(constant) || Math.sign((s.bx - s.ax) * ny - (s.by - s.ay) * nx);
+      const aboveA = y > s.ay || (y === s.ay && ny >= 0);
+      const aboveB = y > s.by || (y === s.by && ny >= 0);
+      if (aboveA && !aboveB && sign > 0) w++;
+      else if (!aboveA && aboveB && sign < 0) w--;
     }
     return w;
   };
 
-  /** Boundary or interior: filled on one side only? */
-  const isBoundary = (s: Seg): boolean => {
-    const mx = (s.ax + s.bx) / 2;
-    const my = (s.ay + s.by) / 2;
-    const len = Math.hypot(s.bx - s.ax, s.by - s.ay);
-    const nx = -(s.by - s.ay) / len;
-    const ny = (s.bx - s.ax) / len;
-    let near = Infinity;
-    for (const o of segs) {
-      if (o === s) continue;
-      near = Math.min(near, dist2ToSeg(mx, my, o));
-    }
-    // A quarter of the way to the nearest other segment, so the probe stays in
-    // the free neighbourhood of this segment's own midpoint — and never past
-    // half its own length, or a short segment's two sides would be the same
-    // neighbourhood.
-    let h = Math.min(len / 4, Math.sqrt(near) / 4);
-    for (let tries = 0; tries < 8; tries++) {
-      const up1 = winding(mx + nx * h, my + ny * h);
-      const up2 = winding(mx + nx * 2 * h, my + ny * 2 * h);
-      const dn1 = winding(mx - nx * h, my - ny * h);
-      const dn2 = winding(mx - nx * 2 * h, my - ny * 2 * h);
-      if (up1 === up2 && dn1 === dn2) return (up1 === 0) !== (dn1 === 0);
-      h /= 2;
-    }
-    return (winding(mx + nx * h, my + ny * h) === 0) !== (winding(mx - nx * h, my - ny * h) === 0);
-  };
-
   const boundary: Seg[] = [];
   const interior: Seg[] = [];
-  for (const s of segs) (isBoundary(s) ? boundary : interior).push(s);
+  const exterior: Seg[] = [];
+  for (const s of pieces) {
+    const mx = s.ax + (s.bx - s.ax) / 2;
+    const my = s.ay + (s.by - s.ay) / 2;
+    const nx = -(s.by - s.ay);
+    const ny = s.bx - s.ax;
+    const left = filled(winding(mx, my, s.source, nx, ny));
+    const right = filled(winding(mx, my, s.source, -nx, -ny));
+    (left !== right ? boundary : left ? interior : exterior).push(s);
+  }
 
-  const onAny = (list: readonly Seg[], x: number, y: number): boolean => {
-    for (const s of list) if (dist2ToSeg(x, y, s) <= eps * eps) return true;
-    return false;
-  };
-
+  let magnitude = 1;
+  for (const s of segs) magnitude = Math.max(magnitude, Math.abs(s.ax), Math.abs(s.ay), Math.abs(s.bx), Math.abs(s.by));
+  const eps = 32 * Number.EPSILON * magnitude;
+  const onAny = (list: readonly Seg[], x: number, y: number): boolean =>
+    list.some((s) => dist2ToSeg(x, y, s) <= eps * eps);
+  const boundaryLoops = boundary.map((s) => [[s.ax, s.ay], [s.bx, s.by]] as [number, number][]);
   return {
     at(x, y) {
-      // ON a real boundary is the engine's clip rule: outside. On an interior
-      // contour the fill is on both sides, so it is inside.
       if (onAny(boundary, x, y)) return 0;
       if (onAny(interior, x, y)) return 1;
-      return winding(x, y) === 0 ? -1 : 1;
+      if (onAny(exterior, x, y)) return -1;
+      return filled(winding(x, y)) ? 1 : -1;
     },
     crossings(ax, ay, bx, by) {
-      // Each real segment as its own two-point loop; `loopCrossings` walks that
-      // loop in both directions, so a hit comes back twice — deduped here.
-      const hits = loopCrossings(
-        boundary.map((s) => [[s.ax, s.ay], [s.bx, s.by]] as [number, number][]),
-        ax, ay, bx, by,
-      );
-      return hits.filter((h, k) => k === 0 || h.t !== hits[k - 1].t);
+      const hits = loopCrossings(boundaryLoops, ax, ay, bx, by);
+      return hits.filter((h, k) => k === 0 || (h.t !== hits[k - 1].t
+        && (h.x !== hits[k - 1].x || h.y !== hits[k - 1].y)));
     },
-    boundary: boundary.map((s) => [s.ax, s.ay, s.bx, s.by] as [number, number, number, number]),
+    boundary: boundary.map((s) => [s.ax, s.ay, s.bx, s.by]),
   };
+}
+
+interface Piece extends Seg { source: Seg }
+interface Stop { t: number; x: number; y: number }
+
+/** Split both proper intersections and collinear overlaps. A shared event uses
+ * the same coordinates on both edges; existing endpoints are kept verbatim.
+ * No snapping or quantisation: distinct, representable intervals stay distinct. */
+function splitSegments(segs: Seg[]): { pieces: Piece[]; overlaps: boolean } {
+  const stops: Stop[][] = segs.map((s) => [
+    { t: 0, x: s.ax, y: s.ay }, { t: 1, x: s.bx, y: s.by },
+  ]);
+  const parameter = (s: Seg, x: number, y: number): number =>
+    Math.abs(s.bx - s.ax) >= Math.abs(s.by - s.ay)
+      ? (x - s.ax) / (s.bx - s.ax) : (y - s.ay) / (s.by - s.ay);
+  const contact = (i: number, x: number, y: number): void => {
+    const t = parameter(segs[i], x, y);
+    if (t > 0 && t < 1) stops[i].push({ t, x, y });
+  };
+  let overlaps = false;
+  for (let i = 0; i < segs.length; i++) {
+    const a = segs[i];
+    for (let j = i + 1; j < segs.length; j++) {
+      const b = segs[j];
+      if (Math.max(a.ax, a.bx) < Math.min(b.ax, b.bx) || Math.max(b.ax, b.bx) < Math.min(a.ax, a.bx)
+        || Math.max(a.ay, a.by) < Math.min(b.ay, b.by) || Math.max(b.ay, b.by) < Math.min(a.ay, a.by)) continue;
+      const a0 = orient2d(a.ax, a.ay, a.bx, a.by, b.ax, b.ay);
+      const a1 = orient2d(a.ax, a.ay, a.bx, a.by, b.bx, b.by);
+      const b0 = orient2d(b.ax, b.ay, b.bx, b.by, a.ax, a.ay);
+      const b1 = orient2d(b.ax, b.ay, b.bx, b.by, a.bx, a.by);
+      if (a0 === 0 && a1 === 0) {
+        const t0 = parameter(a, b.ax, b.ay);
+        const t1 = parameter(a, b.bx, b.by);
+        if (Math.max(0, Math.min(t0, t1)) < Math.min(1, Math.max(t0, t1))) overlaps = true;
+        contact(i, b.ax, b.ay); contact(i, b.bx, b.by);
+        contact(j, a.ax, a.ay); contact(j, a.bx, a.by);
+      } else if (a0 === 0 || a1 === 0 || b0 === 0 || b1 === 0) {
+        if (a0 === 0) contact(i, b.ax, b.ay);
+        if (a1 === 0) contact(i, b.bx, b.by);
+        if (b0 === 0) contact(j, a.ax, a.ay);
+        if (b1 === 0) contact(j, a.bx, a.by);
+      } else if (Math.sign(a0) !== Math.sign(a1) && Math.sign(b0) !== Math.sign(b1)) {
+        const dx = a.bx - a.ax, dy = a.by - a.ay;
+        const ex = b.bx - b.ax, ey = b.by - b.ay;
+        const ox = b.ax - a.ax, oy = b.ay - a.ay;
+        const den = dx * ey - dy * ex;
+        const t = (ox * ey - oy * ex) / den;
+        const u = (ox * dy - oy * dx) / den;
+        // Prefer an axis-aligned edge's parametrisation to retain exact x/y.
+        const [x, y] = ex === 0 || ey === 0 ? [b.ax + u * ex, b.ay + u * ey] : [a.ax + t * dx, a.ay + t * dy];
+        stops[i].push({ t, x, y }); stops[j].push({ t: u, x, y });
+      }
+    }
+  }
+  const pieces: Piece[] = [];
+  for (let i = 0; i < segs.length; i++) {
+    const row = stops[i].sort((a, b) => a.t - b.t);
+    for (let k = 1; k < row.length; k++) {
+      const a = row[k - 1], b = row[k];
+      if (a.t === b.t || (a.x === b.x && a.y === b.y)) continue;
+      pieces.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, source: segs[i] });
+    }
+  }
+  return { pieces, overlaps };
 }
 
 /** The non-degenerate segments of closed loops. */
@@ -198,10 +222,10 @@ function areaOf(loop: readonly Pt[]): number {
 
 /**
  * A point strictly inside the region `contours` bounds (its outer contour taken
- * as the one with the largest span), or null when no probe lands there. Found
- * by stepping off an edge, at the same geometry-derived distance the boundary
- * classification uses — a quarter of the way to the nearest other edge, halved
- * until both sides agree on which one is the region's interior.
+ * as the one with the largest absolute signed area), or null when no probe
+ * lands there. Step off an outer edge by a quarter of the distance to the
+ * nearest other edge, halving until the signed distance test confirms an
+ * interior point. This finite probe is independent of boundary classification.
  *
  * This is what tells a face that fills a hole from the annulus around it: their
  * walls are the same segments, so only their interiors differ.
