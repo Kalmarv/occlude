@@ -18,6 +18,10 @@ export interface TransformOp {
   /** Degrees. */
   rotate?: number;
   scale?: number | [number, number];
+  /** Pivot for `rotate` and `scale`, in user coordinates: `[x, y]`, or
+   * `'center'` for the centre of the drawable. Its own translate is a plain
+   * move. Without it, rotation and scale pivot on the user origin. */
+  origin?: [L, L] | 'center';
 }
 
 export interface SketchOptions {

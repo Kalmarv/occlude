@@ -97,7 +97,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) =>
 
 ### polygon
 
-`polygon(boundary, opts?)` makes one area from its boundaries: a single loop (`[[x, y], …]`), several loops, contour records such as a face's contours, or a chain material (`t.material(rect(…))`, `t.isolines(…)`). Each loop is closed with a chord if it is not already, and a material that branches is refused because a network has no single inside. The result is one shape, so it clips, fills, masks and stamps as one thing.
+`polygon(boundary, opts?)` makes one area from its boundaries: a single loop (`[[x, y], …]`), several loops, contour records, a single face (its contours are the outer boundary and its holes), a chain material (`t.material(rect(…))`, `t.isolines(…)`), or a shape, whose boundary is taken and whose own drawing options are not. Each loop is closed with a chord if it is not already, and a material that branches is refused because a network has no single inside. A face *selection* is several areas at once, so it is refused too, naming `boundaries()` for the union. The result is one shape, so it clips, fills, masks and stamps as one thing.
 
 `winding` picks the fill rule where boundaries nest or cross. `'evenodd'` (default) makes every enclosed boundary a hole whatever its orientation, so a ring is an annulus and a pentagram has an empty centre. `'nonzero'` fills the pentagram solid.
 
@@ -136,7 +136,7 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 
 ### group
 
-`group(opts, ...children)` applies transforms (`translate`, `rotate`, `scale`), pen and z defaults, and modifier defaults to a subtree. Transforms pivot around the origin, so `translate` first to set the pivot.
+`group(opts, ...children)` applies transforms (`translate`, `rotate`, `scale`), pen and z defaults, and modifier defaults to a subtree. Rotation and scale pivot on `origin` when it is given — a point `[x, y]` in user coordinates, or `'center'` for the middle of the drawable — and on the user origin otherwise. `translate` moves the result; its own move is not affected by the pivot.
 
 ```ts live
 import { sketch, group, rect } from 'occlude';
@@ -146,6 +146,18 @@ export default sketch({ aspect: [1, 1] }, (t) =>
     group({ translate: [50, 50], rotate: k * 30 }, rect(16, -3, 30, 6)),
   ),
 );
+```
+
+Scaling a drawing about the middle of the sheet is one option, not a compensating translate: `origin: 'center'` is the pivot every "shrink it to fit" ritual was spelling by hand. The same option works on a single shape.
+
+```ts live
+import { sketch, group, circle, rect, line } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => [
+  t.times(9, (k, u) => line(0, u * 100, 200, u * 100)),
+  circle(100, 50, 40),
+  group({ scale: 0.5, origin: 'center' }, rect(20, 20, 160, 60, { rotate: 20 })),
+]);
 ```
 
 ### clip
@@ -323,6 +335,7 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 | `z` | Stacking override; the default is tree order. |
 | `mode` | rect only: anchor (x, y) at the `'corner'` (default) or `'center'`. Circles, ellipses and n-gons are always centre-anchored. |
 | `translate`, `rotate`, `scale` | A per-shape transform, the same as wrapping the shape in a group (applied translate, then rotate, then scale). |
+| `origin` | Pivot for `rotate` and `scale`: `[x, y]` in user coordinates, or `'center'` for the middle of the drawable. Without it they pivot on the user origin. |
 | `decimate`, `wobble` | Shorthand for the modifiers of the same name: `{ wobble: mm(0.8) }`, `{ decimate: { fill: 0.5 } }`. |
 | `modifiers` | An ordered stack: `{ modifiers: [smooth(2), wobble(mm(1)), decimate(0.2)] }`, run first to last. |
 | `bridge` | Pen-down joining across gaps up to this length. Inherited from a group. |

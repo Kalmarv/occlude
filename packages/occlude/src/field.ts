@@ -290,30 +290,37 @@ function indexLoops(loops: [number, number][][]): LoopIndex {
   return { ax, ay, bx, by, x0, y0, x1, y1, bandH, nb, start, items };
 }
 
-const BOUND_LOOPS = new WeakMap<ShapeValue, LoopIndex>();
+/** A prepared bound and the frame it was built for. The loops depend on the
+ * frame (units, rectMode, origin, yUp), so a shape reused under a different
+ * paper rebuilds instead of answering out of the old frame. */
+const BOUND_LOOPS = new WeakMap<ShapeValue, { sig: string; idx: LoopIndex }>();
 
 /** Point-in-shape in user units, through the one lowerer (rectMode, arc
  * commands, curve flattening, transform opts — exactly what the shape
  * inks), with the geometry's own winding rule.
  *
- * Built once per bound, not once per sample: the loop index, the frame, the
- * length resolution and the winding rule are all fixed for a given bound, and
- * a bounded field is asked millions of times. */
+ * Built once per bound AND frame, not once per sample: the loop index, the
+ * length resolution and the winding rule are fixed for a given bound, and a
+ * bounded field is asked millions of times. */
 function containsTest(shape: ShapeValue): (x: number, y: number) => boolean {
   const frame = sketchFrame();
-  let idx = BOUND_LOOPS.get(shape);
-  if (!idx) {
+  const sig = `${frame.origin}|${String(frame.yUp)}|${frame.rectMode}|${frame.inner.innerW},${frame.inner.innerH}`;
+  let prepared = BOUND_LOOPS.get(shape);
+  if (!prepared || prepared.sig !== sig) {
     const o = shape.opts;
-    idx = indexLoops(
-      lowerToUserLoops(
-        shape.geom,
-        { translate: o.translate, rotate: o.rotate, scale: o.scale },
-        frame,
+    prepared = {
+      sig,
+      idx: indexLoops(
+        lowerToUserLoops(
+          shape.geom,
+          { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin },
+          frame,
+        ),
       ),
-    );
-    BOUND_LOOPS.set(shape, idx);
+    };
+    BOUND_LOOPS.set(shape, prepared);
   }
-  const loops = idx;
+  const loops = prepared.idx;
   // exactly what `userPointMm(x, y, frame)` resolves each coordinate to
   const inner = frame.inner;
   const g = shape.geom;

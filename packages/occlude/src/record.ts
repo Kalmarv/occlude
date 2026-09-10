@@ -59,7 +59,7 @@ export function makeFrame(
 }
 
 class Resolver {
-  constructor(private frame: Frame) {}
+  constructor(readonly frame: Frame) {}
 
   get rectMode(): 'corner' | 'center' {
     return this.frame.rectMode;
@@ -128,6 +128,15 @@ function composeChain(chain: TransformOp[], rz: Resolver): Mat {
       const dy = rz.len(op.translate[1]);
       m = mul(m, translate(dx, dy));
     }
+    // `origin` is the pivot for rotate and scale: the op is
+    // T(origin) · R · S · T(-origin), inside the op's own translate.
+    const pivot: [number, number] | null =
+      op.origin === undefined
+        ? null
+        : op.origin === 'center'
+          ? [rz.frame.inner.innerW / 2, rz.frame.inner.innerH / 2]
+          : [rz.len(op.origin[0]), rz.len(op.origin[1])];
+    if (pivot) m = mul(m, translate(pivot[0], pivot[1]));
     if (op.rotate !== undefined && op.rotate !== 0) {
       m = mul(m, rotate((op.rotate * Math.PI) / 180));
     }
@@ -135,6 +144,7 @@ function composeChain(chain: TransformOp[], rz: Resolver): Mat {
       const [sx, sy] = typeof op.scale === 'number' ? [op.scale, op.scale] : op.scale;
       m = mul(m, mscale(sx, sy));
     }
+    if (pivot) m = mul(m, translate(-pivot[0], -pivot[1]));
   }
   return m;
 }

@@ -94,9 +94,13 @@ export interface ShapeOpts {
   bridge?: L;
   /** Per-shape transform — identical to wrapping the shape in a group. */
   translate?: [L, L];
-  /** Degrees; pivots around the user origin. */
+  /** Degrees; pivots around `origin` (the user origin by default). */
   rotate?: number;
   scale?: number | [number, number];
+  /** Pivot for `rotate` and `scale`: `[x, y]` in user coordinates, or
+   * `'center'` for the centre of the drawable. Scaling about the middle of
+   * the sheet is `{ scale: s, origin: 'center' }`. */
+  origin?: [L, L] | 'center';
   /** Ordered modifier stack, applied first-to-last. Stacks compose in
    * function-application order: this list runs first, then `modify()`
    * ancestors inside-out; the `decimate`/`wobble` shorthand opts run last,
@@ -121,9 +125,12 @@ export interface GroupOpts {
    * function-application order — inner stacks run before outer ones. */
   modifiers?: ModifierValue[];
   translate?: [L, L];
-  /** Degrees. */
+  /** Degrees; pivots around `origin`. */
   rotate?: number;
   scale?: number | [number, number];
+  /** Pivot for `rotate` and `scale`: `[x, y]` in user coordinates, or
+   * `'center'` for the centre of the drawable. */
+  origin?: [L, L] | 'center';
   /** Default pen for children that don't set one. */
   pen?: string;
   /** Default z for children that don't set one. */
@@ -225,15 +232,25 @@ export interface PolygonOpts extends ShapeOpts {
 
 /**
  * An area from its boundaries — the engine's Region concept as a value.
- * One loop or several (`[x, y][]`), contour records (a face's contours),
- * or a chain material (`t.material(rect(…))`, `t.isolines(…)`); the result
- * clips, fills, masks, and stamps as one thing. No geometry is computed;
- * open contours get their closing chord; a branching material is refused.
- * `winding` picks the fill rule.
+ * One loop or several (`[x, y][]`), contour records, a face (its contours
+ * are the outer boundary and the holes), a chain material
+ * (`t.material(rect(…))`, `t.isolines(…)`), or a shape, whose boundary is
+ * taken and whose own drawing options are not: the result clips, fills,
+ * masks, and stamps as one thing. No geometry is computed; open contours
+ * get their closing chord; a branching material is refused. `winding`
+ * picks the fill rule; `'evenodd'` (the default) makes every enclosed
+ * boundary a hole whatever its orientation, so this reads a ring as an
+ * annulus and a pentagram as an empty pentagon. `path({ winding })` is the
+ * other spelling: there the geometry's own orientation decides, as in SVG.
  */
-export function polygon(contours: Boundary | Contour | Contour[], opts: PolygonOpts = {}): ShapeValue {
+export function polygon(contours: Boundary | Contour | Contour[] | ShapeValue, opts: PolygonOpts = {}): ShapeValue {
   const { winding = 'evenodd', ...rest } = opts;
-  const loops = boundaryLoops(contours as Boundary, 'polygon') as unknown as Contour[];
+  // A shape is an area by its boundary: lowered here, through the one
+  // lowerer, so it agrees with what the shape itself inks.
+  const loops: LoopPoints[] =
+    typeof contours === 'object' && contours !== null && '__occludeShape' in contours
+      ? shapeContours(contours as ShapeValue, undefined).map((c) => c.pts)
+      : boundaryLoops(contours as Boundary, 'polygon');
   const cmds: PathCmd[] = [];
   for (const loop of loops) {
     if (loop.length < 2) continue;
@@ -855,8 +872,12 @@ function shapeContours(shape: ShapeValue, tolerance: L | undefined): { pts: [num
   const unit = unitMm(frame);
   const tol = tolerance !== undefined ? resolveLen(tolerance, frame.inner) : 0.05;
   const o = shape.opts;
-  return lowerToUserContours(shape.geom, { translate: o.translate, rotate: o.rotate, scale: o.scale }, frame, tol)
-    .map((c) => ({ closed: c.closed, pts: c.pts.map(([x, y]) => [x / unit, y / unit] as [number, number]) }));
+  return lowerToUserContours(
+    shape.geom,
+    { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin },
+    frame,
+    tol,
+  ).map((c) => ({ closed: c.closed, pts: c.pts.map(([x, y]) => [x / unit, y / unit] as [number, number]) }));
 }
 
 /**
@@ -1063,9 +1084,9 @@ function emit(tree: Tree, ctx: EmitCtx): void {
       // Function-application order: deeper stacks run before shallower.
       modifiers: g.opts.modifiers ? [...g.opts.modifiers, ...ctx.modifiers] : ctx.modifiers,
     };
-    const { translate, rotate, scale } = g.opts;
+    const { translate, rotate, scale, origin } = g.opts;
     if (translate || rotate !== undefined || scale !== undefined) {
-      push({ translate, rotate, scale }, () => {
+      push({ translate, rotate, scale, origin }, () => {
         for (const child of g.children) emit(child, inner);
       });
     } else {
@@ -1096,9 +1117,9 @@ function emit(tree: Tree, ctx: EmitCtx): void {
 function emitShape(sv: ShapeValue, ctx: EmitCtx): void {
   const o = sv.opts;
   if (o.translate || o.rotate !== undefined || o.scale !== undefined) {
-    const { translate, rotate, scale } = o;
-    push({ translate, rotate, scale }, () =>
-      emitShape({ ...sv, opts: { ...o, translate: undefined, rotate: undefined, scale: undefined } }, ctx),
+    const { translate, rotate, scale, origin } = o;
+    push({ translate, rotate, scale, origin }, () =>
+      emitShape({ ...sv, opts: { ...o, translate: undefined, rotate: undefined, scale: undefined, origin: undefined } }, ctx),
     );
     return;
   }

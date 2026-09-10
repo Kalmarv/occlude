@@ -47,6 +47,35 @@ rasters are implementation numbers. They are not tenants.
   voronoi/triangulate, and graph nodes that do not read seed or paper)
   are module imports. Anything that reads the seed or the resolved paper
   (rnd/noise/stream, bounds/grid/times, scatter) lives on the toolkit.
+- **One point atom per job.** `{x, y}` objects are points-as-things —
+  identity and metadata ride on them. `[x, y]` pairs are anonymous
+  vertices inside loops. Arithmetic takes either spelling and returns a
+  fresh pair (`XY` in, `Vec` out). No point class, and no third spelling.
+- **An area is an input, not a type.** There is no public `Region` type
+  and no `region()` constructor; the engine's contours-plus-winding is an
+  internal word. Area consumers (`polygon`, `distanceTo`,
+  `force.boundary`, the `bounds` of a point operation) accept loops,
+  contour records, one face, a chain material, a shape, or a rect, and
+  read closure and winding from the source. Several areas at once — a
+  face collection — must name which one it means.
+- **The frame rule.** Value methods exist only on resolved data-world
+  values (Material, Station, Selection, Face, contour records).
+  Anything that needs the sketch frame — paper, units, a shape's own
+  transform — is a toolkit function. `station.place(...)` is right;
+  `.along()` or `.length` on `circle()` is not: `t.material(circle(…))`
+  first.
+- **Drawing stays explicit.** `strokes`, `stroke` and `dot` interpret
+  geometry as ink. A Material never draws itself, and no value carries a
+  display translation that changes what is drawn.
+- **One conversion per meaning.** `t.material(shape, { spacing?,
+  tolerance? })` is the shape-to-material door: corners kept by default,
+  `spacing` redistributes by arc length, `tolerance` bounds the
+  flattening. `material(points)` is the pure constructor. No
+  `toMaterial`/`toRegion` aliases.
+- **`origin` is the pivot.** `rotate` and `scale` pivot on `origin`
+  (`[x, y]`, or `'center'` for the drawable's middle); on the user origin
+  when it is unset. Scaling about the middle is an option, never a
+  compensating translate.
 - Wasm protocol changes (strides, flags, export signatures) land on both
   sides in the same commit. Buffer strides are documented at the top of
   `scene.rs`.

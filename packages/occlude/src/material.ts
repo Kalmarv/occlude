@@ -24,6 +24,10 @@
  */
 
 import { PointSelection, EdgeSelection } from './relation.js';
+import { degrees } from './units.js';
+// Type-only: a placement returns a tree value (the shape `group()` makes).
+// `import type` is erased, so material never depends on api at runtime.
+import type { GroupValue, Tree } from './api.js';
 import { walkChains } from './chains.js';
 import { planarize, faces, type PlanarizeOpts, type Faces, type Face } from './faces.js';
 import type { IsoContour } from './isolines.js';
@@ -198,7 +202,48 @@ export interface Station {
   closed: boolean;
   attrs: Record<string, number>;
   edgeAttrs: Record<string, number>;
+  /** Put `content` here, turned to the station's tangent: the motif-along-
+   * a-spine idiom. The placement frame is
+   * `T(position + tangent·ot + normal·on) · R(heading + rotate) · S(scale)`,
+   * so `offset` is measured in the station's own frame and is unaffected by
+   * the motif's extra rotation. Returns a drawable (a group) and does not
+   * mutate the station. */
+  place(content: Tree, opts?: PlaceOpts): GroupValue;
 }
+
+/** Where a station puts content: `offset` is `[alongTangent, alongNormal]`
+ * in the material's units; `rotate` is extra degrees, added to the
+ * station's heading; `scale` is local, applied before that rotation, and a
+ * negative number mirrors. */
+export interface PlaceOpts {
+  offset?: [number, number];
+  rotate?: number;
+  scale?: number | [number, number];
+}
+
+/** Stations share one prototype, so `place` costs each station no property
+ * of its own and a station stays plain data: every field is own and
+ * enumerable (spread, JSON and `structuredClone` work; a copy loses only
+ * the method). The fields are the same ones `Station` declares. */
+const STATION_PROTO = Object.freeze({
+  place(this: Station, content: Tree, opts: PlaceOpts = {}): GroupValue {
+    const [alongTangent, alongNormal] = opts.offset ?? [0, 0];
+    const sc = opts.scale ?? 1;
+    const [sx, sy] = typeof sc === 'number' ? [sc, sc] : sc;
+    return {
+      __occludeGroup: true,
+      opts: {
+        translate: [
+          this.x + this.tangent[0] * alongTangent + this.normal[0] * alongNormal,
+          this.y + this.tangent[1] * alongTangent + this.normal[1] * alongNormal,
+        ],
+        rotate: degrees(this.heading) + (opts.rotate ?? 0),
+        scale: [sx, sy],
+      },
+      children: [content],
+    };
+  },
+});
 
 /** One captured state of a `steps()` run. Never touched by later steps. */
 export interface Snapshot {
@@ -896,7 +941,7 @@ export class Material {
           }
         }
         const sAt = at(k);
-        out.push({
+        const st: Station = Object.assign(Object.create(STATION_PROTO), {
           x: pts[seg][0] + (pts[(seg + 1) % idx.length][0] - pts[seg][0]) * t,
           y: pts[seg][1] + (pts[(seg + 1) % idx.length][1] - pts[seg][1]) * t,
           tangent,
@@ -910,6 +955,7 @@ export class Material {
           attrs,
           edgeAttrs,
         });
+        out.push(st);
       });
     });
     return out;

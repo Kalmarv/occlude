@@ -211,7 +211,7 @@ describe('one boundary contract', () => {
     expect(force.boundary([[], square], { radius: 4 })([1, 5])[0]).toBeGreaterThan(0);
     expect(force.boundary([objects], { radius: 4 })([1, 5])[0]).toBeGreaterThan(0);
     // Extra entries on a point are ignored; a bad entry is named.
-    expect(boundaryLoops([[[0, 0, 9], [10, 0, 9]]], 'test')).toEqual([[[0, 0, 9], [10, 0, 9]]]);
+    expect(boundaryLoops([[[0, 0, 9], [10, 0, 9]]], 'test')).toEqual([[[0, 0], [10, 0]]]);
     expect(() => boundaryLoops([[[0, 0], 'no']] as never, 'test')).toThrow(/loop entry 1 is not a point/);
     expect(() => boundaryLoops([['a', 'b']] as never, 'test')).toThrow(/expected loops of points/);
   });
@@ -256,6 +256,50 @@ describe('one boundary contract', () => {
     expect(out!.keep[0]).toBeGreaterThan(0);        // pushed inward, away from the left wall
     expect(Math.abs(out!.keep[1])).toBeLessThan(1e-9);
     expect(out!.n).toBeGreaterThanOrEqual(8);        // two squares of corners after the colinear merge
-    expect(getState().shapes.length).toBe(1);        // nothing drawn by the conversions themselves
+        expect(getState().shapes.length).toBe(1);        // nothing drawn by the conversions themselves
+  });
+});
+
+describe('closure is per contour, and the two winding defaults stay put', () => {
+  const mixed = () => path()
+    .moveTo(10, 10).lineTo(40, 10).lineTo(40, 40).close()
+    .moveTo(60, 10).lineTo(90, 40)
+    .build();
+
+  it('keeps a closed and an open subpath in one path apart, through both conversions', () => {
+    let kept: Array<{ closed: boolean; n: number }> = [];
+    let sampled: Array<{ closed: boolean; n: number }> = [];
+    run((t) => {
+      const p = mixed();
+      kept = t.material(p).curves().map((c) => ({ closed: c.closed, n: c.pts.length }));
+      sampled = t.sample(p, { count: 8 }).curves().map((c) => ({ closed: c.closed, n: c.pts.length }));
+    });
+    expect(kept.map((c) => c.closed)).toEqual([true, false]);
+    expect(kept.map((c) => c.n)).toEqual([3, 2]);      // corners kept: the ring's 3 + the L's 2
+    expect(sampled.map((c) => c.closed)).toEqual([true, false]);
+    expect(sampled.every((c) => c.n === 8)).toBe(true); // redistributed
+  });
+
+  it('reads areas even-odd and paths non-zero — a documented pair, not an accident', () => {
+    // Two nested squares traced the SAME way (both counter-clockwise). Even
+    // odd nests, so the inner one is a hole; non-zero is decided by
+    // orientation, so it stays filled. The two constructors' defaults land
+    // on those different readings on purpose — `polygon` asks for areas
+    // (marching-squares contours promise no orientation), `path` follows the
+    // geometry the way SVG does. Pinned here so a silent unification shows up
+    // as an ink change.
+    const outer: [number, number][] = [[20, 20], [80, 20], [80, 80], [20, 80]];
+    const inner: [number, number][] = [[35, 35], [65, 35], [65, 65], [35, 65]];
+    const traced = path({ winding: 'nonzero' });
+    for (const loop of [outer, inner]) {
+      traced.moveTo(loop[0][0], loop[0][1]);
+      for (let k = 1; k < loop.length; k++) traced.lineTo(loop[k][0], loop[k][1]);
+      traced.close();
+    }
+    const asPath = traced.build({ stroke: false, opaque: true });
+    const rows = [0, 1, 2, 3, 4, 5].map((k) => line(0, 12 + k * 15, 100, 12 + k * 15));
+    const evenodd = ink(sketch({}, () => [...rows, polygon([outer, inner], { stroke: false, opaque: true })]));
+    const nonzero = ink(sketch({}, () => [...rows, asPath]));
+    expect(nonzero).not.toBe(evenodd);
   });
 });
