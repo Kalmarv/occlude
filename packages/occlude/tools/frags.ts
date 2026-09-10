@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import {
-  compileSketch, initOcclude, isSketch, render, setPaperHint, setPenLibrary,
+  initOcclude, isSketch, render, setPaperHint, setPenLibrary,
   DEFAULT_PENS, paperSize,
 } from '../src/index.js';
 import { liveExampleToJs } from '../src/docsExamples.js';
@@ -37,7 +37,9 @@ new Function('require', 'exports', 'module', js)(
 );
 const def = module.exports.default;
 if (!isSketch(def)) throw new Error('no default sketch export');
-const out = render(compileSketch(def, seed !== undefined ? { seed } : undefined), { paper: 'Square20' });
+// A sketch with no seed of its own reads the url seed at compile time.
+if (seed !== undefined) (globalThis as Record<string, unknown>).location = { search: `?seed=${seed}` };
+const out = render(def, { paper: 'Square20' });
 
 const byShape = new Map<number, typeof out.frags>();
 for (const f of out.frags) {
@@ -48,7 +50,7 @@ const fmt = (n: number) => n.toFixed(2);
 for (const [shape, frags] of [...byShape].sort((a, b) => a[0] - b[0])) {
   console.log(`shape ${shape}: ${frags.length} frag(s)`);
   for (const f of frags) {
-    const g = f.geom as Record<string, number> & { t: string };
+    const g = f.geom;
     const ends = g.t === 'line'
       ? `(${fmt(g.x0)}, ${fmt(g.y0)}) → (${fmt(g.x1)}, ${fmt(g.y1)})`
       : g.t === 'arc' ? `arc c=(${fmt(g.cx)}, ${fmt(g.cy)}) r=${fmt(g.r)}` : g.t;

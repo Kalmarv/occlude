@@ -23,7 +23,8 @@
     "docs:check": "tsx tools/check-docs-examples.ts",
     "dump-scene": "tsx tools/dump-scene.ts",
     "renderhash": "tsx tools/renderhash.ts",
-    "docs:hashes": "tsx tools/docs-hashes.ts"
+    "docs:hashes": "tsx tools/docs-hashes.ts",
+    "typecheck": "tsc -p tsconfig.check.json"
   },
   "dependencies": {
     "commons-math-interpolation": "^2.2.4",

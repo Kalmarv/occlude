@@ -94,16 +94,15 @@ rasters are implementation numbers. They are not tenants.
   instead of estimating. The "stale tab" diagnosis may be played at most
   once per issue.
 - **When patches stack, stop and rearchitect.**
-- **Definition of done:** tests (Rust + TS) + live reference entry
-  (`pnpm --filter occlude docs:check`) + `pnpm build` at the root — the
-  library typecheck AND the studio bundle, since neither `pnpm test` nor
-  the studio build alone typechecks `src` — + wasm md5 match
-  (`crates/occlude-core/pkg/*.wasm` == `packages/occlude-studio/dist/assets/*.wasm`)
-  + docs ink unchanged when the change should not move ink
-  (`pnpm --filter occlude docs:hashes -- --check`, against the committed
-  `test/fixtures/docs-ink.json`) + commit/push. The server serves dist per
-  request; restart only for server.mjs / *-store.mjs changes (kill by PID —
-  pkill aborts the shell).
+- **Definition of done:** `pnpm check` — one line per gate: Rust tests, TS
+  tests, the library typecheck (`src` and `tools`), every docs example
+  rendering, the docs ink oracle against
+  `packages/occlude/test/fixtures/docs-ink.json`, the root build, and the
+  wasm md5 match. Then commit/push. A DELIBERATE ink change re-saves that
+  baseline in the same commit, with the reason in the message; the test
+  suite and the studio are not typechecked yet (`check.mjs` says so). The
+  server serves dist per request; restart only for server.mjs /
+  *-store.mjs changes (kill by PID — pkill aborts the shell).
 - **Docs are topic pages with live examples.** Every feature gets a
   `ts live` entry on its topic page under docs/ (getting-started, shapes,
   fills, fields, materials, images, plotting; the list is `DOC_PAGES` in

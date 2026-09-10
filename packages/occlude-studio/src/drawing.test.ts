@@ -162,10 +162,17 @@ describe('no stand-in selection while resolving', () => {
     const buf = encodePlanBuffer(a);
     const hash = await hashPlan(buf, settings);
     const asked: string[] = [];
-    // a slow toolpath: the selection stays pending for a while
+    // The toolpath is held open at a gate the test opens, so "the selection
+    // is still resolving" is a state this test reaches exactly, not a race
+    // against a timer (a sleep-based version failed under load).
+    let atToolpath!: () => void;
+    const reached = new Promise<void>((r) => { atToolpath = r; });
+    let openGate!: () => void;
+    const gate = new Promise<void>((r) => { openGate = r; });
     const client = {
       planToolpath: async (range: { planHash: string; from: number; to: number }) => {
-        await new Promise((r) => setTimeout(r, 30));
+        atToolpath();
+        await gate;
         return encodeToolpath(flatOf(a).slice(range.from, range.to));
       },
       planSvg: async (range: { planHash: string; from: number; to: number }) => { asked.push(`${range.from}-${range.to}`); return '<svg/>'; },
@@ -173,12 +180,14 @@ describe('no stand-in selection while resolving', () => {
     } as unknown as RenderClient;
     const d = new Drawing(client, timing);
     const landing = d.setPlan({ buffer: buf, settings, planHash: hash }, pens, { chains: [0, 2] });
-    // before anything resolved: no selection, no range, no stand-in
-    await new Promise((r) => setTimeout(r, 0));
+    await reached;
+    // the plan is adopted, the toolpath is in flight: no selection, no
+    // range, and no stand-in pretending the range is everything
     expect(d.selection).toBeNull();
     expect(() => d.range()).toThrow(/not resolved/);
     const svg = d.svg(undefined); // waits
     const tp = d.selectedToolpath();
+    openGate();
     await landing;
     await svg;
     expect(asked).toEqual(['0-2']);

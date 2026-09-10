@@ -30,7 +30,7 @@ import { preloadFillsFromDisk } from './fill-preload.js';
 import * as occlude from '../src/index.js';
 import {
   compileSketch, initOcclude, isSketch, paperSize, pensToJson, render,
-  setPaperHint, setPenLibrary, DEFAULT_PENS, type SketchDef,
+  setPaperHint, setPenLibrary, DEFAULT_PENS, PAPERS, type SketchDef,
 } from '../src/index.js';
 
 const args = process.argv.slice(2);
@@ -128,8 +128,16 @@ if (files.length === 0) {
 }
 
 const seed = opt('seed');
-const paper = (opt('paper') ?? 'A4') as never;
+const paperArg = opt('paper') ?? 'A4';
 const landscape = args.includes('--landscape');
+const explicitPaper = /^[\d.]+x[\d.]+$/.test(paperArg)
+  ? { w: Number(paperArg.split('x')[0]), h: Number(paperArg.split('x')[1]) }
+  : null;
+if (explicitPaper === null && !(paperArg in PAPERS)) {
+  throw new Error(`plotstats: unknown paper '${paperArg}' — a preset name (${Object.keys(PAPERS).join(', ')}) or WxH in mm`);
+}
+// Checked just above: a preset name, or the size was parsed.
+const paper = (explicitPaper ?? paperArg) as keyof typeof PAPERS | { w: number; h: number };
 const tolerance = parseFloat(opt('tolerance') ?? '0.025');
 const eps = parseFloat(opt('eps') ?? '0.05');
 if (seed !== undefined) {
@@ -472,7 +480,7 @@ for (const file of files) {
       : Object.values(exp).find(isSketch)) as SketchDef | undefined;
     if (!def) throw new Error('no sketch exported');
     compileSketch(def);
-    const r = render({ paper, landscape });
+    const r = render({ paper: { paper, landscape } });
     const plan = (core as unknown as {
       wasm_export_toolpath(
         p: Float64Array, f: Float64Array, pens: string, budget: number, tol: number,

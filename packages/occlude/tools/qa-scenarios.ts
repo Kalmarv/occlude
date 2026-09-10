@@ -11,7 +11,7 @@
 import {
   circle, decimate, deform, dash, evalPrim, line, mm, modify, ngon, rect,
   render, roughen, sketch, smooth, wobble,
-  type Fragment, type RenderResult, type SketchDef, type Tree, type VectorFieldFn,
+  type Fragment, type ModifierValue, type RenderResult, type SketchDef, type Tree, type VectorFieldFn,
 } from '../src/index.js';
 
 export interface Violation {
@@ -123,7 +123,7 @@ const byShape = (out: RenderResult, s: number): Fragment[] =>
 export const preChains: Scenario = (seed) => {
   const r = mulberry(seed ^ 0x51ab);
   const shapes: Tree[] = [];
-  const mods = (): ReturnType<typeof smooth>[] => {
+  const mods = (): ModifierValue[] => {
     const stack = [];
     const n = 1 + Math.floor(r() * 3);
     for (let i = 0; i < n; i++) {

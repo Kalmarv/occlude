@@ -4,6 +4,7 @@
   "scripts": {
     "build:wasm": "cd crates/occlude-core && wasm-pack build --target web --out-dir pkg --features wasm --no-default-features",
     "test": "pnpm -r test",
-    "build": "pnpm -r build"
+    "build": "pnpm -r build",
+    "check": "node check.mjs"
   }
 }
