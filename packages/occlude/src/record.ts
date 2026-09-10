@@ -135,11 +135,19 @@ function composeChain(chain: TransformOp[], rz: Resolver): Mat {
     }
     // `origin` is the pivot for rotate and scale: the op is
     // T(origin) · R · S · T(-origin), inside the op's own translate.
+    // The chain runs in user coordinates, so 'center' — the drawable's
+    // middle — depends on where the frame puts the user origin: under
+    // origin 'center' that origin IS the sheet's middle, so the pivot is
+    // [0, 0]; under topLeft/yUp it is the half-size away. (yUp only flips
+    // the axis in the outer frame matrix, so it pivots like topLeft.)
+    const { innerW, innerH } = rz.frame.inner;
     const pivot: [number, number] | null =
       op.origin === undefined
         ? null
         : op.origin === 'center'
-          ? [rz.frame.inner.innerW / 2, rz.frame.inner.innerH / 2]
+          ? rz.frame.origin === 'center'
+            ? [0, 0]
+            : [innerW / 2, innerH / 2]
           : [rz.len(op.origin[0]), rz.len(op.origin[1])];
     if (pivot) m = mul(m, translate(pivot[0], pivot[1]));
     if (op.rotate !== undefined && op.rotate !== 0) {

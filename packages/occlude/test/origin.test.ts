@@ -92,4 +92,25 @@ describe('origin: the pivot for rotate and scale', () => {
     expect(Math.abs(dots.box[0] - inked.box[0])).toBeLessThan(0.2);
     expect(Math.abs(dots.box[2] - inked.box[2])).toBeLessThan(0.2);
   });
+
+  it("centres 'center' on the user origin when the frame's origin is the sheet's middle", () => {
+    const s = 0.5;
+    const centred = { aspect: [1, 1] as [number, number], origin: 'center' as const };
+    const square = { aspect: [1, 1] as [number, number] };
+    // Under a centred frame the user origin IS the sheet's middle, so
+    // 'center' names the same point as an unset origin and both must agree.
+    const centredMiddle = ink(sketch(centred, () => rect(-10, -10, 20, 20, { scale: s, origin: 'center' })));
+    const centredPlain = ink(sketch(centred, () => rect(-10, -10, 20, 20, { scale: s })));
+    sameInk(centredMiddle, centredPlain);
+
+    // Mirror: with the default topLeft frame the sheet's middle is
+    // [innerW/2, innerH/2] mm — 50 user units on this square drawable, one
+    // unit being 1/100 of the short side — so 'center' must differ from an
+    // unset origin and match that explicit point.
+    const topLeftMiddle = ink(sketch(square, () => rect(-10, -10, 20, 20, { scale: s, origin: 'center' })));
+    const topLeftPlain = ink(sketch(square, () => rect(-10, -10, 20, 20, { scale: s })));
+    const topLeftExplicit = ink(sketch(square, () => rect(-10, -10, 20, 20, { scale: s, origin: [50, 50] })));
+    expect(topLeftMiddle.box[0]).not.toBeCloseTo(topLeftPlain.box[0], 6);
+    sameInk(topLeftMiddle, topLeftExplicit);
+  });
 });
