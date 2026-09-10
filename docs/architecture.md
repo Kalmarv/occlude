@@ -54,7 +54,10 @@ packages/occlude/src/
   state                 the sketch singleton: record lists, pen library,
                         transform/clip stacks, seeded Rng, paper hint
   api, shapes           the declarative API: sketch(), shape values, groups,
-                        clips, modifiers; compileSketch records them
+                        clips, modifiers; compileSketch records them. `origin`
+                        is the pivot rotate and scale turn about (`'center'` is
+                        the drawable's middle), threaded through composeChain as
+                        T(o)·R·S·T(−o) and through the sketch-time conversions
   fillModule, fills     the fill contract (fillAsset, rulings) and resolution
   fills/*.ts            the built-in fill files (hatch, crosshatch, solid,
                         stipple) — ink-immutable, resolved from the package
@@ -73,6 +76,13 @@ packages/occlude/src/
                         planarization and faces
   plan, motion          the DrawingPlan as a value (selection, resolveDraw,
                         encode/decode), estimatePlanMs and the motion model
+  boundary, material    the area contract and the trim: `loopCrossings` finds
+                        where an edge crosses a loop (the cut point is taken on
+                        the boundary edge, so an axis-aligned frame's ends land
+                        exactly on it), `withinMaterial` cuts the outside away
+                        and carries each cut vertex's columns by their declared
+                        policy; `within` on the toolkit dispatches a field, a
+                        material, a point selection or a face collection
   draw                  Canvas 2D preview (exact arcs/cubics, no flattening)
   docsExamples          DOC_PAGES and the live-fence settings shared by the
                         docs site and the checker

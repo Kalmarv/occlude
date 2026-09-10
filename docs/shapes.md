@@ -248,6 +248,9 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) =>
 );
 ```
 
+The amount may also be a **length-valued field** — `mm(0.3)` per sample, resolved against the frame like any tagged length — so a tremor can fade out over part of the drawing. `decimate`'s fraction and `wobble`'s wavelength take plain numbers, but a length-shaped parameter takes either a length or a field of lengths.
+
+
 ### decimate
 
 Drops a fraction of the final strokes, seeded. `{ stroke, fill }` targets outline and fill ink separately.
@@ -402,5 +405,28 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => [
     t.noisyLine(6, 8 + u * 84, 194, 8 + u * 84, { amplitude: 1 + u * 5, offset: k * 7.3 }),
   ),
   circle(140, 36, 20, { opaque: true }),
+]);
+```
+
+### A length that varies
+
+`wobble`'s `amount` takes a length, or a field of lengths: not a number but a
+value like `mm(1.2)`, resolved against the frame per sample the same lazy way a
+constant tagged length is (`wobble`'s `wavelength` and `deform`'s `detail` stay
+constants). Combined with `within(...)` that gives a tremor which fades out
+over part of the drawing:
+
+```ts live
+import { sketch, line, mm, within, circle } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 7 }, (t) => [
+  // steady tremor all the way across
+  t.times(6, (k, u) => line(10, 6 + u * 40, 190, 6 + u * 40, { wobble: mm(1.2) })),
+  // and the same lines with the tremor `within` a disc and absent outside it
+  t.times(6, (k, u) =>
+    line(10, 54 + u * 40, 190, 54 + u * 40, {
+      wobble: { amount: within(() => mm(1.2), circle(100, 74, 46)), wavelength: mm(14) },
+    }),
+  ),
 ]);
 ```

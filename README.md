@@ -65,14 +65,25 @@ pnpm --filter occlude plotstats sketch.ts --seed 7   # lifts, ink/travel mm, plo
 ## Development
 
 ```sh
-cargo test                  # core: unit + pipeline + property + golden tests
-pnpm -r test                # TS end-to-end tests (drive the real wasm)
+pnpm check                  # THE definition of done, one line per gate:
+                            #   rust tests · TS tests · library typecheck (src
+                            #   and tools) · studio typecheck · every docs
+                            #   example renders · docs ink unchanged · build ·
+                            #   wasm md5 match
+pnpm -r test                # just the TS end-to-end tests (drive the real wasm)
 pnpm --filter occlude qa    # property-based seed sweep + adversarial corpus
 pnpm --filter occlude docs:check   # every docs example must render (DOCS_PAGE=fills for one page)
+pnpm --filter occlude docs:hashes -- --check   # every example's ink vs test/fixtures/docs-ink.json
+pnpm --filter occlude store-sweep  # do the studio's STORED sketches still build? (--migrate to
+                                   #   compile them as tools/migrate-sketch-source.mjs would leave them)
 
 cd packages/occlude-studio
 pnpm build && node server.mjs   # production build, http://localhost:4173
 ```
+
+A rebuild needs no restart: the server reads `dist` — and its `/api/version`
+build id — per request. Restart only for `server.mjs` / `*-store.mjs` changes
+(kill by PID; not `pkill`, which aborts the shell).
 
 Benchmarks and golden fixtures:
 
