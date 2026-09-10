@@ -250,5 +250,7 @@ the studio server (plain files under `sketches/`, `fills/`, `assets/`),
 shared by every browser that reaches it. `localStorage` holds the working
 sketch (and a fill draft), the UI layout, and offline caches of pens and
 profiles; the sketch saves on every (debounced) run, including runs that
-fail. The seed lives in the URL (`?seed=`), which is what makes "copy url"
-shareable.
+fail. The seed rides the URL fragment (`#seed=…`, encoded, so a long seed
+with its draw overrides survives the trip), which is what makes "copy url"
+shareable; the studio hands it to the render worker, and the library itself
+reads `?seed=` when it is the page.

@@ -67,6 +67,8 @@ Read `t.bounds()` when a drawing should fill whatever drawable it lands on; assu
 
 Every random value comes from the sketch's seed: `seed` in the config, or the URL's `?seed=` when the config says `'url'` (the studio's default). The same source and seed produce the same geometry. `t.rnd()`, `t.pick()`, `t.chance()` and `t.noise()` are the everyday calls; Fields & variation covers them, independent streams, and easing.
 
+A seed may also carry **overrides**. Every `rnd`, `pick`, `chance` and `prob` call gets an address: `siteId` hashes the call's own text to a site, and `k` counts that site's draws within the run, so `base~site.k=f,site.k=f` answers those draws directly. The override is a unit float in `[0, 1)`, whatever the call's range — `rnd(10, 100)` maps it into 10..100 itself, so a variation can never leave the range the call declared — and the stream still advances, so nothing after the address moves. That is the mechanism the studio's Evolve moves when you pick a variation: `parseSeed` and `formatSeed` read and write the string, and `tagDraws` is the pass that makes the addresses, which a host runs (the studio does, and the seed then rides the URL fragment). Library-internal draws — scatter, settle, fills — are never addressed: only the sketch's own decisions are.
+
 ## Controls
 
 `ui(value, { min?, max?, step?, label? })` marks a literal number or boolean as tweakable. In the studio each one gets a slider over the preview, and dragging it rewrites the literal in your code, so the tuned sketch saves and replots exactly as seen. The label defaults to the variable name. On these pages a live example with `ui()` calls gets the same controls panel over its preview, editing the literal in the same way. Anywhere else `ui()` returns its value.

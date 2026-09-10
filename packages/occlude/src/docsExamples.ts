@@ -25,6 +25,7 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'materials', title: 'Materials', file: 'materials.md', live: true, group: 'topics' },
   { slug: 'images', title: 'Images & imports', file: 'images.md', live: true, group: 'topics' },
   { slug: 'plotting', title: 'Plotting & saving', file: 'plotting.md', live: true, group: 'topics' },
+  { slug: 'studio', title: 'The studio', file: 'studio.md', live: false, group: 'topics' },
   { slug: 'gallery', title: 'Gallery', file: 'gallery.md', live: true, group: 'topics' },
   { slug: 'workshop-01', title: '1. Put marks on paper', file: 'workshop-01-marks.md', live: true, group: 'workshop' },
   { slug: 'workshop-02', title: '2. Turn a shape into something editable', file: 'workshop-02-material.md', live: true, group: 'workshop' },

@@ -91,6 +91,14 @@ Visible drift mid-plot: Pause, jog the pen onto the origin mark, Set origin, Res
 
 A draft plot for checking placement and structure: wrap the drawing in `decimate(0.7)` and plot with a fraction of the ink; the seed keeps the full version identical when you remove it.
 
+## Repairing a plot
+
+Three tools in the Plot panel narrow what the *machine* plots without changing the drawing. **Plot only** takes an interval of the plan's own timeline — two handles and two minute fields, resolved exactly as a `minutes` request is, then intersected with the sketch's `t.draw` selection. **Paint region** takes a brush: set its radius in mm, arm it, and each drag lays overlapping dabs; a chain is in when any of its ink lies under any dab, tested on the full toolpath at machine tolerance. The two narrow each other, so neither can widen what would have been plotted, and `Whole plan` clears both. They are studio-only: exports still draw the whole selection, and `Ghost the omitted ink` is how the preview shows what you have cut.
+
+The readout while plotting is `<state> · <pen> · <eta> min left · <drawn> / <total> mm · re-ink in <N> mm`. A pen with a re-ink budget parks at the bed origin mid-plan and waits, which is where you pump, refill or reseat it; Device notes has the procedure.
+
+**Marks** draws a right angle at the sheet's top-left and another at its bottom-right with the selected pen, the legs running inward, so the pair traces the sheet's bounds. For a pen change: marks, tape over them, swap pens, marks again — line the brackets up and the pens are registered. Marks is a plot of its own, so it leaves the progress record alone.
+
 ## Calibration
 
 The Machine page holds the machine profile (bed size, feeds, accelerations, servo pulses, settle, optional lift map) and the calibration cards: a registration probe for step loss, backlash squares, corner ringing at three feeds, the pen-height cards (lift traverse, lift grid, settle by lift, down sweep) and a settle sweep for a pen's true delay floor. Download serial log exports the full timestamped command transcript, the first thing to collect when anything misbehaves. The Device notes describe each procedure and what the numbers feed.

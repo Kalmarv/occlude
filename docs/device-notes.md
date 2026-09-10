@@ -21,7 +21,7 @@ The ETA comes from the planner's actual trapezoids through `estimatePlanMs` and 
 
 Each pen's `feed` and `penDelay` (the settle at full lift) drive the cycle. With a lift map on the profile, every travel takes the smallest lift that clears along its path, less a margin, and the settle curve scales the pen's settle down for that lift. On hatch and stipple plots this is the largest single time saving, and it is decided per travel and per bed position rather than as a fixed short hop. The driver and the estimator price the cycle through one function, `settleAtLift`, so the ETA stays consistent with what the machine does.
 
-Re-ink pauses: a pen with a `reinkMm` budget pauses at the first stroke boundary past that many drawn millimetres. The carriage parks at the paper origin, the gantry's stiffest corner and clear of wet ink, and waits for Resume. Steppers stay energized while parked, so handling the pen does not shift registration. Pump against a scrap sheet, or unclamp the pen and mark its clamp depth with a tape collar so it re-seats the same way.
+Re-ink pauses: a pen with a `reinkMm` budget pauses at the first stroke boundary past that many drawn millimetres. The carriage parks at the bed origin — the corner Set origin zeroed, off the sheet while a paper offset is in play — the gantry's stiffest corner and clear of wet ink, and waits for Resume. Steppers stay energized while parked, so handling the pen does not shift registration. Pump against a scrap sheet, or unclamp the pen and mark its clamp depth with a tape collar so it re-seats the same way.
 
 ## Position
 
