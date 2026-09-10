@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-// @ts-expect-error plain-JS tool
 import { migrateSketchSource } from '../tools/migrate-sketch-source.mjs';
 
 describe('migrateSketchSource', () => {
