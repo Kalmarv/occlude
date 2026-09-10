@@ -26,7 +26,7 @@ import { fieldMeta } from './field.js';
 import { apply, invert, minScale, mul, scale as mscale, type Mat } from './matrix.js';
 import type { FieldAlign, FieldFn, LengthFn, VectorFieldFn } from './shapes.js';
 import { Rng } from './random.js';
-import { getState, type Winding } from './state.js';
+import { getState, setPaperHint, type Winding } from './state.js';
 import { compileSketch, isSketch, type SketchDef } from './api.js';
 import { mm, resolveLen } from './units.js';
 
@@ -362,6 +362,10 @@ export function pensToJson(pens: PenDef[]): string {
   );
 }
 
+function renderPaper(opts: RenderOptions): { w: number; h: number } {
+  return paperSize(typeof opts.paper === 'string' ? { paper: opts.paper } : (opts.paper ?? { paper: 'A4' }));
+}
+
 /**
  * Encode the recorded sketch for the two-pass render. Pure and synchronous — no
  * wasm involved, so it is cheap enough for the main thread while the actual
@@ -369,9 +373,7 @@ export function pensToJson(pens: PenDef[]): string {
  */
 export function encodeScene(opts: RenderOptions = {}): EncodedScene {
   const state = getState();
-  const paperChoice: PaperChoice =
-    typeof opts.paper === 'string' ? { paper: opts.paper } : (opts.paper ?? { paper: 'A4' });
-  const { w: paperW, h: paperH } = paperSize(paperChoice);
+  const { w: paperW, h: paperH } = renderPaper(opts);
   const frame = makeFrame(state, paperW, paperH, opts.stretch ?? false);
 
   // Pens: collect used names in order of first use.
@@ -1096,13 +1098,20 @@ function renderState(opts: RenderOptions = {}): RenderResult {
   return decodeRender(scene, renderEncoded(requireWasm(), scene));
 }
 
+/** Resolve the host paper before any sketch-time bounds or unit lowering. */
+function compileForRender(def: SketchDef, opts: RenderOptions): void {
+  const { w, h } = renderPaper(opts);
+  setPaperHint(w, h);
+  compileSketch(def);
+}
+
 /** Render a sketch synchronously on this thread. */
 export function render(def: SketchDef, opts?: RenderOptions): RenderResult;
 /** Render whatever is currently compiled (host use, after compileSketch). */
 export function render(opts?: RenderOptions): RenderResult;
 export function render(a?: SketchDef | RenderOptions, b?: RenderOptions): RenderResult {
   if (isSketch(a)) {
-    compileSketch(a);
+    compileForRender(a, b ?? {});
     return renderState(b ?? {});
   }
   return renderState(a ?? {});
@@ -1167,7 +1176,8 @@ export function tourBudget(optimize: ExportOptions['optimize']): number {
 export function exportGcode(def: SketchDef, opts?: ExportOptions): GcodeJob[];
 export function exportGcode(opts?: ExportOptions): GcodeJob[];
 export function exportGcode(a?: SketchDef | ExportOptions, b?: ExportOptions): GcodeJob[] {
-  const opts = isSketch(a) ? (compileSketch(a), b ?? {}) : (a ?? {});
+  const opts = isSketch(a) ? (b ?? {}) : (a ?? {});
+  if (isSketch(a)) compileForRender(a, opts);
   const mod = requireWasm();
   const result = renderState({ ...opts, coarsen: 1 });
   const profile = opts.profile ?? {};
@@ -1197,7 +1207,8 @@ export interface PngOptions extends RenderOptions {
 export function exportPng(def: SketchDef, opts?: PngOptions): Uint8Array;
 export function exportPng(opts?: PngOptions): Uint8Array;
 export function exportPng(a?: SketchDef | PngOptions, b?: PngOptions): Uint8Array {
-  const opts = isSketch(a) ? (compileSketch(a), b ?? {}) : (a ?? {});
+  const opts = isSketch(a) ? (b ?? {}) : (a ?? {});
+  if (isSketch(a)) compileForRender(a, opts);
   const mod = requireWasm();
   const result = renderState({ ...opts, coarsen: 1 });
   return mod.wasm_export_png(
@@ -1275,7 +1286,8 @@ export function planToolpath(plan: DrawingPlan, sel: PlanSelection, tolerance: n
 export function exportSvg(def: SketchDef, opts?: SvgOptions): string;
 export function exportSvg(opts?: SvgOptions): string;
 export function exportSvg(a?: SketchDef | SvgOptions, b?: SvgOptions): string {
-  const opts = isSketch(a) ? (compileSketch(a), b ?? {}) : (a ?? {});
+  const opts = isSketch(a) ? (b ?? {}) : (a ?? {});
+  if (isSketch(a)) compileForRender(a, opts);
   const mod = requireWasm();
   const result = renderState({ ...opts, coarsen: 1 });
   const tol = Math.max(0.0001, Math.min(0.025, result.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)));

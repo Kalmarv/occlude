@@ -12,6 +12,8 @@
  *
  * Like the docs oracle, this renders on `Square20`, so `mm()` has a fixed
  * meaning. The fixture sets its own seed (7) in its config.
+ * The headless-frame fix deliberately repinned this oracle: its original
+ * pin compiled with an A4 hint before exporting onto Square20.
  */
 
 import { createHash } from 'node:crypto';
