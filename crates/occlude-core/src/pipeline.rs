@@ -132,10 +132,12 @@ pub struct RenderOutput {
 struct Occluder {
     rank: usize,
     region: Arc<Region>,
+    clips: Vec<u32>,
 }
 
 struct ClipCtx<'a> {
     occluders: &'a [Occluder],
+    clip_regions: &'a [(Region, bool)],
     occ_index: &'a SpatialIndex,
     my_rank: usize,
     /// The first occluder in front of this shape. Occluders are stored in
@@ -315,6 +317,7 @@ pub fn prepare(input: RenderInput) -> Prepared {
             occluders.push(Occluder {
                 rank: rank[i],
                 region,
+                clips: s.clips.clone(),
             });
         }
     }
@@ -371,7 +374,7 @@ pub fn prepare(input: RenderInput) -> Prepared {
         for &oi in query_buf.iter() {
             let o = &occluders[oi as usize];
             // Containment cull: fully inside one later opaque region.
-            if o.region.bbox.contains_box(b) && region_contains_bbox(&o.region, b) {
+            if o.clips.is_empty() && o.region.bbox.contains_box(b) && region_contains_bbox(&o.region, b) {
                 #[cfg(feature = "cull-debug")]
                 eprintln!("CULL shape {} by occluder rank {}", i, o.rank);
                 contained = true;
@@ -456,6 +459,7 @@ impl Prepared {
                 |pen: u32| -> f64 { pens.get(pen as usize).map(|p| p.width).unwrap_or(0.3) };
             let ctx = ClipCtx {
                 occluders,
+                clip_regions,
                 occ_index,
                 my_rank: rank[i],
                 first_ahead: occluders.partition_point(|o| o.rank <= rank[i]) as u32,
@@ -1706,7 +1710,32 @@ fn clip_one(
                 continue;
             }
         }
-        clip_spans(prim, spans, &occ.region, false, scratch);
+        if occ.clips.is_empty() {
+            clip_spans(prim, spans, &occ.region, false, scratch);
+        } else {
+            // Compute the effective mask on each still-visible interval.
+            // Invert its intersection, not each clip separately: outside
+            // ANY mask constraint survives. Previously hidden ink stays hidden.
+            let mut result = Vec::new();
+            let mut covered = Vec::new();
+            let mut work = Vec::new();
+            for span in spans.iter() {
+                if !span.visible {
+                    result.push(*span);
+                    continue;
+                }
+                covered.clear();
+                covered.push(*span);
+                clip_spans(prim, &mut covered, &occ.region, true, &mut work);
+                for &ci in &occ.clips {
+                    if let Some((region, keep)) = ctx.clip_regions.get(ci as usize) {
+                        clip_spans(prim, &mut covered, region, *keep, &mut work);
+                    }
+                }
+                result.extend(covered.iter().map(|s| Span { visible: !s.visible, ..*s }));
+            }
+            *spans = result;
+        }
         if fully_hidden(spans) {
             return;
         }
@@ -1798,7 +1827,13 @@ fn point_visible(p: Vec2, clips: &[(&Region, bool)], ctx: &ClipCtx, query_buf: &
     // next band) — one test settles most dots instead of one per occluder.
     for &oi in query_buf.iter() {
         let occ = &ctx.occluders[oi as usize];
-        if !occ.region.on_boundary(p, crate::clip::ON_BOUNDARY_EPS) && occ.region.inside(p) {
+        if !occ.region.on_boundary(p, crate::clip::ON_BOUNDARY_EPS) && occ.region.inside(p)
+            && occ.clips.iter().filter_map(|&ci| ctx.clip_regions.get(ci as usize))
+                .all(|(region, keep)| {
+                    let inside = !region.on_boundary(p, crate::clip::ON_BOUNDARY_EPS) && region.inside(p);
+                    inside == *keep
+                })
+        {
             return false;
         }
     }

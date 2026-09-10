@@ -497,3 +497,26 @@ fn the_occluder_span_path_judges_runs_whole() {
     assert!(ink > 37.0, "run judged whole should keep the stroke: {ink} mm");
     assert_eq!(dots, 0, "no crumbs along a drawable stroke");
 }
+
+#[test]
+fn clipped_occluder_hides_only_its_effective_region() {
+    // A full-cover mask exercises containment culling as well as clipping.
+    for invert in [false, true] {
+        let line = stroke_shape(vec![vec![Primitive::Line(Line::new(v(0., 0.), v(100., 0.)))]], false);
+        let mut mask = filled_shape(rect_contour(-10., -10., 120., 20.), FillKind::Mask);
+        mask.stroke = None;
+        mask.clips = vec![0, 1];
+        let mut inp = input(vec![line, mask]);
+        let mut loops = rect_contour(20., -5., 60., 10.);
+        loops.extend(rect_contour(40., -2., 20., 4.));
+        inp.clips = vec![
+            ClipDef { contours: loops, winding: WindingRule::EvenOdd, convex: false, invert },
+            ClipDef { contours: rect_contour(0., -8., 70., 16.), winding: WindingRule::NonZero, convex: true, invert: false },
+        ];
+        let out = render(&inp);
+        let ink: f64 = out.frags.iter().filter(|f| f.shape == 0).map(|f| f.geom.length()).sum();
+        // Normal: hides [20,40] + [60,70]; inverted: [0,20] + [40,60].
+        let expected = if invert { 60. } else { 70. };
+        assert!((ink - expected).abs() < 1e-6, "invert={invert}: {ink}, expected {expected}");
+    }
+}
