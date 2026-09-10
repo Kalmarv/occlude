@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  append, circle, compileSketch, initOcclude, material, rect, setPaperHint, sketch,
-  type Face, type Material, type PointSelection, type Toolkit, type XY,
+  append, circle, clip, compileSketch, initOcclude, material, path, polygon, rect, render,
+  setPaperHint, sketch, within,
+  type Face, type Material, type PointSelection, type SketchDef, type ShapeValue, type Toolkit, type XY,
 } from '../src/index.js';
 import type { Loop } from '../src/boundary.js';
 import { scatterPoints } from '../src/points.js';
@@ -266,5 +267,70 @@ describe('within: the point operations', () => {
     const env = { rnd: () => 0.5, bounds: { x: 0, y: 0, w: 100, h: 100 }, len: () => 5 };
     expect(() => scatterPoints(env, undefined, { spacing: 5, within: circle(50, 50, 20) }))
       .toThrow(/lowered by the toolkit/);
+  });
+});
+
+describe('within: holes and winding', () => {
+  it('refuses a face whose interior covers a container hole', () => {
+    let spanning = 0;
+    let withoutHole = 0;
+    let away = 0;
+    run((t) => {
+      const spanningFaces = material([[20, 20], [80, 20], [80, 80], [20, 80]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
+        .planarize().faces();
+      const awayFaces = material([[15, 15], [30, 15], [30, 30], [15, 30]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
+        .planarize().faces();
+      spanning = t.within(spanningFaces, [ring, hole], { faces: 'contained' }).length;
+      withoutHole = t.within(spanningFaces, [ring], { faces: 'contained' }).length;
+      away = t.within(awayFaces, [ring, hole], { faces: 'contained' }).length;
+    });
+    // Every vertex is inside and no edge crosses — but the face's interior
+    // covers the hole, which is excluded space, so it is not contained.
+    expect(spanning).toBe(0);
+    expect(withoutHole).toBe(1); // the hole is the only thing that rejects it
+    expect(away).toBe(1); // and a face clear of the hole is kept
+  });
+
+  it("reads a shape area's own winding rule, agreeing with the field bound", () => {
+    let byField = 0;
+    let covered = 0;
+    let pointsKept = 0;
+    run((t) => {
+      // Two nested loops in the SAME direction: even-odd calls the inner one a
+      // hole, a path's `nonzero` default counts it as solid.
+      const nested = path()
+        .moveTo(10, 10).lineTo(90, 10).lineTo(90, 90).lineTo(10, 90).close()
+        .moveTo(40, 40).lineTo(60, 40).lineTo(60, 60).lineTo(40, 60).close()
+        .build();
+      const bounded = within(() => 1, nested);
+      byField = Number.isFinite(bounded(50, 50)) ? 1 : 0;
+      // The trim cuts at every contour it was given, so the inner loop still
+      // splits the run into three edges — an extra vertex, no ink change.
+      // What must hold is the COVERAGE: the whole 10…90 span survives. Under
+      // an even-odd reading the middle was a hole and only 10…40 and 60…90 did.
+      const kept = t.within(chord(-50, 50, 150, 50), nested);
+      let mm = 0;
+      for (let e = 0; e < kept.edgeCount; e++) {
+        const [a, b] = [kept.edgeList[2 * e], kept.edgeList[2 * e + 1]];
+        mm += Math.abs(kept.pts[b][0] - kept.pts[a][0]);
+      }
+      covered = mm;
+      pointsKept = t.within(material([[50, 50], [15, 15]]).points, nested).length;
+    });
+    expect(byField).toBe(1); // the field bound reads the winding
+    expect(covered).toBeCloseTo(80, 6); // 10…90, middle included
+    expect(pointsKept).toBe(2); // the centre is inside, not a hole
+  });
+
+  it("polygon() reads a path's own winding unless the options override it", () => {
+    const nestedPath = (): ShapeValue => path()
+      .moveTo(10, 10).lineTo(90, 10).lineTo(90, 90).lineTo(10, 90).close()
+      .moveTo(40, 40).lineTo(60, 40).lineTo(60, 60).lineTo(40, 60).close()
+      .build();
+    const frags = (def: SketchDef): number => render(def, { paper: 'Square20' }).frags.length;
+    const nonzero = frags(sketch({ seed: 1 }, () => clip(polygon(nestedPath()), circle(50, 50, 5))));
+    const evenodd = frags(sketch({ seed: 1 }, () => clip(polygon(nestedPath(), { winding: 'evenodd' }), circle(50, 50, 5))));
+    expect(nonzero).toBeGreaterThan(0); // inside the solid middle
+    expect(evenodd).toBe(0); // inside a hole: nothing survives
   });
 });

@@ -953,7 +953,7 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
 });
 ```
 
-A face collection answers with `{ faces: … }`. `'contained'` (the default) keeps the cells that lie inside the area — a cell whose wall runs along the boundary belongs to it. `'centroid'` keeps the cells whose *centre* is inside, so a cell the boundary cuts through is kept whole and its ink reaches past the edge. The same nine-cell grid and the same frame, whose right and bottom edges cut the far cells past their centres: one cell on the left, all four on the right.
+A face collection answers with `{ faces: … }`. `'contained'` (the default) keeps the cells that lie inside the area — a cell whose wall runs along the boundary belongs to it — and refuses one whose interior covers excluded space, which is how a cell that spans a hole is caught even though all its corners are inside. `'centroid'` keeps the cells whose *centre* is inside, so a cell the boundary cuts through is kept whole and its ink reaches past the edge. The same nine-cell grid and the same frame, whose right and bottom edges cut the far cells past their centres: one cell on the left, all four on the right.
 
 ```ts live
 import { sketch, strokes, label, polygon, fill, mm, line, rect, append, group } from 'occlude';

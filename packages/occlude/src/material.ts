@@ -1195,10 +1195,14 @@ export function loopCrossings(
 export function withinMaterial(
   m: Material,
   area: Boundary,
-  opts: { transfer?: Record<string, Transfer> } = {},
+  opts: { transfer?: Record<string, Transfer>; inside?: (x: number, y: number) => number } = {},
 ): Material {
   const loops = numericLoops(area, 'within');
-  const inside = distanceTo(loops);
+  // The caller may bring its own insideness — `within` does, for a shape area,
+  // whose own winding rule is not `distanceTo`'s even-odd. Same convention
+  // either way: positive inside, zero on the boundary (which counts as
+  // OUTSIDE here, the rule the engine's clip uses), negative outside.
+  const inside = opts.inside ?? distanceTo(loops);
   const names = m.attrNames;
   const transfer: Record<string, Transfer> = { ...m.transfers, ...(opts.transfer ?? {}) };
   const enames = m.edgeAttrNames;

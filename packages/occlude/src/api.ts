@@ -53,7 +53,7 @@ import { voronoi } from './voronoi.js';
 import { distanceTo } from './distance.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
-  vectorField as vectorFieldMark, within as withinField,
+  vectorField as vectorFieldMark, within as withinField, containsTest,
 } from './field.js';
 import { ui } from './ui.js';
 import { h, long, mm, s, w, resolveLen, Len, type L } from './units.js';
@@ -180,6 +180,10 @@ function shape(geom: ShapeGeom, opts: ShapeOpts = {}): ShapeValue {
 const isOpts = (v: unknown): v is ShapeOpts =>
   typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof Len);
 
+/** A shape value, as opposed to any other area input. */
+const isShapeValue = (v: unknown): v is ShapeValue =>
+  typeof v === 'object' && v !== null && '__occludeShape' in v;
+
 // ---- pure shape constructors ----
 
 export function circle(x: L, y: L, r: L, opts?: ShapeOpts): ShapeValue {
@@ -240,7 +244,7 @@ export interface PolygonOpts extends ShapeOpts {
  * face, loops, a chain material or a selection come from the boundary
  * contract. */
 function areaLoops(input: Boundary | ShapeValue, who: string): LoopPoints[] {
-  if (typeof input === 'object' && input !== null && '__occludeShape' in input) {
+  if (isShapeValue(input)) {
     return shapeContours(input, undefined).map((c) => c.pts);
   }
   return boundaryLoops(input, who);
@@ -266,7 +270,12 @@ function numericAreaLoops(input: Boundary | ShapeValue, who: string): [number, n
  * other spelling: there the geometry's own orientation decides, as in SVG.
  */
 export function polygon(contours: Boundary | Contour | Contour[] | ShapeValue, opts: PolygonOpts = {}): ShapeValue {
-  const { winding = 'evenodd', ...rest } = opts;
+  const { winding: given, ...rest } = opts;
+  // The source is the authority for the fill rule, and a path carries one:
+  // `polygon(somePath)` keeps it, and `opts.winding` overrides it. Loops and
+  // faces have no rule of their own, so they read even-odd as before.
+  const fromSource = isShapeValue(contours) && contours.geom.kind === 'path' ? contours.geom.winding : undefined;
+  const winding = given ?? fromSource ?? 'evenodd';
   const loops = areaLoops(contours, 'polygon');
   const cmds: PathCmd[] = [];
   for (const loop of loops) {
@@ -298,11 +307,12 @@ export function polygon(contours: Boundary | Contour | Contour[] | ShapeValue, o
  * collection takes `{ faces: 'contained' | 'centroid' }` (see WithinFaces).
  */
 /** How `within` decides that a face belongs to an area. `'contained'` (the
- * default) keeps a face with no contour point strictly outside the area and
- * no edge crossing its boundary — a cell whose wall runs ALONG the boundary
- * belongs to it. `'centroid'` keeps a face whose geometric centre is inside
- * the area, so a cell the boundary cuts through is kept whole, and its ink
- * may reach past the edge by up to that cell. */
+ * default) keeps a face with no contour point strictly outside the area, no
+ * edge crossing its boundary, and none of the area's own loops (a hole, an
+ * island) lying strictly inside it — so a cell whose wall runs ALONG the
+ * boundary belongs to it. `'centroid'` keeps a face whose geometric centre is
+ * inside the area, so a cell the boundary cuts through is kept whole, and its
+ * ink may reach past the edge by up to that cell. */
 export interface WithinFaces {
   faces?: 'contained' | 'centroid';
 }
@@ -318,6 +328,7 @@ export function withinAny<F extends FieldFn | VectorFieldFn>(field: F, area: Sha
 export function withinAny(material: Material, area: Boundary | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
 export function withinAny(points: PointSelection, area: Boundary | ShapeValue): PointSelection;
 export function withinAny(faces: Faces | FaceSelection, area: Boundary | ShapeValue, opts?: WithinFaces): FaceSelection;
+
 export function withinAny(
   x: FieldFn | VectorFieldFn | Material | PointSelection | Faces | FaceSelection,
   area: Boundary | ShapeValue,
@@ -328,10 +339,33 @@ export function withinAny(
     throw new Error(`within: faces must be 'contained' or 'centroid', got '${String(opts.faces)}'`);
   }
   const loops = numericAreaLoops(area, 'within');
-  const inside = distanceTo(loops);
+  // Insideness: loops and faces are even-odd, as `distanceTo` documents, but a
+  // shape area carries its OWN rule — the one lowerer, exactly as the field
+  // bound reads it — and a path's `nonzero` can say "inside" where even-odd
+  // says "in a hole". Winding only ever ADDS insideness, so it is a union over
+  // the signed field, and the field's own reading of the boundary (zero, which
+  // a material cuts at and a face keeps a wall along) is untouched.
+  const sdf = distanceTo(loops);
+  const shapeArea = isShapeValue(area) ? area : null;
+  // Only a `nonzero` path can disagree with the loop field: a single loop, a
+  // rect, an ellipse or an even-odd path all read the same either way, so they
+  // keep the field's own answer exactly. Where the rules CAN differ — a
+  // `nonzero` path's interior loops — the shape's own test is a union over it.
+  const rule = shapeArea && shapeArea.geom.kind === 'path' ? shapeArea.geom.winding : undefined;
+  const contains = rule === 'nonzero' && shapeArea ? containsTest(shapeArea) : null;
+  const inside = contains
+    ? (px: number, py: number): number => {
+        const d = sdf(px, py);
+        // Strictly outside by the loops, but the shape's own rule says inside
+        // (a `nonzero` interior loop): the winding ADDS insideness and nothing
+        // else. A point the field reads as ON the boundary (d === 0) keeps that
+        // reading — a material cuts there and a face keeps a wall along it.
+        return d > 0 ? 1 : d < 0 && contains(px, py) ? 1 : d;
+      }
+    : sdf;
   if (x instanceof Material) {
     if (opts.faces !== undefined) throw new Error("within: 'faces' is for a face collection — a material is cut at the boundary");
-    return withinMaterial(x, loops, opts);
+    return withinMaterial(x, loops, { ...opts, inside });
   }
   if (x instanceof PointSelection) return x.filter((p) => inside(p.x, p.y) > 0);
   const faces: Faces | FaceSelection = x;
@@ -351,6 +385,7 @@ export function withinAny(
   // cells share its edges), while a face merely touching it from outside is
   // not.
   const keep = (f: Face): boolean => {
+    if (f.contours.length === 0) return false;
     for (const c of f.contours) {
       for (let k = 0; k < c.pts.length; k++) {
         const p = c.pts[k];
@@ -359,7 +394,17 @@ export function withinAny(
         if (loopCrossings(loops, p[0], p[1], q[0], q[1]).length > 0) return false;
       }
     }
-    return f.contours.length > 0;
+    // Every vertex inside and no edge crossing still leaves the reverse case:
+    // an area loop — a container hole, or an island — lying strictly inside
+    // the face, whose excluded space the face would cover. The face's own
+    // contours say what is inside IT (its own holes are holes), and a loop
+    // running ALONG the face's edge is on the boundary, not in it, so a wall
+    // the face shares with the area passes.
+    const faceInside = distanceTo(f.contours);
+    for (const loop of loops) {
+      for (const [px, py] of loop) if (faceInside(px, py) > 0) return false;
+    }
+    return true;
   };
   return x instanceof Faces ? x.filter(keep) : x.filter(keep);
 }

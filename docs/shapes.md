@@ -99,7 +99,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) =>
 
 `polygon(boundary, opts?)` makes one area from its boundaries: a single loop (`[[x, y], …]`), several loops, contour records, a single face (its contours are the outer boundary and its holes), a chain material (`t.material(rect(…))`, `t.isolines(…)`), or a shape, whose boundary is taken and whose own drawing options are not. Each loop is closed with a chord if it is not already, and a material that branches is refused because a network has no single inside. A face *selection* is several areas at once, so it is refused too, naming `boundaries()` for the union. The result is one shape, so it clips, fills, masks and stamps as one thing.
 
-`winding` picks the fill rule where boundaries nest or cross. `'evenodd'` (default) makes every enclosed boundary a hole whatever its orientation, so a ring is an annulus and a pentagram has an empty centre. `'nonzero'` fills the pentagram solid.
+`winding` picks the fill rule where boundaries nest or cross. `'evenodd'` (the default, and the only reading for loops and faces, which carry no rule of their own) makes every enclosed boundary a hole whatever its orientation, so a ring is an annulus and a pentagram has an empty centre. `'nonzero'` fills the pentagram solid. A shape input brings its own rule — `path()` is `'nonzero'` — and keeps it unless `winding` overrides it.
 
 ```ts live
 import { sketch, polygon, fill, mm } from 'occlude';
