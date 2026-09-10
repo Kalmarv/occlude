@@ -13,8 +13,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const frame = t.material(rect(6, 6, 188, 88));
   const through = (x, y, angle) => t.sample(line(x - Math.cos(angle) * 300, y - Math.sin(angle) * 300, x + Math.cos(angle) * 300, y + Math.sin(angle) * 300), { count: 2 });
   const lines = t.times(18, (k) => (k % 3 === 0 ? through(t.rnd(6, 194), t.rnd(6, 94), t.rnd(Math.PI)) : through(138 + t.rnd(-26, 26), 58 + t.rnd(-18, 18), t.rnd(Math.PI))));
-  const inFrame = (f) => f.bounds.x >= 6 && f.bounds.y >= 6 && f.bounds.x + f.bounds.w <= 194 && f.bounds.y + f.bounds.h <= 94;
-  const cells = [frame, ...lines].reduce((a, b) => append(a, b)).planarize().faces().filter(inFrame);
+  const cells = t.within([frame, ...lines].reduce((a, b) => append(a, b)).planarize().faces(), rect(6, 6, 188, 88));
   const chosen = cells.filter((f) => f.area < 90);
   const spacing = (f) => mm(1.1 * (0.4 + 0.6 * Math.sqrt(f.area / 90)));
   return [
@@ -42,8 +41,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
     const frame = t.material(rect(x0 + 4, 4, 92, 92));
     const through = (x, y, angle) => t.sample(line(x - Math.cos(angle) * 300, y - Math.sin(angle) * 300, x + Math.cos(angle) * 300, y + Math.sin(angle) * 300), { count: 2 });
     const lines = chords.map(([x, y, angle]) => through(x0 + x, y, angle));
-    const inFrame = (f) => f.bounds.x >= x0 + 4 && f.bounds.y >= 4 && f.bounds.x + f.bounds.w <= x0 + 96 && f.bounds.y + f.bounds.h <= 96;
-    return [frame, ...lines].reduce((a, b) => append(a, b)).planarize().faces().filter(inFrame);
+    return t.within([frame, ...lines].reduce((a, b) => append(a, b)).planarize().faces(), rect(x0 + 4, 4, 92, 92));
   };
   const gap = 1.1;
   const narrow = (f) => Math.min(f.bounds.w, f.bounds.h) < 3 * gap;
@@ -86,8 +84,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const frame = t.material(rect(6, 6, 188, 88));
   const through = (x, y, angle) => t.sample(line(x - Math.cos(angle) * 300, y - Math.sin(angle) * 300, x + Math.cos(angle) * 300, y + Math.sin(angle) * 300), { count: 2 });
   const lines = t.times(18, (k) => (k % 3 === 0 ? through(t.rnd(6, 194), t.rnd(6, 94), t.rnd(Math.PI)) : through(138 + t.rnd(-26, 26), 58 + t.rnd(-18, 18), t.rnd(Math.PI))));
-  const inFrame = (f) => f.bounds.x >= 6 && f.bounds.y >= 6 && f.bounds.x + f.bounds.w <= 194 && f.bounds.y + f.bounds.h <= 94;
-  const cells = [frame, ...lines].reduce((a, b) => append(a, b)).planarize().faces().filter(inFrame);
+  const cells = t.within([frame, ...lines].reduce((a, b) => append(a, b)).planarize().faces(), rect(6, 6, 188, 88));
   const narrow = (f) => Math.min(f.bounds.w, f.bounds.h) < 3.3;
   const chosen = cells.filter((f) => f.area < 90 && !narrow(f));
   const spacing = (f) => mm(1.1 * (0.6 + 0.6 * Math.sqrt(f.area / 90)));
@@ -106,8 +103,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const frame = t.material(rect(6, 6, 188, 88));
   const through = (x, y, angle) => t.sample(line(x - Math.cos(angle) * 300, y - Math.sin(angle) * 300, x + Math.cos(angle) * 300, y + Math.sin(angle) * 300), { count: 2 });
   const lines = t.times(18, (k) => (k % 3 === 0 ? through(t.rnd(6, 194), t.rnd(6, 94), t.rnd(Math.PI)) : through(138 + t.rnd(-26, 26), 58 + t.rnd(-18, 18), t.rnd(Math.PI))));
-  const inFrame = (f) => f.bounds.x >= 6 && f.bounds.y >= 6 && f.bounds.x + f.bounds.w <= 194 && f.bounds.y + f.bounds.h <= 94;
-  const cells = [frame, ...lines].reduce((a, b) => append(a, b)).planarize().faces().filter(inFrame);
+  const cells = t.within([frame, ...lines].reduce((a, b) => append(a, b)).planarize().faces(), rect(6, 6, 188, 88));
   const narrow = (f) => Math.min(f.bounds.w, f.bounds.h) < 3.3;
   const chosen = cells.filter((f) => f.area < 90 && !narrow(f));
   const spacing = (f) => mm(1.1 * (0.6 + 0.6 * Math.sqrt(f.area / 90)));

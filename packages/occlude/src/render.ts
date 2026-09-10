@@ -24,7 +24,7 @@ import {
 } from './record.js';
 import { fieldMeta } from './field.js';
 import { apply, invert, minScale, mul, scale as mscale, type Mat } from './matrix.js';
-import type { FieldAlign, FieldFn, VectorFieldFn } from './shapes.js';
+import type { FieldAlign, FieldFn, LengthFn, VectorFieldFn } from './shapes.js';
 import { Rng } from './random.js';
 import { getState, type Winding } from './state.js';
 import { compileSketch, isSketch, type SketchDef } from './api.js';
@@ -424,7 +424,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
   const paperToUnits = mul(mscale(1 / unit, 1 / unit), invert(userToPaper));
   type Kind = 'p01' | 'len' | 'vx' | 'vy';
   interface UseRec {
-    fn: FieldFn | VectorFieldFn; // the UNBOUNDED field the grid samples
+    fn: LengthFn | FieldFn | VectorFieldFn; // the UNBOUNDED field the grid samples (a length kind resolves each sample)
     kind: Kind;
     m: Mat; // paper mm → field units
     domains: number[];
@@ -482,7 +482,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
   };
   /** Register a use of `field` at this shape and return its index. */
   const useOf = (
-    field: FieldFn | VectorFieldFn,
+    field: LengthFn | FieldFn | VectorFieldFn,
     kind: Kind,
     align: FieldAlign | undefined,
     anchor: Mat,
@@ -555,7 +555,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     if (!Number.isFinite(fp.x0)) Object.assign(fp, paperFootprint);
     const anchor = lowered.anchor;
     const fieldParam = (
-      v: number | import('./units.js').L | FieldFn,
+      v: number | import('./units.js').L | LengthFn,
       kind: 'p01' | 'len',
       align: FieldAlign | undefined,
     ): [number, number] => {

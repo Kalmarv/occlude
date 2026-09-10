@@ -24,6 +24,15 @@ export type PathCmd =
 export type FieldFn = (x: number, y: number) => number;
 
 /**
+ * A field whose value is a LENGTH: a number in user units, or a tagged
+ * length such as `mm(0.3)` — the engine resolves each sample against the
+ * frame, the same laziness a constant tagged length gets. Modifier params
+ * that take a length (`wobble` amount) accept this; a field for a 0…1 param
+ * (`decimate`, `wobble` wavelength) is a `FieldFn`.
+ */
+export type LengthFn = (x: number, y: number) => number | L;
+
+/**
  * A vector field: a displacement (in user units) that varies over the page.
  * Drives `deform` — sampled at encode time in user coordinates.
  */
@@ -51,7 +60,7 @@ export type ModifierValue =
   | {
       readonly __occludeModifier: true;
       readonly kind: 'wobble';
-      amount: L | FieldFn;
+      amount: L | LengthFn;
       wavelength?: L;
       align?: FieldAlign;
     }

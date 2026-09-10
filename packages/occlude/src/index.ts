@@ -24,7 +24,7 @@ export {
 } from './api.js';
 export type {
   SketchDef, SketchConfig, Toolkit, Tree,
-  ShapeValue, ShapeOpts, PolygonOpts, Contour, GroupValue, GroupOpts, ClipValue, InvertValue,
+  ShapeValue, ShapeOpts, PolygonOpts, Contour, GroupValue, GroupOpts, ClipValue, InvertValue, WithinFaces,
 } from './api.js';
 export type { ModifierValue, FieldFn, VectorFieldFn } from './shapes.js';
 
@@ -129,6 +129,7 @@ export { boundaryLoops, numericLoops } from './boundary.js';
 export type { Boundary } from './boundary.js';
 // Fields as citizens: explicit transforms, domain bounds, vector marking.
 export { rotate, translate, scale, within, vectorField, grad, curl } from './field.js';
+export type { Prepared } from './field.js';
 
 // Tweakable values (identity at runtime; the studio scans + builds sliders).
 export { ui, scanUiControls } from './ui.js';

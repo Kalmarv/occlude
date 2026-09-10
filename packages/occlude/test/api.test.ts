@@ -306,7 +306,7 @@ describe('occlude declarative api', () => {
       const out = sq(sketch({ seed: 1 }, () => [probe, polygon(star, { ...opts, opaque: true, stroke: false })]));
       return out.frags
         .filter((f) => f.shape === 0 && f.geom.t === 'line')
-        .reduce((sum, f) => sum + Math.abs(f.geom.y1 - f.geom.y0), 0);
+        .reduce((sum, f) => (f.geom.t === 'line' ? sum + Math.abs(f.geom.y1 - f.geom.y0) : sum), 0);
     };
     const evenodd = visible({});
     const nonzero = visible({ winding: 'nonzero' });
@@ -998,7 +998,7 @@ describe('ui() tweakable values', () => {
 
 describe('live-coding guards', () => {
   it('rejects infinite and absurd repetition counts with clear errors', async () => {
-    const { times, range, grid } = await import('../src/index.js');
+    const { times, range } = await import('../src/index.js');
     // The freeze that motivated this: STEP typed as "0.0" on the way to
     // "0.05" makes (MAX - MIN) / STEP + 1 === Infinity.
     expect(() => times(Infinity, () => null)).toThrow(/zero step/);

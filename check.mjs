@@ -9,9 +9,8 @@
  *
  *   rust       cargo test -p occlude-core
  *   ts         pnpm -r test            (occlude + studio)
- *   types      tsc over src and tools  (the studio and the test suite are
- *              NOT typechecked yet — `pnpm test` runs them, esbuild strips
- *              types without checking; a known gap, not an oversight)
+ *   types      tsc over src, tools and test
+ *   studio     tsc over the studio (vite strips types without checking)
  *   docs       every `ts live` fence renders
  *   ink        every fence renders the same bytes as the committed baseline
  *   build      library tsc + studio bundle
@@ -30,6 +29,7 @@ const gates = [
   ['rust', ['cargo', ['test', '-p', 'occlude-core']]],
   ['ts', ['pnpm', ['-r', 'test']]],
   ['types', ['pnpm', ['--filter', 'occlude', 'typecheck']]],
+  ['studio', ['pnpm', ['--filter', 'occlude-studio', 'typecheck']]],
   ['docs', ['pnpm', ['--filter', 'occlude', 'docs:check']]],
   ['ink', ['pnpm', ['--filter', 'occlude', 'docs:hashes', '--', '--check']]],
   ['build', ['pnpm', ['build']]],

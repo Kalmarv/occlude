@@ -3,8 +3,9 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   append, circle, compileSketch, initOcclude, material, rect, setPaperHint, sketch,
-  type Face, type Loop, type Material, type PointSelection, type Toolkit, type XY,
+  type Face, type Material, type PointSelection, type Toolkit, type XY,
 } from '../src/index.js';
+import type { Loop } from '../src/boundary.js';
 import { scatterPoints } from '../src/points.js';
 
 beforeAll(async () => {
@@ -124,6 +125,51 @@ describe('within: points and faces', () => {
     expect(all).toBe(4);
     expect(kept.length).toBe(1);
     expect([kept[0].bounds.x, kept[0].bounds.y]).toEqual([20, 20]);
+  });
+
+  it("'contained' and 'centroid' answer the frame's edge differently", () => {
+    let contained = 0;
+    let def = 0;
+    let centroid = 0;
+    let bounds: number[][] = [];
+    run((t) => {
+      const square = material([[20, 20], [80, 20], [80, 80], [20, 80]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] });
+      const grid = append(append(square, chord(20, 50, 80, 50)), chord(50, 20, 50, 80)).planarize().faces();
+      // A frame whose right and bottom edges cut the far half of the grid,
+      // past the centre of the cells they cut.
+      const frame = rect(10, 10, 60, 60);
+      contained = t.within(grid, frame, { faces: 'contained' }).length;
+      def = t.within(grid, frame).length;
+      const byCentre = t.within(grid, frame, { faces: 'centroid' });
+      centroid = byCentre.length;
+      bounds = byCentre.map((f) => [f.bounds.x, f.bounds.y]);
+    });
+    // Cut through, so not contained — but their centres are inside (65, 35
+    // and so on), so they are kept whole and their ink reaches past the
+    // frame.
+    expect(contained).toBe(1);
+    expect(def).toBe(contained); // the default is 'contained'
+    expect(centroid).toBe(4);
+    expect(bounds).toEqual([[20, 20], [50, 20], [50, 50], [20, 50]]);
+  });
+
+  it('refuses an option from the wrong domain, and an unknown rule', () => {
+    const errors: string[] = [];
+    const catchIt = (fn: () => unknown): void => {
+      try { fn(); } catch (e) { errors.push((e as Error).message); }
+    };
+    run((t) => {
+      const cells = material([[20, 20], [80, 20], [80, 80], [20, 80]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] })
+        .planarize().faces();
+      // Each of these is deliberately the wrong option for its domain (or an
+      // unknown rule): `as never` states that the call is meant to throw.
+      catchIt(() => t.within(cells, rect(10, 10, 60, 60), { faces: 'nope' } as never));
+      catchIt(() => t.within(cells, rect(10, 10, 60, 60), { transfer: 'nearest' } as never));
+      catchIt(() => t.within(chord(-50, 50, 150, 50), rect(10, 10, 60, 60), { faces: 'centroid' } as never));
+    });
+    expect(errors[0]).toMatch(/faces must be 'contained' or 'centroid'/);
+    expect(errors[1]).toMatch(/'transfer' is for a material/);
+    expect(errors[2]).toMatch(/'faces' is for a face collection/);
   });
 
   it('still bounds a field', () => {

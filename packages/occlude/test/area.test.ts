@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, distanceTo, initOcclude, isolines, material, mm, polygon, render, setPaperHint,
-  sketch, strokes, type Face, type SketchDef, type Tree,
+  circle, distanceTo, initOcclude, material, mm, polygon, render, setPaperHint,
+  sketch, type Face, type SketchDef, type Tree,
 } from '../src/index.js';
 
 beforeAll(async () => {
@@ -43,7 +43,10 @@ describe('an area input: a face and a shape are already areas', () => {
   });
 
   it('still refuses a face COLLECTION, naming the two ways out', () => {
-    expect(() => ink(sketch({}, (t) => [polygon(t.voronoi(material([[20, 20], [70, 30], [45, 70]])).faces(), { opaque: true })])))
+    // Deliberately the wrong input: a collection is several areas, and the
+    // refusal is the contract. `as never` states that this call is meant to
+    // fail its own type.
+    expect(() => ink(sketch({}, (t) => [polygon(t.voronoi(material([[20, 20], [70, 30], [45, 70]])).faces() as never, { opaque: true })])))
       .toThrow(/face collection is several areas .*boundaries\(\)/);
   });
 
@@ -52,6 +55,6 @@ describe('an area input: a face and a shape are already areas', () => {
     const asPairs = polygon([[mm(5), mm(5)], [30, 5], [30, 30]]);
     expect(ink(sketch({}, () => [asObjects]))).toBe(ink(sketch({}, () => [asPairs])));
     const loops = [{ x: mm(5), y: mm(5) }, { x: 30, y: 5 }, { x: 30, y: 30 }];
-    expect(() => strokes(isolines(distanceTo(loops), 1))).toThrow(/a length such as mm\(\)/);
+    expect(() => distanceTo(loops)).toThrow(/a length such as mm\(\)/);
   });
 });

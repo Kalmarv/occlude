@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { append, circle, compileSketch, connect, curve, initOcclude, material, polygon, setPaperHint, sketch, strokes, voronoi, type Material } from '../src/index.js';
+import {
+  append, circle, compileSketch, connect, curve, initOcclude, material, polygon, setPaperHint,
+  sketch, strokes, voronoi, type Material, type Toolkit,
+} from '../src/index.js';
 import { densityRaster, accumulateCells } from '../src/points.js';
 
 beforeAll(async () => {
@@ -9,8 +12,8 @@ beforeAll(async () => {
   setPaperHint(200, 200); // a 100 × 100 drawable
 });
 
-type Tk = Parameters<Parameters<typeof sketch>[1]>[0];
-function run(body: (t: Tk) => void, seed: number | string = 1): void {
+
+function run(body: (t: Toolkit) => void, seed: number | string = 1): void {
   compileSketch(sketch({ seed }, (t) => { body(t); return circle(0, 0, 1); }));
 }
 const square = (x0: number, y0: number, s: number) => curve([[x0, y0], [x0 + s, y0], [x0 + s, y0 + s], [x0, y0 + s]]);

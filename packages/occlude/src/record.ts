@@ -28,9 +28,14 @@ export interface Frame {
   paperH: number;
 }
 
+/** What the frame needs of the sketch state — the paper-independent part. A
+ * full `State` satisfies it, and so does a plain literal, which is what lets
+ * the frame math be exercised on its own. */
+export type FrameInput = Pick<State, 'marginPct' | 'aspect' | 'origin' | 'yUp' | 'rectMode'>;
+
 /** Compute the drawable frame for a paper choice. */
 export function makeFrame(
-  state: State,
+  state: FrameInput,
   paperW: number,
   paperH: number,
   stretch = false,

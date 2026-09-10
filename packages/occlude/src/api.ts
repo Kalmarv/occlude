@@ -28,7 +28,7 @@ import { finiteCount } from './guard.js';
 import { svg as svgValue } from './svgin.js';
 import { label } from './font.js';
 import { grid as gridCells, type GridCell, type GridOptions } from './layout.js';
-import { type FieldAlign, Shape, geomClosed, type FieldFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
+import { type FieldAlign, Shape, geomClosed, type FieldFn, type LengthFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
 import {
   bounds, chance, clip as legacyClip, margin, noise, pick, prob, push, rnd,
   sketch as legacySketch, stream, getState, unitScaleMm,
@@ -89,7 +89,7 @@ export interface ShapeOpts {
    * occlusion (line quality only). A length (bare units or mm()), or
    * { amount, wavelength } to also set the noise wavelength (default
    * mm(25)). */
-  wobble?: L | FieldFn | { amount: L | FieldFn; wavelength?: L; align?: FieldAlign };
+  wobble?: L | FieldFn | { amount: L | LengthFn; wavelength?: L; align?: FieldAlign };
   /** Endpoint-join tolerance (a length; mm() recommended): after occlusion,
    * strokes of shapes that OPT IN are joined pen-down across gaps up to
    * this size — hatch rows serpentine into single strokes, trading tiny
@@ -123,7 +123,7 @@ export interface GroupOpts {
   /** Decimation default for children that don't set their own. */
   decimate?: number | FieldFn | { stroke?: number | FieldFn; fill?: number | FieldFn };
   /** Wobble default for children that don't set their own. */
-  wobble?: L | FieldFn | { amount: L | FieldFn; wavelength?: L };
+  wobble?: L | FieldFn | { amount: L | LengthFn; wavelength?: L };
   /** Bridge default for children that don't set their own (opt-in join). */
   bridge?: L;
   /** Modifier stack for the subtree; nesting concatenates in
@@ -294,29 +294,56 @@ export function polygon(contours: Boundary | Contour | Contour[] | ShapeValue, o
  *   a straddling face is simply not kept.
  *
  * `area` is anything an area consumer takes: a shape (lowered here, through
- * the one lowerer), a face, loops, a chain material or a selection.
+ * the one lowerer), a face, loops, a chain material or a selection. A face
+ * collection takes `{ faces: 'contained' | 'centroid' }` (see WithinFaces).
  */
+/** How `within` decides that a face belongs to an area. `'contained'` (the
+ * default) keeps a face with no contour point strictly outside the area and
+ * no edge crossing its boundary — a cell whose wall runs ALONG the boundary
+ * belongs to it. `'centroid'` keeps a face whose geometric centre is inside
+ * the area, so a cell the boundary cuts through is kept whole, and its ink
+ * may reach past the edge by up to that cell. */
+export interface WithinFaces {
+  faces?: 'contained' | 'centroid';
+}
+
 export interface Within {
   <F extends FieldFn | VectorFieldFn>(field: F, area: ShapeValue): F;
   (material: Material, area: Boundary | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
   (points: PointSelection, area: Boundary | ShapeValue): PointSelection;
-  (faces: Faces | FaceSelection, area: Boundary | ShapeValue): FaceSelection;
+  (faces: Faces | FaceSelection, area: Boundary | ShapeValue, opts?: WithinFaces): FaceSelection;
 }
 
 export function withinAny<F extends FieldFn | VectorFieldFn>(field: F, area: ShapeValue): F;
 export function withinAny(material: Material, area: Boundary | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
 export function withinAny(points: PointSelection, area: Boundary | ShapeValue): PointSelection;
-export function withinAny(faces: Faces | FaceSelection, area: Boundary | ShapeValue): FaceSelection;
+export function withinAny(faces: Faces | FaceSelection, area: Boundary | ShapeValue, opts?: WithinFaces): FaceSelection;
 export function withinAny(
   x: FieldFn | VectorFieldFn | Material | PointSelection | Faces | FaceSelection,
   area: Boundary | ShapeValue,
-  opts: { transfer?: Record<string, Transfer> } = {},
+  opts: { transfer?: Record<string, Transfer>; faces?: 'contained' | 'centroid' } = {},
 ): FieldFn | VectorFieldFn | Material | PointSelection | FaceSelection {
   if (typeof x === 'function') return withinField(x, area as ShapeValue);
+  if (opts.faces !== undefined && opts.faces !== 'contained' && opts.faces !== 'centroid') {
+    throw new Error(`within: faces must be 'contained' or 'centroid', got '${String(opts.faces)}'`);
+  }
   const loops = numericAreaLoops(area, 'within');
   const inside = distanceTo(loops);
-  if (x instanceof Material) return withinMaterial(x, loops, opts);
+  if (x instanceof Material) {
+    if (opts.faces !== undefined) throw new Error("within: 'faces' is for a face collection — a material is cut at the boundary");
+    return withinMaterial(x, loops, opts);
+  }
   if (x instanceof PointSelection) return x.filter((p) => inside(p.x, p.y) > 0);
+  const faces: Faces | FaceSelection = x;
+  if (opts.transfer !== undefined) throw new Error("within: 'transfer' is for a material — a face is kept whole or not at all");
+  if (opts.faces === 'centroid') {
+    // Geometric centres: no field is measured, so no raster is built.
+    const measured = faces.measure();
+    return faces.filter((f) => {
+      const [cx, cy] = measured.forFace(f).centroid;
+      return inside(cx, cy) > 0;
+    });
+  }
   // A face is kept whole or not kept at all: nothing of it is clipped. It
   // belongs to the area when no edge crosses the boundary and no point of it
   // is strictly outside — so a cell whose wall RUNS ALONG the boundary is in
@@ -472,7 +499,7 @@ type DecimateArg =
   | number
   | FieldFn
   | { stroke?: number | FieldFn; fill?: number | FieldFn; align?: FieldAlign };
-type WobbleArg = L | FieldFn | { amount: L | FieldFn; wavelength?: L; align?: FieldAlign };
+type WobbleArg = L | FieldFn | { amount: L | LengthFn; wavelength?: L; align?: FieldAlign };
 
 function decimateValue(p: DecimateArg): ModifierValue {
   const [stroke, fill, align] =

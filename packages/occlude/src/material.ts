@@ -1337,7 +1337,18 @@ export function stationsMaterial(stations: readonly Station[]): Material {
   return material(stations.map((q) => [q.x, q.y] as [number, number]), { edges, ...cols });
 }
 
-export type PointsLike = readonly XY[] | Iterable<XY> | Material;
+/**
+ * A point with numeric columns beyond `x` and `y` — `{ x, y, w }` from
+ * `t.scatter`, or any extra field a sketch carries: every numeric field
+ * becomes a column of the material. This is the shape the constructor has
+ * always accepted; the type says so.
+ */
+export interface PointRecord extends Record<string, number> {
+  x: number;
+  y: number;
+}
+
+export type PointsLike = readonly (XY | PointRecord)[] | Iterable<XY | PointRecord> | Material;
 
 /**
  * Material from positions. Unconnected unless `edges` are given; extra

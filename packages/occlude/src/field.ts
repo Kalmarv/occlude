@@ -21,7 +21,7 @@
  * way; `within` is the deliberate tool.
  */
 
-import type { FieldFn, VectorFieldFn } from './shapes.js';
+import type { FieldFn, LengthFn, VectorFieldFn } from './shapes.js';
 import type { ShapeValue } from './api.js';
 import { IDENTITY, invert, mul, rotate as mrotate, scale as mscale, translate as mtranslate, type Mat } from './matrix.js';
 import { lowerToUserLoops, sketchFrame } from './record.js';
@@ -124,7 +124,18 @@ export function curl(field: FieldFn, h = 0.25): VectorFieldFn {
   return derivedVector(field, sample, (f) => curl(f, h));
 }
 
-type AnyField = FieldFn | VectorFieldFn;
+type AnyField = FieldFn | VectorFieldFn | LengthFn;
+
+/** What a prepared field keeps and what it gains. A VECTOR field stays
+ * vector, because transforms rotate its arrows rather than scaling them; a
+ * scalar stays scalar. Either way it comes back as the full callable, so a
+ * lambda written with fewer parameters than the field protocol needs —
+ * `within(() => 7, rect(…))`, `rotate((x) => x, 90)` — is still called as
+ * `f(x, y)` and typechecks as one. */
+export type Prepared<F extends AnyField> =
+  F extends VectorFieldFn ? VectorFieldFn
+    : F extends FieldFn ? FieldFn
+      : LengthFn;
 
 function isVector(fn: AnyField): boolean {
   return metaOf(fn)?.kind === 'vector';
@@ -137,11 +148,13 @@ function isVector(fn: AnyField): boolean {
  * gains the verb's inverse), the unbounded twin gets the verb too. */
 function wrap<F extends AnyField>(
   src: F,
-  sample: (x: number, y: number) => number | [number, number],
+  sample: (x: number, y: number) => number | Len | [number, number],
   xf?: () => Mat,
-  again?: (f: F) => F,
-): F {
-  const out = ((x: number, y: number) => sample(x, y)) as F;
+  again?: (f: F) => Prepared<F>,
+): Prepared<F> {
+  // The wrapped callable IS the field; the cast states that a lambda of the
+  // right kind is one, which a conditional return type cannot prove.
+  const out = ((x: number, y: number) => sample(x, y)) as Prepared<F>;
   const sm = metaOf(src);
   const meta: FieldMeta = { kind: sm?.kind ?? 'scalar' };
   if (sm?.bounds && sm.bounds.length > 0 && xf && again) {
@@ -160,7 +173,7 @@ function wrap<F extends AnyField>(
  * landscape turns. Vector fields: the arrows turn too — squash a photo of
  * iron filings and the filings turn with it.
  */
-export function rotate<F extends AnyField>(field: F, deg: number): F {
+export function rotate<F extends AnyField>(field: F, deg: number): Prepared<F> {
   const th = (deg * Math.PI) / 180;
   const c = Math.cos(th);
   const s = Math.sin(th);
@@ -187,7 +200,7 @@ export function rotate<F extends AnyField>(field: F, deg: number): F {
  * Lengths resolve LAZILY, at the first sample: a field built at module
  * scope (before the sketch's paper/aspect exist) still resolves `mm(10)`
  * against the paper it renders on. */
-export function translate<F extends AnyField>(field: F, dx: L, dy: L): F {
+export function translate<F extends AnyField>(field: F, dx: L, dy: L): Prepared<F> {
   let t: [number, number] | null = null;
   const at = (): [number, number] => (t ??= [userLen(dx), userLen(dy)]);
   return wrap(
@@ -207,7 +220,7 @@ export function translate<F extends AnyField>(field: F, dx: L, dy: L): F {
  * didn't change). Non-uniform scale tilts vector directions with the
  * squash, magnitude preserved.
  */
-export function scale<F extends AnyField>(field: F, s: number | [number, number]): F {
+export function scale<F extends AnyField>(field: F, s: number | [number, number]): Prepared<F> {
   const [sx, sy] = typeof s === 'number' ? [s, s] : s;
   const vec = isVector(field);
   return wrap(
@@ -360,7 +373,7 @@ function pointInLoops(idx: LoopIndex, x: number, y: number, evenodd = true): boo
  * edges from the raster's fail-open; sketch-time consumers (isolines,
  * scatter, fills) get this test's exactness.
  */
-export function within<F extends AnyField>(field: F, shape: ShapeValue): F {
+export function within<F extends AnyField>(field: F, shape: ShapeValue): Prepared<F> {
   if (!geomClosed(shape.geom)) {
     throw new Error('within() bound must be a closed shape (close() the path, or use a region)');
   }

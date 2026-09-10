@@ -99,7 +99,9 @@ describe('selections as boundaries', () => {
   it('faces stay explicit per face', () => {
     const cells = append(curve([[0, 0], [10, 0], [10, 10], [0, 10]]), curve([[20, 0], [30, 0], [30, 10], [20, 10]])).faces();
     // A selection is several areas at once: it must say which one.
-    expect(() => polygon(cells.filter(() => true))).toThrow(/several areas .*boundaries\(\)/);
+    // Deliberately the wrong input (a selection is several areas): the
+    // refusal is the contract.
+    expect(() => polygon(cells.filter(() => true) as never)).toThrow(/several areas .*boundaries\(\)/);
     // A single face IS an area: no `.contours` unwrapping at the call site.
     expect(cells.filter((f) => f.area > 1).map((f) => polygon(f))).toHaveLength(2);
     expect(cells.length).toBe(2);

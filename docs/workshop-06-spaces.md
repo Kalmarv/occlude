@@ -16,8 +16,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
     ? through(t.rnd(6, 194), t.rnd(6, 94), t.rnd(Math.PI))
     : through(focus[0] + t.rnd(-26, 26), focus[1] + t.rnd(-18, 18), t.rnd(Math.PI))));
   const network = [frame, ...lines].reduce((a, b) => append(a, b));
-  const inFrame = (f) => f.bounds.x >= 6 && f.bounds.y >= 6 && f.bounds.x + f.bounds.w <= 194 && f.bounds.y + f.bounds.h <= 94;
-  const cells = network.planarize().faces().filter(inFrame);
+  const cells = t.within(network.planarize().faces(), rect(6, 6, 188, 88));
   const chosen = cells.filter((f) => f.area < limit);
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
@@ -158,7 +157,7 @@ The boundary on the right is two loops: the frame, and the middle cell's outline
 
 ## Make a cellular print
 
-The finished drawing. The frame is a rectangle's four corners. A chord is made by `through(x, y, angle)`: a line through a point at an angle, sampled to two points far beyond the frame, so that after planarizing it is cut wherever it crosses the frame or another chord. Two thirds of the chords pass through a patch around one point, `focus`; the rest are anywhere. The size of the patch decides whether the cluster is a burst of thin wedges or a cluster of small polygons; try `t.rnd(-6, 6)` in both and see the difference. The chords also cross each other outside the frame and enclose slivers there, so `inFrame` keeps only the faces whose `bounds` lie within it; the parts of the chords that border no kept cell are left out by `cells.edges`, which is why nothing has to be clipped.
+The finished drawing. The frame is a rectangle's four corners. A chord is made by `through(x, y, angle)`: a line through a point at an angle, sampled to two points far beyond the frame, so that after planarizing it is cut wherever it crosses the frame or another chord. Two thirds of the chords pass through a patch around one point, `focus`; the rest are anywhere. The size of the patch decides whether the cluster is a burst of thin wedges or a cluster of small polygons; try `t.rnd(-6, 6)` in both and see the difference. The chords also cross each other outside the frame and enclose slivers there, so `t.within(cells, frame)` keeps only the faces that belong to it — a cell whose wall lies along the frame's edge is in, and one the frame cuts through is kept whole (`{ faces: 'centroid' }` asks for that last reading instead); the parts of the chords that border no kept cell are left out by `cells.edges`, which is why nothing has to be clipped.
 
 The composition has three controls, and each is a different kind of decision: `chords` changes the construction, `area below` changes the selection, `hatch` changes only the drawing. The heavy pen on `chosen.boundaryEdges` is what makes the cluster read as one thing, and it goes down before the fine walls: the boundary walls are also walls, and a stroke laid where ink already is does not draw, so drawn second the heavy pen would be dropped and the outline would come out fine. Order is a rule of the page, from chapter 1, and here it decides which pen a shared line gets.
 
@@ -176,8 +175,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
     ? through(t.rnd(6, 194), t.rnd(6, 94), t.rnd(Math.PI))
     : through(focus[0] + t.rnd(-26, 26), focus[1] + t.rnd(-18, 18), t.rnd(Math.PI))));
   const network = [frame, ...lines].reduce((a, b) => append(a, b));
-  const inFrame = (f) => f.bounds.x >= 6 && f.bounds.y >= 6 && f.bounds.x + f.bounds.w <= 194 && f.bounds.y + f.bounds.h <= 94;
-  const cells = network.planarize().faces().filter(inFrame);
+  const cells = t.within(network.planarize().faces(), rect(6, 6, 188, 88));
   const chosen = cells.filter((f) => f.area < limit);
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
@@ -201,8 +199,7 @@ export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
     ? through(t.rnd(4, 96), t.rnd(4, 96), t.rnd(Math.PI))
     : through(focus[0] + t.rnd(-20, 20), focus[1] + t.rnd(-20, 20), t.rnd(Math.PI))));
   const network = [frame, ...lines].reduce((a, b) => append(a, b));
-  const inFrame = (f) => f.bounds.x >= 4 && f.bounds.y >= 4 && f.bounds.x + f.bounds.w <= 96 && f.bounds.y + f.bounds.h <= 96;
-  const cells = network.planarize().faces().filter(inFrame);
+  const cells = t.within(network.planarize().faces(), rect(4, 4, 92, 92));
   const chosen = cells.filter((f) => f.area < 60);
   const spacing = (f) => mm(1.1 * (0.4 + 0.6 * Math.sqrt(f.area / 60)));
   const shade = chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false }));

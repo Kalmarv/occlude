@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   append, boundaryLoops, circle, compileSketch, connect, curve, distanceTo, force, initOcclude, line, material, ngon, path, polygon, rect,
-  render, setPaperHint, sketch, stroke, strokes, mm, type Material, type SketchDef,
+  render, setPaperHint, sketch, stroke, strokes, mm,
+  type Material, type SketchConfig, type SketchDef, type Toolkit,
 } from '../src/index.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
 import { streamlinesOf } from '../src/streamlines.js';
@@ -15,7 +16,7 @@ beforeAll(async () => {
 });
 
 /** Run a sketch body for its side effects on Square20 (a 100×100 drawable). */
-function run(body: (t: Parameters<Parameters<typeof sketch>[1]>[0]) => void, opts: Parameters<typeof sketch>[0] = {}): void {
+function run(body: (t: Toolkit) => void, opts: SketchConfig = {}): void {
   compileSketch(sketch({ seed: 1, ...opts }, (t) => { body(t); return circle(0, 0, 1); }));
 }
 const env: IsoEnv = { bounds: { x: 0, y: 0, w: 100, h: 100 }, len: (l) => (typeof l === 'number' ? l : l.value) };

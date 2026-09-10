@@ -119,7 +119,9 @@ describe('t.inspect: the debug registry', () => {
         t.inspect('m', m);
         return m.points.map((p) => circle(p.x, p.y, t.rnd(1, 3)));
       }));
-      return getState().shapes.length + ':' + getState().rng.next();
+      // `float()` is the public witness of the stream position: it consumes
+      // one value, so an inspection that quietly drew randomness shows up here.
+      return getState().shapes.length + ':' + getState().rng.float();
     };
     const off = run(false);
     const on = run(true);
@@ -130,12 +132,12 @@ describe('t.inspect: the debug registry', () => {
 
 describe('userUnitsToPaper', () => {
   it('follows the frame: margin offset, centre origin and yUp', () => {
-    const st = { marginPct: 10, aspect: 'square', origin: 'topLeft', yUp: false, rectMode: 'corner' } as never;
+    const st = { marginPct: 10, aspect: 'square', origin: 'topLeft', yUp: false, rectMode: 'corner' } as const;
     const f = makeFrame(st, 200, 100);
     // 10 % margin of the short side = 10 mm; the square drawable is 80 mm, centred: offset x 60, y 10.
     expect(userUnitsToPaper(f)(0, 0)).toEqual([60, 10]);
     expect(userUnitsToPaper(f)(100, 50)).toEqual([140, 50]);
-    const c = makeFrame({ ...st, origin: 'center', yUp: true } as never, 200, 100);
+    const c = makeFrame({ ...st, origin: 'center', yUp: true }, 200, 100);
     const [x, y] = userUnitsToPaper(c)(0, 0);
     expect([x, y]).toEqual([100, 50]);
     const [, up] = userUnitsToPaper(c)(0, 10);
