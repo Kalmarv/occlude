@@ -24,7 +24,8 @@
     "dump-scene": "tsx tools/dump-scene.ts",
     "renderhash": "tsx tools/renderhash.ts",
     "docs:hashes": "tsx tools/docs-hashes.ts",
-    "typecheck": "tsc -p tsconfig.check.json"
+    "typecheck": "tsc -p tsconfig.check.json",
+    "store-sweep": "tsx tools/store-sweep.ts"
   },
   "dependencies": {
     "commons-math-interpolation": "^2.2.4",
