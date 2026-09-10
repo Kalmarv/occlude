@@ -101,8 +101,10 @@ rasters are implementation numbers. They are not tenants.
   wasm md5 match. Then commit/push. A DELIBERATE ink change re-saves that
   baseline in the same commit, with the reason in the message; the test
   suite and the studio are not typechecked yet (`check.mjs` says so). The
-  server serves dist per request; restart only for server.mjs /
-  *-store.mjs changes (kill by PID — pkill aborts the shell).
+  server serves dist per request, and reports its build id per request, so
+  a REBUILD needs no restart; restart only for server.mjs / *-store.mjs
+  changes, by PID (pkill aborts the shell), and restart it through
+  `hub start studio` so the log and the readiness check come with it.
 - **Docs are topic pages with live examples.** Every feature gets a
   `ts live` entry on its topic page under docs/ (getting-started, shapes,
   fills, fields, materials, images, plotting; the list is `DOC_PAGES` in

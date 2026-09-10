@@ -51,14 +51,16 @@ const MIME = {
   '.map': 'application/json',
 };
 
-const buildId = String(statSync(join(dist, 'index.html')).mtimeMs);
-
 const server = http.createServer((req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
   if (url.pathname === '/api/version') {
+    // Per request, not at boot: the server reads dist from disk per request,
+    // so a rebuild is live the moment it lands. A boot-time id made this
+    // endpoint (and the studio's stale-tab guard, which polls it) report the
+    // build that existed when the process started.
     res.setHeader('content-type', 'application/json');
     res.setHeader('cache-control', 'no-store');
-    res.end(JSON.stringify({ build: buildId }));
+    res.end(JSON.stringify({ build: String(statSync(join(dist, 'index.html')).mtimeMs) }));
     return;
   }
   if (url.pathname === '/api/transpile' && req.method === 'POST') {
