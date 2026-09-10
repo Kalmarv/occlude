@@ -148,7 +148,7 @@ export default sketch({ aspect: [1, 1] }, (t) =>
 );
 ```
 
-Scaling a drawing about the middle of the sheet is one option, not a compensating translate: `origin: 'center'` is the pivot every "shrink it to fit" ritual was spelling by hand. The same option works on a single shape.
+Scaling a drawing about the middle of the sheet is one option, not a compensating translate: `origin: 'center'` is the pivot every "shrink it to fit" ritual was spelling by hand. The same option works on a single shape. `'center'` is always the middle of the sheet, never of the shape: to pivot on a shape's own middle, name that point — `origin: [cx, cy]`.
 
 ```ts live
 import { sketch, group, circle, rect, line } from 'occlude';
