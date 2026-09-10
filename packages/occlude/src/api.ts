@@ -1246,7 +1246,12 @@ function emit(tree: Tree, ctx: EmitCtx): void {
   }
   if ((tree as ClipValue).__occludeClip) {
     const c = tree as ClipValue;
-    const regionShape = new Shape(c.region.geom);
+    // Capture the region's own transform without applying it to children.
+    const { translate, rotate, scale, origin } = c.region.opts;
+    let regionShape!: Shape;
+    push({ translate, rotate, scale, origin }, () => {
+      regionShape = new Shape(c.region.geom);
+    });
     legacyClip(
       regionShape,
       () => {
