@@ -18,7 +18,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const chosen = cells.filter((f) => f.area < 90);
   const spacing = (f) => mm(1.1 * (0.4 + 0.6 * Math.sqrt(f.area / 90)));
   return [
-    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
+    chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
     strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
     strokes(cells.edges, { pen: 'pigma-005-black' }),
   ];
@@ -51,7 +51,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
     const chosen = cells.filter((f) => f.area < 60 && (!revised || !narrow(f)));
     const spacing = (f) => mm(gap * ((revised ? 0.6 : 0.4) + 0.6 * Math.sqrt(f.area / 60)));
     return [
-      chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
+      chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
       strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
       strokes(cells.edges, { pen: 'pigma-005-black' }),
     ];
@@ -92,7 +92,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const chosen = cells.filter((f) => f.area < 90 && !narrow(f));
   const spacing = (f) => mm(1.1 * (0.6 + 0.6 * Math.sqrt(f.area / 90)));
   return [
-    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
+    chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
     strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
     strokes(cells.edges, { pen: 'pigma-005-black' }),
   ];
@@ -112,7 +112,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const chosen = cells.filter((f) => f.area < 90 && !narrow(f));
   const spacing = (f) => mm(1.1 * (0.6 + 0.6 * Math.sqrt(f.area / 90)));
   return [
-    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
+    chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
     strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
     strokes(cells.edges, { pen: 'pigma-005-black' }),
   ];

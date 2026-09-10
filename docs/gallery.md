@@ -104,7 +104,7 @@ export default sketch({ aspect: [1, 1], seed: 31 }, (t) => {
   const tone = (x, y) => (t.noise(x / 40, y / 40) + 1) / 2;
   const triangles = connect.triangulate(pts).faces();
   return triangles.measure().map(({ face, centroid: [cx, cy] }) =>
-    polygon(face.contours, { fill: fill('hatch', { angle: 45, spacing: mm(0.5 + tone(cx, cy) * 2.5) }) }));
+    polygon(face, { fill: fill('hatch', { angle: 45, spacing: mm(0.5 + tone(cx, cy) * 2.5) }) }));
 });
 ```
 
@@ -174,7 +174,7 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const cells = t.voronoi(sites);
   return sites.points.map((p) => {
     const cell = cells.cellOf(p);
-    return cell && circle(p.x, p.y, distanceTo(cell.contours)(p.x, p.y) * 0.92);
+    return cell && circle(p.x, p.y, distanceTo(cell)(p.x, p.y) * 0.92);
   });
 });
 ```

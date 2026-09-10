@@ -67,11 +67,13 @@ rasters are implementation numbers. They are not tenants.
 - **Drawing stays explicit.** `strokes`, `stroke` and `dot` interpret
   geometry as ink. A Material never draws itself, and no value carries a
   display translation that changes what is drawn.
-- **One conversion per meaning.** `t.material(shape, { spacing?,
-  tolerance? })` is the shape-to-material door: corners kept by default,
-  `spacing` redistributes by arc length, `tolerance` bounds the
-  flattening. `material(points)` is the pure constructor. No
-  `toMaterial`/`toRegion` aliases.
+- **One conversion per meaning.** Two doors, one contract each:
+  `t.material(shape, { tolerance? })` keeps the boundary's own vertices —
+  a rectangle's four corners — and `t.sample(shape, { count?, spacing?,
+  tolerance? })` redistributes points along the boundary by arc length,
+  which need not land on a corner. `material(points)` is the pure
+  constructor. No `toMaterial`/`toRegion` aliases and no third spelling of
+  either door.
 - **`origin` is the pivot.** `rotate` and `scale` pivot on `origin`
   (`[x, y]`, or `'center'` for the drawable's middle); on the user origin
   when it is unset. Scaling about the middle is an option, never a
@@ -91,8 +93,11 @@ rasters are implementation numbers. They are not tenants.
 - **Definition of done:** tests (Rust + TS) + live reference entry
   (`pnpm --filter occlude docs:check`) + studio build + wasm md5 match
   (`crates/occlude-core/pkg/*.wasm` == `packages/occlude-studio/dist/assets/*.wasm`)
-  + commit/push. The server serves dist per request; restart only for
-  server.mjs / *-store.mjs changes (kill by PID — pkill aborts the shell).
+  + docs ink unchanged when the change should not move ink
+  (`pnpm --filter occlude docs:hashes -- --check`, against the committed
+  `test/fixtures/docs-ink.json`) + commit/push. The server serves dist per
+  request; restart only for server.mjs / *-store.mjs changes (kill by PID —
+  pkill aborts the shell).
 - **Docs are topic pages with live examples.** Every feature gets a
   `ts live` entry on its topic page under docs/ (getting-started, shapes,
   fills, fields, materials, images, plotting; the list is `DOC_PAGES` in

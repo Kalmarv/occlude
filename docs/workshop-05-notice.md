@@ -134,7 +134,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
     next.set(() => ({ active: 0 }), { where: tips });
   });
   const tip = path.points.filter((p) => p.active === 1).at(0);
-  const target = add(tip, mul([Math.cos(tip.heading), Math.sin(tip.heading)], stride));
+  const target = add(tip, mul(fromAngle(tip.heading), stride));
   const lines = query.edges(path);
   const hit = lines.firstHit(tip, target, { excludeIncident: tip });
   return [
@@ -188,13 +188,13 @@ With `join` off, both sides stop short. Turn it on and the right side joins: a g
 Knowing that something is near is not yet a decision. The decision here is to turn away from it, which needs to know which side it is on. For a heading and a vector toward a point, `cross(fromAngle(h), toward)` is positive when the point is on one side of the line of travel and negative on the other; its sign is all that is used. Two fixed cases first, so the number is not a mystery: the same heading, a point above the line of travel and a point below it, with the sign written beside each.
 
 ```ts live
-import { sketch, circle, line, label, fromAngle, cross } from 'occlude';
+import { sketch, circle, line, label, fromAngle, cross, add, mul } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
   const h = -0.5; // heading: up and to the right, in radians
   const side = (heading, toward) => Math.sign(cross(fromAngle(heading), toward)) || 1;
   const from = [40, 60];
-  const tip = [40 + Math.cos(h) * 30, 60 + Math.sin(h) * 30];
+  const tip = add([40, 60], mul(fromAngle(h), 30));
   const above = [90, 30];
   const below = [110, 70];
   return [

@@ -268,7 +268,7 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
     next.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
     next.splitEdges((e) => e.length > 4);
   });
-  return polygon(grown, { winding: 'evenodd', fill: fill('hatch', { angle: 30, spacing: mm(1.1) }) });
+  return polygon(grown, { fill: fill('hatch', { angle: 30, spacing: mm(1.1) }) });
 });
 ```
 

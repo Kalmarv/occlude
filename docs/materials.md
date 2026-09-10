@@ -494,7 +494,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
 Branching through ordinary edits. The frontier is a selection of the current state that drives both edits: the tips extend along their heading, bent by noise and pulled back toward up, fork now and then, and hand their activity to their children. Junctions are vertices with three edges; `strokes()` walks each arm once.
 
 ```ts live
-import { sketch, strokes, circle, material, add } from 'occlude';
+import { sketch, strokes, circle, material, add, mul, fromAngle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
   const seed = material([[100, 98]], { active: 1, heading: -Math.PI / 2, depth: 0 });
@@ -505,7 +505,7 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
       const fork = p.depth < 4 && t.chance(0.3);
       const headings = fork ? [p.heading - 0.5 + turn, p.heading + 0.5 + turn] : [p.heading + turn];
       return headings.map((h) => ({
-        position: add(p, [Math.cos(h) * 3.2, Math.sin(h) * 3.2]),
+        position: add(p, mul(fromAngle(h), 3.2)),
         attributes: { active: 1, heading: h, depth: p.depth + (fork ? 1 : 0) },
       }));
     }, { where: tips });
@@ -518,7 +518,7 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
 Growing tips that join what they meet: each tip looks one step ahead with `firstHit`; a hit splits that edge and connects to it, a miss extends.
 
 ```ts live
-import { sketch, strokes, circle, material, query, add } from 'occlude';
+import { sketch, strokes, circle, material, query, add, mul, fromAngle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
   const seeds = material(t.times(7, (i) => [24 + i * 25, 94]), { active: 1, heading: -Math.PI / 2 });
@@ -527,7 +527,7 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
     const tips = cur.points.filter((p) => p.active === 1 && p.y > 8 && p.x > 6 && p.x < 194);
     next.extend((p) => {
       const h = p.heading + t.noise(p.x / 16, p.y / 16, k * 0.01) * 0.7;
-      const target = add(p, [Math.cos(h) * 3, Math.sin(h) * 3]);
+      const target = add(p, mul(fromAngle(h), 3));
       const hit = edges.firstHit(p, target, { excludeIncident: p });
       if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: 0 } }) };
       return { position: target, attributes: { active: 1, heading: h } };
@@ -547,7 +547,7 @@ The listing follows variable names, so a name assigned twice keeps its last valu
 The question this answers here: which points are still active tips after thirty steps, and where did the tree stop growing? Choose `tree`, colour points by `active`, and the tips light up; click one to see its heading and depth.
 
 ```ts live
-import { sketch, strokes, material, add } from 'occlude';
+import { sketch, strokes, material, add, mul, fromAngle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
   const seed = material([[100, 98]], { active: 1, heading: -Math.PI / 2, depth: 0 });
@@ -558,7 +558,7 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
       const fork = p.depth < 4 && t.chance(0.3);
       const headings = fork ? [p.heading - 0.5 + turn, p.heading + 0.5 + turn] : [p.heading + turn];
       return headings.map((h) => ({
-        position: add(p, [Math.cos(h) * 3.2, Math.sin(h) * 3.2]),
+        position: add(p, mul(fromAngle(h), 3.2)),
         attributes: { active: 1, heading: h, depth: p.depth + (fork ? 1 : 0) },
       }));
     }, { where: tips });
@@ -618,7 +618,7 @@ The regions a network encloses are data too. `m.planarize()` makes every crossin
 | `point: (event) => attrs` | resolves competing point attributes at an event; needed only where the candidates disagree |
 | `edges: (parent, child) => attrs` | child edge attributes over the parent's |
 | `m.faces()` | the bounded faces as a collection: iterate, `length`, `at`, `map`, `filter`, `groupBy`, `boundaries()`; crossings without a shared vertex are an error that says to planarize |
-| `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds`, `contours` (closed records `polygon` and `stroke` accept); and its own `edges`, `points`, `boundaryEdges`: the collection's navigation restricted to one face (`for (const e of f.edges)`) |
+| `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds`, `contours` (closed records, for consumers that want them one by one — `polygon` and `distanceTo` take the face itself); and its own `edges`, `points`, `boundaryEdges`: the collection's navigation restricted to one face (`for (const e of f.edges)`) |
 | `cells.filter(f => bool)` | a fixed-membership face selection with `union`, `intersect`, `subtract` |
 | `cells.edges`, `sel.edges` | every source edge incident to the (selected) faces, once, as an edge selection: shared walls included, and a spur inside a face counts as that face's edge |
 | `cells.points`, `sel.points` | the endpoints of those edges, once |
@@ -631,7 +631,7 @@ A detached segment floating inside a face belongs to no face: its walk encloses 
 
 Measurements are midpoint sums on a square raster (cells of the long side of `bounds` over `resolution`, default 256; bounds default to the measured faces' box), each raster centre inside a face contributing its sample times the cell area, non-finite samples absent. The error scales with the cell size. A density-weighted centre needs a nonnegative field with positive total; with a negative sample or zero total it is null, while a signed field still has an integral and a mean. A measurement is a frozen result about its exact faces, not geometry, and does not follow later edits.
 
-Orientation is decided exactly (Shewchuk's `orient2d`), so crossing, touching and collinear never depend on an epsilon. Endpoints merge only when exactly coincident; a gap stays a gap. Contours come out with the outer boundary at positive area and holes negative, so `winding: 'evenodd'` handles them either way. Drawing every face's contours repeats every shared wall; fill the cells with `stroke: false` and stroke the network once, or stroke only a selection's `boundaries()`.
+Orientation is decided exactly (Shewchuk's `orient2d`), so crossing, touching and collinear never depend on an epsilon. Endpoints merge only when exactly coincident; a gap stays a gap. Contours come out with the outer boundary at positive area and holes negative, so the default `'evenodd'` handles them either way. Drawing every face's contours repeats every shared wall; fill the cells with `stroke: false` and stroke the network once, or stroke only a selection's `boundaries()`.
 
 ```ts live
 import { sketch, strokes, circle, polygon, fill, mm, group, rect, line, append } from 'occlude';
@@ -653,7 +653,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   return [
     strokes(net),
     group({ translate: [100, 0] },
-      cells.map((f, k) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: (k * 37) % 180, spacing: mm(1.3) }), stroke: false })),
+      cells.map((f, k) => polygon(f, { fill: fill('hatch', { angle: (k * 37) % 180, spacing: mm(1.3) }), stroke: false })),
       strokes(planar),
       planar.points.filter((p) => p.index >= net.n).map((p) => circle(p.x, p.y, 1.6, { pen: 'stabilo-88-blue' })),
     ),
@@ -675,9 +675,9 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const chosen = cells.filter((f) => f.area > 1200 || inner);
   const hatch = fill('hatch', { angle: 45, spacing: mm(1.1) });
   return [
-    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: hatch })),
+    chosen.map((f) => polygon(f, { fill: hatch })),
     group({ translate: [100, 0] },
-      polygon(chosen.boundaries(), { winding: 'evenodd', fill: hatch, stroke: false }),
+      polygon(chosen.boundaries(), { fill: hatch, stroke: false }),
       strokes(chosen.boundaries(), { pen: 'stabilo-88-blue' }),
     ),
   ];
@@ -701,7 +701,7 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   // The boundary goes down first: ink laid on ink already there is dropped,
   // so the black walls yield to the blue boundary where they coincide.
   return [
-    rooms.map((f) => polygon(f.contours, { fill: fill('hatch', { angle: 30, spacing: mm(1.6) }), stroke: false })),
+    rooms.map((f) => polygon(f, { fill: fill('hatch', { angle: 30, spacing: mm(1.6) }), stroke: false })),
     strokes(rooms.boundaryEdges, { pen: 'stabilo-88-blue' }),
     strokes(opened, { pen: 'pigma-005-black' }),
   ];
@@ -713,7 +713,7 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
 Trunks grow up from the bottom edge and now and then throw a side branch; a tip that meets a wall joins it, and every join encloses a region. After the growth the network is planarized (two tips that crossed in the same step become a shared vertex; the resolver settles their conflicting headings) and its faces are measured against a light field. The bright, roomy cells are hatched and their outline drawn in blue, laid down before the black network so the shared walls keep the blue (ink on ink is dropped), which is a drawing decision the enclosed space made. A network that encloses nothing is drawn as it is.
 
 ```ts live
-import { sketch, strokes, polygon, fill, mm, material, query, add } from 'occlude';
+import { sketch, strokes, polygon, fill, mm, material, query, add, mul, fromAngle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
   const seeds = material(t.times(9, (i) => [16 + i * 21, 94]), { active: 1, heading: -Math.PI / 2 });
@@ -724,7 +724,7 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
       const h = p.heading + t.noise(p.x / 16, p.y / 16, k * 0.01) * 0.5;
       const headings = t.chance(0.08) ? [h, h + (t.chance(0.5) ? 1.2 : -1.2)] : [h];
       return headings.map((hh) => {
-        const target = add(p, [Math.cos(hh) * 3, Math.sin(hh) * 3]);
+        const target = add(p, mul(fromAngle(hh), 3));
         const hit = edges.firstHit(p, target, { excludeIncident: p });
         if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: 0 } }) };
         return { position: target, attributes: { active: 1, heading: hh } };
@@ -739,7 +739,7 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
   const measured = enclosed.measure(light, { resolution: 200 });
   const lit = enclosed.filter((f) => f.area > 25 && measured.forFace(f).mean > 0.5);
   return [
-    lit.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 60, spacing: mm(1.2) }), stroke: false })),
+    lit.map((f) => polygon(f, { fill: fill('hatch', { angle: 60, spacing: mm(1.2) }), stroke: false })),
     strokes(lit.boundaryEdges, { pen: 'stabilo-88-blue' }),
     strokes(planar, { pen: 'pigma-005-black' }),
   ];
@@ -760,7 +760,7 @@ export default sketch({ aspect: [2, 1], seed: 33 }, (t) => {
   const spacing = [mm(1.3), mm(2.6), mm(5)];
   return [
     cells.filter((f) => f.area >= minimum).groupBy((f) => band(f.area)).map((group) =>
-      group.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 30, spacing: spacing[group.key] }), stroke: false }))),
+      group.map((f) => polygon(f, { fill: fill('hatch', { angle: 30, spacing: spacing[group.key] }), stroke: false }))),
     strokes(cells.source, { pen: 'pigma-005-black' }),
   ];
 });
@@ -872,7 +872,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
 Generation runs once; each panel is the same value read differently: its strokes, an attribute as bands, the cells it encloses, and its junctions and tips as marks. Placement is the drawing's, through translated groups, never the material's.
 
 ```ts live
-import { sketch, stroke, strokes, circle, polygon, fill, mm, group, material, query, add, segmentRuns, banding } from 'occlude';
+import { sketch, stroke, strokes, circle, polygon, fill, mm, group, material, query, add, mul, fromAngle, segmentRuns, banding } from 'occlude';
 
 export default sketch({ aspect: [2, 2], seed: 7 }, (t) => {
   const seeds = material(t.times(8, (i) => [8 + i * 4.8, 44]), { active: 1, heading: -Math.PI / 2, age: 0 });
@@ -881,11 +881,11 @@ export default sketch({ aspect: [2, 2], seed: 7 }, (t) => {
     const tips = cur.points.filter((p) => p.active === 1 && p.y > 8 && p.x > 5 && p.x < 45);
     next.extend((p) => {
       const h = p.heading + t.noise(p.x / 8, p.y / 8, k * 0.01) * 0.7;
-      const target = add(p, [Math.cos(h) * 1.2, Math.sin(h) * 1.2]);
+      const target = add(p, mul(fromAngle(h), 1.2));
       const hit = edges.firstHit(p, target, { excludeIncident: p });
       if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: 0, age: k } }) };
       const kids = [{ position: target, attributes: { active: 1, heading: h, age: k } }];
-      if (t.chance(0.14)) kids.push({ position: add(p, [Math.cos(h + 0.8) * 1.2, Math.sin(h + 0.8) * 1.2]), attributes: { active: 1, heading: h + 0.8, age: k } });
+      if (t.chance(0.14)) kids.push({ position: add(p, mul(fromAngle(h + 0.8), 1.2)), attributes: { active: 1, heading: h + 0.8, age: k } });
       return kids;
     }, { where: tips });
     next.set(() => ({ active: 0 }), { where: tips });
@@ -898,7 +898,7 @@ export default sketch({ aspect: [2, 2], seed: 7 }, (t) => {
   return [
     strokes(web),
     group({ translate: [50, 0] }, segmentRuns(web, (a, b) => band((a.age + b.age) / 2)).map((r) => stroke(r, { pen: pens[r.key] }))),
-    group({ translate: [0, 50] }, cells.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: mm(1) }), stroke: false })), strokes(planar, { pen: 'pigma-005-black' })),
+    group({ translate: [0, 50] }, cells.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: mm(1) }), stroke: false })), strokes(planar, { pen: 'pigma-005-black' })),
     group({ translate: [50, 50] }, strokes(web, { pen: 'pigma-005-black' }),
       web.points.filter((p) => web.degree(p) > 2).map((p) => circle(p.x, p.y, 0.7, { pen: 'stabilo-88-blue' })),
       web.points.filter((p) => web.degree(p) === 1).map((p) => circle(p.x, p.y, 0.4))),

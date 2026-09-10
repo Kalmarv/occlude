@@ -23,7 +23,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const cleared = marked.steps(1, (current, next) => next.disconnect((e) => e.attrs.open === 1));
   const country = cleared.faces().filter((f) => f.area > field);
   return [
-    country.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),
+    country.map((f) => polygon(f, { fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),
     strokes(cleared.edges.filter((e) => e.attrs.border === 1), { pen: 'pigma-05-black' }),
     strokes(cleared, { pen: 'pigma-005-black' }),
   ];
@@ -62,8 +62,8 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const third = diagram.cellOf(sites.points.at(2));
   const eastern = cells.filter((f) => diagram.siteOf(f).kind === 1);
   return [
-    polygon(third.contours, { fill: fill('hatch', { angle: 45, spacing: mm(1.2) }), stroke: false }),
-    eastern.map((f) => polygon(f.contours, { fill: fill('hatch', { angle: 135, spacing: mm(2.4) }), stroke: false })),
+    polygon(third, { fill: fill('hatch', { angle: 45, spacing: mm(1.2) }), stroke: false }),
+    eastern.map((f) => polygon(f, { fill: fill('hatch', { angle: 135, spacing: mm(2.4) }), stroke: false })),
     strokes(diagram),
     sites.points.map((p) => circle(p.x, p.y, 1.8)),
     cells.map((f) => label(String(diagram.siteOf(f).index), f.bounds.x + 3, f.bounds.y + 3, 3)),
@@ -88,7 +88,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const chosen = diagram.edge(Math.min(wall, diagram.edgeCount - 1));
   const beside = cells.facesOf(chosen);
   return [
-    beside.map((f) => polygon(f.contours, { fill: fill('hatch', { angle: 45, spacing: mm(1.4) }), stroke: false })),
+    beside.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: mm(1.4) }), stroke: false })),
     strokes(diagram, { pen: 'pigma-005-black' }),
     strokes(diagram.edges.filter((e) => e.index === chosen.index), { pen: 'stabilo-88-blue' }),
     sites.points.map((p) => circle(p.x, p.y, 1.8)),
@@ -117,7 +117,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const regions = merged.faces();
   return [
     strokes(diagram), sites.points.map((p) => circle(p.x, p.y, 1.6, { pen: p.kind ? 'stabilo-88-blue' : 'pigma-05-black' })),
-    group({ translate: [100, 0] }, regions.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: f.index ? 135 : 45, spacing: mm(1.4) }), stroke: false })), strokes(merged)),
+    group({ translate: [100, 0] }, regions.map((f) => polygon(f, { fill: fill('hatch', { angle: f.index ? 135 : 45, spacing: mm(1.4) }), stroke: false })), strokes(merged)),
   ];
 });
 ```
@@ -223,10 +223,10 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const open = right.diagram.edgeAttribute('open', (e) => { const [a, b] = right.cells.facesOf(e); return b !== undefined && a.area > 90 && b.area > 90 ? 1 : 0; });
   const cleared = open.steps(1, (current, next) => next.disconnect((e) => e.attrs.open === 1));
   return [
-    polygon(country.boundaries(), { winding: 'evenodd', fill: hatch, stroke: false }),
-    town.map((f) => polygon(f.contours, { fill: fill('hatch', { angle: 110, spacing: mm(0.7 + 0.04 * distance(left.diagram.siteOf(f), left.centre)) }), stroke: false })),
+    polygon(country.boundaries(), { fill: hatch, stroke: false }),
+    town.map((f) => polygon(f, { fill: fill('hatch', { angle: 110, spacing: mm(0.7 + 0.04 * distance(left.diagram.siteOf(f), left.centre)) }), stroke: false })),
     strokes(left.cells.edges, { pen: 'pigma-005-black' }),
-    cleared.faces().filter((f) => f.area > 90).map((f) => polygon(f.contours, { winding: 'evenodd', fill: hatch, stroke: false })),
+    cleared.faces().filter((f) => f.area > 90).map((f) => polygon(f, { fill: hatch, stroke: false })),
     strokes(cleared, { pen: 'pigma-005-black' }),
   ];
 });
@@ -257,7 +257,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const cleared = marked.steps(1, (current, next) => next.disconnect((e) => e.attrs.open === 1));
   const country = cleared.faces().filter((f) => f.area > field);
   return [
-    country.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),
+    country.map((f) => polygon(f, { fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),
     strokes(cleared.edges.filter((e) => e.attrs.border === 1), { pen: 'pigma-05-black' }),
     strokes(cleared, { pen: 'pigma-005-black' }),
   ];

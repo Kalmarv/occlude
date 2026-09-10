@@ -21,7 +21,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const chosen = cells.filter((f) => f.area < limit);
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
-    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
+    chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
     strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
     strokes(cells.edges, { pen: 'pigma-005-black' }),
   ];
@@ -66,7 +66,7 @@ Crossing is a fact about ink. Connection is a decision about the material, and `
 
 ## Reveal the areas
 
-`planar.faces()` reads the regions a connected network encloses: each one a face with an `area` and `contours`, the closed outlines `polygon` accepts. Hatched at a different angle each, they show themselves. Two frames, each with one chord and one more line: on the left the second line reaches both sides; on the right it stops short of the frame by a few units. Count the faces on each side before you check the label.
+`planar.faces()` reads the regions a connected network encloses: each one a face with an `area` and its own closed outline, which `polygon` takes as it is. Hatched at a different angle each, they show themselves. Two frames, each with one chord and one more line: on the left the second line reaches both sides; on the right it stops short of the frame by a few units. Count the faces on each side before you check the label.
 
 ```ts live focus=7-8
 import { sketch, strokes, polygon, fill, mm, label, line, rect, append, group } from 'occlude';
@@ -77,7 +77,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const reaching = build(chord(50, 10, 50, 90)).planarize().faces();
   const short = build(chord(50, 16, 50, 84)).planarize().faces();
   const show = (cells) => [
-    cells.map((f, k) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: (k * 50) % 180, spacing: mm(1.2) }), stroke: false })),
+    cells.map((f, k) => polygon(f, { fill: fill('hatch', { angle: (k * 50) % 180, spacing: mm(1.2) }), stroke: false })),
     strokes(cells.source),
     label(`${cells.length} faces`, 12, 6, 3.4),
   ];
@@ -107,7 +107,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const chosen = cells.filter((f) => f.area < limit);
   const hatch = fill('hatch', { angle: 45, spacing: mm(1.2) });
   return [
-    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: hatch, stroke: false })),
+    chosen.map((f) => polygon(f, { fill: hatch, stroke: false })),
     strokes(cells.edges, { pen: 'pigma-005-black' }),
   ];
 });
@@ -127,7 +127,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const chosen = cells.filter((f) => f.area < limit);
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
-    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
+    chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
     strokes(cells.edges, { pen: 'pigma-005-black' }),
   ];
 });
@@ -146,7 +146,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const cells = grid.planarize().faces();
   const ring = cells.filter((f) => f.bounds.x !== 36 || f.bounds.y !== 36);
   const hatch = fill('hatch', { angle: 45, spacing: mm(1.4) });
-  const shade = ring.map((f) => polygon(f.contours, { winding: 'evenodd', fill: hatch, stroke: false }));
+  const shade = ring.map((f) => polygon(f, { fill: hatch, stroke: false }));
   return [
     shade, strokes(ring.edges, { pen: 'stabilo-88-blue' }),
     group({ translate: [100, 0] }, shade, strokes(ring.boundaryEdges, { pen: 'stabilo-88-blue' })),
@@ -181,7 +181,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const chosen = cells.filter((f) => f.area < limit);
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
-    chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
+    chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
     strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
     strokes(cells.edges, { pen: 'pigma-005-black' }),
   ];
@@ -205,7 +205,7 @@ export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
   const cells = network.planarize().faces().filter(inFrame);
   const chosen = cells.filter((f) => f.area < 60);
   const spacing = (f) => mm(1.1 * (0.4 + 0.6 * Math.sqrt(f.area / 60)));
-  const shade = chosen.map((f) => polygon(f.contours, { winding: 'evenodd', fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false }));
+  const shade = chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false }));
   return [
     strokes(cells.edges),
     group({ translate: [100, 0] }, strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' })),
