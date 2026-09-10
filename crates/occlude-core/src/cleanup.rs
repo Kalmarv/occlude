@@ -53,8 +53,6 @@ pub fn spans_to_fragments(
         }
     };
     let n = spans.len();
-    // A hidden span is bridgeable when it is too short to plot as a gap.
-    let bridgeable = |s: &Span| !s.visible && span_len(s.t0, s.t1) < threshold;
 
     // Build maximal runs that start and end on a VISIBLE span and cross only
     // visible spans or bridgeable hidden gaps. Order-independent by
@@ -68,13 +66,14 @@ pub fn spans_to_fragments(
         let start = spans[i].t0;
         let mut end = spans[i].t1;
         let mut j = i;
-        // Extend: consume [bridgeable gaps]* followed by a visible span.
+        // Extend across a whole hidden run only if its combined length
+        // is sub-nib. Occluder boundaries may partition one gap arbitrarily.
         loop {
             let mut k = j + 1;
-            while k < n && bridgeable(&spans[k]) {
+            while k < n && !spans[k].visible {
                 k += 1;
             }
-            if k < n && spans[k].visible {
+            if k < n && (k == j + 1 || span_len(spans[j + 1].t0, spans[k - 1].t1) < threshold) {
                 end = spans[k].t1;
                 j = k;
             } else {

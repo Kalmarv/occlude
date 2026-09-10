@@ -930,3 +930,22 @@ fn a_filtered_query_is_exactly_the_unfiltered_one_from_that_index_up() {
         }
     }
 }
+
+#[test]
+fn hidden_run_bridging_is_independent_of_partition() {
+    let prim = Primitive::Line(Line::new(v(0., 0.), v(100., 0.)));
+    for (gap, expected) in [(5.0, 95.0), (0.1, 100.0), (0.3, 99.7)] {
+        for count in [1, 100] {
+            let mut spans = vec![Span { t0: 0., t1: 0.4, visible: true }];
+            for i in 0..count {
+                spans.push(Span { t0: 0.4 + gap / 100. * i as f64 / count as f64,
+                    t1: 0.4 + gap / 100. * (i + 1) as f64 / count as f64, visible: false });
+            }
+            spans.push(Span { t0: 0.4 + gap / 100., t1: 1., visible: true });
+            let mut out = vec![];
+            spans_to_fragments(0, &prim, &spans, 0.3, 0, 0, &mut out);
+            let ink: f64 = out.iter().map(|f| f.geom.length()).sum();
+            assert!((ink - expected).abs() < 1e-8, "gap {gap}, pieces {count}: {ink}");
+        }
+    }
+}
