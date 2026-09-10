@@ -57,7 +57,11 @@ rasters are implementation numbers. They are not tenants.
   `force.boundary`, the `bounds` of a point operation) accept loops,
   contour records, one face, a chain material, a shape, or a rect, and
   read closure and winding from the source. Several areas at once — a
-  face collection — must name which one it means.
+  face collection — must name which one it means. `t.within(x, area)` is
+  the one word for "only what lies inside": a field is bounded, a material
+  is cut at the boundary, a point selection and a face collection are
+  filtered. A shape area is lowered by the toolkit, never by a pure
+  kernel.
 - **The frame rule.** Value methods exist only on resolved data-world
   values (Material, Station, Selection, Face, contour records).
   Anything that needs the sketch frame — paper, units, a shape's own

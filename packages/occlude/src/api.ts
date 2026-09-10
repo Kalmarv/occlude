@@ -36,19 +36,24 @@ import {
 } from './state.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
-  scatterPoints, relaxMaterial, settleMaterial, type RelaxOpts, type SettleOpts, type Bounds as PointBounds,
-  type FieldFn2, type ScatterOpts,
+  scatterPoints, relaxMaterial, settleMaterial, withinRegion,
+  type RelaxOpts, type SettleOpts, type Bounds as PointBounds, type FieldFn2, type ScatterOpts,
 } from './points.js';
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { sketchFrame, unitMm } from './record.js';
-import { boundaryLoops, type Boundary, type LoopPoints } from './boundary.js';
-import { Material, material as materialOf, alongChain, checkSampling, isStations, stationsMaterial, type PointsLike, type Station } from './material.js';
+import { boundaryLoops, numericLoops, type Boundary, type LoopPoints } from './boundary.js';
+import {
+  Material, material as materialOf, alongChain, checkSampling, isStations, stationsMaterial,
+  loopCrossings, withinMaterial, type PointsLike, type Station, type Transfer,
+} from './material.js';
+import { PointSelection } from './relation.js';
+import { Faces, FaceSelection, type Face } from './faces.js';
 import { voronoi } from './voronoi.js';
 import { distanceTo } from './distance.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
-  vectorField as vectorFieldMark, within,
+  vectorField as vectorFieldMark, within as withinField,
 } from './field.js';
 import { ui } from './ui.js';
 import { h, long, mm, s, w, resolveLen, Len, type L } from './units.js';
@@ -230,6 +235,23 @@ export interface PolygonOpts extends ShapeOpts {
   winding?: Winding;
 }
 
+/** Loops for any area input, in the coordinates given: a shape is lowered
+ * through the one lowerer, so it agrees with what the shape itself inks; a
+ * face, loops, a chain material or a selection come from the boundary
+ * contract. */
+function areaLoops(input: Boundary | ShapeValue, who: string): LoopPoints[] {
+  if (typeof input === 'object' && input !== null && '__occludeShape' in input) {
+    return shapeContours(input, undefined).map((c) => c.pts);
+  }
+  return boundaryLoops(input, who);
+}
+
+/** `areaLoops` for a consumer that computes with the coordinates: a length
+ * such as `mm(10)` is a drawing unit the sketch must resolve first. */
+function numericAreaLoops(input: Boundary | ShapeValue, who: string): [number, number][][] {
+  return numericLoops(areaLoops(input, who), who);
+}
+
 /**
  * An area from its boundaries — the engine's Region concept as a value.
  * One loop or several (`[x, y][]`), contour records, a face (its contours
@@ -245,12 +267,7 @@ export interface PolygonOpts extends ShapeOpts {
  */
 export function polygon(contours: Boundary | Contour | Contour[] | ShapeValue, opts: PolygonOpts = {}): ShapeValue {
   const { winding = 'evenodd', ...rest } = opts;
-  // A shape is an area by its boundary: lowered here, through the one
-  // lowerer, so it agrees with what the shape itself inks.
-  const loops: LoopPoints[] =
-    typeof contours === 'object' && contours !== null && '__occludeShape' in contours
-      ? shapeContours(contours as ShapeValue, undefined).map((c) => c.pts)
-      : boundaryLoops(contours as Boundary, 'polygon');
+  const loops = areaLoops(contours, 'polygon');
   const cmds: PathCmd[] = [];
   for (const loop of loops) {
     if (loop.length < 2) continue;
@@ -261,6 +278,63 @@ export function polygon(contours: Boundary | Contour | Contour[] | ShapeValue, o
     cmds.push({ op: 'close' });
   }
   return shape({ kind: 'path', cmds, winding }, rest);
+}
+
+/**
+ * The region word, one spelling. `within(field, shape)` bounds a field's
+ * domain (the field is ABSENT outside — see field.ts). Everything else keeps
+ * only what lies INSIDE the area:
+ *
+ * - a material: its edges cut where they cross the boundary, the outside
+ *   dropped, so a chord built long enough to be sure of crossing a frame
+ *   ends ON the frame (columns keep their declared transfer policy);
+ * - a point selection: the points inside, as a selection of the same source,
+ *   so it still chains and still works as `{ where }` in a step rule;
+ * - a face collection: the faces lying entirely inside — nothing is clipped,
+ *   a straddling face is simply not kept.
+ *
+ * `area` is anything an area consumer takes: a shape (lowered here, through
+ * the one lowerer), a face, loops, a chain material or a selection.
+ */
+export interface Within {
+  <F extends FieldFn | VectorFieldFn>(field: F, area: ShapeValue): F;
+  (material: Material, area: Boundary | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
+  (points: PointSelection, area: Boundary | ShapeValue): PointSelection;
+  (faces: Faces | FaceSelection, area: Boundary | ShapeValue): FaceSelection;
+}
+
+export function withinAny<F extends FieldFn | VectorFieldFn>(field: F, area: ShapeValue): F;
+export function withinAny(material: Material, area: Boundary | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
+export function withinAny(points: PointSelection, area: Boundary | ShapeValue): PointSelection;
+export function withinAny(faces: Faces | FaceSelection, area: Boundary | ShapeValue): FaceSelection;
+export function withinAny(
+  x: FieldFn | VectorFieldFn | Material | PointSelection | Faces | FaceSelection,
+  area: Boundary | ShapeValue,
+  opts: { transfer?: Record<string, Transfer> } = {},
+): FieldFn | VectorFieldFn | Material | PointSelection | FaceSelection {
+  if (typeof x === 'function') return withinField(x, area as ShapeValue);
+  const loops = numericAreaLoops(area, 'within');
+  const inside = distanceTo(loops);
+  if (x instanceof Material) return withinMaterial(x, loops, opts);
+  if (x instanceof PointSelection) return x.filter((p) => inside(p.x, p.y) > 0);
+  // A face is kept whole or not kept at all: nothing of it is clipped. It
+  // belongs to the area when no edge crosses the boundary and no point of it
+  // is strictly outside — so a cell whose wall RUNS ALONG the boundary is in
+  // (the artist means the cells that belong to the frame, and the frame's own
+  // cells share its edges), while a face merely touching it from outside is
+  // not.
+  const keep = (f: Face): boolean => {
+    for (const c of f.contours) {
+      for (let k = 0; k < c.pts.length; k++) {
+        const p = c.pts[k];
+        if (!(inside(p[0], p[1]) >= 0)) return false;
+        const q = c.pts[(k + 1) % c.pts.length];
+        if (loopCrossings(loops, p[0], p[1], q[0], q[1]).length > 0) return false;
+      }
+    }
+    return f.contours.length > 0;
+  };
+  return x instanceof Faces ? x.filter(keep) : x.filter(keep);
 }
 
 /** Regular n-gon: `sides` vertices on a circle of radius `r`, the first at
@@ -681,7 +755,7 @@ export interface Toolkit {
   plan: typeof planWith;
   draw: typeof draw;
   distanceTo: typeof distanceTo;
-  within: typeof within;
+  within: Within;
   rotate: typeof rotateField;
   translate: typeof translateField;
   scale: typeof scaleField;
@@ -765,15 +839,17 @@ function scatter(
   b?: ScatterOpts,
 ): Material {
   const field = typeof a === 'function' ? a : undefined;
-  const opts = (typeof a === 'function' || a === undefined ? b : a) as ScatterOpts;
-  if (!opts?.spacing) throw new Error('scatter: { spacing } is required');
+  const raw = (typeof a === 'function' || a === undefined ? b : a) as ScatterOpts;
+  if (!raw?.spacing) throw new Error('scatter: { spacing } is required');
+  const opts: ScatterOpts = raw.within === undefined ? raw : { ...raw, within: numericAreaLoops(raw.within, 'scatter') };
   return scatterPoints(pointsEnv(), field, opts);
 }
 
 /** Lloyd relaxation: each point to the density-weighted centroid of its
  * cell, `iterations` times; count, edges and columns kept. */
 function relax(m: Material, opts: RelaxOpts = {}): Material {
-  return relaxMaterial(pointsEnv(), materialOf(m as never), opts);
+  const o: RelaxOpts = opts.within === undefined ? opts : { ...opts, within: numericAreaLoops(opts.within, 'relax') };
+  return relaxMaterial(pointsEnv(), materialOf(m as never), o);
 }
 
 /** Weighted Linde-Buzo-Gray settling toward `density` at `spacing`:
@@ -781,16 +857,24 @@ function relax(m: Material, opts: RelaxOpts = {}): Material {
  * keep their columns, children copy their parent's, `demand` is written.
  * Split directions come from the sketch's seeded stream. */
 function settle(m: Material, opts: SettleOpts): Material {
-  return settleMaterial(pointsEnv(), materialOf(m as never), opts);
+  const o: SettleOpts = opts.within === undefined ? opts : { ...opts, within: numericAreaLoops(opts.within, 'settle') };
+  return settleMaterial(pointsEnv(), materialOf(m as never), o);
 }
 
 /** Voronoi cells of `sites` as material (see voronoi.ts), clipped to the
- * drawable unless `bounds` is given. `cells.cellOf(site)` and
- * `cells.siteOf(face)` relate the result to its sites; a material or a
+ * drawable unless a bounds box or a `within` area is given. A cell is
+ * clipped to a BOX, so `within` takes a rectangle; for any other area, trim
+ * the cells instead: `within(t.voronoi(sites), area)`. `cells.cellOf(site)`
+ * and `cells.siteOf(face)` relate the result to its sites; a material or a
  * point selection of one stays the sites, bare points become one. */
-function voronoiTk(sites: PointsLike, opts: { bounds?: PointBounds } = {}): Material {
+function voronoiTk(sites: PointsLike, opts: { bounds?: PointBounds; within?: Boundary | ShapeValue } = {}): Material {
   const b = bounds();
-  return voronoi(sites, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h });
+  if (opts.within === undefined) return voronoi(sites, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h });
+  const region = withinRegion(numericAreaLoops(opts.within, 'voronoi'), 'voronoi', opts.bounds);
+  if (region.loops) {
+    throw new Error('voronoi: within needs a rectangle — a cell is clipped to a box; for any other area, clip the cells afterwards: within(t.voronoi(sites), area)');
+  }
+  return voronoi(sites, region.bounds);
 }
 
 /**
@@ -1015,7 +1099,7 @@ const TOOLKIT_BASE = {
   bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
   scatter, isolines, streamlines, material: materialFromShape, sample, probe, inspect, plan: planWith, draw, distanceTo, relax, settle, voronoi: voronoiTk, synth,
   len: (l: L): number => sketchLen(bounds())(l),
-  within, rotate: rotateField, translate: translateField, scale: scaleField,
+  within: withinAny, rotate: rotateField, translate: translateField, scale: scaleField,
   vectorField: vectorFieldMark,
   mm, w, h, s, long,
 };

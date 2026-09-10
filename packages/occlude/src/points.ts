@@ -17,7 +17,11 @@
  */
 
 import { Delaunay } from 'd3-delaunay';
-import { Material } from './material.js';
+import { Material, withinMaterial } from './material.js';
+import { numericLoops, type Boundary } from './boundary.js';
+// Type-only (erased): a shape area is recognised and refused here, never
+// lowered — the toolkit does that, where the sketch frame is known.
+import type { ShapeValue } from './api.js';
 import type { L } from './units.js';
 
 export type FieldFn2 = (x: number, y: number) => number;
@@ -41,6 +45,12 @@ export interface PointsEnv {
 export interface ScatterOpts {
   /** Target point spacing where the field is 1 (denser nowhere). */
   spacing: L;
+  /** Keep only what lies inside this area. The sampling runs over the
+   * area's box, then the points outside it are dropped — for a rectangle
+   * that is exactly the box, so nothing is dropped. `bounds` and `within`
+   * are alternatives; giving both is an error. A shape is lowered by the
+   * toolkit, where the sketch frame exists. */
+  within?: Boundary | ShapeValue;
 }
 
 export interface RelaxOpts {
@@ -50,6 +60,11 @@ export interface RelaxOpts {
   density?: FieldFn2;
   /** Cells are clipped to these bounds (default: the drawable). */
   bounds?: Bounds;
+  /** Keep only what lies inside this area: the refinement runs over the
+   * area's box and the result is trimmed to the area afterwards, so a
+   * non-rectangular boundary thins the population near itself. A rectangle
+   * needs no trimming. `bounds` and `within` are alternatives. */
+  within?: Boundary | ShapeValue;
   /** Density raster resolution along the bounds' long side (default 256, clamped 32…512). */
   resolution?: number;
 }
@@ -62,6 +77,11 @@ export interface SettleOpts {
   /** Rounds (default 10). */
   iterations?: number;
   bounds?: Bounds;
+  /** Keep only what lies inside this area: the settling runs over the area's
+   * box and the result is trimmed to the area afterwards, so the population
+   * near a non-rectangular boundary is thinned. A rectangle needs no
+   * trimming. `bounds` and `within` are alternatives. */
+  within?: Boundary | ShapeValue;
   resolution?: number;
   /** Point attributes for each child a split inserts, merged over the
    * inherited ones (a copy of the parent's): a partial record of declared
@@ -140,6 +160,61 @@ const copyColumns = (cols: Readonly<Record<string, Float64Array>>): Record<strin
   return out;
 };
 
+/** An area written as the four corners of its own box, each edge
+ * axis-aligned — a rectangle any way round. Then the box IS the area and
+ * trimming afterwards would be a no-op. A contour may repeat its first
+ * point at the end to close itself; that is not a fifth corner. */
+function isAxisBox(loops: readonly (readonly (readonly [number, number])[])[], box: Bounds): boolean {
+  if (loops.length !== 1) return false;
+  const raw = loops[0];
+  const closes = raw.length > 1 && raw[0][0] === raw[raw.length - 1][0] && raw[0][1] === raw[raw.length - 1][1];
+  const loop = closes ? raw.slice(0, -1) : raw;
+  if (loop.length !== 4) return false;
+  const right = box.x + box.w;
+  const bottom = box.y + box.h;
+  const corner = (p: readonly [number, number]): boolean =>
+    (p[0] === box.x || p[0] === right) && (p[1] === box.y || p[1] === bottom);
+  for (let k = 0; k < 4; k++) {
+    const p = loop[k];
+    const q = loop[(k + 1) % 4];
+    if (!corner(p) || !corner(q)) return false;
+    if (p[0] !== q[0] && p[1] !== q[1]) return false; // a diagonal edge is not this box
+  }
+  return true;
+}
+
+/** What a `within` area asks of an operation: the box its raster and
+ * sampling run over, and the loops to trim to afterwards (`null` when the
+ * area IS its own box, where the result already lies inside). */
+/** The toolkit uses this too, for an operation whose cells are clipped to a
+ * box (voronoi): a non-null `loops` means the area is not its own box. */
+export function withinRegion(
+  area: Boundary | ShapeValue,
+  who: string,
+  bounds: Bounds | undefined,
+): { bounds: Bounds; loops: [number, number][][] | null } {
+  if (bounds !== undefined) throw new Error(`${who}: give bounds or within, not both`);
+  if (typeof area === 'object' && area !== null && '__occludeShape' in area) {
+    throw new Error(`${who}: a shape area is lowered by the toolkit (t.${who}), where the sketch frame is known — pass loops, a face or a material here`);
+  }
+  const loops = numericLoops(area, who);
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const loop of loops) {
+    for (const [x, y] of loop) {
+      x0 = Math.min(x0, x);
+      y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x);
+      y1 = Math.max(y1, y);
+    }
+  }
+  if (!Number.isFinite(x0)) throw new Error(`${who}: within needs an area with some extent`);
+  const box: Bounds = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  return { bounds: box, loops: isAxisBox(loops, box) ? null : loops };
+}
+
 /**
  * Lloyd relaxation: each point moves to the density-weighted centroid of
  * its nearest-site cell within the bounds, `iterations` times. Count,
@@ -149,7 +224,8 @@ const copyColumns = (cols: Readonly<Record<string, Float64Array>>): Record<strin
 export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {}): Material {
   const n = opts.iterations ?? 1;
   if (!Number.isInteger(n) || n < 0) throw new Error('relax: iterations must be a non-negative integer');
-  const bounds = opts.bounds ?? env.bounds;
+  const region = opts.within === undefined ? null : withinRegion(opts.within, 'relax', opts.bounds);
+  const bounds = region?.bounds ?? opts.bounds ?? env.bounds;
   const raster = densityRaster(opts.density ?? (() => 1), bounds, opts.resolution);
   const coords = coordsOf(m);
   for (let it = 0; it < n && m.n > 0; it++) {
@@ -166,7 +242,8 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
     x[p] = coords[2 * p];
     y[p] = coords[2 * p + 1];
   }
-  return new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), m.iteration, [], copyColumns(m.edgeAttrs), { ...m.transfers }, { ...m.edgeTransfers });
+  const out = new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), m.iteration, [], copyColumns(m.edgeAttrs), { ...m.transfers }, { ...m.edgeTransfers });
+  return region?.loops ? withinMaterial(out, region.loops) : out;
 }
 
 /**
@@ -188,7 +265,8 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
   if (!(spacingU > 0)) throw new Error('settle: { spacing } must be a positive length — it sets one point\'s capacity');
   const n = opts.iterations ?? 10;
   if (!Number.isInteger(n) || n < 0) throw new Error('settle: iterations must be a non-negative integer');
-  const bounds = opts.bounds ?? env.bounds;
+  const region = opts.within === undefined ? null : withinRegion(opts.within, 'settle', opts.bounds);
+  const bounds = region?.bounds ?? opts.bounds ?? env.bounds;
   const raster = densityRaster(opts.density, bounds, opts.resolution);
   const cw = raster.cw;
   // Capacity: integrated density a single point should carry — the amount
@@ -280,7 +358,8 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
     attrs[name] = col;
   }
   attrs.demand = demand;
-  return new Material(x, y, attrs, new Uint32Array(0), m.iteration, [], {}, { ...m.transfers }, {});
+  const out = new Material(x, y, attrs, new Uint32Array(0), m.iteration, [], {}, { ...m.transfers }, {});
+  return region?.loops ? withinMaterial(out, region.loops) : out;
 }
 
 /** Field-modulated Poisson-disk sampling (Bridson, variable radius): local
@@ -291,7 +370,8 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
   const f: FieldFn2 = field ?? (() => 1);
   const spacingU = env.len(opts.spacing);
   if (!(spacingU > 0)) throw new Error('scatter: spacing must be a positive length');
-  const { bounds } = env;
+  const region = opts.within === undefined ? null : withinRegion(opts.within, 'scatter', undefined);
+  const { bounds } = region ?? env;
   const rMin = spacingU; // full-demand radius
   const rMax = spacingU * 6; // demand below (1/6)² is treated as empty
   const rOf = (x: number, y: number): number => {
@@ -459,5 +539,6 @@ export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts:
     }
     if (seeded === 0) break;
   }
-  return new Material(Float64Array.from(px), Float64Array.from(py), { density: Float64Array.from(density) }, new Uint32Array(0));
+  const out = new Material(Float64Array.from(px), Float64Array.from(py), { density: Float64Array.from(density) }, new Uint32Array(0));
+  return region?.loops ? withinMaterial(out, region.loops) : out;
 }

@@ -905,3 +905,50 @@ export default sketch({ aspect: [2, 2], seed: 7 }, (t) => {
   ];
 });
 ```
+
+## Inside an area
+
+One verb says "only this much of it": **`t.within(x, area)`**. A field takes it as a domain bound (see [Fields & variation](#/fields)); everything else keeps only what lies inside.
+
+A material is **cut**: an edge is split where it crosses the boundary and the part outside is dropped, so a chord drawn long enough to be sure of reaching the frame ends *on* the frame, and the ink stops there. The same eighteen chords through one point, twice: as drawn on the left, trimmed to the frame on the right. Nothing crosses the frame, and the trimmed ends are exactly on its edges.
+
+```ts live
+import { sketch, strokes, line, rect, append } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const panel = (cx) => rect(cx - 45, 10, 90, 80);
+  const chordsAt = (cx) => t.times(18, (k) => {
+    const a = (k / 18) * Math.PI * 2;
+    return t.sample(line(cx + Math.cos(a) * 120, 50 + Math.sin(a) * 120, cx - Math.cos(a) * 120, 50 - Math.sin(a) * 120), { count: 2 });
+  }).reduce((a, b) => append(a, b));
+  return [
+    strokes(chordsAt(50), { pen: 'pigma-005-black' }),
+    strokes(t.within(chordsAt(150), panel(150)), { pen: 'pigma-005-black' }),
+    strokes(t.material(panel(50)), { pen: 'pigma-05-black' }),
+    strokes(t.material(panel(150)), { pen: 'pigma-05-black' }),
+  ];
+});
+```
+
+A cut vertex takes its columns by the column's declared policy — `'interpolate'` by default, `'nearest'` for a category — exactly as `split` and `resample` do, an edge column is copied or (declared `'distribute'`) given its share of the source edge, `iteration` is kept and history is dropped. A point lying exactly on the boundary counts as **outside**, the rule the engine's own clip uses, so a run lying along the edge does not survive.
+
+| `x` | What comes back |
+|---|---|
+| a Material | a new Material, edges cut at the boundary and the outside dropped (rows renumbered, columns kept) |
+| a point selection | a **selection** of the points inside, of the same source: it chains with `.filter` and still works as `{ where }` in a step rule |
+| a face collection | the faces lying entirely inside — nothing is clipped, so a face that the boundary cuts through is not kept |
+| a field | the field, absent outside (the original meaning) |
+
+`area` is anything an area consumer takes: a shape (lowered here, so it agrees with what the shape inks), a face, loops, a chain material or a selection.
+
+Keeping points inside an area has its own option on the point operations: `bounds` is the numeric envelope a raster needs, `within` is the area. For a rectangle the two are the same run; for anything else — a disc, a face, a traced contour — the operation works over the area's box and the result is trimmed to the area, so counts near a curved boundary thin out. A disc of evenly spaced dots, with nothing outside it:
+
+```ts live
+import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
+  const disc = circle(100, 50, 34);
+  const dots = t.scatter(() => 1, { spacing: 5, within: disc });
+  return [dots.points.map((p) => circle(p.x, p.y, 0.6)), disc];
+});
+```

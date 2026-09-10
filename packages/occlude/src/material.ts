@@ -1140,6 +1140,161 @@ export function ownedBy(view: object, m: object): boolean {
   return (view as unknown as Record<symbol, object>)[OWNER] === m;
 }
 
+/** Where the straight segment (ax, ay)→(bx, by) crosses one of `loops`,
+ * ascending by the segment parameter `t`, each with the point ON the
+ * boundary. That point is taken from the boundary edge's own
+ * parametrisation, so for an axis-aligned edge the coordinate that does not
+ * change along it survives exactly (60, never 60.000000000000014) — which is
+ * what a frame's edge needs. A crossing exactly at either end of the segment
+ * is not reported (the vertex is already there), and a collinear overlap
+ * reports nothing: the caller decides those by asking whether the middle is
+ * inside. Pure; the cost is the segment against every loop segment. */
+export function loopCrossings(
+  loops: readonly (readonly (readonly [number, number])[])[],
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): { t: number; x: number; y: number }[] {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const out: { t: number; x: number; y: number }[] = [];
+  for (const loop of loops) {
+    for (let k = 0; k < loop.length; k++) {
+      const p = loop[k];
+      const q = loop[(k + 1) % loop.length];
+      const ex = q[0] - p[0];
+      const ey = q[1] - p[1];
+      const denom = dx * ey - dy * ex;
+      if (denom === 0) continue; // parallel or collinear
+      const ox = p[0] - ax;
+      const oy = p[1] - ay;
+      const t = (ox * ey - oy * ex) / denom;
+      if (!(t > 0 && t < 1)) continue;
+      const u = (ox * dy - oy * dx) / denom;
+      if (u >= 0 && u < 1) out.push({ t, x: p[0] + ex * u, y: p[1] + ey * u });
+    }
+  }
+  return out.sort((m, n) => m.t - n.t);
+}
+
+/**
+ * What lies inside `area` — the same edges, cut where they cross the
+ * boundary, everything outside dropped. The point of the verb: a chord built
+ * long enough to be sure of crossing a frame ends ON the frame, instead of
+ * running on and enclosing slivers outside it.
+ *
+ * A cut vertex is interpolated by its column's declared policy (`transfer`
+ * overrides per call, as in `resample`), an edge column is copied or, when
+ * declared `'distribute'`, given its share of the source edge's value. Rows
+ * are renumbered, `iteration` is kept and history is dropped — this is an
+ * area edit, not an evolution step. On the boundary counts as OUTSIDE, the
+ * same rule the engine's clip uses, so a run lying exactly along the edge
+ * does not survive. An unconnected vertex is kept when it is inside.
+ */
+export function withinMaterial(
+  m: Material,
+  area: Boundary,
+  opts: { transfer?: Record<string, Transfer> } = {},
+): Material {
+  const loops = numericLoops(area, 'within');
+  const inside = distanceTo(loops);
+  const names = m.attrNames;
+  const transfer: Record<string, Transfer> = { ...m.transfers, ...(opts.transfer ?? {}) };
+  const enames = m.edgeAttrNames;
+  const ox: number[] = [];
+  const oy: number[] = [];
+  const oattrs: Record<string, number[]> = {};
+  for (const name of names) oattrs[name] = [];
+  const edges: number[] = [];
+  const eattrs: Record<string, number[]> = {};
+  for (const name of enames) eattrs[name] = [];
+  const sourceRow = new Map<number, number>();
+  // Two edges crossing the boundary at the same point must end at ONE
+  // vertex, or the trimmed material is quietly disconnected there. Cut
+  // points are matched on their coordinates, quantised well below the
+  // 0.005 mm input grid and well above float noise (first edge's columns win).
+  const cutRow = new Map<string, number>();
+
+  const columnValue = (name: string, i: number, j: number, t: number): number => {
+    const rule = transfer[name] ?? 'interpolate';
+    const va = m.attrs[name][i];
+    const vb = m.attrs[name][j];
+    if (rule === 'interpolate') return va + (vb - va) * t;
+    if (rule === 'nearest') return t <= 0.5 ? va : vb;
+    if (typeof rule === 'number') return rule;
+    return rule(m.vertex(i), m.vertex(j), t);
+  };
+  const copyVertex = (i: number): number => {
+    const seen = sourceRow.get(i);
+    if (seen !== undefined) return seen;
+    const row = ox.length;
+    ox.push(m.x[i]);
+    oy.push(m.y[i]);
+    for (const name of names) oattrs[name].push(m.attrs[name][i]);
+    sourceRow.set(i, row);
+    return row;
+  };
+  const splitAt = (i: number, j: number, t: number, x: number, y: number): number => {
+    const key = `${x.toFixed(6)},${y.toFixed(6)}`;
+    const seen = cutRow.get(key);
+    if (seen !== undefined) return seen;
+    const row = ox.length;
+    ox.push(x);
+    oy.push(y);
+    for (const name of names) oattrs[name].push(columnValue(name, i, j, t));
+    cutRow.set(key, row);
+    return row;
+  };
+
+  for (let e = 0; e < m.edgeCount; e++) {
+    const a = m.edgeList[2 * e];
+    const b = m.edgeList[2 * e + 1];
+    const cuts = loopCrossings(loops, m.x[a], m.y[a], m.x[b], m.y[b]);
+    const marks: { t: number; x: number; y: number }[] = [
+      { t: 0, x: m.x[a], y: m.y[a] },
+      ...cuts,
+      { t: 1, x: m.x[b], y: m.y[b] },
+    ];
+    for (let k = 0; k + 1 < marks.length; k++) {
+      const from0 = marks[k];
+      const to1 = marks[k + 1];
+      const mid = (from0.t + to1.t) / 2;
+      if (!(inside(m.x[a] + (m.x[b] - m.x[a]) * mid, m.y[a] + (m.y[b] - m.y[a]) * mid) > 0)) continue;
+      const from = from0.t === 0 ? copyVertex(a) : splitAt(a, b, from0.t, from0.x, from0.y);
+      const to = to1.t === 1 ? copyVertex(b) : splitAt(a, b, to1.t, to1.x, to1.y);
+      edges.push(from, to);
+      const share = to1.t - from0.t;
+      for (const name of enames) {
+        const v = m.edgeAttrs[name][e];
+        eattrs[name].push(m.edgeTransfers[name] === 'distribute' ? v * share : v);
+      }
+    }
+  }
+  // A vertex with no edges is not part of the trim's topology: it is a point,
+  // and it survives when it is inside.
+  const degree = new Uint32Array(m.n);
+  for (let k = 0; k < m.edgeList.length; k++) degree[m.edgeList[k]]++;
+  for (let i = 0; i < m.n; i++) {
+    if (degree[i] === 0 && inside(m.x[i], m.y[i]) > 0) copyVertex(i);
+  }
+  const attrs: Record<string, Float64Array> = {};
+  for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
+  const edgeAttrs: Record<string, Float64Array> = {};
+  for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
+  return new Material(
+    Float64Array.from(ox),
+    Float64Array.from(oy),
+    attrs,
+    Uint32Array.from(edges),
+    m.iteration,
+    [],
+    edgeAttrs,
+    { ...m.transfers },
+    { ...m.edgeTransfers },
+  );
+}
+
 // ---- constructors ----------------------------------------------------------------
 
 /** Points a material can be made from: tuples, `{x, y}` objects (extra numeric
