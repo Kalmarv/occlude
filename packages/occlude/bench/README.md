@@ -18,6 +18,7 @@ measurement without the validity of one.
 
 | script | workload | what it measures |
 |---|---|---|
+| `areabench.mts` | 20 000-edge even-odd circle; 2 000-edge nonzero circle; 2 000 edges with 3 200 grid crossings | area preparation and 1 000 point classifications, medians of three warm runs; an optional baseline module path enables interleaved comparison |
 | `prof.mts` | ring of 500 / 2 000 / 5 000 vertices under tension + separation + drift, one `steps(1)`; 400 random chords planarized and faced; a 5 000-point triangulation; 3 600 exact circles through render → `wasm_plan` → decode → hash → toolpath → schedule → SVG | per-phase costs of growth, topology and the plan pipeline, including the wasm crossings the plan pipeline makes (buffer sizes printed) |
 | `sepbench.mts` | 5 000-point ring, `force.separation` radius 2 with `excludeConnected` | the library's evaluate path against a bare typed-array kernel (the prototype that motivated the radial kernels) |
 | `codex.mts` | `connect.nearest` k=3 at 1 000 / 4 000 points; resample 16 000 points with an edge column; 1 000 `nearest` queries within 50 mm on a 16 000-edge chain | the three Codex-audit timings |

@@ -81,4 +81,27 @@ describe('filled areas with intersections and coincident contours', () => {
       }
     }
   });
+
+  it.each(['nonzero', 'evenodd'] as const)('preserves %s answers across spatial bands and subdivided overlaps', (rule) => {
+    const loops = [box(10, 10, 50, 70), box(50, 30, 90, 50)];
+    const split = loops.map((loop) => loop.flatMap((p, i) => {
+      const q = loop[(i + 1) % loop.length];
+      return Array.from({ length: 20 }, (_, k): [number, number] =>
+        [p[0] + (q[0] - p[0]) * k / 20, p[1] + (q[1] - p[1]) * k / 20]);
+    }));
+    const coarse = areaFill(loops, rule);
+    const fine = areaFill(split, rule);
+    // Includes horizontal edges, the shared wall, band boundaries, and queries
+    // outside the index. Subdivision changes the index but not the filled area.
+    for (let x = 0; x <= 100; x += 2) {
+      for (let y = 0; y <= 80; y += 2) {
+        expect(Math.sign(fine.at(x, y))).toBe(Math.sign(coarse.at(x, y)));
+      }
+    }
+    for (const y of [11, 29, 31, 49, 51, 69]) {
+      expect(trim(split, y, rule)).toEqual(trim(loops, y, rule));
+    }
+    const cancelled = areaFill([...split, ...split.map((loop) => [...loop].reverse())], rule);
+    for (const loop of split) for (const [x, y] of loop) expect(cancelled.at(x, y)).toBeLessThan(0);
+  });
 });

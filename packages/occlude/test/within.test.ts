@@ -442,6 +442,7 @@ describe('within: holes and winding', () => {
       // span survives. Under
       // an even-odd reading the middle was a hole and only 10…40 and 60…90 did.
       const kept = t.within(chord(-50, 50, 150, 50), nested);
+      expect(kept.edgeCount).toBe(1);
       let mm = 0;
       for (let e = 0; e < kept.edgeCount; e++) {
         const [a, b] = [kept.edgeList[2 * e], kept.edgeList[2 * e + 1]];
