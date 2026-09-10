@@ -81,6 +81,161 @@ function rewritePolylines(src) {
   return out + src.slice(last);
 }
 
+/** Read the postfix chain that follows a producer call: whitespace, then
+ * `.name(args)` steps (paren-balanced, strings and comments skipped). Gives
+ * the steps and the index just past the last one. */
+export function readChain(rest) {
+  const steps = [];
+  let i = 0;
+  for (;;) {
+    const ws = /^\s*/.exec(rest.slice(i))[0].length;
+    const m = /^\.\s*([A-Za-z_$][\w$]*)\s*\(/.exec(rest.slice(i + ws));
+    if (!m) return { steps, end: i };
+    const open = i + ws + m[0].length - 1;
+    const close = closeOfCall(rest, open);
+    if (close < 0) return { steps, end: i };
+    steps.push({ name: m[1], args: rest.slice(open + 1, close - 1), end: close });
+    i = close;
+  }
+}
+
+/** `isolines(x, levels, opts).map((cs, i) => polygon(cs.map((c) => c.pts), o))`
+ * → `isolines(…).edges.groupBy((e) => e.attrs.level).map((cs, i) => polygon(cs, o))`.
+ * The producer returns ONE material now, and `groupBy` splits its edges by the
+ * `level` column in first-occurrence order — the order the old per-level array
+ * had. `polygon(selection)` reads the same rings the old `cs.map((c) => c.pts)`
+ * did: separate contours stay separate loops, and an open contour is closed
+ * with a chord either way. */
+export function levelGroupChain(producer, steps) {
+  if (steps.length !== 1 || steps[0].name !== 'map') return null;
+  const m = /^\s*\((\w+)\s*,\s*(\w+)\)\s*=>\s*polygon\(\s*(\w+)\.map\(\s*\(\w+\)\s*=>\s*\w+\.pts\s*\)\s*(?:,\s*([\s\S]*?))?\s*\)\s*,?\s*$/.exec(steps[0].args);
+  if (!m) return null;
+  const [, contours, index, scoped, opts] = m;
+  if (scoped !== contours) return null;
+  return {
+    text: `${producer}.edges.groupBy((e) => e.attrs.level).map((${contours}, ${index}) => polygon(${contours}${opts !== undefined ? `, ${opts}` : ''}))`,
+    consumed: steps[0].end,
+  };
+}
+
+/** `isolines(…).flat().map((c) => stroke(c, o))` and
+ * `streamlines(…).map((c) => stroke(c, o))` → `strokes(<producer>, o)`.
+ * The material holds every contour of every level (streamlines: every chain),
+ * which is what flattening the old array-of-arrays produced, and `strokes`
+ * draws each one with the same options. */
+export function strokeChain(producer, steps) {
+  const flat = steps[0]?.name === 'flat' && steps[0].args.trim() === '';
+  const map = steps[flat ? 1 : 0];
+  if (!map || map.name !== 'map' || steps.length !== (flat ? 2 : 1)) return null;
+  const m = /^\s*\((\w+)\)\s*=>\s*([\s\S]*?)\s*,?\s*$/.exec(map.args);
+  if (!m) return null;
+  const stroke = /^stroke\(\s*[A-Za-z_$][\w$]*\s*(?:,\s*([\s\S]*?))?\s*\)$/.exec(m[1]);
+  if (!stroke) return null;
+  const opts = stroke[1];
+  return { text: `strokes(${producer}${opts ? `, ${opts}` : ''})`, consumed: map.end };
+}
+
+/** `isolines(…).map((c) => polygon(c.pts, o))` →
+ * `….curves().map((c) => polygon(c, o))`: `curves()` is the array of contour
+ * records the old result already was. */
+export function curveChain(producer, steps) {
+  if (steps.length !== 1 || steps[0].name !== 'map') return null;
+  const m = /^\s*\((\w+)\)\s*=>\s*(t\.)?polygon\(\s*\1\.pts\s*(?:,\s*([\s\S]*?))?\s*\)\s*,?\s*$/.exec(steps[0].args);
+  if (!m) return null;
+  const [, c, , opts] = m;
+  return { text: `${producer}.curves().map((${c}) => polygon(${c}${opts !== undefined ? `, ${opts}` : ''}))`, consumed: steps[0].end };
+}
+
+/** Scan for `isolines(` / `streamlines(` calls — toolkit-prefixed or bare —
+ * and rewrite the CONSUMER of the result, which is the shape change the
+ * 2026-09-07 migration could not adapt with a call-only rewrite. Anything
+ * the three rules above do not recognise is left alone for the author, and
+ * the verifier reports it. */
+function rewriteFieldResults(src) {
+  return rewriteProducers(src, ['t.isolines', 't.streamlines', 'isolines', 'streamlines'], (producer, rest) => {
+    const { steps, end } = readChain(rest);
+    if (steps.length === 0) return null;
+    void end;
+    return levelGroupChain(producer, steps) ?? strokeChain(producer, steps) ?? curveChain(producer, steps);
+  });
+}
+
+/** The scan shared by the producer rewrites: find each producer call, hand its
+ * span and the text after it to `rewrite`, which returns the replacement and
+ * how many characters of the tail it consumed (or null to leave it alone). */
+export function rewriteProducers(src, producers, rewrite) {
+  let out = '';
+  let last = 0;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (c === '"' || c === "'" || c === '`') {
+      for (i++; i < src.length && src[i] !== c; i++) if (src[i] === '\\') i++;
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '/') { const nl = src.indexOf('\n', i); i = nl < 0 ? src.length : nl; continue; }
+    if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 ? src.length : e + 1; continue; }
+    let name = null;
+    let emitFrom = i;
+    let open = -1;
+    for (const p of producers) {
+      if (src.startsWith(p, i) && !/[\w$.]/.test(src[i - 1] ?? ' ') && !/[\w$]/.test(src[i + p.length] ?? ' ')) {
+        name = p;
+        open = i + p.length;
+        break;
+      }
+    }
+    if (name === null) {
+      // The dotted form: a receiver, maybe a line break, then `.name(…)`.
+      // The replacement must take the receiver with it, or it would be a
+      // call with no receiver; the scan stays forward-only.
+      let at = i;
+      while (at < src.length && /[\w$]/.test(src[at])) at++;
+      while (at < src.length && /\s/.test(src[at])) at++;
+      if (src[at] === '.') {
+        for (const p of producers) {
+          if (src.startsWith(`.${p}`, at) && !/[\w$]/.test(src[at + p.length + 1] ?? ' ')) {
+            name = p;
+            open = at + 1 + p.length;
+            break;
+          }
+        }
+      }
+      if (name === null) continue;
+    }
+    if (src[open] !== '(') continue;
+    const end = closeOfCall(src, open);
+    if (end < 0) continue;
+    const r = rewrite(src.slice(emitFrom, end), src.slice(end));
+    if (!r) continue;
+    out += src.slice(last, emitFrom) + r.text;
+    last = end + r.consumed;
+    i = last - 1;
+  }
+  return out + src.slice(last);
+}
+
+/**
+ * `t.scatter(field, { spacing }).settle(n)` → `t.settle(t.scatter(field, { spacing }), { density: field, spacing, iterations: n })`.
+ * The `Points` class is gone; `t.settle` takes the material and the context
+ * explicitly, and the context was exactly the scatter call's own arguments:
+ * the same density field, the same spacing, the same iteration count.
+ * Only the literal `(field, { spacing })` shape is rewritten — anything else
+ * is a question for the author, and the verifier reports it.
+ */
+function rewriteScatterSettle(src) {
+  return rewriteProducers(src, ['t.scatter', 'scatter'], (producer, rest) => {
+    const { steps, end } = readChain(rest);
+    if (steps.length !== 1 || steps[0].name !== 'settle' || steps[0].args.trim() === '') return null;
+    const args = /^\(\s*([A-Za-z_$][\w$]*)\s*,\s*\{\s*spacing\s*\}\s*\)$/.exec(producer.slice(producer.indexOf('(')));
+    if (!args) return null;
+    const field = args[1];
+    return {
+      text: `t.settle(${producer}, { density: ${field}, spacing, iterations: ${steps[0].args.trim()} })`,
+      consumed: steps[0].end,
+    };
+  });
+}
+
 export function migrateSketchSource(src) {
   // Bare identifiers (imports, destructures, calls) and the toolkit-prefixed
   // spellings `t.region` / `t.trace` / `t.loops`. Other receivers are left
@@ -92,7 +247,7 @@ export function migrateSketchSource(src) {
     .replace(/(?<![\w.$])trace(?![\w$])/g, 'stroke')
     .replace(/\bt\.trace(?![\w$])/g, 't.stroke')
     .replace(/\bt\.loops(?![\w$])/g, 't.polylines');
-  return rewritePolylines(renamed);
+  return rewriteScatterSettle(rewriteFieldResults(rewritePolylines(renamed)));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
