@@ -22,6 +22,7 @@ const sketches = '../occlude-studio/sketches';
 
 /** [script, extra args, one line on what it covers, slow?] */
 const suite: [string, string[], string, boolean][] = [
+  ['thicken.mts', [], 'thickened discs, networks, chains and long crossing lines', false],
   ['areabench.mts', [], 'area preparation and sampling, including 3200 contour crossings', false],
   ['qbench.mts', [], 'edge queries: nearest and firstHit over a 35 k-edge net', false],
   ['codex.mts', [], 'connections: connect.nearest, resample, nearest queries', false],

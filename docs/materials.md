@@ -984,33 +984,25 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 ## Thickness
 
-**`thicken(source, opts)`** gives points and connections thickness and hands back an ordinary boundary **Material**. Each participating vertex carries a radius; each participating edge sweeps the disc at one end into the disc at the other with the radius interpolated linearly along it. Because centre and radius both interpolate linearly, that swept area is exactly the convex hull of the two discs — two common tangent segments and the two exposed arcs — so the combined coverage has an analytic boundary of straight intervals and circular arcs, with no circle sampling and no raster step. Holes and point contacts fall out of the geometry, not out of a tolerance.
+**`thicken(source, opts)`** turns points and connections into filled ribbons, beaded outlines, and perforated networks. Start with native material from `t.scatter`, `t.sample`, `t.voronoi`, or `t.streamlines`, then choose a radius — the full width is twice that radius. Overlapping parts join into one area; isolated points become discs, and openings between connections can remain as holes.
 
-It is a module import, pure like `distanceTo`: no sketch frame, seed, pen or paper is read, and the result is a new Material (iteration 0, no history) that `polygon`, `strokes`, `along`, `distanceTo`, `t.within` and the material inspection paths already accept.
+The result is an ordinary boundary **Material**. Draw it with `polygon` and a fill, trace it with `strokes`, sample its outline with `along`, or use `distanceTo` and `t.isolines` for contour bands. `thicken` is a pure module import; drawing and filling remain explicit.
+
+### Cellular lace
+
+Turn Voronoi walls into a continuous cut-paper lattice. A relaxed scatter supplies the cells; a radius that grows down the page makes the openings gradually smaller. The hatch fills the thickened walls while the holes stay empty. Try changing the scatter spacing, the relaxation count, or the radius field.
 
 ```ts live
-import { sketch, material, thicken, polygon, strokes, distanceTo, fill, mm } from 'occlude';
+import { sketch, thicken, polygon, fill, mm } from 'occlude';
 
-export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
-  const tree = material(
-    [[50, 86], [50, 62], [33, 44], [68, 43], [22, 23], [42, 20], [80, 21]],
-    {
-      edges: [[0, 1], [1, 2], [1, 3], [2, 4], [2, 5], [3, 6]],
-      radius: [5, 3.8, 2.2, 2.3, 0.3, 0.4, 0.3],
-      age: [6, 5, 3, 3, 0, 0, 0],
-    },
-  );
-
-  const body = thicken(tree, {
-    radius: (p) => p.radius,
-    tolerance: 0.05, // material units; mm() remains appropriate for ink spacing
+export default sketch({ aspect: [1, 1], seed: 19 }, (t) => {
+  const sites = t.relax(t.scatter({ spacing: 14 }), { iterations: 3 });
+  const lace = t.voronoi(sites, { bounds: { x: 7, y: 7, w: 86, h: 86 } });
+  const body = thicken(lace, { radius: (p) => 0.45 + 1.5 * p.y / 100 });
+  return polygon(body, {
+    fill: fill('hatch', { angle: 35, spacing: mm(0.6) }),
+    pen: 'stabilo-88-blue',
   });
-  const d = distanceTo(body);
-
-  return [
-    strokes(t.isolines(d, [-2, -4])),
-    polygon(body, { fill: fill('hatch', { angle: 30, spacing: mm(0.8) }) }),
-  ];
 });
 ```
 
@@ -1024,46 +1016,43 @@ What participates:
 | a point selection | every selected vertex, including selected vertices with no selected neighbour | existing edges whose **both** endpoints are selected |
 | an edge selection | the endpoints of the selected edges only | the selected edges only |
 
-That middle row matters: `tree.points.extract()` drops connectivity, so thickening it makes a union of discs, while thickening `tree.points` keeps the induced connections. Same tree, same radii, one word apart:
+### A ribbon or a string of beads
+
+Sample a circle, then vary the radius in six waves around its rim. On the left, the point selection keeps the ring's connections and makes a scalloped ribbon. On the right, `.extract()` drops connectivity and the same samples become overlapping beads. Increase the sample count to bring the beads together; change the wave count to reshape the ornament.
 
 ```ts live
-import { sketch, material, thicken, polygon, fill, mm, group } from 'occlude';
+import { sketch, circle, thicken, polygon, fill, mm, group } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
-  const chain = material([[30, 28], [100, 28], [170, 28]], { edges: [[0, 1], [1, 2]], radius: 12 });
-  const hatch = fill('hatch', { angle: 45, spacing: mm(0.9) });
-  return [
-    polygon(thicken(chain, { radius: (p) => p.radius }), { fill: hatch }),
-    group({ translate: [0, 46] }, polygon(thicken(chain.points.extract(), { radius: (p) => p.radius }), { fill: hatch })),
-  ];
+  const ring = t.sample(circle(50, 50, 34), { count: 30 })
+    .attribute('radius', (p) => 2 + 2.8 * (1 + Math.cos(6 * Math.atan2(p.y - 50, p.x - 50))) / 2);
+  const body = (source) => polygon(thicken(source, { radius: (p) => p.radius }), {
+    fill: fill('hatch', { angle: 45, spacing: mm(0.65) }),
+  });
+  return [body(ring.points), group({ translate: [100, 0] }, body(ring.points.extract()))];
 });
 ```
+
+### Flow ribbons with a carried attribute
+
+Streamlines already arrive as connected material. Here a smooth wave controls both ribbon width and a `tone` column. The `point` callback carries that tone onto the new boundary; a point selection then accents just the high-tone stretches in blue. Change the flow field or the width wave to move between woven bands and broad calligraphic marks.
 
 Without `point` the result carries **no columns** — this is a generative conversion, not a topology-preserving edit, so nothing is inherited and no source vertex keeps its identity. With `point`, the callback runs once for each final boundary vertex, after ordering and tessellation, and returns that row's complete record:
 
 ```ts live
-import { sketch, material, thicken, polygon, strokes, circle, fill, mm } from 'occlude';
+import { sketch, curl, within, rect, thicken, polygon, strokes, fill, mm } from 'occlude';
 
-export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
-  const tree = material(
-    [[50, 90], [50, 64], [32, 46], [70, 45], [20, 24], [44, 20], [82, 22]],
-    {
-      edges: [[0, 1], [1, 2], [1, 3], [2, 4], [2, 5], [3, 6]],
-      radius: [5, 3.8, 2.2, 2.3, 0.3, 0.4, 0.3],
-      age: [6, 5, 3, 3, 0, 0, 0],
-    },
-  );
-
-  const body = thicken(tree, {
-    radius: (p) => p.radius,
-    point: ({ candidates }) => ({ age: Math.max(...candidates.map((c) => c.attrs.age)) }),
+export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
+  const flow = within(curl((x, y) => t.noise(x / 55, y / 55)), rect(6, 6, 188, 88));
+  const threads = t.streamlines(flow, { spacing: 9, step: 2 })
+    .attribute('tone', (p) => (1 + Math.sin(p.x / 13 + p.y / 19)) / 2);
+  const ribbons = thicken(threads, {
+    radius: (p) => 0.45 + 2.3 * p.tone,
+    point: ({ candidates }) => ({ tone: Math.max(...candidates.map((c) => c.attrs.tone)) }),
   });
-
   return [
-    polygon(body, { fill: fill('hatch', { angle: 30, spacing: mm(0.9) }), stroke: false }),
-    strokes(body, { pen: 'pigma-05-black' }),
-    body.points.filter((p) => p.age <= 2 && body.degree(p) > 0)
-      .map((p) => circle(p.x, p.y, 0.6, { pen: 'stabilo-88-blue' })),
+    polygon(ribbons, { fill: fill('hatch', { angle: 60, spacing: mm(0.7) }), stroke: false }),
+    strokes(ribbons.points.filter((p) => p.tone > 0.7).inducedEdges().extract(), { pen: 'stabilo-88-blue' }),
   ];
 });
 ```

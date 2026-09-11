@@ -1141,22 +1141,44 @@ export function thicken(
     }
   }
 
+  // Each primitive's crossing order is shared by all its pieces. Group and
+  // sort once, rather than scanning every crossing for every nearby shape.
+  const crossingIndex = new Map<Prim, Map<number, Crossing[]>>();
+  for (const prim of prims) {
+    if (!prim.crossings.length) continue;
+    const byShape = new Map<number, Crossing[]>();
+    for (const crossing of prim.crossings) {
+      const list = byShape.get(crossing.shape);
+      if (list) list.push(crossing);
+      else byShape.set(crossing.shape, [crossing]);
+    }
+    for (const list of byShape.values()) list.sort((a, b) => a.p - b.p);
+    crossingIndex.set(prim, byShape);
+  }
+
   const lookup = shapeLookup(shapes);
   const kept: Piece[] = [];
   for (const pc of pieceMap.values()) {
     const pm = (pc.p0 + pc.p1) / 2;
     const [mx, my] = primPoint(pc.prim, pm);
     let covered = false;
+    const byShape = crossingIndex.get(pc.prim);
     for (const si of lookup(mx, my)) {
       if (pc.shapes.includes(si)) continue;
       // Crossings establish coverage in parameter space, including tiny
       // intervals whose world-coordinate midpoint rounds onto the boundary.
       let structural: boolean | undefined;
-      const crosses = pc.prim.crossings.filter((c) => c.shape === si).sort((x, y) => x.p - y.p);
-      if (crosses.length) {
-        let last: Crossing | undefined;
-        for (const c of crosses) if (c.p < pm) last = c;
-        structural = last ? last.after : !crosses[0].after;
+      const crosses = byShape?.get(si);
+      if (crosses) {
+        // Upper endpoint stays exclusive, exactly as in the linear scan.
+        let lo = 0;
+        let hi = crosses.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          if (crosses[mid].p < pm) lo = mid + 1;
+          else hi = mid;
+        }
+        structural = lo ? crosses[lo - 1].after : !crosses[0].after;
       }
       if (structural ?? shapeContains(shapes[si], mx, my)) {
         covered = true;
@@ -1173,17 +1195,20 @@ export function thicken(
   // internally tangent covered disc) still supports it, and each generator
   // keeps its OWN parameter mapping through coincident merges.
   const eventCands = new Map<number, Cand[]>();
-  for (const prim of prims) {
-    for (const sp of prim.splits) {
-      let list = eventCands.get(sp.pt.id);
-      if (!list) { list = []; eventCands.set(sp.pt.id, list); }
-      for (const g of prim.gens) {
-        const c = genCand(g, sp.p);
-        if (!list.some((x) => candKey(x) === candKey(c))) list.push(c);
+  // Geometry-only output does not need candidate provenance.
+  if (opts.point) {
+    for (const prim of prims) {
+      for (const sp of prim.splits) {
+        let list = eventCands.get(sp.pt.id);
+        if (!list) { list = []; eventCands.set(sp.pt.id, list); }
+        for (const g of prim.gens) {
+          const c = genCand(g, sp.p);
+          if (!list.some((x) => candKey(x) === candKey(c))) list.push(c);
+        }
       }
     }
+    for (const list of eventCands.values()) list.sort(candOrder);
   }
-  for (const list of eventCands.values()) list.sort(candOrder);
 
   // ---- closed walks, tessellated ----
   const loops: OutVert[][] = [];
@@ -1198,7 +1223,7 @@ export function thicken(
         for (let k = 1; k < n; k++) {
           const p = pc.p0 + (span * k) / n;
           const [x, y] = primPoint(pc.prim, p);
-          verts.push({ x, y, cands: pc.gens.map((g) => genCand(g, p)) });
+          verts.push({ x, y, cands: opts.point ? pc.gens.map((g) => genCand(g, p)) : [] });
         }
       }
     }

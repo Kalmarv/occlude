@@ -9,6 +9,27 @@ working/perf-loop.md. Run from `packages/occlude`:
 
 Single process, warm where noted; report medians yourself when comparing.
 
+## Thickness
+
+`thicken.mts` covers sparse and overlapping discs, a nearest-neighbour network,
+a variable-width chain, long crossing segments, and the near-tangent regressions.
+It warms each implementation twice, alternates their execution order, and reports
+five-run medians. Geometry-only and attributed outputs are fingerprinted separately
+within one digest, including array bytes and the ordered callback event stream.
+
+To compare against the implementation before the performance pass, from this package:
+
+```sh
+git show adbe654:packages/occlude/src/thicken.ts > src/.thicken-baseline.ts
+pnpm exec tsx bench/thicken.mts --baseline src/.thicken-baseline.ts --verify
+rm src/.thicken-baseline.ts
+```
+
+`--verify` additionally compares 800 seeded fractional-coordinate networks. It
+reports pre-existing errors explicitly and fails on any changed output or error.
+See `thicken-performance.md` in this directory for compiled timings,
+profiling results, and the one known baseline failure in that additional corpus.
+
 **These numbers are a regression check, not a comparison.** The log records
 what each row cost when it was last measured *on that box under that load*.
 A row that has drifted upward is the signal. To judge a change, run the
