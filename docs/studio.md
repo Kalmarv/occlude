@@ -2,6 +2,8 @@
 
 The studio is the browser app you draw in: an editor, a live preview and a control rail, as a small multi-page app (the studio itself, plus Sketches, Evolve, Fills, Assets, Machine, Results and these docs). It is served by the studio server, which also owns the store — plain files under the studio's own `sketches/`, `fills/`, `assets/` and `results/` directories, shared by every browser that reaches that server. `localStorage` keeps the working sketch, the UI layout and caches of pens and profiles. A rebuild needs no restart: the server reads `dist`, and reports its build id, per request.
 
+Simulate has a pen selector beside its speed control. Choose **All pens** or one pen from the current drawing selection; the simulation and its time estimate use only those chains, in their existing order. Changing pens stops the current simulation so you can start the chosen pen.
+
 ## Saving, snapshots, forks
 
 **Save** (Ctrl/Cmd+S) writes the editor's text to the named sketch. The store is a git repository underneath, and every save is a commit, so a save is never lost.

@@ -598,31 +598,75 @@ async function boot(): Promise<void> {
   // ---- animated plot preview ----
   const plotBtn = $('btn-plot') as HTMLButtonElement;
   const speedSel = $('plot-speed') as HTMLSelectElement;
+  const penSel = $('plot-pen') as HTMLSelectElement;
+  let simulationRequest = 0;
+  let simulationPending = false;
+  const resetSimulation = (): void => {
+    simulationRequest++;
+    simulationPending = false;
+    preview.stopPlot();
+    plotBtn.textContent = '▶ Simulate';
+  };
+  drawing.onChange(() => {
+    resetSimulation();
+    const selectedName = penSel.value;
+    const selection = drawing.selection;
+    const used = new Set(drawing.plan?.chains.slice(selection?.fromChain ?? 0, selection?.toChain ?? 0).map(c => c.pen));
+    penSel.replaceChildren(new Option('All pens', ''));
+    for (const [index, pen] of drawing.pens.entries()) {
+      if (used.has(index)) penSel.add(new Option(pen.name, pen.name));
+    }
+    if (Array.from(penSel.options).some(o => o.value === selectedName)) penSel.value = selectedName;
+    penSel.disabled = used.size === 0;
+  });
+  penSel.onchange = () => {
+    if (preview.plotting || simulationPending) {
+      resetSimulation();
+      statusMsg.className = 'status-ok';
+      statusMsg.textContent = 'simulation stopped';
+    }
+  };
   const fmtTime = (s: number): string => {
     const m = Math.floor(s / 60);
     return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   };
   speedSel.onchange = () => preview.setPlotSpeed(parseFloat(speedSel.value));
   plotBtn.onclick = async () => {
-    if (preview.plotting) {
-      preview.stopPlot();
-      plotBtn.textContent = '▶ Plot';
+    if (preview.plotting || simulationPending) {
+      resetSimulation();
       statusMsg.className = 'status-ok';
       statusMsg.textContent = 'ok';
       return;
     }
     if (!lastResult) return;
     plotBtn.textContent = '■ Stop';
+    simulationPending = true;
+    const request = ++simulationRequest;
+    const result = lastResult;
+    const sourcePlan = drawing.plan;
+    const selectedPen = penSel.value;
     try {
       const activeProf = activeProfile();
-      const tol = machineTolerance(activeProf, lastResult.pens);
+      const tol = machineTolerance(activeProf, result.pens);
       // The same tour budget as Plot and Export: the simulation must show
       // the order the machine will actually run.
       // The SELECTED chains of the one plan — what Plot and Export use too.
-      const plan = encodeToolpath(await drawing.selectedToolpath(tol));
+      const selected = await drawing.selectedToolpath(tol);
+      if (request !== simulationRequest) return;
+      if (lastResult !== result || drawing.plan !== sourcePlan) { resetSimulation(); return; }
+      // Filter the existing selection, preserving chain order and pen indices.
+      const chains = selectedPen ? selected.filter(c => result.pens[c.pen]?.name === selectedPen) : selected;
+      simulationPending = false;
+      if (!chains.length) {
+        resetSimulation();
+        statusMsg.className = 'status-ok';
+        statusMsg.textContent = 'No strokes to simulate for this pen';
+        return;
+      }
+      const plan = encodeToolpath(chains);
       preview.startPlot(
         plan,
-        lastResult.pens,
+        result.pens,
         machineTiming(activeProf),
         parseFloat(speedSel.value),
         (elapsed, total, pen) => {
@@ -631,13 +675,14 @@ async function boot(): Promise<void> {
             `plotting ${fmtTime(elapsed)} / ${fmtTime(total)}` + (pen ? ` · ${pen}` : '');
         },
         () => {
-          plotBtn.textContent = '▶ Plot';
+          plotBtn.textContent = '▶ Simulate';
           statusMsg.className = 'status-ok';
           statusMsg.textContent = 'plot complete';
         },
       );
     } catch (err) {
-      plotBtn.textContent = '▶ Plot';
+      if (request !== simulationRequest) return;
+      resetSimulation();
       statusMsg.className = 'status-err';
       statusMsg.textContent = err instanceof Error ? err.message : String(err);
     }

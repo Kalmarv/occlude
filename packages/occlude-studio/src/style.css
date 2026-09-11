@@ -354,6 +354,10 @@ button.has-icon svg.icon {
   font-size: 12px;
 }
 
+#plot-pen {
+  max-width: 170px;
+}
+
 .hud-menu {
   position: relative;
 }
