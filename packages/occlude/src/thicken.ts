@@ -26,7 +26,7 @@ import { orient2d } from 'robust-predicates';
 import { Material, material as makeMaterial, unit, type Vertex } from './material.js';
 import { EdgeSelection, PointSelection } from './relation.js';
 import type { EventCandidate, PlanarEvent } from './faces.js';
-import { dyAdd, dyFrom, dyMul, dySign, dySub, dyToNumber } from './dyadic.js';
+import { dyAdd, dyFrom, dyMul, dySign, dySub, dyToNumber, type Dy } from './dyadic.js';
 
 /** How `thicken` resolves a source into thickness. */
 export interface ThickenOpts {
@@ -117,6 +117,7 @@ interface DiscSupport {
 /** Where the other convex hull's coverage begins/ends along this primitive:
  * the split parameter and whether the other shape covers the side AFTER it. */
 interface Crossing {
+  pt: Pt;
   shape: number;
   p: number;
   after: boolean;
@@ -206,13 +207,20 @@ function ccwSpan(from: number, to: number): number {
 
 /** `angle` pulled into `[a0, a1]`, or null when it lies outside. */
 function angleInArc(angle: number, a0: number, a1: number): number | null {
-  let q = angle;
-  while (q < a0 - Math.PI) q += TAU;
-  while (q > a0 + Math.PI) q -= TAU;
-  while (q < a0) q += TAU;
-  while (q > a1) q -= TAU;
-  if (q < a0 - EPS_ANGLE || q > a1 + EPS_ANGLE) return null;
-  return Math.min(a1, Math.max(a0, q));
+  // Shift into this arc's turn once. Adding and then subtracting 2π can
+  // round an angle just outside an endpoint onto that endpoint.
+  const q = angle < a0 ? angle + TAU : angle > a1 ? angle - TAU : angle;
+  return q < a0 || q > a1 ? null : q;
+}
+
+/** Order events in a line's dominant coordinate. Distinct points can have
+ * identical rounded [0,1] parameters; parameters must not decide identity. */
+function segOrder(s: SegPrim, a: Pt, b: Pt): number {
+  return Math.abs(s.x1 - s.x0) >= Math.abs(s.y1 - s.y0)
+    ? (a.x - b.x)*Math.sign(s.x1 - s.x0) : (a.y - b.y)*Math.sign(s.y1 - s.y0);
+}
+function betweenSeg(s: SegPrim, p: Pt): boolean {
+  return segOrder(s, s.start, p) < 0 && segOrder(s, p, s.end) < 0;
 }
 
 function paramOnSeg(s: SegPrim, x: number, y: number): number {
@@ -234,7 +242,7 @@ function primPoint(prim: Prim, p: number): [number, number] {
  * squared distance to the moving centre minus the moving radius squared,
  * minimised over the edge's parameter — the independent membership formula
  * the analytic boundary is checked against. */
-function shapeContains(s: Shape, x: number, y: number): boolean {
+function shapeContains(s: Shape, x: number, y: number, exact: () => boolean): boolean {
   const qx = x - s.ax;
   const qy = y - s.ay;
   const dx = s.bx - s.ax;
@@ -257,24 +265,25 @@ function shapeContains(s: Shape, x: number, y: number): boolean {
   const bound = 64 * Number.EPSILON * (Math.abs(A) + Math.abs(B) + Math.abs(C) + 1);
   if (best < -bound) return true;
   if (best > bound) return false;
-  return exactInside(s, x, y);
+  return exact();
 }
 
 /** Exact membership of the query point in one edge-like shape, over the
  * doubles' own dyadic values. Reached only when the floating evaluation is
  * inconclusive; the sign of the interior minimum is decided without division. */
-function exactInside(s: Shape, x: number, y: number): boolean {
-  const qx = dySub(dyFrom(x), dyFrom(s.ax));
-  const qy = dySub(dyFrom(y), dyFrom(s.ay));
-  const ex = dySub(dyFrom(x), dyFrom(s.bx));
-  const ey = dySub(dyFrom(y), dyFrom(s.by));
-  const ra = dyFrom(s.ra);
-  const rb = dyFrom(s.rb);
+function rationalInside(s: Shape, x: Dy, y: Dy, den: Dy): boolean {
+  const scale = (n: number) => dyMul(dyFrom(n), den);
+  const qx = dySub(x, scale(s.ax));
+  const qy = dySub(y, scale(s.ay));
+  const ex = dySub(x, scale(s.bx));
+  const ey = dySub(y, scale(s.by));
+  const ra = scale(s.ra);
+  const rb = scale(s.rb);
   const C = dySub(dyAdd(dyMul(qx, qx), dyMul(qy, qy)), dyMul(ra, ra));
   const E = dySub(dyAdd(dyMul(ex, ex), dyMul(ey, ey)), dyMul(rb, rb));
   if (dySign(C) < 0 || dySign(E) < 0) return true;
-  const dx = dySub(dyFrom(s.bx), dyFrom(s.ax));
-  const dyy = dySub(dyFrom(s.by), dyFrom(s.ay));
+  const dx = dySub(scale(s.bx), scale(s.ax));
+  const dyy = dySub(scale(s.by), scale(s.ay));
   const dr = dySub(rb, ra);
   const A = dySub(dyAdd(dyMul(dx, dx), dyMul(dyy, dyy)), dyMul(dr, dr));
   const B = dyMul(dyFrom(-2), dyAdd(dyAdd(dyMul(qx, dx), dyMul(qy, dyy)), dyMul(ra, dr)));
@@ -282,6 +291,35 @@ function exactInside(s: Shape, x: number, y: number): boolean {
     return dySign(dySub(dyMul(dyFrom(4), dyMul(A, C)), dyMul(B, B))) < 0;
   }
   return false;
+}
+
+/** Evaluate an interior point without rounding it back onto the boundary.
+ * Lines retain their supporting offset; arcs use a rational point ON their
+ * circle, so curvature survives even when sin/cos would round to ±1. This
+ * certifies membership of that constructed sample, not exact trigonometry. */
+function exactPieceInside(s: Shape, pc: Piece): boolean {
+  if (pc.prim.kind === 'seg') {
+    let x = dyAdd(dyFrom(pc.start.x), dyFrom(pc.end.x));
+    let y = dyAdd(dyFrom(pc.start.y), dyFrom(pc.end.y));
+    const support = pc.prim.supports[0];
+    if (support) {
+      if (pc.prim.x0 === pc.prim.x1) x = dyMul(dyFrom(2), dyAdd(dyFrom(support.cx), dyMul(dyFrom(support.r), dyFrom(support.nx))));
+      if (pc.prim.y0 === pc.prim.y1) y = dyMul(dyFrom(2), dyAdd(dyFrom(support.cy), dyMul(dyFrom(support.r), dyFrom(support.ny))));
+    }
+    return rationalInside(s, x, y, dyFrom(2));
+  }
+  const a = pc.prim;
+  const mid = pc.p0 + (pc.p1 - pc.p0) / 2;
+  const quadrant = Math.round(mid / (Math.PI / 2));
+  const delta = (pc.p0 - quadrant * Math.PI / 2) / 2 + (pc.p1 - quadrant * Math.PI / 2) / 2;
+  const t = dyFrom(Math.tan(delta / 2));
+  const t2 = dyMul(t, t);
+  const den = dyAdd(dyFrom(1), t2);
+  let nx = dySub(dyFrom(1), t2);
+  let ny = dyMul(dyFrom(2), t);
+  for (let i = 0; i < ((quadrant % 4) + 4) % 4; i++) [nx, ny] = [dyMul(dyFrom(-1), ny), nx];
+  return rationalInside(s, dyAdd(dyMul(dyFrom(a.cx),den),dyMul(dyFrom(a.r),nx)),
+    dyAdd(dyMul(dyFrom(a.cy),den),dyMul(dyFrom(a.r),ny)),den);
 }
 
 /** A uniform grid of shape bounding boxes, so a midpoint tests only nearby
@@ -527,8 +565,8 @@ function segSeg(a: SegPrim, b: SegPrim, events: Events): void {
       if (ta < 0 || ta > 1 || tb < 0 || tb > 1) return; // the join is beyond the finite segments
       const pt = events.at(sa.cx + (sa.r * sa.nx - offset * sa.ny), sa.cy + (sa.r * sa.ny + offset * sa.nx));
       const cross = sa.nx * sb.ny - sa.ny * sb.nx;
-      for (const shape of b.shapes) a.crossings.push({ shape, p: ta, after: cross < 0 });
-      for (const shape of a.shapes) b.crossings.push({ shape, p: tb, after: cross > 0 });
+      for (const shape of b.shapes) a.crossings.push({ shape, p: ta, pt, after: cross < 0 });
+      for (const shape of a.shapes) b.crossings.push({ shape, p: tb, pt, after: cross > 0 });
       if (ta > 0 && ta < 1) addSplit(a, ta, pt);
       if (tb > 0 && tb < 1) addSplit(b, tb, pt);
       return;
@@ -544,12 +582,12 @@ function segSeg(a: SegPrim, b: SegPrim, events: Events): void {
     // the other, at the endpoint's own event so coincident sub-pieces align.
     const ta0 = paramOnSeg(a, b.x0, b.y0);
     const ta1 = paramOnSeg(a, b.x1, b.y1);
-    if (ta0 > EPS_PARAM && ta0 < 1 - EPS_PARAM) addSplit(a, ta0, b.start);
-    if (ta1 > EPS_PARAM && ta1 < 1 - EPS_PARAM) addSplit(a, ta1, b.end);
+    if (betweenSeg(a, b.start)) addSplit(a, ta0, b.start);
+    if (betweenSeg(a, b.end)) addSplit(a, ta1, b.end);
     const tb0 = paramOnSeg(b, a.x0, a.y0);
     const tb1 = paramOnSeg(b, a.x1, a.y1);
-    if (tb0 > EPS_PARAM && tb0 < 1 - EPS_PARAM) addSplit(b, tb0, a.start);
-    if (tb1 > EPS_PARAM && tb1 < 1 - EPS_PARAM) addSplit(b, tb1, a.end);
+    if (betweenSeg(b, a.start)) addSplit(b, tb0, a.start);
+    if (betweenSeg(b, a.end)) addSplit(b, tb1, a.end);
     return;
   }
   if (a0 === 0) {
@@ -570,16 +608,26 @@ function segSeg(a: SegPrim, b: SegPrim, events: Events): void {
   }
   if ((a0 > 0) !== (a1 > 0) && (b0 > 0) !== (b1 > 0)) {
     const t = b0 / (b0 - b1);
-    const x = a.x0 + (a.x1 - a.x0) * t;
-    const y = a.y0 + (a.y1 - a.y0) * t;
+    const x = a.x0 === a.x1 ? a.x0 : b.x0 === b.x1 ? b.x0 : a.x0 + (a.x1 - a.x0) * t;
+    const y = a.y0 === a.y1 ? a.y0 : b.y0 === b.y1 ? b.y0 : a.y0 + (a.y1 - a.y0) * t;
     const pt = snapTo([a.start, a.end, b.start, b.end], x, y) ?? events.at(x, y);
     const ta = paramOnSeg(a, pt.x, pt.y);
     const tb = paramOnSeg(b, pt.x, pt.y);
-    for (const shape of b.shapes) a.crossings.push({ shape, p: ta, after: b1 < 0 });
-    for (const shape of a.shapes) b.crossings.push({ shape, p: tb, after: a1 < 0 });
+    for (const shape of b.shapes) a.crossings.push({ shape, p: ta, pt, after: b1 < 0 });
+    for (const shape of a.shapes) b.crossings.push({ shape, p: tb, pt, after: a1 < 0 });
     if (ta > EPS_PARAM && ta < 1 - EPS_PARAM) addSplit(a, ta, pt);
     if (tb > EPS_PARAM && tb < 1 - EPS_PARAM) addSplit(b, tb, pt);
   }
+}
+
+/** Retain the analytic supporting line before centre + radius rounds. */
+function axisOffset(s: SegPrim, arc: ArcPrim): Dy {
+  const support = s.supports[0];
+  const horizontal = s.y0 === s.y1;
+  const line = support
+    ? dyAdd(dyFrom(horizontal ? support.cy : support.cx), dyMul(dyFrom(support.r), dyFrom(horizontal ? support.ny : support.nx)))
+    : dyFrom(horizontal ? s.y0 : s.x0);
+  return dySub(line, dyFrom(horizontal ? arc.cy : arc.cx));
 }
 
 /** Sign of the line/circle discriminant, exact when the float filter is
@@ -593,13 +641,15 @@ function lineCircleDisc(s: SegPrim, arc: ArcPrim): { sign: -1 | 0 | 1; value: nu
   const B = 2 * (fx * dx + fy * dy);
   const C = fx * fx + fy * fy - arc.r * arc.r;
   const disc = B * B - 4 * A * C;
-  const bound = 64 * Number.EPSILON * (B * B + Math.abs(4 * A * C));
+  // C may cancel to zero while losing fx² or fy². Bound its operands,
+  // not the already-rounded C, or a tangent can appear to have two roots.
+  const bound = 64 * Number.EPSILON * (B * B + 4 * A * (fx * fx + fy * fy + arc.r * arc.r));
   if (disc > bound) return { sign: 1, value: disc, A, B };
   if (disc < -bound) return { sign: -1, value: disc, A, B };
   const ex = dySub(dyFrom(s.x1), dyFrom(s.x0));
   const ey = dySub(dyFrom(s.y1), dyFrom(s.y0));
-  const efx = dySub(dyFrom(s.x0), dyFrom(arc.cx));
-  const efy = dySub(dyFrom(s.y0), dyFrom(arc.cy));
+  const efx = dx === 0 ? axisOffset(s, arc) : dySub(dyFrom(s.x0), dyFrom(arc.cx));
+  const efy = dy === 0 ? axisOffset(s, arc) : dySub(dyFrom(s.y0), dyFrom(arc.cy));
   const eA = dyAdd(dyMul(ex, ex), dyMul(ey, ey));
   const eB = dyMul(dyFrom(2), dyAdd(dyMul(efx, ex), dyMul(efy, ey)));
   const eC = dySub(dyAdd(dyMul(efx, efx), dyMul(efy, efy)), dyMul(dyFrom(arc.r), dyFrom(arc.r)));
@@ -636,13 +686,20 @@ function circleSigns(a: ArcPrim, b: ArcPrim): { su: -1 | 0 | 1; sv: -1 | 0 | 1; 
 }
 
 function segArc(s: SegPrim, arc: ArcPrim, events: Events): void {
-  // If the arc's circle is one of the segment's supporting discs, the
-  // tangent line has exactly one contact: the stored tangent point. It is
-  // already an event; never re-solve it through the quadratic.
-  const support = s.supports.find((d) => d.cx === arc.cx && d.cy === arc.cy && d.r === arc.r);
+  // Shared supporting discs, and equal discs on the same axis-aligned
+  // supporting line, have a known tangent contact. Preserve that construction
+  // instead of intersecting an already-rounded offset line with the circle.
+  const support = s.supports.find((d) => d.r === arc.r && (
+    (d.cx === arc.cx && d.cy === arc.cy) ||
+    (d.nx === 0 && d.cy === arc.cy) || (d.ny === 0 && d.cx === arc.cx)
+  ));
   if (support) {
-    const ang = angleInArc(Math.atan2(support.pt.y - arc.cy, support.pt.x - arc.cx), arc.a0, arc.a1);
-    if (ang !== null && ang > arc.a0 && ang < arc.a1) addSplit(arc, ang, support.pt);
+    const pt = events.at(arc.cx + arc.r * support.nx, arc.cy + arc.r * support.ny);
+    const ang = angleInArc(Math.atan2(support.ny, support.nx), arc.a0, arc.a1);
+    if (ang !== null) {
+      if (ang > arc.a0 && ang < arc.a1) addSplit(arc, ang, pt);
+      if (betweenSeg(s, pt)) addSplit(s, paramOnSeg(s, pt.x, pt.y), pt);
+    }
     return;
   }
   const dx = s.x1 - s.x0;
@@ -653,16 +710,26 @@ function segArc(s: SegPrim, arc: ArcPrim, events: Events): void {
   const sq = Math.sqrt(disc.value);
   const roots = disc.sign === 0 ? [-B / (2 * A)] : [(-B - sq) / (2 * A), (-B + sq) / (2 * A)];
   for (const [root, t] of roots.entries()) {
-    const x = s.x0 + dx * t;
-    const y = s.y0 + dy * t;
+    let x = s.x0 + dx * t;
+    let y = s.y0 + dy * t;
+    // Construct roots from the circle and supporting line. Interpolating
+    // along overlapping segments gives different coordinates for one event.
+    if (dy === 0 || dx === 0) {
+      const offset = axisOffset(s, arc);
+      const h2 = dySub(dyMul(dyFrom(arc.r), dyFrom(arc.r)), dyMul(offset, offset));
+      const h = Math.sqrt(Math.max(0, dyToNumber(h2)));
+      const side = disc.sign === 0 ? 0 : (root === 0 ? -1 : 1) * Math.sign(dy === 0 ? dx : dy);
+      if (dy === 0) { x = arc.cx + side * h; y = s.y0; }
+      else { x = s.x0; y = arc.cy + side * h; }
+    }
     const pt = snapTo([s.start, s.end, arc.start, arc.end], x, y) ?? events.at(x, y);
     const tt = paramOnSeg(s, pt.x, pt.y);
     if (tt < -EPS_PARAM || tt > 1 + EPS_PARAM) continue;
     const ang = angleInArc(Math.atan2(pt.y - arc.cy, pt.x - arc.cx), arc.a0, arc.a1);
     if (ang === null) continue;
     if (disc.sign > 0) {
-      for (const shape of arc.shapes) s.crossings.push({ shape, p: tt, after: root === 0 });
-      for (const shape of s.shapes) arc.crossings.push({ shape, p: ang, after: root === 1 });
+      for (const shape of arc.shapes) s.crossings.push({ shape, p: tt, pt, after: root === 0 });
+      for (const shape of s.shapes) arc.crossings.push({ shape, p: ang, pt, after: root === 1 });
     }
     if (tt > EPS_PARAM && tt < 1 - EPS_PARAM) addSplit(s, tt, pt);
     if (ang > arc.a0 + EPS_ANGLE && ang < arc.a1 - EPS_ANGLE) addSplit(arc, ang, pt);
@@ -709,14 +776,17 @@ function arcArc(a: ArcPrim, b: ArcPrim, events: Events): void {
     : [[bx - h * uy, by + h * ux], [bx + h * uy, by - h * ux]];
   for (const [root, [x, y]] of raw.entries()) {
     const pt = snapTo([a.start, a.end, b.start, b.end], x, y) ?? events.at(x, y);
-    const aa = angleInArc(Math.atan2(pt.y - a.cy, pt.x - a.cx), a.a0, a.a1);
-    const ba = angleInArc(Math.atan2(pt.y - b.cy, pt.x - b.cx), b.a0, b.a1);
+    // Test arc membership in circle-local coordinates. Subtracting the
+    // centre from the rounded world root can admit a root outside an arc.
+    const side = tangent ? 0 : root === 0 ? 1 : -1;
+    const aa = angleInArc(Math.atan2(p * uy + side * h * ux, p * ux - side * h * uy), a.a0, a.a1);
+    const ba = angleInArc(Math.atan2((p - d) * uy + side * h * ux, (p - d) * ux - side * h * uy), b.a0, b.a1);
     if (aa === null || ba === null) continue;
     // Preserve the predicate's two crossings through interval classification.
     // A rounded midpoint can lie on the circle even within a real overlap.
     if (!tangent) {
-      for (const shape of b.shapes) a.crossings.push({ shape, p: aa, after: root === 1 });
-      for (const shape of a.shapes) b.crossings.push({ shape, p: ba, after: root === 0 });
+      for (const shape of b.shapes) a.crossings.push({ shape, p: aa, pt, after: root === 1 });
+      for (const shape of a.shapes) b.crossings.push({ shape, p: ba, pt, after: root === 0 });
     }
     if (aa > a.a0 + EPS_ANGLE && aa < a.a1 - EPS_ANGLE) addSplit(a, aa, pt);
     if (ba > b.a0 + EPS_ANGLE && ba < b.a1 - EPS_ANGLE) addSplit(b, ba, pt);
@@ -780,17 +850,17 @@ function makePieces(prim: Prim, events: Events): Piece[] {
   const ptOf = new Map<number, Pt>();
   for (const s of prim.splits) ptOf.set(s.pt.id, s.pt);
   const emit = (p0: number, p1: number, a: Pt, b: Pt) => {
-    if (p1 - p0 <= EPS_PARAM) return;
+    if (prim.kind === 'seg' ? a.id === b.id : p1 - p0 <= EPS_PARAM) return;
     const { sTan, eTan } = pieceTangents(prim, p0, p1);
     out.push({ prim, p0, p1, start: a, end: b, shapes: prim.shapes.slice(), gens: prim.gens.slice(), sTan, eTan });
   };
 
   if (prim.kind === 'seg') {
-    const rows = prim.splits.slice().sort((x, y) => x.p - y.p);
+    const rows = prim.splits.slice().sort((x, y) => segOrder(prim, x.pt, y.pt));
     const kept: Split[] = [];
     for (const r of rows) {
       const p = Math.min(1, Math.max(0, r.p));
-      if (kept.length && (kept[kept.length - 1].pt.id === r.pt.id || Math.abs(kept[kept.length - 1].p - p) <= EPS_PARAM)) continue;
+      if (kept.length && kept[kept.length - 1].pt.id === r.pt.id) continue;
       kept.push({ p, pt: r.pt });
     }
     for (let k = 1; k < kept.length; k++) emit(kept[k - 1].p, kept[k].p, kept[k - 1].pt, kept[k].pt);
@@ -906,7 +976,7 @@ function walkCycles(pieces: readonly Piece[]): number[][] {
   for (let i = 0; i < pieces.length; i++) {
     const cands = outgoing.get(pieces[i].end.id);
     if (!cands || cands.length === 0) {
-      throw new Error('thicken: the resolved boundary has an open end — this input hit a numerical degeneracy; nudge a coordinate or change tolerance');
+      throw new Error('thicken: the resolved boundary has an open end — internal boundary arrangement failure; please report this input');
     }
     const r: [number, number] = [-pieces[i].eTan[0], -pieces[i].eTan[1]];
     let best = -1;
@@ -931,10 +1001,10 @@ function walkCycles(pieces: readonly Piece[]): number[][] {
       used[j] = 1;
       cycle.push(j);
       j = next[j];
-      if (j < 0) throw new Error('thicken: boundary walk left the arrangement — this input hit a numerical degeneracy; nudge a coordinate or change tolerance');
+      if (j < 0) throw new Error('thicken: boundary walk left the arrangement — internal boundary arrangement failure; please report this input');
     }
     if (j !== i) {
-      throw new Error('thicken: boundary walk did not close — this input hit a numerical degeneracy; nudge a coordinate or change tolerance');
+      throw new Error('thicken: boundary walk did not close — internal boundary arrangement failure; please report this input');
     }
     cycles.push(cycle);
   }
@@ -1157,7 +1227,7 @@ export function thicken(
       if (list) list.push(crossing);
       else byShape.set(crossing.shape, [crossing]);
     }
-    for (const list of byShape.values()) list.sort((a, b) => a.p - b.p);
+    for (const list of byShape.values()) list.sort((a, b) => prim.kind === 'seg' ? segOrder(prim, a.pt, b.pt) : a.p - b.p);
     crossingIndex.set(prim, byShape);
   }
 
@@ -1175,17 +1245,19 @@ export function thicken(
       let structural: boolean | undefined;
       const crosses = byShape?.get(si);
       if (crosses) {
-        // Upper endpoint stays exclusive, exactly as in the linear scan.
+        // Coverage just after the starting event applies throughout this
+        // piece. A numeric midpoint can round back onto that event; segment
+        // crossings therefore use event coordinates, not rounded parameters.
         let lo = 0;
         let hi = crosses.length;
         while (lo < hi) {
           const mid = (lo + hi) >>> 1;
-          if (crosses[mid].p < pm) lo = mid + 1;
+          if (pc.prim.kind === 'seg' ? segOrder(pc.prim, crosses[mid].pt, pc.start) <= 0 : crosses[mid].p <= pc.p0) lo = mid + 1;
           else hi = mid;
         }
         structural = lo ? crosses[lo - 1].after : !crosses[0].after;
       }
-      if (structural ?? shapeContains(shapes[si], mx, my)) {
+      if (structural ?? shapeContains(shapes[si], mx, my, () => exactPieceInside(shapes[si], pc))) {
         covered = true;
         break;
       }

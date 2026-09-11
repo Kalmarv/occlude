@@ -988,6 +988,8 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 The result is an ordinary boundary **Material**. Draw it with `polygon` and a fill, trace it with `strokes`, sample its outline with `along`, or use `distanceTo` and `t.isolines` for contour bands. `thicken` is a pure module import; drawing and filling remain explicit.
 
+Use `polygon(body, { fill: fill('hatch') })` to fill the combined area while preserving its holes. `strokes(body, { fill: … })` creates a separate filled shape for **each** boundary, including the hole boundaries; it does not fill the compound area.
+
 ### Cellular lace
 
 Turn Voronoi walls into a continuous cut-paper lattice. A relaxed scatter supplies the cells; a radius that grows down the page makes the openings gradually smaller. The hatch fills the thickened walls while the holes stay empty. Try changing the scatter spacing, the relaxation count, or the radius field.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   distanceTo, material, curve, thicken, polygon, strokes, numericLoops,
+  sketch, compileSketch, setPaperHint, append,
   type Material, type Vertex,
 } from '../src/index.js';
 
@@ -725,4 +726,92 @@ it('retains coordinate precision at a line–circle overlap', () => {
   expect(body.curves()[0].closed).toBe(true);
   expect(distanceTo(body)(0, -2)).toBeGreaterThan(0);
   expect(distanceTo(body)(0, 1)).toBeGreaterThan(0);
+});
+
+
+describe('thicken: overlapping recursive rectangles', () => {
+  // Go through the real sketch/material lowering: its representable coordinates
+  // include adjacent doubles, which integer-only polygon fixtures miss.
+  function recursive(level: number, spacing: number | undefined, paper: number, initialSize = 40): Material {
+    let result!: Material;
+    setPaperHint(paper, paper);
+    try {
+      compileSketch(sketch({ aspect: [1, 1], margin: 6, seed: 42 }, (t) => {
+        const b = t.bounds();
+        let size = initialSize;
+        let m = t.material(t.rect(b.cx - size / 2, b.cy - size / 2, size, size));
+        for (let generation = 0; generation <= level; generation++) {
+          const shapes = m.along(spacing === undefined ? undefined : { spacing }).map(p =>
+            t.rect(p.x - size / 4, p.y - size / 4, size / 2, size / 2));
+          m = shapes.reduce((acc, shape) => append(acc, t.material(shape)), m);
+          size /= 2;
+        }
+        result = m;
+        return [];
+      }));
+    } finally { setPaperHint(210, 297); }
+    return result;
+  }
+
+  for (const [level, spacing, radius] of [[3, undefined, 1], [0, 3, 2], [0, 4, 2], [1, undefined, 2]] as const) {
+    it(`preserves coverage and holes at level ${level}, spacing ${spacing}, radius ${radius}`, () => {
+      for (const paper of [210, 304.8]) {
+        const src = recursive(level, spacing, paper);
+        const body = thicken(src, { radius, tolerance: 0.01 });
+        expect(body.n).toBeGreaterThan(0);
+        expect([...body.x, ...body.y].every(Number.isFinite)).toBe(true);
+        expect(body.curves().every(c => c.closed)).toBe(true);
+        const loops = loopsOf(body);
+        expect(loops.some(c => c.area > 0)).toBe(true);
+        expect(loops.some(c => c.area < 0)).toBe(true);
+        const d = distanceTo(body);
+        // The source edges leave the central square empty at every tested depth.
+        expect(d(50, 50)).toBeLessThan(0);
+        const covers: Envelope[] = [];
+        for (let i = 0; i < src.edgeList.length; i += 2) {
+          const a = src.edgeList[i], b = src.edgeList[i + 1];
+          covers.push([src.x[a], src.y[a], src.x[b], src.y[b], radius, radius]);
+        }
+        const inside = oracle(covers);
+        // Independent capsule-union membership, including interior holes and
+        // exterior witnesses; skip only the output's arc tessellation budget.
+        for (let i = 0; i < 900; i++) {
+          const x = 7.173 + ((i * 47) % 901) / 901 * 86;
+          const y = 7.291 + ((i * 313) % 907) / 907 * 86;
+          const actual = d(x, y);
+          if (Math.abs(actual) <= 0.025) continue;
+          expect(actual > 0, `paper=${paper} point=(${x},${y})`).toBe(inside(x, y));
+        }
+      }
+    });
+  }
+  it('sweeps sizes, radii, depths and station spacing against capsule coverage', () => {
+    const cases: [number, number, number, number | undefined][] = [];
+    for (const size of [28, 40, 53]) for (const radius of [0.4, 1.3, 2, 3])
+      for (const level of [0, 1, 2]) cases.push([size, radius, level, undefined]);
+    for (const spacing of [2.5, 3, 4, 5]) for (const radius of [1, 2])
+      cases.push([40, radius, 0, spacing]);
+    for (const [size, radius, level, spacing] of cases) {
+      const context = `size=${size}, radius=${radius}, level=${level}, spacing=${spacing}`;
+      const src = recursive(level, spacing, 304.8, size);
+      let body: Material;
+      try { body = thicken(src, { radius, tolerance: 0.01 }); }
+      catch (error) { throw new Error(`${context}: ${String(error)}`); }
+      expect(body.curves().every(c => c.closed), context).toBe(true);
+      const shapes: Envelope[] = [];
+      for (let i = 0; i < src.edgeList.length; i += 2) {
+        const a = src.edgeList[i], b = src.edgeList[i + 1];
+        shapes.push([src.x[a], src.y[a], src.x[b], src.y[b], radius, radius]);
+      }
+      const inside = oracle(shapes), d = distanceTo(body);
+      for (let i = 0; i < 180; i++) {
+        const x = 0.317 + ((i * 47) % 181) / 181 * 100;
+        const y = 0.191 + ((i * 113) % 191) / 191 * 100;
+        const actual = d(x, y);
+        if (Math.abs(actual) <= 0.025) continue;
+        expect(actual > 0, `${context}, (${x},${y})`).toBe(inside(x, y));
+      }
+    }
+  }, 30000);
+
 });
