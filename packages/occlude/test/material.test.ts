@@ -1137,3 +1137,14 @@ describe('view identity: the brand lives off the view, not on it', () => {
     expect(Object.keys(f.faces[0])).toEqual(['index', 'area', 'perimeter', 'bounds', 'contours']);
   });
 });
+
+it('material(existing) is identity and rejects options instead of ignoring them', () => {
+  const m = material([[0, 0], [10, 0]], { edges: [[0, 1]], weight: 2 });
+  expect(material(m)).toBe(m);
+  expect(material(m, {})).toBe(m);
+  expect(() => material(m, { added: 7 })).toThrow(/options.*existing Material/);
+  expect(() => material(m, { weight: [3, 4] })).toThrow(/options.*existing Material/);
+  expect(() => material(m, { edges: [] })).toThrow(/options.*existing Material/);
+  expect([...m.attrs.weight]).toEqual([2, 2]);
+  expect(m.edgeCount).toBe(1);
+});

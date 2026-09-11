@@ -1391,13 +1391,20 @@ export type PointsLike = readonly (XY | PointRecord)[] | Iterable<XY | PointReco
 /**
  * Material from positions. Unconnected unless `edges` are given; extra
  * numeric fields on object points (`w` from `t.scatter`) become columns;
- * named options become constant columns. Use `connect.*` for topology.
+ * named options become constant columns. An existing Material is returned
+ * unchanged only without options; use its edit methods to change it.
+ * Use `connect.*` for topology.
  */
 export function material(
   points: PointsLike,
   opts: { edges?: readonly (readonly [number, number])[] } & Record<string, number | ArrayLike<number> | readonly (readonly [number, number])[] | undefined> = {},
 ): Material {
-  if (points instanceof Material) return points;
+  if (points instanceof Material) {
+    if (Object.keys(opts).length > 0) {
+      throw new Error('material: options on an existing Material are not supported; use attributes() or withEdges()');
+    }
+    return points;
+  }
   // A point collection (m.points, a selection) is a fine source of points.
   const list: readonly XY[] = Array.isArray(points) ? (points as readonly XY[]) : Array.from(points as Iterable<XY>);
   const n = list.length;
