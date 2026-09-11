@@ -981,3 +981,93 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   ];
 });
 ```
+
+## Thickness
+
+**`thicken(source, opts)`** gives points and connections thickness and hands back an ordinary boundary **Material**. Each participating vertex carries a radius; each participating edge sweeps the disc at one end into the disc at the other with the radius interpolated linearly along it. Because centre and radius both interpolate linearly, that swept area is exactly the convex hull of the two discs — two common tangent segments and the two exposed arcs — so the combined coverage has an analytic boundary of straight intervals and circular arcs, with no circle sampling and no raster step. Holes and point contacts fall out of the geometry, not out of a tolerance.
+
+It is a module import, pure like `distanceTo`: no sketch frame, seed, pen or paper is read, and the result is a new Material (iteration 0, no history) that `polygon`, `strokes`, `along`, `distanceTo`, `t.within` and the material inspection paths already accept.
+
+```ts live
+import { sketch, material, thicken, polygon, strokes, distanceTo, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const tree = material(
+    [[50, 86], [50, 62], [33, 44], [68, 43], [22, 23], [42, 20], [80, 21]],
+    {
+      edges: [[0, 1], [1, 2], [1, 3], [2, 4], [2, 5], [3, 6]],
+      radius: [5, 3.8, 2.2, 2.3, 0.3, 0.4, 0.3],
+      age: [6, 5, 3, 3, 0, 0, 0],
+    },
+  );
+
+  const body = thicken(tree, {
+    radius: (p) => p.radius,
+    tolerance: 0.05, // material units; mm() remains appropriate for ink spacing
+  });
+  const d = distanceTo(body);
+
+  return [
+    strokes(t.isolines(d, [-2, -4])),
+    polygon(body, { fill: fill('hatch', { angle: 30, spacing: mm(0.8) }) }),
+  ];
+});
+```
+
+The operation knows nothing about roots, branches, age or pressure. `radius` is a number, or a callback read off the source's own vertex views — its real attributes (`p.radius`), never a wrapper. It runs exactly once per participating vertex, in source row order, and its results are cached; along an edge the two cached radii interpolate linearly whatever the column's transfer policy says. `radius` and `tolerance` are resolved material-coordinate numbers: an unresolved length such as `mm(1)` is refused rather than read against global paper.
+
+What participates:
+
+| `source` | vertices | edges |
+|---|---|---|
+| a Material | every vertex, isolated ones as bare discs | every edge |
+| a point selection | every selected vertex, including selected vertices with no selected neighbour | existing edges whose **both** endpoints are selected |
+| an edge selection | the endpoints of the selected edges only | the selected edges only |
+
+That middle row matters: `tree.points.extract()` drops connectivity, so thickening it makes a union of discs, while thickening `tree.points` keeps the induced connections. Same tree, same radii, one word apart:
+
+```ts live
+import { sketch, material, thicken, polygon, fill, mm, group } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const chain = material([[30, 28], [100, 28], [170, 28]], { edges: [[0, 1], [1, 2]], radius: 12 });
+  const hatch = fill('hatch', { angle: 45, spacing: mm(0.9) });
+  return [
+    polygon(thicken(chain, { radius: (p) => p.radius }), { fill: hatch }),
+    group({ translate: [0, 46] }, polygon(thicken(chain.points.extract(), { radius: (p) => p.radius }), { fill: hatch })),
+  ];
+});
+```
+
+Without `point` the result carries **no columns** — this is a generative conversion, not a topology-preserving edit, so nothing is inherited and no source vertex keeps its identity. With `point`, the callback runs once for each final boundary vertex, after ordering and tessellation, and returns that row's complete record:
+
+```ts live
+import { sketch, material, thicken, polygon, strokes, circle, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 11 }, (t) => {
+  const tree = material(
+    [[50, 90], [50, 64], [32, 46], [70, 45], [20, 24], [44, 20], [82, 22]],
+    {
+      edges: [[0, 1], [1, 2], [1, 3], [2, 4], [2, 5], [3, 6]],
+      radius: [5, 3.8, 2.2, 2.3, 0.3, 0.4, 0.3],
+      age: [6, 5, 3, 3, 0, 0, 0],
+    },
+  );
+
+  const body = thicken(tree, {
+    radius: (p) => p.radius,
+    point: ({ candidates }) => ({ age: Math.max(...candidates.map((c) => c.attrs.age)) }),
+  });
+
+  return [
+    polygon(body, { fill: fill('hatch', { angle: 30, spacing: mm(0.9) }), stroke: false }),
+    strokes(body, { pen: 'pigma-05-black' }),
+    body.points.filter((p) => p.age <= 2 && body.degree(p) > 0)
+      .map((p) => circle(p.x, p.y, 0.6, { pen: 'stabilo-88-blue' })),
+  ];
+});
+```
+
+`event.position` is the generated boundary vertex; `event.candidates` names what produced it in the **original** source (or the selection's `.source`): a surviving arc gives a vertex row, a surviving tangent gives the edge row and the stored `a → b` parameter recovered from the tangent primitive, normalized to a vertex at `t = 0` or `1`. Candidate attributes interpolate by each source column's declared policy, independently of the linear computed radius.
+
+One distinction worth keeping straight: thickening an already thickened **boundary** is a new band around those boundary edges, not a dilation of the previously filled interior — the boundary has no memory of the fill. Radii are the source's own units; `tolerance` (default `0.05`) only bounds the arc tessellation, so a tolerance larger than a radius never deletes the disc. Invalid sources, options, radii and callback records name the offending row or key with a `thicken:` error, and same values give the same arrays and callback order on a given build.

@@ -63,6 +63,8 @@ export { query } from './query.js';
 export { inheritEdge, sumForces } from './material.js';
 export type { EdgeTransfer, EdgeRef, PointWhere, EdgeWhere } from './material.js';
 export { stationsMaterial, isStations } from './material.js';
+export { thicken } from './thicken.js';
+export type { ThickenOpts } from './thicken.js';
 export { PointSelection, EdgeSelection, components, meanBy } from './relation.js';
 export type { Components } from './relation.js';
 export { planarize, faces, Faces, FaceSelection } from './faces.js';
