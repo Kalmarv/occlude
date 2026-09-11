@@ -6,21 +6,31 @@
  * sweeps the disc at one end into the disc at the other with the radius
  * interpolated linearly along it. Because centre and radius both interpolate
  * linearly, that swept area is exactly the convex hull of the two endpoint
- * discs. The endpoint discs are approximated by polygons before their
- * convex hulls are unioned on an integer grid. The tolerance includes curve
- * approximation and quantization; sufficiently small gaps may close.
- * The operation remains synchronous and independent of the renderer.
+ * discs — two common tangent segments and the two exposed arcs — so the union
+ * of every contribution has an analytic boundary of straight intervals and
+ * circular arcs, and no circle sampling is needed to decide connectivity.
+ * Those boundaries are split at their real events, intervals another
+ * contribution covers are dropped, coincident exposed boundaries are merged,
+ * and the survivors are stitched into closed walks with the coverage on the
+ * left: outer contours positive, holes negative.
+ *
+ * Pure and deterministic, like `distanceTo`: a module import with no sketch
+ * frame, seed, pen, paper or renderer. The result is a fresh Material of
+ * closed chains — ready for `polygon`, `strokes`, `along`, `distanceTo`,
+ * `t.within` and the material inspection paths. `tolerance` only bounds the
+ * deviation of the tessellated arcs; it is not a weld distance, a nib
+ * threshold or a simplification strength.
  */
 
-import { Material, material as makeMaterial, type Vertex } from './material.js';
-import { EdgeSelection, PointSelection } from './relation.js';
-import type { EventCandidate, PlanarEvent } from './faces.js';
+import { Material, material as makeMaterial, type Vertex } from '../../../src/material.js';
+import { EdgeSelection, PointSelection } from '../../../src/relation.js';
+import type { EventCandidate, PlanarEvent } from '../../../src/faces.js';
 import {
-  polygonUnion,
+  analyticalUnion,
   type Envelope as Shape,
   type BoundaryVertex as OutVert,
   type Candidate as Cand,
-} from './thicken-polygon.js';
+} from './thicken-arrangement.js';
 
 /** How `thicken` resolves a source into thickness. */
 export interface ThickenOpts {
@@ -29,8 +39,8 @@ export interface ThickenOpts {
    * (its real attributes — `p.radius`, not `p.attrs.radius`). */
   radius: number | ((p: Vertex) => number);
 
-  /** Positive approximation budget in source units. Default 0.05. Includes
-   * curve approximation and grid rounding; sub-resolution features may change. */
+  /** Positive boundary-approximation error for the curved parts, in the same
+   * units. Default 0.05. Larger means coarser arcs, never a smaller shape. */
   tolerance?: number;
 
   /** Optional creation of output point attributes: called once per final
@@ -279,11 +289,11 @@ export function thicken(
   }
   if (shapes.length === 0) return makeMaterial([]);
 
-  const loops = polygonUnion(shapes, tol, !!opts.point).map(canonicalize);
+  const loops = analyticalUnion(shapes, tol, !!opts.point).map(canonicalize);
   for (const loop of loops) {
     if (loop.length < 3 || loopArea(loop) === 0)
       throw new Error(
-        'thicken: polygon boundary cannot be represented by these binary64 coordinates',
+        'thicken: exact boundary cannot be represented by this binary64 polygon',
       );
   }
 

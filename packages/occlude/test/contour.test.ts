@@ -190,3 +190,16 @@ it('keeps an intact duplicate outline after decimating a contour-filled shape', 
     expect(perimeter).toBeCloseTo(480,7);
   }
 });
+
+
+it('fills the recursive variable-width boundary without attempting to fill its holes', async () => {
+  const { setPenLibrary, DEFAULT_PENS } = await import('../src/index.js');
+  const { default: fixture } = await import('../bench/fixtures/thicken-contour-residual.js');
+  setPenLibrary(DEFAULT_PENS.map(p => ({ ...p, width: 0.38 })));
+  try {
+    const result = render(fixture, { paper: { paper: { w: 304.8, h: 304.8 } } });
+    expect(result.frags.length).toBeGreaterThan(0);
+    expect(result.stats.contour!.validationSplits).toBe(0);
+    expect((await plan(result)).chains.length).toBeGreaterThan(0);
+  } finally { setPenLibrary(structuredClone(DEFAULT_PENS)); }
+}, 20000);

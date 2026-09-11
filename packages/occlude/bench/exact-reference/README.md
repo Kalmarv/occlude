@@ -1,6 +1,7 @@
 # Exact reference for thicken
 
-The production implementation is TypeScript. This independently written C++
+The archived algebraic implementation in `core/` is a comparison reference only.
+Production now uses bounded polygon union in TypeScript. This independently written C++
 adapter uses CGAL 6.2.1 conic arrangements and CORE algebraic numbers only as a
 development reference. No CGAL code, binaries, or initialization enter occlude.
 
@@ -37,7 +38,7 @@ invalid arrangement with duplicate vertices; batch insertion raises a
 precondition failure. This was reproduced with 5.6 and 6.2.1 and with CORE's
 floating filter disabled. The adapter/backend cause is unresolved. The verifier
 prints this failure separately and does not put its output in the goldens.
-The production regression for this case checks the analytically known exposed
+The archived exact regression for this case checks the analytically known exposed
 cap and uses an independent integer quadratic-membership oracle.
 
 ## Reported artwork

@@ -1,0 +1,82 @@
+[
+  {
+    "name": "capsule",
+    "label": "before",
+    "inputEdges": 1,
+    "vertices": 37,
+    "loops": 1,
+    "medianMs": 5.661117999999988,
+    "maxMs": 7.0564299999999776,
+    "processPeakRssKiB": 150656
+  },
+  {
+    "name": "capsule",
+    "label": "after",
+    "inputEdges": 1,
+    "vertices": 28,
+    "loops": 1,
+    "medianMs": 0.5073070000000257,
+    "maxMs": 0.5976079999999797,
+    "processPeakRssKiB": 151168
+  },
+  {
+    "name": "A / 100 mm / depth 1 / 1..5",
+    "label": "before",
+    "inputEdges": 100,
+    "vertices": 752,
+    "loops": 30,
+    "medianMs": 218.25761099999988,
+    "maxMs": 220.42625899999996,
+    "processPeakRssKiB": 339740
+  },
+  {
+    "name": "A / 100 mm / depth 1 / 1..5",
+    "label": "after",
+    "inputEdges": 100,
+    "vertices": 610,
+    "loops": 30,
+    "medianMs": 11.109707999999955,
+    "maxMs": 24.113410999999815,
+    "processPeakRssKiB": 340820
+  },
+  {
+    "name": "A / 304.8 mm / depth 1 / 1..5",
+    "label": "before",
+    "inputEdges": 100,
+    "vertices": 768,
+    "loops": 34,
+    "medianMs": 206.58611700000006,
+    "maxMs": 246.20639200000005,
+    "processPeakRssKiB": 440772
+  },
+  {
+    "name": "A / 304.8 mm / depth 1 / 1..5",
+    "label": "after",
+    "inputEdges": 100,
+    "vertices": 610,
+    "loops": 30,
+    "medianMs": 9.276256000000103,
+    "maxMs": 21.27603799999997,
+    "processPeakRssKiB": 440772
+  },
+  {
+    "name": "B / 304.8 mm / depth 3 / 0.1..1",
+    "label": "before",
+    "inputEdges": 2500,
+    "vertices": 9488,
+    "loops": 1054,
+    "medianMs": 8276.659295999998,
+    "maxMs": 8777.594436000003,
+    "processPeakRssKiB": 1330604
+  },
+  {
+    "name": "B / 304.8 mm / depth 3 / 0.1..1",
+    "label": "after",
+    "inputEdges": 2500,
+    "vertices": 9092,
+    "loops": 1056,
+    "medianMs": 257.9234079999951,
+    "maxMs": 258.465495000004,
+    "processPeakRssKiB": 1330604
+  }
+]

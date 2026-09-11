@@ -8,7 +8,7 @@ import {
 import {
   analyticalUnion,
   type Envelope,
-} from '../../src/thicken-arrangement.js';
+} from './core/thicken-arrangement.js';
 let source: Material | undefined;
 const paper = Number(process.argv[2] ?? 100),
   depth = Number(process.argv[3] ?? 1),

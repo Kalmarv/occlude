@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { Algebraic, nextUp } from '../src/algebraic.js';
+import { Algebraic, nextUp } from '../bench/exact-reference/core/algebraic.js';
 
 it('certifies dependent and nested radicals, including a reducible extension inverse', () => {
   const k = new Algebraic(),

@@ -3,7 +3,7 @@
  * enclosures are conservative search filters, never junction identity. */
 import { Algebraic, Real, nextDown, nextUp } from './algebraic.js';
 import { orient2d } from 'robust-predicates';
-import { dyFrom, dyAdd, dySub, dyMul, dySign } from './dyadic.js';
+import { dyFrom, dyAdd, dySub, dyMul, dySign } from '../../../src/dyadic.js';
 
 export interface Envelope {
   ax: number;

@@ -1,5 +1,6 @@
+import { thicken } from '../bench/exact-reference/core/thicken.js';
 import { expect, it } from 'vitest';
-import { analyticalUnion, type Envelope } from '../src/thicken-arrangement.js';
+import { analyticalUnion, type Envelope } from '../bench/exact-reference/core/thicken-arrangement.js';
 import fixtures from '../bench/exact-reference/fixtures.json';
 
 for (const fixture of fixtures)
@@ -33,7 +34,6 @@ for (const fixture of fixtures)
 import {
   append,
   material,
-  thicken,
   distanceTo,
   type Material,
 } from '../src/index.js';

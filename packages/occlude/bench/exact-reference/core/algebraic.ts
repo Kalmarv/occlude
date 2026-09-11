@@ -7,7 +7,7 @@
  * No precision limit is ever interpreted as equality. Doubles are filters and
  * export coordinates only; input doubles enter as their exact dyadic values.
  */
-import { dyFrom } from './dyadic.js';
+import { dyFrom } from '../../../src/dyadic.js';
 
 type Q = { n: bigint; d: bigint; level: 0 };
 type F = Q | { level: number; a: F; b: F; r: F };

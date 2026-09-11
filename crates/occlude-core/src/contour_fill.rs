@@ -413,11 +413,19 @@ fn hatch(
 
 fn append_patches(
     polys: Polygons,
+    permitted: &Polygons,
     width: f64,
     eps: f64,
     certify: &dyn Fn(&Primitive) -> bool,
     result: &mut Generated,
 ) -> Result<(), String> {
+    // Offsetting can lose a hole when fronts collapse. Residuals are only
+    // meaningful inside the original visible component, never inside its holes.
+    let polys = if polys.is_empty() {
+        polys
+    } else {
+        boolean(&polys, permitted, OverlayRule::Intersect)
+    };
     for polygon in polys {
         let ink = cleanup::complete(
             polygon,
@@ -453,6 +461,7 @@ pub fn generate(
     result.diagnostics.components = components.len();
     for source in components {
         let region = shape_region(&source);
+        let permitted = shape_polygons(&source, eps);
         let begin = result.runs.len();
         let source_size: usize = source
             .ccw_plines
@@ -549,7 +558,7 @@ pub fn generate(
                                 OverlayRule::Difference,
                             )
                         };
-                        append_patches(residual, width, eps, certify, &mut result)?;
+                        append_patches(residual, &permitted, width, eps, certify, &mut result)?;
                     }
                 } else if !loops.is_empty() && !region.convex {
                     let residual = boolean(
@@ -557,7 +566,7 @@ pub fn generate(
                         &shape_polygons(&next.parallel_offset(-radius - eps, &opts), eps),
                         OverlayRule::Difference,
                     );
-                    append_patches(residual, width, eps, certify, &mut result)?;
+                    append_patches(residual, &permitted, width, eps, certify, &mut result)?;
                 }
             }
             if level == 0 && loops.is_empty() {
@@ -566,6 +575,7 @@ pub fn generate(
                 if spacing <= width {
                     append_patches(
                         shape_polygons(&source, eps),
+                        &permitted,
                         width,
                         eps,
                         certify,
@@ -874,6 +884,19 @@ mod tests {
             std::f64::consts::TAU,
         ))]
     }
+    #[test]
+    fn offset_residuals_cannot_turn_a_visible_hole_into_cleanup_ink() {
+        let outer = vec![[0., 0.], [20., 0.], [20., 20.], [0., 20.]];
+        let hole = vec![[5., 5.], [5., 15.], [15., 15.], [15., 5.]];
+        let permitted = vec![vec![outer, hole.clone()]];
+        let mut result = Generated::default();
+        // Simulate an offset-collapse artifact occupying the forbidden hole.
+        // Its cleanup must be empty even if every proposed primitive is accepted.
+        append_patches(vec![vec![hole]], &permitted, 0.38, 0.01, &|_| true, &mut result).unwrap();
+        assert!(result.runs.is_empty());
+        assert_eq!(result.diagnostics.residual_patches, 0);
+    }
+
     #[test]
     fn disc_joins_regular_loops_and_covers_center() {
         let region = Region::new(vec![circle(30.0)], WindingRule::NonZero, true);
