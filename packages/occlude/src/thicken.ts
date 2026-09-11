@@ -26,6 +26,7 @@ import { orient2d } from 'robust-predicates';
 import { Material, material as makeMaterial, unit, type Vertex } from './material.js';
 import { EdgeSelection, PointSelection } from './relation.js';
 import type { EventCandidate, PlanarEvent } from './faces.js';
+import { dyAdd, dyFrom, dyMul, dySign, dySub, dyToNumber } from './dyadic.js';
 
 /** How `thicken` resolves a source into thickness. */
 export interface ThickenOpts {
@@ -55,15 +56,12 @@ type Gen =
   | { vertex: number }
   | { edge: number; a: number; b: number; t0: number; t1: number };
 
-/** One construction point. Shared between every primitive that meets it, so
+/** One construction point. Shared between every primitive that names it, so
  * an intersection's coordinates are computed once and never welded. */
 interface Pt {
   id: number;
   x: number;
   y: number;
-  /** The local tolerance this point was created with; a later point merges
-   * into it when either side's tolerance admits the distance. */
-  tol: number;
 }
 
 interface Split {
@@ -102,12 +100,35 @@ interface PrimBase {
   maxY: number;
 }
 
+/** One supporting disc a tangent segment touches: its canonical centre and
+ * radius, the already-constructed tangent point, and the outward normal the
+ * tangent was built from. Kept so a known tangency is never re-solved as an
+ * intersection of rounded world coordinates. */
+interface DiscSupport {
+  cx: number;
+  cy: number;
+  r: number;
+  nx: number;
+  ny: number;
+  pt: Pt;
+}
+
+/** Where the other convex hull's coverage begins/ends along this segment:
+ * the split parameter and whether the other shape covers the side AFTER it. */
+interface Crossing {
+  shape: number;
+  p: number;
+  after: boolean;
+}
+
 interface SegPrim extends PrimBase {
   kind: 'seg';
   x0: number;
   y0: number;
   x1: number;
   y1: number;
+  supports: DiscSupport[];
+  crossings: Crossing[];
 }
 
 interface ArcPrim extends PrimBase {
@@ -143,51 +164,34 @@ interface OutVert {
 }
 
 const TAU = Math.PI * 2;
-const EPS_PARAM = 1e-12;
-const EPS_ANGLE = 1e-12;
+// No fixed parameter/angle cutoffs: a real interval below any fixed epsilon
+// is still an interval. Events are deduplicated by IDENTITY, not length.
+const EPS_PARAM = 0;
+const EPS_ANGLE = 0;
 const MAX_ARC_SEGMENTS = 1_000_000;
 
 // ---- shared construction points --------------------------------------------------
 
-/** Shared construction points. Two primitives that meet must name one
- * point. An event is created once and handed to both; a re-derived point is
- * reused only within a tolerance proportional to the LOCAL feature (a disc's
- * radius, a segment's length), never to the absolute coordinates — so moving
- * a small drawing far from the origin cannot weld its outline together. */
+/** Shared construction points, keyed by exact coordinates. Geometry that is
+ * the same construction shares one Pt object; everything else is a distinct
+ * point, so proximity never establishes identity. */
 class Events {
   private readonly grid = new Map<string, Pt[]>();
   private count = 0;
 
-  at(x: number, y: number, tol = 0): Pt {
-    const thisTol = Math.max(0, tol);
-    const ix = Math.floor(x);
-    const iy = Math.floor(y);
-    const rad = thisTol > 1 ? Math.ceil(thisTol) : 1;
-    for (let di = -rad; di <= rad; di++) {
-      for (let dj = -rad; dj <= rad; dj++) {
-        const cell = this.grid.get(`${ix + di},${iy + dj}`);
-        if (!cell) continue;
-        for (const p of cell) {
-          const merge = Math.max(thisTol, p.tol);
-          if (Math.abs(p.x - x) <= merge && Math.abs(p.y - y) <= merge) return p;
-        }
-      }
-    }
-    const e: Pt = { id: this.count++, x: x === 0 ? 0 : x, y: y === 0 ? 0 : y, tol: thisTol };
-    const key = `${ix},${iy}`;
+  at(x: number, y: number): Pt {
+    const nx = x === 0 ? 0 : x;
+    const ny = y === 0 ? 0 : y;
+    const key = `${Math.floor(nx)},${Math.floor(ny)}`;
     const cell = this.grid.get(key);
+    if (cell) {
+      for (const p of cell) if (p.x === nx && p.y === ny) return p;
+    }
+    const e: Pt = { id: this.count++, x: nx, y: ny };
     if (cell) cell.push(e);
     else this.grid.set(key, [e]);
     return e;
   }
-}
-
-/** Representation error only: the few-ulp spacing of doubles at this
- * coordinate magnitude. Event identity never depends on this — construction
- * points are shared explicitly — it is the floor below which two computed
- * coordinates are the same double-precision number. */
-function ulpTol(x: number, y: number): number {
-  return 16 * Number.EPSILON * Math.max(Math.abs(x), Math.abs(y), 1);
 }
 
 // ---- numeric helpers -------------------------------------------------------------
@@ -251,7 +255,33 @@ function shapeContains(s: Shape, x: number, y: number): boolean {
   // membership is within that uncertainty is kept, so a real sliver is never
   // dropped by a sign that rounding happened to flip.
   const bound = 64 * Number.EPSILON * (Math.abs(A) + Math.abs(B) + Math.abs(C) + 1);
-  return best < -bound;
+  if (best < -bound) return true;
+  if (best > bound) return false;
+  return exactInside(s, x, y);
+}
+
+/** Exact membership of the query point in one edge-like shape, over the
+ * doubles' own dyadic values. Reached only when the floating evaluation is
+ * inconclusive; the sign of the interior minimum is decided without division. */
+function exactInside(s: Shape, x: number, y: number): boolean {
+  const qx = dySub(dyFrom(x), dyFrom(s.ax));
+  const qy = dySub(dyFrom(y), dyFrom(s.ay));
+  const ex = dySub(dyFrom(x), dyFrom(s.bx));
+  const ey = dySub(dyFrom(y), dyFrom(s.by));
+  const ra = dyFrom(s.ra);
+  const rb = dyFrom(s.rb);
+  const C = dySub(dyAdd(dyMul(qx, qx), dyMul(qy, qy)), dyMul(ra, ra));
+  const E = dySub(dyAdd(dyMul(ex, ex), dyMul(ey, ey)), dyMul(rb, rb));
+  if (dySign(C) < 0 || dySign(E) < 0) return true;
+  const dx = dySub(dyFrom(s.bx), dyFrom(s.ax));
+  const dyy = dySub(dyFrom(s.by), dyFrom(s.ay));
+  const dr = dySub(rb, ra);
+  const A = dySub(dyAdd(dyMul(dx, dx), dyMul(dyy, dyy)), dyMul(dr, dr));
+  const B = dyMul(dyFrom(-2), dyAdd(dyAdd(dyMul(qx, dx), dyMul(qy, dyy)), dyMul(ra, dr)));
+  if (dySign(A) > 0 && dySign(B) < 0 && dySign(dyAdd(B, dyMul(dyFrom(2), A))) > 0) {
+    return dySign(dySub(dyMul(dyFrom(4), dyMul(A, C)), dyMul(B, B))) < 0;
+  }
+  return false;
 }
 
 /** A uniform grid of shape bounding boxes, so a midpoint tests only nearby
@@ -300,9 +330,10 @@ interface DiscTangent {
   pt: Pt;
 }
 
-const NORMAL_TOL = 64 * Number.EPSILON;
-
-function segPrim(x0: number, y0: number, x1: number, y1: number, gen: Gen, shape: number, start: Pt, end: Pt): SegPrim {
+function segPrim(
+  x0: number, y0: number, x1: number, y1: number, gen: Gen, shape: number,
+  start: Pt, end: Pt, supports: DiscSupport[],
+): SegPrim {
   return {
     kind: 'seg',
     x0, y0, x1, y1,
@@ -310,6 +341,8 @@ function segPrim(x0: number, y0: number, x1: number, y1: number, gen: Gen, shape
     splits: [{ p: 0, pt: start }, { p: 1, pt: end }],
     shapes: [shape],
     gens: [gen],
+    supports,
+    crossings: [],
     minX: Math.min(x0, x1),
     minY: Math.min(y0, y1),
     maxX: Math.max(x0, x1),
@@ -340,8 +373,8 @@ function arcPrim(
 /** Every analytic boundary element of every shape: the two-disc hull's
  * tangent segments and exposed arcs, or the single larger/full disc. The
  * four tangencies are built once per shape and handed to both the segment
- * and the arc that meet there; a tangency is shared across incident hulls
- * when their normals on the same disc agree. */
+ * and the arc that meet there; a tangency is shared across coincident
+ * construction (exactly equal disc and outward normal). */
 function buildPrims(shapes: readonly Shape[], events: Events): Prim[] {
   const prims: Prim[] = [];
   const byDisc = new Map<number, DiscTangent[]>();
@@ -350,17 +383,17 @@ function buildPrims(shapes: readonly Shape[], events: Events): Prim[] {
       const list = byDisc.get(row);
       if (list) {
         for (const e of list) {
-          if (e.r === r && Math.abs(e.nx - nx) <= NORMAL_TOL && Math.abs(e.ny - ny) <= NORMAL_TOL) return e.pt;
+          if (e.r === r && e.nx === nx && e.ny === ny) return e.pt;
         }
       }
-      const pt = events.at(x, y, ulpTol(x, y));
+      const pt = events.at(x, y);
       const entry: DiscTangent = { r, nx, ny, pt };
       if (list) list.push(entry);
       else byDisc.set(row, [entry]);
       return pt;
     }
     // A zero radius has one point whatever the direction.
-    return events.at(x, y, ulpTol(x, y));
+    return events.at(x, y);
   };
 
   for (let si = 0; si < shapes.length; si++) {
@@ -385,7 +418,7 @@ function buildPrims(shapes: readonly Shape[], events: Events): Prim[] {
         gens = s.va === s.vb ? [{ vertex: s.va }] : [{ vertex: s.va }, { vertex: s.vb }];
       }
       const disc = Math.max(s.ra, s.rb);
-      const start = events.at(cx + disc, cy, ulpTol(cx + disc, cy));
+      const start = events.at(cx + disc, cy);
       prims.push(arcPrim(cx, cy, disc, 0, TAU, true, gens, si, start, start));
       continue;
     }
@@ -406,10 +439,18 @@ function buildPrims(shapes: readonly Shape[], events: Events): Prim[] {
     const Bp = discPt(s.vb, s.rb, npx, npy, s.bx + s.rb * npx, s.by + s.rb * npy);
     const Bm = discPt(s.vb, s.rb, nmx, nmy, s.bx + s.rb * nmx, s.by + s.rb * nmy);
 
-    // Tangent segments, interior of the hull on the left of travel.
+    // Tangent segments, interior of the hull on the left of travel, each
+    // carrying the supporting discs they touch.
+    const plus: DiscSupport[] = [];
+    if (s.rb > 0) plus.push({ cx: s.bx, cy: s.by, r: s.rb, nx: npx, ny: npy, pt: Bp });
+    if (s.ra > 0) plus.push({ cx: s.ax, cy: s.ay, r: s.ra, nx: npx, ny: npy, pt: Ap });
+    const minus: DiscSupport[] = [];
+    if (s.ra > 0) minus.push({ cx: s.ax, cy: s.ay, r: s.ra, nx: nmx, ny: nmy, pt: Am });
+    if (s.rb > 0) minus.push({ cx: s.bx, cy: s.by, r: s.rb, nx: nmx, ny: nmy, pt: Bm });
+
     const edgeGen = (t0: number, t1: number): Gen => ({ edge: s.edge, a: s.va, b: s.vb, t0, t1 });
-    prims.push(segPrim(Bp.x, Bp.y, Ap.x, Ap.y, edgeGen(1, 0), si, Bp, Ap));
-    prims.push(segPrim(Am.x, Am.y, Bm.x, Bm.y, edgeGen(0, 1), si, Am, Bm));
+    prims.push(segPrim(Bp.x, Bp.y, Ap.x, Ap.y, edgeGen(1, 0), si, Bp, Ap, plus));
+    prims.push(segPrim(Am.x, Am.y, Bm.x, Bm.y, edgeGen(0, 1), si, Am, Bm, minus));
 
     const angP = Math.atan2(npy, npx);
     const angM = Math.atan2(nmy, nmx);
@@ -422,7 +463,24 @@ function buildPrims(shapes: readonly Shape[], events: Events): Prim[] {
       if (span > EPS_ANGLE) prims.push(arcPrim(s.bx, s.by, s.rb, angM, angM + span, false, [{ vertex: s.vb }], si, Bm, Bp));
     }
   }
-  return prims;
+
+  // Coincident primitives (duplicate or reversed source edges, coincident
+  // discs) are ONE geometric boundary: intersect each unique pair once and
+  // merge their shape and generator provenance.
+  const unique = new Map<string, Prim>();
+  for (const p of prims) {
+    const key = p.kind === 'seg'
+      ? `s:${p.start.id}:${p.end.id}`
+      : `a:${p.cx},${p.cy},${p.r},${p.full},${p.a0},${p.a1}:${p.start.id}:${p.end.id}`;
+    const prev = unique.get(key);
+    if (!prev) {
+      unique.set(key, p);
+      continue;
+    }
+    for (const si of p.shapes) if (!prev.shapes.includes(si)) prev.shapes.push(si);
+    for (const g of p.gens) if (!prev.gens.some((x) => genKey(x) === genKey(g))) prev.gens.push(g);
+  }
+  return [...unique.values()];
 }
 
 // ---- pairwise events -------------------------------------------------------------
@@ -431,16 +489,51 @@ function addSplit(prim: Prim, p: number, pt: Pt): void {
   prim.splits.push({ p, pt });
 }
 
-/** The endpoint a computed intersection coincides with, within the few-ulp
- * representation error at that coordinate. Identity is otherwise established
- * by construction sharing, never by proximity. */
+/** The endpoint a computed intersection IS, by exact coordinate identity.
+ * Identity is otherwise established by construction sharing, never proximity. */
 function snapTo(pts: readonly Pt[], x: number, y: number): Pt | null {
-  const tol = ulpTol(x, y);
-  for (const p of pts) if (Math.abs(p.x - x) <= tol && Math.abs(p.y - y) <= tol) return p;
+  for (const p of pts) if (p.x === x && p.y === y) return p;
   return null;
 }
 
+/** The join of two tangent lines that share a supporting disc, in local
+ * normal coordinates (half-angle form, so nearly parallel and nearly
+ * opposite normals are both evaluated without catastrophic cancellation).
+ * Returns the signed offset `s` along J(n1), or null when the tangents are
+ * parallel (coincident or distinct lines) so the caller handles those cases. */
+function sharedTangentOffset(sa: DiscSupport, sb: DiscSupport): number | null {
+  const cross = sa.nx * sb.ny - sa.ny * sb.nx;
+  const dot = sa.nx * sb.nx + sa.ny * sb.ny;
+  if (cross === 0) return null;
+  return dot >= 0 ? (sa.r * cross) / (1 + dot) : (sa.r * (1 - dot)) / cross;
+}
+
 function segSeg(a: SegPrim, b: SegPrim, events: Events): void {
+  // Two tangents whose lines share a supporting disc meet at the analytic
+  // join of those tangents — computed in local normal coordinates, not
+  // rediscovered through the rounded segment endpoints.
+  const lenA = Math.hypot(a.x1 - a.x0, a.y1 - a.y0);
+  const lenB = Math.hypot(b.x1 - b.x0, b.y1 - b.y0);
+  for (const sa of a.supports) {
+    for (const sb of b.supports) {
+      if (sa.r <= 0 || sa.cx !== sb.cx || sa.cy !== sb.cy || sa.r !== sb.r) continue;
+      const offset = sharedTangentOffset(sa, sb);
+      if (offset === null) continue;
+      const baseA = sa.pt === a.start ? 0 : 1;
+      const baseB = sb.pt === b.start ? 0 : 1;
+      const ta = baseA + offset / lenA;
+      const tb = baseB - offset / lenB;
+      if (ta < 0 || ta > 1 || tb < 0 || tb > 1) return; // the join is beyond the finite segments
+      const pt = events.at(sa.cx + (sa.r * sa.nx - offset * sa.ny), sa.cy + (sa.r * sa.ny + offset * sa.nx));
+      const cross = sa.nx * sb.ny - sa.ny * sb.nx;
+      for (const shape of b.shapes) a.crossings.push({ shape, p: ta, after: cross < 0 });
+      for (const shape of a.shapes) b.crossings.push({ shape, p: tb, after: cross > 0 });
+      if (ta > 0 && ta < 1) addSplit(a, ta, pt);
+      if (tb > 0 && tb < 1) addSplit(b, tb, pt);
+      return;
+    }
+  }
+
   const a0 = orient2d(a.x0, a.y0, a.x1, a.y1, b.x0, b.y0);
   const a1 = orient2d(a.x0, a.y0, a.x1, a.y1, b.x1, b.y1);
   const b0 = orient2d(b.x0, b.y0, b.x1, b.y1, a.x0, a.y0);
@@ -478,7 +571,7 @@ function segSeg(a: SegPrim, b: SegPrim, events: Events): void {
     const t = b0 / (b0 - b1);
     const x = a.x0 + (a.x1 - a.x0) * t;
     const y = a.y0 + (a.y1 - a.y0) * t;
-    const pt = snapTo([a.start, a.end, b.start, b.end], x, y) ?? events.at(x, y, ulpTol(x, y));
+    const pt = snapTo([a.start, a.end, b.start, b.end], x, y) ?? events.at(x, y);
     const ta = paramOnSeg(a, pt.x, pt.y);
     const tb = paramOnSeg(b, pt.x, pt.y);
     if (ta > EPS_PARAM && ta < 1 - EPS_PARAM) addSplit(a, ta, pt);
@@ -486,7 +579,9 @@ function segSeg(a: SegPrim, b: SegPrim, events: Events): void {
   }
 }
 
-function segArc(s: SegPrim, arc: ArcPrim, events: Events): void {
+/** Sign of the line/circle discriminant, exact when the float filter is
+ * inconclusive. A negative means no root; it is never promoted to zero. */
+function lineCircleDisc(s: SegPrim, arc: ArcPrim): { sign: -1 | 0 | 1; value: number } {
   const dx = s.x1 - s.x0;
   const dy = s.y1 - s.y0;
   const fx = s.x0 - arc.cx;
@@ -494,16 +589,64 @@ function segArc(s: SegPrim, arc: ArcPrim, events: Events): void {
   const A = dx * dx + dy * dy;
   const B = 2 * (fx * dx + fy * dy);
   const C = fx * fx + fy * fy - arc.r * arc.r;
-  let disc = B * B - 4 * A * C;
-  const discScale = B * B + Math.abs(4 * A * C) + 1;
-  if (disc < -1e-12 * discScale) return;
-  if (disc < 0) disc = 0;
-  const sq = Math.sqrt(disc);
-  const roots = sq <= EPS_PARAM ? [-B / (2 * A)] : [(-B - sq) / (2 * A), (-B + sq) / (2 * A)];
+  const disc = B * B - 4 * A * C;
+  const bound = 64 * Number.EPSILON * (B * B + Math.abs(4 * A * C));
+  if (disc > bound) return { sign: 1, value: disc };
+  if (disc < -bound) return { sign: -1, value: disc };
+  const eA = dyAdd(dyMul(dyFrom(dx), dyFrom(dx)), dyMul(dyFrom(dy), dyFrom(dy)));
+  const eB = dyMul(dyFrom(2), dyAdd(dyMul(dyFrom(fx), dyFrom(dx)), dyMul(dyFrom(fy), dyFrom(dy))));
+  const eC = dySub(dyAdd(dyMul(dyFrom(fx), dyFrom(fx)), dyMul(dyFrom(fy), dyFrom(fy))), dyMul(dyFrom(arc.r), dyFrom(arc.r)));
+  const eDisc = dySub(dyMul(eB, eB), dyMul(dyFrom(4), dyMul(eA, eC)));
+  const sign = dySign(eDisc);
+  return { sign, value: sign < 0 ? disc : dyToNumber(eDisc) };
+}
+
+/** Exact signs of the two circle/circle separation terms
+ * `(ra+rb)² − d²` and `d² − (ra−rb)²`. Either negative means no intersection;
+ * zero means tangency. */
+function circleSigns(a: ArcPrim, b: ArcPrim): [-1 | 0 | 1, -1 | 0 | 1] {
+  const dx = b.cx - a.cx;
+  const dy = b.cy - a.cy;
+  const d2 = dx * dx + dy * dy;
+  const rs = a.r + b.r;
+  const rd = a.r - b.r;
+  const U = rs * rs - d2;
+  const V = d2 - rd * rd;
+  const bu = 64 * Number.EPSILON * (rs * rs + d2);
+  const bv = 64 * Number.EPSILON * (d2 + rd * rd);
+  const su = U > bu ? 1 : U < -bu ? -1 : 0;
+  const sv = V > bv ? 1 : V < -bv ? -1 : 0;
+  if (su !== 0 && sv !== 0) return [su, sv];
+  const eD2 = dyAdd(dyMul(dyFrom(dx), dyFrom(dx)), dyMul(dyFrom(dy), dyFrom(dy)));
+  const eRS = dyAdd(dyFrom(a.r), dyFrom(b.r));
+  const eRD = dySub(dyFrom(a.r), dyFrom(b.r));
+  return [dySign(dySub(dyMul(eRS, eRS), eD2)), dySign(dySub(eD2, dyMul(eRD, eRD)))];
+}
+
+function segArc(s: SegPrim, arc: ArcPrim, events: Events): void {
+  // If the arc's circle is one of the segment's supporting discs, the
+  // tangent line has exactly one contact: the stored tangent point. It is
+  // already an event; never re-solve it through the quadratic.
+  const support = s.supports.find((d) => d.cx === arc.cx && d.cy === arc.cy && d.r === arc.r);
+  if (support) {
+    const ang = angleInArc(Math.atan2(support.pt.y - arc.cy, support.pt.x - arc.cx), arc.a0, arc.a1);
+    if (ang !== null && ang > arc.a0 && ang < arc.a1) addSplit(arc, ang, support.pt);
+    return;
+  }
+  const dx = s.x1 - s.x0;
+  const dy = s.y1 - s.y0;
+  const fx = s.x0 - arc.cx;
+  const fy = s.y0 - arc.cy;
+  const A = dx * dx + dy * dy;
+  const B = 2 * (fx * dx + fy * dy);
+  const disc = lineCircleDisc(s, arc);
+  if (disc.sign < 0) return;
+  const sq = Math.sqrt(disc.value);
+  const roots = sq === 0 ? [-B / (2 * A)] : [(-B - sq) / (2 * A), (-B + sq) / (2 * A)];
   for (const t of roots) {
     const x = s.x0 + dx * t;
     const y = s.y0 + dy * t;
-    const pt = snapTo([s.start, s.end, arc.start, arc.end], x, y) ?? events.at(x, y, ulpTol(x, y));
+    const pt = snapTo([s.start, s.end, arc.start, arc.end], x, y) ?? events.at(x, y);
     const tt = paramOnSeg(s, pt.x, pt.y);
     if (tt < -EPS_PARAM || tt > 1 + EPS_PARAM) continue;
     const ang = angleInArc(Math.atan2(pt.y - arc.cy, pt.x - arc.cx), arc.a0, arc.a1);
@@ -529,24 +672,27 @@ function arcArc(a: ArcPrim, b: ArcPrim, events: Events): void {
     if (a.r === b.r) sameCircle(a, b);
     return;
   }
+  const [su, sv] = circleSigns(a, b);
+  if (su < 0 || sv < 0) return;
   const dx = b.cx - a.cx;
   const dy = b.cy - a.cy;
   const d = Math.hypot(dx, dy);
-  const sep = 48 * Number.EPSILON * Math.max(a.r, b.r);
-  if (d > a.r + b.r + sep || d < Math.abs(a.r - b.r) - sep) return;
+  if (d === 0) return;
+  const d2 = dx * dx + dy * dy;
+  const rs = a.r + b.r;
+  const rd = Math.abs(a.r - b.r);
+  const h2 = su === 0 || sv === 0 ? 0 : ((rs - d) * (rs + d) * ((d - rd) * (d + rd))) / (4 * d2);
   const p = (a.r * a.r - b.r * b.r + d * d) / (2 * d);
-  let h2 = a.r * a.r - p * p;
-  if (h2 < 0) h2 = 0;
   const ux = dx / d;
   const uy = dy / d;
   const bx = a.cx + p * ux;
   const by = a.cy + p * uy;
-  const h = Math.sqrt(h2);
+  const h = Math.sqrt(Math.max(0, h2));
   const raw: [number, number][] = h <= EPS_PARAM * Math.max(1, a.r)
     ? [[bx, by]]
     : [[bx - h * uy, by + h * ux], [bx + h * uy, by - h * ux]];
   for (const [x, y] of raw) {
-    const pt = snapTo([a.start, a.end, b.start, b.end], x, y) ?? events.at(x, y, ulpTol(x, y));
+    const pt = snapTo([a.start, a.end, b.start, b.end], x, y) ?? events.at(x, y);
     const aa = angleInArc(Math.atan2(pt.y - a.cy, pt.x - a.cx), a.a0, a.a1);
     const ba = angleInArc(Math.atan2(pt.y - b.cy, pt.x - b.cx), b.a0, b.a1);
     if (aa === null || ba === null) continue;
@@ -556,6 +702,9 @@ function arcArc(a: ArcPrim, b: ArcPrim, events: Events): void {
 }
 
 function intersect(a: Prim, b: Prim, events: Events): void {
+  // Two primitives of one convex hull share constructed endpoints; their
+  // boundary pieces have no new intersection to discover.
+  if (a.shapes.some((si) => b.shapes.includes(si))) return;
   if (a.kind === 'seg' && b.kind === 'seg') segSeg(a, b, events);
   else if (a.kind === 'seg' && b.kind === 'arc') segArc(a, b, events);
   else if (a.kind === 'arc' && b.kind === 'seg') segArc(b, a, events);
@@ -639,7 +788,7 @@ function makePieces(prim: Prim, events: Events): Piece[] {
       const q = base + Math.PI;
       const ax = prim.cx + prim.r * Math.cos(q);
       const ay = prim.cy + prim.r * Math.sin(q);
-      const pt = events.at(ax, ay, ulpTol(ax, ay));
+      const pt = events.at(ax, ay);
       if (!byId.has(pt.id)) {
         byId.set(pt.id, ((q % TAU) + TAU) % TAU);
         ptOf.set(pt.id, pt);
@@ -773,11 +922,15 @@ function walkCycles(pieces: readonly Piece[]): number[][] {
 // ---- canonical output ------------------------------------------------------------
 
 function loopArea(loop: readonly OutVert[]): number {
+  // Accumulate about the first vertex: world-coordinate cross products
+  // silently cancel to zero for a tiny loop far from the origin.
+  const ox = loop[0].x;
+  const oy = loop[0].y;
   let a = 0;
   for (let k = 0; k < loop.length; k++) {
     const p = loop[k];
     const q = loop[(k + 1) % loop.length];
-    a += p.x * q.y - q.x * p.y;
+    a += (p.x - ox) * (q.y - oy) - (q.x - ox) * (p.y - oy);
   }
   return a / 2;
 }
@@ -979,7 +1132,19 @@ export function thicken(
     let covered = false;
     for (const si of lookup(mx, my)) {
       if (pc.shapes.includes(si)) continue;
-      if (shapeContains(shapes[si], mx, my)) {
+      // Where the other hull's coverage begins/ends along this segment is
+      // known in parameter space from the shared-disc join; use it instead
+      // of a world-coordinate midpoint that rounding can misplace.
+      let structural: boolean | undefined;
+      if (pc.prim.kind === 'seg') {
+        const crosses = pc.prim.crossings.filter((c) => c.shape === si).sort((x, y) => x.p - y.p);
+        if (crosses.length) {
+          let last: Crossing | undefined;
+          for (const c of crosses) if (c.p < pm) last = c;
+          structural = last ? last.after : !crosses[0].after;
+        }
+      }
+      if (structural ?? shapeContains(shapes[si], mx, my)) {
         covered = true;
         break;
       }

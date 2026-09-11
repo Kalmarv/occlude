@@ -525,3 +525,145 @@ describe('thicken: regressions', () => {
     expect(at2[0].cands).toContain('v1');
   });
 });
+
+// ---- near-degenerate junctions ----------------------------------------------------
+
+describe('thicken: near-degenerate junctions', () => {
+  const kink = (h: number, ox = 0, oy = 0, angle = 0, reverse = false) => {
+    const base: [number, number][] = [[0, 0], [10, 0], [20, h]];
+    const pts = base.map(([x, y]) => [
+      ox + x * Math.cos(angle) - y * Math.sin(angle),
+      oy + x * Math.sin(angle) + y * Math.cos(angle),
+    ] as [number, number]);
+    if (reverse) pts.reverse();
+    return material(pts, { edges: [[0, 1], [1, 2]] });
+  };
+
+  it('an almost-collinear kink closes as one contour with its outer arc', () => {
+    const body = thicken(kink(0.001), { radius: 1 });
+    const loops = loopsOf(body);
+    expect(loops).toHaveLength(1);
+    // The outer arc at the middle vertex is present, not replaced by a false
+    // second tangency event.
+    expect(loops[0].pts.some(([, y]) => y < -0.9)).toBe(true);
+    const d = distanceTo(body);
+    expect(d(5, 0)).toBeGreaterThan(0.9);
+    expect(d(15, 0.0005)).toBeGreaterThan(0.9);
+    expect(d(10, 2)).toBeLessThan(0);
+    expect(() => thicken(kink(0.001), { radius: 1 })).not.toThrow();
+  });
+
+  it('kinks survive at diminishing heights with interior and exterior witnesses', () => {
+    for (const h of [1e-3, 1e-6, 1e-8, 1e-10, 1e-12]) {
+      const body = thicken(kink(h), { radius: 1 });
+      const loops = loopsOf(body);
+      expect(loops, `height ${h}`).toHaveLength(1);
+      expect(loops[0].pts.length).toBeGreaterThanOrEqual(3);
+      const d = distanceTo(body);
+      expect(d(5, 0), `inside at height ${h}`).toBeGreaterThan(0.5);
+      expect(d(10, 2), `outside at height ${h}`).toBeLessThan(0);
+    }
+  });
+
+  it('rotated and translated kinks close for both source orders', () => {
+    let closed = 0;
+    for (const h of [1e-3, 1e-6, 1e-8]) {
+      for (const angle of [0, 0.37, Math.PI / 2]) {
+        for (const [ox, oy] of [[0, 0], [100, 100], [1e6, 1e6]] as const) {
+          for (const reverse of [false, true]) {
+            const body = thicken(kink(h, ox, oy, angle, reverse), { radius: 1 });
+            const loops = loopsOf(body);
+            expect(loops, `h=${h} a=${angle} o=(${ox},${oy}) rev=${reverse}`).toHaveLength(1);
+            expect(body.curves().every((c) => c.closed)).toBe(true);
+            closed++;
+          }
+        }
+      }
+    }
+    expect(closed).toBe(54);
+  });
+
+  it('duplicate and reversed edges with a third hull resolve under exact identity', () => {
+    const body = thicken(
+      material([[4, 7], [5, 17], [12, 6], [18, 16], [8, 6]], {
+        edges: [[0, 1], [1, 2], [2, 3], [0, 4], [1, 2]],
+        radius: [3.612, 0.185, 3.043, 0.093, 1.746],
+      }),
+      { radius: radiusOf },
+    );
+    expect(loopsOf(body).length).toBeGreaterThan(0);
+    expect(body.curves().every((c) => c.closed)).toBe(true);
+  });
+
+  it('a sub-tolerance gap stays a gap and a sub-tolerance overlap joins', () => {
+    const rotated = (sep: number) => {
+      const a = 0.37;
+      const pts = ([[0, 0], [10, 0], [5, 2 + sep]] as [number, number][]).map(([x, y]) => [
+        x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a),
+      ] as [number, number]);
+      return material(pts, { edges: [[0, 1]], radius: [1, 1, 1] });
+    };
+    expect(loopsOf(thicken(rotated(1e-12), { radius: 1, tolerance: 1e-6 }))).toHaveLength(2);
+    expect(loopsOf(thicken(rotated(0), { radius: 1, tolerance: 1e-6 }))).toHaveLength(2);
+    expect(loopsOf(thicken(rotated(-1e-9), { radius: 1, tolerance: 1e-6 }))).toHaveLength(1);
+  });
+
+  it('separated discs far from the origin do not invent a contact', () => {
+    const body = thicken(
+      material([[1e6, 0], [1e6 + 0.02 + 1e-9, 0]], { radius: [0.01, 0.01] }),
+      { radius: radiusOf },
+    );
+    const loops = loopsOf(body);
+    expect(loops).toHaveLength(2);
+    const left = Math.max(...loops[0].pts.map(([x]) => x));
+    const right = Math.min(...loops[1].pts.map(([x]) => x));
+    expect(right - left).toBeGreaterThan(5e-10);
+  });
+
+  it('a tiny closed disc far from the origin keeps its area', () => {
+    const far = thicken(material([[1e6, 1e6]], { radius: 0.001 }), { radius: radiusOf });
+    expect(loopsOf(far)).toHaveLength(1);
+    expect(distanceTo(far)(1e6, 1e6)).toBeGreaterThan(0);
+    const further = thicken(material([[1e8, 1e8]], { radius: 1 }), { radius: radiusOf });
+    expect(loopsOf(further)).toHaveLength(1);
+    expect(distanceTo(further)(1e8, 1e8)).toBeGreaterThan(0);
+  });
+
+  it('a fixed randomized corpus never crashes and keeps the oracle sign', () => {
+    let s = 12345;
+    const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+    let checked = 0;
+    for (let c = 0; c < 150; c++) {
+      const n = 1 + Math.floor(rnd() * 6);
+      const pts: [number, number][] = [];
+      for (let i = 0; i < n; i++) pts.push([Math.round(rnd() * 20), Math.round(rnd() * 20)]);
+      const edges: [number, number][] = [];
+      for (let i = 1; i < n; i++) if (rnd() < 0.7) edges.push([Math.floor(rnd() * i), i]);
+      if (edges.length && rnd() < 0.2) { const e = edges[Math.floor(rnd() * edges.length)]; edges.push(rnd() < 0.5 ? [e[0], e[1]] : [e[1], e[0]]); }
+      const radius = pts.map(() => +(rnd() * 4).toFixed(3));
+      const shapes: Envelope[] = [];
+      for (const [a, b] of edges) if (radius[a] > 0 || radius[b] > 0) shapes.push([pts[a][0], pts[a][1], pts[b][0], pts[b][1], radius[a], radius[b]]);
+      const onEdge = new Set<number>();
+      for (const [a, b] of edges) { onEdge.add(a); onEdge.add(b); }
+      for (let i = 0; i < n; i++) if (!onEdge.has(i) && radius[i] > 0) shapes.push([pts[i][0], pts[i][1], pts[i][0], pts[i][1], radius[i], radius[i]]);
+      const queries = Array.from({ length: 60 }, () => [-4 + rnd() * 30, -4 + rnd() * 30] as [number, number]);
+      let body: Material;
+      try {
+        body = thicken(material(pts, { edges, radius }), { radius: radiusOf, tolerance: 0.02 });
+      } catch (err) {
+        throw new Error(`corpus case ${c} crashed: ${(err as Error).message}`);
+      }
+      if (shapes.length > 0) expect(body.n, `corpus case ${c} unexpectedly empty`).toBeGreaterThan(0);
+      if (shapes.length === 0) continue;
+      const covers = oracle(shapes);
+      const d = distanceTo(body);
+      for (const [x, y] of queries) {
+        const value = d(x, y);
+        if (Math.abs(value) < 0.05) continue;
+        checked++;
+        expect(value > 0, `corpus case ${c} at (${x}, ${y})`).toBe(covers(x, y));
+      }
+    }
+    expect(checked).toBeGreaterThan(1000);
+  });
+});
