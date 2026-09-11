@@ -61,6 +61,9 @@ interface Pt {
   id: number;
   x: number;
   y: number;
+  /** The local tolerance this point was created with; a later point merges
+   * into it when either side's tolerance admits the distance. */
+  tol: number;
 }
 
 interface Split {
@@ -147,37 +150,44 @@ const MAX_ARC_SEGMENTS = 1_000_000;
 // ---- shared construction points --------------------------------------------------
 
 /** Shared construction points. Two primitives that meet must name one
- * point, so an already-recorded point within `tol` is reused: a near-tangency
- * and a collinear junction can compute the same geometric vertex through
- * different formulas and land a few ulps apart. */
+ * point. An event is created once and handed to both; a re-derived point is
+ * reused only within a tolerance proportional to the LOCAL feature (a disc's
+ * radius, a segment's length), never to the absolute coordinates — so moving
+ * a small drawing far from the origin cannot weld its outline together. */
 class Events {
   private readonly grid = new Map<string, Pt[]>();
-  private readonly size: number;
   private count = 0;
 
-  constructor(tol: number) {
-    this.size = Math.max(tol, 1e-300) * 2;
-  }
-
-  at(x: number, y: number): Pt {
-    const ix = Math.floor(x / this.size);
-    const iy = Math.floor(y / this.size);
-    for (let di = -1; di <= 1; di++) {
-      for (let dj = -1; dj <= 1; dj++) {
+  at(x: number, y: number, tol = 0): Pt {
+    const thisTol = Math.max(0, tol);
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    const rad = thisTol > 1 ? Math.ceil(thisTol) : 1;
+    for (let di = -rad; di <= rad; di++) {
+      for (let dj = -rad; dj <= rad; dj++) {
         const cell = this.grid.get(`${ix + di},${iy + dj}`);
         if (!cell) continue;
         for (const p of cell) {
-          if (Math.abs(p.x - x) <= this.size / 2 && Math.abs(p.y - y) <= this.size / 2) return p;
+          const merge = Math.max(thisTol, p.tol);
+          if (Math.abs(p.x - x) <= merge && Math.abs(p.y - y) <= merge) return p;
         }
       }
     }
-    const e: Pt = { id: this.count++, x: x === 0 ? 0 : x, y: y === 0 ? 0 : y };
+    const e: Pt = { id: this.count++, x: x === 0 ? 0 : x, y: y === 0 ? 0 : y, tol: thisTol };
     const key = `${ix},${iy}`;
     const cell = this.grid.get(key);
     if (cell) cell.push(e);
     else this.grid.set(key, [e]);
     return e;
   }
+}
+
+/** Representation error only: the few-ulp spacing of doubles at this
+ * coordinate magnitude. Event identity never depends on this — construction
+ * points are shared explicitly — it is the floor below which two computed
+ * coordinates are the same double-precision number. */
+function ulpTol(x: number, y: number): number {
+  return 16 * Number.EPSILON * Math.max(Math.abs(x), Math.abs(y), 1);
 }
 
 // ---- numeric helpers -------------------------------------------------------------
@@ -235,7 +245,13 @@ function shapeContains(s: Shape, x: number, y: number): boolean {
     const t = Math.min(1, Math.max(0, -B / (2 * A)));
     best = Math.min(best, f(t));
   }
-  return best <= 0;
+  // The evaluation's own error scale: F is a difference of squared lengths,
+  // so its uncertainty is ~eps times the magnitudes squared. A piece is
+  // discarded only when it is PROVABLY inside another shape; a piece whose
+  // membership is within that uncertainty is kept, so a real sliver is never
+  // dropped by a sign that rounding happened to flip.
+  const bound = 64 * Number.EPSILON * (Math.abs(A) + Math.abs(B) + Math.abs(C) + 1);
+  return best < -bound;
 }
 
 /** A uniform grid of shape bounding boxes, so a midpoint tests only nearby
@@ -272,9 +288,21 @@ function shapeLookup(shapes: readonly Shape[]): (x: number, y: number) => readon
 
 // ---- primitive construction ------------------------------------------------------
 
-function segPrim(x0: number, y0: number, x1: number, y1: number, gen: Gen, shape: number, events: Events): SegPrim {
-  const start = events.at(x0, y0);
-  const end = events.at(x1, y1);
+/** A tangency on a source disc: the disc (vertex row, radius) and the
+ * outward normal that fixes the point. Two hulls compute the SAME tangency
+ * exactly when their normals agree — the identity the geometry establishes —
+ * so the point is shared rather than re-derived, and never canonicalised per
+ * vertex (different branch directions have different tangent points). */
+interface DiscTangent {
+  r: number;
+  nx: number;
+  ny: number;
+  pt: Pt;
+}
+
+const NORMAL_TOL = 64 * Number.EPSILON;
+
+function segPrim(x0: number, y0: number, x1: number, y1: number, gen: Gen, shape: number, start: Pt, end: Pt): SegPrim {
   return {
     kind: 'seg',
     x0, y0, x1, y1,
@@ -293,9 +321,8 @@ function arcPrim(
   cx: number, cy: number, r: number, a0: number, a1: number, full: boolean,
   gens: Gen[], shape: number, start: Pt, end: Pt,
 ): ArcPrim {
-  // The endpoints keep their own coordinates; interior sampling reads the
-  // circle. `start`/`end` are the shared events the neighbouring primitive
-  // also meets, so no arc endpoint is re-derived through cos/sin.
+  // The endpoints are the shared construction points the neighbouring
+  // primitive also names; interior sampling reads the circle.
   return {
     kind: 'arc',
     cx, cy, r, a0, a1, full,
@@ -311,9 +338,31 @@ function arcPrim(
 }
 
 /** Every analytic boundary element of every shape: the two-disc hull's
- * tangent segments and exposed arcs, or the single larger/full disc. */
+ * tangent segments and exposed arcs, or the single larger/full disc. The
+ * four tangencies are built once per shape and handed to both the segment
+ * and the arc that meet there; a tangency is shared across incident hulls
+ * when their normals on the same disc agree. */
 function buildPrims(shapes: readonly Shape[], events: Events): Prim[] {
   const prims: Prim[] = [];
+  const byDisc = new Map<number, DiscTangent[]>();
+  const discPt = (row: number, r: number, nx: number, ny: number, x: number, y: number): Pt => {
+    if (r > 0) {
+      const list = byDisc.get(row);
+      if (list) {
+        for (const e of list) {
+          if (e.r === r && Math.abs(e.nx - nx) <= NORMAL_TOL && Math.abs(e.ny - ny) <= NORMAL_TOL) return e.pt;
+        }
+      }
+      const pt = events.at(x, y, ulpTol(x, y));
+      const entry: DiscTangent = { r, nx, ny, pt };
+      if (list) list.push(entry);
+      else byDisc.set(row, [entry]);
+      return pt;
+    }
+    // A zero radius has one point whatever the direction.
+    return events.at(x, y, ulpTol(x, y));
+  };
+
   for (let si = 0; si < shapes.length; si++) {
     const s = shapes[si];
     const dx = s.bx - s.ax;
@@ -336,7 +385,7 @@ function buildPrims(shapes: readonly Shape[], events: Events): Prim[] {
         gens = s.va === s.vb ? [{ vertex: s.va }] : [{ vertex: s.va }, { vertex: s.vb }];
       }
       const disc = Math.max(s.ra, s.rb);
-      const start = events.at(cx + disc, cy);
+      const start = events.at(cx + disc, cy, ulpTol(cx + disc, cy));
       prims.push(arcPrim(cx, cy, disc, 0, TAU, true, gens, si, start, start));
       continue;
     }
@@ -352,35 +401,25 @@ function buildPrims(shapes: readonly Shape[], events: Events): Prim[] {
     const nmx = -k * ux - sq * vx;
     const nmy = -k * uy - sq * vy;
 
-    const Apx = s.ax + s.ra * npx;
-    const Apy = s.ay + s.ra * npy;
-    const Bpx = s.bx + s.rb * npx;
-    const Bpy = s.by + s.rb * npy;
-    const Amx = s.ax + s.ra * nmx;
-    const Amy = s.ay + s.ra * nmy;
-    const Bmx = s.bx + s.rb * nmx;
-    const Bmy = s.by + s.rb * nmy;
+    const Ap = discPt(s.va, s.ra, npx, npy, s.ax + s.ra * npx, s.ay + s.ra * npy);
+    const Am = discPt(s.va, s.ra, nmx, nmy, s.ax + s.ra * nmx, s.ay + s.ra * nmy);
+    const Bp = discPt(s.vb, s.rb, npx, npy, s.bx + s.rb * npx, s.by + s.rb * npy);
+    const Bm = discPt(s.vb, s.rb, nmx, nmy, s.bx + s.rb * nmx, s.by + s.rb * nmy);
 
     // Tangent segments, interior of the hull on the left of travel.
     const edgeGen = (t0: number, t1: number): Gen => ({ edge: s.edge, a: s.va, b: s.vb, t0, t1 });
-    prims.push(segPrim(Bpx, Bpy, Apx, Apy, edgeGen(1, 0), si, events));
-    prims.push(segPrim(Amx, Amy, Bmx, Bmy, edgeGen(0, 1), si, events));
+    prims.push(segPrim(Bp.x, Bp.y, Ap.x, Ap.y, edgeGen(1, 0), si, Bp, Ap));
+    prims.push(segPrim(Am.x, Am.y, Bm.x, Bm.y, edgeGen(0, 1), si, Am, Bm));
 
     const angP = Math.atan2(npy, npx);
     const angM = Math.atan2(nmy, nmx);
     if (s.ra > 0) {
       const span = ccwSpan(angP, angM);
-      if (span > EPS_ANGLE) {
-        prims.push(arcPrim(s.ax, s.ay, s.ra, angP, angP + span, false, [{ vertex: s.va }], si,
-          events.at(Apx, Apy), events.at(Amx, Amy)));
-      }
+      if (span > EPS_ANGLE) prims.push(arcPrim(s.ax, s.ay, s.ra, angP, angP + span, false, [{ vertex: s.va }], si, Ap, Am));
     }
     if (s.rb > 0) {
       const span = ccwSpan(angM, angP);
-      if (span > EPS_ANGLE) {
-        prims.push(arcPrim(s.bx, s.by, s.rb, angM, angM + span, false, [{ vertex: s.vb }], si,
-          events.at(Bmx, Bmy), events.at(Bpx, Bpy)));
-      }
+      if (span > EPS_ANGLE) prims.push(arcPrim(s.bx, s.by, s.rb, angM, angM + span, false, [{ vertex: s.vb }], si, Bm, Bp));
     }
   }
   return prims;
@@ -392,53 +431,54 @@ function addSplit(prim: Prim, p: number, pt: Pt): void {
   prim.splits.push({ p, pt });
 }
 
-/** The endpoint a computed intersection coincides with, within the
- * floating-point error a near-tangency amplifies — so a tangent line's
- * grazing contact lands on the vertex it grazes instead of beside it. */
-function snapTo(pts: readonly Pt[], x: number, y: number, tol: number): Pt | null {
+/** The endpoint a computed intersection coincides with, within the few-ulp
+ * representation error at that coordinate. Identity is otherwise established
+ * by construction sharing, never by proximity. */
+function snapTo(pts: readonly Pt[], x: number, y: number): Pt | null {
+  const tol = ulpTol(x, y);
   for (const p of pts) if (Math.abs(p.x - x) <= tol && Math.abs(p.y - y) <= tol) return p;
   return null;
 }
 
-function segSeg(a: SegPrim, b: SegPrim, events: Events, tol: number): void {
+function segSeg(a: SegPrim, b: SegPrim, events: Events): void {
   const a0 = orient2d(a.x0, a.y0, a.x1, a.y1, b.x0, b.y0);
   const a1 = orient2d(a.x0, a.y0, a.x1, a.y1, b.x1, b.y1);
   const b0 = orient2d(b.x0, b.y0, b.x1, b.y1, a.x0, a.y0);
   const b1 = orient2d(b.x0, b.y0, b.x1, b.y1, a.x1, a.y1);
   if (a0 === 0 && a1 === 0) {
     // Collinear: each endpoint that lies inside the other becomes a split of
-    // the other, at the endpoint's own coordinates so coincident sub-pieces align.
+    // the other, at the endpoint's own event so coincident sub-pieces align.
     const ta0 = paramOnSeg(a, b.x0, b.y0);
     const ta1 = paramOnSeg(a, b.x1, b.y1);
-    if (ta0 > EPS_PARAM && ta0 < 1 - EPS_PARAM) addSplit(a, ta0, events.at(b.x0, b.y0));
-    if (ta1 > EPS_PARAM && ta1 < 1 - EPS_PARAM) addSplit(a, ta1, events.at(b.x1, b.y1));
+    if (ta0 > EPS_PARAM && ta0 < 1 - EPS_PARAM) addSplit(a, ta0, b.start);
+    if (ta1 > EPS_PARAM && ta1 < 1 - EPS_PARAM) addSplit(a, ta1, b.end);
     const tb0 = paramOnSeg(b, a.x0, a.y0);
     const tb1 = paramOnSeg(b, a.x1, a.y1);
-    if (tb0 > EPS_PARAM && tb0 < 1 - EPS_PARAM) addSplit(b, tb0, events.at(a.x0, a.y0));
-    if (tb1 > EPS_PARAM && tb1 < 1 - EPS_PARAM) addSplit(b, tb1, events.at(a.x1, a.y1));
+    if (tb0 > EPS_PARAM && tb0 < 1 - EPS_PARAM) addSplit(b, tb0, a.start);
+    if (tb1 > EPS_PARAM && tb1 < 1 - EPS_PARAM) addSplit(b, tb1, a.end);
     return;
   }
   if (a0 === 0) {
     const t = paramOnSeg(a, b.x0, b.y0);
-    if (t > EPS_PARAM && t < 1 - EPS_PARAM) addSplit(a, t, events.at(b.x0, b.y0));
+    if (t > EPS_PARAM && t < 1 - EPS_PARAM) addSplit(a, t, b.start);
   }
   if (a1 === 0) {
     const t = paramOnSeg(a, b.x1, b.y1);
-    if (t > EPS_PARAM && t < 1 - EPS_PARAM) addSplit(a, t, events.at(b.x1, b.y1));
+    if (t > EPS_PARAM && t < 1 - EPS_PARAM) addSplit(a, t, b.end);
   }
   if (b0 === 0) {
     const t = paramOnSeg(b, a.x0, a.y0);
-    if (t > EPS_PARAM && t < 1 - EPS_PARAM) addSplit(b, t, events.at(a.x0, a.y0));
+    if (t > EPS_PARAM && t < 1 - EPS_PARAM) addSplit(b, t, a.start);
   }
   if (b1 === 0) {
     const t = paramOnSeg(b, a.x1, a.y1);
-    if (t > EPS_PARAM && t < 1 - EPS_PARAM) addSplit(b, t, events.at(a.x1, a.y1));
+    if (t > EPS_PARAM && t < 1 - EPS_PARAM) addSplit(b, t, a.end);
   }
   if ((a0 > 0) !== (a1 > 0) && (b0 > 0) !== (b1 > 0)) {
     const t = b0 / (b0 - b1);
     const x = a.x0 + (a.x1 - a.x0) * t;
     const y = a.y0 + (a.y1 - a.y0) * t;
-    const pt = snapTo([a.start, a.end, b.start, b.end], x, y, tol) ?? events.at(x, y);
+    const pt = snapTo([a.start, a.end, b.start, b.end], x, y) ?? events.at(x, y, ulpTol(x, y));
     const ta = paramOnSeg(a, pt.x, pt.y);
     const tb = paramOnSeg(b, pt.x, pt.y);
     if (ta > EPS_PARAM && ta < 1 - EPS_PARAM) addSplit(a, ta, pt);
@@ -446,7 +486,7 @@ function segSeg(a: SegPrim, b: SegPrim, events: Events, tol: number): void {
   }
 }
 
-function segArc(s: SegPrim, arc: ArcPrim, events: Events, tol: number): void {
+function segArc(s: SegPrim, arc: ArcPrim, events: Events): void {
   const dx = s.x1 - s.x0;
   const dy = s.y1 - s.y0;
   const fx = s.x0 - arc.cx;
@@ -463,7 +503,7 @@ function segArc(s: SegPrim, arc: ArcPrim, events: Events, tol: number): void {
   for (const t of roots) {
     const x = s.x0 + dx * t;
     const y = s.y0 + dy * t;
-    const pt = snapTo([s.start, s.end, arc.start, arc.end], x, y, tol) ?? events.at(x, y);
+    const pt = snapTo([s.start, s.end, arc.start, arc.end], x, y) ?? events.at(x, y, ulpTol(x, y));
     const tt = paramOnSeg(s, pt.x, pt.y);
     if (tt < -EPS_PARAM || tt > 1 + EPS_PARAM) continue;
     const ang = angleInArc(Math.atan2(pt.y - arc.cy, pt.x - arc.cx), arc.a0, arc.a1);
@@ -473,26 +513,27 @@ function segArc(s: SegPrim, arc: ArcPrim, events: Events, tol: number): void {
   }
 }
 
-function sameCircle(a: ArcPrim, b: ArcPrim, events: Events): void {
+function sameCircle(a: ArcPrim, b: ArcPrim): void {
   for (const [target, other] of [[a, b], [b, a]] as const) {
     for (const pt of [other.start, other.end]) {
       const ang = angleInArc(Math.atan2(pt.y - target.cy, pt.x - target.cx), target.a0, target.a1);
       if (ang === null) continue;
       if (ang < target.a0 + EPS_ANGLE || ang > target.a1 - EPS_ANGLE) continue;
-      addSplit(target, ang, events.at(pt.x, pt.y));
+      addSplit(target, ang, pt);
     }
   }
 }
 
-function arcArc(a: ArcPrim, b: ArcPrim, events: Events, tol: number): void {
+function arcArc(a: ArcPrim, b: ArcPrim, events: Events): void {
   if (a.cx === b.cx && a.cy === b.cy) {
-    if (a.r === b.r) sameCircle(a, b, events);
+    if (a.r === b.r) sameCircle(a, b);
     return;
   }
   const dx = b.cx - a.cx;
   const dy = b.cy - a.cy;
   const d = Math.hypot(dx, dy);
-  if (d > a.r + b.r + tol || d < Math.abs(a.r - b.r) - tol) return;
+  const sep = 48 * Number.EPSILON * Math.max(a.r, b.r);
+  if (d > a.r + b.r + sep || d < Math.abs(a.r - b.r) - sep) return;
   const p = (a.r * a.r - b.r * b.r + d * d) / (2 * d);
   let h2 = a.r * a.r - p * p;
   if (h2 < 0) h2 = 0;
@@ -505,7 +546,7 @@ function arcArc(a: ArcPrim, b: ArcPrim, events: Events, tol: number): void {
     ? [[bx, by]]
     : [[bx - h * uy, by + h * ux], [bx + h * uy, by - h * ux]];
   for (const [x, y] of raw) {
-    const pt = snapTo([a.start, a.end, b.start, b.end], x, y, tol) ?? events.at(x, y);
+    const pt = snapTo([a.start, a.end, b.start, b.end], x, y) ?? events.at(x, y, ulpTol(x, y));
     const aa = angleInArc(Math.atan2(pt.y - a.cy, pt.x - a.cx), a.a0, a.a1);
     const ba = angleInArc(Math.atan2(pt.y - b.cy, pt.x - b.cx), b.a0, b.a1);
     if (aa === null || ba === null) continue;
@@ -514,11 +555,11 @@ function arcArc(a: ArcPrim, b: ArcPrim, events: Events, tol: number): void {
   }
 }
 
-function intersect(a: Prim, b: Prim, events: Events, tol: number): void {
-  if (a.kind === 'seg' && b.kind === 'seg') segSeg(a, b, events, tol);
-  else if (a.kind === 'seg' && b.kind === 'arc') segArc(a, b, events, tol);
-  else if (a.kind === 'arc' && b.kind === 'seg') segArc(b, a, events, tol);
-  else if (a.kind === 'arc' && b.kind === 'arc') arcArc(a, b, events, tol);
+function intersect(a: Prim, b: Prim, events: Events): void {
+  if (a.kind === 'seg' && b.kind === 'seg') segSeg(a, b, events);
+  else if (a.kind === 'seg' && b.kind === 'arc') segArc(a, b, events);
+  else if (a.kind === 'arc' && b.kind === 'seg') segArc(b, a, events);
+  else if (a.kind === 'arc' && b.kind === 'arc') arcArc(a, b, events);
 }
 
 /** Box-overlap sweep: only primitives whose boxes meet reach the exact tests. */
@@ -596,7 +637,9 @@ function makePieces(prim: Prim, events: Events): Piece[] {
     if (byId.size < 2) {
       const base = byId.size === 1 ? [...byId.values()][0] : 0;
       const q = base + Math.PI;
-      const pt = events.at(prim.cx + prim.r * Math.cos(q), prim.cy + prim.r * Math.sin(q));
+      const ax = prim.cx + prim.r * Math.cos(q);
+      const ay = prim.cy + prim.r * Math.sin(q);
+      const pt = events.at(ax, ay, ulpTol(ax, ay));
       if (!byId.has(pt.id)) {
         byId.set(pt.id, ((q % TAU) + TAU) % TAU);
         ptOf.set(pt.id, pt);
@@ -909,17 +952,14 @@ export function thicken(
   if (shapes.length === 0) return makeMaterial([]);
 
   // ---- analytic primitives, their events, and the union's exposed intervals ----
-  // A near-tangency amplifies floating point error to ~sqrt(eps) relative to
-  // the coordinate magnitude; that is the only tolerance here, and it only
-  // ever joins points that are PROVEN one vertex (shared endpoints, grazing
-  // contacts, collinear junctions) — never a gap.
-  let scale = 1;
-  for (const s of shapes) scale = Math.max(scale, Math.abs(s.minX), Math.abs(s.minY), Math.abs(s.maxX), Math.abs(s.maxY));
-  const snapTol = 1e-7 * scale;
-  const events = new Events(snapTol);
+  // Events are created once and handed to every primitive that meets there.
+  // Re-derived points are shared only within a tolerance proportional to the
+  // local feature size (see `Events`), so a small drawing moved far from the
+  // origin keeps its outline and a real gap is never welded.
+  const events = new Events();
   const prims = buildPrims(shapes, events);
 
-  sweepPairs(prims, (i, j) => intersect(prims[i], prims[j], events, snapTol));
+  sweepPairs(prims, (i, j) => intersect(prims[i], prims[j], events));
 
   const pieceMap = new Map<string, Piece>();
   for (const prim of prims) {
@@ -949,16 +989,19 @@ export function thicken(
   if (kept.length === 0) return makeMaterial([]);
 
   // ---- candidates at every construction point ----
+  // Collected from every primitive's own splits, not from the surviving
+  // intervals: a generator that merely touches a boundary vertex (an
+  // internally tangent covered disc) still supports it, and each generator
+  // keeps its OWN parameter mapping through coincident merges.
   const eventCands = new Map<number, Cand[]>();
-  const addCand = (pt: Pt, c: Cand) => {
-    let list = eventCands.get(pt.id);
-    if (!list) { list = []; eventCands.set(pt.id, list); }
-    if (!list.some((x) => candKey(x) === candKey(c))) list.push(c);
-  };
-  for (const pc of kept) {
-    for (const g of pc.gens) {
-      addCand(pc.start, genCand(g, pc.p0));
-      addCand(pc.end, genCand(g, pc.p1));
+  for (const prim of prims) {
+    for (const sp of prim.splits) {
+      let list = eventCands.get(sp.pt.id);
+      if (!list) { list = []; eventCands.set(sp.pt.id, list); }
+      for (const g of prim.gens) {
+        const c = genCand(g, sp.p);
+        if (!list.some((x) => candKey(x) === candKey(c))) list.push(c);
+      }
     }
   }
   for (const list of eventCands.values()) list.sort(candOrder);

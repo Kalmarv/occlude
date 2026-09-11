@@ -449,3 +449,79 @@ describe('thicken: integration', () => {
     expect(loops.filter((l) => l.area < 0)).toHaveLength(1);
   });
 });
+
+// ---- regressions -----------------------------------------------------------------
+
+describe('thicken: regressions', () => {
+  it('moving a thin drawing does not weld its outline or drop its thickness', () => {
+    const here = thicken(material([[0, 0], [10, 0]], { edges: [[0, 1]] }), { radius: 0.01 });
+    const far = thicken(material([[1e6, 1e6], [1e6 + 10, 1e6]], { edges: [[0, 1]] }), { radius: 0.01 });
+    expect(here.n).toBeGreaterThan(0);
+    expect(far.n).toBe(here.n);
+    expect(loopsOf(far)).toHaveLength(1);
+    // Same outline, translated: compare vertices rather than shoelace area,
+    // which loses precision in absolute terms at a large offset.
+    const key = (pts: readonly [number, number][]) => pts.map(([x, y]) => [x, y] as [number, number]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const herePts = key(loopsOf(here)[0].pts);
+    const farPts = key(loopsOf(far)[0].pts.map(([x, y]) => [x - 1e6, y - 1e6] as [number, number]));
+    expect(farPts.length).toBe(herePts.length);
+    for (let k = 0; k < herePts.length; k++) {
+      expect(farPts[k][0]).toBeCloseTo(herePts[k][0], 6);
+      expect(farPts[k][1]).toBeCloseTo(herePts[k][1], 6);
+    }
+    // A real gap keeps its gap at large coordinates. (The tight 0.001 gap is
+    // checked by loop count alone: a point that near the boundary is inside
+    // the arc's chord approximation, not the disc.)
+    const tight = thicken(material([[1e6, 1e6], [1e6 + 2.001, 1e6]], { radius: [1, 1] }), { radius: radiusOf });
+    expect(loopsOf(tight)).toHaveLength(2);
+    const gap = thicken(material([[1e6, 1e6], [1e6 + 2.2, 1e6]], { radius: [1, 1] }), { radius: radiusOf });
+    expect(loopsOf(gap)).toHaveLength(2);
+    expect(distanceTo(gap)(1e6 + 1.1, 1e6)).toBeLessThan(0);
+  });
+
+  it('each coincident generator keeps its own parameter mapping', () => {
+    // Two horizontal edges overlap on [5, 10]. At (5, -1), the boundary point
+    // is the second edge's own start, so its candidate is that vertex (x = 5),
+    // not the midpoint of its parameter range (x = 10).
+    const two = material(
+      [[0, 0], [10, 0], [5, 0], [15, 0]],
+      { edges: [[0, 1], [2, 3]], radius: [1, 1, 1, 1], xref: [0, 10, 5, 15] },
+    );
+    const events: { x: number; y: number; cands: string[]; xrefs: number[] }[] = [];
+    thicken(two, {
+      radius: radiusOf,
+      point: (ev) => {
+        events.push({
+          x: ev.position[0],
+          y: ev.position[1],
+          cands: ev.candidates.map((c) => (c.vertex !== undefined ? `v${c.vertex}` : `e${c.edge}@${c.t}`)),
+          xrefs: ev.candidates.map((c) => c.attrs.xref),
+        });
+        return {};
+      },
+    });
+    const at5 = events.filter((e) => Math.abs(e.x - 5) < 1e-9 && Math.abs(e.y + 1) < 1e-9);
+    expect(at5).toHaveLength(1);
+    expect(at5[0].cands).toContain('v2');
+    expect(at5[0].xrefs).toContain(5);
+    // The first edge still reports its own 0.5 parameter there.
+    expect(at5[0].cands).toContain('e0@0.5');
+  });
+
+  it('a covered generator tangent to the boundary still contributes provenance', () => {
+    // Disc B (radius 1 at (1, 0)) is internally tangent to and inside disc A
+    // (radius 2 at the origin). Both support the boundary point (2, 0).
+    const events: { x: number; y: number; cands: string[] }[] = [];
+    thicken(material([[0, 0], [1, 0]], { radius: [2, 1] }), {
+      radius: radiusOf,
+      point: (ev) => {
+        events.push({ x: ev.position[0], y: ev.position[1], cands: ev.candidates.map((c) => (c.vertex !== undefined ? `v${c.vertex}` : `e${c.edge}`)) });
+        return {};
+      },
+    });
+    const at2 = events.filter((e) => Math.abs(e.x - 2) < 1e-9 && Math.abs(e.y) < 1e-9);
+    expect(at2).toHaveLength(1);
+    expect(at2[0].cands).toContain('v0');
+    expect(at2[0].cands).toContain('v1');
+  });
+});
