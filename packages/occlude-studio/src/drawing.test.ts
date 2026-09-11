@@ -196,3 +196,18 @@ describe('no stand-in selection while resolving', () => {
     expect(asked).toEqual(['0-2', 'g0-2']);
   });
 });
+
+it('region repair intersects stroke segments, including tangency and repeated vertices', () => {
+  const flat: FlatChain[] = [
+    { index: 0, pen: 0, dot: false, pts: Float64Array.of(0, 50, 100, 50) },
+    { index: 1, pen: 0, dot: false, pts: Float64Array.of(0, 55, 0, 55, 100, 55) },
+    { index: 2, pen: 0, dot: false, pts: Float64Array.of(0, 55.01, 100, 55.01) },
+    { index: 3, pen: 0, dot: true, pts: Float64Array.of(50, 50) },
+    { index: 4, pen: 0, dot: false, pts: Float64Array.of(0, 0, 0, 1) },
+  ];
+  const brush = [{ x: 50, y: 50, r: 5 }];
+  expect(chainsUnder(flat, brush, 0, 5)).toEqual([0, 1, 3]);
+  expect(chainsUnder(flat, brush, 1, 3)).toEqual([1]);
+  expect(chainsUnder(flat, [{ x: 105, y: 50, r: 5 }], 0, 1)).toEqual([0]);
+  expect(chainsUnder(flat, [{ x: 106, y: 50, r: 5 }], 0, 1)).toEqual([]);
+});

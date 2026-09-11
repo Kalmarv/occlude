@@ -32,7 +32,7 @@ export function chainsFingerprint(indices: readonly number[]): string {
   return `${indices.length}:${h.toString(16)}`;
 }
 
-/** Source indices of the chains under any blob, from a full-plan toolpath. */
+/** Chains whose centerline (or tap center) touches any brush disc. */
 export function chainsUnder(flat: readonly FlatChain[], blobs: readonly RegionBlob[], from: number, to: number): number[] {
   const out: number[] = [];
   for (let i = from; i < to; i++) {
@@ -43,9 +43,15 @@ export function chainsUnder(flat: readonly FlatChain[], blobs: readonly RegionBl
     for (let k = 0; k < pts.length && !hit; k += 2) {
       const x = pts[k];
       const y = pts[k + 1];
+      const ax = k > 0 && !c.dot ? pts[k - 2] : x;
+      const ay = k > 0 && !c.dot ? pts[k - 1] : y;
+      const sx = x - ax;
+      const sy = y - ay;
+      const length2 = sx * sx + sy * sy;
       for (const b of blobs) {
-        const dx = x - b.x;
-        const dy = y - b.y;
+        const t = length2 > 0 ? Math.max(0, Math.min(1, ((b.x - ax) * sx + (b.y - ay) * sy) / length2)) : 0;
+        const dx = ax + t * sx - b.x;
+        const dy = ay + t * sy - b.y;
         if (dx * dx + dy * dy <= b.r * b.r) { hit = true; break; }
       }
     }
