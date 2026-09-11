@@ -69,16 +69,43 @@ it('uses the fill pen independently and preserves sub-nib remnants', async () =>
   expect((await plan(pens)).chains.length).toBeGreaterThanOrEqual(2);
 });
 
-it('revalidates wobble against the original visible area', async () => {
+it('preserves displacement outside the source consistently across fill types', async () => {
   const {wobble}=await import('../src/index.js');
-  const r=render(sketch({aspect:[1,1],seed:42},()=>wobble(mm(1),circle(50,50,10,{stroke:false,fill:fill('contour')}))),{paper:'Square20'});
-  expect(r.frags.length).toBeGreaterThan(0);
-  for(const f of r.frags)for(let i=0;i<=4;i++){
-    const [x,y]=evalPrim(f.geom,i/4);expect(Math.hypot(x-100,y-100)).toBeLessThanOrEqual(20+1e-7);
+  for (const kind of ['solid', 'hatch', 'contour']) {
+    const r=render(sketch({aspect:[1,1],seed:42},()=>wobble(mm(2),circle(50,50,10,{stroke:false,fill:fill(kind)}))),{paper:'Square20'});
+    const p=await plan(r);
+    const distances=p.chains.flatMap(c=>c.prims.flatMap(prim=>Array.from({length:9},(_,i)=>{
+      const [x,y]=evalPrim(prim,i/8); return Math.hypot(x-100,y-100);
+    })));
+    expect(Math.max(...distances),kind).toBeGreaterThan(20.1);
+    for(const c of p.chains)for(let i=1;i<c.prims.length;i++){
+      const a=evalPrim(c.prims[i-1],1),b=evalPrim(c.prims[i],0);
+      expect(Math.hypot(a[0]-b[0],a[1]-b[1])).toBeLessThan(1e-8);
+    }
   }
-  const p=await plan(r);
-  for(const c of p.chains)for(let i=1;i<c.prims.length;i++){
-    const a=evalPrim(c.prims[i-1],1),b=evalPrim(c.prims[i],0);expect(Math.hypot(a[0]-b[0],a[1]-b[1])).toBeLessThan(1e-8);
+});
+
+it('covers an attached sub-nib finger in the final decoded plan', async () => {
+  const {path}=await import('../src/index.js');
+  const shape=path().moveTo(20,30).lineTo(60,30).lineTo(60,49.95)
+    .lineTo(80,49.95).lineTo(80,50.05).lineTo(60,50.05)
+    .lineTo(60,70).lineTo(20,70).close().build({stroke:false,fill:fill('contour')});
+  const result=draw(shape);
+  expect(result.stats.contour?.contours).toBeGreaterThan(0);
+  const decoded=await plan(result);
+  const lines=planToolpath(decoded,selectAll(decoded),0.001);
+  // Sample the actual finger, including its tip and both edges. Do not filter
+  // samples through erosion: the whole 0.2 mm finger disappears in that inset.
+  for(let ix=0;ix<=400;ix++)for(let iy=0;iy<=4;iy++){
+    const x=120+ix*0.1,y=99.9+iy*0.05;
+    let nearest=Infinity;
+    for(const line of lines)for(let i=2;i<line.pts.length;i+=2){
+      const ax=line.pts[i-2],ay=line.pts[i-1],bx=line.pts[i],by=line.pts[i+1];
+      const dx=bx-ax,dy=by-ay;
+      const t=Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy)||0));
+      nearest=Math.min(nearest,Math.hypot(x-ax-t*dx,y-ay-t*dy));
+    }
+    expect(nearest,`finger at ${x},${y}`).toBeLessThanOrEqual(result.pens[0].width/2+0.01);
   }
 });
 

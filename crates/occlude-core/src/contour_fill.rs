@@ -345,8 +345,9 @@ fn count_prims(runs: &[Vec<Primitive>]) -> usize {
 
 /// Deterministic native hatch for only a residual/failed component. The rows
 /// follow the longer bbox axis; a sub-spacing strip gets its central row.
-/// Final clipping and the existing nib judge remain responsible for thin ink.
-fn hatch(region: &Region, spacing: f64, budget: usize) -> Result<Vec<Vec<Primitive>>, String> {
+/// Sparse rows retain their requested spacing; solid rows fit the span.
+/// Pre-modifier clipping and the existing nib judge handle thin ink.
+fn hatch(region: &Region, spacing: f64, sparse: bool, budget: usize) -> Result<Vec<Vec<Primitive>>, String> {
     let b = region.bbox;
     if b.is_empty() {
         return Ok(Vec::new());
@@ -355,13 +356,24 @@ fn hatch(region: &Region, spacing: f64, budget: usize) -> Result<Vec<Vec<Primiti
     let span = if horizontal { b.height() } else { b.width() };
     // An odd count retains the axial centerline. Even row counts can miss
     // the long tapered ends of a lens-shaped collapse residual entirely.
-    let n = ((span / spacing).ceil().max(1.0) as usize) | 1;
+    if !span.is_finite() || !spacing.is_finite() || spacing <= 0.0 || span / spacing > budget as f64 {
+        return Err("contour: fallback coverage exceeds geometry budget".into());
+    }
+    let n = if sparse {
+        2 * (span / (2.0 * spacing)).floor() as usize + 1
+    } else {
+        ((span / spacing).ceil().max(1.0) as usize) | 1
+    };
     if n > budget {
         return Err("contour: fallback coverage exceeds geometry budget".into());
     }
     let mut out = Vec::new();
     for row in 0..n {
-        let d = (row as f64 + 0.5) * span / n as f64;
+        let d = if sparse {
+            span / 2.0 + (row as f64 - (n / 2) as f64) * spacing
+        } else {
+            (row as f64 + 0.5) * span / n as f64
+        };
         let p = if horizontal {
             Primitive::Line(Line::new(v(b.min.x, b.min.y + d), v(b.max.x, b.min.y + d)))
         } else {
@@ -379,6 +391,9 @@ fn hatch(region: &Region, spacing: f64, budget: usize) -> Result<Vec<Vec<Primiti
                 return Err("contour: fallback coverage exceeds geometry budget".into());
             }
         }
+    }
+    if sparse && out.is_empty() {
+        return Err("contour: sparse fallback produced no drawable strokes".into());
     }
     Ok(out)
 }
@@ -414,6 +429,7 @@ fn append_patches(
         let ink = hatch(
             &patch,
             spacing.min(width * 0.45),
+            false,
             MAX_PRIMITIVES.saturating_sub(count_prims(runs)),
         )?;
         if ink.is_empty() {
@@ -522,7 +538,8 @@ pub fn generate(
             result.diagnostics.fallback_budget += 1;
             result.runs.extend(hatch(
                 &region,
-                spacing.min(width * 0.9),
+                if spacing > width { spacing } else { spacing.min(width * 0.9) },
+                spacing > width,
                 MAX_PRIMITIVES.saturating_sub(count_prims(&result.runs)),
             )?);
             continue;
@@ -634,7 +651,8 @@ pub fn generate(
                 result.diagnostics.fallback_thin += 1;
                 result.runs.extend(hatch(
                     &region,
-                    spacing.min(width * 0.9),
+                    if spacing > width { spacing } else { spacing.min(width * 0.9) },
+                    spacing > width,
                     MAX_PRIMITIVES.saturating_sub(count_prims(&result.runs)),
                 )?);
             }
@@ -743,7 +761,8 @@ pub fn generate(
             }
             result.runs.extend(hatch(
                 &region,
-                spacing.min(width * 0.9),
+                if spacing > width { spacing } else { spacing.min(width * 0.9) },
+                spacing > width,
                 MAX_PRIMITIVES.saturating_sub(count_prims(&result.runs)),
             )?);
         }
@@ -1100,6 +1119,30 @@ mod tests {
             .flatten()
             .all(|p| matches!(p, Primitive::Line(_))));
         assert!(visible_components(&region, &[], &[], f64::NAN).is_err());
+    }
+
+    #[test]
+    fn sparse_fallback_keeps_requested_row_spacing() {
+        let region = Region::new(vec![polygon(&[(0.,0.),(20.,0.),(20.,9.),(0.,9.)])], WindingRule::NonZero, true);
+        let rows = hatch(&region, 2.0, true, 100).unwrap();
+        assert_eq!(rows.len(), 5);
+        for pair in rows.windows(2) {
+            assert!((pair[1][0].start().y-pair[0][0].start().y-2.0).abs()<1e-12);
+        }
+        assert!(hatch(&region, 2.0, true, 2).is_err());
+        // Force the component complexity fallback; it must use sparse rows too.
+        let mut poly = Polyline::new_closed();
+        for i in 0..12_001 {
+            let a=i as f64/12_001.0*std::f64::consts::TAU;
+            poly.add(10.0*a.cos(),10.0*a.sin(),0.0);
+        }
+        let ink=generate(vec![Shape::from_plines([poly])],0.3,2.0,&|_|true).unwrap();
+        assert_eq!(ink.diagnostics.fallback_budget,1);
+        assert!(ink.runs.len()<=11);
+        for pair in ink.runs.windows(2) {
+            let a=pair[0][0].start();let b=pair[1][0].start();
+            assert!(((b.x-a.x).abs()-2.0).abs()<1e-8 || ((b.y-a.y).abs()-2.0).abs()<1e-8);
+        }
     }
 
     #[test]

@@ -105,11 +105,11 @@ export default sketch({ aspect: [2, 1], margin: 8 }, () => [
 ]);
 ```
 
-`spacing` is the only contour parameter. It must be positive and finite; bare numbers use drawable units and `mm()` uses paper millimetres. The default is 0.9 times the **fill pen's** width. Wider-than-nib spacing is a contour texture, with visible gaps. Draft quality coarsens spacing, so use final quality to assess coverage or plot time.
+`spacing` is the only contour parameter. It must be positive and finite; bare numbers use drawable units and `mm()` uses paper millimetres. The default is 0.9 times the **fill pen's** width. Wider-than-nib spacing is a contour texture, with visible gaps; solid residual completion is disabled. Thin or failed components use straight hatch strokes at the requested sparse spacing, centered on the component, so their texture can differ from the surrounding loops. A component too narrow for multiple rows gets one central row. If a valid fallback cannot be produced within the geometry budget, rendering reports an error. Draft quality coarsens spacing, so use final quality to assess coverage or plot time.
 
 The first regular loop sits approximately half a nib inside the visible boundary. Round nibs cannot exactly fill every sharp mathematical corner while remaining entirely inside it; thin features use the usual centerline clipping and nib judging rules. Native geometry uses a total construction tolerance of `min(0.01 mm, nib / 20, spacing / 10)`, with absolute insets to avoid cumulative drift. Difficult offset components use a local native hatch fallback; exhausted geometry budgets produce a render error rather than silently increasing spacing.
 
-Dash, decimation and wobble still apply and may break a run. Clipping never rejoins an intentional gap. Whole-chain selections become coarser when a contour fill produces a long run. The Fills page marks contour as **native · read-only**: it has no JavaScript generator to clone; existing JavaScript patterns remain cloneable.
+Contours and connectors are visibility-checked before finishing modifiers. Dash, decimation and wobble then apply with the same semantics as other fills and may break a run. Displacement can move ink beyond the original visible boundary; it is not clipped again afterward. Clipping never rejoins an intentional gap. Whole-chain selections become coarser when a contour fill produces a long run. The Fills page marks contour as **native · read-only**: it has no JavaScript generator to clone; existing JavaScript patterns remain cloneable.
 
 ## Alignment across shapes
 

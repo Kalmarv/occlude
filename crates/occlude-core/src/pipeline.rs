@@ -789,31 +789,8 @@ impl Prepared {
         }
 
         drop(_z);
-        // Native ordered ink is certified again after geometry-changing post
-        // modifiers. Preserve traversal gaps rather than healing them by nib.
-        if frags.iter().any(|f| f.run.is_some()) {
-            let mut validated = Vec::with_capacity(frags.len());
-            let mut bufs = ClipBufs::default();
-            for f in frags {
-                let Some(run) = f.run else { validated.push(f); continue; };
-                let si = f.shape as usize;
-                if !shapes[si].modifiers.iter().any(|m| m.stage() == Stage::Post) {
-                    validated.push(f); continue;
-                }
-                let ctx = ClipCtx { occluders,clip_regions,occ_index,my_rank:rank[si],first_ahead:occluders.partition_point(|o|o.rank<=rank[si]) as u32 };
-                let clips: Vec<_> = shapes[si].clips.iter().filter_map(|&ci|clip_regions.get(ci as usize)).map(|(r,k)|(r,*k))
-                    .chain(paper_region.iter().map(|r|(r,true))).chain(shape_region[si].iter().map(|r|(r.as_ref(),true))).collect();
-                let from = validated.len();
-                clip_one(f.origin,&f.geom,0.0,f.pen,f.shape,&clips,&ctx,false,&mut bufs,&mut validated);
-                for piece in &mut validated[from..] {
-                    piece.run = Some(run.sub(piece.t0,piece.t1));
-                    piece.t1 = f.t0 + piece.t1*(f.t1-f.t0);
-                    piece.t0 = f.t0 + piece.t0*(f.t1-f.t0);
-                    piece.dot = f.dot;
-                }
-            }
-            frags = validated;
-        }
+        // Generated native ink was validated before post modifiers. Displacement
+        // has the same semantics as other fills; preserve its output and gaps.
         // ---- Bridge pass: shapes that OPT IN (bridge_mm > 0) get their stroke
         // endpoints greedily joined pen-down across gaps up to their tolerance
         // (per pen). Connectors are real fragments (debug-visible, flagged) and
