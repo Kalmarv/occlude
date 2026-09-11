@@ -94,6 +94,10 @@ let externalPenLib: PenDef[] | null = null;
 /** Paper size hint (mm) for `bounds()` under aspect 'paper'; set by the host
  * (studio) before running, survives sketch() resets. Default A4 portrait. */
 let paperHint: { w: number; h: number } = { w: 210, h: 297 };
+// Invalidates lazily prepared sketch-space queries without rebuilding a
+// frame (or retaining an entire recording state) on every field sample.
+let frameRevision = 0;
+export function getFrameRevision(): number { return frameRevision; }
 
 /** URL-less 'url' seed: rolled ONCE per session and reused, so re-renders
  * (debug toggles, keystrokes, settings) never reshuffle the drawing —
@@ -303,6 +307,7 @@ export function getProbeStats(): Record<string, ProbeSummary> {
 /** Start (or restart) a sketch. Clears all recorded shapes. */
 export function sketch(opts: SketchOptions = {}): void {
   state = freshState(opts);
+  frameRevision++;
 }
 
 /** The studio injects its persisted pen library here before running sketches. */
@@ -313,6 +318,7 @@ export function setPenLibrary(pens: PenDef[]): void {
 /** Hosts call this with the paper that will be rendered, so `bounds()` is
  * accurate for aspect 'paper' sketches. */
 export function setPaperHint(wMm: number, hMm: number): void {
+  if (paperHint.w !== wMm || paperHint.h !== hMm) frameRevision++;
   paperHint = { w: wMm, h: hMm };
 }
 
@@ -377,6 +383,7 @@ export function getState(): State {
 
 /** Percent inset from the paper edge; coords measure inside it. */
 export function margin(n: number): void {
+  if (getState().marginPct !== n) frameRevision++;
   getState().marginPct = n;
 }
 

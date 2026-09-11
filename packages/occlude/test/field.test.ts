@@ -425,3 +425,21 @@ describe('stroke: contour stamping without the seam foot-gun', () => {
     expect(out.frags.filter((f) => !f.dot).length).toBe(2); // two segments, no closing chord
   });
 });
+
+it('reuses one bounded field across paper, margin, and coordinate frames', () => {
+  const bounded = within(() => 1, circle(50, 50, mm(10)));
+  for (const [size, margin, expected] of [[200, 0, 1], [400, 0, NaN], [400, 40, 1], [200, 0, 1]]) {
+    setPaperHint(size, size);
+    compileSketch(sketch({ margin, seed: 1 }, () => {
+      expect(bounded(54, 50)).toBe(expected);
+      return [];
+    }));
+  }
+  const box = within(() => 1, rect(0, 0, 20, 20));
+  for (const rectMode of ['corner', 'center', 'corner'] as const) {
+    compileSketch(sketch({ rectMode, seed: 1 }, () => {
+      expect(Number.isFinite(box(15, 5))).toBe(rectMode === 'corner');
+      return [];
+    }));
+  }
+});

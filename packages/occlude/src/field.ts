@@ -26,7 +26,7 @@ import type { ShapeValue } from './api.js';
 import { IDENTITY, invert, mul, rotate as mrotate, scale as mscale, translate as mtranslate, type Mat } from './matrix.js';
 import { lowerToUserLoops, sketchFrame } from './record.js';
 import { geomClosed } from './shapes.js';
-import { bounds, unitScaleMm } from './state.js';
+import { bounds, getFrameRevision, unitScaleMm } from './state.js';
 import { resolveLen, Len, type L } from './units.js';
 
 /** A `within()` bound as the encoder sees it: the shape, and the map from
@@ -381,8 +381,13 @@ export function within<F extends AnyField>(field: F, shape: ShapeValue): Prepare
   // resolved at the first sample, not at `within()` — the frame a bound
   // lowers against is the one in force when the field is read
   let contains: ((x: number, y: number) => boolean) | null = null;
+  let preparedAt = -1;
   const out = wrap(field, (x, y) => {
-    if (contains === null) contains = containsTest(shape);
+    const revision = getFrameRevision();
+    if (contains === null || preparedAt !== revision) {
+      contains = containsTest(shape);
+      preparedAt = revision;
+    }
     if (!contains(x, y)) {
       return vec ? ([NaN, NaN] as [number, number]) : NaN;
     }
