@@ -519,6 +519,7 @@ fn tap_coverage_owed_vs_redundant() {
         shape: 0,
         dot: true,
         bridge: false,
+        run: None,
         geom: Primitive::Line(line(x, y, x, y)),
     };
     let kept = Frag::whole(0, Primitive::Line(line(0., 0., 10., 0.)), 0, 0);

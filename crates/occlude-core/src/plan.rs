@@ -147,7 +147,7 @@ pub fn decode_plan(buf: &[f64]) -> Result<Vec<Chain>, String> {
         if prims.is_empty() {
             return Err("plan buffer: a chain with no primitives".into());
         }
-        chains.push(Chain { prims, dot, pen });
+        chains.push(Chain { prims, dot, pen, ordered: false });
     }
     if i != buf.len() {
         return Err("plan buffer: trailing data".into());
@@ -220,7 +220,7 @@ mod tests {
                         Primitive::Arc(Arc::new(c, 8.0, std::f64::consts::PI, std::f64::consts::PI)),
                     ],
                     dot: false,
-                    pen: 0,
+                    pen: 0, ordered: false,
                 }
             })
             .collect();
@@ -242,9 +242,9 @@ mod tests {
                     Primitive::Cubic(Cubic::new(v(2.0, 1.0), v(3.0, 2.0), v(4.0, 0.0), v(5.0, 1.0))),
                 ],
                 dot: false,
-                pen: 2,
+                pen: 2, ordered: false,
             },
-            Chain { prims: vec![Primitive::Line(Line::new(v(7.0, 7.0), v(7.0, 7.0)))], dot: true, pen: 0 },
+            Chain { prims: vec![Primitive::Line(Line::new(v(7.0, 7.0), v(7.0, 7.0)))], dot: true, pen: 0, ordered: false },
         ];
         let buf = encode_plan(&chains);
         let back = decode_plan(&buf).unwrap();

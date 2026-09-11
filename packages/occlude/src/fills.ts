@@ -1,9 +1,10 @@
 /**
- * Fills. The engine generates NO patterns (it decides what survives to
- * paper, never what gets drawn): every fill is sketch-space code run
+ * JavaScript fills are sketch-space code run
  * between the two render passes, against the shape's FINAL outline
  * (post-deform, post-cull), then clipped and occluded by the engine like
  * all ink.
+ * The native contour built-in instead generates in Rust from the visible
+ * area, so occlusion boundaries participate in its contour construction.
  *
  * Two forms, one contract (fillModule.ts):
  * - `fill('hatch', { … })` references a fill MODULE by name — a
@@ -79,10 +80,12 @@ const BUILTIN_FILLS = new Map<string, AnyFill>([
   ['stipple', stipple as AnyFill],
 ]);
 
-export const BUILTIN_FILL_NAMES: readonly string[] = [...BUILTIN_FILLS.keys()];
+export const BUILTIN_FILL_NAMES: readonly string[] = [...BUILTIN_FILLS.keys(), 'contour'];
+
+export function isNativeFill(name: string): boolean { return name === 'contour'; }
 
 export function isBuiltinFill(name: string): boolean {
-  return BUILTIN_FILLS.has(name);
+  return BUILTIN_FILLS.has(name) || isNativeFill(name);
 }
 
 /** Custom fills the host loaded for the current run (studio: fetched from

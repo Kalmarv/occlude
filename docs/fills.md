@@ -2,7 +2,7 @@
 
 A fill is texture inside a closed shape: parallel lines, crossed lines, dots, or solid ink. This page covers the built-in patterns and their parameters, how texture lines up across neighbouring shapes, which pen draws the fill, what a filled shape does to geometry beneath it, and how to write and save a fill of your own.
 
-Pass a fill through the shape's `fill` option. The fill is generated against the shape's final outline (after any deforming modifiers), then clipped to it and occluded like any other ink.
+Pass a fill through the shape's `fill` option. JavaScript patterns generate against the deformed outline and are then clipped and occluded. Native contour fill first constructs the visible area, including clip edges and holes left by occluders, and generates its paths in Rust.
 
 ```ts live
 import { sketch, circle, fill, mm } from 'occlude';
@@ -38,6 +38,7 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 | `fill('hatch', p)` | `angle: 0`, `spacing: mm(3 × nib)`, `offset: 0`, `align: 'paper'` | Parallel lines |
 | `fill('crosshatch', p)` | `angles: [0, 90]`, `spacing`, `offset`, `align` | One hatch pass per angle |
 | `fill('stipple', p)` | `density: 0…1`, `minDist: mm(2 × nib)` | Poisson-spaced dots, plotted as pen taps |
+| `fill('contour', p)` | `spacing: mm(0.9 × nib)` | Nested contours with short, checked connections |
 | `fill('solid', p)` | `angle: 0` | Rows at 0.9 × nib, so they overlap into full coverage |
 
 ### crosshatch
@@ -82,6 +83,33 @@ export default sketch({ aspect: [2, 1] }, (t) =>
   ]),
 );
 ```
+
+### contour
+
+`fill('contour')` follows the visible area's boundaries with complete nested loops. Short connections link successive loops into long pen-down runs. Holes grow outward as the outer boundary moves inward; disconnected islands stay separate. Small vector patches complete gaps where contour fronts meet or disappear.
+
+The aim is less time lifting and lowering the pen. It is especially useful for dense fills and repeated small shapes. It is not always faster than bridged solid: tight turns and extra residual strokes also take time. Connections are intended fill ink and remain when `t.plan({ bridge: false })` disables generic gap bridging.
+
+```ts live
+import { sketch, circle, rect, mask, fill, mm } from 'occlude';
+
+// A solid medallion and a wider-spaced cut-paper variation.
+export default sketch({ aspect: [2, 1], margin: 8 }, () => [
+  circle(48, 50, 35, { stroke: false, fill: fill('contour') }),
+  mask(circle(48, 50, 13)),
+  rect(112, 15, 72, 70, 15, {
+    stroke: false, fill: fill('contour', { spacing: mm(1.4) }),
+  }),
+  mask(circle(138, 42, 13)),
+  mask(circle(160, 66, 9)),
+]);
+```
+
+`spacing` is the only contour parameter. It must be positive and finite; bare numbers use drawable units and `mm()` uses paper millimetres. The default is 0.9 times the **fill pen's** width. Wider-than-nib spacing is a contour texture, with visible gaps. Draft quality coarsens spacing, so use final quality to assess coverage or plot time.
+
+The first regular loop sits approximately half a nib inside the visible boundary. Round nibs cannot exactly fill every sharp mathematical corner while remaining entirely inside it; thin features use the usual centerline clipping and nib judging rules. Native geometry uses a total construction tolerance of `min(0.01 mm, nib / 20, spacing / 10)`, with absolute insets to avoid cumulative drift. Difficult offset components use a local native hatch fallback; exhausted geometry budgets produce a render error rather than silently increasing spacing.
+
+Dash, decimation and wobble still apply and may break a run. Clipping never rejoins an intentional gap. Whole-chain selections become coarser when a contour fill produces a long run. The Fills page marks contour as **native · read-only**: it has no JavaScript generator to clone; existing JavaScript patterns remain cloneable.
 
 ## Alignment across shapes
 

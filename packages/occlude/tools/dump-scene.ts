@@ -56,7 +56,7 @@ const wasmPath = fileURLToPath(
 await initOcclude(readFileSync(wasmPath));
 try {
   const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
-  occlude.setPenLibrary(JSON.parse(readFileSync(pensPath, 'utf8')));
+  occlude.setPenLibrary(opt('pens') === 'docs' ? structuredClone(occlude.DEFAULT_PENS) : JSON.parse(readFileSync(pensPath, 'utf8')));
 } catch {
   // default pens
 }

@@ -3,6 +3,21 @@
 
 use crate::primitive::Primitive;
 
+/// Ordered traversal coordinates, independent of the primitive-table origin.
+/// Removed intervals remain gaps even when their geometric endpoints coincide.
+#[derive(Debug, Clone, Copy)]
+pub struct RunSpan {
+    pub id: u32,
+    pub start: f64,
+    pub end: f64,
+}
+
+impl RunSpan {
+    pub fn sub(self, a: f64, b: f64) -> Self {
+        Self { id: self.id, start: self.start + a * (self.end-self.start), end: self.start + b * (self.end-self.start) }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Frag {
     /// Index of the origin primitive in the caller's primitive table
@@ -16,6 +31,7 @@ pub struct Frag {
     pub dot: bool,
     /// Bridge connector inserted by the endpoint-join pass (debug-visible).
     pub bridge: bool,
+    pub run: Option<RunSpan>,
     /// Exact geometry of this sub-range (not a polyline).
     pub geom: Primitive,
 }
@@ -30,6 +46,7 @@ impl Frag {
             shape,
             dot: false,
             bridge: false,
+            run: None,
             geom,
         }
     }

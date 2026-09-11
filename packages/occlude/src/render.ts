@@ -13,7 +13,7 @@
 import { makePlan, parseToolpath, planValue, resolveDraw, selectAll, type DrawRequest, type DrawTiming, type DrawingPlan, type FlatChain, type PlanOptions, type PlanSelection, type PlanSettings } from './plan.js';
 import type { EstimateOpts, PenTiming } from './motion.js';
 import {
-  resolveFill, validateFillParams,
+  resolveFill, validateFillParams, isNativeFill,
   type CustomPrimitive, type FillCtx, type FillRegion, type FillSpec,
 } from './fills.js';
 import { paperSize, type PaperChoice } from './paper.js';
@@ -191,6 +191,7 @@ export interface RenderStats {
   clean: number;
   fragments: number;
   fillPrims: number;
+  contour?: { components: number; levels: number; contours: number; connectors: number; connectorTests: number; residualPatches: number; fallbacks: number; validationSplits: number; fallbackThin: number; fallbackBudget: number; fallbackUnstable: number };
   /** Wall time of the wasm call, ms. */
   renderMs: number;
 }
@@ -227,7 +228,7 @@ export interface RenderOptions {
 }
 
 const PRIM_STRIDE = 9;
-const FRAG_STRIDE = 6;
+const FRAG_STRIDE = 9;
 
 /**
  * A fully encoded scene: the arguments of `wasm_prepare` plus the between-
@@ -571,6 +572,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
 
     let fillPen = 0;
     let fillKind = 0;
+    let nativeSpacing = 0;
     if (shape.fillSpec && shape.fillPen) {
       fillPen = penIdx(shape.fillPen) + 1;
       const penDef = pens[fillPen - 1];
@@ -578,6 +580,15 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
       if (spec.type === 'mask') {
         // Opaque with zero ink: registers the occluder, generates nothing.
         fillKind = 2;
+      } else if (spec.type === 'use' && isNativeFill(spec.name)) {
+        const unknown = Object.keys(spec.params).filter(k => k !== 'spacing');
+        if (unknown.length) throw new Error(`contour: unsupported parameter '${unknown[0]}'`);
+        const spacing = spec.params.spacing === undefined ? penDef.width * 0.9
+          : resolveLen(spec.params.spacing as Parameters<typeof resolveLen>[0], frame.inner);
+        if (!Number.isFinite(spacing) || spacing <= 0) throw new Error('contour: spacing must be finite and positive');
+        nativeSpacing = spacing * (opts.coarsen ?? 1);
+        if (!Number.isFinite(nativeSpacing) || nativeSpacing <= 0) throw new Error('contour: coarsened spacing must be finite and positive');
+        fillKind = 3;
       } else {
         // Pending: ink is generated between the passes, against the FINAL
         // outline pass 1 returns — never here, where deform hasn't run.
@@ -673,6 +684,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     shapesF64.push(shape.zIndex);
     // Bridge opt-in: endpoint-join tolerance in paper mm (0 = off).
     shapesF64.push(shape.bridge !== undefined ? resolveLen(shape.bridge, frame.inner) : 0);
+    shapesF64.push(nativeSpacing);
   }
 
   // ---- Build the grids: one per (unbounded field, kind), over the union
@@ -924,6 +936,7 @@ export function decodeRender(scene: EncodedScene, raw: RawRender): RenderResult 
       clean: s[3],
       fragments: s[4],
       fillPrims: s[5],
+      contour: s.length >= 14 ? { components:s[6], levels:s[7], contours:s[8], connectors:s[9], connectorTests:s[10], residualPatches:s[11], fallbacks:s[12], validationSplits:s[13], fallbackThin:s[14]??0, fallbackBudget:s[15]??0, fallbackUnstable:s[16]??0 } : undefined,
       renderMs: raw.renderMs,
     },
     paper: scene.paper,

@@ -520,3 +520,84 @@ fn clipped_occluder_hides_only_its_effective_region() {
         assert!((ink - expected).abs() < 1e-6, "invert={invert}: {ink}, expected {expected}");
     }
 }
+
+#[test]
+fn native_contour_disc_is_an_atomic_plan_run() {
+    let mut shape = filled_shape(circle_contour(40.0,40.0,30.0),FillKind::Contour { spacing: 0.27 });
+    shape.stroke = None;
+    let out = render(&input(vec![shape]));
+    let chains = merge_chains(&out.frags,0);
+    assert!(chains.len() <= 2,"{} chains",chains.len());
+    assert!(chains.iter().all(|c|c.ordered));
+    for c in chains {
+        for pair in c.prims.windows(2) { assert!(pair[0].end().dist(pair[1].start()) < 1e-8); }
+        let back = c.reversed().reversed();
+        assert!((back.ink_length()-c.ink_length()).abs()<1e-8);
+    }
+}
+
+#[test]
+fn native_contour_occluder_creates_separate_islands() {
+    let mut shape = filled_shape(rect_contour(0.0,0.0,20.0,10.0),FillKind::Contour { spacing: 0.27 });
+    shape.stroke = None;
+    let mut mask = filled_shape(rect_contour(9.0,-1.0,2.0,12.0),FillKind::Mask);
+    mask.stroke = None;
+    let out = render(&input(vec![shape,mask]));
+    let chains = merge_chains(&out.frags,0);
+    assert!(chains.len() >= 2);
+    for c in chains {
+        let left = c.start().x < 9.0;
+        for p in c.prims {
+            for i in 0..=20 {
+                let q = p.eval(i as f64/20.0);
+                assert!(if left { q.x <= 9.0 } else { q.x >= 11.0 });
+            }
+        }
+    }
+}
+
+#[test]
+fn native_contour_annulus_retains_hole() {
+    let mut contours = circle_contour(40.0,40.0,12.0);
+    contours.extend(circle_contour(40.0,40.0,4.0));
+    let mut shape = filled_shape(contours,FillKind::Contour { spacing: 0.27 });
+    shape.winding = WindingRule::EvenOdd; shape.convex = false; shape.stroke = None;
+    let out = render(&input(vec![shape]));
+    assert!(!out.frags.is_empty());
+    for f in &out.frags {
+        for i in 0..=20 { assert!(f.geom.eval(i as f64/20.0).dist(v(40.0,40.0)) >= 4.0-1e-8); }
+    }
+}
+
+#[test]
+fn native_rounded_rectangle_has_one_main_run() {
+    let mut ring = Vec::new();
+    let r = 10.0;
+    let corners = [(v(70.0,10.0),-PI/2.0),(v(70.0,60.0),0.0),(v(10.0,60.0),PI/2.0),(v(10.0,10.0),PI)];
+    for i in 0..4 {
+        let arc = Primitive::Arc(Arc::new(corners[i].0,r,corners[i].1,PI/2.0));
+        let next = Arc::new(corners[(i+1)%4].0,r,corners[(i+1)%4].1,PI/2.0);
+        ring.push(arc); ring.push(Primitive::Line(Line::new(arc.end(),next.eval(0.0))));
+    }
+    let mut shape = filled_shape(vec![ring],FillKind::Contour { spacing: 0.27 }); shape.stroke = None;
+    let out = render(&input(vec![shape]));
+    let chains = merge_chains(&out.frags,0);
+    assert!(chains.len()<=2,"{} chains, {:?}",chains.len(),out.stats.contour);
+}
+
+#[test]
+fn ordered_run_gaps_survive_shared_junctions_and_bridging() {
+    use occlude_core::fragment::{Frag,RunSpan};
+    use occlude_core::plan::{plan_chains_with,PlanOptions,encode_plan,decode_plan};
+    let a=v(0.0,0.0); let b=v(1.0,0.0);
+    let prims=[Primitive::Arc(Arc::new(v(-1.0,0.0),1.0,0.0,PI*2.0)),Primitive::Line(Line::new(a,b)),Primitive::Arc(Arc::new(v(2.0,0.0),1.0,PI,PI*2.0))];
+    let mut frags:Vec<_>=prims.iter().enumerate().map(|(i,p)|{
+        let mut f=Frag::whole(i as u32,*p,0,0); f.run=Some(RunSpan{id:1,start:i as f64,end:i as f64+1.0});f
+    }).collect();
+    let intact=plan_chains_with(&frags,&[Pen::default()],PlanOptions::default());
+    assert_eq!(intact.len(),1); assert_eq!(intact[0].prims.len(),3);
+    assert_eq!(decode_plan(&encode_plan(&intact)).unwrap()[0].prims.len(),3);
+    frags.remove(1);
+    let broken=plan_chains_with(&frags,&[Pen::default()],PlanOptions { bridge:Some(10.0),..PlanOptions::default() });
+    assert_eq!(broken.len(),2);
+}

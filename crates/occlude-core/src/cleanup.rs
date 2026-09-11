@@ -89,6 +89,7 @@ pub fn spans_to_fragments(
             shape,
             dot: false,
             bridge: false,
+            run: None,
             geom: prim.sub(start, end),
         });
     }
@@ -133,7 +134,9 @@ pub fn dedupe_seams(frags: Vec<Frag>, threshold: f64) -> Vec<Frag> {
                 let mut dup = false;
                 loop {
                     let g = &frags[j];
-                    if g.shape != f.shape && coincident(&g.geom, &f.geom, threshold) {
+                    let tolerance = if g.run.is_some() || f.run.is_some() { 1e-9 } else { threshold };
+                    let matching_pen = (g.run.is_none() && f.run.is_none()) || g.pen == f.pen;
+                    if g.shape != f.shape && matching_pen && coincident(&g.geom, &f.geom, tolerance) {
                         dup = true;
                         break;
                     }

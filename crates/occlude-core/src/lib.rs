@@ -7,6 +7,7 @@
 pub mod bbox;
 pub mod cleanup;
 pub mod clip;
+pub mod contour_fill;
 pub mod fill;
 pub mod fragment;
 pub mod gcode;

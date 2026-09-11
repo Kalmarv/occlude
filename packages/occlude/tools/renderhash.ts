@@ -102,7 +102,7 @@ function renderOnce(js: string): Row {
   const h = createHash('sha256');
   h.update(new Uint8Array(result.prims.buffer, result.prims.byteOffset, result.prims.byteLength));
   h.update(new Uint8Array(result.frags.buffer, result.frags.byteOffset, result.frags.byteLength));
-  const frags = result.frags.length / 6;
+  const frags = result.frags.length / 9;
   result.free?.();
   return {
     hash: h.digest('hex').slice(0, 16), frags,

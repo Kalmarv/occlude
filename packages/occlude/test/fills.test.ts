@@ -16,8 +16,9 @@ beforeAll(async () => {
 
 describe('fill registry', () => {
   it('ships exactly the ink-immutable built-ins, resolved from the package', () => {
-    expect([...BUILTIN_FILL_NAMES].sort()).toEqual(['crosshatch', 'hatch', 'solid', 'stipple']);
-    for (const n of BUILTIN_FILL_NAMES) expect(resolveFill(n)?.generate).toBeTypeOf('function');
+    expect([...BUILTIN_FILL_NAMES].sort()).toEqual(['contour', 'crosshatch', 'hatch', 'solid', 'stipple']);
+    for (const n of BUILTIN_FILL_NAMES.filter(n => n !== 'contour')) expect(resolveFill(n)?.generate).toBeTypeOf('function');
+    expect(resolveFill('contour')).toBeUndefined();
     expect(isBuiltinFill('hatch')).toBe(true);
     expect(isBuiltinFill('mine')).toBe(false);
   });

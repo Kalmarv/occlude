@@ -20,7 +20,7 @@ pub fn bridge_chains(chains: Vec<Chain>, max_gap: f64) -> Vec<Chain> {
     let mut out: Vec<Chain> = Vec::with_capacity(chains.len());
     for chain in chains {
         match out.last_mut() {
-            Some(prev) if !prev.dot && !chain.dot && prev.end().dist(chain.start()) <= max_gap => {
+            Some(prev) if !prev.ordered && !chain.ordered && !prev.dot && !chain.dot && prev.end().dist(chain.start()) <= max_gap => {
                 let gap = prev.end().dist(chain.start());
                 if gap > 1e-9 {
                     prev.prims
@@ -47,6 +47,7 @@ mod tests {
                 .collect(),
             dot: false,
             pen,
+            ordered: false,
         }
     }
 

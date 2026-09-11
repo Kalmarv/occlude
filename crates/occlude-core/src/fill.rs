@@ -1,10 +1,10 @@
-//! Fill kinds. The engine generates NO patterns (spec: it decides what
-//! survives to paper, never what gets drawn) — fill primitives are produced
+//! Fill kinds. Existing fill primitives are produced
 //! by sketch-space code between the two render passes and supplied to
 //! `finish`, or carried pre-generated (`Custom`) by native harness scenes
 //! (synthetic benchmark ink, see synth.rs). Hatch and stipple live as JS
 //! fill modules in the occlude package — the one fill truth; the golden
 //! consumes their output as a committed sidecar.
+//! Contour is the native exception: generated from the final visible area.
 
 use crate::primitive::Primitive;
 use crate::vec2::Vec2;
@@ -15,6 +15,7 @@ pub enum FillKind {
     /// (the two-pass path: pass 1 exposes the post-deform outline, sketch
     /// code generates, pass 2 clips and occludes).
     Pending,
+    Contour { spacing: f64 },
     /// Pre-generated primitives (native consumers, scene-dump sidecars).
     /// They go through the normal occlusion path like everything else.
     Custom(Vec<Primitive>),

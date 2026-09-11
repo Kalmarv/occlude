@@ -5,11 +5,14 @@
  * Lives apart from fills.ts so the built-in fill files (src/fills/*.ts) can
  * import it without a module cycle — they are ordinary fill files with no
  * privileges, and the studio's Clone hands their exact text to the artist.
+ * Native contour fill uses a Rust descriptor and does not implement this
+ * JavaScript generator contract.
  */
 
 import type { Prim } from './prims.js';
 
-/** The region handed to a fill, in paper mm — the shape's final outline. */
+/** The region handed to a JS fill, in paper mm: post-deform outline,
+ * before clip/occluder subtraction. */
 export interface FillRegion {
   bbox: { x: number; y: number; w: number; h: number };
   /** The actual outline: contours of exact primitives, paper mm. */

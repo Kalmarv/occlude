@@ -207,7 +207,7 @@ pub fn wasm_finish(
             .collect();
         supplied[si] = Some(crate::fill::SuppliedFill { chains, dots });
     }
-    let out = encode_render_output(&inner.finish(supplied));
+    let out = encode_render_output(&inner.try_finish(supplied).map_err(|e| JsValue::from_str(&e))?);
     Ok(RenderResult {
         prims: out.prims,
         frags: out.frags,
@@ -237,7 +237,8 @@ fn decode_frags(prims: &[f64], frags: &[f64]) -> Result<Vec<crate::fragment::Fra
                 pen: f[3] as u32,
                 shape: f[4] as u32,
                 dot: f[5] as u32 & 1 != 0,
-                bridge: false,
+                bridge: f[5] as u32 & 2 != 0,
+                run: (f[6] != 0.0).then_some(crate::fragment::RunSpan { id: f[6] as u32, start: f[7], end: f[8] }),
                 geom: whole.sub(f[1], f[2]),
             })
         })

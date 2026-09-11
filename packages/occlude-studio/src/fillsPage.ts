@@ -246,9 +246,14 @@ async function boot(): Promise<void> {
       meta.append(nm, t);
       const actions = document.createElement('div');
       actions.className = 'asset-actions';
+      const native = builtin && !BUILTIN_FILL_SOURCES[name];
+      if (native) {
+        t.textContent = 'native · read-only';
+        t.title = 'Generated in Rust from the visible area. This fill has no JavaScript source to clone.';
+      }
       const b = (name: IconName, label: string, fn: () => void | Promise<void>): HTMLButtonElement =>
         iconButton(name, label, () => Promise.resolve(fn()).catch((e) => notify(e instanceof Error ? e.message : String(e), 'danger')));
-      actions.append(
+      if (!native) actions.append(
         b(builtin ? 'view' : 'edit', builtin ? 'View the source' : 'Edit', async () => {
           const s = await source();
           if (s !== null) await openEditor(name, s, builtin);
@@ -277,6 +282,7 @@ async function boot(): Promise<void> {
       card(name, 'built-in', async () => BUILTIN_FILL_SOURCES[name] ?? null, true);
     }
     for (const f of custom) {
+      if (isBuiltinFill(f.name)) continue;
       card(f.name, ago(f.mtime), () => loadFill(f.name), false);
     }
     // Thumbnails one at a time: the client coalesces concurrent renders.

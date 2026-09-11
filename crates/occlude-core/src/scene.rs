@@ -25,7 +25,9 @@
 //!   mod_start/mod_count: this shape's modifier program — mod_count
 //!            instructions starting at f64 offset mod_start in `mods`.
 //!
-//! `shapes_f64: Float64Array`, stride 2: [z, bridge_mm]
+//! `shapes_f64: Float64Array`, stride 3: [z, bridge_mm, native_spacing_mm]
+//! Fill kind 3 is native contour; spacing is already resolved/coarsened.
+//! Legacy stride-2 scene dumps remain readable for non-native fills.
 //!   bridge_mm: endpoint-join tolerance in paper mm; 0 = shape not opted
 //!   into bridging. Opted shapes' strokes are joined pen-down across gaps
 //!   up to this size after occlusion (per pen); connector frags carry
@@ -86,7 +88,8 @@
 //! `fill_dots: Float64Array`: xy pairs — intentional taps (strictly-inside
 //!   only, occludable, never routed through tap resolution)
 //!
-//! Output `frags: Float64Array`, stride 6:
+//! Output `frags: Float64Array`, stride 9:
+//! The final three values are ordered run id (0 for legacy), start, end.
 //!   [origin_prim, t0, t1, pen, shape, flags(bit0 dot, bit1 bridge)]
 //! plus the full primitive table (input prims + generated fill prims) in the
 //! same stride-9 encoding, so the preview can draw exact curves.
@@ -100,7 +103,7 @@ use crate::region::WindingRule;
 use crate::vec2::v;
 
 pub const PRIM_STRIDE: usize = 9;
-pub const FRAG_STRIDE: usize = 6;
+pub const FRAG_STRIDE: usize = 9;
 pub const SHAPE_U32_STRIDE: usize = 12;
 
 /// Decode one shape's modifier program from the tape. Fails loudly on an
@@ -286,9 +289,8 @@ pub fn decode_render_input(
     let field_uses = decode_field_uses(field_uses_data, domain_list, fields.len(), clips_u32.len() / 3)?;
 
     let n = shapes_u32.len() / SHAPE_U32_STRIDE;
-    if shapes_f64.len() < n * 2 {
-        return Err(err("shapes_f64 shorter than shape count"));
-    }
+    let shape_stride = if shapes_f64.len() == n * 3 { 3 } else if shapes_f64.len() == n * 2 { 2 }
+        else { return Err(err("shapes_f64 length does not match shape count")); };
     let mut shapes = Vec::with_capacity(n);
     for i in 0..n {
         let s = &shapes_u32[i * SHAPE_U32_STRIDE..(i + 1) * SHAPE_U32_STRIDE];
@@ -299,12 +301,18 @@ pub fn decode_render_input(
         } else {
             WindingRule::NonZero
         };
-        if s[4] == 0 && (1..=2).contains(&s[5]) {
+        if s[4] == 0 && (1..=3).contains(&s[5]) {
             return Err(err("fill kind set without a fill pen"));
         }
         let fill = match s[5] {
             1 => Some((s[4] - 1, FillKind::Pending)),
             2 => Some((s[4] - 1, FillKind::Mask)),
+            3 => {
+                if shape_stride != 3 { return Err(err("native contour requires spacing")); }
+                let spacing = shapes_f64[i*shape_stride+2];
+                if !spacing.is_finite() || spacing <= 0.0 { return Err(err("contour: spacing must be finite and positive")); }
+                Some((s[4]-1,FillKind::Contour { spacing }))
+            },
             _ => None,
         };
         let clip_end = (s[6] as usize)
@@ -318,8 +326,8 @@ pub fn decode_render_input(
             winding,
             stroke: if s[3] > 0 { Some(s[3] - 1) } else { None },
             fill,
-            z: shapes_f64[i * 2],
-            bridge_mm: shapes_f64[i * 2 + 1],
+            z: shapes_f64[i * shape_stride],
+            bridge_mm: shapes_f64[i * shape_stride + 1],
             clips: clip_list[s[6] as usize..clip_end].to_vec(),
             modifiers: decode_modifiers(mods, s[10] as usize, s[11] as usize)?,
         });
@@ -424,6 +432,9 @@ pub fn encode_render_output(out: &RenderOutput) -> EncodedOutput {
             f.pen as f64,
             f.shape as f64,
             (if f.dot { 1.0 } else { 0.0 }) + (if f.bridge { 2.0 } else { 0.0 }),
+            f.run.map_or(0.0, |r| r.id as f64),
+            f.run.map_or(0.0, |r| r.start),
+            f.run.map_or(0.0, |r| r.end),
         ]);
     }
     let mut ghost_out = Vec::with_capacity(out.ghost.len() * PRIM_STRIDE);
@@ -442,6 +453,17 @@ pub fn encode_render_output(out: &RenderOutput) -> EncodedOutput {
             s.clean as f64,
             s.fragments as f64,
             s.fill_prims as f64,
+            s.contour.components as f64,
+            s.contour.levels as f64,
+            s.contour.contours as f64,
+            s.contour.connectors as f64,
+            s.contour.connector_tests as f64,
+            s.contour.residual_patches as f64,
+            s.contour.fallbacks as f64,
+            s.contour.validation_splits as f64,
+            s.contour.fallback_thin as f64,
+            s.contour.fallback_budget as f64,
+            s.contour.fallback_unstable as f64,
         ],
     }
 }

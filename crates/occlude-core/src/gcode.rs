@@ -50,6 +50,8 @@ pub struct Chain {
     pub prims: Vec<Primitive>,
     pub dot: bool,
     pub pen: u32,
+    /// Preserve deliberate run boundaries through generic gap bridging.
+    pub ordered: bool,
 }
 
 impl Chain {
@@ -64,6 +66,7 @@ impl Chain {
             prims: self.prims.iter().rev().map(reverse_primitive).collect(),
             dot: self.dot,
             pen: self.pen,
+            ordered: self.ordered,
         }
     }
     pub fn ink_length(&self) -> f64 {
@@ -89,7 +92,7 @@ pub fn reverse_primitive(p: &Primitive) -> Primitive {
 /// Merge fragments of one pen into chains by shared endpoints. Greedy and
 /// exact: endpoints are quantised to the snap grid so "shared" is a hash hit.
 pub fn merge_chains(frags: &[Frag], pen: u32) -> Vec<Chain> {
-    let mine: Vec<&Frag> = frags.iter().filter(|f| f.pen == pen).collect();
+    let mine: Vec<&Frag> = frags.iter().filter(|f| f.pen == pen && f.run.is_none()).collect();
     let mut chains: Vec<Chain> = Vec::new();
     let mut pieces: Vec<Option<Chain>> = mine
         .iter()
@@ -98,6 +101,7 @@ pub fn merge_chains(frags: &[Frag], pen: u32) -> Vec<Chain> {
                 prims: vec![f.geom],
                 dot: f.dot,
                 pen,
+                ordered: false,
             })
         })
         .collect();
@@ -173,6 +177,26 @@ pub fn merge_chains(frags: &[Frag], pen: u32) -> Vec<Chain> {
             chain.prims = before;
         }
         chains.push(chain);
+    }
+    // Repeated junction coordinates are meaningful in generated runs. Assemble
+    // by traversal position, never through the endpoint map used above.
+    let mut ordered: Vec<_> = frags.iter().filter(|f| f.pen == pen && f.run.is_some()).collect();
+    ordered.sort_by(|a,b| {
+        let (ra,rb) = (a.run.unwrap(),b.run.unwrap());
+        a.shape.cmp(&b.shape).then(ra.id.cmp(&rb.id)).then(ra.start.total_cmp(&rb.start))
+    });
+    let mut previous: Option<&Frag> = None;
+    for f in ordered {
+        let r = f.run.unwrap();
+        let continues = previous.is_some_and(|p| {
+            let prev = p.run.unwrap();
+            !p.dot && !f.dot && p.shape == f.shape && prev.id == r.id
+                && (prev.end-r.start).abs() <= 1e-12
+                && p.geom.end().dist(f.geom.start()) <= 1e-8
+        });
+        if continues { chains.last_mut().unwrap().prims.push(f.geom); }
+        else { chains.push(Chain { prims: vec![f.geom], dot: f.dot, pen, ordered: true }); }
+        previous = Some(f);
     }
     chains
 }

@@ -107,6 +107,7 @@ pub struct RenderInput {
 
 #[derive(Debug, Default, Clone)]
 pub struct RenderStats {
+    pub contour: crate::contour_fill::Diagnostics,
     pub shapes_in: usize,
     pub culled_off_paper: usize,
     pub culled_contained: usize,
@@ -152,6 +153,8 @@ const GEN_FLAG: u32 = 1 << 31;
 
 #[derive(Default)]
 struct ShapeOut {
+    error: Option<String>,
+    contour: crate::contour_fill::Diagnostics,
     gen_prims: Vec<Primitive>,
     frags: Vec<Frag>,
     /// Sub-nib tap candidates, resolved against ink coverage after merge.
@@ -421,7 +424,11 @@ impl Prepared {
     /// run post-stage modifiers, bridge, and emit fragments. `supplied` is
     /// indexed by shape; shapes without an entry (or with a non-Pending
     /// fill) proceed without between-pass ink.
-    pub fn finish(mut self, supplied: Vec<Option<SuppliedFill>>) -> RenderOutput {
+    pub fn finish(self, supplied: Vec<Option<SuppliedFill>>) -> RenderOutput {
+        self.try_finish(supplied).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    pub fn try_finish(mut self, supplied: Vec<Option<SuppliedFill>>) -> Result<RenderOutput, String> {
         let n = self.shapes.len();
         let shapes = &self.shapes;
         let alive = &self.alive;
@@ -565,6 +572,53 @@ impl Prepared {
                 judge_runs(so, from, threshold, false, *fill_pen, i as u32);
             };
             match kind {
+                FillKind::Contour { spacing } => {
+                    let generated = (|| {
+                        let eps = crate::contour_fill::error_budget(threshold,*spacing)?;
+                        let mut nearby = Vec::new();
+                        occ_index.query_unsorted(&region.bbox,&mut nearby,ctx.first_ahead);
+                        nearby.sort_unstable(); nearby.dedup();
+                        let blockers: Vec<_> = nearby.iter().map(|&oi| {
+                            let o = &occluders[oi as usize];
+                            crate::contour_fill::Occlusion {
+                                region: &o.region,
+                                clips: o.clips.iter().filter_map(|&ci| clip_regions.get(ci as usize)).map(|(r,k)|(r,*k)).collect(),
+                            }
+                        }).collect();
+                        let components = crate::contour_fill::visible_components(region,&shape_clips,&blockers,eps)?;
+                        let mut native_clips = shape_clips.clone();
+                        native_clips.push((region,true));
+                        let certify = |p: &Primitive| {
+                            let mut scratch = ClipBufs::default(); let mut visible = Vec::new();
+                            clip_one(0,p,0.0,*fill_pen,i as u32,&native_clips,&ctx,false,&mut scratch,&mut visible);
+                            visible.len() == 1 && visible[0].t0 == 0.0 && visible[0].t1 == 1.0
+                        };
+                        crate::contour_fill::generate(components,threshold,*spacing,&certify)
+                    })();
+                    match generated {
+                        Err(e) => so.error = Some(e),
+                        Ok(ink) => {
+                            so.contour = ink.diagnostics;
+                            let mut native_clips = shape_clips.clone(); native_clips.push((region,true));
+                            for (ri,run) in ink.runs.iter().enumerate() {
+                                let from = so.frags.len();
+                                for (seq,p) in run.iter().enumerate() {
+                                    let origin = GEN_FLAG | so.gen_prims.len() as u32;
+                                    so.gen_prims.push(*p);
+                                    let begin = so.frags.len();
+                                    clip_one(origin,p,0.0,*fill_pen,i as u32,&native_clips,&ctx,false,&mut bufs,&mut so.frags);
+                                    if so.frags.len() != begin+1 || so.frags[begin].t0 != 0.0 || so.frags[begin].t1 != 1.0 {
+                                        so.contour.validation_splits += 1;
+                                    }
+                                    for f in &mut so.frags[begin..] {
+                                        f.run = Some(crate::fragment::RunSpan { id: ri as u32+1, start: seq as f64+f.t0, end: seq as f64+f.t1 });
+                                    }
+                                }
+                                judge_runs(&mut so,from,threshold,false,*fill_pen,i as u32);
+                            }
+                        }
+                    }
+                }
                 FillKind::Pending => {
                     if let Some(Some(fill)) = supplied.get(i) {
                         for chain in &fill.chains {
@@ -589,6 +643,7 @@ impl Prepared {
                                     shape: i as u32,
                                     dot: true,
                                     bridge: false,
+                                    run: None,
                                     geom: dotp,
                                 });
                             }
@@ -663,6 +718,8 @@ impl Prepared {
         let mut taps: Vec<Frag> = Vec::new();
         let mut gen_range: Vec<(usize, usize)> = vec![(0, 0); n];
         for (i, so) in outputs.into_iter().enumerate() {
+            if let Some(e) = so.error { return Err(e); }
+            stats.contour.add(&so.contour);
             let base = prim_table.len() as u32;
             stats.fill_prims += so.gen_prims.len();
             gen_range[i] = (base as usize, base as usize + so.gen_prims.len());
@@ -732,6 +789,31 @@ impl Prepared {
         }
 
         drop(_z);
+        // Native ordered ink is certified again after geometry-changing post
+        // modifiers. Preserve traversal gaps rather than healing them by nib.
+        if frags.iter().any(|f| f.run.is_some()) {
+            let mut validated = Vec::with_capacity(frags.len());
+            let mut bufs = ClipBufs::default();
+            for f in frags {
+                let Some(run) = f.run else { validated.push(f); continue; };
+                let si = f.shape as usize;
+                if !shapes[si].modifiers.iter().any(|m| m.stage() == Stage::Post) {
+                    validated.push(f); continue;
+                }
+                let ctx = ClipCtx { occluders,clip_regions,occ_index,my_rank:rank[si],first_ahead:occluders.partition_point(|o|o.rank<=rank[si]) as u32 };
+                let clips: Vec<_> = shapes[si].clips.iter().filter_map(|&ci|clip_regions.get(ci as usize)).map(|(r,k)|(r,*k))
+                    .chain(paper_region.iter().map(|r|(r,true))).chain(shape_region[si].iter().map(|r|(r.as_ref(),true))).collect();
+                let from = validated.len();
+                clip_one(f.origin,&f.geom,0.0,f.pen,f.shape,&clips,&ctx,false,&mut bufs,&mut validated);
+                for piece in &mut validated[from..] {
+                    piece.run = Some(run.sub(piece.t0,piece.t1));
+                    piece.t1 = f.t0 + piece.t1*(f.t1-f.t0);
+                    piece.t0 = f.t0 + piece.t0*(f.t1-f.t0);
+                    piece.dot = f.dot;
+                }
+            }
+            frags = validated;
+        }
         // ---- Bridge pass: shapes that OPT IN (bridge_mm > 0) get their stroke
         // endpoints greedily joined pen-down across gaps up to their tolerance
         // (per pen). Connectors are real fragments (debug-visible, flagged) and
@@ -793,12 +875,12 @@ impl Prepared {
         };
 
         stats.fragments = frags.len();
-        RenderOutput {
+        Ok(RenderOutput {
             prims: prim_table,
             frags,
             stats,
             ghost,
-        }
+        })
     }
 }
 
@@ -822,7 +904,7 @@ fn bridge_pass(shapes: &[ShapeRec], frags: &mut Vec<Frag>, prims: &mut Vec<Primi
     }
     let mut ends: Vec<End> = Vec::new();
     for (fi, f) in frags.iter().enumerate() {
-        if f.dot || f.bridge {
+        if f.dot || f.bridge || f.run.is_some() {
             continue;
         }
         let tol = shapes[f.shape as usize].bridge_mm;
@@ -948,6 +1030,7 @@ fn bridge_pass(shapes: &[ShapeRec], frags: &mut Vec<Frag>, prims: &mut Vec<Primi
                 shape: frags[a.frag].shape,
                 dot: false,
                 bridge: true,
+                run: None,
                 geom,
             });
         }
@@ -1096,7 +1179,8 @@ impl PostInterp<'_> {
         if let Some(&tail) = self.pts.last() {
             self.dense.push(tail);
         }
-        for w2 in self.dense.windows(2) {
+        let count = self.dense.len().saturating_sub(1);
+        for (i,w2) in self.dense.windows(2).enumerate() {
             let a = jiggle(w2[0]);
             let b = jiggle(w2[1]);
             let seg = Primitive::Line(Line::new(a, b));
@@ -1107,6 +1191,7 @@ impl PostInterp<'_> {
                 t0: 0.0,
                 t1: 1.0,
                 geom: seg,
+                run: f.run.map(|r| r.sub(i as f64/count as f64,(i+1) as f64/count as f64)),
                 ..f.clone()
             });
         }
@@ -1218,6 +1303,7 @@ impl PostInterp<'_> {
                     t0: g0,
                     t1: g1,
                     geom: f.geom.sub(ta, tb),
+                    run: f.run.map(|r| r.sub(ta,tb)),
                     ..f.clone()
                 });
             }
@@ -1808,6 +1894,7 @@ fn judge_runs(so: &mut ShapeOut, from: usize, threshold: f64, closed: bool, pen:
             shape,
             dot: true,
             bridge: false,
+            run: run.first().and_then(|f| f.run),
             geom: dotp,
         });
     }
