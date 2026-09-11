@@ -62,6 +62,12 @@ let monacoReady = false;
 function setupMonaco(): void {
   if (monacoReady) return;
   monacoReady = true;
+  // The web font can replace the fallback after Monaco has cached glyph
+  // widths. automaticLayout observes the container, not that font swap:
+  // long lines then drift away from their caret and mouse hit positions.
+  const refreshFonts = (): void => monaco.editor.remeasureFonts();
+  document.fonts.addEventListener('loadingdone', refreshFonts);
+  void document.fonts.ready.then(refreshFonts);
   const ts = monaco.languages.typescript.typescriptDefaults;
   ts.setCompilerOptions({
     target: monaco.languages.typescript.ScriptTarget.ES2020,
