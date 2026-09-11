@@ -276,6 +276,31 @@ pub fn wasm_export_png(
     scale: f64,
     background: Option<String>,
 ) -> Result<Vec<u8>, JsValue> {
+    let frags = decode_frags(prims, frags)?;
+    raster_png(&frags, pens_json, width_mm, height_mm, scale, background)
+}
+
+/// PNG of the same ordered, selected geometry consumed by SVG and G-code.
+#[wasm_bindgen]
+pub fn wasm_plan_png(
+    plan: &[f64], pens_json: &str, width_mm: f64, height_mm: f64,
+    scale: f64, background: Option<String>, from: u32, to: u32,
+) -> Result<Vec<u8>, JsValue> {
+    let chains = planned(plan, from, to)?;
+    let frags: Vec<crate::fragment::Frag> = chains.iter().flat_map(|chain| {
+        chain.prims.iter().map(move |prim| {
+            let mut frag = crate::fragment::Frag::whole(0, *prim, chain.pen, 0);
+            frag.dot = chain.dot;
+            frag
+        })
+    }).collect();
+    raster_png(&frags, pens_json, width_mm, height_mm, scale, background)
+}
+
+fn raster_png(
+    frags: &[crate::fragment::Frag], pens_json: &str,
+    width_mm: f64, height_mm: f64, scale: f64, background: Option<String>,
+) -> Result<Vec<u8>, JsValue> {
     let pens: Vec<Pen> = serde_json::from_str(pens_json)
         .map_err(|e| JsValue::from_str(&format!("bad pens json: {e}")))?;
     if !(width_mm.is_finite() && height_mm.is_finite() && scale.is_finite())
@@ -290,7 +315,6 @@ pub fn wasm_export_png(
     if (width_mm * scale) * (height_mm * scale) > 268.0e6 {
         return Err(JsValue::from_str("png too large (over ~256 megapixels)"));
     }
-    let frags = decode_frags(prims, frags)?;
     let bg = background.as_deref().filter(|s| !s.is_empty()).map(|s| {
         let c = s.trim_start_matches('#');
         u32::from_str_radix(c, 16)
@@ -298,7 +322,7 @@ pub fn wasm_export_png(
             .unwrap_or([255, 255, 255])
     });
     Ok(crate::raster::to_png(
-        &frags,
+        frags,
         &pens,
         &crate::raster::RasterOptions {
             width_mm,

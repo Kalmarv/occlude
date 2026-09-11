@@ -140,6 +140,10 @@ export interface WasmModule {
   ): string;
   wasm_plan_gcode(plan: Float64Array, pens_json: string, profile_json: string, from: number, to: number): string;
   wasm_plan_toolpath(plan: Float64Array, tolerance: number, from: number, to: number): Float64Array;
+  wasm_plan_png(
+    plan: Float64Array, pens_json: string, width_mm: number, height_mm: number,
+    scale: number, background: string | undefined, from: number, to: number,
+  ): Uint8Array;
   wasm_export_png(
     prims: Float64Array,
     frags: Float64Array,
@@ -1197,7 +1201,7 @@ export interface SvgOptions extends ExportOptions {
   tourBudget?: number;
 }
 
-export interface PngOptions extends RenderOptions {
+export interface PngOptions extends ExportOptions {
   background?: string;
   /** Pixels per millimetre (default 4 ≈ 100 dpi; 12 ≈ 300 dpi). */
   scale?: number;
@@ -1211,14 +1215,17 @@ export function exportPng(a?: SketchDef | PngOptions, b?: PngOptions): Uint8Arra
   if (isSketch(a)) compileForRender(a, opts);
   const mod = requireWasm();
   const result = renderState({ ...opts, coarsen: 1 });
-  return mod.wasm_export_png(
-    result.raw.prims,
-    result.raw.frags,
+  const tol = Math.max(0.0001, Math.min(0.025, result.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)));
+  const range = requestedRange(result, opts, tol);
+  return mod.wasm_plan_png(
+    range.buffer,
     pensToJson(result.pens),
     result.paper.w,
     result.paper.h,
     opts.scale ?? 4,
     opts.background,
+    range.from,
+    range.to,
   );
 }
 

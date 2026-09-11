@@ -55,7 +55,7 @@ const svg  = exportSvg(def, { paper: 'A4', background: '#f6f2ea', onlyPen: 0 });
 const png  = exportPng(def, { paper: 'A4', scale: 11.81 }); // ≈ 300 dpi
 ```
 
-`render` options: `paper` (a preset name or `{ paper, landscape }`), `coarsen` (preview coarsening; 1 is exact), `stretch` (fill the paper non-uniformly), `unbounded` (skip the paper clip). The SVG is the plotted drawing rather than the raw fragments: one path per chain in plot order, after the same merge, tour and bridge the G-code and the machine use, with arcs and cubics kept exact. Both exports honour `t.draw`; a range in minutes or a budget needs `timing` from a machine profile.
+`render` options: `paper` (a preset name or `{ paper, landscape }`), `coarsen` (preview coarsening; 1 is exact), `stretch` (fill the paper non-uniformly), `unbounded` (skip the paper clip). The SVG is the plotted drawing rather than the raw fragments: one path per chain in plot order, after the same merge, tour and bridge the G-code and the machine use, with arcs and cubics kept exact. SVG, G-code and PNG exports honour `t.draw` and the plan’s bridges; a range in minutes or a budget needs `timing` from a machine profile. PNG rasterizes that selected plan at the requested `scale`, and accepts the same `optimize` override.
 
 The plan API is available directly when a tool needs the pieces: `selectChains`, `selectProgress`, `selectTime` and `fitDuration` pick a range; `resolveDraw(plan, req, timing?)` is what `t.draw` goes through; `planSvg`, `planGcode` and `planToolpath` encode a range; `encodePlanBuffer` and `decodePlanBuffer` are the exact bytes, and `openPlan(bytes, settings, hash)` rebuilds a saved plan and refuses a mismatch.
 
