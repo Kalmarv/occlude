@@ -1,0 +1,78 @@
+{
+  "runtime": "Node 24.21.0, Linux x86_64, KVM, AMD Ryzen 5 3600",
+  "baseline": "c458786",
+  "warmups": 1,
+  "samples": 3,
+  "measurements": [
+    {
+      "name": "capsule",
+      "label": "before",
+      "inputEdges": 1,
+      "vertices": 15,
+      "loops": 1,
+      "medianMs": 0.48483800000002475,
+      "maxMs": 0.5305379999999786,
+      "processPeakRssKiB": 142908
+    },
+    {
+      "name": "capsule",
+      "label": "after",
+      "inputEdges": 1,
+      "vertices": 37,
+      "loops": 1,
+      "medianMs": 4.149415999999974,
+      "maxMs": 5.353090999999949,
+      "processPeakRssKiB": 144444
+    },
+    {
+      "name": "A / 100 mm / depth 1 / 1..5",
+      "label": "before",
+      "error": "Error: thicken: the resolved boundary has an open end \u2014 internal boundary arrangement failure; please report this input"
+    },
+    {
+      "name": "A / 100 mm / depth 1 / 1..5",
+      "label": "after",
+      "inputEdges": 100,
+      "vertices": 752,
+      "loops": 30,
+      "medianMs": 217.73767499999985,
+      "maxMs": 240.11461999999995,
+      "processPeakRssKiB": 361608
+    },
+    {
+      "name": "A / 304.8 mm / depth 1 / 1..5",
+      "label": "before",
+      "inputEdges": 100,
+      "vertices": 430,
+      "loops": 34,
+      "medianMs": 12.499848000000156,
+      "maxMs": 18.73299700000007,
+      "processPeakRssKiB": 375048
+    },
+    {
+      "name": "A / 304.8 mm / depth 1 / 1..5",
+      "label": "after",
+      "inputEdges": 100,
+      "vertices": 768,
+      "loops": 34,
+      "medianMs": 197.92144200000007,
+      "maxMs": 218.07007300000032,
+      "processPeakRssKiB": 489760
+    },
+    {
+      "name": "B / 304.8 mm / depth 3 / 0.1..1",
+      "label": "before",
+      "error": "Error: thicken: the resolved boundary has an open end \u2014 internal boundary arrangement failure; please report this input"
+    },
+    {
+      "name": "B / 304.8 mm / depth 3 / 0.1..1",
+      "label": "after",
+      "inputEdges": 2500,
+      "vertices": 9488,
+      "loops": 1054,
+      "medianMs": 7952.083468999999,
+      "maxMs": 8457.885341999998,
+      "processPeakRssKiB": 1223916
+    }
+  ]
+}

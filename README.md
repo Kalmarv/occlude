@@ -108,6 +108,7 @@ facts, and papers — never code**:
 | Bridson, *Fast Poisson Disk Sampling* (2007) | `scatter` and the stipple fill's blue-noise placement. | paper |
 | Jobard & Lefer, *Creating Evenly-Spaced Streamlines of Arbitrary Density* (Eurographics 1997) | `t.streamlines` implements the paper's seeding and separation scheme, with the spacing as a field. Ideas from the paper only. | paper |
 | [Cavalier Contours](https://github.com/jbuckmccready/cavalier_contours) | Pinned Rust dependency for line/arc region offsets in native contour fill. | MIT / Apache-2.0 |
+| [CGAL](https://www.cgal.org/) | Independent, development-only conic-arrangement reference for `thicken`; not bundled or linked into the library. | Package-specific GPL/LGPL; external test dependency |
 | [iOverlay](https://github.com/iShape-Rust/iOverlay) | Pinned Rust dependency for winding normalization and visible-area Boolean operations. | MIT / Apache-2.0 |
 | [d3-delaunay](https://github.com/d3/d3-delaunay) (Mike Bostock) | Bundled dependency powering `voronoi`/`triangulate`/`settle`; his weighted-stippling notebook showed the `delaunay.find` accumulation walk. | ISC |
 | [robust-predicates](https://github.com/mourner/robust-predicates) (Vladimir Agafonkin, after Shewchuk) | Bundled dependency: the exact `orient2d` predicate behind `planarize()`/`faces()` crossing and contact decisions. | Unlicense (public domain) |

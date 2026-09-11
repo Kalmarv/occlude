@@ -5,6 +5,8 @@ import {
   type Material, type Vertex,
 } from '../src/index.js';
 
+import { exactEnvelopeOracle } from './helpers/envelope-oracle.js';
+
 // ---- helpers ---------------------------------------------------------------------
 
 /** Independent membership oracle: does `(x, y)` lie in the union of the
@@ -856,5 +858,44 @@ describe('thicken: overlapping recursive rectangles', () => {
       }
     }
   });
+  for (const paper of [100, 200, 210, 297, 304.8])
+    for (const [depth, low, high] of [
+      [1, 1, 5],
+      [3, 0.1, 1],
+    ]) {
+      it(`certifies the reported variable-radius family: paper=${paper}, depth=${depth}, radii=${low}..${high}`, () => {
+        const src = recursive(depth, undefined, paper),
+          radii = Array.from(src.x, (x) => low + (x / 100) * (high - low));
+        const body = thicken(src, {
+          radius: (p) => radii[p.index],
+          tolerance: 0.01,
+        });
+        expect(body.curves().every((c) => c.closed)).toBe(true);
+        expect([...body.x, ...body.y].every(Number.isFinite)).toBe(true);
+        const envelopes: Envelope[] = [];
+        for (let i = 0; i < src.edgeCount; i++) {
+          const a = src.edgeList[2 * i],
+            b = src.edgeList[2 * i + 1];
+          envelopes.push([
+            src.x[a],
+            src.y[a],
+            src.x[b],
+            src.y[b],
+            radii[a],
+            radii[b],
+          ]);
+        }
+        const oracle = exactEnvelopeOracle(envelopes),
+          distance = distanceTo(body);
+        expect(distance(50, 50)).toBeLessThan(0);
+        for (let i = 0; i < 120; i++) {
+          const x = 9.173 + (((i * 47) % 127) / 127) * 82,
+            y = 9.291 + (((i * 89) % 131) / 131) * 82,
+            d = distance(x, y);
+          if (Math.abs(d) > 0.02)
+            expect(d > 0, `query ${x},${y}`).toBe(oracle(x, y) < 0);
+        }
+      }, 60000);
+    }
 
 });
