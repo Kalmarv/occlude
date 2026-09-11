@@ -17,18 +17,23 @@ It warms each implementation twice, alternates their execution order, and report
 five-run medians. Geometry-only and attributed outputs are fingerprinted separately
 within one digest, including array bytes and the ordered callback event stream.
 
-To compare against the implementation before the performance pass, from this package:
+Before a performance change, save the current implementation in this package:
 
 ```sh
-git show adbe654:packages/occlude/src/thicken.ts > src/.thicken-baseline.ts
+cp src/thicken.ts src/.thicken-baseline.ts
+# Make the performance change, then compare:
 pnpm exec tsx bench/thicken.mts --baseline src/.thicken-baseline.ts --verify
 rm src/.thicken-baseline.ts
 ```
 
 `--verify` additionally compares 800 seeded fractional-coordinate networks. It
 reports pre-existing errors explicitly and fails on any changed output or error.
+Without `--baseline`, `--verify` requires every fractional case to succeed and
+checks deterministic geometry and callbacks. The historical comparison against
+`adbe654` applies to the performance commit `fbc4113`; the subsequent correctness
+fix intentionally changes circle-root rounding and resolves the baseline error.
 See `thicken-performance.md` in this directory for compiled timings,
-profiling results, and the one known baseline failure in that additional corpus.
+profiling results, and the baseline failure's reproducer.
 
 **These numbers are a regression check, not a comparison.** The log records
 what each row cost when it was last measured *on that box under that load*.

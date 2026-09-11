@@ -79,9 +79,15 @@ thicken(material([
 }), { radius: p => p.radius, tolerance: 0.02 });
 ```
 
-This is a remaining correctness issue, not introduced or fixed by the
-performance changes. The harness reports it explicitly and fails if behavior
-differs between implementations.
+This was not introduced or fixed by the performance changes in `fbc4113`.
+The subsequent correctness fix gives circle pairs a canonical construction
+order: repeated hull arcs can otherwise solve the same pair in opposite order,
+round a root two ULPs apart, and retain duplicate arcs at the resulting junction.
+The four edge-order regressions cover the original case, reordered edges, and
+reversed edges. Standalone `--verify` now requires all 800 fractional cases to
+succeed. Comparing that correctness change against `adbe654` intentionally
+reports changed fingerprints; the performance-only equality results above
+remain the measurements of `fbc4113`.
 
 ## Docs
 

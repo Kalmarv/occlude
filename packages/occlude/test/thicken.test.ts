@@ -684,6 +684,38 @@ describe('thicken: exact near-tangent circle intersections', () => {
   });
 });
 
+describe('thicken: shared circle intersection construction', () => {
+  it.each([
+    [[0, 1], [0, 2], [1, 3]],
+    [[1, 3], [0, 2], [0, 1]],
+    [[0, 2], [0, 1], [1, 3]],
+    [[1, 0], [2, 0], [3, 1]],
+  ])('shares the junction across repeated circle pairs, edge order %j', (...edges) => {
+    const source = material([
+      [0.18029026687145233, 2.377823661081493],
+      [11.650821128860116, 7.7608753414824605],
+      [15.749140549451113, 2.8944345703348517],
+      [3.4245460759848356, 7.2784881154075265],
+      [10.151658169925213, 13.536654221825302],
+    ], {
+      edges: edges.map(([a, b]): [number, number] => [a, b]),
+      radius: [0.9179886434227228, 3.5909650990739466, 3.7258079521358014,
+        1.0258007360622288, 3.5144658725708724],
+    });
+    const body = thicken(source, {
+      radius: radiusOf, tolerance: 0.02,
+      point: event => ({ supports: event.candidates.length }),
+    });
+    expect(body.curves()).toHaveLength(1);
+    expect(body.curves()[0].closed).toBe(true);
+    const d = distanceTo(body);
+    for (let i = 0; i < source.n; i++) expect(d(source.x[i], source.y[i])).toBeGreaterThan(0);
+    const junction = body.points.filter(p => Math.hypot(p.x - 15.031654855962282, p.y - 6.550506119940689) < 1e-12);
+    expect(junction.indices).toHaveLength(1);
+    expect(body.vertex(junction.indices[0]).supports).toBe(2);
+  });
+});
+
 
 it('retains coordinate precision at a line–circle overlap', () => {
   const body = thicken(material([[-4, -2], [4, -2], [0, 0.9999999999999999]], {

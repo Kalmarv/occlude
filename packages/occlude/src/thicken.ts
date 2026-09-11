@@ -681,6 +681,11 @@ function sameCircle(a: ArcPrim, b: ArcPrim): void {
 }
 
 function arcArc(a: ArcPrim, b: ArcPrim, events: Events): void {
+  // Different hull arcs can name the same supporting circles in opposite
+  // order. Use one construction order: swapping the operands otherwise
+  // changes rounded root coordinates and splits a shared junction into two
+  // events. Equal centres are handled below, so no radius tie-break is needed.
+  if (a.cx > b.cx || (a.cx === b.cx && a.cy > b.cy)) [a, b] = [b, a];
   if (a.cx === b.cx && a.cy === b.cy) {
     if (a.r === b.r) sameCircle(a, b);
     return;

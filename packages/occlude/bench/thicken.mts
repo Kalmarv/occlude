@@ -47,7 +47,6 @@ function fingerprint(fn: typeof thicken, source: Material, opts: ThickenOpts): s
 }
 
 if (process.argv.includes('--verify')) {
-  if (!baseline) throw new Error('--verify requires --baseline');
   let failures = 0;
   for (let i = 0; i < 800; i++) {
     const count = 1 + Math.floor(rnd() * 6);
@@ -60,14 +59,16 @@ if (process.argv.includes('--verify')) {
       try { return fingerprint(fn, net, opts); }
       catch (err) { return `ERROR: ${err instanceof Error ? err.message : String(err)}`; }
     };
-    const before = outcome(baseline);
+    // Without a baseline this is also a no-crash/determinism check of the
+    // fractional corpus that originally exposed shared-circle case 211.
+    const before = baseline ? outcome(baseline) : fingerprint(thicken, net, opts);
     if (outcome(thicken) !== before) throw new Error(`random case ${i}: output/callback mismatch`);
     if (before.startsWith('ERROR:')) {
       failures++;
       console.log(`unchanged baseline failure at random case ${i}: ${before}`);
     }
   }
-  console.log(`${800 - failures} randomized outputs identical (geometry bytes, attributes, callback order/candidates); ${failures} unchanged baseline errors`);
+  console.log(`${800 - failures} randomized outputs ${baseline ? 'identical to baseline' : 'stable'} (geometry bytes, attributes, callback order/candidates); ${failures} unchanged baseline errors`);
 }
 
 for (const [name, source, opts] of fixtures) {
