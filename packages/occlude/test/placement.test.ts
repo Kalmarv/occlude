@@ -86,3 +86,21 @@ describe('Station.place: put a motif on the spine', () => {
     expect(typeof first.place).toBe('function');
   });
 });
+
+it('station conversion refuses ambiguous point and edge column names', () => {
+  const m = material([[0, 0], [10, 0]], { edges: [[0, 1]] })
+    .attribute('weight', 1, { transfer: 'nearest' }).edgeAttribute('weight', 9);
+  expect(() => stationsMaterial(m.along({ count: 2 }))).toThrow(/weight.*point.*edge/);
+});
+
+it('station conversion preserves point transfer policies through plain-data copies', () => {
+  const m = material([[0, 0], [10, 0]], { edges: [[0, 1]] })
+    .attribute('energy', p => p.index === 0 ? 1 : 9, { transfer: 'nearest' })
+    .edgeAttribute('weight', 7);
+  const samples = m.along({ count: 2 });
+  const rebuilt = stationsMaterial(samples.map(s => ({ ...s })));
+  expect([...rebuilt.attrs.energy]).toEqual([1, 9]);
+  expect([...rebuilt.attrs.weight]).toEqual([7, 7]);
+  expect(rebuilt.transfers.energy).toBe('nearest');
+  expect([...rebuilt.resample({ count: 3 }).attrs.energy]).toEqual([1, 1, 9]);
+});

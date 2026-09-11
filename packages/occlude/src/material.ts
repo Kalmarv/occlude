@@ -202,6 +202,9 @@ export interface Station {
   closed: boolean;
   attrs: Record<string, number>;
   edgeAttrs: Record<string, number>;
+  /** Source point-column policies, retained by stationsMaterial. Sampling
+   * overrides affect this read only, just as for Material.resample. */
+  transfers?: Readonly<Record<string, TransferPolicy>>;
   /** Put `content` here, turned to the station's tangent: the motif-along-
    * a-spine idiom. The placement frame is
    * `T(position + tangent·ot + normal·on) · R(heading + rotate) · S(scale)`,
@@ -846,6 +849,7 @@ export class Material {
       if (this.adj[i].length > 2) throw new Error(`along: vertex ${i} is a junction — chains only`);
     }
     const names = this.attrNames;
+    const stationTransfers = Object.freeze({ ...this.transfers });
     const transfer: Record<string, Transfer> = { ...this.transfers, ...(opts.transfer ?? {}) };
     const enames = this.edgeAttrNames;
     const storedRow = new Map<number, number>();
@@ -954,6 +958,7 @@ export class Material {
           closed: c.closed,
           attrs,
           edgeAttrs,
+          transfers: stationTransfers,
         });
         out.push(st);
       });
@@ -1324,9 +1329,26 @@ export function isStations(v: unknown): v is readonly Station[] {
  * the chain is closed), and columns `heading`, `s`, `u`, `chain` plus the
  * station's transferred point and edge columns under their own names (a
  * transferred column keeps its name; an intrinsic of the same name gives
- * way). Nothing connects back to the source material.
+ * way). Point/edge name collisions and conflicting point policies are
+ * errors: rename the source column before flattening the domains. Point
+ * transfer policies survive; promoted edge samples become ordinary vertex
+ * values, not conserved edge quantities. Nothing connects back to the source material.
  */
 export function stationsMaterial(stations: readonly Station[]): Material {
+  const pointNames = new Set(stations.flatMap(q => Object.keys(q.attrs)));
+  const policies = new Map<string, TransferPolicy>();
+  for (const q of stations) {
+    for (const name of Object.keys(q.edgeAttrs)) {
+      if (pointNames.has(name)) throw new Error(`stationsMaterial: '${name}' occurs in both point and edge columns — rename one before conversion`);
+    }
+    for (const name of Object.keys(q.attrs)) {
+      const policy = q.transfers?.[name] ?? 'interpolate';
+      if (policies.has(name) && policies.get(name) !== policy) {
+        throw new Error(`stationsMaterial: conflicting transfer policies for '${name}'`);
+      }
+      policies.set(name, policy);
+    }
+  }
   const cols: Record<string, number[]> = {};
   const put = (name: string, k: number, v: number) => {
     (cols[name] ??= new Array(stations.length).fill(NaN))[k] = v;
@@ -1345,7 +1367,12 @@ export function stationsMaterial(stations: readonly Station[]): Material {
     if (name in cols) continue;
     cols[name] = stations.map((q) => q[name]);
   }
-  return material(stations.map((q) => [q.x, q.y] as [number, number]), { edges, ...cols });
+  const attrs = Object.fromEntries(Object.entries(cols).map(([name, values]) => [name, Float64Array.from(values)]));
+  const transfers = Object.fromEntries([...policies].filter(([, policy]) => policy !== 'interpolate'));
+  return new Material(
+    Float64Array.from(stations, q => q.x), Float64Array.from(stations, q => q.y),
+    attrs, Uint32Array.from(edges.flat()), 0, [], {}, transfers,
+  );
 }
 
 /**
