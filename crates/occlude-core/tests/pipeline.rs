@@ -582,7 +582,9 @@ fn native_rounded_rectangle_has_one_main_run() {
     let mut shape = filled_shape(vec![ring],FillKind::Contour { spacing: 0.27 }); shape.stroke = None;
     let out = render(&input(vec![shape]));
     let chains = merge_chains(&out.frags,0);
-    assert!(chains.len()<=2,"{} chains, {:?}",chains.len(),out.stats.contour);
+    // Keep one main inset run; allow separate cleanup instead of retracing.
+    assert!(chains.len()<=4,"{} chains, {:?}",chains.len(),out.stats.contour);
+    assert!(chains.iter().any(|c| c.prims.len() >= out.stats.contour.contours * 4));
 }
 
 #[test]

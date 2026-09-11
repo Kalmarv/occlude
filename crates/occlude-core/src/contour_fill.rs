@@ -12,6 +12,8 @@ use cavalier_contours::shape_algorithms::{Shape, ShapeOffsetOptions};
 use i_overlay::core::{fill_rule::FillRule, overlay_rule::OverlayRule};
 use i_overlay::float::overlay::FloatOverlay;
 
+mod cleanup;
+
 type Polygons = Vec<Vec<Vec<[f64; 2]>>>;
 pub const MAX_PRIMITIVES: usize = 250_000;
 const MAX_LEVELS: usize = 4096;
@@ -239,6 +241,9 @@ pub struct Occlusion<'a> {
 #[derive(Default)]
 pub struct Generated {
     pub runs: Vec<Vec<Primitive>>,
+    /// Certified short strokes/taps must not be collapsed by generic nib judging.
+    pub cleanup_runs: std::collections::BTreeSet<usize>,
+    pub fallback_runs: std::collections::BTreeSet<usize>,
     pub diagnostics: Diagnostics,
 }
 
@@ -347,7 +352,12 @@ fn count_prims(runs: &[Vec<Primitive>]) -> usize {
 /// follow the longer bbox axis; a sub-spacing strip gets its central row.
 /// Sparse rows retain their requested spacing; solid rows fit the span.
 /// Pre-modifier clipping and the existing nib judge handle thin ink.
-fn hatch(region: &Region, spacing: f64, sparse: bool, budget: usize) -> Result<Vec<Vec<Primitive>>, String> {
+fn hatch(
+    region: &Region,
+    spacing: f64,
+    sparse: bool,
+    budget: usize,
+) -> Result<Vec<Vec<Primitive>>, String> {
     let b = region.bbox;
     if b.is_empty() {
         return Ok(Vec::new());
@@ -404,112 +414,26 @@ fn hatch(region: &Region, spacing: f64, sparse: bool, budget: usize) -> Result<V
 fn append_patches(
     polys: Polygons,
     width: f64,
-    spacing: f64,
     eps: f64,
-    component: &Region,
     certify: &dyn Fn(&Primitive) -> bool,
-    runs: &mut Vec<Vec<Primitive>>,
-    active: &[(usize, usize)],
-    diag: &mut Diagnostics,
+    result: &mut Generated,
 ) -> Result<(), String> {
-    // Only the previous layer participates. Small residual hatches can be
-    // visited as closed local excursions at an exact point on that layer;
-    // both connectors are short and certified, and no contour edge is repeated.
-    let mut segments = Vec::new();
-    let mut boxes = Vec::new();
-    for &(ri, start) in active {
-        for pi in start..runs[ri].len() {
-            segments.push((ri, pi));
-            boxes.push(runs[ri][pi].bbox());
-        }
-    }
-    let index = SpatialIndex::build(&boxes);
-    let mut hits = Vec::new();
-    let mut portals: std::collections::BTreeMap<usize, Vec<(usize, f64, Vec<Primitive>)>> =
-        std::collections::BTreeMap::new();
     for polygon in polys {
-        let patch = shape_region(&polygon_shape(&polygon));
-        let ink = hatch(
-            &patch,
-            spacing.min(width * 0.45),
-            false,
-            MAX_PRIMITIVES.saturating_sub(count_prims(runs)),
+        let ink = cleanup::complete(
+            polygon,
+            width,
+            eps,
+            certify,
+            MAX_PRIMITIVES.saturating_sub(count_prims(&result.runs)),
         )?;
-        if ink.is_empty() {
-            continue;
+        if !ink.is_empty() {
+            result.diagnostics.residual_patches += 1;
         }
-        diag.residual_patches += 1;
         for chain in ink {
-            let b = chain[0].start();
-            let c = chain.last().unwrap().end();
-            let mid = b.lerp(c, 0.5);
-            index.query(&BBox::new(mid, mid).expanded(2.0 * spacing), &mut hits);
-            let mut candidates: Vec<_> = hits
-                .iter()
-                .flat_map(|&si| {
-                    let (ri, pi) = segments[si as usize];
-                    let p = &runs[ri][pi];
-                    let (t, _) = closest(p, mid);
-                    let dt = (spacing * 0.5 / p.length().max(spacing)).min(0.25);
-                    [t, (t - dt).max(0.0), (t + dt).min(1.0)]
-                        .into_iter()
-                        .filter_map(move |t| {
-                            let a = p.eval(t);
-                            let d = a.dist(b).max(a.dist(c));
-                            let cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-                            // A collinear out-and-back would redraw the same segment.
-                            (d <= 2.0 * spacing && cross.abs() > 1e-12).then_some((d, ri, pi, t, a))
-                        })
-                })
-                .collect();
-            candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
-            let mut selected = None;
-            for (_, ri, pi, t, a) in candidates.into_iter().take(32) {
-                let enter = Primitive::Line(Line::new(a, b));
-                let leave = Primitive::Line(Line::new(c, a));
-                diag.connector_tests += 2;
-                if inside_segment(&enter, component)
-                    && inside_segment(&leave, component)
-                    && certify(&enter)
-                    && certify(&leave)
-                {
-                    let mut excursion = vec![enter];
-                    excursion.extend(chain.iter().copied());
-                    excursion.push(leave);
-                    selected = Some((ri, pi, t, excursion));
-                    break;
-                }
-            }
-            if let Some((ri, pi, t, excursion)) = selected {
-                portals.entry(ri).or_default().push((pi, t, excursion));
-                diag.connectors += 2;
-            } else {
-                runs.push(chain);
-            }
+            result.cleanup_runs.insert(result.runs.len());
+            result.runs.push(chain);
         }
     }
-    for (ri, mut points) in portals {
-        points.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
-        let first = points[0].0;
-        let old = runs[ri].split_off(first);
-        let mut points = points.into_iter().peekable();
-        for (offset, p) in old.into_iter().enumerate() {
-            let pi = first + offset;
-            let mut from = 0.0;
-            while points.peek().is_some_and(|q| q.0 == pi) {
-                let (_, t, excursion) = points.next().unwrap();
-                if t > from {
-                    runs[ri].push(p.sub(from, t));
-                }
-                runs[ri].extend(excursion);
-                from = t;
-            }
-            if from < 1.0 {
-                runs[ri].push(p.sub(from, 1.0));
-            }
-        }
-    }
-    let _ = eps;
     Ok(())
 }
 
@@ -539,12 +463,20 @@ pub fn generate(
         if source_size > 12_000 {
             result.diagnostics.fallbacks += 1;
             result.diagnostics.fallback_budget += 1;
+            let fallback_begin = result.runs.len();
             result.runs.extend(hatch(
                 &region,
-                if spacing > width { spacing } else { spacing.min(width * 0.9) },
+                if spacing > width {
+                    spacing
+                } else {
+                    spacing.min(width * 0.9)
+                },
                 spacing > width,
                 MAX_PRIMITIVES.saturating_sub(count_prims(&result.runs)),
             )?);
+            result
+                .fallback_runs
+                .extend(fallback_begin..result.runs.len());
             continue;
         }
         let mut previous: Option<Shape<f64>> = None;
@@ -600,9 +532,9 @@ pub fn generate(
             if spacing <= width {
                 let _zone = crate::profile::zone("contour residuals");
                 if let Some(prev) = &previous {
-                    let inner = prev.parallel_offset(radius + eps / 4.0, &opts);
+                    let inner = prev.parallel_offset(radius - eps / 4.0, &opts);
                     if !inner.ccw_plines.is_empty() {
-                        let grown = next.parallel_offset(-radius - eps / 4.0, &opts);
+                        let grown = next.parallel_offset(-radius + eps / 4.0, &opts);
                         let covered = disc(&inner)
                             .zip(disc(&grown))
                             .is_some_and(|((a, ra), (b, rb))| a.dist(b) + ra <= rb - 1e-9);
@@ -617,18 +549,7 @@ pub fn generate(
                                 OverlayRule::Difference,
                             )
                         };
-                        let ids: Vec<_> = active.iter().map(|p| (p.0, p.2)).collect();
-                        append_patches(
-                            residual,
-                            width,
-                            spacing,
-                            eps,
-                            &region,
-                            certify,
-                            &mut result.runs,
-                            &ids,
-                            &mut result.diagnostics,
-                        )?;
+                        append_patches(residual, width, eps, certify, &mut result)?;
                     }
                 } else if !loops.is_empty() && !region.convex {
                     let residual = boolean(
@@ -636,28 +557,32 @@ pub fn generate(
                         &shape_polygons(&next.parallel_offset(-radius - eps, &opts), eps),
                         OverlayRule::Difference,
                     );
-                    append_patches(
-                        residual,
-                        width,
-                        spacing,
-                        eps,
-                        &region,
-                        certify,
-                        &mut result.runs,
-                        &[],
-                        &mut result.diagnostics,
-                    )?;
+                    append_patches(residual, width, eps, certify, &mut result)?;
                 }
             }
             if level == 0 && loops.is_empty() {
                 result.diagnostics.fallbacks += 1;
                 result.diagnostics.fallback_thin += 1;
-                result.runs.extend(hatch(
-                    &region,
-                    if spacing > width { spacing } else { spacing.min(width * 0.9) },
-                    spacing > width,
-                    MAX_PRIMITIVES.saturating_sub(count_prims(&result.runs)),
-                )?);
+                if spacing <= width {
+                    append_patches(
+                        shape_polygons(&source, eps),
+                        width,
+                        eps,
+                        certify,
+                        &mut result,
+                    )?;
+                } else {
+                    let fallback_begin = result.runs.len();
+                    result.runs.extend(hatch(
+                        &region,
+                        spacing,
+                        true,
+                        MAX_PRIMITIVES.saturating_sub(count_prims(&result.runs)),
+                    )?);
+                    result
+                        .fallback_runs
+                        .extend(fallback_begin..result.runs.len());
+                }
             }
             if loops.is_empty() {
                 stopped = true;
@@ -756,20 +681,49 @@ pub fn generate(
         if !stopped {
             // Discard provisional ink, rather than reporting partial coverage.
             result.runs.truncate(begin);
+            result.cleanup_runs.retain(|&i| i < begin);
+            result.fallback_runs.retain(|&i| i < begin);
             result.diagnostics.fallbacks += 1;
             if unstable {
                 result.diagnostics.fallback_unstable += 1;
             } else {
                 result.diagnostics.fallback_budget += 1;
             }
+            let fallback_begin = result.runs.len();
             result.runs.extend(hatch(
                 &region,
-                if spacing > width { spacing } else { spacing.min(width * 0.9) },
+                if spacing > width {
+                    spacing
+                } else {
+                    spacing.min(width * 0.9)
+                },
                 spacing > width,
                 MAX_PRIMITIVES.saturating_sub(count_prims(&result.runs)),
             )?);
+            result
+                .fallback_runs
+                .extend(fallback_begin..result.runs.len());
         }
+        cleanup::join(&mut result, begin, spacing, certify);
     }
+    let mut compact = Vec::new();
+    let mut cleanup_ids = std::collections::BTreeSet::new();
+    let mut fallback_ids = std::collections::BTreeSet::new();
+    for (ri, run) in result.runs.drain(..).enumerate() {
+        if run.is_empty() {
+            continue;
+        }
+        if result.cleanup_runs.contains(&ri) {
+            cleanup_ids.insert(compact.len());
+        }
+        if result.fallback_runs.contains(&ri) {
+            fallback_ids.insert(compact.len());
+        }
+        compact.push(run);
+    }
+    result.runs = compact;
+    result.cleanup_runs = cleanup_ids;
+    result.fallback_runs = fallback_ids;
     if count_prims(&result.runs) > MAX_PRIMITIVES {
         return Err("contour: output exceeds geometry budget".into());
     }
@@ -1056,7 +1010,7 @@ mod tests {
                     for &i in &hits {
                         let (a, b) = segments[i as usize];
                         let d = b - a;
-                        let t = ((q - a).dot(d) / d.dot(d)).clamp(0.0, 1.0);
+                        let t = ((q - a).dot(d) / d.dot(d).max(1e-30)).clamp(0.0, 1.0);
                         distance = distance.min(q.dist(a + d * t));
                     }
                     max_distance = max_distance.max(distance);
@@ -1073,14 +1027,32 @@ mod tests {
 
     #[test]
     fn hole_front_collision_covers_saddle() {
-        let mut rings=vec![polygon(&[(16.8,60.3),(193.2,60.3),(193.2,236.7),(16.8,236.7)])];
-        for j in 0..16 {rings.push(vec![Primitive::Arc(Arc::new(v(42.0+(j%4) as f64*42.0,85.5+(j/4) as f64*42.0),10.5,0.0,std::f64::consts::TAU))]);}
-        let region=Region::new(rings,WindingRule::EvenOdd,false);
-        let components=visible_components(&region,&[],&[],0.01).unwrap();
-        let ink=generate(components,0.45,0.405,&|p|inside_segment(p,&region)).unwrap();
-        let q=v(39.7,148.5);
-        let closest=ink.runs.iter().flatten().map(|p|(q.dist(closest(p,q).1),p)).min_by(|a,b|a.0.total_cmp(&b.0)).unwrap();
-        assert!(closest.0<=0.236,"nearest {:?}",closest);
+        let mut rings = vec![polygon(&[
+            (16.8, 60.3),
+            (193.2, 60.3),
+            (193.2, 236.7),
+            (16.8, 236.7),
+        ])];
+        for j in 0..16 {
+            rings.push(vec![Primitive::Arc(Arc::new(
+                v(42.0 + (j % 4) as f64 * 42.0, 85.5 + (j / 4) as f64 * 42.0),
+                10.5,
+                0.0,
+                std::f64::consts::TAU,
+            ))]);
+        }
+        let region = Region::new(rings, WindingRule::EvenOdd, false);
+        let components = visible_components(&region, &[], &[], 0.01).unwrap();
+        let ink = generate(components, 0.45, 0.405, &|p| inside_segment(p, &region)).unwrap();
+        let q = v(39.7, 148.5);
+        let closest = ink
+            .runs
+            .iter()
+            .flatten()
+            .map(|p| (q.dist(closest(p, q).1), p))
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .unwrap();
+        assert!(closest.0 <= 0.236, "nearest {:?}", closest);
     }
 
     #[test]
@@ -1126,30 +1098,44 @@ mod tests {
 
     #[test]
     fn sparse_fallback_keeps_requested_row_spacing() {
-        let region = Region::new(vec![polygon(&[(0.,0.),(20.,0.),(20.,9.),(0.,9.)])], WindingRule::NonZero, true);
+        let region = Region::new(
+            vec![polygon(&[(0., 0.), (20., 0.), (20., 9.), (0., 9.)])],
+            WindingRule::NonZero,
+            true,
+        );
         let rows = hatch(&region, 2.0, true, 100).unwrap();
         assert_eq!(rows.len(), 5);
         for pair in rows.windows(2) {
-            assert!((pair[1][0].start().y-pair[0][0].start().y-2.0).abs()<1e-12);
+            assert!((pair[1][0].start().y - pair[0][0].start().y - 2.0).abs() < 1e-12);
         }
         assert!(hatch(&region, 2.0, true, 2).is_err());
-        let exact = Region::new(vec![polygon(&[(0.,0.),(20.,0.),(20.,7.),(0.,7.)])], WindingRule::NonZero, true);
+        let exact = Region::new(
+            vec![polygon(&[(0., 0.), (20., 0.), (20., 7.), (0., 7.)])],
+            WindingRule::NonZero,
+            true,
+        );
         let fitted = hatch(&exact, 2.0, true, 3).unwrap();
-        assert_eq!(fitted.iter().map(|r| r[0].start().y).collect::<Vec<_>>(), vec![1.5,3.5,5.5]);
+        assert_eq!(
+            fitted.iter().map(|r| r[0].start().y).collect::<Vec<_>>(),
+            vec![1.5, 3.5, 5.5]
+        );
         assert!(hatch(&exact, 2.0, true, 2).is_err());
         assert!(hatch(&exact, f64::MIN_POSITIVE, true, usize::MAX).is_err());
         // Force the component complexity fallback; it must use sparse rows too.
         let mut poly = Polyline::new_closed();
         for i in 0..12_001 {
-            let a=i as f64/12_001.0*std::f64::consts::TAU;
-            poly.add(10.0*a.cos(),10.0*a.sin(),0.0);
+            let a = i as f64 / 12_001.0 * std::f64::consts::TAU;
+            poly.add(10.0 * a.cos(), 10.0 * a.sin(), 0.0);
         }
-        let ink=generate(vec![Shape::from_plines([poly])],0.3,2.0,&|_|true).unwrap();
-        assert_eq!(ink.diagnostics.fallback_budget,1);
-        assert!(ink.runs.len()<=11);
+        let ink = generate(vec![Shape::from_plines([poly])], 0.3, 2.0, &|_| true).unwrap();
+        assert_eq!(ink.diagnostics.fallback_budget, 1);
+        assert!(ink.runs.len() <= 11);
         for pair in ink.runs.windows(2) {
-            let a=pair[0][0].start();let b=pair[1][0].start();
-            assert!(((b.x-a.x).abs()-2.0).abs()<1e-8 || ((b.y-a.y).abs()-2.0).abs()<1e-8);
+            let a = pair[0][0].start();
+            let b = pair[1][0].start();
+            assert!(
+                ((b.x - a.x).abs() - 2.0).abs() < 1e-8 || ((b.y - a.y).abs() - 2.0).abs() < 1e-8
+            );
         }
     }
 

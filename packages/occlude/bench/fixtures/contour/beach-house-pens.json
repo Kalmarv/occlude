@@ -1,0 +1,21 @@
+[
+  {
+    "name": "copic-red",
+    "width": 0.8,
+    "color": "#f56689",
+    "feed": 2000,
+    "penDown": 0,
+    "penUp": 5,
+    "penDelay": 600
+  },
+  {
+    "name": "one4all",
+    "width": 0.8,
+    "color": "#000000",
+    "feed": 3000,
+    "penDown": 0,
+    "penUp": 5,
+    "penDelay": 600,
+    "reinkMm": 0
+  }
+]

@@ -1,0 +1,102 @@
+{
+  "runtime": "v24.21.0",
+  "hardware": "AMD Ryzen 5 3600 6-Core Processor",
+  "platform": "linux x64",
+  "paperMm": [
+    304.8,
+    304.8
+  ],
+  "seed": 291377256,
+  "results": [
+    {
+      "variant": "solid",
+      "runs": 11620,
+      "inkMm": 82273.18163349481,
+      "travelMm": 22649.518389094643,
+      "etaMinutes": 280.4474925344264,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0
+      },
+      "genericBridgePrimitives": 0,
+      "primitives": 27608,
+      "generationMs": {
+        "median": 1053.28321,
+        "tail": 1067.667391
+      },
+      "planningMs": {
+        "median": 74.76237700000001,
+        "tail": 74.85350699999981
+      }
+    },
+    {
+      "variant": "bridged-solid",
+      "runs": 11410,
+      "inkMm": 85357.06935260807,
+      "travelMm": 24140.78874156704,
+      "etaMinutes": 279.82544205350354,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0
+      },
+      "genericBridgePrimitives": 6822,
+      "primitives": 36068,
+      "generationMs": {
+        "median": 1093.2736189999996,
+        "tail": 1121.8158920000005
+      },
+      "planningMs": {
+        "median": 94.13630899999953,
+        "tail": 102.03265699999974
+      }
+    },
+    {
+      "variant": "contour",
+      "runs": 6429,
+      "inkMm": 87399.51492332616,
+      "travelMm": 20189.92382521775,
+      "etaMinutes": 172.68871803263886,
+      "diagnostics": {
+        "components": 148,
+        "levels": 266,
+        "contours": 533,
+        "connectors": 1097,
+        "connectorTests": 1453,
+        "residualPatches": 2051,
+        "fallbacks": 26,
+        "validationSplits": 0,
+        "fallbackThin": 26,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0
+      },
+      "genericBridgePrimitives": 0,
+      "primitives": 77801,
+      "generationMs": {
+        "median": 4775.490643999998,
+        "tail": 4784.757862000002
+      },
+      "planningMs": {
+        "median": 87.06809000000067,
+        "tail": 89.88971299999685
+      }
+    }
+  ]
+}

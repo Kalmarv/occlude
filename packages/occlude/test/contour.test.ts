@@ -13,7 +13,8 @@ it('resolves native spacing and generates connected runs through real WASM', asy
     expect(result.stats.contour?.fallbacks).toBe(0);
     expect(result.stats.contour?.validationSplits).toBe(0);
     const ordered = await plan(result,{bridge:false});
-    expect(ordered.chains.length).toBeLessThanOrEqual(2);
+    // Cleanup may lift rather than taking an out-and-back detour from a loop.
+    expect(ordered.chains.length).toBeLessThanOrEqual(4);
     expect(result.stats.contour?.contours).toBeGreaterThan(100);
     for (const chain of ordered.chains) for (let i=1;i<chain.prims.length;i++) {
       const a=evalPrim(chain.prims[i-1],1), b=evalPrim(chain.prims[i],0);
@@ -118,4 +119,54 @@ it('handles mirrored, nonuniformly scaled cubic outlines and pre-smoothing', asy
   expect(Array.from(a.raw.prims).every(Number.isFinite)).toBe(true);
   expect(a.raw.prims).toEqual(b.raw.prims);
   expect((await plan(a)).buffer).toEqual((await plan(b)).buffer);
+});
+
+it('covers the curved remnant between opposing contours in the decoded plan', async () => {
+  // A 1.125 mm annular band with a 0.45 mm nib leaves a thin curved remnant.
+  // Fixed-axis residual hatch rows used to miss its tapered intersections.
+  const r=render(sketch({aspect:[1,1],seed:42},()=>[
+    circle(50,50,20,{stroke:false,fill:fill('contour'),fillPen:'pigma-05-black'}),
+    mask(circle(50,50,18.875)),
+  ]),{paper:{paper:{w:100,h:100}}});
+  const p=await plan(r);
+  const flat=planToolpath(p,selectAll(p),0.001);
+  expect(r.stats.contour?.residualPatches).toBeGreaterThan(0);
+  expect(p.chains.length).toBeLessThan(10);
+  for(let i=0;i<2400;i++)for(const offset of [-0.05,0,0.05]){
+    const angle=i*Math.PI/1200,rad=19.4375+offset;
+    const x=50+rad*Math.cos(angle),y=50+rad*Math.sin(angle);
+    let nearest=Infinity;
+    for(const c of flat){
+      if(c.dot){nearest=Math.min(nearest,Math.hypot(x-c.pts[0],y-c.pts[1]));continue;}
+      for(let j=2;j<c.pts.length;j+=2){
+        const ax=c.pts[j-2],ay=c.pts[j-1],dx=c.pts[j]-ax,dy=c.pts[j+1]-ay;
+        const t=Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy)||0));
+        nearest=Math.min(nearest,Math.hypot(x-ax-t*dx,y-ay-t*dy));
+      }
+    }
+    expect(nearest,`uncovered curved strip at ${x},${y}`).toBeLessThanOrEqual(0.235);
+  }
+  for(const chain of p.chains)for(let i=1;i<chain.prims.length;i++){
+    const a=evalPrim(chain.prims[i-1],1),b=evalPrim(chain.prims[i],0);
+    expect(Math.hypot(a[0]-b[0],a[1]-b[1])).toBeLessThan(1e-8);
+  }
+});
+
+it('does not collapse a short inset loop into a tap that loses its footprint', async () => {
+  const r=render(sketch({aspect:[1,1],seed:42},()=>circle(50,50,0.28,{
+    stroke:false,fill:fill('contour'),fillPen:'pigma-05-black',
+  })),{paper:{paper:{w:100,h:100}}});
+  const p=await plan(r);
+  expect(p.chains.some(c=>!c.dot)).toBe(true);
+  const flat=planToolpath(p,selectAll(p),0.0001);
+  for(let i=0;i<360;i++){
+    const a=i*Math.PI/180,x=50+0.28*Math.cos(a),y=50+0.28*Math.sin(a);
+    let nearest=Infinity;
+    for(const c of flat)for(let j=2;j<c.pts.length;j+=2){
+      const ax=c.pts[j-2],ay=c.pts[j-1],dx=c.pts[j]-ax,dy=c.pts[j+1]-ay;
+      const t=Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy)||0));
+      nearest=Math.min(nearest,Math.hypot(x-ax-t*dx,y-ay-t*dy));
+    }
+    expect(nearest).toBeLessThanOrEqual(0.235);
+  }
 });

@@ -611,10 +611,16 @@ impl Prepared {
                                         so.contour.validation_splits += 1;
                                     }
                                     for f in &mut so.frags[begin..] {
+                                        if ink.cleanup_runs.contains(&ri) && p.length() == 0.0 { f.dot = true; }
                                         f.run = Some(crate::fragment::RunSpan { id: ri as u32+1, start: seq as f64+f.t0, end: seq as f64+f.t1 });
                                     }
                                 }
-                                judge_runs(&mut so,from,threshold,false,*fill_pen,i as u32);
+                                // Preserve certified contour/cleanup footprints: a small
+                                // loop can cover more than its centroid tap. Hatch fallback
+                                // retains the established sub-nib judging semantics.
+                                if ink.fallback_runs.contains(&ri) {
+                                    judge_runs(&mut so,from,threshold,false,*fill_pen,i as u32);
+                                }
                             }
                         }
                     }
