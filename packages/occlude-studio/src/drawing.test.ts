@@ -211,3 +211,42 @@ it('region repair intersects stroke segments, including tangency and repeated ve
   expect(chainsUnder(flat, [{ x: 105, y: 50, r: 5 }], 0, 1)).toEqual([0]);
   expect(chainsUnder(flat, [{ x: 106, y: 50, r: 5 }], 0, 1)).toEqual([]);
 });
+
+it('bounds flattened-plan retention across plan replacement', async () => {
+  const a = chains(2), b = chains(3);
+  const bufA = encodePlanBuffer(a), bufB = encodePlanBuffer(b);
+  const hashA = await hashPlan(bufA, settings), hashB = await hashPlan(bufB, settings);
+  const calls: string[] = [];
+  const client = { planToolpath: async (range: { planHash: string }) => {
+    calls.push(range.planHash);
+    return encodeToolpath(flatOf(range.planHash === hashA ? a : b));
+  } } as unknown as RenderClient;
+  const d = new Drawing(client, timing);
+  for (const [buffer, planHash] of [[bufA, hashA], [bufB, hashB], [bufA, hashA]] as const) {
+    await d.setPlan({ buffer, planHash, settings }, pens);
+    await d.toolpath(); // current-plan cache still shares the request
+  }
+  expect(calls).toEqual([hashA, hashB, hashA]);
+});
+
+it('a rejected obsolete request cannot evict its replacement after retiming', async () => {
+  const a = chains(2), buffer = encodePlanBuffer(a);
+  const planHash = await hashPlan(buffer, settings);
+  let rejectOld!: (error: Error) => void;
+  let requested!: () => void;
+  const started = new Promise<void>(resolve => { requested = resolve; });
+  let calls = 0;
+  const client = { planToolpath: () => {
+    if (++calls === 1) return new Promise<Float64Array>((_resolve, reject) => { rejectOld = reject; requested(); });
+    return Promise.resolve(encodeToolpath(flatOf(a)));
+  } } as unknown as RenderClient;
+  const d = new Drawing(client, timing);
+  const old = d.setPlan({ buffer, planHash, settings }, pens);
+  await started;
+  await d.retime();
+  rejectOld(new Error('obsolete worker request'));
+  await expect(old).rejects.toThrow('obsolete worker request');
+  await d.toolpath();
+  expect(calls).toBe(2);
+  expect(d.selection?.count).toBe(2);
+});

@@ -137,6 +137,10 @@ export class Drawing {
   /** A render landed: adopt its plan (verified) and the sketch's request. */
   async setPlan(reply: { buffer: Float64Array; settings: PlanSettings; planHash: string }, pens: PenDef[], request: DrawRequest = {}): Promise<void> {
     const plan = await openPlan(reply.buffer, reply.settings, reply.planHash);
+    // Only the current drawing owns cached toolpaths. Repeating an identical
+    // plan can share them, but editing must not retain every prior drawing.
+    if (this.plan?.planHash !== plan.planHash) this.flat.clear();
+    this.flatNow = null;
     this.plan = plan;
     this.pens = pens;
     this.request = request;
@@ -263,7 +267,11 @@ export class Drawing {
         .planToolpath({ planHash: plan.planHash, from: 0, to: plan.chains.length }, tolerance)
         .then((buf) => parseToolpath(buf, 0));
       this.flat.set(key, p);
-      p.catch(() => this.flat.delete(key));
+      p.catch(() => {
+        // A retime or plan replacement may already have installed a new
+        // request under this key by the time the obsolete one fails.
+        if (this.flat.get(key) === p) this.flat.delete(key);
+      });
     }
     return p;
   }
