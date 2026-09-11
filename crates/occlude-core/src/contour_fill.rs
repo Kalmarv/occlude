@@ -356,17 +356,20 @@ fn hatch(region: &Region, spacing: f64, sparse: bool, budget: usize) -> Result<V
     let span = if horizontal { b.height() } else { b.width() };
     // An odd count retains the axial centerline. Even row counts can miss
     // the long tapered ends of a lens-shaped collapse residual entirely.
-    if !span.is_finite() || !spacing.is_finite() || spacing <= 0.0 || span / spacing > budget as f64 {
-        return Err("contour: fallback coverage exceeds geometry budget".into());
+    if !span.is_finite() || !spacing.is_finite() || spacing <= 0.0 {
+        return Err("contour: invalid fallback spacing or extent".into());
     }
-    let n = if sparse {
-        2 * (span / (2.0 * spacing)).floor() as usize + 1
+    // Compute the mode-specific count before converting to usize. The odd
+    // centered sparse count can be smaller than span / spacing.
+    let rows = if sparse {
+        2.0 * ((span / spacing) / 2.0).floor() + 1.0
     } else {
-        ((span / spacing).ceil().max(1.0) as usize) | 1
+        2.0 * ((span / spacing).ceil().max(1.0) / 2.0).floor() + 1.0
     };
-    if n > budget {
+    if !rows.is_finite() || rows >= usize::MAX as f64 || rows > budget as f64 {
         return Err("contour: fallback coverage exceeds geometry budget".into());
     }
+    let n = rows as usize;
     let mut out = Vec::new();
     for row in 0..n {
         let d = if sparse {
@@ -1130,6 +1133,11 @@ mod tests {
             assert!((pair[1][0].start().y-pair[0][0].start().y-2.0).abs()<1e-12);
         }
         assert!(hatch(&region, 2.0, true, 2).is_err());
+        let exact = Region::new(vec![polygon(&[(0.,0.),(20.,0.),(20.,7.),(0.,7.)])], WindingRule::NonZero, true);
+        let fitted = hatch(&exact, 2.0, true, 3).unwrap();
+        assert_eq!(fitted.iter().map(|r| r[0].start().y).collect::<Vec<_>>(), vec![1.5,3.5,5.5]);
+        assert!(hatch(&exact, 2.0, true, 2).is_err());
+        assert!(hatch(&exact, f64::MIN_POSITIVE, true, usize::MAX).is_err());
         // Force the component complexity fallback; it must use sparse rows too.
         let mut poly = Polyline::new_closed();
         for i in 0..12_001 {
