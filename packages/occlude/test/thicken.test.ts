@@ -633,7 +633,7 @@ describe('thicken: near-degenerate junctions', () => {
     let s = 12345;
     const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
     let checked = 0;
-    for (let c = 0; c < 150; c++) {
+    for (let c = 0; c < 800; c++) {
       const n = 1 + Math.floor(rnd() * 6);
       const pts: [number, number][] = [];
       for (let i = 0; i < n; i++) pts.push([Math.round(rnd() * 20), Math.round(rnd() * 20)]);
@@ -666,4 +666,31 @@ describe('thicken: near-degenerate junctions', () => {
     }
     expect(checked).toBeGreaterThan(1000);
   });
+});
+
+
+describe('thicken: exact near-tangent circle intersections', () => {
+  it.each([
+    [[-1, 0], [0.9999999999999999, 0]],
+    [[0, 0], [2 * Math.cos(0.1), 2 * Math.sin(0.1)]],
+  ])('retains a single closed union for overlapping discs %j', (a, b) => {
+    const out = thicken(material([a as [number, number], b as [number, number]]), { radius: 1 });
+    const contours = [...out.curves()];
+    expect(contours).toHaveLength(1);
+    expect(contours[0].closed).toBe(true);
+    expect(totalArea(out)).toBeGreaterThan(5.5);
+    expect(Array.from(out.x).every(Number.isFinite)).toBe(true);
+    expect(Array.from(out.y).every(Number.isFinite)).toBe(true);
+  });
+});
+
+
+it('retains coordinate precision at a line–circle overlap', () => {
+  const body = thicken(material([[-4, -2], [4, -2], [0, 0.9999999999999999]], {
+    edges: [[0, 1]], radius: [1, 1, 2],
+  }), { radius: radiusOf });
+  expect(body.curves()).toHaveLength(1);
+  expect(body.curves()[0].closed).toBe(true);
+  expect(distanceTo(body)(0, -2)).toBeGreaterThan(0);
+  expect(distanceTo(body)(0, 1)).toBeGreaterThan(0);
 });
