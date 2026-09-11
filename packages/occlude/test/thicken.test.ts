@@ -530,6 +530,19 @@ describe('thicken: regressions', () => {
 // ---- near-degenerate junctions ----------------------------------------------------
 
 describe('thicken: near-degenerate junctions', () => {
+  it('does not extrapolate a near-tangent crossing over an exterior interval', () => {
+    const src = material([[30,70],[30,30],[35,35],[25,35],[44.99999999999999,35]], {
+      edges: [[0,1],[2,3],[2,4]],
+    });
+    const body = thicken(src, {radius:p => 0.1 + p.x / 100 * 0.9});
+    expect(body.curves()).toHaveLength(1);
+    expect(body.curves()[0].closed).toBe(true);
+    const d = distanceTo(body);
+    expect(d(32,35)).toBeGreaterThan(0.35);
+    expect(d(30,33)).toBeGreaterThan(0.35);
+    expect(d(32,34)).toBeLessThan(-0.5);
+  });
+
   const kink = (h: number, ox = 0, oy = 0, angle = 0, reverse = false) => {
     const base: [number, number][] = [[0, 0], [10, 0], [20, h]];
     const pts = base.map(([x, y]) => [
@@ -813,5 +826,35 @@ describe('thicken: overlapping recursive rectangles', () => {
       }
     }
   }, 30000);
+
+  it('checks varying-radius recursive boundaries against their tapered envelopes', () => {
+    for (const paper of [100, 200, 210, 297, 304.8]) {
+      for (const field of [
+        (p: Vertex) => 0.1 + (p.x / 100) * 0.9,
+        (p: Vertex) => 1 - (p.x / 100) * 0.9,
+        (p: Vertex) => 0.1 + (p.y / 100) * 0.9,
+      ]) {
+        const src = recursive(1, undefined, paper);
+        const body = thicken(src, { radius: field, tolerance: 0.01 });
+        expect(body.curves().every(c => c.closed)).toBe(true);
+        expect([...body.x, ...body.y].every(Number.isFinite)).toBe(true);
+        const shapes: Envelope[] = [];
+        const radii = Array.from({length: src.n}, (_, i) => field({x:src.x[i], y:src.y[i]} as Vertex));
+        for (let i = 0; i < src.edgeList.length; i += 2) {
+          const a = src.edgeList[i], b = src.edgeList[i + 1];
+          shapes.push([src.x[a], src.y[a], src.x[b], src.y[b], radii[a], radii[b]]);
+        }
+        const inside = oracle(shapes), d = distanceTo(body);
+        expect(d(50, 50)).toBeLessThan(0);
+        for (let i = 0; i < 900; i++) {
+          const x = 9.173 + ((i * 47) % 901) / 901 * 82;
+          const y = 9.291 + ((i * 313) % 907) / 907 * 82;
+          const actual = d(x, y);
+          if (Math.abs(actual) <= 0.025) continue;
+          expect(actual > 0, `paper=${paper}, point=(${x},${y})`).toBe(inside(x, y));
+        }
+      }
+    }
+  });
 
 });

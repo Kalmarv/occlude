@@ -242,7 +242,7 @@ function primPoint(prim: Prim, p: number): [number, number] {
  * squared distance to the moving centre minus the moving radius squared,
  * minimised over the edge's parameter — the independent membership formula
  * the analytic boundary is checked against. */
-function shapeContains(s: Shape, x: number, y: number, exact: () => boolean): boolean {
+function shapeContains(s: Shape, x: number, y: number, uncertain: () => boolean): boolean {
   const qx = x - s.ax;
   const qy = y - s.ay;
   const dx = s.bx - s.ax;
@@ -257,15 +257,17 @@ function shapeContains(s: Shape, x: number, y: number, exact: () => boolean): bo
     const t = Math.min(1, Math.max(0, -B / (2 * A)));
     best = Math.min(best, f(t));
   }
-  // The evaluation's own error scale: F is a difference of squared lengths,
-  // so its uncertainty is ~eps times the magnitudes squared. A piece is
-  // discarded only when it is PROVABLY inside another shape; a piece whose
-  // membership is within that uncertainty is kept, so a real sliver is never
-  // dropped by a sign that rounding happened to flip.
-  const bound = 64 * Number.EPSILON * (Math.abs(A) + Math.abs(B) + Math.abs(C) + 1);
+  // F is a difference of squared lengths. Delegate uncertain signs to the
+  // crossing/analytic classification rather than trusting cancellation.
+  // The query was constructed in world coordinates. Its rounding error
+  // grows with translation even though F uses local differences. Include
+  // that uncertainty before allowing the direct test to override topology.
+  const coordinateScale = Math.max(Math.abs(x), Math.abs(y), Math.abs(s.ax), Math.abs(s.ay), Math.abs(s.bx), Math.abs(s.by));
+  const gradientScale = Math.abs(qx) + Math.abs(qy) + Math.abs(dx) + Math.abs(dy) + s.ra + s.rb;
+  const bound = 64 * Number.EPSILON * (Math.abs(A) + Math.abs(B) + Math.abs(C) + 1 + coordinateScale * gradientScale);
   if (best < -bound) return true;
   if (best > bound) return false;
-  return exact();
+  return uncertain();
 }
 
 /** Exact membership of the query point in one edge-like shape, over the
@@ -1257,7 +1259,11 @@ export function thicken(
         }
         structural = lo ? crosses[lo - 1].after : !crosses[0].after;
       }
-      if (structural ?? shapeContains(shapes[si], mx, my, () => exactPieceInside(shapes[si], pc))) {
+      // A reliable direct membership test takes precedence. Near-tangent
+      // construction can round a crossing onto an endpoint; extrapolating
+      // that crossing state must not discard a provably exterior interval.
+      // Only uncertain samples need the crossing/analytic-point fallback.
+      if (shapeContains(shapes[si], mx, my, () => structural ?? exactPieceInside(shapes[si], pc))) {
         covered = true;
         break;
       }
