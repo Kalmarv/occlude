@@ -743,7 +743,16 @@ impl Prepared {
 
         drop(_z);
         let _z = crate::profile::zone("6 dedupe");
-        let mut frags = dedupe_seams(frags, min_pen_width.max(1e-6));
+        let has_post = shapes
+            .iter()
+            .any(|s| s.modifiers.iter().any(|m| m.stage() == Stage::Post));
+        // Coincident shapes can produce different ink after finishing modifiers.
+        // Keep both until then; retain the existing cleanup path without modifiers.
+        let mut frags = if has_post {
+            frags
+        } else {
+            dedupe_seams(frags, min_pen_width.max(1e-6))
+        };
         // Sub-nib candidates become dots only where their ink is not already
         // laid down by kept strokes — the coverage half of the nib rule.
         let pen_widths: Vec<f64> = pens.iter().map(|p| p.width).collect();
@@ -752,13 +761,10 @@ impl Prepared {
         drop(_z);
         let _z = crate::profile::zone("7 post-modifiers");
         // ---- Post-stage modifiers: each shape's ordered program runs over its
-        // final ink, AFTER occlusion and cleanup, so what a modifier touches is
-        // final visible strokes. One frag at a time through the whole program
+        // visible ink, AFTER occlusion and nib cleanup but BEFORE cross-shape
+        // duplicate removal. One frag at a time through the whole program
         // preserves global frag order (and therefore plot order).
         let mut frags = frags;
-        let has_post = shapes
-            .iter()
-            .any(|s| s.modifiers.iter().any(|m| m.stage() == Stage::Post));
         if has_post {
             let mut interp = PostInterp {
                 seed,
@@ -791,7 +797,9 @@ impl Prepared {
                 let is_stroke = (f.origin as usize) >= p0 && (f.origin as usize) < p1;
                 interp.run(f, prog, is_stroke, shapes[si].closed, &mut out);
             }
-            frags = out;
+            // Compare the ink that survived each shape's own program, not
+            // coincident source strokes that might later disappear or move.
+            frags = dedupe_seams(out, min_pen_width.max(1e-6));
         }
 
         drop(_z);

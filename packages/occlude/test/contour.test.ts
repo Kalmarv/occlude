@@ -170,3 +170,23 @@ it('does not collapse a short inset loop into a tap that loses its footprint', a
     expect(nearest).toBeLessThanOrEqual(0.235);
   }
 });
+
+
+it('keeps an intact duplicate outline after decimating a contour-filled shape', async () => {
+  for (const fraction of [0.3, 1]) {
+    const result = render(sketch({aspect:[1,1],seed:42}, () => [
+      decimate(fraction, rect(20,20,60,60,{fill:fill('contour')})),
+      rect(20,20,60,60),
+    ]), {paper:'Square20'});
+    const ordered = await plan(result, {bridge:false});
+    let perimeter = 0;
+    for (const chain of ordered.chains) for (const p of chain.prims) {
+      const a = evalPrim(p,0), b = evalPrim(p,1);
+      const onEdge = [40,160].some(edge =>
+        (Math.abs(a[0]-edge)<1e-8 && Math.abs(b[0]-edge)<1e-8) ||
+        (Math.abs(a[1]-edge)<1e-8 && Math.abs(b[1]-edge)<1e-8));
+      if (onEdge) perimeter += Math.hypot(b[0]-a[0],b[1]-a[1]);
+    }
+    expect(perimeter).toBeCloseTo(480,7);
+  }
+});

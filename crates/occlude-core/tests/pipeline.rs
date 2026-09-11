@@ -338,6 +338,42 @@ fn shared_edge_squares_no_double_seam() {
 }
 
 #[test]
+fn duplicate_outlines_are_deduped_after_decimation() {
+    use occlude_core::modifier::{Modifier, Param};
+    for fraction in [0.0, 0.3, 1.0] {
+        for reverse in [false, true] {
+            let outline = stroke_shape(rect_contour(10.0, 10.0, 20.0, 20.0), true);
+            let mut distressed = outline.clone();
+            distressed.modifiers.push(Modifier::Decimate {
+                stroke: Param::Lit(fraction), fill: Param::Lit(fraction),
+            });
+            let mut shapes = vec![distressed, outline];
+            if reverse { shapes.reverse(); }
+            let out = render(&input(shapes));
+            assert_eq!(out.frags.len(), 4, "fraction={fraction}, reverse={reverse}");
+            let length: f64 = out.frags.iter().map(|f| f.geom.length()).sum();
+            assert!((length - 80.0).abs() < 1e-9);
+        }
+    }
+}
+
+#[test]
+fn duplicate_outlines_survive_dashing_and_displacement() {
+    use occlude_core::modifier::{Modifier, Param};
+    for modifier in [
+        Modifier::Dash { len: 1.0, gap: 1.0, offset: 0.0 },
+        Modifier::Wobble { amp: Param::Lit(2.0), wavelength: 3.0 },
+    ] {
+        let outline = stroke_shape(rect_contour(10.0, 10.0, 20.0, 20.0), true);
+        let mut modified = outline.clone();
+        modified.modifiers.push(modifier);
+        let out = render(&input(vec![modified, outline]));
+        assert_eq!(out.frags.iter().filter(|f| f.shape == 1).count(), 4);
+        assert!(out.frags.iter().any(|f| f.shape == 0));
+    }
+}
+
+#[test]
 fn export_gcode_and_svg_smoke() {
     let shapes = vec![
         hatched_shape(circle_contour(50., 50., 20.)),

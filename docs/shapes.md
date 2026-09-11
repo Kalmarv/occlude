@@ -253,7 +253,7 @@ The amount may also be a **length-valued field** — `mm(0.3)` per sample, resol
 
 ### decimate
 
-Drops a fraction of the final strokes, seeded. `{ stroke, fill }` targets outline and fill ink separately.
+Drops a fraction of the final strokes, seeded. `{ stroke, fill }` targets outline and fill ink separately. Finishing modifiers apply before duplicate outlines are removed, so a separately drawn intact outline survives alongside a decimated copy.
 
 ```ts live
 import { sketch, circle, fill, mm } from 'occlude';
