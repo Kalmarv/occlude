@@ -16,7 +16,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   // #endregion
   const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
   const nudged = shore.steps(1, (current, next) => {
-    next.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
+    next.move(current.points, (p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   });
   const eastern = nudged.points.filter((p) => p.east === 1);
   const reeds = eastern.map((p) => line(p.x, p.y, p.x + 1, p.y - 7));
@@ -41,7 +41,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
   const shore = t.sample(pond, { count: 24 });
   const nudged = shore.steps(1, (current, next) => {
-    next.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
+    next.move(current.points, (p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   });
   // #endregion
   return [sky, sun, farHill, nearHill, polygon(nudged, { opaque: true })];
@@ -65,7 +65,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
   const shore = t.sample(pond, { count: 24 });
   const nudged = shore.steps(1, (current, next) => {
-    next.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
+    next.move(current.points, (p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   });
   // #endregion
   const eastern = nudged.points.filter((p) => p.x >= 140);
@@ -92,7 +92,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const pond = ellipse(140, 90, 34, 8, 0, { opaque: true });
   const shore = t.sample(pond, { count: 24 });
   const nudged = shore.steps(1, (current, next) => {
-    next.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
+    next.move(current.points, (p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   });
   // #endregion
   const eastern = nudged.points.filter((p) => p.x >= 140);
@@ -117,7 +117,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   // #endregion
   const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
   const nudged = shore.steps(1, (current, next) => {
-    next.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
+    next.move(current.points, (p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   });
   const eastern = nudged.points.filter((p) => p.east === 1);
   const reeds = eastern.map((p) => line(p.x, p.y, p.x + 1, p.y - 7));
@@ -143,7 +143,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   // #endregion
   const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
   const nudged = shore.steps(1, (current, next) => {
-    next.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
+    next.move(current.points, (p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   });
   const remembered = nudged.points.filter((p) => p.east === 1);
   const recomputed = nudged.points.filter((p) => p.x >= 140);
@@ -176,7 +176,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   // #endregion
   const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
   const raised = shore.steps(1, (current, next) => {
-    next.move((p) => [0, -12]);
+    next.move(current.points, (p) => [0, -12]);
   });
   const eastern = shore.points.filter((p) => p.east === 1);
   return [
@@ -216,7 +216,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   // #endregion
   const shore = t.sample(pond, { count: 24 }).attribute('north', (p) => (p.y < 90 ? 1 : 0));
   const nudged = shore.steps(1, (current, next) => {
-    next.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
+    next.move(current.points, (p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   });
   const northern = nudged.points.filter((p) => p.north === 1);
   return [
@@ -251,7 +251,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   // #endregion
   const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
   const nudged = shore.steps(1, (current, next) => {
-    next.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
+    next.move(current.points, (p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   });
   const sides = nudged.points.groupBy((p) => p.east);
   const marks = sides.map((side) => {
@@ -280,7 +280,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   // #endregion
   const shore = t.sample(pond, { count: 24 }).attribute('east', (p) => (p.x >= 140 ? 1 : 0));
   const nudged = shore.steps(1, (current, next) => {
-    next.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
+    next.move(current.points, (p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   });
   const reeds = nudged.points.filter((p) => p.east === 1).map((p) => line(p.x, p.y, p.x + 1, p.y - 7));
   const pens = ['pigma-005-black', 'pigma-005-black', 'stabilo-88-blue'];

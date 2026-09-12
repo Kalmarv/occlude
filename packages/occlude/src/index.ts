@@ -61,7 +61,7 @@ export {
 } from './material.js';
 export { query } from './query.js';
 export { inheritEdge, sumForces } from './material.js';
-export type { EdgeTransfer, EdgeRef, PointWhere, EdgeWhere } from './material.js';
+export type { EdgeTransfer, EdgeRef, StepRule, StepsOptions } from './material.js';
 export { stationsMaterial, isStations } from './material.js';
 export { thicken } from './thicken.js';
 export type { ThickenOpts } from './thicken.js';

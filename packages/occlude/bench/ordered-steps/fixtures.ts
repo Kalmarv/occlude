@@ -22,8 +22,8 @@ export function growth(ordered: boolean, count = 100): Material {
       })
     : seed.steps(count, (prev, next) => {
         const tips = prev.points.filter((p) => p.active === 1);
-        next.extend(child, { where: tips });
-        next.set(() => ({ active: 0 }), { where: tips });
+        next.extrude(tips, child);
+        next.set(tips, () => ({ active: 0 }));
       });
 }
 export function ring(ordered: boolean, count = 30): Material {
@@ -50,8 +50,9 @@ export function ring(ordered: boolean, count = 30): Material {
         current.splitEdges(current.edges.filter((e) => e.length > 4));
       })
     : seed.steps(count, (prev, next) => {
-        next.move(makePush(prev));
-        next.splitEdges((e) => e.length > 4);
+        next.move(prev.points, makePush(prev));
+      }, (prev, next) => {
+        next.splitEdges(prev.edges.filter((e) => e.length > 4));
       });
 }
 export function collisionSeed(count = 20): Material {
@@ -82,16 +83,15 @@ export function collisions(
     return seed.steps(1, (prev, next) => {
       const query = edgeQuery(prev),
         tips = prev.points.filter((p) => p.active === 1);
-      next.extend(
+      next.extrude(tips,
         (p) => {
           const hit = query.firstHit(p, [p.x, -1], { excludeIncident: p })!;
           return {
             to: next.split(hit.edge, { at: hit.t, point: { active: 0 } }),
           };
         },
-        { where: tips },
       );
-      next.set(() => ({ active: 0 }), { where: tips });
+      next.set(tips, () => ({ active: 0 }));
     });
   if (mode === "grouped")
     return orderedSteps(seed, 1, (prev, current) => {

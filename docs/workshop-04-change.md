@@ -16,8 +16,9 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
   const grown = ring.steps(steps, (current, next) => {
     const pull = force.tension(current, { rest: 2.5 });
-    next.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
-    next.splitEdges((e) => e.length > 5);
+    next.move(current.points, (p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+  }, (current, next) => {
+    next.splitEdges(current.edges.filter((e) => e.length > 5));
   }, { every });
   const states = grown.history;
   return [
@@ -43,7 +44,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const centre = [t.cx, t.cy];
   const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.06);
-  const grown = ring.steps(steps, (current, next) => next.move((p) => outward(p)));
+  const grown = ring.steps(steps, (current, next) => next.move(current.points, (p) => outward(p)));
   return [
     strokes(ring, { pen: 'stabilo-88-blue' }),
     strokes(grown),
@@ -74,7 +75,7 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const centre = [t.cx, t.cy];
   const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
-  const grown = ring.steps(steps, (current, next) => next.move((p) => uneven(p)));
+  const grown = ring.steps(steps, (current, next) => next.move(current.points, (p) => uneven(p)));
   return [
     grown.points.map((p) => line(p.x, p.y, ...add(p, mul(uneven(p), 6)))),
     strokes(ring, { pen: 'stabilo-88-blue' }),
@@ -106,10 +107,10 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const strength = ui(0.5, { min: 0, max: 1.5, step: 0.05, label: 'tension strength' });
   const ring = t.sample(circle(50, 50, 14), { count: 36 });
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14), t.noise(p.x / 14 + 30, p.y / 14)];
-  const loose = ring.steps(steps, (current, next) => next.move((p) => uneven(p)));
+  const loose = ring.steps(steps, (current, next) => next.move(current.points, (p) => uneven(p)));
   const held = ring.steps(steps, (current, next) => {
     const pull = force.tension(current, { rest: 2.5 });
-    next.move((p) => sum(uneven(p), mul(pull(p), strength)));
+    next.move(current.points, (p) => sum(uneven(p), mul(pull(p), strength)));
   });
   return [
     strokes(loose), loose.points.map((p) => circle(p.x, p.y, 0.5)),
@@ -129,7 +130,7 @@ Tension acts only on connections longer than `rest`, so it changes the stretched
 
 ## Give long segments more detail
 
-Points are where a ring can bend. A stretched connection is a long straight side, and no displacement of its two ends will put a bend in the middle of it. `next.splitEdges((e) => e.length > 5)` looks at every connection after the moves and inserts a point in the middle of each one longer than 5. The label counts the points.
+Points are where a ring can bend. A stretched connection is a long straight side, and no displacement of its two ends will put a bend in the middle of it. `next.splitEdges(current.edges.filter((e) => e.length > 5))` in the second pass looks at every connection after the first pass has finished moving the points and inserts a point in the middle of each one longer than 5. The label counts the points.
 
 Before you look: if the ring is subdivided at the end of a step, and nothing moves it afterwards, does its silhouette change?
 
@@ -143,8 +144,9 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(t.cx, t.cy, 14), { count: 36 });
   const outward = (p) => mul(sub(p, centre), 0.06);
   const grown = ring.steps(steps, (current, next) => {
-    next.move((p) => outward(p));
-    if (split) next.splitEdges((e) => e.length > 5);
+    next.move(current.points, (p) => outward(p));
+  }, (current, next) => {
+    if (split) next.splitEdges(current.edges.filter((e) => e.length > 5));
   });
   return [
     strokes(grown),
@@ -178,8 +180,9 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
   const grown = ring.steps(steps, (current, next) => {
     const pull = force.tension(current, { rest: 2.5 });
-    next.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
-    next.splitEdges((e) => e.length > 5);
+    next.move(current.points, (p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+  }, (current, next) => {
+    next.splitEdges(current.edges.filter((e) => e.length > 5));
   });
   return [strokes(grown), label(`${grown.n} points`, 4, 6, 4)];
 });
@@ -212,8 +215,9 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
   const grown = ring.steps(steps, (current, next) => {
     const pull = force.tension(current, { rest: 2.5 });
-    next.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
-    next.splitEdges((e) => e.length > 5);
+    next.move(current.points, (p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+  }, (current, next) => {
+    next.splitEdges(current.edges.filter((e) => e.length > 5));
   }, { every });
   const states = grown.history;
   return [
@@ -243,8 +247,9 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
   const grown = ring.steps(steps, (current, next) => {
     const pull = force.tension(current, { rest: 2.5 });
-    next.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
-    next.splitEdges((e) => e.length > 5);
+    next.move(current.points, (p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+  }, (current, next) => {
+    next.splitEdges(current.edges.filter((e) => e.length > 5));
   }, { every });
   return grown.history.map((h) => strokes(h.material, { pen: 'pigma-005-black' }));
 });
@@ -265,8 +270,9 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const uneven = (p) => [t.noise(p.x / 14, p.y / 14) * wrinkle, t.noise(p.x / 14 + 30, p.y / 14) * wrinkle];
   const grown = ring.steps(steps, (current, next) => {
     const pull = force.tension(current, { rest: 2.5 });
-    next.move((p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
-    next.splitEdges((e) => e.length > 4);
+    next.move(current.points, (p) => sum(outward(p), uneven(p), mul(pull(p), strength)));
+  }, (current, next) => {
+    next.splitEdges(current.edges.filter((e) => e.length > 4));
   });
   return polygon(grown, { fill: fill('hatch', { angle: 30, spacing: mm(1.1) }) });
 });

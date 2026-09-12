@@ -14,11 +14,10 @@ for (const N of [500, 2000, 5000]) {
     const pull = force.tension(cur, { rest: 1.0 });
     const repel = force.separation(cur, { radius: 2, excludeConnected: true });
     for (const p of cur.points) next.move(p.index, mul(sum(pull(p), repel(p), wander(p, k)), 0.15));
-    next.set((p) => ({ age: p.age + 1 }));
-    next.splitEdges((e) => e.length > 1.3, { point: { age: 0 } });
+    next.set(cur.points, (p) => ({ age: p.age + 1 }));
   };
   console.log(`\n== growth ring N=${N}`);
-  t(`  one step (steps(1))`, () => { ring = ring.steps(1, step); }, 3);
+  t(`  one step (steps(1))`, () => { ring = ring.steps(1, step, (prev, next) => next.splitEdges(prev.edges.filter(e => e.length > 1.3), { point: { age: 0 } })); }, 3);
   const cur = ring;
   t(`  cur.points (view creation, ${cur.n} views)`, () => cur.points, 5);
   t(`  force.separation prepare (grid)`, () => force.separation(cur, { radius: 2, excludeConnected: true }), 5);
@@ -28,8 +27,8 @@ for (const N of [500, 2000, 5000]) {
   const pull = force.tension(cur, { rest: 1 });
   t(`  tension evaluate ×N`, () => { for (const p of pts) pull(p); }, 3);
   t(`  neighbours(cur,{radius:2}) build`, () => neighbours(cur, { radius: 2 }), 5);
-  t(`  steps(1, move only)`, () => cur.steps(1, (c, n) => n.move((p) => [0.01, 0])), 3);
-  t(`  steps(1, splitEdges all)`, () => cur.steps(1, (c, n) => n.splitEdges(() => true, { point: { age: 0 } })), 2);
+  t(`  steps(1, move only)`, () => cur.steps(1, (c, n) => n.move(c.points, (p) => [0.01, 0])), 3);
+  t(`  steps(1, splitEdges all)`, () => cur.steps(1, (c, n) => n.splitEdges(c.edges.filter(() => true), { point: { age: 0 } })), 2);
   t(`  curves()`, () => cur.curves(), 5);
   t(`  segmentRuns by age band`, () => segmentRuns(cur, (a, b) => Math.floor(((a.age + b.age) / 2) / 5)), 3);
   t(`  resample({spacing:1})`, () => cur.resample({ spacing: 1 }), 3);

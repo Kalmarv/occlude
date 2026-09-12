@@ -16,7 +16,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const paths = append(rock, seeds, { fill: { active: 0, heading: 0 } }).steps(steps, (current, next, k) => {
     const lines = query.edges(current);
     const tips = current.points.filter((p) => p.active === 1 && p.y > 4 && p.x > 3 && p.x < 197);
-    next.extend((p) => {
+    next.extrude(tips, (p) => {
       let h = p.heading + t.noise(p.x / 10, p.y / 10, k) * 0.35;
       const ahead = add(p, mul(fromAngle(h), sense));
       const near = lines.nearest(ahead, { within: sense, excludeIncident: p });
@@ -26,8 +26,8 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
       if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: h } }) };
       const headings = t.chance(branch) ? [h - 0.5, h + 0.5] : [h];
       return headings.map((hh) => ({ position: add(p, mul(fromAngle(hh), 2.2)), attributes: { heading: hh } }));
-    }, { where: tips, inherit: true });
-    next.set(() => ({ active: 0 }), { where: tips });
+    }, { inherit: true });
+    next.set(tips, { active: 0 });
   });
   return [strokes(paths), paths.points.filter((p) => p.active === 1).map((p) => circle(p.x, p.y, 0.8))];
 });
@@ -48,11 +48,11 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const stride = 4;
   const path = seed.steps(steps, (current, next) => {
     const tips = current.points.filter((p) => p.active === 1);
-    next.extend((p) => ({
+    next.extrude(tips, (p) => ({
       position: add(p, mul(fromAngle(p.heading), stride)),
       attributes: { active: 1, heading: p.heading },
-    }), { where: tips });
-    next.set(() => ({ active: 0 }), { where: tips });
+    }));
+    next.set(tips, { active: 0 });
   });
   return [strokes(path), path.points.filter((p) => p.active === 1).map((p) => circle(p.x, p.y, 1)), path.points.map((p) => circle(p.x, p.y, 0.4))];
 });
@@ -80,11 +80,11 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const stride = 4;
   const path = seed.steps(steps, (current, next, k) => {
     const tips = current.points.filter((p) => p.active === 1);
-    next.extend((p) => {
+    next.extrude(tips, (p) => {
       const headings = k === 5 ? [p.heading - 0.5, p.heading + 0.5] : [p.heading];
       return headings.map((h) => ({ position: add(p, mul(fromAngle(h), stride)), attributes: { heading: h } }));
-    }, { where: tips, inherit: true });
-    next.set(() => ({ active: 0 }), { where: tips });
+    }, { inherit: true });
+    next.set(tips, { active: 0 });
   });
   return [strokes(path), path.points.filter((p) => p.active === 1).map((p) => circle(p.x, p.y, 1))];
 });
@@ -100,11 +100,11 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const stride = 4;
   const path = seed.steps(steps, (current, next) => {
     const tips = current.points.filter((p) => p.active === 1);
-    next.extend((p) => {
+    next.extrude(tips, (p) => {
       const headings = t.chance(branch) ? [p.heading - 0.5, p.heading + 0.5] : [p.heading];
       return headings.map((h) => ({ position: add(p, mul(fromAngle(h), stride)), attributes: { heading: h } }));
-    }, { where: tips, inherit: true });
-    next.set(() => ({ active: 0 }), { where: tips });
+    }, { inherit: true });
+    next.set(tips, { active: 0 });
   });
   return [strokes(path), path.points.filter((p) => p.active === 1).map((p) => circle(p.x, p.y, 1))];
 });
@@ -127,11 +127,11 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const seed = material([[50, 92]], { active: 1, heading: -Math.PI / 2 });
   const path = append(bar, seed, { fill: { active: 0, heading: 0 } }).steps(11, (current, next) => {
     const tips = current.points.filter((p) => p.active === 1);
-    next.extend((p) => ({
+    next.extrude(tips, (p) => ({
       position: add(p, mul(fromAngle(p.heading), 4)),
       attributes: { active: 1, heading: p.heading },
-    }), { where: tips });
-    next.set(() => ({ active: 0 }), { where: tips });
+    }));
+    next.set(tips, { active: 0 });
   });
   const tip = path.points.filter((p) => p.active === 1).at(0);
   const target = add(tip, mul(fromAngle(tip.heading), stride));
@@ -160,14 +160,14 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const grow = (joins) => append(bar, seed, { fill: { active: 0, heading: 0 } }).steps(16, (current, next) => {
     const lines = query.edges(current);
     const tips = current.points.filter((p) => p.active === 1);
-    next.extend((p) => {
+    next.extrude(tips, (p) => {
       const target = add(p, mul(fromAngle(p.heading), 4));
       const hit = lines.firstHit(p, target, { excludeIncident: p });
       if (hit && joins) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: p.heading } }) };
       if (hit) return { position: sub(hit.position, mul(fromAngle(p.heading), 1)), attributes: { active: 0, heading: p.heading } };
       return { position: target, attributes: { active: 1, heading: p.heading } };
-    }, { where: tips });
-    next.set(() => ({ active: 0 }), { where: tips });
+    });
+    next.set(tips, { active: 0 });
   });
   const stopped = grow(false);
   const joined = grow(join);
@@ -221,15 +221,15 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const path = append(bar, seed, { fill: { active: 0, heading: 0 } }).steps(steps, (current, next) => {
     const lines = query.edges(current);
     const tips = current.points.filter((p) => p.active === 1);
-    next.extend((p) => {
+    next.extrude(tips, (p) => {
       let h = p.heading;
       const ahead = add(p, mul(fromAngle(h), sense));
       const near = lines.nearest(ahead, { within: sense, excludeIncident: p });
       if (near) h -= side(h, [near.position[0] - p.x, near.position[1] - p.y]) * steer * (1 - near.distance / sense);
       marks.push(circle(ahead[0], ahead[1], 0.7, { pen: 'stabilo-88-blue' }), near ? line(ahead[0], ahead[1], near.position[0], near.position[1], { pen: 'stabilo-88-green' }) : []);
       return { position: add(p, mul(fromAngle(h), 4)), attributes: { heading: h } };
-    }, { where: tips, inherit: true });
-    next.set(() => ({ active: 0 }), { where: tips });
+    }, { inherit: true });
+    next.set(tips, { active: 0 });
   });
   return [strokes(path), marks];
 });
@@ -262,7 +262,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const paths = append(rock, seeds, { fill: { active: 0, heading: 0 } }).steps(steps, (current, next, k) => {
     const lines = query.edges(current);
     const tips = current.points.filter((p) => p.active === 1 && p.y > 4 && p.x > 3 && p.x < 197);
-    next.extend((p) => {
+    next.extrude(tips, (p) => {
       let h = p.heading + t.noise(p.x / 10, p.y / 10, k) * 0.35;
       const ahead = add(p, mul(fromAngle(h), sense));
       const near = lines.nearest(ahead, { within: sense, excludeIncident: p });
@@ -272,8 +272,8 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
       if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: h } }) };
       const headings = t.chance(branch) ? [h - 0.5, h + 0.5] : [h];
       return headings.map((hh) => ({ position: add(p, mul(fromAngle(hh), 2.2)), attributes: { heading: hh } }));
-    }, { where: tips, inherit: true });
-    next.set(() => ({ active: 0 }), { where: tips });
+    }, { inherit: true });
+    next.set(tips, { active: 0 });
   });
   return [strokes(paths), paths.points.filter((p) => p.active === 1).map((p) => circle(p.x, p.y, 0.8))];
 });
@@ -296,13 +296,13 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const walked = pair.steps(10, (current, next) => {
     const lines = query.edges(current);
     const tips = current.points.filter((p) => p.active === 1);
-    next.extend((p) => {
+    next.extrude(tips, (p) => {
       const target = add(p, mul(fromAngle(p.heading), stride));
       const hit = lines.firstHit(p, target, { excludeIncident: p });
       if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: 0 } }) };
       return { position: target, attributes: { active: 1, heading: p.heading } };
-    }, { where: tips });
-    next.set(() => ({ active: 0 }), { where: tips });
+    });
+    next.set(tips, { active: 0 });
   });
   return [strokes(walked), walked.points.filter((p) => p.active === 1).map((p) => circle(p.x, p.y, 1)), walked.points.map((p) => circle(p.x, p.y, 0.4))];
 });

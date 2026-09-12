@@ -202,7 +202,7 @@ describe('voronoi as material', () => {
     expect(() => cells.cellOf(other.vertex(0))).toThrow(/not a site of this diagram/);
     const otherCells = voronoi(other, { x: 0, y: 0, w: 100, h: 100 });
     expect(() => cells.siteOf(otherCells.faces().at(0))).toThrow(/another material/);
-    const moved = cells.steps(1, (cur, next) => next.move(() => [1, 0]));
+    const moved = cells.steps(1, (cur, next) => next.move(cur.points, () => [1, 0]));
     expect(() => moved.cellOf(sites.vertex(0))).toThrow(/no Voronoi correspondence.*edited or extracted/);
     expect(() => cells.edges.extract().siteOf(cells.faces().at(0))).toThrow(/no Voronoi correspondence/);
     // Selections of the result still work through the result.

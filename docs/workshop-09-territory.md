@@ -20,7 +20,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
     open: (e) => { const [a, b] = beside(e); return b !== undefined && a.area > field && b.area > field ? 1 : 0; },
     border: (e) => (contrast(e) > ratio ? 1 : 0),
   });
-  const cleared = marked.steps(1, (current, next) => next.disconnect((e) => e.attrs.open === 1));
+  const cleared = marked.steps(1, (current, next) => next.disconnect(current.edges.filter((e) => e.attrs.open === 1)));
   const country = cleared.faces().filter((f) => f.area > field);
   return [
     country.map((f) => polygon(f, { fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),
@@ -113,7 +113,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const cells = diagram.faces();
   const kind = (face) => diagram.siteOf(face).kind;
   const marked = diagram.edgeAttribute('same', (e) => { const [a, b] = cells.facesOf(e); return b !== undefined && kind(a) === kind(b) ? 1 : 0; });
-  const merged = marked.steps(1, (current, next) => next.disconnect((e) => e.attrs.same === 1));
+  const merged = marked.steps(1, (current, next) => next.disconnect(current.edges.filter((e) => e.attrs.same === 1)));
   const regions = merged.faces();
   return [
     strokes(diagram), sites.points.map((p) => circle(p.x, p.y, 1.6, { pen: p.kind ? 'stabilo-88-blue' : 'pigma-05-black' })),
@@ -195,7 +195,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const diagram = t.voronoi(sites);
   const cells = diagram.faces();
   const open = diagram.edgeAttribute('open', (e) => { const [a, b] = cells.facesOf(e); return b !== undefined && a.area > field && b.area > field ? 1 : 0; });
-  const cleared = open.steps(1, (current, next) => next.disconnect((e) => e.attrs.open === 1));
+  const cleared = open.steps(1, (current, next) => next.disconnect(current.edges.filter((e) => e.attrs.open === 1)));
   return strokes(cleared);
 });
 ```
@@ -221,7 +221,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const country = left.cells.filter((f) => f.area > 90);
   const town = left.cells.filter((f) => f.area <= 90);
   const open = right.diagram.edgeAttribute('open', (e) => { const [a, b] = right.cells.facesOf(e); return b !== undefined && a.area > 90 && b.area > 90 ? 1 : 0; });
-  const cleared = open.steps(1, (current, next) => next.disconnect((e) => e.attrs.open === 1));
+  const cleared = open.steps(1, (current, next) => next.disconnect(current.edges.filter((e) => e.attrs.open === 1)));
   return [
     polygon(country.boundaries(), { fill: hatch, stroke: false }),
     town.map((f) => polygon(f, { fill: fill('hatch', { angle: 110, spacing: mm(0.7 + 0.04 * distance(left.diagram.siteOf(f), left.centre)) }), stroke: false })),
@@ -254,7 +254,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
     open: (e) => { const [a, b] = beside(e); return b !== undefined && a.area > field && b.area > field ? 1 : 0; },
     border: (e) => (contrast(e) > ratio ? 1 : 0),
   });
-  const cleared = marked.steps(1, (current, next) => next.disconnect((e) => e.attrs.open === 1));
+  const cleared = marked.steps(1, (current, next) => next.disconnect(current.edges.filter((e) => e.attrs.open === 1)));
   const country = cleared.faces().filter((f) => f.area > field);
   return [
     country.map((f) => polygon(f, { fill: fill('hatch', { angle: 20, spacing: mm(4.2) }), stroke: false })),

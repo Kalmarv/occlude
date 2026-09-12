@@ -51,13 +51,13 @@ describe('geometry collections: points and edges', () => {
     const stale = m.points.filter((p) => p.age >= 3);
     const moved = m.steps(1, (cur, next) => {
       const tips = cur.points.filter((p) => cur.degree(p) === 1 && p.age > 0);
-      next.move(() => [0, 1], { where: tips });
-      next.set(() => ({ age: 9 }), { where: tips });
+      next.move(tips, () => [0, 1]);
+      next.set(tips, () => ({ age: 9 }));
     });
     expect(moved.y[2]).toBe(1);
     expect(moved.attrs.age[3]).toBe(9);
     expect(moved.y[0]).toBe(0); // degree 1 but age 0
-    expect(() => moved.steps(1, (cur, next) => next.move(() => [1, 0], { where: stale }))).toThrow(/another state|different state/);
+    expect(() => moved.steps(1, (cur, next) => next.move(stale, () => [1, 0]))).toThrow(/another state|different state/);
   });
 });
 

@@ -16,7 +16,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   // #endregion
   const shore = t.sample(pond, { count: 24 });
   const nudged = shore.steps(1, (current, next) => {
-    next.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
+    next.move(current.points, (p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   });
   return [sky, sun, farHill, nearHill, polygon(nudged, { opaque: true })];
 });
@@ -116,7 +116,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 The last of the six connections joins the sixth point back to the first; no repeated endpoint is needed for a closed shore.
 
-**Moving points.** Editing means asking for a new material with some points moved. `shore.steps(1, (current, next) => …)` does one edit. Inside, `current` is the material as it is, and `next` is the one being built. `next.move((p) => [dx, dy])` calls your function once per point of `current`, and each answer is a displacement, not a destination: `[0, -6]` moves every point up by 6 and leaves `x` alone. Keep `shore`, add the edit, and draw both: `shore` still exists, unchanged, and is drawn in blue behind the moved pond.
+**Moving points.** Editing means asking for a new material with some points moved. `shore.steps(1, (current, next) => …)` does one edit. Inside, `current` is the material as it is, and `next` is the one being built. `next.move(current.points, (p) => [dx, dy])` calls your function once per point of `current`, and each answer is a displacement, not a destination: `[0, -6]` moves every point up by 6 and leaves `x` alone. Keep `shore`, add the edit, and draw both: `shore` still exists, unchanged, and is drawn in blue behind the moved pond.
 
 ```ts live focus=13-16
 import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, strokes } from 'occlude';
@@ -132,7 +132,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   // #endregion
   const shore = t.sample(pond, { count: 6 });
   const raised = shore.steps(1, (current, next) => {
-    next.move((p) => [0, -6]);
+    next.move(current.points, (p) => [0, -6]);
   });
   return [sky, sun, farHill, nearHill, strokes(shore, { pen: 'stabilo-88-blue' }), polygon(raised, { opaque: true })];
 });
@@ -154,7 +154,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   // #endregion
   const shore = t.sample(pond, { count: 6 });
   const wide = shore.steps(1, (current, next) => {
-    next.move((p) => [p.x < 140 ? -8 : 8, 0]);
+    next.move(current.points, (p) => [p.x < 140 ? -8 : 8, 0]);
   });
   return [sky, sun, farHill, nearHill, strokes(shore, { pen: 'stabilo-88-blue' }), polygon(wide, { opaque: true })];
 });
@@ -176,7 +176,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   // #endregion
   const shore = t.sample(pond, { count: 24 });
   const nudged = shore.steps(1, (current, next) => {
-    next.move((p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
+    next.move(current.points, (p) => [t.noise(p.x / 12, p.y / 12) * 2, t.noise(p.x / 12 + 30, p.y / 12) * 2]);
   });
   return [sky, sun, farHill, nearHill, polygon(nudged, { opaque: true })];
 });
@@ -211,7 +211,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   // #endregion
   const shore = t.sample(pond, { count: 6 });
   const west = shore.steps(1, (current, next) => {
-    next.move((p) => [p.x < 140 ? -10 : 0, 0]);
+    next.move(current.points, (p) => [p.x < 140 ? -10 : 0, 0]);
   });
   return [sky, sun, farHill, nearHill, strokes(shore, { pen: 'stabilo-88-blue' }), polygon(west, { opaque: true })];
 });

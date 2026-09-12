@@ -99,7 +99,7 @@ describe('extraction', () => {
     expect(patch.edgeCount).toBe(2);
     expect(Array.from(patch.x)).toEqual([20, 30, 30]);
     // point-only material still accepts steps and append
-    const grown = pts.steps(1, (_, next) => next.extend(() => ({ position: [0, 1], attributes: { age: 0 }, edgeAttributes: { strength: 1 } })));
+    const grown = pts.steps(1, (_, next) => next.extrude(_.points, () => ({ position: [0, 1], attributes: { age: 0 }, edgeAttributes: { strength: 1 } })));
     expect(grown.n).toBe(8);
     expect(grown.edgeCount).toBe(4);
   });
@@ -170,20 +170,19 @@ describe('selections in edits', () => {
       const old = current.points.filter((p) => p.age >= 3);
       expect(current).not.toBe(m); // steps works on its own copy: the outer selection is of another state
       expect(outer.has(current.vertex(3))).toBe(false);
-      next.move(() => [0, 5], { where: (p) => old.has(p) });
+      next.move(current.points.filter((p) => old.has(p)), () => [0, 5]);
       const strong = current.edges.filter((e) => e.attrs.strength >= 3);
-      next.setEdges(() => ({ strength: 100 }), { where: (e) => strong.has(e) });
-      next.disconnect((e) => e.index === 0 && !strong.has(e));
+      next.setEdges(current.edges.filter((e) => strong.has(e)), () => ({ strength: 100 }));
+      next.disconnect(current.edges.filter((e) => e.index === 0 && !strong.has(e)));
     });
     expect(Array.from(moved.y)).toEqual([0, 0, 0, 15, -5, 55]);
     expect(Array.from(moved.edgeAttrs.strength)).toEqual([2, 100, 100]);
-    // bulk split sees MOVED edges: a current-state selection cannot vouch for them
+    // Bulk splitting uses the explicit input selection, just like individual splitting.
     const strongSplit = m.steps(1, (current, next) => {
       const strong = current.edges.filter((e) => e.attrs.strength >= 3);
-      expect(() => next.splitEdges((e) => strong.has(e))).not.toThrow(); // recorded now…
+      expect(() => next.splitEdges(current.edges.filter((e) => strong.has(e)))).not.toThrow();
     });
-    // …but evaluated on moved views, which the selection does not own: nothing split
-    expect(strongSplit.n).toBe(6);
+    expect(strongSplit.n).toBe(8);
     const explicit = m.steps(1, (current, next) => {
       const strong = current.edges.filter((e) => e.attrs.strength >= 3);
       for (const e of strong) next.split(e);

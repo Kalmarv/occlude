@@ -161,9 +161,10 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
       force.tension(cur, { rest: 2.6 }),
       force.separation(cur, { radius: 4.5, excludeConnected: true }),
     );
-    next.move((p) => mul(pull(p, k), 0.4));
-    next.set(() => ({ age: k }), { where: cur.points.filter((p) => p.index % 3 === 0) });
-    next.splitEdges((e) => e.length > 4.6, { at: 0.5 });
+    next.move(cur.points, (p) => mul(pull(p, k), 0.4));
+    next.set(cur.points.filter((p) => p.index % 3 === 0), () => ({ age: k }));
+  }, (cur, next, k) => {
+    next.splitEdges(cur.edges.filter((e) => e.length > 4.6), { at: 0.5 });
   });
 
   const runs = segmentRuns(grown, (a, b) => Math.round((a.age + b.age) / 2));

@@ -51,10 +51,10 @@ describe('Stage A repairs (con2)', () => {
 
   it('A10 splitEdges accepts an endpoint parameter and creates nothing, like split', () => {
     const m = curve([[0, 0], [10, 0], [20, 0]], { closed: false });
-    expect(m.steps(1, (_, n) => n.splitEdges(() => true, { at: 0 })).n).toBe(3);
-    expect(m.steps(1, (_, n) => n.splitEdges(() => true, { at: 1 })).n).toBe(3);
-    expect(() => m.steps(1, (_, n) => n.splitEdges(() => true, { at: 1.5 }))).toThrow(/within \[0, 1\]/);
-    expect(() => m.steps(1, (_, n) => n.splitEdges(() => true, { at: 0, point: { x: 1 } as never }))).toThrow(/endpoint/);
+    expect(m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 0 })).n).toBe(3);
+    expect(m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 1 })).n).toBe(3);
+    expect(() => m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 1.5 }))).toThrow(/within \[0, 1\]/);
+    expect(() => m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 0, point: { x: 1 } as never }))).toThrow(/endpoint/);
   });
 
   describe('with the engine', () => {

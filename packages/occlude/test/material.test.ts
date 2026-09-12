@@ -247,17 +247,16 @@ describe('steps', () => {
   it('history on and off give the same final geometry; later steps leave snapshots untouched', () => {
     const start = square();
     const rule = (cur: Material, n: Next) => {
-      march(cur, n);
-      n.splitEdges((e) => e.length > 12, { attributes: { age: 0 } });
+      n.splitEdges(cur.edges.filter((e) => e.length > 12), { attributes: { age: 0 } });
     };
-    const off = start.steps(6, rule);
-    const on = start.steps(6, rule, { every: 2 });
+    const off = start.steps(6, march, rule);
+    const on = start.steps(6, march, rule, { every: 2 });
     expect(on.pts).toEqual(off.pts);
     expect(Array.from(on.attrs.age)).toEqual(Array.from(off.attrs.age));
     const snap = on.history[1];
     const before = { pts: snap.material.pts, age: Array.from(snap.material.attrs.age), n: snap.material.n };
-    on.steps(5, rule);
-    snap.material.steps(5, rule);
+    on.steps(5, march, rule);
+    snap.material.steps(5, march, rule);
     expect(snap.material.pts).toEqual(before.pts);
     expect(Array.from(snap.material.attrs.age)).toEqual(before.age);
     expect(snap.material.n).toBe(before.n);
@@ -269,18 +268,19 @@ describe('steps', () => {
     const makeRule = (seed: number) => {
       let s = seed;
       const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-      return (cur: Material, n: Next) => {
+      return [(cur: Material, n: Next) => {
         for (const p of cur.points) {
           n.move(p.index, [rnd() - 0.5, rnd() - 0.5]);
           n.set(p.index, { age: p.age + 1 });
         }
-        n.splitEdges((e) => e.length > 3 && rnd() < 0.3, { attributes: { age: 0 } });
-      };
+      }, (cur: Material, n: Next) => {
+        n.splitEdges(cur.edges.filter((e) => e.length > 3 && rnd() < 0.3), { attributes: { age: 0 } });
+      }] as const;
     };
     const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0 });
-    const whole = start.steps(200, makeRule(11));
+    const whole = start.steps(200, ...makeRule(11));
     const rule = makeRule(11);
-    const split = start.steps(100, rule).steps(100, rule);
+    const split = start.steps(100, ...rule).steps(100, ...rule);
     expect(split.iteration).toBe(200);
     expect(split.n).toBe(whole.n);
     expect(Array.from(split.x)).toEqual(Array.from(whole.x));
@@ -292,7 +292,8 @@ describe('steps', () => {
     const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 5 });
     const next = start.steps(1, (cur, n) => {
       n.move(1, [10, 0]); // edge 0→1 becomes 20 long AFTER the move
-      n.splitEdges((e) => e.length > 15, { attributes: { age: 0 } });
+    }, (cur, n) => {
+      n.splitEdges(cur.edges.filter((e) => e.length > 15), { attributes: { age: 0 } });
     });
     expect(next.n).toBe(5);
     expect(next.pts).toEqual([[0, 0], [10, 0], [20, 0], [10, 10], [0, 10]]);
@@ -305,15 +306,16 @@ describe('steps', () => {
     const seen: [number, number][] = [];
     const out = start.steps(1, (cur, n) => {
       n.move(0, [-10, 0]);
-      n.splitEdges((e) => { seen.push([e.a.index, Math.round(e.length)]); return e.length > 15; }, { point: { age: 9 } });
-      n.splitEdges(() => true, { point: { age: 9 } }); // same parameter, same value: one vertex
+    }, (cur, n) => {
+      n.splitEdges(cur.edges.filter((e) => { seen.push([e.a.index, Math.round(e.length)]); return e.length > 15; }), { point: { age: 9 } });
+      n.splitEdges(cur.edges.filter(() => true), { point: { age: 9 } }); // same parameter, same value: one vertex
     });
     expect(seen).toEqual([[0, 20], [1, 10], [2, 10], [3, 14]]);
     expect(out.n).toBe(8);
     expect(Array.from(out.attrs.age)).toEqual([0, 9, 0, 9, 0, 9, 0, 9]);
     expect(() => start.steps(1, (_, n) => {
-      n.splitEdges(() => true, { point: { age: 1 } });
-      n.splitEdges(() => true, { point: { age: 2 } }); // same parameter, different value
+      n.splitEdges(_.edges.filter(() => true), { point: { age: 1 } });
+      n.splitEdges(_.edges.filter(() => true), { point: { age: 2 } }); // same parameter, different value
     })).toThrow(/conflicting 'age'/);
   });
 
@@ -323,7 +325,8 @@ describe('steps', () => {
     const total = (c: Material) => Array.from(c.attrs.rest).reduce((a, b) => a + b, 0);
     const out = start.steps(1, (cur, n) => {
       n.move(1, [10, 0]); // edge 0→1 is 20 long after the move
-      n.splitEdges((e) => e.length > 15, {
+    }, (cur, n) => {
+      n.splitEdges(cur.edges.filter((e) => e.length > 15), {
         at: 0.25,
         attributes: (e) => ({ age: 0, rest: e.a.rest * 0.75 }),
         parent: (e) => ({ rest: e.a.rest * 0.25 }),
@@ -335,18 +338,18 @@ describe('steps', () => {
     expect(total(out)).toBeCloseTo(total(start), 12);
     // repeated splitting keeps the total exactly: every edge, ten steps
     const many = start.steps(10, (_, n) =>
-      n.splitEdges(() => true, { attributes: (e) => ({ age: 0, rest: e.a.rest / 2 }), parent: (e) => ({ rest: e.a.rest / 2 }) }),
+      n.splitEdges(_.edges.filter(() => true), { attributes: (e) => ({ age: 0, rest: e.a.rest / 2 }), parent: (e) => ({ rest: e.a.rest / 2 }) }),
     );
     expect(many.n).toBe(4 * 2 ** 10);
     expect(total(many)).toBeCloseTo(4, 9);
     // the inserted vertex inherits what it is not told: rest interpolated, age interpolated
-    const inherited = start.steps(1, (_, n) => n.splitEdges(() => true, { point: { age: 0 } }));
+    const inherited = start.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { point: { age: 0 } }));
     expect(Array.from(inherited.attrs.rest).every((v) => v === 1)).toBe(true);
   });
 
   it('a split inherits unnamed columns; a new point must name them; unknown names are refused', () => {
     const start = curve([[0, 0], [10, 0], [10, 10]], { age: 0, energy: 1 });
-    const out = start.steps(1, (_, n) => n.splitEdges(() => true, { attributes: { age: 0 } }));
+    const out = start.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { attributes: { age: 0 } }));
     expect(Array.from(out.attrs.energy).every((v) => v === 1)).toBe(true);
     expect(() => start.steps(1, (_, n) => n.addPoint([1, 1], { age: 0 }))).toThrow(/must give 'energy'/);
     expect(() => start.steps(1, (_, n) => n.set(0, { branch: 1 }))).toThrow(/no attribute 'branch'/);
@@ -447,11 +450,11 @@ describe('material: material beyond one chain', () => {
   it('collection edits: move/set with where read the frozen state; moves add; last set wins', () => {
     const start = curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0, active: [1, 0, 1, 0] });
     const out = start.steps(1, (cur, next) => {
-      next.move((p) => [p.x > 5 ? 1 : 0, 0]);
-      next.move(() => [0, 2], { where: (p) => p.active === 1 });
+      next.move(cur.points, (p) => [p.x > 5 ? 1 : 0, 0]);
+      next.move(cur.points.filter((p) => p.active === 1), () => [0, 2]);
       next.move(0, [0, 0.5]);
-      next.set((p) => ({ age: p.age + 1 }));
-      next.set(() => ({ active: 0 }), { where: (p) => p.active === 1 });
+      next.set(cur.points, (p) => ({ age: p.age + 1 }));
+      next.set(cur.points.filter((p) => p.active === 1), () => ({ active: 0 }));
       next.set(1, { age: 9 });
     });
     expect(out.pts).toEqual([[0, 2.5], [11, 0], [11, 12], [0, 10]]);
@@ -463,11 +466,11 @@ describe('material: material beyond one chain', () => {
   it('branching: addPoint handles, connect, extend — junctions through ordinary edits', () => {
     const start = curve([[0, 0], [10, 0]], { closed: false, active: [0, 1], generation: 0 });
     const grown = start.steps(1, (cur, next) => {
-      next.extend((p) => [
+      next.extrude(cur.points.filter((p) => p.active === 1), (p) => [
         { position: add(p, [5, 5]), attributes: { active: 1, generation: p.generation + 1 } },
         { position: add(p, [5, -5]), attributes: { active: 1, generation: p.generation + 1 } },
-      ], { where: (p) => p.active === 1 });
-      next.set(() => ({ active: 0 }), { where: (p) => p.active === 1 }); // current selection: not the children
+      ]);
+      next.set(cur.points.filter((p) => p.active === 1), () => ({ active: 0 })); // current selection: not the children
       const h = next.addPoint([-5, 0], { active: 0, generation: 0 });
       next.connect(0, h);
     });
@@ -717,15 +720,15 @@ describe('structural editing (edges brief)', () => {
     expect(y.edge(0).attrs.rest).toBeCloseTo(10);
     expect(y.edge(1).attrs.rest).toBeCloseTo(Math.hypot(10, 5));
     const out = y.steps(1, (cur, n) => {
-      n.move(() => [1, 0]);
-      n.setEdges((e) => ({ strength: e.attrs.strength * 0.5 }));
-      n.setEdges(() => ({ strength: 0 }), { where: (e) => e.length > 11 });
+      n.move(cur.points, () => [1, 0]);
+      n.setEdges(cur.edges, (e) => ({ strength: e.attrs.strength * 0.5 }));
+      n.setEdges(cur.edges.filter((e) => e.length > 11), () => ({ strength: 0 }));
       n.setEdge(cur.edge(0), { rest: 99 });
     });
     expect(Array.from(out.edgeAttrs.strength)).toEqual([0.5, 0, 0, 0]); // the three diagonals are longer than 11
     expect(out.edge(0).attrs.rest).toBe(99);
     expect(y.edge(0).attrs.rest).toBeCloseTo(10); // source untouched
-    expect(() => y.steps(1, (_, n) => n.setEdges(() => ({ tension: 1 })))).toThrow(/no edge attribute 'tension'/);
+    expect(() => y.steps(1, (_, n) => n.setEdges(_.edges, () => ({ tension: 1 })))).toThrow(/no edge attribute 'tension'/);
   });
 
   it('remove: an endpoint and a junction; incident edges go, survivors compact, attributes align', () => {
@@ -743,7 +746,7 @@ describe('structural editing (edges brief)', () => {
     expect(noJunction.edge(0).attrs.rest).toBeCloseTo(Math.hypot(10, 5));
     expect(noJunction.degree(0)).toBe(0); // 0 is isolated now, never joined to anything
     // idempotent, by predicate too
-    const twice = y.steps(1, (_, n) => { n.remove(4); n.remove(4); n.remove((p) => p.age === 5); });
+    const twice = y.steps(1, (_, n) => { n.remove(4); n.remove(4); n.remove(_.points.filter((p) => p.age === 5)); });
     expect(twice.n).toBe(4);
   });
 
@@ -753,7 +756,7 @@ describe('structural editing (edges brief)', () => {
     expect(cut.n).toBe(5);
     expect(cut.edgeCount).toBe(3);
     expect(cut.degree(2)).toBe(0);
-    const pruned = y.steps(1, (_, n) => n.disconnect((e) => e.length > 11));
+    const pruned = y.steps(1, (_, n) => n.disconnect(_.edges.filter((e) => e.length > 11)));
     expect(pruned.edgeCount).toBe(1); // the three ~11.18 diagonals go, the 10-long base stays
   });
 
@@ -823,7 +826,7 @@ describe('structural editing (edges brief)', () => {
     const y = Y();
     const before = { pts: y.pts, edges: Array.from(y.edgeList), age: Array.from(y.attrs.age) };
     expect(() => y.steps(1, (_, n) => { n.remove(1); n.move(1, [1, 0]); })).toThrow(/removed and also moved/);
-    expect(() => y.steps(1, (_, n) => { n.remove((p) => p.age === 2); n.set(() => ({ age: 0 })); })).toThrow(/use a selector/);
+    expect(() => y.steps(1, (_, n) => { n.remove(_.points.filter((p) => p.age === 2)); n.set(_.points, () => ({ age: 0 })); })).toThrow(/use a selector/);
     expect(() => y.steps(1, (cur, n) => { n.split(cur.edge(0)); n.disconnect(cur.edge(0)); })).toThrow(/split and disconnected/);
     expect(() => y.steps(1, (cur, n) => { n.setEdge(cur.edge(0), { strength: 0 }); n.disconnect(cur.edge(0)); })).toThrow(/attributes set and is disconnected/);
     expect(() => y.steps(1, (cur, n) => { n.remove(0); n.split(cur.edge(0)); })).toThrow(/vertices is removed/);
@@ -844,19 +847,19 @@ describe('structural editing (edges brief)', () => {
   it('extend to a fresh child, an existing point, and a split result; one, many, none', () => {
     const line = curve([[0, 0], [10, 0], [20, 0]], { closed: false, active: [0, 0, 1] });
     const out = line.steps(1, (cur, n) => {
-      n.extend((p) => [
+      n.extrude(cur.points.filter((p) => p.active === 1), (p) => [
         { position: [25, 5], attributes: { active: 1 } },
         { to: 0 },
         { to: n.split(cur.edge(0), { at: 0.5 }) },
-      ], { where: (p) => p.active === 1 });
-      n.extend(() => [], { where: (p) => p.active === 0 });
+      ]);
+      n.extrude(cur.points.filter((p) => p.active === 0), () => []);
     });
     expect(out.n).toBe(5);
     expect(out.degree(3)).toBe(4); // the tip: its chain edge, the new child, vertex 0, and the split vertex
     expect(out.isConnected(3, 0)).toBe(true); // rows: 0, split(1), 1→2, 2→3, child→4
     expect(out.isConnected(3, 1)).toBe(true);
     expect(out.isConnected(3, 4)).toBe(true);
-    expect(() => line.steps(1, (_, n) => n.extend(() => ({ position: [1, 1], attributes: { active: 0 }, to: 0 } as never)))).toThrow(/exactly one of/);
+    expect(() => line.steps(1, (_, n) => n.extrude(_.points, () => ({ position: [1, 1], attributes: { active: 0 }, to: 0 } as never)))).toThrow(/exactly one of/);
   });
 
   it('a stale handle never resolves even when its row exists', () => {
@@ -925,7 +928,7 @@ describe('query.edges', () => {
     expect(point.along).toBe(0);
     expect(point.edge.index).toBe(1);
     // the index is of the state it was built for: later moves do not change it
-    const moved = m.steps(1, (_, n) => n.move(() => [100, 0]));
+    const moved = m.steps(1, (_, n) => n.move(_.points, () => [100, 0]));
     expect(q.firstHit([5, 5], [5, 15])!.edge.index).toBe(2);
     expect(query.edges(moved).firstHit([5, 5], [5, 15])).toBeNull();
   });
@@ -1025,7 +1028,7 @@ describe('correctness pass (review of 22c9887)', () => {
     expect(Array.from(a.attrs.age)).toEqual([0, 1, 0, 2, 0]);
     const bulk = { at: 0.25 };
     const b = line.steps(1, (_, next) => {
-      next.splitEdges(() => true, bulk);
+      next.splitEdges(_.edges.filter(() => true), bulk);
       bulk.at = 2; // bypassed validation before the fix: a vertex beyond the edge
     });
     expect(Array.from(b.x)).toEqual([0, 2.5, 10, 12.5, 20]);

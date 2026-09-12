@@ -177,7 +177,7 @@ describe('faces', () => {
   });
 
   it('dangling branches and bridges add no area, no face, no retraced contour', () => {
-    const withBranch = square().steps(1, (_, next) => next.extend(() => ({ position: [5, 5], attributes: {} }), { where: (p) => p.index === 0 }));
+    const withBranch = square().steps(1, (_, next) => next.extrude(_.points.filter((p) => p.index === 0), () => ({ position: [5, 5], attributes: {} })));
     const cells = withBranch.faces();
     expect(cells.length).toBe(1);
     expect(cells.faces[0].area).toBe(100);

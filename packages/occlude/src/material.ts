@@ -969,26 +969,33 @@ export class Material {
   // ---- the iteration verb ----
 
   /**
-   * THE iteration operation. Run `rule` `n` times and return the final
+   * THE iteration operation. Run one or more passes per iteration and return the final
    * material, ready for further operations. `rule(current, next, k)` reads
    * `current` (frozen) and describes `next`, which starts as a copy; see
    * `Next` for the edits. `k` counts from 0 within this call. Growth,
    * relaxation, deformation and erosion are different rules for this one
-   * verb; `.steps(1, rule)` is a single transition.
+   * verb; `.steps(1, rule)` is a single transition. Additional callbacks run
+   * in order within each iteration: each receives the completed output of
+   * the previous pass. All passes share k. Selections and handles belong to
+   * one pass; select again from the following pass's input. Optional history
+   * settings are the final argument, and capture only completed iterations.
    *
    * By default only the final state is kept. `{ every: m }` also captures
    * iteration 0, every m-th iteration, and the final one (no duplicates)
    * on the result's `history`, each labelled with its iteration number.
    * Nothing a later step does can disturb an earlier snapshot.
    */
-  steps(n: number, rule: (current: Material, next: Next, k: number) => void, opts: { every?: number } = {}): Material {
+  steps(n: number, rule: StepRule, ...passesAndOptions: StepRule[] | [...StepRule[], StepsOptions]): Material {
+    const last = passesAndOptions[passesAndOptions.length - 1];
+    const opts: StepsOptions = typeof last === 'object' ? last : {};
+    const passes: StepRule[] = [rule, ...(passesAndOptions as (StepRule | StepsOptions)[]).filter((pass): pass is StepRule => typeof pass === 'function')];
     const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
     const snaps: Snapshot[] = [];
     const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), this.iteration, [], copyAttrs(this.edgeAttrs), { ...this.transfers }, { ...this.edgeTransfers });
     if (every) snaps.push({ iteration: this.iteration, material: base });
     let cur = base;
     for (let k = 0; k < n; k++) {
-      cur = stepOnce(cur, k, rule);
+      for (const pass of passes) cur = stepOnce(cur, k, pass, this.iteration + k + 1);
       if (every && (k + 1) % every === 0 && k + 1 < n) snaps.push({ iteration: cur.iteration, material: cur });
     }
     if (every && n > 0) snaps.push({ iteration: cur.iteration, material: cur });
@@ -1666,10 +1673,10 @@ export type Ref = number | Vertex | Handle;
 const isHandle = (r: unknown): r is Handle => typeof r === 'object' && r !== null && '__handle' in r;
 const isVertexView = (r: unknown): r is Vertex => viewKind(r) === 'vertex';
 
-/** One child of `extend`: a new point (`position` + `attributes`) or an
+/** One child of `extrude`: a new point (`position` + `attributes`) or an
  * existing target (`to`); either way an edge from the parent, carrying
  * `edgeAttributes` when edge columns are declared. A new point must name
- * every declared column, unless `extend` runs with `inherit: true`, in
+ * every declared column, unless `extrude` runs with `inherit: true`, in
  * which case it starts from its parent's values and `attributes` are the
  * overrides. */
 export type ChildSpec =
@@ -1710,63 +1717,47 @@ export interface SplitOpts {
  * copy of the current one, so a rule only states what changes. All
  * callbacks and selectors see the FROZEN current state; no edit changes
  * what a later callback reads. Order of resolution: moves and attribute
- * writes first (moves add up, the last write of a field wins), then bulk
- * `splitEdges` predicates on the MOVED edges, then structural requests —
+ * writes first (moves add up, the last write of a field wins), then structural requests —
  * removals, disconnections, splits (sorted along each original edge),
  * added points, connections — then one compaction. A conflicting batch
  * (see the table in the docs) throws and publishes nothing.
  */
 /** A row of the current state's edge list, or an edge view of it. */
 export type EdgeRef = number | Edge;
-/** A predicate over the current state's views, or a selection OF THE
- * CURRENT STATE (membership by row, decided when the selection was made —
- * before any move in this step). */
-export type PointWhere = ((p: Vertex) => boolean) | PointSelection;
-export type EdgeWhere = ((e: Edge) => boolean) | EdgeSelection;
+/** One pass reads a frozen material and batches edits for its output. */
+export type StepRule = (prev: Material, next: Next, k: number) => void;
+export interface StepsOptions {
+  /** Capture after every m complete iterations, plus the initial and final states. */
+  every?: number;
+}
 
 export interface Next {
-  /** Displace one vertex, or every vertex `where` says (all by default). */
-  move(index: Ref, by: XY): void;
-  move(by: (p: Vertex) => XY, opts?: { where?: PointWhere }): void;
-  /** Write point attributes on one vertex, or on every vertex `where`
-   * says. Unknown names are an error: columns are declared, not invented. */
-  set(index: Ref, attrs: Record<string, number>): void;
-  set(attrs: (p: Vertex) => Record<string, number>, opts?: { where?: PointWhere }): void;
-  /** Write edge attributes on one edge of the current state. */
+  /** Displace selected points. Callbacks read this pass's input; moves add up. */
+  move(points: PointSelection, by: XY | ((p: Vertex) => XY)): void;
+  move(point: Ref, by: XY): void;
+  /** Write selected point attributes; the last write of a field wins. */
+  set(points: PointSelection, attrs: Record<string, number> | ((p: Vertex) => Record<string, number>)): void;
+  set(point: Ref, attrs: Record<string, number>): void;
+  /** Write attributes of one edge or a selection of this pass's input edges. */
   setEdge(edge: EdgeRef, attrs: Record<string, number>): void;
-  /** Write edge attributes on every edge `where` says (all by default). */
-  setEdges(attrs: (e: Edge) => Record<string, number>, opts?: { where?: EdgeWhere }): void;
-  /** A new vertex; the handle names it within this batch. Every declared
-   * point column must be given. */
+  setEdges(edges: EdgeSelection, attrs: Record<string, number> | ((e: Edge) => Record<string, number>)): void;
+  /** Add a point. Every declared point column must be given. */
   addPoint(position: XY, attributes: Record<string, number>): Handle;
-  /** One undirected connection. An existing pair is left as it is (use
-   * `setEdge` to change its attributes); a self-connection is an error.
-   * Every declared edge column must be given. */
+  /** Connect input points or handles created in this pass. */
   connect(a: Ref, b: Ref, edgeAttributes?: Record<string, number>): void;
-  /** Remove an edge; both points stay. Repeating it is a no-op. A
-   * predicate removes every current edge it accepts. */
+  /** Remove edges, keeping their points. Repeated requests are harmless. */
+  disconnect(edges: EdgeSelection): void;
   disconnect(edge: EdgeRef): void;
-  disconnect(where: EdgeWhere): void;
-  /** Delete a point and its incident edges; the neighbours are never
-   * joined. Repeating it is a no-op. A predicate removes every current
-   * vertex it accepts. */
+  /** Delete points and their incident edges; never join their neighbours. */
+  remove(points: PointSelection): void;
   remove(point: Ref): void;
-  remove(where: PointWhere): void;
-  /** Replace an edge of the current state with two child edges through a
-   * new vertex at `at` (default 0.5), returning its handle — or, at 0 or
-   * 1, the existing endpoint row. Several splits of one edge form one
-   * chain in parameter order; equal parameters share a vertex. */
+  /** Split an edge. Several requests on one edge are resolved together. */
   split(edge: EdgeRef, opts?: SplitOpts): Ref;
-  /** Bulk split on the MOVED edges — same machinery and defaults as
-   * `split`; `where` sees each edge as it will be after the moves. */
-  splitEdges(where: EdgeWhere, opts?: SplitOpts): void;
-  /** For every current vertex `where` says: add the child (or children)
-   * `spec` describes — a new point, or a connection to an existing target
-   * (`{ to }`) — and connect each to its parent. `[]` means none. */
-  /** With `inherit: true`, every new child starts from its parent's point
-   * attributes and the spec's `attributes` override them; a child that
-   * connects to an existing vertex (`to`) never changes that vertex. */
-  extend(spec: (p: Vertex) => ChildSpec | ChildSpec[], opts?: { where?: PointWhere; inherit?: boolean }): void;
+  /** Split selected input edges. To select by completed movement, use a later pass. */
+  splitEdges(edges: EdgeSelection, opts?: SplitOpts): void;
+  /** Create children connected to selected parents. Children do not enter the
+   * parent selection. With inherit, parent attributes precede explicit overrides. */
+  extrude(points: PointSelection, spec: (p: Vertex) => ChildSpec | ChildSpec[], opts?: { inherit?: boolean }): void;
 }
 
 function checkAttrs(attrs: Record<string, number>, names: string[], what: string, opts: { complete?: boolean } = {}): void {
@@ -1800,7 +1791,7 @@ interface SplitRequest {
   handle?: number;
 }
 
-function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: number) => void): Material {
+function stepOnce(cur: Material, k: number, rule: StepRule, iteration = cur.iteration + 1): Material {
   const n = cur.n;
   const m = cur.edgeCount;
   const names = cur.attrNames;
@@ -1819,14 +1810,11 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   const removed = new Set<number>();
   const disconnected = new Set<number>();
   const splits = new Map<number, SplitRequest[]>(); // by ORIGINAL edge row
-  const bulkSplits: { where: (e: Edge) => boolean; req: SplitRequest }[] = [];
   const added: { x: number; y: number; attrs: Record<string, number> }[] = [];
   const links: { a: Ref; b: Ref; attrs: Record<string, number> }[] = [];
-  const points = cur.points; // frozen views for the collection forms
-  let edgeViews: Edge[] | null = null;
-  const currentEdges = () => (edgeViews ??= Array.from(cur.edges));
 
   const rowOf = (r: Ref, what: string): number => {
+    if (r instanceof EdgeSelection) throw new Error(`steps: ${what} needs a point selection, not edges`);
     if (isHandle(r)) throw new Error(`steps: ${what} cannot be a handle here`);
     if (isVertexView(r)) {
       if (ownerOf(r) !== cur) throw new Error(`steps: ${what} is a vertex of another material`);
@@ -1844,22 +1832,15 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
     if (ownerOf(e as unknown as Vertex) !== cur) throw new Error(`steps: ${what} is an edge of another material (or another state)`);
     return e.index;
   };
-  // A selection as `where`: it must be OF this state; membership is by row,
-  // decided when the selection was made, so it also serves bulk splits,
-  // whose predicate form sees the moved views.
-  const pointTest = (w: PointWhere | undefined, what: string): ((p: Vertex) => boolean) | undefined => {
-    if (w === undefined || typeof w === 'function') return w;
-    if (!(w instanceof PointSelection)) throw new Error(`steps: ${what}: where must be a predicate or a point selection`);
-    if (w.source !== cur) throw new Error(`steps: ${what}: that selection is of another state — select from \`current\` inside the rule`);
-    const rows = new Set(w.indices);
-    return (p) => rows.has(p.index);
+  const pointRows = (selection: PointSelection, what: string): readonly number[] => {
+    if (!(selection instanceof PointSelection)) throw new Error(`steps: ${what} needs a point selection — use prev.points.filter(...)`);
+    if (selection.source !== cur) throw new Error(`steps: ${what}: selection is of another state — select from this pass's input`);
+    return selection.indices;
   };
-  const edgeTest = (w: EdgeWhere | undefined, what: string): ((e: Edge) => boolean) | undefined => {
-    if (w === undefined || typeof w === 'function') return w;
-    if (!(w instanceof EdgeSelection)) throw new Error(`steps: ${what}: where must be a predicate or an edge selection`);
-    if (w.source !== cur) throw new Error(`steps: ${what}: that selection is of another state — select from \`current\` inside the rule`);
-    const rows = new Set(w.indices);
-    return (e) => rows.has(e.index);
+  const edgeRows = (selection: EdgeSelection, what: string): readonly number[] => {
+    if (!(selection instanceof EdgeSelection)) throw new Error(`steps: ${what} needs an edge selection — use prev.edges.filter(...)`);
+    if (selection.source !== cur) throw new Error(`steps: ${what}: selection is of another state — select from this pass's input`);
+    return selection.indices;
   };
   const writePoint = (index: number, attrs: Record<string, number>) => {
     for (const [name, v] of Object.entries(attrs)) {
@@ -1890,49 +1871,27 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   };
 
   const next: Next = {
-    move(a: Ref | ((p: Vertex) => XY), b?: XY | { where?: PointWhere }) {
-      if (typeof a === 'function') {
-        const where = pointTest((b as { where?: PointWhere } | undefined)?.where, 'move');
-        for (const p of points) {
-          if (where && !where(p)) continue;
-          const [dx, dy] = finiteXY(a(p), 'a move');
-          nx[p.index] += dx;
-          ny[p.index] += dy;
-          touchedPoint.add(p.index);
-        }
-        return;
+    move(target: Ref | PointSelection, by: XY | ((p: Vertex) => XY)) {
+      const rows = target instanceof PointSelection ? pointRows(target, 'move') : [rowOf(target, 'move')];
+      for (const row of rows) {
+        const [dx, dy] = finiteXY(typeof by === 'function' ? by(cur.vertex(row)) : by, 'a move');
+        nx[row] += dx; ny[row] += dy; touchedPoint.add(row);
       }
-      const row = rowOf(a, 'move');
-      const [dx, dy] = finiteXY(b as XY, 'a move');
-      nx[row] += dx;
-      ny[row] += dy;
-      touchedPoint.add(row);
     },
-    set(a: Ref | ((p: Vertex) => Record<string, number>), b?: Record<string, number> | { where?: PointWhere }) {
-      if (typeof a === 'function') {
-        const where = pointTest((b as { where?: PointWhere } | undefined)?.where, 'set');
-        for (const p of points) {
-          if (where && !where(p)) continue;
-          writePoint(p.index, a(p));
-          touchedPoint.add(p.index);
-        }
-        return;
+    set(target: Ref | PointSelection, attrs: Record<string, number> | ((p: Vertex) => Record<string, number>)) {
+      const rows = target instanceof PointSelection ? pointRows(target, 'set') : [rowOf(target, 'set')];
+      for (const row of rows) {
+        writePoint(row, typeof attrs === 'function' ? attrs(cur.vertex(row)) : attrs);
+        touchedPoint.add(row);
       }
-      const row = rowOf(a, 'set');
-      writePoint(row, b as Record<string, number>);
-      touchedPoint.add(row);
     },
     setEdge(edge, attrs) {
-      const row = edgeRow(edge, 'setEdge');
-      writeEdge(row, attrs);
-      touchedEdge.add(row);
+      const row = edgeRow(edge, 'setEdge'); writeEdge(row, attrs); touchedEdge.add(row);
     },
-    setEdges(attrs, opts) {
-      const where = edgeTest(opts?.where, 'setEdges');
-      for (const e of currentEdges()) {
-        if (where && !where(e)) continue;
-        writeEdge(e.index, attrs(e));
-        touchedEdge.add(e.index);
+    setEdges(selection, attrs) {
+      for (const row of edgeRows(selection, 'setEdges')) {
+        writeEdge(row, typeof attrs === 'function' ? attrs(cur.edge(row)) : attrs);
+        touchedEdge.add(row);
       }
     },
     addPoint(position, attributes) {
@@ -1947,22 +1906,13 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
       checkAttrs(edgeAttributes, enames, 'a new edge', { complete: false });
       links.push({ a, b, attrs: { ...edgeAttributes } });
     },
-    disconnect(edge: EdgeRef | EdgeWhere) {
-      // a row or an edge view names one edge; anything else is a predicate or a selection
-      if (typeof edge === 'number' || viewKind(edge) === 'edge') {
-        disconnected.add(edgeRow(edge as EdgeRef, 'disconnect'));
-        return;
-      }
-      const where = edgeTest(edge as EdgeWhere, 'disconnect')!;
-      for (const e of currentEdges()) if (where(e)) disconnected.add(e.index);
+    disconnect(target: EdgeRef | EdgeSelection) {
+      const rows = target instanceof EdgeSelection ? edgeRows(target, 'disconnect') : [edgeRow(target, 'disconnect')];
+      for (const row of rows) disconnected.add(row);
     },
-    remove(point: Ref | PointWhere) {
-      if (typeof point === 'number' || isHandle(point) || viewKind(point) === 'vertex') {
-        removed.add(rowOf(point as Ref, 'remove'));
-        return;
-      }
-      const where = pointTest(point as PointWhere, 'remove')!;
-      for (const p of points) if (where(p)) removed.add(p.index);
+    remove(target: Ref | PointSelection) {
+      const rows = target instanceof PointSelection ? pointRows(target, 'remove') : [rowOf(target, 'remove')];
+      for (const row of rows) removed.add(row);
     },
     split(edge, opts = {}) {
       const row = edgeRow(edge, 'split');
@@ -1981,33 +1931,31 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
       recordSplit(row, { ...splitRequest(opts, at), handle });
       return { __handle: handle, __batch: batch };
     },
-    splitEdges(where, opts = {}) {
+    splitEdges(selection, opts = {}) {
+      const rows = edgeRows(selection, 'splitEdges');
       const at = opts.at ?? 0.5;
       if (!Number.isFinite(at) || at < 0 || at > 1) throw new Error(`steps: splitEdges at ${at} — must be within [0, 1]`);
-      // The same rule as split: an endpoint parameter creates nothing (a
-      // single split returns the existing endpoint; here there is nothing
-      // to return), and overrides that would rewrite existing data refuse.
       if (at === 0 || at === 1) {
         if (opts.point || opts.edges || opts.attributes || opts.parent) throw new Error('steps: a split at an endpoint creates nothing — point/edge overrides would modify existing data');
         return;
       }
-      bulkSplits.push({ where: edgeTest(where, 'splitEdges')!, req: splitRequest(opts, at) });
+      for (const row of rows) recordSplit(row, splitRequest(opts, at));
     },
-    extend(spec, opts) {
-      const where = pointTest(opts?.where, 'extend');
+    extrude(selection, spec, opts) {
+      const rows = pointRows(selection, 'extrude');
       const inherit = opts?.inherit === true;
       const inherited = (p: Vertex): Record<string, number> => {
         const out: Record<string, number> = {};
         for (const name of names) out[name] = cur.attrs[name][p.index];
         return out;
       };
-      for (const p of points) {
-        if (where && !where(p)) continue;
+      for (const row of rows) {
+        const p = cur.vertex(row);
         const specs = spec(p);
         for (const sp of Array.isArray(specs) ? specs : [specs]) {
           const hasPos = sp.position !== undefined;
           const hasTo = sp.to !== undefined;
-          if (hasPos === hasTo) throw new Error('steps: extend needs exactly one of { position } (a new child) or { to } (an existing target)');
+          if (hasPos === hasTo) throw new Error('steps: extrude needs exactly one of { position } (a new child) or { to } (an existing target)');
           const own = (sp as { attributes?: Record<string, number> }).attributes ?? {};
           const target: Ref = hasPos ? next.addPoint(sp.position!, inherit ? { ...inherited(p), ...own } : own) : sp.to!;
           next.connect(p.index, target, sp.edgeAttributes ?? {});
@@ -2017,12 +1965,10 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   };
   rule(cur, next, k);
 
-  // ---- the moved state: bulk split predicates and transfer callbacks read it ----
-  const moved = new Material(nx, ny, nattrs, cur.edgeList, cur.iteration + 1, [], neattrs, { ...cur.transfers }, { ...cur.edgeTransfers });
+  // ---- the moved state: split transfer callbacks read it ----
+  const moved = new Material(nx, ny, nattrs, cur.edgeList, iteration, [], neattrs, { ...cur.transfers }, { ...cur.edgeTransfers });
+
   const movedEdges = moved.edges;
-  for (const { where, req } of bulkSplits) {
-    for (const e of movedEdges) if (where(e)) recordSplit(e.index, req);
-  }
 
   // ---- conflicts ----
   const incident = (row: number) => removed.has(cur.edgeList[2 * row]) || removed.has(cur.edgeList[2 * row + 1]);
@@ -2210,7 +2156,7 @@ function stepOnce(cur: Material, k: number, rule: (c: Material, n: Next, k: numb
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), cur.iteration + 1, [], edgeAttrs, { ...cur.transfers }, { ...cur.edgeTransfers });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), iteration, [], edgeAttrs, { ...cur.transfers }, { ...cur.edgeTransfers });
 }
 
 // ---- spatial neighbours -----------------------------------------------------------
@@ -2504,7 +2450,7 @@ export function relax(m: Material, opts: { amount?: number } = {}): (p: Vertex) 
 /** The forces as one namespace: `force.nearby(...)`, `force.tension(...)`. */
 /** Prepared forces summed into one: `(p, k) => vector`. Every force gets
  * `p` and the iteration `k` (those that do not turn ignore it), so a
- * rule reads `next.move((p) => mul(push(p, k), speed))` with the speed
+ * rule reads `next.move(prev.points, (p) => mul(push(p, k), speed))` with the speed
  * still the author's number. Prepare the members against `cur` each
  * step as before — nothing here binds a state. */
 export function sumForces(...forces: readonly ((p: Vertex, k: number) => XY)[]): (p: Vertex, k?: number) => Vec {

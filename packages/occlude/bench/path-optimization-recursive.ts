@@ -16,7 +16,7 @@ export default sketch({ aspect: [1, 1], margin: 5, seed: 185591647 }, (t) => {
   const steps=Math.round(t.rnd(10)),rest=t.rnd(10),pushA=t.rnd(-1,1);
   const moved=yeboi.steps(steps,(current,next)=>{
     const push=force.attract(current,{radius:rest,excludeConnected:true,strength:rest/5});
-    next.move(p=>mul(push(p),pushA));
+    next.move(current.points, p=>mul(push(p),pushA));
   });
   return [t.group({pen:'hop'},smooth(10,polygon(moved,{fill:fill('contour')})))];
 });

@@ -70,7 +70,7 @@ describe('t.inspect: the debug registry', () => {
     try {
       compileSketch(sketch({ seed: 1 }, (t) => {
         const grown = two().steps(5, (cur, next, k) => {
-          next.move(() => [1, 0]);
+          next.move(cur.points, () => [1, 0]);
           t.inspect('step', cur);
         });
         return stroke(grown.contour);

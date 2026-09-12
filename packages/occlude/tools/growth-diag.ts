@@ -82,7 +82,6 @@ const rule = ruleName === 'alt'
         next.move(p.index, step);
         next.set(p.index, { age: p.age + 1 });
       }
-      next.splitEdges((e) => e.length > splitAt && chance(grow), { attributes: { age: 0 } });
     }
   : (current: Material, next: Next, k: number) => {
       const near = neighbours(current, { radius: push, stats });
@@ -107,15 +106,16 @@ const rule = ruleName === 'alt'
         next.move(p.index, step);
         next.set(p.index, { age: p.age + 1 });
       }
-      if (material) {
-        next.splitEdges((e) => e.length > splitAt && chance(grow), {
-          attributes: (e) => ({ age: 0, rest: e.a.rest * 0.5 }),
-          parent: (e) => ({ rest: e.a.rest * 0.5 }),
-        });
-      } else {
-        next.splitEdges((e) => e.length > splitAt && chance(grow), { attributes: { age: 0 } });
-      }
     };
+const subdivide = (current: Material, next: Next) => {
+  const edges = current.edges.filter(e => e.length > splitAt && chance(grow));
+  if (material && ruleName !== 'alt') {
+    next.splitEdges(edges, {
+      attributes: e => ({ age: 0, rest: e.a.rest * 0.5 }),
+      parent: e => ({ rest: e.a.rest * 0.5 }),
+    });
+  } else next.splitEdges(edges, { attributes: { age: 0 } });
+};
 
 console.log(`rule=${ruleName}${material ? ' MATERIAL' : ''} pull=${pullKind} repel=${repelKind} rest=${rest} push=${push} splitAt=${splitAt} grow=${grow} speed=${speed} history=${withHistory ? `every ${every}` : 'off'} budget=${budgetMs / 1000}s`);
 console.log('iter   points  splits  candidates     hits  cand/pt  hits/pt   ms   histPts');
@@ -135,7 +135,7 @@ while (done < iterations) {
   let ran = 0;
   let over = false;
   for (let i = 0; i < n; i++) {
-    out = out.steps(1, rule);
+    out = out.steps(1, rule, subdivide);
     ran++;
     if (withHistory) historyPts += out.n;
     if (performance.now() - t0 > budgetMs) { over = true; break; }

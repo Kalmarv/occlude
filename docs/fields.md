@@ -193,7 +193,7 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const [low, mid, high] = contours.edges.groupBy((e) => e.attrs.level);
   const softened = high.extract().steps(12, (cur, next) => {
     const smooth = force.relax(cur, { amount: 0.5 });
-    next.move((p) => mul(smooth(p), 1), { where: cur.points.filter((p) => cur.degree(p) === 2) });
+    next.move(cur.points.filter((p) => cur.degree(p) === 2), (p) => mul(smooth(p), 1));
   });
   return [
     polygon(low, { fill: fill('hatch', { angle: 30, spacing: mm(2.4) }), stroke: false }),

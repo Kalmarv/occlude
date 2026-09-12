@@ -51,7 +51,7 @@ for (const [name, field] of [['flat', flat], ['tonal', tone]] as const) {
       base.steps(1, (cur, next) => {
         const c = voronoiOf(cur, env.bounds);
         const m = c.faces().measure(field, { bounds: env.bounds });
-        next.move((p) => {
+        next.move(cur.points, (p) => {
           const f = c.cellOf(p);
           const w = f ? m.forFace(f).weightedCentroid : null;
           return w ? [w[0] - p.x, w[1] - p.y] : [0, 0];

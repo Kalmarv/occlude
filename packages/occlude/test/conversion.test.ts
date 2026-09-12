@@ -137,7 +137,7 @@ describe('isolines and streamlines as material', () => {
     let none: Material | null = null;
     run((t) => {
       const m = t.isolines(bowl, 25, { step: 2 });
-      split = m.steps(1, (cur, next) => next.splitEdges(() => true));
+      split = m.steps(1, (cur, next) => next.splitEdges(cur.edges.filter(() => true)));
       none = t.isolines(bowl, 500, { step: 2 });
     });
     expect(split!.edgeCount).toBeGreaterThan(0);
@@ -154,7 +154,7 @@ describe('isolines and streamlines as material', () => {
     let moved: Material | null = null;
     run((t) => {
       m = t.streamlines(swirl, { spacing: 6 });
-      moved = m.attribute('h', (p) => p.x).steps(2, (cur, next) => next.move(() => [1, 0]));
+      moved = m.attribute('h', (p) => p.x).steps(2, (cur, next) => next.move(cur.points, () => [1, 0]));
     });
     const raw = streamlinesOf(env, swirl, { spacing: 6 });
     const cs = m!.curves();
@@ -249,7 +249,7 @@ describe('one boundary contract', () => {
       const contours = t.isolines((x, y) => d(x, y), [5, 15], { step: 1 });
       const grown = contours.steps(3, (cur, next) => {
         const push = force.tension(cur, { rest: 0.5 });
-        next.move((p) => push(p));
+        next.move(cur.points, (p) => push(p));
       });
       out = { inside: d(50, 50), keep: keep([22, 50]), n: grown.n };
     });

@@ -16,8 +16,8 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const settled = sites.steps(iterations, (current, next, k) => {
     const diagram = t.voronoi(current, { bounds: half });
     const measured = diagram.faces().measure(light, { resolution: 128 });
-    next.move((p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; });
-    next.set(() => ({ mobility: 0, stopped: k }), { where: current.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; }) });
+    next.move(current.points, (p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; });
+    next.set(current.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; }), () => ({ mobility: 0, stopped: k }));
   });
   const took = Date.now() - started;
   const still = settled.points.filter((p) => p.stopped >= 0);
@@ -94,7 +94,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const moved = sites.steps(1, (current, next) => {
     const diagram = t.voronoi(current);
     const measured = diagram.faces().measure(light, { resolution: 128 });
-    next.move((p) => {
+    next.move(current.points, (p) => {
       const cell = diagram.cellOf(p);
       const target = cell ? measured.forFace(cell).weightedCentroid : null;
       const step = target ? mul(sub(target, p), amount) : [0, 0];
@@ -123,7 +123,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const gathered = sites.steps(iterations, (current, next) => {
     const diagram = t.voronoi(current);
     const measured = diagram.faces().measure(light, { resolution: 128 });
-    next.move((p) => {
+    next.move(current.points, (p) => {
       const cell = diagram.cellOf(p);
       const target = cell ? measured.forFace(cell).weightedCentroid : null;
       return target ? mul(sub(target, p), amount) : [0, 0];
@@ -149,12 +149,12 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const respond = (stopping) => sites.steps(iterations, (current, next, k) => {
     const diagram = t.voronoi(current, { bounds: half });
     const measured = diagram.faces().measure(light, { resolution: 128 });
-    next.move((p) => {
+    next.move(current.points, (p) => {
       const cell = diagram.cellOf(p);
       const target = cell ? measured.forFace(cell).weightedCentroid : null;
       return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0];
     });
-    if (stopping) next.set(() => ({ mobility: 0, stopped: k }), { where: current.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; }) });
+    if (stopping) next.set(current.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; }), () => ({ mobility: 0, stopped: k }));
   });
   const gathered = respond(false);
   const stopped = respond(true);
@@ -176,8 +176,8 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const stopped = sites.steps(iterations, (current, next, k) => {
     const diagram = t.voronoi(current);
     const measured = diagram.faces().measure(light, { resolution: 128 });
-    next.move((p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; });
-    next.set(() => ({ mobility: 0, stopped: k }), { where: current.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; }) });
+    next.move(current.points, (p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; });
+    next.set(current.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; }), () => ({ mobility: 0, stopped: k }));
   });
   const still = stopped.points.filter((p) => p.stopped >= 0);
   return [
@@ -217,8 +217,8 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const settled = sites.steps(iterations, (current, next, k) => {
     const diagram = t.voronoi(current, { bounds: half });
     const measured = diagram.faces().measure(light, { resolution: 128 });
-    next.move((p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; });
-    next.set(() => ({ mobility: 0, stopped: k }), { where: current.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; }) });
+    next.move(current.points, (p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; });
+    next.set(current.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; }), () => ({ mobility: 0, stopped: k }));
   });
   const took = Date.now() - started;
   const still = settled.points.filter((p) => p.stopped >= 0);

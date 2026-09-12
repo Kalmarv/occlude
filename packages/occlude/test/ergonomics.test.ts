@@ -41,23 +41,23 @@ describe('extend with inherit', () => {
   const seed = () => material([[0, 0]], { active: 1, heading: -1.5, depth: 3 });
   it('a child starts from its parent and overrides apply; without inherit every column is still required', () => {
     const grown = seed().steps(1, (cur, next) => {
-      next.extend((p) => ({ position: [0, -4], attributes: { heading: p.heading + 0.2 } }), { inherit: true });
+      next.extrude(cur.points, (p) => ({ position: [0, -4], attributes: { heading: p.heading + 0.2 } }), { inherit: true });
     });
     expect(grown.n).toBe(2);
     expect(grown.attrs.active[1]).toBe(1);
     expect(grown.attrs.depth[1]).toBe(3);
     expect(grown.attrs.heading[1]).toBeCloseTo(-1.3, 12);
     expect(grown.attrs.heading[0]).toBeCloseTo(-1.5, 12); // the parent is untouched
-    expect(() => seed().steps(1, (cur, next) => next.extend(() => ({ position: [0, -4], attributes: { heading: 0 } })))).toThrow(/must give 'active'/);
-    expect(() => seed().steps(1, (cur, next) => next.extend(() => ({ position: [0, -4] }), { inherit: true }))).not.toThrow();
+    expect(() => seed().steps(1, (cur, next) => next.extrude(cur.points, () => ({ position: [0, -4], attributes: { heading: 0 } })))).toThrow(/must give 'active'/);
+    expect(() => seed().steps(1, (cur, next) => next.extrude(cur.points, () => ({ position: [0, -4] }), { inherit: true }))).not.toThrow();
     // unknown and non-finite overrides are still refused
-    expect(() => seed().steps(1, (cur, next) => next.extend(() => ({ position: [0, -4], attributes: { colour: 1 } }), { inherit: true }))).toThrow(/no attribute 'colour'/);
-    expect(() => seed().steps(1, (cur, next) => next.extend(() => ({ position: [0, -4], attributes: { heading: NaN } }), { inherit: true }))).toThrow(/not a finite number/);
+    expect(() => seed().steps(1, (cur, next) => next.extrude(cur.points, () => ({ position: [0, -4], attributes: { colour: 1 } }), { inherit: true }))).toThrow(/no attribute 'colour'/);
+    expect(() => seed().steps(1, (cur, next) => next.extrude(cur.points, () => ({ position: [0, -4], attributes: { heading: NaN } }), { inherit: true }))).toThrow(/not a finite number/);
   });
   it('a join to an existing vertex leaves that vertex as it was, inherit or not', () => {
     const two = material([[0, 0], [10, 0]], { active: [1, 0], heading: [0, 2], depth: [0, 9] });
     const joined = two.steps(1, (cur, next) => {
-      next.extend(() => ({ to: 1 }), { where: (p) => p.index === 0, inherit: true });
+      next.extrude(cur.points.filter((p) => p.index === 0), () => ({ to: 1 }), { inherit: true });
     });
     expect(joined.n).toBe(2);
     expect(joined.edgeCount).toBe(1);
@@ -81,7 +81,7 @@ describe('plural attributes', () => {
   it('transfer policies are per column, kept on update, and must name a column being set', () => {
     const m = curve([[0, 0], [10, 0]], { closed: false, age: [0, 10], kind: [1, 2] });
     const declared = m.attributes({ age: (p) => p.age, kind: (p) => p.kind }, { transfer: { kind: 'nearest' } });
-    const split = declared.steps(1, (cur, next) => next.splitEdges(() => true, { at: 0.25 }));
+    const split = declared.steps(1, (cur, next) => next.splitEdges(cur.edges.filter(() => true), { at: 0.25 }));
     const inserted = split.points.filter((p) => p.x === 2.5).at(0);
     expect(inserted.age).toBeCloseTo(2.5, 12); // interpolated
     expect([1, 2]).toContain(inserted.kind); // nearest: one end's value, never a mean

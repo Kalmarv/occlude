@@ -4,6 +4,8 @@ This is a runnable prototype, **not a replacement for `Material.steps` and not a
 
 The experiment tests the proposed contract: frozen `prev`, editable `current`, selection-first edits, immediate execution, and selections that retain identities but read live values. There are no hidden value snapshots at operation boundaries. A `move` callback can observe changes made by earlier callbacks in that same move. `current.points` and `current.edges` capture their membership when accessed; `filter` narrows it. Reading a saved live view after its removal throws.
 
+The batch-side fixture calls have since migrated to selection-first `extrude` and explicit passes. The committed timing file below records the earlier engine comparison; rerunning measures the current batch API. The ordered editor remains an isolated experiment.
+
 ## Findings
 
 The simple growth and force/subdivision examples convert cleanly. All benchmark fixtures have matching point and undirected-edge geometry to 1e-9 material units after ignoring row order. Attribute assertions are separate native TypeScript tests. This does not establish parity for arbitrary forces, curves, seeded random recipes, or the whole docs corpus.

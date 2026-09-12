@@ -42,7 +42,8 @@ const growth = (start: ReturnType<typeof ring>, steps: number, split: boolean) =
       );
       next.move(p.index, mul(f, 0.15));
     }
-    if (split) next.splitEdges((e) => e.length > 0.9 && rnd() < 0.25, { attributes: {} });
+  }, (cur, next) => {
+    if (split) next.splitEdges(cur.edges.filter((e) => e.length > 0.9 && rnd() < 0.25), { attributes: {} });
   });
 };
 
@@ -61,7 +62,7 @@ for (const n of [2000, 20000]) {
   const pts = r.points;
   med(`${n}: neighbours query ×n`, () => { for (const p of pts) near(p); });
   med(`${n}: steps(1), move only`, () => r.steps(1, (cur, next) => { for (const p of cur.points) next.move(p.index, [0.01, 0]); }));
-  med(`${n}: steps(1), split every edge`, () => r.steps(1, (_c, next) => next.splitEdges(() => true, { attributes: {} })));
+  med(`${n}: steps(1), split every edge`, () => r.steps(1, (_c, next) => next.splitEdges(_c.edges.filter(() => true), { attributes: {} })));
   const sep = force.separation(r, { radius: 2, excludeConnected: true });
   med(`${n}: force.separation evaluate ×n`, () => { for (const p of pts) sep(p); });
 }
