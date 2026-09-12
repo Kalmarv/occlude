@@ -30,26 +30,6 @@ The discs hide the earlier lines; their contours follow the exposed boundaries. 
 
 With a given build, the same sketch and seed produce the same ink. Physical results also depend on the pen, paper and machine.
 
-## Contour fills
-
-Contours follow the **final visible area**, including holes, masks and clips. The default spacing is 0.9 times the fill pen's width. Short connections reduce pen lifts, and local cleanup marks cover remnants where contours meet or disappear.
-
-```ts
-import { sketch, circle, mask, fill, mm } from 'occlude';
-
-export default sketch({ aspect: 'square', margin: 8 }, () => [
-  circle(50, 50, 38, {
-    stroke: false,
-    fill: fill('contour', { spacing: mm(1.1), connectors: false }),
-  }),
-  mask(circle(57, 43, 17)),
-]);
-```
-
-Use `connectors: false` for separate loops without transition lines. Necessary cleanup marks remain. Spacing wider than the nib creates an open texture; draft quality coarsens spacing. Finishing modifiers retain their normal semantics and can break continuity or move ink beyond the original boundary.
-
-Contour filling can substantially reduce lifts on dense artwork, but fewer lifts do not always mean a faster plot. Use `plotstats` to compare your sketch. See [Fills](docs/fills.md) for live variations and limits, and the [illustrated contour explainer](packages/occlude-studio/public/contour-explained.html) for the geometry and measured comparisons. The explainer is available at `/contour-explained.html` in a running Studio.
-
 ## Run the studio
 
 Prerequisites: Node.js, pnpm, stable Rust and [wasm-pack](https://rustwasm.github.io/wasm-pack/).
