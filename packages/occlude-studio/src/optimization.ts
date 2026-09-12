@@ -41,6 +41,7 @@ export interface OptimizationRequest {
   sourcePlanHash: string;
   sourceRange: [number, number];
   options: OptimizationOptions;
+  auto?: AutoOptions;
   context?: OptimizationContext;
   pens: PenDef[];
   timing: EstimateOpts;
@@ -48,6 +49,8 @@ export interface OptimizationRequest {
 }
 export interface OptimizationReply {
   strategy: string;
+  fidelity?: InkDifference;
+  skipped?: string[];
   attempts: number;
   improved: boolean;
   buffer: Float64Array;
@@ -63,4 +66,29 @@ export interface OptimizationReply {
     primitivesAfter: number;
   };
   elapsedMs: number;
+}
+
+export interface AutoOptions {
+  localNib: number;
+  missingPercent: number;
+  addedPercent: number;
+  alternatives: number;
+  connections: boolean;
+}
+export interface InkDifference {
+  complete: boolean;
+  status: "passed" | "rejected" | "inconclusive";
+  changedCells: number;
+  model: string;
+  pens: {
+    pen: number;
+    originalLower: number;
+    originalUpper: number;
+    missingLower: number;
+    missingUpper: number;
+    addedLower: number;
+    addedUpper: number;
+    localLimitMm: number;
+    localPass: boolean;
+  }[];
 }

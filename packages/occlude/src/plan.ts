@@ -104,6 +104,7 @@ export interface PlanSettings {
     version: number;
     sourcePlanHash: string;
     sourceRange: [number, number];
+    auto?: { localNib: number; missingPercent: number; addedPercent: number; alternatives: number; connections: boolean; model: string; machineTolerance: number; executionKey: string; fidelity?: { pen: number; missingUpper: number; addedUpper: number; localLimitMm: number }[] };
     tolerance: number;
     maxSegment: number;
     cornerDegrees: number;

@@ -107,11 +107,19 @@ The Machine page holds the machine profile (bed size, feeds, accelerations, serv
 
 In Studio, switch to **Plot → Optimize path** to spend extra computation on a finished drawing. It runs only when you click **Run optimization**, in a separate cancellable worker; it does not rerun your sketch or generate its fills again.
 
+**Auto optimize** searches fitting, joining and ordering settings, then keeps the fastest candidate that passes vector ink checks. Open **Auto settings** to set the maximum local change in nib widths, missing ink percentage and added ink percentage. The defaults are 0.1 nib width locally, 0.1% missing ink and 0.5% added ink, checked separately for every pen. **Alternatives** controls how many proposals are tried (up to 11). **Allow connections** controls whether Auto may add visibility-checked connectors; the manual fitting and gap inputs do not set Auto's search values.
+
+The comparison uses the union of actual pen-width strokes at the active machine's polyline resolution. Overdrawing existing ink can therefore have almost no added-area cost. Area limits are supplemented by a whole-footprint local-distance check, so losing a narrow finger or isolated mark cannot hide inside a good area percentage. The readout gives conservative upper bounds in square millimetres and the tested local-distance limit. SSIM, pixels and raster masks are not used. Numerical ambiguity skips a candidate and retains the original or a previously passing candidate.
+
+Auto runs in the separate cancellable worker. Large drawings can take a minute or more to search; normal render time is unchanged. It currently supports polyline machine profiles, including EBB. For profiles exporting native G2/G3 arc commands, use manual optimization. Footprint comparison does not predict extra ink darkness from overdrawing; review the added strokes and ink-length change before applying. **Difference** shows replaced strokes and proposed connections, not a raster heatmap.
+
+**Run optimization** retains the manual controls:
+
 - **Fit short segments** replaces connected line segments with fewer lines or circular arcs. Maximum deviation is measured in paper millimetres against the original segments, including their interiors. Existing arcs/cubics, taps and sharp turns stay intact. Maximum segment length chooses which lines are eligible; the turn threshold protects corners.
 - **Join nearby ends** permits new ink up to the maximum gap. The search extends both ends of each run. Endpoints must belong to one known shape, and the complete connector must pass the engine's visibility checks, including holes, clips and occluders. Contour runs can join when their fill permits connectors; `connectors: false` and shapes with finishing modifiers remain protected. Ambiguous provenance is left separate. Joining requires a live render; saved results can still be fitted and reordered.
 - **Improve drawing order** spends additional routing effort on whole chains. It may reverse a chain or move the starting point on a closed loop while preserving its traversal. A routing result that increases pen-up distance is discarded.
 
-This densely sampled wave is a useful fitting example. Open it in Studio and compare the primitive and machine-command counts before and after fitting:
+This densely sampled wave is a useful fitting example for manual or Auto optimization. Open it in Studio and compare the primitive and machine-command counts before and after fitting:
 
 ```ts live
 import { sketch, stroke } from 'occlude';

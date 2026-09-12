@@ -1,6 +1,7 @@
 /** One timing model selects among bounded alternatives, including the source.
  * No candidate is accepted merely because it has fewer primitives. */
 import init, * as core from "occlude-core";
+import { optimizeAutoRequest } from "./optimization-auto.js";
 import {
   PLAN_SCHEMA,
   decodePlanBuffer,
@@ -14,6 +15,7 @@ export async function optimizeRequest(
   r: OptimizationRequest,
   progress: (stage: string) => void = () => {},
 ): Promise<OptimizationReply> {
+  if (r.auto) return optimizeAutoRequest(r, progress);
   const started = performance.now();
   progress("Loading geometry engine…");
   await init();

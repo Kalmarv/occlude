@@ -115,8 +115,25 @@ export function buildOptimizationPanel(
     hint("Extra search over whole paths. The original remains a candidate."),
   );
 
+  const autoSettings = subpanel("Auto settings");
+  choices.append(autoSettings.root);
+  const localNib = input(autoSettings.body, "Local / nib", 0.1);
+  const missingPct = input(autoSettings.body, "Missing %", 0.1);
+  const addedPct = input(autoSettings.body, "Added %", 0.5);
+  const alternatives = input(autoSettings.body, "Alternatives", 8);
+  let autoConnections = true;
+  autoSettings.body.append(
+    checkbox("Allow connections", true, (v) => {
+      autoConnections = v;
+      changed();
+    }),
+    hint(
+      "Auto chooses fitting and joining settings. Vector ink differences are checked per pen at the active machine resolution. Up to 11 alternatives.",
+    ),
+  );
   const refresh = (): void => {
     run.disabled = busy || adopting || !d.sourcePlan || !d.selection;
+    autoRun.disabled = busy || adopting || !d.sourcePlan || !d.selection;
     cancel.hidden = !busy;
     apply.disabled =
       busy ||
@@ -182,6 +199,22 @@ export function buildOptimizationPanel(
         `${r.stats[0]} fitted spans · ${r.stats[2]} joins · ${(r.elapsedMs / 1000).toFixed(2)} s computation`,
       ),
     );
+    if (r.fidelity) {
+      metrics.append(
+        hint("Vector ink allowances passed · machine polyline model"),
+      );
+      for (const p of r.fidelity.pens)
+        metrics.append(
+          hint(
+            `${d.pens[p.pen]?.name ?? p.pen}: missing ≤ ${p.missingUpper.toFixed(4)} mm²; added ≤ ${p.addedUpper.toFixed(4)} mm²; local change ≤ ${p.localLimitMm.toFixed(4)} mm.`,
+          ),
+        );
+    }
+    if (r.skipped?.length) {
+      const details = subpanel(`${r.skipped.length} alternatives skipped`);
+      for (const why of r.skipped) details.body.append(hint(why));
+      metrics.append(details.root);
+    }
     const gain = a.totalMs - b.totalMs;
     metrics.append(
       hint(
@@ -196,7 +229,7 @@ export function buildOptimizationPanel(
       ),
     );
   };
-  const run = button("Run optimization", async () => {
+  const startSearch = async (automatic: boolean) => {
     if (hooks.isPlotting?.()) {
       status.textContent = "Stop the physical plot before optimizing.";
       return;
@@ -218,7 +251,20 @@ export function buildOptimizationPanel(
     status.textContent = "Preparing the selected original paths…";
     capturedExecution = canonicalJson(hooks.execution());
     try {
-      if (join) {
+      const wantsJoins = automatic
+        ? autoConnections && !hooks.frozenResult()
+        : join;
+      if (
+        automatic &&
+        (
+          hooks.profiles.find((p) => p.name === hooks.settings.activeProfile) ??
+          hooks.profiles[0]
+        )?.machine.arcSupport
+      )
+        throw new Error(
+          "Auto currently measures polyline machine paths. Use manual optimization for arc-command profiles.",
+        );
+      if (wantsJoins) {
         if (hooks.frozenResult())
           throw new Error(
             "Joining requires a live render. Fitting and ordering work on saved results.",
@@ -239,7 +285,16 @@ export function buildOptimizationPanel(
           gap: join ? Number(gap.value) : 0,
           tourBudget: order ? Number(budget.value) : 0,
         },
-        context: join ? context : undefined,
+        context: wantsJoins ? context : undefined,
+        auto: automatic
+          ? {
+              localNib: Number(localNib.value),
+              missingPercent: Number(missingPct.value),
+              addedPercent: Number(addedPct.value),
+              alternatives: Number(alternatives.value),
+              connections: wantsJoins,
+            }
+          : undefined,
         pens: d.pens.map((p) => ({
           ...p,
           ...execution.pens.find((q) => q.name === p.name),
@@ -297,7 +352,7 @@ export function buildOptimizationPanel(
           comparison.hidden = false;
           status.textContent = result.improved
             ? "Ready to compare. The active drawing is unchanged."
-            : "Original retained — none of these alternatives was faster.";
+            : "Original retained — no faster eligible alternative was found.";
           refresh();
         } catch (e) {
           fail(e instanceof Error ? e.message : String(e));
@@ -325,8 +380,10 @@ export function buildOptimizationPanel(
         refresh();
       }
     }
-  });
-  run.classList.add("primary");
+  };
+  const run = button("Run optimization", () => startSearch(false));
+  const autoRun = button("Auto optimize", () => startSearch(true));
+  autoRun.classList.add("primary");
   const preview = (mode: "original" | "optimized" | "difference"): void => {
     if (!candidate || !candidatePlan || !d.sourcePlan || !sourceRange) return;
     const chains =
@@ -426,6 +483,7 @@ export function buildOptimizationPanel(
       "Try changes on the finished drawing. Apply affects plotting and exports.",
     ),
     choices,
+    autoRun,
     el("div", "row", run, cancel),
     status,
     metrics,

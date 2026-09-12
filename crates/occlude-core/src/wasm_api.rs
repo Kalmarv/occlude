@@ -477,3 +477,20 @@ pub fn wasm_export_toolpath(
     let frags = decode_frags(prims, frags)?;
     Ok(crate::plan::toolpath(&crate::plan::plan_chains(&frags, &pens, tour_budget as usize), tolerance))
 }
+
+/// Original vector ink and cached local footprints, created only for Auto.
+#[wasm_bindgen]
+pub struct WasmInkSession { inner: crate::ink_difference::InkSession }
+#[wasm_bindgen]
+impl WasmInkSession {
+    #[wasm_bindgen(constructor)]
+    pub fn new(plan: &[f64], widths: Vec<f64>, tolerance: f64, local: f64, missing: f64, added: f64) -> Result<WasmInkSession, JsValue> {
+        let cs=crate::plan::decode_plan(plan).map_err(|e|JsValue::from_str(&e))?;
+        Ok(Self{inner:crate::ink_difference::InkSession::new(&cs,widths,tolerance,local,missing,added).map_err(|e|JsValue::from_str(&e))?})
+    }
+    pub fn compare(&mut self, plan: &[f64]) -> Result<String, JsValue> {
+        let cs=crate::plan::decode_plan(plan).map_err(|e|JsValue::from_str(&e))?;
+        let result=self.inner.compare(&cs).map_err(|e|JsValue::from_str(&e))?;
+        serde_json::to_string(&result).map_err(|e|JsValue::from_str(&e.to_string()))
+    }
+}

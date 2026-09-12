@@ -80,12 +80,10 @@ Native and real-WASM tests cover fitting deviation, corners, discontinuities, co
 
 Occlude already had greedy ordering and 2-opt. The useful additions here are eligible contour joins with full visibility checks, continued search across the existing tour, closed-loop seam placement, and choosing by actual shared ETA instead of primitive count.
 
-## Proposed automatic fidelity-constrained search
+## Automatic fidelity-constrained search
 
 See [the detailed Auto design](path-auto-design.md) for the metric, numerical contract, localized vector work, search schedule and implementation gates.
 
-An Auto mode could minimize the existing plot ETA subject to an ink-difference allowance. Compare the union of actual round-nib stroke footprints separately for each pen, not the source shapes' filled areas. Measure missing area (original minus candidate), added area (candidate minus original), and a maximum local gap/displacement bound. Normalize area against original ink rather than blank paper; retain local constraints so a small isolated mark cannot disappear inside a good aggregate score. Extra drawing over an already covered footprint can have zero added-area cost, while still costing time and potentially changing physical ink darkness.
+Auto is now implemented. See [the measured Auto results](path-auto-results.md) for the current behavior, performance and limits. It compares the union of actual round-nib stroke footprints separately for each pen, with missing-area, added-area and local-distance allowances. The existing shared estimator selects the fastest passing candidate; inconclusive candidates cannot replace the original.
 
-A bounded candidate search would vary fitting and connector allowances, certify visibility/protected breaks as today, and retain the lowest-ETA passing candidate plus the original. Use spatial indexing and comparisons restricted to changed spans, accounting for neighboring unchanged ink that overlaps those spans. Curve conversion and footprint Boolean approximation need an explicit error allowance; uncertainty near a limit must not be silently treated as a pass. This is a proposed design, not implemented or benchmarked here.
-
-The agreed design uses vector geometry only: per-pen missing ink area, added ink area, and maximum local gap/displacement. SSIM, PSNR and raster similarity scores are excluded. The geometric checks provide physical units for acceptance. A footprint model does not predict pen pressure, accumulated darkness from repeated strokes, or ink/paper interaction; those differences should remain visible in the comparison and ink-length readout.
+The design uses vector geometry only. SSIM, PSNR and raster similarity scores are excluded. A footprint model does not predict pen pressure, accumulated darkness from repeated strokes or ink/paper interaction; review the changed paths and ink-length readout before applying.

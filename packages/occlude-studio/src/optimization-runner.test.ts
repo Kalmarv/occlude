@@ -121,3 +121,52 @@ it("retains exact original bytes and disables acceptance when no faster candidat
   expect(out.buffer).toEqual(r.buffer);
   expect(out.strategy).toBe("Original retained");
 });
+
+it("Auto checks per-pen vector fidelity and preserves an unchanged original", async () => {
+  const r = request([
+    {
+      index: 0,
+      pen: 0,
+      dot: false,
+      prims: [{ t: "line", x0: 0, y0: 0, x1: 10, y1: 0 }],
+    },
+  ]);
+  r.auto = {
+    localNib: 0.1,
+    missingPercent: 0.1,
+    addedPercent: 0.5,
+    alternatives: 3,
+    connections: false,
+  };
+  const out = await optimizeRequest(r);
+  expect(out.improved).toBe(false);
+  expect(out.buffer).toEqual(r.buffer);
+  expect(out.settings.optimization?.auto?.model).toBe(
+    "round-nib-machine-polyline-v1",
+  );
+});
+it("Auto measures actual machine ink for faster routing without changing pen assignment", async () => {
+  const r = request(
+    [10, 30, 20, 0].map((x, index) => ({
+      index,
+      pen: 0,
+      dot: false,
+      prims: [{ t: "line" as const, x0: x, y0: 0, x1: x + 1, y1: 0 }],
+    })),
+  );
+  r.auto = {
+    localNib: 0.1,
+    missingPercent: 0.1,
+    addedPercent: 0.5,
+    alternatives: 1,
+    connections: false,
+  };
+  const out = await optimizeRequest(r);
+  expect(out.improved).toBe(true);
+  expect(out.fidelity?.status).toBe("passed");
+  expect(out.fidelity?.pens[0].missingUpper).toBe(0);
+  expect(out.fidelity?.pens[0].addedUpper).toBe(0);
+  expect(out.metrics.optimized.totalMs).toBeLessThan(
+    out.metrics.original.totalMs,
+  );
+});

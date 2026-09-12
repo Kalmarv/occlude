@@ -1,0 +1,308 @@
+[
+  {
+    "runtime": "v24.21.0",
+    "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+    "fixture": "recursive",
+    "paper": [
+      304.8,
+      304.8
+    ],
+    "pen": {
+      "name": "hop",
+      "width": 0.4,
+      "color": "#ff295e",
+      "feed": 3000,
+      "penDown": 0,
+      "penUp": 5,
+      "penDelay": 600
+    },
+    "profile": {
+      "name": "iDraw",
+      "driver": "ebb",
+      "machine": {
+        "bedW": 304.8,
+        "bedH": 431.8,
+        "travelFeed": 6000,
+        "zMode": true,
+        "arcSupport": false,
+        "resolution": 0.025
+      },
+      "ebb": {
+        "stepsPerMm": 100,
+        "swapXY": true,
+        "invertX": true,
+        "invertY": false,
+        "penUpPulse": 8600,
+        "penDownPulse": 17400,
+        "seatPulse": 17000,
+        "acceleration": 1000,
+        "travelAcceleration": 2000,
+        "junctionDeviation": 0.02,
+        "minimumCruiseRatio": 0.5,
+        "lmMotion": true,
+        "liftMarginPulses": 800,
+        "driftCheckEvery": 1000,
+        "liftMap": {
+          "cols": 8,
+          "rows": 12,
+          "bedW": 304.8,
+          "bedH": 431.8,
+          "margin": 8,
+          "thresholds": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            15200,
+            null,
+            null,
+            null,
+            null,
+            null,
+            15200,
+            15200,
+            15200,
+            null,
+            null,
+            null,
+            null,
+            15200,
+            15200,
+            14400,
+            14400,
+            null,
+            null,
+            15200,
+            15200,
+            15200,
+            14400,
+            13600,
+            13600,
+            null,
+            15200,
+            15200,
+            15200,
+            15200,
+            14400,
+            13600,
+            12000,
+            null,
+            15200,
+            15200,
+            15200,
+            15200,
+            14400,
+            13600,
+            12000,
+            null,
+            null,
+            null,
+            15200,
+            15200,
+            14400,
+            13600,
+            12000,
+            null,
+            null,
+            null,
+            null,
+            15200,
+            14400,
+            13600,
+            12000,
+            null,
+            null,
+            null,
+            null,
+            15200,
+            15200,
+            14400,
+            13600,
+            null,
+            null,
+            null,
+            null,
+            null,
+            15200,
+            15200,
+            14400,
+            null,
+            null,
+            null,
+            null,
+            null,
+            15200,
+            15200,
+            15200
+          ],
+          "unresolvedAbove": 16000
+        },
+        "settleCurve": [
+          {
+            "pulse": 8600,
+            "ms": 600
+          },
+          {
+            "pulse": 12000,
+            "ms": 600
+          },
+          {
+            "pulse": 12800,
+            "ms": 500
+          },
+          {
+            "pulse": 13600,
+            "ms": 400
+          },
+          {
+            "pulse": 14400,
+            "ms": 300
+          },
+          {
+            "pulse": 15200,
+            "ms": 200
+          },
+          {
+            "pulse": 16000,
+            "ms": 200
+          }
+        ]
+      }
+    }
+  },
+  {
+    "renderAndPlanMs": 11929.404906,
+    "fragments": 326106
+  },
+  {
+    "mode": "original",
+    "totalMs": 18585252.99360411,
+    "drawMs": 4041230.57332846,
+    "travelMs": 700376.4202756487,
+    "cycleMs": 13843646,
+    "commands": 395770,
+    "chains": 23374,
+    "dots": 1691,
+    "drawMm": 102931.04730266669,
+    "travelMm": 14625.734105861586,
+    "primitives": 326106
+  },
+  {
+    "stage": "Auto: measuring the original path\u2026",
+    "time": 12754.309021
+  },
+  {
+    "stage": "Auto: preparing visibility checks\u2026",
+    "time": 13028.904201
+  },
+  {
+    "stage": "Auto 1/8: Join up to 0.050 mm\u2026",
+    "time": 13123.369776
+  },
+  {
+    "stage": "Auto 1/8: comparing vector ink (Join up to 0.050 mm)\u2026",
+    "time": 14333.127241
+  },
+  {
+    "stage": "Auto 2/8: Fit at 0.0100 mm\u2026",
+    "time": 54837.941371
+  },
+  {
+    "stage": "Auto 3/8: Join up to 0.100 mm\u2026",
+    "time": 55269.130646
+  },
+  {
+    "stage": "Auto 3/8: comparing vector ink (Join up to 0.100 mm)\u2026",
+    "time": 56463.17365
+  },
+  {
+    "stage": "Auto 4/8: Join up to 0.200 mm\u2026",
+    "time": 59039.606579
+  },
+  {
+    "stage": "Auto 4/8: comparing vector ink (Join up to 0.200 mm)\u2026",
+    "time": 60384.966271
+  },
+  {
+    "stage": "Auto 5/8: Join up to 0.400 mm\u2026",
+    "time": 62778.883471
+  },
+  {
+    "stage": "Auto 5/8: comparing vector ink (Join up to 0.400 mm)\u2026",
+    "time": 64878.941439
+  },
+  {
+    "stage": "Auto 6/8: Join up to 0.800 mm\u2026",
+    "time": 67761.945677
+  },
+  {
+    "stage": "Auto 6/8: comparing vector ink (Join up to 0.800 mm)\u2026",
+    "time": 73053.489407
+  },
+  {
+    "stage": "Auto 7/8: Join up to 1.600 mm\u2026",
+    "time": 76828.328561
+  },
+  {
+    "stage": "Auto 7/8: comparing vector ink (Join up to 1.600 mm)\u2026",
+    "time": 90320.114826
+  },
+  {
+    "stage": "Auto 8/8: Order paths\u2026",
+    "time": 90575.908958
+  },
+  {
+    "mode": "auto",
+    "computeMs": 78217.83813599999,
+    "strategy": "Auto \u00b7 Join up to 0.800 mm",
+    "stats": [
+      0,
+      0,
+      8296,
+      172725
+    ],
+    "fidelity": {
+      "status": "passed",
+      "complete": true,
+      "pens": [
+        {
+          "pen": 0,
+          "originalLower": 23121.451116761702,
+          "originalUpper": 23126.810075728583,
+          "missingLower": 0,
+          "missingUpper": 1.5281895544466305e-10,
+          "addedLower": 0.002090110674733686,
+          "addedUpper": 0.0036120658748541273,
+          "localLimitMm": 0.04000000000000001,
+          "localPass": true
+        }
+      ],
+      "changedCells": 571,
+      "model": "round-nib-machine-polyline-v1"
+    },
+    "skipped": [
+      "Join up to 1.600 mm: local ink allowance could not be verified"
+    ],
+    "totalMs": 13595715.693969727,
+    "drawMs": 4101724.9841470597,
+    "travelMs": 550196.7098226679,
+    "cycleMs": 8943794,
+    "commands": 379178,
+    "chains": 15078,
+    "dots": 1691,
+    "drawMm": 105437.75641806668,
+    "travelMm": 14244.053049085314,
+    "primitives": 334402
+  }
+]

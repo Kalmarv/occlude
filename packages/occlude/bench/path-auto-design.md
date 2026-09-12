@@ -1,6 +1,8 @@
 # Auto path optimization: vector fidelity design
 
-Design revision: 12 September 2026. This is an implementation plan, not an available Studio option. The existing manual optimization panel is shipped; Auto and its fidelity certificates are not implemented. The small Rust probe below establishes basic vector operations, not large-sketch performance or numerical certification.
+Implementation update: the first Auto version is now implemented in `ink_difference.rs`, `optimization-auto.ts` and Studio's **Auto optimize** button. The sections below retain the design rationale. Current implementation differences: eight default proposals out of at most eleven; inconclusive candidates are skipped rather than automatically refining precision; measurement is restricted to the active machine-polyline geometry (arc-command profiles retain manual optimization); the difference preview shows changed paths, with numeric footprint bounds rather than filled footprint-difference overlays.
+
+The native session uses 8 mm vector work cells, cropped centerline neighborhoods, a fixed 1e-8 mm grid, localized i32 overlays where coordinate range permits and i64 otherwise. It computes lower/upper round-nib sweeps, caches reference unions, accounts for numeric endpoint differences when recognizing shared ink, and rejects incomplete checks. This is a bounded numerical geometry implementation, not a claim of exact physical ink prediction. See [measured Auto results](path-auto-results.md) and the source tests for evidence and limitations.
 
 ## Intended behavior
 
