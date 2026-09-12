@@ -1,0 +1,9 @@
+{"runtime":"v24.21.0","cpu":"AMD Ryzen 5 3600 6-Core Processor","date":"2026-09-12T21:49:20.235Z","warmup":2,"samples":7}
+{"fixture":"tips-100","points":101,"edges":100,"geometry":"matches-to-1e-9","legacy":{"medianMs":12.703547000000015,"tailMs":23.981673},"ordered":{"medianMs":57.364102999999886,"tailMs":92.7034480000001}}
+{"fixture":"ring-30","points":80,"edges":80,"geometry":"matches-to-1e-9","legacy":{"medianMs":6.117709999999988,"tailMs":22.344111999999996},"ordered":{"medianMs":18.286589999999933,"tailMs":43.885851}}
+{"fixture":"ring-70","points":320,"edges":320,"geometry":"matches-to-1e-9","legacy":{"medianMs":24.169351000000006,"tailMs":39.25046199999997},"ordered":{"medianMs":121.69373899999982,"tailMs":154.3454529999999}}
+{"fixture":"collisions-300-lineage","points":602,"edges":601,"geometry":"matches-to-1e-9","legacy":{"medianMs":2.482282999999825,"tailMs":3.8002950000000055},"ordered":{"medianMs":10.240943000000243,"tailMs":11.878772000000026}}
+{"fixture":"collisions-300-grouped","points":602,"edges":601,"geometry":"matches-to-1e-9","legacy":{"medianMs":2.337424000000283,"tailMs":3.8051650000002155},"ordered":{"medianMs":5.345024999999623,"tailMs":6.868514999999661}}
+{"fixture":"collisions-20","points":42,"edges":41,"geometry":"matches-to-1e-9","legacy":{"medianMs":0.2883780000001934,"tailMs":0.5893469999996341},"ordered":{"medianMs":2.0150370000001203,"tailMs":2.473873999999796}}
+{"fixture":"collisions-100","points":202,"edges":201,"geometry":"matches-to-1e-9","legacy":{"medianMs":0.715874999999869,"tailMs":0.8155250000004344},"ordered":{"medianMs":13.787590000000364,"tailMs":21.888275999999678}}
+{"fixture":"collisions-300","points":602,"edges":601,"geometry":"matches-to-1e-9","legacy":{"medianMs":1.8235280000003513,"tailMs":2.1388950000000477},"ordered":{"medianMs":94.81049600000006,"tailMs":103.15991100000065}}
