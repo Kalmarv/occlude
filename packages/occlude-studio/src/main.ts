@@ -107,7 +107,7 @@ async function boot(): Promise<void> {
     const plan = drawing.plan;
     const sel = drawing.plotSelection;
     // A frozen result has no fragments: the plan IS the picture, always.
-    if (!plan || !sel || (!frozenId && !drawing.region && sel.fromChain === 0 && sel.toChain === plan.chains.length)) preview.setSelection(null);
+    if (!plan || !sel || (!frozenId && !drawing.isVariant && !drawing.region && sel.fromChain === 0 && sel.toChain === plan.chains.length)) preview.setSelection(null);
     else {
       let keep: Uint8Array | undefined;
       if (drawing.region) {
@@ -423,6 +423,7 @@ async function boot(): Promise<void> {
       progress: (chain) => preview.liveProgress(chain),
       end: () => preview.endLive(),
     },
+    optimizationView: (view) => preview.setOptimization(view),
     brush: {
       start: (fn) => { preview.brush = fn; $('preview').classList.add('painting'); },
       stop: () => { preview.brush = null; $('preview').classList.remove('painting'); },

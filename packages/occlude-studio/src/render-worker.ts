@@ -16,6 +16,7 @@ import { bridgeGapFor, getInspectionIndex, getProbeStats, hashPlan, inspectionPa
 import { currentDraws, currentOverrides, currentSeed, runSketch, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
 import { preloadFills } from './fillLoader.js';
+import type { GeometrySnapshot } from './optimization.js';
 
 declare const __BUILD_STAMP__: string;
 
@@ -66,6 +67,7 @@ interface PlanLoadMsg {
   planHash: string;
   /** The saved record's pens, as `pensToJson` spells them. */
   pensJson: string;
+  expectedPlanHash?: string;
 }
 
 interface PngMsg {
@@ -87,7 +89,9 @@ interface InspectMsg {
   name: string;
 }
 
-type Msg = RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg;
+type Msg = RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg
+  | { type: 'optimization-context'; id: number; planHash: string }
+  | (PlanRange & { type: 'plan-png'; id: number; width: number; height: number; scale: number; background?: string });
 
 const ready = initCore();
 
@@ -97,6 +101,8 @@ let last: { prims: Float64Array; frags: Float64Array; pensJson: string; pens: { 
 let lastPlan: { buffer: Float64Array; settings: PlanSettings; planHash: string; pensJson: string } | null = null;
 /** The render whose sketch state (and inspection registry) is current. */
 let lastExecutionId = -1;
+let geometrySnapshot: GeometrySnapshot | null = null;
+let renderedPlanHash: string | null = null;
 
 /** THE plan of the last render under the given options. */
 async function planLast(opts: PlanOptions): Promise<{ buffer: Float64Array; settings: PlanSettings; planHash: string }> {
@@ -151,10 +157,14 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         const scene = outcome.scene;
         lastExecutionId = msg.id;
         const raw = renderEncoded(mod, scene);
+        geometrySnapshot = null; renderedPlanHash = null;
         last = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper };
         // THE plan, once per render, under the sketch's own t.plan({...}):
         // everything downstream selects from it, as the sketch's t.draw says.
         const { buffer: planBuf, settings, planHash } = await planLast(scene.plan ?? {});
+        const { prims: inputPrims, contours, shapesU32, shapesF64, mods, fieldData, fieldUses, domainList, clipList, clipsU32, pensJson, paperArr, seed, coarsen } = scene;
+        geometrySnapshot = { prims: inputPrims, contours, shapesU32, shapesF64, mods, fieldData, fieldUses, domainList, clipList, clipsU32, pensJson, paperArr, seed, coarsen };
+        renderedPlanHash = planHash;
         // Exports reuse the cached originals, so the preview gets COPIES —
         // and the copies are transferred, not structured-cloned a second
         // time. Decode metadata (pens/frame/paper) rides along so the main
@@ -203,13 +213,26 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         break;
       }
       case 'plan-load': {
+        if (msg.expectedPlanHash && lastPlan?.planHash !== msg.expectedPlanHash) throw new Error('The drawing changed. Run optimization again.');
         const planHash = await hashPlan(msg.buffer, msg.settings);
+        if (msg.expectedPlanHash && lastPlan?.planHash !== msg.expectedPlanHash) throw new Error('The drawing changed. Run optimization again.');
         if (planHash !== msg.planHash) throw new Error(`saved plan does not match its hash (${msg.planHash.slice(0, 12)}… vs ${planHash.slice(0, 12)}…)`);
         const pens = JSON.parse(msg.pensJson) as { name: string; width: number }[];
         const same = pens.length === msg.settings.pens.length && pens.every((p, i) => p.name === msg.settings.pens[i].name && p.width === msg.settings.pens[i].width);
         if (!same) throw new Error('saved plan: the pens given do not match the plan settings');
         lastPlan = { buffer: msg.buffer, settings: msg.settings, planHash, pensJson: msg.pensJson };
         self.postMessage({ type: 'plan-load', id: msg.id, ok: true });
+        break;
+      }
+      case 'optimization-context': {
+        if (!last || !geometrySnapshot || msg.planHash !== renderedPlanHash) throw new Error('Joining needs the original render context. Render the sketch again.');
+        self.postMessage({ type: msg.type, id: msg.id, context: { scene: geometrySnapshot, prims: last.prims, frags: last.frags } });
+        break;
+      }
+      case 'plan-png': {
+        const p = currentPlan(msg);
+        const png = mod.wasm_plan_png(p.buffer, p.pensJson, msg.width, msg.height, msg.scale, msg.background, msg.from, msg.to);
+        self.postMessage({ type: msg.type, id: msg.id, png }, { transfer: [png.buffer] });
         break;
       }
       case 'plan-gcode': {

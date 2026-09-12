@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { encodePlanBuffer, encodeToolpath, hashPlan, type FlatChain, type PlanChain, type PlanSettings } from 'occlude';
+import { decodePlanBuffer, makePlan, encodePlanBuffer, encodeToolpath, hashPlan, type FlatChain, type PlanChain, type PlanSettings } from 'occlude';
 import { Drawing, chainsFingerprint, chainsUnder } from './drawing.js';
 import type { RenderClient } from './workerClient.js';
 
@@ -19,6 +19,10 @@ function flatOf(cs: PlanChain[]): FlatChain[] {
 /** A worker stand-in: answers toolpath requests for ONE plan hash, refuses others. */
 function mockClient(cs: PlanChain[], hash: string, log: string[]): RenderClient {
   return {
+    loadPlan: async (buffer: Float64Array, _settings: PlanSettings, nextHash: string, _pens: unknown, expected?: string) => {
+      if (expected && hash !== expected) throw new Error('stale plan');
+      log.push(`adopt ${nextHash}`); cs = decodePlanBuffer(buffer); hash = nextHash;
+    },
     planToolpath: async (range: { planHash: string; from: number; to: number }) => {
       log.push(`toolpath ${range.planHash.slice(0, 6)} ${range.from}-${range.to}`);
       if (range.planHash !== hash) throw new Error('stale plan');
@@ -30,6 +34,29 @@ function mockClient(cs: PlanChain[], hash: string, log: string[]): RenderClient 
 }
 
 describe('Drawing state', () => {
+  it('applies a candidate everywhere and restores original bytes and selection without rerendering', async () => {
+    const original = await makePlan(encodePlanBuffer(chains(10)), settings);
+    const log: string[] = [];
+    const d = new Drawing(mockClient(original.chains, original.planHash, log), timing);
+    await d.setPlan(original, pens, { chains: [2, 6] });
+    const source = d.sourcePlan!;
+    const candidate = await makePlan(encodePlanBuffer(chains(3)), { ...settings, optimization: {
+      version: 1, sourcePlanHash: source.planHash, sourceRange: [2, 6], tolerance: 0.01, maxSegment: 2, cornerDegrees: 30, gap: 0, tourBudget: 0,
+    } });
+    d.setRepairs([0, 0.5], [{ x: 5, y: 5, r: 2 }]);
+    await d.useVariant(candidate, d.sourceRevision);
+    expect(d.sourcePlan).toBe(source); expect(d.isVariant).toBe(true);
+    expect(d.range()).toEqual({ planHash: candidate.planHash, from: 0, to: 3 });
+    expect(d.repair).toBeNull(); expect(d.region).toBeNull();
+    expect(await d.selectedToolpath()).toHaveLength(3);
+    expect(await d.svg(undefined, -1)).toContain('svg');
+    await d.useVariant(source, d.sourceRevision);
+    expect(d.isVariant).toBe(false); expect(d.plan!.buffer).toEqual(original.buffer);
+    expect(d.range()).toEqual({ planHash: source.planHash, from: 2, to: 6 });
+    expect(await d.selectedToolpath()).toHaveLength(4);
+    await expect(d.useVariant(candidate, d.sourceRevision - 1)).rejects.toThrow('changed');
+    expect(d.plan).toBe(source);
+  });
   it('resolves the sketch\'s request against each new plan and reports counts', async () => {
     const a = chains(10);
     const bufA = encodePlanBuffer(a);

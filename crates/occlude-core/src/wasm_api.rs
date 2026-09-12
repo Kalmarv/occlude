@@ -62,6 +62,12 @@ pub struct WasmPrepared {
 
 #[wasm_bindgen]
 impl WasmPrepared {
+    /// Optional post-render work; no fill generation. This handle supplies
+    /// exact visibility certificates for newly added connectors only.
+    pub fn optimize_plan(&self, plan: &[f64], prims: &[f64], frags: &[f64], tolerance: f64,
+        max_segment: f64, corner_degrees: f64, gap: f64, budget: u32) -> Result<OptimizationResult, JsValue> {
+        optimize_plan_impl(plan, prims, frags, tolerance, max_segment, corner_degrees, gap, budget, self.inner.as_ref())
+    }
     /// Fill jobs, stride 3: [shape_index, contour_start, contour_count]
     /// per surviving Pending-filled shape. Contour ranges index
     /// `jobs_contours`.
@@ -79,6 +85,36 @@ impl WasmPrepared {
     pub fn jobs_prims(&self) -> Vec<f64> {
         self.jobs_prims.clone()
     }
+}
+
+#[wasm_bindgen]
+pub struct OptimizationResult {
+    plan: Vec<f64>, before: Vec<f64>, after: Vec<f64>, stats: Vec<f64>,
+}
+#[wasm_bindgen]
+impl OptimizationResult {
+    #[wasm_bindgen(getter)] pub fn plan(&self) -> Vec<f64> { self.plan.clone() }
+    #[wasm_bindgen(getter)] pub fn before(&self) -> Vec<f64> { self.before.clone() }
+    #[wasm_bindgen(getter)] pub fn after(&self) -> Vec<f64> { self.after.clone() }
+    #[wasm_bindgen(getter)] pub fn stats(&self) -> Vec<f64> { self.stats.clone() }
+}
+
+#[wasm_bindgen]
+pub fn wasm_optimize_plan(plan: &[f64], tolerance: f64, max_segment: f64, corner_degrees: f64, budget: u32) -> Result<OptimizationResult, JsValue> {
+    optimize_plan_impl(plan, &[], &[], tolerance, max_segment, corner_degrees, 0.0, budget, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn optimize_plan_impl(plan: &[f64], prims: &[f64], frags: &[f64], tolerance: f64, max_segment: f64,
+    corner_degrees: f64, gap: f64, budget: u32, prepared: Option<&crate::pipeline::Prepared>) -> Result<OptimizationResult, JsValue> {
+    let chains = crate::plan::decode_plan(plan).map_err(|e|JsValue::from_str(&e))?;
+    let frags = decode_frags(prims, frags)?;
+    let opts = crate::optimize::Options { tolerance, max_segment, corner_degrees, gap, tour_budget: budget as usize };
+    let out = crate::optimize::optimize_with(chains, &frags, opts, |s,p| prepared.is_some_and(|c|c.optimization_visible(s,p)),
+        |s| prepared.is_some_and(|c|c.optimization_join_ordered(s)))
+        .map_err(|e|JsValue::from_str(&e))?;
+    Ok(OptimizationResult { plan: crate::plan::encode_plan(&out.chains), before: crate::plan::encode_plan(&out.before),
+        after: crate::plan::encode_plan(&out.after), stats: out.stats.iter().map(|&n|n as f64).collect() })
 }
 
 /// Pass 1: decode the scene, run pre-stage modifiers / sort / region-build /

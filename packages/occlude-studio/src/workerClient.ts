@@ -287,11 +287,27 @@ export class RenderClient {
 
   /** Make a saved plan the worker's current one (verified against its
    * hash), with the pens it was saved with. */
-  loadPlan(buffer: Float64Array, settings: PlanSettings, planHash: string, pens: PenDef[]): Promise<void> {
+  loadPlan(buffer: Float64Array, settings: PlanSettings, planHash: string, pens: PenDef[], expectedPlanHash?: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
       this.pending.set(id, { resolve: () => resolve(), reject });
-      this.worker.postMessage({ type: 'plan-load', id, buffer, settings, planHash, pensJson: pensToJson(pens) });
+      this.worker.postMessage({ type: 'plan-load', id, buffer, settings, planHash, pensJson: pensToJson(pens), expectedPlanHash });
+    });
+  }
+
+  optimizationContext(planHash: string): Promise<import('./optimization.js').OptimizationContext> {
+    return new Promise((resolve, reject) => {
+      const id = this.nextId++;
+      this.pending.set(id, { resolve: (msg) => resolve((msg as { context: import('./optimization.js').OptimizationContext }).context), reject });
+      this.worker.postMessage({ type: 'optimization-context', id, planHash });
+    });
+  }
+
+  planPng(range: PlanRange, width: number, height: number, scale: number, background?: string): Promise<Uint8Array> {
+    return new Promise((resolve, reject) => {
+      const id = this.nextId++;
+      this.pending.set(id, { resolve: (msg) => resolve((msg as { png: Uint8Array }).png), reject });
+      this.worker.postMessage({ type: 'plan-png', id, ...range, width, height, scale, background });
     });
   }
 

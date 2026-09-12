@@ -2907,3 +2907,11 @@ button.armed {
   width: 18px;
   height: 18px;
 }
+
+/* Fieldset uses the rail's ordinary rows and collapsible settings. */
+.optimization-settings { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.optimization-metrics { font-variant-numeric: tabular-nums; }
+
+.optimization-comparison .segmented { margin: 6px 0; }
+.optimization-comparison .segmented > button { padding: 5px 4px; }
+.optimization-metrics th { padding: 4px; text-align: right; }

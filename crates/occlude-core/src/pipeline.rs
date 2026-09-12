@@ -197,6 +197,42 @@ pub struct FillJob<'a> {
 }
 
 impl Prepared {
+    /// An explicit post-render join may extend native runs whose fill already
+    /// permits connectors. Never override deliberate connector suppression or
+    /// a finishing modifier's gaps/displacement.
+    pub fn optimization_join_ordered(&self, shape: u32) -> bool {
+        self.shapes.get(shape as usize).is_some_and(|s|
+            matches!(&s.fill, Some((_, FillKind::Contour { connectors: true, .. })))
+            && !s.modifiers.iter().any(|m| m.stage() == Stage::Post))
+    }
+    /// On-demand optimization certificate. Finishing modifiers may intentionally
+    /// move/break ink, so those shapes cannot authorize new connectors.
+    pub fn optimization_visible(&self, shape: u32, prim: &Primitive) -> bool {
+        let i = shape as usize;
+        let Some(s) = self.shapes.get(i) else { return false };
+        if !self.alive[i] || s.modifiers.iter().any(|m| m.stage() == Stage::Post) {
+            return false;
+        }
+        let mut clips: Vec<_> = s.clips.iter().map(|&c| {
+            let (r,k) = &self.clip_regions[c as usize]; (r,*k)
+        }).collect();
+        if let Some(r) = &self.paper_region { clips.push((r,true)); }
+        if let Some(r) = &self.shape_region[i] { clips.push((r.as_ref(),true)); }
+        let ctx = ClipCtx {
+            occluders: &self.occluders, clip_regions: &self.clip_regions,
+            occ_index: &self.occ_index, my_rank: self.rank[i],
+            first_ahead: self.occluders.partition_point(|o| o.rank <= self.rank[i]) as u32,
+        };
+        let mut out = Vec::new();
+        clip_one(0, prim, 0.0, 0, shape, &clips, &ctx, false, &mut ClipBufs::default(), &mut out);
+        let mut end = 0.0;
+        for f in out {
+            if f.t0 > end { return false; }
+            end = end.max(f.t1);
+        }
+        end >= 1.0
+    }
+
     /// Shapes whose fill ink is generated between the passes: alive after
     /// culling, closed, and marked Pending. The contours are post-pre-stage
     /// (deform/smooth/roughen applied) — the outline as it will be inked.

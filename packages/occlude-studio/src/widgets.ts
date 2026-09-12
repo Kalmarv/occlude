@@ -107,3 +107,27 @@ export function segmented<K extends string>(
   set(active);
   return { root, set };
 }
+
+export function panel(title: string, open: boolean): { root: HTMLDetailsElement; body: HTMLDivElement } {
+  const root = document.createElement('details');
+  root.className = 'panel';
+  root.open = open;
+  const summary = document.createElement('summary');
+  summary.textContent = title;
+  const body = document.createElement('div');
+  body.className = 'panel-body';
+  root.append(summary, body);
+  return { root, body };
+}
+
+/** Collapsed sub-section inside a panel — the home of set-once controls. */
+export function subpanel(title: string): { root: HTMLDetailsElement; body: HTMLDivElement } {
+  const root = document.createElement('details');
+  root.className = 'subpanel';
+  const summary = document.createElement('summary');
+  summary.textContent = title;
+  const body = document.createElement('div');
+  body.className = 'subpanel-body';
+  root.append(summary, body);
+  return { root, body };
+}

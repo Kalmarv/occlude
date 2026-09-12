@@ -99,6 +99,17 @@ export interface PlanSettings {
   bridgeGapMm: number[];
   /** Engine identity (build stamp or wasm digest) when the caller has one. */
   engine?: string;
+  /** An explicitly accepted post-render variant. Part of the saved identity. */
+  optimization?: {
+    version: number;
+    sourcePlanHash: string;
+    sourceRange: [number, number];
+    tolerance: number;
+    maxSegment: number;
+    cornerDegrees: number;
+    gap: number;
+    tourBudget: number;
+  };
 }
 
 export interface DrawingPlan {

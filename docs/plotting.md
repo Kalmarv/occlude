@@ -102,3 +102,29 @@ The readout while plotting is `<state> · <pen> · <eta> min left · <drawn> / <
 ## Calibration
 
 The Machine page holds the machine profile (bed size, feeds, accelerations, servo pulses, settle, optional lift map) and the calibration cards: a registration probe for step loss, backlash squares, corner ringing at three feeds, the pen-height cards (lift traverse, lift grid, settle by lift, down sweep) and a settle sweep for a pen's true delay floor. Download serial log exports the full timestamped command transcript, the first thing to collect when anything misbehaves. The Device notes describe each procedure and what the numbers feed.
+
+## Optional path optimization
+
+In Studio, switch to **Plot → Optimize path** to spend extra computation on a finished drawing. It runs only when you click **Run optimization**, in a separate cancellable worker; it does not rerun your sketch or generate its fills again.
+
+- **Fit short segments** replaces connected line segments with fewer lines or circular arcs. Maximum deviation is measured in paper millimetres against the original segments, including their interiors. Existing arcs/cubics, taps and sharp turns stay intact. Maximum segment length chooses which lines are eligible; the turn threshold protects corners.
+- **Join nearby ends** permits new ink up to the maximum gap. Endpoints must belong to one known shape, and the complete connector must pass the engine's visibility checks, including holes, clips and occluders. Contour runs can join when their fill permits connectors; `connectors: false` and shapes with finishing modifiers remain protected. Ambiguous provenance is left separate. Joining requires a live render; saved results can still be fitted and reordered.
+- **Improve drawing order** spends additional routing effort on whole chains. It may reverse a chain or move the starting point on a closed loop while preserving its traversal. A routing result that increases pen-up distance is discarded.
+
+This densely sampled wave is a useful fitting example. Open it in Studio and compare the primitive and machine-command counts before and after fitting:
+
+```ts live
+import { sketch, stroke } from 'occlude';
+
+export default sketch({ aspect: 'square', margin: 8, seed: 42 }, (t) =>
+  t.times(12, (k) => stroke(
+    t.times(300, (_, u) => [12 + 76 * u, 10 + 7 * k + 2 * Math.sin(18 * u)]),
+  )),
+);
+```
+
+The comparison reports ETA using the same estimator as plotting, plus internal lifts (excluding the initial lowering/final raising), travel, ink length, primitives and motion commands. Fewer primitives need not mean a faster plot: fitted curves are flattened at the machine's normal resolution, and turns affect speed. Optimization time is separate from plot ETA. The worker compares the requested settings, tighter fitting, and joining/ordering without fitting when applicable. The original is always a candidate: **Use optimized** is available only when the shared estimator predicts a faster plot. A larger tolerance is permission to change more ink, not a promise of greater speed.
+
+**Original**, **Optimized** and **Difference** are preview-only comparisons. In Difference, rose marks replaced ink and teal marks fitted ink or new connections. **Use optimized** makes the candidate the active plan for preview, simulation, SVG/PNG/G-code export, saving results and plotting. **Restore original** restores the original plan and its sketch selection. Changing the sketch creates a new render and discards the candidate.
+
+Optimization starts from the original sketch selection every time; repeated trials do not accumulate fitting error. Applying a candidate makes those selected paths the full active plan and clears chain-based repair selections, since joining or ordering changes chain indices. Settings and source-plan identity are stored with an accepted result. Fitting can move ink within its tolerance; joining adds ink. Only new connectors receive the visibility certificate, and the machine's normal flattening tolerance applies in addition to fitting deviation. Fills and finishing-modifier behavior are unchanged.

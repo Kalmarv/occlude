@@ -65,6 +65,10 @@ export class Preview {
   private paperColor = '#f6f2ea';
   private sim: PlotSim | null = null;
   private selection: SelectionView | null = null;
+  private optimization: { chains: NativeChain[]; before?: NativeChain[]; after?: NativeChain[] } | null = null;
+  setOptimization(view: { chains: NativeChain[]; before?: NativeChain[]; after?: NativeChain[] } | null): void {
+    this.optimization = view; this.draw();
+  }
   /** A debug overlay painted in paper mm over the ink (the inspector's
    * material). Given the context (already in paper space) and the screen
    * px per mm, so markers can keep a screen size. */
@@ -102,6 +106,7 @@ export class Preview {
   }
 
   setResult(r: RenderResult): void {
+    this.optimization = null;
     this.result = r;
     this.selection = null; // a new render: the selection view is re-supplied for its plan
     this.stopPlot();
@@ -714,8 +719,22 @@ export class Preview {
       ctx.restore();
     }
 
-    if (this.selection) this.drawSelection(ctx, this.selection, r.pens);
+    if (this.optimization) this.drawSelection(ctx, { chains: this.optimization.chains, from: 0, to: this.optimization.chains.length, showOmitted: false }, r.pens);
+    else if (this.selection) this.drawSelection(ctx, this.selection, r.pens);
     else drawFragments(ctx, r.frags, r.pens);
+
+    if (this.optimization) {
+      ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      for (const [chains,color] of [[this.optimization.before,'#c44255'],[this.optimization.after,'#008a89']] as const) {
+        if (!chains) continue;
+        ctx.strokeStyle=color;
+        for (const c of chains) {
+          ctx.lineWidth=Math.max(r.pens[c.pen]?.width ?? 0.3,1.5/this.scale);
+          ctx.beginPath(); for (const p of c.prims) tracePrim(ctx,p); ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
 
     if (this.debug.bridges) {
       // Bridge connectors: the pen-down joins the bridge opt inserted —

@@ -97,6 +97,11 @@ export function machineTolerance(prof: MachineProfile, pens: readonly PenDef[]):
 
 export class Drawing {
   plan: DrawingPlan | null = null;
+  /** Immutable render result; an accepted optimization never replaces it. */
+  sourcePlan: DrawingPlan | null = null;
+  sourceRequest: DrawRequest = {};
+  sourceRevision = 0;
+  get isVariant(): boolean { return this.plan !== this.sourcePlan; }
   /** The render's pens (plan pen indices refer to these). */
   pens: PenDef[] = [];
   /** The sketch's request, as rendered. */
@@ -136,7 +141,27 @@ export class Drawing {
 
   /** A render landed: adopt its plan (verified) and the sketch's request. */
   async setPlan(reply: { buffer: Float64Array; settings: PlanSettings; planHash: string }, pens: PenDef[], request: DrawRequest = {}): Promise<void> {
+    const revision = ++this.sourceRevision;
     const plan = await openPlan(reply.buffer, reply.settings, reply.planHash);
+    if (revision !== this.sourceRevision) return;
+    this.sourcePlan = plan;
+    this.sourceRequest = request;
+    await this.installPlan(plan, pens, request);
+  }
+
+  /** Atomically adopt a candidate in the export worker and every consumer.
+   * Chain-index repairs cannot be carried through joins/reordering. */
+  async useVariant(plan: DrawingPlan, revision: number): Promise<void> {
+    if (revision !== this.sourceRevision || !this.plan) throw new Error('The drawing changed. Run optimization again.');
+    const expected = this.plan.planHash;
+    await this.client.loadPlan(plan.buffer, plan.settings, plan.planHash, this.pens, expected);
+    if (revision !== this.sourceRevision) throw new Error('The drawing changed. Run optimization again.');
+    this.repair = null; this.repaired = null; this.region = null;
+    await this.installPlan(plan, this.pens, plan === this.sourcePlan ? this.sourceRequest : {});
+    for (const fn of this.repairListeners) fn();
+  }
+
+  private async installPlan(plan: DrawingPlan, pens: PenDef[], request: DrawRequest): Promise<void> {
     // Only the current drawing owns cached toolpaths. Repeating an identical
     // plan can share them, but editing must not retain every prior drawing.
     if (this.plan?.planHash !== plan.planHash) this.flat.clear();

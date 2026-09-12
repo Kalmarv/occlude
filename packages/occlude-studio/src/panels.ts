@@ -39,9 +39,12 @@ export const executionKey = (e: ExecutionSettings): string => canonicalJson(e);
 import type { RenderDraws, RenderClient } from './workerClient.js';
 import { iconButton, relabel, setIcon, withIcon } from './icons.js';
 import { confirmDialog, notify } from './wa.js';
-import { button, checkbox, el, hint, numberInput, pairInput, row, segmented } from './widgets.js';
+import { button, checkbox, el, hint, numberInput, pairInput, row, segmented, panel, subpanel as sub } from './widgets.js';
+import { buildOptimizationPanel } from './optimizationPanel.js';
 
 export interface PanelHooks {
+  optimizationView(view: { chains: import('occlude').PlanChain[]; before?: import('occlude').PlanChain[]; after?: import('occlude').PlanChain[] } | null): void;
+  isPlotting?: () => boolean;
   pens: PenDef[];
   settings: Settings;
   /** Server-shared machine profiles; settings.activeProfile picks one. */
@@ -139,6 +142,10 @@ export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
   buildPensPanel(pensPanel.body, hooks);
   buildDrawingPanel(drawingPanel.body, hooks);
   buildPaperPanel(paperPanel.body, hooks);
+  const optimization = panel('Optimize path', false);
+  optimization.root.classList.add('optimization-panel');
+  plot.append(optimization.root);
+  buildOptimizationPanel(optimization.body, hooks);
   buildPlotPanel(plot, hooks);
   const refreshExport = buildExportPanel(exportPanel.body, hooks);
   exportPanel.root.addEventListener('toggle', () => {
@@ -150,30 +157,6 @@ export function buildRail(rail: HTMLElement, hooks: PanelHooks): Rail {
     refreshSketches: sketches.refresh,
     saveCurrent: sketches.save,
   };
-}
-
-function panel(title: string, open: boolean): { root: HTMLDetailsElement; body: HTMLDivElement } {
-  const root = document.createElement('details');
-  root.className = 'panel';
-  root.open = open;
-  const summary = document.createElement('summary');
-  summary.textContent = title;
-  const body = document.createElement('div');
-  body.className = 'panel-body';
-  root.append(summary, body);
-  return { root, body };
-}
-
-/** Collapsed sub-section inside a panel — the home of set-once controls. */
-function sub(title: string): { root: HTMLDetailsElement; body: HTMLDivElement } {
-  const root = document.createElement('details');
-  root.className = 'subpanel';
-  const summary = document.createElement('summary');
-  summary.textContent = title;
-  const body = document.createElement('div');
-  body.className = 'subpanel-body';
-  root.append(summary, body);
-  return { root, body };
 }
 
 // ---- sketch library (server-side store, shared across devices) ----
@@ -675,6 +658,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     for (const fn of onProfileSwitch) fn();
   };
   const { ebb } = m;
+  hooks.isPlotting = () => ebb.plotting;
   const prof = m.prof;
 
   // Pen to plot. No physical pen changer: a multi-pen sketch is plotted one
@@ -1195,7 +1179,8 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
   const pngBtn = button('Download PNG (300 dpi)', async () => {
     const r = hooks.lastResult();
     if (!r) return;
-    const png = await hooks.client.exportPng(r.paper.w, r.paper.h, 11.81, hooks.settings.paperColor);
+    await hooks.drawing.settled();
+    const png = await hooks.client.planPng(hooks.drawing.range(), r.paper.w, r.paper.h, 11.81, hooks.settings.paperColor);
     download('occlude.png', png, 'image/png');
   });
   const exportRow = document.createElement('div');
@@ -1283,4 +1268,3 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
 }
 
 // ---- small helpers ----
-
