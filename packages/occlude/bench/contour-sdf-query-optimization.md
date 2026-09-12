@@ -1,5 +1,9 @@
 # SDF query performance — 12 September 2026
 
+The [analytic-distance qualification report](contour-sdf-analytic.md) tracks the
+replacement experimental extractor and its remaining release gates. Measurements
+below describe the earlier sampled implementation.
+
 This pass speeds up the experimental SDF engine while preserving its ink. Against
 fresh measurements of `25ed85a`, render medians improve **5–9%** on the three
 recursive fixtures. Encoded plans and exported path SVGs match byte for byte,

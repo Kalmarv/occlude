@@ -1,0 +1,884 @@
+{
+  "runtime": "v24.21.0",
+  "platform": "linux",
+  "arch": "x64",
+  "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+  "samples": 3,
+  "warmup": 1,
+  "paper": "A4",
+  "pen": "pigma-05-black",
+  "seed": 42,
+  "timing": {
+    "acceleration": 1000,
+    "travelAcceleration": 2000,
+    "travelFeed": 6000,
+    "junctionDeviation": 0.02,
+    "minimumCruiseRatio": 0.5
+  },
+  "results": [
+    {
+      "name": "disc",
+      "variant": "solid",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 415,
+      "internalLifts": 414,
+      "inkMm": 54736.27769090112,
+      "travelMm": 509.1153395400215,
+      "etaMinutes": 20.95789050967513,
+      "primitives": 415,
+      "planBytes": 26576,
+      "transferBytes": 59904,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 2.601984999999985,
+        "tail": 2.642315999999994
+      },
+      "planningMs": {
+        "median": 2.6503569999999854,
+        "tail": 2.841774999999984
+      }
+    },
+    {
+      "name": "disc",
+      "variant": "bridged-solid",
+      "genericBridges": 244,
+      "sampledOutsideBridges": 0,
+      "runs": 171,
+      "internalLifts": 170,
+      "inkMm": 54841.924195710664,
+      "travelMm": 403.4688347304811,
+      "etaMinutes": 19.683854277123338,
+      "primitives": 659,
+      "planBytes": 30480,
+      "transferBytes": 95040,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 2.478277999999989,
+        "tail": 2.5664070000000265
+      },
+      "planningMs": {
+        "median": 1.0466239999999516,
+        "tail": 1.2424630000000434
+      }
+    },
+    {
+      "name": "disc",
+      "variant": "contour",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 2,
+      "internalLifts": 1,
+      "inkMm": 54783.44949169621,
+      "travelMm": 240.53771492314087,
+      "etaMinutes": 18.521453306396296,
+      "primitives": 621,
+      "planBytes": 28216,
+      "transferBytes": 89568,
+      "diagnostics": {
+        "components": 1,
+        "levels": 207,
+        "contours": 207,
+        "connectors": 206,
+        "connectorTests": 0,
+        "residualPatches": 1,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 1.6768799999999828,
+        "tail": 3.1397640000000138
+      },
+      "planningMs": {
+        "median": 0.13775000000003956,
+        "tail": 0.25537800000000743
+      }
+    },
+    {
+      "name": "rounded-rectangle",
+      "variant": "solid",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 395,
+      "internalLifts": 394,
+      "inkMm": 68703.69495956207,
+      "travelMm": 415.67599872972596,
+      "etaMinutes": 25.45377592824888,
+      "primitives": 395,
+      "planBytes": 25296,
+      "transferBytes": 57456,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 1.6257119999999645,
+        "tail": 5.214162999999985
+      },
+      "planningMs": {
+        "median": 2.5324170000000095,
+        "tail": 3.03867299999996
+      }
+    },
+    {
+      "name": "rounded-rectangle",
+      "variant": "bridged-solid",
+      "genericBridges": 352,
+      "sampledOutsideBridges": 0,
+      "runs": 43,
+      "internalLifts": 42,
+      "inkMm": 68848.0223216211,
+      "travelMm": 271.3486366704183,
+      "etaMinutes": 23.619341902461272,
+      "primitives": 747,
+      "planBytes": 30928,
+      "transferBytes": 108144,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 2.019728999999984,
+        "tail": 2.4376869999999826
+      },
+      "planningMs": {
+        "median": 0.5207070000000158,
+        "tail": 0.543927999999994
+      }
+    },
+    {
+      "name": "rounded-rectangle",
+      "variant": "contour",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 3,
+      "internalLifts": 2,
+      "inkMm": 68987.08462939585,
+      "travelMm": 214.07796242167748,
+      "etaMinutes": 23.519332203751404,
+      "primitives": 11598,
+      "planBytes": 464008,
+      "transferBytes": 1670688,
+      "diagnostics": {
+        "components": 1,
+        "levels": 197,
+        "contours": 197,
+        "connectors": 202,
+        "connectorTests": 202,
+        "residualPatches": 8,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 47.54153999999994,
+        "tail": 48.27220599999998
+      },
+      "planningMs": {
+        "median": 2.648425999999972,
+        "tail": 3.107964000000038
+      }
+    },
+    {
+      "name": "annulus",
+      "variant": "solid",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 602,
+      "internalLifts": 601,
+      "inkMm": 43650.69244705823,
+      "travelMm": 650.4216107712522,
+      "etaMinutes": 18.470663709852047,
+      "primitives": 602,
+      "planBytes": 38544,
+      "transferBytes": 73512,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 1.6833319999999503,
+        "tail": 1.8115099999999984
+      },
+      "planningMs": {
+        "median": 4.742984000000092,
+        "tail": 5.105412999999999
+      }
+    },
+    {
+      "name": "annulus",
+      "variant": "bridged-solid",
+      "genericBridges": 365,
+      "sampledOutsideBridges": 0,
+      "runs": 481,
+      "internalLifts": 480,
+      "inkMm": 43808.468434932314,
+      "travelMm": 632.1333381419033,
+      "etaMinutes": 17.971195500434025,
+      "primitives": 967,
+      "planBytes": 50240,
+      "transferBytes": 126072,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 1.949640000000045,
+        "tail": 2.1354179999999587
+      },
+      "planningMs": {
+        "median": 5.505961999999954,
+        "tail": 5.858510000000024
+      }
+    },
+    {
+      "name": "annulus",
+      "variant": "contour",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 2,
+      "internalLifts": 1,
+      "inkMm": 43663.55629762718,
+      "travelMm": 174.3783154953397,
+      "etaMinutes": 14.810423451867178,
+      "primitives": 31521,
+      "planBytes": 1387232,
+      "transferBytes": 4539312,
+      "diagnostics": {
+        "components": 1,
+        "levels": 57,
+        "contours": 114,
+        "connectors": 112,
+        "connectorTests": 112,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 162.141388,
+        "tail": 162.28509800000006
+      },
+      "planningMs": {
+        "median": 6.396295999999893,
+        "tail": 6.974644000000126
+      }
+    },
+    {
+      "name": "many-holes",
+      "variant": "solid",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 1267,
+      "internalLifts": 1266,
+      "inkMm": 62465.432198332266,
+      "travelMm": 1091.5404683198915,
+      "etaMinutes": 29.005056763070055,
+      "primitives": 1267,
+      "planBytes": 81104,
+      "transferBytes": 125424,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 2.7793749999998454,
+        "tail": 3.000635000000102
+      },
+      "planningMs": {
+        "median": 5.044194000000061,
+        "tail": 5.161803000000191
+      }
+    },
+    {
+      "name": "many-holes",
+      "variant": "bridged-solid",
+      "genericBridges": 1131,
+      "sampledOutsideBridges": 0,
+      "runs": 1598,
+      "internalLifts": 1597,
+      "inkMm": 62933.377853429236,
+      "travelMm": 1801.8421200163605,
+      "etaMinutes": 31.591453487430112,
+      "primitives": 2398,
+      "planBytes": 134288,
+      "transferBytes": 288288,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 2.791725000000042,
+        "tail": 2.850845000000163
+      },
+      "planningMs": {
+        "median": 6.36920699999996,
+        "tail": 7.051502000000028
+      }
+    },
+    {
+      "name": "many-holes",
+      "variant": "contour",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 474,
+      "internalLifts": 473,
+      "inkMm": 63899.25867972698,
+      "travelMm": 1237.1720723970989,
+      "etaMinutes": 26.364352325673284,
+      "primitives": 138404,
+      "planBytes": 6080536,
+      "transferBytes": 19933056,
+      "diagnostics": {
+        "components": 1,
+        "levels": 47,
+        "contours": 635,
+        "connectors": 2569,
+        "connectorTests": 2569,
+        "residualPatches": 2408,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 629.6122520000004,
+        "tail": 637.5539510000003
+      },
+      "planningMs": {
+        "median": 71.15636599999971,
+        "tail": 73.92273099999966
+      }
+    },
+    {
+      "name": "U",
+      "variant": "solid",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 705,
+      "internalLifts": 704,
+      "inkMm": 47796.00000000027,
+      "travelMm": 470.5594273030689,
+      "etaMinutes": 20.430830790224874,
+      "primitives": 705,
+      "planBytes": 45136,
+      "transferBytes": 102096,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 1.4964520000003176,
+        "tail": 1.5749120000000403
+      },
+      "planningMs": {
+        "median": 4.7097249999997075,
+        "tail": 4.723125000000437
+      }
+    },
+    {
+      "name": "U",
+      "variant": "bridged-solid",
+      "genericBridges": 703,
+      "sampledOutsideBridges": 0,
+      "runs": 2,
+      "internalLifts": 1,
+      "inkMm": 48080.714999998825,
+      "travelMm": 367.65644445619057,
+      "etaMinutes": 16.799012893722953,
+      "primitives": 1408,
+      "planBytes": 56384,
+      "transferBytes": 203328,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 1.3390530000006038,
+        "tail": 1.4414829999996073
+      },
+      "planningMs": {
+        "median": 0.6684260000001814,
+        "tail": 0.7663860000002387
+      }
+    },
+    {
+      "name": "U",
+      "variant": "contour",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 31,
+      "internalLifts": 30,
+      "inkMm": 48049.659752374806,
+      "travelMm": 335.80115764318515,
+      "etaMinutes": 16.557029768198394,
+      "primitives": 767,
+      "planBytes": 32640,
+      "transferBytes": 111024,
+      "diagnostics": {
+        "components": 1,
+        "levels": 70,
+        "contours": 78,
+        "connectors": 76,
+        "connectorTests": 76,
+        "residualPatches": 29,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 1.7835910000003423,
+        "tail": 1.8264509999999063
+      },
+      "planningMs": {
+        "median": 0.26267899999947986,
+        "tail": 0.3101990000004662
+      }
+    },
+    {
+      "name": "dumbbell",
+      "variant": "solid",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 663,
+      "internalLifts": 662,
+      "inkMm": 48384,
+      "travelMm": 511.5273256026027,
+      "etaMinutes": 20.37076064892582,
+      "primitives": 663,
+      "planBytes": 42448,
+      "transferBytes": 96336,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 0.8367060000000492,
+        "tail": 1.097554000000855
+      },
+      "planningMs": {
+        "median": 4.67716499999915,
+        "tail": 4.932634999999209
+      }
+    },
+    {
+      "name": "dumbbell",
+      "variant": "bridged-solid",
+      "genericBridges": 660,
+      "sampledOutsideBridges": 0,
+      "runs": 3,
+      "internalLifts": 2,
+      "inkMm": 48651.2999999996,
+      "travelMm": 305.8255583105404,
+      "etaMinutes": 16.942905920648183,
+      "primitives": 1323,
+      "planBytes": 53008,
+      "transferBytes": 191376,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 1.0060450000000856,
+        "tail": 1.0414849999997386
+      },
+      "planningMs": {
+        "median": 0.532216999999946,
+        "tail": 0.5643270000000484
+      }
+    },
+    {
+      "name": "dumbbell",
+      "variant": "contour",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 33,
+      "internalLifts": 32,
+      "inkMm": 48902.07817142911,
+      "travelMm": 315.30284413229913,
+      "etaMinutes": 17.080480181345475,
+      "primitives": 1332,
+      "planBytes": 56680,
+      "transferBytes": 192672,
+      "diagnostics": {
+        "components": 1,
+        "levels": 81,
+        "contours": 131,
+        "connectors": 123,
+        "connectorTests": 123,
+        "residualPatches": 25,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 3.024145000000317,
+        "tail": 4.355646999999408
+      },
+      "planningMs": {
+        "median": 0.41196899999977177,
+        "tail": 0.42981700000018463
+      }
+    },
+    {
+      "name": "small",
+      "variant": "solid",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 41,
+      "internalLifts": 40,
+      "inkMm": 546.8919012040046,
+      "travelMm": 210.10813300581228,
+      "etaMinutes": 0.477105050267386,
+      "primitives": 41,
+      "planBytes": 2640,
+      "transferBytes": 6048,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 0.19259899999997288,
+        "tail": 0.26817899999969086
+      },
+      "planningMs": {
+        "median": 0.05767999999989115,
+        "tail": 0.11623899999995047
+      }
+    },
+    {
+      "name": "small",
+      "variant": "bridged-solid",
+      "genericBridges": 24,
+      "sampledOutsideBridges": 0,
+      "runs": 17,
+      "internalLifts": 16,
+      "inkMm": 557.2559457469597,
+      "travelMm": 199.74408846285726,
+      "etaMinutes": 0.3518017325419929,
+      "primitives": 65,
+      "planBytes": 3024,
+      "transferBytes": 9504,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 0.19363899999916612,
+        "tail": 0.255008999999518
+      },
+      "planningMs": {
+        "median": 0.057401000000027125,
+        "tail": 0.05916899999920133
+      }
+    },
+    {
+      "name": "small",
+      "variant": "contour",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 1,
+      "internalLifts": 0,
+      "inkMm": 552.0104904081156,
+      "travelMm": 186.7135838657702,
+      "etaMinutes": 0.2450239782928109,
+      "primitives": 62,
+      "planBytes": 2856,
+      "transferBytes": 9072,
+      "diagnostics": {
+        "components": 1,
+        "levels": 21,
+        "contours": 21,
+        "connectors": 20,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 0.21576899999945454,
+        "tail": 0.259038999999575
+      },
+      "planningMs": {
+        "median": 0.027309999999488355,
+        "tail": 0.03182999999989988
+      }
+    },
+    {
+      "name": "repeated",
+      "variant": "solid",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 3100,
+      "internalLifts": 3099,
+      "inkMm": 30825.533753770233,
+      "travelMm": 3140.7524404198352,
+      "etaMinutes": 30.450549917877645,
+      "primitives": 3100,
+      "planBytes": 198416,
+      "transferBytes": 460800,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 7.762119999999413,
+        "tail": 8.4548249999998
+      },
+      "planningMs": {
+        "median": 6.539485000000241,
+        "tail": 7.543530000000828
+      }
+    },
+    {
+      "name": "repeated",
+      "variant": "bridged-solid",
+      "genericBridges": 1800,
+      "sampledOutsideBridges": 0,
+      "runs": 1300,
+      "internalLifts": 1299,
+      "inkMm": 31602.769791126735,
+      "travelMm": 3083.2104409634744,
+      "etaMinutes": 21.215057140183713,
+      "primitives": 4900,
+      "planBytes": 227216,
+      "transferBytes": 720000,
+      "diagnostics": {
+        "components": 0,
+        "levels": 0,
+        "contours": 0,
+        "connectors": 0,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 7.969307999999728,
+        "tail": 9.441719000000376
+      },
+      "planningMs": {
+        "median": 7.016623999999865,
+        "tail": 7.214742000000115
+      }
+    },
+    {
+      "name": "repeated",
+      "variant": "contour",
+      "genericBridges": 0,
+      "sampledOutsideBridges": 0,
+      "runs": 100,
+      "internalLifts": 99,
+      "inkMm": 31120.537095807038,
+      "travelMm": 1587.262317029914,
+      "etaMinutes": 13.146451946047168,
+      "primitives": 4700,
+      "planBytes": 216016,
+      "transferBytes": 691200,
+      "diagnostics": {
+        "components": 100,
+        "levels": 1600,
+        "contours": 1600,
+        "connectors": 1500,
+        "connectorTests": 0,
+        "residualPatches": 0,
+        "fallbacks": 0,
+        "validationSplits": 0,
+        "fallbackThin": 0,
+        "fallbackBudget": 0,
+        "fallbackUnstable": 0,
+        "geometryRefinements": 0
+      },
+      "generationMs": {
+        "median": 6.477665999999772,
+        "tail": 7.109352999999828
+      },
+      "planningMs": {
+        "median": 1.794079999999667,
+        "tail": 2.022189999999682
+      }
+    }
+  ]
+}

@@ -1,25 +1,57 @@
-//! Experimental distance-field contour fill. Enabled only by `contour-sdf`.
+//! Analytic distance-field contour fill, enabled by `contour-sdf`.
 //! The Boolean visible area and the exact pre-modifier visibility check are
 //! shared with production. No offset kernel or swept-ink Boolean is used here.
 //!
-//! Marching squares samples distance to the flattened visible boundary. This
-//! uniform path streams two rows; large grids use a conforming adaptive mesh.
-//! Closed loops are refined and simplified immediately, recycling raw storage.
-//! This prototype does not yet claim the production aggregate accuracy budget:
-//! adaptive interpolation tests and vertex projection do not certify topology.
-//! Coverage uses vector capsule/strip certificates, not pixel occupancy.
+//! Distance levels are extracted analytically from point/segment Voronoi cells.
+//! Medial branches supply vector cleanup candidates; original scene geometry
+//! certifies every final primitive before finishing modifiers.
+//!
+//! Construction error allocations (fractions of error_budget in paper mm):
+//! boundary flattening 1/4, integer conversion 1/128, independent level shift
+//! 1/64, parabola subdivision 1/8, cleanup simplification 1/4, arc fit 1/4,
+//! and optional boundary-end trimming 1/32. These sum to 119/128, reserving
+//! the rest for normalization/numeric error. No offset-level drift accumulates.
+//! Original-curve visibility certification triggers bounded refinement when needed.
 use super::*;
-use crate::fasthash::FxHashMap as HashMap;
-mod sampling;
+mod analytic;
+mod circular;
+mod input;
+mod routing;
 
-const MAX_SAMPLES: usize = 32_000_000;
-const MAX_COVERAGE_WORK: usize = 32_000_000;
+#[derive(Debug)]
+pub(super) enum GenerationError {
+    Invalid(String),
+    Visibility(String),
+}
+impl From<String> for GenerationError {
+    fn from(s: String) -> Self {
+        Self::Invalid(s)
+    }
+}
+impl From<&str> for GenerationError {
+    fn from(s: &str) -> Self {
+        Self::Invalid(s.into())
+    }
+}
+impl From<GenerationError> for String {
+    fn from(e: GenerationError) -> String {
+        match e {
+            GenerationError::Invalid(s) | GenerationError::Visibility(s) => s,
+        }
+    }
+}
+impl std::fmt::Display for GenerationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invalid(s) | Self::Visibility(s) => f.write_str(s),
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Segment {
     a: Vec2,
     b: Vec2,
-    owner: usize,
 }
 impl Segment {
     fn closest(self, p: Vec2) -> Vec2 {
@@ -34,9 +66,6 @@ impl Segment {
     fn bbox(self) -> BBox {
         BBox::from_points(&[self.a, self.b])
     }
-    fn primitive(self) -> Primitive {
-        Primitive::Line(Line::new(self.a, self.b))
-    }
 }
 struct Node {
     bbox: BBox,
@@ -44,15 +73,9 @@ struct Node {
     end: usize,
     children: Option<(usize, usize)>,
 }
-#[derive(Default)]
-struct SignSlabs {
-    events: Vec<f64>,
-    rows: HashMap<usize, Vec<usize>>,
-}
 struct DistanceIndex {
     segments: Vec<Segment>,
     nodes: Vec<Node>,
-    signs: std::cell::RefCell<SignSlabs>,
     #[cfg(test)]
     nearest_visits: std::cell::Cell<usize>,
 }
@@ -101,7 +124,6 @@ impl DistanceIndex {
         Self {
             segments,
             nodes,
-            signs: Default::default(),
             #[cfg(test)]
             nearest_visits: Default::default(),
         }
@@ -160,103 +182,15 @@ impl DistanceIndex {
         }
         (best.sqrt(), found)
     }
+    #[cfg(test)]
     fn inside(&self, p: Vec2) -> bool {
-        if self.nodes.is_empty() {
-            return false;
-        }
-        let bbox = self.nodes[0].bbox;
-        if p.x < bbox.min.x || p.x >= bbox.max.x || p.y < bbox.min.y || p.y >= bbox.max.y {
-            return false;
-        }
-        let mut cache = self.signs.borrow_mut();
-        if cache.events.is_empty() {
-            cache.events = self.segments.iter().flat_map(|s| [s.a.y, s.b.y]).collect();
-            cache.events.sort_unstable_by(f64::total_cmp);
-            cache.events.dedup();
-        }
-        let slab = cache.events.partition_point(|&y| y <= p.y) - 1;
-        let low = cache.events[slab];
-        let high = cache.events[slab + 1];
-        let y = low + (high - low) * 0.5;
-        if cache.rows.len() > 8192 {
-            cache.rows.clear();
-        }
-        // Normalized boundary segments do not intersect. Their horizontal
-        // crossing order is constant between consecutive vertex ordinates.
-        // Cache segment identities per slab, then evaluate at the actual y.
-        // Projected contour vertices no longer rebuild/sort an entire ray for
-        // every distinct floating-point y coordinate.
-        let row = cache.rows.entry(slab).or_insert_with(|| {
-            let mut ids = Vec::new();
-            let mut stack = [0usize; 64];
-            let mut top = 1;
-            while top > 0 {
-                top -= 1;
-                let node = &self.nodes[stack[top]];
-                if low < node.bbox.min.y || low >= node.bbox.max.y {
-                    continue;
-                }
-                if let Some((l, r)) = node.children {
-                    stack[top] = l;
-                    stack[top + 1] = r;
-                    top += 2;
-                } else {
-                    for id in node.begin..node.end {
-                        let s = self.segments[id];
-                        if (s.a.y > low) != (s.b.y > low) {
-                            ids.push(id);
-                        }
-                    }
-                }
-            }
-            let crossing = |id: usize| {
-                let s = self.segments[id];
-                s.a.x + (y - s.a.y) * (s.b.x - s.a.x) / (s.b.y - s.a.y)
-            };
-            let slope = |id: usize| {
-                let s = self.segments[id];
-                (s.b.x - s.a.x) / (s.b.y - s.a.y)
-            };
-            ids.sort_unstable_by(|&a, &b| {
-                crossing(a)
-                    .total_cmp(&crossing(b))
-                    .then_with(|| {
-                        if y == high {
-                            slope(b).total_cmp(&slope(a))
-                        } else {
-                            slope(a).total_cmp(&slope(b))
-                        }
-                    })
-                    .then(a.cmp(&b))
-            });
-            ids
-        });
-        row.partition_point(|&id| {
-            let s = self.segments[id];
-            s.a.x + (p.y - s.a.y) * (s.b.x - s.a.x) / (s.b.y - s.a.y) <= p.x
-        }) % 2
-            == 1
+        let segments: Vec<_> = self.segments.iter().map(|s| (s.a, s.b)).collect();
+        let boxes: Vec<_> = self.segments.iter().map(|s| s.bbox()).collect();
+        let index = crate::index::SpatialIndex::build(&boxes);
+        let maxx = self.nodes[0].bbox.max.x;
+        analytic::inside(p, &segments, &index, maxx, &mut Vec::new())
     }
-    fn row(&self, y: f64, x0: f64, step: f64, values: &mut [f64]) {
-        let mut crossings: Vec<_> = self
-            .segments
-            .iter()
-            .filter(|s| (s.a.y > y) != (s.b.y > y))
-            .map(|s| s.a.x + (y - s.a.y) * (s.b.x - s.a.x) / (s.b.y - s.a.y))
-            .collect();
-        crossings.sort_unstable_by(f64::total_cmp);
-        let mut at = 0;
-        let mut seed = None;
-        for (i, d) in values.iter_mut().enumerate() {
-            let x = x0 + i as f64 * step;
-            while at < crossings.len() && crossings[at] <= x {
-                at += 1;
-            }
-            let (distance, nearest) = self.nearest_seeded(v(x, y), f64::INFINITY, seed);
-            seed = nearest;
-            *d = if at % 2 == 1 { distance } else { -distance };
-        }
-    }
+    #[cfg(test)]
     fn signed(&self, p: Vec2) -> f64 {
         let d = self.nearest(p, f64::INFINITY).0;
         if self.inside(p) {
@@ -265,426 +199,8 @@ impl DistanceIndex {
             -d
         }
     }
-    fn linear_boundary(&self, bbox: BBox) -> bool {
-        let mut stack = [0usize; 64];
-        let mut top = 1;
-        let mut first: Option<Segment> = None;
-        while top > 0 {
-            top -= 1;
-            let node = &self.nodes[stack[top]];
-            if !bbox.overlaps(&node.bbox) {
-                continue;
-            }
-            if let Some((a, b)) = node.children {
-                stack[top] = a;
-                stack[top + 1] = b;
-                top += 2;
-            } else {
-                for &s in &self.segments[node.begin..node.end] {
-                    if s.a == s.b || !bbox.intersects_segment(s.a, s.b) {
-                        continue;
-                    }
-                    if let Some(reference) = first {
-                        let direction = reference.b - reference.a;
-                        let tolerance = direction.len() * 1e-10;
-                        if direction.cross(s.a - reference.a).abs() > tolerance
-                            || direction.cross(s.b - reference.a).abs() > tolerance
-                        {
-                            return false;
-                        }
-                    } else {
-                        first = Some(s);
-                    }
-                }
-            }
-        }
-        first.is_some()
-    }
-    fn next_boundary(&self, origin: Vec2, direction: Vec2, limit: f64, skip: f64) -> Option<f64> {
-        let search = BBox::from_points(&[origin, origin + direction * limit]);
-        let mut best = limit;
-        let mut found = false;
-        let mut stack = [0usize; 64];
-        let mut top = 1;
-        while top > 0 {
-            top -= 1;
-            let node = &self.nodes[stack[top]];
-            if !search.overlaps(&node.bbox) {
-                continue;
-            }
-            if let Some((a, b)) = node.children {
-                stack[top] = a;
-                stack[top + 1] = b;
-                top += 2;
-            } else {
-                for s in &self.segments[node.begin..node.end] {
-                    let edge = s.b - s.a;
-                    let det = direction.cross(edge);
-                    if det == 0.0 {
-                        continue;
-                    }
-                    let delta = s.a - origin;
-                    let distance = delta.cross(edge) / det;
-                    let u = delta.cross(direction) / det;
-                    if distance > skip && distance < best && (0.0..=1.0).contains(&u) {
-                        best = distance;
-                        found = true;
-                    }
-                }
-            }
-        }
-        found.then_some(best)
-    }
-    fn has_clearance(&self, line: Segment, clearance: f64) -> bool {
-        if clearance <= 0.0 {
-            return true;
-        }
-        let search = line.bbox().expanded(clearance);
-        let mut stack = [0usize; 64];
-        let mut top = 1;
-        let squared = clearance * clearance;
-        while top > 0 {
-            top -= 1;
-            let node = &self.nodes[stack[top]];
-            if !search.overlaps(&node.bbox) {
-                continue;
-            }
-            if let Some((a, b)) = node.children {
-                stack[top] = a;
-                stack[top + 1] = b;
-                top += 2;
-            } else {
-                for s in &self.segments[node.begin..node.end] {
-                    // Exact visibility rejects intersections separately. For
-                    // nonintersecting planar segments the minimum distance is
-                    // attained by at least one endpoint projection.
-                    if line.closest(s.a).dist2(s.a) < squared
-                        || line.closest(s.b).dist2(s.b) < squared
-                        || s.closest(line.a).dist2(line.a) < squared
-                        || s.closest(line.b).dist2(line.b) < squared
-                    {
-                        return false;
-                    }
-                }
-            }
-        }
-        true
-    }
-    fn intersects(&self, bbox: BBox) -> bool {
-        if self.nodes.is_empty() {
-            return false;
-        }
-        let mut stack = [0usize; 64];
-        let mut top = 1;
-        while top > 0 {
-            top -= 1;
-            let n = &self.nodes[stack[top]];
-            if !bbox.overlaps(&n.bbox) {
-                continue;
-            }
-            if let Some((l, r)) = n.children {
-                stack[top] = l;
-                stack[top + 1] = r;
-                top += 2;
-            } else {
-                if self.segments[n.begin..n.end]
-                    .iter()
-                    .any(|s| bbox.intersects_segment(s.a, s.b))
-                {
-                    return true;
-                }
-            }
-        }
-        false
-    }
 }
 
-struct Vertex {
-    p: Vec2,
-    key: (u64, u64, usize),
-    edges: [usize; 2],
-    degree: usize,
-    parent: usize,
-    size: usize,
-    alive: bool,
-}
-struct Graph<'a> {
-    keys: HashMap<(u64, u64, usize), usize>,
-    vertices: Vec<Vertex>,
-    edges: Vec<Option<(usize, usize)>>,
-    free_vertices: Vec<usize>,
-    free_edges: Vec<usize>,
-    completed: Vec<Vec<Primitive>>,
-    output: usize,
-    processed: usize,
-    field: &'a DistanceIndex,
-    first: f64,
-    spacing: f64,
-    eps: f64,
-}
-impl<'a> Graph<'a> {
-    fn new(field: &'a DistanceIndex, first: f64, spacing: f64, eps: f64) -> Self {
-        Self {
-            keys: HashMap::default(),
-            vertices: Vec::new(),
-            edges: Vec::new(),
-            free_vertices: Vec::new(),
-            free_edges: Vec::new(),
-            completed: Vec::new(),
-            output: 0,
-            processed: 0,
-            field,
-            first,
-            spacing,
-            eps,
-        }
-    }
-    fn vertex(&mut self, key: (u64, u64, usize), p: Vec2) -> usize {
-        if let Some(&id) = self.keys.get(&key) {
-            return id;
-        }
-        let id = self.free_vertices.pop().unwrap_or(self.vertices.len());
-        let vertex = Vertex {
-            p,
-            key,
-            edges: [0; 2],
-            degree: 0,
-            parent: id,
-            size: 1,
-            alive: true,
-        };
-        if id == self.vertices.len() {
-            self.vertices.push(vertex);
-        } else {
-            self.vertices[id] = vertex;
-        }
-        self.keys.insert(key, id);
-        id
-    }
-    fn root(&mut self, mut id: usize) -> usize {
-        while self.vertices[id].parent != id {
-            let parent = self.vertices[id].parent;
-            self.vertices[id].parent = self.vertices[parent].parent;
-            id = parent;
-        }
-        id
-    }
-    fn edge(&mut self, a: usize, b: usize) -> Result<(), String> {
-        self.processed += 1;
-        if self.processed > 64_000_000 {
-            return Err("contour SDF: marching work budget exceeded".into());
-        }
-        let id = self.free_edges.pop().unwrap_or(self.edges.len());
-        if id == self.edges.len() {
-            self.edges.push(Some((a, b)));
-        } else {
-            self.edges[id] = Some((a, b));
-        }
-        for i in [a, b] {
-            let node = &mut self.vertices[i];
-            if node.degree == 2 {
-                return Err("contour SDF: nonmanifold marching graph".into());
-            }
-            node.edges[node.degree] = id;
-            node.degree += 1;
-        }
-        let mut ra = self.root(a);
-        let mut rb = self.root(b);
-        if ra == rb {
-            // Both incidences of every vertex in this component are now
-            // known. No later cell can reference it. Emit the simplified
-            // loop and recycle its storage instead of retaining raw edges.
-            let run = self.take_run(a);
-            self.emit(run)?;
-        } else {
-            if self.vertices[ra].size < self.vertices[rb].size {
-                std::mem::swap(&mut ra, &mut rb);
-            }
-            self.vertices[rb].parent = ra;
-            self.vertices[ra].size += self.vertices[rb].size;
-        }
-        Ok(())
-    }
-    fn project(&self, mut p: Vec2, level: usize) -> Vec2 {
-        let level = self.first + level as f64 * self.spacing;
-        if !self.field.inside(p) {
-            return p;
-        }
-        for _ in 0..3 {
-            let (distance, Some(segment)) = self.field.nearest(p, f64::INFINITY) else {
-                break;
-            };
-            if distance == 0.0 || (distance - level).abs() < self.eps / 64.0 {
-                break;
-            }
-            let edge = segment.closest(p);
-            let next = edge + (p - edge) * (level / distance);
-            if !self.field.inside(next) {
-                break;
-            }
-            p = next;
-        }
-        p
-    }
-    fn take_run(&mut self, start: usize) -> Vec<Primitive> {
-        let mut ids = Vec::new();
-        let mut points = Vec::new();
-        let mut at = start;
-        loop {
-            let node = &self.vertices[at];
-            let edge = node.edges[..node.degree]
-                .iter()
-                .copied()
-                .find(|&i| self.edges[i].is_some());
-            let Some(id) = edge else { break };
-            if ids.is_empty() {
-                points.push(self.project(node.p, node.key.2));
-                ids.push(at);
-            }
-            let (a, b) = self.edges[id].take().unwrap();
-            self.free_edges.push(id);
-            let next = if a == at { b } else { a };
-            let node = &self.vertices[next];
-            if next == start {
-                points.push(points[0]);
-                break;
-            }
-            points.push(self.project(node.p, node.key.2));
-            ids.push(next);
-            at = next;
-        }
-        for id in ids {
-            let node = &mut self.vertices[id];
-            self.keys.remove(&node.key);
-            node.alive = false;
-            self.free_vertices.push(id);
-        }
-        points
-            .windows(2)
-            .filter(|p| p[0] != p[1])
-            .map(|p| Primitive::Line(Line::new(p[0], p[1])))
-            .collect()
-    }
-    fn emit(&mut self, run: Vec<Primitive>) -> Result<(), String> {
-        if run.is_empty() {
-            return Ok(());
-        }
-        let run = reconstruct_arcs(cleanup::simplify(run, self.eps * 4.0), self.eps);
-        self.output += run.len();
-        if self.output > MAX_PRIMITIVES {
-            return Err("contour SDF: simplified output budget exceeded".into());
-        }
-        self.completed.push(run);
-        Ok(())
-    }
-    fn runs(mut self) -> Result<Vec<Vec<Primitive>>, String> {
-        for open in [true, false] {
-            for id in 0..self.vertices.len() {
-                if self.vertices[id].alive && (!open || self.vertices[id].degree == 1) {
-                    let run = self.take_run(id);
-                    self.emit(run)?;
-                }
-            }
-        }
-        Ok(self.completed)
-    }
-}
-
-fn contours(
-    field: &DistanceIndex,
-    width: f64,
-    spacing: f64,
-    eps: f64,
-) -> Result<(Vec<Vec<Primitive>>, usize), String> {
-    let _zone = crate::profile::zone("SDF sample and march");
-    let b = field.nodes[0].bbox.expanded(width / 4.0);
-    let step = width.min(spacing) / 2.0;
-    let nx = (b.width() / step).ceil().max(1.0) as usize;
-    let ny = (b.height() / step).ceil().max(1.0) as usize;
-    if nx
-        .checked_add(1)
-        .and_then(|n| ny.checked_add(1).and_then(|m| n.checked_mul(m)))
-        .is_none_or(|n| n > 8_000_000 || n > field.segments.len().saturating_mul(1000))
-    {
-        return sampling::contours(field, width, spacing, eps);
-    }
-    let sx = b.width() / nx as f64;
-    let sy = b.height() / ny as f64;
-    let point = |x: usize, y: usize| v(b.min.x + x as f64 * sx, b.min.y + y as f64 * sy);
-    let mut top = vec![0.0; nx + 1];
-    field.row(b.min.y, b.min.x, sx, &mut top);
-    let mut bottom = vec![0.0; nx + 1];
-    let first = (width / 2.0 - eps / 2.0).max(width / 4.0);
-    let mut graph = Graph::new(field, first, spacing, eps);
-    let mut levels = 0;
-    for y in 0..ny {
-        field.row(point(0, y + 1).y, b.min.x, sx, &mut bottom);
-        for x in 0..nx {
-            let vals = [top[x], top[x + 1], bottom[x + 1], bottom[x]];
-            let lo = vals.iter().copied().fold(f64::INFINITY, f64::min);
-            let hi = vals.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-            if hi < first {
-                continue;
-            }
-            let k0 = ((lo - first) / spacing).ceil().max(0.0) as usize;
-            let k1 = ((hi - first) / spacing).floor() as usize;
-            if k1 >= MAX_PRIMITIVES {
-                return Err("contour SDF prototype: level budget exceeded".into());
-            }
-            let corners = [
-                point(x, y),
-                point(x + 1, y),
-                point(x + 1, y + 1),
-                point(x, y + 1),
-            ];
-            // Horizontal and vertical edge keys are global, including the
-            // level. Both cells evaluate each crossing in the same direction.
-            let keys = [
-                2 * (y * (nx + 1) + x),
-                2 * (y * (nx + 1) + x + 1) + 1,
-                2 * ((y + 1) * (nx + 1) + x),
-                2 * (y * (nx + 1) + x) + 1,
-            ];
-            let endpoints = [(0, 1), (1, 2), (3, 2), (0, 3)];
-            for k in k0..=k1 {
-                let level = first + k as f64 * spacing;
-                let mut hits = Vec::with_capacity(4);
-                for e in 0..4 {
-                    let (a, b) = endpoints[e];
-                    if (vals[a] >= level) == (vals[b] >= level) {
-                        continue;
-                    }
-                    let t = ((level - vals[a]) / (vals[b] - vals[a])).clamp(0.0, 1.0);
-                    hits.push((
-                        e,
-                        graph.vertex((keys[e] as u64, 0, k), corners[a].lerp(corners[b], t)),
-                    ));
-                }
-                if hits.len() == 2 {
-                    graph.edge(hits[0].1, hits[1].1)?;
-                } else if hits.len() == 4 {
-                    // Resolve saddle ambiguity against the actual field.
-                    let center = field.signed((corners[0] + corners[2]) * 0.5) >= level;
-                    for c in 0..4 {
-                        if (vals[c] >= level) != center {
-                            graph.edge(hits[(c + 3) % 4].1, hits[c].1)?;
-                        }
-                    }
-                }
-                if !hits.is_empty() {
-                    levels = levels.max(k + 1);
-                }
-            }
-        }
-        std::mem::swap(&mut top, &mut bottom);
-    }
-    Ok((graph.runs()?, levels))
-}
-
-// Fit only bounded local windows. Each chord's radial extrema and the
-// monotone angular order are checked, so vertices alone cannot hide a bulge
-// between samples. Arcs are at most a semicircle and still pass exact scene
-// visibility. This representation matters to decimate and the plot estimator.
 fn fit_arc(points: &[Vec2], tolerance: f64) -> Option<Primitive> {
     if points.len() < 4 {
         return None;
@@ -723,7 +239,6 @@ fn fit_arc(points: &[Vec2], tolerance: f64) -> Option<Primitive> {
         let chord = Segment {
             a: points[i - 1],
             b: p,
-            owner: usize::MAX,
         };
         if chord.closest(center).dist(center) < r - tolerance {
             return None;
@@ -766,7 +281,6 @@ fn closed_circle(points: &[Vec2], tolerance: f64) -> Option<Vec<Primitive>> {
         if (Segment {
             a: pair[0],
             b: pair[1],
-            owner: usize::MAX,
         })
         .closest(center)
         .dist(center)
@@ -829,429 +343,66 @@ fn reconstruct_arcs(lines: Vec<Primitive>, tolerance: f64) -> Vec<Primitive> {
 /// A query visits one bucket; no all-pairs or repeated swept-area unions.
 struct Ink {
     initial: DistanceIndex,
-    originals: Vec<Primitive>,
-    actual_radius: f64,
-    extra: Vec<Segment>,
-    buckets: HashMap<(i64, i64), Vec<usize>>,
     radius: f64,
 }
 impl Ink {
     fn new(runs: &[Vec<Primitive>], radius: f64, eps: f64) -> Self {
         let mut segments = Vec::new();
         let mut points = Vec::new();
-        let originals: Vec<_> = runs.iter().flatten().copied().collect();
-        for (owner, p) in originals.iter().enumerate() {
+        for p in runs.iter().flatten() {
             points.clear();
-            p.flatten(eps / 4.0, &mut points);
-            segments.extend(points.windows(2).map(|p| Segment {
-                a: p[0],
-                b: p[1],
-                owner,
-            }));
+            p.flatten(eps / 4., &mut points);
+            segments.extend(points.windows(2).map(|p| Segment { a: p[0], b: p[1] }));
         }
         Self {
             initial: DistanceIndex::new(segments),
-            originals,
-            actual_radius: radius,
-            extra: Vec::new(),
-            buckets: HashMap::default(),
-            // Distance to the chord approximation can understate distance to
-            // the actual arc by eps/4. Reserve that error in every certificate.
-            radius: radius - eps / 4.0,
-        }
-    }
-    fn cell(&self, p: Vec2) -> (i64, i64) {
-        (
-            (p.x / (2.0 * self.radius)).floor() as i64,
-            (p.y / (2.0 * self.radius)).floor() as i64,
-        )
-    }
-    fn distance(&self, p: Vec2) -> f64 {
-        let mut d = self.initial.nearest(p, self.radius).0;
-        if let Some(ids) = self.buckets.get(&self.cell(p)) {
-            for &i in ids {
-                d = d.min(self.extra[i].closest(p).dist(p));
-            }
-        }
-        d
-    }
-    // A single capsule cannot certify a cell straddling two overlapping
-    // contour bands. Certify their union by projecting conservative strips
-    // onto one common normal. Every strip spans the whole tangential extent
-    // of the cell; covering the normal interval therefore covers every point.
-    fn bands_cover(&self, b: BBox, seed: Segment, tolerance: f64) -> bool {
-        let p = b.center();
-        let n = match self.originals[seed.owner] {
-            Primitive::Arc(a) => (p - a.center).normalized(),
-            _ => (seed.b - seed.a).normalized().perp(),
-        };
-        if n.len2() < 0.5 {
-            return false;
-        }
-        let t = n.perp();
-        let corners = [b.min, v(b.max.x, b.min.y), b.max, v(b.min.x, b.max.y)];
-        let u0 = corners
-            .iter()
-            .map(|q| q.dot(t))
-            .fold(f64::INFINITY, f64::min);
-        let u1 = corners
-            .iter()
-            .map(|q| q.dot(t))
-            .fold(f64::NEG_INFINITY, f64::max);
-        let v0 = corners
-            .iter()
-            .map(|q| q.dot(n))
-            .fold(f64::INFINITY, f64::min);
-        let v1 = corners
-            .iter()
-            .map(|q| q.dot(n))
-            .fold(f64::NEG_INFINITY, f64::max);
-        let mut owners = [0usize; 32];
-        owners[0] = seed.owner;
-        let mut owner_count = 1;
-        let search = b.expanded(self.actual_radius);
-        let mut stack = [0usize; 64];
-        let mut top = 1;
-        let mut visits = 0;
-        while top > 0 {
-            top -= 1;
-            let id = stack[top];
-            visits += 1;
-            if visits > 256 || owner_count >= 32 {
-                break;
-            }
-            let node = &self.initial.nodes[id];
-            if !search.overlaps(&node.bbox) {
-                continue;
-            }
-            if let Some((l, r)) = node.children {
-                stack[top] = r;
-                stack[top + 1] = l;
-                top += 2;
-            } else {
-                for s in &self.initial.segments[node.begin..node.end] {
-                    if !owners[..owner_count].contains(&s.owner) && search.overlaps(&s.bbox()) {
-                        owners[owner_count] = s.owner;
-                        owner_count += 1;
-                    }
-                    if owner_count >= 32 {
-                        break;
-                    }
-                }
-            }
-        }
-        let mut intervals = [(0.0f64, 0.0f64); 32];
-        let mut interval_count = 0;
-        let radius = self.actual_radius - tolerance;
-        // Restrict [lo,hi] by A*u+B*v+C >= 0 for every u in [u0,u1].
-        let restrict = |lo: &mut f64, hi: &mut f64, a: f64, b: f64, c: f64| {
-            let m = (a * u0).min(a * u1) + c;
-            if b > 0.0 {
-                *lo = lo.max(-m / b);
-            } else if b < 0.0 {
-                *hi = hi.min(-m / b);
-            } else if m < 0.0 {
-                *hi = f64::NEG_INFINITY;
-            }
-        };
-        for &owner in &owners[..owner_count] {
-            let mut lo = v0;
-            let mut hi = v1;
-            match self.originals[owner] {
-                Primitive::Line(line) => {
-                    if line.p0 == line.p1 {
-                        continue;
-                    }
-                    let axis = (line.p1 - line.p0).normalized();
-                    let normal = axis.perp();
-                    for (d, c) in [
-                        (normal, radius - normal.dot(line.p0)),
-                        (normal * -1.0, radius + normal.dot(line.p0)),
-                        (axis, -axis.dot(line.p0)),
-                        (axis * -1.0, axis.dot(line.p1)),
-                    ] {
-                        restrict(&mut lo, &mut hi, d.dot(t), d.dot(n), c);
-                    }
-                }
-                Primitive::Arc(arc)
-                    if arc.sweep != 0.0 && arc.sweep.abs() <= std::f64::consts::PI + 1e-10 =>
-                {
-                    let cu = arc.center.dot(t);
-                    let cv = arc.center.dot(n);
-                    let near_u = cu.clamp(u0, u1) - cu;
-                    let far_u = (u0 - cu).abs().max((u1 - cu).abs());
-                    let inner = (arc.r - radius).max(0.0);
-                    let outer = arc.r + radius;
-                    if far_u >= outer {
-                        continue;
-                    }
-                    let inner_v = (inner * inner - near_u * near_u).max(0.0).sqrt();
-                    let outer_v = (outer * outer - far_u * far_u).sqrt();
-                    if p.dot(n) >= cv {
-                        lo = lo.max(cv + inner_v);
-                        hi = hi.min(cv + outer_v);
-                    } else {
-                        lo = lo.max(cv - outer_v);
-                        hi = hi.min(cv - inner_v);
-                    }
-                    let start = Vec2::from_angle(arc.start);
-                    let end = Vec2::from_angle(arc.start + arc.sweep);
-                    let sign = arc.sweep.signum();
-                    restrict(
-                        &mut lo,
-                        &mut hi,
-                        sign * start.cross(t),
-                        sign * start.cross(n),
-                        -sign * start.cross(arc.center),
-                    );
-                    restrict(
-                        &mut lo,
-                        &mut hi,
-                        sign * t.cross(end),
-                        sign * n.cross(end),
-                        -sign * arc.center.cross(end),
-                    );
-                }
-                _ => continue,
-            }
-            if lo <= hi {
-                intervals[interval_count] = (lo, hi);
-                interval_count += 1;
-            }
-        }
-        intervals[..interval_count].sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
-        let mut end = v0;
-        for &(lo, hi) in &intervals[..interval_count] {
-            if lo > end {
-                return false;
-            }
-            end = end.max(hi);
-            if end >= v1 {
-                return true;
-            }
-        }
-        false
-    }
-    fn covers(&self, b: BBox, tolerance: f64) -> bool {
-        let p = b.center();
-        let corners = [b.min, v(b.max.x, b.min.y), b.max, v(b.min.x, b.max.y)];
-        let fits = |s: Segment| {
-            corners
-                .iter()
-                .all(|&q| s.closest(q).dist(q) <= self.radius - tolerance)
-        };
-        if let Some(s) = self.initial.nearest(p, self.actual_radius).1 {
-            if fits(s) {
-                return true;
-            }
-            if let Primitive::Arc(a) = self.originals[s.owner] {
-                // A <= PI angular sector is convex. Its radial interval over
-                // the entire box is bounded by the nearest point and corners.
-                // This certifies the actual arc capsule, not merely its chords.
-                let near = v(
-                    a.center.x.clamp(b.min.x, b.max.x),
-                    a.center.y.clamp(b.min.y, b.max.y),
-                );
-                let start = Vec2::from_angle(a.start);
-                let end = Vec2::from_angle(a.start + a.sweep);
-                let radius = self.actual_radius - tolerance;
-                if a.sweep.abs() <= std::f64::consts::PI
-                    && a.sweep != 0.0
-                    && near.dist(a.center) >= (a.r - radius).max(0.0)
-                    && corners.iter().all(|&q| {
-                        let d = q - a.center;
-                        d.len() <= a.r + radius
-                            && start.cross(d) * a.sweep.signum() >= 0.0
-                            && d.cross(end) * a.sweep.signum() >= 0.0
-                    })
-                {
-                    return true;
-                }
-            }
-            if self.bands_cover(b, s, tolerance) {
-                return true;
-            }
-        }
-        self.buckets
-            .get(&self.cell(p))
-            .is_some_and(|ids| ids.iter().any(|&i| fits(self.extra[i])))
-    }
-    fn add(&mut self, s: Segment) {
-        let b = s.bbox().expanded(self.radius);
-        let lo = self.cell(b.min);
-        let hi = self.cell(b.max);
-        let id = self.extra.len();
-        self.extra.push(s);
-        for y in lo.1..=hi.1 {
-            for x in lo.0..=hi.0 {
-                self.buckets.entry((x, y)).or_default().push(id);
-            }
+            // A chord can understate distance to its arc by eps/4.
+            radius: radius - eps / 4.,
         }
     }
 }
 
-fn complete(
-    field: &DistanceIndex,
-    width: f64,
+/// Medial branches may end exactly on a boundary, which keep-inside clipping
+/// excludes. Reserve eps/32 for moving each end inward along its own segment.
+/// A shorter-than-eps/16 segment becomes a certified tap. The Hausdorff change
+/// is bounded by eps/32, including for the round-nib footprint. Any introduced
+/// discontinuity starts a new run; it is never an implicit pen-down jump.
+fn validated_cleanup(
+    patch: Vec<Primitive>,
     eps: f64,
     certify: &dyn Fn(&Primitive) -> bool,
-    result: &mut Generated,
-    begin: usize,
-) -> Result<(), String> {
-    let _zone = crate::profile::zone("SDF distance coverage");
-    let radius = width / 2.0;
-    let mut ink = Ink::new(&result.runs[begin..], radius, eps);
-    let mut stack = vec![(field.nodes[0].bbox, false)];
-    let mut work = 0;
-    let mut primitive_count = count_prims(&result.runs);
-    while let Some((cell, known_inside)) = stack.pop() {
-        work += 1;
-        #[cfg(feature = "profile")]
-        if work % 1_000_000 == 0 {
-            eprintln!("SDF coverage cells {work}, marks {}", ink.extra.len());
-        }
-        if work > MAX_COVERAGE_WORK {
-            return Err("contour SDF prototype: coverage cell budget exceeded".into());
-        }
-        let p = cell.center();
-        let half = (cell.max - cell.min).len() / 2.0;
-        // Unsigned distance to a union of strokes is 1-Lipschitz: this
-        // certifies ALL points in the cell, including any narrow finger.
-        if half < width * 8.0 && ink.covers(cell, -eps / 2.0) {
-            continue;
-        }
-        let (distance, nearest) = if known_inside {
-            (f64::INFINITY, None)
+) -> Result<Vec<Vec<Primitive>>, GenerationError> {
+    let mut runs = Vec::new();
+    let mut current: Vec<Primitive> = Vec::new();
+    for p in patch {
+        let q = if certify(&p) {
+            p
+        } else if matches!(p, Primitive::Line(_)) && p.length() > 0. {
+            let trim = (eps / (32. * p.length())).min(0.5);
+            let q = p.sub(trim, 1. - trim);
+            if !certify(&q) {
+                return Err(GenerationError::Visibility(format!(
+                    "contour: medial cleanup failed exact visibility validation: {p:?}"
+                )));
+            }
+            q
         } else {
-            field.nearest(p, f64::INFINITY)
+            return Err(GenerationError::Visibility(format!(
+                "contour: medial cleanup failed exact visibility validation: {p:?}"
+            )));
         };
-        let inside = known_inside || field.inside(p);
-        if !inside && (distance > half + eps / 4.0 || !field.intersects(cell)) {
-            continue;
+        if current
+            .last()
+            .is_some_and(|previous| previous.end() != q.start())
+        {
+            runs.push(std::mem::take(&mut current));
         }
-        let children_inside = inside && distance > half + eps / 4.0;
-        if half <= width / 8.0 && ink.distance(p) > ink.radius - eps / 8.0 {
-            let nearest = nearest
-                .or_else(|| field.nearest(p, f64::INFINITY).1)
-                .unwrap();
-            let q = if inside || certify(&Primitive::Line(Line::new(p, p))) {
-                Some(p)
-            } else {
-                let edge = nearest.closest(p);
-                let normal = (nearest.b - nearest.a).normalized().perp();
-                [2.0, 0.25, 0.03125]
-                    .into_iter()
-                    .flat_map(|scale| {
-                        [edge + normal * (eps * scale), edge - normal * (eps * scale)]
-                    })
-                    .find(|&q| field.inside(q) && certify(&Primitive::Line(Line::new(q, q))))
-            };
-            if let Some(mut q) = q {
-                // Place boundary completion toward the interior. A mark at
-                // the boundary itself spills half a nib even when ample
-                // clearance exists. Keep the uncovered sample within reach;
-                // thin remnants retain the original visible placement.
-                let edge = nearest.closest(q);
-                let clearance = q.dist(edge);
-                if clearance < radius - eps {
-                    let inward = if clearance > eps / 64.0 {
-                        (q - edge).normalized()
-                    } else {
-                        let n = (nearest.b - nearest.a).normalized().perp();
-                        if field.inside(q + n * eps) {
-                            n
-                        } else {
-                            n * -1.0
-                        }
-                    };
-                    let middle = field
-                        .next_boundary(edge, inward, width, eps / 64.0)
-                        .map(|distance| edge + inward * (distance / 2.0));
-                    let mut candidates = Vec::with_capacity(4);
-                    // A thin strip has two opposing boundaries but no regular
-                    // half-nib inset. Put its mark between the two fronts;
-                    // trying fixed fractions of a nib can jump over it.
-                    if let Some(middle) = middle {
-                        candidates.push(middle);
-                    }
-                    candidates.extend(
-                        [1.0, 0.5, 0.25]
-                            .map(|fraction| q + inward * ((radius - eps - clearance) * fraction)),
-                    );
-                    for candidate in candidates {
-                        if candidate.dist(p) < radius - eps / 2.0
-                            && field.signed(candidate) > clearance + eps / 8.0
-                            && certify(&Primitive::Line(Line::new(candidate, candidate)))
-                        {
-                            q = candidate;
-                            break;
-                        }
-                    }
-                }
-                let tangent = (nearest.b - nearest.a).normalized();
-                // Marks overlap earlier ink and follow the local boundary.
-                // Try a short stroke, halve if it crosses a forbidden area,
-                // then a tap. Every retained mark passes exact visibility.
-                let mut chosen = None;
-                let local_width = field.nearest(q, radius).0;
-                // A nib cannot fit inside a sub-nib strip. Preserve the
-                // existing centerline visibility rule there; elsewhere keep
-                // the clearance available at the chosen mark's center.
-                let clearance = if local_width < radius * 0.9 {
-                    0.0
-                } else {
-                    local_width.min(radius - eps) - eps / 4.0
-                };
-                for scale in [4.0, 2.0, 1.0, 0.5, 0.25, 0.0] {
-                    let d = tangent * (width * scale);
-                    let s = Segment {
-                        a: q - d,
-                        b: q + d,
-                        owner: usize::MAX,
-                    };
-                    if field.has_clearance(s, clearance) && certify(&s.primitive()) {
-                        chosen = Some(s);
-                        break;
-                    }
-                }
-                if let Some(s) = chosen {
-                    if primitive_count >= MAX_PRIMITIVES {
-                        return Err(
-                            "contour SDF prototype: cleanup primitive budget exceeded".into()
-                        );
-                    }
-                    primitive_count += 1;
-                    ink.add(s);
-                    result.cleanup_runs.insert(result.runs.len());
-                    result.runs.push(vec![s.primitive()]);
-                    result.diagnostics.residual_patches += 1;
-                    if ink.covers(cell, -eps / 2.0) {
-                        continue;
-                    }
-                }
-            }
-        }
-        if half < eps / 128.0 {
-            // Normalization flattened curves within eps/4. A cell on that
-            // approximate boundary can lie outside the exact permitted area.
-            // Permit this discrepancy only within the boundary error band;
-            // an interior failure remains an error, never a coverage claim.
-            if distance <= eps && !certify(&Primitive::Line(Line::new(p, p))) {
-                continue;
-            }
-            return Err(format!("contour SDF prototype: unresolved boundary cell near ({:.6}, {:.6}) mm, side {:.9} mm, field distance {}, ink distance {}, inside {}",p.x,p.y,cell.width().max(cell.height()),distance,ink.distance(p),inside));
-        }
-        let c = cell.center();
-        for (a, b) in [
-            (c, cell.max),
-            (v(cell.min.x, c.y), v(c.x, cell.max.y)),
-            (v(c.x, cell.min.y), v(cell.max.x, c.y)),
-            (cell.min, c),
-        ] {
-            stack.push((BBox::new(a, b), children_inside));
-        }
+        current.push(q);
     }
-    Ok(())
+    if !current.is_empty() {
+        runs.push(current);
+    }
+    Ok(runs)
 }
 
 pub(super) fn generate(
@@ -1259,11 +410,41 @@ pub(super) fn generate(
     width: f64,
     spacing: f64,
     certify: &dyn Fn(&Primitive) -> bool,
-) -> Result<Generated, String> {
-    let eps = error_budget(width, spacing)?;
+) -> Result<Generated, GenerationError> {
+    generate_at_tolerance(
+        components,
+        width,
+        spacing,
+        error_budget(width, spacing)?,
+        certify,
+    )
+}
+
+pub(super) fn generate_at_tolerance(
+    components: Vec<Shape<f64>>,
+    width: f64,
+    spacing: f64,
+    eps: f64,
+    certify: &dyn Fn(&Primitive) -> bool,
+) -> Result<Generated, GenerationError> {
     let mut result = Generated::default();
     result.diagnostics.components = components.len();
     for component in components {
+        if let Some(ink) = circular::generate(
+            &component,
+            width,
+            spacing,
+            eps,
+            MAX_PRIMITIVES.saturating_sub(count_prims(&result.runs)),
+        )? {
+            let base = result.runs.len();
+            result
+                .cleanup_runs
+                .extend(ink.cleanup_runs.into_iter().map(|i| base + i));
+            result.diagnostics.add(&ink.diagnostics);
+            result.runs.extend(ink.runs);
+            continue;
+        }
         let polygons = shape_polygons(&component, eps);
         let segments = polygons
             .iter()
@@ -1275,7 +456,6 @@ pub(super) fn generate(
                     .map(|(a, b)| Segment {
                         a: v(a[0], a[1]),
                         b: v(b[0], b[1]),
-                        owner: usize::MAX,
                     })
             })
             .collect();
@@ -1284,7 +464,10 @@ pub(super) fn generate(
             continue;
         }
         let begin = result.runs.len();
-        let (rings, levels) = contours(&field, width, spacing, eps)?;
+        let (rings, patches, levels, regular_levels) = {
+            let _zone = crate::profile::zone("SDF analytic extraction");
+            analytic::contours(&field, width, spacing, eps, certify)?
+        };
         #[cfg(feature = "profile")]
         eprintln!(
             "SDF marched: {} rings, {} segments",
@@ -1293,28 +476,29 @@ pub(super) fn generate(
         );
         result.diagnostics.levels += levels;
         result.diagnostics.contours += rings.len();
-        for ring in rings {
-            let simplified = ring;
-            let mut run = Vec::new();
-            for p in simplified {
-                if certify(&p) {
-                    run.push(p);
-                } else {
-                    result.diagnostics.validation_splits += 1;
-                    if !run.is_empty() {
-                        result.runs.push(std::mem::take(&mut run));
-                    }
-                }
-            }
-            if !run.is_empty() {
-                result.runs.push(run);
-            }
-        }
+        // Final exact validation happens once after all construction and
+        // simplification, before the resulting ink reaches finishing modifiers.
+        let routing_zone = crate::profile::zone("SDF contour routing");
+        result.runs.extend(routing::join(
+            rings,
+            &regular_levels,
+            spacing,
+            certify,
+            &mut result.diagnostics,
+        ));
+        drop(routing_zone);
         #[cfg(feature = "profile")]
         eprintln!("SDF validated: {} segments", count_prims(&result.runs));
         // Sparse contours intentionally leave gaps. Never densify them.
         if spacing <= width {
-            complete(&field, width, eps, certify, &mut result, begin)?;
+            let _zone = crate::profile::zone("SDF residual finishing");
+            for patch in patches {
+                for run in validated_cleanup(patch, eps, certify)? {
+                    result.cleanup_runs.insert(result.runs.len());
+                    result.diagnostics.residual_patches += 1;
+                    result.runs.push(run);
+                }
+            }
             // Reuse the existing bounded, whole-interval-certified local join
             // for cleanup marks only. Regular contour loops stay independent.
             cleanup::join(&mut result, begin, spacing, certify);
@@ -1381,7 +565,6 @@ mod tests {
                 .map(|i| Segment {
                     a: points[i],
                     b: points[(i + 1) % 4],
-                    owner: 0,
                 })
                 .collect(),
         );
@@ -1397,7 +580,6 @@ mod tests {
                     Segment {
                         a,
                         b: a + Vec2::from_angle(i as f64 * 0.73) * 0.6,
-                        owner: i,
                     }
                 })
                 .collect(),
@@ -1422,7 +604,6 @@ mod tests {
             .map(|i| Segment {
                 a: v(-10000., i as f64),
                 b: v(10000., i as f64),
-                owner: i,
             })
             .collect();
         let index = DistanceIndex::new(segments);
@@ -1434,7 +615,7 @@ mod tests {
         );
     }
     #[test]
-    fn slab_sign_cache_matches_direct_crossings_at_vertices_and_between_them() {
+    fn distance_sign_matches_direct_crossings_at_vertices_and_between_them() {
         let rings = vec![
             vec![v(0., 0.), v(9., 0.3), v(10., 8.), v(5., 10.), v(0., 8.)],
             vec![v(3., 2.), v(5., 2.1), v(6., 6.), v(2., 6.2)],
@@ -1445,7 +626,7 @@ mod tests {
                 r.iter()
                     .zip(r.iter().cycle().skip(1))
                     .take(r.len())
-                    .map(|(&a, &b)| Segment { a, b, owner: 0 })
+                    .map(|(&a, &b)| Segment { a, b })
             })
             .collect();
         let field = DistanceIndex::new(segments.clone());
@@ -1466,33 +647,6 @@ mod tests {
         }
     }
     #[test]
-    fn completed_loops_recycle_raw_graph_storage() {
-        let field = DistanceIndex::new(vec![Segment {
-            a: v(0., 0.),
-            b: v(10., 0.),
-            owner: 0,
-        }]);
-        let mut graph = Graph::new(&field, 1., 1., 0.001);
-        for i in 0..1000 {
-            let points = [v(-2., -2.), v(-1., -2.), v(-1., -1.), v(-2., -1.)];
-            let ids: Vec<_> = points
-                .iter()
-                .enumerate()
-                .map(|(j, &p)| graph.vertex(((i * 4 + j) as u64, 0, 0), p))
-                .collect();
-            for j in 0..4 {
-                graph.edge(ids[j], ids[(j + 1) % 4]).unwrap();
-            }
-            assert!(graph.keys.is_empty());
-            assert!(graph.vertices.len() <= 4 && graph.edges.len() <= 4);
-        }
-        let runs = graph.runs().unwrap();
-        assert_eq!(runs.len(), 1000);
-        for run in runs {
-            assert!(run[0].start().dist(run.last().unwrap().end()) < 1e-12);
-        }
-    }
-    #[test]
     fn complete_circle_fit_rejects_a_second_lap() {
         let points: Vec<_> = (0..=128)
             .map(|i| Vec2::from_angle(i as f64 * std::f64::consts::TAU / 128.) * 4.)
@@ -1500,66 +654,6 @@ mod tests {
         assert_eq!(closed_circle(&points, 0.01).unwrap().len(), 2);
         let twice: Vec<_> = points[..128].iter().chain(points.iter()).copied().collect();
         assert!(closed_circle(&twice, 0.01).is_none());
-    }
-    #[test]
-    fn overlapping_bands_cover_cells_without_hiding_gaps() {
-        let lines = vec![
-            vec![Primitive::Line(Line::new(v(-5., 0.), v(5., 0.)))],
-            vec![Primitive::Line(Line::new(v(-5., 0.4), v(5., 0.4)))],
-        ];
-        let ink = Ink::new(&lines, 0.25, 0.001);
-        assert!(ink.covers(BBox::new(v(-1., 0.01), v(1., 0.39)), 0.0));
-        let gap = Ink::new(
-            &[
-                lines[0].clone(),
-                vec![Primitive::Line(Line::new(v(-5., 0.7), v(5., 0.7)))],
-            ],
-            0.25,
-            0.001,
-        );
-        assert!(!gap.covers(BBox::new(v(-1., 0.01), v(1., 0.69)), 0.0));
-        let arcs = vec![
-            vec![Primitive::Arc(Arc::new(v(0., 0.), 4., -1., 2.))],
-            vec![Primitive::Arc(Arc::new(v(0., 0.), 4.4, -1., 2.))],
-        ];
-        let ink = Ink::new(&arcs, 0.25, 0.001);
-        assert!(ink.covers(BBox::new(v(4.02, -0.15), v(4.38, 0.15)), 0.0));
-        // An independent interior lattice checks certificates, including cells
-        // crossing arc endpoints and both signs of the chosen normal.
-        for runs in [
-            lines,
-            arcs,
-            vec![
-                vec![Primitive::Arc(Arc::new(v(0.1, -0.2), 4., 2.7, -2.))],
-                vec![Primitive::Arc(Arc::new(v(0., 0.), 4.4, 2.7, -2.))],
-            ],
-        ] {
-            let ink = Ink::new(&runs, 0.25, 0.001);
-            for i in 0..240 {
-                let angle = i as f64 * 0.127;
-                let center = Vec2::from_angle(angle) * (3.7 + (i % 13) as f64 * 0.07);
-                let b = BBox::new(center - v(0.19, 0.13), center + v(0.19, 0.13));
-                if ink.covers(b, 0.0) {
-                    for x in 0..11 {
-                        for y in 0..11 {
-                            let q = v(
-                                b.min.x + b.width() * x as f64 / 10.,
-                                b.min.y + b.height() * y as f64 / 10.,
-                            );
-                            let distance = runs
-                                .iter()
-                                .flatten()
-                                .map(|p| p.dist_to(q))
-                                .fold(f64::INFINITY, f64::min);
-                            assert!(
-                                distance <= 0.250000001,
-                                "false coverage certificate at {q:?}: {distance}"
-                            );
-                        }
-                    }
-                }
-            }
-        }
     }
     #[test]
     fn reconstructed_arcs_bound_the_whole_polyline() {
@@ -1591,7 +685,6 @@ mod tests {
                     .map(|(a, b)| Segment {
                         a: v(a[0], a[1]),
                         b: v(b[0], b[1]),
-                        owner: usize::MAX,
                     })
             })
             .collect();
@@ -1715,5 +808,194 @@ mod tests {
         assert_eq!(a.diagnostics.residual_patches, 0);
         assert_eq!(format!("{:?}", a.runs), format!("{:?}", b.runs));
         assert!(generate(vec![square()], 0., 1., &|_| true).is_err());
+    }
+
+    #[test]
+    fn analytic_transformed_thin_features_keep_actual_coverage() {
+        let outlines = [
+            // Thin attached features must be sampled directly, not erased from
+            // the test target by a half-nib inset.
+            vec![
+                [0., 0.],
+                [3., 0.],
+                [3., 1.49],
+                [5., 1.49],
+                [5., 1.51],
+                [3., 1.51],
+                [3., 3.],
+                [0., 3.],
+            ],
+            vec![[0., 0.], [5., 0.], [5., 0.007], [0., 0.007]],
+            vec![[0., 0.], [5., 0.], [0.02, 0.015]],
+        ];
+        for (fixture, points) in outlines.iter().enumerate() {
+            for (angle, sx, sy) in [(0.0_f64, 1., 1.), (0.371_f64, -1.3, 0.7)] {
+                let transform = |p: Vec2| {
+                    let p = v(p.x * sx, p.y * sy);
+                    v(
+                        p.x * angle.cos() - p.y * angle.sin() + 17.321,
+                        p.x * angle.sin() + p.y * angle.cos() + 9.123,
+                    )
+                };
+                let transformed: Vec<_> = points
+                    .iter()
+                    .map(|p| {
+                        let p = transform(v(p[0], p[1]));
+                        [p.x, p.y]
+                    })
+                    .collect();
+                let region = shape_region(&polygon(&transformed));
+                for width in [0.01, 0.02, 0.1, 0.32, 0.49, 0.66, 1.] {
+                    let eps = error_budget(width, width * 0.9).unwrap();
+                    let components = visible_components(&region, &[], &[], eps).unwrap();
+                    let ink = crate::contour_fill::generate(components, width, width * 0.9, &|p| {
+                        valid(p, &region)
+                    })
+                    .unwrap_or_else(|e| {
+                        panic!("fixture={fixture}, angle={angle}, width={width}: {e}")
+                    });
+                    assert!(!ink.runs.is_empty());
+                    // Shifted points along every boundary edge, a small distance
+                    // inward, explicitly include both sides of the thin finger.
+                    for (a, b) in points
+                        .iter()
+                        .zip(points.iter().cycle().skip(1))
+                        .take(points.len())
+                    {
+                        let a = v(a[0], a[1]);
+                        let b = v(b[0], b[1]);
+                        for j in 0..31 {
+                            let p = a.lerp(b, (j as f64 + 0.37) / 31.);
+                            let p = transform(p + (b - a).normalized().perp() * 0.0001);
+                            if !region.inside(p) {
+                                continue;
+                            }
+                            let distance = ink
+                                .runs
+                                .iter()
+                                .flatten()
+                                .map(|s| s.dist_to(p))
+                                .fold(f64::INFINITY, f64::min);
+                            assert!(distance <= width / 2. + eps,
+                                "fixture={fixture}, angle={angle}, width={width}: uncovered {p:?}, distance={distance}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn analytic_nearly_touching_hole_keeps_the_narrow_channel() {
+        for gap in [0.0000002, 0.000002, 0.005, 0.1] {
+            for angle in [0.0_f64, 0.371_f64] {
+                let transform = |p: Vec2| {
+                    v(
+                        p.x * angle.cos() - p.y * angle.sin() + 17.321,
+                        p.x * angle.sin() + p.y * angle.cos() + 9.123,
+                    )
+                };
+                let rings = [
+                    vec![[0., 0.], [5., 0.], [5., 5.], [0., 5.]],
+                    vec![[gap, gap], [4., gap], [4., 4.], [gap, 4.]],
+                ];
+                let contours = rings
+                    .iter()
+                    .map(|ring| {
+                        ring.iter()
+                            .zip(ring.iter().cycle().skip(1))
+                            .take(ring.len())
+                            .map(|(a, b)| {
+                                Primitive::Line(Line::new(
+                                    transform(v(a[0], a[1])),
+                                    transform(v(b[0], b[1])),
+                                ))
+                            })
+                            .collect()
+                    })
+                    .collect();
+                let region = Region::new(contours, WindingRule::EvenOdd, false);
+                for width in [0.01, 0.1, 0.2, 0.45, 1.] {
+                    let eps = error_budget(width, width * 0.9).unwrap();
+                    let components = visible_components(&region, &[], &[], eps).unwrap();
+                    let ink = crate::contour_fill::generate(components, width, width * 0.9, &|p| {
+                        valid(p, &region)
+                    })
+                    .unwrap_or_else(|e| panic!("gap={gap}, angle={angle}, width={width}: {e}"));
+                    for j in 0..51 {
+                        let t = 0.01 + 3.98 * (j as f64 + 0.31) / 51.;
+                        for q in [v(gap / 2., t), v(t, gap / 2.)] {
+                            let p = transform(q);
+                            assert!(region.inside(p));
+                            let distance = ink
+                                .runs
+                                .iter()
+                                .flatten()
+                                .map(|s| s.dist_to(p))
+                                .fold(f64::INFINITY, f64::min);
+                            assert!(distance <= width / 2. + eps,
+                                "gap={gap}, angle={angle}, width={width}: uncovered {p:?}, distance={distance}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn cubic_strip_keeps_its_actual_centerline_covered() {
+        use crate::primitive::Cubic;
+        for thickness in [0.03, 0.0002] {
+            for scale in [1., 10.] {
+                let top = Cubic::new(
+                    v(0., 0.),
+                    v(3. * scale, 4.),
+                    v(7. * scale, 4.),
+                    v(10. * scale, 0.),
+                );
+                let bottom = Cubic::new(
+                    v(10. * scale, -thickness),
+                    v(7. * scale, 4. - thickness),
+                    v(3. * scale, 4. - thickness),
+                    v(0., -thickness),
+                );
+                let region = Region::new(
+                    vec![vec![
+                        Primitive::Cubic(top),
+                        Primitive::Line(Line::new(top.p1, bottom.p0)),
+                        Primitive::Cubic(bottom),
+                        Primitive::Line(Line::new(bottom.p1, top.p0)),
+                    ]],
+                    WindingRule::NonZero,
+                    false,
+                );
+                let ink =
+                    crate::contour_fill::generate_visible(&region, &[], &[], 0.5, 0.45, &|p| {
+                        valid(p, &region)
+                    })
+                    .unwrap_or_else(|e| panic!("thickness={thickness}, scale={scale}: {e}"));
+                if thickness == 0.0002 && scale == 10. {
+                    assert!(
+                        ink.diagnostics.geometry_refinements > 0,
+                        "the stretched thin strip must exercise refinement from original curves"
+                    );
+                }
+                assert!(ink.runs.iter().flatten().all(|p| valid(p, &region)));
+                for i in 0..101 {
+                    let t = (i as f64 + 0.37) / 101.;
+                    let p = (top.eval(t) + bottom.eval(1. - t)) * 0.5;
+                    assert!(region.inside(p));
+                    let distance = ink
+                        .runs
+                        .iter()
+                        .flatten()
+                        .map(|s| s.dist_to(p))
+                        .fold(f64::INFINITY, f64::min);
+                    assert!(
+                        distance <= 0.26,
+                        "thickness={thickness}, scale={scale}, t={t}: distance={distance}"
+                    );
+                }
+            }
+        }
     }
 }

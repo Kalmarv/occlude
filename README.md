@@ -107,6 +107,7 @@ facts, and papers — never code**:
 | Deussen, Spicker et al., *Weighted Linde-Buzo-Gray Stippling* (SIGGRAPH Asia 2017); [reference impl](https://github.com/MarcSpicker/LindeBuzoGrayStippling) | `scatter(...).settle(n)` implements the paper's algorithm from the paper. No code from the LGPL reference. | paper / LGPL-3.0 |
 | Bridson, *Fast Poisson Disk Sampling* (2007) | `scatter` and the stipple fill's blue-noise placement. | paper |
 | Jobard & Lefer, *Creating Evenly-Spaced Streamlines of Arbitrary Density* (Eurographics 1997) | `t.streamlines` implements the paper's seeding and separation scheme, with the spacing as a field. Ideas from the paper only. | paper |
+| [Boost Voronoi](https://docs.rs/boostvoronoi/0.12.1/boostvoronoi/) | Pinned Rust point/segment Voronoi dependency for analytic distance contours and vector residual cleanup. | BSL-1.0 |
 | [Cavalier Contours](https://github.com/jbuckmccready/cavalier_contours) | Pinned Rust dependency for line/arc region offsets in native contour fill. | MIT / Apache-2.0 |
 | [robust](https://github.com/georust/robust) | Adaptive orientation predicates for native contour cleanup partition validation. | MIT / Apache-2.0 |
 | [Earcut](https://github.com/georust/earcut) | Triangulation of native contour-fill cleanup regions. | MIT / Apache-2.0; upstream Mapbox portions ISC |

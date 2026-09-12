@@ -8,6 +8,26 @@ fs.mkdirSync(out,{recursive:true});
  const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
  const context=await browser.newContext({viewport:{width:1500,height:1050}});
  await context.addInitScript(source=>{
+  // Measure the same request/reply interval as Studio's watchdog, including
+  // sketch execution, planning, hashing and transfer (not only Rust renderMs).
+  window.__sdfWorkerTimings=[];
+  const OriginalWorker=window.Worker;
+  window.Worker=class extends OriginalWorker {
+   constructor(...args){
+    super(...args);const starts=new Map();
+    this.addEventListener('message',({data})=>{
+     if(starts.has(data.id)&&(data.type==='render'||data.type==='error')){
+      window.__sdfWorkerTimings.push({type:data.type,elapsedMs:performance.now()-starts.get(data.id)});
+      starts.delete(data.id);
+     }
+    });
+    const send=this.postMessage.bind(this);
+    this.postMessage=(message,...rest)=>{
+     if(message?.type==='render')starts.set(message.id,performance.now());
+     return send(message,...rest);
+    };
+   }
+  };
   localStorage.setItem('occlude.sketch',source);
   localStorage.setItem('occlude.settings',JSON.stringify({paper:'Custom',customPaper:{w:304.8,h:304.8},paperUnit:'in',defaultMarginPct:5}));
  },fs.readFileSync(fixture,'utf8'));
@@ -32,8 +52,10 @@ fs.mkdirSync(out,{recursive:true});
   await page.waitForFunction(()=>{const m=document.querySelector('#status-msg');return m&&(m.className==='status-err'||(/^ok/.test(m.textContent)&&document.querySelector('#status-stats')?.textContent.includes('frags')));},null,{timeout:35000});
   const status=await page.locator('#status-msg').textContent();
   const stats=await page.evaluate(()=>window.__occlude.result()?.stats);
+  const paper=await page.evaluate(()=>window.__occlude.result()?.paper);
+  const workerTimings=await page.evaluate(()=>window.__sdfWorkerTimings);
   await page.screenshot({path:path.join(out,'studio.png')});
-  const result={fixture,status,stats,intercepted,pensIntercepted,pageErrors:errors};
+  const result={fixture,status,stats,paper,workerTimings,intercepted,pensIntercepted,pageErrors:errors};
   fs.writeFileSync(path.join(out,'studio.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
   if(!status.startsWith('ok')||errors.length||(wasm!=='-'&&!intercepted)||(process.env.BENCH_PENS&&!pensIntercepted))process.exitCode=1;
  }finally{await browser.close();}

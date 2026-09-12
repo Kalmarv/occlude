@@ -582,11 +582,12 @@ fn native_contour_occluder_creates_separate_islands() {
     let chains = merge_chains(&out.frags,0);
     assert!(chains.len() >= 2);
     for c in chains {
-        let left = c.start().x < 9.0;
+        // A valid run may start exactly on the left island's boundary.
+        let left = c.start().x <= 9.0;
         for p in c.prims {
             for i in 0..=20 {
                 let q = p.eval(i as f64/20.0);
-                assert!(if left { q.x <= 9.0 } else { q.x >= 11.0 });
+                assert!(if left { q.x <= 9.0 } else { q.x >= 11.0 }, "left={left}, point={q:?}, primitive={p:?}");
             }
         }
     }

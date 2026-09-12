@@ -3,12 +3,24 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { createHash } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { transformSync } from 'esbuild';
 import * as occlude from '../src/index.js';
 import { numericLoops } from '../src/boundary.js';
+import { setWasm } from '../src/render.js';
 const [fixture, engine='current', out='/tmp/occlude-sdf-comparison', widthArg, samplesArg='3'] = process.argv.slice(2);
 const wasm = process.env.BENCH_WASM || new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url);
-await occlude.initOcclude(readFileSync(wasm));
+let wasmMemory: { buffer: ArrayBufferLike } | undefined;
+// Experimental kernels can introduce WASM imports. Load their matching glue
+// explicitly rather than assuming the production bindings can instantiate them.
+if (process.env.BENCH_BINDINGS) {
+  const core = await import(pathToFileURL(resolve(process.env.BENCH_BINDINGS)).href);
+  const instance = await core.default({ module_or_path: readFileSync(wasm) });
+  wasmMemory = instance.memory;
+  setWasm(core as never);
+} else {
+  await occlude.initOcclude(readFileSync(wasm));
+}
 const pens = JSON.parse(readFileSync(process.env.BENCH_PENS || new URL('./fixtures/contour-sdf/pens.json',import.meta.url),'utf8'));
 if (widthArg) for(const p of pens) p.width=Number(widthArg);
 occlude.setPenLibrary(pens);
@@ -28,6 +40,7 @@ for(let i=0;i<=Number(samplesArg);i++) {
  const start=performance.now();
  try {
   const result=occlude.render(def,{paper:{paper:{w:304.8,h:304.8}}});
+  if (!result.frags.length) throw Error("benchmark fixture unexpectedly rendered no ink");
   const generated=performance.now();
   console.log(JSON.stringify({stage:'render',name,engine,sample:i,renderMs:generated-start,fragments:result.frags.length,diagnostics:result.stats.contour}));
   const {buffer,settings}=occlude.planBuffer(result);
@@ -60,7 +73,7 @@ for(let i=0;i<=Number(samplesArg);i++) {
   writeFileSync(resolve(out,`${name}-${engine}-paths.svg`),svg.replace('</svg>','<style>path {stroke-width:0.055;stroke:#193f50}</style></svg>'));
   }
   const stats=(v:number[])=>{v.sort((a,b)=>a-b);return {median:v[Math.floor(v.length/2)],tail:v.at(-1)}};
-  const row={name,engine,width:widthArg||'saved pens',paperMm:304.8,seed:42,samples:Math.max(1,Number(samplesArg)),warmup:Number(samplesArg)>0?1:0,renderMs:stats(renderMs),planMs:stats(planMs),runs:flat.length,internalLifts:Math.max(0,flat.length-1),inkMm,travelMm,etaMinutes:eta.totalMs/60000,primitives:value.chains.reduce((s,c)=>s+c.prims.length,0),planBytes:buffer.byteLength,planSha256,maxGap,diagnostics:result.stats.contour};
+  const row={name,engine,width:widthArg||'saved pens',paperMm:304.8,seed:42,samples:Math.max(1,Number(samplesArg)),warmup:Number(samplesArg)>0?1:0,renderMs:stats(renderMs),planMs:stats(planMs),runs:flat.length,internalLifts:Math.max(0,flat.length-1),inkMm,travelMm,etaMinutes:eta.totalMs/60000,primitives:value.chains.reduce((s,c)=>s+c.prims.length,0),planBytes:buffer.byteLength,wasmLinearMemoryBytes:wasmMemory?.buffer.byteLength,planSha256,maxGap,diagnostics:result.stats.contour};
   writeFileSync(resolve(out,`${name}-${engine}.json`),JSON.stringify(row,null,2)+'\n');console.log(JSON.stringify(row));
  } catch(error) {
   const row={name,engine,sample:i,error:String(error),elapsedMs:performance.now()-start};

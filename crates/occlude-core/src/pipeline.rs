@@ -574,7 +574,6 @@ impl Prepared {
             match kind {
                 FillKind::Contour { spacing } => {
                     let generated = (|| {
-                        let eps = crate::contour_fill::error_budget(threshold,*spacing)?;
                         let mut nearby = Vec::new();
                         occ_index.query_unsorted(&region.bbox,&mut nearby,ctx.first_ahead);
                         nearby.sort_unstable(); nearby.dedup();
@@ -585,19 +584,36 @@ impl Prepared {
                                 clips: o.clips.iter().filter_map(|&ci| clip_regions.get(ci as usize)).map(|(r,k)|(r,*k)).collect(),
                             }
                         }).collect();
-                        let components = crate::contour_fill::visible_components(region,&shape_clips,&blockers,eps)?;
                         let mut native_clips = shape_clips.clone();
                         native_clips.push((region,true));
+                        // The callback is synchronous and local to this fill job.
+                        // Keep its query/span storage between primitives, just as
+                        // ordinary clipping does, instead of allocating per test.
+                        #[cfg(feature = "contour-sdf")]
+                        let continuation = std::cell::RefCell::new(crate::contour_fill::ContinuationCertifier::new(
+                            native_clips.iter().map(|(r,_)|*r)
+                                .chain(blockers.iter().flat_map(|o| std::iter::once(o.region).chain(o.clips.iter().map(|(r,_)|*r))))
+                        ));
+                        let validation_buffers = std::cell::RefCell::new((ClipBufs::default(), Vec::new()));
                         let certify = |p: &Primitive| {
-                            let mut scratch = ClipBufs::default(); let mut visible = Vec::new();
-                            clip_one(0,p,0.0,*fill_pen,i as u32,&native_clips,&ctx,false,&mut scratch,&mut visible);
-                            visible.len() == 1 && visible[0].t0 == 0.0 && visible[0].t1 == 1.0
+                            let mut buffers = validation_buffers.borrow_mut();
+                            let (scratch, visible) = &mut *buffers;
+                            let exact = || {
+                                visible.clear();
+                                clip_one(0,p,0.0,*fill_pen,i as u32,&native_clips,&ctx,false,scratch,visible);
+                                visible.len() == 1 && visible[0].t0 == 0.0 && visible[0].t1 == 1.0
+                            };
+                            #[cfg(feature = "contour-sdf")]
+                            { continuation.borrow_mut().certify(p, exact) }
+                            #[cfg(not(feature = "contour-sdf"))]
+                            { let mut exact = exact; exact() }
                         };
-                        crate::contour_fill::generate(components,threshold,*spacing,&certify)
+                        crate::contour_fill::generate_visible(region,&shape_clips,&blockers,threshold,*spacing,&certify)
                     })();
                     match generated {
                         Err(e) => so.error = Some(e),
                         Ok(ink) => {
+                            let visibility_validated = ink.visibility_validated();
                             so.contour = ink.diagnostics;
                             let mut native_clips = shape_clips.clone(); native_clips.push((region,true));
                             for (ri,run) in ink.runs.iter().enumerate() {
@@ -606,7 +622,10 @@ impl Prepared {
                                     let origin = GEN_FLAG | so.gen_prims.len() as u32;
                                     so.gen_prims.push(*p);
                                     let begin = so.frags.len();
-                                    clip_one(origin,p,0.0,*fill_pen,i as u32,&native_clips,&ctx,false,&mut bufs,&mut so.frags);
+                                    // Reuse a final visibility certificate only while the exact
+                                    // primitives and visibility context are unchanged. Post
+                                    // modifiers run later and retain their existing semantics.
+                                    clip_one(origin,p,0.0,*fill_pen,i as u32,&native_clips,&ctx,visibility_validated,&mut bufs,&mut so.frags);
                                     if so.frags.len() != begin+1 || so.frags[begin].t0 != 0.0 || so.frags[begin].t1 != 1.0 {
                                         so.contour.validation_splits += 1;
                                     }

@@ -9,13 +9,13 @@ license = "MIT"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["parallel"]
+default = ["parallel", "contour-sdf"]
 parallel = ["rayon"]
 wasm = ["wasm-bindgen"]
 cull-debug = []
 profile = []
-# Experimental comparison build; never enabled in the production package.
-contour-sdf = []
+# Analytic distance contours. Disable default features to compare the retained offset engine.
+contour-sdf = ["dep:boostvoronoi", "dep:getrandom", "dep:js-sys"]
 
 [dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
@@ -27,6 +27,10 @@ cavalier_contours = "=0.9.0"
 i_overlay = "=8.1.1"
 earcut = "=0.4.11"
 robust = "=1.2.0"
+
+boostvoronoi = { version = "=0.12.1", default-features = false, optional = true }
+getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
+js-sys = { version = "=0.3.104", optional = true }
 
 [dev-dependencies]
 proptest = "1"

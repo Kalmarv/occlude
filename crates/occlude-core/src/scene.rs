@@ -3,6 +3,12 @@
 //! back into flat buffers. One protocol, two consumers: the wasm boundary
 //! (`wasm_api`) and native tooling (`examples/replay.rs` profiling harness).
 //!
+//! Output `stats: Float64Array`: indices 0–5 are shape/culling/fragment counts;
+//! 6–16 are contour components, levels, contours, connectors, connector tests,
+//! residual patches, fallbacks, validation splits, and thin/budget/unstable
+//! fallback counts. Index 17 is original-curve geometry refinement count.
+//! New diagnostic fields append; TS defaults absent trailing fields to zero.
+//!
 //! ## Buffer protocol (all little-endian typed arrays from JS)
 //!
 //! `prims: Float64Array`, stride 9 per primitive:
@@ -20,7 +26,7 @@
 //!   flags: bit0 closed, bit1 convex, bit2 even-odd winding
 //!   fill_kind: 0 none, 1 pending (ink arrives at finish as supplied
 //!            prims + dots — the two-pass path), 2 mask. The engine
-//!            generates no patterns; hatch/stipple are JS fill modules.
+//!            generates native contour ink (kind 3); hatch/stipple remain JS fill modules.
 //!            Slots 8/9 (old fill_start/fill_count) are reserved-zero.
 //!   mod_start/mod_count: this shape's modifier program — mod_count
 //!            instructions starting at f64 offset mod_start in `mods`.
@@ -464,6 +470,7 @@ pub fn encode_render_output(out: &RenderOutput) -> EncodedOutput {
             s.contour.fallback_thin as f64,
             s.contour.fallback_budget as f64,
             s.contour.fallback_unstable as f64,
+            s.contour.geometry_refinements as f64,
         ],
     }
 }

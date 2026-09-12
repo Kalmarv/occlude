@@ -1,0 +1,40 @@
+{
+  "name": "recursive-radial",
+  "engine": "sdf",
+  "width": "0.4",
+  "paperMm": 304.8,
+  "seed": 42,
+  "samples": 3,
+  "warmup": 1,
+  "renderMs": {
+    "median": 844.9234799999999,
+    "tail": 887.921407
+  },
+  "planMs": {
+    "median": 45.1104449999998,
+    "tail": 52.462774999999965
+  },
+  "runs": 16899,
+  "internalLifts": 16898,
+  "inkMm": 110595.84377587977,
+  "travelMm": 16090.836435078874,
+  "etaMinutes": 400.4674684055794,
+  "primitives": 35114,
+  "planBytes": 1914144,
+  "planSha256": "0715b3f00e327074b26f8b90b6d9f3b9423d03a96694d6cf9bffa79e9453ac70",
+  "maxGap": 1.2058310082691394e-13,
+  "diagnostics": {
+    "components": 1,
+    "levels": 103,
+    "contours": 2724,
+    "connectors": 4076,
+    "connectorTests": 4096,
+    "residualPatches": 3584,
+    "fallbacks": 0,
+    "validationSplits": 0,
+    "fallbackThin": 0,
+    "fallbackBudget": 0,
+    "fallbackUnstable": 0,
+    "geometryRefinements": 0
+  }
+}

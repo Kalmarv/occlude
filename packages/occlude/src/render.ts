@@ -191,7 +191,7 @@ export interface RenderStats {
   clean: number;
   fragments: number;
   fillPrims: number;
-  contour?: { components: number; levels: number; contours: number; connectors: number; connectorTests: number; residualPatches: number; fallbacks: number; validationSplits: number; fallbackThin: number; fallbackBudget: number; fallbackUnstable: number };
+  contour?: { components: number; levels: number; contours: number; connectors: number; connectorTests: number; residualPatches: number; fallbacks: number; validationSplits: number; fallbackThin: number; fallbackBudget: number; fallbackUnstable: number; geometryRefinements: number };
   /** Wall time of the wasm call, ms. */
   renderMs: number;
 }
@@ -936,7 +936,7 @@ export function decodeRender(scene: EncodedScene, raw: RawRender): RenderResult 
       clean: s[3],
       fragments: s[4],
       fillPrims: s[5],
-      contour: s.length >= 14 ? { components:s[6], levels:s[7], contours:s[8], connectors:s[9], connectorTests:s[10], residualPatches:s[11], fallbacks:s[12], validationSplits:s[13], fallbackThin:s[14]??0, fallbackBudget:s[15]??0, fallbackUnstable:s[16]??0 } : undefined,
+      contour: s.length >= 14 ? { components:s[6], levels:s[7], contours:s[8], connectors:s[9], connectorTests:s[10], residualPatches:s[11], fallbacks:s[12], validationSplits:s[13], fallbackThin:s[14]??0, fallbackBudget:s[15]??0, fallbackUnstable:s[16]??0, geometryRefinements:s[17]??0 } : undefined,
       renderMs: raw.renderMs,
     },
     paper: scene.paper,

@@ -1,0 +1,1 @@
+{"diagnosticTotalMs":16938.4712,"errorBudgetMm":0.0005,"fallbacks":0,"generationAndPlanningMs":12104.736818,"maxCenterlineDistanceMm":0.004749416534330441,"maxGapBeyondNibMm":0.0,"missesBeyondBudget":0,"primitives":2918827,"probes":141738,"runs":274790,"validationSplits":0,"width":0.01,"worst":[228.46651044014524,120.2501334209802]}

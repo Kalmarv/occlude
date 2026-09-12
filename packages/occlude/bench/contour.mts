@@ -3,10 +3,20 @@
  * estimator and identical geometry, seed, paper, and pen. */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { cpus, platform, arch } from 'node:os';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { setWasm } from '../src/render.js';
 import { performance } from 'node:perf_hooks';
 import { sketch, circle, rect, path, mask, fill, mm, render, evalPrim, initOcclude, planBuffer, planValue, planSvg, planToolpath, selectAll, estimatePlanMs, DEFAULT_PENS, setPenLibrary } from '../src/index.js';
 
-await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url)));
+const wasm = process.env.BENCH_WASM || new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url);
+if (process.env.BENCH_BINDINGS) {
+  const core = await import(pathToFileURL(resolve(process.env.BENCH_BINDINGS)).href);
+  await core.default({ module_or_path: readFileSync(wasm) });
+  setWasm(core as never);
+} else {
+  await initOcclude(readFileSync(wasm));
+}
 setPenLibrary(structuredClone(DEFAULT_PENS));
 const repeats=Number(process.env.SAMPLES??5);
 const cases=['disc','rounded-rectangle','annulus','many-holes','U','dumbbell','small','repeated'];
@@ -26,7 +36,7 @@ function inside(name:string,px:number,py:number):boolean {
  return Array.from({length:100},(_,i)=>disc(5+(i%10)*10,5+Math.floor(i/10)*10,3)).some(Boolean);
 }
 const results=[];
-const output=new URL('./contour-comparison/',import.meta.url);mkdirSync(output,{recursive:true});
+const output=process.env.BENCH_OUT ? pathToFileURL(resolve(process.env.BENCH_OUT) + '/') : new URL('./contour-comparison/',import.meta.url);mkdirSync(output,{recursive:true});
 const cards:string[]=[];
 for (const name of cases) for (const variant of variants) {
   const opts={stroke:false,fill:fill(variant==='contour'?'contour':'solid'),fillPen:'pigma-05-black',...(variant==='bridged-solid'?{bridge:mm(0.5)}:{})};
@@ -67,6 +77,6 @@ for (const name of cases) for (const variant of variants) {
   row.generationMs=stats(generation);row.planningMs=stats(planning);results.push(row);console.log(JSON.stringify(row));
 }
 const report={runtime:process.version,platform:platform(),arch:arch(),cpu:cpus()[0]?.model,samples:repeats,warmup:1,paper:'A4',pen:'pigma-05-black',seed:42,timing:{acceleration:1000,travelAcceleration:2000,travelFeed:6000,junctionDeviation:0.02,minimumCruiseRatio:0.5},results};
-writeFileSync(new URL('./contour-results.json',import.meta.url),JSON.stringify(report,null,2)+'\n');
+writeFileSync(process.env.BENCH_OUT ? new URL('results.json',output) : new URL('./contour-results.json',import.meta.url),JSON.stringify(report,null,2)+'\n');
 
 writeFileSync(new URL('index.html',output),`<!doctype html><meta charset="utf-8"><title>Contour fill comparisons</title><style>body{font:15px system-ui;margin:24px;background:#eef1ef;color:#19332e}h1{font-size:26px}button{font:inherit;padding:8px 16px;margin-bottom:20px}main{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}article{background:white;padding:16px;border-radius:8px}h3{margin:0 0 6px;font-size:17px}img{display:block;width:100%;height:340px;object-fit:contain}article div{color:#49655d;font-variant-numeric:tabular-nums}@media(max-width:800px){main{grid-template-columns:1fr}}</style><h1>Solid → bridged solid → contour</h1><p>Same geometry, A4 paper, Pigma 05 pen and seed 42. Thin paths reveal the motion; ink view shows the actual nib footprint. Click a drawing to zoom.</p><button id="toggle">Show ink footprint</button><main>${cards.join('')}</main><script>let ink=false;document.querySelector('#toggle').onclick=()=>{ink=!ink;document.querySelectorAll('img').forEach(i=>i.src=ink?i.dataset.ink:i.dataset.paths);document.querySelector('#toggle').textContent=ink?'Show thin toolpaths':'Show ink footprint'}</script>`);

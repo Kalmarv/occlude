@@ -1,5 +1,5 @@
 //! Native connected contour fill. Boolean normalization is separate from
-//! offsetting; the exact scene regions remain the final visibility authority.
+//! distance-contour construction; exact scene regions certify visibility.
 use crate::bbox::BBox;
 use crate::index::SpatialIndex;
 use crate::primitive::{Arc, Line, Primitive};
@@ -13,8 +13,12 @@ use i_overlay::core::{fill_rule::FillRule, overlay_rule::OverlayRule};
 use i_overlay::float::overlay::FloatOverlay;
 
 mod cleanup;
-#[cfg(any(test, feature = "contour-sdf"))]
+#[cfg(feature = "contour-sdf")]
 mod sdf;
+#[cfg(feature = "contour-sdf")]
+mod visibility;
+#[cfg(feature = "contour-sdf")]
+pub(crate) use visibility::ContinuationCertifier;
 
 type Polygons = Vec<Vec<Vec<[f64; 2]>>>;
 pub const MAX_PRIMITIVES: usize = 4_000_000;
@@ -37,6 +41,7 @@ pub struct Diagnostics {
     pub fallback_thin: usize,
     pub fallback_budget: usize,
     pub fallback_unstable: usize,
+    pub geometry_refinements: usize,
 }
 
 impl Diagnostics {
@@ -52,6 +57,7 @@ impl Diagnostics {
         self.fallback_thin += other.fallback_thin;
         self.fallback_budget += other.fallback_budget;
         self.fallback_unstable += other.fallback_unstable;
+        self.geometry_refinements += other.geometry_refinements;
     }
 }
 
@@ -251,6 +257,40 @@ pub struct Generated {
     pub cleanup_runs: std::collections::BTreeSet<usize>,
     pub fallback_runs: std::collections::BTreeSet<usize>,
     pub diagnostics: Diagnostics,
+    #[cfg(feature = "contour-sdf")]
+    visibility_validated: bool,
+}
+
+impl Generated {
+    /// This certificate applies only to the returned, unchanged primitives and
+    /// the exact scene visibility callback used for this fill job.
+    #[cfg(feature = "contour-sdf")]
+    fn validate(
+        mut self,
+        certify: &dyn Fn(&Primitive) -> bool,
+    ) -> Result<Self, sdf::GenerationError> {
+        if count_prims(&self.runs) > MAX_PRIMITIVES {
+            return Err("contour: completed ink exceeds geometry budget".into());
+        }
+        if !self.runs.iter().flatten().all(certify) {
+            return Err(sdf::GenerationError::Visibility(
+                "contour: generated ink failed final exact visibility validation".into(),
+            ));
+        }
+        self.visibility_validated = true;
+        Ok(self)
+    }
+
+    pub(crate) fn visibility_validated(&self) -> bool {
+        #[cfg(feature = "contour-sdf")]
+        {
+            self.visibility_validated
+        }
+        #[cfg(not(feature = "contour-sdf"))]
+        {
+            false
+        }
+    }
 }
 
 fn shape_region(s: &Shape<f64>) -> Region {
@@ -464,11 +504,64 @@ pub fn generate(
 ) -> Result<Generated, String> {
     #[cfg(feature = "contour-sdf")]
     {
-        sdf::generate(components, width, spacing, certify)
+        Ok(sdf::generate(components, width, spacing, certify)?.validate(certify)?)
     }
     #[cfg(not(feature = "contour-sdf"))]
     {
         generate_offsets(components, width, spacing, certify)
+    }
+}
+
+/// Resolve visibility before constructing ink. A curved input that fails the
+/// exact final certificate is rebuilt from ORIGINAL curves at tighter tolerance;
+/// refining an already-flattened polygon cannot recover that information.
+pub fn generate_visible(
+    source: &Region,
+    clips: &[(&Region, bool)],
+    occluders: &[Occlusion<'_>],
+    width: f64,
+    spacing: f64,
+    certify: &dyn Fn(&Primitive) -> bool,
+) -> Result<Generated, String> {
+    let eps = error_budget(width, spacing)?;
+    #[cfg(not(feature = "contour-sdf"))]
+    {
+        generate(
+            visible_components(source, clips, occluders, eps)?,
+            width,
+            spacing,
+            certify,
+        )
+    }
+    #[cfg(feature = "contour-sdf")]
+    {
+        let curved = |r: &Region| {
+            r.contours
+                .iter()
+                .flatten()
+                .any(|p| !matches!(p, Primitive::Line(_)))
+        };
+        let can_refine = curved(source)
+            || clips.iter().any(|(r, _)| curved(r))
+            || occluders
+                .iter()
+                .any(|o| curved(o.region) || o.clips.iter().any(|(r, _)| curved(r)));
+        let attempts = if can_refine { 4 } else { 1 };
+        for attempt in 0..attempts {
+            let tolerance = eps / 16.0_f64.powi(attempt as i32);
+            let components = visible_components(source, clips, occluders, tolerance)?;
+            match sdf::generate_at_tolerance(components, width, spacing, tolerance, certify)
+                .and_then(|ink| ink.validate(certify))
+            {
+                Ok(mut ink) => {
+                    ink.diagnostics.geometry_refinements = attempt;
+                    return Ok(ink);
+                }
+                Err(sdf::GenerationError::Visibility(_)) if attempt + 1 < attempts => continue,
+                Err(e) => return Err(e.into()),
+            }
+        }
+        unreachable!()
     }
 }
 
@@ -500,15 +593,26 @@ fn generate_offsets(
                 // With no regular contours, the same cell completion covers
                 // the whole component. Plain clipped hatch has no tip/finger
                 // coverage certificate and must remain a sparse-only fallback.
-                append_patches(permitted.clone(), &permitted, width, eps, certify, &mut result)?;
+                append_patches(
+                    permitted.clone(),
+                    &permitted,
+                    width,
+                    eps,
+                    certify,
+                    &mut result,
+                )?;
                 cleanup::join(&mut result, begin, spacing, certify);
             } else {
                 let fallback_begin = result.runs.len();
                 result.runs.extend(hatch(
-                    &region, spacing, true,
+                    &region,
+                    spacing,
+                    true,
                     MAX_PRIMITIVES.saturating_sub(count_prims(&result.runs)),
                 )?);
-                result.fallback_runs.extend(fallback_begin..result.runs.len());
+                result
+                    .fallback_runs
+                    .extend(fallback_begin..result.runs.len());
             }
             continue;
         }
@@ -545,7 +649,10 @@ fn generate_offsets(
                 }
             };
             #[cfg(feature = "profile")]
-            eprintln!("contour offset level {level}: {} rings", next.ccw_plines.len() + next.cw_plines.len());
+            eprintln!(
+                "contour offset level {level}: {} rings",
+                next.ccw_plines.len() + next.cw_plines.len()
+            );
             let mut area = area_of(&next);
             if !polygon_offsets
                 && (!area.is_finite() || (area >= previous_area && !next.ccw_plines.is_empty()))
@@ -582,7 +689,8 @@ fn generate_offsets(
                 .collect();
             let size: usize = loops.iter().map(|p| p.0.len()).sum();
             if count_prims(&result.runs) + size > MAX_PRIMITIVES
-                || (spacing <= width && count_prims(&result.runs[begin..]) + size > MAX_CONTOUR_PRIMITIVES)
+                || (spacing <= width
+                    && count_prims(&result.runs[begin..]) + size > MAX_CONTOUR_PRIMITIVES)
             {
                 break;
             }
@@ -717,7 +825,10 @@ fn generate_offsets(
                 }
             }
             #[cfg(feature = "profile")]
-            eprintln!("contour sweep start: {} primitives", count_prims(&result.runs[begin..]));
+            eprintln!(
+                "contour sweep start: {} primitives",
+                count_prims(&result.runs[begin..])
+            );
             let residual = {
                 let _zone = crate::profile::zone("contour swept coverage");
                 cleanup::uncovered(&permitted, &result.runs[begin..], width, eps, certify)?
@@ -928,16 +1039,22 @@ mod tests {
 
     #[test]
     fn normalization_accepts_more_than_twelve_thousand_line_segments() {
-        let points: Vec<_> = (0..13_000).map(|i| {
-            let angle = i as f64 * std::f64::consts::TAU / 13_000.0;
-            v(20.0 * angle.cos(), 20.0 * angle.sin())
-        }).collect();
-        let contour = points.iter().zip(points.iter().cycle().skip(1)).take(points.len())
-            .map(|(&a, &b)| Primitive::Line(Line::new(a,b))).collect();
+        let points: Vec<_> = (0..13_000)
+            .map(|i| {
+                let angle = i as f64 * std::f64::consts::TAU / 13_000.0;
+                v(20.0 * angle.cos(), 20.0 * angle.sin())
+            })
+            .collect();
+        let contour = points
+            .iter()
+            .zip(points.iter().cycle().skip(1))
+            .take(points.len())
+            .map(|(&a, &b)| Primitive::Line(Line::new(a, b)))
+            .collect();
         let source = Region::from_contour(contour);
         let components = visible_components(&source, &[], &[], 0.01).unwrap();
         assert_eq!(components.len(), 1);
-        assert!(shape_region(&components[0]).inside(v(0.,0.)));
+        assert!(shape_region(&components[0]).inside(v(0., 0.)));
     }
     fn circle(r: f64) -> Vec<Primitive> {
         vec![Primitive::Arc(Arc::new(
