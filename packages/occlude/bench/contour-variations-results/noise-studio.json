@@ -1,0 +1,40 @@
+{
+  "fixture": "working/contour-noise-conversion.ts",
+  "status": "ok",
+  "stats": {
+    "shapesIn": 1590,
+    "culledOffPaper": 0,
+    "culledContained": 2,
+    "clean": 1582,
+    "fragments": 121725,
+    "fillPrims": 111379,
+    "contour": {
+      "components": 31,
+      "levels": 318,
+      "contours": 502,
+      "connectors": 9755,
+      "connectorTests": 10852,
+      "residualPatches": 10347,
+      "fallbacks": 0,
+      "validationSplits": 0,
+      "fallbackThin": 0,
+      "fallbackBudget": 0,
+      "fallbackUnstable": 0,
+      "geometryRefinements": 5
+    },
+    "renderMs": 2743.7000000178814
+  },
+  "paper": {
+    "w": 304.8,
+    "h": 304.8
+  },
+  "workerTimings": [
+    {
+      "type": "render",
+      "elapsedMs": 3626.800000011921
+    }
+  ],
+  "intercepted": 0,
+  "pensIntercepted": 0,
+  "pageErrors": []
+}

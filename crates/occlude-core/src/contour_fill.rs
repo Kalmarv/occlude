@@ -910,8 +910,9 @@ pub fn visible_components(
     if !eps.is_finite() || eps <= 0.0 {
         return Err("contour: invalid geometry tolerance".into());
     }
-    // Bound conversion before asking either kernel to allocate flattened input.
-    let mut conversion_work = 0.0;
+    // Check representability, not a length/tolerance work estimate: flattening
+    // is curvature-adaptive, and the native path retains circular arcs. A long
+    // straight cubic can need one segment even at a very small tolerance.
     for region in std::iter::once(source)
         .chain(clips.iter().map(|p| p.0))
         .chain(occluders.iter().map(|o| o.region))
@@ -929,15 +930,7 @@ pub fn visible_components(
             if !magnitude.is_finite() || magnitude * 2_f64.powi(-50) > eps / 16.0 {
                 return Err("contour: coordinates exceed the geometry error budget".into());
             }
-            if matches!(p, Primitive::Line(_)) {
-                conversion_work += 1.0;
-            } else {
-                conversion_work += p.length() / (eps / 4.0);
-            }
         }
-    }
-    if !conversion_work.is_finite() || conversion_work > 20_000_000.0 {
-        return Err("contour: curve conversion exceeds geometry work budget".into());
     }
     let b = source.bbox;
     if b.is_empty() {
@@ -1063,6 +1056,29 @@ mod tests {
             0.0,
             std::f64::consts::TAU,
         ))]
+    }
+    #[test]
+    fn curve_conversion_uses_curvature_not_length_over_tolerance() {
+        let source = Region::from_contour(circle(100.0));
+        let eps = 0.0001;
+        // The retired estimate exceeds 25 million, although the uncut circle
+        // stays analytic and a clipped circle needs only thousands of chords.
+        assert!(source.contours[0][0].length() / (eps / 4.0) > 20_000_000.0);
+        let uncut = visible_components(&source, &[], &[], eps).unwrap();
+        assert_eq!(uncut.len(), 1);
+        assert_eq!(uncut[0].ccw_plines[0].polyline.vertex_count(), 2);
+        let clip = Region::from_contour(vec![
+            Primitive::Line(Line::new(v(0., -110.), v(110., -110.))),
+            Primitive::Line(Line::new(v(110., -110.), v(110., 110.))),
+            Primitive::Line(Line::new(v(110., 110.), v(0., 110.))),
+            Primitive::Line(Line::new(v(0., 110.), v(0., -110.))),
+        ]);
+        let cut = visible_components(&source, &[(&clip, true)], &[], eps).unwrap();
+        assert_eq!(cut.len(), 1);
+        assert!(cut[0].ccw_plines[0].polyline.vertex_count() < 10_000);
+        let region = shape_region(&cut[0]);
+        assert!(region.inside(v(50., 0.)));
+        assert!(!region.inside(v(-50., 0.)));
     }
     #[test]
     fn integer_inset_moves_outer_edges_in_and_hole_edges_out() {

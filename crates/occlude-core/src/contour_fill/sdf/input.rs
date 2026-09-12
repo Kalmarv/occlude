@@ -58,7 +58,7 @@ pub(super) fn prepare(field: &DistanceIndex, eps: f64) -> Result<Input, String> 
             match validate(&coordinates) {
                 Ok(()) => {
                     return Ok(Input {
-                        coordinates,
+                        coordinates: coalesce_collinear(&coordinates),
                         scale,
                         vertices,
                     })
@@ -76,6 +76,58 @@ pub(super) fn prepare(field: &DistanceIndex, eps: f64) -> Result<Input, String> 
     Err(format!(
         "contour: boundary cannot be represented without changing its topology: {cause}"
     ))
+}
+
+// A degree-two vertex on a straight boundary is not a distinct distance site.
+// Keeping it can create degenerate/unbounded bisectors between collinear sites,
+// splitting an otherwise finite interior contour. Merge only exact integer
+// collinearity, forward direction, and unambiguous degree-two junctions. This
+// changes neither the quantized area nor any hole or branch relationship.
+fn coalesce_collinear(input: &[i64]) -> Vec<i64> {
+    type Point = [i64; 2];
+    let mut segments: Vec<(Point, Point)> = input
+        .chunks_exact(4)
+        .map(|s| ([s[0], s[1]], [s[2], s[3]]))
+        .collect();
+    let mut outgoing = BTreeMap::<Point, Vec<usize>>::new();
+    let mut incoming = BTreeMap::<Point, usize>::new();
+    for (i, &(a, b)) in segments.iter().enumerate() {
+        outgoing.entry(a).or_default().push(i);
+        *incoming.entry(b).or_default() += 1;
+    }
+    let mut live = vec![true; segments.len()];
+    for i in 0..segments.len() {
+        if !live[i] {
+            continue;
+        }
+        loop {
+            let (a, b) = segments[i];
+            let Some(next) = outgoing.get(&b) else {
+                break;
+            };
+            if next.len() != 1 || incoming.get(&b) != Some(&1) {
+                break;
+            }
+            let j = next[0];
+            if j == i || !live[j] {
+                break;
+            }
+            let c = segments[j].1;
+            let u = [b[0] as i128 - a[0] as i128, b[1] as i128 - a[1] as i128];
+            let w = [c[0] as i128 - b[0] as i128, c[1] as i128 - b[1] as i128];
+            if u[0] * w[1] != u[1] * w[0] || u[0] * w[0] + u[1] * w[1] <= 0 {
+                break;
+            }
+            segments[i].1 = c;
+            live[j] = false;
+        }
+    }
+    segments
+        .into_iter()
+        .zip(live)
+        .filter(|(_, live)| *live)
+        .flat_map(|((a, b), _)| [a[0], a[1], b[0], b[1]])
+        .collect()
 }
 
 #[derive(Debug)]
@@ -157,6 +209,54 @@ fn validate(input: &[i64]) -> Result<(), InputError> {
 mod tests {
     use super::super::Segment;
     use super::*;
+    #[test]
+    fn collinear_island_has_closed_distance_contours() {
+        // Extracted from the live noise-islands example. Its diagonal boundary
+        // contains redundant degree-two vertices; separate sites previously
+        // left eight degree-one contour junctions at spacing 1.1 mm.
+        let input: Vec<i64> = include_str!("fixtures/collinear-island.txt")
+            .split_whitespace()
+            .map(|s| s.parse().unwrap())
+            .collect();
+        validate(&input).unwrap();
+        let merged = coalesce_collinear(&input);
+        assert!(merged.len() < input.len());
+        validate(&merged).unwrap();
+        // Every original segment still lies on an unchanged merged segment.
+        for s in input.chunks_exact(4) {
+            assert!(merged.chunks_exact(4).any(|m| {
+                s.chunks_exact(2).all(|p| {
+                    (m[2] as i128 - m[0] as i128) * (p[1] as i128 - m[1] as i128)
+                        == (m[3] as i128 - m[1] as i128) * (p[0] as i128 - m[0] as i128)
+                        && p[0] >= m[0].min(m[2])
+                        && p[0] <= m[0].max(m[2])
+                        && p[1] >= m[1].min(m[3])
+                        && p[1] <= m[1].max(m[3])
+                })
+            }));
+        }
+        for spacing in [0.18, 1.1, 2.0] {
+            let out =
+                super::super::analytic::extract(&merged, 1e6, 0.095, spacing, 0.2, 0.01).unwrap();
+            assert!(!out.pieces.is_empty());
+            let mut degrees = vec![0; out.node_count];
+            for p in out.pieces {
+                degrees[p.a] += 1;
+                degrees[p.b] += 1;
+            }
+            assert!(degrees.iter().all(|&d| d == 0 || d == 2));
+        }
+    }
+    #[test]
+    fn coalescing_keeps_bends_reversals_and_shared_junctions() {
+        // One-unit bends are not a simplification opportunity.
+        let bent = [0, 0, 1000, 1, 1000, 1, 2000, 0];
+        assert_eq!(coalesce_collinear(&bent), bent);
+        let reversal = [0, 0, 2, 0, 2, 0, 1, 0];
+        assert_eq!(coalesce_collinear(&reversal), reversal);
+        let shared = [0, 0, 1, 0, 1, 0, 2, 0, 1, 0, 1, 1, 1, 1, 1, 0];
+        assert_eq!(coalesce_collinear(&shared), shared);
+    }
     #[test]
     fn refines_collapsed_sliver_without_deleting_it() {
         let points = [v(0., 0.), v(2., 0.), v(2., 0.0000002), v(0., 0.0000002)];

@@ -48,7 +48,7 @@ fs.mkdirSync(out,{recursive:true});
  if(wasm!=='-')await context.route('**/*occlude_core_bg*.wasm',route=>{intercepted++;return route.fulfill({status:200,contentType:'application/wasm',body:fs.readFileSync(wasm)});});
  const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
  try{
-  await page.goto(base+'/?seed=42');
+  await page.goto(base+'/?seed='+encodeURIComponent(process.env.BENCH_SEED ?? '42'));
   await page.waitForFunction(()=>{const m=document.querySelector('#status-msg');return m&&(m.className==='status-err'||(/^ok/.test(m.textContent)&&document.querySelector('#status-stats')?.textContent.includes('frags')));},null,{timeout:35000});
   const status=await page.locator('#status-msg').textContent();
   const stats=await page.evaluate(()=>window.__occlude.result()?.stats);

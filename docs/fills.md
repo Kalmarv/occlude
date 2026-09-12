@@ -284,3 +284,61 @@ Rules the library keeps:
 - Saving a fill that saved sketches reference is, in effect, an edit to those sketches. The Fills page lists them at save time and offers Clone (a fresh name) as the default and Edit anyway as the deliberate choice. Your sketches are never rewritten for you.
 - Download .ts appends the source of every custom fill the sketch uses in a comment block at the end of the file. Import .ts restores them: identical content reuses the name, and a mismatch imports under a fresh name and updates the sketch's fill literal to match.
 - A fill must be a pure function of region, parameters and context. Anything else can differ between preview and plot.
+
+## Contour variations
+
+The radius field changes the material being filled; contour spacing changes the marks inside it. The three panels below use the same recursive rectangles with constant, left-to-right, and radial thickening. Decimation breaks up the fill, while a separate outline keeps the silhouette readable. Change the radius expressions or the decimation amount to explore the texture.
+
+```ts live
+import { sketch, append, thicken, polygon, fill, decimate, label } from 'occlude';
+
+export default sketch({ aspect: [3, 1], margin: 5, seed: 42 }, (t) =>
+  t.times(3, (panel) => {
+    const cx = 50 + panel * 100;
+    let material = t.material(t.rect(cx - 20, 28, 40, 40));
+    let size = 40;
+    for (let generation = 0; generation < 2; generation++) {
+      const children = material.along().map((p) =>
+        t.rect(p.x - size / 4, p.y - size / 4, size / 2, size / 2),
+      );
+      material = children.reduce((m, shape) => append(m, t.material(shape)), material);
+      size /= 2;
+    }
+    const area = thicken(material, {
+      radius: (p) => {
+        if (panel === 0) return 1.2;
+        if (panel === 1) return t.map(p.x, cx - 35, cx + 35, 0.2, 2.2);
+        return t.map(Math.hypot(p.x - cx, p.y - 48), 0, 50, 0.2, 2.2);
+      },
+    });
+    return [
+      decimate(0.45, polygon(area, { stroke: false, fill: fill('contour') })),
+      polygon(area),
+      label(['Constant', 'Across', 'Radial'][panel], cx, 92, 3, { align: 'center' }),
+    ];
+  }),
+);
+```
+
+### Islands from a field
+
+A noise field supplies the coastline; the fill follows that coastline inward. Wider spacing reveals the nested loops, and a circular mask introduces another boundary for them to flow around. The isoline's `step` controls the source coastline's detail; the fill's `spacing` controls the ink inside it. These are independent choices.
+
+```ts live
+import { sketch, polygon, fill, mm, mask, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], margin: 6, seed: 42 }, (t) => {
+  const b = t.bounds();
+  const islands = t.isolines(
+    (x, y) => t.noise(x / 24, y / 24) + 0.2 * t.noise(x / 7, y / 7),
+    0.05,
+    { close: true, step: 0.6 },
+  );
+  return [
+    polygon(islands, { fill: fill('contour', { spacing: mm(1.1) }) }),
+    mask(circle(b.cx, b.cy, 14)),
+  ];
+});
+```
+
+These are compositions of material operations and ordinary fills, not additional contour modes. They use the current contour engine and do not recreate the incidental artifacts of earlier implementations. Removing decimation produces continuous loops again where the local joining policy permits it.
