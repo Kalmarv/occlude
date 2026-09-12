@@ -1,0 +1,100 @@
+{"error": "contour: could not certify residual coverage near (49.445, 36.672) mm", "ms": 2466.8289059999997, "width": 0.01}
+{"error": "contour: could not certify residual coverage near (83.735, 70.963) mm", "ms": 3450.02086, "width": 0.02}
+{"error": "contour: could not certify residual coverage near (49.444, 130.967) mm", "ms": 2528.483159, "width": 0.03}
+{"error": "contour: residual coverage exceeds geometry budget", "ms": 2367.471792, "width": 0.04}
+{"error": "contour: could not certify residual coverage near (49.443, 36.672) mm", "ms": 1825.317914, "width": 0.05}
+{"error": "contour: could not certify residual coverage near (49.443, 36.672) mm", "ms": 1274.429967, "width": 0.06}
+{"width": 0.07, "error": "20 second timeout", "ms": 20000}
+{"error": "contour: could not certify residual coverage near (53.773, 113.825) mm", "ms": 1513.1139249999999, "width": 0.08}
+{"error": "contour: residual coverage exceeds geometry budget", "ms": 6399.182052, "width": 0.09}
+{"error": "contour: residual coverage exceeds geometry budget", "ms": 2773.514203, "width": 0.1}
+{"fallbacks": 0, "fillPrimitives": 121524, "fragments": 88175, "ms": 4877.143316, "width": 0.11}
+{"error": "contour: residual coverage exceeds geometry budget", "ms": 6711.468557, "width": 0.12}
+{"error": "contour: residual coverage exceeds geometry budget", "ms": 10410.987812, "width": 0.13}
+{"error": "contour: could not certify residual coverage near (66.581, 195.262) mm", "ms": 18004.105928, "width": 0.14}
+{"error": "contour: residual coverage exceeds geometry budget", "ms": 5787.2516860000005, "width": 0.15}
+{"error": "contour: could not certify residual coverage near (45.737, 126.944) mm", "ms": 2748.210185, "width": 0.16}
+{"error": "contour: residual coverage exceeds geometry budget", "ms": 4782.395298, "width": 0.17}
+{"error": "contour: could not certify residual coverage near (268.373, 62.188) mm", "ms": 12531.432012, "width": 0.18}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 52.3975, "width": 0.19}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 46.022353, "width": 0.2}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 49.621524, "width": 0.21}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 50.257778, "width": 0.22}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 47.753178, "width": 0.23}
+{"error": "contour: residual coverage exceeds geometry budget", "ms": 6940.113805, "width": 0.24}
+{"fallbacks": 0, "fillPrimitives": 51834, "fragments": 39376, "ms": 1951.6428480000002, "width": 0.25}
+{"error": "contour: could not certify residual coverage near (57.142, 135.755) mm", "ms": 4546.178716, "width": 0.26}
+{"error": "contour: could not certify residual coverage near (74.454, 137.052) mm", "ms": 3850.480788, "width": 0.27}
+{"fallbacks": 0, "fillPrimitives": 59792, "fragments": 44924, "ms": 4229.3188390000005, "width": 0.28}
+{"error": "contour: could not certify residual coverage near (130.059, 182.380) mm", "ms": 8012.382025999999, "width": 0.29}
+{"error": "contour: residual coverage exceeds geometry budget", "ms": 8414.819453, "width": 0.3}
+{"error": "contour: residual coverage exceeds geometry budget", "ms": 9436.916836, "width": 0.31}
+{"error": "contour: could not certify residual coverage near (129.035, 110.975) mm", "ms": 4243.04203, "width": 0.32}
+{"error": "contour: residual coverage exceeds geometry budget", "ms": 13754.497953, "width": 0.33}
+{"fallbacks": 0, "fillPrimitives": 38936, "fragments": 30322, "ms": 1614.240288, "width": 0.34}
+{"fallbacks": 0, "fillPrimitives": 37567, "fragments": 29341, "ms": 1570.898329, "width": 0.35}
+{"fallbacks": 0, "fillPrimitives": 36057, "fragments": 28293, "ms": 1568.397488, "width": 0.36}
+{"error": "contour: could not certify residual coverage near (129.596, 180.151) mm", "ms": 11393.543228, "width": 0.37}
+{"fallbacks": 0, "fillPrimitives": 34446, "fragments": 27145, "ms": 1521.845101, "width": 0.38}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 370.545835, "width": 0.39}
+{"error": "contour: could not certify residual coverage near (31.450, 58.343) mm", "ms": 64.19992500000001, "width": 0.4}
+{"fallbacks": 0, "fillPrimitives": 34397, "fragments": 27110, "ms": 1656.419465, "width": 0.41}
+{"fallbacks": 0, "fillPrimitives": 47358, "fragments": 36242, "ms": 4987.497163, "width": 0.42}
+{"error": "contour: could not certify residual coverage near (247.573, 75.231) mm", "ms": 11009.381567, "width": 0.43}
+{"error": "contour: residual coverage exceeds geometry budget", "ms": 11103.270993, "width": 0.44}
+{"error": "contour: residual coverage exceeds geometry budget", "ms": 14529.396692, "width": 0.45}
+{"error": "contour: could not certify residual coverage near (179.463, 205.677) mm", "ms": 4484.1972510000005, "width": 0.46}
+{"fallbacks": 0, "fillPrimitives": 30151, "fragments": 24146, "ms": 1644.755975, "width": 0.47}
+{"error": "contour: could not certify residual coverage near (238.210, 32.345) mm", "ms": 14258.917096, "width": 0.48}
+{"fallbacks": 0, "fillPrimitives": 28800, "fragments": 23206, "ms": 1505.9156030000001, "width": 0.49}
+{"width": 0.5, "error": "20 second timeout", "ms": 20000}
+{"fallbacks": 0, "fillPrimitives": 28043, "fragments": 22686, "ms": 1521.1438400000002, "width": 0.51}
+{"fallbacks": 0, "fillPrimitives": 27322, "fragments": 22190, "ms": 1497.5946760000002, "width": 0.52}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 253.10925600000002, "width": 0.53}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 256.181492, "width": 0.54}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 479.32342500000004, "width": 0.55}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 178.925677, "width": 0.56}
+{"error": "contour: could not certify residual coverage near (31.984, 49.530) mm", "ms": 93.84573999999999, "width": 0.57}
+{"error": "contour: could not certify residual coverage near (31.974, 49.530) mm", "ms": 100.51388999999999, "width": 0.58}
+{"error": "contour: could not certify residual coverage near (31.999, 49.530) mm", "ms": 103.883795, "width": 0.59}
+{"error": "contour: could not certify residual coverage near (32.003, 49.530) mm", "ms": 99.275539, "width": 0.6}
+{"error": "contour: could not certify residual coverage near (32.007, 49.530) mm", "ms": 103.860905, "width": 0.61}
+{"error": "contour: could not certify residual coverage near (32.010, 49.530) mm", "ms": 96.48884000000001, "width": 0.62}
+{"error": "contour: could not certify residual coverage near (32.013, 49.530) mm", "ms": 93.074557, "width": 0.63}
+{"error": "contour: could not certify residual coverage near (32.015, 49.530) mm", "ms": 91.000052, "width": 0.64}
+{"error": "contour: could not certify residual coverage near (32.017, 49.530) mm", "ms": 96.349472, "width": 0.65}
+{"error": "contour: could not certify residual coverage near (32.470, 49.530) mm", "ms": 132.848786, "width": 0.66}
+{"error": "contour: could not certify residual coverage near (32.470, 49.530) mm", "ms": 150.39962200000002, "width": 0.67}
+{"error": "contour: could not certify residual coverage near (32.470, 49.530) mm", "ms": 109.611022, "width": 0.68}
+{"error": "contour: could not certify residual coverage near (32.470, 49.530) mm", "ms": 109.067486, "width": 0.69}
+{"error": "contour: could not certify residual coverage near (32.470, 49.530) mm", "ms": 122.602684, "width": 0.7}
+{"error": "contour: could not certify residual coverage near (32.470, 49.530) mm", "ms": 126.92910199999999, "width": 0.71}
+{"error": "contour: could not certify residual coverage near (35.910, 49.527) mm", "ms": 167.889101, "width": 0.72}
+{"error": "contour: could not certify residual coverage near (36.530, 49.530) mm", "ms": 387.237065, "width": 0.73}
+{"error": "contour: could not certify residual coverage near (36.704, 49.530) mm", "ms": 488.043293, "width": 0.74}
+{"error": "contour: could not certify residual coverage near (32.470, 49.530) mm", "ms": 127.97085299999999, "width": 0.75}
+{"error": "contour: could not certify residual coverage near (32.470, 49.530) mm", "ms": 113.903329, "width": 0.76}
+{"error": "contour: could not certify residual coverage near (32.470, 49.530) mm", "ms": 134.027468, "width": 0.77}
+{"error": "contour: could not certify residual coverage near (32.470, 49.530) mm", "ms": 126.370725, "width": 0.78}
+{"error": "contour: could not certify residual coverage near (32.470, 49.530) mm", "ms": 125.30392300000001, "width": 0.79}
+{"error": "contour: could not certify residual coverage near (37.718, 49.530) mm", "ms": 219.426504, "width": 0.8}
+{"error": "contour: could not certify residual coverage near (37.965, 49.530) mm", "ms": 242.46669, "width": 0.81}
+{"error": "contour: could not certify residual coverage near (38.211, 49.530) mm", "ms": 222.90295700000001, "width": 0.82}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 506.316858, "width": 0.83}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 283.57525, "width": 0.84}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 311.809586, "width": 0.85}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 323.900166, "width": 0.86}
+{"error": "contour: could not certify residual coverage near (153.672, 152.400) mm", "ms": 298.346169, "width": 0.87}
+{"error": "contour: could not certify residual coverage near (39.467, 49.530) mm", "ms": 566.902133, "width": 0.88}
+{"error": "contour: could not certify residual coverage near (39.605, 49.530) mm", "ms": 615.6270470000001, "width": 0.89}
+{"error": "contour: could not certify residual coverage near (39.610, 49.530) mm", "ms": 506.757189, "width": 0.9}
+{"error": "contour: could not certify residual coverage near (39.609, 49.530) mm", "ms": 530.9035680000001, "width": 0.91}
+{"error": "contour: could not certify residual coverage near (39.606, 49.530) mm", "ms": 430.805834, "width": 0.92}
+{"error": "contour: could not certify residual coverage near (39.602, 49.530) mm", "ms": 394.074332, "width": 0.93}
+{"error": "contour: could not certify residual coverage near (40.081, 49.530) mm", "ms": 173.629291, "width": 0.94}
+{"error": "contour: could not certify residual coverage near (39.592, 49.530) mm", "ms": 755.074612, "width": 0.95}
+{"error": "contour: could not certify residual coverage near (39.586, 49.530) mm", "ms": 595.891332, "width": 0.96}
+{"error": "contour: could not certify residual coverage near (39.579, 49.530) mm", "ms": 598.849381, "width": 0.97}
+{"error": "contour: could not certify residual coverage near (39.572, 49.530) mm", "ms": 610.6329440000001, "width": 0.98}
+{"error": "contour: could not certify residual coverage near (39.565, 49.530) mm", "ms": 479.456392, "width": 0.99}
+{"error": "contour: could not certify residual coverage near (39.559, 49.530) mm", "ms": 423.04990799999996, "width": 1.0}

@@ -1,0 +1,12 @@
+{
+  "widths": 100,
+  "nativePass": 100,
+  "wasmPass": 100,
+  "nativeMaxMs": 7748.967017,
+  "wasmMaxRenderMs": 14138.310581,
+  "wasmMaxPlanMs": 813.86391,
+  "maxPlanGapMm": 1.0045868198126476e-11,
+  "nativeMaxOutputFragments": 571843,
+  "wasmSha256": "98ebbcb372bb2e8128d7be13f12459e31faee6239b4cfe076c1800b09c7a34d2",
+  "nativePeakRssKiBAt001": 540264
+}

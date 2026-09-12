@@ -1,5 +1,9 @@
 # Contour cleanup: coverage before continuity
 
+Historical measurements for the cleanup implementation described below. The current
+finite-cell implementation and 100-width verification are documented in
+[Contour rest completion](contour-rest-report.md).
+
 Follow-up to `0464218`, using the user's Beach House sketch, seed **291377256**, on **304.8 × 304.8 mm** paper with the saved 0.8 mm One4All/Copic pens. The source and pen snapshot are in `fixtures/contour/beach-house*`. The original image asset is required locally; it is not redistributed.
 
 ## What changed

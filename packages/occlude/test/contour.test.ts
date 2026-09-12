@@ -192,14 +192,25 @@ it('keeps an intact duplicate outline after decimating a contour-filled shape', 
 });
 
 
-it('fills the recursive variable-width boundary without attempting to fill its holes', async () => {
+it.each([0.38, 0.4, 0.45, 1.0])('renders the recursive variable-width boundary at %f mm with continuous decoded runs', async (width) => {
   const { setPenLibrary, DEFAULT_PENS } = await import('../src/index.js');
   const { default: fixture } = await import('../bench/fixtures/thicken-contour-residual.js');
-  setPenLibrary(DEFAULT_PENS.map(p => ({ ...p, width: 0.38 })));
+  setPenLibrary(DEFAULT_PENS.map(p => ({ ...p, width })));
   try {
     const result = render(fixture, { paper: { paper: { w: 304.8, h: 304.8 } } });
     expect(result.frags.length).toBeGreaterThan(0);
-    expect(result.stats.contour!.validationSplits).toBe(0);
-    expect((await plan(result)).chains.length).toBeGreaterThan(0);
+    if (width === 0.38) {
+      expect(result.stats.contour!.validationSplits).toBe(0);
+      expect(result.stats.contour!.fallbackBudget).toBe(0);
+    }
+    // Other widths may exhaust the contour proposal allowance. Their
+    // remaining area must still complete, retaining the generated contours.
+    expect(result.stats.contour!.contours).toBeGreaterThan(100);
+    const decoded=await plan(result);
+    expect(decoded.chains.length).toBeGreaterThan(0);
+    for(const chain of decoded.chains) for(let i=1;i<chain.prims.length;i++) {
+      const a=evalPrim(chain.prims[i-1],1), b=evalPrim(chain.prims[i],0);
+      expect(Math.hypot(a[0]-b[0],a[1]-b[1])).toBeLessThan(1e-8);
+    }
   } finally { setPenLibrary(structuredClone(DEFAULT_PENS)); }
 }, 20000);

@@ -15,8 +15,12 @@ use i_overlay::float::overlay::FloatOverlay;
 mod cleanup;
 
 type Polygons = Vec<Vec<Vec<[f64; 2]>>>;
-pub const MAX_PRIMITIVES: usize = 250_000;
+pub const MAX_PRIMITIVES: usize = 4_000_000;
 const MAX_LEVELS: usize = 4096;
+// Reserve work and memory for coverage instead of spending the whole output
+// budget on contour proposals and their swept union. Retain these contours;
+// the finite cell solver completes the rest at the requested nib width.
+const MAX_CONTOUR_PRIMITIVES: usize = 64_000;
 
 #[derive(Debug, Default, Clone)]
 pub struct Diagnostics {
@@ -259,25 +263,27 @@ fn shape_region(s: &Shape<f64>) -> Region {
     )
 }
 
-fn disc(s: &Shape<f64>) -> Option<(Vec2, f64)> {
-    if s.ccw_plines.len() != 1 || !s.cw_plines.is_empty() {
-        return None;
-    }
-    let prims = primitives(&s.ccw_plines[0].polyline);
-    let Primitive::Arc(first) = *prims.first()? else {
-        return None;
+fn polygon_inset(polygons: &Polygons, distance: f64, eps: f64) -> Shape<f64> {
+    use i_overlay::mesh::{
+        outline::offset::OutlineOffset,
+        style::{LineJoin, OutlineStyle},
     };
-    let mut sweep = 0.0;
-    for p in prims {
-        let Primitive::Arc(a) = p else {
-            return None;
-        };
-        if a.center.dist(first.center) > 1e-10 || (a.r - first.r).abs() > 1e-10 {
-            return None;
-        }
-        sweep += a.sweep;
-    }
-    ((sweep - std::f64::consts::TAU).abs() < 1e-10).then_some((first.center, first.r))
+    let angle = 2.0 * (1.0 - (eps / (8.0 * distance)).min(1.0)).acos();
+    // Assign directly: the convenience setter clamps angles to >= PI/100,
+    // which would exceed our sagitta allowance for small nibs/deep insets.
+    let style = OutlineStyle {
+        outer_offset: -distance,
+        inner_offset: -distance,
+        join: LineJoin::Round(angle),
+    };
+    let area = polygons.outline_as::<i64>(&style);
+    Shape::from_plines(area.iter().flat_map(|p| {
+        let s = polygon_shape(p);
+        s.ccw_plines
+            .into_iter()
+            .chain(s.cw_plines)
+            .map(|p| p.polyline)
+    }))
 }
 
 /// Whole-interval certification, including every hole/boundary crossing.
@@ -472,40 +478,71 @@ pub fn generate(
         if source_size > 12_000 {
             result.diagnostics.fallbacks += 1;
             result.diagnostics.fallback_budget += 1;
-            let fallback_begin = result.runs.len();
-            result.runs.extend(hatch(
-                &region,
-                if spacing > width {
-                    spacing
-                } else {
-                    spacing.min(width * 0.9)
-                },
-                spacing > width,
-                MAX_PRIMITIVES.saturating_sub(count_prims(&result.runs)),
-            )?);
-            result
-                .fallback_runs
-                .extend(fallback_begin..result.runs.len());
+            if spacing <= width {
+                // With no regular contours, the same cell completion covers
+                // the whole component. Plain clipped hatch has no tip/finger
+                // coverage certificate and must remain a sparse-only fallback.
+                append_patches(permitted.clone(), &permitted, width, eps, certify, &mut result)?;
+                cleanup::join(&mut result, begin, spacing, certify);
+            } else {
+                let fallback_begin = result.runs.len();
+                result.runs.extend(hatch(
+                    &region, spacing, true,
+                    MAX_PRIMITIVES.saturating_sub(count_prims(&result.runs)),
+                )?);
+                result.fallback_runs.extend(fallback_begin..result.runs.len());
+            }
             continue;
         }
-        let mut previous: Option<Shape<f64>> = None;
         let mut active: Vec<(usize, bool, usize)> = Vec::new();
         let mut work = 0usize;
         let mut stopped = false;
         let mut unstable = false;
         let mut previous_area = f64::INFINITY;
+        let mut polygon_offsets = false;
         let clearance =
-            shape_region(&source.parallel_offset((radius - eps / 4.0).max(radius / 2.0), &opts));
+            shape_region(&source.parallel_offset((radius - eps).max(radius / 2.0), &opts));
         for level in 0..MAX_LEVELS {
             work += source_size;
             if work > 20_000_000 {
                 break;
             }
-            let distance = radius + eps / 4.0 + level as f64 * spacing;
-            let next = {
-                let _zone = crate::profile::zone("contour offsets");
-                source.parallel_offset(distance, &opts)
+            // A small inward coverage margin prevents a full extra boundary
+            // cleanup lap caused solely by footprint approximation. Centerlines
+            // still sit about half a nib inside and pass exact visibility.
+            let distance = radius - eps / 2.0 + level as f64 * spacing;
+            let area_of = |s: &Shape<f64>| -> f64 {
+                s.ccw_plines
+                    .iter()
+                    .chain(&s.cw_plines)
+                    .map(|p| p.polyline.area())
+                    .sum()
             };
+            let mut next = {
+                let _zone = crate::profile::zone("contour offsets");
+                if polygon_offsets {
+                    polygon_inset(&permitted, distance, eps)
+                } else {
+                    source.parallel_offset(distance, &opts)
+                }
+            };
+            #[cfg(feature = "profile")]
+            eprintln!("contour offset level {level}: {} rings", next.ccw_plines.len() + next.cw_plines.len());
+            let mut area = area_of(&next);
+            if !polygon_offsets
+                && (!area.is_finite() || (area >= previous_area && !next.ccw_plines.is_empty()))
+            {
+                // Recompute this absolute level with the integer polygon kernel.
+                // Successful earlier arc contours do not need to be discarded.
+                polygon_offsets = true;
+                next = polygon_inset(&permitted, distance, eps);
+                area = area_of(&next);
+                // The preceding kernel's area is precisely what became
+                // unreliable. Establish a fresh monotonic series here.
+                previous_area = f64::INFINITY;
+                result.diagnostics.fallbacks += 1;
+                result.diagnostics.fallback_unstable += 1;
+            }
             let loops: Vec<_> = next
                 .ccw_plines
                 .iter()
@@ -515,17 +552,22 @@ pub fn generate(
                         .iter()
                         .map(|p| (primitives(&p.polyline), true)),
                 )
+                .map(|(p, hole)| {
+                    if polygon_offsets {
+                        let simple = cleanup::simplify(p.clone(), eps);
+                        if simple.len() >= 3 {
+                            return (simple, hole);
+                        }
+                    }
+                    (p, hole)
+                })
                 .collect();
             let size: usize = loops.iter().map(|p| p.0.len()).sum();
-            if count_prims(&result.runs) + size > MAX_PRIMITIVES {
+            if count_prims(&result.runs) + size > MAX_PRIMITIVES
+                || (spacing <= width && count_prims(&result.runs[begin..]) + size > MAX_CONTOUR_PRIMITIVES)
+            {
                 break;
             }
-            let area: f64 = next
-                .ccw_plines
-                .iter()
-                .chain(&next.cw_plines)
-                .map(|p| p.polyline.area())
-                .sum();
             if !area.is_finite()
                 || (!loops.is_empty() && area >= previous_area)
                 || loops.iter().flat_map(|p| &p.0).any(|p| {
@@ -536,52 +578,10 @@ pub fn generate(
                 break;
             }
             previous_area = area;
-            // Residuals are vector differences around a collapse or split,
-            // never a second hatch over the already-covered component.
-            if spacing <= width {
-                let _zone = crate::profile::zone("contour residuals");
-                if let Some(prev) = &previous {
-                    let inner = prev.parallel_offset(radius - eps / 4.0, &opts);
-                    if !inner.ccw_plines.is_empty() {
-                        let grown = next.parallel_offset(-radius + eps / 4.0, &opts);
-                        let covered = disc(&inner)
-                            .zip(disc(&grown))
-                            .is_some_and(|((a, ra), (b, rb))| a.dist(b) + ra <= rb - 1e-9);
-                        let residual = if covered {
-                            Vec::new()
-                        } else if loops.is_empty() {
-                            shape_polygons(&inner, eps)
-                        } else {
-                            boolean(
-                                &shape_polygons(&inner, eps),
-                                &shape_polygons(&grown, eps),
-                                OverlayRule::Difference,
-                            )
-                        };
-                        append_patches(residual, &permitted, width, eps, certify, &mut result)?;
-                    }
-                } else if !loops.is_empty() && !region.convex {
-                    let residual = boolean(
-                        &shape_polygons(&source, eps),
-                        &shape_polygons(&next.parallel_offset(-radius - eps, &opts), eps),
-                        OverlayRule::Difference,
-                    );
-                    append_patches(residual, &permitted, width, eps, certify, &mut result)?;
-                }
-            }
             if level == 0 && loops.is_empty() {
                 result.diagnostics.fallbacks += 1;
                 result.diagnostics.fallback_thin += 1;
-                if spacing <= width {
-                    append_patches(
-                        shape_polygons(&source, eps),
-                        &permitted,
-                        width,
-                        eps,
-                        certify,
-                        &mut result,
-                    )?;
-                } else {
+                if spacing > width {
                     let fallback_begin = result.runs.len();
                     result.runs.extend(hatch(
                         &region,
@@ -686,9 +686,38 @@ pub fn generate(
                 };
                 active.push((ri, hole, start));
             }
-            previous = Some(next);
         }
-        if !stopped {
+        if spacing <= width {
+            // Rest machining uses the actual swept nib footprint, not another
+            // offset's estimate of it. Keep completed contours on offset failure.
+            if !stopped {
+                result.diagnostics.fallbacks += 1;
+                if unstable {
+                    result.diagnostics.fallback_unstable += 1;
+                } else {
+                    result.diagnostics.fallback_budget += 1;
+                }
+            }
+            #[cfg(feature = "profile")]
+            eprintln!("contour sweep start: {} primitives", count_prims(&result.runs[begin..]));
+            let residual = {
+                let _zone = crate::profile::zone("contour swept coverage");
+                cleanup::uncovered(&permitted, &result.runs[begin..], width, eps, certify)?
+            };
+            #[cfg(feature = "profile")]
+            eprintln!("contour sweep done: {} residual polygons", residual.len());
+            #[cfg(feature = "profile")]
+            let regular_count = count_prims(&result.runs[begin..]);
+            let _zone = crate::profile::zone("contour residual marks");
+            append_patches(residual, &permitted, width, eps, certify, &mut result)?;
+            #[cfg(feature = "profile")]
+            eprintln!(
+                "contour component: {} regular primitives, {} cleanup primitives, width {} mm",
+                regular_count,
+                count_prims(&result.runs[begin..]) - regular_count,
+                width
+            );
+        } else if !stopped {
             // Discard provisional ink, rather than reporting partial coverage.
             result.runs.truncate(begin);
             result.cleanup_runs.retain(|&i| i < begin);
@@ -885,6 +914,22 @@ mod tests {
         ))]
     }
     #[test]
+    fn integer_inset_moves_outer_edges_in_and_hole_edges_out() {
+        let polygon = vec![vec![
+            vec![[0., 0.], [20., 0.], [20., 20.], [0., 20.]],
+            vec![[8., 8.], [8., 12.], [12., 12.], [12., 8.]],
+        ]];
+        let inset = polygon_inset(&polygon, 1.0, 0.001);
+        assert_eq!(inset.ccw_plines.len(), 1);
+        assert_eq!(inset.cw_plines.len(), 1);
+        let region = shape_region(&inset);
+        assert!(!region.inside(v(0.5, 10.)));
+        assert!(region.inside(v(1.5, 10.)));
+        assert!(region.inside(v(6.5, 10.)));
+        assert!(!region.inside(v(7.5, 10.)));
+    }
+
+    #[test]
     fn offset_residuals_cannot_turn_a_visible_hole_into_cleanup_ink() {
         let outer = vec![[0., 0.], [20., 0.], [20., 20.], [0., 20.]];
         let hole = vec![[5., 5.], [5., 15.], [15., 15.], [15., 5.]];
@@ -892,7 +937,15 @@ mod tests {
         let mut result = Generated::default();
         // Simulate an offset-collapse artifact occupying the forbidden hole.
         // Its cleanup must be empty even if every proposed primitive is accepted.
-        append_patches(vec![vec![hole]], &permitted, 0.38, 0.01, &|_| true, &mut result).unwrap();
+        append_patches(
+            vec![vec![hole]],
+            &permitted,
+            0.38,
+            0.01,
+            &|_| true,
+            &mut result,
+        )
+        .unwrap();
         assert!(result.runs.is_empty());
         assert_eq!(result.diagnostics.residual_patches, 0);
     }

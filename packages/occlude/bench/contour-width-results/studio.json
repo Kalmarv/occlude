@@ -1,0 +1,23 @@
+[
+  {
+    "width": 0.01,
+    "status": "ok",
+    "stats": "571839 frags · 812021 fill prims · 2 clean · 0 culled · 10079.8ms",
+    "elapsedMs": 22800,
+    "errors": []
+  },
+  {
+    "width": 0.4,
+    "status": "ok",
+    "stats": "105833 frags · 146883 fill prims · 2 clean · 0 culled · 4510.4ms",
+    "elapsedMs": 10627,
+    "errors": []
+  },
+  {
+    "width": 0.45,
+    "status": "ok",
+    "stats": "42997 frags · 57010 fill prims · 2 clean · 0 culled · 9577.7ms",
+    "elapsedMs": 16137,
+    "errors": []
+  }
+]

@@ -1,0 +1,25 @@
+[
+  {
+    "width": 0.45,
+    "status": "ok",
+    "stats": "42997 frags · 57010 fill prims · 2 clean · 0 culled · 6348.1ms",
+    "samples": [
+      {
+        "renderMs": 6197.300000011921,
+        "fragments": 42997,
+        "planPrimitives": 43016
+      },
+      {
+        "renderMs": 6047.79999999702,
+        "fragments": 42997,
+        "planPrimitives": 43016
+      },
+      {
+        "renderMs": 5819.70000000298,
+        "fragments": 42997,
+        "planPrimitives": 43016
+      }
+    ],
+    "errors": []
+  }
+]
