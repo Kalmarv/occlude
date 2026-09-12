@@ -1,97 +1,136 @@
 # occlude
 
-A TypeScript library and browser studio for pen-plotter drawings. A sketch is a function that returns shapes; the engine computes which strokes remain visible where shapes hide one another (hidden-line removal on exact vectors, in a Rust/WASM core), and the studio previews, exports and plots the result over Web Serial.
+A creative coding library and browser studio for pen plotters. Build drawings from shapes, noise fields, images and editable geometry; turn them into ink with textures, contour fills and line modifiers. Preview at pen width, compare plot times, export, or send the same drawing to an EBB/iDraw plotter.
+
+TypeScript is the sketchbook. A Rust/WASM engine handles visibility, native contour filling and the shared drawing plan.
 
 ```ts
-import { sketch, fill, mm } from 'occlude';
+import { sketch, circle, line, fill, mm } from 'occlude';
 
-export default sketch({ aspect: 'square', margin: 8 }, ({ circle, line, times, rnd }) => [
-  times(24, (k, t) => line(0, t * 100, 100, t * 100)),        // cut exactly where the discs cover them
-  times(12, () => circle(rnd(18, 82), rnd(18, 82), rnd(6, 18), {
-    fill: fill('hatch', { angle: rnd(180), spacing: mm(1) }),  // a filled shape hides what lies beneath it
+export default sketch({ aspect: 'square', margin: 8, seed: 42 }, (t) => [
+  t.times(24, (_, u) => line(0, u * 100, 100, u * 100)),
+  t.times(12, () => circle(t.rnd(18, 82), t.rnd(18, 82), t.rnd(6, 18), {
+    fill: fill('contour', { spacing: mm(1.1) }),
   })),
 ]);
 ```
 
-## What it does
+The discs hide the earlier lines; their contours follow the exposed boundaries. Ordinary coordinates are percentages of the drawable's shorter side. Use `mm()` for physical lengths such as fill spacing.
 
-- Occlusion on vectors. A shape with a fill or `opaque: true` hides everything earlier in the tree under its area; cuts land at true intersection parameters, so the plot is what a physical layering of opaque shapes leaves visible. `mask()` is hidden-line drawing in one word. In the current version a fill always makes its shape opaque; a texture that does not hide is a planned option, not an existing one.
-- The pen width decides what is drawable. Visible runs shorter than the nib become a pen tap or are dropped when a neighbour already covers them; hidden gaps shorter than the nib are inked through. Pens are objects with width, feed and settle time.
-- Line character is part of the model. Modifiers run around the occlusion solve: `smooth`, `roughen` and `deform` reshape geometry before it, `dash`, `decimate` and `wobble` distress the surviving ink after it, and their parameters can be fields `(x, y) => number` that vary over the page.
-- Reproducible geometry. Every random value comes from the sketch seed, so the same source and seed give the same drawing on screen and in every export. Physical plots vary by pen, paper and machine.
-- Curves stay exact through the solve and the SVG export; they are flattened only for G-code and the machine.
-- Materials: points with attributes, edges, selections, forces and stepped rules for growth, faces of a planar network, resampling. Plain data in, plain data out.
-- Plot time as a design dimension: chained tours, opt-in `bridge` joining, one time estimator shared by export, simulation and the driver, and an EBB/iDraw Web Serial driver with look-ahead motion planning, drift recovery and calibration cards.
+[Start drawing](docs/getting-started.md) · [Creative workshop](docs/workshop-01-marks.md) · [Gallery](docs/gallery.md) · [Studio guide](docs/studio.md)
 
-## Getting started
+## What you can make
 
-Prerequisites: rust (stable), [wasm-pack](https://rustwasm.github.io/wasm-pack/),
-pnpm.
+- **Layered line drawings.** Filled shapes and `opaque: true` hide earlier ink. `mask(shape)` hides without drawing; clips constrain groups. Visibility uses line, arc and cubic intersections rather than a pixel mask. Currently, assigning a fill also makes a shape opaque.
+- **Texture and solid ink.** Hatch, crosshatch, stipple, solid rulings, native contour fills and custom JavaScript patterns. Give outlines and fills different pens, or disable the outline with `stroke: false`.
+- **Contour landscapes and grown structures.** Turn noise into isolines, trace fields with streamlines, scatter and settle points, build Voronoi cells, or extract faces from a network. Materials carry editable points, edges and attributes. Combine them with `append`, sample their boundaries, and use `thicken` to give paths width. Draw the result explicitly with `strokes` or `polygon`.
+- **Line character.** Smooth, roughen and deform geometry before visibility; dash, decimate and wobble the resulting ink afterward. Fields let the effect vary across the page.
+- **Image-driven marks.** Sample images for density, direction or colour, and use those values to place your own geometry. Import SVG as geometry for further composition.
+- **A practical plotting workflow.** Live previews, editable pen libraries, per-pen exports, animated simulation, plot ETA and direct Web Serial plotting. Pen width informs tiny-mark cleanup. Routing and optional bridges reduce travel; export, simulation and the driver share one time estimator.
+
+With a given build, the same sketch and seed produce the same ink. Physical results also depend on the pen, paper and machine.
+
+## Contour fills
+
+Contours follow the **final visible area**, including holes, masks and clips. The default spacing is 0.9 times the fill pen's width. Short connections reduce pen lifts, and local cleanup marks cover remnants where contours meet or disappear.
+
+```ts
+import { sketch, circle, mask, fill, mm } from 'occlude';
+
+export default sketch({ aspect: 'square', margin: 8 }, () => [
+  circle(50, 50, 38, {
+    stroke: false,
+    fill: fill('contour', { spacing: mm(1.1), connectors: false }),
+  }),
+  mask(circle(57, 43, 17)),
+]);
+```
+
+Use `connectors: false` for separate loops without transition lines. Necessary cleanup marks remain. Spacing wider than the nib creates an open texture; draft quality coarsens spacing. Finishing modifiers retain their normal semantics and can break continuity or move ink beyond the original boundary.
+
+Contour filling can substantially reduce lifts on dense artwork, but fewer lifts do not always mean a faster plot. Use `plotstats` to compare your sketch. See [Fills](docs/fills.md) for live variations and limits, and the [illustrated contour explainer](packages/occlude-studio/public/contour-explained.html) for the geometry and measured comparisons. The explainer is available at `/contour-explained.html` in a running Studio.
+
+## Run the studio
+
+Prerequisites: Node.js, pnpm, stable Rust and [wasm-pack](https://rustwasm.github.io/wasm-pack/).
 
 ```sh
-pnpm run build:wasm    # build the wasm core — required before install
+git clone https://github.com/Kalmarv/occlude.git
+cd occlude
+pnpm run build:wasm    # create the local WASM package before installing
 pnpm install
-cd packages/occlude-studio
-pnpm dev               # the studio, http://localhost:5173
+pnpm --filter occlude-studio dev
 ```
 
-Write sketches in the studio's editor (Ctrl+S saves to the server-side
-library); the preview re-renders live, the Plot panel drives an
-EBB-family machine over Web Serial, and per-pen SVG/G-code/PNG export is
-a click. The **docs** tab serves the topic pages under `docs/`
-([Getting started](docs/getting-started.md), [Shapes & layout](docs/shapes.md),
-[Fills](docs/fills.md), [Fields & variation](docs/fields.md),
-[Materials](docs/materials.md), [Images & imports](docs/images.md),
-[Plotting & saving](docs/plotting.md), [Gallery](docs/gallery.md)), every
-example rendered live and editable in the browser. The
-[architecture notes](docs/architecture.md) and [device notes](docs/device-notes.md)
-cover the engine and the machine.
+Open **http://localhost:5173**. Write a sketch in the editor; the preview updates as you work. Ctrl+S saves to the server-side sketch library. The Docs tab includes live, editable examples, and the Plot panel connects to an EBB-family machine in a browser supporting Web Serial.
 
-Headless rendering, for CI or batch work:
+For a production build:
 
 ```sh
-pnpm --filter occlude render sketch.ts --seed 7 --paper A4 --out out.png
-pnpm --filter occlude plotstats sketch.ts --seed 7   # lifts, ink/travel mm, plot ETA
+pnpm build
+pnpm --filter occlude-studio serve   # http://localhost:4173
 ```
 
-## Layout
+The production server serves the current `dist` files, so rebuilding the frontend does not require a server restart.
 
-| Package | What it is |
+### Learn by making
+
+| Explore | Documentation |
 |---|---|
-| `crates/occlude-core` | Rust geometry core (→ wasm): intersections, winding, clip, cull, fills, the modifier interpreter, SVG/G-code/PNG export |
-| `packages/occlude` | The TS API: the declarative surface, units, transforms, seeded randomness, fields, SVG import (`svg()`), image sampling (`image()`), wasm bridge |
-| `packages/occlude-studio` | Browser studio: Monaco editor with live worker-rendered preview, animated plot simulation, pen library, asset store, per-pen export, and a full EBB/iDraw Web Serial driver (look-ahead planning, LM hardware ramps, quick-hop lifts, drift recovery, machine diagnostics) |
+| Your first sketch, units and seeded variation | [Getting started](docs/getting-started.md) |
+| Shapes, groups, transforms, masks and clips | [Shapes & layout](docs/shapes.md) |
+| Patterns, contour variations and custom fills | [Fills](docs/fills.md) |
+| Noise, isolines, sampling and flow | [Fields & variation](docs/fields.md) |
+| Geometry, attributes, networks and growth | [Materials](docs/materials.md) |
+| Image sampling and SVG geometry | [Images & imports](docs/images.md) |
+| Pens, exports, simulation and the machine | [Plotting & saving](docs/plotting.md) |
+| A sequence of creative exercises | [Workshop: start with marks](docs/workshop-01-marks.md) |
+
+### Headless rendering and measurements
+
+Run these commands from this checkout; sketch paths are relative to the `packages/occlude` package directory, or can be absolute.
+
+```sh
+pnpm --filter occlude render /path/to/sketch.ts --seed 7 --paper A4 --out out.png
+pnpm --filter occlude plotstats /path/to/sketch.ts --seed 7
+```
+
+`plotstats` reports runs, ink length, pen-up travel and estimated plot time. For a 12 × 12 inch sheet, use `--paper 304.8x304.8`.
+
+## Inside the engine
+
+The sketch records shapes and modifiers. Rendering resolves units into paper space and lowers geometry to lines, arcs and cubics. Input geometry uses a 0.005 mm grid; intersection results are not snapped.
+
+The Rust prepare pass applies pre-stage modifiers and resolves visibility information for surviving fill jobs. JavaScript patterns generate between passes; native contour geometry is generated in Rust from the visible-area Boolean result. The finish pass clips and judges ink, then applies finishing modifiers.
+
+Native contours use a point/segment Voronoi diagram to construct distance levels and vector cleanup marks. Curve conversion has a bounded approximation budget; this is not a claim of exact cubic offsetting. The original visibility kernel remains available for validation. Existing JavaScript fills retain their generation path.
+
+Planning preserves explicit contour runs, merges ordinary fragments, orders chains and applies permitted bridges. Preview, SVG, G-code, simulation and plotting consume the shared plan. SVG retains available curves; machine output approximates them with moves. Native builds can parallelise clipping with Rayon; browser WASM is single-threaded and rendering runs in a worker.
+
+| Location | Responsibility |
+|---|---|
+| `packages/occlude` | TypeScript sketch API, materials, fields, units, imports, fill resolution and WASM bridge |
+| `crates/occlude-core` | Rust/WASM visibility, native fills, modifiers, planning and exports |
+| `packages/occlude-studio` | Editor, render worker, live docs, sketch and pen libraries, simulation and device driver |
+| `docs` | Topic documentation, live examples, workshop and engineering notes |
+
+See [Architecture](docs/architecture.md) and [Device notes](docs/device-notes.md) for more detail.
 
 ## Development
 
 ```sh
-pnpm check                  # THE definition of done, one line per gate:
-                            #   rust tests · TS tests · library typecheck (src
-                            #   and tools) · studio typecheck · every docs
-                            #   example renders · docs ink unchanged · build ·
-                            #   wasm md5 match
-pnpm -r test                # just the TS end-to-end tests (drive the real wasm)
-pnpm --filter occlude qa    # property-based seed sweep + adversarial corpus
-pnpm --filter occlude docs:check   # every docs example must render (DOCS_PAGE=fills for one page)
-pnpm --filter occlude docs:hashes -- --check   # every example's ink vs test/fixtures/docs-ink.json
-pnpm --filter occlude store-sweep  # do the studio's STORED sketches still build? (--migrate to
-                                   #   compile them as tools/migrate-sketch-source.mjs would leave them)
-
-cd packages/occlude-studio
-pnpm build && node server.mjs   # production build, http://localhost:4173
-```
-
-A rebuild needs no restart: the server reads `dist` — and its `/api/version`
-build id — per request. Restart only for `server.mjs` / `*-store.mjs` changes
-(kill by PID; not `pkill`, which aborts the shell).
-
-Benchmarks and golden fixtures:
-
-```sh
+pnpm check                         # complete repository verification
+pnpm -r test                       # library and Studio tests
+pnpm --filter occlude qa            # property-based and adversarial geometry checks
+pnpm --filter occlude docs:check    # render the live documentation examples
+DOCS_PAGE=fills pnpm --filter occlude docs:check
+pnpm --filter occlude docs:hashes -- --check
+pnpm --filter occlude store-sweep   # compile stored Studio sketches
 cargo bench -p occlude-core --bench geometry
-cargo run --release -p occlude-core --example profile5000    # 5000-shape render timing
-UPDATE_GOLDEN=1 cargo test -p occlude-core --test golden     # regenerate fixtures (deliberate only)
+cargo run --release -p occlude-core --example profile5000
 ```
+
+`pnpm check` runs Rust and TypeScript tests, library and Studio typechecks, live docs rendering, the docs ink oracle, production builds and a bundled-WASM hash check. Rebuild WASM after Rust changes with `pnpm run build:wasm`. Golden ink changes should be deliberate and reviewed.
 
 ## Credits & prior art
 
@@ -120,24 +159,3 @@ facts, and papers — never code**:
 | [plotterbench](https://github.com/plotterbench) | Inverse-kinematics golden-test idea (backlog). Ideas only — PolyForm forbids code reuse. | PolyForm Shield |
 | Robert Penner / [easings.net](https://easings.net) | The `ease.*` curve catalog (standard formulas). | formulas |
 | [p5.js](https://p5js.org), [vpype](https://github.com/abey79/vpype) | API ergonomics and plotter-workflow inspiration, respectively. | — |
-
-## How it works, briefly
-
-- All input geometry is snapped to a 0.005 mm grid at record time, so shared
-  edges are exactly coincident. Intersection results are never snapped.
-- The sketch compiles to a recording; `render()` resolves units against the
-  chosen paper, lowers everything to lines/arcs/cubics, and makes one wasm
-  call. Curves stay exact until export.
-- The core sorts by z, culls (bbox index, containment, off-paper), applies
-  pre-stage modifiers to contours, generates fills lazily for surviving
-  shapes, cuts every primitive against the opaque regions in front of it,
-  then runs each shape's post-stage modifier program over the final ink.
-  Visible runs shorter than the pen nib are bridged, tapped as dots, or
-  dropped by exact coverage.
-- Planning merges fragments into chains, orders them (nearest-neighbour +
-  2-opt), and bridges sub-nib gaps (plus opt-in `bridge` joining at artistic
-  tolerances) into a `DrawingPlan` with a content hash. Exports and the
-  machine encode ranges of that plan: exact-curve SVG, per-pen G-code, or
-  a direct plot over Web Serial; saved results keep a selection's bytes.
-- Native builds parallelise the clip layers with rayon; the wasm build is
-  single-threaded.
