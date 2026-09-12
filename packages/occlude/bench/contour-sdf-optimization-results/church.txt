@@ -1,0 +1,6 @@
+
+> occlude@0.1.0 plotstats /home/kalmarv/containers/occlude/packages/occlude
+> tsx tools/plotstats.ts ../occlude-studio/sketches/church.ts --seed 42
+
+sketch                chains   draw mm  travel mm  est min  bridge  euler  coincident mm
+church                 15601     96037      16515    381.0       0  15593           18.1

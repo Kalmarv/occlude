@@ -11,6 +11,19 @@ fs.mkdirSync(out,{recursive:true});
   localStorage.setItem('occlude.sketch',source);
   localStorage.setItem('occlude.settings',JSON.stringify({paper:'Custom',customPaper:{w:304.8,h:304.8},paperUnit:'in',defaultMarginPct:5}));
  },fs.readFileSync(fixture,'utf8'));
+ let pensIntercepted=0;
+ if(process.env.BENCH_PENS){
+  const pens=JSON.parse(fs.readFileSync(process.env.BENCH_PENS,'utf8'));
+  if(process.env.BENCH_WIDTH){
+   const width=Number(process.env.BENCH_WIDTH);
+   if(!Number.isFinite(width)||width<=0)throw Error('BENCH_WIDTH must be positive and finite');
+   for(const pen of pens)pen.width=width;
+  }
+  await context.route('**/api/pens',route=>{
+   if(route.request().method()!=='GET')return route.continue();
+   pensIntercepted++;return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(pens)});
+  });
+ }
  let intercepted=0;
  if(wasm!=='-')await context.route('**/*occlude_core_bg*.wasm',route=>{intercepted++;return route.fulfill({status:200,contentType:'application/wasm',body:fs.readFileSync(wasm)});});
  const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -20,8 +33,8 @@ fs.mkdirSync(out,{recursive:true});
   const status=await page.locator('#status-msg').textContent();
   const stats=await page.evaluate(()=>window.__occlude.result()?.stats);
   await page.screenshot({path:path.join(out,'studio.png')});
-  const result={fixture,status,stats,intercepted,pageErrors:errors};
+  const result={fixture,status,stats,intercepted,pensIntercepted,pageErrors:errors};
   fs.writeFileSync(path.join(out,'studio.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
-  if(!status.startsWith('ok')||errors.length||(wasm!=='-'&&!intercepted))process.exitCode=1;
+  if(!status.startsWith('ok')||errors.length||(wasm!=='-'&&!intercepted)||(process.env.BENCH_PENS&&!pensIntercepted))process.exitCode=1;
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1});

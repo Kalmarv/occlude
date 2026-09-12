@@ -1,0 +1,29 @@
+{
+  "fixture": "packages/occlude/bench/fixtures/contour-sdf/fine-square.ts",
+  "status": "ok",
+  "stats": {
+    "shapesIn": 1,
+    "culledOffPaper": 0,
+    "culledContained": 0,
+    "clean": 1,
+    "fragments": 15230,
+    "fillPrims": 15230,
+    "contour": {
+      "components": 1,
+      "levels": 1219,
+      "contours": 1219,
+      "connectors": 4866,
+      "connectorTests": 4866,
+      "residualPatches": 4877,
+      "fallbacks": 0,
+      "validationSplits": 0,
+      "fallbackThin": 0,
+      "fallbackBudget": 0,
+      "fallbackUnstable": 0
+    },
+    "renderMs": 825.2000000029802
+  },
+  "intercepted": 1,
+  "pensIntercepted": 1,
+  "pageErrors": []
+}

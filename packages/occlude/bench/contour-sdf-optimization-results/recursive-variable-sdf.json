@@ -1,0 +1,38 @@
+{
+  "name": "recursive-variable",
+  "engine": "sdf",
+  "width": "0.45",
+  "paperMm": 304.8,
+  "seed": 42,
+  "samples": 3,
+  "warmup": 1,
+  "renderMs": {
+    "median": 9762.982143999998,
+    "tail": 11217.95349
+  },
+  "planMs": {
+    "median": 122.89365299999918,
+    "tail": 152.64362600000095
+  },
+  "runs": 40675,
+  "internalLifts": 40674,
+  "inkMm": 169493.21719128478,
+  "travelMm": 30129.67426375888,
+  "etaMinutes": 935.843326297018,
+  "primitives": 119949,
+  "planBytes": 5928024,
+  "maxGap": 5.62721137192265e-13,
+  "diagnostics": {
+    "components": 1,
+    "levels": 31,
+    "contours": 5203,
+    "connectors": 24491,
+    "connectorTests": 24864,
+    "residualPatches": 32467,
+    "fallbacks": 0,
+    "validationSplits": 0,
+    "fallbackThin": 0,
+    "fallbackBudget": 0,
+    "fallbackUnstable": 0
+  }
+}

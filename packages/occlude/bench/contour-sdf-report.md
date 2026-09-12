@@ -1,5 +1,9 @@
 # Contour fill / SDF comparison — 12 September 2026
 
+This records the first prototype at `56422ad`. See the
+[optimization follow-up](contour-sdf-optimization.md) for the current implementation
+and new measurements.
+
 The experimental SDF engine generates nested contours on the user's recursive
 variable-radius sketch without falling back to triangular bands. It preserves
 the concentric-circle geometry in the constant and radial examples once the

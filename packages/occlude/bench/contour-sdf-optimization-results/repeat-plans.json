@@ -1,0 +1,23 @@
+{
+  "check": "two identical encoded plans per fixture; hash mismatch aborts the runner",
+  "results": [
+    {
+      "name": "recursive-variable",
+      "planSha256": "8ea8e038f288b659c512cf3b41fb76a5c745ad117beae3fc0c5d89e6ddb6ec4d",
+      "primitives": 119949,
+      "runs": 40675
+    },
+    {
+      "name": "recursive-constant",
+      "planSha256": "589e435aae130331b88f815ca1fe5612e90ae7a521dff78cdfbddf6c427faf0e",
+      "primitives": 68686,
+      "runs": 34577
+    },
+    {
+      "name": "recursive-radial",
+      "planSha256": "409c979f2450d73ce6b24f525cca1d17890b5690511701ff7414ab511d476963",
+      "primitives": 63070,
+      "runs": 32194
+    }
+  ]
+}
