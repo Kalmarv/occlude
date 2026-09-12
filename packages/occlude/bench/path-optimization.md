@@ -82,6 +82,8 @@ Occlude already had greedy ordering and 2-opt. The useful additions here are eli
 
 ## Proposed automatic fidelity-constrained search
 
+See [the detailed Auto design](path-auto-design.md) for the metric, numerical contract, localized vector work, search schedule and implementation gates.
+
 An Auto mode could minimize the existing plot ETA subject to an ink-difference allowance. Compare the union of actual round-nib stroke footprints separately for each pen, not the source shapes' filled areas. Measure missing area (original minus candidate), added area (candidate minus original), and a maximum local gap/displacement bound. Normalize area against original ink rather than blank paper; retain local constraints so a small isolated mark cannot disappear inside a good aggregate score. Extra drawing over an already covered footprint can have zero added-area cost, while still costing time and potentially changing physical ink darkness.
 
 A bounded candidate search would vary fitting and connector allowances, certify visibility/protected breaks as today, and retain the lowest-ETA passing candidate plus the original. Use spatial indexing and comparisons restricted to changed spans, accounting for neighboring unchanged ink that overlaps those spans. Curve conversion and footprint Boolean approximation need an explicit error allowance; uncertainty near a limit must not be silently treated as a pass. This is a proposed design, not implemented or benchmarked here.
