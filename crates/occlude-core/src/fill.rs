@@ -15,7 +15,7 @@ pub enum FillKind {
     /// (the two-pass path: pass 1 exposes the post-deform outline, sketch
     /// code generates, pass 2 clips and occludes).
     Pending,
-    Contour { spacing: f64 },
+    Contour { spacing: f64, connectors: bool },
     /// Pre-generated primitives (native consumers, scene-dump sidecars).
     /// They go through the normal occlusion path like everything else.
     Custom(Vec<Primitive>),

@@ -416,6 +416,7 @@ pub(super) fn generate(
         width,
         spacing,
         error_budget(width, spacing)?,
+        true,
         certify,
     )
 }
@@ -425,6 +426,7 @@ pub(super) fn generate_at_tolerance(
     width: f64,
     spacing: f64,
     eps: f64,
+    connectors: bool,
     certify: &dyn Fn(&Primitive) -> bool,
 ) -> Result<Generated, GenerationError> {
     let mut result = Generated::default();
@@ -436,6 +438,7 @@ pub(super) fn generate_at_tolerance(
             spacing,
             eps,
             MAX_PRIMITIVES.saturating_sub(count_prims(&result.runs)),
+            connectors,
         )? {
             let base = result.runs.len();
             result
@@ -479,13 +482,17 @@ pub(super) fn generate_at_tolerance(
         // Final exact validation happens once after all construction and
         // simplification, before the resulting ink reaches finishing modifiers.
         let routing_zone = crate::profile::zone("SDF contour routing");
-        result.runs.extend(routing::join(
-            rings,
-            &regular_levels,
-            spacing,
-            certify,
-            &mut result.diagnostics,
-        ));
+        if connectors {
+            result.runs.extend(routing::join(
+                rings,
+                &regular_levels,
+                spacing,
+                certify,
+                &mut result.diagnostics,
+            ));
+        } else {
+            result.runs.extend(rings);
+        }
         drop(routing_zone);
         #[cfg(feature = "profile")]
         eprintln!("SDF validated: {} segments", count_prims(&result.runs));
@@ -501,7 +508,9 @@ pub(super) fn generate_at_tolerance(
             }
             // Reuse the existing bounded, whole-interval-certified local join
             // for cleanup marks only. Regular contour loops stay independent.
-            cleanup::join(&mut result, begin, spacing, certify);
+            if connectors {
+                cleanup::join(&mut result, begin, spacing, certify);
+            }
             for &index in result.cleanup_runs.range(begin..) {
                 let original = &result.runs[index];
                 if original.len() < 3 {
@@ -968,11 +977,16 @@ mod tests {
                     WindingRule::NonZero,
                     false,
                 );
-                let ink =
-                    crate::contour_fill::generate_visible(&region, &[], &[], 0.5, 0.45, &|p| {
-                        valid(p, &region)
-                    })
-                    .unwrap_or_else(|e| panic!("thickness={thickness}, scale={scale}: {e}"));
+                let ink = crate::contour_fill::generate_visible(
+                    &region,
+                    &[],
+                    &[],
+                    0.5,
+                    0.45,
+                    true,
+                    &|p| valid(p, &region),
+                )
+                .unwrap_or_else(|e| panic!("thickness={thickness}, scale={scale}: {e}"));
                 if thickness == 0.0002 && scale == 10. {
                     assert!(
                         ink.diagnostics.geometry_refinements > 0,

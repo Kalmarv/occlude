@@ -572,7 +572,7 @@ impl Prepared {
                 judge_runs(so, from, threshold, false, *fill_pen, i as u32);
             };
             match kind {
-                FillKind::Contour { spacing } => {
+                FillKind::Contour { spacing, connectors } => {
                     let generated = (|| {
                         let mut nearby = Vec::new();
                         occ_index.query_unsorted(&region.bbox,&mut nearby,ctx.first_ahead);
@@ -608,7 +608,7 @@ impl Prepared {
                             #[cfg(not(feature = "contour-sdf"))]
                             { let mut exact = exact; exact() }
                         };
-                        crate::contour_fill::generate_visible(region,&shape_clips,&blockers,threshold,*spacing,&certify)
+                        crate::contour_fill::generate_visible(region,&shape_clips,&blockers,threshold,*spacing,*connectors,&certify)
                     })();
                     match generated {
                         Err(e) => so.error = Some(e),

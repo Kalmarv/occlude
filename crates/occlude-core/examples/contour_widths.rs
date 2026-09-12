@@ -16,7 +16,7 @@ fn main() {
             pen.width = width;
         }
         for shape in &mut input.shapes {
-            if let Some((_, FillKind::Contour { spacing })) = &mut shape.fill {
+            if let Some((_, FillKind::Contour { spacing, .. })) = &mut shape.fill {
                 *spacing = width * 0.9;
             }
         }

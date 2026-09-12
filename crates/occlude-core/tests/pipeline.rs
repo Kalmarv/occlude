@@ -559,7 +559,7 @@ fn clipped_occluder_hides_only_its_effective_region() {
 
 #[test]
 fn native_contour_disc_is_an_atomic_plan_run() {
-    let mut shape = filled_shape(circle_contour(40.0,40.0,30.0),FillKind::Contour { spacing: 0.27 });
+    let mut shape = filled_shape(circle_contour(40.0,40.0,30.0),FillKind::Contour { spacing: 0.27, connectors: true });
     shape.stroke = None;
     let out = render(&input(vec![shape]));
     let chains = merge_chains(&out.frags,0);
@@ -574,7 +574,7 @@ fn native_contour_disc_is_an_atomic_plan_run() {
 
 #[test]
 fn native_contour_occluder_creates_separate_islands() {
-    let mut shape = filled_shape(rect_contour(0.0,0.0,20.0,10.0),FillKind::Contour { spacing: 0.27 });
+    let mut shape = filled_shape(rect_contour(0.0,0.0,20.0,10.0),FillKind::Contour { spacing: 0.27, connectors: true });
     shape.stroke = None;
     let mut mask = filled_shape(rect_contour(9.0,-1.0,2.0,12.0),FillKind::Mask);
     mask.stroke = None;
@@ -597,7 +597,7 @@ fn native_contour_occluder_creates_separate_islands() {
 fn native_contour_annulus_retains_hole() {
     let mut contours = circle_contour(40.0,40.0,12.0);
     contours.extend(circle_contour(40.0,40.0,4.0));
-    let mut shape = filled_shape(contours,FillKind::Contour { spacing: 0.27 });
+    let mut shape = filled_shape(contours,FillKind::Contour { spacing: 0.27, connectors: true });
     shape.winding = WindingRule::EvenOdd; shape.convex = false; shape.stroke = None;
     let out = render(&input(vec![shape]));
     assert!(!out.frags.is_empty());
@@ -616,7 +616,7 @@ fn native_rounded_rectangle_has_one_main_run() {
         let next = Arc::new(corners[(i+1)%4].0,r,corners[(i+1)%4].1,PI/2.0);
         ring.push(arc); ring.push(Primitive::Line(Line::new(arc.end(),next.eval(0.0))));
     }
-    let mut shape = filled_shape(vec![ring],FillKind::Contour { spacing: 0.27 }); shape.stroke = None;
+    let mut shape = filled_shape(vec![ring],FillKind::Contour { spacing: 0.27, connectors: true }); shape.stroke = None;
     let out = render(&input(vec![shape]));
     let chains = merge_chains(&out.frags,0);
     // Keep one main inset run; allow separate cleanup instead of retracing.

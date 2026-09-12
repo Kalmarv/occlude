@@ -34,6 +34,56 @@ it('rejects invalid spacing and meaningless parameters', () => {
   }
   expect(()=>draw(circle(50,50,20,{fill:fill('contour',{angle:45})}))).toThrow(/unsupported parameter/);
   expect(draw(circle(50,50,20,{stroke:false,fill:fill('contour',{spacing:mm(2)})})).frags.length).toBeGreaterThan(0);
+  for (const connectors of [0, 1, 'false', null]) {
+    expect(()=>draw(circle(50,50,20,{fill:fill('contour',{connectors})}))).toThrow(/connectors must be a boolean/);
+  }
+});
+
+it('can leave sparse loops separate through WASM, planning and export', async () => {
+  for (const shape of [
+    (params: Record<string, unknown>) => circle(50,50,30,{stroke:false,fill:fill('contour',params)}),
+    (params: Record<string, unknown>) => rect(10,15,80,70,12,{stroke:false,fill:fill('contour',params)}),
+  ]) {
+    const implicit=draw(shape({spacing:mm(1.1)}));
+    const explicit=draw(shape({spacing:mm(1.1),connectors:true}));
+    expect((await plan(explicit)).buffer).toEqual((await plan(implicit)).buffer);
+    expect(explicit.stats.contour!.connectors).toBeGreaterThan(0);
+    const separate=draw(shape({spacing:mm(1.1),connectors:false}));
+    expect(separate.stats.contour!.connectors).toBe(0);
+    expect(separate.stats.contour!.connectorTests).toBe(0);
+    expect(separate.stats.contour!.contours).toBe(explicit.stats.contour!.contours);
+    expect(separate.stats.contour!.fallbacks).toBe(0);
+    const p=await plan(separate);
+    expect(p.buffer).not.toEqual((await plan(explicit)).buffer);
+    expect(p.chains.length).toBe(separate.stats.contour!.contours);
+    // Neither default nor explicitly enlarged generic bridging may undo the opt-out.
+    expect((await plan(separate,{bridge:false})).chains.length).toBe(p.chains.length);
+    expect((await plan(separate,{bridge:20})).chains.length).toBe(p.chains.length);
+    for (const chain of p.chains) {
+      const a=evalPrim(chain.prims[0],0),b=evalPrim(chain.prims.at(-1)!,1);
+      expect(Math.hypot(a[0]-b[0],a[1]-b[1])).toBeLessThan(1e-8);
+    }
+    const selected=selectAll(p);
+    expect(planToolpath(p,selected,0.025).length).toBe(p.chains.length);
+    expect((planSvg(p,selected,separate.pens).match(/<path\b/g)??[]).length).toBe(p.chains.length);
+    expect(planGcode(p,selected,separate.pens).length).toBeGreaterThan(0);
+  }
+});
+
+it('retains dense residual coverage when optional connectors are disabled', async () => {
+  const shape=(connectors:boolean)=>circle(50,50,mm(5),{stroke:false,fillPen:'pigma-05-black',fill:fill('contour',{connectors})});
+  const joined=draw(shape(true)),separate=draw(shape(false));
+  expect(separate.stats.contour!.connectors).toBe(0);
+  expect(separate.stats.contour!.contours).toBe(joined.stats.contour!.contours);
+  expect(separate.stats.contour!.residualPatches).toBe(joined.stats.contour!.residualPatches);
+  expect(separate.stats.contour!.residualPatches).toBeGreaterThan(0);
+  expect(separate.stats.contour!.validationSplits).toBe(0);
+  const p=await plan(separate);
+  // The circular specialization has no straight contour sections. Every
+  // remaining straight primitive must be a required center tap, not a bridge.
+  for(const chain of p.chains)for(const prim of chain.prims){
+    if(prim.t==='line')expect(evalPrim(prim,0)).toEqual(evalPrim(prim,1));
+  }
 });
 
 it('constructs islands before generating and respects nested clips', async () => {
@@ -86,11 +136,11 @@ it('preserves displacement outside the source consistently across fill types', a
   }
 });
 
-it('covers an attached sub-nib finger in the final decoded plan', async () => {
+it.each([true,false])('covers an attached sub-nib finger with connectors=%s in the final decoded plan', async (connectors) => {
   const {path}=await import('../src/index.js');
   const shape=path().moveTo(20,30).lineTo(60,30).lineTo(60,49.95)
     .lineTo(80,49.95).lineTo(80,50.05).lineTo(60,50.05)
-    .lineTo(60,70).lineTo(20,70).close().build({stroke:false,fill:fill('contour')});
+    .lineTo(60,70).lineTo(20,70).close().build({stroke:false,fill:fill('contour',{connectors})});
   const result=draw(shape);
   expect(result.stats.contour?.contours).toBeGreaterThan(0);
   const decoded=await plan(result);

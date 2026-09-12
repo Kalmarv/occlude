@@ -23,7 +23,8 @@
 //!   [contour_start, contour_count, flags, stroke_pen+1, fill_pen+1,
 //!    fill_kind, clip_start, clip_count, fill_start, fill_count,
 //!    mod_start, mod_count]
-//!   flags: bit0 closed, bit1 convex, bit2 even-odd winding
+//!   flags: bit0 closed, bit1 convex, bit2 even-odd winding,
+//!          bit3 disables native contour connectors (unset in legacy buffers).
 //!   fill_kind: 0 none, 1 pending (ink arrives at finish as supplied
 //!            prims + dots — the two-pass path), 2 mask. The engine
 //!            generates native contour ink (kind 3); hatch/stipple remain JS fill modules.
@@ -317,7 +318,7 @@ pub fn decode_render_input(
                 if shape_stride != 3 { return Err(err("native contour requires spacing")); }
                 let spacing = shapes_f64[i*shape_stride+2];
                 if !spacing.is_finite() || spacing <= 0.0 { return Err(err("contour: spacing must be finite and positive")); }
-                Some((s[4]-1,FillKind::Contour { spacing }))
+                Some((s[4]-1,FillKind::Contour { spacing, connectors: flags & 8 == 0 }))
             },
             _ => None,
         };

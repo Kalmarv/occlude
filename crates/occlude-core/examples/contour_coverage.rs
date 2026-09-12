@@ -56,7 +56,7 @@ fn main() {
     for s in &mut scene.input.shapes {
         s.stroke = None;
         s.modifiers.clear();
-        if let Some((_, FillKind::Contour { spacing })) = &mut s.fill {
+        if let Some((_, FillKind::Contour { spacing, .. })) = &mut s.fill {
             *spacing = width * 0.9;
         }
     }

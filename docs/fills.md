@@ -38,7 +38,7 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 | `fill('hatch', p)` | `angle: 0`, `spacing: mm(3 × nib)`, `offset: 0`, `align: 'paper'` | Parallel lines |
 | `fill('crosshatch', p)` | `angles: [0, 90]`, `spacing`, `offset`, `align` | One hatch pass per angle |
 | `fill('stipple', p)` | `density: 0…1`, `minDist: mm(2 × nib)` | Poisson-spaced dots, plotted as pen taps |
-| `fill('contour', p)` | `spacing: mm(0.9 × nib)` | Nested contours with short, checked connections |
+| `fill('contour', p)` | `spacing: mm(0.9 × nib)`, `connectors: true` | Nested contours with short, checked connections |
 | `fill('solid', p)` | `angle: 0` | Rows at 0.9 × nib, so they overlap into full coverage |
 
 ### crosshatch
@@ -86,6 +86,8 @@ export default sketch({ aspect: [2, 1] }, (t) =>
 
 ### contour
 
+[How contour filling works](contour-explained.html) is an illustrated explanation with an interactive spacing-and-cleanup diagram, artwork variations, and measured comparisons.
+
 `fill('contour')` follows the visible area's boundaries with complete nested loops. Short connections link successive loops into long pen-down runs. Holes grow outward as the outer boundary moves inward; disconnected islands stay separate. Short cleanup strokes cover gaps where contour fronts meet or disappear, including thin features lost by the first inset; tiny remnants receive a tap when one nib footprint covers them. Cleanup may overlap existing contour lines. Cleanup marks can lift independently. Nearby marks join only through short, visible connections, with no out-and-back detours to attach them to a loop.
 
 The aim is less time lifting and lowering the pen. It is especially useful for dense fills and repeated small shapes. It is not always faster than bridged solid: tight turns and extra residual strokes also take time. Connections are intended fill ink and remain when `t.plan({ bridge: false })` disables generic gap bridging.
@@ -105,13 +107,15 @@ export default sketch({ aspect: [2, 1], margin: 8 }, () => [
 ]);
 ```
 
-`spacing` is the only contour parameter. It must be positive and finite; bare numbers use drawable units and `mm()` uses paper millimetres. The default is 0.9 times the **fill pen's** width. Wider-than-nib spacing is a contour texture, with visible gaps; solid residual completion is disabled. In this sparse mode, thin or failed components use straight hatch strokes at the requested spacing, centered on the component, so their texture can differ from the surrounding loops. A component too narrow for multiple rows gets one central row. If a valid fallback cannot be produced within the geometry budget, rendering reports an error. Draft quality coarsens spacing, so use final quality to assess coverage or plot time.
+`spacing` must be positive and finite; bare numbers use drawable units and `mm()` uses paper millimetres. The default is 0.9 times the **fill pen's** width. Wider-than-nib spacing is a contour texture, with visible gaps; solid residual completion is disabled. In this sparse mode, thin or failed components use straight hatch strokes at the requested spacing, centered on the component, so their texture can differ from the surrounding loops. A component too narrow for multiple rows gets one central row. If a valid fallback cannot be produced within the geometry budget, rendering reports an error. Draft quality coarsens spacing, so use final quality to assess coverage or plot time.
 
 The first regular loop sits approximately half a nib inside the visible boundary. Round nibs cannot exactly fill every sharp mathematical corner while remaining entirely inside it; thin features retain visible centerline ink. Rust generates constant-distance contours from the visible boundary, preserving lines and circular arcs where possible. Vector geometry identifies gaps where contour fronts meet, including thin appendages, and supplies short cleanup strokes or taps. Cleanup may overlap existing contour ink.
 
 Native geometry uses an aggregate construction tolerance of `min(0.01 mm, nib / 20, spacing / 10)`. Each contour level is constructed independently, avoiding cumulative inset drift. Cubics use a bounded approximation; if exact visibility validation fails, the engine retries from the original curves at tighter tolerance. Input coordinates still follow the engine's existing 0.005 mm paper-space grid.
 
 Joining is optional work with a deterministic local budget: large fills may leave more independent loops rather than spend the render deadline connecting every inset. Contours and coverage marks are retained, and spacing never silently increases. The total geometry allowance is four million primitives; overflow and geometry-work guards remain, with Studio's 20-second timeout as the runtime gate. Pathological inputs can still report a clear render error rather than return an incomplete fill.
+
+Set `connectors: false` to draw the contour loops and cleanup marks as separate runs, without adding transition lines between them. This keeps needed cleanup ink and sparse fallbacks; it does not turn them off. The default is `true`. Separate runs usually mean more pen lifts. Generic bridge planning does not reconnect these protected runs.
 
 Contours and connectors are visibility-checked before finishing modifiers. Dash, decimation and wobble then apply with the same semantics as other fills and may break a run. Displacement can move ink beyond the original visible boundary; it is not clipped again afterward. Clipping never rejoins an intentional gap. Whole-chain selections become coarser when a contour fill produces a long run. The Fills page marks contour as **native · read-only**: it has no JavaScript generator to clone; existing JavaScript patterns remain cloneable.
 
@@ -342,3 +346,22 @@ export default sketch({ aspect: [1, 1], margin: 6, seed: 42 }, (t) => {
 ```
 
 These are compositions of material operations and ordinary fills, not additional contour modes. They use the current contour engine and do not recreate the incidental artifacts of earlier implementations. Removing decimation produces continuous loops again where the local joining policy permits it.
+
+
+### Separate loops
+
+Short crosswise lines are often connectors between insets. Set `connectors: false` for the separated texture on the right. The boundary and spacing are the same; the difference is whether transitions are drawn. In a dense fill, necessary cleanup strokes can still appear when connectors are off.
+
+```ts live
+import { sketch, rect, fill, mm, label } from 'occlude';
+
+export default sketch({ aspect: [2, 1], margin: 6 }, (t) =>
+  t.times(2, (i) => [
+    rect(8 + 100 * i, 10, 84, 72, 16, {
+      stroke: false,
+      fill: fill('contour', { spacing: mm(1.3), connectors: i === 0 }),
+    }),
+    label(i === 0 ? 'Connected' : 'Separate', 50 + 100 * i, 92, 3, { align: 'center' }),
+  ]),
+);
+```

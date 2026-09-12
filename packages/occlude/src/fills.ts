@@ -52,6 +52,8 @@ export function fill<P extends Record<string, unknown>>(
   asset: FillAssetDef<P>,
   params?: Partial<P>,
 ): FillSpec;
+/** Native contour loops; disable optional transitions while retaining cleanup ink. */
+export function fill(name: 'contour', params?: { spacing?: L; connectors?: boolean }): FillSpec;
 export function fill(name: string, params?: Record<string, unknown>): FillSpec;
 export function fill(
   ref: string | FillAssetDef<Record<string, unknown>>,

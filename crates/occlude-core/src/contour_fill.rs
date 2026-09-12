@@ -521,15 +521,17 @@ pub fn generate_visible(
     occluders: &[Occlusion<'_>],
     width: f64,
     spacing: f64,
+    connectors: bool,
     certify: &dyn Fn(&Primitive) -> bool,
 ) -> Result<Generated, String> {
     let eps = error_budget(width, spacing)?;
     #[cfg(not(feature = "contour-sdf"))]
     {
-        generate(
+        generate_offsets_with_connectors(
             visible_components(source, clips, occluders, eps)?,
             width,
             spacing,
+            connectors,
             certify,
         )
     }
@@ -550,8 +552,10 @@ pub fn generate_visible(
         for attempt in 0..attempts {
             let tolerance = eps / 16.0_f64.powi(attempt as i32);
             let components = visible_components(source, clips, occluders, tolerance)?;
-            match sdf::generate_at_tolerance(components, width, spacing, tolerance, certify)
-                .and_then(|ink| ink.validate(certify))
+            match sdf::generate_at_tolerance(
+                components, width, spacing, tolerance, connectors, certify,
+            )
+            .and_then(|ink| ink.validate(certify))
             {
                 Ok(mut ink) => {
                     ink.diagnostics.geometry_refinements = attempt;
@@ -569,6 +573,16 @@ fn generate_offsets(
     components: Vec<Shape<f64>>,
     width: f64,
     spacing: f64,
+    certify: &dyn Fn(&Primitive) -> bool,
+) -> Result<Generated, String> {
+    generate_offsets_with_connectors(components, width, spacing, true, certify)
+}
+
+fn generate_offsets_with_connectors(
+    components: Vec<Shape<f64>>,
+    width: f64,
+    spacing: f64,
+    connectors: bool,
     certify: &dyn Fn(&Primitive) -> bool,
 ) -> Result<Generated, String> {
     let eps = error_budget(width, spacing)?;
@@ -601,7 +615,9 @@ fn generate_offsets(
                     certify,
                     &mut result,
                 )?;
-                cleanup::join(&mut result, begin, spacing, certify);
+                if connectors {
+                    cleanup::join(&mut result, begin, spacing, certify);
+                }
             } else {
                 let fallback_begin = result.runs.len();
                 result.runs.extend(hatch(
@@ -726,6 +742,12 @@ fn generate_offsets(
             }
             result.diagnostics.levels += 1;
             result.diagnostics.contours += loops.len();
+            if !connectors {
+                result
+                    .runs
+                    .extend(loops.into_iter().map(|(prims, _)| prims));
+                continue;
+            }
             let _zone = crate::profile::zone("contour connectors");
             let mut segments = Vec::new();
             let mut boxes = Vec::new();
@@ -872,7 +894,9 @@ fn generate_offsets(
                 .fallback_runs
                 .extend(fallback_begin..result.runs.len());
         }
-        cleanup::join(&mut result, begin, spacing, certify);
+        if connectors {
+            cleanup::join(&mut result, begin, spacing, certify);
+        }
     }
     let mut compact = Vec::new();
     let mut cleanup_ids = std::collections::BTreeSet::new();

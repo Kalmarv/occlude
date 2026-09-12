@@ -9,6 +9,7 @@ pub(super) fn generate(
     spacing: f64,
     eps: f64,
     budget: usize,
+    connectors: bool,
 ) -> Result<Option<Generated>, String> {
     if component.ccw_plines.len() != 1 || !component.cw_plines.is_empty() {
         return Ok(None);
@@ -66,7 +67,7 @@ pub(super) fn generate(
         radius - first - (n - 1) as f64 * spacing
     };
     let tap = spacing <= width && (n == 0 || last_radius > width / 2. - eps / 4.);
-    let joins = n.saturating_sub(1);
+    let joins = if connectors { n.saturating_sub(1) } else { 0 };
     let required = n
         .checked_mul(2)
         .and_then(|n| n.checked_add(joins))
@@ -75,7 +76,8 @@ pub(super) fn generate(
         return Err("contour: circular ink exceeds geometry budget".into());
     }
     let mut result = Generated::default();
-    let mut run: Vec<Primitive> = Vec::with_capacity(required.unwrap());
+    let mut run: Vec<Primitive> =
+        Vec::with_capacity(if connectors { required.unwrap() } else { 0 });
     for k in 0..n {
         let r = radius - first - k as f64 * spacing;
         let a = Primitive::Arc(Arc::new(center, r, 0., std::f64::consts::PI));
@@ -85,6 +87,10 @@ pub(super) fn generate(
             std::f64::consts::PI,
             std::f64::consts::PI,
         ));
+        if !connectors {
+            result.runs.push(vec![a, b]);
+            continue;
+        }
         if let Some(previous) = run.last() {
             run.push(Primitive::Line(Line::new(previous.end(), a.start())));
             result.diagnostics.connectors += 1;
@@ -135,6 +141,7 @@ mod tests {
             spacing,
             error_budget(width, spacing).unwrap(),
             MAX_PRIMITIVES,
+            true,
         )
         .unwrap()
         .unwrap();
@@ -159,8 +166,33 @@ mod tests {
     }
     #[test]
     fn two_primitive_budget_accepts_one_complete_loop() {
-        let out = generate(&disc(1.), 2., 1.8, 0.01, 2).unwrap().unwrap();
+        let out = generate(&disc(1.), 2., 1.8, 0.01, 2, true)
+            .unwrap()
+            .unwrap();
         assert_eq!(count_prims(&out.runs), 2);
-        assert!(generate(&disc(1.), 2., 1.8, 0.01, 1).is_err());
+        assert!(generate(&disc(1.), 2., 1.8, 0.01, 1, true).is_err());
+    }
+    #[test]
+    fn independent_circles_keep_all_laps_and_center_coverage() {
+        let source = disc(10.);
+        let joined = generate(&source, 1., 0.9, 0.01, 100, true)
+            .unwrap()
+            .unwrap();
+        let separate = generate(&source, 1., 0.9, 0.01, 23, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(separate.diagnostics.contours, joined.diagnostics.contours);
+        assert_eq!(separate.diagnostics.contours, 11);
+        assert_eq!(separate.diagnostics.connectors, 0);
+        assert_eq!(separate.diagnostics.residual_patches, 1);
+        assert_eq!(separate.runs.len(), 12);
+        for run in &separate.runs[..11] {
+            assert_eq!(run.len(), 2);
+            assert!(run.iter().all(|p| matches!(p, Primitive::Arc(_))));
+            assert!(run[0].start().dist(run[1].end()) < 1e-10);
+        }
+        assert_eq!(separate.runs[11][0].start(), v(150., 150.));
+        assert_eq!(separate.runs[11][0].length(), 0.);
+        assert!(generate(&source, 1., 0.9, 0.01, 23, true).is_err());
     }
 }

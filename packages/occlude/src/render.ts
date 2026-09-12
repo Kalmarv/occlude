@@ -547,7 +547,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     const [cStart, cCount] = pushContours(lowered.contours);
     const geom = shape.geom;
     const winding = geom.kind === 'path' && geom.winding === 'evenodd' ? 4 : 0;
-    const flags = (shape.closed ? 1 : 0) | (lowered.convex ? 2 : 0) | winding;
+    let flags = (shape.closed ? 1 : 0) | (lowered.convex ? 2 : 0) | winding;
     const strokePen = shape.strokePen !== null ? penIdx(shape.strokePen) + 1 : 0;
     // Paper footprint of this shape, for shape-aligned grid extents.
     const fp = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
@@ -581,8 +581,11 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
         // Opaque with zero ink: registers the occluder, generates nothing.
         fillKind = 2;
       } else if (spec.type === 'use' && isNativeFill(spec.name)) {
-        const unknown = Object.keys(spec.params).filter(k => k !== 'spacing');
+        const unknown = Object.keys(spec.params).filter(k => k !== 'spacing' && k !== 'connectors');
         if (unknown.length) throw new Error(`contour: unsupported parameter '${unknown[0]}'`);
+        if (spec.params.connectors !== undefined && typeof spec.params.connectors !== 'boolean') throw new Error('contour: connectors must be a boolean');
+        // Shape flag bit 3 opts out; old descriptors retain connected output.
+        if (spec.params.connectors === false) flags |= 8;
         const spacing = spec.params.spacing === undefined ? penDef.width * 0.9
           : resolveLen(spec.params.spacing as Parameters<typeof resolveLen>[0], frame.inner);
         if (!Number.isFinite(spacing) || spacing <= 0) throw new Error('contour: spacing must be finite and positive');
