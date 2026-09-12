@@ -1,5 +1,5 @@
-import { sketch, append, thicken, fill, polygon, smooth, force, mul } from '../src/index.js';
-import type { Material } from '../src/index.js';
+import { sketch, append, thicken, fill, polygon, smooth, force, mul } from 'occlude';
+import type { Material } from 'occlude';
 /** User regression: seed 185591647, paper 304.8 × 304.8 mm, Studio hop pen. */
 export default sketch({ aspect: [1, 1], margin: 5, seed: 185591647 }, (t) => {
   const { rect, bounds } = t;

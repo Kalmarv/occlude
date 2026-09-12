@@ -14,6 +14,33 @@ The 1 mm setting saves **84.53 minutes (27.3%)** and 8,362 internal lifts, at th
 
 The panel includes the unchanged original in its comparison. Requested settings, tighter fitting, and joining/ordering without fitting are evaluated from the same original using the shared machine estimator. A slower candidate cannot be applied. These are bounded local alternatives, not a globally optimal tour.
 
+## Follow-up: extend both ends
+
+The first table records release `85cdffd`. A subsequent measured improvement extends both ends of each eligible run, with the same connector distance and full visibility checks. It does not redraw paths to reach another endpoint.
+
+| Panel setting | ETA min | Internal lifts | Joins | Ink m | Travel m | Search s |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.2 mm, both ends | 268.60 | 19,375 | 3,998 | 103.301 | 13.391 | 4.53 |
+| 1 mm, both ends | 215.61 | 14,073 | 9,300 | 106.461 | 10.642 | 22.19 |
+
+At 1 mm this saves **94.15 minutes (30.4%)** against the original and another 9.62 minutes against tail-only joining. It adds 3.530 m of connector ink. The extra endpoint search raises the 1 mm computation cost; computation remains explicitly requested and cancellable. The 0.2 mm result saves 41.15 minutes (13.3%). Measurements are in `results/path-optimization-two-ended.json`.
+
+## Further experiments and next candidates
+
+A benchmark-only per-chain fitting experiment (`path-optimization-explore.mts`) chooses among original and three fitted alternatives using the existing estimator's drawing time for each intact chain. Applied after the first release's 1 mm joins, it saves another **30.29 seconds**, changes 4,398 chains, and reduces commands from 379,081 to 317,472 in 1.24 seconds of extra computation. Without joins it saves 21.50 seconds. It is not enabled in the panel: the gain on this fixture is modest compared with eliminating lifts. Measurements are in `results/path-optimization-per-chain.json`, from `85cdffd`.
+
+```sh
+pnpm --filter occlude exec tsx bench/path-optimization-explore.mts recursive
+```
+
+The next substantial candidates are:
+
+- Choose a join point along a closed loop rather than only at its current seam. This needs an indexed nearest-segment search, exact splitting, a shared entry/exit point, and the same visibility certificate. A loop must still be drawn once.
+- Compare a small number of join priorities. Nearest-first choices can strand other endpoints; a bounded matching or alternate traversal order may reduce lifts further without increasing the allowed gap.
+- Rank candidate connections by heading as well as distance, then measure complete alternatives with the shared estimator. A shorter connection can still create a slower sharp turn.
+
+These are proposed experiments, not measured improvements. The existing vpype/AxiDraw features establish merge/sort/reverse and closed-loop seams as useful tools, but do not supply Occlude's visibility or ordered-run contracts. Broad simplification and more 2-opt alone are lower priorities for this sketch because pen cycles dominate.
+
 ## Geometry and safety
 
 Fits replace connected short line spans with bounded-deviation lines or circular arcs. They retain original curves, taps, sharp corners and breaks. Joins add ink only within one unambiguous shape and pen; the whole connector passes the existing primitive visibility kernel, including clipped occluders. Contour runs may join when their fill already permits connectors. `connectors: false`, finishing modifiers and ambiguous provenance remain protected. Closed-loop seam relocation changes the cyclic starting point without removing or duplicating ink. All accepted geometry stays in the shared plan used by preview, simulation, export, saved results and plotting.
@@ -41,7 +68,7 @@ pnpm --filter occlude plotstats ../occlude-studio/sketches/church.ts --seed 42
 pnpm check
 ```
 
-Raw measurements: `results/path-optimization-recursive.json`. The church oracle remained 15,601 chains, 96,037 mm ink, 16,515 mm travel and 381.0 estimated minutes. All existing docs ink hashes remained identical; only the new plotting example received a new baseline entry.
+The `.ts` fixtures can also be pasted directly into Studio; select Custom paper at 12 × 12 inches. Raw measurements: `results/path-optimization-recursive.json`. The church oracle remained 15,601 chains, 96,037 mm ink, 16,515 mm travel and 381.0 estimated minutes. All existing docs ink hashes remained identical; only the new plotting example received a new baseline entry.
 
 Native and real-WASM tests cover fitting deviation, corners, discontinuities, contour-run permissions, complete connector clipping, nested clips and clipped occluders, closed-loop seam continuity, deterministic serialization and export. Studio tests cover choosing the fastest alternative and preserving original bytes, applying/restoring selections and rejecting stale results. Playwright covers comparison without adoption, apply/restore, cancellation, rerender invalidation and export.
 
@@ -52,3 +79,11 @@ Native and real-WASM tests cover fitting deviation, corners, discontinuities, co
 - [saxi](https://github.com/alexrudd2/saxi): path reordering/reversal to reduce pen-up motion. Ideas only; no source copied.
 
 Occlude already had greedy ordering and 2-opt. The useful additions here are eligible contour joins with full visibility checks, continued search across the existing tour, closed-loop seam placement, and choosing by actual shared ETA instead of primitive count.
+
+## Proposed automatic fidelity-constrained search
+
+An Auto mode could minimize the existing plot ETA subject to an ink-difference allowance. Compare the union of actual round-nib stroke footprints separately for each pen, not the source shapes' filled areas. Measure missing area (original minus candidate), added area (candidate minus original), and a maximum local gap/displacement bound. Normalize area against original ink rather than blank paper; retain local constraints so a small isolated mark cannot disappear inside a good aggregate score. Extra drawing over an already covered footprint can have zero added-area cost, while still costing time and potentially changing physical ink darkness.
+
+A bounded candidate search would vary fitting and connector allowances, certify visibility/protected breaks as today, and retain the lowest-ETA passing candidate plus the original. Use spatial indexing and comparisons restricted to changed spans, accounting for neighboring unchanged ink that overlaps those spans. Curve conversion and footprint Boolean approximation need an explicit error allowance; uncertainty near a limit must not be silently treated as a pass. This is a proposed design, not implemented or benchmarked here.
+
+[SSIM](https://www.cns.nyu.edu/pub/lcv/wang03-reprint.pdf) could be a supplementary raster preview diagnostic. A geometric maximum-distance check and ink-area difference provide physical units for acceptance. A footprint model does not predict pen pressure, accumulated darkness from repeated strokes, or ink/paper interaction; those differences should remain visible in the comparison and ink-length readout.

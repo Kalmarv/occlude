@@ -418,63 +418,73 @@ pub fn optimize_with(
                 continue;
             };
             if let Some(owner) = owners[i] {
-                loop {
-                    let end = c.end();
-                    let (x, y) = cell(end);
-                    let mut candidates = Vec::new();
-                    let mut inspected = 0;
-                    'near: for dx in -1..=1 {
-                        for dy in -1..=1 {
-                            if let Some(ids) = grid.get_mut(&(
-                                x.saturating_add(dx),
-                                y.saturating_add(dy),
-                                c.pen,
-                                owner,
-                            )) {
-                                let mut k = 0;
-                                while k < ids.len() {
-                                    let (j, rev) = ids[k];
-                                    if slots[j].is_none() {
-                                        ids.swap_remove(k);
-                                        continue;
-                                    }
-                                    k += 1;
-                                    // Bounded even in a dense/coincident bucket.
-                                    inspected += 1;
-                                    if inspected > 256 {
-                                        break 'near;
-                                    }
-                                    let Some(other) = &slots[j] else { continue };
-                                    let p = if rev { other.end() } else { other.start() };
-                                    let d = end.dist(p);
-                                    if d > 1e-8 && d <= o.gap {
-                                        candidates.push((d, j, rev, p));
+                // Extend both ends. The second pass walks from the original
+                // head, then reverses the combined run back into its direction.
+                for side in 0..2 {
+                    if side == 1 {
+                        c = c.reversed();
+                    }
+                    loop {
+                        let end = c.end();
+                        let (x, y) = cell(end);
+                        let mut candidates = Vec::new();
+                        let mut inspected = 0;
+                        'near: for dx in -1..=1 {
+                            for dy in -1..=1 {
+                                if let Some(ids) = grid.get_mut(&(
+                                    x.saturating_add(dx),
+                                    y.saturating_add(dy),
+                                    c.pen,
+                                    owner,
+                                )) {
+                                    let mut k = 0;
+                                    while k < ids.len() {
+                                        let (j, rev) = ids[k];
+                                        if slots[j].is_none() {
+                                            ids.swap_remove(k);
+                                            continue;
+                                        }
+                                        k += 1;
+                                        // Bounded even in a dense/coincident bucket.
+                                        inspected += 1;
+                                        if inspected > 256 {
+                                            break 'near;
+                                        }
+                                        let Some(other) = &slots[j] else { continue };
+                                        let p = if rev { other.end() } else { other.start() };
+                                        let d = end.dist(p);
+                                        if d > 1e-8 && d <= o.gap {
+                                            candidates.push((d, j, rev, p));
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                    candidates.sort_by(|a, b| {
-                        a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2))
-                    });
-                    let mut chosen = None;
-                    for (_, j, rev, p) in candidates.into_iter().take(32) {
-                        let bridge = Primitive::Line(Line::new(end, p));
-                        out.stats[3] += 1;
-                        if visible(owner, &bridge) {
-                            chosen = Some((j, rev, bridge));
-                            break;
+                        candidates.sort_by(|a, b| {
+                            a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2))
+                        });
+                        let mut chosen = None;
+                        for (_, j, rev, p) in candidates.into_iter().take(32) {
+                            let bridge = Primitive::Line(Line::new(end, p));
+                            out.stats[3] += 1;
+                            if visible(owner, &bridge) {
+                                chosen = Some((j, rev, bridge));
+                                break;
+                            }
                         }
+                        let Some((j, rev, bridge)) = chosen else {
+                            break;
+                        };
+                        let other = slots[j].take().unwrap();
+                        let other = if rev { other.reversed() } else { other };
+                        out.after.push(one(vec![bridge], c.pen));
+                        out.stats[2] += 1;
+                        c.prims.push(bridge);
+                        c.prims.extend(other.prims);
                     }
-                    let Some((j, rev, bridge)) = chosen else {
-                        break;
-                    };
-                    let other = slots[j].take().unwrap();
-                    let other = if rev { other.reversed() } else { other };
-                    out.after.push(one(vec![bridge], c.pen));
-                    out.stats[2] += 1;
-                    c.prims.push(bridge);
-                    c.prims.extend(other.prims);
+                    if side == 1 {
+                        c = c.reversed();
+                    }
                 }
             }
             joined.push(c);
@@ -649,5 +659,27 @@ mod tests {
             assert!(pair[0].end().dist(pair[1].start()) < 1e-9);
         }
         assert!(cs[0].start().dist(cs[0].end()) < 1e-9);
+    }
+    #[test]
+    fn joins_at_both_ends_without_redrawing_a_path() {
+        let chains = vec![
+            lines(&[v(0.0, 0.0), v(1.0, 0.0)]),
+            lines(&[v(-1.0, 0.0), v(-0.2, 0.0)]),
+            lines(&[v(1.2, 0.0), v(2.0, 0.0)]),
+        ];
+        let frags: Vec<_> = chains
+            .iter()
+            .enumerate()
+            .map(|(i, c)| Frag::whole(i as u32, c.prims[0], 0, 3))
+            .collect();
+        let out = optimize(chains, &frags, Options { gap: 0.3, ..opts() }, |_, _| true).unwrap();
+        assert_eq!(out.stats[2], 2);
+        assert_eq!(out.chains.len(), 1);
+        assert_eq!(out.chains[0].prims.len(), 5);
+        assert_eq!(out.chains[0].start(), v(-1.0, 0.0));
+        assert_eq!(out.chains[0].end(), v(2.0, 0.0));
+        for pair in out.chains[0].prims.windows(2) {
+            assert_eq!(pair[0].end(), pair[1].start());
+        }
     }
 }
