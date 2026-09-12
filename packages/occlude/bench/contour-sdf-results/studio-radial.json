@@ -1,0 +1,28 @@
+{
+  "fixture": "packages/occlude/bench/fixtures/contour-sdf/recursive-radial.ts",
+  "status": "ok",
+  "stats": {
+    "shapesIn": 2,
+    "culledOffPaper": 0,
+    "culledContained": 0,
+    "clean": 2,
+    "fragments": 73688,
+    "fillPrims": 142138,
+    "contour": {
+      "components": 1,
+      "levels": 102,
+      "contours": 2730,
+      "connectors": 20769,
+      "connectorTests": 20946,
+      "residualPatches": 23476,
+      "fallbacks": 0,
+      "validationSplits": 0,
+      "fallbackThin": 0,
+      "fallbackBudget": 0,
+      "fallbackUnstable": 0
+    },
+    "renderMs": 16367.300000011921
+  },
+  "intercepted": 1,
+  "pageErrors": []
+}

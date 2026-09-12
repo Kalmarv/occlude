@@ -335,8 +335,21 @@ describe('thicken: material and callback contract', () => {
     const empty = thicken(material([]), { radius: () => { calls++; return 1; } });
     expect(empty.n).toBe(0);
     expect(calls).toBe(0);
-    expect(() => thicken(material([]), { radius: -1 })).toThrow(/radius must be finite and non-negative/);
+    expect(thicken(material([]), { radius: -1 }).n).toBe(0);
+    expect(() => thicken(material([]), { radius: NaN })).toThrow(/radius must be finite/);
     expect(() => thicken(material([]), { radius: 1, tolerance: 0 })).toThrow(/tolerance/);
+  });
+
+  it('clamps negative radius fields to zero while retaining finite validation', () => {
+    const src = material([[0, 0], [10, 0]]);
+    const field = (p: { x: number }) => p.x / 5 - 1;
+    const actual = thicken(src, { radius: field });
+    const expected = thicken(src, { radius: p => Math.max(0, field(p)) });
+    expect(actual.x).toEqual(expected.x);
+    expect(actual.y).toEqual(expected.y);
+    expect(actual.edgeList).toEqual(expected.edgeList);
+    expect(thicken(src, { radius: -1 }).n).toBe(0);
+    expect(() => thicken(src, { radius: () => Infinity })).toThrow(/must be finite/);
   });
 
   it('rejects unknown options, a missing radius and wrong sources', () => {

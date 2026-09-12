@@ -1,0 +1,24 @@
+{
+  "size": 6000,
+  "resolutionMm": 0.050800000000000005,
+  "method": "thresholded SVG raster / 8-neighbour chamfer",
+  "pageErrors": [],
+  "results": [
+    {
+      "engine": "current",
+      "areaPixels": 17051823,
+      "missingPixels": 27,
+      "excessPixels": 470073,
+      "maxDistanceToInkMm": 0.050800000000000005,
+      "maxDistanceOutsideAreaMm": 0.27504205379486085
+    },
+    {
+      "engine": "sdf",
+      "areaPixels": 17051823,
+      "missingPixels": 0,
+      "excessPixels": 1728143,
+      "maxDistanceToInkMm": 0,
+      "maxDistanceOutsideAreaMm": 0.27504205379486085
+    }
+  ]
+}

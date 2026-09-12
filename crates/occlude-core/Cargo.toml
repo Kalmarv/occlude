@@ -14,6 +14,8 @@ parallel = ["rayon"]
 wasm = ["wasm-bindgen"]
 cull-debug = []
 profile = []
+# Experimental comparison build; never enabled in the production package.
+contour-sdf = []
 
 [dependencies]
 wasm-bindgen = { version = "0.2", optional = true }

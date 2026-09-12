@@ -5,7 +5,7 @@
  * — to a directory, for the native profiling harness:
  *
  *   pnpm --filter occlude dump-scene <sketch.ts> <out-dir> [--seed N]
- *        [--paper Square20] [--landscape]
+ *        [--paper Square20] [--landscape] [--pens docs|pens.json]
  *
  * then, from crates/occlude-core:
  *
@@ -34,7 +34,7 @@ const opt = (name: string): string | undefined => {
 };
 
 if (!sketchFile || !outDir) {
-  console.error('usage: dump-scene <sketch.ts> <out-dir> [--seed N] [--paper Square20] [--landscape]');
+  console.error('usage: dump-scene <sketch.ts> <out-dir> [--seed N] [--paper Square20] [--landscape] [--pens docs|pens.json]');
   process.exit(1);
 }
 
@@ -54,11 +54,17 @@ const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
 );
 await initOcclude(readFileSync(wasmPath));
-try {
-  const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
-  occlude.setPenLibrary(opt('pens') === 'docs' ? structuredClone(occlude.DEFAULT_PENS) : JSON.parse(readFileSync(pensPath, 'utf8')));
-} catch {
-  // default pens
+const explicitPens = opt('pens');
+if (explicitPens && explicitPens !== 'docs') {
+  // Reproducible benchmarks must not depend on a private Studio library.
+  occlude.setPenLibrary(JSON.parse(readFileSync(explicitPens, 'utf8')));
+} else {
+  try {
+    const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
+    occlude.setPenLibrary(opt('pens') === 'docs' ? structuredClone(occlude.DEFAULT_PENS) : JSON.parse(readFileSync(pensPath, 'utf8')));
+  } catch {
+    // default pens
+  }
 }
 
 const js = transformSync(readFileSync(sketchFile, 'utf8'), {

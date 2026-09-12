@@ -1,0 +1,28 @@
+{
+  "fixture": "/tmp/occlude-negative-radius.ts",
+  "status": "ok",
+  "stats": {
+    "shapesIn": 1,
+    "culledOffPaper": 0,
+    "culledContained": 0,
+    "clean": 1,
+    "fragments": 172,
+    "fillPrims": 152,
+    "contour": {
+      "components": 0,
+      "levels": 0,
+      "contours": 0,
+      "connectors": 0,
+      "connectorTests": 0,
+      "residualPatches": 0,
+      "fallbacks": 0,
+      "validationSplits": 0,
+      "fallbackThin": 0,
+      "fallbackBudget": 0,
+      "fallbackUnstable": 0
+    },
+    "renderMs": 30.399999991059303
+  },
+  "intercepted": 0,
+  "pageErrors": []
+}

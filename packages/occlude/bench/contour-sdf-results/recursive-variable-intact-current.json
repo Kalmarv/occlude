@@ -1,0 +1,38 @@
+{
+  "name": "recursive-variable-intact",
+  "engine": "current",
+  "width": "0.45",
+  "paperMm": 304.8,
+  "seed": 42,
+  "samples": 1,
+  "warmup": 1,
+  "renderMs": {
+    "median": 6858.814428000001,
+    "tail": 6858.814428000001
+  },
+  "planMs": {
+    "median": 95.96674899999925,
+    "tail": 95.96674899999925
+  },
+  "runs": 7780,
+  "internalLifts": 7779,
+  "inkMm": 494994.47326472757,
+  "travelMm": 15969.817779595087,
+  "etaMinutes": 413.5357614990923,
+  "primitives": 236108,
+  "planBytes": 9673312,
+  "maxGap": 1.2710574864626038e-13,
+  "diagnostics": {
+    "components": 1,
+    "levels": 1,
+    "contours": 1227,
+    "connectors": 110600,
+    "connectorTests": 111931,
+    "residualPatches": 142,
+    "fallbacks": 2,
+    "validationSplits": 20,
+    "fallbackThin": 0,
+    "fallbackBudget": 1,
+    "fallbackUnstable": 1
+  }
+}

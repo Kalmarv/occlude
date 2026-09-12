@@ -1,0 +1,117 @@
+[
+  {
+    "width": "0.01",
+    "exit": 1,
+    "rows": [
+      {
+        "name": "recursive-variable",
+        "engine": "sdf-width-0.01",
+        "sample": 0,
+        "error": "contour SDF prototype: uniform sampling exceeds 32000000 samples at step 0.004500 mm; adaptive sampling required",
+        "elapsedMs": 498.467545
+      }
+    ],
+    "stderr": ""
+  },
+  {
+    "width": "0.1",
+    "exit": 1,
+    "rows": [
+      {
+        "name": "recursive-variable",
+        "engine": "sdf-width-0.1",
+        "sample": 0,
+        "error": "contour SDF prototype: uniform sampling exceeds 32000000 samples at step 0.045000 mm; adaptive sampling required",
+        "elapsedMs": 491.38016700000003
+      }
+    ],
+    "stderr": ""
+  },
+  {
+    "width": "1",
+    "exit": 0,
+    "rows": [
+      {
+        "stage": "render",
+        "name": "recursive-variable",
+        "engine": "sdf-width-1",
+        "sample": 0,
+        "renderMs": 3582.806572,
+        "fragments": 81914,
+        "diagnostics": {
+          "components": 1,
+          "levels": 14,
+          "contours": 2117,
+          "connectors": 25274,
+          "connectorTests": 26215,
+          "residualPatches": 27294,
+          "fallbacks": 0,
+          "validationSplits": 0,
+          "fallbackThin": 0,
+          "fallbackBudget": 0,
+          "fallbackUnstable": 0
+        }
+      },
+      {
+        "stage": "render",
+        "name": "recursive-variable",
+        "engine": "sdf-width-1",
+        "sample": 1,
+        "renderMs": 3261.1674460000004,
+        "fragments": 81914,
+        "diagnostics": {
+          "components": 1,
+          "levels": 14,
+          "contours": 2117,
+          "connectors": 25274,
+          "connectorTests": 26215,
+          "residualPatches": 27294,
+          "fallbacks": 0,
+          "validationSplits": 0,
+          "fallbackThin": 0,
+          "fallbackBudget": 0,
+          "fallbackUnstable": 0
+        }
+      },
+      {
+        "name": "recursive-variable",
+        "engine": "sdf-width-1",
+        "width": "1",
+        "paperMm": 304.8,
+        "seed": 42,
+        "samples": 1,
+        "warmup": 1,
+        "renderMs": {
+          "median": 3261.1674460000004,
+          "tail": 3261.1674460000004
+        },
+        "planMs": {
+          "median": 53.80945999999949,
+          "tail": 53.80945999999949
+        },
+        "runs": 24700,
+        "internalLifts": 24699,
+        "inkMm": 99133.17083890327,
+        "travelMm": 26076.65150754895,
+        "etaMinutes": 580.0334683892718,
+        "primitives": 81993,
+        "planBytes": 3893104,
+        "maxGap": 8.526512829121202e-14,
+        "diagnostics": {
+          "components": 1,
+          "levels": 14,
+          "contours": 2117,
+          "connectors": 25274,
+          "connectorTests": 26215,
+          "residualPatches": 27294,
+          "fallbacks": 0,
+          "validationSplits": 0,
+          "fallbackThin": 0,
+          "fallbackBudget": 0,
+          "fallbackUnstable": 0
+        }
+      }
+    ],
+    "stderr": ""
+  }
+]

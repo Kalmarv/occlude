@@ -12,6 +12,11 @@ fn summary(mut v: Vec<f64>) -> serde_json::Value {
     serde_json::json!({"median":v[v.len()/2],"tail":v.last()})
 }
 fn main() {
+    let samples = std::env::var("SAMPLES")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(5)
+        .max(1);
     for path in std::env::args().skip(1) {
         let dump = dump::load(Path::new(&path)).unwrap();
         let mut render_ms = Vec::new();
@@ -21,7 +26,7 @@ fn main() {
         let mut primitives = 0;
         let mut runs = 0;
         let mut fallback = 0;
-        for i in 0..6 {
+        for i in 0..=samples {
             profile::take();
             let t = Instant::now();
             let result = prepare(dump.input.clone())
@@ -45,7 +50,7 @@ fn main() {
             primitives = chains.iter().map(|c| c.prims.len()).sum::<usize>();
             runs = chains.len();
             fallback = result.stats.contour.fallbacks;
-            if i==5 {
+            if i==samples {
                 let bytes:Vec<u8>=buffer.iter().flat_map(|x|x.to_le_bytes()).collect();
                 std::fs::write(Path::new(&path).join("native-plan.f64"),bytes).unwrap();
             }
@@ -56,7 +61,7 @@ fn main() {
             .collect();
         println!(
             "{}",
-            serde_json::json!({"scene":path,"samples":5,"warmup":1,"primitives":primitives,"runs":runs,"fallbacks":fallback,"renderMs":summary(render_ms),"planningMs":summary(plan_ms),"stages":stages})
+            serde_json::json!({"scene":path,"samples":samples,"warmup":1,"primitives":primitives,"runs":runs,"fallbacks":fallback,"renderMs":summary(render_ms),"planningMs":summary(plan_ms),"stages":stages})
         );
     }
 }

@@ -1,0 +1,8 @@
+{
+  "unit": "KiB",
+  "scope": "peak RSS of native process, one warmup + three render/plan samples",
+  "results": {
+    "current": 351812,
+    "sdf": 196548
+  }
+}

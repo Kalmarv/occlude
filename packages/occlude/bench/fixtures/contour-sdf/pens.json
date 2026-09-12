@@ -1,0 +1,5 @@
+[
+  {"name":"micron-03","width":0.38,"color":"#111111","feed":1500,"penDown":0,"penUp":5,"penDelay":600},
+  {"name":"micron-01","width":0.45,"color":"#000000","feed":3500,"penDown":0,"penUp":5,"penDelay":600},
+  {"name":"hop","width":0.4,"color":"#ff295e","feed":3000,"penDown":0,"penUp":5,"penDelay":600}
+]

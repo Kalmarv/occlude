@@ -13,6 +13,8 @@ use i_overlay::core::{fill_rule::FillRule, overlay_rule::OverlayRule};
 use i_overlay::float::overlay::FloatOverlay;
 
 mod cleanup;
+#[cfg(any(test, feature = "contour-sdf"))]
+mod sdf;
 
 type Polygons = Vec<Vec<Vec<[f64; 2]>>>;
 pub const MAX_PRIMITIVES: usize = 4_000_000;
@@ -460,6 +462,22 @@ pub fn generate(
     spacing: f64,
     certify: &dyn Fn(&Primitive) -> bool,
 ) -> Result<Generated, String> {
+    #[cfg(feature = "contour-sdf")]
+    {
+        sdf::generate(components, width, spacing, certify)
+    }
+    #[cfg(not(feature = "contour-sdf"))]
+    {
+        generate_offsets(components, width, spacing, certify)
+    }
+}
+
+fn generate_offsets(
+    components: Vec<Shape<f64>>,
+    width: f64,
+    spacing: f64,
+    certify: &dyn Fn(&Primitive) -> bool,
+) -> Result<Generated, String> {
     let eps = error_budget(width, spacing)?;
     let opts = options(eps);
     let radius = width / 2.0;
@@ -786,10 +804,8 @@ pub fn visible_components(
     for region in std::iter::once(source)
         .chain(clips.iter().map(|p| p.0))
         .chain(occluders.iter().map(|o| o.region))
+        .chain(occluders.iter().flat_map(|o| o.clips.iter().map(|c| c.0)))
     {
-        if region.contours.iter().map(Vec::len).sum::<usize>() > 12_000 {
-            return Err("contour: visible-area input exceeds normalization budget".into());
-        }
         for p in region.contours.iter().flatten() {
             let b = p.bbox();
             let magnitude = b
@@ -802,7 +818,9 @@ pub fn visible_components(
             if !magnitude.is_finite() || magnitude * 2_f64.powi(-50) > eps / 16.0 {
                 return Err("contour: coordinates exceed the geometry error budget".into());
             }
-            if !matches!(p, Primitive::Line(_)) {
+            if matches!(p, Primitive::Line(_)) {
+                conversion_work += 1.0;
+            } else {
                 conversion_work += p.length() / (eps / 4.0);
             }
         }
@@ -905,6 +923,22 @@ pub fn visible_components(
 #[cfg(test)]
 mod tests {
     use super::*;
+    // These are the offset engine's acceptance tests, even in an SDF build.
+    use super::generate_offsets as generate;
+
+    #[test]
+    fn normalization_accepts_more_than_twelve_thousand_line_segments() {
+        let points: Vec<_> = (0..13_000).map(|i| {
+            let angle = i as f64 * std::f64::consts::TAU / 13_000.0;
+            v(20.0 * angle.cos(), 20.0 * angle.sin())
+        }).collect();
+        let contour = points.iter().zip(points.iter().cycle().skip(1)).take(points.len())
+            .map(|(&a, &b)| Primitive::Line(Line::new(a,b))).collect();
+        let source = Region::from_contour(contour);
+        let components = visible_components(&source, &[], &[], 0.01).unwrap();
+        assert_eq!(components.len(), 1);
+        assert!(shape_region(&components[0]).inside(v(0.,0.)));
+    }
     fn circle(r: f64) -> Vec<Primitive> {
         vec![Primitive::Arc(Arc::new(
             v(0.0, 0.0),

@@ -26,7 +26,8 @@ import {
 export interface ThickenOpts {
   /** Required. Radius in the source material's coordinate units: one number
    * for every participating vertex, or a callback read from the vertex view
-   * (its real attributes — `p.radius`, not `p.attrs.radius`). */
+   * (its real attributes — `p.radius`, not `p.attrs.radius`). Finite negative
+   * values clamp to zero at source vertices before edge interpolation. */
   radius: number | ((p: Vertex) => number);
 
   /** Positive approximation budget in source units. Default 0.05. Includes
@@ -146,9 +147,9 @@ function checkOpts(opts: ThickenOpts): number {
       'thicken: radius must be a number or a function of a vertex',
     );
   }
-  if (typeof radius === 'number' && (!Number.isFinite(radius) || radius < 0)) {
+  if (typeof radius === 'number' && !Number.isFinite(radius)) {
     throw new Error(
-      `thicken: radius must be finite and non-negative, got ${radius}`,
+      `thicken: radius must be finite, got ${radius}`,
     );
   }
   const tol = opts.tolerance ?? 0.05;
@@ -223,12 +224,12 @@ export function thicken(
     let r: number;
     if (typeof opts.radius === 'number') r = opts.radius;
     else r = opts.radius(src.vertex(row));
-    if (typeof r !== 'number' || !Number.isFinite(r) || r < 0) {
+    if (typeof r !== 'number' || !Number.isFinite(r)) {
       throw new Error(
-        `thicken: radius for vertex ${row} must be finite and non-negative, got ${String(r)}`,
+        `thicken: radius for vertex ${row} must be finite, got ${String(r)}`,
       );
     }
-    radii[row] = r;
+    radii[row] = Math.max(0, r);
   }
 
   // ---- coverage shapes: edges first, then isolated participating vertices ----

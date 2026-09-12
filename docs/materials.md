@@ -986,6 +986,8 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 **`thicken(source, opts)`** turns points and connections into filled ribbons, beaded outlines, and perforated networks. Start with native material from `t.scatter`, `t.sample`, `t.voronoi`, or `t.streamlines`, then choose a radius — the full width is twice that radius. Overlapping parts join into one area; isolated points become discs, and openings between connections can remain as holes.
 
+Finite negative radii clamp to zero, including values returned by a radius field. This lets a field fade thickness out without a render error. Clamping happens at source vertices before interpolation along edges; it does not shrink an existing filled area. `NaN` and infinite radii remain errors.
+
 The result is an ordinary boundary **Material**. Draw it with `polygon` and a fill, trace it with `strokes`, sample its outline with `along`, or use `distanceTo` and `t.isolines` for contour bands. `thicken` is a pure module import; drawing and filling remain explicit.
 
 Use `polygon(body, { fill: fill('hatch') })` to fill the combined area while preserving its holes. `strokes(body, { fill: … })` creates a separate filled shape for **each** boundary, including the hole boundaries; it does not fill the compound area.
