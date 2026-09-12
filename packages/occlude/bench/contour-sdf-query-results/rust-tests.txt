@@ -1,0 +1,65 @@
+   Compiling occlude-core v0.1.0 (/home/kalmarv/containers/occlude/crates/occlude-core)
+warning: variable does not need to be mutable
+   --> crates/occlude-core/src/gcode.rs:281:13
+    |
+281 |         let mut consider = |i: usize, rev: bool, d: f64, best: &mut (f64, usize, bool)| {
+    |             ----^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/occlude-core/src/pipeline.rs:375:13
+    |
+375 |         let mut any_later = !query_buf.is_empty();
+    |             ----^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: `occlude-core` (lib test) generated 2 warnings (run `cargo fix --lib -p occlude-core --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.83s
+     Running unittests src/lib.rs (target/debug/deps/occlude_core-111e1643182ff74b)
+
+running 39 tests
+test contour_fill::cleanup::join_tests::joins_taps_without_retracing_and_keeps_forbidden_breaks ... ok
+test contour_fill::cleanup::tests::arc_coverage_never_fills_the_inner_hole_or_opposite_direction ... ok
+test contour_fill::cleanup::tests::coverage_cannot_assign_different_vertices_to_different_capsules ... ok
+test contour_fill::cleanup::tests::cleanup_can_overlap_existing_material_beyond_its_triangle ... ok
+test contour_fill::cleanup::tests::partition_validation_rejects_compensating_gap_and_overlap ... ok
+test contour_fill::cleanup::tests::tap_requires_whole_remnant_to_fit_and_budget_is_enforced ... ok
+test contour_fill::sdf::tests::adjacent_float_event_rows_keep_the_half_open_sign_rule ... ok
+test contour_fill::cleanup::tests::triangulation_does_not_lose_a_vertex_when_translation_rounds_it ... ok
+test contour_fill::cleanup::tests::residual_does_not_credit_space_beyond_the_actual_nib ... ok
+test contour_fill::sdf::tests::complete_circle_fit_rejects_a_second_lap ... ok
+test contour_fill::sdf::tests::field_distance_and_hole_sign ... ok
+test contour_fill::cleanup::tests::mesh_cleanup_covers_thin_finger_and_keeps_hole_forbidden ... ok
+test contour_fill::sdf::tests::overlapping_bands_cover_cells_without_hiding_gaps ... ok
+test contour_fill::sdf::tests::reconstructed_arcs_bound_the_whole_polyline ... ok
+test contour_fill::sdf::tests::coherent_nearest_queries_keep_exact_distances_and_reduce_tree_visits ... ok
+test contour_fill::sdf::tests::sparse_does_not_add_dense_cleanup_and_is_deterministic ... ok
+test contour_fill::sdf::tests::slab_sign_cache_matches_direct_crossings_at_vertices_and_between_them ... ok
+test contour_fill::sdf::tests::completed_loops_recycle_raw_graph_storage ... ok
+test contour_fill::sdf::tests::nearest_parallel_contours_does_not_scan_the_whole_index ... ok
+test contour_fill::cleanup::tests::convex_bands_cover_area_without_nib_sized_mesh_explosion ... ok
+test contour_fill::tests::integer_inset_moves_outer_edges_in_and_hole_edges_out ... ok
+test contour_fill::cleanup::join_tests::dense_cleanup_keeps_search_bounded_and_preserves_coincident_taps ... ok
+test contour_fill::tests::kernel_normalizes_self_crossing_even_odd_input ... ok
+test contour_fill::tests::kernel_preserves_arcs_and_expands_holes ... ok
+test contour_fill::sdf::tests::annulus_u_and_thin_sliver_keep_visible_ink_and_continuity ... ok
+test contour_fill::tests::offset_residuals_cannot_turn_a_visible_hole_into_cleanup_ink ... ok
+test contour_fill::tests::normalization_accepts_more_than_twelve_thousand_line_segments ... ok
+test contour_fill::tests::tiny_hole_survives_boolean_normalization ... ok
+test plan::tests::plan_round_trips_every_primitive_kind ... ok
+test plan::tests::tour_terminates_on_collinear_closed_chains ... ok
+test primitive::flatten_tests::two_mm_circle_respects_plotter_resolution ... ok
+test route::tests::bridge_joins_sub_nib_gaps_only ... ok
+test contour_fill::tests::sparse_fallback_keeps_requested_row_spacing ... ok
+test contour_fill::cleanup::tests::curved_strip_coverage_includes_tapered_tips ... ok
+test contour_fill::tests::disc_joins_regular_loops_and_covers_center ... ok
+test contour_fill::sdf::tests::square_and_attached_thin_finger_are_actually_covered ... ok
+test contour_fill::tests::deterministic_component_budget_falls_back_without_partial_ink ... ok
+test contour_fill::tests::interior_coverage_distance_corpus ... ok
+test contour_fill::tests::hole_front_collision_covers_saddle ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.01s

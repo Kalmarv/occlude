@@ -1,0 +1,98 @@
+[
+  {
+    "experiment": "parallel band unions",
+    "result": {
+      "cleanup": 128611,
+      "contours": 26263,
+      "fallbackBudget": 0,
+      "fallbackThin": 0,
+      "fallbackUnstable": 0,
+      "fallbacks": 0,
+      "fillPrimitives": 848053,
+      "fragments": 604737,
+      "ms": 56578.895054,
+      "width": 0.1
+    },
+    "decision": "Same ink, slower."
+  },
+  {
+    "experiment": "directional binary coverage cells",
+    "result": {
+      "cleanup": 97060,
+      "contours": 26263,
+      "fallbackBudget": 0,
+      "fallbackThin": 0,
+      "fallbackUnstable": 0,
+      "fallbacks": 0,
+      "fillPrimitives": 822127,
+      "fragments": 586736,
+      "ms": 55169.194439,
+      "width": 0.1
+    },
+    "decision": "Fewer cleanup marks, slower."
+  },
+  {
+    "experiment": "binary cells reusing the coverage query",
+    "result": {
+      "cleanup": 126580,
+      "contours": 26263,
+      "fallbackBudget": 0,
+      "fallbackThin": 0,
+      "fallbackUnstable": 0,
+      "fallbacks": 0,
+      "fillPrimitives": 843546,
+      "fragments": 601645,
+      "ms": 52071.38918,
+      "width": 0.1
+    },
+    "decision": "No material speed improvement."
+  },
+  {
+    "experiment": "near-flat source boundary coarsening",
+    "result": {
+      "cleanup": 128611,
+      "contours": 26263,
+      "fallbackBudget": 0,
+      "fallbackThin": 0,
+      "fallbackUnstable": 0,
+      "fallbacks": 0,
+      "fillPrimitives": 848053,
+      "fragments": 604737,
+      "ms": 48039.181112,
+      "width": 0.1
+    },
+    "decision": "Same sample count and ink, slower."
+  },
+  {
+    "experiment": "per-cell source feature candidates",
+    "result": {
+      "cleanup": 128611,
+      "contours": 26263,
+      "fallbackBudget": 0,
+      "fallbackThin": 0,
+      "fallbackUnstable": 0,
+      "fallbacks": 0,
+      "fillPrimitives": 848053,
+      "fragments": 604737,
+      "ms": 46014.962118,
+      "width": 0.1
+    },
+    "decision": "No demonstrated gain over the simpler query cache."
+  },
+  {
+    "experiment": "vector residual proposals plus full verification",
+    "result": {
+      "cleanup": 40216,
+      "contours": 5203,
+      "fallbackBudget": 0,
+      "fallbackThin": 0,
+      "fallbackUnstable": 0,
+      "fallbacks": 0,
+      "fillPrimitives": 174853,
+      "fragments": 132977,
+      "ms": 15940.990887,
+      "width": 0.45
+    },
+    "decision": "About three times the native render time and more geometry."
+  }
+]

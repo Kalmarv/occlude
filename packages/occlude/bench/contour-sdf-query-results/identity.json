@@ -1,0 +1,30 @@
+[
+  {
+    "fixture": "variable",
+    "samePlan": true,
+    "planSha256": "8ea8e038f288b659c512cf3b41fb76a5c745ad117beae3fc0c5d89e6ddb6ec4d",
+    "sameSvg": true,
+    "svgSha256": "2e675df3851bc103c553323f84ec813fe305c2898f9efd7e79df485d24b609ec"
+  },
+  {
+    "fixture": "constant",
+    "samePlan": true,
+    "planSha256": "589e435aae130331b88f815ca1fe5612e90ae7a521dff78cdfbddf6c427faf0e",
+    "sameSvg": true,
+    "svgSha256": "886384ea843690e4ebe3ab81f76a69bab4214c98895724b26906d7ef94d33b5e"
+  },
+  {
+    "fixture": "radial",
+    "samePlan": true,
+    "planSha256": "409c979f2450d73ce6b24f525cca1d17890b5690511701ff7414ab511d476963",
+    "sameSvg": true,
+    "svgSha256": "e6378a679bc0a830c42c49607a3a4bcb7036f57daadffe4ad36af2a3e5ceacdf"
+  },
+  {
+    "fixture": "variable-intact",
+    "samePlan": true,
+    "planSha256": "590acdac02156cb40ff8f91d74442fd8a8429569b418d76b4949be7b8a8d2442",
+    "sameSvg": true,
+    "svgSha256": "edc8b84e1dc902f801d642ccc153b33633efd2f85d9767976900fd108dd76f8a"
+  }
+]

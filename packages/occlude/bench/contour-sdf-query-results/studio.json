@@ -1,0 +1,29 @@
+{
+  "fixture": "packages/occlude/bench/fixtures/contour-sdf/recursive-variable.ts",
+  "status": "ok",
+  "stats": {
+    "shapesIn": 2,
+    "culledOffPaper": 0,
+    "culledContained": 0,
+    "clean": 2,
+    "fragments": 119887,
+    "fillPrims": 156063,
+    "contour": {
+      "components": 1,
+      "levels": 31,
+      "contours": 5203,
+      "connectors": 24491,
+      "connectorTests": 24864,
+      "residualPatches": 32467,
+      "fallbacks": 0,
+      "validationSplits": 0,
+      "fallbackThin": 0,
+      "fallbackBudget": 0,
+      "fallbackUnstable": 0
+    },
+    "renderMs": 7443.600000008941
+  },
+  "intercepted": 1,
+  "pensIntercepted": 1,
+  "pageErrors": []
+}

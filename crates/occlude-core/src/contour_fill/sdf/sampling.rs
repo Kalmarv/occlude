@@ -20,27 +20,35 @@ struct Cell {
 struct Mesh<'a> {
     field: &'a DistanceIndex,
     bbox: BBox,
-    samples: HashMap<u64, Sample>,
+    // Coordinates and identity are recoverable from the integer key.
+    samples: HashMap<u64, f64>,
+    nearest: Option<Segment>,
 }
 impl Mesh<'_> {
     fn sample(&mut self, x: u32, y: u32) -> Result<Sample, String> {
         let id = x as u64 + y as u64 * (RES as u64 + 1);
-        if let Some(&s) = self.samples.get(&id) {
-            return Ok(s);
-        }
-        if self.samples.len() >= MAX_SAMPLES {
-            return Err("contour SDF: adaptive sample budget exceeded".into());
-        }
         let p = v(
             self.bbox.min.x + self.bbox.width() * x as f64 / RES as f64,
             self.bbox.min.y + self.bbox.height() * y as f64 / RES as f64,
         );
+        if let Some(&d) = self.samples.get(&id) {
+            return Ok(Sample { p, d, id });
+        }
+        if self.samples.len() >= MAX_SAMPLES {
+            return Err("contour SDF: adaptive sample budget exceeded".into());
+        }
+        let (distance, nearest) = self.field.nearest_seeded(p, f64::INFINITY, self.nearest);
+        self.nearest = nearest;
         let s = Sample {
             p,
-            d: self.field.signed(p),
+            d: if self.field.inside(p) {
+                distance
+            } else {
+                -distance
+            },
             id,
         };
-        self.samples.insert(id, s);
+        self.samples.insert(id, s.d);
         Ok(s)
     }
     fn corners(&mut self, c: Cell) -> Result<[Sample; 4], String> {
@@ -106,7 +114,8 @@ pub(super) fn contours(
     let mut mesh = Mesh {
         field,
         bbox,
-        samples: HashMap::new(),
+        samples: HashMap::default(),
+        nearest: None,
     };
     let mut stack = vec![Cell {
         x: 0,

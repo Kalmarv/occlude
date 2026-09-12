@@ -1,0 +1,14 @@
+
+> occlude-workspace@ check /home/kalmarv/containers/occlude
+> node check.mjs
+
+ok   rust   16.2s
+ok   ts     47.9s
+ok   types  4.4s
+ok   studio 4.2s
+ok   docs   11.4s
+ok   ink    14.0s
+ok   build  35.2s
+ok   wasm   9971e98cb6e9eb1a5e6b5d14d6267acb
+
+all gates pass

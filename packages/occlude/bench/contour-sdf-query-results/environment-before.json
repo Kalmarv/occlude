@@ -1,0 +1,9 @@
+{
+  "runtime": "v24.21.0",
+  "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+  "currentWasm": "47c2b0725d2b139b7ef4167977e36e166b7145f7c1654dab3ac9014d0d655e46",
+  "sdfWasm": "328fca55681e48a7e7cd82294f9bec0a8959e71949b36b8a6941b346420c593e",
+  "warmup": 1,
+  "samples": 3,
+  "studioGateMs": 20000
+}

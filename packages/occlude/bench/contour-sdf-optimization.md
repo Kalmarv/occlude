@@ -1,5 +1,9 @@
 # SDF contour optimization — 12 September 2026
 
+Follow-up: the [query/cache performance pass](contour-sdf-query-optimization.md)
+preserves these plans and measures a further 5–9% improvement against a fresh
+baseline. Its selected fine-width probes still show release blockers.
+
 The experimental SDF fill now renders the three recursive sketches 20–42% faster
 than the first prototype, uses fewer planned primitives/runs, and puts about 47%
 less nib ink outside the variable-radius material. A 21.9456 mm square passes

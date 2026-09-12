@@ -9,7 +9,7 @@
 //! adaptive interpolation tests and vertex projection do not certify topology.
 //! Coverage uses vector capsule/strip certificates, not pixel occupancy.
 use super::*;
-use std::collections::HashMap;
+use crate::fasthash::FxHashMap as HashMap;
 mod sampling;
 
 const MAX_SAMPLES: usize = 32_000_000;
@@ -107,10 +107,23 @@ impl DistanceIndex {
         }
     }
     fn nearest(&self, p: Vec2, limit: f64) -> (f64, Option<Segment>) {
+        self.nearest_seeded(p, limit, None)
+    }
+    // The hint must be a segment from this index. Its distance is an upper
+    // bound, so spatially coherent queries can prune without changing the
+    // minimum distance or relying on a guessed search radius.
+    fn nearest_seeded(&self, p: Vec2, limit: f64, seed: Option<Segment>) -> (f64, Option<Segment>) {
         #[cfg(test)]
         self.nearest_visits.set(0);
         let mut best = limit * limit;
         let mut found = None;
+        if let Some(s) = seed {
+            let d = s.closest(p).dist2(p);
+            if d < best {
+                best = d;
+                found = Some(s);
+            }
+        }
         if self.nodes.is_empty() {
             return (limit, None);
         }
@@ -233,12 +246,14 @@ impl DistanceIndex {
             .collect();
         crossings.sort_unstable_by(f64::total_cmp);
         let mut at = 0;
+        let mut seed = None;
         for (i, d) in values.iter_mut().enumerate() {
             let x = x0 + i as f64 * step;
             while at < crossings.len() && crossings[at] <= x {
                 at += 1;
             }
-            let distance = self.nearest(v(x, y), f64::INFINITY).0;
+            let (distance, nearest) = self.nearest_seeded(v(x, y), f64::INFINITY, seed);
+            seed = nearest;
             *d = if at % 2 == 1 { distance } else { -distance };
         }
     }
@@ -410,7 +425,7 @@ struct Graph<'a> {
 impl<'a> Graph<'a> {
     fn new(field: &'a DistanceIndex, first: f64, spacing: f64, eps: f64) -> Self {
         Self {
-            keys: HashMap::new(),
+            keys: HashMap::default(),
             vertices: Vec::new(),
             edges: Vec::new(),
             free_vertices: Vec::new(),
@@ -839,7 +854,7 @@ impl Ink {
             originals,
             actual_radius: radius,
             extra: Vec::new(),
-            buckets: HashMap::new(),
+            buckets: HashMap::default(),
             // Distance to the chord approximation can understate distance to
             // the actual arc by eps/4. Reserve that error in every certificate.
             radius: radius - eps / 4.0,
@@ -891,13 +906,18 @@ impl Ink {
             .iter()
             .map(|q| q.dot(n))
             .fold(f64::NEG_INFINITY, f64::max);
-        let mut owners = vec![seed.owner];
+        let mut owners = [0usize; 32];
+        owners[0] = seed.owner;
+        let mut owner_count = 1;
         let search = b.expanded(self.actual_radius);
-        let mut stack = vec![0usize];
+        let mut stack = [0usize; 64];
+        let mut top = 1;
         let mut visits = 0;
-        while let Some(id) = stack.pop() {
+        while top > 0 {
+            top -= 1;
+            let id = stack[top];
             visits += 1;
-            if visits > 256 || owners.len() >= 32 {
+            if visits > 256 || owner_count >= 32 {
                 break;
             }
             let node = &self.initial.nodes[id];
@@ -905,20 +925,23 @@ impl Ink {
                 continue;
             }
             if let Some((l, r)) = node.children {
-                stack.push(r);
-                stack.push(l);
+                stack[top] = r;
+                stack[top + 1] = l;
+                top += 2;
             } else {
                 for s in &self.initial.segments[node.begin..node.end] {
-                    if !owners.contains(&s.owner) && search.overlaps(&s.bbox()) {
-                        owners.push(s.owner);
+                    if !owners[..owner_count].contains(&s.owner) && search.overlaps(&s.bbox()) {
+                        owners[owner_count] = s.owner;
+                        owner_count += 1;
                     }
-                    if owners.len() >= 32 {
+                    if owner_count >= 32 {
                         break;
                     }
                 }
             }
         }
-        let mut intervals = Vec::with_capacity(owners.len());
+        let mut intervals = [(0.0f64, 0.0f64); 32];
+        let mut interval_count = 0;
         let radius = self.actual_radius - tolerance;
         // Restrict [lo,hi] by A*u+B*v+C >= 0 for every u in [u0,u1].
         let restrict = |lo: &mut f64, hi: &mut f64, a: f64, b: f64, c: f64| {
@@ -931,7 +954,7 @@ impl Ink {
                 *hi = f64::NEG_INFINITY;
             }
         };
-        for owner in owners {
+        for &owner in &owners[..owner_count] {
             let mut lo = v0;
             let mut hi = v1;
             match self.originals[owner] {
@@ -992,12 +1015,13 @@ impl Ink {
                 _ => continue,
             }
             if lo <= hi {
-                intervals.push((lo, hi));
+                intervals[interval_count] = (lo, hi);
+                interval_count += 1;
             }
         }
-        intervals.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+        intervals[..interval_count].sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
         let mut end = v0;
-        for (lo, hi) in intervals {
+        for &(lo, hi) in &intervals[..interval_count] {
             if lo > end {
                 return false;
             }
@@ -1363,6 +1387,34 @@ mod tests {
         );
         assert!(field.inside(v(1., low)));
         assert!(!field.inside(v(1., high)));
+    }
+    #[test]
+    fn coherent_nearest_queries_keep_exact_distances_and_reduce_tree_visits() {
+        let field = DistanceIndex::new(
+            (0..1000)
+                .map(|i| {
+                    let a = v((i % 37) as f64 * 0.7, (i / 37) as f64 * 0.8);
+                    Segment {
+                        a,
+                        b: a + Vec2::from_angle(i as f64 * 0.73) * 0.6,
+                        owner: i,
+                    }
+                })
+                .collect(),
+        );
+        let mut seed = None;
+        let mut ordinary_visits = 0;
+        let mut seeded_visits = 0;
+        for i in 0..4000 {
+            let p = v((i % 100) as f64 * 0.27, (i / 100) as f64 * 0.58);
+            let expected = field.nearest(p, f64::INFINITY).0;
+            ordinary_visits += field.nearest_visits.get();
+            let (actual, next) = field.nearest_seeded(p, f64::INFINITY, seed);
+            seeded_visits += field.nearest_visits.get();
+            assert_eq!(actual.to_bits(), expected.to_bits());
+            seed = next;
+        }
+        assert!(seeded_visits < ordinary_visits);
     }
     #[test]
     fn nearest_parallel_contours_does_not_scan_the_whole_index() {

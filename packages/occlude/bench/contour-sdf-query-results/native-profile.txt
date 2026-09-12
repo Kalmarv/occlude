@@ -1,0 +1,66 @@
+SDF adaptive: 5075930 samples, 5626298 raw edges
+SDF marched: 26263 rings, 674661 segments
+SDF validated: 674661 segments
+SDF coverage cells 1000000, marks 9018
+SDF coverage cells 2000000, marks 16120
+SDF coverage cells 3000000, marks 24871
+SDF coverage cells 4000000, marks 31903
+SDF coverage cells 5000000, marks 37112
+SDF coverage cells 6000000, marks 42077
+SDF coverage cells 7000000, marks 45987
+SDF coverage cells 8000000, marks 50636
+SDF coverage cells 9000000, marks 55560
+SDF coverage cells 10000000, marks 59554
+SDF coverage cells 11000000, marks 63447
+SDF coverage cells 12000000, marks 71871
+SDF coverage cells 13000000, marks 78986
+SDF coverage cells 14000000, marks 87837
+SDF coverage cells 15000000, marks 95029
+SDF coverage cells 16000000, marks 100457
+SDF coverage cells 17000000, marks 105433
+SDF coverage cells 18000000, marks 109394
+SDF coverage cells 19000000, marks 113713
+SDF coverage cells 20000000, marks 118709
+SDF coverage cells 21000000, marks 123551
+SDF coverage cells 22000000, marks 127308
+SDF complete: 848053 segments
+1 pre-modifiers: 0.000 ms
+2 sort+prim-tables: 1.077 ms
+3 region-build: 12.910 ms
+4a cull-query: 0.001 ms
+4b cull-contains: 0.001 ms
+4 cull: 0.003 ms
+5a outline-clip: 3.002 ms
+contour visible area: 8.744 ms
+SDF arc reconstruction: 194.973 ms
+SDF sample and march: 35489.619 ms
+5q clip-query: 98.253 ms
+5s clip-spans-loop: 159.914 ms
+SDF distance coverage: 25885.693 ms
+5b fills: 46682.388 ms
+5 clip+fills: 46807.192 ms
+6 dedupe: 0.001 ms
+7 post-modifiers: 239.295 ms
+	Command being timed: "target/release/examples/contour_widths /tmp/contour-sdf-portable-dump 10"
+	User time (seconds): 46.08
+	System time (seconds): 0.94
+	Percent of CPU this job got: 99%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:47.10
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 513684
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 370176
+	Voluntary context switches: 13
+	Involuntary context switches: 2293
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 24
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
