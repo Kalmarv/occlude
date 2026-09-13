@@ -22,7 +22,7 @@ docker compose -p occlude-3d -f docker-compose.yml -f compose.3d.yml --profile d
 ```
 
 The dev image builds WASM from source and runs pnpm check, including smoke tests.
-Only the dev service should be built/launched. It serves the verified production bundle via Vite preview on port 5273; this avoids raw /@fs module URLs through Cloudflare. Rebuild the isolated dev image to publish changes. For local source HMR, run Vite separately on an unused localhost port. Hardware-browser acceptance is separate.
+Only the dev service should be built/launched. It serves the verified production bundle and the existing Studio APIs via server.mjs on port 5273; this avoids raw /@fs module URLs through Cloudflare and enables isolated library/result storage. Rebuild the isolated dev image to publish changes. For local source HMR, run Vite separately on an unused localhost port. Hardware-browser acceptance is separate.
 
 ## Gates
 

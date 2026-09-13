@@ -3,6 +3,8 @@
 services:
   dev:
     environment:
+      PORT: "5273"
+      HOST: "0.0.0.0"
       OCCLUDE_DEV_HOSTS: dev-occlude.ivyhq.xyz,occlude-dev.ivyhq.xyz,dev.occlude.ivyhq.xyz
     image: occlude-3d-dev:latest
-    command: ["pnpm", "--filter", "occlude-studio", "exec", "vite", "preview", "--host", "0.0.0.0", "--port", "5273", "--strictPort"]
+    command: ["node", "/src/packages/occlude-studio/server.mjs"]
