@@ -4,7 +4,7 @@
  */
 
 import { customFill, type CustomFillFn, type FillSpec } from './fills.js';
-import { getState, type TransformOp, type Winding } from './state.js';
+import type { Execution, TransformOp, Winding } from './execution.js';
 import type { L } from './units.js';
 
 export type PathCmd =
@@ -88,7 +88,11 @@ export type ShapeGeom =
   | { kind: 'line'; x1: L; y1: L; x2: L; y2: L }
   | { kind: 'ngon'; x: L; y: L; sides: number; r: L; rotation: number }
   | { kind: 'points'; pts: [L, L][] }
-  | { kind: 'path'; cmds: PathCmd[]; winding: Winding };
+  | { kind: 'path'; cmds: PathCmd[]; winding: Winding }
+  /** The area of another shape (`polygon(circle(…))`): lowered through the
+   * same lowerer as the shape itself, at record time, when the run's frame
+   * is known — so a shape is an area input anywhere, with no run in hand. */
+  | { kind: 'area'; of: { geom: ShapeGeom; opts: TransformOp }; winding: Winding };
 
 /** Is this geometry a closed region? An empty path is the empty region:
  * trivially closed (no boundary), so a generator that produced nothing
@@ -96,7 +100,7 @@ export type ShapeGeom =
  * of throwing. */
 export function geomClosed(g: ShapeGeom): boolean {
   if (g.kind === 'line') return false;
-  if (g.kind === 'points') return true;
+  if (g.kind === 'points' || g.kind === 'area') return true;
   if (g.kind === 'path') return g.cmds.length === 0 || g.cmds.some((c) => c.op === 'close');
   return true;
 }
@@ -118,8 +122,12 @@ export class Shape {
   /** Draw order index — the z tiebreak and default z. */
   readonly order: number;
 
-  constructor(geom: ShapeGeom, from?: Shape) {
-    const s = getState();
+  /** The run this shape is recorded in. */
+  readonly run: Execution;
+
+  constructor(geom: ShapeGeom, run: Execution, from?: Shape) {
+    const s = run;
+    this.run = run;
     this.geom = geom;
     this.transform = from ? [...from.transform] : [...s.tfChain];
     this.clips = from ? [...from.clips] : [...s.clipStack];
@@ -140,7 +148,7 @@ export class Shape {
    * fill) at the current draw position, and return it for further chaining.
    */
   clone(): Shape {
-    return new Shape(cloneGeom(this.geom), this);
+    return new Shape(cloneGeom(this.geom), this.run, this);
   }
 
   get closed(): boolean {
@@ -165,14 +173,9 @@ export class Shape {
     if (!this.closed) {
       throw new Error('.fill() on an open path — close() it first (fill requires a closed region)');
     }
-    const s = getState();
     if (typeof spec === 'function') spec = customFill(spec);
     this.fillSpec = spec ?? { type: 'mask' };
-    const p = penName ?? s.currentPen;
-    if (!s.penLib.has(p)) {
-      throw new Error(`unknown pen '${p}'`);
-    }
-    this.fillPen = p;
+    this.fillPen = this.run.penOrThrow(penName ?? this.run.currentPen);
     return this;
   }
 
@@ -190,10 +193,7 @@ export class Shape {
       this.strokePen = null;
       return this;
     }
-    if (!getState().penLib.has(p)) {
-      throw new Error(`unknown pen '${p}'`);
-    }
-    this.strokePen = p;
+    this.strokePen = this.run.penOrThrow(p);
     return this;
   }
 
@@ -203,9 +203,7 @@ export class Shape {
 
   /** Set stroke and fill pen together. */
   pen(p: string): this {
-    if (!getState().penLib.has(p)) {
-      throw new Error(`unknown pen '${p}'`);
-    }
+    this.run.penOrThrow(p);
     this.strokePen = p;
     if (this.fillSpec) this.fillPen = p;
     return this;
@@ -218,22 +216,6 @@ export class Shape {
   }
 }
 
-export function circle(x: L, y: L, r: L): Shape {
-  return new Shape({ kind: 'circle', x, y, r });
-}
-
-export function ellipse(x: L, y: L, rx: L, ry: L, rotation = 0): Shape {
-  return new Shape({ kind: 'ellipse', x, y, rx, ry, rotation });
-}
-
-export function rect(x: L, y: L, w: L, h: L, radius: L = 0): Shape {
-  return new Shape({ kind: 'rect', x, y, w, h, radius });
-}
-
-export function line(x1: L, y1: L, x2: L, y2: L): Shape {
-  return new Shape({ kind: 'line', x1, y1, x2, y2 });
-}
-
 /** Deep copy of a geometry record (paths and point lists are mutable). */
 function cloneGeom(geom: ShapeGeom): ShapeGeom {
   switch (geom.kind) {
@@ -241,62 +223,9 @@ function cloneGeom(geom: ShapeGeom): ShapeGeom {
       return { ...geom, cmds: geom.cmds.map((c) => ({ ...c })) };
     case 'points':
       return { ...geom, pts: geom.pts.map(([x, y]) => [x, y] as [typeof x, typeof y]) };
+    case 'area':
+      return { ...geom, of: { geom: cloneGeom(geom.of.geom), opts: { ...geom.of.opts } } };
     default:
       return { ...geom };
   }
-}
-
-export class PathBuilder extends Shape {
-  private cmds: PathCmd[];
-
-  constructor(winding: Winding, from?: PathBuilder) {
-    const cmds: PathCmd[] = from ? from.cmds.map((c) => ({ ...c })) : [];
-    super({ kind: 'path', cmds, winding }, from);
-    this.cmds = cmds;
-  }
-
-  /** Record a duplicate that keeps the builder API for further segments. */
-  override clone(): PathBuilder {
-    const winding = (this.geom as Extract<ShapeGeom, { kind: 'path' }>).winding;
-    return new PathBuilder(winding, this);
-  }
-
-  moveTo(x: L, y: L): this {
-    this.cmds.push({ op: 'move', x, y });
-    return this;
-  }
-
-  lineTo(x: L, y: L): this {
-    this.cmds.push({ op: 'line', x, y });
-    return this;
-  }
-
-  bezierTo(c0x: L, c0y: L, c1x: L, c1y: L, x: L, y: L): this {
-    this.cmds.push({ op: 'bezier', c0x, c0y, c1x, c1y, x, y });
-    return this;
-  }
-
-  quadTo(cx: L, cy: L, x: L, y: L): this {
-    this.cmds.push({ op: 'quad', cx, cy, x, y });
-    return this;
-  }
-
-  /**
-   * Circular arc from the current point to (x, y) with radius r. Positive r
-   * bulges right of the travel direction, negative r bulges left; the minor
-   * arc is drawn.
-   */
-  arcTo(x: L, y: L, r: L): this {
-    this.cmds.push({ op: 'arc', x, y, r });
-    return this;
-  }
-
-  close(): this {
-    this.cmds.push({ op: 'close' });
-    return this;
-  }
-}
-
-export function path(opts: { winding?: Winding } = {}): PathBuilder {
-  return new PathBuilder(opts.winding ?? 'nonzero');
 }

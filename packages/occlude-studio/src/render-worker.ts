@@ -11,7 +11,7 @@
  */
 
 import initCore, * as core from 'occlude-core';
-import { bridgeGapFor, getInspectionIndex, getProbeStats, hashPlan, inspectionPayload, renderEncoded, tourBudget, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
+import { bridgeGapFor, hashPlan, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
 import { currentDraws, currentOverrides, currentSeed, runSketch, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
@@ -99,8 +99,15 @@ const mod = core as unknown as WasmModule;
 
 let last: { prims: Float64Array; frags: Float64Array; pensJson: string; pens: { name: string; width: number; color: string; feed: number; penDown: number; penUp: number; penDelay: number }[]; paper: { w: number; h: number } } | null = null;
 let lastPlan: { buffer: Float64Array; settings: PlanSettings; planHash: string; pensJson: string } | null = null;
-/** The render whose sketch state (and inspection registry) is current. */
+/** The render whose run (and inspection registry) is current. */
 let lastExecutionId = -1;
+/** The run of the last successful render: the only place its state lives. */
+let lastRun: Execution | null = null;
+/** URL-less 'url' seed: rolled ONCE per worker and reused, so re-renders
+ * (debug toggles, keystrokes, settings) never reshuffle the drawing — only
+ * an explicit reroll (the host's seed) changes it. Application state, not
+ * the run's: every run is given its seed explicitly. */
+const sessionSeed = Math.floor(Math.random() * 2 ** 31);
 let geometrySnapshot: GeometrySnapshot | null = null;
 let renderedPlanHash: string | null = null;
 
@@ -136,13 +143,14 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       case 'render': {
         // Assets referenced by literal name are fetched/decoded here in the
         // worker (fetch + OffscreenCanvas are worker-native) before the
-        // synchronous sketch executes.
-        await preloadAssets(msg.js);
+        // synchronous sketch executes — into a table the run is given.
+        const assets = await preloadAssets(msg.js);
         // Custom fills too: fetched from the fill library (or the editor's
-        // draft) and registered before encode resolves fill('name').
-        await preloadFills(msg.js, msg.cfg.draftFill);
+        // draft), captured before encode resolves fill('name').
+        const fills = await preloadFills(msg.js, msg.cfg.draftFill);
         lastExecutionId = -1; // a failed run leaves no inspectable state
-        const outcome = runSketch(msg.js, msg.cfg);
+        lastRun = null;
+        const outcome = runSketch(msg.js, msg.cfg, msg.cfg.seed ?? sessionSeed, assets, fills);
         if (outcome.error || !outcome.scene) {
           const err = outcome.error;
           self.postMessage({
@@ -155,7 +163,9 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
           break;
         }
         const scene = outcome.scene;
+        const run = outcome.run!;
         lastExecutionId = msg.id;
+        lastRun = run;
         const raw = renderEncoded(mod, scene);
         geometrySnapshot = null; renderedPlanHash = null;
         last = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper };
@@ -187,12 +197,12 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
             pens: scene.pens,
             frame: scene.frame,
             paper: scene.paper,
-            seedUsed: currentSeed(),
-            overrides: currentOverrides(),
-            draws: msg.cfg.draws ? currentDraws() : undefined,
-            probes: getProbeStats(),
+            seedUsed: currentSeed(run),
+            overrides: currentOverrides(run),
+            draws: msg.cfg.draws ? currentDraws(run) : undefined,
+            probes: run.getProbeStats(),
             executionId: msg.id,
-            inspections: msg.cfg.inspect ? getInspectionIndex() : [],
+            inspections: msg.cfg.inspect ? run.getInspectionIndex() : [],
             plan,
             planSettings: settings,
             planHash,
@@ -203,8 +213,8 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         break;
       }
       case 'inspect': {
-        if (msg.executionId !== lastExecutionId) throw new Error('stale inspection: the drawing changed — this request was for an earlier render');
-        const payload = inspectionPayload(msg.name);
+        if (msg.executionId !== lastExecutionId || !lastRun) throw new Error('stale inspection: the drawing changed — this request was for an earlier render');
+        const payload = lastRun.inspectionPayload(msg.name);
         if (!payload) throw new Error(`no material registered as '${msg.name}' in this render`);
         const transfer = [payload.x.buffer, payload.y.buffer, payload.edges.buffer] as ArrayBuffer[];
         for (const a of Object.values(payload.attrs)) transfer.push(a.buffer as ArrayBuffer);

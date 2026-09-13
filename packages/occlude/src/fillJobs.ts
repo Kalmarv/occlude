@@ -11,7 +11,7 @@ import { flattenPrim, type Prim } from './prims.js';
 import type { CustomPrimitive, FillCtx, FillRegion } from './fills.js';
 import type { Mat } from './matrix.js';
 import { Rng } from './random.js';
-import type { Winding } from './state.js';
+import type { Winding } from './execution.js';
 import { resolveLen } from './units.js';
 import { PRIM_STRIDE, PrimSink, decodePrim, encodePrim } from './sceneBuffers.js';
 import type { EncodedScene } from './render.js';

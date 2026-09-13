@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileSketch, getState, probeExpression, sketch, synth } from '../src/index.js';
+import { compileSketch, probeExpression, sketch, synth } from '../src/index.js';
 
 const B = { x: 0, y: 0, w: 100, h: 100 };
 
@@ -161,7 +161,7 @@ describe('synth', () => {
 
   it('takes the sketch seed directly, and an offset gives a different one', () => {
     compileSketch(sketch({ aspect: 'square', seed: 42 }, (t) => {
-      const seed = getState().seedUsed;
+      const seed = 42; // the sketch's own
       const a = t.synth(['x', 'y'], { seed, bounds: B });
       const b = t.synth(['x', 'y'], { seed, bounds: B });
       const c = t.synth(['x', 'y'], { seed: Number(seed) + 1, bounds: B });

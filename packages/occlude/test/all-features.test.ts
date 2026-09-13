@@ -24,7 +24,7 @@ import {
   DEFAULT_PENS, estimatePlanMs, exportSvg, hashPlan, initOcclude, plan, planToolpath, render,
   selectAll, type EstimateOpts,
 } from '../src/index.js';
-import { preloadAssetsFromDisk } from '../tools/asset-preload.js';
+import { assetsFromDisk } from '../tools/asset-preload.js';
 import allFeatures from './fixtures/all-features.js';
 
 const PAPER = 'Square20';
@@ -59,8 +59,8 @@ beforeAll(async () => {
 });
 
 it('pins the ink of the whole-surface sketch', async () => {
-  preloadAssetsFromDisk(readFileSync(fixturePath, 'utf8'));
-  const result = render(allFeatures, { paper: PAPER });
+  const assets = assetsFromDisk(readFileSync(fixturePath, 'utf8'));
+  const result = render(allFeatures, { paper: PAPER, assets });
   const drawing = await plan(result);
 
   // hashPlan is the exported door to the plan identity: it must agree with
@@ -77,7 +77,7 @@ it('pins the ink of the whole-surface sketch', async () => {
   const flat = planToolpath(drawing, selectAll(drawing), 0.05);
   const actual: FeaturePin = {
     fragments: result.frags.length,
-    svgHash: sha256(exportSvg(allFeatures, { paper: PAPER })),
+    svgHash: sha256(exportSvg(allFeatures, { paper: PAPER, assets })),
     planHash: drawing.planHash,
     estimateMs: Math.round(estimatePlanMs(flat, penOf, TIMING).totalMs),
   };

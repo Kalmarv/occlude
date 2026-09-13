@@ -15,9 +15,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import {
-  compileSketch, exportPng, exportSvg, initOcclude, isSketch, paperSize,
-  setPaperHint, type SketchDef,
+  exportPng, exportSvg, initOcclude, isSketch, paperSize, type SketchDef,
 } from '../src/index.js';
+import { inputsFor, seedArg } from './inputs.js';
 
 const args = process.argv.slice(2);
 const sketchFile = args.find((a) => !a.startsWith('--'));
@@ -43,28 +43,11 @@ const scale = parseFloat(opt('scale') ?? '8');
 const out = opt('out') ?? 'sketch.png';
 const svgOut = opt('svg');
 
-// The sketch reads its seed from the URL; give it one.
-if (seed !== undefined) {
-  (globalThis as Record<string, unknown>).location = { search: `?seed=${seed}` };
-}
-
 const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
 );
 await initOcclude(readFileSync(wasmPath));
-if (opt('pens') === 'docs') {
-  // the docs' own pens, as the docs pages and their checker use them
-  occlude.setPenLibrary(structuredClone(occlude.DEFAULT_PENS));
-} else {
-  try {
-    const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
-    occlude.setPenLibrary(JSON.parse(readFileSync(pensPath, 'utf8')));
-  } catch {
-    // default pens
-  }
-}
 const size = paperSize({ paper: paper as never, landscape });
-setPaperHint(size.w, size.h);
 
 // Transpile the sketch to CommonJS (exactly like the studio runner) and
 // collect its exports.
@@ -72,10 +55,6 @@ const js = transformSync(readFileSync(sketchFile, 'utf8'), {
   loader: 'ts',
   format: 'cjs',
 }).code;
-const { preloadAssetsFromDisk } = await import('./asset-preload.js');
-const { preloadFillsFromDisk } = await import('./fill-preload.js');
-preloadAssetsFromDisk(js);
-preloadFillsFromDisk(js);
 const module = { exports: {} as Record<string, unknown> };
 const requireShim = (name: string): unknown => {
   if (name === 'occlude') return occlude;
@@ -90,12 +69,11 @@ if (!def) {
   console.error('no sketch exported — write `export default sketch({ … }, (toolkit) => tree)`');
   process.exit(1);
 }
-compileSketch(def);
-
-const paperOpt = { paper: paper as never, landscape };
-writeFileSync(out, exportPng({ paper: paperOpt, scale, background: '#f6f2ea' }));
+// the docs' own pens with --pens docs, as the docs pages and their checker use them
+const inputs = inputsFor(js, { paper: { paper: paper as never, landscape }, seed: seedArg(seed), pens: opt('pens') === 'docs' ? 'docs' : 'studio' });
+writeFileSync(out, exportPng(def, { ...inputs, scale, background: '#f6f2ea' }));
 console.log(`wrote ${out} (${size.w}×${size.h}mm at ${scale}px/mm)`);
 if (svgOut) {
-  writeFileSync(svgOut, exportSvg({ paper: paperOpt, background: '#f6f2ea' }));
+  writeFileSync(svgOut, exportSvg(def, { ...inputs, background: '#f6f2ea' }));
   console.log(`wrote ${svgOut}`);
 }

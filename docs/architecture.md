@@ -51,8 +51,13 @@ crates/occlude-core/src/
 
 packages/occlude/src/
   units, matrix         L values (percent/w/h/long/mm), affine transforms
-  state                 the sketch singleton: record lists, pen library,
-                        transform/clip stacks, seeded Rng, paper hint
+  execution             ONE object per run (no module-level sketch state
+                        anywhere): the inputs a host resolved — paper, the
+                        captured pen library, seed, assets, fills — the
+                        sketch's declared paper/pens/margin, the recording
+                        (shapes, clips, stacks), the seeded streams and
+                        addressed draws, probes, inspections, plan and
+                        draw requests; plus the pure `pen`/`paper` vocabulary
   api, shapes           the declarative API: sketch(), shape values, groups,
                         clips, modifiers; compileSketch records them. `origin`
                         is the pivot rotate and scale turn about (`'center'` is
@@ -102,8 +107,11 @@ packages/occlude-studio/
   asset-store.mjs       /api/assets — SVGs and images
   src/editor            Monaco + occlude types as extra libs; emit via the
                         TS worker (CommonJS) — the main thread never RUNS it
-  src/render-worker     owns the whole sketch runtime: asset + fill preload,
-  src/runner              sketch execution, encode, wasm, export state
+  src/render-worker     owns the whole sketch runtime: asset + fill capture,
+  src/runner              one Execution per render (its hooks handed to the
+                          module before it evaluates), `@user/pens` and
+                          `@user/papers` served from the captured libraries,
+                          encode, wasm, the retained plan and export state
   src/workerClient      coalescing render requests + the watchdog
   src/preview, panels   paper bench, sketch/fill libraries, pen tray,
                         paper/machine, plot, export
@@ -545,6 +553,53 @@ stride-9 prims, plus dot pairs) and returns the extended primitive table
 plus stride-6 fragment rows `[origin, t0, t1, pen, shape, flags]`. Pens
 and machine profiles cross the boundary as JSON.
 
+### Execution: no ambient state
+
+*Where:* `execution.ts` (`Execution`, `ExecutionInputs`, `pen`, `paper`,
+`penModel`, `paperModel`), `api.ts` (`compileSketch`, `bindToolkit`,
+`inspectHook`), `render.ts` (`encodeScene(exec)`, `render(def | exec)`),
+the studio's `runner.ts`/`render-worker.ts`, pinned by
+`test/execution-isolation.test.ts`, `test/pens-paper.test.ts` and the
+studio's `runner.test.ts`.
+
+- **One object per run.** `new Execution(inputs)` → `compileSketch(def,
+  exec)` (or `compileSketch(def, inputs)`) → `encodeScene(exec)` →
+  `renderEncoded` → `plan`/`exportSvg(exec)`. There is no current sketch,
+  paper hint, pen library, seed hint, inspect flag or registry in any
+  module: every function that reads a run takes it as an argument, and
+  the toolkit a sketch receives is bound to its run (`bindToolkit`).
+  Two runs never share a byte; interleaving them phase by phase gives
+  exactly what each gives alone, and a run that throws — in the sketch
+  body, a fill job, or `wasm_finish` — or is abandoned half way leaves
+  nothing for the next run to observe (the isolation test).
+- **Inputs are values the host resolved.** Paper (`{ w, h, color? }` mm),
+  the captured pen library, the seed for an open-seeded sketch, the
+  host's default margin, the asset and fill tables the source references
+  (`assetTable`, `fillTable`), and whether inspection is on. URL and
+  session seeds, library fetches and asset decoding are the host's job
+  (the worker rolls one session seed per worker; tools take `--seed`);
+  `DEFAULT_INPUTS` is A4, the package's pens, seed 0 — a fixed default,
+  never a session's. `inputs` is frozen and copied: editing a library
+  after a run changes nothing in it.
+- **The sketch's declarations win.** `paper:` overrides the host's sheet;
+  `pens:` are sketch-local instances (`pen()`, or a library model's
+  factory from `@user/pens`), resolved first; an undeclared name resolves
+  from the captured library; `margin` is a percent or a physical length;
+  `pen:` or the first declared pen is the default. `stroke:`, `fillPen:`,
+  `pen:` and `fill()` syntax is unchanged.
+- **Pure factories stay pure.** `circle`, `fill`, `polygon`, `paper`,
+  `pen`, `mm`/`inch`, `rotate`/`scale` of a field return values and touch
+  no run. A shape given as an area (`polygon(circle(…))`) is an `area`
+  geometry lowered when the drawing is recorded, so it needs no run in
+  hand. What reads the run lives on the toolkit: `t.within`,
+  `t.translate` (unit lengths), `t.noiseField`, `t.image`, `t.asset`,
+  `t.synth`, `t.rnd` …
+- **What the run reports** — seed as used with its overrides, the draw
+  log, probes, inspections — is read from the object (`getOverrideReport`,
+  `getDrawLog`, `getProbeStats`, `getInspectionIndex`,
+  `inspectionPayload`); the worker keeps the last run for inspection and
+  refuses a stale execution id as before.
+
 ## Studio persistence
 
 Sketches, fills, pens, machine profiles, assets, and the plot log live on
@@ -554,5 +609,5 @@ sketch (and a fill draft), the UI layout, and offline caches of pens and
 profiles; the sketch saves on every (debounced) run, including runs that
 fail. The seed rides the URL fragment (`#seed=…`, encoded, so a long seed
 with its draw overrides survives the trip), which is what makes "copy url"
-shareable; the studio hands it to the render worker, and the library itself
-reads `?seed=` when it is the page.
+shareable; the studio hands it to the render worker as the run's seed —
+the library reads no URL of its own.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   distanceTo, material, curve, thicken, polygon, strokes, numericLoops,
-  sketch, compileSketch, setPaperHint, append,
+  sketch, compileSketch, append,
   type Material, type Vertex,
 } from '../src/index.js';
 
@@ -761,8 +761,7 @@ describe('thicken: overlapping recursive rectangles', () => {
   // include adjacent doubles, which integer-only polygon fixtures miss.
   function recursive(level: number, spacing: number | undefined, paper: number, initialSize = 40): Material {
     let result!: Material;
-    setPaperHint(paper, paper);
-    try {
+    {
       compileSketch(sketch({ aspect: [1, 1], margin: 6, seed: 42 }, (t) => {
         const b = t.bounds();
         let size = initialSize;
@@ -775,8 +774,8 @@ describe('thicken: overlapping recursive rectangles', () => {
         }
         result = m;
         return [];
-      }));
-    } finally { setPaperHint(210, 297); }
+      }), { paper: { w: paper, h: paper } });
+    }
     return result;
   }
 

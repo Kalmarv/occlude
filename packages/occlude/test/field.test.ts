@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { A4, SQ, toolkit } from './helpers/run.js';
 import {
   circle, compileSketch, deform, encodeScene, fill, group, initOcclude, mm, path, rect, render,
-  rotate, scale, setPaperHint, sketch, stroke, translate, vectorField, within, strokes , type Material } from '../src/index.js';
+  rotate, scale, sketch, stroke, translate, vectorField, within, strokes , type Material } from '../src/index.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
 import type { RenderOptions, SketchDef } from '../src/index.js';
 
@@ -71,8 +72,9 @@ describe('field transforms', () => {
 });
 
 describe('within: domain bounds and absence', () => {
+  const tk = toolkit({}, A4);
   it('absent outside the bound, exact values inside', () => {
-    const f = within(() => 7, circle(50, 50, 10));
+    const f = tk.within(() => 7, circle(50, 50, 10));
     expect(f(50, 50)).toBe(7);
     expect(Number.isNaN(f(70, 50))).toBe(true);
   });
@@ -81,8 +83,8 @@ describe('within: domain bounds and absence', () => {
     // The containment test is built at the first sample and reused. Two
     // bounds sampled alternately must each answer for themselves, and a
     // bound asked the same question a thousand times must not drift.
-    const a = within(() => 1, circle(30, 30, 10));
-    const b = within(() => 2, circle(70, 70, 10, { translate: [5, 0] }));
+    const a = tk.within(() => 1, circle(30, 30, 10));
+    const b = tk.within(() => 2, circle(70, 70, 10, { translate: [5, 0] }));
     for (let i = 0; i < 200; i++) {
       expect(a(30, 30)).toBe(1);
       expect(Number.isNaN(a(70, 70))).toBe(true);
@@ -92,21 +94,21 @@ describe('within: domain bounds and absence', () => {
       expect(b(84.9, 70)).toBe(2);
       expect(Number.isNaN(b(85.1, 70))).toBe(true);
     }
-    const c = within(() => 3, circle(50, 50, 20));
+    const c = tk.within(() => 3, circle(50, 50, 20));
     const first = c(50, 50);
     for (let i = 0; i < 1000; i++) expect(c(50, 50)).toBe(first);
     expect(first).toBe(3);
   });
 
   it('nested bounds are a conjunction', () => {
-    const f = within(within(() => 1, circle(50, 50, 20)), circle(60, 50, 20));
+    const f = tk.within(tk.within(() => 1, circle(50, 50, 20)), circle(60, 50, 20));
     expect(f(55, 50)).toBe(1); // inside both
     expect(Number.isNaN(f(35, 50))).toBe(true); // only in the first
     expect(Number.isNaN(f(75, 50))).toBe(true); // only in the second
   });
 
   it('honors the bound shape\'s transform opts', () => {
-    const f = within(() => 1, circle(0, 0, 5, { translate: [50, 50] }));
+    const f = tk.within(() => 1, circle(0, 0, 5, { translate: [50, 50] }));
     expect(f(50, 50)).toBe(1);
     expect(Number.isNaN(f(0, 0))).toBe(true);
   });
@@ -116,7 +118,7 @@ describe('within: domain bounds and absence', () => {
     // the domain edge itself. Correct output: NO contours at all (nothing
     // crosses the level inside the domain) — the old sentinel behavior drew
     // a staircase ring hugging the circle.
-    const f = within(() => 5, circle(50, 50, 20));
+    const f = tk.within(() => 5, circle(50, 50, 20));
     const cs = isolinesOf(env, f, 1, { step: 1 });
     expect(cs).toHaveLength(0);
   });
@@ -124,7 +126,7 @@ describe('within: domain bounds and absence', () => {
   it('isolines inside the domain still close normally', () => {
     // A cone inside a generous bound: its level set never touches the
     // domain edge, so the contour closes as always.
-    const f = within(
+    const f = tk.within(
       (x: number, y: number) => 15 - Math.hypot(x - 50, y - 50),
       circle(50, 50, 30),
     );
@@ -135,7 +137,7 @@ describe('within: domain bounds and absence', () => {
 
   it('a contour crossing the domain edge comes back open', () => {
     // The cone's level set pokes past the bound on one side.
-    const f = within(
+    const f = tk.within(
       (x: number, y: number) => 25 - Math.hypot(x - 50, y - 50),
       circle(40, 50, 20),
     );
@@ -146,11 +148,12 @@ describe('within: domain bounds and absence', () => {
 });
 
 describe('within: one geometry language (the lowerer)', () => {
+  const tk = toolkit({}, A4);
   it('honors the sketch rectMode, like the shape itself', () => {
     let centered = false;
     let cornered = true;
-    const def = sketch({ rectMode: 'center' }, () => {
-      const f = within(() => 1, rect(50, 50, 20, 20));
+    const def = sketch({ rectMode: 'center' }, (t) => {
+      const f = t.within(() => 1, rect(50, 50, 20, 20));
       centered = f(50, 50) === 1; // centre of a centred rect
       cornered = f(65, 65) === 1; // inside only if the rect were corner-anchored
       return circle(50, 50, 10);
@@ -161,7 +164,7 @@ describe('within: one geometry language (the lowerer)', () => {
   });
 
   it('refuses an open path as a bound', () => {
-    expect(() => within(() => 1, path().moveTo(0, 0).lineTo(10, 0).lineTo(10, 10).build()))
+    expect(() => tk.within(() => 1, path().moveTo(0, 0).lineTo(10, 0).lineTo(10, 10).build()))
       .toThrow(/closed/);
   });
 
@@ -170,25 +173,21 @@ describe('within: one geometry language (the lowerer)', () => {
     // closed along the chord. A point just under the crown on that side is
     // inside; the chord approximation would call both sides outside.
     const half = path().moveTo(30, 50).arcTo(70, 50, 20).close().build();
-    const f = within(() => 1, half);
+    const f = tk.within(() => 1, half);
     const above = f(50, 31) === 1;
     const below = f(50, 69) === 1;
     expect(above !== below).toBe(true);
   });
 
-  it('translate() resolves tagged lengths against the paper the sketch renders on', () => {
-    // Built at module scope, before any sketch state: mm(10) must still be
-    // 10 mm of THIS paper at sample time, not of the default A4.
-    const f = translate((x: number) => x, mm(10), 0);
-    let seen = NaN;
-    setPaperHint(200, 200);
-    try {
-      compileSketch(sketch({ aspect: 'paper', margin: 0 }, () => { seen = f(0, 0); return circle(0, 0, 1); }));
-    } finally {
-      setPaperHint(210, 297);
-    }
+  it('translate() resolves tagged lengths against the paper of the run it belongs to', () => {
+    // A bound toolkit resolves mm(10) against ITS paper, not the default A4.
+    const t200 = toolkit({ aspect: 'paper', margin: 0 }, SQ);
+    const f = t200.translate((x: number) => x, mm(10), 0);
     // 200 mm short side → 100 units; 10 mm = 5 units → f(0,0) = -5.
-    expect(seen).toBeCloseTo(-5, 6);
+    expect(f(0, 0)).toBeCloseTo(-5, 6);
+    // the module form takes bare numbers only — a unit length needs the run
+    expect(translate((x: number) => x, 10, 0)(0, 0)).toBe(-10);
+    expect(() => translate((x: number) => x, mm(10), 0)(0, 0)).toThrow(/t\.translate/);
   });
 });
 
@@ -205,11 +204,11 @@ describe('engine field uses: exact domains, shape anchoring, shared grids', () =
     // OUTSIDE the circle; the exact domain leaves every outside vertex on
     // its row. The 0.3 mm amplitude keeps displaced inside vertices within
     // 0.3 mm of the circle, so the two populations cannot be confused.
-    const def = sketch({ seed: 3 }, () =>
+    const def = sketch({ seed: 3 }, (t) =>
       rect(10, 10, 80, 80, {
         stroke: false,
         fill: fill('hatch', { angle: 0, spacing: mm(1) }),
-        wobble: { amount: within(() => mm(0.3), circle(50, 50, 20)), wavelength: mm(3) },
+        wobble: { amount: t.within(() => mm(0.3), circle(50, 50, 20)), wavelength: mm(3) },
       }),
     );
     const out = sq(def);
@@ -278,11 +277,11 @@ describe('engine field uses: exact domains, shape anchoring, shared grids', () =
 
   it('a thousand shape-aligned uses share ONE grid (the transform lives outside it)', () => {
     const f = (x: number, y: number) => Math.hypot(x, y) < 5 ? 1 : 0;
-    compileSketch(sketch({ seed: 1 }, (t) =>
+    const exec = compileSketch(sketch({ seed: 1 }, (t) =>
       t.times(40, (k) => circle(5 + (k % 8) * 12, 5 + Math.floor(k / 8) * 12, 4, {
         fill: fill('solid'), decimate: { fill: f, align: 'shape' },
-      }))));
-    const scene = encodeScene({ paper: 'Square20' });
+      }))), SQ);
+    const scene = encodeScene(exec);
     let grids = 0;
     for (let i = 0; i < scene.fieldData.length; ) {
       grids++;
@@ -402,7 +401,7 @@ describe('align: shape-anchored fills follow the motif', () => {
 describe('stroke: contour stamping without the seam foot-gun', () => {
   it('closed contours keep their seam; fine open chains survive whole', () => {
     const def = sketch({ seed: 6 }, (t) => {
-      const f = within(
+      const f = t.within(
         (x: number, y: number) => t.noise(x / 5, y / 22),
         circle(50, 50, 40),
       );
@@ -426,18 +425,17 @@ describe('stroke: contour stamping without the seam foot-gun', () => {
   });
 });
 
-it('reuses one bounded field across paper, margin, and coordinate frames', () => {
-  const bounded = within(() => 1, circle(50, 50, mm(10)));
+it('a bounded field answers for the run it was made in: paper, margin and coordinate frame', () => {
   for (const [size, margin, expected] of [[200, 0, 1], [400, 0, NaN], [400, 40, 1], [200, 0, 1]]) {
-    setPaperHint(size, size);
-    compileSketch(sketch({ margin, seed: 1 }, () => {
+    compileSketch(sketch({ margin, seed: 1 }, (t) => {
+      const bounded = t.within(() => 1, circle(50, 50, mm(10)));
       expect(bounded(54, 50)).toBe(expected);
       return [];
-    }));
+    }), { paper: { w: size, h: size } });
   }
-  const box = within(() => 1, rect(0, 0, 20, 20));
   for (const rectMode of ['corner', 'center', 'corner'] as const) {
-    compileSketch(sketch({ rectMode, seed: 1 }, () => {
+    compileSketch(sketch({ rectMode, seed: 1 }, (t) => {
+      const box = t.within(() => 1, rect(0, 0, 20, 20));
       expect(Number.isFinite(box(15, 5))).toBe(rectMode === 'corner');
       return [];
     }));

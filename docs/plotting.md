@@ -4,9 +4,48 @@ The route from a sketch to paper: paper and pens, choosing which part of the ord
 
 ## Paper and pens
 
-Papers: `PAPERS` holds A3 to A6, Letter and Square20; a custom size is `{ paper: { w, h } }`. The studio's Paper panel picks the sheet, landscape, the margin, and the paper colour. Colour paints under the ink in the preview and in both exports so that, say, a white gel pen on black stock reads on screen as it will on paper; it changes nothing about the ink or the plot.
+A sketch declares the sheet it is drawn on and the pens it draws with, so the same program produces the same ink wherever it runs — in the studio, headless, or from a shared file. Both are values: `paper()` and `pen()` are pure factories, and a library entry is a model you instantiate.
 
-A pen is `{ name, width, color, feed, penDown, penUp, penDelay, reinkMm? }`. `width` in millimetres is what the nib rule reads. Unknown pen names are an error, so a shared sketch fails loudly rather than plotting with the wrong nib. `DEFAULT_PENS` ships a starter set; the studio keeps its own library on the server and hands it to the engine with `setPenLibrary(pens)`. Pens with a `reinkMm` budget (paint markers, dip pens, brushes) pause the plot at the first stroke boundary past that many drawn millimetres and wait for Resume; 0 turns it off.
+```ts live
+import { sketch, circle, line, paper, pen, inch, mm } from 'occlude';
+
+export default sketch({
+  paper: paper({ width: inch(8.5), height: inch(11), color: '#F5F0E6' }),
+  pens: {
+    blue: pen({ width: mm(0.3), color: '#2457D6' }),
+    heavy: pen({ width: mm(0.8), color: '#D64045', feed: 1800 }),
+  },
+  margin: inch(0.5),
+  seed: 42,
+}, (t) => [
+  t.times(9, (_, u) => line(0, u * t.height, t.width, u * t.height, { stroke: 'heavy' })),
+  t.times(12, () => circle(t.rnd(10, 90), t.rnd(10, t.height - 10), t.rnd(4, 12), { stroke: 'blue', opaque: true })),
+]);
+```
+
+`paper({ width, height, color? })` takes any physical length — `inch(8.5)`, `mm(210)`, or a number of millimetres — and resolves to millimetres once. `PAPERS` still holds the named sizes (A3 to A6, Letter, Square20) for hosts and tools. Colour paints under the ink in the preview and in both exports so that, say, a white gel pen on black stock reads on screen as it will on paper; it changes nothing about the ink or the plot. `margin` is a composition setting of the sketch: a percent of the short side, or a physical length. A sketch that declares no `paper` is drawn on whatever sheet the host chooses (the studio's Paper panel, a tool's `--paper`).
+
+`pen({ width, color?, feed?, penDown?, penUp?, penDelay?, reinkMm? })` is a complete pen: `width` in millimetres is what the nib rule reads; the machine settings default like the package's own pens when left out. `pens` names them for this sketch — `stroke: 'blue'`, `fillPen: 'heavy'`, `fill('hatch')` under `pen: 'blue'` all look the names up here first — and the first entry is the default pen unless `pen:` says otherwise.
+
+The studio keeps a pen library on the server, and every entry is a **model** a sketch imports and instantiates. An instance inherits the model's width, feed, lifts and delays; the overrides — a colour, most often — are its own, and no instance touches the library:
+
+```ts
+import { sketch, circle } from 'occlude';
+import { fineliner } from '@user/pens';
+import { a4 } from '@user/papers';
+
+export default sketch({
+  paper: a4({ color: '#ffffff' }),
+  pens: {
+    blue: fineliner({ color: '#2457D6' }),
+    red: fineliner({ color: '#D64045' }),
+  },
+}, (t) => [circle(40, 50, 20, { stroke: 'blue' }), circle(60, 50, 20, { stroke: 'red' })]);
+```
+
+Twenty colours of one pen are twenty pens for grouping, pen changes and export, and one library entry. A library name works directly too — `stroke: 'micron-03'` resolves from the captured library when the sketch declares no pen of that name — so older sketches keep running. Unknown pen names are an error, so a shared sketch fails loudly rather than plotting with the wrong nib. `DEFAULT_PENS` ships a starter set. Pens with a `reinkMm` budget (paint markers, dip pens, brushes) pause the plot at the first stroke boundary past that many drawn millimetres and wait for Resume; 0 turns it off.
+
+Every run snapshots what it resolved — the sheet, the pen instances, the seed — and a saved result keeps that snapshot; editing the library changes later runs only. Headless, the same inputs are explicit: `render(def, { paper, library, seed, assets, fills })`, or a compiled `Execution`. Nothing about a run is read from a session or a global.
 
 ## The ordered drawing
 

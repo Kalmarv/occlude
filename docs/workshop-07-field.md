@@ -117,7 +117,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 **Follow the arrows.** `t.streamlines(field, { spacing })` starts lines and follows the field from each, keeping them a set distance apart and stopping a line when it would come too close to another or leave the sheet. On the rightward field the lines are horizontal and evenly spaced; on the turning field they are circles. A streamline follows a direction; a contour follows a value. Set the spacing and watch the count change while every line stays where it was.
 
 ```ts live focus=8-10
-import { sketch, strokes, group, rect, within, ui } from 'occlude';
+import { sketch, strokes, group, rect, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
   const spacing = ui(2, { min: 0.8, max: 6, step: 0.2, label: 'line spacing (mm)' });
@@ -125,8 +125,8 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const turning = (x, y) => [-(y - 50), x - 50];
   const half = rect(0, 0, 100, 100);
   return [
-    strokes(t.streamlines(within(rightward, half), { spacing })),
-    group({ translate: [100, 0] }, strokes(t.streamlines(within(turning, half), { spacing }))),
+    strokes(t.streamlines(t.within(rightward, half), { spacing })),
+    group({ translate: [100, 0] }, strokes(t.streamlines(t.within(turning, half), { spacing }))),
   ];
 });
 ```
@@ -138,7 +138,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 A scalar field has a slope at every point, and `curl(field)` turns the slope a quarter turn: a vector field that runs along the contours instead of across them. Streamlines of `curl(land)` therefore trace the same shapes the contours did, but with different placement: a contour is wherever a chosen value is, a streamline is wherever the spacing allows one. The two drawings are the same landscape read by two rules.
 
 ```ts live focus=6-7,11
-import { sketch, strokes, curl, group, rect, within, ui } from 'occlude';
+import { sketch, strokes, curl, group, rect, ui } from 'occlude';
 
 export default sketch({ aspect: [3, 1], seed: 9 }, (t) => {
   const scale = ui(40, { min: 12, max: 60, step: 1, label: 'noise scale' });
@@ -147,8 +147,8 @@ export default sketch({ aspect: [3, 1], seed: 9 }, (t) => {
   const heights = t.times(7, (k) => (k + 1) / 8);
   const half = rect(0, 0, 148, 100);
   return [
-    strokes(t.isolines(within(land, half), heights, { step: 1 })),
-    group({ translate: [152, 0] }, strokes(t.streamlines(within(along, half), { spacing: 2 }))),
+    strokes(t.isolines(t.within(land, half), heights, { step: 1 })),
+    group({ translate: [152, 0] }, strokes(t.streamlines(t.within(along, half), { spacing: 2 }))),
   ];
 });
 ```
@@ -203,7 +203,7 @@ The two can be one function: `land` for the meaning and the distance from `focus
 **Put something in the stream.** A drawing with one region of emphasis can take an interruption near it, and an interruption tests whether the flow survives it. Two ways to put a disc in the stream. Left: the lines are drawn and then cut, `clip(invert(disc), …)` keeping only the ink outside the disc; the flow passes behind the disc and comes out the other side unchanged. Right: the field itself is changed. `unit` makes the flow's direction a vector of length 1, and `away` is a push straight out from the disc's centre, as strong as the flow at the disc's edge and fading with the square of the distance; added together, the lines bend around the disc and close up again downstream, the way water goes round a stone. The flow's own strength is discarded on purpose: a streamline follows direction, and the push has to be measured against something of a known size.
 
 ```ts live focus=8-10
-import { sketch, strokes, circle, clip, invert, curl, distance, sub, mul, add, unit, group, rect, within } from 'occlude';
+import { sketch, strokes, circle, clip, invert, curl, distance, sub, mul, add, unit, group, rect } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const land = (x, y) => 0.5 + 0.5 * t.noise(x / 50, y / 50);
@@ -213,8 +213,8 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const away = (x, y) => mul(unit(sub([x, y], stone)), Math.min(1, Math.pow(12 / distance([x, y], stone), 2)));
   const around = (x, y) => add(unit(along(x, y)), away(x, y));
   return [
-    clip(invert(circle(50, 50, 12)), strokes(t.streamlines(within(along, half), { spacing: 1.6 }))),
-    group({ translate: [100, 0] }, strokes(t.streamlines(within(around, half), { spacing: 1.6 })), circle(50, 50, 12, { opaque: true, stroke: false })),
+    clip(invert(circle(50, 50, 12)), strokes(t.streamlines(t.within(along, half), { spacing: 1.6 }))),
+    group({ translate: [100, 0] }, strokes(t.streamlines(t.within(around, half), { spacing: 1.6 })), circle(50, 50, 12, { opaque: true, stroke: false })),
   ];
 });
 ```

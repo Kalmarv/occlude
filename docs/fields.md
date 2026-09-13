@@ -109,12 +109,12 @@ Four pure imports transform a field's sampling:
 Transformed fields stay plain callables. Vector fields follow the same rule as iron filings: wrap a custom one in `vectorField(fn)` and rotation turns its arrows too; magnitudes never scale, so a 2 mm displacement stays 2 mm at any motif size. `grad(f)` and `curl(f)` lift a scalar field to a vector one: the gradient points uphill, and the curl is the gradient turned 90°, so it runs along the contours of `f`.
 
 ```ts live
-import { sketch, circle, strokes, rotate, within } from 'occlude';
+import { sketch, circle, strokes, rotate } from 'occlude';
 
 // Grain bounded to a disc and rotated 30°. Contours end at the bound.
 export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
   const grain = rotate((x, y) => t.noise(x / 8, y / 40), 30);
-  const f = within(grain, circle(100, 50, 42));
+  const f = t.within(grain, circle(100, 50, 42));
   return [
     circle(100, 50, 42),
     strokes(t.isolines(f, [0.1, 0.35, 0.6], { step: 0.6 })),
@@ -252,14 +252,14 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
 ```
 
 ```ts live
-import { sketch, circle, strokes, curl, within, distanceTo } from 'occlude';
+import { sketch, circle, strokes, curl, distanceTo } from 'occlude';
 
 // Hatch that wraps a form: the curl of its distance field runs along the
 // outline, and spacing grows with the distance so the hatch fades out.
 export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
   const form = circle(100, 50, 22);
   const d = distanceTo(t.material(form));
-  const around = within(curl(d), circle(100, 50, 48));
+  const around = t.within(curl(d), circle(100, 50, 48));
   return [
     form,
     strokes(t.streamlines(around, { spacing: (x, y) => 0.7 + Math.abs(d(x, y)) * 0.12 })),

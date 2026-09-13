@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { SQ } from './helpers/run.js';
 import {
-  BUILTIN_FILL_NAMES, circle, clearFills, compileSketch, encodeScene, fill, fillAsset, initOcclude, line,
-  isBuiltinFill, loadFillModule, registerFill, render, renderEncoded, resolveFill, rulings,
+  BUILTIN_FILL_NAMES, circle, compileSketch, encodeScene, fill, fillAsset, fillTable, initOcclude, line,
+  isBuiltinFill, loadFillModule, render, renderEncoded, resolveFill, rulings,
   scanFillNames, sketch, type WasmModule,
 } from '../src/index.js';
 
@@ -24,7 +25,7 @@ describe('fill registry', () => {
   });
 
   it('refuses to shadow a built-in', () => {
-    expect(() => registerFill('hatch', { params: {}, generate: () => [] })).toThrow(/built-in/);
+    expect(() => fillTable([['hatch', { params: {}, generate: () => [] }]])).toThrow(/built-in/);
   });
 
   it('scans literal fill names, including the CJS indirect call form', () => {
@@ -45,23 +46,22 @@ export default fillAsset({
   generate(region, p, ctx) { return rulings(region, { spacing: p.spacing, angle: 30 }); },
 });`;
 
-  it('evaluates an ESM fill file, registers it, and renders through fill(name)', () => {
-    clearFills();
-    loadFillModule('lines30', ESM);
-    expect(resolveFill('lines30')).toBeDefined();
+  it('evaluates an ESM fill file into a table the run captures, and renders through fill(name)', () => {
+    const fills = fillTable([['lines30', loadFillModule('lines30', ESM)]]);
+    expect(resolveFill('lines30', fills)).toBeDefined();
+    expect(resolveFill('lines30')).toBeUndefined(); // no registry: a run without the table has no such fill
     const def = sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('lines30') }));
-    const out = render(def, { paper: 'Square20' });
+    const out = render(def, { paper: 'Square20', fills });
     expect(out.frags.filter((f) => f.origin >= 2).length).toBeGreaterThan(10);
     // Params at the call site override the declared defaults.
     const dense = render(
       sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('lines30', { spacing: 0.5 }) })),
-      { paper: 'Square20' },
+      { paper: 'Square20', fills },
     );
     expect(dense.stats.fillPrims).toBeGreaterThan(out.stats.fillPrims * 2);
   });
 
   it('accepts the already-CommonJS form a TS emit produces', () => {
-    clearFills();
     const cjs = `"use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const occlude_1 = require("occlude");
@@ -84,7 +84,6 @@ export default fillAsset({ params: {}, generate: () => [] });`)).toThrow(/only f
   });
 
   it('reads imports, not prose: a clone header saying "from \'hatch\'" is fine', () => {
-    clearFills();
     const src = `// Cloned from 'hatch' — this copy is yours; 'hatch' itself never changes.
 import {
   fillAsset,
@@ -107,7 +106,6 @@ export default fillAsset({ params: {}, generate: (r) => rulings(r, { spacing: 1 
   });
 
   it('hands a fill the pure surface only — no host setters, registry, or render entry points', () => {
-    clearFills();
     const probe = loadFillModule('probe', `
 import { fillAsset } from 'occlude';
 const o = require('occlude');
@@ -115,7 +113,7 @@ export default fillAsset({ params: { keys: Object.keys(o) }, generate: () => [] 
     const keys = probe.params.keys as string[];
     expect(keys).toContain('rulings');
     expect(keys).toContain('mm');
-    for (const k of ['setSeedHint', 'setPenLibrary', 'setPaperHint', 'getState', 'registerFill', 'clearFills', 'render', 'loadFillModule']) {
+    for (const k of ['Execution', 'fillTable', 'assetTable', 'compileSketch', 'render', 'loadFillModule', 'bindToolkit']) {
       expect(keys).not.toContain(k);
     }
   });
@@ -126,11 +124,10 @@ export default fillAsset({ params: { keys: Object.keys(o) }, generate: () => [] 
 
   it('refuses a file whose default export is not a fill module', () => {
     expect(() => loadFillModule('notafill', `export default 42;`)).toThrow(/fillAsset/);
-    expect(() => loadFillModule('hatch', ESM)).toThrow(/built-in/);
+    expect(() => fillTable([['hatch', loadFillModule('hatch', ESM)]])).toThrow(/built-in/);
   });
 
   it('unregistered names fail loudly at encode, naming the panel', () => {
-    clearFills();
     const def = sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('ghost') }));
     expect(() => render(def, { paper: 'Square20' })).toThrow(/unknown fill 'ghost'.*Fills page/);
   });
@@ -154,7 +151,6 @@ describe('rulings', () => {
 
 describe('fill by value', () => {
   it('fill(asset, params) uses a fillAsset defined in the sketch, no library involved', () => {
-    clearFills();
     const bars = fillAsset({
       params: { spacing: 3, angle: 90 },
       generate(region, p) { return rulings(region, { spacing: p.spacing, angle: p.angle }); },
@@ -183,9 +179,9 @@ describe('pass-1 handle lifetime', () => {
     }) as unknown as WasmModule;
 
   it('frees the handle when a fill throws (and never reaches finish)', () => {
-    compileSketch(sketch({ seed: 1 }, () =>
-      circle(50, 50, 20, { fill: () => { throw new Error('boom'); } })));
-    const scene = encodeScene({ paper: 'Square20' });
+    const exec = compileSketch(sketch({ seed: 1 }, () =>
+      circle(50, 50, 20, { fill: () => { throw new Error('boom'); } })), SQ);
+    const scene = encodeScene(exec);
     let freed = 0;
     const mod = stub(() => { freed++; }, () => { throw new Error('finish must not run'); });
     expect(() => renderEncoded(mod, scene)).toThrow('boom');
@@ -193,8 +189,8 @@ describe('pass-1 handle lifetime', () => {
   });
 
   it('never frees a handle that finish consumed', () => {
-    compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('hatch') })));
-    const scene = encodeScene({ paper: 'Square20' });
+    const exec = compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('hatch') })), SQ);
+    const scene = encodeScene(exec);
     let freed = 0;
     const mod = stub(
       () => { freed++; },
@@ -208,8 +204,8 @@ describe('pass-1 handle lifetime', () => {
   });
 
   it('a finish error propagates and the handle is NOT freed here (finish consumed it)', () => {
-    compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('hatch') })));
-    const scene = encodeScene({ paper: 'Square20' });
+    const exec = compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('hatch') })), SQ);
+    const scene = encodeScene(exec);
     let freed = 0;
     const mod = stub(() => { freed++; }, () => { throw new Error('finish failed'); });
     expect(() => renderEncoded(mod, scene)).toThrow('finish failed');
@@ -217,8 +213,8 @@ describe('pass-1 handle lifetime', () => {
   });
 
   it('frees the finish result exactly once, after its buffers are taken', () => {
-    compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('hatch') })));
-    const scene = encodeScene({ paper: 'Square20' });
+    const exec = compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('hatch') })), SQ);
+    const scene = encodeScene(exec);
     let resultFreed = 0;
     const prims = new Float64Array([0, 1, 2, 3, 4, 0, 0, 0, 0]);
     const mod = stub(
@@ -239,9 +235,9 @@ describe('the encoded primitive buffer', () => {
     // Far past the sink's first capacity (1024 numbers = 113 primitives) and
     // several doublings beyond, so a lost prefix or a short view shows up.
     const N = 3000;
-    compileSketch(sketch({ seed: 1 }, () =>
-      Array.from({ length: N }, (_, i) => line(i * 0.03, 1, i * 0.03, 2))));
-    const scene = encodeScene({ paper: 'Square20' });
+    const exec = compileSketch(sketch({ seed: 1 }, () =>
+      Array.from({ length: N }, (_, i) => line(i * 0.03, 1, i * 0.03, 2))), SQ);
+    const scene = encodeScene(exec);
     expect(scene.prims).toBeInstanceOf(Float64Array);
     expect(scene.prims.length).toBe(N * 9);
     // every row is a line, and the x of each is strictly beyond the last:

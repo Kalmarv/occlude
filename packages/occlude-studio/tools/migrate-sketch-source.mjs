@@ -381,6 +381,52 @@ function rewriteLevelStatement(src) {
   return out + src.slice(last);
 }
 
+/**
+ * 2026-09-13 execution context (working/execution-context.md): the
+ * module-level forms that read the run — `within(field, shape)`,
+ * `image('…')`, `asset('…')`, `noiseField(…)` — became toolkit members,
+ * because a run's paper, frame and captured assets are no longer ambient:
+ *   within(…)     → t.within(…)
+ *   image(…)      → t.image(…)
+ *   asset(…)      → t.asset(…)
+ *   noiseField(…) → t.noiseField(…)
+ * and the names leave the `import { … } from 'occlude'` line. Bare
+ * identifiers only, outside strings and comments, never after `.` (so
+ * `t.within`, `img.field`, `cell.image` are untouched). A sketch whose
+ * function does not receive `t` is left for the author: store-sweep
+ * reports it.
+ */
+const RUN_BOUND = ['within', 'image', 'asset', 'noiseField'];
+
+function rewriteRunBound(src) {
+  let out = '';
+  let last = 0;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (c === '"' || c === "'" || c === '`') {
+      for (i++; i < src.length && src[i] !== c; i++) if (src[i] === '\\') i++;
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '/') { const nl = src.indexOf('\n', i); i = nl < 0 ? src.length : nl; continue; }
+    if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 ? src.length : e + 1; continue; }
+    if (/[\w$.]/.test(src[i - 1] ?? ' ')) continue;
+    for (const name of RUN_BOUND) {
+      if (src.startsWith(name, i) && src[i + name.length] === '(') {
+        out += src.slice(last, i) + 't.' + name;
+        last = i + name.length;
+        i = last - 1;
+        break;
+      }
+    }
+  }
+  out += src.slice(last);
+  // the names leave the occlude import (nothing else of the line changes)
+  return out.replace(/import \{([^}]*)\} from 'occlude';/g, (m, list) => {
+    const keep = list.split(',').map((n) => n.trim()).filter((n) => n && !RUN_BOUND.includes(n));
+    return `import { ${keep.join(', ')} } from 'occlude';`;
+  });
+}
+
 export function migrateSketchSource(src) {
   // Bare identifiers (imports, destructures, calls) and the toolkit-prefixed
   // spellings `t.region` / `t.trace` / `t.loops`. Other receivers are left
@@ -397,7 +443,7 @@ export function migrateSketchSource(src) {
       rewriteFieldResults(rewriteBindings(rewriteLevelStatement(rewritePolylines(renamed)))),
     ),
   );
-  return addStrokesImport(rewritten);
+  return rewriteRunBound(addStrokesImport(rewritten));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

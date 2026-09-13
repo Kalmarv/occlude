@@ -302,11 +302,11 @@ export default sketch({ aspect: [2, 1], seed: 9 }, () => [
 `deform(vectorField)` displaces contours by an `(x, y) => [dx, dy]` field before the solve. `noiseField(amount, wavelength?)` is a ready-made one.
 
 ```ts live
-import { sketch, modify, deform, noiseField, rect } from 'occlude';
+import { sketch, modify, deform, rect } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 2 }, (t) =>
   modify(
-    [deform(noiseField(6, 30))],
+    [deform(t.noiseField(6, 30))],
     t.times(8, (k, u) => rect(14 + u * 150, 20, 18, 60)),
   ),
 );
@@ -417,7 +417,7 @@ constants). Combined with `within(...)` that gives a tremor which fades out
 over part of the drawing:
 
 ```ts live
-import { sketch, line, mm, within, circle } from 'occlude';
+import { sketch, line, mm, circle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 7 }, (t) => [
   // steady tremor all the way across
@@ -425,7 +425,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => [
   // and the same lines with the tremor `within` a disc and absent outside it
   t.times(6, (k, u) =>
     line(10, 54 + u * 40, 190, 54 + u * 40, {
-      wobble: { amount: within(() => mm(1.2), circle(100, 74, 46)), wavelength: mm(14) },
+      wobble: { amount: t.within(() => mm(1.2), circle(100, 74, 46)), wavelength: mm(14) },
     }),
   ),
 ]);

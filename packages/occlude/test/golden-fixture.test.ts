@@ -12,7 +12,9 @@ import { transformSync } from 'esbuild';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, expect, it } from 'vitest';
-import { DEFAULT_PENS, clearFills, initOcclude } from '../src/index.js';
+import { DEFAULT_PENS, initOcclude } from '../src/index.js';
+import { assetsFromDisk } from '../tools/asset-preload.js';
+import { fillsFromDisk } from '../tools/fill-preload.js';
 import { dumpSceneFiles } from '../tools/scene-dump.js';
 
 const fixtureDir = fileURLToPath(new URL('../../../crates/occlude-core/tests/fixtures/golden/', import.meta.url));
@@ -27,8 +29,7 @@ beforeAll(async () => {
 it('the committed golden fixture is what the product fills produce today', () => {
   const src = readFileSync(fileURLToPath(new URL('./fixtures/golden-scene.ts', import.meta.url)), 'utf8');
   const js = transformSync(src, { loader: 'ts', format: 'cjs' }).code;
-  clearFills();
-  const files = dumpSceneFiles(js, { paper: { paper: 'A6' }, pens: structuredClone(DEFAULT_PENS) });
+  const files = dumpSceneFiles(js, { paper: { paper: 'A6' }, pens: structuredClone(DEFAULT_PENS), assets: assetsFromDisk(js), fills: fillsFromDisk(js) });
   if (process.env.UPDATE_GOLDEN) {
     mkdirSync(fixtureDir, { recursive: true });
     for (const [name, content] of Object.entries(files)) writeFileSync(fixtureDir + name, content);

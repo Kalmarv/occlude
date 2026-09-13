@@ -28,7 +28,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import {
-  compileSketch, exportSvg, initOcclude, isSketch, render,
+  exportSvg, initOcclude, isSketch, render,
   type SketchDef,
 } from '../src/index.js';
 import { scenarios, type Scenario, type Violation } from './qa-scenarios.js';
@@ -54,11 +54,10 @@ function loadSketch(file: string): SketchDef {
 function corpusScenario(file: string): Scenario {
   const def = loadSketch(file);
   return (seed) => {
-    (globalThis as Record<string, unknown>).location = { search: `?seed=${seed}` };
     const v: Violation[] = [];
     const paper = seed % 2 === 0 ? 'A4' : 'Square20';
-    const a = render(def, { paper });
-    const b = render(def, { paper });
+    const a = render(def, { paper, seed });
+    const b = render(def, { paper, seed });
     if (
       a.raw.frags.length !== b.raw.frags.length ||
       a.raw.frags.some((x, i) => x !== b.raw.frags[i])
@@ -71,8 +70,7 @@ function corpusScenario(file: string): Scenario {
         break;
       }
     }
-    compileSketch(def);
-    const svg = exportSvg({ paper });
+    const svg = exportSvg(def, { paper, seed });
     if (svg.includes('NaN')) v.push({ rule: 'finite', detail: 'NaN in exported SVG' });
     return v;
   };

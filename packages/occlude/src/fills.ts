@@ -90,26 +90,27 @@ export function isBuiltinFill(name: string): boolean {
   return BUILTIN_FILLS.has(name) || isNativeFill(name);
 }
 
-/** Custom fills the host loaded for the current run (studio: fetched from
- * the fill library per render; node tools: read from disk). */
-const customFills = new Map<string, AnyFill>();
+/** The custom fills a run captured (studio: fetched from the fill library
+ * per render; node tools: read from disk), by name. An execution input —
+ * there is no registry. */
+export type FillTable = ReadonlyMap<string, AnyFill>;
 
-/** Register a loaded custom fill module. Built-in names are refused: they
+/** A fill table from loaded modules. Built-in names are refused: they
  * never live in a store and cannot be shadowed. */
-export function registerFill(name: string, def: AnyFill): void {
-  if (isBuiltinFill(name)) {
-    throw new Error(`'${name}' is a built-in fill — clone it under a new name to change it`);
+export function fillTable(entries: Iterable<readonly [string, AnyFill]>): FillTable {
+  const out = new Map<string, AnyFill>();
+  for (const [name, def] of entries) {
+    if (isBuiltinFill(name)) {
+      throw new Error(`'${name}' is a built-in fill — clone it under a new name to change it`);
+    }
+    out.set(name, def);
   }
-  customFills.set(name, def);
+  return out;
 }
 
-export function clearFills(): void {
-  customFills.clear();
-}
-
-/** Resolve a fill name: built-ins from the package, then the registry. */
-export function resolveFill(name: string): AnyFill | undefined {
-  return BUILTIN_FILLS.get(name) ?? customFills.get(name);
+/** Resolve a fill name: built-ins from the package, then the run's table. */
+export function resolveFill(name: string, fills?: FillTable): AnyFill | undefined {
+  return BUILTIN_FILLS.get(name) ?? fills?.get(name);
 }
 
 /** The fill-name grammar — a `fill('name')` literal and a library file
@@ -189,7 +190,6 @@ export function loadFillModule(name: string, js: string): AnyFill {
       `fill '${name}' must \`export default fillAsset({ params, generate })\``,
     );
   }
-  registerFill(name, def as AnyFill);
   return def as AnyFill;
 }
 

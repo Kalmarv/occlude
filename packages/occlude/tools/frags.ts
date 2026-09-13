@@ -11,8 +11,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import {
-  initOcclude, isSketch, render, setPaperHint, setPenLibrary,
-  DEFAULT_PENS, paperSize,
+  initOcclude, isSketch, render,
+  DEFAULT_PENS,
 } from '../src/index.js';
 import { liveExampleToJs } from '../src/docsExamples.js';
 
@@ -24,9 +24,6 @@ const only = opt('--shape') !== undefined ? Number(opt('--shape')) : undefined;
 
 const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
 await initOcclude(readFileSync(wasmPath));
-setPenLibrary(structuredClone(DEFAULT_PENS));
-const size = paperSize({ paper: 'Square20' });
-setPaperHint(size.w, size.h);
 
 const src = file ? readFileSync(file, 'utf8') : readFileSync(0, 'utf8');
 const js = liveExampleToJs(src);
@@ -37,9 +34,8 @@ new Function('require', 'exports', 'module', js)(
 );
 const def = module.exports.default;
 if (!isSketch(def)) throw new Error('no default sketch export');
-// A sketch with no seed of its own reads the url seed at compile time.
-if (seed !== undefined) (globalThis as Record<string, unknown>).location = { search: `?seed=${seed}` };
-const out = render(def, { paper: 'Square20' });
+// A sketch with no seed of its own takes the run's.
+const out = render(def, { paper: 'Square20', seed, library: structuredClone(DEFAULT_PENS) });
 
 const byShape = new Map<number, typeof out.frags>();
 for (const f of out.frags) {

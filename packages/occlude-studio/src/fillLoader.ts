@@ -8,7 +8,7 @@
  * after a save would be a correctness bug, not a slowdown.
  */
 
-import { clearFills, isBuiltinFill, loadFillModule, scanFillNames } from 'occlude';
+import { fillTable, isBuiltinFill, loadFillModule, scanFillNames, type FillTable } from 'occlude';
 
 /** An unsaved fill being drafted in the editor, already emitted to JS by
  * the editor's TypeScript worker (the main thread emits; it never runs). */
@@ -17,13 +17,13 @@ export interface DraftFill {
   js: string;
 }
 
-export async function preloadFills(source: string, draft?: DraftFill): Promise<void> {
-  clearFills();
+export async function preloadFills(source: string, draft?: DraftFill): Promise<FillTable> {
+  const entries: [string, ReturnType<typeof loadFillModule>][] = [];
   for (const name of scanFillNames(source)) {
     // The draft first: a draft titled with a built-in name must fail
     // loudly ("clone it") rather than silently preview the built-in.
     if (draft && draft.name === name) {
-      loadFillModule(name, draft.js);
+      entries.push([name, loadFillModule(name, draft.js)]);
       continue;
     }
     if (isBuiltinFill(name)) continue;
@@ -35,6 +35,7 @@ export async function preloadFills(source: string, draft?: DraftFill): Promise<v
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       throw new Error(body?.error ?? `fill '${name}' failed to load (${res.status})`);
     }
-    loadFillModule(name, await res.text());
+    entries.push([name, loadFillModule(name, await res.text())]);
   }
+  return fillTable(entries);
 }

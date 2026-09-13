@@ -205,12 +205,12 @@ Drag `countryside above area` down and the clearing eats into the town; up past 
 **Keep the cells or change them, and say why.** Two drawings can look the same and be different materials, and the choice between them is not about what can be drawn. A selection of cells has `boundaries()`, the closed contours around its union, and `polygon` fills those, so the country can be hatched as one area without removing a single wall: select the union when several cells should be drawn as one area. Removing the walls makes a different material, whose open country is one face with no sites, and that matters only when later operations need it to be one face: measuring it in chapter 10, planarizing it against other lines, growing from its outline. Remove walls when subsequent geometry should treat the cells as one; select a union when only the drawing should. Below, both, from the same sites: left the cells kept, the country hatched through `boundaries()` and the town's cells hatched by distance from the centre, which needs `siteOf` and so needs the cells; right the cleared network, with the country as a face of its own.
 
 ```ts live focus=13-17
-import { sketch, strokes, polygon, fill, mm, distance, group, rect, within } from 'occlude';
+import { sketch, strokes, polygon, fill, mm, distance, group, rect } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const make = (x0) => {
     const centre = [x0 + 44, 52];
-    const density = within((x, y) => 0.08 + 0.92 * Math.max(0, 1 - Math.pow(distance([x, y], centre) / 30, 6)), rect(x0, 0, 98, 100));
+    const density = t.within((x, y) => 0.08 + 0.92 * Math.max(0, 1 - Math.pow(distance([x, y], centre) / 30, 6)), rect(x0, 0, 98, 100));
     const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density, bounds: { x: x0, y: 0, w: 98, h: 100 } });
     const diagram = t.voronoi(sites, { bounds: { x: x0, y: 0, w: 98, h: 100 } });
     return { centre, diagram, cells: diagram.faces() };

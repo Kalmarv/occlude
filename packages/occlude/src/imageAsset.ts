@@ -23,31 +23,32 @@ export interface AssetPixels {
   data: Uint8ClampedArray;
 }
 
-interface AssetEntry {
+export interface AssetEntry {
   text?: string;
   pixels?: AssetPixels;
   /** Lazy summed-area tables, keyed by channel. */
   sat?: Map<string, Float64Array>;
 }
 
-const registry = new Map<string, AssetEntry>();
+/** The assets a run captured, by name — an execution input, never a
+ * registry. Build one with `assetTable`; a host may keep decoded entries
+ * across runs (the summed-area tables an entry caches are a pure memo of
+ * its pixels). */
+export type AssetTable = ReadonlyMap<string, AssetEntry>;
 
-export function registerTextAsset(name: string, text: string): void {
-  registry.set(name, { text });
+/** An asset table from named text and image entries. */
+export function assetTable(
+  entries: Iterable<readonly [string, { text: string } | { pixels: AssetPixels }]> = [],
+): AssetTable {
+  const out = new Map<string, AssetEntry>();
+  for (const [name, e] of entries) out.set(name, 'text' in e ? { text: e.text } : { pixels: e.pixels });
+  return out;
 }
 
-export function registerImageAsset(name: string, pixels: AssetPixels): void {
-  registry.set(name, { pixels });
-}
-
-export function clearAssets(): void {
-  registry.clear();
-}
-
-function entryOf(name: string): AssetEntry {
-  const e = registry.get(name);
+function entryOf(assets: AssetTable | undefined, name: string): AssetEntry {
+  const e = assets?.get(name);
   if (!e) {
-    const known = [...registry.keys()].join(', ') || '(none preloaded)';
+    const known = assets ? [...assets.keys()].join(', ') || '(none preloaded)' : '(none preloaded)';
     throw new Error(
       `unknown asset '${name}' — upload it in the Assets panel and reference it by a string literal. Loaded: ${known}`,
     );
@@ -56,8 +57,8 @@ function entryOf(name: string): AssetEntry {
 }
 
 /** Text of an uploaded asset (SVGs etc): `svg(asset('church.svg'), …)`. */
-export function asset(name: string): string {
-  const e = entryOf(name);
+export function asset(assets: AssetTable | undefined, name: string): string {
+  const e = entryOf(assets, name);
   if (e.text === undefined) {
     throw new Error(`asset '${name}' is an image — use image('${name}', { … }) to sample it`);
   }
@@ -147,8 +148,8 @@ export type ImageChannel = 'lum' | 'dark' | 'a' | 'edge';
  * A sampler over an uploaded image, mapped into sketch space. Draws
  * nothing. Outside the placed rect every sample is 0.
  */
-export function image(name: string, place: ImagePlacement = {}): ImageSampler {
-  const e = entryOf(name);
+export function image(assets: AssetTable | undefined, name: string, place: ImagePlacement = {}): ImageSampler {
+  const e = entryOf(assets, name);
   if (!e.pixels) {
     throw new Error(`asset '${name}' is not an image — use asset('${name}') for its text`);
   }

@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import { initOcclude } from '../src/index.js';
 import { dumpSceneFiles } from './scene-dump.js';
+import { penLibrary, seedArg } from './inputs.js';
 
 const args = process.argv.slice(2);
 const positional = args.filter((a) => !a.startsWith('--'));
@@ -45,37 +46,22 @@ const paper: string | { w: number; h: number } = /^[\d.]+x[\d.]+$/.test(paperArg
   : paperArg;
 const landscape = args.includes('--landscape');
 
-// The sketch reads its seed from the URL; give it one.
-if (seed !== undefined) {
-  (globalThis as Record<string, unknown>).location = { search: `?seed=${seed}` };
-}
 
 const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
 );
 await initOcclude(readFileSync(wasmPath));
-const explicitPens = opt('pens');
-if (explicitPens && explicitPens !== 'docs') {
-  // Reproducible benchmarks must not depend on a private Studio library.
-  occlude.setPenLibrary(JSON.parse(readFileSync(explicitPens, 'utf8')));
-} else {
-  try {
-    const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
-    occlude.setPenLibrary(opt('pens') === 'docs' ? structuredClone(occlude.DEFAULT_PENS) : JSON.parse(readFileSync(pensPath, 'utf8')));
-  } catch {
-    // default pens
-  }
-}
+// Reproducible benchmarks must not depend on a private Studio library:
+// --pens <file> names one explicitly, --pens docs takes the package's.
+const pens = penLibrary(opt('pens') ?? 'studio');
 
 const js = transformSync(readFileSync(sketchFile, 'utf8'), {
   loader: 'ts',
   format: 'cjs',
 }).code;
-const { preloadAssetsFromDisk } = await import('./asset-preload.js');
-const { preloadFillsFromDisk } = await import('./fill-preload.js');
-preloadAssetsFromDisk(js);
-preloadFillsFromDisk(js);
-const files = dumpSceneFiles(js, { paper: { paper: paper as never, landscape } });
+const { assetsFromDisk } = await import('./asset-preload.js');
+const { fillsFromDisk } = await import('./fill-preload.js');
+const files = dumpSceneFiles(js, { paper: { paper: paper as never, landscape }, pens, seed: seedArg(seed), assets: assetsFromDisk(js), fills: fillsFromDisk(js) });
 mkdirSync(outDir, { recursive: true });
 for (const [name, content] of Object.entries(files)) writeFileSync(`${outDir}/${name}`, content);
 const meta = JSON.parse(files['meta.json'] as string) as { shapes: number; primRows: number; seed: number };

@@ -19,7 +19,7 @@
 export {
   sketch, compileSketch, isSketch,
   circle, ellipse, rect, line, polygon, ngon, stroke, strokes, path, PathValue,
-  group, clip, mask, invert, decimate, wobble, modify, dash, smooth, roughen, deform, noiseField,
+  group, clip, mask, invert, decimate, wobble, modify, dash, smooth, roughen, deform,
   times, range,
 } from './api.js';
 export type {
@@ -33,15 +33,16 @@ export type { ModifierValue, FieldFn, VectorFieldFn } from './shapes.js';
 // registry (studio worker per render, node tools from disk).
 export {
   fill, fillAsset, customFill, rulings, resolveFill,
-  scanFillNames, loadFillModule, registerFill, clearFills,
+  scanFillNames, loadFillModule, fillTable,
   BUILTIN_FILL_NAMES, FILL_NAME_RE, isBuiltinFill,
 } from './fills.js';
+export type { FillTable } from './fills.js';
 export type { FillAssetDef, FillCtx, FillAnchor, RulingOpts } from './fills.js';
 export type { FieldAlign } from './shapes.js';
 export { svg } from './svgin.js';
 export {
-  asset, image, scanAssetNames, registerTextAsset, registerImageAsset, clearAssets,
-  type ImageSampler, type ImagePlacement, type AssetPixels, type ImageChannel,
+  scanAssetNames, assetTable,
+  type ImageSampler, type ImagePlacement, type AssetPixels, type ImageChannel, type AssetTable,
 } from './imageAsset.js';
 export { label, labelWidth } from './font.js';
 export { liveExampleToJs, DOC_PAGES, parseLiveMeta, docsPaper } from './docsExamples.js';
@@ -80,12 +81,12 @@ export type { NeighbourStats, Sources } from './forces.js';
 export type { Vec, XY } from './vec.js';
 
 // Units.
-export { w, h, s, long, mm, degrees, radians, Len } from './units.js';
+export { w, h, s, long, mm, inch, degrees, radians, Len } from './units.js';
 export type { L } from './units.js';
 
 // Pure helpers. Randomness (rnd/noise/stream/…) and layout (bounds/grid)
 // come through the toolkit — they belong to a sketch run, not the module.
-export type { RandomStream } from './state.js';
+export type { RandomStream } from './execution.js';
 export { mapRange as map, normRange as norm, invertRange } from './random.js';
 export { ease } from './ease.js';
 
@@ -140,7 +141,7 @@ export type { Prepared } from './field.js';
 // Tweakable values (identity at runtime; the studio scans + builds sliders).
 export { ui, scanUiControls } from './ui.js';
 export { parseSeed, formatSeed, tagDraws, siteId, DRAW_HOOK, type ParsedSeed, type DrawSite } from './draws.js';
-export { drawAt, getDrawLog, getOverrideReport, type DrawEntry } from './state.js';
+export type { DrawEntry, DrawHook } from './execution.js';
 export type { UiOpts, UiControl } from './ui.js';
 
 // Motion planning + the plot-time ground-truth model (shared by the EBB
@@ -166,13 +167,13 @@ export {
 export type { LiftMap, CellGeometry, SettlePoint, LiftModel } from './liftmap.js';
 
 // Host integration.
-export {
-  setPenLibrary, setPaperHint, setSeedHint, getState, getProbeStats,
-  setInspectHint, getInspectHint, getInspectionIndex, inspectionPayload,
-} from './state.js';
-export type { ProbeSummary, InspectionEntry, InspectionPayload } from './state.js';
+// The run: one object per execution, no ambient state (execution.ts).
+export { Execution, pen, penModel, paper, paperModel } from './execution.js';
+export type {
+  ExecutionInputs, PaperSpec, CompileConfig, ProbeSummary, InspectionEntry, InspectionPayload, SketchOptions, TransformOp, Winding,
+} from './execution.js';
 export { userUnitsToPaper } from './record.js';
-export { inspectIfMaterial } from './api.js';
+export { inspectHook, bindToolkit, DEFAULT_INPUTS } from './api.js';
 
 // A fill file's `import … from 'occlude'` resolves to this very module: the
 // registry hands loaded fills the package's own namespace (self-import is
@@ -181,8 +182,7 @@ import * as occludeNamespace from './index.js';
 import { setOccludeModule } from './fills.js';
 /** Host integration and runtime entry points a fill file must not reach. */
 const HOST_ONLY = new Set([
-  'setPenLibrary', 'setPaperHint', 'setSeedHint', 'getState',
-  'registerFill', 'clearFills', 'loadFillModule', 'initOcclude',
+  'Execution', 'fillTable', 'assetTable', 'loadFillModule', 'initOcclude', 'bindToolkit', 'inspectHook',
   'compileSketch', 'render', 'exportGcode', 'exportSvg', 'exportPng',
   'encodeScene', 'decodeRender', 'renderEncoded',
 ]);

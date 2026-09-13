@@ -25,7 +25,7 @@ export default sketch({ aspect: [2, 1] }, () => [
 `asset('name.svg')` returns the text of an uploaded file:
 
 ```ts
-const church = svg(asset('church.svg'), { width: b.w, bridge: mm(0.7) });
+const church = svg(t.asset('church.svg'), { width: b.w, bridge: mm(0.7) });
 ```
 
 ## Sampling an image
@@ -44,16 +44,16 @@ const church = svg(asset('church.svg'), { width: b.w, bridge: mm(0.7) });
 A field is what the rest of the toolkit reads, so `img.field` puts an image behind any of them without a wrapper: contours of tone with `t.isolines`, stipples that crowd where it is dark with `t.scatter`, flow along its edges with `t.streamlines(curl(img.field()))`, or a modifier amount. Outside the placed rectangle the field is 0.
 
 ```ts live
-import { sketch, strokes, image, curl, within, circle } from 'occlude';
+import { sketch, strokes, curl, circle } from 'occlude';
 
 // Tone as contours, and streamlines along the edges where the picture is dark.
 export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
-  const img = image('ivy.png', { x: 8, y: 2, width: 84 });
+  const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
   const tone = img.field('lum', { area: 0.8 });
   const dark = img.field('dark', { area: 0.8 });
   return [
     strokes(t.isolines(tone, [0.3, 0.5, 0.7])),
-    strokes(t.streamlines(within(curl(tone), circle(50, 50, 46)), { spacing: (x, y) => 0.8 + (1 - dark(x, y)) * 5 })),
+    strokes(t.streamlines(t.within(curl(tone), circle(50, 50, 46)), { spacing: (x, y) => 0.8 + (1 - dark(x, y)) * 5 })),
   ];
 });
 ```
@@ -61,10 +61,10 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 Dots sized by darkness, averaged over each grid cell, with the alpha channel as the subject mask:
 
 ```ts live
-import { sketch, circle, image } from 'occlude';
+import { sketch, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const img = image('ivy.png', { x: 8, y: 2, width: 84 });
+  const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
   return t.grid({ cols: 36, rows: 42 }).map((c) => {
     if (img.a(c.cx, c.cy, c.w / 2) < 0.5) return null;
     const dark = 1 - img.lum(c.cx, c.cy, c.w / 2);
@@ -76,10 +76,10 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 Layered marks gated by tone band: one mark at the mid level, two at dark, three at the darkest.
 
 ```ts live
-import { sketch, line, image } from 'occlude';
+import { sketch, line } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const img = image('ivy.png', { x: 8, y: 2, width: 84 });
+  const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
   const out = [];
   for (let y = 2; y < 98; y += 1.4) {
     for (let x = 8; x < 92; x += 1.4) {
@@ -99,10 +99,10 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 Strokes drawn perpendicular to the gradient follow the image's contours, so tone becomes flow.
 
 ```ts live
-import { sketch, line, image } from 'occlude';
+import { sketch, line } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
-  const img = image('ivy.png', { x: 8, y: 2, width: 84 });
+  const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
   const out = [];
   for (let i = 0; i < 2600; i++) {
     const x = t.rnd(8, 92);

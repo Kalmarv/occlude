@@ -88,6 +88,7 @@ function setupMonaco(): void {
     JSON.stringify({ name: 'occlude', types: './src/index.ts', main: './src/index.ts' }),
     'file:///node_modules/occlude/package.json',
   );
+  setUserModuleTypes([], []);
   // occlude-core types aren't needed for sketches; stub the import used by init.ts.
   ts.addExtraLib(
     'declare const init: (i?: unknown) => Promise<unknown>; export default init; export function wasm_render(...a: unknown[]): unknown; export function wasm_export_gcode(...a: unknown[]): string; export function wasm_export_svg(...a: unknown[]): string;',
@@ -129,6 +130,30 @@ function setupMonaco(): void {
       return [{ range: m.getFullModelRange(), text }];
     },
   });
+}
+
+/** The library entry's export name — the same spelling the runner gives
+ * the module (`micron-03` → `micron_03`). */
+function moduleName(name: string): string {
+  return name.replace(/[^A-Za-z0-9_$]/g, '_').replace(/^(\d)/, '_$1');
+}
+
+/** Declare `@user/pens` and `@user/papers` for the editor from the
+ * libraries as they stand: every entry a factory of fresh instances with
+ * overrides (`fineliner({ color: '#2457D6' })`). Call again after a
+ * library edit; the newest declaration wins. */
+export function setUserModuleTypes(pens: readonly { name: string }[], papers: readonly { name: string }[]): void {
+  const ts = monaco.languages.typescript.typescriptDefaults;
+  const penLines = pens.map((p) => `  /** ${p.name} — a fresh instance of the library pen, with overrides. */\n  export const ${moduleName(p.name)}: (overrides?: Partial<Omit<PenDef, 'name'>>) => Omit<PenDef, 'name'>;`);
+  const paperLines = papers.map((p) => `  /** ${p.name} — a fresh sheet from the library paper, with overrides. */\n  export const ${moduleName(p.name)}: (overrides?: Partial<PaperSpec>) => PaperSpec;`);
+  ts.addExtraLib(
+    `import type { PenDef } from 'occlude';\ndeclare module '@user/pens' {\n${penLines.join('\n')}\n}\n`,
+    'file:///node_modules/@user/pens/index.d.ts',
+  );
+  ts.addExtraLib(
+    `import type { PaperSpec } from 'occlude';\ndeclare module '@user/papers' {\n${paperLines.join('\n')}\n}\n`,
+    'file:///node_modules/@user/papers/index.d.ts',
+  );
 }
 
 export function createEditor(container: HTMLElement, initial: string, opts: EditorOptions = {}): Editor {

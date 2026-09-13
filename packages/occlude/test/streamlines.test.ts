@@ -138,7 +138,7 @@ describe('streamlines', () => {
 
   it('within() on the scalar carries to grad/curl and the toolkit stamps the result as ink', () => {
     const def = sketch({ seed: 1 }, (t) => {
-      const field = within((x: number, y: number) => t.noise(x / 20, y / 20), circle(50, 50, 35));
+      const field = t.within((x: number, y: number) => t.noise(x / 20, y / 20), circle(50, 50, 35));
       return strokes(t.streamlines(curl(field), { spacing: 3 }));
     });
     const out = render(def, { paper: 'Square20' });

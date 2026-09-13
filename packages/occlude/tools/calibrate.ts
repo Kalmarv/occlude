@@ -27,7 +27,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   circle, exportGcode, exportPng, exportSvg, initOcclude, label, line, mm, path,
-  paperSize, rect, render, setPaperHint, setPenLibrary, sketch, fill,
+  paperSize, rect, render, sketch, fill,
   type PenDef, type Tree,
 } from '../src/index.js';
 
@@ -65,12 +65,11 @@ const pens: PenDef[] = [
   ...zOffsets.map((o) => ({ ...base, name: zPen(o), penDown: penDown + o })),
   ...delays.map((d) => ({ ...base, name: pPen(d), penDelay: d })),
 ];
-setPenLibrary(pens);
 
 // ---- the sheet ----
 
 const { w: PW, h: PH } = paperSize({ paper: paper as never });
-setPaperHint(PW, PH);
+void PW; void PH;
 
 const def = sketch({ aspect: 'paper', margin: 0, seed: 1, pen: name }, () => {
   const out: Tree[] = [];
@@ -183,7 +182,7 @@ const wasmPath = fileURLToPath(
 await initOcclude(readFileSync(wasmPath));
 
 mkdirSync(outDir, { recursive: true });
-const paperOpt = { paper: paper as never };
+const paperOpt = { paper: paper as never, library: pens };
 const out = render(def, paperOpt);
 console.log(`${out.frags.length} strokes across ${pens.length} pen variants`);
 

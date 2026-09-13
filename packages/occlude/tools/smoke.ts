@@ -13,14 +13,13 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  circle, exportSvg, fill, initOcclude, line, mask, mm, path, rect, render, setPaperHint, sketch,
+  circle, exportSvg, fill, initOcclude, line, mask, mm, path, rect, render, sketch,
 } from '../src/index.js';
 
 const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
 const wasmBytes = readFileSync(wasmPath);
 if (wasmBytes.subarray(0, 4).toString('latin1') !== '\0asm') throw new Error(`${wasmPath} is not a wasm module`);
 await initOcclude(wasmBytes);
-setPaperHint(210, 297);
 
 const def = sketch({ aspect: 'square', margin: 8, seed: 7 }, (t) => [
   t.times(12, (_, u) => line(0, 5 + u * 90, 100, 5 + u * 90)),

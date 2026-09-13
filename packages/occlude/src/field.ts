@@ -24,9 +24,8 @@
 import type { FieldFn, LengthFn, VectorFieldFn } from './shapes.js';
 import type { ShapeValue } from './api.js';
 import { IDENTITY, invert, mul, rotate as mrotate, scale as mscale, translate as mtranslate, type Mat } from './matrix.js';
-import { lowerToUserLoops, sketchFrame } from './record.js';
+import { lowerToUserLoops, type Frame } from './record.js';
 import { geomClosed } from './shapes.js';
-import { bounds, getFrameRevision, unitScaleMm } from './state.js';
 import { resolveLen, Len, type L } from './units.js';
 
 /** A `within()` bound as the encoder sees it: the shape, and the map from
@@ -60,17 +59,15 @@ function metaOf(fn: object): FieldMeta | undefined {
   return FIELD_META.get(fn);
 }
 
-/** Sketch-time length resolution (mm via the paper hint), mirroring the
- * points/isolines environments. */
-function userLen(l: L): number {
-  if (typeof l === 'number') {
-    const b = bounds();
-    return resolveLen(l, { innerW: b.w, innerH: b.h });
-  }
-  if (l instanceof Len && l.kind === 'mm') return l.value / unitScaleMm();
-  const b = bounds();
-  return resolveLen(l, { innerW: b.w, innerH: b.h });
-}
+/** Length resolution a verb is given: the toolkit passes the run's
+ * (`t.translate` resolves `mm(…)`/`w(…)` against the paper); the module
+ * form takes bare numbers only — user units need no frame. */
+export type LenResolver = (l: L) => number;
+
+const numbersOnly: LenResolver = (l) => {
+  if (typeof l === 'number') return l;
+  throw new Error('translate(field, …): a unit length (mm/w/h/inch) needs the run — use t.translate');
+};
 
 /** Mark a vector-valued field ((x, y) => [dx, dy]) so the transform verbs
  * rotate its arrows. `noiseField` returns pre-marked fields. */
@@ -200,9 +197,9 @@ export function rotate<F extends AnyField>(field: F, deg: number): Prepared<F> {
  * Lengths resolve LAZILY, at the first sample: a field built at module
  * scope (before the sketch's paper/aspect exist) still resolves `mm(10)`
  * against the paper it renders on. */
-export function translate<F extends AnyField>(field: F, dx: L, dy: L): Prepared<F> {
+export function translate<F extends AnyField>(field: F, dx: L, dy: L, len: LenResolver = numbersOnly): Prepared<F> {
   let t: [number, number] | null = null;
-  const at = (): [number, number] => (t ??= [userLen(dx), userLen(dy)]);
+  const at = (): [number, number] => (t ??= [len(dx), len(dy)]);
   return wrap(
     field,
     (x, y) => {
@@ -210,7 +207,7 @@ export function translate<F extends AnyField>(field: F, dx: L, dy: L): Prepared<
       return field(x - tx, y - ty);
     },
     () => mtranslate(...at()),
-    (f) => translate(f, dx, dy),
+    (f) => translate(f, dx, dy, len),
   );
 }
 
@@ -306,38 +303,31 @@ function indexLoops(loops: [number, number][][]): LoopIndex {
 /** A prepared bound and the frame it was built for. The loops depend on the
  * frame (units, rectMode, origin, yUp), so a shape reused under a different
  * paper rebuilds instead of answering out of the old frame. */
-const BOUND_LOOPS = new WeakMap<ShapeValue, { sig: string; idx: LoopIndex }>();
+/** What a sketch-time bound needs of the run: the frame it lowers against
+ * and a per-run memo of lowered shapes (one shape bounds many fields). */
+export interface BoundEnv {
+  frame: Frame;
+  cache: WeakMap<object, unknown>;
+}
 
-/** Point-in-shape in user units, through the one lowerer (rectMode, arc
- * commands, curve flattening, transform opts — exactly what the shape
- * inks), with the geometry's own winding rule.
- *
- * Built once per bound AND frame, not once per sample: the loop index, the
- * length resolution and the winding rule are fixed for a given bound, and a
- * bounded field is asked millions of times. */
-function containsTest(shape: ShapeValue): (x: number, y: number) => boolean {
-  const frame = sketchFrame();
-  const sig = `${frame.origin}|${String(frame.yUp)}|${frame.rectMode}|${frame.inner.innerW},${frame.inner.innerH}`;
-  let prepared = BOUND_LOOPS.get(shape);
-  if (!prepared || prepared.sig !== sig) {
+function containsTest(shape: ShapeValue, env: BoundEnv): (x: number, y: number) => boolean {
+  const frame = env.frame;
+  let loops = env.cache.get(shape) as LoopIndex | undefined;
+  if (!loops) {
     const o = shape.opts;
-    prepared = {
-      sig,
-      idx: indexLoops(
-        lowerToUserLoops(
-          shape.geom,
-          { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin },
-          frame,
-        ),
+    loops = indexLoops(
+      lowerToUserLoops(
+        shape.geom,
+        { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin },
+        frame,
       ),
-    };
-    BOUND_LOOPS.set(shape, prepared);
+    );
+    env.cache.set(shape, loops);
   }
-  const loops = prepared.idx;
   // exactly what `userPointMm(x, y, frame)` resolves each coordinate to
   const inner = frame.inner;
   const g = shape.geom;
-  const evenodd = g.kind === 'path' && g.winding === 'evenodd';
+  const evenodd = (g.kind === 'path' || g.kind === 'area') && g.winding === 'evenodd';
   return (x, y) => pointInLoops(loops, resolveLen(x, inner), resolveLen(y, inner), evenodd);
 }
 
@@ -373,21 +363,16 @@ function pointInLoops(idx: LoopIndex, x: number, y: number, evenodd = true): boo
  * edges from the raster's fail-open; sketch-time consumers (isolines,
  * scatter, fills) get this test's exactness.
  */
-export function within<F extends AnyField>(field: F, shape: ShapeValue): Prepared<F> {
+export function within<F extends AnyField>(field: F, shape: ShapeValue, env: BoundEnv): Prepared<F> {
   if (!geomClosed(shape.geom)) {
     throw new Error('within() bound must be a closed shape (close() the path, or use a region)');
   }
   const vec = isVector(field);
-  // resolved at the first sample, not at `within()` — the frame a bound
-  // lowers against is the one in force when the field is read
+  // lowered at the first sample against the run's frame, which is fixed
+  // for the run — a bound belongs to the execution that made it
   let contains: ((x: number, y: number) => boolean) | null = null;
-  let preparedAt = -1;
   const out = wrap(field, (x, y) => {
-    const revision = getFrameRevision();
-    if (contains === null || preparedAt !== revision) {
-      contains = containsTest(shape);
-      preparedAt = revision;
-    }
+    if (contains === null) contains = containsTest(shape, env);
     if (!contains(x, y)) {
       return vec ? ([NaN, NaN] as [number, number]) : NaN;
     }

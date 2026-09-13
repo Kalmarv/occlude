@@ -1,7 +1,7 @@
 /** occlude studio: wire editor → runner → render worker → preview → panels. */
 
 import './style.css';
-import { clearRuntimeMarkers, createEditor, setRuntimeMarker } from './editor.js';
+import { clearRuntimeMarkers, createEditor, setRuntimeMarker, setUserModuleTypes } from './editor.js';
 import { Inspector } from './inspector.js';
 import { buildRail } from './panels.js';
 import { Preview } from './preview.js';
@@ -49,6 +49,7 @@ async function boot(): Promise<void> {
   syncRenderToggle();
 
   const pens = await loadPens();
+  setUserModuleTypes(pens, []);
   const profiles = await loadProfiles();
   const settings = loadSettings();
   // A sketch opened from the docs arrives with the sheet it was shown on

@@ -1,20 +1,20 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { A4, SQ, toolkit } from './helpers/run.js';
 import {
-  append, circle, compileSketch, connect, curve, initOcclude, material, polygon, setPaperHint,
-  sketch, strokes, voronoi, type Material, type Toolkit,
+  append, circle, compileSketch, connect, curve, initOcclude, material, polygon,
+  sketch, strokes, voronoi, type Material, type Toolkit, Execution,
 } from '../src/index.js';
 import { densityRaster, accumulateCells } from '../src/points.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
-  setPaperHint(200, 200); // a 100 × 100 drawable
 });
 
 
-function run(body: (t: Toolkit) => void, seed: number | string = 1): void {
-  compileSketch(sketch({ seed }, (t) => { body(t); return circle(0, 0, 1); }));
+function run(body: (t: Toolkit) => void, seed: number | string = 1): Execution {
+  return compileSketch(sketch({ seed }, (t) => { body(t); return circle(0, 0, 1); }), SQ);
 }
 const square = (x0: number, y0: number, s: number) => curve([[x0, y0], [x0 + s, y0], [x0 + s, y0 + s], [x0, y0 + s]]);
 

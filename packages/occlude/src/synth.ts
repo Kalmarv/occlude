@@ -15,7 +15,6 @@
  */
 
 import { Rng } from './random.js';
-import { bounds, getState } from './state.js';
 
 export interface SynthStats {
   /** Fraction of probe samples that were finite. */
@@ -267,12 +266,13 @@ const usable = (s: SynthStats): boolean =>
 /** An explicit seed, or a draw from the sketch's seeded stream — the same
  * stream rnd()/pick()/scatter draw from, so it advances per call and resets
  * with the sketch. */
-const seedOf = (opts: SynthOpts): number | string =>
-  opts.seed ?? `${getState().seedUsed}:synth:${getState().rng.float()}`;
+const seedOf = (opts: SynthOpts): number | string => {
+  if (opts.seed === undefined) throw new Error('synth: give { seed } — or use t.synth, which draws one from the sketch\'s own stream');
+  return opts.seed;
+};
 
 const defaultBounds = (): SynthBounds => {
-  const b = bounds();
-  return { x: 0, y: 0, w: b.w, h: b.h };
+  throw new Error('synth: give { bounds } — or use t.synth, whose probe bounds default to the drawable');
 };
 
 function one(rng: Rng, vars: string[], opts: SynthOpts, b: SynthBounds): SynthFn | null {

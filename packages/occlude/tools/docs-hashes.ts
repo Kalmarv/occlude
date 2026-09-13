@@ -25,11 +25,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import {
-  compileSketch, exportSvg, initOcclude, isSketch, paperSize, setPaperHint, setPenLibrary,
+  exportSvg, initOcclude, isSketch, paperSize,
   DEFAULT_PENS, DOC_PAGES, parseLiveMeta, docsPaper, liveExampleToJs, type SketchDef,
 } from '../src/index.js';
-import { preloadAssetsFromDisk } from './asset-preload.js';
-import { preloadFillsFromDisk } from './fill-preload.js';
+import { assetsFromDisk } from './asset-preload.js';
+import { fillsFromDisk } from './fill-preload.js';
 
 const args = process.argv.slice(2);
 const opt = (name: string): string | undefined => {
@@ -51,7 +51,6 @@ const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
 );
 await initOcclude(readFileSync(wasmPath));
-setPenLibrary(structuredClone(DEFAULT_PENS));
 
 const readme = readFileSync(fileURLToPath(new URL('../../../README.md', import.meta.url)), 'utf8');
 const fences: { src: string; paper: ReturnType<typeof parseLiveMeta>; page: string; key: string }[] = [];
@@ -79,8 +78,6 @@ const UNSTABLE_HASH = 'UNSTABLE (draws Date.now())';
 /** The ink of one example: the exact-curve SVG the export writes. */
 function inkOf(src: string, meta: ReturnType<typeof parseLiveMeta>): string {
   const js = liveExampleToJs(src);
-  preloadAssetsFromDisk(js);
-  preloadFillsFromDisk(js);
   const module = { exports: {} as Record<string, unknown> };
   new Function('require', 'exports', 'module', js)(
     (name: string) => {
@@ -95,10 +92,9 @@ function inkOf(src: string, meta: ReturnType<typeof parseLiveMeta>): string {
     : Object.values(module.exports).find(isSketch)) as SketchDef | undefined;
   if (!def) throw new Error('no sketch exported');
   const sheet = docsPaper(meta);
-  const size = paperSize(sheet);
-  setPaperHint(size.w, size.h);
-  compileSketch(def, { marginPct: meta.margin ?? 5 });
-  return exportSvg({ paper: sheet });
+  void paperSize;
+  // the docs' own pens, a fixed seed, and the example's assets and fills
+  return exportSvg(def, { paper: sheet, marginPct: meta.margin ?? 5, seed, library: structuredClone(DEFAULT_PENS), assets: assetsFromDisk(js), fills: fillsFromDisk(js) });
 }
 
 const hashes: Record<string, string> = {};
@@ -111,8 +107,6 @@ fences.forEach(({ src, paper, key }) => {
       unstable.push(key);
       return;
     }
-    // A sketch with no seed of its own reads the url seed at compile time.
-    (globalThis as Record<string, unknown>).location = { search: `?seed=${seed}` };
     hashes[key] = createHash('sha256').update(inkOf(src, paper)).digest('hex');
   } catch (e) {
     const msg = String(e instanceof Error ? e.message : e).replace(/\/[^\s:]+/g, '<path>').slice(0, 120);

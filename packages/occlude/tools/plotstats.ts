@@ -25,12 +25,11 @@ import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as core from 'occlude-core';
-import { preloadAssetsFromDisk } from './asset-preload.js';
-import { preloadFillsFromDisk } from './fill-preload.js';
+import { inputsFor, seedArg } from './inputs.js';
 import * as occlude from '../src/index.js';
 import {
-  compileSketch, initOcclude, isSketch, paperSize, pensToJson, render,
-  setPaperHint, setPenLibrary, DEFAULT_PENS, PAPERS, type SketchDef,
+  initOcclude, isSketch, paperSize, pensToJson, render,
+  PAPERS, type SketchDef,
 } from '../src/index.js';
 
 const args = process.argv.slice(2);
@@ -140,28 +139,15 @@ if (explicitPaper === null && !(paperArg in PAPERS)) {
 const paper = (explicitPaper ?? paperArg) as keyof typeof PAPERS | { w: number; h: number };
 const tolerance = parseFloat(opt('tolerance') ?? '0.025');
 const eps = parseFloat(opt('eps') ?? '0.05');
-if (seed !== undefined) {
-  (globalThis as Record<string, unknown>).location = { search: `?seed=${seed}` };
-}
 
 const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
 );
 await initOcclude(readFileSync(wasmPath));
-// Use the studio's shared pen library so sketches naming real pens work,
-// or the docs' own pens with --pens docs.
-if (opt('pens') === 'docs') {
-  setPenLibrary(structuredClone(DEFAULT_PENS));
-} else {
-  try {
-    const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
-    setPenLibrary(JSON.parse(readFileSync(pensPath, 'utf8')));
-  } catch {
-    // defaults
-  }
-}
-const size = paperSize({ paper, landscape });
-setPaperHint(size.w, size.h);
+// The studio's shared pen library so sketches naming real pens work, or
+// the docs' own pens with --pens docs.
+const pens = opt('pens') === 'docs' ? 'docs' : 'studio';
+void paperSize;
 
 interface Chain {
   pen: number;
@@ -466,8 +452,6 @@ const rows: Stats[] = [];
 for (const file of files) {
   try {
     const js = transformSync(readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs' }).code;
-    preloadAssetsFromDisk(js);
-    preloadFillsFromDisk(js);
     const module = { exports: {} as Record<string, unknown> };
     const requireShim = (name: string): unknown => {
       if (name === 'occlude') return occlude;
@@ -479,8 +463,7 @@ for (const file of files) {
       ? exp.default
       : Object.values(exp).find(isSketch)) as SketchDef | undefined;
     if (!def) throw new Error('no sketch exported');
-    compileSketch(def);
-    const r = render({ paper: { paper, landscape } });
+    const r = render(def, inputsFor(js, { paper: { paper, landscape }, seed: seedArg(seed), pens }));
     const plan = (core as unknown as {
       wasm_export_toolpath(
         p: Float64Array, f: Float64Array, pens: string, budget: number, tol: number,

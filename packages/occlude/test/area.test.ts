@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, distanceTo, initOcclude, material, mm, polygon, render, setPaperHint,
+  circle, distanceTo, initOcclude, material, mm, polygon, render,
   sketch, type Face, type SketchDef, type Tree,
 } from '../src/index.js';
 
@@ -11,7 +11,6 @@ beforeAll(async () => {
     new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
   );
   await initOcclude(readFileSync(wasmPath));
-  setPaperHint(200, 200);
 });
 
 /** Visible fragments — how much ink a sketch actually lays down. */

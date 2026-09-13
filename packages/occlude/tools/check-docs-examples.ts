@@ -19,18 +19,17 @@ import { fileURLToPath } from 'node:url';
 import { DOC_PAGES, parseLiveMeta, docsPaper } from '../src/docsExamples.js';
 import * as occlude from '../src/index.js';
 import {
-  compileSketch, initOcclude, isSketch, render, setPaperHint, setPenLibrary,
+  initOcclude, isSketch, render,
   DEFAULT_PENS, paperSize, type SketchDef,
 } from '../src/index.js';
 import { liveExampleToJs } from '../src/docsExamples.js';
-import { preloadAssetsFromDisk } from './asset-preload.js';
-import { preloadFillsFromDisk } from './fill-preload.js';
+import { assetsFromDisk } from './asset-preload.js';
+import { fillsFromDisk } from './fill-preload.js';
 
 const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
 );
 await initOcclude(readFileSync(wasmPath));
-setPenLibrary(structuredClone(DEFAULT_PENS));
 const readme = readFileSync(fileURLToPath(new URL('../../../README.md', import.meta.url)), 'utf8');
 // Every live fence on every listed page, with its own settings; the
 // README's headline example is the deleted-API canary: it runs too.
@@ -56,8 +55,6 @@ fences.forEach(({ src, meta, page }, i) => {
   const head = src.split('\n').find((l) => l.trim() && !l.startsWith('import')) ?? `#${i}`;
   try {
     const js = liveExampleToJs(src);
-    preloadAssetsFromDisk(js);
-    preloadFillsFromDisk(js);
     const module = { exports: {} as Record<string, unknown> };
     new Function('require', 'exports', 'module', js)(
       (name: string) => {
@@ -72,10 +69,7 @@ fences.forEach(({ src, meta, page }, i) => {
       : Object.values(module.exports).find(isSketch)) as SketchDef | undefined;
     if (!def) throw new Error('no sketch exported');
     const sheet = docsPaper(meta);
-    const size = paperSize(sheet);
-    setPaperHint(size.w, size.h);
-    compileSketch(def, { marginPct: meta.margin ?? 5 });
-    const out = render({ paper: sheet, coarsen: 1 });
+    const out = render(def, { paper: sheet, coarsen: 1, marginPct: meta.margin ?? 5, library: structuredClone(DEFAULT_PENS), assets: assetsFromDisk(js), fills: fillsFromDisk(js) });
     if (out.stats.fragments === 0) throw new Error('rendered zero visible strokes');
     // How much of the ink lies outside the drawable? (on paper but off the
     // frame is allowed; a drawing that mostly misses its frame is reported)

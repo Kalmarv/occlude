@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { circle, compileSketch, drawAt, formatSeed, getDrawLog, getOverrideReport, parseSeed, sketch, tagDraws } from '../src/index.js';
+import { circle, compileSketch, formatSeed, parseSeed, sketch, tagDraws , Execution, type DrawHook, type Toolkit } from '../src/index.js';
+import { A4 } from './helpers/run.js';
 
 describe('seed with overrides', () => {
   it('parses and formats the one-string form; a plain seed has no tail', () => {
@@ -47,44 +48,46 @@ describe('tagDraws', () => {
 });
 
 describe('addressed draws at run time', () => {
-  const run = (seed: string, body: (t: import('../src/index.js').Toolkit) => number[]) => {
+  let last!: Execution;
+  const run = (seed: string, body: (t: Toolkit, drawAt: DrawHook) => number[]) => {
     let out: number[] = [];
-    compileSketch(sketch({ seed }, (t) => { out = body(t); return circle(50, 50, 10); }));
+    last = new Execution(A4);
+    compileSketch(sketch({ seed }, (t) => { out = body(t, last.drawAt); return circle(50, 50, 10); }), last);
     return out;
   };
   it('an override answers one address and leaves every other draw as the seed made it', () => {
-    const body = (t: import('../src/index.js').Toolkit) => [
+    const body = (t: Toolkit, drawAt: DrawHook) => [
       drawAt('s1', () => t.rnd(10, 100)),
       drawAt('s2', () => t.rnd(10, 100)),
       drawAt('s2', () => t.rnd(10, 100)),
       t.rnd(), // untagged: never addressed
     ];
     const plain = run('7', body);
-    const log = getDrawLog();
+    const log = last.getDrawLog();
     expect(log.map((d) => d.addr)).toEqual(['s1:0', 's2:0', 's2:1']);
     expect(log[0].value).toBe(plain[0]); // what the call made of its float
-    expect(getOverrideReport()).toEqual({ overrides: {}, hit: [], dropped: [] });
+    expect(last.getOverrideReport()).toEqual({ overrides: {}, hit: [], dropped: [] });
     const evolved = run('7~s2.1=0.5', body);
     expect(evolved[0]).toBe(plain[0]);
     expect(evolved[1]).toBe(plain[1]);
     expect(evolved[2]).toBe(55); // 10 + 0.5 * 90
     expect(evolved[3]).toBe(plain[3]); // the stream still advanced past the override
-    expect(getOverrideReport()).toEqual({ overrides: { 's2:1': 0.5 }, hit: ['s2:1'], dropped: [] });
-    expect(getDrawLog()[2]).toEqual({ addr: 's2:1', f: 0.5, value: 55 });
+    expect(last.getOverrideReport()).toEqual({ overrides: { 's2:1': 0.5 }, hit: ['s2:1'], dropped: [] });
+    expect(last.getDrawLog()[2]).toEqual({ addr: 's2:1', f: 0.5, value: 55 });
   });
 
   it('a stale address is reported dropped; named streams address on their own', () => {
-    const body = (t: import('../src/index.js').Toolkit) => {
+    const body = (t: Toolkit, drawAt: DrawHook) => {
       const legs = t.stream('legs');
       return [drawAt('a', () => legs.rnd(0, 1)), drawAt('a', () => t.pick([0, 1, 2, 3])), drawAt('b', () => (t.chance(0.5) ? 1 : 0))];
     };
     run('3~zz.0=0.1,a.1=0.99,b.0=0.01', body);
-    const r = getOverrideReport();
+    const r = last.getOverrideReport();
     expect(r.hit).toEqual(['a:1', 'b:0']);
     expect(r.dropped).toEqual(['zz:0']);
     const v = run('3~a.1=0.99,b.0=0.01', body);
     expect(v[1]).toBe(3); // pick index floor(0.99 * 4)
     expect(v[2]).toBe(1); // 0.01 < 0.5
-    expect(getDrawLog().map((d) => d.value)).toEqual([expect.any(Number), 3, true]);
+    expect(last.getDrawLog().map((d) => d.value)).toEqual([expect.any(Number), 3, true]);
   });
 });

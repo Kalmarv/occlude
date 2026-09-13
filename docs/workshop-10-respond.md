@@ -3,7 +3,7 @@
 **How can measurements become my own rule?** The standard operations of chapter 8 read a field and move points by rules that are theirs. A sketch can do the same thing with a rule that is yours: measure the regions its points own, decide what each point should do about what it finds, move it, and go round again. This is the drawing this chapter arrives at: sites drawn toward two patches of light and stopping, each for good, where its cell became bright enough, with the step each one stopped at recorded on it and drawn as the size of its ring; drawn once as walls and once as the sites with their record. By the end you will be able to point at the observation, the decision and the edit in code of your own, and know what each costs.
 
 ```ts live
-import { sketch, strokes, circle, label, distance, sub, mul, group, rect, within, ui } from 'occlude';
+import { sketch, strokes, circle, label, distance, sub, mul, group, rect, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const iterations = ui(16, { min: 0, max: 24, step: 1 });
@@ -11,7 +11,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const half = { x: 0, y: 0, w: 100, h: 100 };
   const glow = (x, y) => Math.min(1, Math.max(0, 1 - distance([x, y], [30, 42]) / 30) + Math.max(0, 1 - distance([x, y], [72, 64]) / 22) * 0.9);
   const light = (x, y) => 0.005 + Math.pow(glow(x, y), 3);
-  const sites = t.relax(t.scatter(within(() => 1, rect(0, 0, 100, 100)), { spacing: 7 }), { iterations: 2, bounds: half }).attribute('mobility', 1).attribute('stopped', -1);
+  const sites = t.relax(t.scatter(t.within(() => 1, rect(0, 0, 100, 100)), { spacing: 7 }), { iterations: 2, bounds: half }).attribute('mobility', 1).attribute('stopped', -1);
   const started = Date.now();
   const settled = sites.steps(iterations, (current, next, k) => {
     const diagram = t.voronoi(current, { bounds: half });
@@ -138,14 +138,14 @@ That is one response to the measurement: go where the light is in your cell. It 
 **The same observation, a different decision.** Keep every line of the observation and change only what a site does with it. Second response: a site whose cell is bright enough stops, for good. It needs to remember that it stopped, so the sites carry a `mobility` attribute, 1 to start, and the rule sets it to 0 when the cell's `mean` crosses `bright`; the move is scaled by `mobility`, so a stopped site stays put while the others keep coming. The rule also writes `stopped`, the step number at which it happened, which is only a record and changes nothing about the motion. One thing to read carefully: within a step, `next.move` reads `p.mobility` as it is in `current`, and `next.set` changes it for the next state, so a site that qualifies this step makes one last move and is still from the step after. The observation is identical: the diagram, the measurement, the same `mean` and `weightedCentroid` for every cell. Left, the first response; right, the second, from the same sites, drawn with the same marks so that only the positions differ.
 
 ```ts live focus=17-22
-import { sketch, strokes, circle, distance, sub, mul, group, rect, within, ui } from 'occlude';
+import { sketch, strokes, circle, distance, sub, mul, group, rect, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const iterations = ui(12, { min: 0, max: 20, step: 1 });
   const bright = ui(0.35, { min: 0.05, max: 0.9, step: 0.05, label: 'bright enough to stop' });
   const half = { x: 0, y: 0, w: 100, h: 100 };
   const light = (x, y) => 0.005 + Math.pow(Math.max(0, 1 - distance([x, y], [50, 50]) / 34), 4);
-  const sites = t.relax(t.scatter(within(() => 1, rect(0, 0, 100, 100)), { spacing: 8 }), { iterations: 2, bounds: half }).attribute('mobility', 1).attribute('stopped', -1);
+  const sites = t.relax(t.scatter(t.within(() => 1, rect(0, 0, 100, 100)), { spacing: 8 }), { iterations: 2, bounds: half }).attribute('mobility', 1).attribute('stopped', -1);
   const respond = (stopping) => sites.steps(iterations, (current, next, k) => {
     const diagram = t.voronoi(current, { bounds: half });
     const measured = diagram.faces().measure(light, { resolution: 128 });
@@ -166,7 +166,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
 With the same marks the difference is in the positions alone, and it is modest: the right side's middle stays a little more open than the left's, because the sites that arrived there first stopped instead of packing further. Whether that difference is worth a rule depends on what the drawing is for; the point here is only that it comes from the decision and nothing else. Now the record. The same stopped result, with the sites that stopped drawn as rings whose size is the step they stopped at, small for early, large for late, so the order of arrival is visible rather than inferred.
 
 ```ts live focus=15-17
-import { sketch, strokes, circle, distance, sub, mul, rect, within, ui } from 'occlude';
+import { sketch, strokes, circle, distance, sub, mul, rect, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const iterations = ui(12, { min: 0, max: 20, step: 1 });
@@ -204,7 +204,7 @@ It has plenty. Its positions are its memory: each step's diagram is built from w
 The second response, on a modest population with two patches of light, drawn twice from the same final sites: as walls, where the light shows as two groups of smaller cells; and as marks of one size with the stopped sites ringed and the rings sized by the step they stopped at, as above. The label reports what the rule cost.
 
 ```ts live focus=8-16
-import { sketch, strokes, circle, label, distance, sub, mul, group, rect, within, ui } from 'occlude';
+import { sketch, strokes, circle, label, distance, sub, mul, group, rect, ui } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const iterations = ui(16, { min: 0, max: 24, step: 1 });
@@ -212,7 +212,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const half = { x: 0, y: 0, w: 100, h: 100 };
   const glow = (x, y) => Math.min(1, Math.max(0, 1 - distance([x, y], [30, 42]) / 30) + Math.max(0, 1 - distance([x, y], [72, 64]) / 22) * 0.9);
   const light = (x, y) => 0.005 + Math.pow(glow(x, y), 3);
-  const sites = t.relax(t.scatter(within(() => 1, rect(0, 0, 100, 100)), { spacing: 7 }), { iterations: 2, bounds: half }).attribute('mobility', 1).attribute('stopped', -1);
+  const sites = t.relax(t.scatter(t.within(() => 1, rect(0, 0, 100, 100)), { spacing: 7 }), { iterations: 2, bounds: half }).attribute('mobility', 1).attribute('stopped', -1);
   const started = Date.now();
   const settled = sites.steps(iterations, (current, next, k) => {
     const diagram = t.voronoi(current, { bounds: half });

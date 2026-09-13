@@ -12,12 +12,12 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 // @ts-expect-error plain-JS module shared with the studio server
 import { stripFillTypes } from '../../occlude-studio/fill-transpile.mjs';
-import { clearFills, isBuiltinFill, loadFillModule, scanFillNames } from '../src/index.js';
+import { fillTable, isBuiltinFill, loadFillModule, scanFillNames, type FillTable } from '../src/index.js';
 
 const fillsDir = fileURLToPath(new URL('../../occlude-studio/fills/', import.meta.url));
 
-export function preloadFillsFromDisk(source: string): void {
-  clearFills();
+export function fillsFromDisk(source: string): FillTable {
+  const entries: [string, ReturnType<typeof loadFillModule>][] = [];
   for (const name of scanFillNames(source)) {
     if (isBuiltinFill(name)) continue;
     let src: string;
@@ -26,6 +26,7 @@ export function preloadFillsFromDisk(source: string): void {
     } catch {
       continue;
     }
-    loadFillModule(name, (stripFillTypes as (s: string) => string)(src));
+    entries.push([name, loadFillModule(name, (stripFillTypes as (s: string) => string)(src))]);
   }
+  return fillTable(entries);
 }

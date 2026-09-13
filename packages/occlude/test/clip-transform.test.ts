@@ -1,10 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, expect, it } from 'vitest';
-import { clip, evalPrim, group, initOcclude, line, rect, render, setPaperHint, sketch, type ShapeOpts } from '../src/index.js';
+import { clip, evalPrim, group, initOcclude, line, rect, render, sketch, type ShapeOpts } from '../src/index.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
-  setPaperHint(200, 200);
 });
 
 it.each([

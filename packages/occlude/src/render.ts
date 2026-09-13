@@ -34,7 +34,7 @@ import {
 import { fieldMeta } from './field.js';
 import { apply, invert, mul, scale as mscale, type Mat } from './matrix.js';
 import type { FieldAlign, FieldFn, LengthFn, VectorFieldFn } from './shapes.js';
-import { getState, setPaperHint } from './state.js';
+import { Execution, type ExecutionInputs, type PaperSpec } from './execution.js';
 import { compileSketch, isSketch, type SketchDef } from './api.js';
 import { mm, resolveLen } from './units.js';
 
@@ -84,8 +84,14 @@ export interface RenderResult {
   draw?: DrawRequest;
 }
 
-export interface RenderOptions {
-  paper?: PaperChoice | string;
+/** What a headless entry point (`render`, `exportSvg` …) needs beyond the
+ * sketch: the paper choice, and optionally the rest of the run's inputs —
+ * the captured pen library, the seed for an open-seeded sketch, assets,
+ * fills. Every field is explicit; nothing is read from a session. */
+export interface RenderOptions extends Omit<ExecutionInputs, 'paper'> {
+  /** A named paper, a `{ paper, landscape }` choice, or the sheet itself
+   * (`{ w, h }` mm — so a tool's `ExecutionInputs` spread straight in). */
+  paper?: PaperChoice | string | PaperSpec;
   /** Hatch/stipple coarsening for preview; 1 = exact. */
   coarsen?: number;
   /** Also compute the debug ghost: post-modified pre-occlusion geometry. */
@@ -155,8 +161,10 @@ export function pensToJson(pens: PenDef[]): string {
   );
 }
 
-function renderPaper(opts: RenderOptions): { w: number; h: number } {
-  return paperSize(typeof opts.paper === 'string' ? { paper: opts.paper } : (opts.paper ?? { paper: 'A4' }));
+function renderPaper(opts: RenderOptions): PaperSpec {
+  const p = opts.paper;
+  if (p && typeof p === 'object' && 'w' in p && 'h' in p) return { ...p };
+  return paperSize(typeof p === 'string' ? { paper: p } : (p ?? { paper: 'A4' }));
 }
 
 /**
@@ -164,9 +172,9 @@ function renderPaper(opts: RenderOptions): { w: number; h: number } {
  * wasm involved, so it is cheap enough for the main thread while the actual
  * geometry runs in a worker.
  */
-export function encodeScene(opts: RenderOptions = {}): EncodedScene {
-  const state = getState();
-  const { w: paperW, h: paperH } = renderPaper(opts);
+export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedScene {
+  const state = exec;
+  const { w: paperW, h: paperH } = exec.paper;
   const frame = makeFrame(state, paperW, paperH, opts.stretch ?? false);
 
   // Pens: collect used names in order of first use.
@@ -175,8 +183,8 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
   const penIdx = (name: string): number => {
     let i = penIndex.get(name);
     if (i === undefined) {
-      const def = state.penLib.get(name);
-      if (!def) throw new Error(`unknown pen '${name}'`);
+      const def = state.pens.get(name);
+      if (!def) throw new Error(`unknown pen '${name}' — available: ${[...state.pens.keys()].join(', ')}`);
       i = pens.length;
       pens.push(def);
       penIndex.set(name, i);
@@ -258,7 +266,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
       });
     const [cStart, cCount] = pushContours(cs);
     const g = bound.shape.geom;
-    const winding = g.kind === 'path' && g.winding === 'evenodd' ? 4 : 0;
+    const winding = (g.kind === 'path' || g.kind === 'area') && g.winding === 'evenodd' ? 4 : 0;
     clipsU32.push(cStart, cCount, winding);
     const idx = clipsU32.length / 3 - 1;
     domainCache.set(key, idx);
@@ -310,7 +318,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     const lowered = lowerShape(clipRec.shape, frame);
     const [cStart, cCount] = pushContours(lowered.contours);
     const cgeom = clipRec.shape.geom;
-    const cwinding = cgeom.kind === 'path' && cgeom.winding === 'evenodd' ? 4 : 0;
+    const cwinding = (cgeom.kind === 'path' || cgeom.kind === 'area') && cgeom.winding === 'evenodd' ? 4 : 0;
     const flags = (lowered.convex ? 2 : 0) | cwinding | (clipRec.invert ? 8 : 0);
     clipsU32.push(cStart, cCount, flags);
   }
@@ -323,7 +331,7 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
     const lowered = lowerShape(shape, frame);
     const [cStart, cCount] = pushContours(lowered.contours);
     const geom = shape.geom;
-    const winding = geom.kind === 'path' && geom.winding === 'evenodd' ? 4 : 0;
+    const winding = (geom.kind === 'path' || geom.kind === 'area') && geom.winding === 'evenodd' ? 4 : 0;
     let flags = (shape.closed ? 1 : 0) | (lowered.convex ? 2 : 0) | winding;
     const strokePen = shape.strokePen !== null ? penIdx(shape.strokePen) + 1 : 0;
     // Paper footprint of this shape, for shape-aligned grid extents.
@@ -373,11 +381,11 @@ export function encodeScene(opts: RenderOptions = {}): EncodedScene {
         // Pending: ink is generated between the passes, against the FINAL
         // outline pass 1 returns — never here, where deform hasn't run.
         fillKind = 1;
-        const winding = geom.kind === 'path' ? geom.winding : 'nonzero';
+        const winding = geom.kind === 'path' || geom.kind === 'area' ? geom.winding : 'nonzero';
         const order = shape.order;
         let run: FillJob['run'];
         if (spec.type === 'use' || spec.type === 'asset') {
-          const def = spec.type === 'asset' ? spec.def : resolveFill(spec.name);
+          const def = spec.type === 'asset' ? spec.def : resolveFill(spec.name, exec.inputs.fills);
           const label = spec.type === 'asset' ? 'fill asset' : spec.name;
           if (!def) {
             throw new Error(
@@ -564,28 +572,30 @@ export function decodeRender(scene: EncodedScene, raw: RawRender): RenderResult 
   };
 }
 
-function renderState(opts: RenderOptions = {}): RenderResult {
-  const scene = encodeScene(opts);
+/** The run's inputs from the headless options: the paper choice resolved,
+ * the rest passed through. */
+function inputsOf(opts: RenderOptions): ExecutionInputs {
+  return { paper: renderPaper(opts), library: opts.library, seed: opts.seed, marginPct: opts.marginPct, assets: opts.assets, fills: opts.fills, inspect: opts.inspect };
+}
+
+/** The execution an entry point works on: compile the sketch with the
+ * options' inputs, or take the one the host compiled. */
+function runOf(a: SketchDef | Execution, opts: RenderOptions): Execution {
+  return isSketch(a) ? compileSketch(a, inputsOf(opts)) : a;
+}
+
+function renderRun(exec: Execution, opts: RenderOptions): RenderResult {
+  const scene = encodeScene(exec, opts);
   return decodeRender(scene, renderEncoded(requireWasm(), scene));
 }
 
-/** Resolve the host paper before any sketch-time bounds or unit lowering. */
-function compileForRender(def: SketchDef, opts: RenderOptions): void {
-  const { w, h } = renderPaper(opts);
-  setPaperHint(w, h);
-  compileSketch(def);
-}
-
-/** Render a sketch synchronously on this thread. */
+/** Render a sketch synchronously on this thread, on the paper (and with
+ * the inputs) the options give. */
 export function render(def: SketchDef, opts?: RenderOptions): RenderResult;
-/** Render whatever is currently compiled (host use, after compileSketch). */
-export function render(opts?: RenderOptions): RenderResult;
-export function render(a?: SketchDef | RenderOptions, b?: RenderOptions): RenderResult {
-  if (isSketch(a)) {
-    compileForRender(a, b ?? {});
-    return renderState(b ?? {});
-  }
-  return renderState(a ?? {});
+/** Render an execution the host compiled (`compileSketch`). */
+export function render(exec: Execution, opts?: RenderOptions): RenderResult;
+export function render(a: SketchDef | Execution, b: RenderOptions = {}): RenderResult {
+  return renderRun(runOf(a, b), b);
 }
 
 export interface MachineProfileTS {
@@ -644,13 +654,9 @@ export function tourBudget(optimize: ExportOptions['optimize']): number {
 }
 
 /** Render exactly and export per-pen G-code jobs (synchronous). */
-export function exportGcode(def: SketchDef, opts?: ExportOptions): GcodeJob[];
-export function exportGcode(opts?: ExportOptions): GcodeJob[];
-export function exportGcode(a?: SketchDef | ExportOptions, b?: ExportOptions): GcodeJob[] {
-  const opts = isSketch(a) ? (b ?? {}) : (a ?? {});
-  if (isSketch(a)) compileForRender(a, opts);
+export function exportGcode(def: SketchDef | Execution, opts: ExportOptions = {}): GcodeJob[] {
   const mod = requireWasm();
-  const result = renderState({ ...opts, coarsen: 1 });
+  const result = renderRun(runOf(def, opts), { ...opts, coarsen: 1 });
   const profile = opts.profile ?? {};
   const tol = Math.max(0.0001, Math.min(profile.resolution ?? 0.025, result.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)));
   const range = requestedRange(result, opts, tol);
@@ -675,13 +681,9 @@ export interface PngOptions extends ExportOptions {
 }
 
 /** Render exactly and rasterise to PNG bytes (synchronous). */
-export function exportPng(def: SketchDef, opts?: PngOptions): Uint8Array;
-export function exportPng(opts?: PngOptions): Uint8Array;
-export function exportPng(a?: SketchDef | PngOptions, b?: PngOptions): Uint8Array {
-  const opts = isSketch(a) ? (b ?? {}) : (a ?? {});
-  if (isSketch(a)) compileForRender(a, opts);
+export function exportPng(def: SketchDef | Execution, opts: PngOptions = {}): Uint8Array {
   const mod = requireWasm();
-  const result = renderState({ ...opts, coarsen: 1 });
+  const result = renderRun(runOf(def, opts), { ...opts, coarsen: 1 });
   const tol = Math.max(0.0001, Math.min(0.025, result.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)));
   const range = requestedRange(result, opts, tol);
   return mod.wasm_plan_png(
@@ -757,13 +759,9 @@ export function planToolpath(plan: DrawingPlan, sel: PlanSelection, tolerance: n
 
 /** Render exactly and export SVG: exact curves, one path per plotted chain
  * (the same merge → tour → bridge as the G-code, so the SVG IS the plot). */
-export function exportSvg(def: SketchDef, opts?: SvgOptions): string;
-export function exportSvg(opts?: SvgOptions): string;
-export function exportSvg(a?: SketchDef | SvgOptions, b?: SvgOptions): string {
-  const opts = isSketch(a) ? (b ?? {}) : (a ?? {});
-  if (isSketch(a)) compileForRender(a, opts);
+export function exportSvg(def: SketchDef | Execution, opts: SvgOptions = {}): string {
   const mod = requireWasm();
-  const result = renderState({ ...opts, coarsen: 1 });
+  const result = renderRun(runOf(def, opts), { ...opts, coarsen: 1 });
   const tol = Math.max(0.0001, Math.min(0.025, result.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)));
   const range = requestedRange(result, { ...opts, ...(opts.tourBudget !== undefined ? { optimize: opts.tourBudget } : {}) }, tol);
   return mod.wasm_plan_svg(range.buffer, pensToJson(result.pens), result.paper.w, result.paper.h, opts.background, opts.onlyPen ?? -1, range.from, range.to);

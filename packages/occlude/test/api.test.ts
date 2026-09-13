@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { A4, SQ, toolkit } from './helpers/run.js';
 import {
-  compileSketch, getProbeStats,
+  compileSketch,
   fill,
   circle, ellipse, exportGcode, exportPng, exportSvg, initOcclude,
   line, mask, mm, ngon, polygon, rect, render, sketch, w, material, connect } from '../src/index.js';
@@ -653,8 +654,8 @@ describe('fields', () => {
     const f = (_x: number, y: number): number => y / 100;
     const def = sketch({ seed: 1 }, () =>
       times(10, (k) => line(0, k * 10, 100, k * 10, { decimate: f })));
-    compileSketch(def);
-    const scene = encodeScene({ paper: 'Square20' });
+    const exec = compileSketch(def, SQ);
+    const scene = encodeScene(exec);
     // One raster header (w,h,x0,y0,dx,dy) + samples — not ten.
     const w = scene.fieldData[0];
     const h = scene.fieldData[1];
@@ -707,7 +708,7 @@ describe('phase-3 modifiers', () => {
   });
 
   it('deform changes occlusion (pre-solve); wobble does not', async () => {
-    const { deform, wobble, noiseField } = await import('../src/index.js');
+    const { deform, wobble } = await import('../src/index.js');
     const behind = (def: SketchDef): number =>
       totalLen(sq(def).frags.filter((f) => f.shape === 0));
     // Crisp circle r=15 hides exactly its diameter of the line.
@@ -721,15 +722,15 @@ describe('phase-3 modifiers', () => {
     ]));
     expect(wob).toBeCloseTo(crisp, 3);
     // Pre-deform: the deformed silhouette is what hides.
-    const def = behind(sketch({ seed: 6 }, ({ }) => [
+    const def = behind(sketch({ seed: 6 }, (t) => [
       line(0, 50, 100, 50),
-      deform(noiseField(3, 20), circle(50, 50, 15, { opaque: true })),
+      deform(t.noiseField(3, 20), circle(50, 50, 15, { opaque: true })),
     ]));
     expect(Math.abs(def - crisp)).toBeGreaterThan(0.5);
     // The line itself stays perfectly straight — only the occluder deformed.
-    const outD = sq(sketch({ seed: 6 }, () => [
+    const outD = sq(sketch({ seed: 6 }, (t) => [
       line(0, 50, 100, 50),
-      deform(noiseField(3, 20), circle(50, 50, 15, { opaque: true })),
+      deform(t.noiseField(3, 20), circle(50, 50, 15, { opaque: true })),
     ]));
     for (const f of outD.frags.filter((f) => f.shape === 0)) {
       const g = f.geom as Extract<Prim, { t: 'line' }>;
@@ -1081,8 +1082,8 @@ describe('svg() with the generic transform opts', () => {
 
 describe('image assets', () => {
   it('each channel reads its own byte, point-sampled and area-averaged', async () => {
-    const { registerImageAsset, image, clearAssets } = await import('../src/index.js');
-    clearAssets();
+    const { assetTable } = await import('../src/index.js');
+    const { image } = await import('../src/imageAsset.js');
     // every pixel distinct per channel, and none of them equal: a channel
     // read from the wrong byte cannot pass
     const w = 2, h = 2;
@@ -1091,8 +1092,8 @@ describe('image assets', () => {
     data.set([20, 70, 120, 170], 4);
     data.set([30, 80, 130, 180], 8);
     data.set([40, 90, 140, 190], 12);
-    registerImageAsset('chan.png', { width: w, height: h, data });
-    const img = image('chan.png', { x: 0, y: 0, width: 20 }); // 20×20 units, 10 per pixel
+    const assets = assetTable([['chan.png', { pixels: { width: w, height: h, data } }]]);
+    const img = image(assets, 'chan.png', { x: 0, y: 0, width: 20 }); // 20×20 units, 10 per pixel
     const at = (px: number, py: number) => [px * 10 + 5, py * 10 + 5] as [number, number];
     for (const [px, py, i] of [[0, 0, 0], [1, 0, 1], [0, 1, 2], [1, 1, 3]] as const) {
       const [x, y] = at(px, py);
@@ -1113,13 +1114,11 @@ describe('image assets', () => {
     expect(ab).toBeCloseTo(mean(2), 6);
     expect(img.a(10, 10, 10)).toBeCloseTo(mean(3), 6);
     expect(img.lum(10, 10, 10)).toBeCloseTo(0.2126 * mean(0) + 0.7152 * mean(1) + 0.0722 * mean(2), 6);
-    clearAssets();
   });
 
   it('samples points, area averages, bands, and edges from registered pixels', async () => {
-    const { registerImageAsset, image, clearAssets, scanAssetNames, asset, registerTextAsset } =
-      await import('../src/index.js');
-    clearAssets();
+    const { assetTable, scanAssetNames } = await import('../src/index.js');
+    const { image, asset } = await import('../src/imageAsset.js');
     // 4×2: left half black, right half white.
     const w = 4, h = 2;
     const data = new Uint8ClampedArray(w * h * 4);
@@ -1128,8 +1127,8 @@ describe('image assets', () => {
         const v = x < 2 ? 0 : 255;
         data.set([v, v, v, 255], (y * w + x) * 4);
       }
-    registerImageAsset('test.png', { width: w, height: h, data });
-    const img = image('test.png', { x: 10, y: 10, width: 40 }); // 40×20 units
+    const assets = assetTable([['test.png', { pixels: { width: w, height: h, data } }], ['x.svg', { text: '<svg/>' }]]);
+    const img = image(assets, 'test.png', { x: 10, y: 10, width: 40 }); // 40×20 units
     expect(img.height).toBe(20);
     // Pixel centers: left half ~0, right half ~1.
     expect(img.lum(15, 15)).toBeCloseTo(0, 5);
@@ -1160,13 +1159,12 @@ describe('image assets', () => {
     expect(lum(0, 0)).toBe(0);
     expect(() => img.field('hue' as never)).toThrow(/unknown channel/);
     // Text assets + literal scanning.
-    registerTextAsset('x.svg', '<svg/>');
-    expect(asset('x.svg')).toBe('<svg/>');
-    expect(() => asset('test.png')).toThrow(/is an image/);
+    expect(asset(assets, 'x.svg')).toBe('<svg/>');
+    expect(() => asset(assets, 'test.png')).toThrow(/is an image/);
     expect(scanAssetNames(`image('a.png'); asset("b.svg"); image('a.png')`))
       .toEqual(['a.png', 'b.svg']);
-    clearAssets();
-    expect(() => image('test.png')).toThrow(/unknown asset/);
+    expect(() => image(assetTable(), 'test.png')).toThrow(/unknown asset/);
+    expect(() => image(undefined, 'test.png')).toThrow(/unknown asset/);
   });
 });
 
@@ -1240,14 +1238,14 @@ describe('probe: the variable inspector', () => {
       t.probe('bad', NaN);
       return circle(50, 50, 10, { fill: (region, ctx) => { t.probe('fill', ctx.penWidth); return []; } });
     });
-    sq(def);
-    const p = getProbeStats();
+    const exec = compileSketch(def, SQ);
+    render(exec);
+    const p = exec.getProbeStats();
     expect(p.i).toMatchObject({ count: 10, min: 0, max: 9, mean: 4.5, nonFinite: 0 });
     expect(p.i.samples).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(p.bad).toMatchObject({ count: 1, nonFinite: 1 });
     expect(p.fill.count).toBe(1); // fill code probes too — same runtime
-    compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 10)));
-    expect(Object.keys(getProbeStats())).toEqual([]);
+    expect(Object.keys(compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 10)), SQ).getProbeStats())).toEqual([]);
   });
 
   it('thins deterministically past the reservoir', () => {
@@ -1255,8 +1253,9 @@ describe('probe: the variable inspector', () => {
       for (let i = 0; i < 10000; i++) t.probe('big', i);
       return circle(50, 50, 10);
     });
-    sq(def);
-    const p = getProbeStats().big;
+    const exec = compileSketch(def, SQ);
+    render(exec);
+    const p = exec.getProbeStats().big;
     expect(p.count).toBe(10000);
     expect(p.samples.length).toBeLessThanOrEqual(2048);
     expect(p.samples.length).toBeGreaterThan(1000);

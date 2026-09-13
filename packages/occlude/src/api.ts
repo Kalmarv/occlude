@@ -29,11 +29,8 @@ import { svg as svgValue } from './svgin.js';
 import { label } from './font.js';
 import { grid as gridCells, type GridCell, type GridOptions } from './layout.js';
 import { type FieldAlign, Shape, geomClosed, type FieldFn, type LengthFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
-import {
-  bounds, chance, clip as legacyClip, margin, noise, pick, prob, push, rnd,
-  sketch as legacySketch, stream, getState, unitScaleMm,
-  type SketchOptions, type Winding, recordProbe, recordInspection,
-} from './state.js';
+import { Execution, type ExecutionInputs, type PaperSpec, type SketchOptions, type Winding } from './execution.js';
+import type { PenDef } from './pens.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
   scatterPoints, relaxMaterial, settleMaterial, withinRegion,
@@ -41,7 +38,7 @@ import {
 } from './points.js';
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
-import { sketchFrame, unitMm } from './record.js';
+import { unitMm } from './record.js';
 import { boundaryLoops, numericLoops, type Boundary, type LoopPoints } from './boundary.js';
 import {
   Material, material as materialOf, alongChain, checkSampling, isStations, stationsMaterial,
@@ -53,12 +50,13 @@ import { voronoi } from './voronoi.js';
 import { distanceTo } from './distance.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
-  vectorField as vectorFieldMark, within as withinField,
+  vectorField as vectorFieldMark, within as withinField, type BoundEnv, type Prepared,
 } from './field.js';
 import { areaFill, interiorPoint } from './area.js';
 import { ui } from './ui.js';
+import { asset as assetOf, image as imageOf, type ImagePlacement } from './imageAsset.js';
 import { h, long, mm, s, w, resolveLen, Len, type L } from './units.js';
-import { synth } from './synth.js';
+import { synth as synthPure, type SynthOpts } from './synth.js';
 
 // ---- values ----
 
@@ -244,17 +242,18 @@ export interface PolygonOpts extends ShapeOpts {
  * through the one lowerer, so it agrees with what the shape itself inks; a
  * face, loops, a chain material or a selection come from the boundary
  * contract. */
-function areaLoops(input: Boundary | ShapeValue, who: string): LoopPoints[] {
+function areaLoops(run: Execution | null, input: Boundary | ShapeValue, who: string): LoopPoints[] {
   if (isShapeValue(input)) {
-    return shapeContours(input, undefined).map((c) => c.pts);
+    if (!run) throw new Error(`${who}: a shape area is lowered by the toolkit — use t.${who}`);
+    return shapeContours(run, input, undefined).map((c) => c.pts);
   }
   return boundaryLoops(input, who);
 }
 
 /** `areaLoops` for a consumer that computes with the coordinates: a length
  * such as `mm(10)` is a drawing unit the sketch must resolve first. */
-function numericAreaLoops(input: Boundary | ShapeValue, who: string): [number, number][][] {
-  return numericLoops(areaLoops(input, who), who);
+function numericAreaLoops(run: Execution | null, input: Boundary | ShapeValue, who: string): [number, number][][] {
+  return numericLoops(areaLoops(run, input, who), who);
 }
 
 /**
@@ -275,9 +274,15 @@ export function polygon(contours: Boundary | Contour | Contour[] | ShapeValue, o
   // The source is the authority for the fill rule, and a path carries one:
   // `polygon(somePath)` keeps it, and `opts.winding` overrides it. Loops and
   // faces have no rule of their own, so they read even-odd as before.
-  const fromSource = isShapeValue(contours) && contours.geom.kind === 'path' ? contours.geom.winding : undefined;
+  const fromSource = isShapeValue(contours) && (contours.geom.kind === 'path' || contours.geom.kind === 'area') ? contours.geom.winding : undefined;
   const winding = given ?? fromSource ?? 'evenodd';
-  const loops = areaLoops(contours, 'polygon');
+  // A shape is an area input; its outline is lowered when the drawing is
+  // recorded, against the run's frame — pure here, no run in hand.
+  if (isShapeValue(contours)) {
+    const o = contours.opts;
+    return shape({ kind: 'area', of: { geom: contours.geom, opts: { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin } }, winding }, rest);
+  }
+  const loops = areaLoops(null, contours, 'polygon');
   const cmds: PathCmd[] = [];
   for (const loop of loops) {
     if (loop.length < 2) continue;
@@ -319,34 +324,35 @@ export interface WithinFaces {
 }
 
 export interface Within {
-  <F extends FieldFn | VectorFieldFn>(field: F, area: ShapeValue): F;
+  <F extends FieldFn | VectorFieldFn | LengthFn>(field: F, area: ShapeValue): Prepared<F>;
   (material: Material, area: Boundary | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
   (points: PointSelection, area: Boundary | ShapeValue): PointSelection;
   (faces: Faces | FaceSelection, area: Boundary | ShapeValue, opts?: WithinFaces): FaceSelection;
 }
 
-export function withinAny<F extends FieldFn | VectorFieldFn>(field: F, area: ShapeValue): F;
-export function withinAny(material: Material, area: Boundary | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
-export function withinAny(points: PointSelection, area: Boundary | ShapeValue): PointSelection;
-export function withinAny(faces: Faces | FaceSelection, area: Boundary | ShapeValue, opts?: WithinFaces): FaceSelection;
+export function withinAny<F extends FieldFn | VectorFieldFn | LengthFn>(run: Execution, field: F, area: ShapeValue): Prepared<F>;
+export function withinAny(run: Execution, material: Material, area: Boundary | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
+export function withinAny(run: Execution, points: PointSelection, area: Boundary | ShapeValue): PointSelection;
+export function withinAny(run: Execution, faces: Faces | FaceSelection, area: Boundary | ShapeValue, opts?: WithinFaces): FaceSelection;
 
 export function withinAny(
-  x: FieldFn | VectorFieldFn | Material | PointSelection | Faces | FaceSelection,
+  run: Execution,
+  x: FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | Faces | FaceSelection,
   area: Boundary | ShapeValue,
   opts: { transfer?: Record<string, Transfer>; faces?: 'contained' | 'centroid' } = {},
-): FieldFn | VectorFieldFn | Material | PointSelection | FaceSelection {
-  if (typeof x === 'function') return withinField(x, area as ShapeValue);
+): FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | FaceSelection {
+  if (typeof x === 'function') return withinField(x, area as ShapeValue, boundEnv(run));
   if (opts.faces !== undefined && opts.faces !== 'contained' && opts.faces !== 'centroid') {
     throw new Error(`within: faces must be 'contained' or 'centroid', got '${String(opts.faces)}'`);
   }
-  const loops = numericAreaLoops(area, 'within');
+  const loops = numericAreaLoops(run, area, 'within');
   // The FILLED REGION, not the contours: under a nonzero rule an interior
   // contour has fill on both sides and is not a boundary at all, so points on
   // it are inside, material along it is not cut, and a face may cross or
   // enclose it. A shape area brings its own rule; loops and faces carry none
   // and read even-odd, exactly as `distanceTo` documents.
   const shapeArea = isShapeValue(area) ? area : null;
-  const rule = shapeArea && shapeArea.geom.kind === 'path' ? shapeArea.geom.winding : 'evenodd';
+  const rule = shapeArea && (shapeArea.geom.kind === 'path' || shapeArea.geom.kind === 'area') ? shapeArea.geom.winding : 'evenodd';
   const fill = areaFill(loops, rule);
   const inside = fill.at;
   if (x instanceof Material) {
@@ -693,7 +699,7 @@ export function deform(
  * A ready-made tremor vector field for `deform`: seeded simplex noise,
  * `amount` and `wavelength` in user units.
  */
-export function noiseField(amount: number, wavelength = 25): VectorFieldFn {
+function noiseFieldOf(noise: (x: number, y?: number, z?: number) => number, amount: number, wavelength = 25): VectorFieldFn {
   return vectorFieldMark((x, y) => [
     amount * noise(x / wavelength, y / wavelength),
     amount * noise(x / wavelength + 213.7, y / wavelength - 118.3),
@@ -716,6 +722,7 @@ export function mask(sv: ShapeValue): ShapeValue {
 
 /** A hand-drawn-looking line built from the sketch's noise stream. */
 function noisyLineValue(
+  noise: (x: number, y?: number, z?: number) => number,
   x1: L, y1: L, x2: L, y2: L,
   o: { points?: number; scale?: number; amplitude?: number; offset?: number } = {},
   shapeOpts?: ShapeOpts,
@@ -756,94 +763,26 @@ function resolveNominal(v: Len, ctx: { innerW: number; innerH: number }): number
 
 export interface SketchConfig extends Omit<SketchOptions, 'seed'> {
   seed?: 'url' | number | string;
-  /** Percent inset from the paper edge. */
-  margin?: number;
-  /** Default pen for shapes that don't set one. */
+  /** Inset from the paper edge: a percent of the short paper side, or a
+   * physical length (`mm(10)`, `inch(0.5)`). A composition setting. */
+  margin?: L;
+  /** Default pen for shapes that don't set one: a name from `pens`, or of
+   * the captured library. */
   pen?: string;
+  /** The sheet, declared here — `paper({ width, height, color })` or a
+   * library model — and then the same everywhere the sketch runs. Without
+   * it the host's paper applies. */
+  paper?: PaperSpec;
+  /** Sketch-local pens by name: `{ blue: fineliner({ color: '#2457D6' }),
+   * fine: pen({ width: mm(0.3) }) }`. Names resolve here first, then in
+   * the captured library, so `stroke: 'blue'` and `stroke: 'micron-03'`
+   * both work. */
+  pens?: Readonly<Record<string, Omit<PenDef, 'name'> & { name?: string }>>;
 }
 
-export interface Toolkit {
-  circle: typeof circle;
-  ellipse: typeof ellipse;
-  rect: typeof rect;
-  line: typeof line;
-  polygon: typeof polygon;
-  ngon: typeof ngon;
-  stroke: typeof stroke;
-  path: typeof path;
-  group: typeof group;
-  clip: typeof clip;
-  mask: typeof mask;
-  decimate: typeof decimate;
-  wobble: typeof wobble;
-  modify: typeof modify;
-  dash: typeof dash;
-  smooth: typeof smooth;
-  roughen: typeof roughen;
-  deform: typeof deform;
-  noiseField: typeof noiseField;
-  label: typeof label;
-  fill: typeof fill;
-  rulings: typeof rulings;
-  ui: typeof ui;
-  rnd: typeof rnd;
-  pick: typeof pick;
-  chance: typeof chance;
-  prob: typeof prob;
-  noise: typeof noise;
-  stream: typeof stream;
-  map: typeof mapRange;
-  norm: typeof normRange;
-  invert: typeof invert;
-  invertRange: typeof invertRange;
-  ease: typeof ease;
-  times: typeof times;
-  range: typeof range;
-  bounds: typeof bounds;
-  /** A length as a number of drawable units: `t.len(mm(2))` for arithmetic
-   * on physical sizes (a bare number comes back unchanged). */
-  len: (l: L) => number;
-  /** Drawable extent in bare units — the same numbers `bounds()` returns. */
-  width: number;
-  height: number;
-  cx: number;
-  cy: number;
-  grid: (opts: GridOptions) => GridCell[];
-  scatter: typeof scatter;
-  isolines: typeof isolines;
-  streamlines: typeof streamlines;
-  /** A shape's boundary as material with its own vertices: corners kept,
-   * curves flattened. `sample` redistributes instead. */
-  material: typeof materialFromShape;
-  sample: typeof sample;
-  probe: typeof probe;
-  inspect: typeof inspect;
-  plan: typeof planWith;
-  draw: typeof draw;
-  distanceTo: typeof distanceTo;
-  within: Within;
-  rotate: typeof rotateField;
-  translate: typeof translateField;
-  scale: typeof scaleField;
-  vectorField: typeof vectorFieldMark;
-  /** Lloyd relaxation of a material's points within the drawable (or given bounds). */
-  relax: typeof relax;
-  /** Weighted Linde-Buzo-Gray settling of point-only material toward a density. */
-  settle: typeof settle;
-  /** Voronoi cells of a point set as material, clipped to the drawable (or given bounds). */
-  voronoi: typeof voronoiTk;
-  /** Random expressions to explore as fields/warps; `.source` is the
-   * deliverable. On the toolkit because its probe bounds default to the
-   * drawable. */
-  synth: typeof synth;
-  noisyLine: typeof noisyLineValue;
-  svg: typeof svgValue;
-  mm: typeof mm;
-  w: typeof w;
-  h: typeof h;
-  s: typeof s;
-  long: typeof long;
-}
+/** The toolkit a sketch receives: bound to its execution (`bindToolkit`).
+ * One surface, defined once, by the binder. */
+export type Toolkit = ReturnType<typeof bindToolkit>;
 
 export interface SketchDef {
   readonly __occludeSketch: true;
@@ -859,166 +798,20 @@ export function isSketch(v: unknown): v is SketchDef {
  * Define a sketch (declarative form), or reset the legacy recording state
  * when called with only a config (old-style sketches keep working).
  */
-export function sketch(config: SketchConfig, fn: (toolkit: Toolkit) => Tree): SketchDef;
-export function sketch(config?: SketchOptions): void;
-export function sketch(
-  config: SketchConfig = {},
-  fn?: (toolkit: Toolkit) => Tree,
-): SketchDef | void {
-  if (!fn) {
-    legacySketch(config);
-    return;
-  }
+export function sketch(config: SketchConfig, fn: (toolkit: Toolkit) => Tree): SketchDef {
+  if (typeof fn !== 'function') throw new Error('sketch(config, fn): the second argument is the sketch function (toolkit) => tree');
   return { __occludeSketch: true, config, fn };
-}
-
-/** Sketch-time length resolution against the drawable (mm via the paper
- * hint) — shared by the points and isolines environments. */
-function sketchLen(b: { w: number; h: number }): (l: L) => number {
-  return (l) => {
-    if (typeof l === 'object' && l !== null && (l as Len).kind === 'mm') {
-      return (l as Len).value / unitScaleMm();
-    }
-    return resolveLen(l, { innerW: b.w, innerH: b.h });
-  };
-}
-
-/** Environment handed to the points module: seeded stream, drawable
- * bounds, and sketch-time length resolution (mm via the paper hint). */
-function pointsEnv(): import('./points.js').PointsEnv {
-  const b = bounds();
-  const st = stream('__points');
-  return {
-    rnd: () => st.rnd(),
-    bounds: { x: 0, y: 0, w: b.w, h: b.h },
-    len: sketchLen(b),
-  };
-}
-
-/** Field-modulated Poisson-disk points as point-only material with a
- * `density` column (the field at each point). `t.relax` and `t.settle`
- * refine it; `t.voronoi` reads its cells. */
-function scatter(field: FieldFn2 | undefined, opts: ScatterOpts): Material;
-function scatter(opts: ScatterOpts): Material;
-function scatter(
-  a: FieldFn2 | ScatterOpts | undefined,
-  b?: ScatterOpts,
-): Material {
-  const field = typeof a === 'function' ? a : undefined;
-  const raw = (typeof a === 'function' || a === undefined ? b : a) as ScatterOpts;
-  if (!raw?.spacing) throw new Error('scatter: { spacing } is required');
-  const opts: ScatterOpts = raw.within === undefined ? raw : { ...raw, within: numericAreaLoops(raw.within, 'scatter') };
-  return scatterPoints(pointsEnv(), field, opts);
-}
-
-/** Lloyd relaxation: each point to the density-weighted centroid of its
- * cell, `iterations` times; count, edges and columns kept. */
-function relax(m: Material, opts: RelaxOpts = {}): Material {
-  const o: RelaxOpts = opts.within === undefined ? opts : { ...opts, within: numericAreaLoops(opts.within, 'relax') };
-  return relaxMaterial(pointsEnv(), materialOf(m as never), o);
-}
-
-/** Weighted Linde-Buzo-Gray settling toward `density` at `spacing`:
- * relaxation plus population control on point-only material; survivors
- * keep their columns, children copy their parent's, `demand` is written.
- * Split directions come from the sketch's seeded stream. */
-function settle(m: Material, opts: SettleOpts): Material {
-  const o: SettleOpts = opts.within === undefined ? opts : { ...opts, within: numericAreaLoops(opts.within, 'settle') };
-  return settleMaterial(pointsEnv(), materialOf(m as never), o);
-}
-
-/** Voronoi cells of `sites` as material (see voronoi.ts), clipped to the
- * drawable unless a bounds box or a `within` area is given. A cell is
- * clipped to a BOX, so `within` takes a rectangle; for any other area, trim
- * the cells instead: `within(t.voronoi(sites), area)`. `cells.cellOf(site)`
- * and `cells.siteOf(face)` relate the result to its sites; a material or a
- * point selection of one stays the sites, bare points become one. */
-function voronoiTk(sites: PointsLike, opts: { bounds?: PointBounds; within?: Boundary | ShapeValue } = {}): Material {
-  const b = bounds();
-  if (opts.within === undefined) return voronoi(sites, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h });
-  const region = withinRegion(numericAreaLoops(opts.within, 'voronoi'), 'voronoi', opts.bounds);
-  if (region.loops) {
-    throw new Error('voronoi: within needs a rectangle — a cell is clipped to a box; for any other area, clip the cells afterwards: within(t.voronoi(sites), area)');
-  }
-  return voronoi(sites, region.bounds);
-}
-
-/**
- * Contours as one material: each contour a chain (a ring when closed), in
- * the order they came, never joined to each other. Every edge of an
- * isoline carries its requested `level` as a categorical edge column
- * (subdivision copies it).
- */
-function contourMaterial(groups: readonly { contours: readonly IsoContour[]; level?: number }[], withLevel: boolean): Material {
-  let n = 0;
-  let e = 0;
-  for (const g of groups) for (const c of g.contours) {
-    n += c.pts.length;
-    e += c.closed && c.pts.length > 2 ? c.pts.length : Math.max(0, c.pts.length - 1);
-  }
-  const x = new Float64Array(n);
-  const y = new Float64Array(n);
-  const edges = new Uint32Array(2 * e);
-  const level = withLevel ? new Float64Array(e) : null;
-  let vi = 0;
-  let ei = 0;
-  for (const g of groups) for (const c of g.contours) {
-    const first = vi;
-    const m = c.pts.length;
-    for (let k = 0; k < m; k++) {
-      x[vi] = c.pts[k][0];
-      y[vi] = c.pts[k][1];
-      vi++;
-    }
-    const segs = c.closed && m > 2 ? m : Math.max(0, m - 1);
-    for (let k = 0; k < segs; k++) {
-      edges[2 * ei] = first + k;
-      edges[2 * ei + 1] = first + ((k + 1) % m);
-      if (level) level[ei] = g.level as number;
-      ei++;
-    }
-  }
-  return new Material(x, y, {}, edges, 0, [], level ? { level } : {}, {}, level ? { level: 'copy' } : {});
-}
-
-/** Contours of `{ field ≥ at }` via marching squares over the drawable, as
- * one material: each contour a chain (a ring when closed), separate
- * contours separate, every edge carrying its `level`. Draw with
- * `strokes(m)`, fill or clip with `polygon(m)`, pick levels with
- * `m.edges.filter((e) => e.attrs.level === 0.4)` or `m.edges.groupBy((e) =>
- * e.attrs.level)`, or step it like any material.
- * Open at the drawable edge by default; `{ close: true }` closes regions
- * along it. An `at` array marches every level over one shared field
- * sampling, in the order given. */
-function isolines(field: FieldFn2, at: number | number[], opts: IsoOpts = {}): Material {
-  const b = bounds();
-  const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: sketchLen(b) };
-  const levels = Array.isArray(at) ? at : [at];
-  const perLevel = isolinesOf(env, field, levels, opts);
-  return contourMaterial(levels.map((level, k) => ({ contours: perLevel[k], level })), true);
-}
-
-/** Evenly spaced streamlines of a vector field over the drawable (Jobard &
- * Lefer) as one material of open chains — `strokes(m)` draws them, and
- * `.attribute()`/`.steps()` work on them like any material. `spacing` is a
- * length or a scalar field of lengths: density as tone, direction as flow.
- * Lines stop at the drawable edge, at a `within()` bound, and half a
- * spacing from ink already laid. Deterministic, no seed. */
-function streamlines(field: VectorFieldFn, opts: StreamOpts = {}): Material {
-  const b = bounds();
-  const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: sketchLen(b) };
-  return contourMaterial([{ contours: streamlinesOf(env, field, opts) }], false);
 }
 
 /** A shape's outlines in sketch units through THE lowerer (rectMode, arc
  * commands, the shape's own transform opts, curves flattened at
  * `tolerance`), each with its own closure. Shared by `material` and
  * `sample`. */
-function shapeContours(shape: ShapeValue, tolerance: L | undefined): { pts: [number, number][]; closed: boolean }[] {
+function shapeContours(run: Execution, shape: ShapeValue, tolerance: L | undefined): { pts: [number, number][]; closed: boolean }[] {
   if (!shape || typeof shape !== 'object' || !('geom' in shape) || !('opts' in shape)) {
     throw new Error('expected a shape value (circle, rect, path, polygon, …); for points use the pure material(points)');
   }
-  const frame = sketchFrame();
+  const frame = run.frame;
   const unit = unitMm(frame);
   const tol = tolerance !== undefined ? resolveLen(tolerance, frame.inner) : 0.05;
   const o = shape.opts;
@@ -1030,145 +823,338 @@ function shapeContours(shape: ShapeValue, tolerance: L | undefined): { pts: [num
   ).map((c) => ({ closed: c.closed, pts: c.pts.map(([x, y]) => [x / unit, y / unit] as [number, number]) }));
 }
 
+/** The host's automatic form of `inspect`, bound to a run: called for
+ * every variable the studio instruments, so it registers materials — and
+ * the stations of `along()`, as a material of their own — and ignores
+ * everything else without a word. */
+export function inspectHook(run: Execution): (label: string, value: unknown) => void {
+  return (label, value) => {
+    if (value instanceof Material) run.recordInspection(label, value);
+    else if (isStations(value)) run.recordInspection(label, stationsMaterial(value));
+  };
+}
+
+// ---- the toolkit, bound to one execution ----
+
+/** What a field bound (`t.within`) lowers against: the run's frame and its
+ * per-shape memo. */
+function boundEnv(run: Execution): BoundEnv {
+  return { frame: run.frame, cache: run.boundCache };
+}
+
 /**
- * A shape's boundary as material with the boundary's OWN vertices: a
- * rectangle's four corners, a regular polygon's vertices, a path's points,
- * with curved portions flattened at `tolerance` (default 0.05 mm). Each
- * outline is a chain (a ring when closed, without a duplicate seam vertex),
- * separate outlines stay separate, nothing is welded. `sample` is the other
- * conversion: it redistributes points along the boundary by arc length and
- * need not land on a corner. Coordinates are sketch units, before any
- * drawing transform around the shape.
+ * The toolkit a sketch function receives: every member that reads the run
+ * — its seed, paper, frame, captured assets and fills, the recording —
+ * closes over THIS execution. The pure module factories (shapes, fills,
+ * modifiers, units, map/ease) are the same functions the package exports.
  */
-function materialFromShape(shape: ShapeValue, opts: { tolerance?: L } = {}): Material {
-  const pts: [number, number][] = [];
-  const edges: [number, number][] = [];
-  for (const c of shapeContours(shape, opts.tolerance)) {
-    let poly = c.pts;
-    // A closed outline comes back with its start repeated at the end: the
-    // ring closes with an edge, not a coincident vertex.
-    if (c.closed && poly.length > 1) {
-      const a = poly[0];
-      const z = poly[poly.length - 1];
-      if (Math.abs(a[0] - z[0]) <= 1e-9 && Math.abs(a[1] - z[1]) <= 1e-9) poly = poly.slice(0, -1);
-    }
-    const first = pts.length;
-    for (let k = 0; k < poly.length; k++) {
-      pts.push(poly[k]);
-      if (k > 0) edges.push([first + k - 1, first + k]);
-    }
-    if (c.closed && poly.length > 2) edges.push([first + poly.length - 1, first]);
+export function bindToolkit(exec: Execution) {
+  /** Environment handed to the points module: seeded stream, drawable
+   * bounds, and sketch-time length resolution (mm via the paper). */
+  function pointsEnv(): import('./points.js').PointsEnv {
+    const b = exec.bounds();
+    const st = exec.stream('__points');
+    return {
+      rnd: () => st.rnd(),
+      bounds: { x: 0, y: 0, w: b.w, h: b.h },
+      len: (l) => exec.len(l),
+    };
   }
-  return materialOf(pts, { edges });
-}
 
-/**
- * A shape as sampled material — the explicit, lossy step from exact
- * geometry to points you can move one by one. Each outline of the shape
- * becomes a chain of the returned material with `count` vertices, or as
- * many as fit at `spacing`, evenly spaced by arc length: a closed outline
- * is a ring (no duplicate seam), an open one a chain from end to end;
- * several outlines are separate chains in one material. Sampling does not
- * keep the shape's own vertices — `t.material(shape)` does. Positions and
- * connectivity only — attributes come from `.attribute()`.
- */
-function sample(
-  shape: ShapeValue,
-  opts: { count?: number; spacing?: L; tolerance?: L },
-): Material {
-  checkSampling('sample', { count: opts.count, spacing: opts.spacing === undefined ? undefined : 1 });
-  const frame = sketchFrame();
-  const unit = unitMm(frame);
-  const spacingU = opts.spacing !== undefined ? resolveLen(opts.spacing, frame.inner) / unit : undefined;
-  if (spacingU !== undefined && !(spacingU > 0)) throw new Error('sample: spacing must be positive');
-  const pts: [number, number][] = [];
-  const edges: [number, number][] = [];
-  // Each outline keeps its OWN closure: a path may hold a ring and a chain.
-  for (const { pts: poly, closed } of shapeContours(shape, opts.tolerance)) {
-    const samples = alongChain(poly, closed, { count: opts.count, spacing: spacingU });
-    const first = pts.length;
-    for (let k = 0; k < samples.length; k++) {
-      const { seg, t } = samples[k];
-      const [x0, y0] = poly[seg];
-      const [x1, y1] = poly[(seg + 1) % poly.length];
-      pts.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]);
-      if (k > 0) edges.push([first + k - 1, first + k]);
-    }
-    if (closed && samples.length > 2) edges.push([first + samples.length - 1, first]);
+  /** Field-modulated Poisson-disk points as point-only material with a
+   * `density` column (the field at each point). `t.relax` and `t.settle`
+   * refine it; `t.voronoi` reads its cells. */
+  function scatter(field: FieldFn2 | undefined, opts: ScatterOpts): Material;
+  function scatter(opts: ScatterOpts): Material;
+  function scatter(
+    a: FieldFn2 | ScatterOpts | undefined,
+    b?: ScatterOpts,
+  ): Material {
+    const field = typeof a === 'function' ? a : undefined;
+    const raw = (typeof a === 'function' || a === undefined ? b : a) as ScatterOpts;
+    if (!raw?.spacing) throw new Error('scatter: { spacing } is required');
+    const opts: ScatterOpts = raw.within === undefined ? raw : { ...raw, within: numericAreaLoops(exec, raw.within, 'scatter') };
+    return scatterPoints(pointsEnv(), field, opts);
   }
-  return materialOf(pts, { edges });
-}
 
-/**
- * A variable inspector: returns `value` unchanged and records it under
- * `label`, so the studio can show what a number actually ran through —
- * count, min, max, mean, a histogram — after the render. Works anywhere in
- * sketch or fill code (both run in the same runtime), never changes a
- * value, costs nothing to leave in.
- */
-function probe<T>(label: string, value: T): T {
-  recordProbe(label, value);
-  return value;
-}
+  /** Lloyd relaxation: each point to the density-weighted centroid of its
+   * cell, `iterations` times; count, edges and columns kept. */
+  function relax(m: Material, opts: RelaxOpts = {}): Material {
+    const o: RelaxOpts = opts.within === undefined ? opts : { ...opts, within: numericAreaLoops(exec, opts.within, 'relax') };
+    return relaxMaterial(pointsEnv(), materialOf(m as never), o);
+  }
 
-/**
- * Register a material for the studio's debug inspector under `label`. Draws
- * nothing, changes nothing, consumes no randomness, and leaves the plan
- * and exports untouched; with inspection off in the host it is a type check
- * and nothing more. Not history: a label used twice keeps the LAST value
- * (in its first position), so an inspect inside a step callback shows the
- * final state, not every iteration.
- */
-function inspect(label: string, value: Material | readonly Station[]): void {
-  if (typeof label !== 'string' || label.length === 0) throw new Error('inspect: the label must be a non-empty string');
-  if (value instanceof Material) return recordInspection(label, value);
-  if (isStations(value)) return recordInspection(label, stationsMaterial(value));
-  throw new Error(`inspect('${label}'): expected a Material (from t.sample, material(), curve(), connect.*, steps, …) or the stations of along()`);
-}
+  /** Weighted Linde-Buzo-Gray settling toward `density` at `spacing`:
+   * relaxation plus population control on point-only material; survivors
+   * keep their columns, children copy their parent's, `demand` is written.
+   * Split directions come from the sketch's seeded stream. */
+  function settle(m: Material, opts: SettleOpts): Material {
+    const o: SettleOpts = opts.within === undefined ? opts : { ...opts, within: numericAreaLoops(exec, opts.within, 'settle') };
+    return settleMaterial(pointsEnv(), materialOf(m as never), o);
+  }
 
-/** The host's automatic form of `inspect`: called for every variable the
- * studio instruments, so it registers materials — and the stations of
- * `along()`, as a material of their own — and ignores everything else
- * without a word. */
-export function inspectIfMaterial(label: string, value: unknown): void {
-  if (value instanceof Material) recordInspection(label, value);
-  else if (isStations(value)) recordInspection(label, stationsMaterial(value));
-}
+  /** Voronoi cells of `sites` as material (see voronoi.ts), clipped to the
+   * drawable unless a bounds box or a `within` area is given. A cell is
+   * clipped to a BOX, so `within` takes a rectangle; for any other area, trim
+   * the cells instead: `within(t.voronoi(sites), area)`. `cells.cellOf(site)`
+   * and `cells.siteOf(face)` relate the result to its sites; a material or a
+   * point selection of one stays the sites, bare points become one. */
+  function voronoiTk(sites: PointsLike, opts: { bounds?: PointBounds; within?: Boundary | ShapeValue } = {}): Material {
+    const b = exec.bounds();
+    if (opts.within === undefined) return voronoi(sites, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h });
+    const region = withinRegion(numericAreaLoops(exec, opts.within, 'voronoi'), 'voronoi', opts.bounds);
+    if (region.loops) {
+      throw new Error('voronoi: within needs a rectangle — a cell is clipped to a box; for any other area, clip the cells afterwards: within(t.voronoi(sites), area)');
+    }
+    return voronoi(sites, region.bounds);
+  }
 
-/** Path optimization for THIS sketch's plan (tour budget, bridging) — in
- * the program, so the same source plans the same way everywhere. */
-function planWith(opts: PlanOptions): void {
-  if (typeof opts !== 'object' || opts === null) throw new Error('plan: expected { optimize?, bridge? }');
-  for (const k of Object.keys(opts)) if (!['optimize', 'bridge'].includes(k)) throw new Error(`plan: unknown option '${k}' (the sketch sets optimize and bridge; engine identity is the host's)`);
-  if (opts.optimize !== undefined && typeof opts.optimize !== 'boolean' && !(typeof opts.optimize === 'number' && Number.isFinite(opts.optimize) && opts.optimize >= 0)) throw new Error('plan: optimize must be a boolean or a non-negative number');
-  if (opts.bridge !== undefined && typeof opts.bridge !== 'boolean' && !(typeof opts.bridge === 'number' && Number.isFinite(opts.bridge) && opts.bridge >= 0)) throw new Error('plan: bridge must be a boolean or a non-negative gap in mm');
-  getState().planOptions = { ...opts };
-}
+  /**
+   * Contours as one material: each contour a chain (a ring when closed), in
+   * the order they came, never joined to each other. Every edge of an
+   * isoline carries its requested `level` as a categorical edge column
+   * (subdivision copies it).
+   */
+  function contourMaterial(groups: readonly { contours: readonly IsoContour[]; level?: number }[], withLevel: boolean): Material {
+    let n = 0;
+    let e = 0;
+    for (const g of groups) for (const c of g.contours) {
+      n += c.pts.length;
+      e += c.closed && c.pts.length > 2 ? c.pts.length : Math.max(0, c.pts.length - 1);
+    }
+    const x = new Float64Array(n);
+    const y = new Float64Array(n);
+    const edges = new Uint32Array(2 * e);
+    const level = withLevel ? new Float64Array(e) : null;
+    let vi = 0;
+    let ei = 0;
+    for (const g of groups) for (const c of g.contours) {
+      const first = vi;
+      const m = c.pts.length;
+      for (let k = 0; k < m; k++) {
+        x[vi] = c.pts[k][0];
+        y[vi] = c.pts[k][1];
+        vi++;
+      }
+      const segs = c.closed && m > 2 ? m : Math.max(0, m - 1);
+      for (let k = 0; k < segs; k++) {
+        edges[2 * ei] = first + k;
+        edges[2 * ei + 1] = first + ((k + 1) % m);
+        if (level) level[ei] = g.level as number;
+        ei++;
+      }
+    }
+    return new Material(x, y, {}, edges, 0, [], level ? { level } : {}, {}, level ? { level: 'copy' } : {});
+  }
 
-/** Which part of the ordered plan to draw — a prefix or interval by
- * chains, fraction of chains, or minutes, with an optional budget —
- * stated in the program (and tweakable with `ui()`), so preview, exports
- * and the machine all draw exactly this. */
-function draw(req: DrawRequest): DrawRequest {
-  const r = checkDrawRequest(req);
-  getState().drawRequest = r;
-  return r;
-}
+  /** Contours of `{ field ≥ at }` via marching squares over the drawable, as
+   * one material: each contour a chain (a ring when closed), separate
+   * contours separate, every edge carrying its `level`. Draw with
+   * `strokes(m)`, fill or clip with `polygon(m)`, pick levels with
+   * `m.edges.filter((e) => e.attrs.level === 0.4)` or `m.edges.groupBy((e) =>
+   * e.attrs.level)`, or step it like any material.
+   * Open at the drawable edge by default; `{ close: true }` closes regions
+   * along it. An `at` array marches every level over one shared field
+   * sampling, in the order given. */
+  function isolines(field: FieldFn2, at: number | number[], opts: IsoOpts = {}): Material {
+    const b = exec.bounds();
+    const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
+    const levels = Array.isArray(at) ? at : [at];
+    const perLevel = isolinesOf(env, field, levels, opts);
+    return contourMaterial(levels.map((level, k) => ({ contours: perLevel[k], level })), true);
+  }
 
-const TOOLKIT_BASE = {
-  circle, ellipse, rect, line, polygon, ngon, stroke, path, group, clip, mask, decimate, wobble, modify,
-  dash, smooth, roughen, deform, noiseField, label,
-  fill, rulings, ui,
-  rnd, pick, chance, prob, noise, stream,
-  map: mapRange, norm: normRange, invert, invertRange, ease,
-  times, range,
-  bounds, grid: gridCells, noisyLine: noisyLineValue, svg: svgValue,
-  scatter, isolines, streamlines, material: materialFromShape, sample, probe, inspect, plan: planWith, draw, distanceTo, relax, settle, voronoi: voronoiTk, synth,
-  len: (l: L): number => sketchLen(bounds())(l),
-  within: withinAny, rotate: rotateField, translate: translateField, scale: scaleField,
-  vectorField: vectorFieldMark,
-  mm, w, h, s, long,
-};
+  /** Evenly spaced streamlines of a vector field over the drawable (Jobard &
+   * Lefer) as one material of open chains — `strokes(m)` draws them, and
+   * `.attribute()`/`.steps()` work on them like any material. `spacing` is a
+   * length or a scalar field of lengths: density as tone, direction as flow.
+   * Lines stop at the drawable edge, at a `within()` bound, and half a
+   * spacing from ink already laid. Deterministic, no seed. */
+  function streamlines(field: VectorFieldFn, opts: StreamOpts = {}): Material {
+    const b = exec.bounds();
+    const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
+    return contourMaterial([{ contours: streamlinesOf(env, field, opts) }], false);
+  }
+
+  /**
+   * A shape's boundary as material with the boundary's OWN vertices: a
+   * rectangle's four corners, a regular polygon's vertices, a path's points,
+   * with curved portions flattened at `tolerance` (default 0.05 mm). Each
+   * outline is a chain (a ring when closed, without a duplicate seam vertex),
+   * separate outlines stay separate, nothing is welded. `sample` is the other
+   * conversion: it redistributes points along the boundary by arc length and
+   * need not land on a corner. Coordinates are sketch units, before any
+   * drawing transform around the shape.
+   */
+  function materialFromShape(shape: ShapeValue, opts: { tolerance?: L } = {}): Material {
+    const pts: [number, number][] = [];
+    const edges: [number, number][] = [];
+    for (const c of shapeContours(exec, shape, opts.tolerance)) {
+      let poly = c.pts;
+      // A closed outline comes back with its start repeated at the end: the
+      // ring closes with an edge, not a coincident vertex.
+      if (c.closed && poly.length > 1) {
+        const a = poly[0];
+        const z = poly[poly.length - 1];
+        if (Math.abs(a[0] - z[0]) <= 1e-9 && Math.abs(a[1] - z[1]) <= 1e-9) poly = poly.slice(0, -1);
+      }
+      const first = pts.length;
+      for (let k = 0; k < poly.length; k++) {
+        pts.push(poly[k]);
+        if (k > 0) edges.push([first + k - 1, first + k]);
+      }
+      if (c.closed && poly.length > 2) edges.push([first + poly.length - 1, first]);
+    }
+    return materialOf(pts, { edges });
+  }
+
+  /**
+   * A shape as sampled material — the explicit, lossy step from exact
+   * geometry to points you can move one by one. Each outline of the shape
+   * becomes a chain of the returned material with `count` vertices, or as
+   * many as fit at `spacing`, evenly spaced by arc length: a closed outline
+   * is a ring (no duplicate seam), an open one a chain from end to end;
+   * several outlines are separate chains in one material. Sampling does not
+   * keep the shape's own vertices — `t.material(shape)` does. Positions and
+   * connectivity only — attributes come from `.attribute()`.
+   */
+  function sample(
+    shape: ShapeValue,
+    opts: { count?: number; spacing?: L; tolerance?: L },
+  ): Material {
+    checkSampling('sample', { count: opts.count, spacing: opts.spacing === undefined ? undefined : 1 });
+    const frame = exec.frame;
+    const unit = unitMm(frame);
+    const spacingU = opts.spacing !== undefined ? resolveLen(opts.spacing, frame.inner) / unit : undefined;
+    if (spacingU !== undefined && !(spacingU > 0)) throw new Error('sample: spacing must be positive');
+    const pts: [number, number][] = [];
+    const edges: [number, number][] = [];
+    // Each outline keeps its OWN closure: a path may hold a ring and a chain.
+    for (const { pts: poly, closed } of shapeContours(exec, shape, opts.tolerance)) {
+      const samples = alongChain(poly, closed, { count: opts.count, spacing: spacingU });
+      const first = pts.length;
+      for (let k = 0; k < samples.length; k++) {
+        const { seg, t } = samples[k];
+        const [x0, y0] = poly[seg];
+        const [x1, y1] = poly[(seg + 1) % poly.length];
+        pts.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]);
+        if (k > 0) edges.push([first + k - 1, first + k]);
+      }
+      if (closed && samples.length > 2) edges.push([first + samples.length - 1, first]);
+    }
+    return materialOf(pts, { edges });
+  }
+
+  /**
+   * A variable inspector: returns `value` unchanged and records it under
+   * `label`, so the studio can show what a number actually ran through —
+   * count, min, max, mean, a histogram — after the render. Works anywhere in
+   * sketch or fill code (both run in the same runtime), never changes a
+   * value, costs nothing to leave in.
+   */
+  function probe<T>(label: string, value: T): T {
+    exec.recordProbe(label, value);
+    return value;
+  }
+
+  /**
+   * Register a material for the studio's debug inspector under `label`. Draws
+   * nothing, changes nothing, consumes no randomness, and leaves the plan
+   * and exports untouched; with inspection off in the host it is a type check
+   * and nothing more. Not history: a label used twice keeps the LAST value
+   * (in its first position), so an inspect inside a step callback shows the
+   * final state, not every iteration.
+   */
+  function inspect(label: string, value: Material | readonly Station[]): void {
+    if (typeof label !== 'string' || label.length === 0) throw new Error('inspect: the label must be a non-empty string');
+    if (value instanceof Material) return exec.recordInspection(label, value);
+    if (isStations(value)) return exec.recordInspection(label, stationsMaterial(value));
+    throw new Error(`inspect('${label}'): expected a Material (from t.sample, material(), curve(), connect.*, steps, …) or the stations of along()`);
+  }
+
+  /** Path optimization for THIS sketch's plan (tour budget, bridging) — in
+   * the program, so the same source plans the same way everywhere. */
+  function planWith(opts: PlanOptions): void {
+    if (typeof opts !== 'object' || opts === null) throw new Error('plan: expected { optimize?, bridge? }');
+    for (const k of Object.keys(opts)) if (!['optimize', 'bridge'].includes(k)) throw new Error(`plan: unknown option '${k}' (the sketch sets optimize and bridge; engine identity is the host's)`);
+    if (opts.optimize !== undefined && typeof opts.optimize !== 'boolean' && !(typeof opts.optimize === 'number' && Number.isFinite(opts.optimize) && opts.optimize >= 0)) throw new Error('plan: optimize must be a boolean or a non-negative number');
+    if (opts.bridge !== undefined && typeof opts.bridge !== 'boolean' && !(typeof opts.bridge === 'number' && Number.isFinite(opts.bridge) && opts.bridge >= 0)) throw new Error('plan: bridge must be a boolean or a non-negative gap in mm');
+    exec.planOptions = { ...opts };
+  }
+
+  /** Which part of the ordered plan to draw — a prefix or interval by
+   * chains, fraction of chains, or minutes, with an optional budget —
+   * stated in the program (and tweakable with `ui()`), so preview, exports
+   * and the machine all draw exactly this. */
+  function draw(req: DrawRequest): DrawRequest {
+    const r = checkDrawRequest(req);
+    exec.drawRequest = r;
+    return r;
+  }
+  /** The seeded stream: `rnd()`, `rnd(n)`, `rnd(a, b)`. */
+  const rnd: Execution['rnd'] = (a?: number, b?: number) => (b !== undefined ? exec.rnd(a as number, b) : a !== undefined ? exec.rnd(a) : exec.rnd());
+  /** Seeded 3D noise in [-1, 1]. */
+  const noise = (x: number, y = 0, z = 0): number => exec.noise(x, y, z);
+  const b0 = exec.bounds();
+  const within = ((x: never, area: Boundary | ShapeValue, opts?: never) => withinAny(exec, x, area, opts)) as Within;
+  const synthEnv = (opts: SynthOpts): SynthOpts => ({
+    ...opts,
+    seed: opts.seed ?? `${exec.seedUsed}:synth:${exec.rng.float()}`,
+    bounds: opts.bounds ?? { x: 0, y: 0, w: b0.w, h: b0.h },
+  });
+  return {
+    circle, ellipse, rect, line, ngon, stroke, path, group, clip, mask, decimate, wobble, modify,
+    dash, smooth, roughen, deform, label,
+    fill, rulings, ui,
+    map: mapRange, norm: normRange, invert, invertRange, ease,
+    times, range,
+    mm, w, h, s, long,
+    polygon,
+    /** A seeded vector noise field: `deform(t.noiseField(4), …)`. */
+    noiseField: (amount: number, wavelength = 25): VectorFieldFn => noiseFieldOf(noise, amount, wavelength),
+    rnd,
+    pick: <T,>(arr: readonly T[]): T => exec.pick(arr),
+    chance: (p: number): boolean => exec.chance(p),
+    prob: <T,>(p: number, fn: () => T, elseFn?: () => T): T | undefined => exec.prob(p, fn, elseFn),
+    noise,
+    stream: (name: string) => exec.stream(name),
+    /** Drawable extent in bare units — the same numbers `bounds()` returns. */
+    bounds: () => exec.bounds(),
+    /** Resolve a length to bare units — for sketch-time math on physical
+     * sizes (a bare number comes back unchanged). */
+    len: (l: L): number => exec.len(l),
+    width: b0.w,
+    height: b0.h,
+    cx: b0.cx,
+    cy: b0.cy,
+    /** Cell rectangles covering the whole drawable. */
+    grid: (opts: GridOptions): GridCell[] => gridCells(exec.bounds(), opts),
+    noisyLine: (x1: L, y1: L, x2: L, y2: L, o?: Parameters<typeof noisyLineValue>[5], shapeOpts?: ShapeOpts): ShapeValue => noisyLineValue(noise, x1, y1, x2, y2, o, shapeOpts),
+    svg: svgValue,
+    scatter, isolines, streamlines,
+    /** A shape's boundary as material with the boundary's OWN vertices,
+     * curves flattened. `sample` redistributes instead. */
+    material: materialFromShape,
+    sample, probe, inspect, plan: planWith, draw, distanceTo, relax, settle, voronoi: voronoiTk,
+    within,
+    rotate: rotateField,
+    /** Translate a field by lengths of this run (`mm(…)`, `w(…)` resolve). */
+    translate: <F extends FieldFn | VectorFieldFn>(field: F, dx: L, dy: L) => translateField(field, dx, dy, (l) => exec.len(l)),
+    scale: scaleField,
+    vectorField: vectorFieldMark,
+    /** A random expression over `vars`, seeded from the sketch's own stream
+     * and probed over the drawable unless `seed`/`bounds` are given (see
+     * synth.ts). On the toolkit because both defaults are the run's. */
+    synth: Object.assign(
+      (vars: string[], opts: SynthOpts = {}) => synthPure(vars, synthEnv(opts)),
+      { warp: (vars: string[], opts: SynthOpts = {}) => synthPure.warp(vars, synthEnv(opts)) },
+    ),
+    /** Text of a captured asset (SVGs etc): `t.svg(t.asset('church.svg'), …)`. */
+    asset: (name: string): string => assetOf(exec.inputs.assets, name),
+    /** A captured image as a sampler placed on the drawable. */
+    image: (name: string, place: ImagePlacement = {}) => imageOf(exec.inputs.assets, name, place),
+  };
+}
 
 interface EmitCtx {
   pen: string | undefined;
@@ -1180,40 +1166,33 @@ interface EmitCtx {
   modifiers: ModifierValue[];
 }
 
+/** The inputs a headless caller gets without naming any: A4 portrait, the
+ * package's pens, seed 0. Explicit and fixed — never a session's. */
+export const DEFAULT_INPUTS: ExecutionInputs = Object.freeze({ paper: { w: 210, h: 297 } });
+
 /**
- * Compile a sketch definition into the recording state (from which the
- * renderer encodes the scene). `hostDefaults.marginPct` applies only when the
- * sketch config doesn't set a margin.
+ * Compile a sketch into an execution: fix the run's configuration from the
+ * sketch's (`Execution.begin`), bind the toolkit, run the sketch function,
+ * record the tree. Give it the inputs (paper, captured library, seed,
+ * assets, fills) or an `Execution` the host made ahead of time — a worker
+ * needs the run's draw hook before the module that defines the sketch has
+ * even evaluated. Returns the execution the renderer encodes from.
  */
-export function compileSketch(
-  def: SketchDef,
-  hostDefaults: { marginPct?: number } = {},
-): void {
+export function compileSketch(def: SketchDef, inputs: ExecutionInputs | Execution = DEFAULT_INPUTS): Execution {
+  if (!isSketch(def)) throw new Error('compileSketch: expected a sketch definition (sketch(config, fn))');
+  const exec = inputs instanceof Execution ? inputs : new Execution(inputs);
   const cfg = def.config;
-  legacySketch({
-    aspect: cfg.aspect,
-    seed: cfg.seed ?? 'url',
-    origin: cfg.origin,
-    yUp: cfg.yUp,
-    rectMode: cfg.rectMode,
-  });
-  margin(cfg.margin ?? hostDefaults.marginPct ?? 0);
-  const b = bounds();
-  const toolkit: Toolkit = {
-    ...TOOLKIT_BASE,
-    width: b.w,
-    height: b.h,
-    cx: b.cx,
-    cy: b.cy,
-  };
+  exec.begin(cfg);
+  const toolkit = bindToolkit(exec);
   const tree = def.fn(toolkit);
-  emit(tree, { pen: cfg.pen, z: undefined, decimate: undefined, wobble: undefined, bridge: undefined, modifiers: [] });
+  emit(exec, tree, { pen: cfg.pen, z: undefined, decimate: undefined, wobble: undefined, bridge: undefined, modifiers: [] });
+  return exec;
 }
 
-function emit(tree: Tree, ctx: EmitCtx): void {
+function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {
   if (!tree) return;
   if (Array.isArray(tree)) {
-    for (const child of tree) emit(child, ctx);
+    for (const child of tree) emit(exec, child, ctx);
     return;
   }
   if ((tree as unknown as ModifierValue).__occludeModifier) {
@@ -1236,11 +1215,11 @@ function emit(tree: Tree, ctx: EmitCtx): void {
     };
     const { translate, rotate, scale, origin } = g.opts;
     if (translate || rotate !== undefined || scale !== undefined) {
-      push({ translate, rotate, scale, origin }, () => {
-        for (const child of g.children) emit(child, inner);
+      exec.push({ translate, rotate, scale, origin }, () => {
+        for (const child of g.children) emit(exec, child, inner);
       });
     } else {
-      for (const child of g.children) emit(child, inner);
+      for (const child of g.children) emit(exec, child, inner);
     }
     return;
   }
@@ -1249,13 +1228,13 @@ function emit(tree: Tree, ctx: EmitCtx): void {
     // Capture the region's own transform without applying it to children.
     const { translate, rotate, scale, origin } = c.region.opts;
     let regionShape!: Shape;
-    push({ translate, rotate, scale, origin }, () => {
-      regionShape = new Shape(c.region.geom);
+    exec.push({ translate, rotate, scale, origin }, () => {
+      regionShape = new Shape(c.region.geom, exec);
     });
-    legacyClip(
+    exec.clip(
       regionShape,
       () => {
-        for (const child of c.children) emit(child, ctx);
+        for (const child of c.children) emit(exec, child, ctx);
       },
       c.invert,
     );
@@ -1266,20 +1245,20 @@ function emit(tree: Tree, ctx: EmitCtx): void {
       'invert() is a region annotation, not a drawable — use it as clip(invert(shape), ...)',
     );
   }
-  emitShape(tree as ShapeValue, ctx);
+  emitShape(exec, tree as ShapeValue, ctx);
 }
 
-function emitShape(sv: ShapeValue, ctx: EmitCtx): void {
+function emitShape(exec: Execution, sv: ShapeValue, ctx: EmitCtx): void {
   const o = sv.opts;
   if (o.translate || o.rotate !== undefined || o.scale !== undefined) {
     const { translate, rotate, scale, origin } = o;
-    push({ translate, rotate, scale, origin }, () =>
-      emitShape({ ...sv, opts: { ...o, translate: undefined, rotate: undefined, scale: undefined, origin: undefined } }, ctx),
+    exec.push({ translate, rotate, scale, origin }, () =>
+      emitShape(exec, { ...sv, opts: { ...o, translate: undefined, rotate: undefined, scale: undefined, origin: undefined } }, ctx),
     );
     return;
   }
-  const sh = new Shape(sv.geom);
-  const basePen = o.pen ?? ctx.pen ?? getState().currentPen;
+  const sh = new Shape(sv.geom, exec);
+  const basePen = o.pen ?? ctx.pen ?? exec.currentPen;
   const strokePen = o.stroke === false ? null : typeof o.stroke === 'string' ? o.stroke : basePen;
   if (strokePen === null) sh.noStroke();
   else sh.stroke(strokePen);

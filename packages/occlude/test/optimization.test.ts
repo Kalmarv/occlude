@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, expect, it } from 'vitest';
 import init, * as core from '../../../crates/occlude-core/pkg/occlude_core.js';
-import { compileSketch, encodeScene, renderEncoded, setPaperHint, sketch, rect, circle, mask, clip, fill, decimate,
+import { compileSketch, encodeScene, renderEncoded, sketch, rect, circle, mask, clip, fill, decimate,
   decodePlanBuffer, encodePlanBuffer, evalPrim, type Tree, type WasmModule } from '../src/index.js';
 beforeAll(async()=>{await init(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url)));});
 const paper={w:100,h:100};
@@ -9,8 +9,8 @@ const rows=()=>rect(10,10,80,80,{stroke:false,fill:()=>[
   {type:'line',x1:20,y1:50,x2:49,y2:50},{type:'line',x1:51,y1:50,x2:80,y2:50},
 ]});
 function run(tree:Tree,gap=3){
-  setPaperHint(100,100);compileSketch(sketch({aspect:'square',seed:42},()=>tree));
-  const s=encodeScene({paper:{paper}}); const raw=renderEncoded(core as unknown as WasmModule,s);
+  const exec=compileSketch(sketch({aspect:'square',seed:42},()=>tree),{paper});
+  const s=encodeScene(exec); const raw=renderEncoded(core as unknown as WasmModule,s);
   const source=core.wasm_plan(raw.prims,raw.frags,s.pensJson,0,0);
   const p=core.wasm_prepare(s.prims,s.contours,s.shapesU32,s.shapesF64,s.mods,s.fieldData,s.fieldUses,s.domainList,s.clipList,s.clipsU32,s.pensJson,s.paperArr,s.seed,s.coarsen,0);
   try{

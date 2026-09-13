@@ -1,14 +1,12 @@
 /**
  * Preload the assets a sketch references (string literals in `asset('…')` /
- * `image('…')`) into the occlude registry BEFORE the synchronous sketch
+ * `t.image('…')`) into the run's asset table BEFORE the synchronous sketch
  * executes. Images decode once and cache; upload/delete invalidates.
  * Decode is capped at 1536px on the long side — plot features never need
  * more, and summed-area tables stay small.
  */
 
-import {
-  clearAssets, registerImageAsset, registerTextAsset, scanAssetNames,
-} from 'occlude';
+import { assetTable, scanAssetNames, type AssetTable } from 'occlude';
 
 const MAX_DIM = 1536;
 
@@ -45,23 +43,21 @@ async function fetchAsset(name: string): Promise<Cached> {
   return { kind: 'image', pixels: { width: w, height: h, data: data.data } };
 }
 
-/** Fetch/decode every referenced asset and (re)fill the registry. */
-export async function preloadAssets(source: string): Promise<void> {
+/** Fetch/decode every asset the source references, as the run's captured
+ * table. Decodes are cached across runs (application state); the table a
+ * run gets is its own. */
+export async function preloadAssets(source: string): Promise<AssetTable> {
   const names = scanAssetNames(source);
-  const loaded = await Promise.all(
-    names.map(async (name) => {
-      let p = cache.get(name);
-      if (!p) {
-        p = fetchAsset(name);
-        cache.set(name, p);
-        p.catch(() => cache.delete(name)); // failed fetches retry next run
-      }
-      return [name, await p] as const;
-    }),
-  );
-  clearAssets();
-  for (const [name, a] of loaded) {
-    if (a.kind === 'text') registerTextAsset(name, a.text!);
-    else registerImageAsset(name, a.pixels!);
+  const entries: [string, { text: string } | { pixels: NonNullable<Cached['pixels']> }][] = [];
+  for (const name of names) {
+    let p = cache.get(name);
+    if (!p) {
+      p = fetchAsset(name);
+      cache.set(name, p);
+      p.catch(() => cache.delete(name));
+    }
+    const c = await p;
+    entries.push([name, c.kind === 'text' ? { text: c.text! } : { pixels: c.pixels! }]);
   }
+  return assetTable(entries);
 }

@@ -21,7 +21,7 @@ const SVG_EXT = /\.svg$/i;
 
 function snippetFor(name: string): string {
   if (SVG_EXT.test(name)) return `svg(asset('${name}'), { x: 0, y: 0, width: b.w })`;
-  return `image('${name}', { x: 0, y: 0, width: 100 })`;
+  return `t.image('${name}', { x: 0, y: 0, width: 100 })`;
 }
 
 function fmtSize(bytes: number): string {

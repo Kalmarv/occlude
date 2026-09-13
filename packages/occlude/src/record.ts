@@ -11,7 +11,7 @@ import { geomClosed } from './shapes.js';
 import { apply, conformalScale, det, IDENTITY, isConformal, mul, rotate, scale as mscale, translate, type Mat } from './matrix.js';
 import { arcToCubics, flattenPrim, snapPrim, type Prim } from './prims.js';
 import type { Shape, ShapeGeom, PathCmd } from './shapes.js';
-import { getPaperHint, getState, type State, type TransformOp } from './state.js';
+import type { Execution, TransformOp } from './execution.js';
 import { resolveLen, type L, type UnitCtx } from './units.js';
 
 export interface Frame {
@@ -28,10 +28,10 @@ export interface Frame {
   paperH: number;
 }
 
-/** What the frame needs of the sketch state — the paper-independent part. A
- * full `State` satisfies it, and so does a plain literal, which is what lets
+/** What the frame needs of a run — the paper-independent part. An
+ * `Execution` satisfies it, and so does a plain literal, which is what lets
  * the frame math be exercised on its own. */
-export type FrameInput = Pick<State, 'marginPct' | 'aspect' | 'origin' | 'yUp' | 'rectMode'>;
+export type FrameInput = Pick<Execution, 'marginPct' | 'aspect' | 'origin' | 'yUp' | 'rectMode'>;
 
 /** Compute the drawable frame for a paper choice. */
 export function makeFrame(
@@ -304,6 +304,25 @@ function lowerGeom(geom: ShapeGeom, rz: Resolver): Prim[][] {
     }
     case 'path':
       return lowerPath(geom.cmds, rz);
+    case 'area': {
+      // The other shape's outline through this same lowerer, with its own
+      // transform opts applied, flattened to closed loops of lines: exactly
+      // what `t.material(shape)` reads, and what `polygon(loops)` would
+      // have been handed had the loops been computed first.
+      const o = geom.of.opts;
+      return lowerToUserContours(geom.of.geom, { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin }, rz.frame)
+        .map((c) => {
+          // A closed outline comes back with its start repeated at the end
+          // (as `t.material(shape)` also strips): the ring closes with an
+          // edge, never a hair of float noise.
+          let pts = c.pts;
+          const a = pts[0];
+          const z = pts[pts.length - 1];
+          if (pts.length > 1 && Math.abs(a[0] - z[0]) <= 1e-9 && Math.abs(a[1] - z[1]) <= 1e-9) pts = pts.slice(0, -1);
+          return ptsToLines(pts, true);
+        })
+        .filter((c) => c.length > 0);
+    }
   }
 }
 
@@ -504,13 +523,6 @@ export function lowerToUserContours(
   });
 }
 
-/** The frame a sketch-time consumer lowers against: the current sketch
- * state on the paper the host said it will render. */
-export function sketchFrame(): Frame {
-  const { w, h } = getPaperHint();
-  return makeFrame(getState(), w, h, false);
-}
-
 /** A bare user-space point in the mm space `lowerToUserLoops` produces —
  * resolved exactly as the lowerer resolves positions. */
 export function userPointMm(x: L, y: L, frame: Frame): [number, number] {
@@ -553,6 +565,7 @@ function isConvexGeom(geom: ShapeGeom): boolean {
     case 'points':
     case 'path':
     case 'line':
+    case 'area':
       return false; // the core detects convex all-line contours itself
   }
 }

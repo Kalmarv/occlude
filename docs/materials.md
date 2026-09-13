@@ -1069,10 +1069,10 @@ Streamlines already arrive as connected material. Here a smooth wave controls bo
 Without `point` the result carries **no columns** — this is a generative conversion, not a topology-preserving edit, so nothing is inherited and no source vertex keeps its identity. With `point`, the callback runs once for each final boundary vertex, after ordering and tessellation, and returns that row's complete record:
 
 ```ts live
-import { sketch, curl, within, rect, thicken, polygon, strokes, fill, mm } from 'occlude';
+import { sketch, curl, rect, thicken, polygon, strokes, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
-  const flow = within(curl((x, y) => t.noise(x / 55, y / 55)), rect(6, 6, 188, 88));
+  const flow = t.within(curl((x, y) => t.noise(x / 55, y / 55)), rect(6, 6, 188, 88));
   const threads = t.streamlines(flow, { spacing: 9, step: 2 })
     .attribute('tone', (p) => (1 + Math.sin(p.x / 13 + p.y / 19)) / 2);
   const ribbons = thicken(threads, {

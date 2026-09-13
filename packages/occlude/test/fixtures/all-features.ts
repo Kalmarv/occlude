@@ -32,15 +32,15 @@
 import {
   sketch, mm, w, h, s, long, degrees, radians,
   circle, ellipse, rect, line, polygon, ngon, path, stroke, strokes, label, labelWidth,
-  group, clip, invert, mask, modify, dash, smooth, roughen, deform, decimate, wobble, noiseField,
+  group, clip, invert, mask, modify, dash, smooth, roughen, deform, decimate, wobble,
   fill, customFill, rulings, isBuiltinFill, resolveFill,
-  rotate, translate, scale, within, vectorField, grad, curl, distanceTo,
+  rotate, scale, vectorField, grad, curl, distanceTo,
   map, norm, invertRange, ease,
   material, curve, append, connect, planarize,
   segmentRuns, neighbours, extent, banding,
   add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy,
   force, sumForces, meanBy, components, query,
-  boundaryLoops, numericLoops, image, ui,
+  boundaryLoops, numericLoops, ui,
   type Station, type Tree,
 } from 'occlude';
 
@@ -76,9 +76,9 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const land = (x: number, y: number) => t.noise(x / 22, y / 22) * 0.5 + 0.5;
   const ramp = (x: number, y: number) => map(x, 0, b.w, 0, 1);
   const turned = rotate(land, 30);
-  const movedField = translate(ramp, mm(2), 0);
+  const movedField = t.translate(ramp, mm(2), 0);
   const zoomed = scale(land, 1.3);
-  const bounded = within(land, ellipse(40, 30, 28, 20));
+  const bounded = t.within(land, ellipse(40, 30, 28, 20));
   const flow = vectorField((x, y): [number, number] => [Math.cos(y / 14), Math.sin(x / 14)]);
   const slope = grad(land, 0.5);
   const swirl = curl(land, 0.5);
@@ -97,11 +97,11 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const settled = t.settle(seeds, { density: land, spacing: 6, iterations: 3 });
   const cells = t.voronoi(seeds, { bounds: { x: 102, y: 72, w: 46, h: 24 } });
   const isolinesMat = t.isolines(bounded, 0.5, { step: 6, close: true });
-  const streams = t.streamlines(within(swirl, rect(100, 6, 38, 20)), { spacing: 10, minSpacing: 1, step: 4 });
+  const streams = t.streamlines(t.within(swirl, rect(100, 6, 38, 20)), { spacing: 10, minSpacing: 1, step: 4 });
   const dfield = distanceTo([[[150, 8], [192, 8], [192, 30], [150, 30]]]);
   const boxMat = t.material(rect(102, 44, 42, 20));
   const dbox = t.distanceTo(boxMat);
-  const img = image('test-gradient.png', { x: 146, y: 4, width: 48 });
+  const img = t.image('test-gradient.png', { x: 146, y: 4, width: 48 });
   const imgTone = img.field('lum', { area: 1.2 });
 
   // ---- shapes: repetition, lines, text, fills, masking -------------------
@@ -134,7 +134,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   scene.push(modify([smooth(2), wobble(mm(0.5))], rect(72, 50, 24, 8)));
   scene.push(rect(72, 62, 24, 8, { modifiers: [dash(mm(2.5), mm(1.5)), roughen(mm(0.4), mm(4))] }));
   scene.push(line(72, 74, 78, 74, { modifiers: [deform({ field: flow, detail: mm(3) })] }));
-  scene.push(line(72, 84, 78, 84, { modifiers: [deform({ field: noiseField(3, 30), detail: mm(3) })] }));
+  scene.push(line(72, 84, 78, 84, { modifiers: [deform({ field: t.noiseField(3, 30), detail: mm(3) })] }));
   scene.push(modify([decimate(0.2)], rect(4, 62, 20, 8)));
   scene.push(ngon(40, 86, 5, 7, 15, { decimate: { stroke: 0.2 } }));
   scene.push(
@@ -245,7 +245,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   scene.push(strokes(isolinesMat));
   scene.push(strokes(streams));
   scene.push(strokes(t.isolines(dbox, -4, { step: 4 })));
-  scene.push(strokes(t.isolines(within(imgTone, rect(146, 4, 48, 30)), 0.5, { step: 6 })));
+  scene.push(strokes(t.isolines(t.within(imgTone, rect(146, 4, 48, 30)), 0.5, { step: 6 })));
   scene.push(
     t.times(4, (k, u) =>
       t.times(4, (j, v) => circle(150 + u * 40, 8 + v * 22, 0.3 + img.lum(150 + u * 40, 8 + v * 22, 3) * 1.6)),

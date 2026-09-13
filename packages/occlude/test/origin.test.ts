@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, evalPrim, group, initOcclude, rect, render, setPaperHint, sketch,
+  circle, evalPrim, group, initOcclude, rect, render, sketch,
 } from '../src/index.js';
 import type { SketchDef, Tree } from '../src/index.js';
 
@@ -14,7 +14,6 @@ beforeAll(async () => {
   // The sketched box follows the paper hint; the render fixes the paper.
   // A test compares geometry, so the two must agree (the studio always
   // sets the hint to the chosen paper).
-  setPaperHint(200, 200);
 });
 
 /** Ink extent of a sketch, in paper mm — what the transform did. */

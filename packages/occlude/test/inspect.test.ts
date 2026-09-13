@@ -1,98 +1,88 @@
 import { describe, expect, it } from 'vitest';
 import {
-  circle, compileSketch, getInspectHint, getInspectionIndex, inspectIfMaterial, inspectionPayload, material, setInspectHint, sketch, stroke,
+  Execution, circle, compileSketch, inspectHook, material, sketch, stroke,
   userUnitsToPaper,
 } from '../src/index.js';
 import { makeFrame } from '../src/record.js';
-import { getState } from '../src/state.js';
+import { A4 } from './helpers/run.js';
+
+const ON = { ...A4, inspect: true };
 
 const two = () => material([[10, 10], [30, 10], [30, 30]], { edges: [[0, 1], [1, 2]], active: 1 });
 
 describe('t.inspect: the debug registry', () => {
   it('registers nothing while the host has inspection off, and validates its arguments anyway', () => {
-    setInspectHint(false);
-    expect(getInspectHint()).toBe(false);
-    compileSketch(sketch({ seed: 1 }, (t) => {
+    const exec = compileSketch(sketch({ seed: 1 }, (t) => {
       t.inspect('a', two());
       expect(() => t.inspect('', two())).toThrow(/label/);
       expect(() => t.inspect('bad', [[1, 2]] as never)).toThrow(/expected a Material/);
       return circle(50, 50, 10);
-    }));
-    expect(getInspectionIndex()).toEqual([]);
-    expect(inspectionPayload('a')).toBeNull();
+    }), A4);
+    expect(exec.inputs.inspect).toBe(false);
+    expect(exec.getInspectionIndex()).toEqual([]);
+    expect(exec.inspectionPayload('a')).toBeNull();
   });
 
   it('keeps registration order, replaces a reused label in place, and resets per compile', () => {
-    setInspectHint(true);
-    try {
-      compileSketch(sketch({ seed: 1 }, (t) => {
-        const a = two();
-        t.inspect('source', a);
-        t.inspect('grown', a.attribute('age', 3));
-        t.inspect('source', a.withEdges([[0, 2]]));  // replaced, stays first
-        return stroke(a.contour);
-      }));
-      const index = getInspectionIndex();
-      expect(index.map((e) => e.name)).toEqual(['source', 'grown']);
-      expect(index[0]).toEqual({ name: 'source', points: 3, edges: 3 });
-      expect(index[1]).toEqual({ name: 'grown', points: 3, edges: 2 });
-      compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 10)));
-      expect(getInspectionIndex()).toEqual([]);
-    } finally {
-      setInspectHint(false);
-    }
+    const exec = compileSketch(sketch({ seed: 1 }, (t) => {
+      const a = two();
+      t.inspect('source', a);
+      t.inspect('grown', a.attribute('age', 3));
+      t.inspect('source', a.withEdges([[0, 2]]));  // replaced, stays first
+      return stroke(a.contour);
+    }), ON);
+    const index = exec.getInspectionIndex();
+    expect(index.map((e) => e.name)).toEqual(['source', 'grown']);
+    expect(index[0]).toEqual({ name: 'source', points: 3, edges: 3 });
+    expect(index[1]).toEqual({ name: 'grown', points: 3, edges: 2 });
+    // another run is another registry
+    expect(compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 10)), ON).getInspectionIndex()).toEqual([]);
   });
 
   it('the stations of along() register as a material of their own', () => {
-    setInspectHint(true);
-    try {
-      compileSketch(sketch({ seed: 1 }, (t) => {
-        const ring = t.sample(circle(50, 50, 20), { count: 8 });
-        const stations = ring.along({ count: 4 });
-        inspectIfMaterial('stations', stations); // what the studio's instrumentation calls
-        t.inspect('named', stations);
-        inspectIfMaterial('nothing', [1, 2, 3]);
-        expect(() => t.inspect('bad', [] as never)).toThrow(/expected a Material/);
-        return stroke(ring.contour);
-      }));
-      expect(getInspectionIndex().map((e) => e.name)).toEqual(['stations', 'named']);
-      const p = inspectionPayload('stations')!;
+    // the studio's instrumentation calls the hook of the run it is about to compile
+    const exec = new Execution(ON);
+    const hook = inspectHook(exec);
+    compileSketch(sketch({ seed: 1 }, (t) => {
+      const ring = t.sample(circle(50, 50, 20), { count: 8 });
+      const stations = ring.along({ count: 4 });
+      hook('stations', stations);
+      t.inspect('named', stations);
+      hook('nothing', [1, 2, 3]);
+      expect(() => t.inspect('bad', [] as never)).toThrow(/expected a Material/);
+      return stroke(ring.contour);
+    }), exec);
+    {
+      expect(exec.getInspectionIndex().map((e) => e.name)).toEqual(['stations', 'named']);
+      const p = exec.inspectionPayload('stations')!;
       expect(p.n).toBe(4);
       expect(p.edges.length / 2).toBe(4); // a closed walk
       expect(Object.keys(p.attrs).sort()).toEqual(['chain', 'heading', 'length', 's', 'u']);
-    } finally {
-      setInspectHint(false);
     }
   });
 
   it('inspecting inside a step keeps the last state, not every iteration', () => {
-    setInspectHint(true);
-    try {
-      compileSketch(sketch({ seed: 1 }, (t) => {
-        const grown = two().steps(5, (cur, next, k) => {
-          next.move(cur.points, () => [1, 0]);
-          t.inspect('step', cur);
-        });
-        return stroke(grown.contour);
-      }));
-      const p = inspectionPayload('step')!;
-      expect(p.iteration).toBe(4); // `cur` of the last step
-      expect(p.x[0]).toBe(14);
-    } finally {
-      setInspectHint(false);
-    }
+    const exec = compileSketch(sketch({ seed: 1 }, (t) => {
+      const grown = two().steps(5, (cur, next, k) => {
+        next.move(cur.points, () => [1, 0]);
+        t.inspect('step', cur);
+      });
+      return stroke(grown.contour);
+    }), ON);
+    const p = exec.inspectionPayload('step')!;
+    expect(p.iteration).toBe(4); // `cur` of the last step
+    expect(p.x[0]).toBe(14);
   });
 
   it('payloads are plain copies: transferring them cannot detach the material', () => {
-    setInspectHint(true);
-    try {
+    {
       let held: ReturnType<typeof two> | null = null;
-      compileSketch(sketch({ seed: 1 }, (t) => {
+      const exec = compileSketch(sketch({ seed: 1 }, (t) => {
         held = two().attribute('w', (p) => p.x).edgeAttribute('rest', 2);
         t.inspect('m', held);
         return circle(50, 50, 10);
-      }));
-      const p = inspectionPayload('m')!;
+      }), ON);
+      const p = exec.inspectionPayload('m')!;
       expect(p.n).toBe(3);
       expect(Array.from(p.edges)).toEqual([0, 1, 1, 2]);
       expect(Object.keys(p.attrs)).toEqual(['active', 'w']);
@@ -105,27 +95,23 @@ describe('t.inspect: the debug registry', () => {
       expect(p.x.byteLength).toBe(0);
       expect(held!.x.byteLength).toBe(24);
       expect(held!.attrs.w[1]).toBe(30);
-      expect(getState().inspections.get('m')!.x.byteLength).toBe(24);
-    } finally {
-      setInspectHint(false);
+      expect(exec.inspections.get('m')!.x.byteLength).toBe(24);
     }
   });
 
   it('inspection changes no geometry or randomness', () => {
     const run = (on: boolean) => {
-      setInspectHint(on);
-      compileSketch(sketch({ seed: 7 }, (t) => {
+      const exec = compileSketch(sketch({ seed: 7 }, (t) => {
         const m = material(t.times(20, () => [t.rnd(100), t.rnd(100)]));
         t.inspect('m', m);
         return m.points.map((p) => circle(p.x, p.y, t.rnd(1, 3)));
-      }));
+      }), { ...A4, inspect: on });
       // `float()` is the public witness of the stream position: it consumes
       // one value, so an inspection that quietly drew randomness shows up here.
-      return getState().shapes.length + ':' + getState().rng.float();
+      return exec.shapes.length + ':' + exec.rng.float();
     };
     const off = run(false);
     const on = run(true);
-    setInspectHint(false);
     expect(on).toBe(off);
   });
 });

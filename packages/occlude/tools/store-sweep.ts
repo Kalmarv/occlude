@@ -19,8 +19,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'esbuild';
 import * as occlude from '../src/index.js';
-import { preloadAssetsFromDisk } from './asset-preload.js';
-import { preloadFillsFromDisk } from './fill-preload.js';
+import { inputsFor } from './inputs.js';
 
 // `--migrate` compiles the store as the STORE MIGRATION would rewrite it, in
 // memory, which is the fast pre-check for tools/verify-sketch-migration.mjs
@@ -34,13 +33,6 @@ const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
 );
 await occlude.initOcclude(readFileSync(wasmPath));
-try {
-  const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
-  occlude.setPenLibrary(JSON.parse(readFileSync(pensPath, 'utf8')));
-} catch {
-  occlude.setPenLibrary(structuredClone(occlude.DEFAULT_PENS));
-}
-occlude.setPaperHint(200, 100);
 
 const store = fileURLToPath(new URL('../../occlude-studio/sketches/', import.meta.url));
 let files: string[];
@@ -55,8 +47,6 @@ let failed = 0;
 for (const file of files) {
   const source = readFileSync(store + file, 'utf8');
   const js = transformSync(migrateSketchSource ? migrateSketchSource(source) : source, { loader: 'ts', format: 'cjs' }).code;
-  preloadAssetsFromDisk(js);
-  preloadFillsFromDisk(js);
   const module = { exports: {} as Record<string, unknown> };
   try {
     new Function('require', 'exports', 'module', js)(
@@ -68,8 +58,7 @@ for (const file of files) {
       | occlude.SketchDef
       | undefined;
     if (!def) throw new Error('no sketch export');
-    (globalThis as Record<string, unknown>).location = { search: '?seed=42' };
-    occlude.compileSketch(def, { marginPct: 5 });
+    occlude.compileSketch(def, inputsFor(js, { paper: { paper: { w: 200, h: 100 } }, seed: 42, marginPct: 5 }));
     console.log(`ok    ${file}`);
   } catch (e) {
     failed++;

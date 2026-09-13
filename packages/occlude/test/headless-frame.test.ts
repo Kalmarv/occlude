@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, expect, it } from 'vitest';
-import { exportGcode, exportPng, exportSvg, initOcclude, line, render, setPaperHint, sketch, type RenderOptions, type SketchDef } from '../src/index.js';
+import { exportGcode, exportPng, exportSvg, initOcclude, line, render, sketch, type RenderOptions, type SketchDef } from '../src/index.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url)));
@@ -17,7 +17,6 @@ it.each([render, exportGcode, exportPng, exportSvg])('headless entry point estab
     [{ paper: { w: 100, h: 200 }, landscape: true }, [225, 100]],
     ['Square20', [100, 100]],
   ] as [RenderOptions['paper'], number[]][]) {
-    setPaperHint(210, 297);
     (run as (def: SketchDef, opts: RenderOptions) => unknown)(def, { paper });
     expect(dimensions).toEqual(expected);
   }

@@ -20,12 +20,11 @@ import { fileURLToPath } from 'node:url';
 import * as core from 'occlude-core';
 import * as occlude from '../src/index.js';
 import {
-  compileSketch, initOcclude, isSketch, paperSize, setPaperHint, setPenLibrary,
-  type SketchDef,
+  compileSketch, initOcclude, isSketch, paperSize,
+  type ExecutionInputs, type SketchDef,
 } from '../src/index.js';
+import { inputsFor, seedArg } from './inputs.js';
 import { encodeScene, runFillJobs, type WasmModule } from '../src/render.js';
-import { preloadAssetsFromDisk } from './asset-preload.js';
-import { preloadFillsFromDisk } from './fill-preload.js';
 
 const args = process.argv.slice(2);
 const files = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && args[i - 1].startsWith('--') && !['--landscape'].includes(args[i - 1])));
@@ -41,18 +40,11 @@ const paper: string | { w: number; h: number } = /^[\d.]+x[\d.]+$/.test(paperArg
 const landscape = args.includes('--landscape');
 const seed = opt('seed');
 const runs = Number(opt('runs') ?? 1);
-if (seed !== undefined) (globalThis as Record<string, unknown>).location = { search: `?seed=${seed}` };
 
 const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
 await initOcclude(readFileSync(wasmPath));
-try {
-  const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
-  setPenLibrary(JSON.parse(readFileSync(pensPath, 'utf8')));
-} catch {
-  // default pens
-}
 const size = paperSize({ paper: paper as never, landscape });
-setPaperHint(size.w, size.h);
+void size;
 
 interface Row {
   hash: string;
@@ -65,7 +57,7 @@ interface Row {
   totalMs: number;
 }
 
-function renderOnce(js: string): Row {
+function renderOnce(js: string, inputs: ExecutionInputs): Row {
   const mod = core as unknown as WasmModule;
   const t0 = performance.now();
   const module = { exports: {} as Record<string, unknown> };
@@ -79,9 +71,9 @@ function renderOnce(js: string): Row {
   const exp = module.exports;
   const def = (isSketch(exp.default) ? exp.default : Object.values(exp).find(isSketch)) as SketchDef | undefined;
   if (!def) throw new Error('no sketch exported');
-  compileSketch(def);
+  const exec = compileSketch(def, inputs);
   const t1 = performance.now();
-  const scene = encodeScene({ paper: { paper: paper as never, landscape } });
+  const scene = encodeScene(exec);
   const t2 = performance.now();
   const prepared = mod.wasm_prepare(
     scene.prims, scene.contours, scene.shapesU32, scene.shapesF64, scene.mods,
@@ -116,11 +108,10 @@ for (const file of files) {
   const name = basename(file, '.ts');
   try {
     const js = transformSync(readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs' }).code;
-    preloadAssetsFromDisk(js);
-    preloadFillsFromDisk(js);
+    const inputs = inputsFor(js, { paper: { paper: paper as never, landscape }, seed: seedArg(seed) });
     let best: Row | null = null;
     for (let r = 0; r < runs; r++) {
-      const row = renderOnce(js);
+      const row = renderOnce(js, inputs);
       if (best && row.hash !== best.hash) throw new Error(`non-deterministic: ${best.hash} vs ${row.hash}`);
       if (!best || row.totalMs < best.totalMs) best = row;
     }

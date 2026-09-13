@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { A4, SQ, toolkit } from './helpers/run.js';
 import {
   append, circle, clip, compileSketch, initOcclude, material, path, polygon, rect, render,
-  setPaperHint, sketch, within,
-  type Face, type Faces, type Material, type PointSelection, type SketchDef, type ShapeValue, type Toolkit, type XY,
+  sketch, within,
+  type Face, type Faces, type Material, type PointSelection, type SketchDef, type ShapeValue, type Toolkit, type XY, Execution,
 } from '../src/index.js';
 import type { Loop } from '../src/boundary.js';
 import { scatterPoints } from '../src/points.js';
@@ -14,12 +15,11 @@ beforeAll(async () => {
     new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
   );
   await initOcclude(readFileSync(wasmPath));
-  setPaperHint(200, 200);
 });
 
 /** Run a sketch body for its side effects, on a 100×100 drawable. */
-function run(body: (t: Toolkit) => void): void {
-  compileSketch(sketch({ seed: 1 }, (t) => { body(t); return []; }));
+function run(body: (t: Toolkit) => void): Execution {
+  return compileSketch(sketch({ seed: 1 }, (t) => { body(t); return []; }), SQ);
 }
 
 /** A straight two-vertex edge between two points. */
@@ -436,7 +436,7 @@ describe('within: holes and winding', () => {
         .moveTo(10, 10).lineTo(90, 10).lineTo(90, 90).lineTo(10, 90).close()
         .moveTo(40, 40).lineTo(60, 40).lineTo(60, 60).lineTo(40, 60).close()
         .build();
-      const bounded = within(() => 1, nested);
+      const bounded = t.within(() => 1, nested);
       byField = Number.isFinite(bounded(50, 50)) ? 1 : 0;
       // The redundant inner contour does not cut the run. The whole 10…90
       // span survives. Under

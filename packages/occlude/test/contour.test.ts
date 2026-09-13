@@ -243,11 +243,11 @@ it('keeps an intact duplicate outline after decimating a contour-filled shape', 
 
 
 it.each([0.38, 0.4, 0.45, 1.0])('renders the recursive variable-width boundary at %f mm with continuous decoded runs', async (width) => {
-  const { setPenLibrary, DEFAULT_PENS } = await import('../src/index.js');
+  const { DEFAULT_PENS } = await import('../src/index.js');
   const { default: fixture } = await import('../bench/fixtures/thicken-contour-residual.js');
-  setPenLibrary(DEFAULT_PENS.map(p => ({ ...p, width })));
-  try {
-    const result = render(fixture, { paper: { paper: { w: 304.8, h: 304.8 } } });
+  const library = DEFAULT_PENS.map(p => ({ ...p, width }));
+  {
+    const result = render(fixture, { paper: { paper: { w: 304.8, h: 304.8 } }, library });
     expect(result.frags.length).toBeGreaterThan(0);
     if (width === 0.38) {
       expect(result.stats.contour!.validationSplits).toBe(0);
@@ -262,5 +262,5 @@ it.each([0.38, 0.4, 0.45, 1.0])('renders the recursive variable-width boundary a
       const a=evalPrim(chain.prims[i-1],1), b=evalPrim(chain.prims[i],0);
       expect(Math.hypot(a[0]-b[0],a[1]-b[1])).toBeLessThan(1e-8);
     }
-  } finally { setPenLibrary(structuredClone(DEFAULT_PENS)); }
+  }
 }, 20000);

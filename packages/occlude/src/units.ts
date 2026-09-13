@@ -30,6 +30,8 @@ export const s = (n: number): Len => new Len('long', n);
 export const long = (n: number): Len => new Len('long', n);
 /** Real millimetres — for anything physical. */
 export const mm = (n: number): Len => new Len('mm', n);
+/** An imperial length: `inch(8.5)` is 215.9 mm. Resolves to mm once, like `mm`. */
+export const inch = (n: number): Len => new Len('mm', Math.round(n * 25.4 * 1e9) / 1e9);
 
 /** Angles: the vector vocabulary (`angleOf`, `fromAngle`, a station's
  * `heading`) speaks radians; shapes and fills (`rotate`, an ellipse's

@@ -1,23 +1,22 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { A4, SQ, toolkit } from './helpers/run.js';
 import {
   append, boundaryLoops, circle, compileSketch, connect, curve, distanceTo, force, initOcclude, line, material, ngon, path, polygon, rect,
-  render, setPaperHint, sketch, stroke, strokes, mm,
-  type Material, type SketchConfig, type SketchDef, type Toolkit,
+  render, sketch, stroke, strokes, mm,
+  type Material, type SketchConfig, type SketchDef, type Toolkit, Execution,
 } from '../src/index.js';
 import { isolinesOf, type IsoEnv } from '../src/isolines.js';
 import { streamlinesOf } from '../src/streamlines.js';
-import { getState } from '../src/state.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
-  setPaperHint(200, 200); // Square20: a 100×100 drawable, the kernel env below
 });
 
 /** Run a sketch body for its side effects on Square20 (a 100×100 drawable). */
-function run(body: (t: Toolkit) => void, opts: SketchConfig = {}): void {
-  compileSketch(sketch({ seed: 1, ...opts }, (t) => { body(t); return circle(0, 0, 1); }));
+function run(body: (t: Toolkit) => void, opts: SketchConfig = {}): Execution {
+  return compileSketch(sketch({ seed: 1, ...opts }, (t) => { body(t); return circle(0, 0, 1); }), SQ);
 }
 const env: IsoEnv = { bounds: { x: 0, y: 0, w: 100, h: 100 }, len: (l) => (typeof l === 'number' ? l : l.value) };
 const ink = (def: SketchDef) => render(def, { paper: 'Square20' }).frags.map((f) => JSON.stringify(f.geom)).join('|');
@@ -242,7 +241,7 @@ describe('one boundary contract', () => {
 
   it('a generated material serves the boundary consumers and the step rule alike', () => {
     let out: { inside: number; keep: [number, number]; n: number } | null = null;
-    run((t) => {
+    const exec = run((t) => {
       const box = t.material(rect(20, 20, 60, 60));
       const d = distanceTo(box);
       const keep = force.boundary(box, { radius: 10, strength: 1 });
@@ -257,7 +256,7 @@ describe('one boundary contract', () => {
     expect(out!.keep[0]).toBeGreaterThan(0);        // pushed inward, away from the left wall
     expect(Math.abs(out!.keep[1])).toBeLessThan(1e-9);
     expect(out!.n).toBeGreaterThanOrEqual(8);        // two squares of corners after the colinear merge
-        expect(getState().shapes.length).toBe(1);        // nothing drawn by the conversions themselves
+    expect(exec.shapes.length).toBe(1);        // nothing drawn by the conversions themselves
   });
 });
 

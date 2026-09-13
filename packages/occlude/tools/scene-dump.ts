@@ -10,8 +10,8 @@
 import * as core from 'occlude-core';
 import * as occlude from '../src/index.js';
 import {
-  compileSketch, isSketch, paperSize, setPaperHint, setPenLibrary,
-  type PaperChoice, type PenDef, type SketchDef,
+  compileSketch, isSketch, paperSize,
+  type AssetTable, type FillTable, type PaperChoice, type PenDef, type SketchDef,
 } from '../src/index.js';
 import { encodeScene, runFillJobs, type WasmModule } from '../src/render.js';
 
@@ -20,10 +20,8 @@ export type DumpFiles = Record<string, Uint8Array | string>;
 const bytes = (arr: Float64Array | Uint32Array): Uint8Array =>
   new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
 
-export function dumpSceneFiles(js: string, opts: { paper: PaperChoice; pens?: PenDef[] }): DumpFiles {
-  if (opts.pens) setPenLibrary(opts.pens);
+export function dumpSceneFiles(js: string, opts: { paper: PaperChoice; pens?: PenDef[]; seed?: number | string; assets?: AssetTable; fills?: FillTable }): DumpFiles {
   const size = paperSize(opts.paper);
-  setPaperHint(size.w, size.h);
   const module = { exports: {} as Record<string, unknown> };
   const requireShim = (name: string): unknown => {
     if (name === 'occlude') return occlude;
@@ -35,8 +33,8 @@ export function dumpSceneFiles(js: string, opts: { paper: PaperChoice; pens?: Pe
     ? exp.default
     : Object.values(exp).find(isSketch)) as SketchDef | undefined;
   if (!def) throw new Error('no sketch exported — write `export default sketch({ … }, (toolkit) => tree)`');
-  compileSketch(def);
-  const scene = encodeScene({ paper: opts.paper });
+  const exec = compileSketch(def, { paper: { w: size.w, h: size.h }, library: opts.pens, seed: opts.seed, assets: opts.assets, fills: opts.fills });
+  const scene = encodeScene(exec);
   const files: DumpFiles = {
     'prims.f64': bytes(scene.prims),
     'contours.u32': bytes(scene.contours),

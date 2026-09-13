@@ -26,10 +26,10 @@ Drag `highlight x` across the ball and back: the same dots, and the ball turns t
 Two ways to make a ramp of tone, side by side. Left: a regular grid of marks whose radius grows with the value, the way chapter 7's grid showed a field. Right: marks of one size, placed by `t.scatter(field, { spacing })`, which puts more of them where the field is high. Both read as a ramp; neither is the other. The field is bounded to the left half with `within`, from chapter 7, so the scatter stops there before it is moved over.
 
 ```ts live focus=6-7
-import { sketch, circle, group, rect, within } from 'occlude';
+import { sketch, circle, group, rect } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
-  const ramp = within((x, y) => x / 100, rect(0, 0, 100, 100));
+  const ramp = t.within((x, y) => x / 100, rect(0, 0, 100, 100));
   const sized = t.grid({ cols: 20, rows: 20 }).filter((c) => c.cx < 100).map((c) => circle(c.cx, c.cy, 0.2 + ramp(c.cx, c.cy) * 1.8));
   const placed = t.scatter(ramp, { spacing: 2.4 }).points.map((p) => circle(p.x, p.y, 0.55));
   return [sized, group({ translate: [100, 0] }, placed)];
@@ -161,7 +161,7 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
 **Hard silhouette or disappearing edge.** The ball's edge is a cut: inside, density; outside, nothing. That is a ball against white, and its lit side is a crisp silhouette against the paper. The other choice is to let the shadow side dissolve into a ground: a faint density outside the ball, mostly below it where a surface would be, and the ball's dark rim no darker than it, so the edge disappears where the shadow is and shows only where the light is. Same ball, both ways. Which is in a room, and which is on a page?
 
 ```ts live focus=8-9
-import { sketch, circle, distance, group, rect, within } from 'occlude';
+import { sketch, circle, distance, group, rect } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const ball = (cx) => {
@@ -171,8 +171,8 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
     return { r, body };
   };
   const cut = ball(50);
-  const hard = within((x, y) => (cut.r(x, y) < 40 ? cut.body(x, y) : 0), rect(0, 0, 100, 100));
-  const soft = within((x, y) => (cut.r(x, y) < 40 ? cut.body(x, y) : 0.22 * Math.max(0, 1 - (cut.r(x, y) - 40) / 20) * (y > 50 ? 1 : 0.2)), rect(0, 0, 100, 100));
+  const hard = t.within((x, y) => (cut.r(x, y) < 40 ? cut.body(x, y) : 0), rect(0, 0, 100, 100));
+  const soft = t.within((x, y) => (cut.r(x, y) < 40 ? cut.body(x, y) : 0.22 * Math.max(0, 1 - (cut.r(x, y) - 40) / 20) * (y > 50 ? 1 : 0.2)), rect(0, 0, 100, 100));
   const study = (shade) => t.settle(t.scatter(shade, { spacing: 2 }), { density: shade, spacing: 2, iterations: 10 }).points.map((p) => circle(p.x, p.y, 0.45));
   return [study(hard), group({ translate: [100, 0] }, study(soft))];
 });
@@ -233,10 +233,10 @@ Chapter 7's `distanceTo(t.material(shape))` is positive inside a shape and negat
 A photograph is a field too, once its brightness is read at a position. `image(name, { x, y, width })` places an image on the sheet and gives `img.lum(x, y)` for its brightness and `img.a(x, y)` for its opacity; outside the placed image both are 0, so the adapter below returns 0 there rather than treating transparent paper as black. Darkness is `1 − lum`, raised to a contrast. Everything after that line is the study above.
 
 ```ts live
-import { sketch, circle, image } from 'occlude';
+import { sketch, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
-  const img = image('ivy.png', { x: 0, y: 0, width: 100 });
+  const img = t.image('ivy.png', { x: 0, y: 0, width: 100 });
   const dark = (x, y) => (img.a(x, y) < 0.5 ? 0 : Math.pow(1 - img.lum(x, y), 1.4));
   const seeds = t.scatter(dark, { spacing: 1.4 });
   const settled = t.settle(seeds, { density: dark, spacing: 1.4, iterations: 10 });
