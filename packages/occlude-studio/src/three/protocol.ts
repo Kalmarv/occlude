@@ -1,3 +1,6 @@
+import type {Surface3} from 'occlude/src/three/geometry/surface.js';
+import type {DeformOptions3} from 'occlude/src/three/geometry/deform.js';
+import type {GpuDeform3} from 'occlude/src/compute/webgpu/deform.js';
 import type { SurfaceObject3, WireObject3 } from 'occlude/src/three/features/snapshot.js';
 import type { ClassifiedScene3 } from 'occlude/src/three/visibility/scene.js';
 import type { CameraFrame3 } from 'occlude/src/three/camera.js';
@@ -32,8 +35,10 @@ export interface ThreeSceneInput {
   readonly cameraRevision: number;
 }
 export type ThreeSceneResult = Omit<ThreeRenderResult, 'gpu'> & { readonly drawing: ClassifiedScene3 };
-export type ThreeJobInput = ThreeRenderInput | ThreeSceneInput;
-export type ThreeJobResult = ThreeRenderResult | ThreeSceneResult;
+export interface ThreeDeformInput { readonly surface:Surface3; readonly deformation:Omit<DeformOptions3,'signal'>;readonly geometryRevision:number;readonly cameraRevision:number }
+export type ThreeDeformResult = Omit<ThreeRenderResult,'gpu'> & {readonly deformation:Awaited<ReturnType<GpuDeform3['deform']>>};
+export type ThreeJobInput = ThreeRenderInput | ThreeSceneInput | ThreeDeformInput;
+export type ThreeJobResult = ThreeRenderResult | ThreeSceneResult | ThreeDeformResult;
 export type ThreeWorkerRequest =
   | { type: 'init'; canvas: OffscreenCanvas; requireHardware: boolean }
   | { type: 'render'; id: number; input: ThreeJobInput }

@@ -1,3 +1,8 @@
+import {Rng} from 'occlude/src/random.js';
+import {grid3,FaceSelection3,extrudeFaces3} from 'occlude/src/three/geometry/model.js';
+import {deformSurfaceCpu3} from 'occlude/src/three/geometry/deform.js';
+import {GpuDeform3} from 'occlude/src/compute/webgpu/deform.js';
+import type {Surface3} from 'occlude/src/three/geometry/surface.js';
 import { constructStrokes3 } from 'occlude/src/three/strokes/construct.js';
 import { paperStrokes3 } from 'occlude/src/three/strokes/paper.js';
 import { box3 } from 'occlude/src/three/geometry/surface.js';
@@ -23,7 +28,7 @@ const projection = document.querySelector<HTMLSelectElement>('#projection')!;
 let canvas = document.querySelector<HTMLCanvasElement>('#viewport')!;
 // This dedicated laboratory exposes its kernels for browser conformance checks
 // against the exact production bundle (no Vite /@fs imports required).
-Object.assign(window, { threeLabApi: { GpuIntervals3, hiddenInterval3, occlusionVolume3, ThreeWorkerClient, cameraFrame3, box3, featureSnapshot3, classifySceneCpu3, classifySceneGpu3, constructStrokes3, paperStrokes3 } });
+Object.assign(window, { threeLabApi: { GpuIntervals3, GpuDeform3, grid3, FaceSelection3, extrudeFaces3, deformSurfaceCpu3, hiddenInterval3, occlusionVolume3, ThreeWorkerClient, cameraFrame3, box3, featureSnapshot3, classifySceneCpu3, classifySceneGpu3, constructStrokes3, paperStrokes3 } });
 
 let client: ThreeWorkerClient | null = null, svg = '', revision = 0;
 
@@ -32,6 +37,22 @@ const secondBox = box3([2,1,2],[1,.4,.5]);
 const objects = [{id:'box',surface:firstBox,attributes:{group:'primary'}}];
 let meshCache: { drawing: ClassifiedScene3; frame: CameraFrame3; metadata: Record<string, unknown> } | null = null;
 let adoptedMeshDispatches = 0;
+let relief:Surface3|null=null,reliefPending:Promise<Surface3>|null=null,modelBuilds=0,modelStats:unknown=null;
+async function reliefModel():Promise<Surface3> {
+  if(relief)return relief;
+  if(!reliefPending)reliefPending=(async()=>{
+    const grid=grid3(8,8,[4,4]);
+    grid.faces.forEach(f=>{f.attributes.importance=new Rng(`relief:42:${f.id}`).float();});
+    const selection=new FaceSelection3(grid).filter(f=>f.index%8%2===0&&Math.floor(f.index/8)%2===0);
+    const raised=extrudeFaces3(grid,selection,f=>.3+.9*Math.abs(Number(f.attributes.importance)),{operation:'relief:42'});
+    const pinned=raised.points.flatMap((p,i)=>Math.abs(p.position[0])===2||Math.abs(p.position[1])===2?[i]:[]);
+    const displacements=raised.points.map(p=>[0,0,.002*Math.sin(p.position[0]*3+p.position[1]*2)] as Vec3);
+    const result=await client!.deform({surface:raised,deformation:{iterations:24,relaxation:.025,displacements,pinned},geometryRevision:3,cameraRevision:0});
+    modelBuilds++;modelStats=result.deformation.stats;relief=result.deformation.surface;return relief;
+  })().finally(()=>{reliefPending=null;});
+  return reliefPending;
+}
+
 
 function styleMesh(reused: boolean): void {
   if (!meshCache) return;
@@ -66,12 +87,13 @@ async function runMesh(): Promise<void> {
     client ??= new ThreeWorkerClient(canvas); await initOcclude(); if(currentRevision!==revision)return;
     const angle=Number(orbit.value)*Math.PI/180;
     const frame=cameraFrame3({...(projectionName==='perspective'?{kind:'perspective' as const,fovDegrees:45}:{kind:'orthographic' as const,span:6}),eye:[7*Math.cos(angle),7*Math.sin(angle),5],target:[0,0,0],near:.1,far:100},{x:0,y:0,width:150,height:100});
-    const sceneObjects=sceneName==='box'?objects:[...objects,{id:'crossing',surface:secondBox}];
-    const wires=sceneName==='box'?[]:[{id:'wire',points:[[-3,0,.2],[3,0,.2]] as Vec3[]}];
-    const result=await client.renderScene({frame,objects:sceneObjects,wires,geometryRevision:sceneName==='box'?1:2,cameraRevision:currentRevision});
+    const sceneObjects=sceneName==='relief'?[{id:'relief',surface:await reliefModel()}]:sceneName==='box'?objects:[...objects,{id:'crossing',surface:secondBox}];
+    if(currentRevision!==revision)return;
+    const wires=sceneName!=='overlap'?[]:[{id:'wire',points:[[-3,0,.2],[3,0,.2]] as Vec3[]}];
+    const result=await client.renderScene({frame,objects:sceneObjects,wires,geometryRevision:sceneName==='relief'?3:sceneName==='box'?1:2,cameraRevision:currentRevision});
     if(currentRevision!==revision)return;
     adoptedMeshDispatches+=result.drawing.stats.dispatches;
-    meshCache={drawing:result.drawing,frame,metadata:{passed:true,scene:sceneName,projection:projectionName,worker:result.worker,adapter:result.adapter,cameraRevision:currentRevision,deviceGeneration:result.deviceGeneration}};
+    meshCache={drawing:result.drawing,frame,metadata:{passed:true,scene:sceneName,modelBuilds,modelStats,projection:projectionName,worker:result.worker,adapter:result.adapter,cameraRevision:currentRevision,deviceGeneration:result.deviceGeneration}};
     styleMesh(false);
   } catch(error) { if(currentRevision!==revision || (error instanceof Error && error.name==='AbortError'))return;status.textContent=String(error);console.error(error); }
 }

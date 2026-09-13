@@ -42,22 +42,8 @@ function sameSource(a: { source: Material }, b: { source: Material }, what: stri
   if (a.source !== b.source) throw new Error(`selection.${what}: the two selections come from different states — combine extracted material instead`);
 }
 
-/** Group members by a classifier: first-occurrence key order, members in
- * collection order, Map equality on keys, one classifier call per member. */
-export function groupRows<V, K>(members: Iterable<V>, rowOf: (v: V) => number, classify: (v: V, i: number) => K): { key: K; rows: number[] }[] {
-  const groups = new Map<K, number[]>();
-  let i = 0;
-  for (const v of members) {
-    const k = classify(v, i++);
-    let rows = groups.get(k);
-    if (!rows) {
-      rows = [];
-      groups.set(k, rows);
-    }
-    rows.push(rowOf(v));
-  }
-  return Array.from(groups, ([key, rows]) => ({ key, rows }));
-}
+import { groupRows } from './groupRows.js';
+export { groupRows } from './groupRows.js';
 
 /** The rows a collection over `count` source rows holds: null is all of them. */
 function fullRows(count: number): number[] {

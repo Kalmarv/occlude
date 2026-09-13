@@ -163,10 +163,36 @@ try {
       return {features:snapshot.features.length,triangles:snapshot.triangles.length,cpu:cpu.stats,gpu:gpu.stats};
     }finally{await session.dispose();}
   },{requireHardware:!software});
+  const deformation=await page.evaluate(async({requireHardware})=>{
+    const {GpuIntervals3,GpuDeform3,grid3,deformSurfaceCpu3}=window.threeLabApi;
+    const session=await GpuIntervals3.create(navigator.gpu,{requireHardware});
+    try {
+      const kernel=await GpuDeform3.create(session.device),surface=grid3(10,8,[4,3]);
+      const displacements=surface.points.map((p,i)=>[.001*Math.sin(i),.001*Math.cos(i),.004*Math.sin(p.position[0]*3)]);
+      const options={iterations:32,relaxation:.15,displacements,pinned:[0,10,88,98]};
+      const cpu=deformSurfaceCpu3(surface,options),pending=kernel.deform(surface,options);
+      surface.points[5].position=[900,900,900];displacements[5][2]=900;
+      const gpu=await pending;let maxError=0;
+      cpu.points.forEach((p,i)=>p.position.forEach((v,k)=>maxError=Math.max(maxError,Math.abs(v-gpu.surface.points[i].position[k]))));
+      if(maxError>2e-5)throw new Error(`GPU deformation differs from CPU by ${maxError}`);
+      for(const i of options.pinned)if(JSON.stringify(cpu.points[i].position)!==JSON.stringify(gpu.surface.points[i].position))throw new Error('pinned point moved');
+      const abort=new AbortController();const cancelled=kernel.deform(cpu,{...options,signal:abort.signal}).then(()=>false,e=>e.name==='AbortError');abort.abort();if(!await cancelled)throw new Error('cancelled deformation adopted');
+      return {...gpu.stats,maxError,snapshotOwned:true,pinsExact:true,cancelled:true};
+    }finally{await session.dispose();}
+  },{requireHardware:!software});
+  await page.selectOption('#scene','relief');
+  await page.waitForFunction(()=>window.threeEvidence?.scene==='relief',{}, {timeout:60000});
+  const relief=await page.evaluate(()=>window.threeEvidence);assert.equal(relief.modelBuilds,1);assert.equal(relief.modelStats.dispatches,24);
+  await page.screenshot({path:resolve(output,'relief.png'),fullPage:true});
+  const reliefDownload=page.waitForEvent('download');await page.click('#download');await (await reliefDownload).saveAs(resolve(output,'relief.svg'));
+  const modelCamera=relief.cameraRevision;
+  await page.locator('#orbit').fill('65');await page.locator('#orbit').dispatchEvent('change');
+  await page.waitForFunction(revision=>window.threeEvidence.cameraRevision>revision,modelCamera);
+  assert.equal(await page.evaluate(()=>window.threeEvidence.modelBuilds),1,'camera orbit must reuse modeled geometry');
   // A missing browser favicon is not an application/shader error.
   const applicationErrors = errors.filter(e => !e.includes('404 (Not Found)'));
   assert.deepEqual(applicationErrors, []);
-  const report = { browser: browser.version(), args, software, orthographic, perspective, batch, workerLifecycle, box, dashLengths, overlap, mesh, applicationErrors };
+  const report = { browser: browser.version(), args, software, orthographic, perspective, batch, workerLifecycle, box, dashLengths, overlap, mesh, deformation, relief, applicationErrors };
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2)+'\n');
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {

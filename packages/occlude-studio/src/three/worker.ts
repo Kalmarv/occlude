@@ -1,3 +1,4 @@
+import { GpuDeform3 } from 'occlude/src/compute/webgpu/deform.js';
 import { featureSnapshot3 } from 'occlude/src/three/features/snapshot.js';
 import { classifySceneGpu3 } from 'occlude/src/three/visibility/scene.js';
 import { GpuIntervals3 } from 'occlude/src/compute/webgpu/interval.js';
@@ -11,6 +12,7 @@ class ThreeWorkerHost {
   private session: GpuIntervals3 | null = null;
   private viewport: GpuViewport3 | null = null;
   private generation = 0;
+  private deformation:GpuDeform3|null=null;
   constructor(private canvas: OffscreenCanvas, private requireHardware: boolean) {}
   async render(input: ThreeJobInput, signal: AbortSignal): Promise<ThreeJobResult> {
     signal.throwIfAborted();
@@ -31,6 +33,11 @@ class ThreeWorkerHost {
     const session = this.session!, info = session.adapterInfo;
     const deviceReadyMs = performance.now() - started;
     const metadata = { adapter: { vendor: info.vendor, architecture: info.architecture, device: info.device, description: info.description, isFallbackAdapter: info.isFallbackAdapter }, geometryRevision: input.geometryRevision, cameraRevision: input.cameraRevision, deviceGeneration: this.generation, deviceReadyMs, cold, worker: true as const };
+    if ('deformation' in input) {
+      this.deformation ??= await GpuDeform3.create(session.device);
+      const deformation=await this.deformation.deform(input.surface,{...input.deformation,signal});
+      signal.throwIfAborted();return {...metadata,deformation};
+    }
     if ('objects' in input) {
       const snapshot = featureSnapshot3(input.objects, input.wires, input.frame);
       signal.throwIfAborted();
@@ -45,6 +52,7 @@ class ThreeWorkerHost {
     return { ...metadata, gpu };
   }
   async release(): Promise<void> {
+    this.deformation=null;
     this.viewport?.dispose(); this.viewport = null;
     const session = this.session; this.session = null;
     await session?.dispose();

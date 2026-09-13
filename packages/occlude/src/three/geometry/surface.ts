@@ -58,15 +58,13 @@ function triangulate(positions: readonly Vec3[], vertices: readonly number[]): [
   return triangles;
 }
 
-export function surface3(positions: readonly Vec3[], polygons: readonly (readonly number[])[]): Surface3 {
-  positions.forEach(finite3);
-  const points = positions.map((position, i) => ({ id: `p${i}`, position: [...position] as Vec3, attributes: {} }));
-  const faces: SurfaceFace3[] = [], triangles: SurfaceTriangle3[] = [];
+/** Internal topology assembly keeps fixed triangles after deformation. */
+export function assembleSurface3(points: readonly SurfacePoint3[], faces: readonly SurfaceFace3[], triangles: readonly SurfaceTriangle3[], previous?: Surface3): Surface3 {
+  points.forEach(p=>finite3(p.position));
+  for (const rows of [points,faces]) if(new Set(rows.map(r=>r.id)).size!==rows.length)throw new Error('surface IDs must be unique within their domain');
   const edges = new Map<string, { vertices: [number, number]; faces: number[]; forward: number }>();
-  polygons.forEach((vertices, face) => {
+  faces.forEach(({vertices},face)=>{
     if (vertices.length < 3 || new Set(vertices).size !== vertices.length || vertices.some(v => !Number.isInteger(v) || v < 0 || v >= points.length)) throw new Error('surface face requires at least three distinct valid point indices');
-    faces.push({ id: `f${face}`, vertices: Object.freeze([...vertices]), attributes: {} });
-    for (const v of triangulate(positions, vertices)) triangles.push(Object.freeze({ vertices: Object.freeze(v), face }));
     for (let i = 0; i < vertices.length; i++) {
       const a = vertices[i], b = vertices[(i + 1) % vertices.length], key = edgeKey(a, b);
       const existing = edges.get(key);
@@ -77,7 +75,22 @@ export function surface3(positions: readonly Vec3[], polygons: readonly (readonl
       } else edges.set(key, { vertices: a < b ? [a, b] : [b, a], faces: [face], forward: a });
     }
   });
-  return { points: Object.freeze(points), faces: Object.freeze(faces), triangles: Object.freeze(triangles), edges: Object.freeze([...edges.values()].map(e => ({ id: `e:${points[e.vertices[0]].id}:${points[e.vertices[1]].id}`, vertices: Object.freeze(e.vertices), faces: Object.freeze(e.faces), attributes: {} }))) };
+  const prior=new Map(previous?.edges.map(e=>[JSON.stringify(e.vertices.map(v=>previous.points[v].id).sort()),e]));
+  return { points: Object.freeze(points.map(p=>({...p,position:[...p.position] as Vec3,attributes:structuredClone(p.attributes)}))), faces: Object.freeze(faces.map(f=>({...f,vertices:Object.freeze([...f.vertices]),attributes:structuredClone(f.attributes)}))), triangles: Object.freeze(triangles.map(t=>Object.freeze({...t,vertices:Object.freeze([...t.vertices]) as readonly [number,number,number]}))), edges: Object.freeze([...edges.values()].map(e => {
+    const old=prior.get(JSON.stringify(e.vertices.map(v=>points[v].id).sort()));
+    return { id: old?.id ?? `e:${points[e.vertices[0]].id}:${points[e.vertices[1]].id}`, vertices: Object.freeze(e.vertices), faces: Object.freeze(e.faces), attributes: structuredClone(old?.attributes??{}) };
+  })) };
+}
+export function surface3(positions: readonly Vec3[], polygons: readonly (readonly number[])[]): Surface3 {
+  positions.forEach(finite3);
+  const points=positions.map((position,i)=>({id:`p${i}`,position,attributes:{}}));
+  const faces=polygons.map((vertices,i)=>({id:`f${i}`,vertices,attributes:{}}));
+  const triangles:SurfaceTriangle3[]=[];
+  faces.forEach((f,face)=>{
+    if (f.vertices.length < 3 || new Set(f.vertices).size !== f.vertices.length || f.vertices.some(v => !Number.isInteger(v) || v < 0 || v >= points.length)) throw new Error('surface face requires at least three distinct valid point indices');
+    for(const vertices of triangulate(positions,f.vertices))triangles.push({vertices,face});
+  });
+  return assembleSurface3(points,faces,triangles);
 }
 
 export function box3(size: Vec3 = [1, 1, 1], center: Vec3 = [0, 0, 0]): Surface3 {

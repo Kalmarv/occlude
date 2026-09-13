@@ -9,3 +9,5 @@ playwright-mesh/*.webm
 playwright-mesh/failure.png
 playwright-strokes/*.webm
 playwright-strokes/failure.png
+playwright-model/*.webm
+playwright-model/failure.png

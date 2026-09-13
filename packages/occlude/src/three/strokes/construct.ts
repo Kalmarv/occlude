@@ -1,4 +1,4 @@
-import { groupRows } from '../../relation.js';
+import { groupRows } from '../../groupRows.js';
 import { toPaper3 } from '../camera.js';
 import type { Feature3 } from '../features/snapshot.js';
 import { lerp3 } from '../math.js';
