@@ -428,7 +428,8 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
   // Size: inputs display in the chosen unit (remembered), storage is mm.
   const MM_PER_IN = 25.4;
   const toUnit = (mm: number): number => (s.paperUnit === 'in' ? mm / MM_PER_IN : mm);
-  const fromUnit = (v: number): number => (s.paperUnit === 'in' ? v * MM_PER_IN : v);
+  // inches resolve to whole micrometres, so 8.5 in is 215.9 mm, not 215.89999999999998
+  const fromUnit = (v: number): number => (s.paperUnit === 'in' ? Math.round(v * MM_PER_IN * 1e6) / 1e6 : v);
   const fmt = (mm: number): string =>
     s.paperUnit === 'in' ? String(+toUnit(mm).toFixed(3)) : String(+mm.toFixed(1));
   const nameInput = document.createElement('input');
