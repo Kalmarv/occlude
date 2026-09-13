@@ -59,7 +59,7 @@ export function createSketchHandler(dir) {
     const isProfiles = url.pathname === '/api/profiles';
     const isPlotLog = url.pathname === '/api/plotlog';
     const isProgress = url.pathname === '/api/plot-progress';
-    if (!url.pathname.startsWith('/api/sketches') && !isPens && !isProfiles && !isPlotLog && !isProgress) {
+    if (!url.pathname.startsWith('/api/sketches') && !isPens && !isPapers && !isProfiles && !isPlotLog && !isProgress) {
       if (next) return next();
       res.statusCode = 404;
       return res.end('{"error":"not found"}');
