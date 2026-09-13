@@ -90,3 +90,39 @@ export default sketchAsync({ seed: 42, pens: { outline: pen({ width: mm(0.3), co
 ```
 
 Await each batch before making dependent CPU edits. Inputs are captured when submitted; later edits do not change an in-flight batch. The async compiler's signal applies to both modeling and scene resolution. Headless execution uses the CPU reference; Studio supplies the GPU implementation. A GPU failure is reported and does not silently rerun modeling on the CPU. Per-run operation diagnostics are available in `run.modeling3`.
+
+## Points, edges and instances
+
+`PointSelection3(surface)` captures point positions, attributes, original-edge neighbors and boundary status. `EdgeSelection3(surface)` captures original polygon edges with endpoints, center, length, incident faces and attributes; triangulation diagonals are excluded. Both support iteration, `filter`, `map`, `groupBy` and `union`. Derive selections from one captured selection before unioning them. Point `adjacent()` follows original edges; edge `points()` selects its endpoints.
+
+`editPoints3(surface, selection, callback)` returns an owned surface with optional position and attribute replacements. `editEdges3(surface, selection, callback)` replaces selected edge attributes. Every callback reads frozen rows from the edit's input; all patches commit after the callbacks finish. Omitted point fields stay unchanged; supplied attribute objects replace that row's attributes, so spread existing attributes to retain them. IDs and fixed triangulation survive these edits. A selection from a previous surface value cannot edit a later value. Selection predicates retain their captured measurements even if the original editable geometry changes.
+
+`pointCloud3(positions)` makes editable point-only data, with no implied edges or faces. Interpret those points explicitly as an open polyline through a scene wire's `points` array. Scene objects can share a surface and set individual `transform: { translate, rotate, scale, origin }` values. Those transforms act in world space before projection; rotations are XYZ degrees and mirrored scales preserve winding. A scene captures a shared surface once, so later edits to that source do not alter its instances.
+
+```ts live
+import { sketch, box3, PointSelection3, EdgeSelection3, editPoints3, editEdges3, pointCloud3, lineArt3, FeatureKind3, pen, mm } from 'occlude';
+
+export default sketch({ pens: {
+  outline: pen({ width: mm(0.3), color: '#18202A' }),
+  accent: pen({ width: mm(0.4), color: '#A84932' }),
+} }, t => {
+  let shape = box3([1.3, 1.3, 1.3]);
+  const top = new PointSelection3(shape).filter(p => p.position[2] > 0);
+  shape = editPoints3(shape, top, p => ({ position: [p.position[0] + 0.25, p.position[1], p.position[2] + 0.4] }));
+  const rim = new EdgeSelection3(shape).filter(e => e.center[2] > 1);
+  shape = editEdges3(shape, rim, e => ({ ...e.attributes, marked: true }));
+  const samples = pointCloud3(t.times(25, (_, u) => [6 * u - 3, -0.6, 1.1 + 0.4 * Math.sin(u * Math.PI * 2)]));
+  return lineArt3({
+    objects: [
+      { id: 'left', surface: shape, transform: { translate: [-1.5, 0, 0] } },
+      { id: 'right', surface: shape, transform: { translate: [1.5, 0, 0], rotate: [0, 0, 25], scale: [-1, 1, 1] } },
+    ],
+    wires: [{ id: 'gesture', points: samples.points.map(p => p.position) }],
+    camera: { kind: 'orthographic', span: 6.5, eye: [4, 7, 6], target: [0, 0, 0.5], near: 0.1, far: 30 },
+    lineSets: [
+      { id: 'visible', stroke: 'outline' },
+      { id: 'marked', stroke: 'accent', priority: 1, select: f => (f.flags & FeatureKind3.marked) !== 0 },
+    ],
+  });
+});
+```

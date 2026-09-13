@@ -197,7 +197,7 @@ setOccludeModule(() =>
 // Explicit 3D geometry and deferred drawing values. No device is acquired on import.
 export { lineArt3, isLineArt3 } from './three/scene.js';
 export type { LineArtScene3, LineArtOptions3, SceneCompute3 } from './three/scene.js';
-export { surface3, box3 } from './three/geometry/surface.js';
+export { surface3, box3, pointCloud3 } from './three/geometry/surface.js';
 export type { Surface3, Attributes3 } from './three/geometry/surface.js';
 export { FeatureKind3 } from './three/features/snapshot.js';
 export type { SurfaceObject3, WireObject3, Feature3 } from './three/features/snapshot.js';
@@ -210,3 +210,5 @@ export type { DeformOptions3 } from './three/geometry/deform.js';
 export type { SurfaceQueryInput3, SurfaceQueryResult3, ModelingStats3 } from './three/modeling.js';
 export type { RayQuery3, NearestQuery3, SurfaceHit3 } from './three/queries/surface.js';
 export type { Vec3 } from './three/math.js';
+export { PointSelection3, EdgeSelection3, editPoints3, editEdges3 } from './three/geometry/selection.js';
+export type { PointMeasure3, EdgeMeasure3, PointEdit3 } from './three/geometry/selection.js';

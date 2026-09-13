@@ -1,12 +1,13 @@
 import { orient3d } from 'robust-predicates';
 import { clipSegment3, clipTriangle3, toCamera3, toPaper3, type CameraFrame3 } from '../camera.js';
 import { cross3, dot3, lerp3, mul3, sub3, unit3, type Triangle3, type Vec3 } from '../math.js';
+import { transformSurface3 } from '../geometry/model.js';
 import type { Attributes3, Surface3 } from '../geometry/surface.js';
 import { occlusionVolume3, type Interval3, type OcclusionVolume3 } from '../visibility/interval.js';
 import { ProjectedIndex3, projectedBounds3, type Bounds3 } from '../visibility/index.js';
 
 export const FeatureKind3 = { boundary: 1, silhouette: 2, crease: 4, marked: 8, wire: 16 } as const;
-export interface SurfaceObject3 { readonly id: string; readonly surface: Surface3; readonly lineSource?: boolean; readonly occluder?: boolean; readonly attributes?: Attributes3 }
+export interface SurfaceObject3 { readonly id: string; readonly surface: Surface3; readonly transform?: Parameters<typeof transformSurface3>[1]; readonly lineSource?: boolean; readonly occluder?: boolean; readonly attributes?: Attributes3 }
 export interface WireObject3 { readonly id: string; readonly points: readonly Vec3[]; readonly attributes?: Attributes3 }
 export interface Feature3 {
   readonly id: string;
@@ -49,7 +50,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     features.push(Object.freeze({ ...feature, a: Object.freeze([...lerp3(feature.a, feature.b, range[0])]) as Vec3, b: Object.freeze([...lerp3(feature.a, feature.b, range[1])]) as Vec3, range: Object.freeze(range), support: Object.freeze([...feature.support]), endpoints: Object.freeze([...feature.endpoints]) as readonly [string, string], faceAttributes: Object.freeze([...feature.faceAttributes]) }));
   };
   for (const object of objects) {
-    const surface = object.surface, positions = surface.points.map(p => toCamera3(frame, p.position));
+    const surface = object.transform ? transformSurface3(object.surface, object.transform) : object.surface, positions = surface.points.map(p => toCamera3(frame, p.position));
     const faceAttrs = surface.faces.map(f => attributes(f.attributes));
     const faceTriangles: number[][] = surface.faces.map(() => []);
     surface.triangles.forEach((t,i)=>faceTriangles[t.face].push(i));

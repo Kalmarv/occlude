@@ -33,11 +33,17 @@ const freeze = <T>(value: T): T => {
  * Selection callbacks must be pure functions of their captured feature rows. */
 export function lineArt3(options: LineArtOptions3): LineArtScene3 {
   const camera = cameraFrame3(options.camera, options.viewport ?? { x: 0, y: 0, width: 1, height: 1 }).camera;
+  const surfaces = new Map<import('./geometry/surface.js').Surface3, import('./geometry/surface.js').Surface3>();
+  const captureSurface = (surface: import('./geometry/surface.js').Surface3) => {
+    let owned = surfaces.get(surface);
+    if (!owned) { owned = snapshotSurface3(surface); surfaces.set(surface, owned); }
+    return owned;
+  };
   return Object.freeze({
     __occludeLineArt3: true,
     camera,
     viewport: options.viewport && Object.freeze({ ...options.viewport }),
-    objects: Object.freeze((options.objects ?? []).map(object => Object.freeze({ ...object, surface: snapshotSurface3(object.surface), attributes: freeze(structuredClone(object.attributes)) }))),
+    objects: Object.freeze((options.objects ?? []).map(object => Object.freeze({ ...object, surface: captureSurface(object.surface), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)) }))),
     wires: freeze(structuredClone(options.wires ?? [])),
     lineSets: Object.freeze(options.lineSets.map(set => Object.freeze({ ...set }))),
     strokes: options.strokes && Object.freeze({ ...options.strokes }),

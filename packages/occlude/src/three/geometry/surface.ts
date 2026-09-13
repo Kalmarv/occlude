@@ -99,3 +99,9 @@ export function box3(size: Vec3 = [1, 1, 1], center: Vec3 = [0, 0, 0]): Surface3
   const signs: Vec3[] = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
   return surface3(signs.map(p => p.map((v, i) => center[i] + v * size[i] / 2) as unknown as Vec3), [[3,2,1,0],[4,5,6,7],[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7]]);
 }
+
+/** Editable point-only geometry. Drawing remains explicit through scene wires
+ * or a later point interpretation; no implicit connecting edges are created. */
+export function pointCloud3(positions: readonly Vec3[]): Surface3 {
+  return surface3(positions, []);
+}

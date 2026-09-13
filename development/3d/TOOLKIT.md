@@ -15,6 +15,6 @@ Evidence:
 - Prior 222 stable docs hashes remain identical; the new procedural example adds one explicitly pinned hash. CPU f64 reference ink is the docs oracle; GPU numeric refinement is covered separately by browser/kernel checks.
 - The same isolated preview-host missing library/machine endpoints documented in SCENES.md remain visible in the browser report. Tests carry the docs' captured libraries and never contact the production plotter service.
 
-Pending: cross-execution geometry/camera caching, main Studio 3D viewport and controls, point/edge/point-cloud/instance API completion, ordered stroke modifier/phase work, M4 hatching and plane sections, and M5 persistence, performance, pinned reference fixtures and handoff. This slice does not complete M3 or the full MVP.
+Follow-up SELECTION.md adds point/edge selections and edits, point clouds and instance transforms. Pending: cross-execution geometry/camera caching, main Studio 3D viewport and controls, ordered stroke modifier/phase work, M4 hatching and plane sections, and M5 persistence, performance, pinned reference fixtures and handoff. This slice does not complete M3 or the full MVP.
 
 Final isolated-image `pnpm check`: Rust 10.4s, TS 21.4s, library types 5.2s, Studio types 4.9s, docs 12.5s, ink 14.5s, build 35.9s, smoke 2.1s. WASM is unchanged at `c21c4ef21cb4091b6019b1aa440f6bea`. Production container identities/start times remain unchanged.
