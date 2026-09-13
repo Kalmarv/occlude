@@ -1,0 +1,248 @@
+{
+  "base": "http://127.0.0.1:5273",
+  "browser": "145.0.7632.109",
+  "hardware": "NVIDIA GeForce RTX 2060, 595.71.05, 6144",
+  "browserLaunchMs": 230.72972000000004,
+  "adapter": {
+    "vendor": "nvidia",
+    "architecture": "turing",
+    "device": "",
+    "description": "",
+    "isFallbackAdapter": false
+  },
+  "wasmStartupMs": 14.5,
+  "gpuStartupMs": 788.0999999940395,
+  "viewport": [
+    1120,
+    840
+  ],
+  "pairCapacity": 8192,
+  "intervalBufferBytes": 8388608,
+  "kernelTimestamps": "not collected; timings are end-to-end wall time",
+  "cases": [
+    {
+      "name": "grid-4",
+      "objects": 1,
+      "faces": 16,
+      "triangles": 32,
+      "features": 40,
+      "modelMs": 2,
+      "snapshotMs": 4.5999999940395355,
+      "cpuMs": [
+        2.300000011920929,
+        0.5,
+        0.800000011920929
+      ],
+      "gpuMs": [
+        48.900000005960464,
+        7.800000011920929,
+        9.5
+      ],
+      "cpuMedianMs": 0.800000011920929,
+      "gpuMedianMs": 9.5,
+      "candidates": 208,
+      "dispatches": 1,
+      "refinements": 208,
+      "transferBytes": 23296,
+      "intervals": 40,
+      "maxParameterError": 0,
+      "strokeMs": 2.5,
+      "strokes": 36,
+      "exportMs": 13.799999982118607,
+      "svgBytes": 1998,
+      "committedMedianMs": 30.399999976158142
+    },
+    {
+      "name": "grid-16",
+      "objects": 1,
+      "faces": 256,
+      "triangles": 512,
+      "features": 544,
+      "modelMs": 9.400000005960464,
+      "snapshotMs": 23.69999998807907,
+      "cpuMs": [
+        19.599999994039536,
+        6.800000011920929,
+        5.5999999940395355
+      ],
+      "gpuMs": [
+        70.80000001192093,
+        71.69999998807907,
+        67.40000000596046
+      ],
+      "cpuMedianMs": 6.800000011920929,
+      "gpuMedianMs": 70.80000001192093,
+      "candidates": 4020,
+      "dispatches": 1,
+      "refinements": 3988,
+      "transferBytes": 450240,
+      "intervals": 544,
+      "maxParameterError": 0,
+      "strokeMs": 13.700000017881393,
+      "strokes": 540,
+      "exportMs": 21.399999976158142,
+      "svgBytes": 25170,
+      "committedMedianMs": 129.59999999403954
+    },
+    {
+      "name": "grid-40",
+      "objects": 1,
+      "faces": 1600,
+      "triangles": 3200,
+      "features": 3280,
+      "modelMs": 50.5,
+      "snapshotMs": 94.69999998807907,
+      "cpuMs": [
+        58.30000001192093,
+        46.599999994039536,
+        49.69999998807907
+      ],
+      "gpuMs": [
+        397,
+        409.7000000178814,
+        395.40000000596046
+      ],
+      "cpuMedianMs": 49.69999998807907,
+      "gpuMedianMs": 397,
+      "candidates": 26128,
+      "dispatches": 4,
+      "refinements": 25725,
+      "transferBytes": 2926336,
+      "intervals": 3280,
+      "maxParameterError": 0,
+      "strokeMs": 74.2000000178814,
+      "strokes": 3276,
+      "exportMs": 55.79999998211861,
+      "svgBytes": 150522,
+      "committedMedianMs": 621.6999999880791
+    },
+    {
+      "name": "grid-80",
+      "objects": 1,
+      "faces": 6400,
+      "triangles": 12800,
+      "features": 12960,
+      "modelMs": 97.69999998807907,
+      "snapshotMs": 255.80000001192093,
+      "cpuMs": [
+        166.40000000596046,
+        196.59999999403954,
+        164.30000001192093
+      ],
+      "gpuMs": [
+        1382.5999999940395,
+        1359.5,
+        1555.5
+      ],
+      "cpuMedianMs": 166.40000000596046,
+      "gpuMedianMs": 1382.5999999940395,
+      "candidates": 105696,
+      "dispatches": 13,
+      "refinements": 103948,
+      "transferBytes": 11837952,
+      "intervals": 12960,
+      "maxParameterError": 0,
+      "strokeMs": 234.09999999403954,
+      "strokes": 12956,
+      "exportMs": 182.7000000178814,
+      "svgBytes": 594524,
+      "committedMedianMs": 2055.2000000178814
+    },
+    {
+      "name": "grid-100",
+      "objects": 1,
+      "faces": 10000,
+      "triangles": 20000,
+      "features": 20200,
+      "modelMs": 165.2999999821186,
+      "snapshotMs": 593.9000000059605,
+      "cpuMs": [
+        256.59999999403954,
+        259.30000001192093,
+        243.59999999403954
+      ],
+      "gpuMs": [
+        2161.600000023842,
+        2122.2999999821186,
+        2136.9000000059605
+      ],
+      "cpuMedianMs": 256.59999999403954,
+      "gpuMedianMs": 2136.9000000059605,
+      "candidates": 165450,
+      "dispatches": 21,
+      "refinements": 162726,
+      "transferBytes": 18530400,
+      "intervals": 20200,
+      "maxParameterError": 0,
+      "strokeMs": 418.10000002384186,
+      "strokes": 20196,
+      "exportMs": 217.59999999403954,
+      "svgBytes": 926513,
+      "committedMedianMs": 3366.5000000298023
+    },
+    {
+      "name": "city-30",
+      "objects": 900,
+      "faces": 5400,
+      "triangles": 10800,
+      "features": 10800,
+      "modelMs": 91.80000001192093,
+      "snapshotMs": 193.80000001192093,
+      "cpuMs": [
+        665,
+        733.4000000059605,
+        648
+      ],
+      "gpuMs": [
+        4013.2999999821186,
+        3949.300000011921,
+        3994.9000000059605
+      ],
+      "cpuMedianMs": 665,
+      "gpuMedianMs": 3994.9000000059605,
+      "candidates": 274701,
+      "dispatches": 34,
+      "refinements": 295197,
+      "transferBytes": 30766512,
+      "intervals": 13531,
+      "maxParameterError": 0,
+      "strokeMs": 198.2000000178814,
+      "strokes": 4898,
+      "exportMs": 66.90000000596046,
+      "svgBytes": 223838,
+      "committedMedianMs": 4453.800000041723
+    }
+  ],
+  "orbit": {
+    "prepareMs": 201.59999999403954,
+    "coldFrameMs": 163.59999999403954,
+    "warmFrameMs": [
+      157,
+      134.5,
+      149,
+      186.2000000178814,
+      165.09999999403954,
+      131.69999998807907,
+      129,
+      130.80000001192093,
+      139.2000000178814,
+      134.09999999403954,
+      155.69999998807907,
+      169.7000000178814
+    ],
+    "warmMedianMs": 149,
+    "warmFps": 6.7114093959731544,
+    "peakExplicitBufferBytes": 12737408,
+    "depthTextureBytes": 3763200,
+    "includes": "world-to-camera projection, raster submission, bitmap creation and GPU queue completion; excludes main-thread presentation"
+  },
+  "overlap": {
+    "triangles": 1200,
+    "features": 1200,
+    "maxCandidates": 10000,
+    "wallMs": 226.10000002384186,
+    "error": "Error: scene exceeds 10000 candidate pairs; raise maxCandidates or reduce overlap"
+  },
+  "peakExplicitBufferBytes": 12737408,
+  "passed": true
+}
