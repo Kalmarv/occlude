@@ -1,3 +1,5 @@
+import {SurfaceQueries3} from 'occlude/src/three/queries/surface.js';
+import {GpuSurfaceQueries3} from 'occlude/src/compute/webgpu/queries.js';
 import { GpuDeform3 } from 'occlude/src/compute/webgpu/deform.js';
 import { featureSnapshot3 } from 'occlude/src/three/features/snapshot.js';
 import { classifySceneGpu3 } from 'occlude/src/three/visibility/scene.js';
@@ -33,6 +35,10 @@ class ThreeWorkerHost {
     const session = this.session!, info = session.adapterInfo;
     const deviceReadyMs = performance.now() - started;
     const metadata = { adapter: { vendor: info.vendor, architecture: info.architecture, device: info.device, description: info.description, isFallbackAdapter: info.isFallbackAdapter }, geometryRevision: input.geometryRevision, cameraRevision: input.cameraRevision, deviceGeneration: this.generation, deviceReadyMs, cold, worker: true as const };
+    if ('querySurface' in input) {
+      const query=await GpuSurfaceQueries3.create(session.device,new SurfaceQueries3(input.querySurface));
+      try {const rays=await query.rays(input.rayQueries,{signal}),nearest=await query.nearest(input.nearestQueries,{signal});signal.throwIfAborted();return {...metadata,queries:{rays,nearest}};}finally{await query.dispose();}
+    }
     if ('deformation' in input) {
       this.deformation ??= await GpuDeform3.create(session.device);
       const deformation=await this.deformation.deform(input.surface,{...input.deformation,signal});

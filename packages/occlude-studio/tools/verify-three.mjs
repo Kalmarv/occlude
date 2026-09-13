@@ -163,6 +163,28 @@ try {
       return {features:snapshot.features.length,triangles:snapshot.triangles.length,cpu:cpu.stats,gpu:gpu.stats};
     }finally{await session.dispose();}
   },{requireHardware:!software});
+  const surfaceQueries=await page.evaluate(async({requireHardware})=>{
+    const {GpuIntervals3,GpuSurfaceQueries3,SurfaceQueries3,grid3,box3}=window.threeLabApi;
+    const session=await GpuIntervals3.create(navigator.gpu,{requireHardware});
+    try {
+      const geometry=grid3(12,9,[6,4]);geometry.points.forEach(p=>{const [x,y]=p.position;p.position=[x,y,.17*x+.3*y];});
+      const source=new SurfaceQueries3(geometry),gpu=await GpuSurfaceQueries3.create(session.device,source,{batchSize:17});
+      try {
+        const nearest=Array.from({length:100},(_,i)=>({point:[Math.sin(i*1.13)*4,Math.cos(i*.73)*3,.2+i/100]}));
+        const rays=nearest.map(q=>({origin:q.point,direction:[.03,.07,-1],near:0,far:10}));
+        const direction=[1,0,Math.fround(.17)],target=[.123,.456,.17*.123+.3*.456];
+        rays[0]={origin:target.map((v,k)=>v-1000*direction[k]),direction,near:0,far:2000};
+        const expectedNear=source.nearest(nearest),expectedRay=source.rays(rays);
+        const nearJob=gpu.nearest(nearest);nearest[4].point=[999,999,999];const actualNear=await nearJob,actualRay=await gpu.rays(rays);
+        const compare=(a,b)=>a.forEach((hit,i)=>{const expected=b[i];if(!!hit!==!!expected)throw new Error(`surface hit/miss differs at ${i}`);if(hit&&(hit.faceId!==expected.faceId||Math.abs(hit.distance-expected.distance)>1e-8||Math.hypot(...hit.point.map((v,k)=>v-expected.point[k]))>1e-8))throw new Error(`surface query position differs at ${i}`);});
+        compare(actualNear.hits,expectedNear);compare(actualRay.hits,expectedRay);
+        const abort=new AbortController();const pending=gpu.rays(rays,{signal:abort.signal}).then(()=>false,e=>e.name==='AbortError');abort.abort();if(!await pending)throw new Error('cancelled query adopted');
+        let limited=false;try{await gpu.rays(rays,{maxTests:1});}catch{limited=true;}if(!limited)throw new Error('query work limit ignored');
+        if(actualNear.stats.dispatches!==6||actualRay.stats.dispatches!==6)throw new Error('query batches were not chunked');
+        return {nearest:actualNear.stats,rays:actualRay.stats,snapshotOwned:true,cancelled:true,workLimit:true};
+      }finally{await gpu.dispose();}
+    }finally{await session.dispose();}
+  },{requireHardware:!software});
   const deformation=await page.evaluate(async({requireHardware})=>{
     const {GpuIntervals3,GpuDeform3,grid3,deformSurfaceCpu3}=window.threeLabApi;
     const session=await GpuIntervals3.create(navigator.gpu,{requireHardware});
@@ -182,7 +204,7 @@ try {
   },{requireHardware:!software});
   await page.selectOption('#scene','relief');
   await page.waitForFunction(()=>window.threeEvidence?.scene==='relief',{}, {timeout:60000});
-  const relief=await page.evaluate(()=>window.threeEvidence);assert.equal(relief.modelBuilds,1);assert.equal(relief.modelStats.dispatches,24);
+  const relief=await page.evaluate(()=>window.threeEvidence);assert.equal(relief.modelBuilds,1);assert.equal(relief.modelStats.dispatches,24);assert(relief.queryEdits>0);assert.equal(relief.queryStats.dispatches,1);
   await page.screenshot({path:resolve(output,'relief.png'),fullPage:true});
   const reliefDownload=page.waitForEvent('download');await page.click('#download');await (await reliefDownload).saveAs(resolve(output,'relief.svg'));
   const modelCamera=relief.cameraRevision;
@@ -192,7 +214,7 @@ try {
   // A missing browser favicon is not an application/shader error.
   const applicationErrors = errors.filter(e => !e.includes('404 (Not Found)'));
   assert.deepEqual(applicationErrors, []);
-  const report = { browser: browser.version(), args, software, orthographic, perspective, batch, workerLifecycle, box, dashLengths, overlap, mesh, deformation, relief, applicationErrors };
+  const report = { browser: browser.version(), args, software, orthographic, perspective, batch, workerLifecycle, box, dashLengths, overlap, mesh, surfaceQueries, deformation, relief, applicationErrors };
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2)+'\n');
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {

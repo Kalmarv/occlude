@@ -1,4 +1,4 @@
-import { abandonedThreeJob, type ThreeDeformInput, type ThreeDeformResult, type ThreeRenderInput, type ThreeRenderResult, type ThreeJobInput, type ThreeJobResult, type ThreeSceneInput, type ThreeSceneResult, type ThreeWorkerRequest, type ThreeWorkerResponse } from './protocol.js';
+import { abandonedThreeJob, type ThreeQueryInput, type ThreeQueryResult, type ThreeDeformInput, type ThreeDeformResult, type ThreeRenderInput, type ThreeRenderResult, type ThreeJobInput, type ThreeJobResult, type ThreeSceneInput, type ThreeSceneResult, type ThreeWorkerRequest, type ThreeWorkerResponse } from './protocol.js';
 
 type Pending = { id: number; resolve: (value: ThreeJobResult) => void; reject: (error: unknown) => void; cleanup: () => void };
 /** Latest-view client. postMessage captures inputs synchronously; the host never
@@ -46,6 +46,9 @@ export class ThreeWorkerClient {
   }
   async deform(input:ThreeDeformInput,signal?:AbortSignal):Promise<ThreeDeformResult> {
     const result=await this.submit(input,signal);if(!('deformation' in result))throw new Error('unexpected response for deformation request');return result;
+  }
+  async query(input:ThreeQueryInput,signal?:AbortSignal):Promise<ThreeQueryResult> {
+    const result=await this.submit(input,signal);if(!('queries' in result))throw new Error('unexpected response for surface query');return result;
   }
   private submit(input: ThreeJobInput, signal?: AbortSignal): Promise<ThreeJobResult> {
     if (this.closed) return Promise.reject(new Error('3D worker is closed; restart with a fresh canvas'));

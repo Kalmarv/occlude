@@ -11,3 +11,5 @@ playwright-strokes/*.webm
 playwright-strokes/failure.png
 playwright-model/*.webm
 playwright-model/failure.png
+playwright-queries/*.webm
+playwright-queries/failure.png

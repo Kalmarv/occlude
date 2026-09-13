@@ -1,0 +1,300 @@
+{
+  "browser": "145.0.7632.109",
+  "args": [
+    "--no-sandbox",
+    "--enable-unsafe-webgpu",
+    "--enable-features=Vulkan",
+    "--use-angle=vulkan",
+    "--disable-vulkan-surface",
+    "--ignore-gpu-blocklist"
+  ],
+  "software": false,
+  "orthographic": {
+    "passed": true,
+    "cold": true,
+    "deviceReadyMs": 1658.800000011921,
+    "totalMs": 1815.699999988079,
+    "projection": "orthographic",
+    "worker": true,
+    "deviceGeneration": 1,
+    "cameraRevision": 1,
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "reference": [
+      0.375,
+      0.625
+    ],
+    "expected": [
+      0.375,
+      0.625
+    ],
+    "gpu": {
+      "intervals": [
+        [
+          0.3749999701976776,
+          0.625
+        ]
+      ],
+      "dispatches": 1,
+      "refinements": 0,
+      "transferBytes": 112,
+      "residentBytes": 8388608,
+      "wallMs": 77.09999999403954
+    },
+    "cpuMs": 0.09999999403953552,
+    "styleSelections": 2,
+    "svgPaths": 11,
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  "perspective": {
+    "passed": true,
+    "cold": false,
+    "deviceReadyMs": 0,
+    "totalMs": 73.40000000596046,
+    "projection": "perspective",
+    "worker": true,
+    "deviceGeneration": 1,
+    "cameraRevision": 2,
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "reference": [
+      0.25,
+      0.75
+    ],
+    "expected": [
+      0.25,
+      0.75
+    ],
+    "gpu": {
+      "intervals": [
+        [
+          0.2499999850988388,
+          0.7499999403953552
+        ]
+      ],
+      "dispatches": 1,
+      "refinements": 0,
+      "transferBytes": 112,
+      "residentBytes": 8388608,
+      "wallMs": 68.7000000178814
+    },
+    "cpuMs": 0.29999998211860657,
+    "styleSelections": 2,
+    "svgPaths": 11,
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  "batch": {
+    "pairs": 128,
+    "cpuMs": 2,
+    "dispatches": 8,
+    "refinements": 0,
+    "wallMs": 36.900000005960464,
+    "transferBytes": 14336,
+    "residentBytes": 2176,
+    "cancelled": true,
+    "snapshotOwned": true,
+    "coplanarRefined": true,
+    "lossRejected": true
+  },
+  "workerLifecycle": {
+    "worker": true,
+    "superseded": 2,
+    "snapshotOwned": true,
+    "cancelled": true,
+    "failedGenerationRecovered": true,
+    "restarted": true
+  },
+  "box": {
+    "passed": true,
+    "scene": "box",
+    "modelBuilds": 0,
+    "modelStats": null,
+    "queryStats": null,
+    "queryEdits": 0,
+    "projection": "perspective",
+    "worker": true,
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "cameraRevision": 5,
+    "deviceGeneration": 1,
+    "features": 12,
+    "constructedStrokes": 6,
+    "selected": 12,
+    "visibleRuns": 9,
+    "hiddenRuns": 3,
+    "stats": {
+      "candidates": 47,
+      "dispatches": 1,
+      "refinements": 46,
+      "transferBytes": 5264,
+      "wallMs": 62.79999998211861
+    },
+    "visibilityReused": false,
+    "adoptedMeshDispatches": 1,
+    "svgPaths": 24
+  },
+  "dashLengths": [
+    2.000306226556324,
+    2.000306226556324,
+    2.0002249873451734,
+    2.000306226556324,
+    2.000306226556324,
+    1.4552147607827497,
+    2.0019303184676485,
+    1.9954009622128563,
+    1.9973106919054924,
+    2.0019303184676485,
+    2.001930318467662,
+    2.0019303184676485,
+    0.3662308015445996,
+    2.001405755962541,
+    2.001405755962541,
+    2.0014057559625464,
+    2.002155088897958,
+    1.9982617446170627
+  ],
+  "overlap": {
+    "passed": true,
+    "scene": "overlap",
+    "modelBuilds": 0,
+    "modelStats": null,
+    "queryStats": null,
+    "queryEdits": 0,
+    "projection": "perspective",
+    "worker": true,
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "cameraRevision": 8,
+    "deviceGeneration": 1,
+    "features": 25,
+    "constructedStrokes": 16,
+    "selected": 25,
+    "visibleRuns": 21,
+    "hiddenRuns": 15,
+    "stats": {
+      "candidates": 218,
+      "dispatches": 1,
+      "refinements": 174,
+      "transferBytes": 24416,
+      "wallMs": 87.59999999403954
+    },
+    "visibilityReused": false,
+    "adoptedMeshDispatches": 3,
+    "svgPaths": 85
+  },
+  "mesh": {
+    "features": 240,
+    "triangles": 240,
+    "cpu": {
+      "candidates": 7649,
+      "dispatches": 0,
+      "refinements": 0,
+      "transferBytes": 0,
+      "wallMs": 47.400000005960464
+    },
+    "gpu": {
+      "candidates": 7649,
+      "dispatches": 61,
+      "refinements": 6454,
+      "transferBytes": 856688,
+      "wallMs": 328.2000000178814
+    }
+  },
+  "surfaceQueries": {
+    "nearest": {
+      "queries": 100,
+      "dispatches": 6,
+      "refinements": 81,
+      "transferBytes": 4800,
+      "wallMs": 31.5
+    },
+    "rays": {
+      "queries": 100,
+      "dispatches": 6,
+      "refinements": 25,
+      "transferBytes": 4800,
+      "wallMs": 21.899999976158142
+    },
+    "snapshotOwned": true,
+    "cancelled": true,
+    "workLimit": true
+  },
+  "deformation": {
+    "iterations": 32,
+    "dispatches": 32,
+    "transferBytes": 6592,
+    "residentBytes": 8176,
+    "wallMs": 17.5,
+    "maxError": 0.0000021739310731572203,
+    "snapshotOwned": true,
+    "pinsExact": true,
+    "cancelled": true
+  },
+  "relief": {
+    "passed": true,
+    "scene": "relief",
+    "modelBuilds": 1,
+    "modelStats": {
+      "iterations": 24,
+      "dispatches": 24,
+      "transferBytes": 9736,
+      "residentBytes": 12056,
+      "wallMs": 14
+    },
+    "queryStats": {
+      "queries": 64,
+      "dispatches": 1,
+      "refinements": 0,
+      "transferBytes": 3072,
+      "wallMs": 9.400000005960464
+    },
+    "queryEdits": 22,
+    "projection": "perspective",
+    "worker": true,
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "cameraRevision": 9,
+    "deviceGeneration": 1,
+    "features": 273,
+    "constructedStrokes": 126,
+    "selected": 217,
+    "visibleRuns": 179,
+    "hiddenRuns": 86,
+    "stats": {
+      "candidates": 3072,
+      "dispatches": 1,
+      "refinements": 3099,
+      "transferBytes": 344064,
+      "wallMs": 110.2999999821186
+    },
+    "visibilityReused": false,
+    "adoptedMeshDispatches": 4,
+    "svgPaths": 258
+  },
+  "applicationErrors": []
+}

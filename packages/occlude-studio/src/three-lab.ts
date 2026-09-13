@@ -1,3 +1,6 @@
+import {SurfaceQueries3} from 'occlude/src/three/queries/surface.js';
+import {GpuSurfaceQueries3} from 'occlude/src/compute/webgpu/queries.js';
+import {surface3} from 'occlude/src/three/geometry/surface.js';
 import {Rng} from 'occlude/src/random.js';
 import {grid3,FaceSelection3,extrudeFaces3} from 'occlude/src/three/geometry/model.js';
 import {deformSurfaceCpu3} from 'occlude/src/three/geometry/deform.js';
@@ -28,7 +31,7 @@ const projection = document.querySelector<HTMLSelectElement>('#projection')!;
 let canvas = document.querySelector<HTMLCanvasElement>('#viewport')!;
 // This dedicated laboratory exposes its kernels for browser conformance checks
 // against the exact production bundle (no Vite /@fs imports required).
-Object.assign(window, { threeLabApi: { GpuIntervals3, GpuDeform3, grid3, FaceSelection3, extrudeFaces3, deformSurfaceCpu3, hiddenInterval3, occlusionVolume3, ThreeWorkerClient, cameraFrame3, box3, featureSnapshot3, classifySceneCpu3, classifySceneGpu3, constructStrokes3, paperStrokes3 } });
+Object.assign(window, { threeLabApi: { GpuIntervals3, SurfaceQueries3, GpuSurfaceQueries3, surface3, GpuDeform3, grid3, FaceSelection3, extrudeFaces3, deformSurfaceCpu3, hiddenInterval3, occlusionVolume3, ThreeWorkerClient, cameraFrame3, box3, featureSnapshot3, classifySceneCpu3, classifySceneGpu3, constructStrokes3, paperStrokes3 } });
 
 let client: ThreeWorkerClient | null = null, svg = '', revision = 0;
 
@@ -37,7 +40,7 @@ const secondBox = box3([2,1,2],[1,.4,.5]);
 const objects = [{id:'box',surface:firstBox,attributes:{group:'primary'}}];
 let meshCache: { drawing: ClassifiedScene3; frame: CameraFrame3; metadata: Record<string, unknown> } | null = null;
 let adoptedMeshDispatches = 0;
-let relief:Surface3|null=null,reliefPending:Promise<Surface3>|null=null,modelBuilds=0,modelStats:unknown=null;
+let relief:Surface3|null=null,reliefPending:Promise<Surface3>|null=null,modelBuilds=0,modelStats:unknown=null,queryStats:unknown=null,queryEdits=0;
 async function reliefModel():Promise<Surface3> {
   if(relief)return relief;
   if(!reliefPending)reliefPending=(async()=>{
@@ -48,7 +51,13 @@ async function reliefModel():Promise<Surface3> {
     const pinned=raised.points.flatMap((p,i)=>Math.abs(p.position[0])===2||Math.abs(p.position[1])===2?[i]:[]);
     const displacements=raised.points.map(p=>[0,0,.002*Math.sin(p.position[0]*3+p.position[1]*2)] as Vec3);
     const result=await client!.deform({surface:raised,deformation:{iterations:24,relaxation:.025,displacements,pinned},geometryRevision:3,cameraRevision:0});
-    modelBuilds++;modelStats=result.deformation.stats;relief=result.deformation.surface;return relief;
+    const modeled=result.deformation.surface;
+    const selectedPoints=modeled.points.flatMap((p,i)=>p.attributes.parentPoint?[i]:[]);
+    const ceiling=surface3([[-3,-3,.55],[3,-3,1.15],[3,3,1.15],[-3,3,.55]],[[0,1,2,3]]);
+    const queried=await client!.query({querySurface:ceiling,rayQueries:[],nearestQueries:selectedPoints.map(i=>({point:modeled.points[i].position})),geometryRevision:3,cameraRevision:0});
+    queried.queries.nearest.hits.forEach((hit,j)=>{const p=modeled.points[selectedPoints[j]];if(hit&&p.position[2]>hit.point[2]){p.position=hit.point;p.attributes.constraintDistance=hit.distance;queryEdits++;}});
+    queryStats=queried.queries.nearest.stats;
+    modelBuilds++;modelStats=result.deformation.stats;relief=modeled;return relief;
   })().finally(()=>{reliefPending=null;});
   return reliefPending;
 }
@@ -93,7 +102,7 @@ async function runMesh(): Promise<void> {
     const result=await client.renderScene({frame,objects:sceneObjects,wires,geometryRevision:sceneName==='relief'?3:sceneName==='box'?1:2,cameraRevision:currentRevision});
     if(currentRevision!==revision)return;
     adoptedMeshDispatches+=result.drawing.stats.dispatches;
-    meshCache={drawing:result.drawing,frame,metadata:{passed:true,scene:sceneName,modelBuilds,modelStats,projection:projectionName,worker:result.worker,adapter:result.adapter,cameraRevision:currentRevision,deviceGeneration:result.deviceGeneration}};
+    meshCache={drawing:result.drawing,frame,metadata:{passed:true,scene:sceneName,modelBuilds,modelStats,queryStats,queryEdits,projection:projectionName,worker:result.worker,adapter:result.adapter,cameraRevision:currentRevision,deviceGeneration:result.deviceGeneration}};
     styleMesh(false);
   } catch(error) { if(currentRevision!==revision || (error instanceof Error && error.name==='AbortError'))return;status.textContent=String(error);console.error(error); }
 }
