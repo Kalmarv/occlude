@@ -1,0 +1,5 @@
+# Failed/temporary browser attempts remain local; curated evidence is committed.
+proof-m1/
+playwright-m1/*.webm
+playwright-m1-software/*.webm
+playwright-m1-software/

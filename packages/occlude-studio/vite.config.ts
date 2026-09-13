@@ -58,6 +58,7 @@ export default defineConfig({
     exclude: ['occlude', 'occlude-core'],
   },
   server: {
+    allowedHosts: (process.env.OCCLUDE_DEV_HOSTS ?? '').split(',').map(host => host.trim()).filter(Boolean),
     fs: { allow: ['../..'] },
   },
   build: {
@@ -65,6 +66,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
+        three: resolve(__dirname, 'three.html'),
         docs: resolve(__dirname, 'docs.html'),
         assets: resolve(__dirname, 'assets.html'),
         fills: resolve(__dirname, 'fills.html'),

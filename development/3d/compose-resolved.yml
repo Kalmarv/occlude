@@ -15,11 +15,14 @@ services:
       - occlude-studio
       - exec
       - vite
+      - preview
       - --host
-      - 127.0.0.1
+      - 0.0.0.0
       - --port
       - "5273"
       - --strictPort
+    environment:
+      OCCLUDE_DEV_HOSTS: dev-occlude.ivyhq.xyz,occlude-dev.ivyhq.xyz,dev.occlude.ivyhq.xyz
     image: occlude-3d-dev:latest
     network_mode: host
     volumes:

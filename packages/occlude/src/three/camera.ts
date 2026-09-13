@@ -1,0 +1,87 @@
+import { cross3, dot3, finite3, lerp3, sub3, unit3, type Triangle3, type Vec3 } from './math.js';
+
+interface CameraBase {
+  readonly eye: Vec3;
+  readonly target: Vec3;
+  readonly up?: Vec3;
+  readonly near: number;
+  readonly far: number;
+}
+export type Camera3 = CameraBase & (
+  | { readonly kind: 'orthographic'; readonly span: number }
+  | { readonly kind: 'perspective'; readonly fovDegrees: number }
+);
+export interface PaperFrame3 { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
+export interface CameraFrame3 {
+  readonly camera: Camera3;
+  readonly right: Vec3;
+  readonly up: Vec3;
+  readonly back: Vec3;
+  readonly paper: PaperFrame3;
+}
+
+/** Capture and validate an explicit camera and paper frame. Right-handed, Z up. */
+export function cameraFrame3(camera: Camera3, paper: PaperFrame3): CameraFrame3 {
+  finite3(camera.eye); finite3(camera.target); finite3(camera.up ?? [0, 0, 1]);
+  if (![camera.near, camera.far].every(Number.isFinite) || !(camera.near > 0 && camera.far > camera.near)) throw new Error('camera requires 0 < near < far');
+  if (camera.kind === 'orthographic') {
+    if (!(camera.span > 0) || !Number.isFinite(camera.span)) throw new Error('orthographic span must be positive and finite');
+  } else if (camera.kind === 'perspective') {
+    if (!(camera.fovDegrees > 0 && camera.fovDegrees < 180)) throw new Error('perspective FOV must be between 0 and 180 degrees');
+  } else throw new Error('unknown camera projection');
+  if (![paper.x, paper.y, paper.width, paper.height].every(Number.isFinite) || !(paper.width > 0 && paper.height > 0)) throw new Error('camera paper frame must be finite with positive size');
+  const back = unit3(sub3(camera.eye, camera.target));
+  const right = unit3(cross3(unit3(camera.up ?? [0, 0, 1]), back));
+  const up = cross3(back, right);
+  const copy = (p: Vec3): Vec3 => Object.freeze([...p]) as Vec3;
+  return Object.freeze({ camera: Object.freeze({ ...camera, eye: copy(camera.eye), target: copy(camera.target), up: copy(camera.up ?? [0, 0, 1]) }), right: copy(right), up: copy(up), back: copy(back), paper: Object.freeze({ ...paper }) });
+}
+
+export function toCamera3(frame: CameraFrame3, point: Vec3): Vec3 {
+  finite3(point);
+  const p = sub3(point, frame.camera.eye);
+  return [dot3(p, frame.right), dot3(p, frame.up), dot3(p, frame.back)];
+}
+
+/** NDC xy and WebGPU depth [0,1] for a near/far-clipped camera point. */
+export function projectCamera3(frame: CameraFrame3, p: Vec3): Vec3 {
+  finite3(p);
+  const c = frame.camera, d = -p[2];
+  if (!(d > 0)) throw new Error('clip points behind the eye before projection');
+  const aspect = frame.paper.width / frame.paper.height;
+  if (c.kind === 'orthographic') return [2 * p[0] / (c.span * aspect), 2 * p[1] / c.span, (d - c.near) / (c.far - c.near)];
+  const scale = 1 / Math.tan(c.fovDegrees * Math.PI / 360);
+  return [scale * p[0] / (d * aspect), scale * p[1] / d, c.far / (c.far - c.near) * (1 - c.near / d)];
+}
+export function toPaper3(frame: CameraFrame3, p: Vec3): readonly [number, number] {
+  const q = projectCamera3(frame, p), r = frame.paper;
+  return [r.x + (q[0] + 1) * r.width / 2, r.y + (1 - q[1]) * r.height / 2];
+}
+
+/** Original segment parameters. Side planes deliberately do not crop style overscan. */
+export function clipSegment3(a: Vec3, b: Vec3, near: number, far: number): readonly [number, number] | null {
+  let lo = 0, hi = 1;
+  for (const [va, vb] of [[-a[2] - near, -b[2] - near], [far + a[2], far + b[2]]]) {
+    if (va < 0 && vb < 0) return null;
+    if (va < 0) lo = Math.max(lo, va / (va - vb));
+    if (vb < 0) hi = Math.min(hi, va / (va - vb));
+  }
+  return lo < hi ? [lo, hi] : null;
+}
+
+/** Clip a triangle before division. Callers retain its source/support ID. */
+export function clipTriangle3(triangle: Triangle3, near: number, far: number): Triangle3[] {
+  let polygon: Vec3[] = [...triangle];
+  for (const distance of [(p: Vec3) => -p[2] - near, (p: Vec3) => far + p[2]]) {
+    const next: Vec3[] = [];
+    for (let i = 0; i < polygon.length; i++) {
+      const a = polygon[i], b = polygon[(i + 1) % polygon.length], da = distance(a), db = distance(b);
+      if (da >= 0) next.push(a);
+      if ((da < 0 && db > 0) || (da > 0 && db < 0)) next.push(lerp3(a, b, da / (da - db)));
+    }
+    polygon = next;
+  }
+  const result: Triangle3[] = [];
+  for (let i = 1; i + 1 < polygon.length; i++) result.push([polygon[0], polygon[i], polygon[i + 1]]);
+  return result;
+}

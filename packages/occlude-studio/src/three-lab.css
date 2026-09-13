@@ -1,0 +1,9 @@
+:root { color: #203443; background: #f2f0e9; font: 16px/1.5 system-ui, sans-serif; }
+body { margin: 0; } main { max-width: 1200px; margin: 36px auto; padding: 0 24px; }
+h1 { font-size: 30px; letter-spacing: -0.7px; } h2 { font-size: 17px; }
+.controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+button, select { font: inherit; padding: 7px 14px; border: 1px solid #9aabae; border-radius: 5px; background: #fff; color: inherit; }
+button { cursor: pointer; } button:disabled { opacity: .5; } section { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+canvas, #vectors { width: 100%; background: #fff; border: 1px solid #d4d8d4; } canvas { display: block; } #vectors { min-height: 320px; } #vectors svg { width: 100%; max-height: 400px; }
+pre { white-space: pre-wrap; font-size: 12px; padding: 16px; background: #e4e8e5; } details { margin-top: 24px; }
+@media (max-width: 700px) { section { grid-template-columns: 1fr; } }

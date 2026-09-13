@@ -2,5 +2,7 @@
 # All inherited relative bind paths resolve inside this isolated checkout.
 services:
   dev:
+    environment:
+      OCCLUDE_DEV_HOSTS: dev-occlude.ivyhq.xyz,occlude-dev.ivyhq.xyz,dev.occlude.ivyhq.xyz
     image: occlude-3d-dev:latest
-    command: ["pnpm", "--filter", "occlude-studio", "exec", "vite", "--host", "127.0.0.1", "--port", "5273", "--strictPort"]
+    command: ["pnpm", "--filter", "occlude-studio", "exec", "vite", "preview", "--host", "0.0.0.0", "--port", "5273", "--strictPort"]
