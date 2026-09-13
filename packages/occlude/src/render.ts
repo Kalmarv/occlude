@@ -1,3 +1,4 @@
+import type { SceneCompute3 } from './three/scene.js';
 /**
  * The deferred renderer: encodes the whole recording into flat typed arrays,
  * runs the TWO-PASS render (wasm pass 1 prepares and exposes surviving
@@ -606,7 +607,7 @@ export function render(a: SketchDef | Execution, b: RenderOptions = {}): RenderR
  * WASM initialization remains explicit through initOcclude. */
 export async function renderAsync(
   source: SketchDef | AsyncSketchDef | Execution,
-  opts: RenderOptions & { signal?: AbortSignal } = {},
+  opts: RenderOptions & { signal?: AbortSignal; compute3?: SceneCompute3 } = {},
 ): Promise<RenderResult> {
   opts.signal?.throwIfAborted();
   const exec = source instanceof Execution ? source : await compileSketchAsync(source, inputsOf(opts), opts);

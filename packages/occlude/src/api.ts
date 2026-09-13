@@ -20,6 +20,8 @@
  *   stays usable — build() snapshots)
  */
 
+import type { LineArtScene3, SceneCompute3 } from './three/scene.js';
+import { resolveTree3 } from './three/resolve.js';
 import { checkDrawRequest, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours } from './record.js';
 import { fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
@@ -167,6 +169,7 @@ export interface InvertValue {
 /** Falsy entries are skipped, so conditional composition reads naturally. */
 export type Tree =
   | ShapeValue
+  | LineArtScene3
   | GroupValue
   | ClipValue
   | Tree[]
@@ -1210,6 +1213,13 @@ export function compileSketch(def: SketchDef, inputs: ExecutionInputs | Executio
 }
 
 const compilingAsync = new WeakSet<Execution>();
+function containsLineArt3(tree: Tree): boolean {
+  if (!tree) return false;
+  if (Array.isArray(tree)) return tree.some(containsLineArt3);
+  if ((tree as LineArtScene3).__occludeLineArt3) return true;
+  if ((tree as GroupValue).__occludeGroup || (tree as ClipValue).__occludeClip) return (tree as GroupValue | ClipValue).children.some(containsLineArt3);
+  return false;
+}
 
 /** Await a sketch before recording its drawing. Cancellation prevents recording;
  * it does not forcibly interrupt user JavaScript. GPU operations should also
@@ -1217,7 +1227,7 @@ const compilingAsync = new WeakSet<Execution>();
 export async function compileSketchAsync(
   def: SketchDef | AsyncSketchDef,
   inputs: ExecutionInputs | Execution = DEFAULT_INPUTS,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; compute3?: SceneCompute3 } = {},
 ): Promise<Execution> {
   if (!isSketch(def) && !isSketchAsync(def)) throw new Error('compileSketchAsync: expected a sketch definition');
   options.signal?.throwIfAborted();
@@ -1226,7 +1236,10 @@ export async function compileSketchAsync(
   compilingAsync.add(exec);
   try {
     exec.begin(def.config);
-    const tree = await def.fn(bindToolkit(exec));
+    const source = await def.fn(bindToolkit(exec));
+    const tree = containsLineArt3(source)
+      ? await resolveTree3(exec, source, options)
+      : source;
     options.signal?.throwIfAborted();
     emit(exec, tree, { pen: undefined, z: undefined, decimate: undefined, wobble: undefined, bridge: undefined, modifiers: [] });
     return exec;
@@ -1237,6 +1250,7 @@ export async function compileSketchAsync(
 
 function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {
   if (!tree) return;
+  if ((tree as LineArtScene3).__occludeLineArt3) throw new Error('lineArt3: async rendering required; use compileSketchAsync or renderAsync');
   if (Array.isArray(tree)) {
     for (const child of tree) emit(exec, child, ctx);
     return;

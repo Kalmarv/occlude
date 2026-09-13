@@ -1,0 +1,47 @@
+import { cameraFrame3, type Camera3, type PaperFrame3 } from './camera.js';
+import { snapshotSurface3 } from './geometry/model.js';
+import type { SurfaceObject3, WireObject3, FeatureSnapshot3 } from './features/snapshot.js';
+import type { ClassifiedScene3 } from './visibility/scene.js';
+import type { LineSet3, constructStrokes3 } from './strokes/construct.js';
+
+export interface SceneCompute3 {
+  classify(snapshot: FeatureSnapshot3, options: { signal?: AbortSignal }): Promise<ClassifiedScene3>;
+}
+export interface LineArtOptions3 {
+  readonly objects?: readonly SurfaceObject3[];
+  readonly wires?: readonly WireObject3[];
+  readonly camera: Camera3;
+  /** Physical paper rectangle. By default use the execution's drawable frame. */
+  readonly viewport?: PaperFrame3;
+  readonly lineSets: readonly LineSet3[];
+  readonly strokes?: Parameters<typeof constructStrokes3>[2];
+}
+export interface LineArtScene3 extends LineArtOptions3 {
+  readonly __occludeLineArt3: true;
+  readonly objects: readonly SurfaceObject3[];
+  readonly wires: readonly WireObject3[];
+}
+const freeze = <T>(value: T): T => {
+  if (value && typeof value === 'object') {
+    for (const child of Object.values(value)) freeze(child);
+    Object.freeze(value);
+  }
+  return value;
+};
+/** Capture editable geometry now; projection waits for the execution's paper.
+ * Selection callbacks must be pure functions of their captured feature rows. */
+export function lineArt3(options: LineArtOptions3): LineArtScene3 {
+  const camera = cameraFrame3(options.camera, options.viewport ?? { x: 0, y: 0, width: 1, height: 1 }).camera;
+  return Object.freeze({
+    __occludeLineArt3: true,
+    camera,
+    viewport: options.viewport && Object.freeze({ ...options.viewport }),
+    objects: Object.freeze((options.objects ?? []).map(object => Object.freeze({ ...object, surface: snapshotSurface3(object.surface), attributes: freeze(structuredClone(object.attributes)) }))),
+    wires: freeze(structuredClone(options.wires ?? [])),
+    lineSets: Object.freeze(options.lineSets.map(set => Object.freeze({ ...set }))),
+    strokes: options.strokes && Object.freeze({ ...options.strokes }),
+  });
+}
+export function isLineArt3(value: unknown): value is LineArtScene3 {
+  return !!value && typeof value === 'object' && (value as LineArtScene3).__occludeLineArt3 === true;
+}

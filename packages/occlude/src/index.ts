@@ -182,7 +182,7 @@ import * as occludeNamespace from './index.js';
 import { setOccludeModule } from './fills.js';
 /** Host integration and runtime entry points a fill file must not reach. */
 const HOST_ONLY = new Set([
-  'Execution', 'fillTable', 'assetTable', 'loadFillModule', 'initOcclude', 'bindToolkit', 'inspectHook',
+  'GpuSceneCompute3', 'Execution', 'fillTable', 'assetTable', 'loadFillModule', 'initOcclude', 'bindToolkit', 'inspectHook',
   'compileSketch', 'compileSketchAsync', 'render', 'renderAsync', 'exportGcode', 'exportSvg', 'exportPng',
   'encodeScene', 'decodeRender', 'renderEncoded',
 ]);
@@ -193,3 +193,14 @@ setOccludeModule(() =>
     ),
   ),
 );
+
+// Explicit 3D geometry and deferred drawing values. No device is acquired on import.
+export { lineArt3, isLineArt3 } from './three/scene.js';
+export type { LineArtScene3, LineArtOptions3, SceneCompute3 } from './three/scene.js';
+export { surface3, box3 } from './three/geometry/surface.js';
+export type { Surface3, Attributes3 } from './three/geometry/surface.js';
+export { FeatureKind3 } from './three/features/snapshot.js';
+export type { SurfaceObject3, WireObject3, Feature3 } from './three/features/snapshot.js';
+export type { Camera3, PaperFrame3 } from './three/camera.js';
+export type { LineSet3, Stroke3 } from './three/strokes/construct.js';
+export { GpuSceneCompute3 } from './compute/webgpu/scene.js';

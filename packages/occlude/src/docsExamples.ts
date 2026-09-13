@@ -23,6 +23,7 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'fills', title: 'Fills', file: 'fills.md', live: true, group: 'topics' },
   { slug: 'fields', title: 'Fields & variation', file: 'fields.md', live: true, group: 'topics' },
   { slug: 'materials', title: 'Materials', file: 'materials.md', live: true, group: 'topics' },
+  { slug: 'three', title: '3D line art', file: 'three.md', live: true, group: 'topics' },
   { slug: 'images', title: 'Images & imports', file: 'images.md', live: true, group: 'topics' },
   { slug: 'plotting', title: 'Plotting & saving', file: 'plotting.md', live: true, group: 'topics' },
   { slug: 'studio', title: 'The studio', file: 'studio.md', live: false, group: 'topics' },

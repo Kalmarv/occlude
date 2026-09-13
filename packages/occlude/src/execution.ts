@@ -1,3 +1,5 @@
+import type { LineArtScene3 } from './three/scene.js';
+import type { ClassifiedScene3 } from './three/visibility/scene.js';
 /**
  * One execution of a sketch: everything a run owns, held by ONE object the
  * host creates, compiles a sketch into, encodes, renders, plans and exports
@@ -198,6 +200,8 @@ export class Execution {
   overrides: Record<string, number> = {};
   /** The frame the run lowers against, resolved once at compile. */
   frame: Frame;
+  /** Captured 3D results owned by this run, available for inspection/re-styling. */
+  readonly scenes3 = new Map<LineArtScene3, ClassifiedScene3>();
 
   // ---- the recording ----
   shapes: Shape[] = [];

@@ -15,6 +15,6 @@ Verification:
 - Direct Playwright: the async live example renders actual ink through Studio's real worker, with no page errors. See `playwright-async/report.json` and `async-example.png`.
 - Full `pnpm check` runs inside the isolated dev image build. Build and browser logs are task-local.
 
-Still pending: deferred line-art scene values, explicit host GPU resources on the async toolkit, GPU modeling/queries through the public sketch workflow, main Studio viewport/camera integration and the remaining M2–M5 requirements. This is the execution boundary, not completion of the 3D public API.
+Follow-up SCENES.md adds deferred line-art scene values and explicit host GPU classification. Still pending: GPU resources on the bound modeling toolkit, GPU modeling/queries through the public sketch workflow, main Studio viewport/camera integration and the remaining M2–M5 requirements. This is the execution boundary, not completion of the 3D public API.
 
 Verified build gate: Rust 10.4s, TS 23.8s, library types 5.3s, Studio types 4.8s, docs 12.3s, existing ink 15.1s, build 38.3s, smoke 2.1s. WASM remains `c21c4ef21cb4091b6019b1aa440f6bea`. The added live example's hash was then pinned; the oracle reports 220/220 stable examples identical, two explicitly unstable, zero added/missing. The existing hardware 3D regression also passes on the source server; its report is `playwright-async-regression/report.json`.

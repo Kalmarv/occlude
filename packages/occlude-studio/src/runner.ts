@@ -17,7 +17,7 @@
 
 import * as occlude from 'occlude';
 import { Execution, inspectHook, moduleName, userModules } from 'occlude';
-import type { AssetTable, EncodedScene, FillTable, PaperDef, PenDef, SketchDef, AsyncSketchDef } from 'occlude';
+import type { AssetTable, EncodedScene, FillTable, PaperDef, PenDef, SketchDef, AsyncSketchDef, SceneCompute3 } from 'occlude';
 import { INSPECT_HOOK, instrumentDeclarations } from './instrument.js';
 
 export interface RunOutcome {
@@ -116,11 +116,11 @@ export function runSketch(js: string, cfg: RunConfig, seed: number | string, ass
 }
 
 /** The worker awaits the entire sketch before encoding or adopting its run. */
-export async function runSketchAsync(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable, signal?: AbortSignal): Promise<RunOutcome> {
+export async function runSketchAsync(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable, signal?: AbortSignal, compute3?: SceneCompute3): Promise<RunOutcome> {
   const { def, error, run } = prepareSketch(js, cfg, seed, assets, fills);
   if (!def) return { scene: null, error, run };
   try {
-    await occlude.compileSketchAsync(def, run, { signal });
+    await occlude.compileSketchAsync(def, run, { signal, compute3 });
     return encodeRun(run, cfg);
   } catch (error) {
     return { scene: null, error, run };

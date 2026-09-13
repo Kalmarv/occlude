@@ -11,7 +11,7 @@
  */
 
 import initCore, * as core from 'occlude-core';
-import { bridgeGapFor, hashPlan, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
+import { GpuSceneCompute3, bridgeGapFor, hashPlan, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
 import { currentDraws, currentOverrides, currentSeed, runSketchAsync, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
@@ -94,6 +94,7 @@ type Msg = RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | Pl
   | (PlanRange & { type: 'plan-png'; id: number; width: number; height: number; scale: number; background?: string });
 
 const ready = initCore();
+const compute3 = new GpuSceneCompute3(navigator.gpu);
 
 const mod = core as unknown as WasmModule;
 
@@ -149,7 +150,7 @@ async function handleMessage(msg: Msg): Promise<void> {
         const fills = await preloadFills(msg.js, msg.cfg.draftFill);
         lastExecutionId = -1; // a failed run leaves no inspectable state
         lastRun = null;
-        const outcome = await runSketchAsync(msg.js, msg.cfg, msg.cfg.seed ?? sessionSeed, assets, fills);
+        const outcome = await runSketchAsync(msg.js, msg.cfg, msg.cfg.seed ?? sessionSeed, assets, fills, undefined, compute3);
         if (outcome.error || !outcome.scene) {
           const err = outcome.error;
           self.postMessage({
@@ -188,6 +189,7 @@ async function handleMessage(msg: Msg): Promise<void> {
           {
             type: 'render',
             id: msg.id,
+            three: run.scenes3.size ? { adapter: compute3.adapterInfo, scenes: [...run.scenes3.values()].map(s => s.stats) } : undefined,
             prims,
             frags,
             ghost,
