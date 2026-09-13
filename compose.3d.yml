@@ -1,0 +1,6 @@
+# Use with -p occlude-3d -f docker-compose.yml -f compose.3d.yml --profile dev.
+# All inherited relative bind paths resolve inside this isolated checkout.
+services:
+  dev:
+    image: occlude-3d-dev:latest
+    command: ["pnpm", "--filter", "occlude-studio", "exec", "vite", "--host", "127.0.0.1", "--port", "5273", "--strictPort"]
