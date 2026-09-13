@@ -212,3 +212,6 @@ export type { RayQuery3, NearestQuery3, SurfaceHit3 } from './three/queries/surf
 export type { Vec3 } from './three/math.js';
 export { PointSelection3, EdgeSelection3, editPoints3, editEdges3 } from './three/geometry/selection.js';
 export type { PointMeasure3, EdgeMeasure3, PointEdit3 } from './three/geometry/selection.js';
+
+export { constructStrokes3, FeatureSelection3 } from './three/strokes/construct.js';
+export type { ClassifiedScene3, ClassifiedFeature3 } from './three/visibility/scene.js';

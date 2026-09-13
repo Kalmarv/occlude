@@ -203,6 +203,8 @@ export class Execution {
   frame: Frame;
   /** Captured 3D results owned by this run, available for inspection/re-styling. */
   readonly scenes3 = new Map<LineArtScene3, ClassifiedScene3>();
+  /** In-flight classification is shared by repeated requests within one run. */
+  readonly pendingScenes3 = new Map<LineArtScene3, Promise<ClassifiedScene3>>();
   readonly modeling3: ModelingStats3[] = [];
 
   // ---- the recording ----

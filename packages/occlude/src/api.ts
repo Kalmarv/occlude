@@ -22,7 +22,7 @@
 
 import type { LineArtScene3, SceneCompute3 } from './three/scene.js';
 import { bindModeling3 } from './three/modeling.js';
-import { resolveTree3 } from './three/resolve.js';
+import { resolveTree3, classifyForRun3, strokesForRun3 } from './three/resolve.js';
 import { checkDrawRequest, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours } from './record.js';
 import { fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
@@ -1126,6 +1126,11 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   });
   return {
     ...bindModeling3(exec, scope),
+    classify3: (scene: LineArtScene3) => {
+      if (!scope || scope.isOpen && !scope.isOpen()) throw new Error('classify3 requires an active async compilation');
+      return classifyForRun3(exec, scene, scope);
+    },
+    strokes3: (runs: Parameters<typeof strokesForRun3>[1], options?: Parameters<typeof strokesForRun3>[2]) => strokesForRun3(exec, runs, options),
     circle, ellipse, rect, line, ngon, stroke, path, group, clip, mask, decimate, wobble, modify,
     dash, smooth, roughen, deform, label,
     fill, rulings, ui,

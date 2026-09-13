@@ -126,3 +126,37 @@ export default sketch({ pens: {
   });
 });
 ```
+
+## Reusing visibility and styling strokes
+
+`await t.classify3(scene)` resolves a captured scene to immutable feature records and visible/hidden parameter intervals. Repeated requests for the same scene within an execution share both pending work and completed results. `FeatureSelection3(classified).filter(...)` selects those records; a line set can use that selection directly. Selections from another classified snapshot are rejected.
+
+`constructStrokes3(classified, lineSets, options)` returns inspectable projected stroke data: source parts/parameters, points, cumulative paper arclength, length, closure and break reasons. Use `{ chain: false }` to retain separate segments, or the default source-based chaining. Building another style from the same classified data does not dispatch visibility again.
+
+`t.strokes3(strokes, { modifiers })` explicitly draws projected data through the current paper frame and the ordinary Occlude modifier stack. Projected coordinates remain physical paper millimetres. A group transforms the finished 2D drawing, so a second placement can reuse the same classification. Existing `wobble` samples the same seeded paper-space noise field across separate runs. Dashes currently use each constructed run's contour phase; source-chain phase across separate visibility cuts remains work in progress.
+
+```ts live
+import { sketchAsync, paper, pen, mm, box3, lineArt3, FeatureSelection3, FeatureKind3, constructStrokes3, group, label, dash, wobble } from 'occlude';
+
+export default sketchAsync({
+  paper: paper({ width: mm(200), height: mm(200) }), seed: 42,
+  pens: { outline: pen({ width: mm(0.3), color: '#18202A' }), hidden: pen({ width: mm(0.2), color: '#A84932' }) },
+}, async t => {
+  const scene = lineArt3({
+    objects: [{ id: 'box', surface: box3([1.4, 1.4, 1.4]) }],
+    camera: { kind: 'orthographic', span: 3.8, eye: [5, 7, 6], target: [0, 0, 0], near: 0.1, far: 30 },
+    viewport: { x: 10, y: 25, width: 80, height: 140 }, lineSets: [],
+  });
+  const classified = await t.classify3(scene);
+  const features = new FeatureSelection3(classified);
+  const visible = constructStrokes3(classified, [{ id: 'visible', stroke: 'outline', select: features }]);
+  const hidden = constructStrokes3(classified, [{ id: 'hidden', stroke: 'hidden', visibility: 'hidden' }]);
+  const contour = constructStrokes3(classified, [{ id: 'contour', stroke: 'outline', select: features.filter(row => (row.feature.flags & FeatureKind3.silhouette) !== 0) }]);
+  return [
+    t.strokes3(visible, { modifiers: [wobble({ amount: mm(0.12), wavelength: mm(8) })] }),
+    t.strokes3(hidden, { modifiers: [dash(mm(2), mm(1))] }),
+    group({ translate: [mm(100), 0] }, t.strokes3(contour)),
+    label('EDGES / HIDDEN', 5, 95, 3), label('SILHOUETTE', 55, 95, 3),
+  ];
+});
+```

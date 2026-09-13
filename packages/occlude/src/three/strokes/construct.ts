@@ -13,7 +13,7 @@ export interface LineSet3 {
   readonly stroke: string;
   readonly priority?: number;
   readonly visibility?: Visibility3;
-  readonly select?: (feature: Feature3) => boolean;
+  readonly select?: ((feature: Feature3) => boolean) | FeatureSelection3;
   /** Local clipped segment parameters, intersected with classified visibility. */
   readonly ranges?: (feature: Feature3) => readonly Interval3[];
   readonly overdraw?: boolean;
@@ -42,7 +42,8 @@ export interface Stroke3 {
 /** Immutable views retain exact source-state ownership, like relation.ts. */
 export class FeatureSelection3 implements Iterable<ClassifiedFeature3> {
   constructor(readonly source: ClassifiedScene3, private readonly rows: readonly number[] = source.features.map((_,i)=>i)) {
-    this.rows=Object.freeze([...rows]); Object.freeze(this);
+    if(rows.some(i=>!Number.isSafeInteger(i)||i<0||i>=source.features.length))throw new Error('invalid classified feature selection index');
+    this.rows=Object.freeze([...new Set(rows)]); Object.freeze(this);
   }
   *[Symbol.iterator]() { for(const i of this.rows) yield this.source.features[i]; }
   get length() { return this.rows.length; }
@@ -72,7 +73,7 @@ const reversed=(p:StrokePart3):StrokePart3=>({...p,a:p.b,b:p.a,range:[p.range[1]
 /** Select → resolve interval ownership → chain → corner split → length filter.
  * Junctions use source IDs, never projected crossings. No hidden gap is joined.
  * Stable set priority wins individual intervals; overdraw is explicit. */
-export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3[],options:{endpointTolerance?:number;cornerDegrees?:number;minLength?:number}={}):readonly Stroke3[] {
+export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3[],options:{endpointTolerance?:number;cornerDegrees?:number;minLength?:number;chain?:boolean}={}):readonly Stroke3[] {
   const frame=source.frame;
   const tolerance=options.endpointTolerance??1e-8, corner=options.cornerDegrees??180,minLength=options.minLength??0;
   if(![tolerance,corner,minLength].every(Number.isFinite)||tolerance<0||corner<0||corner>180||minLength<0)throw new Error('invalid stroke construction tolerances');
@@ -80,8 +81,11 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
   const runs:Run[]=[],claimed=new Map<string,Interval3[]>();
   for(const set of [...sets].sort((a,b)=>(b.priority??0)-(a.priority??0)||compare(a.id,b.id))) {
     const visibility=set.visibility??'visible';
+    const selection=set.select instanceof FeatureSelection3?set.select:undefined;
+    if(selection && selection.source!==source)throw new Error('line set selection belongs to another classified snapshot');
+    const included=selection?new Set(selection.map(row=>row.feature.id)):undefined;
     for(const record of source.features) {
-      const f=record.feature;if(set.select&&!set.select(f))continue;
+      const f=record.feature;if(included&&!included.has(f.id)||typeof set.select==='function'&&!set.select(f))continue;
       const requested=set.ranges?.(f)??[[0,1]];
       if(requested.some(r=>r.length!==2||!r.every(Number.isFinite)||r[0]<0||r[1]>1||r[0]>r[1]))throw new Error('line set ranges must be ordered within [0,1]');
       const key=JSON.stringify([f.id,visibility]), occupied=claimed.get(key)??[];
@@ -100,7 +104,7 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
   const junctions=new Map<string,{row:number;end:0|1}[]>();
   runs.forEach((r,row)=>r.ends.forEach((endpoint,end)=>{if(endpoint===null)return;const key=JSON.stringify([r.set.id,r.visibility,endpoint]);const entries=junctions.get(key)??[];entries.push({row,end:end as 0|1});junctions.set(key,entries);}));
   const links=new Map<string,{row:number;end:0|1}>();
-  for(const entries of junctions.values()) {
+  for(const entries of options.chain===false?[]:junctions.values()) {
     if(entries.length!==2){if(entries.length>2)for(const e of entries)runs[e.row].breaks[e.end]='junction';continue;}
     const [x,y]=entries,a=runs[x.row],b=runs[y.row];
     const p=x.end?a.part.b:a.part.a,q=y.end?b.part.b:b.part.a;
