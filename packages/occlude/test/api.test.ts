@@ -74,7 +74,7 @@ describe('occlude declarative api', () => {
   it('unknown pens throw loudly', () => {
     const def = sketch({ seed: 1 }, () => circle(50, 50, 10, { pen: 'nope' }));
     expect(() => sq(def)).toThrow(/unknown pen/);
-    const viaConfig = sketch({ seed: 1, pen: 'also-nope' }, () => circle(50, 50, 10));
+    const viaConfig = sketch({ seed: 1, pens: { first: 'also-nope' } }, () => circle(50, 50, 10));
     expect(() => sq(viaConfig)).toThrow(/unknown pen/);
   });
 

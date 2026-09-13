@@ -71,7 +71,7 @@ const pens: PenDef[] = [
 const { w: PW, h: PH } = paperSize({ paper: paper as never });
 void PW; void PH;
 
-const def = sketch({ aspect: 'paper', margin: 0, seed: 1, pen: name }, () => {
+const def = sketch({ aspect: 'paper', margin: 0, seed: 1, pens: { [name]: name } }, () => {
   const out: Tree[] = [];
   const L = mm;
 

@@ -26,7 +26,7 @@ sketch({
   aspect: [3, 2],         // [w, h] | 'square' | 'paper' (default: the paper's own shape)
   margin: 6,              // percent inset from the paper edge
   seed: 'url',            // 'url' reads ?seed= (default); or a number or string
-  pen: 'pigma-005-black', // default pen for shapes that don't name one
+  pens: { black: 'pigma-005-black' }, // default pen for shapes that don't name one
   origin: 'topLeft',      // or 'center'
   yUp: false,
   rectMode: 'corner',     // or 'center': how rect() anchors (x, y)

@@ -427,6 +427,72 @@ function rewriteRunBound(src) {
   });
 }
 
+/**
+ * 2026-09-13 one `pens` key: the config's `pen: '<library name>'` (the
+ * default pen) becomes the first entry of `pens` — `pens: { <alias>:
+ * '<library name>' }`, a string naming the library pen — because the
+ * first declared pen IS the default. Only the sketch's config object (the
+ * first argument of `sketch(`) is rewritten; a shape's own `{ pen: … }`
+ * option keeps its name. The alias is the name's last word (`stabilo-88-
+ * blue` → `blue`), or `ink` when that would collide with a key already in
+ * the object. A config that already has `pens` gets the entry prepended.
+ */
+export function rewriteDefaultPen(src) {
+  let out = '';
+  let last = 0;
+  const re = /\bsketch\s*\(\s*\{/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const open = m.index + m[0].length - 1;
+    const close = closeOfBrace(src, open);
+    if (close < 0) continue;
+    const body = src.slice(open, close);
+    const pen = /(^|[,{\s])pen\s*:\s*(['"])([^'"]+)\2(\s*,)?/.exec(body);
+    if (!pen) continue;
+    const name = pen[3];
+    const tail = name.split(/[-_]/).pop() || name;
+    const keys = [...body.matchAll(/(?:^|[,{\s])([A-Za-z_$][\w$]*)\s*:/g)].map((k) => k[1]);
+    const alias = keys.includes(tail) || tail === 'pen' || tail === 'pens' ? 'ink' : tail;
+    const pens = /(^|[,{\s])pens\s*:\s*\{/.exec(body);
+    let rewritten;
+    if (pens) {
+      // an existing `pens`: the default goes first in it, `pen:` (and one
+      // space after its comma) goes
+      const at = pens.index + pens[0].length;
+      const withEntry = body.slice(0, at) + ` ${alias}: '${name}',` + body.slice(at);
+      const p2 = /(^|[,{\s])pen\s*:\s*(['"])([^'"]+)\2(?:\s*, ?)?/.exec(withEntry);
+      rewritten = withEntry.slice(0, p2.index) + p2[1] + withEntry.slice(p2.index + p2[0].length);
+      rewritten = rewritten.replace(/,(\s*)\}$/, '$1}').replace(/ {2,}\}$/, ' }');
+    } else {
+      // in place: the key keeps its line, and its trailing comment
+      const head = body.slice(0, pen.index) + pen[1];
+      const tail = body.slice(pen.index + pen[0].length);
+      rewritten = `${head}pens: { ${alias}: '${name}' }${pen[4] ?? ''}${tail}`;
+    }
+    out += src.slice(last, open) + rewritten;
+    last = close;
+    re.lastIndex = close;
+  }
+  return out + src.slice(last);
+}
+
+/** The index just past the `}` closing the object whose `{` is at `open`. */
+function closeOfBrace(src, open) {
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    const c = src[i];
+    if (c === '"' || c === "'" || c === '`') {
+      for (i++; i < src.length && src[i] !== c; i++) if (src[i] === '\\') i++;
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '/') { i = src.indexOf('\n', i); if (i < 0) return -1; continue; }
+    if (c === '/' && src[i + 1] === '*') { i = src.indexOf('*/', i + 2); if (i < 0) return -1; i++; continue; }
+    if (c === '{') depth++;
+    else if (c === '}' && --depth === 0) return i + 1;
+  }
+  return -1;
+}
+
 export function migrateSketchSource(src) {
   // Bare identifiers (imports, destructures, calls) and the toolkit-prefixed
   // spellings `t.region` / `t.trace` / `t.loops`. Other receivers are left
@@ -443,7 +509,7 @@ export function migrateSketchSource(src) {
       rewriteFieldResults(rewriteBindings(rewriteLevelStatement(rewritePolylines(renamed)))),
     ),
   );
-  return rewriteRunBound(addStrokesImport(rewritten));
+  return rewriteDefaultPen(rewriteRunBound(addStrokesImport(rewritten)));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

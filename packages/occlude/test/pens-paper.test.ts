@@ -137,3 +137,14 @@ describe('library export names never collide silently', () => {
     expect(() => userModules([], [{ name: 'a-4', w: 1, h: 1 }, { name: 'a_4', w: 2, h: 2 }])).toThrow(/@user\/papers/);
   });
 });
+
+describe('the first declared pen is the default; a library pen joins by name', () => {
+  it('pens: { ink: \'<library name>\' } is that pen under the new name, and the default', () => {
+    const lib = DEFAULT_PENS[2].name;
+    const exec = compileSketch(sketch({ pens: { ink: lib, thin: pen({ width: mm(0.2) }) } }, () => [circle(50, 50, 10), circle(50, 50, 5, { stroke: 'thin' })]), { paper: { w: 200, h: 200 } });
+    expect(exec.currentPen).toBe('ink');
+    expect(exec.pens.get('ink')).toEqual({ ...DEFAULT_PENS[2], name: 'ink' });
+    expect(encodeScene(exec).pens.map((p) => p.name)).toEqual(['ink', 'thin']);
+    expect(() => compileSketch(sketch({ pens: { ink: 'no-such-pen' } }, () => circle(1, 1, 1)))).toThrow(/unknown pen 'no-such-pen'/);
+  });
+});

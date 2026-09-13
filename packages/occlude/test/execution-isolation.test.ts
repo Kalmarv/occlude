@@ -114,7 +114,8 @@ describe('execution isolation', () => {
     expect(() => renderEncoded(fake, scene)).toThrow('finish boom');
     expect(await alone(A, inA)).toEqual(solo);
     // an unknown pen name fails at compile, loudly, and leaves nothing
-    expect(() => compileSketch(sketch({ pen: 'nope' }, () => circle(1, 1, 1)), inA)).toThrow(/unknown pen 'nope'/);
+    expect(() => compileSketch(sketch({ pens: { first: 'nope' } }, () => circle(1, 1, 1)), inA)).toThrow(/unknown pen 'nope'/);
+    expect(() => compileSketch(sketch({ pen: 'nope' } as never, () => circle(1, 1, 1)), inA)).toThrow(/`pen` is gone/);
     expect(await alone(A, inA)).toEqual(solo);
   });
 

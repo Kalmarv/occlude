@@ -164,12 +164,13 @@ export interface ExecutionInputs {
 export interface CompileConfig extends SketchOptions {
   /** Percent inset from the paper edge. */
   margin?: L;
-  /** Default pen for shapes that do not set one. */
-  pen?: string;
   /** The sheet, declared by the sketch (wins over the host's). */
   paper?: PaperSpec;
-  /** Sketch-local pens by name: `{ blue: fineliner({ color }) }`. */
-  pens?: Readonly<Record<string, PenDef | Omit<PenDef, 'name'>>>;
+  /** The sketch's pens by name: a definition (`pen({ … })`, a library
+   * model's instance) or a library pen's name as a string (`{ blue:
+   * 'stabilo-88-blue' }` — that pen under this name). The FIRST entry is
+   * the default pen for shapes that name none. */
+  pens?: Readonly<Record<string, PenDef | Omit<PenDef, 'name'> | string>>;
 }
 
 /** The addressed-draw hook the host's tagged code calls: run `fn` with
@@ -263,13 +264,21 @@ export class Execution {
     this.marginPct = typeof m === 'number' ? m : marginPercent(m, this.paper);
     // Pens: the captured library under the sketch's declared pens.
     for (const p of this.inputs.library) this.pens.set(p.name, { ...p });
+    if ('pen' in cfg && (cfg as { pen?: unknown }).pen !== undefined) {
+      throw new Error("sketch config: `pen` is gone — the first entry of `pens` is the default (`pens: { ink: 'stabilo-88-blue' }` names a library pen)");
+    }
     const declared = cfg.pens ?? {};
     for (const [name, def] of Object.entries(declared)) {
+      if (typeof def === 'string') {
+        const lib = this.pens.get(def);
+        if (!lib) throw new Error(`unknown pen '${def}' (pens.${name} names it) — available: ${[...this.pens.keys()].join(', ')}`);
+        this.pens.set(name, { ...lib, name });
+        continue;
+      }
       checkPen(name, def);
       this.pens.set(name, { ...def, name });
     }
-    const first = Object.keys(declared)[0] ?? this.inputs.library[0]?.name ?? 'default';
-    this.currentPen = cfg.pen ?? first;
+    this.currentPen = Object.keys(declared)[0] ?? this.inputs.library[0]?.name ?? 'default';
     if (!this.pens.has(this.currentPen)) throw new Error(`unknown pen '${this.currentPen}' — available: ${[...this.pens.keys()].join(', ')}`);
     // Seed: the sketch's own when it fixes one, else the host's. A seed may
     // carry draw overrides as a tail (see draws.ts).

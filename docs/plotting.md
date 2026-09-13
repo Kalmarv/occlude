@@ -12,20 +12,20 @@ import { sketch, circle, line, paper, pen, inch, mm } from 'occlude';
 export default sketch({
   paper: paper({ width: inch(8.5), height: inch(11), color: '#F5F0E6' }),
   pens: {
-    blue: pen({ width: mm(0.3), color: '#2457D6' }),
+    blue: pen({ width: mm(0.3), color: '#2457D6' }), // first: the default
     heavy: pen({ width: mm(0.8), color: '#D64045', feed: 1800 }),
   },
   margin: inch(0.5),
   seed: 42,
 }, (t) => [
   t.times(9, (_, u) => line(0, u * t.height, t.width, u * t.height, { stroke: 'heavy' })),
-  t.times(12, () => circle(t.rnd(10, 90), t.rnd(10, t.height - 10), t.rnd(4, 12), { stroke: 'blue', opaque: true })),
+  t.times(12, () => circle(t.rnd(10, 90), t.rnd(10, t.height - 10), t.rnd(4, 12), { opaque: true })),
 ]);
 ```
 
 `paper({ width, height, color? })` takes any physical length — `inch(8.5)`, `mm(210)`, or a number of millimetres — and resolves to millimetres once. `PAPERS` still holds the named sizes (A3 to A6, Letter, Square20) for hosts and tools. Colour paints under the ink in the preview and in both exports so that, say, a white gel pen on black stock reads on screen as it will on paper; it changes nothing about the ink or the plot. `margin` is a composition setting of the sketch: a percent of the short side, or a physical length. A sketch that declares no `paper` is drawn on whatever sheet the host chooses (the studio's Paper panel, a tool's `--paper`).
 
-`pen({ width, color?, feed?, penDown?, penUp?, penDelay?, reinkMm? })` is a complete pen: `width` in millimetres is what the nib rule reads; the machine settings default like the package's own pens when left out. `pens` names them for this sketch — `stroke: 'blue'`, `fillPen: 'heavy'`, `fill('hatch')` under `pen: 'blue'` all look the names up here first — and the first entry is the default pen unless `pen:` says otherwise.
+`pen({ width, color?, feed?, penDown?, penUp?, penDelay?, reinkMm? })` is a complete pen: `width` in millimetres is what the nib rule reads; the machine settings default like the package's own pens when left out. `pens` names them for this sketch — `stroke: 'blue'`, `fillPen: 'heavy'` look the names up here first — and the **first entry is the default pen** for shapes that name none. A string value names a library pen under a name of your own: `pens: { ink: 'stabilo-88-blue' }` makes that library pen the default without importing anything. A stroke or fill pen is always a NAME from `pens` (or the library); a `@user/pens` model is instantiated in `pens`, never passed to `stroke:` directly.
 
 The studio keeps a pen library on the server, and every entry is a **model** a sketch imports and instantiates. An instance inherits the model's width, feed, lifts and delays; the overrides — a colour, most often — are its own, and no instance touches the library:
 

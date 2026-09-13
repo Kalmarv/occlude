@@ -766,18 +766,18 @@ export interface SketchConfig extends Omit<SketchOptions, 'seed'> {
   /** Inset from the paper edge: a percent of the short paper side, or a
    * physical length (`mm(10)`, `inch(0.5)`). A composition setting. */
   margin?: L;
-  /** Default pen for shapes that don't set one: a name from `pens`, or of
-   * the captured library. */
-  pen?: string;
   /** The sheet, declared here — `paper({ width, height, color })` or a
    * library model — and then the same everywhere the sketch runs. Without
    * it the host's paper applies. */
   paper?: PaperSpec;
-  /** Sketch-local pens by name: `{ blue: fineliner({ color: '#2457D6' }),
-   * fine: pen({ width: mm(0.3) }) }`. Names resolve here first, then in
+  /** The sketch's pens by name: `{ blue: fineliner({ color: '#2457D6' }),
+   * fine: pen({ width: mm(0.3) }), lib: 'stabilo-88-blue' }` — a
+   * definition, a library model's instance, or a library pen's name. The
+   * FIRST entry is the default pen for shapes that name none; without
+   * `pens` the library's first pen is. Names resolve here first, then in
    * the captured library, so `stroke: 'blue'` and `stroke: 'micron-03'`
    * both work. */
-  pens?: Readonly<Record<string, Omit<PenDef, 'name'> & { name?: string }>>;
+  pens?: Readonly<Record<string, (Omit<PenDef, 'name'> & { name?: string }) | string>>;
 }
 
 /** The toolkit a sketch receives: bound to its execution (`bindToolkit`).
@@ -1185,7 +1185,7 @@ export function compileSketch(def: SketchDef, inputs: ExecutionInputs | Executio
   exec.begin(cfg);
   const toolkit = bindToolkit(exec);
   const tree = def.fn(toolkit);
-  emit(exec, tree, { pen: cfg.pen, z: undefined, decimate: undefined, wobble: undefined, bridge: undefined, modifiers: [] });
+  emit(exec, tree, { pen: undefined, z: undefined, decimate: undefined, wobble: undefined, bridge: undefined, modifiers: [] });
   return exec;
 }
 
