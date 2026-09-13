@@ -8,12 +8,17 @@ import { featureSnapshot3 } from './features/snapshot.js';
 import { classifySceneCpu3 } from './visibility/scene.js';
 import { constructStrokes3, type Stroke3 } from './strokes/construct.js';
 import { isLineArt3, type LineArtScene3, type SceneCompute3 } from './scene.js';
+import { isDrawing3 } from './drawing.js';
 
 /** Resolve before recording, preserving ordinary composition order. The CPU
  * reference is the documented headless default; hosts pass GPU resources. */
 export async function resolveTree3(exec: Execution, tree: Tree, options: { signal?: AbortSignal; compute3?: SceneCompute3 }): Promise<Tree> {
   options.signal?.throwIfAborted();
   if (!tree) return tree;
+  if (isDrawing3(tree)) {
+    const view = await classifyForRun3(exec, tree.scene, options);
+    return resolveTree3(exec, tree.draw(view, { strokes3: (runs, settings) => strokesForRun3(exec, runs, settings) }), options);
+  }
   if (Array.isArray(tree)) {
     const children: Tree[] = [];
     for (const child of tree) children.push(await resolveTree3(exec, child, options));

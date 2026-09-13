@@ -21,6 +21,8 @@
  */
 
 import type { LineArtScene3, SceneCompute3 } from './three/scene.js';
+import { isDrawing3, retainDrawing3, cameraDrawing3, type Drawing3 } from './three/drawing.js';
+import type { Camera3 } from './three/camera.js';
 import { bindModeling3 } from './three/modeling.js';
 import { resolveTree3, classifyForRun3, strokesForRun3 } from './three/resolve.js';
 import { checkDrawRequest, type DrawRequest, type PlanOptions } from './plan.js';
@@ -175,6 +177,7 @@ export interface InvertValue {
 export type Tree =
   | ShapeValue
   | LineArtScene3
+  | Drawing3
   | GroupValue
   | ClipValue
   | Tree[]
@@ -1134,7 +1137,10 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       if (!scope || scope.isOpen && !scope.isOpen()) throw new Error('classify3 requires an active async compilation');
       return classifyForRun3(exec, scene, scope);
     },
-    strokes3: (runs: Parameters<typeof strokesForRun3>[1], options?: Parameters<typeof strokesForRun3>[2]) => strokesForRun3(exec, runs, options),
+    strokes3: (runs: Parameters<typeof strokesForRun3>[1], options?: Parameters<typeof strokesForRun3>[2]) => {
+      for (const run of runs) exec.fixedStrokes3.add(run.source);
+      return strokesForRun3(exec, runs, options);
+    },
     circle, ellipse, rect, line, ngon, stroke, path, group, clip, mask, decimate, wobble, modify,
     dash, smooth, roughen, deform, label,
     fill, rulings, ui,
@@ -1227,7 +1233,7 @@ const compilingAsync = new WeakSet<Execution>();
 function containsLineArt3(tree: Tree): boolean {
   if (!tree) return false;
   if (Array.isArray(tree)) return tree.some(containsLineArt3);
-  if ((tree as LineArtScene3).__occludeLineArt3) return true;
+  if ((tree as LineArtScene3).__occludeLineArt3 || isDrawing3(tree)) return true;
   if ((tree as GroupValue).__occludeGroup || (tree as ClipValue).__occludeClip) return (tree as GroupValue | ClipValue).children.some(containsLineArt3);
   return false;
 }
@@ -1250,6 +1256,7 @@ export async function compileSketchAsync(
   try {
     exec.begin(def.config);
     const source = await def.fn(bindToolkit(exec, scope));
+    if (exec.scenes3.size || containsLineArt3(source)) exec.drawing3 = retainDrawing3(exec, source);
     const tree = containsLineArt3(source)
       ? await resolveTree3(exec, source, scope)
       : source;
@@ -1262,9 +1269,32 @@ export async function compileSketchAsync(
   }
 }
 
+/** Commit another view of the captured composition, without invoking the
+ * procedural sketch. The returned execution is a new result; the input run
+ * and every previously encoded/exported result remain unchanged. */
+export async function commitCamera3(
+  previous: Execution, scene: LineArtScene3, camera: Camera3,
+  options: { signal?: AbortSignal; compute3?: SceneCompute3 } = {},
+): Promise<Execution> {
+  options.signal?.throwIfAborted();
+  const drawing = cameraDrawing3(previous, scene, camera);
+  const next = new Execution(previous.inputs);
+  // Reuse unaffected classifications, but never publish into the old run.
+  for (const [source, view] of previous.scenes3) if (source !== scene) next.scenes3.set(source, view);
+  for (const view of previous.fixedStrokes3) next.fixedStrokes3.add(view);
+  next.modeling3.push(...previous.modeling3);
+  next.planOptions = previous.planOptions && structuredClone(previous.planOptions);
+  next.drawRequest = previous.drawRequest && structuredClone(previous.drawRequest);
+  await compileSketchAsync(sketch(drawing.config, () => drawing.tree), next, options);
+  next.overrides = { ...previous.overrides };
+  next.overrideHits = new Set(previous.overrideHits);
+  next.drawLog = previous.drawLog.map(entry => ({ ...entry }));
+  return next;
+}
+
 function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {
   if (!tree) return;
-  if ((tree as LineArtScene3).__occludeLineArt3) throw new Error('lineArt3: async rendering required; use compileSketchAsync or renderAsync');
+  if ((tree as LineArtScene3).__occludeLineArt3 || isDrawing3(tree)) throw new Error('lineArt3: async rendering required; use compileSketchAsync or renderAsync');
   if (Array.isArray(tree)) {
     for (const child of tree) emit(exec, child, ctx);
     return;

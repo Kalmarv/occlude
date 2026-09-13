@@ -1,6 +1,7 @@
 import type { ModelingStats3 } from './three/modeling.js';
 import type { LineArtScene3 } from './three/scene.js';
 import type { ClassifiedScene3 } from './three/visibility/scene.js';
+import type { RetainedDrawing3 } from './three/drawing.js';
 /**
  * One execution of a sketch: everything a run owns, held by ONE object the
  * host creates, compiles a sketch into, encodes, renders, plans and exports
@@ -206,6 +207,10 @@ export class Execution {
   /** In-flight classification is shared by repeated requests within one run. */
   readonly pendingScenes3 = new Map<LineArtScene3, Promise<ClassifiedScene3>>();
   readonly modeling3: ModelingStats3[] = [];
+  /** Composition captured before projection, owned by this execution. */
+  drawing3?: RetainedDrawing3;
+  /** Eager paper interpretation stays tied to its original snapshot. */
+  readonly fixedStrokes3 = new Set<ClassifiedScene3>();
 
   // ---- the recording ----
   shapes: Shape[] = [];

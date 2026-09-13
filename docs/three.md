@@ -136,30 +136,38 @@ export default sketch({ pens: {
 `t.strokes3(strokes, { modifiers })` explicitly draws projected data through the current paper frame and the ordinary Occlude modifier stack. Projected coordinates remain physical paper millimetres. A group transforms the finished 2D drawing, so a second placement can reuse the same classification. The complete selected source chain anchors modifier distances and sampling before visibility cuts. Both `dash → wobble` and `wobble → dash` keep their phase through hidden intervals and paper cropping. `reference.points` and `sourceRanges` retain that relationship alongside each run's visible points. Near/far clipping currently defines the available source anchor; arbitrary source geometry behind the eye is not projected. Topology-changing pre-stage modifiers (`smooth`, `roughen`, `deform`) are not applicable to this source-linked interpretation; edit the model before classifying instead.
 
 ```ts live
-import { sketchAsync, paper, pen, mm, box3, lineArt3, FeatureSelection3, FeatureKind3, constructStrokes3, group, label, dash, wobble } from 'occlude';
+import { sketch, paper, pen, mm, box3, lineArt3, drawing3, FeatureSelection3, FeatureKind3, constructStrokes3, group, label, dash, wobble } from 'occlude';
 
-export default sketchAsync({
+export default sketch({
   paper: paper({ width: mm(200), height: mm(200) }), seed: 42,
   pens: { outline: pen({ width: mm(0.3), color: '#18202A' }), hidden: pen({ width: mm(0.2), color: '#A84932' }) },
-}, async t => {
+}, () => {
   const scene = lineArt3({
     objects: [{ id: 'box', surface: box3([1.4, 1.4, 1.4]) }],
     camera: { kind: 'orthographic', span: 3.8, eye: [5, 7, 6], target: [0, 0, 0], near: 0.1, far: 30 },
     viewport: { x: 10, y: 25, width: 80, height: 140 }, lineSets: [],
   });
-  const classified = await t.classify3(scene);
-  const features = new FeatureSelection3(classified);
-  const visible = constructStrokes3(classified, [{ id: 'visible', stroke: 'outline', select: features }]);
-  const hidden = constructStrokes3(classified, [{ id: 'hidden', stroke: 'hidden', visibility: 'hidden' }]);
-  const contour = constructStrokes3(classified, [{ id: 'contour', stroke: 'outline', select: features.filter(row => (row.feature.flags & FeatureKind3.silhouette) !== 0) }]);
-  return [
-    t.strokes3(visible, { modifiers: [wobble({ amount: mm(0.12), wavelength: mm(8) })] }),
-    t.strokes3(hidden, { modifiers: [dash(mm(2), mm(1))] }),
-    group({ translate: [mm(100), 0] }, t.strokes3(contour)),
-    label('EDGES / HIDDEN', 5, 95, 3), label('SILHOUETTE', 55, 95, 3),
-  ];
+  return drawing3(scene, (classified, t) => {
+    const features = new FeatureSelection3(classified);
+    const visible = constructStrokes3(classified, [{ id: 'visible', stroke: 'outline', select: features }]);
+    const hidden = constructStrokes3(classified, [{ id: 'hidden', stroke: 'hidden', visibility: 'hidden' }]);
+    const contour = constructStrokes3(classified, [{ id: 'contour', stroke: 'outline', select: features.filter(row => (row.feature.flags & FeatureKind3.silhouette) !== 0) }]);
+    return [
+      t.strokes3(visible, { modifiers: [wobble({ amount: mm(0.12), wavelength: mm(8) })] }),
+      t.strokes3(hidden, { modifiers: [dash(mm(2), mm(1))] }),
+      group({ translate: [mm(100), 0] }, t.strokes3(contour)),
+      label('EDGES / HIDDEN', 5, 95, 3), label('SILHOUETTE', 55, 95, 3),
+    ];
+  });
 });
 ```
+
+
+`drawing3(scene, (classified, t) => tree)` retains the paper interpretation as a pure callback. Its `t.strokes3` is bound to the current drawing's paper frame. Build models and consume random draws before this callback; select and style the supplied classified snapshot inside it. Returning ordinary labels, groups, clips and masks preserves paper composition order.
+
+For headless or host integration, `await commitCamera3(run, scene, camera, { compute3?, signal? })` returns a new execution ready for `render(...)`. It never calls the original sketch function: world geometry is shared, the changed scene is classified again, and unaffected scenes reuse their classification. The new run captures the explicit camera, resolved paper and pens. The previous run remains exportable and unchanged. Use a scene from the new run's `scenes3` map for a subsequent commit.
+
+A returned `lineArt3` node is already retained. Eager `t.strokes3(...)` output is fixed projected data tied to its original view; camera commitment rejects such edits for the changed scene. Use `drawing3` when the interpretation should run again for a new view. Callbacks and their captured style functions must remain pure. Studio's orbit panel currently offers preview and Copy camera; its Commit view control is still being integrated.
 
 
 ## Phase through hidden intervals

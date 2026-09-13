@@ -17,7 +17,7 @@
 
 // The declarative API.
 export {
-  sketch, compileSketch, isSketch, sketchAsync, compileSketchAsync, isSketchAsync,
+  sketch, compileSketch, isSketch, sketchAsync, compileSketchAsync, isSketchAsync, commitCamera3,
   circle, ellipse, rect, line, polygon, ngon, stroke, strokes, path, PathValue,
   group, clip, mask, invert, decimate, wobble, modify, dash, smooth, roughen, deform,
   times, range,
@@ -183,7 +183,7 @@ import { setOccludeModule } from './fills.js';
 /** Host integration and runtime entry points a fill file must not reach. */
 const HOST_ONLY = new Set([
   'GpuSceneCompute3', 'Execution', 'fillTable', 'assetTable', 'loadFillModule', 'initOcclude', 'bindToolkit', 'inspectHook',
-  'compileSketch', 'compileSketchAsync', 'render', 'renderAsync', 'exportGcode', 'exportSvg', 'exportPng',
+  'compileSketch', 'compileSketchAsync', 'commitCamera3', 'render', 'renderAsync', 'exportGcode', 'exportSvg', 'exportPng',
   'encodeScene', 'decodeRender', 'renderEncoded',
 ]);
 setOccludeModule(() =>
@@ -196,6 +196,8 @@ setOccludeModule(() =>
 
 // Explicit 3D geometry and deferred drawing values. No device is acquired on import.
 export { lineArt3, isLineArt3 } from './three/scene.js';
+export { drawing3 } from './three/drawing.js';
+export type { Drawing3 } from './three/drawing.js';
 export type { LineArtScene3, LineArtOptions3, SceneCompute3 } from './three/scene.js';
 export { surface3, box3, pointCloud3 } from './three/geometry/surface.js';
 export type { Surface3, Attributes3 } from './three/geometry/surface.js';
