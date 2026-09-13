@@ -23,6 +23,7 @@ working
 packages/occlude-studio/sketches
 packages/occlude-studio/results
 packages/occlude-studio/fills
+packages/occlude-studio/dev-store
 packages/occlude-studio/*.bundle
 packages/occlude-studio/*.png
 # benchmark result dumps are not inputs to any gate

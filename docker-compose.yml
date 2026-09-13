@@ -3,7 +3,8 @@
 #
 #   pnpm docker:build                       build + verify (stamps the commit)
 #   pnpm docker:up                          studio on http://localhost:${OCCLUDE_PORT:-4173}
-#   docker compose --profile dev up dev     vite dev server on :5173 (profile)
+#   docker compose --profile dev up dev     vite dev server on :5173 (profile),
+#                                           its own store under dev-store/
 #
 # The sketch, fill, asset and result libraries are bind-mounted from the
 # checkout, so the container and a native `pnpm --filter occlude-studio serve`
@@ -44,7 +45,9 @@ services:
       - ./packages/occlude/src:/src/packages/occlude/src
       - ./packages/occlude-studio/src:/src/packages/occlude-studio/src
       - ./docs:/src/docs
-      - ./packages/occlude-studio/sketches:/src/packages/occlude-studio/sketches
-      - ./packages/occlude-studio/fills:/src/packages/occlude-studio/fills
-      - ./packages/occlude-studio/assets:/src/packages/occlude-studio/assets
-      - ./packages/occlude-studio/results:/src/packages/occlude-studio/results
+      # dev's own libraries, so trying things out never touches prod's store;
+      # they seed themselves (default pens and papers) on first save
+      - ./packages/occlude-studio/dev-store/sketches:/src/packages/occlude-studio/sketches
+      - ./packages/occlude-studio/dev-store/fills:/src/packages/occlude-studio/fills
+      - ./packages/occlude-studio/dev-store/assets:/src/packages/occlude-studio/assets
+      - ./packages/occlude-studio/dev-store/results:/src/packages/occlude-studio/results

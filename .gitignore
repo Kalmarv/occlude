@@ -7,6 +7,7 @@ pkg/
 packages/occlude-studio/sketches/
 packages/occlude-studio/results/
 packages/occlude-studio/fills/
+packages/occlude-studio/dev-store/
 .playwright-cli/
 working/
 .serena/
