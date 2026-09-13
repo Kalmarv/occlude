@@ -1,8 +1,10 @@
 /** Client for the saved-result store (result-store.mjs). */
 
+import type { CapturedThree3 } from './three/capture.js';
 import type { PlanSettings, PlanSelection } from 'occlude';
 
 export interface ResultMeta {
+  three?: CapturedThree3;
   schemaVersion: number;
   /** Identity of the SAVED plan (the selected chains as a plan of their own). */
   planHash: string;

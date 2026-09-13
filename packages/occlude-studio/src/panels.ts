@@ -675,6 +675,8 @@ function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
     const result = hooks.lastResult();
     if (!plan || !r || !result) return;
     saveBtn.disabled = true;
+    const paperColor = result.paper.color ?? hooks.sheetColor();
+    const capturedExecution = hooks.execution();
     try {
       // ONE consistent result: `plan` and `r` are captured now; every await
       // below re-checks that no newer render replaced them, and the SVG is
@@ -688,8 +690,10 @@ function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
       const savedHash = await hashPlan(bytes, plan.settings);
       const drifted = () => d.plan !== plan;
       if (drifted()) throw new Error('the drawing changed while saving — nothing was saved; save again');
-      const prof = hooks.profiles.find((p) => p.name === hooks.settings.activeProfile) ?? hooks.profiles[0];
+      const three = await hooks.client.captureThree(plan.planHash);
+      if (drifted()) throw new Error('the drawing changed while saving — nothing was saved; save again');
       const meta: ResultMeta = {
+        three,
         schemaVersion: plan.schemaVersion,
         planHash: savedHash,
         sourcePlanHash: plan.planHash,
@@ -698,14 +702,14 @@ function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
         settings: plan.settings,
         pens: result.pens.map((pen) => ({ name: pen.name, width: pen.width, color: pen.color, feed: pen.feed, penDown: pen.penDown, penUp: pen.penUp, penDelay: pen.penDelay })),
         // the resolved sheet, colour included: reopening the result shows and exports it as saved
-        paper: result.paper.color !== undefined ? { w: result.paper.w, h: result.paper.h, color: result.paper.color } : { w: result.paper.w, h: result.paper.h },
-        profile: prof ? { name: prof.name, timing: machineTiming(prof), tolerance: machineTolerance(prof, result.pens) } : null,
+        paper: { w: result.paper.w, h: result.paper.h, color: paperColor },
+        profile: { name: capturedExecution.profile, timing: capturedExecution.timing, tolerance: capturedExecution.tolerance },
         eta: { standaloneMs: r.estimate?.totalMs ?? 0, fullMs: r.fullMs ?? 0 },
         build: hooks.build,
         provenance: { sketch: hooks.currentName() || null, sourceHash: hashSource(hooks.getSource()), seed: hooks.currentSeed() },
         fullPlanSaved: false,
       };
-      const svg = await d.svgOf(captured, hooks.sheetColor(), -1);
+      const svg = await d.svgOf(captured, paperColor, -1);
       if (drifted()) throw new Error('the drawing changed while saving — nothing was saved; save again');
       const id = await saveResult(meta, svg, bytes);
       saveNote.innerHTML = '';

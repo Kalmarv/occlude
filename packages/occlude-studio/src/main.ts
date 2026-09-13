@@ -749,7 +749,7 @@ async function boot(): Promise<void> {
         const { meta, plan: bytes } = await loadResult(frozenId);
         if (!meta.profile) throw new Error('this result was saved without a machine profile; it can be shown and exported, not timed');
         frozenExecution = { name: meta.profile.name, opts: meta.profile.timing as EstimateOpts, tolerance: meta.profile.tolerance, pens: meta.pens };
-        await client.loadPlan(bytes, meta.settings, meta.planHash, meta.pens);
+        await client.loadPlan(bytes, meta.settings, meta.planHash, meta.pens, undefined, meta.three);
         const paper = meta.paper;
         const frozen = {
           frags: [], prims: [], pens: meta.pens, paper,

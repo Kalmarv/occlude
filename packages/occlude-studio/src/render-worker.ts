@@ -10,6 +10,7 @@
  * names the plan hash it means, and a stale hash is refused.
  */
 
+import { captureThree3, type CapturedThree3 } from './three/capture.js';
 import type { LineArtScene3 } from 'occlude/src/three/scene.js';
 import { ConstructionScene3, constructionInfo3 } from './three/construction.js';
 import { cameraFrame3, type Camera3 } from 'occlude/src/three/camera.js';
@@ -71,6 +72,7 @@ interface PlanLoadMsg {
   /** The saved record's pens, as `pensToJson` spells them. */
   pensJson: string;
   expectedPlanHash?: string;
+  three?: CapturedThree3;
 }
 
 interface PngMsg {
@@ -94,7 +96,7 @@ interface InspectMsg {
 
 type ConstructionMsg = { type: 'construction'; id: number; executionId: number; scene: number; camera: Camera3; width: number; height: number; revision: number; pick?: { x: number; y: number } };
 
-type Msg = ConstructionMsg | RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg
+type Msg = { type: 'plan-three'; id: number; planHash: string } | ConstructionMsg | RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg
   | { type: 'optimization-context'; id: number; planHash: string }
   | (PlanRange & { type: 'plan-png'; id: number; width: number; height: number; scale: number; background?: string });
 
@@ -117,6 +119,12 @@ let constructionScenes: { source: LineArtScene3; prepared?: ConstructionScene3 }
 const sessionSeed = Math.floor(Math.random() * 2 ** 31);
 let geometrySnapshot: GeometrySnapshot | null = null;
 let renderedPlanHash: string | null = null;
+let capturedThree: CapturedThree3 | undefined;
+let captureSource: { run: Execution; context: Parameters<typeof captureThree3>[1] } | undefined;
+const currentThree = () => {
+  if (captureSource) { capturedThree = captureThree3(captureSource.run,captureSource.context); captureSource = undefined; }
+  return capturedThree;
+};
 
 /** THE plan of the last render under the given options. */
 async function planLast(opts: PlanOptions): Promise<{ buffer: Float64Array; settings: PlanSettings; planHash: string }> {
@@ -182,6 +190,8 @@ async function handleMessage(msg: Msg): Promise<void> {
         const { prims: inputPrims, contours, shapesU32, shapesF64, mods, fieldData, fieldUses, domainList, clipList, clipsU32, pensJson, paperArr, seed, coarsen } = scene;
         geometrySnapshot = { prims: inputPrims, contours, shapesU32, shapesF64, mods, fieldData, fieldUses, domainList, clipList, clipsU32, pensJson, paperArr, seed, coarsen };
         renderedPlanHash = planHash;
+        capturedThree = undefined;
+        captureSource = { run, context: { engine: settings.engine ?? 'dev', scriptJs: msg.js, seed: currentSeed(run), adapter: compute3.adapterInfo } };
         // Exports reuse the cached originals, so the preview gets COPIES —
         // and the copies are transferred, not structured-cloned a second
         // time. Decode metadata (pens/frame/paper) rides along so the main
@@ -221,6 +231,11 @@ async function handleMessage(msg: Msg): Promise<void> {
         );
         break;
       }
+      case 'plan-three': {
+        if (!lastPlan || msg.planHash !== lastPlan.planHash) throw new Error('stale 3D capture: the drawing changed');
+        self.postMessage({ type: msg.type, id: msg.id, three: currentThree() });
+        break;
+      }
       case 'construction': {
         if (msg.executionId !== lastExecutionId || !lastRun) throw new Error('stale construction view: render the current sketch first');
         const entry = constructionScenes[msg.scene];
@@ -255,6 +270,7 @@ async function handleMessage(msg: Msg): Promise<void> {
         const same = pens.length === msg.settings.pens.length && pens.every((p, i) => p.name === msg.settings.pens[i].name && p.width === msg.settings.pens[i].width);
         if (!same) throw new Error('saved plan: the pens given do not match the plan settings');
         lastPlan = { buffer: msg.buffer, settings: msg.settings, planHash, pensJson: msg.pensJson };
+        if (!msg.expectedPlanHash) { capturedThree = msg.three; captureSource = undefined; lastRun = null; lastExecutionId = -1; constructionScenes = []; }
         self.postMessage({ type: 'plan-load', id: msg.id, ok: true });
         break;
       }

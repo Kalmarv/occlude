@@ -7,6 +7,7 @@
  * the worker's perspective; the watchdog is the only hard interruption.
  */
 
+import type { CapturedThree3 } from './three/capture.js';
 import type { Camera3 } from 'occlude/src/three/camera.js';
 import type { ConstructionInfo3, ConstructionPick3 } from './three/construction.js';
 import { decodeRender, pensToJson, type DrawRequest, type EncodedScene, type InspectionEntry, type InspectionPayload, type PenDef, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
@@ -300,11 +301,19 @@ export class RenderClient {
 
   /** Make a saved plan the worker's current one (verified against its
    * hash), with the pens it was saved with. */
-  loadPlan(buffer: Float64Array, settings: PlanSettings, planHash: string, pens: PenDef[], expectedPlanHash?: string): Promise<void> {
+  loadPlan(buffer: Float64Array, settings: PlanSettings, planHash: string, pens: PenDef[], expectedPlanHash?: string, three?: CapturedThree3): Promise<void> {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
       this.pending.set(id, { resolve: () => resolve(), reject });
-      this.worker.postMessage({ type: 'plan-load', id, buffer, settings, planHash, pensJson: pensToJson(pens), expectedPlanHash });
+      this.worker.postMessage({ type: 'plan-load', id, buffer, settings, planHash, pensJson: pensToJson(pens), expectedPlanHash, three });
+    });
+  }
+
+  captureThree(planHash: string): Promise<CapturedThree3 | undefined> {
+    return new Promise((resolve,reject)=>{
+      const id=this.nextId++;
+      this.pending.set(id,{resolve:msg=>resolve((msg as {three?:CapturedThree3}).three),reject});
+      this.worker.postMessage({type:'plan-three',id,planHash});
     });
   }
 

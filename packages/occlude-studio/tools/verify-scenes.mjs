@@ -17,6 +17,7 @@ try {
   page.on('console', message => { if (message.type() === 'error') console.error(message.text()); });
   await page.addInitScript(() => {
     window.sceneReports = [];
+    window.workerRequests = [];
     window.adapterRequests = 0;
     if (navigator.gpu) {
       const request = navigator.gpu.requestAdapter.bind(navigator.gpu);
@@ -24,6 +25,11 @@ try {
     }
     const OriginalWorker = window.Worker;
     window.Worker = class extends OriginalWorker {
+      postMessage(message,...rest) {
+        if(typeof message.type==='string')window.workerRequests.push(message.type);
+        if(message.type==='plan-load'||message.type==='render')window.planWorker=this;
+        return super.postMessage(message,...rest);
+      }
       constructor(...args) {
         super(...args);
         this.addEventListener('message', event => {
@@ -131,6 +137,59 @@ try {
   await writeFile(resolve(output, 'studio.svg'), svg);
   await page.screenshot({ path: resolve(output, 'studio.png'), fullPage: true });
   assert.deepEqual(errors, []);
+  if (process.env.OCCLUDE_PERSISTENCE_CHECK === '1') {
+    const madePromise=page.waitForResponse(r=>r.url()===`${base}/api/results`&&r.request().method()==='POST');
+    await page.getByRole('button',{name:'Save result',exact:true}).click();
+    const made=await madePromise;assert.equal(made.status(),201,await made.text());
+    const {id}=await made.json();
+    try {
+      const saved=await (await page.request.get(`${base}/api/results/${id}`)).json();
+      assert.equal(saved.three.schemaVersion,1);assert.equal(saved.three.scenes.length,1);
+      assert.equal(saved.three.adapter.isFallbackAdapter,false);
+      assert(saved.three.scenes[0].objects[0].surface.points.length>0);
+      assert(saved.three.scenes[0].generated.some(g=>g.curve.kind==='hatch'));
+      assert(saved.three.scenes[0].generated.some(g=>g.curve.kind==='section'));
+      assert.equal(saved.paper.color.length,7);
+      const committedCamera=await page.evaluate(()=>window.sceneReply.construction[0].camera);
+      assert.deepEqual(saved.three.scenes[0].frame.camera,committedCamera);
+      await page.getByRole('button',{name:'3D',exact:true}).click();
+      const viewport=page.locator('#construction-canvas'),bounds=await viewport.boundingBox();assert(bounds);
+      const revision=await viewport.getAttribute('data-revision');
+      await page.mouse.move(bounds.x+bounds.width*.5,bounds.y+bounds.height*.5);await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.5+90,bounds.y+bounds.height*.5,{steps:6});await page.mouse.up();
+      await page.waitForFunction(r=>document.querySelector('#construction-canvas')?.dataset.revision!==r,revision);
+      if(process.env.OCCLUDE_CONSTRUCTION_CHECK==='1')assert.notDeepEqual(await page.evaluate(()=>window.constructionRequests.filter(r=>r.camera).at(-1).camera),committedCamera);
+      const frozenSvg=await (await page.request.get(`${base}/api/results/${id}/svg`)).text();
+      const planBytes=await (await page.request.get(`${base}/api/results/${id}/plan`)).body();
+      // Supply changed libraries to the reopened application. The persistent
+      // result itself goes through the actual isolated server store.
+      const changedPens=saved.pens.map(p=>({...p,width:p.width*2,color:'#00FF00',feed:p.feed/2,penDelay:p.penDelay+100}));
+      const changedPapers=[{name:'Changed paper',w:80,h:90,color:'#FF00FF'}];
+      await page.route('**/api/pens',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(changedPens)}));
+      await page.route('**/api/papers',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(changedPapers)}));
+      await page.evaluate(()=>{
+        localStorage.setItem('occlude.sketch','throw new Error("saved result must never execute this source")');
+        const settings=JSON.parse(localStorage.getItem('occlude.settings')||'{}');settings.paperColor='#FF00FF';localStorage.setItem('occlude.settings',JSON.stringify(settings));
+      });
+      await page.goto(`${base}/?result=${id}`);
+      await page.waitForFunction(()=>document.querySelector('#status-msg')?.textContent?.includes('frozen — source not executed'),{},{timeout:30000});
+      const reopened=await page.evaluate(async()=>{
+        const app=window.__occlude,plan=app.drawing.plan,result=app.result();
+        return {hash:plan.planHash,pens:result.pens,paper:result.paper,svg:await app.drawing.svg(result.paper.color,-1),requests:window.workerRequests,adapterRequests:window.adapterRequests,renders:window.sceneReports.length};
+      });
+      assert.equal(reopened.hash,saved.planHash);assert.deepEqual(reopened.pens,saved.pens);assert.deepEqual(reopened.paper,saved.paper);
+      assert.equal(reopened.svg,frozenSvg);assert.equal(reopened.adapterRequests,0);assert.equal(reopened.renders,0);assert(!reopened.requests.includes('render'));
+      const restoredCapture=await page.evaluate(async()=>{
+        const worker=window.planWorker,id=900000004,planHash=window.__occlude.drawing.plan.planHash;
+        return new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('capture timeout')),10000);const listener=e=>{if(e.data.id!==id)return;clearTimeout(timeout);worker.removeEventListener('message',listener);resolve(e.data.three);};worker.addEventListener('message',listener);worker.postMessage({type:'plan-three',id,planHash});});
+      });
+      assert.deepEqual(restoredCapture,saved.three);
+      const again=await (await page.request.get(`${base}/api/results/${id}/plan`)).body();assert.deepEqual(again,planBytes);
+      await page.screenshot({path:resolve(output,'reopened.png'),fullPage:true});
+      await writeFile(resolve(output,'persistence.json'),JSON.stringify({passed:true,id,captureRestored:true,previewCameraChanged:true,committedCamera:saved.three.scenes[0].frame.camera,planHash:saved.planHash,planBytes:planBytes.length,svgBytes:frozenSvg.length,capturedScenes:saved.three.scenes.length,points:saved.three.scenes[0].objects[0].surface.points.length,generated:saved.three.scenes[0].generated.length,requests:reopened.requests,adapterRequests:reopened.adapterRequests,changedPens,changedPapers},null,2));
+    } finally {
+      const deleted=await page.request.delete(`${base}/api/results/${id}`);assert.equal(deleted.status(),200);
+    }
+  }
   await writeFile(resolve(output, 'report.json'), JSON.stringify({ passed: true, base, reports, studio, svgBytes: svg.length, errors, networkFailures }, null, 2));
   console.log(JSON.stringify({ passed: true, reports }));
 } finally { await browser.close(); }
