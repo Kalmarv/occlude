@@ -10,6 +10,9 @@
  * names the plan hash it means, and a stale hash is refused.
  */
 
+import type { LineArtScene3 } from 'occlude/src/three/scene.js';
+import { ConstructionScene3, constructionInfo3 } from './three/construction.js';
+import { cameraFrame3, type Camera3 } from 'occlude/src/three/camera.js';
 import initCore, * as core from 'occlude-core';
 import { GpuSceneCompute3, bridgeGapFor, hashPlan, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
@@ -89,7 +92,9 @@ interface InspectMsg {
   name: string;
 }
 
-type Msg = RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg
+type ConstructionMsg = { type: 'construction'; id: number; executionId: number; scene: number; camera: Camera3; width: number; height: number; revision: number; pick?: { x: number; y: number } };
+
+type Msg = ConstructionMsg | RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg
   | { type: 'optimization-context'; id: number; planHash: string }
   | (PlanRange & { type: 'plan-png'; id: number; width: number; height: number; scale: number; background?: string });
 
@@ -104,6 +109,7 @@ let lastPlan: { buffer: Float64Array; settings: PlanSettings; planHash: string; 
 let lastExecutionId = -1;
 /** The run of the last successful render: the only place its state lives. */
 let lastRun: Execution | null = null;
+let constructionScenes: { source: LineArtScene3; prepared?: ConstructionScene3 }[] = [];
 /** URL-less 'url' seed: rolled ONCE per worker and reused, so re-renders
  * (debug toggles, keystrokes, settings) never reshuffle the drawing — only
  * an explicit reroll (the host's seed) changes it. Application state, not
@@ -149,7 +155,7 @@ async function handleMessage(msg: Msg): Promise<void> {
         // draft), captured before encode resolves fill('name').
         const fills = await preloadFills(msg.js, msg.cfg.draftFill);
         lastExecutionId = -1; // a failed run leaves no inspectable state
-        lastRun = null;
+        lastRun = null; constructionScenes = [];
         const outcome = await runSketchAsync(msg.js, msg.cfg, msg.cfg.seed ?? sessionSeed, assets, fills, undefined, compute3);
         if (outcome.error || !outcome.scene) {
           const err = outcome.error;
@@ -166,6 +172,7 @@ async function handleMessage(msg: Msg): Promise<void> {
         const run = outcome.run!;
         lastExecutionId = msg.id;
         lastRun = run;
+        constructionScenes = [...run.scenes3.keys()].map(source => ({ source }));
         const raw = renderEncoded(mod, scene);
         geometrySnapshot = null; renderedPlanHash = null;
         last = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper };
@@ -189,6 +196,7 @@ async function handleMessage(msg: Msg): Promise<void> {
           {
             type: 'render',
             id: msg.id,
+            construction: constructionScenes.map(scene => constructionInfo3(scene.source)),
             three: run.scenes3.size || run.modeling3.length ? { modeling: run.modeling3, adapter: compute3.adapterInfo, scenes: [...run.scenes3.values()].map(s => s.stats) } : undefined,
             prims,
             frags,
@@ -211,6 +219,21 @@ async function handleMessage(msg: Msg): Promise<void> {
           },
           { transfer },
         );
+        break;
+      }
+      case 'construction': {
+        if (msg.executionId !== lastExecutionId || !lastRun) throw new Error('stale construction view: render the current sketch first');
+        const entry = constructionScenes[msg.scene];
+        if (!entry) throw new Error('construction scene not found');
+        const scene = entry.prepared ??= new ConstructionScene3(entry.source);
+        const frame = cameraFrame3(msg.camera, { x: 0, y: 0, width: msg.width, height: msg.height });
+        if (msg.pick) {
+          self.postMessage({ type: 'construction', id: msg.id, revision: msg.revision, pick: scene.pick(msg.camera,msg.width,msg.height,msg.pick.x,msg.pick.y) });
+        } else {
+          const geometry = scene.project(frame);
+          const bitmap = await compute3.preview3(frame,geometry.triangles,geometry.wires,msg.width,msg.height);
+          self.postMessage({ type: 'construction', id: msg.id, revision: msg.revision, bitmap }, { transfer: [bitmap] });
+        }
         break;
       }
       case 'inspect': {

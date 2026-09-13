@@ -2915,3 +2915,12 @@ button.armed {
 .optimization-comparison .segmented { margin: 6px 0; }
 .optimization-comparison .segmented > button { padding: 5px 4px; }
 .optimization-metrics th { padding: 4px; text-align: right; }
+
+/* Independent construction view; paper remains the committed plot preview. */
+#construction-pane { position:absolute; inset:48px 0 0; z-index:4; background:#15191c; display:flex; flex-direction:column; padding:12px; gap:8px; }
+#construction-pane[hidden] { display:none; }
+.construction-toolbar { display:flex; gap:8px; flex-wrap:wrap; }
+#construction-canvas { display:block; width:100%; flex:1; min-height:100px; touch-action:none; cursor:grab; }
+#construction-canvas:active { cursor:grabbing; }
+.construction-hint, .construction-pick { margin:0; font-size:12px; color:#9eabb7; }
+.construction-pick { max-height:80px; overflow:auto; overflow-wrap:anywhere; }

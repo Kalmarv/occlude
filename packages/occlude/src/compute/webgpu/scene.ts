@@ -1,4 +1,7 @@
 /// <reference types="@webgpu/types" />
+import { GpuViewport3 } from './viewport.js';
+import type { CameraFrame3 } from '../../three/camera.js';
+import type { Triangle3, Vec3 } from '../../three/math.js';
 import type { SceneCompute3 } from '../../three/scene.js';
 import type { FeatureSnapshot3 } from '../../three/features/snapshot.js';
 import { classifySceneGpu3 } from '../../three/visibility/scene.js';
@@ -17,6 +20,7 @@ export class GpuSceneCompute3 implements SceneCompute3 {
   private creating?: Promise<GpuIntervals3>;
   private closed = false;
   private deformation?: GpuDeform3;
+  private preview?: { canvas: OffscreenCanvas; viewport: GpuViewport3 };
   private tail: Promise<unknown> = Promise.resolve();
   private submit<T>(job: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new Error('3D GPU host disposed'));
@@ -39,6 +43,7 @@ export class GpuSceneCompute3 implements SceneCompute3 {
     if (!this.creating) {
       this.creating = (async () => {
         this.deformation = undefined;
+        this.preview?.viewport.dispose(); this.preview = undefined;
         await this.session?.dispose();
         const session = await GpuIntervals3.create(this.gpu!, this.options);
         if (this.closed) { await session.dispose(); throw new Error('3D GPU host disposed'); }
@@ -55,6 +60,22 @@ export class GpuSceneCompute3 implements SceneCompute3 {
       const session = await this.acquire();
       signal?.throwIfAborted();
       return classifySceneGpu3(snapshot, session, { signal });
+    });
+  }
+  /** Raster-only construction view, sharing this host's worker-owned device. */
+  preview3(frame: CameraFrame3, triangles: readonly Triangle3[], wires: readonly (readonly [Vec3, Vec3])[], width: number, height: number): Promise<ImageBitmap> {
+    if (![width,height].every(n => Number.isInteger(n) && n > 0 && n <= 4096)) return Promise.reject(new Error('construction dimensions must be integers from 1 to 4096'));
+    return this.submit(async () => {
+      const session = await this.acquire();
+      if (!this.preview) {
+        const canvas = new OffscreenCanvas(width,height);
+        this.preview = { canvas, viewport: new GpuViewport3(session.device,canvas,this.gpu!.getPreferredCanvasFormat()) };
+      }
+      const { canvas, viewport } = this.preview;
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
+      viewport.draw(frame,triangles,wires);
+      return canvas.transferToImageBitmap();
     });
   }
   deform(surface: Surface3, options: DeformOptions3) {
@@ -89,6 +110,7 @@ export class GpuSceneCompute3 implements SceneCompute3 {
     this.closed = true;
     await this.tail;
     await this.creating?.catch(() => undefined);
+    this.preview?.viewport.dispose(); this.preview = undefined;
     await this.session?.dispose();
     this.session = undefined;
   }

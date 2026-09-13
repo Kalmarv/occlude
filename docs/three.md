@@ -287,3 +287,9 @@ export default sketchAsync({ seed: 42, pens: {
   ];
 });
 ```
+
+## Construction view in Studio
+
+Open any live example above in Studio, then choose **3D** above the paper view. Drag to orbit, scroll to zoom, and click a mesh face to inspect its source ID and captured modeling attributes. The scene menu selects among the sketch's captured 3D scenes. **Reset camera** restores that scene's sketch camera; **Copy camera** copies explicit camera values for use in the sketch.
+
+Construction uses the retained realized mesh and a depth-tested GPU view. Orbiting does not rerun modeling, surface queries or vector visibility, and does not change the committed paper drawing or its exports. Returning to the paper view shows the same cached result. Applying the copied camera in source currently runs the sketch again; committing a camera against retained geometry and storing its provenance are still being implemented.

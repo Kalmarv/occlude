@@ -1,6 +1,7 @@
 /** occlude studio: wire editor → runner → render worker → preview → panels. */
 
 import './style.css';
+import { ConstructionPanel3 } from './three/constructionPanel.js';
 import { clearRuntimeMarkers, createEditor, setRuntimeMarker, setUserModuleTypes } from './editor.js';
 import { Inspector } from './inspector.js';
 import { buildRail } from './panels.js';
@@ -87,6 +88,7 @@ async function boot(): Promise<void> {
     settings.activeProfile = profiles[0].name;
   }
   const client = new RenderClient();
+  const construction = new ConstructionPanel3(client, document.getElementById('bench')!, document.getElementById('bench-hud')!);
   const editor = createEditor($('editor'), loadSketch());
   const preview = new Preview($('preview') as HTMLCanvasElement);
   preview.setPaperColor(settings.paperColor);
@@ -317,7 +319,7 @@ async function boot(): Promise<void> {
       });
     }
     uiPanel.setProbes(reply.probes);
-    if (latest) inspector.onRender(reply);
+    if (latest) { inspector.onRender(reply); construction.onRender(reply); }
     seedUsed = reply.seedUsed;
     lastOverrides = reply.overrides;
     lastDraws = reply.draws ?? null;

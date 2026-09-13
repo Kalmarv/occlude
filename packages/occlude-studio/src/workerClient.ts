@@ -7,6 +7,8 @@
  * the worker's perspective; the watchdog is the only hard interruption.
  */
 
+import type { Camera3 } from 'occlude/src/three/camera.js';
+import type { ConstructionInfo3, ConstructionPick3 } from './three/construction.js';
 import { decodeRender, pensToJson, type DrawRequest, type EncodedScene, type InspectionEntry, type InspectionPayload, type PenDef, type PlanSettings, type ProbeSummary, type RenderResult } from 'occlude';
 import type { RunConfig } from './runner.js';
 
@@ -25,6 +27,7 @@ export interface RenderRequest {
 /** A render carrying its worker-side seed (the main thread has no sketch
  * state to read it from anymore). */
 export interface RenderReply {
+  construction: ConstructionInfo3[];
   result: RenderResult;
   /** The seed as used: base plus the overrides that landed, one string. */
   seedUsed: string;
@@ -145,7 +148,7 @@ export class RenderClient {
     [k: string]: unknown;
   }): void {
     const p = this.pending.get(msg.id);
-    if (!p) return;
+    if (!p) { (msg.bitmap as ImageBitmap | undefined)?.close(); return; }
     this.pending.delete(msg.id);
     if (msg.type === 'render' || (msg.type === 'error' && p.isRender)) {
       if (this.watchdog) {
@@ -224,6 +227,7 @@ export class RenderClient {
             planHash: string;
             draw?: DrawRequest;
             executionId: number;
+            construction?: ConstructionInfo3[];
             inspections?: InspectionEntry[];
           };
           // decodeRender reads only pens/frame/paper from the scene half.
@@ -233,6 +237,7 @@ export class RenderClient {
             plan: { buffer: m.plan, settings: m.planSettings, planHash: m.planHash },
             draw: m.draw,
             executionId: m.executionId,
+            construction: m.construction ?? [],
             inspections: m.inspections ?? [],
           });
         },
@@ -247,6 +252,14 @@ export class RenderClient {
         return;
       }
       this.sendRender(req, p);
+    });
+  }
+
+  construction(request: { executionId: number; scene: number; camera: Camera3; width: number; height: number; revision: number; pick?: { x: number; y: number } }): Promise<{ revision: number; bitmap?: ImageBitmap; pick?: ConstructionPick3 | null }> {
+    return new Promise((resolve, reject) => {
+      const id = this.nextId++;
+      this.pending.set(id, { resolve: msg => resolve(msg as { revision: number; bitmap?: ImageBitmap; pick?: ConstructionPick3 | null }), reject });
+      this.worker.postMessage({ type: 'construction', id, ...request });
     });
   }
 

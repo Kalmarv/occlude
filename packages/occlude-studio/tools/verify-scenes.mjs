@@ -80,6 +80,52 @@ try {
       worker.postMessage({ type: 'plan-svg', id, planHash: reply.planHash, from: 0, to: reply.plan[1], width: reply.paper.w, height: reply.paper.h, onlyPen: -1 });
     });
   });
+  if (process.env.OCCLUDE_CONSTRUCTION_CHECK === '1') {
+    await page.evaluate(() => {
+      window.constructionReplies=[];window.constructionRequests=[];
+      window.sceneWorker.addEventListener('message',e=>{if(e.data.type==='construction')window.constructionReplies.push({revision:e.data.revision,pick:e.data.pick,bitmap:!!e.data.bitmap});});
+      const post=window.sceneWorker.postMessage.bind(window.sceneWorker);
+      window.sceneWorker.postMessage=(msg,...rest)=>{window.constructionRequests.push({type:msg.type,camera:msg.camera});return post(msg,...rest);};
+    });
+    const before=await page.evaluate(()=>({hash:window.sceneReply.planHash,renders:window.sceneReports.length}));
+    await page.getByRole('button',{name:'3D',exact:true}).click();
+    const canvas=page.locator('#construction-canvas');
+    await page.waitForFunction(()=>!!document.querySelector('#construction-canvas')?.dataset.revision);
+    const initial=await canvas.getAttribute('data-revision');
+    const rect=await canvas.boundingBox();assert(rect);
+    await page.mouse.move(rect.x+rect.width*.5,rect.y+rect.height*.5);
+    await page.mouse.down();await page.mouse.move(rect.x+rect.width*.5+70,rect.y+rect.height*.5+25,{steps:10});await page.mouse.up();
+    await page.waitForFunction(rev=>document.querySelector('#construction-canvas')?.dataset.revision!==rev,initial);
+    const orbit=await canvas.getAttribute('data-revision');
+    await page.mouse.wheel(0,-180);
+    await page.waitForFunction(rev=>document.querySelector('#construction-canvas')?.dataset.revision!==rev,orbit);
+    await page.getByRole('button',{name:'Reset camera',exact:true}).click();
+    let found=false;
+    for(const [x,y] of [[.5,.5],[.4,.6],[.6,.6],[.5,.7]]){
+      const n=await page.evaluate(()=>window.constructionReplies.filter(r=>'pick' in r).length);
+      await canvas.click({position:{x:rect.width*x,y:rect.height*y}});
+      await page.waitForFunction(n=>window.constructionReplies.filter(r=>'pick' in r).length>n,n);
+      if(await page.locator('.construction-pick').innerText().then(t=>t.includes('relief /'))){found=true;break;}
+    }
+    assert(found,'construction picking must identify a modeled face');
+    const stale=await page.evaluate(async()=>{
+      const worker=window.sceneWorker,id=900000003,camera=window.constructionRequests.find(r=>r.camera).camera;
+      return new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('stale request timeout')),10000);const listener=e=>{if(e.data.id!==id)return;clearTimeout(timeout);worker.removeEventListener('message',listener);resolve(e.data);};worker.addEventListener('message',listener);worker.postMessage({type:'construction',id,executionId:-1,scene:0,camera,width:100,height:100,revision:-1});});
+    });
+    assert.equal(stale.type,'error');assert.match(stale.message,/stale construction/);
+    const after=await page.evaluate(()=>({hash:window.sceneReply.planHash,renders:window.sceneReports.length,requests:window.constructionRequests,replies:window.constructionReplies}));
+    assert.equal(after.hash,before.hash);assert.equal(after.renders,before.renders);
+    assert(after.requests.every(r=>r.type==='construction'),'camera interaction must not execute or classify the sketch');
+    assert(after.replies.some(r=>r.bitmap));assert(after.replies.some(r=>r.pick?.objectId==='relief'));
+    await page.screenshot({path:resolve(output,'construction.png'),fullPage:true});
+    await writeFile(resolve(output,'construction.json'),JSON.stringify({passed:true,before,after},null,2));
+    await page.getByRole('button',{name:'3D',exact:true}).click();
+    const exported=await page.evaluate(async()=>{
+      const worker=window.sceneWorker,reply=window.sceneReply,id=900000002;
+      return new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('export timeout')),10000);const listener=e=>{if(e.data.id!==id)return;worker.removeEventListener('message',listener);clearTimeout(timeout);resolve(e.data.svg);};worker.addEventListener('message',listener);worker.postMessage({type:'plan-svg',id,planHash:reply.planHash,from:0,to:reply.plan[1],width:reply.paper.w,height:reply.paper.h,onlyPen:-1});});
+    });
+    assert.equal(exported,svg,'orbit must preserve the committed SVG byte for byte');
+  }
   assert(svg.includes('<path'));
   assert(/a84932/i.test(svg), 'named accent pen must survive Studio SVG export');
   await writeFile(resolve(output, 'studio.svg'), svg);
