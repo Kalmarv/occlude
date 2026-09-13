@@ -38,7 +38,8 @@ services:
         OCCLUDE_BUILD_STAMP: ${OCCLUDE_BUILD_STAMP:-docker}
     image: occlude-dev:latest
     network_mode: host
-    command: ["pnpm", "--filter", "occlude-studio", "dev", "--", "--host", "0.0.0.0", "--port", "${OCCLUDE_DEV_PORT:-5173}"]
+    # vite directly: pnpm run does not forward the flags through --filter
+    command: ["pnpm", "--filter", "occlude-studio", "exec", "vite", "--host", "0.0.0.0", "--port", "${OCCLUDE_DEV_PORT:-5173}", "--strictPort"]
     volumes:
       - ./packages/occlude/src:/src/packages/occlude/src
       - ./packages/occlude-studio/src:/src/packages/occlude-studio/src

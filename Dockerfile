@@ -106,4 +106,4 @@ CMD ["node", "server.mjs"]
 # The seed of the eventual containerised dev build: vite against bind-mounted
 # sources, node_modules and the wasm from the verified image.
 FROM verified AS dev
-CMD ["pnpm", "--filter", "occlude-studio", "dev", "--", "--host", "0.0.0.0"]
+CMD ["pnpm", "--filter", "occlude-studio", "exec", "vite", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]
