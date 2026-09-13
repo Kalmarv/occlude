@@ -9,3 +9,8 @@ packages/occlude-studio/results/
 packages/occlude-studio/fills/
 .playwright-cli/
 working/
+.serena/
+*.bundle
+packages/occlude/bench/*-results*
+packages/occlude/bench/results/
+packages/occlude/bench/*.png

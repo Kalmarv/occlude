@@ -32,7 +32,7 @@ Without `--baseline`, `--verify` requires every fractional case to succeed and
 checks deterministic geometry and callbacks. The historical comparison against
 `adbe654` applies to the performance commit `fbc4113`; the subsequent correctness
 fix intentionally changes circle-root rounding and resolves the baseline error.
-See `thicken-performance.md` in this directory for compiled timings,
+See `working/bench/thicken-performance.md` (bench notes and result dumps live under working/bench, untracked) for compiled timings,
 profiling results, and the baseline failure's reproducer.
 
 **These numbers are a regression check, not a comparison.** The log records
