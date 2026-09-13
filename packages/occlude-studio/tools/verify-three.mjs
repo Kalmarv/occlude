@@ -98,7 +98,7 @@ try {
       if(Math.abs(result.gpu.intervals[0][0]-.375)>1e-5) throw new Error('worker submission did not own its input snapshot');
       const abort = new AbortController(); const pending=client.render(makeInput(4),abort.signal).then(()=>false,e=>e.name==='AbortError');abort.abort();
       if(!await pending) throw new Error('worker cancellation was adopted');
-      const invalid=makeInput(5);invalid.pairs[0].volume.planes.pop();
+      const invalid=structuredClone(makeInput(5));invalid.pairs[0].volume.planes.pop();
       let failed=false;try { await client.render(invalid); } catch { failed=true; }
       if(!failed) throw new Error('invalid worker input succeeded');
       const recovered=await client.render(makeInput(6));
@@ -115,10 +115,57 @@ try {
   await page.waitForFunction(revision => window.threeEvidence?.cameraRevision > revision, previousRevision);
   assert.equal(await page.evaluate(() => window.threeEvidence.worker), true);
   await page.screenshot({ path: resolve(output, 'worker-restarted.png'), fullPage: true });
+  await page.selectOption('#scene','box');
+  await page.waitForFunction(()=>window.threeEvidence?.scene==='box');
+  const box=await page.evaluate(()=>window.threeEvidence);
+  assert.equal(box.features,12); assert.equal(box.selected,12);
+  assert.equal(box.visibleRuns,9); assert.equal(box.hiddenRuns,3);
+  const meshDownloadPromise=page.waitForEvent('download');await page.click('#download');
+  await (await meshDownloadPromise).saveAs(resolve(output,'box.svg'));
+  // The planner may join touching dashes at a source corner. Measure each
+  // straight segment, allowing the existing 0.005 mm finishing grid.
+  const dashLengths=await page.locator('#vectors [data-pen="hidden"] path').evaluateAll(paths=>paths.flatMap(p=>{
+    const d=p.getAttribute('d');
+    if(/[a-kno-z]/i.test(d))throw new Error('unexpected non-linear dash path');
+    const points=[...d.matchAll(/[ML]([\d.-]+) ([\d.-]+)/g)].map(m=>[Number(m[1]),Number(m[2])]);
+    return points.slice(1).map((p,i)=>Math.hypot(p[0]-points[i][0],p[1]-points[i][1]));
+  }));
+  assert(dashLengths.length>0 && dashLengths.every(n=>n<=2.008), `perspective dash segments exceed 2 mm finishing tolerance: ${JSON.stringify(dashLengths)}`);
+  assert(dashLengths.some(n=>Math.abs(n-2)<.008), 'full dashes must measure 2 mm');
+  await page.screenshot({path:resolve(output,'box.png'),fullPage:true});
+  await page.selectOption('#features','silhouette');
+  const silhouettes=await page.evaluate(()=>window.threeEvidence);
+  assert.equal(silhouettes.selected,6);assert.equal(silhouettes.adoptedMeshDispatches,box.adoptedMeshDispatches);assert(silhouettes.visibilityReused);
+  await page.selectOption('#features','marked');
+  assert.equal(await page.evaluate(()=>window.threeEvidence.selected),1);
+  await page.selectOption('#features','all');
+  const cameraBefore=await page.evaluate(()=>window.threeEvidence.cameraRevision);
+  await page.locator('#orbit').fill('115');await page.locator('#orbit').dispatchEvent('change');
+  await page.waitForFunction(revision=>window.threeEvidence.cameraRevision>revision,cameraBefore);
+  await page.selectOption('#scene','overlap');
+  await page.waitForFunction(()=>window.threeEvidence?.scene==='overlap');
+  const overlap=await page.evaluate(()=>window.threeEvidence);assert.equal(overlap.features,25);
+  await page.screenshot({path:resolve(output,'overlap.png'),fullPage:true});
+  const mesh=await page.evaluate(async({requireHardware})=>{
+    const {GpuIntervals3,box3,cameraFrame3,featureSnapshot3,classifySceneCpu3,classifySceneGpu3}=window.threeLabApi;
+    const frame=cameraFrame3({kind:'perspective',fovDegrees:60,eye:[4,-6,4],target:[0,0,0],near:.1,far:100},{x:0,y:0,width:150,height:100});
+    const objects=Array.from({length:20},(_,i)=>({id:`mesh${i}`,surface:box3([.1+i/20,1,1],[Math.sin(i),Math.cos(i),i/10])}));
+    const snapshot=featureSnapshot3(objects,[],frame);const cpu=classifySceneCpu3(snapshot);
+    const session=await GpuIntervals3.create(navigator.gpu,{requireHardware});
+    try {
+      const gpu=await classifySceneGpu3(snapshot,session,{pairCapacity:127});
+      cpu.features.forEach((f,i)=>{
+        const g=gpu.features[i];
+        if(f.hidden.length!==g.hidden.length || f.visible.length!==g.visible.length)throw new Error(`mesh visibility topology mismatch at ${i}`);
+        for(let j=0;j<f.hidden.length;j++)if(f.hidden[j].some((v,k)=>Math.abs(v-g.hidden[j][k])>1e-5))throw new Error(`mesh interval mismatch at ${i}`);
+      });
+      return {features:snapshot.features.length,triangles:snapshot.triangles.length,cpu:cpu.stats,gpu:gpu.stats};
+    }finally{await session.dispose();}
+  },{requireHardware:!software});
   // A missing browser favicon is not an application/shader error.
   const applicationErrors = errors.filter(e => !e.includes('404 (Not Found)'));
   assert.deepEqual(applicationErrors, []);
-  const report = { browser: browser.version(), args, software, orthographic, perspective, batch, workerLifecycle, applicationErrors };
+  const report = { browser: browser.version(), args, software, orthographic, perspective, batch, workerLifecycle, box, dashLengths, overlap, mesh, applicationErrors };
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2)+'\n');
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {

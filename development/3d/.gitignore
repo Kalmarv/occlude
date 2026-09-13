@@ -5,3 +5,5 @@ playwright-m1-software/*.webm
 playwright-m1-software/
 playwright-worker/*.webm
 playwright-worker-software/
+playwright-mesh/*.webm
+playwright-mesh/failure.png

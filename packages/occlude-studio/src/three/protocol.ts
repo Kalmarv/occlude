@@ -1,3 +1,5 @@
+import type { SurfaceObject3, WireObject3 } from 'occlude/src/three/features/snapshot.js';
+import type { ClassifiedScene3 } from 'occlude/src/three/visibility/scene.js';
 import type { CameraFrame3 } from 'occlude/src/three/camera.js';
 import type { Triangle3, Vec3 } from 'occlude/src/three/math.js';
 import type { GpuIntervalResult3, VisibilityPair3 } from 'occlude/src/compute/webgpu/interval.js';
@@ -22,13 +24,23 @@ export interface ThreeRenderResult {
   readonly cold: boolean;
   readonly worker: true;
 }
+export interface ThreeSceneInput {
+  readonly frame: CameraFrame3;
+  readonly objects: readonly SurfaceObject3[];
+  readonly wires: readonly WireObject3[];
+  readonly geometryRevision: number;
+  readonly cameraRevision: number;
+}
+export type ThreeSceneResult = Omit<ThreeRenderResult, 'gpu'> & { readonly drawing: ClassifiedScene3 };
+export type ThreeJobInput = ThreeRenderInput | ThreeSceneInput;
+export type ThreeJobResult = ThreeRenderResult | ThreeSceneResult;
 export type ThreeWorkerRequest =
   | { type: 'init'; canvas: OffscreenCanvas; requireHardware: boolean }
-  | { type: 'render'; id: number; input: ThreeRenderInput }
+  | { type: 'render'; id: number; input: ThreeJobInput }
   | { type: 'cancel'; id: number }
   | { type: 'dispose' };
 export type ThreeWorkerResponse =
-  | { type: 'result'; id: number; result: ThreeRenderResult }
+  | { type: 'result'; id: number; result: ThreeJobResult }
   | { type: 'error'; id: number; name: string; message: string }
   | { type: 'disposed' };
 export const abandonedThreeJob = () => new DOMException('3D render superseded or cancelled', 'AbortError');

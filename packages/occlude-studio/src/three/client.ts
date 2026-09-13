@@ -1,6 +1,6 @@
-import { abandonedThreeJob, type ThreeRenderInput, type ThreeRenderResult, type ThreeWorkerRequest, type ThreeWorkerResponse } from './protocol.js';
+import { abandonedThreeJob, type ThreeRenderInput, type ThreeRenderResult, type ThreeJobInput, type ThreeJobResult, type ThreeSceneInput, type ThreeSceneResult, type ThreeWorkerRequest, type ThreeWorkerResponse } from './protocol.js';
 
-type Pending = { id: number; resolve: (value: ThreeRenderResult) => void; reject: (error: unknown) => void; cleanup: () => void };
+type Pending = { id: number; resolve: (value: ThreeJobResult) => void; reject: (error: unknown) => void; cleanup: () => void };
 /** Latest-view client. postMessage captures inputs synchronously; the host never
  * transfers GPU objects. Restart creates a new client and a fresh HTML canvas. */
 export class ThreeWorkerClient {
@@ -34,7 +34,17 @@ export class ThreeWorkerClient {
     const pending = this.pending; this.pending = null;
     if (pending) { pending.cleanup(); pending.reject(error); }
   }
-  render(input: ThreeRenderInput, signal?: AbortSignal): Promise<ThreeRenderResult> {
+  async render(input: ThreeRenderInput, signal?: AbortSignal): Promise<ThreeRenderResult> {
+    const result = await this.submit(input, signal);
+    if (!('gpu' in result)) throw new Error('unexpected scene response for interval request');
+    return result;
+  }
+  async renderScene(input: ThreeSceneInput, signal?: AbortSignal): Promise<ThreeSceneResult> {
+    const result = await this.submit(input, signal);
+    if (!('drawing' in result)) throw new Error('unexpected interval response for scene request');
+    return result;
+  }
+  private submit(input: ThreeJobInput, signal?: AbortSignal): Promise<ThreeJobResult> {
     if (this.closed) return Promise.reject(new Error('3D worker is closed; restart with a fresh canvas'));
     if (signal?.aborted) return Promise.reject(signal.reason ?? abandonedThreeJob());
     this.cancel();

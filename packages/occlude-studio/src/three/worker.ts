@@ -1,7 +1,9 @@
+import { featureSnapshot3 } from 'occlude/src/three/features/snapshot.js';
+import { classifySceneGpu3 } from 'occlude/src/three/visibility/scene.js';
 import { GpuIntervals3 } from 'occlude/src/compute/webgpu/interval.js';
 import { GpuViewport3 } from 'occlude/src/compute/webgpu/viewport.js';
 import { ThreeJobQueue } from './jobs.js';
-import type { ThreeRenderInput, ThreeRenderResult, ThreeWorkerRequest, ThreeWorkerResponse } from './protocol.js';
+import type { ThreeJobInput, ThreeJobResult, ThreeWorkerRequest, ThreeWorkerResponse } from './protocol.js';
 
 /** The dedicated construction worker owns both viewport and compute device.
  * Paper output consumes owned CPU intervals on the host after final adoption. */
@@ -10,7 +12,7 @@ class ThreeWorkerHost {
   private viewport: GpuViewport3 | null = null;
   private generation = 0;
   constructor(private canvas: OffscreenCanvas, private requireHardware: boolean) {}
-  async render(input: ThreeRenderInput, signal: AbortSignal): Promise<ThreeRenderResult> {
+  async render(input: ThreeJobInput, signal: AbortSignal): Promise<ThreeJobResult> {
     signal.throwIfAborted();
     const started = performance.now();
     const cold = this.session === null || !this.session.available;
@@ -28,10 +30,19 @@ class ThreeWorkerHost {
     this.viewport ??= new GpuViewport3(this.session!.device, this.canvas, navigator.gpu.getPreferredCanvasFormat());
     const session = this.session!, info = session.adapterInfo;
     const deviceReadyMs = performance.now() - started;
+    const metadata = { adapter: { vendor: info.vendor, architecture: info.architecture, device: info.device, description: info.description, isFallbackAdapter: info.isFallbackAdapter }, geometryRevision: input.geometryRevision, cameraRevision: input.cameraRevision, deviceGeneration: this.generation, deviceReadyMs, cold, worker: true as const };
+    if ('objects' in input) {
+      const snapshot = featureSnapshot3(input.objects, input.wires, input.frame);
+      signal.throwIfAborted();
+      this.viewport.draw(input.frame, snapshot.triangles, snapshot.features.map(f=>[f.a,f.b] as const));
+      const drawing = await classifySceneGpu3(snapshot, session, { signal });
+      signal.throwIfAborted();
+      return { ...metadata, drawing };
+    }
     this.viewport.draw(input.frame, input.triangles, input.wires);
     const gpu = await session.classify(input.pairs, { signal, parameterTolerance: input.parameterTolerance });
     signal.throwIfAborted();
-    return { gpu, adapter: { vendor: info.vendor, architecture: info.architecture, device: info.device, description: info.description, isFallbackAdapter: info.isFallbackAdapter }, geometryRevision: input.geometryRevision, cameraRevision: input.cameraRevision, deviceGeneration: this.generation, deviceReadyMs, cold, worker: true };
+    return { ...metadata, gpu };
   }
   async release(): Promise<void> {
     this.viewport?.dispose(); this.viewport = null;

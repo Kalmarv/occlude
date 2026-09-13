@@ -1,6 +1,6 @@
-import { abandonedThreeJob, type ThreeRenderInput, type ThreeRenderResult } from './protocol.js';
+import { abandonedThreeJob, type ThreeJobInput, type ThreeJobResult } from './protocol.js';
 
-type Job = { id: number; input: ThreeRenderInput; controller: AbortController };
+type Job = { id: number; input: ThreeJobInput; controller: AbortController };
 /** One active GPU lease and one latest pending snapshot. Every publication is
  * checked against identity, including completions that ignored cancellation. */
 export class ThreeJobQueue {
@@ -9,11 +9,11 @@ export class ThreeJobQueue {
   private disposed = false;
   private drain: Promise<void> | null = null;
   constructor(
-    private run: (input: ThreeRenderInput, signal: AbortSignal) => Promise<ThreeRenderResult>,
-    private publish: (id: number, result: ThreeRenderResult) => void,
+    private run: (input: ThreeJobInput, signal: AbortSignal) => Promise<ThreeJobResult>,
+    private publish: (id: number, result: ThreeJobResult) => void,
     private fail: (id: number, error: unknown) => void,
   ) {}
-  submit(id: number, input: ThreeRenderInput): void {
+  submit(id: number, input: ThreeJobInput): void {
     if (this.disposed) { this.fail(id, abandonedThreeJob()); return; }
     this.active?.controller.abort();
     this.pending?.controller.abort();

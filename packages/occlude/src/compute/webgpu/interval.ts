@@ -53,7 +53,7 @@ export class GpuIntervals3 {
   classify(pairs: readonly VisibilityPair3[], options: GpuIntervalOptions3 = {}): Promise<GpuIntervalResult3> {
     const tolerance = options.parameterTolerance ?? 1e-5;
     if (!(tolerance > 0) || !Number.isFinite(tolerance)) return Promise.reject(new Error('parameter tolerance must be positive and finite'));
-    const owned = pairs.map(p => ({ a: [...p.a] as Vec3, b: [...p.b] as Vec3, volume: { planes: p.volume.planes.map(v => [...v] as typeof v) } }));
+    const owned = pairs.map(p => ({ a: [...p.a] as Vec3, b: [...p.b] as Vec3, volume: structuredClone(p.volume) }));
     const job = this.tail.then(() => this.run(owned, { ...options, parameterTolerance: tolerance }));
     this.tail = job.catch(() => {});
     return job;

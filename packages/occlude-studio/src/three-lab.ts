@@ -1,3 +1,7 @@
+import { box3 } from 'occlude/src/three/geometry/surface.js';
+import { featureSnapshot3, FeatureKind3 } from 'occlude/src/three/features/snapshot.js';
+import { classifySceneCpu3, classifySceneGpu3, type ClassifiedScene3 } from 'occlude/src/three/visibility/scene.js';
+import type { CameraFrame3 } from 'occlude/src/three/camera.js';
 import { exportSvg, initOcclude, line, mm, paper, pen, sketch } from 'occlude';
 import { cameraFrame3, toPaper3 } from 'occlude/src/three/camera.js';
 import { lerp3, type Triangle3, type Vec3 } from 'occlude/src/three/math.js';
@@ -10,15 +14,69 @@ const status = document.querySelector<HTMLParagraphElement>('#status')!;
 const evidence = document.querySelector<HTMLPreElement>('#evidence')!;
 const runButton = document.querySelector<HTMLButtonElement>('#run')!;
 const download = document.querySelector<HTMLButtonElement>('#download')!;
+const scene = document.querySelector<HTMLSelectElement>('#scene')!;
+const orbit = document.querySelector<HTMLInputElement>('#orbit')!;
+const featureFilter = document.querySelector<HTMLSelectElement>('#features')!;
 const projection = document.querySelector<HTMLSelectElement>('#projection')!;
 let canvas = document.querySelector<HTMLCanvasElement>('#viewport')!;
 // This dedicated laboratory exposes its kernels for browser conformance checks
 // against the exact production bundle (no Vite /@fs imports required).
-Object.assign(window, { threeLabApi: { GpuIntervals3, hiddenInterval3, occlusionVolume3, ThreeWorkerClient, cameraFrame3 } });
+Object.assign(window, { threeLabApi: { GpuIntervals3, hiddenInterval3, occlusionVolume3, ThreeWorkerClient, cameraFrame3, box3, featureSnapshot3, classifySceneCpu3, classifySceneGpu3 } });
 
 let client: ThreeWorkerClient | null = null, svg = '', revision = 0;
 
+const firstBox = box3([2,2,2]); firstBox.edges[0].attributes.marked = true;
+const secondBox = box3([2,1,2],[1,.4,.5]);
+const objects = [{id:'box',surface:firstBox,attributes:{group:'primary'}}];
+let meshCache: { drawing: ClassifiedScene3; frame: CameraFrame3; metadata: Record<string, unknown> } | null = null;
+let adoptedMeshDispatches = 0;
+
+function styleMesh(reused: boolean): void {
+  if (!meshCache) return;
+  const { drawing, frame, metadata } = meshCache;
+  const selected = drawing.features.filter(({feature:f}) => featureFilter.value === 'silhouette' ? !!(f.flags & FeatureKind3.silhouette) : featureFilter.value === 'marked' ? !!(f.flags & FeatureKind3.marked) : !!(f.flags & (FeatureKind3.boundary|FeatureKind3.silhouette|FeatureKind3.marked|FeatureKind3.wire)) || f.creaseAngle >= 30);
+  const marks = selected.flatMap(({feature,visible,hidden}) => {
+    const segment = (range: Interval3, name: string) => {
+      const a=toPaper3(frame,lerp3(feature.a,feature.b,range[0])), b=toPaper3(frame,lerp3(feature.a,feature.b,range[1]));
+      return line(mm(a[0]),mm(a[1]),mm(b[0]),mm(b[1]),{stroke:name,bridge:mm(0)});
+    };
+    const a=toPaper3(frame,feature.a),b=toPaper3(frame,feature.b),length=Math.hypot(b[0]-a[0],b[1]-a[1]);
+    const dashes: ReturnType<typeof line>[]=[];
+    if (length>0) for(const range of hidden) {
+      const start=toPaper3(frame,lerp3(feature.a,feature.b,range[0]));
+      const end=toPaper3(frame,lerp3(feature.a,feature.b,range[1]));
+      const lo=Math.hypot(start[0]-a[0],start[1]-a[1]),hi=Math.hypot(end[0]-a[0],end[1]-a[1]);
+      for(let distance=Math.floor(lo/4)*4;distance<hi;distance+=4) {
+        const from=Math.max(lo,distance)/length,to=Math.min(hi,distance+2)/length;
+        if(from<to)dashes.push(line(mm(a[0]+(b[0]-a[0])*from),mm(a[1]+(b[1]-a[1])*from),mm(a[0]+(b[0]-a[0])*to),mm(a[1]+(b[1]-a[1])*to),{stroke:'hidden',bridge:mm(0)}));
+      }
+    }
+    return [...visible.map(range=>segment(range,'outline')),...dashes];
+  });
+  svg=exportSvg(sketch({paper:paper({width:mm(150),height:mm(100)}),margin:0,seed:42,pens:{outline:pen({width:mm(.3),color:'#14283a'}),hidden:pen({width:mm(.2),color:'#9c6b79'})}},t=>{t.plan({bridge:false});return marks;}));
+  document.querySelector('#vectors')!.innerHTML=svg; download.disabled=false;
+  const report={...metadata,features:drawing.features.length,selected:selected.length,visibleRuns:selected.reduce((n,f)=>n+f.visible.length,0),hiddenRuns:selected.reduce((n,f)=>n+f.hidden.length,0),stats:drawing.stats,visibilityReused:reused,adoptedMeshDispatches,svgPaths:(svg.match(/<path\b/g)??[]).length};
+  evidence.textContent=JSON.stringify(report,null,2);Object.assign(window,{threeEvidence:report});
+  status.textContent=`${selected.length} selected features · ${drawing.stats.candidates} candidate pairs · ${reused?'cached visibility reused':`${drawing.stats.dispatches} GPU dispatches`}`;
+}
+async function runMesh(): Promise<void> {
+  const currentRevision=++revision, sceneName=scene.value, projectionName=projection.value;
+  status.textContent='Classifying mesh visibility…';
+  try {
+    client ??= new ThreeWorkerClient(canvas); await initOcclude(); if(currentRevision!==revision)return;
+    const angle=Number(orbit.value)*Math.PI/180;
+    const frame=cameraFrame3({...(projectionName==='perspective'?{kind:'perspective' as const,fovDegrees:45}:{kind:'orthographic' as const,span:6}),eye:[7*Math.cos(angle),7*Math.sin(angle),5],target:[0,0,0],near:.1,far:100},{x:0,y:0,width:150,height:100});
+    const sceneObjects=sceneName==='box'?objects:[...objects,{id:'crossing',surface:secondBox}];
+    const wires=sceneName==='box'?[]:[{id:'wire',points:[[-3,0,.2],[3,0,.2]] as Vec3[]}];
+    const result=await client.renderScene({frame,objects:sceneObjects,wires,geometryRevision:sceneName==='box'?1:2,cameraRevision:currentRevision});
+    if(currentRevision!==revision)return;
+    adoptedMeshDispatches+=result.drawing.stats.dispatches;
+    meshCache={drawing:result.drawing,frame,metadata:{passed:true,scene:sceneName,projection:projectionName,worker:result.worker,adapter:result.adapter,cameraRevision:currentRevision,deviceGeneration:result.deviceGeneration}};
+    styleMesh(false);
+  } catch(error) { if(currentRevision!==revision || (error instanceof Error && error.name==='AbortError'))return;status.textContent=String(error);console.error(error); }
+}
 async function run(): Promise<void> {
+  if (scene.value !== 'triangle') return runMesh();
   const currentRevision = ++revision, projectionName = projection.value;
   const current = () => currentRevision === revision;
   // The previous committed SVG stays exportable while a new view is pending.
@@ -75,6 +133,9 @@ async function run(): Promise<void> {
   }
 }
 runButton.addEventListener('click', () => void run());
+scene.addEventListener('change', () => void run());
+orbit.addEventListener('change', () => { if(scene.value!=='triangle')void run(); });
+featureFilter.addEventListener('change',()=>{if(scene.value!=='triangle')styleMesh(true);});
 download.addEventListener('click', () => {
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
   const a = document.createElement('a'); a.href = url; a.download = 'occlude-3d-visibility.svg'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
