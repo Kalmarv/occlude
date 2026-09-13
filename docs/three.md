@@ -193,3 +193,37 @@ export default sketchAsync({
   ];
 });
 ```
+
+
+## Plane-section contours
+
+`section3(surface, planes, { tolerance?, maxSegments? })` intersects fixed mesh triangles with planes `{ id, origin, normal, attributes? }` in the surface's model coordinates. It returns inspectable segments, barycentric source positions, supporting triangle indices and an owned frozen `surface`. Pass that exact surface and the returned `curves` together to a scene object. A later model edit requires new sections; the renderer rejects curves paired with another surface. Object transforms move the captured surface and its curves together. To cut with world-space planes, transform the mesh before generating its sections.
+
+Select `FeatureKind3.section` to style these curves. Section features carry `sectionPlane`, plane attributes and the supporting faces' attributes. Other faces of the same object can still occlude them. Coplanar patches contribute their boundary, without internal triangulation diagonals; isolated tangent vertices produce no stroke. Folded faces are intersected as their fixed triangles. Source endpoint IDs connect compatible pieces, so a triangulation crossing does not introduce a dash restart.
+
+The default zero-distance tolerance is `64 * Number.EPSILON` times the largest mesh coordinate relative to the plane origin. An explicit `tolerance` uses model units. Vertices inside that tolerance are treated as on-plane; no arbitrary vertex relocation occurs. `maxSegments` bounds intermediate candidate segments (default one million); exceeding it throws instead of dropping curves.
+
+```ts live
+import { sketchAsync, grid3, FaceSelection3, extrudeFaces3, section3, lineArt3, FeatureKind3, label, pen, mm } from 'occlude';
+
+export default sketchAsync({ seed: 42, pens: {
+  outline: pen({ width: mm(0.3), color: '#18202A' }),
+  sections: pen({ width: mm(0.25), color: '#A84932' }),
+} }, async t => {
+  let surface = grid3(6, 6, [4, 4]);
+  surface.faces.forEach(face => { face.attributes.height = t.rnd(0.5, 1.5); });
+  const selected = new FaceSelection3(surface).filter(f => f.index % 6 % 2 === 0 && Math.floor(f.index / 6) % 2 === 0);
+  surface = extrudeFaces3(surface, selected, f => Number(f.attributes.height), { operation: 'section-towers' });
+  const curves = section3(surface, [0.2, 0.4, 0.6, 0.8, 1, 1.2].map((height, i) => ({
+    id: `level-${i}`, origin: [0, 0, height], normal: [0, 0, 1], attributes: { height },
+  })));
+  return [lineArt3({
+    objects: [{ id: 'relief', surface: curves.surface, curves }],
+    camera: { kind: 'orthographic', span: 5.5, eye: [5, 7, 6], target: [0, 0, 0.4], near: 0.1, far: 30 },
+    lineSets: [
+      { id: 'edges', stroke: 'outline', select: f => (f.flags & (FeatureKind3.crease | FeatureKind3.silhouette | FeatureKind3.boundary)) !== 0 },
+      { id: 'sections', stroke: 'sections', select: f => (f.flags & FeatureKind3.section) !== 0 && f.faceAttributes.some(a => Number(a.height) > 0.7) },
+    ],
+  }), label('MODEL SECTIONS', 8, 94, 4, { stroke: 'outline' })];
+});
+```

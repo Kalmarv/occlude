@@ -215,3 +215,6 @@ export type { PointMeasure3, EdgeMeasure3, PointEdit3 } from './three/geometry/s
 
 export { constructStrokes3, FeatureSelection3 } from './three/strokes/construct.js';
 export type { ClassifiedScene3, ClassifiedFeature3 } from './three/visibility/scene.js';
+
+export { section3 } from './three/curves/section.js';
+export type { SectionPlane3, SurfaceCurves3, SurfaceCurveSegment3, SurfaceCurvePoint3 } from './three/curves/section.js';

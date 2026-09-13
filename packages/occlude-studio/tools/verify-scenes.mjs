@@ -4,7 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 const base = process.env.OCCLUDE_GPU_URL ?? 'http://127.0.0.1:5273';
-const output = resolve(process.env.OCCLUDE_GPU_EVIDENCE ?? '../../development/3d/playwright-phase');
+const output = resolve(process.env.OCCLUDE_GPU_EVIDENCE ?? '../../development/3d/playwright-sections');
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: false,
   env: { ...process.env, VK_DRIVER_FILES: '/usr/share/vulkan/icd.d/nvidia_icd.json' },
@@ -35,8 +35,8 @@ try {
   await page.goto(`${base}/docs.html#/three`);
   await page.locator('.live-example').first().waitFor().catch(async error => { await writeFile(resolve(output, 'failure.html'), await page.content()); await page.screenshot({ path: resolve(output, 'failure.png') }); throw error; });
   const examples = page.locator('.live-example');
-  assert.equal(await examples.count(), 6);
-  for (let i = 0; i < 6; i++) {
+  assert.equal(await examples.count(), 7);
+  for (let i = 0; i < 7; i++) {
     const example = examples.nth(i);
     await example.scrollIntoViewIfNeeded();
     await page.waitForFunction(index => { const out = document.querySelectorAll('.live-example')[index]; return out?.querySelector('canvas.live-canvas, .live-error'); }, i, { timeout: 60000 });
@@ -46,7 +46,7 @@ try {
     await example.screenshot({ path: resolve(output, `scene-${i}.png`) });
   }
   const reports = await page.evaluate(() => window.sceneReports);
-  assert.equal(reports.length, 6);
+  assert.equal(reports.length, 7);
   for (const report of reports) {
     assert.equal(report.adapter.isFallbackAdapter, false);
     assert(report.primitives > 0 && report.fragments > 0);
@@ -56,6 +56,7 @@ try {
   assert.deepEqual(errors, []);
   assert.equal(reports[4].scenes.length, 1, 'multiple styles must share one classification');
   assert.equal(reports[5].scenes.length, 1, 'ordered modifier examples must share one classification');
+  assert.equal(reports[6].scenes.length, 1, 'sections and edges share a classification');
   assert.deepEqual(reports[2].modeling.map(job => [job.operation, job.backend]), [['deform', 'gpu'], ['query', 'gpu']]);
   assert.equal(reports[2].modeling[0].dispatches, 16);
   assert.equal(reports[2].modeling[1].dispatches, 1);

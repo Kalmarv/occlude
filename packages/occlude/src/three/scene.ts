@@ -1,3 +1,4 @@
+import { validateSurfaceCurves3 } from './curves/section.js';
 import type { ModelingCompute3 } from './modeling.js';
 import { cameraFrame3, type Camera3, type PaperFrame3 } from './camera.js';
 import { snapshotSurface3 } from './geometry/model.js';
@@ -39,11 +40,12 @@ export function lineArt3(options: LineArtOptions3): LineArtScene3 {
     if (!owned) { owned = snapshotSurface3(surface); surfaces.set(surface, owned); }
     return owned;
   };
+  for(const object of options.objects??[])if(object.curves)validateSurfaceCurves3(object.curves,object.surface);
   return Object.freeze({
     __occludeLineArt3: true,
     camera,
     viewport: options.viewport && Object.freeze({ ...options.viewport }),
-    objects: Object.freeze((options.objects ?? []).map(object => Object.freeze({ ...object, surface: captureSurface(object.surface), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)) }))),
+    objects: Object.freeze((options.objects ?? []).map(object => Object.freeze({ ...object, surface: captureSurface(object.surface), curves: object.curves && freeze({surface:captureSurface(object.surface),segments:structuredClone(object.curves.segments)}), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)) }))),
     wires: freeze(structuredClone(options.wires ?? [])),
     lineSets: Object.freeze(options.lineSets.map(set => Object.freeze({ ...set }))),
     strokes: options.strokes && Object.freeze({ ...options.strokes }),
