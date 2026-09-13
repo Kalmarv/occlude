@@ -88,7 +88,7 @@ function setupMonaco(): void {
     JSON.stringify({ name: 'occlude', types: './src/index.ts', main: './src/index.ts' }),
     'file:///node_modules/occlude/package.json',
   );
-  setUserModuleTypes([], []);
+  applyUserModuleTypes();
   // occlude-core types aren't needed for sketches; stub the import used by init.ts.
   ts.addExtraLib(
     'declare const init: (i?: unknown) => Promise<unknown>; export default init; export function wasm_render(...a: unknown[]): unknown; export function wasm_export_gcode(...a: unknown[]): string; export function wasm_export_svg(...a: unknown[]): string;',
@@ -142,7 +142,17 @@ function moduleName(name: string): string {
  * libraries as they stand: every entry a factory of fresh instances with
  * overrides (`fineliner({ color: '#2457D6' })`). Call again after a
  * library edit; the newest declaration wins. */
+let userLibs: { pens: readonly { name: string }[]; papers: readonly { name: string }[] } = { pens: [], papers: [] };
+
 export function setUserModuleTypes(pens: readonly { name: string }[], papers: readonly { name: string }[]): void {
+  // Remembered, and applied now if Monaco is up — or when it comes up: the
+  // pages load their libraries before they create an editor.
+  userLibs = { pens, papers };
+  if (monacoReady) applyUserModuleTypes();
+}
+
+function applyUserModuleTypes(): void {
+  const { pens, papers } = userLibs;
   const ts = monaco.languages.typescript.typescriptDefaults;
   // Ambient module declarations: no top-level import in these files, or
   // `declare module` would AUGMENT a module instead of declaring one; the
