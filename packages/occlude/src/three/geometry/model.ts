@@ -75,12 +75,17 @@ export function transformSurface3(surface:Surface3,options:{translate?:Vec3;rota
   return assembleSurface3(points,surface.faces.map(f=>({...f,vertices:mirrored?[...f.vertices].reverse():f.vertices})),surface.triangles.map(t=>({...t,vertices:mirrored?[t.vertices[0],t.vertices[2],t.vertices[1]]:t.vertices})),surface);
 }
 
-/** Owned frozen input for one procedural pass; editable results are explicit. */
+const capturedSurfaces3=new WeakSet<Surface3>();
+
+/** Owned frozen input for one procedural pass; editable results are explicit.
+ * Trusted immutable snapshots are reusable across dependent generators. */
 export function snapshotSurface3(surface:Surface3):Surface3 {
+  if(capturedSurfaces3.has(surface))return surface;
   const snapshot=cloneSurface3(surface);
   const freeze=(value:unknown):void=>{if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const child of Object.values(value))freeze(child);Object.freeze(value);}};
   // Array containers are already frozen by assembly; recurse through rows.
   for(const p of snapshot.points){freeze(p.position);freeze(p.attributes);freeze(p);}for(const f of snapshot.faces){freeze(f.attributes);freeze(f);}for(const e of snapshot.edges){freeze(e.attributes);freeze(e);}
+  capturedSurfaces3.add(snapshot);
   return Object.freeze(snapshot);
 }
 export function stepsSurface3(initial:Surface3,count:number,pass:(input:Surface3,iteration:number)=>Surface3,options:{history?:number}={}):{surface:Surface3;history:readonly Surface3[]} {

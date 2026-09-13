@@ -218,3 +218,6 @@ export type { ClassifiedScene3, ClassifiedFeature3 } from './three/visibility/sc
 
 export { section3 } from './three/curves/section.js';
 export type { SectionPlane3, SurfaceCurves3, SurfaceCurveSegment3, SurfaceCurvePoint3 } from './three/curves/section.js';
+
+export { hatch3 } from './three/curves/hatch.js';
+export type { HatchFamily3, HatchSource3 } from './three/curves/hatch.js';

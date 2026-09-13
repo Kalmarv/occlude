@@ -42,7 +42,7 @@ export async function classifyForRun3(exec: Execution, scene: LineArtScene3, opt
   const job = (async () => {
     const f = exec.frame;
     const viewport = scene.viewport ?? { x: f.offsetX, y: f.offsetY, width: f.inner.innerW, height: f.inner.innerH };
-    const snapshot = featureSnapshot3(scene.objects, scene.wires, cameraFrame3(scene.camera, viewport));
+    const snapshot = featureSnapshot3(scene.objects, scene.wires, cameraFrame3(scene.camera, viewport),f.inner);
     const classified = options.compute3 ? await options.compute3.classify(snapshot, options) : classifySceneCpu3(snapshot);
     options.signal?.throwIfAborted();
     if (options.isOpen && !options.isOpen()) throw new Error('3D classification execution has finished');

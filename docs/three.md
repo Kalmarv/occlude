@@ -227,3 +227,63 @@ export default sketchAsync({ seed: 42, pens: {
   }), label('MODEL SECTIONS', 8, 94, 4, { stroke: 'outline' })];
 });
 ```
+
+
+## Surface hatch and crosshatch
+
+`hatch3(surface, families, { maxSegments? })` captures a per-face pattern recipe. `families` is an array or a callback from a frozen face measurement to an array; return `[]` to leave a face unhatched. Each family has a unique `id`, `spacing`, paper-space `angle` in clockwise degrees, optional `offset`, and optional attributes. Add a second family for crosshatch. The callback runs once during capture, so model attributes can control density or direction without another callback during camera changes.
+
+Pair `surface: hatch.surface` and `hatch` on the scene object. Generation waits until the camera and drawable paper frame are known. `mm(1)` means one millimetre between paper rulings; bare numbers and other length tags use the ordinary drawable units, even with a custom scene viewport. The pattern is view-dependent and is regenerated from its captured recipe for a different camera. Changing only a selector, pen or stroke modifier reuses classified geometry.
+
+Rulings share one paper-origin lattice across every triangle of a modeled face. Each segment is lifted onto its supporting triangle with perspective-correct source weights. Folded faces therefore have piecewise surface support; this is not curvature-following hatch. Edge-on projected triangles produce no hatch. Coincident outer boundary strokes are omitted, and no page-side cull removes possible style overscan. Candidate segments and ruling iterations are bounded by `maxSegments` (default one million); increase spacing or that explicit budget if generation exceeds it.
+
+Select `FeatureKind3.hatch`. Captured feature records retain `hatchFamily`, `hatchFace`, `hatchLine`, resolved `hatchSpacingMm`, family attributes and source face attributes. A generated feature's `curve` contains inspectable model-space endpoint positions, barycentric weights and supporting triangle indices before camera clipping. Hatch and sections can share the same immutable source: generate sections first, then pass `sections.surface` to `hatch3`. Trusted immutable snapshots are reused rather than copied again.
+
+```ts live
+import { sketchAsync, grid3, FaceSelection3, extrudeFaces3, transformSurface3, section3, hatch3, lineArt3, FeatureKind3, constructStrokes3, clip, rect, mask, label, pen, mm } from 'occlude';
+
+export default sketchAsync({ seed: 42, pens: {
+  outline: pen({ width: mm(0.3), color: '#18202A' }),
+  fine: pen({ width: mm(0.18), color: '#56626A' }),
+  accent: pen({ width: mm(0.25), color: '#A84932' }),
+} }, async t => {
+  let surface = grid3(6, 6, [4, 4]);
+  surface.faces.forEach(face => {
+    face.attributes.height = t.rnd(0.5, 1.5);
+    face.attributes.spacing = t.rnd(1.5, 2.5);
+  });
+  const selected = new FaceSelection3(surface).filter(f => f.index % 6 % 2 === 0 && Math.floor(f.index / 6) % 2 === 0);
+  surface = extrudeFaces3(surface, selected, f => Number(f.attributes.height), { operation: 'hatched-towers' });
+  surface = await t.deform3(surface, { iterations: 8, relaxation: 0,
+    displacements: surface.points.map(p => p.position[2] > 0 ? [0.003 * Math.sin(p.position[1]), 0.002 * Math.cos(p.position[0]), 0] : [0, 0, 0]),
+  });
+  const ceiling = transformSurface3(grid3(1, 1, [8, 8]), { translate: [0, 0, 1.1] });
+  const hits = await t.querySurface3(ceiling, { nearest: surface.points.map(p => ({ point: p.position })) });
+  surface.points.forEach((p, i) => { const hit = hits.nearest[i]; if (hit && p.position[2] > hit.point[2]) p.position = hit.point; });
+  const sections = section3(surface, [0.2, 0.4, 0.6, 0.8].map((height, i) => ({ id: `level-${i}`, origin: [0, 0, height], normal: [0, 0, 1] })));
+  const hatch = hatch3(sections.surface, face => {
+    if (face.attributes.role !== 'side' && face.attributes.role !== 'cap') return [];
+    const spacing = Number(face.attributes.spacing);
+    return [
+      { id: 'shade', spacing: mm(spacing), angle: face.normal[2] > 0.5 ? 35 : -35 },
+      ...(face.normal[2] > 0.5 ? [{ id: 'cross', spacing: mm(spacing * 2), angle: -35 }] : []),
+    ];
+  });
+  const classified = await t.classify3(lineArt3({
+    objects: [{ id: 'relief', surface: hatch.surface, hatch, curves: sections }],
+    camera: { kind: 'orthographic', span: 5.5, eye: [5, 7, 6], target: [0, 0, 0.4], near: 0.1, far: 30 }, lineSets: [],
+  }));
+  const strokes = constructStrokes3(classified, [
+    { id: 'edges', stroke: 'outline', select: f => (f.flags & (FeatureKind3.crease | FeatureKind3.silhouette | FeatureKind3.boundary)) !== 0 },
+    { id: 'hatch', stroke: 'fine', select: f => (f.flags & FeatureKind3.hatch) !== 0 },
+    { id: 'sections', stroke: 'accent', select: f => (f.flags & FeatureKind3.section) !== 0 },
+  ]);
+  return [
+    clip(rect(4, 4, 92, 84), t.strokes3(strokes)),
+    mask(rect(60, 75, 32, 13)),
+    label('HATCH / SECTIONS', 61, 78, 2.5, { stroke: 'outline' }),
+    label('PAPER SPACING', 61, 83, 2, { stroke: 'outline' }),
+    label('SURFACE STUDY', 8, 94, 4, { stroke: 'outline' }),
+  ];
+});
+```
