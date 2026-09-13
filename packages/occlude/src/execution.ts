@@ -1,3 +1,4 @@
+import type { ModelingStats3 } from './three/modeling.js';
 import type { LineArtScene3 } from './three/scene.js';
 import type { ClassifiedScene3 } from './three/visibility/scene.js';
 /**
@@ -202,6 +203,7 @@ export class Execution {
   frame: Frame;
   /** Captured 3D results owned by this run, available for inspection/re-styling. */
   readonly scenes3 = new Map<LineArtScene3, ClassifiedScene3>();
+  readonly modeling3: ModelingStats3[] = [];
 
   // ---- the recording ----
   shapes: Shape[] = [];

@@ -204,3 +204,9 @@ export type { SurfaceObject3, WireObject3, Feature3 } from './three/features/sna
 export type { Camera3, PaperFrame3 } from './three/camera.js';
 export type { LineSet3, Stroke3 } from './three/strokes/construct.js';
 export { GpuSceneCompute3 } from './compute/webgpu/scene.js';
+
+export { grid3, FaceSelection3, measureFaces3, extrudeFaces3, transformSurface3, stepsSurface3, cloneSurface3, snapshotSurface3 } from './three/geometry/model.js';
+export type { DeformOptions3 } from './three/geometry/deform.js';
+export type { SurfaceQueryInput3, SurfaceQueryResult3, ModelingStats3 } from './three/modeling.js';
+export type { RayQuery3, NearestQuery3, SurfaceHit3 } from './three/queries/surface.js';
+export type { Vec3 } from './three/math.js';

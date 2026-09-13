@@ -3,6 +3,12 @@ import type { SceneCompute3 } from '../../three/scene.js';
 import type { FeatureSnapshot3 } from '../../three/features/snapshot.js';
 import { classifySceneGpu3 } from '../../three/visibility/scene.js';
 import { GpuIntervals3 } from './interval.js';
+import { GpuDeform3 } from './deform.js';
+import { GpuSurfaceQueries3 } from './queries.js';
+import { captureDeform3, type DeformOptions3 } from '../../three/geometry/deform.js';
+import { SurfaceQueries3 } from '../../three/queries/surface.js';
+import type { Surface3 } from '../../three/geometry/surface.js';
+import type { SurfaceQueryInput3 } from '../../three/modeling.js';
 
 /** Host-owned, lazy device resource shared explicitly with executions. A lost
  * device is recreated for the next request; failed jobs are never replayed. */
@@ -10,6 +16,14 @@ export class GpuSceneCompute3 implements SceneCompute3 {
   private session?: GpuIntervals3;
   private creating?: Promise<GpuIntervals3>;
   private closed = false;
+  private deformation?: GpuDeform3;
+  private tail: Promise<unknown> = Promise.resolve();
+  private submit<T>(job: () => Promise<T>): Promise<T> {
+    if (this.closed) return Promise.reject(new Error('3D GPU host disposed'));
+    const result = this.tail.then(job);
+    this.tail = result.catch(() => undefined);
+    return result;
+  }
   private readonly options: { requireHardware?: boolean; memoryBudgetBytes?: number };
   constructor(private readonly gpu: GPU | undefined, options: { requireHardware?: boolean; memoryBudgetBytes?: number } = {}) {
     this.options = { ...options };
@@ -24,6 +38,7 @@ export class GpuSceneCompute3 implements SceneCompute3 {
     if (this.session?.available) return this.session;
     if (!this.creating) {
       this.creating = (async () => {
+        this.deformation = undefined;
         await this.session?.dispose();
         const session = await GpuIntervals3.create(this.gpu!, this.options);
         if (this.closed) { await session.dispose(); throw new Error('3D GPU host disposed'); }
@@ -33,14 +48,46 @@ export class GpuSceneCompute3 implements SceneCompute3 {
     }
     return this.creating;
   }
-  async classify(snapshot: FeatureSnapshot3, options: { signal?: AbortSignal } = {}) {
-    options.signal?.throwIfAborted();
-    const session = await this.acquire();
-    options.signal?.throwIfAborted();
-    return classifySceneGpu3(snapshot, session, options);
+  classify(snapshot: FeatureSnapshot3, options: { signal?: AbortSignal } = {}) {
+    const signal = options.signal;
+    return this.submit(async () => {
+      signal?.throwIfAborted();
+      const session = await this.acquire();
+      signal?.throwIfAborted();
+      return classifySceneGpu3(snapshot, session, { signal });
+    });
+  }
+  deform(surface: Surface3, options: DeformOptions3) {
+    const input = captureDeform3(surface, options), signal = options.signal;
+    return this.submit(async () => {
+      signal?.throwIfAborted();
+      const session = await this.acquire();
+      this.deformation ??= await GpuDeform3.create(session.device);
+      signal?.throwIfAborted();
+      return this.deformation.deform(input.surface, { iterations: input.iterations, relaxation: input.relaxation, displacements: input.displacements, pinned: [...input.pinned], signal });
+    });
+  }
+  query(surface: Surface3, queries: SurfaceQueryInput3, options: { signal?: AbortSignal } = {}) {
+    const source = new SurfaceQueries3(surface), captured = structuredClone(queries), signal = options.signal;
+    return this.submit(async () => {
+      signal?.throwIfAborted();
+      const session = await this.acquire();
+      const prepared = await GpuSurfaceQueries3.create(session.device, source);
+      try {
+        const rays = await prepared.rays(captured.rays ?? [], { signal });
+        const segments = await prepared.segments(captured.segments ?? [], { signal });
+        const nearest = await prepared.nearest(captured.nearest ?? [], { signal });
+        signal?.throwIfAborted();
+        return { result: { rays: rays.hits, segments: segments.hits, nearest: nearest.hits }, stats: {
+          dispatches: rays.stats.dispatches + segments.stats.dispatches + nearest.stats.dispatches,
+          transferBytes: rays.stats.transferBytes + segments.stats.transferBytes + nearest.stats.transferBytes,
+        } };
+      } finally { await prepared.dispose(); }
+    });
   }
   async dispose(): Promise<void> {
     this.closed = true;
+    await this.tail;
     await this.creating?.catch(() => undefined);
     await this.session?.dispose();
     this.session = undefined;

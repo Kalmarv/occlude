@@ -1,10 +1,11 @@
+import type { ModelingCompute3 } from './modeling.js';
 import { cameraFrame3, type Camera3, type PaperFrame3 } from './camera.js';
 import { snapshotSurface3 } from './geometry/model.js';
 import type { SurfaceObject3, WireObject3, FeatureSnapshot3 } from './features/snapshot.js';
 import type { ClassifiedScene3 } from './visibility/scene.js';
 import type { LineSet3, constructStrokes3 } from './strokes/construct.js';
 
-export interface SceneCompute3 {
+export interface SceneCompute3 extends Partial<ModelingCompute3> {
   classify(snapshot: FeatureSnapshot3, options: { signal?: AbortSignal }): Promise<ClassifiedScene3>;
 }
 export interface LineArtOptions3 {

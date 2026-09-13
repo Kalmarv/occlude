@@ -189,7 +189,7 @@ async function handleMessage(msg: Msg): Promise<void> {
           {
             type: 'render',
             id: msg.id,
-            three: run.scenes3.size ? { adapter: compute3.adapterInfo, scenes: [...run.scenes3.values()].map(s => s.stats) } : undefined,
+            three: run.scenes3.size || run.modeling3.length ? { modeling: run.modeling3, adapter: compute3.adapterInfo, scenes: [...run.scenes3.values()].map(s => s.stats) } : undefined,
             prims,
             frags,
             ghost,

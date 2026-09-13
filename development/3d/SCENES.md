@@ -16,7 +16,7 @@ Evidence:
 - `tools/verify-scenes.mjs`: direct Playwright on NVIDIA hardware. Two public sketches render through the docs worker; opening the crossing-box example in the main Studio renders again on the worker GPU. Export requests use that worker's cached plan and write an SVG. Main-thread adapter requests remain zero. See `playwright-scenes`.
 - Earlier 2D docs ink stays unchanged; two 3D example hashes are added explicitly.
 
-Still pending: GPU modeling/query operations on the bound toolkit, generic 3D selections/instances/point clouds, ordered stroke phase/modifier completion, M4 hatch and plane sections, main Studio camera/viewport/persistence/caching, and M5 performance/reference/handoff requirements. Box-to-box intersection curves remain beyond M5.
+Follow-up TOOLKIT.md adds GPU modeling/query operations on the bound toolkit. Still pending: generic 3D selections/instances/point clouds, ordered stroke phase/modifier completion, M4 hatch and plane sections, main Studio camera/viewport/persistence/caching, and M5 performance/reference/handoff requirements. Box-to-box intersection curves remain beyond M5.
 
 The final isolated dev image passes full `pnpm check`: Rust 11.1s, TS 21.1s, library types 5.4s, Studio types 5.1s, docs 12.8s, ink 14.4s, build 36.0s, smoke 2.2s. WASM is unchanged (`c21c4ef21cb4091b6019b1aa440f6bea`). The church regression is unchanged at seed 42: 15,601 chains, 96,037 mm drawing, 16,515 mm travel, 381.0 minutes (task-local before/after logs).
 

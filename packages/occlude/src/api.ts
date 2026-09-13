@@ -21,6 +21,7 @@
  */
 
 import type { LineArtScene3, SceneCompute3 } from './three/scene.js';
+import { bindModeling3 } from './three/modeling.js';
 import { resolveTree3 } from './three/resolve.js';
 import { checkDrawRequest, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours } from './record.js';
@@ -869,7 +870,7 @@ function boundEnv(run: Execution): BoundEnv {
  * closes over THIS execution. The pure module factories (shapes, fills,
  * modifiers, units, map/ease) are the same functions the package exports.
  */
-export function bindToolkit(exec: Execution) {
+export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; compute3?: SceneCompute3; isOpen?: () => boolean }) {
   /** Environment handed to the points module: seeded stream, drawable
    * bounds, and sketch-time length resolution (mm via the paper). */
   function pointsEnv(): import('./points.js').PointsEnv {
@@ -1124,6 +1125,7 @@ export function bindToolkit(exec: Execution) {
     bounds: opts.bounds ?? { x: 0, y: 0, w: b0.w, h: b0.h },
   });
   return {
+    ...bindModeling3(exec, scope),
     circle, ellipse, rect, line, ngon, stroke, path, group, clip, mask, decimate, wobble, modify,
     dash, smooth, roughen, deform, label,
     fill, rulings, ui,
@@ -1234,16 +1236,19 @@ export async function compileSketchAsync(
   const exec = inputs instanceof Execution ? inputs : new Execution(inputs);
   if (compilingAsync.has(exec)) throw new Error('execution already has an asynchronous compile in progress');
   compilingAsync.add(exec);
+  let open = true;
+  const scope = { ...options, isOpen: () => open };
   try {
     exec.begin(def.config);
-    const source = await def.fn(bindToolkit(exec));
+    const source = await def.fn(bindToolkit(exec, scope));
     const tree = containsLineArt3(source)
-      ? await resolveTree3(exec, source, options)
+      ? await resolveTree3(exec, source, scope)
       : source;
     options.signal?.throwIfAborted();
     emit(exec, tree, { pen: undefined, z: undefined, decimate: undefined, wobble: undefined, bridge: undefined, modifiers: [] });
     return exec;
   } finally {
+    open = false;
     compilingAsync.delete(exec);
   }
 }
