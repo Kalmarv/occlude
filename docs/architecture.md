@@ -112,6 +112,68 @@ packages/occlude-studio/
   src/store             localStorage persistence
 ```
 
+## Build and verification
+
+One toolchain, pinned in three files the tools read themselves:
+`rust-toolchain.toml` (rustc 1.98.0 + the `wasm32-unknown-unknown` target,
+honoured by rustup natively and in the image), `.node-version` (24.21.0)
+and the root `package.json` `packageManager` field (pnpm 10.30.1). The
+Dockerfile pins the rest: the `node:24.21.0-bookworm-slim` base image by
+digest, wasm-pack 0.13.1 by release-tarball sha256, and the same three
+versions as build args. To update: change the pin, rebuild, and let the
+wasm gate tell you whether the crate's bytes moved (a compiler bump that
+changes the wasm is an ink change to review, not a version bump to wave
+through). The reference platform is linux/amd64; the build needs network
+access to fetch crates, npm packages, rustup and wasm-pack.
+
+The build order is the one the README gives a developer, because
+`occlude-core` is a `link:` dependency on the wasm-pack output: crate
+first, then `pnpm install --frozen-lockfile`, then the gates. The wasm is
+built with the production feature set (`wasm,contour-sdf`, default
+features off); a native `cargo test` runs with `parallel` on, so the two
+are different builds of one source and the `wasm` gate is what ties the
+bundle to the crate.
+
+**Gate map** — `pnpm check` (`check.mjs`) prints one line per gate; the
+Docker `verified` stage runs the identical command after building the wasm
+from source, so the studio image exists only when every gate passed:
+
+| gate | command | proves |
+|---|---|---|
+| rust | `cargo test -p occlude-core` | the engine's unit, property and golden-scene tests |
+| ts | `pnpm -r test` | the library and studio vitest suites |
+| types | `pnpm --filter occlude typecheck` | `src`, `tools` and `test` compile |
+| studio | `pnpm --filter occlude-studio typecheck` | the studio compiles (vite only strips types) and `server.mjs` parses |
+| docs | `docs:check` | every `ts live` fence on every topic page renders, with no ink outside the drawable |
+| ink | `docs:hashes --check` | every fence renders the bytes in `test/fixtures/docs-ink.json` |
+| build | `pnpm build` | the library emits declarations; the studio bundles |
+| wasm | md5 in `check.mjs` | the bundled wasm is the crate's build, byte for byte |
+| smoke | `pnpm smoke` | a sketch with an arc, a cubic, a contour-filled disc, a hatched rect and a mask renders through the compiled wasm to a parseable SVG (`tools/smoke.ts`); the production server, started on a free port, answers every page, module, worker and the wasm asset the bundles resolve, and the served wasm is the crate's (`tools/smoke-server.mjs`) |
+
+Beyond the gates, the oracles a toolpath-affecting change consults by
+hand: `plotstats church.ts --seed 42` (381.0 min, 16 515 travel mm at
+0b661f7) and `renderhash --check` over the reference sketches.
+
+**Reproducibility** here means a clean checkout with the pinned toolchain
+produces a working build whose geometry is stable — the ink oracle and the
+wasm gate are the proof. It does not mean byte-identical bundles: the
+studio embeds a build stamp (commit + time) that the compose file passes
+in as `OCCLUDE_BUILD_STAMP`, and the plan hash's `engine` field carries it,
+so two builds of one commit agree on geometry and disagree on plan hashes
+by design (compare geometry and settings separately when checking parity).
+
+**Containers.** `docker-compose.yml` has two services: `studio`, the
+verified dist behind `server.mjs` with the sketch, fill, asset and result
+libraries bind-mounted from the checkout (one library, shared with a
+native server), and `dev` (profile `dev`), vite over bind-mounted sources
+from the same verified image — the seed of the eventual containerised dev
+build. BuildKit cache mounts keep the cargo registry, the cargo target dir
+and the pnpm store across builds, so a source change rebuilds only what
+changed; `docker builder prune` returns to the cold path, which must still
+pass. Nothing a developer's machine produced enters the context
+(`.dockerignore`): no `pkg`, `node_modules`, `target`, `dist`, `.git` or
+`working/`.
+
 ## The render pipeline (two wasm calls, one runtime)
 
 Everything from sketch execution to the second wasm call happens in ONE

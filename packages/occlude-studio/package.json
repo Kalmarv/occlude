@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "serve": "node server.mjs",
     "test": "../occlude/node_modules/.bin/vitest run",
-    "typecheck": "tsc --noEmit -p tsconfig.json && node --check server.mjs"
+    "typecheck": "tsc --noEmit -p tsconfig.json && node --check server.mjs",
+    "smoke": "node tools/smoke-server.mjs"
   },
   "dependencies": {
     "@awesome.me/webawesome": "3.12.0",

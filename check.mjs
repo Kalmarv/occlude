@@ -15,6 +15,12 @@
  *   ink        every fence renders the same bytes as the committed baseline
  *   build      library tsc + studio bundle
  *   wasm       the bundled wasm is the crate's build, byte for byte
+ *   smoke      a sketch through the compiled wasm to a parseable SVG, and
+ *              the production server resolving every module and the wasm
+ *
+ * The same command runs inside the Docker reference build (Dockerfile,
+ * stage `verified`), where the wasm was built from source first; that is
+ * the CI. The gate map lives in docs/architecture.md.
  *
  * `ink` is what makes a refactor provable: re-run with `--save` in the
  * occlude package after a DELIBERATE ink change (see tools/docs-hashes.ts).
@@ -70,6 +76,20 @@ if (!failed) {
     } else {
       console.log(`ok   wasm   ${built}`);
     }
+  }
+}
+
+// The smoke tests need the build and the wasm match, so they run last.
+if (!failed) {
+  const t0 = Date.now();
+  const r = spawnSync('pnpm', ['smoke'], { cwd: root, encoding: 'utf8' });
+  const secs = ((Date.now() - t0) / 1000).toFixed(1);
+  if (r.status !== 0) {
+    failed = 'smoke';
+    console.log(`FAIL smoke  ${secs}s`);
+    console.log([r.stdout, r.stderr].filter(Boolean).join('').trimEnd());
+  } else {
+    console.log(`ok   smoke  ${secs}s`);
   }
 }
 

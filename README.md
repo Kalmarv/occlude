@@ -53,6 +53,17 @@ pnpm --filter occlude-studio serve   # http://localhost:4173
 
 The production server serves the current `dist` files, so rebuilding the frontend does not require a server restart.
 
+### Reference build (Docker)
+
+The pinned toolchain lives in `rust-toolchain.toml`, `.node-version` and the root `package.json` (`packageManager`); the Dockerfile builds the wasm from source, installs from the lockfile, runs every gate in `pnpm check` and serves the result. It is the CI.
+
+```sh
+pnpm docker:build    # docker compose build — fails if any gate or smoke test fails
+pnpm docker:up       # studio on http://localhost:4173, libraries bind-mounted from this checkout
+```
+
+`pnpm check` is the same gate list natively; `pnpm smoke` runs just the two smoke tests. See [architecture](docs/architecture.md#build-and-verification) for the gate map and how to update the pins.
+
 ### Learn by making
 
 | Explore | Documentation |

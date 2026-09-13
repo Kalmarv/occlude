@@ -5,6 +5,13 @@
     "build:wasm": "cd crates/occlude-core && wasm-pack build --target web --out-dir pkg --features wasm,contour-sdf --no-default-features",
     "test": "pnpm -r test",
     "build": "pnpm -r build",
-    "check": "node check.mjs"
+    "check": "node check.mjs",
+    "smoke": "pnpm --filter occlude smoke && pnpm --filter occlude-studio smoke",
+    "docker:build": "OCCLUDE_BUILD_STAMP=$(git rev-parse --short HEAD) docker compose build",
+    "docker:up": "docker compose up -d studio"
+  },
+  "packageManager": "pnpm@10.30.1",
+  "engines": {
+    "node": "24.21.0"
   }
 }

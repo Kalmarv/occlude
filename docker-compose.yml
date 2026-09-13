@@ -1,0 +1,49 @@
+# occlude in containers. `docker compose build` IS the CI: the studio image
+# only exists once every gate and smoke test passed inside the build.
+#
+#   pnpm docker:build                       build + verify (stamps the commit)
+#   pnpm docker:up                          studio on http://localhost:${OCCLUDE_PORT:-4173}
+#   docker compose --profile dev up dev     vite dev server on :5173 (profile)
+#
+# The sketch, fill, asset and result libraries are bind-mounted from the
+# checkout, so the container and a native `pnpm --filter occlude-studio serve`
+# share one library. Host networking, as the other services on this box use
+# (the daemon's bridge address pools are spent): the server binds
+# OCCLUDE_PORT on the host directly.
+services:
+  studio:
+    build:
+      context: .
+      target: studio
+      args:
+        OCCLUDE_BUILD_STAMP: ${OCCLUDE_BUILD_STAMP:-docker}
+    image: occlude-studio:latest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      PORT: ${OCCLUDE_PORT:-4173}
+      HOST: ${OCCLUDE_HOST:-0.0.0.0}
+    volumes:
+      - ./packages/occlude-studio/sketches:/app/sketches
+      - ./packages/occlude-studio/fills:/app/fills
+      - ./packages/occlude-studio/assets:/app/assets
+      - ./packages/occlude-studio/results:/app/results
+
+  dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: dev
+      args:
+        OCCLUDE_BUILD_STAMP: ${OCCLUDE_BUILD_STAMP:-docker}
+    image: occlude-dev:latest
+    network_mode: host
+    command: ["pnpm", "--filter", "occlude-studio", "dev", "--", "--host", "0.0.0.0", "--port", "${OCCLUDE_DEV_PORT:-5173}"]
+    volumes:
+      - ./packages/occlude/src:/src/packages/occlude/src
+      - ./packages/occlude-studio/src:/src/packages/occlude-studio/src
+      - ./docs:/src/docs
+      - ./packages/occlude-studio/sketches:/src/packages/occlude-studio/sketches
+      - ./packages/occlude-studio/fills:/src/packages/occlude-studio/fills
+      - ./packages/occlude-studio/assets:/src/packages/occlude-studio/assets
+      - ./packages/occlude-studio/results:/src/packages/occlude-studio/results

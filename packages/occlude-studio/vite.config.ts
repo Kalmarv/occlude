@@ -5,6 +5,9 @@ import { defineConfig, type Plugin } from 'vite';
 /** The commit this build came from — shown in the status bar so "which
  * build is this tab on" is a glance, never a guess. */
 function buildStamp(): string {
+  // The reference build has no .git in its context (see .dockerignore); the
+  // compose file passes the commit in instead.
+  if (process.env.OCCLUDE_BUILD_STAMP) return process.env.OCCLUDE_BUILD_STAMP;
   try {
     const sha = execSync('git rev-parse --short HEAD', { cwd: __dirname }).toString().trim();
     const dirty = execSync('git status --porcelain --untracked-files=no -- ../../packages ../../crates', { cwd: __dirname }).toString().trim() ? '+' : '';

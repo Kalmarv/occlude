@@ -25,7 +25,8 @@
     "renderhash": "tsx tools/renderhash.ts",
     "docs:hashes": "tsx tools/docs-hashes.ts",
     "typecheck": "tsc -p tsconfig.check.json",
-    "store-sweep": "tsx tools/store-sweep.ts"
+    "store-sweep": "tsx tools/store-sweep.ts",
+    "smoke": "tsx tools/smoke.ts"
   },
   "dependencies": {
     "clipper-lib": "6.4.2",

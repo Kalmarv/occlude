@@ -1,0 +1,32 @@
+# Build context for the reference build: source, manifests, fixtures and
+# committed assets only. Everything a developer's machine produced stays out
+# so the image proves a clean checkout builds (CLAUDE.md: the wasm gate
+# compares the crate's build with the bundle, never a prebuilt copy).
+.git
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.yml
+node_modules
+**/node_modules
+target
+**/target
+**/dist
+crates/occlude-core/pkg
+*.log
+.DS_Store
+.claude
+.serena
+.playwright-cli
+working
+# studio libraries are runtime state, bind-mounted by compose
+packages/occlude-studio/sketches
+packages/occlude-studio/results
+packages/occlude-studio/fills
+packages/occlude-studio/*.bundle
+packages/occlude-studio/*.png
+# benchmark result dumps are not inputs to any gate
+packages/occlude/bench/*-results
+packages/occlude/bench/*-results.json
+packages/occlude/bench/*-results.jsonl
+packages/occlude/bench/contour-comparison

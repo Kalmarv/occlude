@@ -1,0 +1,8 @@
+# The Rust toolchain the reference build uses. rustup reads this file, so a
+# native checkout and the Docker build compile the crate with the same
+# compiler; bump it deliberately, together with the Dockerfile's wasm-pack
+# version, and re-run `pnpm check` (the wasm gate compares bytes).
+[toolchain]
+channel = "1.98.0"
+profile = "minimal"
+targets = ["wasm32-unknown-unknown"]
