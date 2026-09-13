@@ -1,3 +1,4 @@
+import { verifyWorldViewport3 } from './viewportCheck.js';
 import { initOcclude, exportSvg, sketch, paper, pen, mm } from 'occlude';
 import { grid3 } from 'occlude/src/three/geometry/model.js';
 import { box3 } from 'occlude/src/three/geometry/surface.js';
@@ -7,6 +8,7 @@ import { classifySceneCpu3, classifySceneGpu3, type ClassifiedScene3 } from 'occ
 import { constructStrokes3 } from 'occlude/src/three/strokes/construct.js';
 import { paperStrokes3 } from 'occlude/src/three/strokes/paper.js';
 import { GpuIntervals3 } from 'occlude/src/compute/webgpu/interval.js';
+import { GpuWorldViewport3 } from 'occlude/src/compute/webgpu/worldViewport.js';
 import { GpuViewport3 } from 'occlude/src/compute/webgpu/viewport.js';
 import { ConstructionScene3 } from './construction.js';
 import { orbitCamera3 } from './orbit.js';
@@ -43,11 +45,13 @@ self.onmessage=async()=>{
     const start=performance.now();await initOcclude();const wasmStartupMs=performance.now()-start;
     const deviceStart=performance.now();gpu=await GpuIntervals3.create(navigator.gpu!,{requireHardware:true});const gpuStartupMs=performance.now()-deviceStart;
     const resident=(await gpu.classify([])).residentBytes;
-    let activeBytes=resident,peakBytes=resident;
+    let activeBytes=resident,peakBytes=resident,phasePeak=resident;
     const create=gpu.device.createBuffer.bind(gpu.device);
-    gpu.device.createBuffer=descriptor=>{const buffer=create(descriptor);activeBytes+=descriptor.size;peakBytes=Math.max(peakBytes,activeBytes);const destroy=buffer.destroy.bind(buffer);let live=true;buffer.destroy=()=>{if(live){activeBytes-=descriptor.size;live=false;}destroy();};return buffer;};
+    gpu.device.createBuffer=descriptor=>{const buffer=create(descriptor);activeBytes+=descriptor.size;peakBytes=Math.max(peakBytes,activeBytes);phasePeak=Math.max(phasePeak,activeBytes);const destroy=buffer.destroy.bind(buffer);let live=true;buffer.destroy=()=>{if(live){activeBytes-=descriptor.size;live=false;}destroy();};return buffer;};
     const info=gpu.adapterInfo;
     const report:{[key:string]:unknown}={adapter:{vendor:info.vendor,architecture:info.architecture,device:info.device,description:info.description,isFallbackAdapter:info.isFallbackAdapter},wasmStartupMs,gpuStartupMs,viewport:[1120,840],pairCapacity:8192,intervalBufferBytes:resident,kernelTimestamps:'not collected; timings are end-to-end wall time',cases:[]};
+    report.viewportConformance=await verifyWorldViewport3(gpu.device,navigator.gpu!.getPreferredCanvasFormat());
+    postMessage({type:'progress',message:'retained viewport conformance passed'});
     const cases:unknown[]=[];
     for(const [name,make] of [['grid-4',()=>grid(4)],['grid-16',()=>grid(16)],['grid-40',()=>grid(40)],['grid-80',()=>grid(80)],['grid-100',()=>grid(100)],['city-30',()=>city(30)]] as const){
       postMessage({type:'progress',message:`${name}: construct and classify`});
@@ -77,6 +81,18 @@ self.onmessage=async()=>{
         }
         report.orbit={prepareMs,coldFrameMs:times[0],warmFrameMs:times.slice(1),warmMedianMs:median(times.slice(1)),warmFps:1000/median(times.slice(1)),peakExplicitBufferBytes:peakBytes,depthTextureBytes:1120*840*4,includes:'world-to-camera projection, raster submission, bitmap creation and GPU queue completion; excludes main-thread presentation'};
         viewport.dispose();viewport=undefined;
+        phasePeak=activeBytes;
+        const retainedCanvas=new OffscreenCanvas(1120,840),retained=new GpuWorldViewport3(gpu.device,retainedCanvas,navigator.gpu!.getPreferredCanvasFormat());
+        await retained.ready;
+        const retainedTimes:number[]=[];
+        try{
+          for(let i=0;i<13;i++){
+            const t=performance.now(),view=cameraFrame3(orbitCamera3(camera,i*.01,0),{x:0,y:0,width:1120,height:840});
+            retained.draw(view,source.triangles,source.wires);retainedCanvas.transferToImageBitmap().close();await gpu.device.queue.onSubmittedWorkDone();retainedTimes.push(performance.now()-t);
+          }
+          if(retained.stats.geometryUploads!==1)throw new Error('orbit re-uploaded unchanged geometry');
+          report.retainedOrbit={coldFrameMs:retainedTimes[0],warmFrameMs:retainedTimes.slice(1),warmMedianMs:median(retainedTimes.slice(1)),warmFps:1000/median(retainedTimes.slice(1)),...retained.stats,peakExplicitBufferBytes:phasePeak,depthTextureBytes:1120*840*4,includes:'camera uniforms, raster submission, bitmap creation and GPU queue completion; excludes main-thread presentation'};
+        }finally{retained.dispose();}
         postMessage({type:'progress',message:'large orbit measured'});
       }
       if(name==='city-30')postMessage({type:'svg',name,svg});

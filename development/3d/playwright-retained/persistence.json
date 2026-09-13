@@ -1,0 +1,77 @@
+{
+  "passed": true,
+  "id": "20260913T233504Z-euqg",
+  "captureRestored": true,
+  "previewCameraChanged": true,
+  "committedCamera": {
+    "kind": "orthographic",
+    "span": 5.5,
+    "eye": [
+      5,
+      7,
+      6
+    ],
+    "target": [
+      0,
+      0,
+      0.4
+    ],
+    "near": 0.1,
+    "far": 30,
+    "up": [
+      0,
+      0,
+      1
+    ]
+  },
+  "planHash": "63022e5dc4713e8206bcaec4253fc6c3691ad457be021e8f8fd19176eb3b7678",
+  "planBytes": 60328,
+  "svgBytes": 38426,
+  "capturedScenes": 1,
+  "points": 85,
+  "generated": 1354,
+  "requests": [
+    "plan-load",
+    "plan-toolpath",
+    "plan-gcode",
+    "plan-svg"
+  ],
+  "adapterRequests": 0,
+  "changedPens": [
+    {
+      "name": "outline",
+      "width": 0.6,
+      "color": "#00FF00",
+      "feed": 1500,
+      "penDown": 0,
+      "penUp": 5,
+      "penDelay": 200
+    },
+    {
+      "name": "fine",
+      "width": 0.36,
+      "color": "#00FF00",
+      "feed": 1500,
+      "penDown": 0,
+      "penUp": 5,
+      "penDelay": 200
+    },
+    {
+      "name": "accent",
+      "width": 0.5,
+      "color": "#00FF00",
+      "feed": 1500,
+      "penDown": 0,
+      "penUp": 5,
+      "penDelay": 200
+    }
+  ],
+  "changedPapers": [
+    {
+      "name": "Changed paper",
+      "w": 80,
+      "h": 90,
+      "color": "#FF00FF"
+    }
+  ]
+}

@@ -245,8 +245,7 @@ async function handleMessage(msg: Msg): Promise<void> {
         if (msg.pick) {
           self.postMessage({ type: 'construction', id: msg.id, revision: msg.revision, pick: scene.pick(msg.camera,msg.width,msg.height,msg.pick.x,msg.pick.y) });
         } else {
-          const geometry = scene.project(frame);
-          const bitmap = await compute3.preview3(frame,geometry.triangles,geometry.wires,msg.width,msg.height);
+          const bitmap = await compute3.preview3(frame,scene.triangles,scene.wires,msg.width,msg.height);
           self.postMessage({ type: 'construction', id: msg.id, revision: msg.revision, bitmap }, { transfer: [bitmap] });
         }
         break;
