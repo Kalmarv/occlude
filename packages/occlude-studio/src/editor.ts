@@ -144,15 +144,18 @@ function moduleName(name: string): string {
  * library edit; the newest declaration wins. */
 export function setUserModuleTypes(pens: readonly { name: string }[], papers: readonly { name: string }[]): void {
   const ts = monaco.languages.typescript.typescriptDefaults;
-  const penLines = pens.map((p) => `  /** ${p.name} — a fresh instance of the library pen, with overrides. */\n  export const ${moduleName(p.name)}: (overrides?: Partial<Omit<PenDef, 'name'>>) => Omit<PenDef, 'name'>;`);
-  const paperLines = papers.map((p) => `  /** ${p.name} — a fresh sheet from the library paper, with overrides. */\n  export const ${moduleName(p.name)}: (overrides?: Partial<PaperSpec>) => PaperSpec;`);
+  // Ambient module declarations: no top-level import in these files, or
+  // `declare module` would AUGMENT a module instead of declaring one; the
+  // occlude types are reached with `import()` type queries inside.
+  const penLines = pens.map((p) => `  /** ${p.name} — a fresh instance of the library pen, with overrides. */\n  export const ${moduleName(p.name)}: (overrides?: Partial<Omit<import('occlude').PenDef, 'name'>>) => Omit<import('occlude').PenDef, 'name'>;`);
+  const paperLines = papers.map((p) => `  /** ${p.name} — a fresh sheet from the library paper, with overrides. */\n  export const ${moduleName(p.name)}: (overrides?: Partial<import('occlude').PaperSpec>) => import('occlude').PaperSpec;`);
   ts.addExtraLib(
-    `import type { PenDef } from 'occlude';\ndeclare module '@user/pens' {\n${penLines.join('\n')}\n}\n`,
-    'file:///node_modules/@user/pens/index.d.ts',
+    `declare module '@user/pens' {\n${penLines.join('\n')}\n}\n`,
+    'file:///user-pens.d.ts',
   );
   ts.addExtraLib(
-    `import type { PaperSpec } from 'occlude';\ndeclare module '@user/papers' {\n${paperLines.join('\n')}\n}\n`,
-    'file:///node_modules/@user/papers/index.d.ts',
+    `declare module '@user/papers' {\n${paperLines.join('\n')}\n}\n`,
+    'file:///user-papers.d.ts',
   );
 }
 
