@@ -185,16 +185,8 @@ export default sketch(sketchConfig, (t) => {
 });
 `;
 
-/** Blank-slate starter for the New button: one visible mark, no tutorial. */
-export const NEW_SKETCH = `import { sketch } from 'occlude';
-
-export default sketch({ aspect: [3, 2], margin: 6 }, (t) => {
-  const { circle, bounds } = t;
-  const b = bounds();
-
-  return [circle(b.cx, b.cy, b.h / 4)];
-});
-`;
+/** What the New button starts from: the same starter as a fresh studio. */
+export const NEW_SKETCH = DEFAULT_SKETCH;
 
 /** Starter for a new fill file: declared params, a pure generator, no
  * imports beyond occlude, no captures — the storable shape. */
