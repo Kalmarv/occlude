@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   curve,
   material,
-  force,
+
   type StepRule,
   type Handle,
 } from '../src/material.js';
+import { force } from '../src/forces.js';
 import type { PointSelection } from '../src/relation.js';
 
 describe('selection-first step passes', () => {

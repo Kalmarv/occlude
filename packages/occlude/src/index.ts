@@ -55,13 +55,15 @@ export type { FillSpec, CustomFillFn, CustomPrimitive, FillRegion } from './fill
 // resample, reinterpret (pure; the toolkit's t.sample turns a shape into
 // material with its outline's connectivity).
 export {
-  material, curve, append, connect, Material, segmentRuns, neighbours, extent, banding,
-  add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy,
-  force, ownedBy,
+  material, curve, append, connect, Material, segmentRuns, extent, banding,
 } from './material.js';
+export { add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy } from './vec.js';
+export { ownedBy } from './views.js';
+export { force, neighbours, sumForces } from './forces.js';
 export { query } from './query.js';
-export { inheritEdge, sumForces } from './material.js';
-export type { EdgeTransfer, EdgeRef, StepRule, StepsOptions } from './material.js';
+export { inheritEdge } from './steps.js';
+export type { EdgeRef, StepRule, StepsOptions } from './steps.js';
+export type { EdgeTransfer } from './material.js';
 export { stationsMaterial, isStations } from './material.js';
 export { thicken } from './thicken.js';
 export type { ThickenOpts } from './thicken.js';
@@ -71,9 +73,11 @@ export { planarize, faces, Faces, FaceSelection } from './faces.js';
 export type { Face, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
 export type { EdgeQuery, NearestHit, FirstHit } from './query.js';
 export type {
-  Vertex, Edge, Curve, Station, Next, Handle, Ref, ChildSpec, ChildInterval, SplitOpts, Snapshot, Transfer, TransferPolicy, NeighbourStats,
-  SegmentRun, Sources, PointsLike, Vec, XY,
+  Vertex, Edge, Curve, Station, Snapshot, Transfer, TransferPolicy, SegmentRun, PointsLike,
 } from './material.js';
+export type { Next, Handle, Ref, ChildSpec, ChildInterval, SplitOpts } from './steps.js';
+export type { NeighbourStats, Sources } from './forces.js';
+export type { Vec, XY } from './vec.js';
 
 // Units.
 export { w, h, s, long, mm, degrees, radians, Len } from './units.js';

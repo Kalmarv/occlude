@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { material, curve, force } from "../src/material.js";
+import { material, curve } from "../src/material.js";
+import { force } from "../src/forces.js";
 import {
   orderedSteps,
   type OrderedEditor,

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  add, append, banding, connect, curve, distance, extent, isStations, length, limit, material, mul, neighbours, perp, segmentRuns, stationsMaterial, sub, sum, sumBy, unit,
-  force, type Material, type Next,
+  add, append, banding, connect, curve, distance, extent, isStations, length, limit, material, mul, perp, segmentRuns, stationsMaterial, sub, sum, sumBy, unit,
+  type Material, type Next,
 } from '../src/material.js';
+import { force, neighbours } from '../src/forces.js';
 const { adjacent, attract, boundary, drift, field, nearby, relax, separation, tension, vortex } = force;
 
 const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0 });

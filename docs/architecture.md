@@ -251,6 +251,142 @@ selections and union boundaries. Attribute transfer (interpolate or
 nearest for points, copy or distribute for edges) is declared per column
 and honoured by split, resample, planarize and append.
 
+## Contracts
+
+What the code guarantees today, stated as rules and linked to where each
+one lives. Everything under a **Future** label is a proposal, not an API;
+nothing in a sketch may rely on it.
+
+### Materials: ownership and identity
+
+*Where:* `material.ts` (`Material`, its constructor, `attribute`,
+`withEdges`, `resample`, `steps`), `views.ts` (`viewProto`, `viewKind`,
+`ownedBy`), `relation.ts` (`PointSelection`, `EdgeSelection`), pinned by
+`test/material-contracts.test.ts` and `test/material.test.ts`.
+
+- **Columns.** A state is `x`, `y` (`Float64Array`, `n` long), point
+  attribute columns by name (each `n` long), an edge list (`Uint32Array`,
+  `[a0, b0, a1, b1, …]`, stored order, each pair a distinct row and never
+  `a === b`), and edge attribute columns (each `edgeCount` long). `x`,
+  `y`, `index` are reserved point names; `a`, `b`, `length`, `index` are
+  reserved edge names. The constructor checks lengths and edge ranges.
+- **Ownership on construction.** The constructor *adopts* the arrays it
+  is given; every library operation that derives a state (`attribute`,
+  `edgeAttribute`, `withEdges`, `resample`, `append`, `withinMaterial`,
+  `steps`, `extract`, `planarize`) copies its columns first, so no two
+  materials the library made share an array. The object, its column
+  records, policies and history are `Object.freeze`d; typed-array
+  *contents* are not freezable, so `m.x[i] = …` from a sketch writes into
+  that one state.
+- **What a direct write reaches** (current behaviour, pinned): views
+  (`vertex`, `edge`), `pts`, `curves()` and every derivation made after
+  the write read the columns live. Adjacency (`connected`, `degree`) is
+  built lazily from the edge list only and cannot go stale on a
+  coordinate write. A prepared `query.edges(m)` copied the endpoints
+  and keeps them. A prepared `neighbours(m)` (and every force built on
+  it) keeps its buckets but reads distances live, so a row written away
+  drops out of its old cell's answers while a row written near is never
+  found. `faces()` is computed once per state and returned from the cache
+  thereafter. Nothing invalidates on a write. Sketches should treat
+  states as immutable; the library does.
+- **Identity.** State identity is the `Material` object. Row indices are
+  positions within one state, never identities across states: every
+  structural edit renumbers. A vertex or edge *view* is a plain object
+  whose prototype carries the owner and kind as non-enumerable symbols
+  (`views.ts`); `ownedBy(view, m)` is the only identity test, and a spread
+  or JSON copy is unowned. Selections (`m.points.filter`) bind to the
+  exact source state and combine only with selections of the same state.
+- **Lineage.** `iteration` counts `steps()` transitions; `attribute`,
+  `withEdges`, `resample` and `withinMaterial` keep it, `append`,
+  `extract` and `planarize` start a new one at 0. `history` is written by
+  one `steps({ every })` call and never touched again.
+
+**Future** (not implemented): a backend that uploads a state must key its
+copy on an explicit upload snapshot or a backend-owned versioned value,
+not on `Material` object identity, because a sketch can write the arrays
+after upload. A cached derived structure that a backend produces needs
+the same treatment.
+
+### Passes and edits
+
+*Where:* `Material.steps` (the loop, snapshots), `steps.ts` (`Next`,
+`stepOnce`, `StepKit`), pinned by `test/step-passes.test.ts`,
+`test/transfer.test.ts` and the `steps` block of `test/material.test.ts`.
+
+- **Frozen input, described output.** A pass `(prev, next, k)` reads
+  `prev` — frozen — and describes edits on `next`. No edit changes what a
+  later callback in the same pass reads. `stepOnce` starts from a copy of
+  every column, records the batch, then commits it as one new state.
+- **Several passes per iteration** run in order; each receives the
+  previous pass's committed output as its `prev`. All passes of an
+  iteration share `k`. A selection, view or handle belongs to the pass it
+  was taken in: the next pass must select again from its own input
+  (`steps: selection is of another state`). A pass that throws publishes
+  nothing; the input state is untouched.
+- **Iteration and history.** Iteration `this.iteration + k + 1` is the
+  number of the state a completed iteration produces; `steps()` continues
+  the count of its input. With `{ every }`, `history` holds the input
+  state (labelled with its iteration), every `every`-th completed
+  iteration, and the final one, each once, oldest first; passes within an
+  iteration are never captured.
+- **Order of resolution** inside one batch (`stepOnce`): moves and
+  attribute writes first (moves add up; the last write of a field wins),
+  on the copy; then the *moved* state is built and split transfer
+  callbacks read it; conflicts are checked (a removed vertex that was
+  also moved or set, a split edge that is disconnected or loses an
+  endpoint, an edge set and disconnected); splits are resolved per
+  original edge — sorted by parameter, equal parameters merged, one
+  child-edge definition per edge, point columns inherited from the moved
+  endpoints by the column's declared policy then overridden explicitly;
+  rows are compacted — survivors in order, each edge's split vertices
+  right after the edge's start row, added points last; edges are emitted
+  — survivors (split into chains, edge columns copied or distributed by
+  the child's share), then new connections in request order, an existing
+  pair left as it is; finally the new state. A `split` at 0 or 1 creates
+  nothing and returns the existing endpoint. `extrude` is `addPoint` +
+  `connect` per child, in selection order.
+- **Handles** are opaque, batch-bound, and refused by any other batch
+  (`that handle belongs to another edit batch`).
+
+The repository also carries an *experimental* ordered/live editing
+prototype (`bench/ordered-steps/`, `test/ordered-steps.test.ts`). It is a
+study, not the production contract; nothing above applies to it and
+nothing in it applies here.
+
+### Geometry queries
+
+*Where:* `query.ts` (`edges`, `EPS`), pinned by the `query.edges` blocks
+of `test/material.test.ts`.
+
+- **Preparation and lifetime.** `query.edges(m)` copies the edge
+  endpoints of `m` and builds a uniform grid over their boxes; the
+  returned object is valid for that state and keeps that geometry for as
+  long as it is held (see the ownership rule above). Vertex adjacency for
+  `excludeIncident` is built on first use.
+- **Coordinates and tolerance.** The material's own coordinates; straight
+  segments between sampled vertices; no snapping. `EPS = 1e-9` relative
+  to the larger of 1 and the extents in play decides on-the-line,
+  parallel and collinear. This engine is separate from the analytic
+  line/arc/cubic visibility kernel in the core and shares nothing with it.
+- **Answers.** `nearest` is the least `(distance, edge index)` pair with
+  `distance ≤ within` (inclusive); `firstHit` the least `(along, edge
+  index)` pair; both are order-independent, so pruning changes nothing
+  (`working/perf-loop.md`, entry 1, is the proof by differential
+  harness). A miss is `null`. Ties go to the earlier source edge.
+  Endpoint contact counts as a hit of kind `touch`; a collinear overlap
+  reports the start of the overlapping interval as `overlap`; anything
+  interior is `crossing`. A zero-length move is a contact query at
+  `from`. `excludeIncident` skips every edge incident to that vertex of
+  the *queried* state and refuses a vertex of another state.
+- **Source identity.** A hit carries `edge`, a live view of the queried
+  material (its row index and endpoints as the material holds them now),
+  plus the position and parameters as computed on the prepared copy.
+
+**Future** (not implemented): a batch seam would take arrays of query
+positions (and, for `firstHit`, targets) and return parallel arrays of
+source edge indices, parameters and distances with `-1` for a miss —
+the same lexicographic answers, so a batch and a loop must agree exactly.
+
 ## Plan and results
 
 `plan(render(def))` runs merge → tour → bridge once in the core and

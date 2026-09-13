@@ -2,9 +2,9 @@ import {
   append,
   curve,
   material,
-  force,
   type Material,
 } from "../../src/material.js";
+import { force } from "../../src/forces.js";
 import { edges as edgeQuery } from "../../src/query.js";
 import { orderedSteps } from "./prototype.js";
 
