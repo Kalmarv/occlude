@@ -163,30 +163,25 @@ export const DEFAULT_PROFILE: MachineProfile = {
   },
 };
 
-export const DEFAULT_SKETCH = `import { sketch, mm } from 'occlude';
+export const DEFAULT_SKETCH = `import { sketch, circle, paper, pen, inch, mm } from 'occlude';
+import { micron_01 } from '@user/pens';
 
-// A sketch is a pure function: toolkit in, tree of shapes out.
-// Tree order is draw order — filled shapes hide what's beneath them.
-export default sketch({ aspect: [3, 2], margin: 6 }, (t) => {
-  const { circle, rect, line, fill, grid, rnd, chance, bounds } = t;
-  const b = bounds();
+const sketchConfig = {
+  paper: paper({ width: inch(12), height: inch(12), color: '#ffffff' }),
+  pens: {
+    fine: micron_01(),
+    heavy: pen({ width: mm(1.0), color: '#000000' }),
+  },
+  margin: 5,
+};
 
-  return [
-    // A horizon line, drawn first so everything above occludes it.
-    line(0, b.cy, b.w, b.cy),
-
-    grid({ cols: 6, rows: 4, gap: 2 }).map((cell) => {
-      const cx = cell.x + cell.w / 2;
-      const cy = cell.y + cell.h / 2;
-      return chance(0.7)
-        ? circle(cx, cy, cell.w * rnd(0.28, 0.5), {
-            fill: fill('hatch', { angle: rnd(180), spacing: mm(rnd(0.8, 2)) }),
-          })
-        : rect(cell.x + 2, cell.y + 2, cell.w - 4, cell.h - 4, 2, {
-            fill: fill('stipple', { density: 0.6 }),
-          });
+export default sketch(sketchConfig, (t) => {
+  const art = t.times(12, () =>
+    circle(t.rnd(10, 90), t.rnd(10, t.height - 10), t.rnd(5, 12), {
+      opaque: true,
     }),
-  ];
+  );
+  return art;
 });
 `;
 
