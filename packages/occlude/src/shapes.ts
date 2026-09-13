@@ -117,6 +117,7 @@ export class Shape {
   zIndex: number;
   /** Endpoint-join tolerance (unresolved length); undefined = no bridging. */
   bridge?: import('./units.js').L;
+  preserveStroke = false;
   /** Ordered modifier stack; post-stage entries run after occlusion. */
   modifiers: ModifierValue[] = [];
   /** Draw order index — the z tiebreak and default z. */
@@ -137,6 +138,7 @@ export class Shape {
     // re-assigned so the clone stacks where it was drawn.
     this.zIndex = from && from.zIndex !== from.order ? from.zIndex : this.order;
     if (from) {
+      this.preserveStroke = from.preserveStroke;
       this.fillSpec = from.fillSpec;
       this.fillPen = from.fillPen;
     }

@@ -24,7 +24,8 @@
 //!    fill_kind, clip_start, clip_count, fill_start, fill_count,
 //!    mod_start, mod_count]
 //!   flags: bit0 closed, bit1 convex, bit2 even-odd winding,
-//!          bit3 disables native contour connectors (unset in legacy buffers).
+//!          bit3 disables native contour connectors (unset in legacy buffers),
+//!          bit4 preserves outline runs and their gaps through routing.
 //!   fill_kind: 0 none, 1 pending (ink arrives at finish as supplied
 //!            prims + dots — the two-pass path), 2 mask. The engine
 //!            generates native contour ink (kind 3); hatch/stipple remain JS fill modules.
@@ -335,6 +336,7 @@ pub fn decode_render_input(
             fill,
             z: shapes_f64[i * shape_stride],
             bridge_mm: shapes_f64[i * shape_stride + 1],
+            preserve_stroke: flags & 16 != 0,
             clips: clip_list[s[6] as usize..clip_end].to_vec(),
             modifiers: decode_modifiers(mods, s[10] as usize, s[11] as usize)?,
         });

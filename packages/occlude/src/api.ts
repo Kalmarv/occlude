@@ -96,6 +96,8 @@ export interface ShapeOpts {
    * or group; borders/text simply don't set it. Debug view highlights the
    * connectors. */
   bridge?: L;
+  /** Preserve each authored contour and its visibility gaps through routing. */
+  preserveStroke?: boolean;
   /** Per-shape transform — identical to wrapping the shape in a group. */
   translate?: [L, L];
   /** Degrees; pivots around `origin` (the user origin by default). */
@@ -1279,6 +1281,7 @@ function emitShape(exec: Execution, sv: ShapeValue, ctx: EmitCtx): void {
   const wob = o.wobble ?? ctx.wobble;
   if (wob !== undefined) program.push(wobbleValue(wob));
   sh.modifiers = program;
+  sh.preserveStroke = o.preserveStroke ?? false;
   const bridge = o.bridge ?? ctx.bridge;
   if (bridge !== undefined) sh.bridge = bridge;
 }

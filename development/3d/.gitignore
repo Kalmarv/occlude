@@ -7,3 +7,5 @@ playwright-worker/*.webm
 playwright-worker-software/
 playwright-mesh/*.webm
 playwright-mesh/failure.png
+playwright-strokes/*.webm
+playwright-strokes/failure.png

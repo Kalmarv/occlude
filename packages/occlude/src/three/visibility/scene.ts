@@ -1,11 +1,11 @@
-import { toPaper3 } from '../camera.js';
+import { toPaper3, type CameraFrame3 } from '../camera.js';
 import type { Feature3, FeatureSnapshot3 } from '../features/snapshot.js';
 import { projectedBounds3 } from './index.js';
 import { hiddenInterval3, unionIntervals3, visibleIntervals3, type Interval3 } from './interval.js';
 import type { GpuIntervals3, VisibilityPair3 } from '../../compute/webgpu/interval.js';
 
 export interface ClassifiedFeature3 { readonly feature: Feature3; readonly hidden: readonly Interval3[]; readonly visible: readonly Interval3[] }
-export interface ClassifiedScene3 { readonly features: readonly ClassifiedFeature3[]; readonly stats: { candidates: number; dispatches: number; refinements: number; transferBytes: number; wallMs: number } }
+export interface ClassifiedScene3 { readonly frame: CameraFrame3; readonly features: readonly ClassifiedFeature3[]; readonly stats: { candidates: number; dispatches: number; refinements: number; transferBytes: number; wallMs: number } }
 
 /** Bounded pair streaming. The index is queried with un-cropped paper bounds;
  * no side-frustum or page cull may discard future style overscan. */
@@ -19,7 +19,7 @@ export function* candidatePairs3(snapshot: FeatureSnapshot3): Generator<{ featur
     }
   }
 }
-const finish = (snapshot: FeatureSnapshot3, hidden: Interval3[][], stats: ClassifiedScene3['stats']): ClassifiedScene3 => ({ features: Object.freeze(snapshot.features.map((feature, i) => { const ranges = unionIntervals3(hidden[i]); return Object.freeze({ feature, hidden: Object.freeze(ranges.map(r=>Object.freeze(r))), visible: Object.freeze(visibleIntervals3(ranges).map(r=>Object.freeze(r))) }); })), stats });
+const finish = (snapshot: FeatureSnapshot3, hidden: Interval3[][], stats: ClassifiedScene3['stats']): ClassifiedScene3 => Object.freeze({ frame: snapshot.frame, features: Object.freeze(snapshot.features.map((feature, i) => { const ranges = unionIntervals3(hidden[i]); return Object.freeze({ feature, hidden: Object.freeze(ranges.map(r=>Object.freeze(r))), visible: Object.freeze(visibleIntervals3(ranges).map(r=>Object.freeze(r))) }); })), stats: Object.freeze({...stats}) });
 export function classifySceneCpu3(snapshot: FeatureSnapshot3): ClassifiedScene3 {
   const start = performance.now(), hidden: Interval3[][] = snapshot.features.map(() => []); let candidates = 0;
   for (const { feature, pair } of candidatePairs3(snapshot)) { candidates++; const interval = hiddenInterval3(pair.a, pair.b, pair.volume); if (interval) hidden[feature].push(interval); }

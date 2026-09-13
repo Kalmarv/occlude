@@ -35,7 +35,7 @@ fn stroke_shape(contours: Vec<Vec<Primitive>>, closed: bool) -> ShapeRec {
         stroke: Some(0),
         fill: None,
         z: 0.0,
-        bridge_mm: 0.0,
+        bridge_mm: 0.0, preserve_stroke: false,
         clips: vec![],
         modifiers: Vec::new(),
     }
@@ -50,7 +50,7 @@ fn filled_shape(contours: Vec<Vec<Primitive>>, kind: FillKind) -> ShapeRec {
         stroke: Some(0),
         fill: Some((0, kind)),
         z: 0.0,
-        bridge_mm: 0.0,
+        bridge_mm: 0.0, preserve_stroke: false,
         clips: vec![],
         modifiers: Vec::new(),
     }
@@ -639,4 +639,20 @@ fn ordered_run_gaps_survive_shared_junctions_and_bridging() {
     frags.remove(1);
     let broken=plan_chains_with(&frags,&[Pen::default()],PlanOptions { bridge:Some(10.0),..PlanOptions::default() });
     assert_eq!(broken.len(),2);
+}
+
+#[test]
+fn preserved_outline_runs_reject_planner_bridges_and_keep_contours() {
+    use occlude_core::plan::{plan_chains_with, PlanOptions};
+    let mut a=stroke_shape(vec![vec![Primitive::Line(Line::new(v(0.,0.),v(10.,0.)))]],false);
+    let mut b=stroke_shape(vec![vec![Primitive::Line(Line::new(v(10.01,0.),v(20.,0.))),Primitive::Line(Line::new(v(20.,0.),v(20.,10.)))]],false);
+    a.preserve_stroke=true;b.preserve_stroke=true;
+    a.bridge_mm=1.;b.bridge_mm=1.;
+    let data=input(vec![a,b]);let out=render(&data);
+    assert!(out.frags.iter().all(|f|f.run.is_some()));
+    let chains=plan_chains_with(&out.frags,&data.pens,PlanOptions{tour_budget:0,bridge:Some(1.)});
+    assert_eq!(chains.len(),2);
+    assert_eq!(chains.iter().map(|c|c.prims.len()).sum::<usize>(),3);
+    assert!(chains.iter().all(|c|c.ordered));
+    assert!((chains.iter().map(|c|c.ink_length()).sum::<f64>()-29.99).abs()<1e-6);
 }

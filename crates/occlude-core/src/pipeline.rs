@@ -67,6 +67,8 @@ pub struct ShapeRec {
     pub z: f64,
     /// Endpoint-join tolerance, paper mm; 0 = not opted into bridging.
     pub bridge_mm: f64,
+    /// Preserve authored outline traversal and gaps through routing.
+    pub preserve_stroke: bool,
     /// Indices into `RenderInput::clips` active for this shape.
     pub clips: Vec<u32>,
     /// Ordered modifier program. Post-stage entries run over this shape's
@@ -547,6 +549,12 @@ impl Prepared {
                             &mut bufs,
                             &mut so.frags,
                         );
+                    }
+                    if s.preserve_stroke {
+                        for f in &mut so.frags[from..] {
+                            let seq = f.origin as usize - cs;
+                            f.run = Some(crate::fragment::RunSpan { id: cs as u32 + 1, start: seq as f64 + f.t0, end: seq as f64 + f.t1 });
+                        }
                     }
                     judge_runs(&mut so, from, threshold, s.closed, stroke_pen, i as u32);
                 }

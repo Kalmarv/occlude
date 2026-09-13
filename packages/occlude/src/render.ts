@@ -335,7 +335,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     const [cStart, cCount] = pushContours(lowered.contours);
     const geom = shape.geom;
     const winding = (geom.kind === 'path' || geom.kind === 'area') && geom.winding === 'evenodd' ? 4 : 0;
-    let flags = (shape.closed ? 1 : 0) | (lowered.convex ? 2 : 0) | winding;
+    let flags = (shape.closed ? 1 : 0) | (lowered.convex ? 2 : 0) | winding | (shape.preserveStroke ? 16 : 0);
     const strokePen = shape.strokePen !== null ? penIdx(shape.strokePen) + 1 : 0;
     // Paper footprint of this shape, for shape-aligned grid extents.
     const fp = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };

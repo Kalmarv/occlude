@@ -122,8 +122,8 @@ try {
   assert.equal(box.visibleRuns,9); assert.equal(box.hiddenRuns,3);
   const meshDownloadPromise=page.waitForEvent('download');await page.click('#download');
   await (await meshDownloadPromise).saveAs(resolve(output,'box.svg'));
-  // The planner may join touching dashes at a source corner. Measure each
-  // straight segment, allowing the existing 0.005 mm finishing grid.
+  // Measure paper dash segments, allowing the existing 0.005 mm finishing
+  // grid, then verify protected dashes remain separate planner paths.
   const dashLengths=await page.locator('#vectors [data-pen="hidden"] path').evaluateAll(paths=>paths.flatMap(p=>{
     const d=p.getAttribute('d');
     if(/[a-kno-z]/i.test(d))throw new Error('unexpected non-linear dash path');
@@ -132,10 +132,11 @@ try {
   }));
   assert(dashLengths.length>0 && dashLengths.every(n=>n<=2.008), `perspective dash segments exceed 2 mm finishing tolerance: ${JSON.stringify(dashLengths)}`);
   assert(dashLengths.some(n=>Math.abs(n-2)<.008), 'full dashes must measure 2 mm');
+  assert(await page.locator('#vectors [data-pen="hidden"] path').evaluateAll(paths=>paths.every(p=>p.getTotalLength()<=2.008)), 'protected dashes must stay separate through the WASM planner');
   await page.screenshot({path:resolve(output,'box.png'),fullPage:true});
   await page.selectOption('#features','silhouette');
   const silhouettes=await page.evaluate(()=>window.threeEvidence);
-  assert.equal(silhouettes.selected,6);assert.equal(silhouettes.adoptedMeshDispatches,box.adoptedMeshDispatches);assert(silhouettes.visibilityReused);
+  assert.equal(silhouettes.selected,6);assert.equal(silhouettes.constructedStrokes,1);assert.equal(silhouettes.adoptedMeshDispatches,box.adoptedMeshDispatches);assert(silhouettes.visibilityReused);
   await page.selectOption('#features','marked');
   assert.equal(await page.evaluate(()=>window.threeEvidence.selected),1);
   await page.selectOption('#features','all');

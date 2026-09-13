@@ -22,7 +22,7 @@ fn main() {
             ShapeRec {
                 contours, closed: true, convex: true,
                 winding: WindingRule::NonZero,
-                stroke: Some(0), fill: Some((0, fill)), z: 0.0, bridge_mm: 0.0,
+                stroke: Some(0), fill: Some((0, fill)), z: 0.0, bridge_mm: 0.0, preserve_stroke: false,
                 clips: vec![], modifiers: Vec::new(),
             }
         })

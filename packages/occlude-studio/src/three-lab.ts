@@ -1,3 +1,5 @@
+import { constructStrokes3 } from 'occlude/src/three/strokes/construct.js';
+import { paperStrokes3 } from 'occlude/src/three/strokes/paper.js';
 import { box3 } from 'occlude/src/three/geometry/surface.js';
 import { featureSnapshot3, FeatureKind3 } from 'occlude/src/three/features/snapshot.js';
 import { classifySceneCpu3, classifySceneGpu3, type ClassifiedScene3 } from 'occlude/src/three/visibility/scene.js';
@@ -21,7 +23,7 @@ const projection = document.querySelector<HTMLSelectElement>('#projection')!;
 let canvas = document.querySelector<HTMLCanvasElement>('#viewport')!;
 // This dedicated laboratory exposes its kernels for browser conformance checks
 // against the exact production bundle (no Vite /@fs imports required).
-Object.assign(window, { threeLabApi: { GpuIntervals3, hiddenInterval3, occlusionVolume3, ThreeWorkerClient, cameraFrame3, box3, featureSnapshot3, classifySceneCpu3, classifySceneGpu3 } });
+Object.assign(window, { threeLabApi: { GpuIntervals3, hiddenInterval3, occlusionVolume3, ThreeWorkerClient, cameraFrame3, box3, featureSnapshot3, classifySceneCpu3, classifySceneGpu3, constructStrokes3, paperStrokes3 } });
 
 let client: ThreeWorkerClient | null = null, svg = '', revision = 0;
 
@@ -35,11 +37,9 @@ function styleMesh(reused: boolean): void {
   if (!meshCache) return;
   const { drawing, frame, metadata } = meshCache;
   const selected = drawing.features.filter(({feature:f}) => featureFilter.value === 'silhouette' ? !!(f.flags & FeatureKind3.silhouette) : featureFilter.value === 'marked' ? !!(f.flags & FeatureKind3.marked) : !!(f.flags & (FeatureKind3.boundary|FeatureKind3.silhouette|FeatureKind3.marked|FeatureKind3.wire)) || f.creaseAngle >= 30);
-  const marks = selected.flatMap(({feature,visible,hidden}) => {
-    const segment = (range: Interval3, name: string) => {
-      const a=toPaper3(frame,lerp3(feature.a,feature.b,range[0])), b=toPaper3(frame,lerp3(feature.a,feature.b,range[1]));
-      return line(mm(a[0]),mm(a[1]),mm(b[0]),mm(b[1]),{stroke:name,bridge:mm(0)});
-    };
+  const selectedIds=new Set(selected.map(f=>f.feature.id));
+  const constructed=constructStrokes3(drawing,[{id:'outline',stroke:'outline',select:f=>selectedIds.has(f.id)}]);
+  const marks = [...paperStrokes3(constructed),...selected.flatMap(({feature,hidden}) => {
     const a=toPaper3(frame,feature.a),b=toPaper3(frame,feature.b),length=Math.hypot(b[0]-a[0],b[1]-a[1]);
     const dashes: ReturnType<typeof line>[]=[];
     if (length>0) for(const range of hidden) {
@@ -48,14 +48,14 @@ function styleMesh(reused: boolean): void {
       const lo=Math.hypot(start[0]-a[0],start[1]-a[1]),hi=Math.hypot(end[0]-a[0],end[1]-a[1]);
       for(let distance=Math.floor(lo/4)*4;distance<hi;distance+=4) {
         const from=Math.max(lo,distance)/length,to=Math.min(hi,distance+2)/length;
-        if(from<to)dashes.push(line(mm(a[0]+(b[0]-a[0])*from),mm(a[1]+(b[1]-a[1])*from),mm(a[0]+(b[0]-a[0])*to),mm(a[1]+(b[1]-a[1])*to),{stroke:'hidden',bridge:mm(0)}));
+        if(from<to)dashes.push(line(mm(a[0]+(b[0]-a[0])*from),mm(a[1]+(b[1]-a[1])*from),mm(a[0]+(b[0]-a[0])*to),mm(a[1]+(b[1]-a[1])*to),{stroke:'hidden',preserveStroke:true}));
       }
     }
-    return [...visible.map(range=>segment(range,'outline')),...dashes];
-  });
-  svg=exportSvg(sketch({paper:paper({width:mm(150),height:mm(100)}),margin:0,seed:42,pens:{outline:pen({width:mm(.3),color:'#14283a'}),hidden:pen({width:mm(.2),color:'#9c6b79'})}},t=>{t.plan({bridge:false});return marks;}));
+    return dashes;
+  })];
+  svg=exportSvg(sketch({paper:paper({width:mm(150),height:mm(100)}),margin:0,seed:42,pens:{outline:pen({width:mm(.3),color:'#14283a'}),hidden:pen({width:mm(.2),color:'#9c6b79'})}},()=>marks));
   document.querySelector('#vectors')!.innerHTML=svg; download.disabled=false;
-  const report={...metadata,features:drawing.features.length,selected:selected.length,visibleRuns:selected.reduce((n,f)=>n+f.visible.length,0),hiddenRuns:selected.reduce((n,f)=>n+f.hidden.length,0),stats:drawing.stats,visibilityReused:reused,adoptedMeshDispatches,svgPaths:(svg.match(/<path\b/g)??[]).length};
+  const report={...metadata,features:drawing.features.length,constructedStrokes:constructed.length,selected:selected.length,visibleRuns:selected.reduce((n,f)=>n+f.visible.length,0),hiddenRuns:selected.reduce((n,f)=>n+f.hidden.length,0),stats:drawing.stats,visibilityReused:reused,adoptedMeshDispatches,svgPaths:(svg.match(/<path\b/g)??[]).length};
   evidence.textContent=JSON.stringify(report,null,2);Object.assign(window,{threeEvidence:report});
   status.textContent=`${selected.length} selected features · ${drawing.stats.candidates} candidate pairs · ${reused?'cached visibility reused':`${drawing.stats.dispatches} GPU dispatches`}`;
 }

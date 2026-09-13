@@ -321,7 +321,7 @@ import { sketch, line, mm, group } from 'occlude';
 
 // Left: 14 separate strokes. Right: the same rows bridged into one stroke.
 export default sketch({ aspect: [2, 1] }, (t) => [
-  t.times(14, (k) => line(10, 30 + k * 3, 90, 30 + k * 3)),
+  t.times(14, (k) => line(10, 30 + k * 3, 90, 30 + k * 3, { preserveStroke: true })),
   group({ bridge: mm(3.5) }, t.times(14, (k) => line(110, 30 + k * 3, 190, 30 + k * 3))),
 ]);
 ```
@@ -341,6 +341,7 @@ export default sketch({ aspect: [2, 1] }, (t) => [
 | `origin` | Pivot for `rotate` and `scale`: `[x, y]` in user coordinates, or `'center'` for the middle of the drawable. Without it they pivot on the user origin. |
 | `decimate`, `wobble` | Shorthand for the modifiers of the same name: `{ wobble: mm(0.8) }`, `{ decimate: { fill: 0.5 } }`. |
 | `modifiers` | An ordered stack: `{ modifiers: [smooth(2), wobble(mm(1)), decimate(0.2)] }`, run first to last. |
+| `preserveStroke` | Keep each authored contour and its visibility gaps separate through planning; prevents endpoint merging and pen-down bridging into other strokes. Defaults to `false`. |
 | `bridge` | Pen-down joining across gaps up to this length. Inherited from a group. |
 
 ## Layout and repetition
