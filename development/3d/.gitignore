@@ -3,3 +3,5 @@ proof-m1/
 playwright-m1/*.webm
 playwright-m1-software/*.webm
 playwright-m1-software/
+playwright-worker/*.webm
+playwright-worker-software/

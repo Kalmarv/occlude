@@ -33,6 +33,8 @@ export class GpuIntervals3 {
     this.staging = device.createBuffer({ label: '3D interval readback', size: capacity * 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
     void device.lost.then(info => { this.lost = info.message || info.reason; });
   }
+  /** False after device loss or explicit disposal; a host may create a fresh session. */
+  get available(): boolean { return this.lost === null; }
   static async create(gpu: GPU, options: { memoryBudgetBytes?: number; requireHardware?: boolean } = {}): Promise<GpuIntervals3> {
     const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
     if (!adapter) throw new Error('WebGPU adapter unavailable');

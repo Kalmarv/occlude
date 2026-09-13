@@ -1,0 +1,118 @@
+{
+  "browser": "145.0.7632.109",
+  "args": [
+    "--no-sandbox",
+    "--enable-unsafe-webgpu",
+    "--enable-features=Vulkan",
+    "--use-angle=vulkan",
+    "--disable-vulkan-surface",
+    "--ignore-gpu-blocklist"
+  ],
+  "software": false,
+  "orthographic": {
+    "passed": true,
+    "cold": true,
+    "deviceReadyMs": 1689.5999999940395,
+    "totalMs": 1873.7000000178814,
+    "projection": "orthographic",
+    "worker": true,
+    "deviceGeneration": 1,
+    "cameraRevision": 1,
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "reference": [
+      0.37499999999999994,
+      0.625
+    ],
+    "expected": [
+      0.375,
+      0.625
+    ],
+    "gpu": {
+      "intervals": [
+        [
+          0.3749999701976776,
+          0.625
+        ]
+      ],
+      "dispatches": 1,
+      "refinements": 0,
+      "transferBytes": 112,
+      "residentBytes": 8388608,
+      "wallMs": 75.80000001192093
+    },
+    "cpuMs": 0,
+    "styleSelections": 2,
+    "svgPaths": 11,
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  "perspective": {
+    "passed": true,
+    "cold": false,
+    "deviceReadyMs": 0.09999999403953552,
+    "totalMs": 55.400000005960464,
+    "projection": "perspective",
+    "worker": true,
+    "deviceGeneration": 1,
+    "cameraRevision": 2,
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "reference": [
+      0.25,
+      0.75
+    ],
+    "expected": [
+      0.25,
+      0.75
+    ],
+    "gpu": {
+      "intervals": [
+        [
+          0.2499999850988388,
+          0.7499999403953552
+        ]
+      ],
+      "dispatches": 1,
+      "refinements": 0,
+      "transferBytes": 112,
+      "residentBytes": 8388608,
+      "wallMs": 51.69999998807907
+    },
+    "cpuMs": 0,
+    "styleSelections": 2,
+    "svgPaths": 11,
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  "batch": {
+    "pairs": 128,
+    "cpuMs": 0.19999998807907104,
+    "dispatches": 8,
+    "refinements": 0,
+    "wallMs": 27.700000017881393,
+    "transferBytes": 14336,
+    "residentBytes": 2176,
+    "cancelled": true,
+    "snapshotOwned": true,
+    "coplanarRefined": true,
+    "lossRejected": true
+  },
+  "workerLifecycle": {
+    "worker": true,
+    "superseded": 2,
+    "snapshotOwned": true,
+    "cancelled": true,
+    "failedGenerationRecovered": true,
+    "restarted": true
+  },
+  "applicationErrors": []
+}

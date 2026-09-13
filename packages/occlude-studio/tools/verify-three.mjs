@@ -14,6 +14,13 @@ const browser = await chromium.launch({ executablePath: process.env.OCCLUDE_CHRO
 const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, recordVideo: { dir: output } });
 const page = await context.newPage();
 const errors = [];
+await page.addInitScript(() => {
+  window.mainAdapterRequests = 0;
+  if (navigator.gpu) {
+    const request = navigator.gpu.requestAdapter.bind(navigator.gpu);
+    navigator.gpu.requestAdapter = (...args) => { window.mainAdapterRequests++; return request(...args); };
+  }
+});
 page.on('pageerror', error => errors.push(String(error)));
 page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
 
@@ -23,6 +30,7 @@ try {
   const orthographic = await page.evaluate(() => window.threeEvidence);
   assert(orthographic?.passed, await page.locator('#status').innerText());
   assert.equal(orthographic.adapter.isFallbackAdapter, software, 'adapter class must match the requested verification lane');
+  assert.equal(orthographic.worker, true, 'viewport and compute must run in the construction worker');
   assert.equal(orthographic.gpu.refinements, 0, 'ordinary fixture must exercise GPU geometry rather than CPU refinement');
   assert.equal(orthographic.gpu.dispatches, 1);
   assert(orthographic.svgPaths > 0);
@@ -36,6 +44,7 @@ try {
   await page.screenshot({ path: resolve(output, 'perspective.png'), fullPage: true });
   const downloadPromise = page.waitForEvent('download'); await page.click('#download');
   const download = await downloadPromise; await download.saveAs(resolve(output, 'visibility.svg'));
+  assert.equal(await page.evaluate(() => window.mainAdapterRequests), 0, 'normal laboratory UI must not acquire a main-thread GPU device');
   const batch = await page.evaluate(async ({ requireHardware }) => {
     const { GpuIntervals3, occlusionVolume3, hiddenInterval3 } = window.threeLabApi;
     const session = await GpuIntervals3.create(navigator.gpu, { memoryBudgetBytes: 128 * 17, requireHardware });
@@ -72,10 +81,44 @@ try {
       return {pairs:pairs.length,cpuMs,dispatches:result.dispatches,refinements:result.refinements,wallMs:result.wallMs,transferBytes:result.transferBytes,residentBytes:result.residentBytes,cancelled,snapshotOwned:true,coplanarRefined:true,lossRejected};
     } finally { await session.dispose(); }
   }, { requireHardware: !software });
+  const workerLifecycle = await page.evaluate(async ({ requireHardware }) => {
+    const { ThreeWorkerClient, cameraFrame3, occlusionVolume3 } = window.threeLabApi;
+    const makeCanvas = () => { const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 64; return canvas; };
+    const makeInput = revision => {
+      const triangle = [[-1,-1,-2],[1,-1,-2],[0,1,-2]], a=[-2,0,-4], b=[2,0,-4];
+      return { frame: cameraFrame3({kind:'orthographic',span:4,eye:[0,0,0],target:[0,0,-1],up:[0,1,0],near:.1,far:20},{x:0,y:0,width:150,height:100}), triangles:[triangle],wires:[[a,b]],pairs:[{a,b,volume:occlusionVolume3(triangle,false)}],geometryRevision:1,cameraRevision:revision };
+    };
+    const client = new ThreeWorkerClient(makeCanvas(), { requireHardware });
+    try {
+      const first=client.render(makeInput(1)).then(()=> 'adopted', e=>e.name);
+      const skipped=client.render(makeInput(2)).then(()=> 'adopted', e=>e.name);
+      const input=makeInput(3); const latest=client.render(input); input.pairs[0].a[0]=-1000;
+      const [a,b,result]=await Promise.all([first,skipped,latest]);
+      if(a!=='AbortError'||b!=='AbortError'||result.cameraRevision!==3) throw new Error('superseded worker view was adopted');
+      if(Math.abs(result.gpu.intervals[0][0]-.375)>1e-5) throw new Error('worker submission did not own its input snapshot');
+      const abort = new AbortController(); const pending=client.render(makeInput(4),abort.signal).then(()=>false,e=>e.name==='AbortError');abort.abort();
+      if(!await pending) throw new Error('worker cancellation was adopted');
+      const invalid=makeInput(5);invalid.pairs[0].volume.planes.pop();
+      let failed=false;try { await client.render(invalid); } catch { failed=true; }
+      if(!failed) throw new Error('invalid worker input succeeded');
+      const recovered=await client.render(makeInput(6));
+      if(recovered.cameraRevision!==6) throw new Error('worker did not recover after failed generation');
+      await client.dispose();
+      const restarted=new ThreeWorkerClient(makeCanvas(),{requireHardware});
+      try { const final=await restarted.render(makeInput(7)); if(final.cameraRevision!==7) throw new Error('worker restart failed'); }
+      finally { await restarted.dispose(); }
+      return {worker:true,superseded:2,snapshotOwned:true,cancelled:true,failedGenerationRecovered:true,restarted:true};
+    } finally { await client.dispose(); }
+  }, { requireHardware: !software });
+  const previousRevision = await page.evaluate(() => window.threeEvidence.cameraRevision);
+  await page.click('#restart');
+  await page.waitForFunction(revision => window.threeEvidence?.cameraRevision > revision, previousRevision);
+  assert.equal(await page.evaluate(() => window.threeEvidence.worker), true);
+  await page.screenshot({ path: resolve(output, 'worker-restarted.png'), fullPage: true });
   // A missing browser favicon is not an application/shader error.
   const applicationErrors = errors.filter(e => !e.includes('404 (Not Found)'));
   assert.deepEqual(applicationErrors, []);
-  const report = { browser: browser.version(), args, software, orthographic, perspective, batch, applicationErrors };
+  const report = { browser: browser.version(), args, software, orthographic, perspective, batch, workerLifecycle, applicationErrors };
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2)+'\n');
   console.log(JSON.stringify(report, null, 2));
 } catch (error) {
