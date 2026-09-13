@@ -594,6 +594,17 @@ studio's `runner.test.ts`.
   hand. What reads the run lives on the toolkit: `t.within`,
   `t.translate` (unit lengths), `t.noiseField`, `t.image`, `t.asset`,
   `t.synth`, `t.rnd` …
+- **Inputs are snapshots.** `inputs` is frozen, and the asset and fill
+  tables are copied on construction (text by value, pixels as fresh
+  arrays, fill params by value): a host that edits or reuses its tables
+  after creating a run changes nothing in it (the isolation test covers
+  assets and fills as well as paper, pens and seed).
+- **The result carries the run's pens and paper.** `RenderResult.pens`
+  are the captured instances and `RenderResult.paper` the resolved sheet
+  with its colour when one was declared; the studio's timing, tolerance,
+  plotting, export and preview read those, never the live library — a
+  library edit enters through the next run. Exports default their
+  background to the result's paper colour.
 - **What the run reports** — seed as used with its overrides, the draw
   log, probes, inspections — is read from the object (`getOverrideReport`,
   `getDrawLog`, `getProbeStats`, `getInspectionIndex`,

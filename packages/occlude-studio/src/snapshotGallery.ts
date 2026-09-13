@@ -153,7 +153,8 @@ export function openGallery(opts: GalleryOpts): void {
       });
       if (!reply || mine !== renderSeq) return; // superseded, or you flipped on
       // ~150 dpi: sharp on any screen, a fraction of the 300 dpi export.
-      const bytes = await client.exportPng(reply.result.paper.w, reply.result.paper.h, 5.9, settings.paperColor);
+      const sheet = reply.result.paper.color ?? settings.paperColor;
+      const bytes = await client.exportPng(reply.result.paper.w, reply.result.paper.h, 5.9, sheet);
       if (mine !== renderSeq) return;
       const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'image/png' }));
       rendered.set(k, url);
@@ -162,7 +163,7 @@ export function openGallery(opts: GalleryOpts): void {
       // A snapshot the server had no thumbnail for gets this one, scaled to
       // the lineage size, so the Sketches page stops showing it empty.
       if (!missing.hidden) {
-        const small = await client.exportPng(reply.result.paper.w, reply.result.paper.h, 360 / Math.max(1, reply.result.paper.w), settings.paperColor);
+        const small = await client.exportPng(reply.result.paper.w, reply.result.paper.h, 360 / Math.max(1, reply.result.paper.w), sheet);
         void putThumb(s.name, new Blob([small as BlobPart], { type: 'image/png' }), s.id).catch(() => undefined);
       }
     } catch (e) {

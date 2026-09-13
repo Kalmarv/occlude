@@ -26,8 +26,8 @@ import { Len, resolveLen, type L } from './units.js';
 import type { Shape } from './shapes.js';
 import type { DrawRequest, PlanOptions } from './plan.js';
 import { makeFrame, type Frame } from './record.js';
-import type { AssetTable } from './imageAsset.js';
-import type { FillTable } from './fills.js';
+import type { AssetPixels, AssetTable } from './imageAsset.js';
+import type { AnyFill, FillTable } from './fills.js';
 
 export type Winding = 'nonzero' | 'evenodd';
 
@@ -229,8 +229,10 @@ export class Execution {
       seed: inputs.seed ?? 0,
       marginPct: inputs.marginPct ?? 0,
       inspect: inputs.inspect === true,
-      assets: inputs.assets,
-      fills: inputs.fills,
+      // Snapshots, not references: a host may edit or reuse its tables after
+      // the run was created, and nothing it does then can reach this run.
+      assets: inputs.assets ? snapshotAssets(inputs.assets) : undefined,
+      fills: inputs.fills ? snapshotFills(inputs.fills) : undefined,
     });
     this.paper = this.inputs.paper;
     this.frame = makeFrame(this, this.paper.w, this.paper.h, false);
@@ -556,6 +558,34 @@ export class Execution {
   }
 }
 
+/** An owned copy of an asset table: text by value, pixels as fresh
+ * arrays (the summed-area memo is a property of the pixels and is rebuilt
+ * on demand). */
+function snapshotAssets(assets: AssetTable): AssetTable {
+  const out = new Map<string, { text?: string; pixels?: AssetPixels }>();
+  for (const [name, e] of assets) {
+    if (e.pixels) out.set(name, { pixels: { width: e.pixels.width, height: e.pixels.height, data: e.pixels.data.slice() } });
+    else out.set(name, { text: e.text });
+  }
+  return out;
+}
+
+/** An owned copy of a fill table: the declared params by value (the
+ * generator is code and is shared as code). */
+function snapshotFills(fills: FillTable): FillTable {
+  const out = new Map<string, AnyFill>();
+  for (const [name, def] of fills) out.set(name, { ...def, params: cloneParams(def.params) });
+  return out;
+}
+
+function cloneParams<T>(params: T): T {
+  try {
+    return structuredClone(params);
+  } catch {
+    return { ...(params as object) } as T;
+  }
+}
+
 /** A margin given as a physical length, as a percent of the short side. */
 function marginPercent(m: L, paper: PaperSpec): number {
   const short = Math.min(paper.w, paper.h);
@@ -640,8 +670,25 @@ export function moduleName(name: string): string {
  * given. */
 export function userModules(pens: readonly PenDef[], papers: readonly PaperDef[]): Record<'@user/pens' | '@user/papers', Record<string, unknown>> {
   const penMods: Record<string, unknown> = {};
-  for (const p of pens) penMods[moduleName(p.name)] = penModel(p);
+  for (const p of pens) penMods[uniqueExport('@user/pens', pens, p.name)] = penModel(p);
   const paperMods: Record<string, unknown> = {};
-  for (const p of papers) paperMods[moduleName(p.name)] = paperModel(p.color === undefined ? { w: p.w, h: p.h } : { w: p.w, h: p.h, color: p.color });
+  for (const p of papers) paperMods[uniqueExport('@user/papers', papers, p.name)] = paperModel(p.color === undefined ? { w: p.w, h: p.h } : { w: p.w, h: p.h, color: p.color });
   return { '@user/pens': penMods, '@user/papers': paperMods };
+}
+
+/** The names of a library that would export under the same identifier as
+ * `name` — `a-b` and `a_b` both spell `a_b`. Empty when the name is
+ * unambiguous. Editors refuse such a rename; `userModules` refuses the
+ * library, so a collision is never resolved silently. */
+export function exportCollisions(library: readonly { name: string }[], name: string): string[] {
+  const id = moduleName(name);
+  return library.filter((p) => p.name !== name && moduleName(p.name) === id).map((p) => p.name);
+}
+
+function uniqueExport(module: string, library: readonly { name: string }[], name: string): string {
+  const clash = exportCollisions(library, name);
+  if (clash.length > 0) {
+    throw new Error(`${module}: '${name}' and '${clash.join("', '")}' would both export as ${moduleName(name)} — rename one in the library`);
+  }
+  return moduleName(name);
 }

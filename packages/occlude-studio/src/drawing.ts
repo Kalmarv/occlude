@@ -80,10 +80,12 @@ export function machineTiming(prof: MachineProfile): EstimateOpts {
 
 /** Pen timing by plan pen index: the render's pens, overridden by the
  * library's current definition of the same name (feed edits apply). */
-export function penTimingOf(renderPens: readonly PenDef[], library: readonly PenDef[]): (pen: number) => PenTiming | undefined {
+export function penTimingOf(renderPens: readonly PenDef[]): (pen: number) => PenTiming | undefined {
+  // The result's pens are the run's captured instances — a sketch-local pen
+  // shadowing a library name, a colour override, a library as it stood at
+  // the run. Never the live library: a library edit reaches the next run.
   return (i) => {
-    const base = renderPens[i];
-    const pen = (base && library.find((p) => p.name === base.name)) ?? base;
+    const pen = renderPens[i];
     return pen ? { feed: pen.feed, penDelay: pen.penDelay } : undefined;
   };
 }

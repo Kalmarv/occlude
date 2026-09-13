@@ -9,8 +9,8 @@
 import {
   encodeToolpath, chainsBounds, type FlatChain,
   estimatePlanMs, profileToJson,
-  type GcodeJob, type PenDef, type RenderResult, type PaperDef } from 'occlude';
-import { loadSketchByName, saveSketchByName } from './sketchApi.js';
+  type GcodeJob, type PenDef, type RenderResult, type PaperDef , exportCollisions , moduleName } from 'occlude';
+import { listSketches, loadSketchByName, saveSketchByName } from './sketchApi.js';
 import {
   DEFAULT_SKETCH, NEW_SKETCH, PAPER_COLORS,
   download, loadUi, savePens, saveProfiles, saveSettings, saveUi,
@@ -54,6 +54,10 @@ export interface PanelHooks {
   onPaperColor(hex: string): void;
   /** The paper library changed (a sheet added, renamed, resized, recoloured). */
   onPapers(): void;
+  /** The colour under the ink: the current result's resolved paper colour
+   * (a sketch's own `paper`, or the library sheet it ran on), else the
+   * panel's. */
+  sheetColor(): string;
   lastResult(): RenderResult | null;
   /** The seed the current render actually used (resume checks it). */
   currentSeed(): string | null;
@@ -80,6 +84,8 @@ export interface PanelHooks {
   setName(name: string): void;
   importSketchFile(): void;
   downloadSketchFile(): void;
+  /** Swap a downloaded file's bundled pen/paper definitions for the local libraries' (by name). */
+  relinkUserModules(): void;
   /** A save landed: the studio uploads the finished render as the thumb. */
   afterSave(name: string): void;
   /** Live plot view: mirror the machine's progress in the preview. */
@@ -197,6 +203,8 @@ function buildSketchesPanel(
   const importBtn2 = withIcon(button('Import', hooks.importSketchFile), 'import');
   importBtn2.title = 'Load a .ts sketch file into the editor';
   const dlBtn = withIcon(button('Download', hooks.downloadSketchFile), 'download');
+  const relinkBtn = withIcon(button('Relink', hooks.relinkUserModules), 'import');
+  relinkBtn.title = 'A downloaded sketch carries its pens and papers inline; Relink swaps them for your libraries\' entries of the same names';
   dlBtn.title = 'Download the current sketch as a .ts file';
   const newBtn = withIcon(button('New', async () => {
     // Losing work needs a prompt; losing nothing shouldn't. Named sketches
@@ -214,7 +222,7 @@ function buildSketchesPanel(
   }), 'new');
   newBtn.title = 'Start a fresh sketch — name it in the top bar, then Save';
   actionRow.className = 'row grid2';
-  actionRow.append(newBtn, saveBtn, importBtn2, dlBtn);
+  actionRow.append(newBtn, saveBtn, importBtn2, dlBtn, relinkBtn);
 
   // Freeze: write the last render's drawn values back as literals, so an
   // evolved drawing becomes numbers you can edit. A draw that ran more
@@ -331,6 +339,22 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
       input.value = String(pen[key] ?? (type === 'number' ? 0 : ''));
       input.onchange = () => {
         const v: string | number = type === 'number' ? parseFloat(input.value) : input.value;
+        if (key === 'name') {
+          const name = String(v).trim();
+          if (!name) { input.value = pen.name; return; }
+          const clash = exportCollisions(hooks.pens.filter((p) => p !== pen), name);
+          if (hooks.pens.some((p) => p !== pen && p.name === name) || clash.length) {
+            notify(`A pen named ${name} exists${clash.length ? ` (or exports as the same @user/pens name: ${clash.join(', ')})` : ''}`, 'danger');
+            input.value = pen.name;
+            return;
+          }
+          const from = pen.name;
+          pen.name = name;
+          persist();
+          renderList();
+          void reportRenamedReferences('pen', from, name);
+          return;
+        }
         (pen as unknown as Record<string, string | number>)[key] = v;
         persist();
         renderList();
@@ -398,6 +422,26 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
 
   body.append(list, editHost, actions);
   renderList();
+}
+
+/** After a library rename: which stored sketches still name the old entry
+ * (by pen name, or by its `@user/*` export). References are reported, never
+ * rewritten — a sketch is a program of its author's, and the old name keeps
+ * failing loudly where it is used. */
+async function reportRenamedReferences(kind: 'pen' | 'paper', from: string, to: string): Promise<void> {
+  try {
+    const names = (await listSketches()).map((s) => s.name);
+    const byName = new RegExp(`['"\`]${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"\`]`);
+    const byExport = new RegExp(`\\b${moduleName(from)}\\b`);
+    const hits: string[] = [];
+    for (const name of names) {
+      const src = await loadSketchByName(name).catch(() => '');
+      if (byName.test(src) || byExport.test(src)) hits.push(name);
+    }
+    if (hits.length) notify(`${kind} '${from}' is now '${to}' — ${hits.length} stored sketch${hits.length === 1 ? '' : 'es'} still name the old one: ${hits.slice(0, 6).join(', ')}${hits.length > 6 ? ', …' : ''}`, 'warning');
+  } catch {
+    // the store is unreachable: nothing to report
+  }
 }
 
 // ---- paper & machine ----
@@ -475,12 +519,19 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
     const name = nameInput.value.trim();
     const p = current();
     if (!name || name === p.name) { syncSize(); return; }
-    if (papers.some((q) => q.name === name)) { notify(`A paper named ${name} exists`, 'danger'); syncSize(); return; }
+    const clash = exportCollisions(papers.filter((q) => q !== p), name);
+    if (papers.some((q) => q.name === name) || clash.length) {
+      notify(`A paper named ${name} exists${clash.length ? ` (or exports as the same @user/papers name: ${clash.join(', ')})` : ''}`, 'danger');
+      syncSize();
+      return;
+    }
+    const from = p.name;
     p.name = name;
     s.paper = name;
     persistLibrary();
     persist();
     syncSelect();
+    void reportRenamedReferences('paper', from, name);
   };
   const sizeWrap = document.createElement('div');
   sizeWrap.className = 'row';
@@ -535,7 +586,7 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
   const addBtn = withIcon(button('Add paper', () => {
     const base = current();
     let name = `${base.name}-copy`;
-    for (let k = 2; papers.some((p) => p.name === name); k++) name = `${base.name}-copy-${k}`;
+    for (let k = 2; papers.some((p) => p.name === name) || exportCollisions(papers, name).length; k++) name = `${base.name}-copy-${k}`;
     papers.push({ name, w: base.w, h: base.h, color: base.color });
     persistLibrary();
     choose(name);
@@ -653,7 +704,7 @@ function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
         provenance: { sketch: hooks.currentName() || null, sourceHash: hashSource(hooks.getSource()), seed: hooks.currentSeed() },
         fullPlanSaved: false,
       };
-      const svg = await d.svgOf(captured, hooks.settings.paperColor, -1);
+      const svg = await d.svgOf(captured, hooks.sheetColor(), -1);
       if (drifted()) throw new Error('the drawing changed while saving — nothing was saved; save again');
       const id = await saveResult(meta, svg, bytes);
       saveNote.innerHTML = '';
@@ -743,7 +794,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     const raw = parseInt(penSelect.value, 10);
     const pens = hooks.lastResult()?.pens ?? [];
     const pen = raw >= 0 ? pens[raw] : undefined;
-    const color = pen ? hooks.pens.find((p) => p.name === pen.name)?.color ?? pen.color : null;
+    const color = pen ? pen.color : null;
     plotBtn.style.setProperty('--pen', color ?? 'var(--brass)');
     bar.style.setProperty('--pen', color ?? 'var(--brass)');
   };
@@ -935,7 +986,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
             }
           }
         },
-        (name) => hooks.pens.find((p) => p.name === name),
+        (name) => r.pens.find((p) => p.name === name),
         () => ({ penUpPulse: prof().ebb.penUpPulse, penDownPulse: prof().ebb.penDownPulse }),
         penIndex, undefined, startChain,
       );
@@ -1000,7 +1051,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       const bb = { x: 0, y: 0, w: r.paper.w, h: r.paper.h };
       const raw = parseInt(penSelect.value, 10);
       const chosen = raw >= 0 ? r.pens[raw] : r.pens[0];
-      const pen = chosen ? hooks.pens.find((p) => p.name === chosen.name) ?? chosen : undefined;
+      const pen = chosen ?? undefined;
       const d = registrationMarks(pen, bb);
       await ebb.plot(d.plan, d.pens, m.opts(), onProgress);
     } catch (e) {
@@ -1221,7 +1272,7 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
   table.className = 'export-table';
   const svgAll = button('Download SVG (selection, all pens)', async () => {
     if (!hooks.lastResult()) return;
-    const svg = await hooks.drawing.svg(hooks.settings.paperColor, -1);
+    const svg = await hooks.drawing.svg(hooks.sheetColor(), -1);
     download('occlude.svg', svg, 'image/svg+xml');
   });
   svgAll.className = 'primary';
@@ -1229,7 +1280,7 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
     const r = hooks.lastResult();
     if (!r) return;
     await hooks.drawing.settled();
-    const png = await hooks.client.planPng(hooks.drawing.range(), r.paper.w, r.paper.h, 11.81, hooks.settings.paperColor);
+    const png = await hooks.client.planPng(hooks.drawing.range(), r.paper.w, r.paper.h, 11.81, hooks.sheetColor());
     download('occlude.png', png, 'image/png');
   });
   const exportRow = document.createElement('div');
@@ -1277,10 +1328,10 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
           stats.textContent = `${frags} frags`;
           const time = tr.insertCell();
           time.className = 'num';
-          const est = estimatePlanMs(chains.filter((c) => c.pen === job.pen), penTimingOf(r.pens, hooks.pens), machineTiming(prof()));
+          const est = estimatePlanMs(chains.filter((c) => c.pen === job.pen), penTimingOf(r.pens), machineTiming(prof()));
           const mins = est.totalMs / 60000;
           const inkMm = est.drawMm + est.dots * (pen?.width ?? 0);
-          const reinkMm = hooks.pens.find((x) => x.name === pen?.name)?.reinkMm ?? pen?.reinkMm ?? 0;
+          const reinkMm = pen?.reinkMm ?? 0;
           const pumps = reinkMm > 0 ? Math.floor(inkMm / reinkMm) : 0;
           time.title =
             'Plot-time estimate: the EBB planner model with current machine settings. ' +

@@ -75,7 +75,7 @@ export function mendThumbs(targets: ThumbTarget[], onMended?: (t: ThumbTarget) =
           });
           if (!reply) continue;
           const { w, h } = reply.result.paper;
-          const bytes = await client.exportPng(w, h, THUMB_PX / Math.max(1, w), settings.paperColor);
+          const bytes = await client.exportPng(w, h, THUMB_PX / Math.max(1, w), reply.result.paper.color ?? settings.paperColor);
           await putThumb(t.name, new Blob([bytes as BlobPart], { type: 'image/png' }), t.snap);
           repaint(t);
           onMended?.(t);

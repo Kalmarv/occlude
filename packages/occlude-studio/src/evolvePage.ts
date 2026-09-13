@@ -113,6 +113,7 @@ async function boot(): Promise<void> {
     if (!t.result) return;
     zoom.hidden = false;
     sizeCanvas(zoomCanvas);
+    zoomPreview.setPaperColor(t.result.paper.color ?? settings.paperColor);
     zoomPreview.setResult(t.result);
     zoomPreview.fit();
   };
@@ -203,6 +204,7 @@ async function boot(): Promise<void> {
       if (gen !== generation || !reply) return null;
       sizeCanvas(t.canvas);
       t.result = reply.result;
+      t.preview.setPaperColor(reply.result.paper.color ?? settings.paperColor);
       t.preview.setResult(reply.result);
       t.preview.fit();
       const n = Object.keys(cand.overrides).length;

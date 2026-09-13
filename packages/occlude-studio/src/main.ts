@@ -13,6 +13,8 @@ import { seedOf, stashLive, withSeed,
   createSnapshot, forkSketch, loadSketchByName, putThumb, thumbFromCanvas,
 } from './sketchApi.js';
 import { customFillNames, embedFills, importSketchWithFills } from './fillEmbed.js';
+import { notify } from './wa.js';
+import { bundleUserImports, relinkUserImports, scanBundled } from './userEmbed.js';
 import { UiPanel } from './uiPanel.js';
 
 declare const __BUILD_STAMP__: string;
@@ -93,6 +95,9 @@ async function boot(): Promise<void> {
   // a repaint or one payload request.
   const inspector = new Inspector(preview, client, () => void run());
   let lastResult: RenderResult | null = null;
+  /** The colour under the ink: the result's resolved paper colour when the
+   * run declared one, else the Paper panel's. */
+  const sheetColor = (): string => lastResult?.paper.color ?? settings.paperColor;
   const activeProfile = () => profiles.find((p) => p.name === settings.activeProfile) ?? profiles[0];
   /** A frozen result runs under the settings it was SAVED with — its pens'
    * feed and settle, its profile's timing and tolerance — not the current
@@ -100,11 +105,12 @@ async function boot(): Promise<void> {
   let frozenExecution: { name: string; opts: EstimateOpts; tolerance: number; pens: PenDef[] } | null = null;
   const execution = (): { opts: EstimateOpts; penOf: (pen: number) => PenTiming | undefined; tolerance: number; profile: string; pens: PenDef[] } => {
     if (frozenExecution) {
-      return { opts: frozenExecution.opts, penOf: penTimingOf(frozenExecution.pens, frozenExecution.pens), tolerance: frozenExecution.tolerance, profile: frozenExecution.name, pens: frozenExecution.pens };
+      return { opts: frozenExecution.opts, penOf: penTimingOf(frozenExecution.pens), tolerance: frozenExecution.tolerance, profile: frozenExecution.name, pens: frozenExecution.pens };
     }
     const prof = activeProfile();
     const rp = lastResult?.pens ?? [];
-    return { opts: machineTiming(prof), penOf: penTimingOf(rp, pens), tolerance: machineTolerance(prof, rp), profile: prof.name, pens: rp.map((p) => pens.find((q) => q.name === p.name) ?? p) };
+    // the render's captured pens throughout: timing, tolerance, export
+    return { opts: machineTiming(prof), penOf: penTimingOf(rp), tolerance: machineTolerance(prof, rp), profile: prof.name, pens: rp };
   };
   // THE ordered plan of the current render, and the selection of it that
   // the preview, exports, simulation and machine share.
@@ -282,6 +288,7 @@ async function boot(): Promise<void> {
     // a fresh run) so respawns and shares stay sticky.
     seed = reply.seedUsed;
     lastResult = result;
+    preview.setPaperColor(sheetColor());
     if (result.stats.shapesIn === 0) {
       say('status-err', 'sketch returned an empty tree — no shapes (check for undefined returns or empty arrays)');
     } else if (result.stats.fragments === 0) {
@@ -364,8 +371,10 @@ async function boot(): Promise<void> {
     // editor before the re-render; the next run captures the library as it
     // now stands.
     onChanged: () => { setUserModuleTypes(pens, papers); void run(); },
-    onPaperColor: (hex) => preview.setPaperColor(hex),
+    // the panel's colour paints the sheet only while no result declares its own
+    onPaperColor: (hex) => preview.setPaperColor(lastResult?.paper.color ?? hex),
     onPapers: () => setUserModuleTypes(pens, papers),
+    sheetColor: () => sheetColor(),
     lastResult: () => lastResult,
     currentSeed: () => seedUsed,
     getSource: () => editor.getValue(),
@@ -382,6 +391,13 @@ async function boot(): Promise<void> {
       sketchName = name;
       saveSketchName(name);
       setTitle();
+    },
+    relinkUserModules: () => {
+      const out = relinkUserImports(editor.getValue(), pens, papers);
+      if (out.missing.length) { notify(`your libraries lack ${out.missing.join(', ')} — add them (or keep the bundled definitions)`, 'danger'); return; }
+      if (out.relinked.length === 0) { notify('nothing bundled in this sketch', 'neutral'); return; }
+      editor.replaceValue(out.source);
+      notify(`relinked to your libraries: ${out.relinked.join(', ')}`, 'success');
     },
     importSketchFile: () => {
       const input = $('file-input') as HTMLInputElement;
@@ -403,6 +419,10 @@ async function boot(): Promise<void> {
           if (out.added.length) parts.push(`fills added: ${out.added.join(', ')}`);
           if (out.reused.length) parts.push(`fills reused: ${out.reused.join(', ')}`);
           for (const r of out.renamed) parts.push(`fill '${r.from}' differs — imported as '${r.to}', sketch rewired`);
+          // Bundled pens and papers stay inline (the definitions the file was
+          // written against); "Relink" swaps them for your libraries' by name.
+          const bundled = scanBundled(out.sketch);
+          if (bundled.length) parts.push(`bundled ${bundled.map((b) => `${b.kind === 'pens' ? 'pen' : 'paper'} ${b.name}`).join(', ')} kept inline — Relink to use your libraries`);
           if (parts.length) note = parts.join(' · ');
           editor.setValue(out.sketch);
         } catch (err) {
@@ -422,7 +442,10 @@ async function boot(): Promise<void> {
       // Embed the resolved source of every custom fill the sketch uses, in
       // a comment-only block: the file stays a valid sketch and travels
       // complete (fill files import nothing but occlude).
-      const src = editor.getValue();
+      // …and every imported @user/pens / @user/papers entry as an inline
+      // definition, so the file resolves the same pens and sheets anywhere.
+      const { source: src, missing } = bundleUserImports(editor.getValue(), pens, papers);
+      if (missing.length) notify(`not in your libraries, left as imports: ${missing.join(', ')}`, 'warning');
       const fills: { name: string; source: string }[] = [];
       for (const name of customFillNames(src)) {
         const source = await loadFill(name).catch(() => null);
@@ -733,6 +756,7 @@ async function boot(): Promise<void> {
           raw: { prims: new Float64Array(0), frags: new Float64Array(0) },
         } as unknown as RenderResult;
         lastResult = frozen;
+        preview.setPaperColor(sheetColor());
         preview.setResult(frozen);
         inspector.clear('a saved result has no inspectable material — it is preserved output, not a run');
         await drawing.setPlan({ buffer: bytes, settings: meta.settings, planHash: meta.planHash }, meta.pens);

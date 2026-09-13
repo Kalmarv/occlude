@@ -74,7 +74,10 @@ export interface RenderResult {
   ghost?: Prim[];
   pens: PenDef[];
   stats: RenderStats;
-  paper: { w: number; h: number };
+  /** The sheet the run resolved: size in mm and, when the sketch or the
+   * host's paper declared one, the stock colour the preview and exports
+   * paint under the ink by default. */
+  paper: PaperSpec;
   frame: Frame;
   /** Raw buffers for export calls. */
   raw: { prims: Float64Array; frags: Float64Array };
@@ -141,7 +144,7 @@ export interface EncodedScene {
   // decode metadata (plain data)
   pens: PenDef[];
   frame: Frame;
-  paper: { w: number; h: number };
+  paper: PaperSpec;
   /** The sketch's own `t.plan({...})` and `t.draw({...})`, if any. */
   plan?: PlanOptions;
   draw?: DrawRequest;
@@ -513,7 +516,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     debugGhost: opts.debugGhost ?? false,
     pens,
     frame,
-    paper: { w: paperW, h: paperH },
+    paper: exec.paper.color !== undefined ? { w: paperW, h: paperH, color: exec.paper.color } : { w: paperW, h: paperH },
     plan: state.planOptions ?? undefined,
     draw: state.drawRequest ?? undefined,
   };
@@ -692,7 +695,7 @@ export function exportPng(def: SketchDef | Execution, opts: PngOptions = {}): Ui
     result.paper.w,
     result.paper.h,
     opts.scale ?? 4,
-    opts.background,
+    opts.background ?? result.paper.color,
     range.from,
     range.to,
   );
@@ -764,5 +767,5 @@ export function exportSvg(def: SketchDef | Execution, opts: SvgOptions = {}): st
   const result = renderRun(runOf(def, opts), { ...opts, coarsen: 1 });
   const tol = Math.max(0.0001, Math.min(0.025, result.pens.reduce((t, p) => Math.min(t, p.width / 4), Infinity)));
   const range = requestedRange(result, { ...opts, ...(opts.tourBudget !== undefined ? { optimize: opts.tourBudget } : {}) }, tol);
-  return mod.wasm_plan_svg(range.buffer, pensToJson(result.pens), result.paper.w, result.paper.h, opts.background, opts.onlyPen ?? -1, range.from, range.to);
+  return mod.wasm_plan_svg(range.buffer, pensToJson(result.pens), result.paper.w, result.paper.h, opts.background ?? result.paper.color, opts.onlyPen ?? -1, range.from, range.to);
 }

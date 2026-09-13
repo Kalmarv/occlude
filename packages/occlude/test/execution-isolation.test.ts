@@ -11,8 +11,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  DEFAULT_PENS, Execution, circle, compileSketch, encodeScene, exportSvg, fill, initOcclude, line, mm, plan, render,
-  renderEncoded, sketch, type ExecutionInputs, type SketchDef, type WasmModule,
+  DEFAULT_PENS, Execution, assetTable, circle, compileSketch, encodeScene, exportSvg, fill, fillAsset, fillTable, initOcclude, line, mm, plan, render,
+  renderEncoded, rulings, sketch, type ExecutionInputs, type SketchDef, type WasmModule,
 } from '../src/index.js';
 import { requireWasm } from '../src/wasmRender.js';
 
@@ -133,5 +133,42 @@ describe('execution isolation', () => {
   it('an execution runs one sketch once', () => {
     const exec = compileSketch(A, inA);
     expect(() => compileSketch(B, exec)).toThrow(/already compiled/);
+  });
+});
+
+describe('asset and fill inputs are snapshots', () => {
+  it('editing the host\'s asset table after the run cannot reach it: text, pixels, and the table itself', () => {
+    const data = new Uint8ClampedArray([0, 0, 0, 255, 255, 255, 255, 255]);
+    const entries: [string, { text: string } | { pixels: { width: number; height: number; data: Uint8ClampedArray } }][] = [
+      ['note.svg', { text: '<svg>one</svg>' }],
+      ['pic.png', { pixels: { width: 2, height: 1, data } }],
+    ];
+    const table = assetTable(entries);
+    const a = new Execution({ paper: { w: 100, h: 100 }, assets: table });
+    const b = new Execution({ paper: { w: 100, h: 100 }, assets: table });
+    const mutable = table as Map<string, { text?: string; pixels?: { data: Uint8ClampedArray } }>;
+    // the host mutates what it handed over
+    mutable.get('note.svg')!.text = '<svg>two</svg>';
+    data[0] = 200;
+    mutable.set('note.svg', { text: '<svg>three</svg>' });
+    mutable.delete('pic.png');
+    for (const exec of [a, b]) {
+      const def = sketch({}, (t) => { expect(t.asset('note.svg')).toBe('<svg>one</svg>'); expect(t.image('pic.png').lum(0.5, 0.5)).toBe(0); return circle(1, 1, 1); });
+      compileSketch(def, exec);
+    }
+    expect(a.inputs.assets).not.toBe(b.inputs.assets);
+  });
+
+  it('editing a fill definition after the run cannot reach it', () => {
+    const def = fillAsset({ params: { spacing: 2, angle: 0 }, generate(region, p) { return rulings(region, { spacing: p.spacing as number, angle: p.angle as number }); } });
+    const table = fillTable([['bars', def]]) as Map<string, typeof def>;
+    const sk = sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('bars') }));
+    const exec = compileSketch(sk, { paper: { w: 200, h: 200 }, fills: table });
+    const before = render(exec).stats.fillPrims;
+    (def.params as { spacing: number }).spacing = 20; // sparser
+    table.delete('bars');
+    const again = compileSketch(sk, { paper: { w: 200, h: 200 }, fills: exec.inputs.fills });
+    expect(render(again).stats.fillPrims).toBe(before);
+    expect(exec.inputs.fills!.get('bars')!.params.spacing).toBe(2);
   });
 });

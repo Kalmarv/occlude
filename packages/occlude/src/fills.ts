@@ -70,7 +70,7 @@ export function customFill(fn: CustomFillFn): FillSpec {
 
 // ---- resolution -------------------------------------------------------
 
-type AnyFill = FillAssetDef<Record<string, unknown>>;
+export type AnyFill = FillAssetDef<Record<string, unknown>>;
 
 /** Built-ins resolve from the package — never from any store — and their
  * names are ink-immutable forever: an ink-affecting change needs a NEW

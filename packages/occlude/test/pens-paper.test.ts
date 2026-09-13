@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  DEFAULT_PAPERS, DEFAULT_PENS, circle, compileSketch, encodeScene, exportSvg, fill, inch, initOcclude, mm, moduleName, paper, paperModel, pen, penModel,
+  DEFAULT_PAPERS, DEFAULT_PENS, circle, compileSketch, encodeScene, exportCollisions, exportPng, exportSvg, fill, inch, initOcclude, mm, moduleName, paper, paperModel, pen, penModel,
   render, sketch, userModules,
 } from '../src/index.js';
 
@@ -28,7 +28,7 @@ describe('paper and pens declared by the sketch', () => {
     expect(exec.marginPct).toBeCloseTo((12.7 / 215.9) * 100, 9);
     expect(exec.frame.paperW).toBe(215.9);
     const out = render(exec);
-    expect(out.paper).toEqual({ w: 215.9, h: 279.4 });
+    expect(out.paper).toEqual({ w: 215.9, h: 279.4, color: '#F5F0E6' });
   });
 
   it('pen() defaults the machine settings; instances of a model are distinct and never mutate it', () => {
@@ -107,5 +107,33 @@ describe('the user modules a host serves from its libraries', () => {
     expect(papers.Letter({ color: '#000' })).toEqual({ w: 215.9, h: 279.4, color: '#000' });
     expect(papers.A4()).not.toBe(papers.A4());
     expect(Object.keys(papers).sort()).toEqual(DEFAULT_PAPERS.map((p) => moduleName(p.name)).sort());
+  });
+});
+
+describe('the paper colour reaches the result and the exports', () => {
+  it('a declared colour rides the scene and the result, and is the export background by default', () => {
+    const def = sketch({ paper: paper({ width: 100, height: 100, color: '#123456' }) }, () => circle(50, 50, 10));
+    const exec = compileSketch(def, { paper: { w: 300, h: 300, color: '#ffffff' } });
+    expect(encodeScene(exec).paper).toEqual({ w: 100, h: 100, color: '#123456' });
+    const out = render(exec);
+    expect(out.paper).toEqual({ w: 100, h: 100, color: '#123456' });
+    expect(exportSvg(exec)).toContain('#123456');
+    expect(exportSvg(exec, { background: '#abcdef' })).not.toContain('#123456');
+    expect(exportPng(exec).length).toBeGreaterThan(0);
+    // the host's sheet colour applies when the sketch declares none
+    const host = compileSketch(sketch({}, () => circle(50, 50, 10)), { paper: { w: 300, h: 300, color: '#654321' } });
+    expect(render(host).paper).toEqual({ w: 300, h: 300, color: '#654321' });
+    expect(render(compileSketch(sketch({}, () => circle(50, 50, 10)), { paper: { w: 300, h: 300 } })).paper).toEqual({ w: 300, h: 300 });
+  });
+});
+
+describe('library export names never collide silently', () => {
+  it('a-b and a_b would both export as a_b: userModules refuses the library and names both', () => {
+    const lib = [{ ...DEFAULT_PENS[0], name: 'a-b' }, { ...DEFAULT_PENS[1], name: 'a_b' }];
+    expect(() => userModules(lib, [])).toThrow(/'a-b' and 'a_b' would both export as a_b/);
+    expect(exportCollisions(lib, 'a-b')).toEqual(['a_b']);
+    expect(exportCollisions(lib, 'a.b')).toEqual(['a-b', 'a_b']);
+    expect(exportCollisions(DEFAULT_PENS, 'fresh-name')).toEqual([]);
+    expect(() => userModules([], [{ name: 'a-4', w: 1, h: 1 }, { name: 'a_4', w: 2, h: 2 }])).toThrow(/@user\/papers/);
   });
 });
