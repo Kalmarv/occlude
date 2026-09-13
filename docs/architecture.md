@@ -602,8 +602,10 @@ studio's `runner.test.ts`.
 
 ## Studio persistence
 
-Sketches, fills, pens, machine profiles, assets, and the plot log live on
-the studio server (plain files under `sketches/`, `fills/`, `assets/`),
+Sketches, fills, pens, papers, machine profiles, assets, and the plot log
+live on the studio server (plain files under `sketches/`, `fills/`, `assets/`;
+`pens.json` and `papers.json` are the libraries `@user/pens` and
+`@user/papers` are built from, per run),
 shared by every browser that reaches it. `localStorage` holds the working
 sketch (and a fill draft), the UI layout, and offline caches of pens and
 profiles; the sketch saves on every (debounced) run, including runs that

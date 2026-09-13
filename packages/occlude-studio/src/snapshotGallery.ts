@@ -24,7 +24,7 @@ import { snapshotSeed,
   type Snapshot,
 } from './sketchApi.js';
 import { liveExampleToJs } from 'occlude';
-import { loadPens, loadSettings } from './store.js';
+import { loadPens, loadSettings, loadPapers, sheetOf } from './store.js';
 import { RenderClient } from './workerClient.js';
 
 export interface GalleryOpts {
@@ -133,7 +133,7 @@ export function openGallery(opts: GalleryOpts): void {
     working.title = '';
     working.hidden = false;
     try {
-      const [ts, pens] = await Promise.all([snapshotJs(s.name, s.id), loadPens()]);
+      const [ts, pens, papers] = await Promise.all([snapshotJs(s.name, s.id), loadPens(), loadPapers()]);
       const settings = loadSettings();
       // The server strips types; the worker evaluates CommonJS. This is the
       // same ESM→CJS rewrite the docs examples and the fill loader use.
@@ -143,7 +143,8 @@ export function openGallery(opts: GalleryOpts): void {
         js,
         cfg: {
           pens,
-          paper: settings.paper === 'Custom' ? settings.customPaper : settings.paper,
+          paper: sheetOf(settings, papers),
+          papers,
           landscape: settings.landscape,
           defaultMarginPct: settings.defaultMarginPct,
           coarsen: 1,

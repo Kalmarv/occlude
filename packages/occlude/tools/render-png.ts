@@ -17,7 +17,7 @@ import * as occlude from '../src/index.js';
 import {
   exportPng, exportSvg, initOcclude, isSketch, paperSize, type SketchDef,
 } from '../src/index.js';
-import { inputsFor, seedArg } from './inputs.js';
+import { inputsFor, seedArg, requireFor, penLibrary, paperLibrary } from './inputs.js';
 
 const args = process.argv.slice(2);
 const sketchFile = args.find((a) => !a.startsWith('--'));
@@ -56,10 +56,7 @@ const js = transformSync(readFileSync(sketchFile, 'utf8'), {
   format: 'cjs',
 }).code;
 const module = { exports: {} as Record<string, unknown> };
-const requireShim = (name: string): unknown => {
-  if (name === 'occlude') return occlude;
-  throw new Error(`sketches can only import from 'occlude' (tried '${name}')`);
-};
+const requireShim = requireFor(penLibrary(opt('pens') === 'docs' ? 'docs' : 'studio'), paperLibrary());
 new Function('require', 'exports', 'module', js)(requireShim, module.exports, module);
 const exp = module.exports;
 const def = (isSketch(exp.default)

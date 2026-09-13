@@ -12,9 +12,9 @@ import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import {
   initOcclude, isSketch, render,
-  DEFAULT_PENS,
-} from '../src/index.js';
+  DEFAULT_PENS, DEFAULT_PAPERS } from '../src/index.js';
 import { liveExampleToJs } from '../src/docsExamples.js';
+import { requireFor } from './inputs.js';
 
 const args = process.argv.slice(2);
 const file = args.find((a) => !a.startsWith('--'));
@@ -29,7 +29,7 @@ const src = file ? readFileSync(file, 'utf8') : readFileSync(0, 'utf8');
 const js = liveExampleToJs(src);
 const module = { exports: {} as Record<string, unknown> };
 new Function('require', 'exports', 'module', js)(
-  (name: string) => { if (name === 'occlude') return occlude; throw new Error(`only 'occlude' (tried '${name}')`); },
+  requireFor(DEFAULT_PENS, DEFAULT_PAPERS),
   module.exports, module,
 );
 const def = module.exports.default;

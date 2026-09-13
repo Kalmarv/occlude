@@ -25,7 +25,7 @@ import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as core from 'occlude-core';
-import { inputsFor, seedArg } from './inputs.js';
+import { inputsFor, seedArg, requireFor, penLibrary, paperLibrary } from './inputs.js';
 import * as occlude from '../src/index.js';
 import {
   initOcclude, isSketch, paperSize, pensToJson, render,
@@ -453,10 +453,7 @@ for (const file of files) {
   try {
     const js = transformSync(readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs' }).code;
     const module = { exports: {} as Record<string, unknown> };
-    const requireShim = (name: string): unknown => {
-      if (name === 'occlude') return occlude;
-      throw new Error(`sketches can only import from 'occlude' (tried '${name}')`);
-    };
+    const requireShim = requireFor(penLibrary(opt('pens') === 'docs' ? 'docs' : 'studio'), paperLibrary());
     new Function('require', 'exports', 'module', js)(requireShim, module.exports, module);
     const exp = module.exports;
     const def = (isSketch(exp.default)

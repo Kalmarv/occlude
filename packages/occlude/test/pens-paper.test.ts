@@ -8,8 +8,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  DEFAULT_PENS, circle, compileSketch, encodeScene, exportSvg, fill, inch, initOcclude, mm, paper, paperModel, pen, penModel,
-  render, sketch,
+  DEFAULT_PAPERS, DEFAULT_PENS, circle, compileSketch, encodeScene, exportSvg, fill, inch, initOcclude, mm, moduleName, paper, paperModel, pen, penModel,
+  render, sketch, userModules,
 } from '../src/index.js';
 
 beforeAll(async () => {
@@ -90,5 +90,22 @@ describe('paper and pens declared by the sketch', () => {
     expect(exec.inputs.library[0].width).toBe(DEFAULT_PENS[0].width);
     expect(exec.pens.get(DEFAULT_PENS[0].name)!.width).toBe(DEFAULT_PENS[0].width);
     expect(Object.isFrozen(exec.inputs)).toBe(true);
+  });
+});
+
+describe('the user modules a host serves from its libraries', () => {
+  it('@user/pens and @user/papers are factories of fresh instances, named as identifiers', () => {
+    const mods = userModules(DEFAULT_PENS, DEFAULT_PAPERS);
+    const pens = mods['@user/pens'] as Record<string, (o?: object) => { width: number; color: string }>;
+    const papers = mods['@user/papers'] as Record<string, (o?: object) => { w: number; h: number; color?: string }>;
+    expect(moduleName('pigma-005-black')).toBe('pigma_005_black');
+    expect(moduleName('4x6')).toBe('_4x6');
+    const blue = pens.pigma_005_black({ color: '#0000ff' });
+    expect(blue).toMatchObject({ width: DEFAULT_PENS[0].width, color: '#0000ff' });
+    expect(pens.pigma_005_black().color).toBe(DEFAULT_PENS[0].color);
+    expect(papers.A4()).toEqual({ w: 210, h: 297, color: '#f6f2ea' });
+    expect(papers.Letter({ color: '#000' })).toEqual({ w: 215.9, h: 279.4, color: '#000' });
+    expect(papers.A4()).not.toBe(papers.A4());
+    expect(Object.keys(papers).sort()).toEqual(DEFAULT_PAPERS.map((p) => moduleName(p.name)).sort());
   });
 });

@@ -7,8 +7,7 @@ import { buildRail } from './panels.js';
 import { Preview } from './preview.js';
 import {
   download, loadPens, loadProfiles, loadSettings, loadSketch, loadSketchName,
-  loadUi, saveSketch, saveSketchName, saveUi,
-} from './store.js';
+  loadUi, saveSketch, saveSketchName, saveUi, loadPapers, sheetOf } from './store.js';
 import { listFills, loadFill, saveFill } from './fillApi.js';
 import { seedOf, stashLive, withSeed,
   createSnapshot, forkSketch, loadSketchByName, putThumb, thumbFromCanvas,
@@ -49,7 +48,8 @@ async function boot(): Promise<void> {
   syncRenderToggle();
 
   const pens = await loadPens();
-  setUserModuleTypes(pens, []);
+  const papers = await loadPapers();
+  setUserModuleTypes(pens, papers);
   const profiles = await loadProfiles();
   const settings = loadSettings();
   // A sketch opened from the docs arrives with the sheet it was shown on
@@ -63,14 +63,19 @@ async function boot(): Promise<void> {
       localStorage.removeItem('occlude.openSettings');
       const open = JSON.parse(raw) as { paper?: string; customPaper?: { w: number; h: number }; landscape?: boolean; defaultMarginPct?: number; pens?: PenDef[] };
       if (open.paper) settings.paper = open.paper;
-      if (open.customPaper) settings.customPaper = open.customPaper;
+      if (open.customPaper) {
+        // the docs' sheet by size: a library paper of that size, or a new one
+        const same = papers.find((p) => p.w === open.customPaper!.w && p.h === open.customPaper!.h);
+        if (same) settings.paper = same.name;
+        else settings.customPaper = open.customPaper;
+      }
       if (open.landscape !== undefined) settings.landscape = open.landscape;
       if (open.defaultMarginPct !== undefined) settings.defaultMarginPct = open.defaultMarginPct;
       const added: string[] = [];
       for (const pen of open.pens ?? []) {
         if (!pens.some((p) => p.name === pen.name)) { pens.push(pen); added.push(pen.name); }
       }
-      openedNote = `opened from the docs on ${settings.paper === 'Custom' ? `${settings.customPaper.w}×${settings.customPaper.h} mm` : settings.paper}${settings.landscape ? ' landscape' : ''}` +
+      openedNote = `opened from the docs on ${settings.paper}${settings.landscape ? ' landscape' : ''}` +
         (added.length ? ` — docs pens added for this session: ${added.join(', ')} (not saved to your library)` : '');
     }
   } catch {
@@ -242,7 +247,8 @@ async function boot(): Promise<void> {
         js: emitted.js,
         cfg: {
           pens,
-          paper: settings.paper === 'Custom' ? settings.customPaper : settings.paper,
+          papers,
+          paper: sheetOf(settings, papers),
           landscape: settings.landscape,
           defaultMarginPct: settings.defaultMarginPct,
           coarsen: 1,
@@ -342,6 +348,7 @@ async function boot(): Promise<void> {
 
   const rail = buildRail($('rail'), {
     pens,
+    papers,
     profiles,
     settings,
     client,
@@ -353,8 +360,12 @@ async function boot(): Promise<void> {
       return { profile: e.profile, tolerance: e.tolerance, timing: e.opts, pens: e.pens.map((p) => ({ name: p.name, feed: p.feed, penDelay: p.penDelay })) };
     },
     build: __BUILD_STAMP__,
-    onChanged: () => void run(),
+    // A library edit (a pen or a paper) redeclares the user modules for the
+    // editor before the re-render; the next run captures the library as it
+    // now stands.
+    onChanged: () => { setUserModuleTypes(pens, papers); void run(); },
     onPaperColor: (hex) => preview.setPaperColor(hex),
+    onPapers: () => setUserModuleTypes(pens, papers),
     lastResult: () => lastResult,
     currentSeed: () => seedUsed,
     getSource: () => editor.getValue(),

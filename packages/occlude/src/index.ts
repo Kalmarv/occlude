@@ -112,8 +112,8 @@ export {
 } from './plan.js';
 export { plan, planBuffer, planSvg, planGcode, planToolpath, bridgeGapFor } from './render.js';
 export type { PlanChain, PlanSettings, DrawingPlan, PlanSelection, FlatChain, TimeSelection, FitResult, PlanOptions, DrawRequest, DrawTiming, ResolvedDraw } from './plan.js';
-export { PAPERS, paperSize } from './paper.js';
-export type { Paper, PaperChoice } from './paper.js';
+export { PAPERS, DEFAULT_PAPERS, paperSize } from './paper.js';
+export type { Paper, PaperChoice, PaperDef } from './paper.js';
 export { DEFAULT_PENS } from './pens.js';
 export type { PenDef } from './pens.js';
 export type { Prim } from './prims.js';
@@ -168,7 +168,7 @@ export type { LiftMap, CellGeometry, SettlePoint, LiftModel } from './liftmap.js
 
 // Host integration.
 // The run: one object per execution, no ambient state (execution.ts).
-export { Execution, pen, penModel, paper, paperModel } from './execution.js';
+export { Execution, pen, penModel, paper, paperModel, userModules, moduleName } from './execution.js';
 export type {
   ExecutionInputs, PaperSpec, CompileConfig, ProbeSummary, InspectionEntry, InspectionPayload, SketchOptions, TransformOp, Winding,
 } from './execution.js';

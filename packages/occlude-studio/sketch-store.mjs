@@ -23,6 +23,8 @@
  *   GET/PUT/DELETE /api/plot-progress → the one unfinished plot (resume record)
  *   GET    /api/pens             → pen library JSON (404 before first save)
  *   PUT    /api/pens             → save pen library JSON
+ *   GET    /api/papers           → paper library JSON (404 before first save)
+ *   PUT    /api/papers           → save paper library JSON
  */
 
 import { existsSync, mkdirSync, promises as fs } from 'node:fs';
@@ -53,6 +55,7 @@ export function createSketchHandler(dir) {
   return async function handler(req, res, next) {
     const url = new URL(req.url ?? '/', 'http://x');
     const isPens = url.pathname === '/api/pens';
+    const isPapers = url.pathname === '/api/papers';
     const isProfiles = url.pathname === '/api/profiles';
     const isPlotLog = url.pathname === '/api/plotlog';
     const isProgress = url.pathname === '/api/plot-progress';
@@ -120,6 +123,23 @@ export function createSketchHandler(dir) {
           for await (const c of req) chunks.push(c);
           const body = Buffer.concat(chunks).toString('utf8');
           JSON.parse(body);
+          await fs.writeFile(file, body);
+          return send(200, '{"ok":true}');
+        }
+        return send(405, '{"error":"method"}');
+      }
+      if (isPapers) {
+        const file = join(dir, 'papers.json');
+        if (req.method === 'GET') {
+          const src = await fs.readFile(file, 'utf8').catch(() => null);
+          if (src === null) return send(404, '{"error":"no papers saved yet"}');
+          return send(200, src);
+        }
+        if (req.method === 'PUT') {
+          const chunks = [];
+          for await (const c of req) chunks.push(c);
+          const body = Buffer.concat(chunks).toString('utf8');
+          JSON.parse(body); // reject invalid JSON before persisting
           await fs.writeFile(file, body);
           return send(200, '{"ok":true}');
         }

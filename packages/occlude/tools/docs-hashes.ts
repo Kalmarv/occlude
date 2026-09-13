@@ -26,10 +26,10 @@ import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import {
   exportSvg, initOcclude, isSketch, paperSize,
-  DEFAULT_PENS, DOC_PAGES, parseLiveMeta, docsPaper, liveExampleToJs, type SketchDef,
-} from '../src/index.js';
+  DEFAULT_PENS, DOC_PAGES, parseLiveMeta, docsPaper, liveExampleToJs, type SketchDef, DEFAULT_PAPERS } from '../src/index.js';
 import { assetsFromDisk } from './asset-preload.js';
 import { fillsFromDisk } from './fill-preload.js';
+import { requireFor } from './inputs.js';
 
 const args = process.argv.slice(2);
 const opt = (name: string): string | undefined => {
@@ -80,10 +80,7 @@ function inkOf(src: string, meta: ReturnType<typeof parseLiveMeta>): string {
   const js = liveExampleToJs(src);
   const module = { exports: {} as Record<string, unknown> };
   new Function('require', 'exports', 'module', js)(
-    (name: string) => {
-      if (name === 'occlude') return occlude;
-      throw new Error(`examples may only import from 'occlude' (tried '${name}')`);
-    },
+    requireFor(DEFAULT_PENS, DEFAULT_PAPERS),
     module.exports,
     module,
   );

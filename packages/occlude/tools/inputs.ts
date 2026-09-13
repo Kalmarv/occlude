@@ -9,13 +9,15 @@
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import * as occlude from '../src/index.js';
 import {
-  DEFAULT_PENS, paperSize, type ExecutionInputs, type PaperChoice, type PenDef,
+  DEFAULT_PAPERS, DEFAULT_PENS, paperSize, userModules, type ExecutionInputs, type PaperChoice, type PaperDef, type PenDef,
 } from '../src/index.js';
 import { assetsFromDisk } from './asset-preload.js';
 import { fillsFromDisk } from './fill-preload.js';
 
 const pensPath = fileURLToPath(new URL('../../occlude-studio/sketches/pens.json', import.meta.url));
+const papersPath = fileURLToPath(new URL('../../occlude-studio/sketches/papers.json', import.meta.url));
 
 /** The studio's pen library from disk, or the package's own pens when
  * `'docs'` is asked for or the studio has none saved. */
@@ -54,4 +56,30 @@ export function inputsFor(
 export function seedArg(raw: string | undefined): number | string | undefined {
   if (raw === undefined) return undefined;
   return /^-?\d+$/.test(raw) ? Number(raw) : raw;
+}
+
+/** The studio's paper library from disk, or the package's presets when
+ * `'docs'` is asked for or the studio has none saved. */
+export function paperLibrary(which: 'studio' | 'docs' | string = 'studio'): PaperDef[] {
+  if (which === 'docs') return structuredClone(DEFAULT_PAPERS);
+  const path = which === 'studio' ? papersPath : which;
+  try {
+    const papers = JSON.parse(readFileSync(path, 'utf8')) as PaperDef[];
+    if (Array.isArray(papers) && papers.length > 0) return papers;
+  } catch {
+    // no library saved: the presets
+  }
+  return structuredClone(DEFAULT_PAPERS);
+}
+
+/** The `require` a sketch module gets: `occlude` itself, and the user
+ * modules built from the given libraries. */
+export function requireFor(pens: readonly PenDef[], papers: readonly PaperDef[]): (name: string) => unknown {
+  const modules = userModules(pens, papers);
+  return (name) => {
+    if (name === 'occlude') return occlude;
+    const mod = modules[name as keyof typeof modules];
+    if (mod) return mod;
+    throw new Error(`sketches can import from 'occlude', '@user/pens' and '@user/papers' (tried '${name}')`);
+  };
 }

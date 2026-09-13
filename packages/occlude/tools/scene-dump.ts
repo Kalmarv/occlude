@@ -11,22 +11,19 @@ import * as core from 'occlude-core';
 import * as occlude from '../src/index.js';
 import {
   compileSketch, isSketch, paperSize,
-  type AssetTable, type FillTable, type PaperChoice, type PenDef, type SketchDef,
-} from '../src/index.js';
+  type AssetTable, type FillTable, type PaperChoice, type PenDef, type SketchDef, DEFAULT_PENS, type PaperDef } from '../src/index.js';
 import { encodeScene, runFillJobs, type WasmModule } from '../src/render.js';
+import { requireFor, paperLibrary } from './inputs.js';
 
 export type DumpFiles = Record<string, Uint8Array | string>;
 
 const bytes = (arr: Float64Array | Uint32Array): Uint8Array =>
   new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
 
-export function dumpSceneFiles(js: string, opts: { paper: PaperChoice; pens?: PenDef[]; seed?: number | string; assets?: AssetTable; fills?: FillTable }): DumpFiles {
+export function dumpSceneFiles(js: string, opts: { paper: PaperChoice; pens?: PenDef[]; papers?: PaperDef[]; seed?: number | string; assets?: AssetTable; fills?: FillTable }): DumpFiles {
   const size = paperSize(opts.paper);
   const module = { exports: {} as Record<string, unknown> };
-  const requireShim = (name: string): unknown => {
-    if (name === 'occlude') return occlude;
-    throw new Error(`sketches can only import from 'occlude' (tried '${name}')`);
-  };
+  const requireShim = requireFor(opts.pens ?? DEFAULT_PENS, opts.papers ?? paperLibrary());
   new Function('require', 'exports', 'module', js)(requireShim, module.exports, module);
   const exp = module.exports;
   const def = (isSketch(exp.default)

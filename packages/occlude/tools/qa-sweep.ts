@@ -32,15 +32,13 @@ import {
   type SketchDef,
 } from '../src/index.js';
 import { scenarios, type Scenario, type Violation } from './qa-scenarios.js';
+import { requireFor, penLibrary, paperLibrary } from './inputs.js';
 
 /** Load a sketch file the way the studio runner does. */
 function loadSketch(file: string): SketchDef {
   const js = transformSync(readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs' }).code;
   const module = { exports: {} as Record<string, unknown> };
-  const requireShim = (name: string): unknown => {
-    if (name === 'occlude') return occlude;
-    throw new Error(`sketches can only import from 'occlude' (tried '${name}')`);
-  };
+  const requireShim = requireFor(penLibrary(), paperLibrary());
   new Function('require', 'exports', 'module', js)(requireShim, module.exports, module);
   const exp = module.exports;
   const def = (isSketch(exp.default) ? exp.default : Object.values(exp).find(isSketch)) as

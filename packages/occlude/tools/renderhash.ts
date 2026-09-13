@@ -23,7 +23,7 @@ import {
   compileSketch, initOcclude, isSketch, paperSize,
   type ExecutionInputs, type SketchDef,
 } from '../src/index.js';
-import { inputsFor, seedArg } from './inputs.js';
+import { inputsFor, seedArg, requireFor, penLibrary, paperLibrary } from './inputs.js';
 import { encodeScene, runFillJobs, type WasmModule } from '../src/render.js';
 
 const args = process.argv.slice(2);
@@ -62,10 +62,7 @@ function renderOnce(js: string, inputs: ExecutionInputs): Row {
   const t0 = performance.now();
   const module = { exports: {} as Record<string, unknown> };
   new Function('require', 'exports', 'module', js)(
-    (name: string) => {
-      if (name === 'occlude') return occlude;
-      throw new Error(`sketches can only import from 'occlude' (tried '${name}')`);
-    },
+    requireFor(penLibrary(), paperLibrary()),
     module.exports, module,
   );
   const exp = module.exports;

@@ -16,8 +16,8 @@
  */
 
 import * as occlude from 'occlude';
-import { Execution, inspectHook, paperModel, penModel } from 'occlude';
-import type { AssetTable, EncodedScene, FillTable, PaperSpec, PenDef, SketchDef } from 'occlude';
+import { Execution, inspectHook, moduleName, userModules } from 'occlude';
+import type { AssetTable, EncodedScene, FillTable, PaperDef, PenDef, SketchDef } from 'occlude';
 import { INSPECT_HOOK, instrumentDeclarations } from './instrument.js';
 
 export interface RunOutcome {
@@ -28,17 +28,12 @@ export interface RunOutcome {
   run: Execution | null;
 }
 
-/** A sheet the studio's paper library offers to `@user/papers`. */
-export interface PaperModelDef extends PaperSpec {
-  name: string;
-}
-
 export interface RunConfig {
   /** The captured pen library: `@user/pens` models and the pool undeclared
    * pen names resolve from. */
   pens: PenDef[];
   /** The captured paper library, for `@user/papers` (optional). */
-  papers?: PaperModelDef[];
+  papers?: PaperDef[];
   paper: string | { w: number; h: number };
   landscape: boolean;
   defaultMarginPct: number;
@@ -61,21 +56,7 @@ export interface RunConfig {
   draws?: boolean;
 }
 
-/** The library modules a sketch may import: every entry a factory of fresh
- * instances over the captured definition. */
-function userModules(cfg: RunConfig): Record<string, Record<string, unknown>> {
-  const pens: Record<string, unknown> = {};
-  for (const p of cfg.pens) pens[moduleName(p.name)] = penModel(p);
-  const papers: Record<string, unknown> = {};
-  for (const p of cfg.papers ?? []) papers[moduleName(p.name)] = paperModel({ w: p.w, h: p.h, color: p.color });
-  return { '@user/pens': pens, '@user/papers': papers };
-}
-
-/** A library entry's export name: `micron-03` → `micron_03` (a valid
- * identifier; the original name still works as the pen name). */
-export function moduleName(name: string): string {
-  return name.replace(/[^A-Za-z0-9_$]/g, '_').replace(/^(\d)/, '_$1');
-}
+export { moduleName };
 
 export function runSketch(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable): RunOutcome {
   // Let bounds() see the real paper for aspect-'paper' sketches.
@@ -89,10 +70,10 @@ export function runSketch(js: string, cfg: RunConfig, seed: number | string, ass
     fills,
     inspect: cfg.inspect === true,
   });
-  const modules = userModules(cfg);
+  const modules = userModules(cfg.pens, cfg.papers ?? []);
   const require = (name: string): unknown => {
     if (name === 'occlude') return occlude;
-    const mod = modules[name];
+    const mod = modules[name as keyof typeof modules];
     if (mod) return mod;
     throw new Error(`sketches can import from 'occlude', '@user/pens' and '@user/papers' (tried '${name}')`);
   };

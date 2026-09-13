@@ -30,3 +30,15 @@ export function paperSize(choice: PaperChoice): { w: number; h: number } {
   }
   return choice.landscape ? { w: base.h, h: base.w } : { w: base.w, h: base.h };
 }
+
+/** A sheet of a paper library: a named `PaperSpec` — size in portrait mm
+ * and the stock's colour. What `@user/papers` instantiates. */
+export interface PaperDef {
+  name: string;
+  w: number;
+  h: number;
+  color?: string;
+}
+
+/** The starter paper library: the presets, on natural white stock. */
+export const DEFAULT_PAPERS: PaperDef[] = Object.values(PAPERS).map((p) => ({ name: p.name, w: p.w, h: p.h, color: '#f6f2ea' }));

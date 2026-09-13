@@ -20,11 +20,11 @@ import { DOC_PAGES, parseLiveMeta, docsPaper } from '../src/docsExamples.js';
 import * as occlude from '../src/index.js';
 import {
   initOcclude, isSketch, render,
-  DEFAULT_PENS, paperSize, type SketchDef,
-} from '../src/index.js';
+  DEFAULT_PENS, paperSize, type SketchDef, DEFAULT_PAPERS } from '../src/index.js';
 import { liveExampleToJs } from '../src/docsExamples.js';
 import { assetsFromDisk } from './asset-preload.js';
 import { fillsFromDisk } from './fill-preload.js';
+import { requireFor } from './inputs.js';
 
 const wasmPath = fileURLToPath(
   new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url),
@@ -57,10 +57,7 @@ fences.forEach(({ src, meta, page }, i) => {
     const js = liveExampleToJs(src);
     const module = { exports: {} as Record<string, unknown> };
     new Function('require', 'exports', 'module', js)(
-      (name: string) => {
-        if (name === 'occlude') return occlude;
-        throw new Error(`examples may only import from 'occlude' (tried '${name}')`);
-      },
+      requireFor(DEFAULT_PENS, DEFAULT_PAPERS),
       module.exports,
       module,
     );

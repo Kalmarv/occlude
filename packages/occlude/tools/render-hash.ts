@@ -22,10 +22,9 @@ import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import {
   compileSketch, exportSvg, initOcclude, isSketch, render,
-  DEFAULT_PENS, paperSize,
-} from '../src/index.js';
+  DEFAULT_PENS, paperSize, DEFAULT_PAPERS } from '../src/index.js';
 import { transformSync } from 'esbuild';
-import { inputsFor } from './inputs.js';
+import { inputsFor, requireFor } from './inputs.js';
 
 const args = process.argv.slice(2);
 const file = args.find((a) => !a.startsWith('--'));
@@ -56,10 +55,7 @@ try {
   js0 = js;
   const module = { exports: {} as Record<string, unknown> };
   new Function('require', 'exports', 'module', js)(
-    (name: string) => {
-      if (name === 'occlude') return occlude;
-      throw new Error(`examples may only import from 'occlude' (tried '${name}')`);
-    },
+    requireFor(DEFAULT_PENS, DEFAULT_PAPERS),
     module.exports,
     module,
   );

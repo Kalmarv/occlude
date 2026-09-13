@@ -9,14 +9,12 @@
 import {
   encodeToolpath, chainsBounds, type FlatChain,
   estimatePlanMs, profileToJson,
-  type GcodeJob, type PenDef, type RenderResult,
-} from 'occlude';
+  type GcodeJob, type PenDef, type RenderResult, type PaperDef } from 'occlude';
 import { loadSketchByName, saveSketchByName } from './sketchApi.js';
 import {
   DEFAULT_SKETCH, NEW_SKETCH, PAPER_COLORS,
   download, loadUi, savePens, saveProfiles, saveSettings, saveUi,
-  type MachineProfile, type Settings,
-} from './store.js';
+  type MachineProfile, type Settings, savePapers } from './store.js';
 import { serialSupported, type PlotProgress } from './ebb.js';
 import { buildConnect, buildManualControls, buildProfileSelect, createSession } from './machine.js';
 import { machineTiming, machineTolerance, penTimingOf, type Drawing, type RegionBlob } from './drawing.js';
@@ -46,12 +44,16 @@ export interface PanelHooks {
   optimizationView(view: { chains: import('occlude').PlanChain[]; before?: import('occlude').PlanChain[]; after?: import('occlude').PlanChain[] } | null): void;
   isPlotting?: () => boolean;
   pens: PenDef[];
+  /** The paper library (server-shared, like pens); settings.paper names one. */
+  papers: PaperDef[];
   settings: Settings;
   /** Server-shared machine profiles; settings.activeProfile picks one. */
   profiles: MachineProfile[];
   onChanged(): void;
   /** Paper colour changed: repaint the sheet, don't re-render the ink. */
   onPaperColor(hex: string): void;
+  /** The paper library changed (a sheet added, renamed, resized, recoloured). */
+  onPapers(): void;
   lastResult(): RenderResult | null;
   /** The seed the current render actually used (resume checks it). */
   currentSeed(): string | null;
@@ -402,26 +404,36 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
 
 function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
   const s = hooks.settings;
+  const papers = hooks.papers;
   const persist = (): void => {
     saveSettings(s);
     hooks.onChanged();
   };
+  const persistLibrary = (): void => {
+    savePapers(papers);
+    hooks.onPapers();
+  };
+  const current = (): PaperDef => papers.find((p) => p.name === s.paper) ?? papers[0];
 
+  // The sheet: one of the library's papers. The library is edited right
+  // here — a sheet is a named size and a stock colour, and every run
+  // captures the library, so `@user/papers` offers exactly these.
   const paperSel = document.createElement('select');
-  for (const name of ['A3', 'A4', 'A5', 'A6', 'Letter', 'Square20', 'Custom']) {
-    const o = document.createElement('option');
-    o.value = name;
-    o.textContent = name;
-    paperSel.append(o);
-  }
-  paperSel.value = s.paper;
+  const syncSelect = (): void => {
+    paperSel.replaceChildren(...papers.map((p) => new Option(p.name, p.name)));
+    paperSel.value = current().name;
+  };
+  syncSelect();
 
-  // Custom size: inputs display in the chosen unit, storage is always mm.
+  // Size: inputs display in the chosen unit (remembered), storage is mm.
   const MM_PER_IN = 25.4;
   const toUnit = (mm: number): number => (s.paperUnit === 'in' ? mm / MM_PER_IN : mm);
   const fromUnit = (v: number): number => (s.paperUnit === 'in' ? v * MM_PER_IN : v);
   const fmt = (mm: number): string =>
     s.paperUnit === 'in' ? String(+toUnit(mm).toFixed(3)) : String(+mm.toFixed(1));
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.title = 'The sheet\'s name in the library — what a sketch imports from @user/papers';
   const cw = document.createElement('input');
   const ch = document.createElement('input');
   for (const el of [cw, ch]) {
@@ -430,75 +442,70 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
     el.style.width = '4.5em';
   }
   const unitSel = document.createElement('select');
-  for (const u of ['mm', 'in']) {
-    const o = document.createElement('option');
-    o.value = u;
-    o.textContent = u;
-    unitSel.append(o);
-  }
+  for (const u of ['mm', 'in']) unitSel.append(new Option(u, u));
   unitSel.value = s.paperUnit;
-  const syncCustom = (): void => {
-    cw.value = fmt(s.customPaper.w);
-    ch.value = fmt(s.customPaper.h);
+  const syncSize = (): void => {
+    const p = current();
+    nameInput.value = p.name;
+    cw.value = fmt(p.w);
+    ch.value = fmt(p.h);
   };
-  syncCustom();
-  const readCustom = (): void => {
+  syncSize();
+  const readSize = (): void => {
     const w = fromUnit(parseFloat(cw.value));
     const h = fromUnit(parseFloat(ch.value));
     if (Number.isFinite(w) && w > 10 && Number.isFinite(h) && h > 10) {
-      s.customPaper = { w: Math.min(w, 5000), h: Math.min(h, 5000) };
+      const p = current();
+      p.w = Math.min(w, 5000);
+      p.h = Math.min(h, 5000);
+      persistLibrary();
       persist();
     }
+    syncSize();
   };
-  cw.onchange = readCustom;
-  ch.onchange = readCustom;
+  cw.onchange = readSize;
+  ch.onchange = readSize;
   unitSel.onchange = () => {
     s.paperUnit = unitSel.value as 'mm' | 'in';
-    persist();
-    syncCustom();
+    saveSettings(s);
+    syncSize();
   };
-  const customWrap = document.createElement('div');
-  customWrap.className = 'row';
+  nameInput.onchange = () => {
+    const name = nameInput.value.trim();
+    const p = current();
+    if (!name || name === p.name) { syncSize(); return; }
+    if (papers.some((q) => q.name === name)) { notify(`A paper named ${name} exists`, 'danger'); syncSize(); return; }
+    p.name = name;
+    s.paper = name;
+    persistLibrary();
+    persist();
+    syncSelect();
+  };
+  const sizeWrap = document.createElement('div');
+  sizeWrap.className = 'row';
   const times = document.createElement('span');
   times.textContent = '\u00d7';
-  customWrap.append(cw, times, ch, unitSel);
-  const customRow = row('Size', customWrap);
-  const syncVisible = (): void => {
-    customRow.style.display = s.paper === 'Custom' ? '' : 'none';
-  };
-  syncVisible();
-  paperSel.onchange = () => {
-    s.paper = paperSel.value;
-    persist();
-    syncVisible();
-  };
+  sizeWrap.append(cw, times, ch, unitSel);
 
-  const landscape = checkbox('Landscape', s.landscape, (v) => {
-    s.landscape = v;
-    persist();
-  });
-
-  // Paper colour: what the preview and both exports paint under the ink.
-  // Changing it never re-renders — the ink is identical, the sheet is not.
+  // Paper colour: the stock's, kept in the library with the sheet. What
+  // the preview and both exports paint under the ink; changing it never
+  // re-renders — the ink is identical, the sheet is not.
   const colorSel = document.createElement('select');
-  for (const name of [...PAPER_COLORS.map((c) => c.name), 'Custom']) {
-    const o = document.createElement('option');
-    o.value = name;
-    o.textContent = name;
-    colorSel.append(o);
-  }
+  for (const name of [...PAPER_COLORS.map((c) => c.name), 'Custom']) colorSel.append(new Option(name, name));
   const colorInput = document.createElement('input');
   colorInput.type = 'color';
   colorInput.style.flex = '0 0 3.2em';
-  colorInput.title = 'The sheet colour, exactly';
+  colorInput.title = 'The sheet colour, exactly — saved with the paper';
   const syncColor = (): void => {
-    colorInput.value = s.paperColor;
-    colorSel.value = PAPER_COLORS.find((c) => c.hex === s.paperColor)?.name ?? 'Custom';
+    const hex = current().color ?? s.paperColor;
+    colorInput.value = hex;
+    colorSel.value = PAPER_COLORS.find((c) => c.hex === hex)?.name ?? 'Custom';
   };
-  syncColor();
   const applyColor = (hex: string): void => {
+    current().color = hex;
     s.paperColor = hex;
     saveSettings(s);
+    persistLibrary();
     hooks.onPaperColor(hex);
     syncColor();
   };
@@ -511,6 +518,45 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
   colorWrap.className = 'row';
   colorWrap.append(colorSel, colorInput);
 
+  const choose = (name: string): void => {
+    s.paper = name;
+    s.paperColor = current().color ?? s.paperColor;
+    saveSettings(s);
+    hooks.onPaperColor(s.paperColor);
+    syncSelect();
+    syncSize();
+    syncColor();
+    hooks.onChanged();
+  };
+  paperSel.onchange = () => choose(paperSel.value);
+  syncColor();
+
+  const addBtn = withIcon(button('Add paper', () => {
+    const base = current();
+    let name = `${base.name}-copy`;
+    for (let k = 2; papers.some((p) => p.name === name); k++) name = `${base.name}-copy-${k}`;
+    papers.push({ name, w: base.w, h: base.h, color: base.color });
+    persistLibrary();
+    choose(name);
+  }), 'new');
+  addBtn.title = 'A new sheet in the library, copied from this one — rename and resize it';
+  const delBtn = withIcon(button('Delete', () => {
+    if (papers.length < 2) { notify('The library keeps at least one paper', 'danger'); return; }
+    const i = papers.findIndex((p) => p.name === s.paper);
+    papers.splice(i < 0 ? 0 : i, 1);
+    persistLibrary();
+    choose(papers[Math.max(0, Math.min(i, papers.length - 1))].name);
+  }), 'trash');
+  delBtn.title = 'Remove this sheet from the library';
+  const actions = document.createElement('div');
+  actions.className = 'row';
+  actions.append(addBtn, delBtn);
+
+  const landscape = checkbox('Landscape', s.landscape, (v) => {
+    s.landscape = v;
+    persist();
+  });
+
   const marginInput = numberInput(s.defaultMarginPct, 0.5, (v) => {
     s.defaultMarginPct = v;
     persist();
@@ -518,10 +564,12 @@ function buildPaperPanel(body: HTMLElement, hooks: PanelHooks): void {
 
   body.append(
     row('Paper', paperSel),
-    customRow,
-    row('Color', colorWrap, 'The stock you are plotting on — preview and exports both use it'),
+    row('Name', nameInput, 'The library name: import { a4 } from \'@user/papers\' in a sketch'),
+    row('Size', sizeWrap),
+    row('Color', colorWrap, 'The stock you are plotting on — preview and exports both use it; saved with the paper'),
+    actions,
     landscape,
-    row('Margin %', marginInput, 'Used when the sketch does not call margin()'),
+    row('Margin %', marginInput, 'Used when the sketch does not set a margin'),
   );
 }
 

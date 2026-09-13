@@ -1,6 +1,6 @@
 /** Local persistence: sketch source, pen library, paper & machine settings. */
 
-import { DEFAULT_PENS, type PenDef } from 'occlude';
+import { DEFAULT_PENS, type PenDef, DEFAULT_PAPERS, PAPERS, type PaperDef } from 'occlude';
 
 import type { LiftMap, SettlePoint } from 'occlude';
 
@@ -8,6 +8,7 @@ const KEYS = {
   sketch: 'occlude.sketch',
   sketchName: 'occlude.sketchName',
   pens: 'occlude.pens',
+  papers: 'occlude.papers',
   settings: 'occlude.settings',
   ui: 'occlude.ui',
 };
@@ -315,6 +316,58 @@ export async function loadPens(): Promise<PenDef[]> {
     // fall through to defaults
   }
   return structuredClone(DEFAULT_PENS);
+}
+
+export async function loadPapers(): Promise<PaperDef[]> {
+  try {
+    const res = await fetch('/api/papers');
+    if (res.ok) {
+      const papers = (await res.json()) as PaperDef[];
+      if (Array.isArray(papers) && papers.length > 0) {
+        localStorage.setItem(KEYS.papers, JSON.stringify(papers));
+        return papers;
+      }
+    }
+  } catch {
+    // server unreachable — fall through to the local cache
+  }
+  try {
+    const raw = localStorage.getItem(KEYS.papers);
+    if (raw) {
+      const papers = JSON.parse(raw) as PaperDef[];
+      if (Array.isArray(papers) && papers.length > 0) return papers;
+    }
+  } catch {
+    // fall through to defaults
+  }
+  return structuredClone(DEFAULT_PAPERS);
+}
+
+export function savePapers(papers: PaperDef[]): void {
+  localStorage.setItem(KEYS.papers, JSON.stringify(papers));
+  void fetch('/api/papers', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(papers),
+  }).catch(() => {
+    // offline: the local cache above still has it
+  });
+}
+
+/** The sheet the settings name, from the library: `{ w, h }` mm for a
+ * run. A name the library lacks (a sketch opened from the docs on a sheet
+ * you never saved, an old 'Custom') is added to the library from the
+ * settings' own size, so the choice always resolves and never silently
+ * falls back to another sheet. */
+export function sheetOf(settings: Settings, papers: PaperDef[]): { w: number; h: number } {
+  let p = papers.find((q) => q.name === settings.paper);
+  if (!p) {
+    const size = settings.paper === 'Custom' ? settings.customPaper : (PAPERS[settings.paper] ?? settings.customPaper);
+    p = { name: settings.paper, w: size.w, h: size.h, color: settings.paperColor };
+    papers.push(p);
+    savePapers(papers);
+  }
+  return { w: p.w, h: p.h };
 }
 
 export function savePens(pens: PenDef[]): void {

@@ -10,7 +10,7 @@
 import { liveExampleToJs } from 'occlude';
 
 import { RenderClient } from './workerClient.js';
-import { loadPens, loadSettings } from './store.js';
+import { loadPens, loadSettings, loadPapers, sheetOf } from './store.js';
 import { loadSketchJs, putThumb, snapshotSeed, thumbUrl, type SnapshotMeta } from './sketchApi.js';
 
 export interface ThumbTarget {
@@ -54,6 +54,7 @@ export function mendThumbs(targets: ThumbTarget[], onMended?: (t: ThumbTarget) =
     let client: RenderClient | null = null;
     try {
       const pens = await loadPens();
+      const papers = await loadPapers();
       const settings = loadSettings();
       for (const t of targets) {
         if (await hasThumb(t)) continue;
@@ -64,7 +65,8 @@ export function mendThumbs(targets: ThumbTarget[], onMended?: (t: ThumbTarget) =
             js,
             cfg: {
               pens,
-              paper: settings.paper === 'Custom' ? settings.customPaper : settings.paper,
+              paper: sheetOf(settings, papers),
+          papers,
               landscape: settings.landscape,
               defaultMarginPct: settings.defaultMarginPct,
               coarsen: 1,

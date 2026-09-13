@@ -17,7 +17,7 @@ import { iconButton, withIcon } from './icons.js';
 import { promptDialog } from './wa.js';
 import { Preview } from './preview.js';
 import { RenderClient } from './workerClient.js';
-import { loadPens, loadSettings } from './store.js';
+import { loadPens, loadSettings, loadPapers, sheetOf } from './store.js';
 import {
   createSnapshot, forkSketch, forkSnapshot, loadSketchByName, loadSketchJs, loadSnapshot, openInStudio, putThumb, saveSketchByName, seedOf, takeLive, thumbFromCanvas, transpileSource,
   type SourceRef,
@@ -42,6 +42,7 @@ async function boot(): Promise<void> {
   }
   const ref: SourceRef = { name, snap: params.get('snap') ?? undefined, sha: params.get('at') ?? undefined };
   const pens: PenDef[] = await loadPens();
+  const papers = await loadPapers();
   const settings = loadSettings();
   // The server strips types; the worker evaluates CommonJS — the same
   // ESM→CJS rewrite the docs examples and the snapshot gallery use.
@@ -72,7 +73,8 @@ async function boot(): Promise<void> {
       js,
       cfg: {
         pens,
-        paper: settings.paper === 'Custom' ? settings.customPaper : settings.paper,
+        paper: sheetOf(settings, papers),
+          papers,
         landscape: settings.landscape,
         defaultMarginPct: settings.defaultMarginPct,
         coarsen: 1,

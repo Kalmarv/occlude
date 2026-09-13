@@ -18,6 +18,7 @@
  */
 
 import { DEFAULT_PENS, type PenDef } from './pens.js';
+import type { PaperDef } from './paper.js';
 import { Rng } from './random.js';
 import { parseSeed } from './draws.js';
 import type { Material } from './material.js';
@@ -622,4 +623,25 @@ export function paper(spec: { width: L; height: L; color?: string }): PaperSpec 
 export function paperModel(def: PaperSpec): (overrides?: Partial<PaperSpec>) => PaperSpec {
   const base = Object.freeze({ ...def });
   return (overrides = {}) => ({ ...base, ...overrides });
+}
+
+/** A library entry's export name in `@user/pens` / `@user/papers`:
+ * `micron-03` → `micron_03` (a valid identifier; the original name still
+ * works as a pen name). */
+export function moduleName(name: string): string {
+  return name.replace(/[^A-Za-z0-9_$]/g, '_').replace(/^(\d)/, '_$1');
+}
+
+/** The library modules a sketch may import, built from captured
+ * libraries: every entry a factory of fresh instances over the definition
+ * (`penModel`, `paperModel`). Hosts hand these to their `require` shim —
+ * the studio runner and the node tools alike — so a sketch resolves
+ * `import { fineliner } from '@user/pens'` from the same values a run was
+ * given. */
+export function userModules(pens: readonly PenDef[], papers: readonly PaperDef[]): Record<'@user/pens' | '@user/papers', Record<string, unknown>> {
+  const penMods: Record<string, unknown> = {};
+  for (const p of pens) penMods[moduleName(p.name)] = penModel(p);
+  const paperMods: Record<string, unknown> = {};
+  for (const p of papers) paperMods[moduleName(p.name)] = paperModel(p.color === undefined ? { w: p.w, h: p.h } : { w: p.w, h: p.h, color: p.color });
+  return { '@user/pens': penMods, '@user/papers': paperMods };
 }

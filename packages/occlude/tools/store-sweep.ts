@@ -19,7 +19,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'esbuild';
 import * as occlude from '../src/index.js';
-import { inputsFor } from './inputs.js';
+import { inputsFor, requireFor, penLibrary, paperLibrary } from './inputs.js';
 
 // `--migrate` compiles the store as the STORE MIGRATION would rewrite it, in
 // memory, which is the fast pre-check for tools/verify-sketch-migration.mjs
@@ -50,7 +50,7 @@ for (const file of files) {
   const module = { exports: {} as Record<string, unknown> };
   try {
     new Function('require', 'exports', 'module', js)(
-      (name: string) => (name === 'occlude' ? occlude : (() => { throw new Error(name); })()),
+      requireFor(penLibrary(), paperLibrary()),
       module.exports,
       module,
     );

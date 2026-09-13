@@ -18,7 +18,7 @@ import { RenderClient } from './workerClient.js';
 import { deleteFill, fillUses, listFills, loadFill, saveFill } from './fillApi.js';
 import { BUILTIN_FILL_SOURCES, cloneSource } from './builtinFills.js';
 import { canonicalFillSource, freshFillName } from './fillEmbed.js';
-import { NEW_FILL, loadPens, loadSettings } from './store.js';
+import { NEW_FILL, loadPens, loadSettings, loadPapers, sheetOf } from './store.js';
 import { warnOnEdit } from './fillWarn.js';
 import { confirmDialog, notify } from './wa.js';
 import { iconButton, type IconName } from './icons.js';
@@ -83,11 +83,13 @@ function paint(canvas: HTMLCanvasElement, result: RenderResult, cssW: number, cs
 
 async function boot(): Promise<void> {
   const pens: PenDef[] = await loadPens();
+  const papers = await loadPapers();
   const settings = loadSettings();
   const client = new RenderClient();
   const cfg = {
     pens,
-    paper: settings.paper === 'Custom' ? settings.customPaper : settings.paper,
+    paper: sheetOf(settings, papers),
+          papers,
     landscape: settings.landscape,
     defaultMarginPct: settings.defaultMarginPct,
     coarsen: 1,
