@@ -30,7 +30,7 @@ fn filled_circle(cx: f64, cy: f64, r: f64) -> ShapeRec {
             custom_lines(&circle_contour(cx, cy, r), 1.0, 45.0),
         )),
         z: 0.0,
-        bridge_mm: 0.0, preserve_stroke: false,
+        bridge_mm: 0.0, preserve_stroke: false, stroke_ranges: None,
         clips: vec![],
         modifiers: Vec::new(),
     }
@@ -96,7 +96,7 @@ fn bench_render(c: &mut Criterion) {
                 stroke: Some(0),
                 fill: None,
                 z: -1.0,
-                bridge_mm: 0.0, preserve_stroke: false,
+                bridge_mm: 0.0, preserve_stroke: false, stroke_ranges: None,
                 clips: vec![],
                 modifiers: Vec::new(),
             },

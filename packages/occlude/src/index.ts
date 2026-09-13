@@ -202,7 +202,7 @@ export type { Surface3, Attributes3 } from './three/geometry/surface.js';
 export { FeatureKind3 } from './three/features/snapshot.js';
 export type { SurfaceObject3, WireObject3, Feature3 } from './three/features/snapshot.js';
 export type { Camera3, PaperFrame3 } from './three/camera.js';
-export type { LineSet3, Stroke3 } from './three/strokes/construct.js';
+export type { LineSet3, Stroke3, StrokeReference3 } from './three/strokes/construct.js';
 export { GpuSceneCompute3 } from './compute/webgpu/scene.js';
 
 export { grid3, FaceSelection3, measureFaces3, extrudeFaces3, transformSurface3, stepsSurface3, cloneSurface3, snapshotSurface3 } from './three/geometry/model.js';

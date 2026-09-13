@@ -117,8 +117,9 @@ export interface EncodedScene {
   prims: Float64Array;
   contours: Uint32Array;
   shapesU32: Uint32Array;
+  /** Stride 3 normally; stride 5 with source selections appends tape start (-1 absent), count. */
   shapesF64: Float64Array;
-  /** Modifier tape: [opcode, field_mask, ...params] per instruction. */
+  /** Modifier instructions plus source-range pairs referenced by shapesF64. */
   mods: Float64Array;
   /** Concatenated field grids in FIELD space: [w, h, x0, y0, dx, dy,
    * ...samples] each — one grid per field, shared by every use. */
@@ -329,6 +330,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
 
   // Shapes.
   const fillJobs = new Map<number, FillJob>();
+  const sourceRangeProtocol=state.shapes.some(shape=>shape.strokeRanges!==undefined);
   let shapeIndex = -1;
   for (const shape of state.shapes) {
     shapeIndex++;
@@ -336,7 +338,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     const [cStart, cCount] = pushContours(lowered.contours);
     const geom = shape.geom;
     const winding = (geom.kind === 'path' || geom.kind === 'area') && geom.winding === 'evenodd' ? 4 : 0;
-    let flags = (shape.closed ? 1 : 0) | (lowered.convex ? 2 : 0) | winding | (shape.preserveStroke ? 16 : 0);
+    let flags = (shape.closed ? 1 : 0) | (lowered.convex ? 2 : 0) | winding | (shape.preserveStroke || shape.strokeRanges ? 16 : 0);
     const strokePen = shape.strokePen !== null ? penIdx(shape.strokePen) + 1 : 0;
     // Paper footprint of this shape, for shape-aligned grid extents.
     const fp = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
@@ -477,6 +479,18 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
     // Bridge opt-in: endpoint-join tolerance in paper mm (0 = off).
     shapesF64.push(shape.bridge !== undefined ? resolveLen(shape.bridge, frame.inner) : 0);
     shapesF64.push(nativeSpacing);
+    // Optional source selection shares the f64 tape, outside modifier instructions.
+    const rangeStart=modsBuf.length;
+    if(shape.strokeRanges) {
+      if(cCount!==1 || lowered.contours[0].some(p=>p.t!=='line') || shape.fillSpec || shape.modifiers.some(m=>['smooth','roughen','deform'].includes(m.kind)))throw new Error('strokeRanges requires one polyline without fill or pre-stage modifiers');
+      const count=lowered.contours[0].length;
+      let end=0;
+      for(const [a,b] of shape.strokeRanges) {
+        if(!Number.isFinite(a)||!Number.isFinite(b)||a<end||a>=b||b>count)throw new Error('strokeRanges must be sorted disjoint intervals within the source polyline');
+        modsBuf.push(a,b);end=b;
+      }
+    }
+    if(sourceRangeProtocol)shapesF64.push(shape.strokeRanges ? rangeStart : -1,shape.strokeRanges?.length??0);
   }
 
   const fieldData = buildFieldGrids(uses, idOf, paperW, paperH, unit, frame.inner);

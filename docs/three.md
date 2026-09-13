@@ -133,7 +133,7 @@ export default sketch({ pens: {
 
 `constructStrokes3(classified, lineSets, options)` returns inspectable projected stroke data: source parts/parameters, points, cumulative paper arclength, length, closure and break reasons. Use `{ chain: false }` to retain separate segments, or the default source-based chaining. Building another style from the same classified data does not dispatch visibility again.
 
-`t.strokes3(strokes, { modifiers })` explicitly draws projected data through the current paper frame and the ordinary Occlude modifier stack. Projected coordinates remain physical paper millimetres. A group transforms the finished 2D drawing, so a second placement can reuse the same classification. Existing `wobble` samples the same seeded paper-space noise field across separate runs. Dashes currently use each constructed run's contour phase; source-chain phase across separate visibility cuts remains work in progress.
+`t.strokes3(strokes, { modifiers })` explicitly draws projected data through the current paper frame and the ordinary Occlude modifier stack. Projected coordinates remain physical paper millimetres. A group transforms the finished 2D drawing, so a second placement can reuse the same classification. The complete selected source chain anchors modifier distances and sampling before visibility cuts. Both `dash → wobble` and `wobble → dash` keep their phase through hidden intervals and paper cropping. `reference.points` and `sourceRanges` retain that relationship alongside each run's visible points. Near/far clipping currently defines the available source anchor; arbitrary source geometry behind the eye is not projected. Topology-changing pre-stage modifiers (`smooth`, `roughen`, `deform`) are not applicable to this source-linked interpretation; edit the model before classifying instead.
 
 ```ts live
 import { sketchAsync, paper, pen, mm, box3, lineArt3, FeatureSelection3, FeatureKind3, constructStrokes3, group, label, dash, wobble } from 'occlude';
@@ -157,6 +157,39 @@ export default sketchAsync({
     t.strokes3(hidden, { modifiers: [dash(mm(2), mm(1))] }),
     group({ translate: [mm(100), 0] }, t.strokes3(contour)),
     label('EDGES / HIDDEN', 5, 95, 3), label('SILHOUETTE', 55, 95, 3),
+  ];
+});
+```
+
+
+## Phase through hidden intervals
+
+These three copies share one classification. The rust-colored interval is behind the box; it uses the same source anchor as the visible ink. The second and third rows show that modifier order matters without restarting the pattern at the occluder. The paper adapter carries source selections through the ordinary planner and SVG export, including gaps smaller than the usual bridge tolerance.
+
+```ts live
+import { sketchAsync, paper, pen, mm, box3, lineArt3, constructStrokes3, group, label, dash, wobble } from 'occlude';
+
+export default sketchAsync({
+  paper: paper({ width: mm(200), height: mm(180) }), margin: 0, seed: 42,
+  pens: { ink: pen({ width: mm(0.35), color: '#18202A' }), hidden: pen({ width: mm(0.35), color: '#A84932' }) },
+}, async t => {
+  const classified = await t.classify3(lineArt3({
+    camera: { kind: 'orthographic', span: 10, eye: [0, 0, 5], target: [0, 0, 0], up: [0, 1, 0], near: 0.1, far: 10 },
+    viewport: { x: 0, y: -60, width: 200, height: 200 },
+    objects: [{ id: 'blocker', surface: box3([1.6, 1, 1]), lineSource: false }],
+    wires: [{ id: 'wire', points: [[-4, 0, 0], [0, 0, 0], [4, 0, 0]] }], lineSets: [],
+  }));
+  const visible = constructStrokes3(classified, [{ id: 'visible', stroke: 'ink' }]);
+  const hidden = constructStrokes3(classified, [{ id: 'hidden', stroke: 'hidden', visibility: 'hidden' }]);
+  const dashes = dash(mm(7), mm(4));
+  const tremor = wobble({ amount: mm(2), wavelength: mm(15) });
+  return [
+    label('DASH', 10, 12, 3, { stroke: 'ink' }),
+    t.strokes3([...visible, ...hidden], { modifiers: [dashes] }),
+    label('WOBBLE / DASH', 10, 40, 3, { stroke: 'ink' }),
+    group({ translate: [0, mm(50)] }, t.strokes3([...visible, ...hidden], { modifiers: [tremor, dashes] })),
+    label('DASH / WOBBLE', 10, 68, 3, { stroke: 'ink' }),
+    group({ translate: [0, mm(100)] }, t.strokes3([...visible, ...hidden], { modifiers: [dashes, tremor] })),
   ];
 });
 ```

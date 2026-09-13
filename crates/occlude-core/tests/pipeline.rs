@@ -35,7 +35,7 @@ fn stroke_shape(contours: Vec<Vec<Primitive>>, closed: bool) -> ShapeRec {
         stroke: Some(0),
         fill: None,
         z: 0.0,
-        bridge_mm: 0.0, preserve_stroke: false,
+        bridge_mm: 0.0, preserve_stroke: false, stroke_ranges: None,
         clips: vec![],
         modifiers: Vec::new(),
     }
@@ -50,7 +50,7 @@ fn filled_shape(contours: Vec<Vec<Primitive>>, kind: FillKind) -> ShapeRec {
         stroke: Some(0),
         fill: Some((0, kind)),
         z: 0.0,
-        bridge_mm: 0.0, preserve_stroke: false,
+        bridge_mm: 0.0, preserve_stroke: false, stroke_ranges: None,
         clips: vec![],
         modifiers: Vec::new(),
     }
@@ -655,4 +655,66 @@ fn preserved_outline_runs_reject_planner_bridges_and_keep_contours() {
     assert_eq!(chains.iter().map(|c|c.prims.len()).sum::<usize>(),3);
     assert!(chains.iter().all(|c|c.ordered));
     assert!((chains.iter().map(|c|c.ink_length()).sum::<f64>()-29.99).abs()<1e-6);
+}
+
+#[test]
+fn source_selection_preserves_ordered_modifier_phase_and_paper_crop() {
+    use occlude_core::modifier::{Modifier,Param};
+    let line=Primitive::Line(Line::new(v(-20.0,40.0),v(120.0,40.0)));
+    let wobble=Modifier::Wobble{amp:Param::Lit(1.5),wavelength:11.0};
+    let dash=Modifier::Dash{len:3.7,gap:2.3,offset:0.9};
+    for program in [vec![dash.clone()],vec![wobble.clone(),dash.clone()],vec![dash.clone(),wobble.clone()]] {
+        let mut shape=stroke_shape(vec![vec![line]],false);
+        shape.modifiers=program;shape.stroke_ranges=Some(vec![(0.0,1.0)]);
+        let full=render(&input(vec![shape.clone()]));
+        shape.stroke_ranges=Some(vec![(0.037,0.431),(0.613,0.957)]);
+        let selected=render(&input(vec![shape.clone()]));
+        assert!(selected.frags.len()>10);
+        for f in &selected.frags {
+            let r=f.run.unwrap();
+            assert!(r.end<=0.431+1e-12 || r.start>=0.613-1e-12);
+            let original=full.frags.iter().find(|g|{let s=g.run.unwrap();s.start<=r.start+1e-12 && s.end>=r.end-1e-12}).expect("selection must retain the full source's modifier samples");
+            let s=original.run.unwrap();
+            for (t,point) in [(r.start,f.geom.start()),(r.end,f.geom.end())] {
+                assert!(point.dist(original.geom.eval((t-s.start)/(s.end-s.start)))<1e-8);
+            }
+        }
+        let mut cropped_input=input(vec![shape]);
+        cropped_input.paper=Some(BBox::new(v(7.0,0.0),v(93.0,100.0)));
+        let cropped=render(&cropped_input);
+        assert!(!cropped.frags.is_empty());
+        for f in &cropped.frags {
+            assert!(f.geom.start().x>=7.0-1e-8 && f.geom.end().x<=93.0+1e-8);
+            let r=f.run.unwrap();
+            let original=selected.frags.iter().find(|g|{let s=g.run.unwrap();s.start<=r.start+1e-12 && s.end>=r.end-1e-12}).unwrap();
+            let s=original.run.unwrap();
+            assert!(f.geom.start().dist(original.geom.eval((r.start-s.start)/(s.end-s.start)))<1e-8);
+        }
+    }
+}
+
+#[test]
+fn source_selection_keeps_tiny_gaps_and_off_page_modifier_overscan() {
+    use occlude_core::modifier::{Modifier,Param};
+    let mut shape=stroke_shape(vec![vec![Primitive::Line(Line::new(v(10.0,50.0),v(90.0,50.0)))]],false);
+    shape.stroke_ranges=Some(vec![(0.0,0.5),(0.500001,1.0)]);shape.bridge_mm=1.0;
+    let result=render(&input(vec![shape]));
+    assert_eq!(result.frags.len(),2);
+    assert!(!result.frags.iter().any(|f|f.bridge));
+    let chains=merge_chains(&result.frags,0);assert_eq!(chains.len(),2);
+    let mut shape=stroke_shape(vec![vec![Primitive::Line(Line::new(v(-0.01,0.0),v(-0.01,100.0)))]],false);
+    shape.stroke_ranges=Some(vec![(0.0,1.0)]);
+    shape.modifiers=vec![Modifier::Wobble{amp:Param::Lit(4.0),wavelength:10.0}];
+    let mut scene=input(vec![shape]);scene.paper=Some(BBox::new(v(0.0,0.0),v(100.0,100.0)));
+    let result=render(&scene);assert!(!result.frags.is_empty(),"bounded displacement must be allowed to enter paper");
+    assert!(result.frags.iter().all(|f|f.geom.start().x>=-1e-8&&f.geom.end().x>=-1e-8));
+}
+
+#[test]
+fn hidden_source_reference_does_not_cover_an_unrelated_tap() {
+    let mut shape=stroke_shape(vec![vec![Primitive::Line(Line::new(v(10.0,50.0),v(90.0,50.0)))]],false);
+    shape.stroke_ranges=Some(vec![(0.0,0.25),(0.75,1.0)]);
+    let tap=stroke_shape(circle_contour(50.0,50.0,0.01),true);
+    let result=render(&input(vec![shape,tap]));
+    assert!(result.frags.iter().any(|f|f.shape==1&&f.dot),"unselected source geometry must not erase another mark");
 }

@@ -1,3 +1,4 @@
+import { unionSourceRanges3 } from './ranges.js';
 import { groupRows } from '../../groupRows.js';
 import { toPaper3 } from '../camera.js';
 import type { Feature3 } from '../features/snapshot.js';
@@ -26,7 +27,17 @@ export interface StrokePart3 {
   readonly b: Point;
   readonly length: number;
 }
+export interface StrokeReference3 {
+  readonly id: string;
+  readonly points: readonly Point[];
+  readonly arclength: readonly number[];
+  readonly length: number;
+}
 export interface Stroke3 {
+  /** Complete selected source chain, before visibility/style range cuts. */
+  readonly reference: StrokeReference3;
+  /** Selected intervals in reference segment-index + projected fraction. */
+  readonly sourceRanges: readonly Interval3[];
   readonly id: string;
   readonly source: ClassifiedScene3;
   readonly set: string;
@@ -78,7 +89,7 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
   const tolerance=options.endpointTolerance??1e-8, corner=options.cornerDegrees??180,minLength=options.minLength??0;
   if(![tolerance,corner,minLength].every(Number.isFinite)||tolerance<0||corner<0||corner>180||minLength<0)throw new Error('invalid stroke construction tolerances');
   if(new Set(sets.map(s=>s.id)).size!==sets.length||sets.some(s=>!s.id||!s.stroke||!Number.isFinite(s.priority??0)))throw new Error('line sets need unique IDs, named pens and finite priorities');
-  const runs:Run[]=[],claimed=new Map<string,Interval3[]>();
+  const runs:Run[]=[],referenceRuns:Run[]=[],claimed=new Map<string,Interval3[]>();
   for(const set of [...sets].sort((a,b)=>(b.priority??0)-(a.priority??0)||compare(a.id,b.id))) {
     const visibility=set.visibility??'visible';
     const selection=set.select instanceof FeatureSelection3?set.select:undefined;
@@ -86,6 +97,8 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
     const included=selection?new Set(selection.map(row=>row.feature.id)):undefined;
     for(const record of source.features) {
       const f=record.feature;if(included&&!included.has(f.id)||typeof set.select==='function'&&!set.select(f))continue;
+      const ra=toPaper3(frame,f.a),rb=toPaper3(frame,f.b),rl=distance(ra,rb);
+      if(rl>0)referenceRuns.push({key:JSON.stringify([set.id,f.id,0,1]),set,visibility,part:{feature:f,range:f.range,a:ra,b:rb,length:rl},ends:[f.range[0]===0?f.endpoints[0]:null,f.range[1]===1?f.endpoints[1]:null],breaks:[f.range[0]===0?'source':'clipping',f.range[1]===1?'source':'clipping']});
       const requested=set.ranges?.(f)??[[0,1]];
       if(requested.some(r=>r.length!==2||!r.every(Number.isFinite)||r[0]<0||r[1]>1||r[0]>r[1]))throw new Error('line set ranges must be ordered within [0,1]');
       const key=JSON.stringify([f.id,visibility]), occupied=claimed.get(key)??[];
@@ -100,6 +113,30 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
       }
     }
   }
+  const references=chainRuns(source,referenceRuns,{...options,minLength:0});
+  const lookup=new Map<string,{reference:StrokeReference3;part:StrokePart3;index:number}>();
+  for(const r of references) {
+    const reference=Object.freeze({id:r.id,points:r.points,arclength:r.arclength,length:r.length});
+    r.parts.forEach((part,index)=>lookup.set(JSON.stringify([r.set,part.feature.id]),{reference,part,index}));
+  }
+  const key=(r:Run)=>JSON.stringify([r.set.id,r.part.feature.id]);
+  const output=chainRuns(source,runs,options,(a,b)=>lookup.get(key(a))!.reference===lookup.get(key(b))!.reference);
+  return Object.freeze(output.map(run=>{
+    const rows=run.parts.map(part=>{
+      const entry=lookup.get(JSON.stringify([run.set,part.feature.id]))!;
+      const a=entry.part.a,b=entry.part.b,dx=b[0]-a[0],dy=b[1]-a[1],d=dx*dx+dy*dy;
+      const coordinate=(p:Point)=>entry.index+Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/d));
+      const x=coordinate(part.a),y=coordinate(part.b);
+      return {reference:entry.reference,range:[Math.min(x,y),Math.max(x,y)] as Interval3};
+    });
+    return Object.freeze({...run,reference:rows[0].reference,sourceRanges:Object.freeze(unionSourceRanges3(rows.map(r=>r.range)).map(r=>Object.freeze(r)))});
+  }));
+}
+
+type ConstructOptions={endpointTolerance?:number;cornerDegrees?:number;minLength?:number;chain?:boolean};
+type BuiltStroke3=Omit<Stroke3,'reference'|'sourceRanges'>;
+function chainRuns(source:ClassifiedScene3,runs:Run[],options:ConstructOptions,compatible:(a:Run,b:Run)=>boolean=()=>true):readonly BuiltStroke3[] {
+  const tolerance=options.endpointTolerance??1e-8,corner=options.cornerDegrees??180,minLength=options.minLength??0;
   runs.sort((a,b)=>compare(a.key,b.key));
   const junctions=new Map<string,{row:number;end:0|1}[]>();
   runs.forEach((r,row)=>r.ends.forEach((endpoint,end)=>{if(endpoint===null)return;const key=JSON.stringify([r.set.id,r.visibility,endpoint]);const entries=junctions.get(key)??[];entries.push({row,end:end as 0|1});junctions.set(key,entries);}));
@@ -107,6 +144,7 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
   for(const entries of options.chain===false?[]:junctions.values()) {
     if(entries.length!==2){if(entries.length>2)for(const e of entries)runs[e.row].breaks[e.end]='junction';continue;}
     const [x,y]=entries,a=runs[x.row],b=runs[y.row];
+    if(!compatible(a,b)){a.breaks[x.end]='junction';b.breaks[y.end]='junction';continue;}
     const p=x.end?a.part.b:a.part.a,q=y.end?b.part.b:b.part.a;
     if(distance(p,q)>tolerance)continue;
     const pa=x.end?a.part.a:a.part.b,pb=y.end?b.part.a:b.part.b;
@@ -114,7 +152,7 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
     if(Math.acos(Math.max(-1,Math.min(1,cosine)))*180/Math.PI>corner){a.breaks[x.end]='corner';b.breaks[y.end]='corner';continue;}
     links.set(`${x.row}:${x.end}`,y);links.set(`${y.row}:${y.end}`,x);
   }
-  const used=new Set<number>(),out:Stroke3[]=[];
+  const used=new Set<number>(),out:BuiltStroke3[]=[];
   const walk=(start:number,entry:0|1)=>{
     const parts:StrokePart3[]=[],keys:string[]=[],first=runs[start];let row=start,end=entry,last=first,exit:0|1=entry,closed=false;
     while(!used.has(row)) {

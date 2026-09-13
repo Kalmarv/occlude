@@ -1,3 +1,4 @@
+import { sourceStrokeShapes3 } from './strokes/paper.js';
 import type { ModifierValue } from '../shapes.js';
 import { stroke, type Tree, type GroupValue, type ClipValue } from '../api.js';
 import type { Execution } from '../execution.js';
@@ -55,5 +56,5 @@ export async function classifyForRun3(exec: Execution, scene: LineArtScene3, opt
  * the current execution's inverse frame avoids applying its margin twice. */
 export function strokesForRun3(exec: Execution, runs: readonly Stroke3[], options: { modifiers?: readonly ModifierValue[] } = {}) {
   const toUser = paperToUser(exec.frame);
-  return runs.map(run => stroke(run.points.map(p => toUser(p[0], p[1])), { stroke: run.stroke, preserveStroke: true, modifiers: options.modifiers && [...options.modifiers] }));
+  return sourceStrokeShapes3(runs,(p)=>toUser(p[0],p[1]),options);
 }

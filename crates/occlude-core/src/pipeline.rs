@@ -69,6 +69,9 @@ pub struct ShapeRec {
     pub bridge_mm: f64,
     /// Preserve authored outline traversal and gaps through routing.
     pub preserve_stroke: bool,
+    /// Polyline selection in segment-index + fraction coordinates. Modifiers
+    /// evaluate on the complete source before this selection and paper clipping.
+    pub stroke_ranges: Option<Vec<(f64, f64)>>,
     /// Indices into `RenderInput::clips` active for this shape.
     pub clips: Vec<u32>,
     /// Ordered modifier program. Post-stage entries run over this shape's
@@ -212,7 +215,7 @@ impl Prepared {
     pub fn optimization_visible(&self, shape: u32, prim: &Primitive) -> bool {
         let i = shape as usize;
         let Some(s) = self.shapes.get(i) else { return false };
-        if !self.alive[i] || s.modifiers.iter().any(|m| m.stage() == Stage::Post) {
+        if !self.alive[i] || s.stroke_ranges.is_some() || s.modifiers.iter().any(|m| m.stage() == Stage::Post) {
             return false;
         }
         let mut clips: Vec<_> = s.clips.iter().map(|&c| {
@@ -396,6 +399,9 @@ pub fn prepare(input: RenderInput) -> Prepared {
             alive[i] = false;
             continue;
         }
+        // A bounded paper modifier can bring an off-page source into view.
+        // Source-selected polylines defer geometric clipping until after styling.
+        if shapes[i].stroke_ranges.is_some() { continue; }
         // Off-paper cull (bleed is legal; only fully-off-paper dies).
         if let Some(p) = &paper {
             if !b.overlaps(p) {
@@ -468,6 +474,18 @@ impl Prepared {
 
     pub fn try_finish(mut self, supplied: Vec<Option<SuppliedFill>>) -> Result<RenderOutput, String> {
         let n = self.shapes.len();
+        for s in &self.shapes {
+            if let Some(ranges) = &s.stroke_ranges {
+                if s.contours.len()!=1 || s.contours[0].iter().any(|p| !matches!(p,Primitive::Line(_))) || s.fill.is_some() || s.modifiers.iter().any(|m|m.stage()==Stage::Pre) {
+                    return Err("stroke ranges require one polyline without fill or pre-stage modifiers".into());
+                }
+                let mut end=0.0;
+                for &(a,b) in ranges {
+                    if !a.is_finite() || !b.is_finite() || a<end || a>=b || b>s.contours[0].len() as f64 {return Err("invalid source stroke ranges".into());}
+                    end=b;
+                }
+            }
+        }
         let shapes = &self.shapes;
         let alive = &self.alive;
         let clean = &self.clean;
@@ -537,6 +555,10 @@ impl Prepared {
                     let from = so.frags.len();
                     for gi in cs..ce {
                         let prim = prim_table_ro[gi];
+                        if s.stroke_ranges.is_some() {
+                            so.frags.push(Frag::whole(gi as u32, prim, stroke_pen, i as u32));
+                            continue;
+                        }
                         clip_one(
                             gi as u32,
                             &prim,
@@ -550,13 +572,13 @@ impl Prepared {
                             &mut so.frags,
                         );
                     }
-                    if s.preserve_stroke {
+                    if s.preserve_stroke || s.stroke_ranges.is_some() {
                         for f in &mut so.frags[from..] {
                             let seq = f.origin as usize - cs;
                             f.run = Some(crate::fragment::RunSpan { id: cs as u32 + 1, start: seq as f64 + f.t0, end: seq as f64 + f.t1 });
                         }
                     }
-                    judge_runs(&mut so, from, threshold, s.closed, stroke_pen, i as u32);
+                    if s.stroke_ranges.is_none() {judge_runs(&mut so, from, threshold, s.closed, stroke_pen, i as u32);}
                 }
             }
 
@@ -808,7 +830,7 @@ impl Prepared {
         let _z = crate::profile::zone("6 dedupe");
         let has_post = shapes
             .iter()
-            .any(|s| s.modifiers.iter().any(|m| m.stage() == Stage::Post));
+            .any(|s| s.stroke_ranges.is_some() || s.modifiers.iter().any(|m| m.stage() == Stage::Post));
         // Coincident shapes can produce different ink after finishing modifiers.
         // Keep both until then; retain the existing cleanup path without modifiers.
         let mut frags = if has_post {
@@ -816,10 +838,47 @@ impl Prepared {
         } else {
             dedupe_seams(frags, min_pen_width.max(1e-6))
         };
+        // Use this same source selection for coverage and final output: hidden
+        // reference geometry must never consume an unrelated cleanup tap.
+        let select_sources = |input:Vec<Frag>| {
+            let mut selected=Vec::with_capacity(input.len());
+            let mut bufs=ClipBufs::default();
+            for f in input {
+                let si=f.shape as usize;
+                let Some(ranges)=&shapes[si].stroke_ranges else {selected.push(f);continue;};
+                let Some(run)=f.run else {continue;};
+                if run.end<=run.start {continue;}
+                let ctx=ClipCtx {occluders,clip_regions,occ_index,my_rank:rank[si],first_ahead:occluders.partition_point(|o|o.rank<=rank[si]) as u32};
+                let clips:Vec<(&Region,bool)>=shapes[si].clips.iter().filter_map(|&c|clip_regions.get(c as usize)).map(|(r,k)|(r,*k)).chain(paper_region.iter().map(|r|(r,true))).collect();
+                for &(a,b) in &ranges[ranges.partition_point(|&(_,b)|b<=run.start)..] {
+                    if a>=run.end {break;}
+                    let lo=(a.max(run.start)-run.start)/(run.end-run.start);
+                    let hi=(b.min(run.end)-run.start)/(run.end-run.start);
+                    if hi<=lo {continue;}
+                    let geom=f.geom.sub(lo,hi);
+                    let from=selected.len();
+                    // No nib-based gap closure may bridge a protected range.
+                    clip_one(f.origin,&geom,0.0,f.pen,f.shape,&clips,&ctx,false,&mut bufs,&mut selected);
+                    for clipped in &mut selected[from..] {
+                        let a=lo+clipped.t0*(hi-lo);let b=lo+clipped.t1*(hi-lo);
+                        clipped.t0=f.t0+a*(f.t1-f.t0);clipped.t1=f.t0+b*(f.t1-f.t0);
+                        clipped.run=Some(run.sub(a,b));
+                    }
+                }
+            }
+            selected
+        };
         // Sub-nib candidates become dots only where their ink is not already
         // laid down by kept strokes — the coverage half of the nib rule.
         let pen_widths: Vec<f64> = pens.iter().map(|p| p.width).collect();
-        crate::cleanup::resolve_taps(&mut frags, taps, &pen_widths);
+        if !taps.is_empty() && shapes.iter().any(|s|s.stroke_ranges.is_some()) {
+            let mut coverage=select_sources(frags.clone());
+            let existing=coverage.len();
+            crate::cleanup::resolve_taps(&mut coverage,taps,&pen_widths);
+            frags.extend(coverage.drain(existing..));
+        } else {
+            crate::cleanup::resolve_taps(&mut frags, taps, &pen_widths);
+        }
         let frags = frags;
         drop(_z);
         let _z = crate::profile::zone("7 post-modifiers");
@@ -862,7 +921,10 @@ impl Prepared {
             }
             // Compare the ink that survived each shape's own program, not
             // coincident source strokes that might later disappear or move.
-            frags = dedupe_seams(out, min_pen_width.max(1e-6));
+            // Source-selected polylines retain the full modifier evaluation,
+            // including hidden/off-paper distance, then trim using propagated
+            // traversal coordinates. Ordinary shapes keep their existing order.
+            frags = dedupe_seams(select_sources(out), min_pen_width.max(1e-6));
         }
 
         drop(_z);

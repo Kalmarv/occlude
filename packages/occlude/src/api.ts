@@ -101,6 +101,10 @@ export interface ShapeOpts {
   bridge?: L;
   /** Preserve each authored contour and its visibility gaps through routing. */
   preserveStroke?: boolean;
+  /** Select intervals of a source polyline in segment-index + fraction units.
+   * Post modifiers evaluate on the full polyline before trimming; gaps remain
+   * protected through planning. Not compatible with pre-stage modifiers. */
+  strokeRanges?: readonly (readonly [number, number])[];
   /** Per-shape transform — identical to wrapping the shape in a group. */
   translate?: [L, L];
   /** Degrees; pivots around `origin` (the user origin by default). */
@@ -1350,6 +1354,7 @@ function emitShape(exec: Execution, sv: ShapeValue, ctx: EmitCtx): void {
   if (wob !== undefined) program.push(wobbleValue(wob));
   sh.modifiers = program;
   sh.preserveStroke = o.preserveStroke ?? false;
+  sh.strokeRanges = o.strokeRanges?.map(r => [...r] as [number, number]);
   const bridge = o.bridge ?? ctx.bridge;
   if (bridge !== undefined) sh.bridge = bridge;
 }

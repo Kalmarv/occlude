@@ -35,8 +35,8 @@ Browser evidence is recorded with direct Playwright in `playwright-strokes`.
 
 Public async integration and reusable styling with ordinary ordered paper
 modifiers are now implemented; see SCENES.md and STYLING.md. Still pending:
-phase anchoring across visibility cuts, broader protected-run/2D-mask fixtures,
-Studio picking/persistence, and remaining M3–M5 scope. No M2 completion claim.
+broader protected-run/2D-mask fixtures,
+Studio picking/persistence, and remaining M3–M5 scope. Source-chain phase across visibility cuts and paper cropping is now implemented; see PHASE.md. No M2 completion claim.
 
 Validation: full isolated-image `pnpm check` passed (Rust 16.8s, TS 20.3s,
 library types 5.6s, Studio types 4.5s, docs 12.1s, unchanged ink 14.3s, build
