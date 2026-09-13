@@ -1,0 +1,256 @@
+/**
+ * The middle of the isoline pipeline, independently callable: marching
+ * squares over an already sampled grid (`marchSegments`), and the chaining
+ * of the directed crossing segments into contours (`chainSegments`).
+ * `isolines.ts` samples the field before and finishes the contours after
+ * (`sampleGrid`, `finishContours`); production runs exactly that
+ * composition. Nothing here reads a field, the paper or a unit — a grid
+ * in, plain data out — so the marching can be replaced (or run elsewhere)
+ * while the sampler and the finishing stay as they are.
+ *
+ * Case decisions, segment order and the saddle rule are unchanged from
+ * the one-file version; the emitted coordinates are the same doubles.
+ */
+
+import type { IsoContour } from './isolines.js';
+
+/** A field sampled on the isoline lattice, padded by one ring on every
+ * side (stride `pw = gw + 2`): sample (i, j) of the grid is
+ * `vals[(j + 1) * pw + (i + 1)]`. `absent` marks in-grid non-finite
+ * samples (a `within()` bound or a NaN hole); the ring is never absent.
+ * `b`, `sx`, `sy` place the lattice: sample (i, j) sits at
+ * `(b.x + i * sx, b.y + j * sy)`. */
+export interface SampledGrid {
+  vals: Float64Array;
+  absent: Uint8Array;
+  pw: number;
+  gw: number;
+  gh: number;
+  b: { x: number; y: number; w: number; h: number };
+  sx: number;
+  sy: number;
+}
+
+/** Directed crossing segments, four scalars each: `[ax, ay, bx, by]` at
+ * `4k`; only the first `segN` are meaningful. */
+export interface SegmentBuffer {
+  segXY: Float64Array;
+  segN: number;
+}
+
+/** Marching squares over one sampled grid at one level: the directed
+ * crossing segments, four scalars each, in cell order. The pad ring of
+ * `grid.vals` is (re)written with the below-level sentinel on every call —
+ * the levels of one sampling share the buffer, as they always have. */
+export function marchSegments(grid: SampledGrid, lvl: number, close: boolean): SegmentBuffer {
+  const { vals, absent, pw, gw, gh, b, sx, sy } = grid;
+  // With `close`, one ring of below-level sentinel samples surrounds the
+  // grid (indices -1 and gw/gh), so every region's boundary closes just
+  // outside the drawable; the emitted points are clamped back onto it and
+  // the colinear merge collapses the border runs.
+  // The pad ring carries the below-level sentinel; out-of-grid samples are
+  // the paper-edge closing ring, never "absent", so `absent` stays 0 there
+  // and only in-grid non-finite samples truncate contours. Index (i,j) in
+  // grid space is (j+1)*pw + (i+1) in padded space, valid for i,j in
+  // [-1, gw] / [-1, gh] — exactly the range marchLevel walks.
+  const pad = lvl - 1;
+  const ph = gh + 2;
+  for (let i = 0; i < pw; i++) {
+    vals[i] = pad; // top ring row
+    vals[(ph - 1) * pw + i] = pad; // bottom ring row
+  }
+  for (let j = 0; j < ph; j++) {
+    vals[j * pw] = pad; // left ring column
+    vals[j * pw + pw - 1] = pad; // right ring column
+  }
+  const at = (i: number, j: number): number => (j + 1) * pw + (i + 1);
+  const px = (i: number): number => b.x + i * sx;
+  const py = (j: number): number => b.y + j * sy;
+  const lo = close ? -1 : 0;
+  const hiI = close ? gw : gw - 1; // exclusive cell upper bounds
+  const hiJ = close ? gh : gh - 1;
+
+  // Segments as a flat growable buffer, four scalars per segment. The old
+  // shape allocated five closures and two [x, y] tuples PER CELL, which on a
+  // 256² grid is ~330k closures a level and showed up as pure GC time.
+  let segCap = 1024;
+  let segXY = new Float64Array(segCap * 4);
+  let segN = 0;
+  const emit = (ax: number, ay: number, bx: number, by: number): void => {
+    if (ax === bx && ay === by) return;
+    if (segN === segCap) {
+      segCap *= 2;
+      const g = new Float64Array(segCap * 4);
+      g.set(segXY);
+      segXY = g;
+    }
+    const o = segN++ * 4;
+    segXY[o] = ax; segXY[o + 1] = ay; segXY[o + 2] = bx; segXY[o + 3] = by;
+  };
+  // Crossing on a horizontal sample edge (i,j)–(i+1,j) and vertical
+  // (i,j)–(i,j+1); shared edges produce bitwise-identical points in both
+  // adjacent cells, so chaining is a hash hit. Hoisted out of the cell loop
+  // and returning scalars — the arithmetic is unchanged, so the emitted
+  // coordinates are bit-identical to the tuple version.
+  const xTx = (i: number, va: number, vb: number): number =>
+    px(i) + sx * ((lvl - va) / (vb - va));
+  const yLy = (j: number, va: number, vd: number): number =>
+    py(j) + sy * ((lvl - va) / (vd - va));
+  for (let j = lo; j < hiJ; j++) {
+    for (let i = lo; i < hiI; i++) {
+      const o = at(i, j);
+      const va = vals[o]; // top-left
+      const vb = vals[o + 1]; // top-right
+      const vc = vals[o + pw + 1]; // bottom-right
+      const vd = vals[o + pw]; // bottom-left
+      // Domain-edge policy: a cell touching an absent sample emits nothing
+      // — the contour ends (open), like at the paper edge.
+      if (absent[o] === 1 || absent[o + 1] === 1 || absent[o + pw + 1] === 1 || absent[o + pw] === 1) continue;
+      const code =
+        (va >= lvl ? 1 : 0) | (vb >= lvl ? 2 : 0) | (vc >= lvl ? 4 : 0) | (vd >= lvl ? 8 : 0);
+      if (code === 0 || code === 15) continue;
+      // Crossing coordinates as scalars. The x of a top/bottom crossing and
+      // the y of a left/right crossing are the only varying components; the
+      // other component of each is a grid line. Each case reads only the
+      // crossings it needs, so an edge with no crossing is never divided.
+      const Ty = py(j);
+      const By = py(j + 1);
+      const Lx = px(i);
+      const Rx = px(i + 1);
+      switch (code) {
+        case 1: emit(Lx, yLy(j, va, vd), xTx(i, va, vb), Ty); break;
+        case 2: emit(xTx(i, va, vb), Ty, Rx, yLy(j, vb, vc)); break;
+        case 3: emit(Lx, yLy(j, va, vd), Rx, yLy(j, vb, vc)); break;
+        case 4: emit(Rx, yLy(j, vb, vc), xTx(i, vd, vc), By); break;
+        case 5: {
+          // Saddle: the cell-centre average decides which diagonal connects.
+          const centre = (va + vb + vc + vd) / 4 >= lvl;
+          if (centre) { emit(Rx, yLy(j, vb, vc), xTx(i, va, vb), Ty); emit(Lx, yLy(j, va, vd), xTx(i, vd, vc), By); }
+          else { emit(Lx, yLy(j, va, vd), xTx(i, va, vb), Ty); emit(Rx, yLy(j, vb, vc), xTx(i, vd, vc), By); }
+          break;
+        }
+        case 6: emit(xTx(i, va, vb), Ty, xTx(i, vd, vc), By); break;
+        case 7: emit(Lx, yLy(j, va, vd), xTx(i, vd, vc), By); break;
+        case 8: emit(xTx(i, vd, vc), By, Lx, yLy(j, va, vd)); break;
+        case 9: emit(xTx(i, vd, vc), By, xTx(i, va, vb), Ty); break;
+        case 10: {
+          const centre = (va + vb + vc + vd) / 4 >= lvl;
+          if (centre) { emit(xTx(i, va, vb), Ty, Lx, yLy(j, va, vd)); emit(xTx(i, vd, vc), By, Rx, yLy(j, vb, vc)); }
+          else { emit(xTx(i, va, vb), Ty, Rx, yLy(j, vb, vc)); emit(xTx(i, vd, vc), By, Lx, yLy(j, va, vd)); }
+          break;
+        }
+        case 11: emit(xTx(i, vd, vc), By, Rx, yLy(j, vb, vc)); break;
+        case 12: emit(Rx, yLy(j, vb, vc), Lx, yLy(j, va, vd)); break;
+        case 13: emit(Rx, yLy(j, vb, vc), xTx(i, va, vb), Ty); break;
+        default: emit(xTx(i, va, vb), Ty, Lx, yLy(j, va, vd)); break; // 14
+      }
+    }
+  }
+  return { segXY, segN };
+}
+
+
+/** Join directed segments end-to-start into contours. Orientation is
+ * consistent from the case table, so forward extension follows `b → a`
+ * matches and backward extension `a → b` matches; iteration is emission
+ * order, so the result is deterministic. */
+export function chainSegments({ segXY, segN }: SegmentBuffer): IsoContour[] {
+  const Q = 1e-6; // user units — far below any step, above float noise
+  const q = (v: number): number => Math.round(v / Q);
+  const ax = (k: number): number => segXY[k * 4];
+  const ay = (k: number): number => segXY[k * 4 + 1];
+  const bx = (k: number): number => segXY[k * 4 + 2];
+  const by = (k: number): number => segXY[k * 4 + 3];
+  // Endpoint index keyed by the quantised pair as NUMBERS, two levels deep.
+  // The old shape built a `${rx},${ry}` string for every endpoint and every
+  // probe; chain + take were 22% of isolinesOf, most of it string building.
+  interface Bucket {
+    idx: number[];
+    /** Entries before this are all consumed — see `take`. */
+    cur: number;
+  }
+  type Index = Map<number, Map<number, Bucket>>;
+  const byStart: Index = new Map();
+  const byEnd: Index = new Map();
+  const add = (m: Index, rx: number, ry: number, k: number): void => {
+    let inner = m.get(rx);
+    if (inner === undefined) {
+      inner = new Map();
+      m.set(rx, inner);
+    }
+    const bkt = inner.get(ry);
+    if (bkt === undefined) inner.set(ry, { idx: [k], cur: 0 });
+    else bkt.idx.push(k);
+  };
+  for (let k = 0; k < segN; k++) {
+    add(byStart, q(ax(k)), q(ay(k)), k);
+    add(byEnd, q(bx(k)), q(by(k)), k);
+  }
+  const used = new Uint8Array(segN);
+  // A segment never becomes unused again, so a bucket's cursor can advance
+  // past consumed entries for good: same "first unused" answer, without
+  // rescanning the bucket from the front on every probe.
+  const take = (m: Index, rx: number, ry: number): number | undefined => {
+    const inner = m.get(rx);
+    if (inner === undefined) return undefined;
+    const bkt = inner.get(ry);
+    if (bkt === undefined) return undefined;
+    const list = bkt.idx;
+    let c = bkt.cur;
+    while (c < list.length && used[list[c]] === 1) c++;
+    bkt.cur = c;
+    return c < list.length ? list[c] : undefined;
+  };
+  const out: IsoContour[] = [];
+  for (let k = 0; k < segN; k++) {
+    if (used[k]) continue;
+    used[k] = 1;
+    let pts: [number, number][] = [
+      [ax(k), ay(k)],
+      [bx(k), by(k)],
+    ];
+    // Quantised key of the chain's first point, kept in step with pts[0].
+    let sx = q(ax(k));
+    let sy = q(ay(k));
+    const endsAtStart = (): boolean => {
+      const l = pts[pts.length - 1];
+      return pts.length > 2 && q(l[0]) === sx && q(l[1]) === sy;
+    };
+    // Forward: append segments starting where the chain ends.
+    for (;;) {
+      const last = pts[pts.length - 1];
+      const lx = q(last[0]);
+      const ly = q(last[1]);
+      if (lx === sx && ly === sy && pts.length > 2) break;
+      const n = take(byStart, lx, ly);
+      if (n === undefined) break;
+      used[n] = 1;
+      pts.push([bx(n), by(n)]);
+    }
+    let closed = endsAtStart();
+    if (closed) {
+      pts.pop();
+    } else {
+      // Backward: prepend segments ending where the chain starts. Collected
+      // and spliced once — unshift per segment made long open chains
+      // quadratic.
+      const head: [number, number][] = [];
+      for (;;) {
+        const n = take(byEnd, sx, sy);
+        if (n === undefined) break;
+        used[n] = 1;
+        head.push([ax(n), ay(n)]);
+        sx = q(ax(n));
+        sy = q(ay(n));
+      }
+      if (head.length > 0) {
+        head.reverse();
+        pts = head.concat(pts);
+      }
+      closed = endsAtStart();
+      if (closed) pts.pop();
+    }
+    out.push({ pts, closed });
+  }
+  return out;
+}

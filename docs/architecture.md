@@ -65,15 +65,18 @@ packages/occlude/src/
                         within (domain bounds), the vector-field rule
   record                resolve → lower → transform → snap (paper known here);
                         also the frame-less lowering within() uses
-  render                scene encoding, the two-pass render, fill jobs,
-                        fragment decoding, exports
+  render                scene encoding, fragment decoding, exports; the
+  sceneBuffers,           primitive codec, the between-pass fill jobs, the
+  fillJobs, wasmRender    two wasm calls and the prepared handle's lifetime,
+  fieldGrid               engine field grids (plan, then evaluate)
   isolines, streamlines, sketch-time generators (marching squares, evenly
   points, distance      spaced streamlines, scatter/relax/settle, signed
                         distance); shaper: knot curves as functions
-  material, relation,   the material vocabulary: vertices with attribute
-  query, faces          columns and an edge list, steps and forces,
-                        selections and extraction, spatial edge queries,
-                        planarization and faces
+  material, vec, views, the material vocabulary: vertices with attribute
+  steps, forces,          columns and an edge list (material), vectors,
+  relation, query,        view identity, the edit batch, force recipes,
+  faces                   selections and extraction, spatial edge queries,
+                          planarization and faces
   plan, motion          the DrawingPlan as a value (selection, resolveDraw,
                         encode/decode), estimatePlanMs and the motion model
   boundary, material    the area contract and the trim: `loopCrossings` finds
@@ -386,6 +389,107 @@ of `test/material.test.ts`.
 positions (and, for `firstHit`, targets) and return parallel arrays of
 source edge indices, parameters and distances with `-1` for a miss —
 the same lexicographic answers, so a batch and a loop must agree exactly.
+
+### Fields and units
+
+*Where:* `field.ts` (the augmented callable, `rotate`/`translate`/`scale`,
+`within`, `fieldMeta`), `units.ts` (`L`, `resolveLen`), `fieldGrid.ts`
+(`planGrid`, `evaluateGrid`, `buildFieldGrids`), `isolines.ts` +
+`marching.ts`, pinned by `test/field.test.ts`, `test/field-grid.test.ts`,
+`test/isolines.test.ts` and `test/marching.test.ts`.
+
+- **A field is a callable.** `(x, y) => value` in user units, carrying
+  its transform and domain bound inside the closure plus metadata the
+  verbs propagate (`fieldMeta`: the unbounded twin and the bounds).
+  Scalar fields return a number, length-valued fields an `L` (resolved
+  per sample against the frame), vector fields a `[vx, vy]`. There is no
+  other representation; every consumer calls the function.
+- **Transforms** are explicit verbs; nothing is ambient. A vector field
+  rotates its arrows with the frame and never scales magnitudes.
+- **Absence** is a non-finite sample. Every consumer decides for itself:
+  isolines treat any cell touching absence as emitting nothing (a contour
+  ends open there); engine grids fail open to 0 at that sample, because
+  the exact edge of a `within()` bound is shipped separately as a clip
+  region the engine tests before sampling; sketch-time consumers
+  (`scatter`, fills) see the raw non-finite value. These differ on
+  purpose; there is no global rule.
+- **Engine grids: plan, then evaluate.** One grid per (unbounded field,
+  kind), shared by every use. `planGrid` fixes the lattice from the uses'
+  pulled-back footprints — pitch from the paper step scaled by the
+  tightest use, a sample budget that coarsens rather than grows, one cell
+  of margin, and for paper-aligned grids the window of the full grid the
+  shapes read (kept on the full grid's own lattice, ≥ 4 cells, padded so
+  the engine's Catmull-Rom stencil never leaves it). `evaluateGrid` calls
+  the field once per lattice point and writes `[w, h, x0, y0, dx, dy,
+  ...samples]`; a vector field's two grids come from one evaluation. The
+  per-use paper→field transform and domain refs ride `fieldUses`
+  (stride 14, `scene.rs`), outside the grid.
+- **Isolines: sample, march, chain, finish.** `sampleGrid` samples the
+  callable on the drawable's lattice with a pad ring; `marchSegments`
+  emits directed crossing segments per level (`≥ level` is inside, the
+  saddle follows the cell-centre average, a zero-length segment is never
+  emitted, the pad ring is rewritten per level); `chainSegments` joins
+  them in emission order; `finishContours` clamps `close` runs to the
+  drawable, drops duplicates and merges colinear runs. Production is
+  exactly that composition (`test/marching.test.ts` proves it).
+
+**Future** (not implemented): a GPU evaluator for known built-in fields
+would be another `evaluateGrid` over the same `GridPlan`, and a GPU
+marcher another `marchSegments` over the same `SampledGrid`, returning
+the same `SegmentBuffer`. A JavaScript-to-WGSL compiler is out of scope.
+
+### Encoding, rendering and resource lifetime
+
+*Where:* `render.ts` (`encodeScene`, `decodeRender`, exports, the plan),
+`sceneBuffers.ts` (the stride-9 primitive codec), `fillJobs.ts`
+(`runFillJobs`), `wasmRender.ts` (`renderEncoded`), `scene.rs` (every
+stride), pinned by the "pass-1 handle lifetime" block of
+`test/fills.test.ts`, `test/all-features.test.ts` and the golden scene.
+
+- **Inputs and outputs.** `encodeScene` reads the compiled recording and
+  the resolved paper and returns an `EncodedScene`: the `wasm_prepare`
+  argument buffers, the fill-job closures keyed by shape index, and the
+  decode metadata. It is not transferable and never crosses a thread.
+  `renderEncoded(mod, scene)` returns `RawRender` — the prims and frags
+  buffers, stats, optional ghost, wall time. `decodeRender(scene, raw)`
+  is the one half a host may run elsewhere. Order in the scene is 2D
+  painter order (`zIndex`, draw index breaks ties); a future 3D depth
+  coordinate is a different axis and does not reuse it.
+- **The render sequence** is `wasm_prepare` → `runFillJobs` →
+  `wasm_finish`, one synchronous call frame. `wasm_finish` consumes the
+  prepared handle on Ok and Err alike, so JS frees it by hand only when a
+  fill job throws before finish; a finish error propagates with nothing
+  freed here; the finish result is freed once after its buffers are
+  taken. Fill randomness is a sub-stream keyed `${seedUsed}:fill:${order}`.
+- **Layout stability.** The encoded layout (stride-9 prims, stride-12
+  shape rows, stride-14 uses, stride-9 fragments, the fills index) and the
+  public return types are the contract; a change lands on both sides of
+  the wasm boundary in one commit (CLAUDE.md), with the strides at the top
+  of `scene.rs`.
+
+### Numerical and reproducibility policy
+
+- **Snapping.** Input coordinates are snapped to the 0.005 mm grid at
+  encode time (`snap.rs`, `record.ts`); intersection parameters are never
+  snapped. Material coordinates, field samples and isoline points are
+  not snapped at all — they become input geometry only when drawn.
+- **Tolerances** are named constants where they live: `query.ts` `EPS`
+  (1e-9, relative to the extents in play), `isolines.ts`/`marching.ts`
+  (1e-6 user units for chaining, 1e-9 for duplicate and colinear tests),
+  `withinMaterial` (cut points matched at 1e-6). Cite them; do not copy
+  the literals.
+- **Ordering** is deterministic everywhere it is observable: edge order,
+  emission order, cell order, draw order. Randomness flows only through
+  the seeded `Rng` and its keyed sub-streams (design law 3).
+- **Precision.** Every coordinate is a binary64 double and the CPU
+  operation order is part of the contract wherever a byte oracle pins it.
+
+**Future** (not implemented): a GPU backend computes in binary32 unless
+it does otherwise on purpose, so it needs an explicit precision policy.
+Geometry it generates becomes ordinary input geometry after readback —
+CPU finishing does not restore precision lost upstream — and an export
+must use the committed result, never regenerate it on a different
+backend.
 
 ## Plan and results
 

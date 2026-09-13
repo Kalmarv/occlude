@@ -206,6 +206,32 @@ describe('pass-1 handle lifetime', () => {
     renderEncoded(mod, scene);
     expect(freed).toBe(0);
   });
+
+  it('a finish error propagates and the handle is NOT freed here (finish consumed it)', () => {
+    compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('hatch') })));
+    const scene = encodeScene({ paper: 'Square20' });
+    let freed = 0;
+    const mod = stub(() => { freed++; }, () => { throw new Error('finish failed'); });
+    expect(() => renderEncoded(mod, scene)).toThrow('finish failed');
+    expect(freed).toBe(0);
+  });
+
+  it('frees the finish result exactly once, after its buffers are taken', () => {
+    compileSketch(sketch({ seed: 1 }, () => circle(50, 50, 20, { fill: fill('hatch') })));
+    const scene = encodeScene({ paper: 'Square20' });
+    let resultFreed = 0;
+    const prims = new Float64Array([0, 1, 2, 3, 4, 0, 0, 0, 0]);
+    const mod = stub(
+      () => { throw new Error('the handle must not be freed on the success path'); },
+      () => ({
+        prims, frags: new Float64Array(0), stats: new Float64Array(6), ghost: new Float64Array(0),
+        free: () => { resultFreed++; },
+      }),
+    );
+    const raw = renderEncoded(mod, scene);
+    expect(resultFreed).toBe(1);
+    expect(raw.prims).toBe(prims);
+  });
 });
 
 describe('the encoded primitive buffer', () => {
