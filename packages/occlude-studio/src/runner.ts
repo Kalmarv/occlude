@@ -17,7 +17,7 @@
 
 import * as occlude from 'occlude';
 import { Execution, inspectHook, moduleName, userModules } from 'occlude';
-import type { AssetTable, EncodedScene, FillTable, PaperDef, PenDef, SketchDef } from 'occlude';
+import type { AssetTable, EncodedScene, FillTable, PaperDef, PenDef, SketchDef, AsyncSketchDef } from 'occlude';
 import { INSPECT_HOOK, instrumentDeclarations } from './instrument.js';
 
 export interface RunOutcome {
@@ -58,7 +58,7 @@ export interface RunConfig {
 
 export { moduleName };
 
-export function runSketch(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable): RunOutcome {
+function prepareSketch(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable): { def?: SketchDef | AsyncSketchDef; error?: unknown; run: Execution } {
   // Let bounds() see the real paper for aspect-'paper' sketches.
   const { w, h } = occlude.paperSize({ paper: cfg.paper as never, landscape: cfg.landscape });
   const run = new Execution({
@@ -86,20 +86,42 @@ export function runSketch(js: string, cfg: RunConfig, seed: number | string, ass
     const fn = new Function('require', 'exports', 'module', INSPECT_HOOK, occlude.DRAW_HOOK, code);
     fn(require, module.exports, module, inspectHook(run), run.drawAt);
     const exp = module.exports;
-    const def: SketchDef | undefined = occlude.isSketch(exp.default)
-      ? exp.default
-      : (Object.values(exp).find(occlude.isSketch) as SketchDef | undefined);
+    const isDefinition = (value: unknown): value is SketchDef | AsyncSketchDef => occlude.isSketch(value) || occlude.isSketchAsync(value);
+    const def = isDefinition(exp.default) ? exp.default : Object.values(exp).find(isDefinition);
     if (!def) {
       throw new Error(
         "no sketch exported — write `export default sketch({ … }, (toolkit) => tree)`",
       );
     }
+    return { def, run };
+  } catch (error) {
+    return { error, run };
+  }
+}
+
+function encodeRun(run: Execution, cfg: RunConfig): RunOutcome {
+  return { scene: occlude.encodeScene(run, { coarsen: cfg.coarsen, debugGhost: cfg.debugGhost }), error: null, run };
+}
+
+export function runSketch(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable): RunOutcome {
+  const { def, error, run } = prepareSketch(js, cfg, seed, assets, fills);
+  if (!def) return { scene: null, error, run };
+  try {
+    if (occlude.isSketchAsync(def)) throw new Error('async rendering required; use runSketchAsync');
     occlude.compileSketch(def, run);
-    const scene = occlude.encodeScene(run, {
-      coarsen: cfg.coarsen,
-      debugGhost: cfg.debugGhost,
-    });
-    return { scene, error: null, run };
+    return encodeRun(run, cfg);
+  } catch (error) {
+    return { scene: null, error, run };
+  }
+}
+
+/** The worker awaits the entire sketch before encoding or adopting its run. */
+export async function runSketchAsync(js: string, cfg: RunConfig, seed: number | string, assets: AssetTable, fills: FillTable, signal?: AbortSignal): Promise<RunOutcome> {
+  const { def, error, run } = prepareSketch(js, cfg, seed, assets, fills);
+  if (!def) return { scene: null, error, run };
+  try {
+    await occlude.compileSketchAsync(def, run, { signal });
+    return encodeRun(run, cfg);
   } catch (error) {
     return { scene: null, error, run };
   }

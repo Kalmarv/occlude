@@ -35,7 +35,7 @@ import { fieldMeta } from './field.js';
 import { apply, invert, mul, scale as mscale, type Mat } from './matrix.js';
 import type { FieldAlign, FieldFn, LengthFn, VectorFieldFn } from './shapes.js';
 import { Execution, type ExecutionInputs, type PaperSpec } from './execution.js';
-import { compileSketch, isSketch, type SketchDef } from './api.js';
+import { compileSketch, compileSketchAsync, isSketch, isSketchAsync, type SketchDef, type AsyncSketchDef } from './api.js';
 import { mm, resolveLen } from './units.js';
 
 export interface Fragment {
@@ -584,6 +584,7 @@ function inputsOf(opts: RenderOptions): ExecutionInputs {
 /** The execution an entry point works on: compile the sketch with the
  * options' inputs, or take the one the host compiled. */
 function runOf(a: SketchDef | Execution, opts: RenderOptions): Execution {
+  if (isSketchAsync(a)) throw new Error('async rendering required; use renderAsync');
   return isSketch(a) ? compileSketch(a, inputsOf(opts)) : a;
 }
 
@@ -599,6 +600,18 @@ export function render(def: SketchDef, opts?: RenderOptions): RenderResult;
 export function render(exec: Execution, opts?: RenderOptions): RenderResult;
 export function render(a: SketchDef | Execution, b: RenderOptions = {}): RenderResult {
   return renderRun(runOf(a, b), b);
+}
+
+/** Await compilation, then use the same vector renderer as synchronous sketches.
+ * WASM initialization remains explicit through initOcclude. */
+export async function renderAsync(
+  source: SketchDef | AsyncSketchDef | Execution,
+  opts: RenderOptions & { signal?: AbortSignal } = {},
+): Promise<RenderResult> {
+  opts.signal?.throwIfAborted();
+  const exec = source instanceof Execution ? source : await compileSketchAsync(source, inputsOf(opts), opts);
+  opts.signal?.throwIfAborted();
+  return renderRun(exec, opts);
 }
 
 export interface MachineProfileTS {

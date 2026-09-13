@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PENS, assetTable, fillTable, tagDraws } from 'occlude';
-import { currentDraws, currentSeed, moduleName, runSketch, type RunConfig } from './runner.js';
+import { currentDraws, currentSeed, moduleName, runSketch, runSketchAsync, type RunConfig } from './runner.js';
 
 const cfg: RunConfig = {
   pens: [{ ...DEFAULT_PENS[0], name: 'fineliner' }, { ...DEFAULT_PENS[1], name: 'micron-03' }],
@@ -74,4 +74,17 @@ exports.default = (0, occlude_1.sketch)({}, (t) => (0, occlude_1.circle)(t.rnd(1
     // the earlier runs are untouched by the later one
     expect(currentDraws(a.run!).f[0]).not.toBe(0.5);
   });
+});
+
+it('awaits async modules with captured libraries and seeded draws', async () => {
+  const js = emitted(`exports.default = occlude_1.sketchAsync({ seed: 42, pens: { blue: pens_1.fineliner() } }, async t => {
+    await Promise.resolve();
+    return occlude_1.circle(t.rnd(20, 80), 50, 10, { stroke: 'blue' });
+  });`);
+  const a = await runSketchAsync(js, cfg, 7, assetTable(), fillTable([]));
+  const b = await runSketchAsync(js, cfg, 7, assetTable(), fillTable([]));
+  expect(a.error).toBeNull(); expect(a.scene).not.toBeNull();
+  expect(a.scene).toEqual(b.scene);
+  expect(currentDraws(a.run!).addrs).toHaveLength(1);
+  expect(runSketch(js, cfg, 7, assetTable(), fillTable([])).error).toMatchObject({ message: expect.stringContaining('async rendering required') });
 });

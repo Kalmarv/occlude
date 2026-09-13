@@ -17,13 +17,13 @@
 
 // The declarative API.
 export {
-  sketch, compileSketch, isSketch,
+  sketch, compileSketch, isSketch, sketchAsync, compileSketchAsync, isSketchAsync,
   circle, ellipse, rect, line, polygon, ngon, stroke, strokes, path, PathValue,
   group, clip, mask, invert, decimate, wobble, modify, dash, smooth, roughen, deform,
   times, range,
 } from './api.js';
 export type {
-  SketchDef, SketchConfig, Toolkit, Tree,
+  SketchDef, AsyncSketchDef, SketchConfig, Toolkit, Tree,
   ShapeValue, ShapeOpts, PolygonOpts, Contour, GroupValue, GroupOpts, ClipValue, InvertValue, WithinFaces,
 } from './api.js';
 export type { ModifierValue, FieldFn, VectorFieldFn } from './shapes.js';
@@ -92,7 +92,7 @@ export { ease } from './ease.js';
 
 // Render & export (accept a SketchDef, or operate on legacy recorded state).
 export {
-  render, exportGcode, exportSvg, exportPng,
+  render, renderAsync, exportGcode, exportSvg, exportPng,
   encodeScene, decodeRender, renderEncoded,
   pensToJson, profileToJson, tourBudget,
 } from './render.js';
@@ -183,7 +183,7 @@ import { setOccludeModule } from './fills.js';
 /** Host integration and runtime entry points a fill file must not reach. */
 const HOST_ONLY = new Set([
   'Execution', 'fillTable', 'assetTable', 'loadFillModule', 'initOcclude', 'bindToolkit', 'inspectHook',
-  'compileSketch', 'render', 'exportGcode', 'exportSvg', 'exportPng',
+  'compileSketch', 'compileSketchAsync', 'render', 'renderAsync', 'exportGcode', 'exportSvg', 'exportPng',
   'encodeScene', 'decodeRender', 'renderEncoded',
 ]);
 setOccludeModule(() =>

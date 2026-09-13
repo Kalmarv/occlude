@@ -19,8 +19,8 @@ import { fileURLToPath } from 'node:url';
 import { DOC_PAGES, parseLiveMeta, docsPaper } from '../src/docsExamples.js';
 import * as occlude from '../src/index.js';
 import {
-  initOcclude, isSketch, render,
-  DEFAULT_PENS, paperSize, type SketchDef, DEFAULT_PAPERS } from '../src/index.js';
+  initOcclude, isSketch, isSketchAsync, renderAsync,
+  DEFAULT_PENS, paperSize, type SketchDef, type AsyncSketchDef, DEFAULT_PAPERS } from '../src/index.js';
 import { liveExampleToJs } from '../src/docsExamples.js';
 import { assetsFromDisk } from './asset-preload.js';
 import { fillsFromDisk } from './fill-preload.js';
@@ -50,7 +50,7 @@ if (fences.length === 0) {
 
 let failed = 0;
 let outside = 0;
-fences.forEach(({ src, meta, page }, i) => {
+for (const [i, { src, meta, page }] of fences.entries()) {
   // First line of the example names it in failures.
   const head = src.split('\n').find((l) => l.trim() && !l.startsWith('import')) ?? `#${i}`;
   try {
@@ -61,12 +61,13 @@ fences.forEach(({ src, meta, page }, i) => {
       module.exports,
       module,
     );
-    const def = (isSketch(module.exports.default)
+    const isDefinition = (v: unknown): v is SketchDef | AsyncSketchDef => isSketch(v) || isSketchAsync(v);
+    const def = (isDefinition(module.exports.default)
       ? module.exports.default
-      : Object.values(module.exports).find(isSketch)) as SketchDef | undefined;
+      : Object.values(module.exports).find(isDefinition)) as SketchDef | AsyncSketchDef | undefined;
     if (!def) throw new Error('no sketch exported');
     const sheet = docsPaper(meta);
-    const out = render(def, { paper: sheet, coarsen: 1, marginPct: meta.margin ?? 5, library: structuredClone(DEFAULT_PENS), assets: assetsFromDisk(js), fills: fillsFromDisk(js) });
+    const out = await renderAsync(def, { paper: sheet, coarsen: 1, marginPct: meta.margin ?? 5, library: structuredClone(DEFAULT_PENS), assets: assetsFromDisk(js), fills: fillsFromDisk(js) });
     if (out.stats.fragments === 0) throw new Error('rendered zero visible strokes');
     // How much of the ink lies outside the drawable? (on paper but off the
     // frame is allowed; a drawing that mostly misses its frame is reported)
@@ -90,6 +91,6 @@ fences.forEach(({ src, meta, page }, i) => {
     failed += 1;
     console.error(`FAIL #${i + 1}: ${e instanceof Error ? e.message : e}\n     ${head.slice(0, 70)}`);
   }
-});
+}
 console.log(`${fences.length - failed}/${fences.length} examples pass${outside ? `, ${outside} framed badly (off or small)` : ''}`);
 process.exit(failed === 0 ? 0 : 1);

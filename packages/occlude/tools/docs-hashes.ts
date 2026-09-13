@@ -25,7 +25,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import {
-  exportSvg, initOcclude, isSketch, paperSize,
+  exportSvg, compileSketchAsync, initOcclude, isSketch, isSketchAsync, paperSize,
   DEFAULT_PENS, DOC_PAGES, parseLiveMeta, docsPaper, liveExampleToJs, type SketchDef, DEFAULT_PAPERS } from '../src/index.js';
 import { assetsFromDisk } from './asset-preload.js';
 import { fillsFromDisk } from './fill-preload.js';
@@ -76,7 +76,7 @@ const UNSTABLE = /\bDate\.now\(/;
 const UNSTABLE_HASH = 'UNSTABLE (draws Date.now())';
 
 /** The ink of one example: the exact-curve SVG the export writes. */
-function inkOf(src: string, meta: ReturnType<typeof parseLiveMeta>): string {
+async function inkOf(src: string, meta: ReturnType<typeof parseLiveMeta>): Promise<string> {
   const js = liveExampleToJs(src);
   const module = { exports: {} as Record<string, unknown> };
   new Function('require', 'exports', 'module', js)(
@@ -84,33 +84,36 @@ function inkOf(src: string, meta: ReturnType<typeof parseLiveMeta>): string {
     module.exports,
     module,
   );
-  const def = (isSketch(module.exports.default)
+  const isDefinition = (v: unknown) => isSketch(v) || isSketchAsync(v);
+  const def = (isDefinition(module.exports.default)
     ? module.exports.default
-    : Object.values(module.exports).find(isSketch)) as SketchDef | undefined;
+    : Object.values(module.exports).find(isDefinition)) as SketchDef | import('../src/api.js').AsyncSketchDef | undefined;
   if (!def) throw new Error('no sketch exported');
   const sheet = docsPaper(meta);
   void paperSize;
   // the docs' own pens, a fixed seed, and the example's assets and fills
-  return exportSvg(def, { paper: sheet, marginPct: meta.margin ?? 5, seed, library: structuredClone(DEFAULT_PENS), assets: assetsFromDisk(js), fills: fillsFromDisk(js) });
+  const options = { paper: sheet, marginPct: meta.margin ?? 5, seed, library: structuredClone(DEFAULT_PENS), assets: assetsFromDisk(js), fills: fillsFromDisk(js) };
+  const run = await compileSketchAsync(def, { ...options, paper: paperSize(sheet) });
+  return exportSvg(run, options);
 }
 
 const hashes: Record<string, string> = {};
 const failed: string[] = [];
 const unstable: string[] = [];
-fences.forEach(({ src, paper, key }) => {
+for (const { src, paper, key } of fences) {
   try {
     if (UNSTABLE.test(src)) {
       hashes[key] = UNSTABLE_HASH;
       unstable.push(key);
-      return;
+      continue;
     }
-    hashes[key] = createHash('sha256').update(inkOf(src, paper)).digest('hex');
+    hashes[key] = createHash('sha256').update(await inkOf(src, paper)).digest('hex');
   } catch (e) {
     const msg = String(e instanceof Error ? e.message : e).replace(/\/[^\s:]+/g, '<path>').slice(0, 120);
     hashes[key] = `ERROR ${msg}`;
     failed.push(`${key}: ${msg}`);
   }
-});
+}
 
 if (savePath) {
   writeFileSync(savePath, `${JSON.stringify(hashes, null, 2)}\n`);

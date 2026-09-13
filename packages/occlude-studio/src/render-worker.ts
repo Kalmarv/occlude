@@ -13,7 +13,7 @@
 import initCore, * as core from 'occlude-core';
 import { bridgeGapFor, hashPlan, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
-import { currentDraws, currentOverrides, currentSeed, runSketch, type RunConfig } from './runner.js';
+import { currentDraws, currentOverrides, currentSeed, runSketchAsync, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
 import { preloadFills } from './fillLoader.js';
 import type { GeometrySnapshot } from './optimization.js';
@@ -135,10 +135,9 @@ const currentPlan = (msg: PlanRange) => {
   return lastPlan;
 };
 
-self.onmessage = async (e: MessageEvent<Msg>) => {
-  await ready;
-  const msg = e.data;
+async function handleMessage(msg: Msg): Promise<void> {
   try {
+    await ready;
     switch (msg.type) {
       case 'render': {
         // Assets referenced by literal name are fetched/decoded here in the
@@ -150,7 +149,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         const fills = await preloadFills(msg.js, msg.cfg.draftFill);
         lastExecutionId = -1; // a failed run leaves no inspectable state
         lastRun = null;
-        const outcome = runSketch(msg.js, msg.cfg, msg.cfg.seed ?? sessionSeed, assets, fills);
+        const outcome = await runSketchAsync(msg.js, msg.cfg, msg.cfg.seed ?? sessionSeed, assets, fills);
         if (outcome.error || !outcome.scene) {
           const err = outcome.error;
           self.postMessage({
@@ -286,4 +285,12 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       stack: err instanceof Error ? err.stack : undefined,
     });
   }
+};
+
+// Rendering can await GPU work. Serialize all access to retained render/plan
+// state, including exports; the client coalesces renders and owns the watchdog.
+let requests = Promise.resolve();
+self.onmessage = (event: MessageEvent<Msg>) => {
+  const msg = event.data;
+  requests = requests.then(() => handleMessage(msg));
 };

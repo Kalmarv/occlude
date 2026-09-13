@@ -792,6 +792,22 @@ export interface SketchDef {
   readonly fn: (toolkit: Toolkit) => Tree;
 }
 
+/** An explicitly asynchronous sketch; ordinary sketches retain their synchronous contract. */
+export interface AsyncSketchDef {
+  readonly __occludeAsyncSketch: true;
+  readonly config: SketchConfig;
+  readonly fn: (toolkit: Toolkit) => Tree | Promise<Tree>;
+}
+
+export function isSketchAsync(v: unknown): v is AsyncSketchDef {
+  return typeof v === 'object' && v !== null && (v as AsyncSketchDef).__occludeAsyncSketch === true;
+}
+
+export function sketchAsync(config: SketchConfig, fn: AsyncSketchDef['fn']): AsyncSketchDef {
+  if (typeof fn !== 'function') throw new Error('sketchAsync(config, fn): expected a sketch function');
+  return { __occludeAsyncSketch: true, config, fn };
+}
+
 export function isSketch(v: unknown): v is SketchDef {
   return typeof v === 'object' && v !== null && (v as SketchDef).__occludeSketch === true;
 }
@@ -1181,14 +1197,42 @@ export const DEFAULT_INPUTS: ExecutionInputs = Object.freeze({ paper: { w: 210, 
  * even evaluated. Returns the execution the renderer encodes from.
  */
 export function compileSketch(def: SketchDef, inputs: ExecutionInputs | Execution = DEFAULT_INPUTS): Execution {
+  if (isSketchAsync(def)) throw new Error('compileSketch: async rendering required; use compileSketchAsync or renderAsync');
   if (!isSketch(def)) throw new Error('compileSketch: expected a sketch definition (sketch(config, fn))');
   const exec = inputs instanceof Execution ? inputs : new Execution(inputs);
+  if (compilingAsync.has(exec)) throw new Error('execution already has an asynchronous compile in progress');
   const cfg = def.config;
   exec.begin(cfg);
   const toolkit = bindToolkit(exec);
   const tree = def.fn(toolkit);
   emit(exec, tree, { pen: undefined, z: undefined, decimate: undefined, wobble: undefined, bridge: undefined, modifiers: [] });
   return exec;
+}
+
+const compilingAsync = new WeakSet<Execution>();
+
+/** Await a sketch before recording its drawing. Cancellation prevents recording;
+ * it does not forcibly interrupt user JavaScript. GPU operations should also
+ * receive the host's signal so they can stop submitting subsequent batches. */
+export async function compileSketchAsync(
+  def: SketchDef | AsyncSketchDef,
+  inputs: ExecutionInputs | Execution = DEFAULT_INPUTS,
+  options: { signal?: AbortSignal } = {},
+): Promise<Execution> {
+  if (!isSketch(def) && !isSketchAsync(def)) throw new Error('compileSketchAsync: expected a sketch definition');
+  options.signal?.throwIfAborted();
+  const exec = inputs instanceof Execution ? inputs : new Execution(inputs);
+  if (compilingAsync.has(exec)) throw new Error('execution already has an asynchronous compile in progress');
+  compilingAsync.add(exec);
+  try {
+    exec.begin(def.config);
+    const tree = await def.fn(bindToolkit(exec));
+    options.signal?.throwIfAborted();
+    emit(exec, tree, { pen: undefined, z: undefined, decimate: undefined, wobble: undefined, bridge: undefined, modifiers: [] });
+    return exec;
+  } finally {
+    compilingAsync.delete(exec);
+  }
 }
 
 function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {

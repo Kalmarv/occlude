@@ -115,3 +115,20 @@ Thumbnails come from the studio's finished render at save and snapshot time.
 ## Export and plotting
 
 Plotting & saving covers paper and pens, choosing which part of the ordered drawing to plot, SVG, G-code and PNG export, simulation, saved results, and driving the machine.
+
+## Awaiting construction
+
+Use `sketchAsync(config, async t => tree)` when construction has an explicit asynchronous step. Studio waits for the returned tree before rendering. The toolkit, seed, named pens, and paper behave like those of `sketch`.
+
+```ts live
+import { sketchAsync, line } from 'occlude';
+
+export default sketchAsync({ seed: 42 }, async (t) => {
+  const positions = await Promise.resolve(t.times(12, () => t.rnd(10, 90)));
+  return positions.map((x) => line(x, 10, x, 90));
+});
+```
+
+Headless hosts use `await compileSketchAsync(def, inputs, { signal })` to get an execution, or `await renderAsync(def, options)` to render it. Initialize WASM with `initOcclude` first, as with synchronous rendering. `renderAsync` also accepts ordinary sketches and compiled executions. Synchronous entry points report that async rendering is required when given an async definition.
+
+Cancellation prevents recording the returned tree; it cannot forcibly interrupt arbitrary JavaScript. Pass the same signal to asynchronous construction operations that support cancellation. Each execution is single-use, including after failure or cancellation.
