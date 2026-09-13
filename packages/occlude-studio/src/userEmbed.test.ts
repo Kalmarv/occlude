@@ -123,4 +123,16 @@ ${body.replace('export default', 'module.exports.default =')}`;
     expect(out.source).toContain("import { micron_03 as thin } from '@user/pens';");
     expect(out.source).toContain('const fineliner = penModel(');
   });
+
+  it('a sketch that already imports the helper under an alias bundles through it, and Relink finds the bundle', () => {
+    const aliased = named.replace("import { sketch, circle } from 'occlude';", "import { sketch, circle, penModel as makePen } from 'occlude';\nconst spare = makePen({ name: 'x', width: 0.1, color: '#000', feed: 1, penDown: 0, penUp: 1, penDelay: 1 });");
+    const out = bundleUserImports(aliased, pens, papers);
+    expect(out.source).toContain('const fineliner = makePen({');
+    expect(out.source).toContain("import { sketch, circle, penModel as makePen, paperModel } from 'occlude';");
+    expectBundledDefinitions(out.source);
+    expect(scanBundled(out.source)).toHaveLength(3);
+    const back = relinkUserImports(out.source, pens, papers);
+    expect(back.relinked).toEqual(['fineliner', 'micron-03', 'Letter']);
+    expect(back.source).toBe(aliased); // makePen stays: the sketch's own `spare` uses it; paperModel goes
+  });
 });

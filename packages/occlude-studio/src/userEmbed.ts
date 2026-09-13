@@ -118,8 +118,11 @@ export function scanBundled(source: string): { kind: 'pens' | 'papers'; name: st
   for (let i = 0; i + 1 < lines.length; i++) {
     const m = lines[i].match(MARK_RE);
     if (!m) continue;
+    // the marker is the authority; the definition below it calls the helper
+    // through whatever binding the bundle used (`penModel`, `o.penModel`,
+    // `makePen` …)
     const def = lines[i + 1].match(DEF_RE);
-    if (!def || !/(^|\.)(penModel|paperModel)(\$\d+)?$/.test(def[2])) continue;
+    if (!def) continue;
     out.push({ kind: m[1] as 'pens' | 'papers', name: m[2], local: def[1], line: i });
   }
   return out;
