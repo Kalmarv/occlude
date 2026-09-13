@@ -578,12 +578,21 @@ function snapshotFills(fills: FillTable): FillTable {
   return out;
 }
 
-function cloneParams<T>(params: T): T {
-  try {
-    return structuredClone(params);
-  } catch {
-    return { ...(params as object) } as T;
+/** A recursive copy of a fill's declared params: plain objects, arrays and
+ * typed arrays by value at every depth; functions kept as they are (a
+ * param that is a field or a callback is code, pure under the fill
+ * contract); anything else (a Date, a Map …) by structuredClone. */
+function cloneParams<T>(value: T): T {
+  if (typeof value === 'function' || value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((v) => cloneParams(v)) as unknown as T;
+  if (ArrayBuffer.isView(value)) return (value as unknown as { slice(): T }).slice();
+  const proto = Object.getPrototypeOf(value);
+  if (proto === Object.prototype || proto === null) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = cloneParams(v);
+    return out as T;
   }
+  return structuredClone(value);
 }
 
 /** A margin given as a physical length, as a percent of the short side. */

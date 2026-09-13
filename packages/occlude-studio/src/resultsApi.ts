@@ -12,7 +12,8 @@ export interface ResultMeta {
   request: unknown;
   settings: PlanSettings;
   pens: { name: string; width: number; color: string; feed: number; penDown: number; penUp: number; penDelay: number }[];
-  paper: { w: number; h: number };
+  /** The sheet as resolved by the run, with its colour when one was declared. */
+  paper: { w: number; h: number; color?: string };
   profile: { name: string; timing: unknown; tolerance: number } | null;
   eta: { standaloneMs: number; fullMs: number };
   build: string;

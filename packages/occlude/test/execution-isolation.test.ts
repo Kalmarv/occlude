@@ -172,3 +172,23 @@ describe('asset and fill inputs are snapshots', () => {
     expect(exec.inputs.fills!.get('bars')!.params.spacing).toBe(2);
   });
 });
+
+describe('fill snapshots copy nested params and keep functions', () => {
+  it('a nested value changed on the original stays as captured; a function param is the same function', () => {
+    const density = (x: number) => x;
+    const def = fillAsset({
+      params: { look: { spacing: 2, weights: [1, 2], tones: new Float64Array([0.5]) }, density },
+      generate() { return []; },
+    });
+    const exec = new Execution({ paper: { w: 100, h: 100 }, fills: fillTable([['deep', def]]) });
+    const nested = def.params.look as { spacing: number; weights: number[]; tones: Float64Array };
+    nested.spacing = 20;
+    nested.weights.push(3);
+    nested.tones[0] = 9;
+    const kept = exec.inputs.fills!.get('deep')!.params.look as typeof nested;
+    expect(kept.spacing).toBe(2);
+    expect(kept.weights).toEqual([1, 2]);
+    expect(kept.tones[0]).toBe(0.5);
+    expect(exec.inputs.fills!.get('deep')!.params.density).toBe(density);
+  });
+});

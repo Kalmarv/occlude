@@ -697,7 +697,8 @@ function buildDrawingPanel(body: HTMLElement, hooks: PanelHooks): void {
         request: r.request,
         settings: plan.settings,
         pens: result.pens.map((pen) => ({ name: pen.name, width: pen.width, color: pen.color, feed: pen.feed, penDown: pen.penDown, penUp: pen.penUp, penDelay: pen.penDelay })),
-        paper: { w: result.paper.w, h: result.paper.h },
+        // the resolved sheet, colour included: reopening the result shows and exports it as saved
+        paper: result.paper.color !== undefined ? { w: result.paper.w, h: result.paper.h, color: result.paper.color } : { w: result.paper.w, h: result.paper.h },
         profile: prof ? { name: prof.name, timing: machineTiming(prof), tolerance: machineTolerance(prof, result.pens) } : null,
         eta: { standaloneMs: r.estimate?.totalMs ?? 0, fullMs: r.fullMs ?? 0 },
         build: hooks.build,
