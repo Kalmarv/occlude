@@ -20,3 +20,4 @@ export {revolve} from './revolve.js';
 export type {RevolveOptions} from './revolve.js';
 export {sweep} from './sweep.js';
 export type {SweepOptions} from './sweep.js';
+export type {SurfaceSamples,SurfaceSample,SurfaceSampleRow,SurfaceSamplingOptions,SurfaceScatterOptions,SamplingGeneration} from './sampling.js';

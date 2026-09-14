@@ -1,0 +1,156 @@
+{
+  "passed": true,
+  "base": "http://127.0.0.1:5273",
+  "diagnostics": [],
+  "negative": [
+    {
+      "code": 2322,
+      "message": "Type 'number' is not assignable to type 'string'."
+    },
+    {
+      "code": 2322,
+      "message": "Type 'boolean' is not assignable to type 'string'."
+    }
+  ],
+  "modelsBeforeReopen": 1,
+  "modelsAfterReopen": 2,
+  "reopened": {
+    "hash": "a3ce15db05f7e1743108e0830e181a8b686c3a5fe11d0007c7174d9b484d89ac",
+    "camera": {
+      "eye": [
+        6,
+        8,
+        6
+      ],
+      "target": [
+        0,
+        0,
+        0.2
+      ],
+      "kind": "perspective",
+      "near": 0.1,
+      "far": 100,
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "fovDegrees": 44.6745226124568
+    }
+  },
+  "stats": {
+    "modeling": [],
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "scenes": [
+      {
+        "candidates": 65404,
+        "dispatches": 8,
+        "refinements": 58393,
+        "transferBytes": 7325376,
+        "wallMs": 1344.9000000357628,
+        "gpuMs": 0.080896,
+        "paperToleranceMm": 0.005,
+        "parameterTolerance": 0.00001
+      }
+    ]
+  },
+  "zeroLengthPaths": 0,
+  "sharedPrototypeCounts": [],
+  "queries": [],
+  "curveOracles": [],
+  "profileOracles": [],
+  "samplingProofs": [
+    {
+      "count": 59,
+      "samples": 12,
+      "generation": {
+        "attempts": 4000,
+        "accepted": 59,
+        "reason": "attempt-limit"
+      },
+      "typedFace": true,
+      "identity": true,
+      "onSurface": true,
+      "spacing": true,
+      "aligned": true
+    },
+    {
+      "count": 59,
+      "samples": 12,
+      "generation": {
+        "attempts": 4000,
+        "accepted": 59,
+        "reason": "attempt-limit"
+      },
+      "typedFace": true,
+      "identity": true,
+      "onSurface": true,
+      "spacing": true,
+      "aligned": true
+    }
+  ],
+  "samplingQueries": [
+    {
+      "rows": 20,
+      "identity": true,
+      "source": true,
+      "nearest": true,
+      "rays": true,
+      "segments": true
+    }
+  ],
+  "samplingQueryStats": {
+    "modeling": [
+      {
+        "operation": "query",
+        "backend": "gpu",
+        "dispatches": 1,
+        "transferBytes": 1056,
+        "targetCacheHit": false,
+        "targetUploadBytes": 96
+      },
+      {
+        "operation": "query",
+        "backend": "gpu",
+        "dispatches": 1,
+        "transferBytes": 960,
+        "targetCacheHit": true,
+        "targetUploadBytes": 0
+      },
+      {
+        "operation": "query",
+        "backend": "gpu",
+        "dispatches": 1,
+        "transferBytes": 960,
+        "targetCacheHit": true,
+        "targetUploadBytes": 0
+      }
+    ],
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "scenes": [
+      {
+        "candidates": 0,
+        "dispatches": 0,
+        "refinements": 0,
+        "transferBytes": 0,
+        "wallMs": 0.10000002384185791,
+        "gpuMs": 0,
+        "paperToleranceMm": 0.005,
+        "parameterTolerance": 0.00001
+      }
+    ]
+  },
+  "errors": []
+}

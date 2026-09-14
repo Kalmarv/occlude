@@ -20,3 +20,5 @@ export {GpuDeform3} from '../../compute/webgpu/deform.js';
 export {deformSurfaceCpu3} from '../geometry/deform.js';
 export {cameraFrame3} from '../camera.js';
 export {hiddenInterval3,occlusionVolume3,unionIntervals3,visibleIntervals3} from '../visibility/interval.js';
+export {sampleSurfacePoints,scatterSurfacePoints} from './sampling.js';
+export type {SurfaceSamplingEnv} from './sampling.js';

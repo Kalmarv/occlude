@@ -69,8 +69,14 @@ the earlier API and does not imply this redesign is finished.
   and source/served Studio checks pass, including four independent GPU
   visibility oracles. All nine Docker gates and sixteen live examples pass;
   see `profile-construction/`.
-- Surface sampling/scatter from the catalog is still unimplemented; instances
-  currently consume existing point collections.
+- Seeded mesh sampling and fixed-spacing surface scatter are implemented as
+  toolkit overloads. Captured sample metadata survives point edits, instancing
+  and synchronous/asynchronous query batches with its complete row type.
+  Seven sampling tests and sixteen existing query/instance tests pass; source
+  Studio verifies terrain placement, spacing, alignment and camera retention.
+  All nine Docker gates and seventeen served live examples pass. Three GPU
+  query batches preserve rich sample rows and match analytic plane hits; their
+  target cache and Monaco checks pass. See `sampling-api/`.
 - M5 demo migration and detailed GPU phase
   accounting remain pending. Terrain and instanced forms are runnable live
   examples; the complete acceptance set is not yet verified.

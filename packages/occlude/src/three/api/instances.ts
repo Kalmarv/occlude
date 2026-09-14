@@ -7,13 +7,13 @@ import {add3,finite3,type Vec3} from '../math.js';
 
 export interface InstanceTransform {readonly translate:Vec3;readonly rotate:Vec3;readonly scale:Vec3}
 export interface InstanceTransformInput {readonly translate?:Vec3;readonly rotate?:Vec3;readonly scale?:number|Vec3}
-interface InstanceData<A extends Attributes3,S extends Attributes3> {readonly id:string;readonly source:PointRow<S>;readonly attributes:Readonly<A>;readonly transform:InstanceTransform}
-export type InstanceRow<A extends Attributes3={},S extends Attributes3={}> = Readonly<Omit<A,'id'|'index'|'source'|'attributes'|'transform'> & InstanceData<A,S> & {index:number}>;
-export interface InstanceOnPointsOptions<S extends Attributes3> extends GeometryOptions {
-  readonly scale?:Field<PointRow<S>,number|Vec3>;
-  readonly rotate?:Field<PointRow<S>,Vec3>;
+interface InstanceData<A extends Attributes3,S extends Attributes3,R extends PointRow<{}>=PointRow<S>> {readonly id:string;readonly source:R;readonly attributes:Readonly<A>;readonly transform:InstanceTransform}
+export type InstanceRow<A extends Attributes3={},S extends Attributes3={},R extends PointRow<{}>=PointRow<S>> = Readonly<Omit<A,'id'|'index'|'source'|'attributes'|'transform'> & InstanceData<A,S,R> & {index:number}>;
+export interface InstanceOnPointsOptions<S extends Attributes3,R extends PointRow<{}>=PointRow<S>> extends GeometryOptions {
+  readonly scale?:Field<R,number|Vec3>;
+  readonly rotate?:Field<R,Vec3>;
   /** World-space offset from each source point. */
-  readonly offset?:Field<PointRow<S>,Vec3>;
+  readonly offset?:Field<R,Vec3>;
 }
 export interface RealizeOptions {readonly maxPoints?:number;readonly maxFaces?:number}
 type Combined<A,B> = Omit<A,keyof B>&B;
@@ -34,31 +34,31 @@ function budget(n:number,limit:number,label:string):void{if(!Number.isSafeIntege
 
 /** One shared mesh prototype plus owned per-instance data. Rendering may expand
  * transformed coordinates, but authoring topology is duplicated only by realize. */
-export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},A extends Attributes3={},S extends Attributes3={}> {
+export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},A extends Attributes3={},S extends Attributes3={},R extends PointRow<{}>=PointRow<S>> {
   readonly key?:string;
-  readonly rows:readonly InstanceRow<A,S>[];
-  constructor(readonly prototype:Mesh<P,E,F>,rows:readonly InstanceData<A,S>[],options:GeometryOptions={}) {
+  readonly rows:readonly InstanceRow<A,S,R>[];
+  constructor(readonly prototype:Mesh<P,E,F>,rows:readonly InstanceData<A,S,R>[],options:GeometryOptions={}) {
     if(!(prototype instanceof Mesh))throw new Error('mesh instances require a mesh prototype');
     this.key=key(options.key);
     if(new Set(rows.map(r=>r.id)).size!==rows.length)throw new Error('instance IDs must be unique');
-    this.rows=Object.freeze(rows.map((row,index)=>{const attributes=ownAttributes(row.attributes as A);return Object.freeze({...attributes,id:row.id,index,source:row.source,attributes,transform:transform(row.transform)}) as InstanceRow<A,S>;}));
+    this.rows=Object.freeze(rows.map((row,index)=>{const attributes=ownAttributes(row.attributes as A);return Object.freeze({...attributes,id:row.id,index,source:row.source,attributes,transform:transform(row.transform)}) as InstanceRow<A,S,R>;}));
     Object.freeze(this);
   }
   get length():number{return this.rows.length;}
-  get instances():Collection<InstanceRow<A,S>,Instances<P,E,F,A,S>>{return new Collection(this,'instance',this.rows,ids=>new Instances<P,E,F,A,S>(this.prototype,ids.map(i=>this.rows[i]),this));}
-  withKey(value:string):Instances<P,E,F,A,S>{return new Instances<P,E,F,A,S>(this.prototype,this.rows,{key:value});}
-  attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<InstanceRow<A,S>,Value>):Instances<P,E,F,Omit<A,Name>&Record<Name,Value>,S>{
+  get instances():Collection<InstanceRow<A,S,R>,Instances<P,E,F,A,S,R>>{return new Collection(this,'instance',this.rows,ids=>new Instances<P,E,F,A,S,R>(this.prototype,ids.map(i=>this.rows[i]),this));}
+  withKey(value:string):Instances<P,E,F,A,S,R>{return new Instances<P,E,F,A,S,R>(this.prototype,this.rows,{key:value});}
+  attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<InstanceRow<A,S,R>,Value>):Instances<P,E,F,Omit<A,Name>&Record<Name,Value>,S,R>{
     attributeName(name);if(name==='transform')throw new Error('reserved instance attribute name: transform');
     const rows=this.rows.map(row=>({...row,attributes:{...(row.attributes as Readonly<A>),[name]:attributeValue(evaluate(field,row))}}));
-    return new Instances<P,E,F,Omit<A,Name>&Record<Name,Value>,S>(this.prototype,rows as unknown as InstanceData<Omit<A,Name>&Record<Name,Value>,S>[],this);
+    return new Instances<P,E,F,Omit<A,Name>&Record<Name,Value>,S,R>(this.prototype,rows as unknown as InstanceData<Omit<A,Name>&Record<Name,Value>,S,R>[],this);
   }
   /** Replace supplied S/R/T components; omitted components retain their values.
    * Rotation is XYZ Euler degrees about the prototype origin, before placement. */
-  transform(field:Field<InstanceRow<A,S>,InstanceTransformInput>):Instances<P,E,F,A,S>{
-    return new Instances<P,E,F,A,S>(this.prototype,this.rows.map(row=>({...row,transform:transform({...(row.transform as InstanceTransform),...evaluate(field,row)})})),this);
+  transform(field:Field<InstanceRow<A,S,R>,InstanceTransformInput>):Instances<P,E,F,A,S,R>{
+    return new Instances<P,E,F,A,S,R>(this.prototype,this.rows.map(row=>({...row,transform:transform({...(row.transform as InstanceTransform),...evaluate(field,row)})})),this);
   }
   /** Add a world-space displacement to each placement without touching topology. */
-  translate(field:Field<InstanceRow<A,S>,Vec3>):Instances<P,E,F,A,S>{
+  translate(field:Field<InstanceRow<A,S,R>,Vec3>):Instances<P,E,F,A,S,R>{
     return this.transform(row=>{const delta=evaluate(field,row);finite3(delta);return {translate:add3(row.transform.translate,delta)};});
   }
   realize(options:RealizeOptions={}):Mesh<Combined<A,P>,Combined<A,E>,Combined<A,F>> {
@@ -77,14 +77,14 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
   }
 }
 
-export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,S extends Attributes3>(
-  prototype:Mesh<P,E,F>,points:Collection<PointRow<S>,unknown>,options:InstanceOnPointsOptions<S>={},
-):Instances<P,E,F,S,S>{
+export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,R extends PointRow<{}>>(
+  prototype:Mesh<P,E,F>,points:Collection<R,unknown>,options:InstanceOnPointsOptions<R['attributes'],R>={},
+):Instances<P,E,F,R['attributes'],R['attributes'],R>{
   if(!(prototype instanceof Mesh))throw new Error('instanceOnPoints requires a mesh prototype');
   if(!(points instanceof Collection)||points.domain!=='point')throw new Error('instanceOnPoints requires a point collection');
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('instance options must be an object');
   key(options.key);if(points.length>100000)throw new Error('instance count exceeds budget (100000)');
-  return new Instances<P,E,F,S,S>(prototype,points.map(source=>{
+  return new Instances<P,E,F,R['attributes'],R['attributes'],R>(prototype,points.map(source=>{
     const offset=evaluate(options.offset??([0,0,0] as Vec3),source);finite3(offset);
     return {id:identity('instance',prototype.key??'prototype',source.id),source,attributes:source.attributes,
       transform:transform({translate:add3([source.x,source.y,source.z],offset),rotate:evaluate(options.rotate??([0,0,0] as Vec3),source),scale:evaluate(options.scale??1,source)})};

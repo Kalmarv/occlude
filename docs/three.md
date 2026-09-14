@@ -706,3 +706,90 @@ export default sketch({ seed: 42, pens: {
   });
 });
 ```
+
+
+## Sampling and scattering on surfaces
+
+`t.sample(mesh, { count })` generates independent area-weighted points on the
+mesh's represented triangles. `t.scatter(mesh, { spacing })` rejects candidates
+that are too close to previously accepted points. Its spacing is a bare number
+in **world units**, measured by Euclidean distance across all selected surfaces,
+including disconnected or nearby sheets. It is not paper spacing or geodesic
+distance. These mesh overloads coexist with the existing 2D shape sampling and
+scatter methods; 2D behavior is unchanged.
+
+Both accept `weight: face => number` (or a constant): a nonnegative finite
+per-face candidate weight, captured once. Sampling probability is proportional
+to triangle area times that weight; zero excludes a face. Scatter uses the same
+candidate distribution, with fixed minimum spacing. Weight affects candidate
+probability, not the spacing radius, and does not promise a particular final
+density after rejection. Select faces through zero weights or extract a face
+selection into a mesh first. Mesh instances must be explicitly realized before
+surface sampling.
+
+Both return `SurfaceSamples`, point geometry with ordinary `.points`, attributes,
+selection/extraction, displacement and translation. Every row adds `.sample`:
+an owned original `position`, triangle `normal`, `triangle` index, original
+triangle `vertices`, `barycentric` weights, a typed `face` row and the immutable
+source surface in `.sample.source`.
+`.target` retains the original immutable mesh. Moving a sample does not silently
+reproject it: `.sample` continues to describe where it was generated. The name
+`sample` is reserved alongside the existing geometry row names.
+
+Continuous numeric point columns and equal-sized numeric vectors interpolate
+barycentrically. Categorical columns and columns declared with transfer
+`'nearest'` use the largest barycentric weight, breaking ties by source point ID.
+Missing point columns remain missing; face columns are inherited and point
+columns take precedence on name collisions. Source face/point IDs also appear
+in point provenance. Instancing and query batches preserve the full point-row type, so placement
+fields, `instance.source` and query `result.source` retain sample normals and
+typed source faces.
+
+Randomness comes from an independent stream of the sketch seed. Repeating the
+same call gives the same points; `key` selects a separate stream when desired
+(otherwise the mesh key, then a default key). Sampling and scatter use separate
+streams. Camera-only commits reuse generated geometry and consume no sampling
+randomness.
+
+Sampling defaults to a `maxPoints` budget of 100,000 and returns exactly `count`
+points; a positive count with no positive weighted area is an error. Scatter
+defaults to `maxPoints: 10000` and `maxAttempts: 100000`. It stops at the first
+limit, so the point limit is a cap, not a promised count or proof of maximal
+packing. Empty weighted domains produce no scatter points. `.generation` records
+the original `attempts`, `accepted` count and stopping `reason`, retained after
+selection or editing. Limits are checked before expanded output allocation.
+The sparse neighbor grid diagnoses spacing too small for its coordinate range.
+This is CPU modeling; the resulting instances and view use the existing renderer.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { plane, cone, sphere, instanceOnPoints, view, orthographic } from 'occlude/3d';
+
+export default sketch({ seed: 42, pens: {
+  ink: pen({ width: mm(0.3), color: '#18202A' }),
+  shade: pen({ width: mm(0.15), color: '#647767' }),
+} }, t => {
+  const terrain = plane(5).subdivide(4)
+    .displace(p => [0, 0, 0.6 * t.noise(p.x * 0.5, p.y * 0.5)])
+    .faceAttribute('ground', true);
+  const sites = t.scatter(terrain, {
+    spacing: 0.45, maxPoints: 70, maxAttempts: 4000,
+    weight: f => f.normal[2] > 0.85 ? 1 : 0,
+  }).attribute('height', p => 0.8 + 0.4 * t.noise(p.x, p.y));
+  const trees = instanceOnPoints(cone(0.14, 0.7, { segments: 8 }).translate([0, 0, 0.35]), sites.points, {
+    scale: p => [1, 1, p.height],
+    rotate: p => {
+      const n = p.sample.normal;
+      return [0, Math.acos(Math.max(-1, Math.min(1, n[2]))) * 180 / Math.PI,
+        Math.atan2(n[1], n[0]) * 180 / Math.PI];
+    },
+  });
+  const marks = t.sample(terrain, { count: 12 });
+  const stones = instanceOnPoints(sphere(0.08, { segments: 8, rings: 4 }), marks.points);
+  return view([terrain, trees, stones], {
+    camera: orthographic({ eye: [6, 8, 6], target: [0, 0, 0.2], span: 9.5 }),
+    stroke: 'ink',
+    hatch: { spacing: mm(3), angle: 35, stroke: 'shade', select: f => f.ground === true },
+  });
+});
+```
