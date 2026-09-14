@@ -87,6 +87,10 @@ export interface SurfaceCurveNetworkInput3 {
 }
 export interface SurfaceCurveBudget3 {readonly maxSources?:number;readonly maxCoordinateBits?:number;readonly maxNodes?:number;readonly maxSegments?:number;readonly maxSupports?:number;readonly maxExactBytes?:number}
 const networks=new WeakSet<SurfaceCurveNetwork3>();
+const curveLineages=new WeakMap<SurfaceCurveNetwork3,object>();
+export function sameSurfaceCurveLineage3(a:SurfaceCurveNetwork3,b:SurfaceCurveNetwork3):boolean {
+  validateSurfaceCurveNetwork3(a);validateSurfaceCurveNetwork3(b);return curveLineages.get(a)===curveLineages.get(b);
+}
 const kinds:readonly SurfaceCurveKind3[]=['section','hatch','intersection','mapped','trace','isoline'];
 function attrs(input:Attributes3={}):Readonly<Attributes3> {
   const out:Attributes3={};for(const [name,value] of Object.entries(input)){
@@ -176,7 +180,7 @@ export function* surfaceCurveNetworkJob3(input:SurfaceCurveNetworkInput3,budget:
     nodeRows.push(Object.freeze({...drafts[i],supports:Object.freeze([...nodeSupports[i].values()])}));if((++work&127)===0)yield;
   }
   const nodes=Object.freeze(nodeRows);
-  const network=Object.freeze({sources,nodes,segments});networks.add(network);return network;
+  const network=Object.freeze({sources,nodes,segments});networks.add(network);curveLineages.set(network,{});return network;
 }
 export function validateSurfaceCurveNetwork3(network:SurfaceCurveNetwork3):void {
   if(!networks.has(network))throw new Error('surface curves require an owned validated graph');
@@ -186,7 +190,7 @@ export function selectSurfaceCurveNetwork3(network:SurfaceCurveNetwork3,indices:
   validateSurfaceCurveNetwork3(network);
   if(indices.some(i=>!Number.isSafeInteger(i)||!network.segments[i]))throw new Error('invalid surface curve selection');
   const wanted=new Set(indices),segments=Object.freeze(network.segments.filter((_,i)=>wanted.has(i)));
-  const result=Object.freeze({...network,segments,reference:network.reference??network});networks.add(result);return result;
+  const result=Object.freeze({...network,segments,reference:network.reference??network});networks.add(result);curveLineages.set(result,curveLineages.get(network)!);return result;
 }
 /** Decode only one endpoint when a construction consumer needs exact weights. */
 export function curveSupportPoint3(network:SurfaceCurveNetwork3,segment:number,end:'a'|'b',support=0):H {
@@ -247,6 +251,7 @@ export function rebindSurfaceCurveNetwork3(network:SurfaceCurveNetwork3,targets:
   const rebound=surfaceCurveNetwork3({sources:reference.sources.map((s,i)=>({...s,binding:targets[i]})),nodes,segments:reference.segments.map(s=>({
     ...s,a:reference.nodes[s.a].id,b:reference.nodes[s.b].id,supports:s.supports.map(t=>({source:t.source,triangle:correspondence[t.source](t.triangle).triangle})),
   }))},budget);
+  curveLineages.set(rebound,curveLineages.get(reference)!);
   if(!network.reference)return rebound;
   const selected=new Set(network.segments.map(s=>s.id));return selectSurfaceCurveNetwork3(rebound,rebound.segments.flatMap((s,i)=>selected.has(s.id)?[i]:[]));
 }

@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "elapsedMs": 22394,
+  "configuredTimeoutMs": 60000,
+  "timers": [
+    60000,
+    60000,
+    60000
+  ]
+}

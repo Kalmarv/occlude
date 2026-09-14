@@ -6,10 +6,13 @@ import type {Attribute3,Attributes3,Surface3,SurfacePoint3} from './surface.js';
 import {add3,sub3,mul3,cross3,finite3,unit3,type Vec3} from '../math.js';
 import {rotateVector3} from '../rotation.js';
 import type {PointTransfers} from '../api/subdivide.js';
+import {point,weightedPoint,pointNumber,encodePoint,ratioNumber,type V,type EncodedPoint3} from './exact.js';
 
 export type SurfaceTransform3=Parameters<typeof transformSurface3>[1];
 export interface SurfacePlacement3 {readonly id:string;readonly transform:SurfaceTransform3}
 export interface SurfaceLocationOptions3 {
+  /** Internal exact attachment; ordinary callers receive this from geometry. */
+  readonly exactWeights?:V;
   readonly placement?:SurfacePlacement3;
   readonly pointTransfers?:PointTransfers;
   readonly cornerTransfers?:PointTransfers;
@@ -25,6 +28,7 @@ export interface SurfaceTangentFrame3 {
   readonly orientation:1|-1;
 }
 export interface SurfaceLocation3 {
+  readonly exact?:EncodedPoint3;
   readonly source:Surface3;
   readonly placement?:SurfacePlacement3;
   readonly triangle:number;readonly face:number;readonly faceId:string;
@@ -121,10 +125,13 @@ export function surfaceLocation3(source:Surface3,triangle:number,barycentric:Vec
   if(!Number.isSafeInteger(triangle)||!t)throw new Error('surface location requires a valid source triangle');
   finite3(barycentric);
   if(barycentric.some(w=>w<0||w>1)||Math.abs(barycentric.reduce((a,b)=>a+b,0)-1)>32*Number.EPSILON)throw new Error('surface location requires barycentric weights inside its triangle');
-  const weights=freeze([...barycentric]) as Vec3,face=source.faces[t.face],corners=triangleCorners3(source,triangle);
+  const exactWeights=options.exactWeights;
+  if(exactWeights&&(exactWeights.length!==3||exactWeights.some(n=>typeof n!=='bigint'||n<0n||n.toString(2).length>32768)||!exactWeights.some(n=>n>0n)))throw new Error('surface location requires bounded nonnegative exact weights');
+  const total=exactWeights?.reduce((a,b)=>a+b,0n);
+  const weights=freeze(exactWeights?exactWeights.map(n=>ratioNumber([n,total!])):[...barycentric]) as unknown as Vec3,face=source.faces[t.face],corners=triangleCorners3(source,triangle);
   const rows=t.vertices.map(v=>source.points[v]),cornerRows=corners.map(i=>face.corners![i]);
   const [a,b,c]=rows.map(p=>p.position),ab=sub3(b,a),ac=sub3(c,a);
-  const modelPosition=freeze(add3(a,add3(mul3(ab,weights[1]),mul3(ac,weights[2]))));finite3(modelPosition);
+  const modelPosition=exactWeights?pointNumber(weightedPoint([a,b,c].map(point),exactWeights)):freeze(add3(a,add3(mul3(ab,weights[1]),mul3(ac,weights[2]))));finite3(modelPosition);
   const modelNormal=geometricNormal(ab,ac);
   const place=captureSurfacePlacement3(options.placement),mirrored=(place?.transform.scale??[1,1,1]).filter(n=>n<0).length%2===1;
   // Attachment follows the represented transformed vertices. Transforming a
@@ -132,7 +139,8 @@ export function surfaceLocation3(source:Surface3,triangle:number,barycentric:Vec
   const worldPoints=place?[a,b,c].map(p=>placedPosition(p,place.transform)):[a,b,c];
   const worldAb=sub3(worldPoints[1],worldPoints[0]),worldAc=sub3(worldPoints[2],worldPoints[0]);
   const worldNormal=place?freeze(geometricNormal(worldAb,worldAc).map(n=>n===0?0:mirrored?-n:n) as unknown as Vec3):modelNormal;
-  const worldPosition=place?freeze(add3(worldPoints[0],add3(mul3(worldAb,weights[1]),mul3(worldAc,weights[2])))):modelPosition;
+  const exact=exactWeights?weightedPoint(worldPoints.map(point),exactWeights):undefined;
+  const worldPosition=exact?pointNumber(exact):place?freeze(add3(worldPoints[0],add3(mul3(worldAb,weights[1]),mul3(worldAc,weights[2])))):modelPosition;
   finite3(worldPosition);
   const pointAttributes=freeze(interpolateAttributes3(rows,weights,options.pointTransfers));
   const cornerAttributes=freeze(interpolateAttributes3(cornerRows,weights,options.cornerTransfers));
@@ -166,7 +174,7 @@ export function surfaceLocation3(source:Surface3,triangle:number,barycentric:Vec
     }
   }
   const modelShadingNormal=options.shadingNormal?unit(options.shadingNormal):undefined;
-  const location=freeze({source,placement:place,triangle,face:t.face,faceId:face.id,vertices:t.vertices,vertexIds:rows.map(p=>p.id) as [string,string,string],corners,barycentric:weights,space:place?'world' as const:'model' as const,modelPosition,position:worldPosition,modelNormal,normal:worldNormal,modelShadingNormal,shadingNormal:modelShadingNormal?normal(modelShadingNormal,place?.transform):undefined,pointAttributes,faceAttributes:face.attributes,cornerAttributes,uv,chart,modelFrame,frame:worldFrame,chartStatus});
+  const location=freeze({...(exact?{exact:encodePoint(exact)}:{}),source,placement:place,triangle,face:t.face,faceId:face.id,vertices:t.vertices,vertexIds:rows.map(p=>p.id) as [string,string,string],corners,barycentric:weights,space:place?'world' as const:'model' as const,modelPosition,position:worldPosition,modelNormal,normal:worldNormal,modelShadingNormal,shadingNormal:modelShadingNormal?normal(modelShadingNormal,place?.transform):undefined,pointAttributes,faceAttributes:face.attributes,cornerAttributes,uv,chart,modelFrame,frame:worldFrame,chartStatus});
   owned.set(location,{options:freeze({...structuredClone(options),placement:place})});return location;
 }
 /** Rebinding is explicit and never changes the old location. Supplied shading
@@ -177,7 +185,8 @@ export function rebindSurfaceLocation3(location:SurfaceLocation3,target:Surface3
   target=snapshotSurface3(target);
   const attachment=rebindTriangle3(location.source,location.triangle,target),triangle=attachment.triangle;
   const weights=attachment.order.map(i=>location.barycentric[i]) as unknown as Vec3;
-  return surfaceLocation3(target,triangle,weights,{...state.options,shadingNormal:undefined,...options});
+  const exactWeights=state.options.exactWeights?attachment.order.map(i=>state.options.exactWeights![i]) as unknown as V:undefined;
+  return surfaceLocation3(target,triangle,weights,{...state.options,exactWeights,shadingNormal:undefined,...options});
 }
 
 /** Shared identity correspondence for exact curves and evaluated locations. */

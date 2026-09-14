@@ -23,6 +23,8 @@
 import {Mesh,type EdgeAttributes} from './three/api/mesh.js';
 import type {Attributes3} from './three/geometry/surface.js';
 import {sampleSurfacePoints,scatterSurfacePoints,type SurfaceSamples,type SurfaceSamplingOptions,type SurfaceScatterOptions} from './three/api/sampling.js';
+import {SurfaceCurves} from './three/api/supported.js';
+import {sampleSurfaceCurves,type CurveSamples,type CurveSamplingOptions} from './three/api/curveSampling.js';
 import {ProjectedCurves,projectedStrokes,isProjectedStrokes,emitProjectedStrokes,type ProjectedStrokes,type ProjectedStrokeOptions} from './three/api/projected.js';
 import type { LineArtScene3, SceneCompute3 } from './three/scene.js';
 import { isDrawing3, retainDrawing3, cameraDrawing3, type Drawing3 } from './three/drawing.js';
@@ -1060,11 +1062,13 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * connectivity only — attributes come from `.attribute()`.
    */
   function sample<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>,options:SurfaceSamplingOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
+  function sample<A extends Attributes3>(curves:SurfaceCurves<A>,options?:CurveSamplingOptions):CurveSamples<A,A>;
   function sample(shape:ShapeValue,options:{count?:number;spacing?:L;tolerance?:L}):Material;
   function sample(
-    shape: ShapeValue | Mesh<any,any,any>,
-    options: { count?: number; spacing?: L; tolerance?: L } | SurfaceSamplingOptions<any>,
-  ): Material | SurfaceSamples<any,any,any,any> {
+    shape: ShapeValue | Mesh<any,any,any> | SurfaceCurves<any>,
+    options: { count?: number; spacing?: L; tolerance?: L } | SurfaceSamplingOptions<any> | CurveSamplingOptions = {},
+  ): Material | SurfaceSamples<any,any,any,any> | CurveSamples<any,any> {
+    if(shape instanceof SurfaceCurves)return sampleSurfaceCurves(shape,options as CurveSamplingOptions);
     if(shape instanceof Mesh){const opts=options as SurfaceSamplingOptions<any>;return sampleSurfacePoints(shape,opts,{rnd:exec.stream('__surface-sample:'+(opts?.key??shape.key??'default')).rnd,signal:scope?.signal});}
     const opts=options as {count?:number;spacing?:L;tolerance?:L};
     checkSampling('sample', { count: opts.count, spacing: opts.spacing === undefined ? undefined : 1 });

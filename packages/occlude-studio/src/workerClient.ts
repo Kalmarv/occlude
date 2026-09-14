@@ -68,15 +68,13 @@ interface Pending {
   obsolete?: boolean;
 }
 
-/** A render that takes this long is a runaway (a wedged sketch loop,
- * sub-mm spacings, huge counts): kill the worker rather than let it eat
- * memory. Sketch execution lives in the worker too now, so this watchdog
- * replaces the old main-thread crash sentinel. */
-const RENDER_TIMEOUT_MS = 20_000;
+/** Give geometry-heavy sketches up to a minute before the worker watchdog
+ * terminates a render. This includes sketch execution and construction. */
+const RENDER_TIMEOUT_MS = 60_000;
 /** A newer request arriving while a render has already run this long
  * pre-empts it: the worker is respawned and the new request runs at once.
  * That is what makes ctrl+z a cancel — undo the change, the previous code
- * renders now, not after the runaway's 20 s. Short renders are left to
+ * renders now, not after the runaway's 60 s. Short renders are left to
  * finish, so ordinary typing never pays the respawn. */
 const PREEMPT_AFTER_MS = 1_500;
 

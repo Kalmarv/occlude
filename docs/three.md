@@ -1283,6 +1283,64 @@ an async sketch adopts only its completed result. Surface generators retain
 exact coordinates and validated supporting triangles internally. The existing
 GPU visibility path refines rational curve candidates on the CPU.
 
+### Sampling supported curves
+
+`t.sample(curves, { spacing: 0.3 })` redistributes points along each contiguous
+source chain in model/world units. `count` selects a number per chain instead;
+the default is 32. Open chains include both endpoints (a single requested point
+uses the midpoint), while closed chains omit the duplicate seam. Branches and
+selection gaps remain separate. Isolated contact points are already available
+through `curves.points`; curve sampling samples positive-length paths.
+
+```ts live
+import { sketchAsync, label, pen, mm } from 'occlude';
+import { box, view, orthographic, instanceOnPoints, alignAxis } from 'occlude/3d';
+
+export default sketchAsync({ seed: 42, pens: {
+  ink: pen({ width: mm(0.3), color: '#18202A' }),
+} }, async t => {
+  const block = box([2.8, 1.5, 1.6]).withKey('block');
+  const tower = box([1, 1, 2.8]).translate([0.6, 0.3, 0.6]).withKey('tower');
+  const seams = await t.intersections(block, tower);
+  const sites = t.sample(seams, { spacing: 0.3 });
+  const markers = instanceOnPoints(box([0.08, 0.08, 0.12]), sites.points, {
+    rotate: p => alignAxis('z', p.sample.tangent),
+  });
+  return [
+    view([block, tower, markers], {
+      key: 'sampled-seams',
+      camera: orthographic({ eye: [5, 7, 6], target: [0, 0, 0.4], span: 4.6 }),
+      stroke: 'ink',
+    }),
+    label('FOLLOW / THE SEAM', 8, 94, 4, { stroke: 'ink' }),
+  ];
+});
+```
+
+The result is ordinary editable point geometry: select, capture attributes,
+transform, run frozen steps, issue spatial queries from its points, or instance
+another mesh on them. Each point's `sample` retains its curve chain, source
+parameter, world tangent and exact position. Spacing uses a floating arc-length
+metric; each resulting attachment is constructed exactly on its support triangles.
+`maxPoints` and `maxSupports` bound the generation.
+
+`p.sample.locations` exposes all incident surface contexts: position, normal,
+UV/chart, and interpolated attributes. `p.sample.on(block)` or
+`p.sample.on(anInstanceSubset)` selects contexts by actual source ownership.
+It returns an array because creases and UV seams can have more than one valid
+face context; the sampler does not choose a surface normal arbitrarily.
+
+Moving sampled points preserves their original interpretation. To put them back
+on an explicitly rebound curve, use `sites.rebind(reboundCurves)`. Unrelated or
+regenerated curves require new sampling even when their labels match. Exact
+source fractions survive rebound geometry; old sample values stay unchanged.
+
+Supported curve stroke references follow the authored chain and omit redundant
+collinear triangle splits. Visibility, construction selection and attribute-based
+style selection retain the full reference; changing support tessellation does
+not reseed wobble or restart dash distance along an unchanged chain. Legacy mesh
+edges, sections and paper hatch retain their existing interpretation.
+
 ### Advanced: supported curve graphs
 
 Kernel integrations can construct `SurfaceCurves` from `surfaceCurveNetwork3`

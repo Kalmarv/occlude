@@ -196,3 +196,22 @@ dev sketch store with verified source readback. Targeted Playwright checks of
 `three#12` and the changed `three#24` pass Monaco, SVG and nonfallback NVIDIA GPU
 checks; the crossing-forms screenshot was inspected. Build/ink/church and served
 evidence live in `intersections/`. No production operation was performed.
+
+## Supported curve sampling and source phase checkpoint
+
+`t.sample(curves, { spacing })` now produces ordinary editable point geometry
+with tangents and exact multi-surface contexts, retaining interpretation through
+selection/edits and explicit lineage-checked rebinding. Supported stroke references
+retain authored chain phase through collinear support subdivision and output
+selection. Focused Luna tests verify sampling and actual dash/wobble output.
+
+All nine Docker gates pass. The deliberate three#24 ink change and new three#25
+example are recorded in `curve-sampling/`; other docs ink and church routing are
+unchanged. Dev serves `3424244-curve-sampling`, with `sampled-seams` saved in its
+sketch store. Focused Playwright examples 24/25 pass. The requested 60-second
+watchdog is live and a 22.4-second render completed successfully.
+
+Progressive rendering investigation is in `PROGRESSIVE-RENDERING.md`; it is a
+proposal, not implemented streaming. Full M6/M7/selected-M8 remains open, including
+additional curve consumers, mapping/tracing/tone, region extrusion, GPU evaluation
+and comprehensive workflow/performance acceptance.

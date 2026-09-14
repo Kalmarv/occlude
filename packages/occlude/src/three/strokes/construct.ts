@@ -5,6 +5,8 @@ import type { Feature3 } from '../features/snapshot.js';
 import { lerp3 } from '../math.js';
 import { unionIntervals3, type Interval3 } from '../visibility/interval.js';
 import type { ClassifiedFeature3, ClassifiedScene3 } from '../visibility/scene.js';
+import {decodePoint,difference,dot3} from '../geometry/exact.js';
+import {collinearExact3} from '../curves/contact.js';
 
 type Point = readonly [number, number];
 export type Visibility3 = 'visible' | 'hidden';
@@ -96,10 +98,13 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
     if(selection && selection.source!==source)throw new Error('line set selection belongs to another classified snapshot');
     const included=selection?new Set(selection.map(row=>row.feature.id)):undefined;
     const include=(f:Feature3)=>!(included&&!included.has(f.id)||typeof set.select==='function'&&!set.select(f));
+    const selectedChains=new Set<string>();
+    for(const row of source.features){const curve=curveSource(source,row.feature);if(curve&&include(row.feature))selectedChains.add(curve.key);}
     for(const f of source.referenceFeatures??source.features.map(r=>r.feature)){
-      if(!include(f))continue;
+      const curve=curveSource(source,f);
+      if(curve?!selectedChains.has(curve.key):!include(f))continue;
       const ra=toPaper3(frame,f.a),rb=toPaper3(frame,f.b),rl=distance(ra,rb);
-      if(rl>0)referenceRuns.push({key:JSON.stringify([set.id,f.id,0,1]),set,visibility,part:{feature:f,range:f.range,a:ra,b:rb,length:rl},ends:[f.range[0]===0?f.endpoints[0]:null,f.range[1]===1?f.endpoints[1]:null],breaks:[f.range[0]===0?'source':'clipping',f.range[1]===1?'source':'clipping']});
+      if(rl>0||curve)referenceRuns.push({key:JSON.stringify([set.id,f.id,0,1]),set,visibility,part:{feature:f,range:f.range,a:ra,b:rb,length:rl},ends:[f.range[0]===0?f.endpoints[0]:null,f.range[1]===1?f.endpoints[1]:null],breaks:[f.range[0]===0?'source':'clipping',f.range[1]===1?'source':'clipping']});
     }
     for(const record of source.features) {
       const f=record.feature;if(!include(f))continue;
@@ -117,18 +122,21 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
       }
     }
   }
-  const references=chainRuns(source,referenceRuns,{...options,minLength:0});
-  const lookup=new Map<string,{reference:StrokeReference3;part:StrokePart3;index:number}>();
+  const references=[
+    ...chainRuns(source,referenceRuns.filter(r=>!curveSource(source,r.part.feature)),{...options,minLength:0}),
+    ...chainRuns(source,referenceRuns.filter(r=>curveSource(source,r.part.feature)),{endpointTolerance:options.endpointTolerance,cornerDegrees:180,minLength:0,chain:true}),
+  ];
+  const lookup=new Map<string,{reference:StrokeReference3;a:Point;b:Point;index:number}>();
   for(const r of references) {
-    const reference=Object.freeze({id:r.id,points:r.points,arclength:r.arclength,length:r.length});
-    r.parts.forEach((part,index)=>lookup.set(JSON.stringify([r.set,part.feature.id]),{reference,part,index}));
+    const {reference,indices}=sourceReference(source,r);
+    r.parts.forEach((part,i)=>{const index=indices[i];lookup.set(JSON.stringify([r.set,part.feature.id]),{reference,a:reference.points[index],b:reference.points[index+1],index});});
   }
   const key=(r:Run)=>JSON.stringify([r.set.id,r.part.feature.id]);
   const output=chainRuns(source,runs,options,(a,b)=>lookup.get(key(a))!.reference===lookup.get(key(b))!.reference);
   return Object.freeze(output.map(run=>{
     const rows=run.parts.map(part=>{
       const entry=lookup.get(JSON.stringify([run.set,part.feature.id]))!;
-      const a=entry.part.a,b=entry.part.b,dx=b[0]-a[0],dy=b[1]-a[1],d=dx*dx+dy*dy;
+      const a=entry.a,b=entry.b,dx=b[0]-a[0],dy=b[1]-a[1],d=dx*dx+dy*dy;
       const coordinate=(p:Point)=>entry.index+Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/d));
       const x=coordinate(part.a),y=coordinate(part.b);
       return {reference:entry.reference,range:[Math.min(x,y),Math.max(x,y)] as Interval3};
@@ -139,16 +147,49 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
 
 type ConstructOptions={endpointTolerance?:number;cornerDegrees?:number;minLength?:number;chain?:boolean};
 type BuiltStroke3=Omit<Stroke3,'reference'|'sourceRanges'>;
+/** Legacy section/hatch curves retain their historical interpretation. New
+ * supported generators supply their own complete chain identity and order. */
+function curveSource(source:ClassifiedScene3,feature:Feature3) {
+  if(feature.curve||!feature.supportedCurve)return undefined;
+  const {graph,segment}=feature.supportedCurve,entry=source.curveGraphs?.[graph],row=entry?.network.segments[segment];
+  return entry&&row?{key:JSON.stringify([entry.id,row.chainId]),network:entry.network,segment:row}:undefined;
+}
+function sourceReference(source:ClassifiedScene3,run:BuiltStroke3):{reference:StrokeReference3;indices:number[]} {
+  const first=curveSource(source,run.parts[0].feature);
+  if(!first)return {reference:Object.freeze({id:run.id,points:run.points,arclength:run.arclength,length:run.length}),indices:run.parts.map((_,i)=>i)};
+  const points:Point[]=[run.parts[0].a],indices:number[]=[];
+  const exact=(part:StrokePart3)=>{
+    const curve=curveSource(source,part.feature)!;
+    const a=decodePoint(curve.network.nodes[curve.segment.a].exact),b=decodePoint(curve.network.nodes[curve.segment.b].exact);
+    return part.range[0]<=part.range[1]?[a,b] as const:[b,a] as const;
+  };
+  let previous=exact(run.parts[0]);
+  for(let i=0;i<run.parts.length;i++){
+    const current=exact(run.parts[i]);
+    const straight=i>0&&collinearExact3(...previous,current[0])&&collinearExact3(...previous,current[1])&&dot3(difference(previous[1],previous[0]),difference(current[1],current[0]))>0n;
+    if(straight)points[points.length-1]=run.parts[i].b;else points.push(run.parts[i].b);
+    indices.push(points.length-2);previous=current;
+  }
+  const arclength=[0];for(let i=1;i<points.length;i++)arclength.push(arclength.at(-1)!+distance(points[i-1],points[i]));
+  const reference=Object.freeze({id:JSON.stringify(['surface-curve',first.key]),points:Object.freeze(points),arclength:Object.freeze(arclength),length:arclength.at(-1)!});
+  return {reference,indices};
+}
 function chainRuns(source:ClassifiedScene3,runs:Run[],options:ConstructOptions,compatible:(a:Run,b:Run)=>boolean=()=>true):readonly BuiltStroke3[] {
   const tolerance=options.endpointTolerance??1e-8,corner=options.cornerDegrees??180,minLength=options.minLength??0;
-  runs.sort((a,b)=>compare(a.key,b.key));
+  runs.sort((a,b)=>{
+    const x=curveSource(source,a.part.feature),y=curveSource(source,b.part.feature);
+    if(!x||!y)return x?1:y?-1:compare(a.key,b.key);
+    const position=(r:Run,c:NonNullable<typeof x>)=>c.segment.range[0]+r.part.range[0]*(c.segment.range[1]-c.segment.range[0]);
+    return compare(a.set.id,b.set.id)||compare(a.visibility,b.visibility)||compare(x.key,y.key)||position(a,x)-position(b,y)||compare(a.key,b.key);
+  });
   const junctions=new Map<string,{row:number;end:0|1}[]>();
   runs.forEach((r,row)=>r.ends.forEach((endpoint,end)=>{if(endpoint===null)return;const key=JSON.stringify([r.set.id,r.visibility,endpoint]);const entries=junctions.get(key)??[];entries.push({row,end:end as 0|1});junctions.set(key,entries);}));
   const links=new Map<string,{row:number;end:0|1}>();
   for(const entries of options.chain===false?[]:junctions.values()) {
     if(entries.length!==2){if(entries.length>2)for(const e of entries)runs[e.row].breaks[e.end]='junction';continue;}
     const [x,y]=entries,a=runs[x.row],b=runs[y.row];
-    if(!compatible(a,b)){a.breaks[x.end]='junction';b.breaks[y.end]='junction';continue;}
+    const ca=curveSource(source,a.part.feature),cb=curveSource(source,b.part.feature);
+    if(ca?.key!==cb?.key||!compatible(a,b)){a.breaks[x.end]='junction';b.breaks[y.end]='junction';continue;}
     const p=x.end?a.part.b:a.part.a,q=y.end?b.part.b:b.part.a;
     if(distance(p,q)>tolerance)continue;
     const pa=x.end?a.part.a:a.part.b,pb=y.end?b.part.a:b.part.b;

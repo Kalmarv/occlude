@@ -52,7 +52,7 @@ describe('supported graph renderer',()=>{
   expect(selected.features).toHaveLength(1);expect(selected.referenceFeatures).toHaveLength(3);
   const set=[{id:'ink',stroke:'black'}],before=constructStrokes3(full,set),after=constructStrokes3(selected,set);
   expect(before).toHaveLength(1);expect(after).toHaveLength(1);
-  expect(after[0].reference).toEqual(before[0].reference);expect(after[0].sourceRanges).toEqual([[1,2]]);
+  expect(after[0].reference).toEqual(before[0].reference);expect(after[0].sourceRanges).toEqual([[1/3,2/3]]);
   expect(after[0].source.curveGraphs![after[0].parts[0].feature.supportedCurve!.graph].network.segments[1].range).toEqual([1/3,2/3]);
  });
  it('keeps branch junctions even when a branch is removed by selection',()=>{

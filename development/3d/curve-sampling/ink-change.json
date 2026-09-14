@@ -1,0 +1,12 @@
+{
+  "changed": [
+    "three#24"
+  ],
+  "added": [
+    "three#25"
+  ],
+  "reason": "Canonical supported-curve source reference changes crossing-forms stroke traversal; add attached seam sample demo",
+  "before": "e3134c084d0367e4cd2c3d54d5ebd312605ae88232fe397afaa8dc2aca5ca701",
+  "after": "7a92525e83e427c642684692330f26c48526d88e4c4aa86fc3af29521d566803",
+  "unchanged": 246
+}

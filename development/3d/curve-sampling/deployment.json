@@ -1,0 +1,19 @@
+{
+  "base": "342424496c6ecff574bb1b3a15669e0d681ea0f2",
+  "stamp": "3424244-curve-sampling",
+  "image": "sha256:3cc39aa8c7f230e72492caf410d021299986c57009687cff12514c33f5d91d10",
+  "devPort": 5273,
+  "sketch": "sampled-seams",
+  "sourceReadback": true,
+  "playwright": true,
+  "timeout": {
+    "passed": true,
+    "elapsedMs": 22394,
+    "configuredTimeoutMs": 60000,
+    "timers": [
+      60000,
+      60000,
+      60000
+    ]
+  }
+}

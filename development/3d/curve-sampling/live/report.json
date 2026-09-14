@@ -1,0 +1,168 @@
+{
+  "passed": true,
+  "base": "http://127.0.0.1:5273",
+  "examples": 2,
+  "results": [
+    {
+      "example": "three#24",
+      "stats": {
+        "modeling": [
+          {
+            "operation": "intersections",
+            "backend": "cpu",
+            "dispatches": 0,
+            "transferBytes": 0,
+            "timings": {
+              "captureMs": 0.19999998807907104,
+              "queueMs": 0.09999996423721313,
+              "setupMs": 0,
+              "packingMs": 0,
+              "uploadSubmitMs": 0,
+              "dispatchSubmitMs": 0,
+              "readbackWaitMs": 0,
+              "readbackCopyMs": 0,
+              "refinementMs": 0,
+              "candidateMs": 0,
+              "finalizeMs": 0,
+              "validationWaitMs": 0,
+              "cpuMs": 20.69999998807907,
+              "wallMs": 21.30000001192093,
+              "unattributedMs": 0.30000007152557373
+            },
+            "intersections": {
+              "pairs": 1,
+              "candidates": 24,
+              "arrangementCandidates": 15,
+              "supportCandidates": 60,
+              "contacts": 15,
+              "contactPoints": 30,
+              "exactBytes": 6204,
+              "sourceCacheHits": 0,
+              "outputNodes": 15,
+              "outputSegments": 15
+            }
+          }
+        ],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 341,
+            "dispatches": 1,
+            "refinements": 325,
+            "transferBytes": 38208,
+            "wallMs": 50.09999996423721,
+            "gpuMs": 0.013216,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 5.5,
+              "queueMs": 0.10000002384185791,
+              "setupMs": 383,
+              "packingMs": 2.800000011920929,
+              "uploadSubmitMs": 1.0999999642372131,
+              "dispatchSubmitMs": 0.30000001192092896,
+              "readbackWaitMs": 32.59999996423721,
+              "readbackCopyMs": 0.6000000238418579,
+              "refinementMs": 9.600000023841858,
+              "candidateMs": 0.8999999761581421,
+              "finalizeMs": 0.5999999642372131,
+              "validationWaitMs": 0.30000001192092896,
+              "cpuMs": 0,
+              "wallMs": 438.39999997615814,
+              "unattributedMs": 1
+            }
+          }
+        ]
+      },
+      "diagnostics": [],
+      "svgBytes": 3520
+    },
+    {
+      "example": "three#25",
+      "stats": {
+        "modeling": [
+          {
+            "operation": "intersections",
+            "backend": "cpu",
+            "dispatches": 0,
+            "transferBytes": 0,
+            "timings": {
+              "captureMs": 0,
+              "queueMs": 0.6000000238418579,
+              "setupMs": 0,
+              "packingMs": 0,
+              "uploadSubmitMs": 0,
+              "dispatchSubmitMs": 0,
+              "readbackWaitMs": 0,
+              "readbackCopyMs": 0,
+              "refinementMs": 0,
+              "candidateMs": 0,
+              "finalizeMs": 0,
+              "validationWaitMs": 0,
+              "cpuMs": 9.399999976158142,
+              "wallMs": 10,
+              "unattributedMs": 0
+            },
+            "intersections": {
+              "pairs": 1,
+              "candidates": 24,
+              "arrangementCandidates": 15,
+              "supportCandidates": 60,
+              "contacts": 15,
+              "contactPoints": 30,
+              "exactBytes": 6204,
+              "sourceCacheHits": 0,
+              "outputNodes": 15,
+              "outputSegments": 15
+            }
+          }
+        ],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 4698,
+            "dispatches": 1,
+            "refinements": 3013,
+            "transferBytes": 526192,
+            "wallMs": 116.89999997615814,
+            "gpuMs": 0.008672,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 35.5,
+              "queueMs": 0,
+              "setupMs": 0.10000002384185791,
+              "packingMs": 18.30000001192093,
+              "uploadSubmitMs": 0.2999999523162842,
+              "dispatchSubmitMs": 0.40000003576278687,
+              "readbackWaitMs": 2.899999976158142,
+              "readbackCopyMs": 0.19999998807907104,
+              "refinementMs": 79.19999998807907,
+              "candidateMs": 5.400000035762787,
+              "finalizeMs": 2.099999964237213,
+              "validationWaitMs": 0.10000002384185791,
+              "cpuMs": 0,
+              "wallMs": 145.10000002384186,
+              "unattributedMs": 0.6000000238418579
+            }
+          }
+        ]
+      },
+      "diagnostics": [],
+      "svgBytes": 6681
+    }
+  ],
+  "errors": []
+}
