@@ -87,3 +87,6 @@ export function topologyConnected(indices:readonly number[],neighbors:readonly (
   for(let i=0;i<queue.length;i++)for(const neighbor of neighbors[queue[i]])if(!seen.has(neighbor)){seen.add(neighbor);queue.push(neighbor);}
   return [...seen].sort((a,b)=>a-b);
 }
+
+/** Internal cache identity shared by further topology-derived structures. */
+export function topologyRevision3(surface:Surface3):object{return revision(surface);}

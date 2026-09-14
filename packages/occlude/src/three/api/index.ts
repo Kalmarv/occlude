@@ -30,3 +30,5 @@ export {grid} from './grid.js';
 export type {GridOptions} from './grid.js';
 
 export type {SurfaceCurves,SurfaceCurvePoint,SurfaceCurveEdge} from './supported.js';
+export {intersections} from './intersections.js';
+export type {IntersectionInput,IntersectionOptions,IntersectionAttributes} from './intersections.js';

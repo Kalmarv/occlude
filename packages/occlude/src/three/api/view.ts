@@ -8,7 +8,7 @@ import {drawing3,type Drawing3} from '../drawing.js';
 import {hatch3} from '../curves/hatch.js';
 import {section3} from '../curves/section.js';
 import {Mesh,CurveGeometry,evaluate,type Field,type FaceRow,type PointRow,type EdgeAttributes} from './mesh.js';
-import {Instances} from './instances.js';
+import {Instances,instanceSurfaceBinding3} from './instances.js';
 import {SurfaceCurves} from './supported.js';
 import type {SurfaceCurveObject3} from '../curves/network.js';
 import type {SurfaceObject3} from '../features/snapshot.js';
@@ -43,10 +43,10 @@ export interface ViewOptions<F extends Attributes3=Attributes3> {
 // Heterogeneous meshes intentionally expose an attribute map at this boundary;
 // a single mesh overload preserves its precise face-column types.
 type AnyMesh=Mesh<any,any,any,any>;
-type ViewGeometry=SurfaceCurves|AnyMesh|CurveGeometry<any,any>|Instances<any,any,any,any,any,any,any>;
+type ViewGeometry=SurfaceCurves<any>|AnyMesh|CurveGeometry<any,any>|Instances<any,any,any,any,any,any,any>;
 export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(geometry:Mesh<P,E,F,C>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,A extends Attributes3,S extends Attributes3,R extends PointRow<{}>,C extends Attributes3>(geometry:Instances<P,E,F,A,S,R,C>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
-export function view(geometry:SurfaceCurves|CurveGeometry<any,any>,options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
+export function view(geometry:SurfaceCurves<any>|CurveGeometry<any,any>,options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view(geometry:readonly ViewGeometry[],options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewOptions<any>,draw?:(lines:ProjectedLines)=>Tree):Drawing3 {
   const settings=captureValue(options),crease=settings.creaseAngle??30;
@@ -76,7 +76,7 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
     }):undefined;
     const curves=planes.length?section3(mesh.surface,planes.map((p,i)=>({id:sectionKeys[i],origin:p.origin,normal:p.normal,attributes:p.attributes}))):undefined;
     if(value instanceof Instances){
-      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:mesh.surface,hatch,curves,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:row.source.id,pointIndex:row.source.index,prototypeKey:mesh.key}});
+      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:mesh.surface,binding:instanceSurfaceBinding3(value,row),hatch,curves,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:row.source.id,pointIndex:row.source.index,prototypeKey:mesh.key}});
     }else objects.push({id,surface:mesh.surface,hatch,curves});
   });
   if(new Set(objects.map(o=>o.id)).size!==objects.length)throw new Error('view geometry keys must be unique');

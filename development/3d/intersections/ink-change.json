@@ -1,0 +1,9 @@
+{
+  "changed": [
+    "three#24"
+  ],
+  "reason": "Replace manually authored advanced seam graph with ordinary async automatic crossing-box intersections demo",
+  "before": "33cdd672e9d902ce20c57ac7dc1123125bc7de8dcd97e608859a74cfea393f22",
+  "after": "e3134c084d0367e4cd2c3d54d5ebd312605ae88232fe397afaa8dc2aca5ca701",
+  "unchanged": 246
+}

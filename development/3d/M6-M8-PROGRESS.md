@@ -7,8 +7,8 @@ No completion claim. The scope below remains required until directly verified.
 | Checkpoint | Required outcome | Current state / evidence |
 | --- | --- | --- |
 | 1. Contract and reuse | Inventory existing helpers, settle coordinate/domain contracts, actual target examples | Initial inspection and contract in `SURFACE-CONTRACT.md`; latest dev and isolation verified. Examples pending implementation. |
-| 2. Shared data/API | Collections, topology, frozen edits, query fields, orientation, corners, surface locations and multi-source support | Partial: selection algebra, captured query fields, attribute maps/frozen writes, point/sample passes, typed mesh topology, orientation values and model-space point grids implemented. All nine Docker gates and 22 served live examples pass. See `surface-foundations/` and `attributes-topology/`. Corner/location and multi-source support remain pending. |
-| 3. M6 intersections | Candidate BVH, exact contacts/policies, graphs, both-source support, editable demo and independent oracle | Required, not implemented. |
+| 2. Shared data/API | Collections, topology, frozen edits, query fields, orientation, corners, surface locations and multi-source support | Foundations implemented through supported curves at `6ab53b6`: all nine gates and 25 served examples pass. Curve resampling/query/trace consumers and ordinary-first presentation remain open. See checkpoint evidence below. |
+| 3. M6 intersections | Candidate BVH, exact contacts/policies, graphs, both-source support, editable demo and independent oracle | In progress: exact contacts, yielding BVH, atomic seam arrangement, coplanar boundaries, chain graphs, ordinary mesh/instance operation and async host adoption implemented. Construction consumers, rendering/phase audit and broader independent mesh/workflow evidence remain open. |
 | 4. M7 mapping | Primitive/custom corners/UVs and transfers; vector patterns/images; rebind and repeated prototypes | Required, not implemented. |
 | 5. M7 tracing/tone | General tangent tracer/curvature/spacing, crosshatch, isolines, CPU/GPU surface evaluation, curved/custom demos | Required, not implemented. |
 | 6. Selected M8 | Connected-region extrusion, shared cap/walls/holes, frozen transaction, UV/provenance transfers | Required, not implemented. |
@@ -150,3 +150,49 @@ Dev stamp `e9e4e60-supported-curves`; evidence is in `supported-curves/`. No M6/
 claim: the actual contact generator and the full remaining assignment remain
 required, including mapping/tracing/tone, region extrusion, GPU evaluation and
 acceptance/performance integration.
+
+## M6 automatic intersection construction
+
+The exact triangle contact kernel now covers point, segment and area contacts.
+An independently authored Python Fraction oracle supplies 300 represented-input
+cases. World BVHs and cached validated triangle adjacency reduce candidate
+pairs; input/intermediate capacities and real task-yielding cancellation are
+implemented. The source cache is owned by actual surface/placement bindings.
+
+New internal assembly splits exact collinear overlaps, noncollinear crossings
+and supported point contacts. It preserves separate source components. Symbolic
+left/right occupancy of each source's coplanar triangle union removes overlap
+interiors without a finite offset epsilon or polygon-edge multiplicity rule.
+Atomic seams retain both-source triangle supports; isolated point contacts remain
+data. Chains follow exact graph incidence, stop at branches and close loops
+topologically. Their identity omits redundant collinear support splits.
+
+The pipeline composes contact generation, assembly, chaining and the existing
+graph validator through a yielding job. The synchronous graph constructor now
+drains that same validator, preserving its ownership and support checks. Its
+15 existing graph/render regression tests pass. Luna performed bounded reviews
+and focused new tests; this is not a substitute for the outstanding independent
+mesh oracle, full required gates or served Studio verification.
+
+An independent analytical Python Fraction box oracle now also verifies complete
+exact segment coverage and isolated contacts for 40 axis-aligned cases, including
+shared faces/edges, tangencies, one-ULP gaps, nested/disjoint boxes and uniform
+binary scales. These pass through the complete validated graph pipeline. Oblique
+mesh-level and rendered visibility evidence remain outstanding.
+
+The ordinary `intersections(a, b)` and `await t.intersections(a, b)` APIs now
+create the supported construction directly from meshes or instance sets. Instance
+selection/attribute edits preserve actual placement ownership; transforms create
+new placements. Typed edge contact attributes support ordinary filtering. Async
+execution captures input/options before yielding and checks scope before adoption.
+The live crossing-forms example replaces the manually authored advanced seam
+example at `three#24`; this deliberate ink change is recorded in `intersections/`.
+Graph storage and this generator do not finish resampling, queries, adjacent-region
+selection, trace seeding or the full remaining M6/M7/selected-M8 assignment.
+
+All nine Docker gates passed for this checkpoint. Dev stamp
+`6ab53b6-intersections` is served, and `crossing-forms` is saved in the isolated
+dev sketch store with verified source readback. Targeted Playwright checks of
+`three#12` and the changed `three#24` pass Monaco, SVG and nonfallback NVIDIA GPU
+checks; the crossing-forms screenshot was inspected. Build/ink/church and served
+evidence live in `intersections/`. No production operation was performed.

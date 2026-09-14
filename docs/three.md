@@ -1221,76 +1221,72 @@ export default sketch({ seed: 42, pens: {
 });
 ```
 
-### Advanced: supported curve graphs
+### Surface intersections
 
-Kernel authors can construct `SurfaceCurves` from a validated graph. Ordinary
-`view([meshA, meshB, curves], ...)` and `strokes` interpret its edges. This is the
-shared carrier for surface marks; the mesh–mesh intersection generator is a
-separate construction operation.
-
-Each source binds an actual captured mesh and, when placed, its captured
-transform. A segment must lie on every declared support triangle. Endpoint
-coordinates are exact homogeneous integer quadruples: `[1n, 1n, 1n, 3n]`
-represents `(1/3, 1/3, 1/3)` without losing incidence to either source plane.
-Rounded positions remain available for ordinary inspection. Coincident graph
-nodes retain separate support coordinates, including corner seams.
-
-`curves.points` and `curves.edges` are ordinary collections. Edge extraction
-retains the complete uncut reference, so filtering does not restart stroke
-phase or join branches. Edges expose `kind`, `chainId`, normalized source
-`range`, model/world `length`, `attributes` and `supports`.
-`curves.rebind(mesh)` explicitly reevaluates one-source attachments after a
-topology-preserving edit; multiple sources require a mesh array in source order.
-The previous value stays unchanged. Changed topology requires regeneration or
-an explicit transfer; separated supports of an intersection require regenerating
-that intersection. No nearest-surface projection is implicit.
-
-The graph constructor budgets sources, nodes, segments, supports and exact
-coordinate storage. Visibility uses the existing world-depth renderer and
-exempts only validated supporting triangles. The current GPU path refines
-rational graph candidates on the CPU; it does not claim a rational GPU predicate.
+`intersections(a, b)` returns construction curves where two meshes meet. Both
+inputs can also be instance sets. For substantial work, use
+`await t.intersections(a, b)` inside `sketchAsync`: it yields to the event loop
+and observes sketch cancellation. Geometry, source attachments and contact
+classification are computed on the CPU before camera interpretation.
 
 ```ts live
-import { sketch, strokes, label, pen, mm } from 'occlude';
-import { mesh, view, orthographic } from 'occlude/3d';
-import { SurfaceCurves, surfaceBinding3, surfaceCurveNetwork3 } from 'occlude/3d/advanced';
+import { sketchAsync, strokes, label, pen, mm } from 'occlude';
+import { box, view, orthographic } from 'occlude/3d';
 
-export default sketch({
+export default sketchAsync({
   seed: 42,
   pens: {
     outline: pen({ width: mm(0.3), color: '#18202A' }),
-    seam: pen({ width: mm(0.4), color: '#A84932' }),
+    seam: pen({ width: mm(0.5), color: '#A84932' }),
   },
-}, () => {
-  const a = mesh([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [[0, 1, 2]]);
-  const b = mesh([[0, 0, 0], [1, 1, 0], [0, 0, 1]], [[0, 1, 2]]);
-  const seam = new SurfaceCurves(surfaceCurveNetwork3({
-    sources: [
-      { id: 'a', binding: surfaceBinding3(a.surface) },
-      { id: 'b', binding: surfaceBinding3(b.surface) },
-    ],
-    nodes: [
-      { id: 'top', point: [0n, 0n, 1n, 1n] },
-      { id: 'thirds', point: [1n, 1n, 1n, 3n] },
-      { id: 'base', point: [1n, 1n, 0n, 2n] },
-    ],
-    segments: [
-      { id: 'upper', kind: 'intersection', a: 'top', b: 'thirds',
-        chainId: 'seam', range: [0, 2 / 3],
-        supports: [{ source: 0, triangle: 0 }, { source: 1, triangle: 0 }] },
-      { id: 'lower', kind: 'intersection', a: 'thirds', b: 'base',
-        chainId: 'seam', range: [2 / 3, 1],
-        supports: [{ source: 0, triangle: 0 }, { source: 1, triangle: 0 }] },
-    ],
-  }));
+}, async t => {
+  const block = box([2.8, 1.5, 1.6]).withKey('block');
+  const tower = box([1, 1, 2.8]).translate([0.6, 0.3, 0.6]).withKey('tower');
+  const seams = await t.intersections(block, tower, { key: 'seams' });
   return [
-    view([a, b, seam], {
-      camera: orthographic({ eye: [3, 4, 3], target: [0.4, 0.4, 0.4], span: 1.8 }),
+    view([block, tower, seams], {
+      key: 'crossing-forms',
+      camera: orthographic({ eye: [5, 7, 6], target: [0, 0, 0.4], span: 4.6 }),
     }, lines => [
-      strokes(lines.visible.filter(c => c.kinds.has('boundary')), { stroke: 'outline' }),
+      strokes(lines.visible.filter(c => !c.kinds.has('intersection')), { stroke: 'outline' }),
       strokes(lines.visible.filter(c => c.kinds.has('intersection')), { stroke: 'seam' }),
     ]),
-    label('EXACT / SHARED SEAM', 8, 94, 4, { stroke: 'outline' }),
+    label('CROSSING / FORMS', 8, 94, 4, { stroke: 'outline' }),
   ];
 });
 ```
+
+The inputs remain unchanged. The result has ordinary `points` and `edges`
+collections; `seams.edges.filter(e => e.contact === 'transverse').extract()`
+retains the selected supported curves. Pass the curves and their supporting
+meshes or instance sets to `view`. Visibility considers both supporting surfaces
+and other scene geometry. Scene labels do not establish attachment ownership.
+Selecting an instance subset preserves its placement relationship to the original
+set; moving it creates new placements and requires new intersection geometry.
+
+Edges expose `contact`: `transverse`, `shared-edge`, or `coplanar-boundary`.
+Coplanar overlap produces its boundary, never its interior triangulation lines.
+Isolated tangent contacts are point data with `attributes.contact` equal to
+`tangent-point`; they do not invent zero-length ink. Default `view` draws all
+three edge classes; filter the construction or projected attributes when they
+need different treatment. No Boolean, mesh splitting or capping is performed.
+
+`withKey` names a curve value. Edge extraction retains its complete source
+reference through visibility and cropping. `rebind(mesh)` refreshes a one-source
+attachment after an incidence-preserving edit; multiple sources require one mesh
+per source in `curves.sources` order. If intersection supports separate, regenerate
+with `intersections` instead of projecting a seam onto a nearby surface.
+
+`maxPairs` limits placement pairs (default 4096). Optional `budget` controls
+contact, arrangement and graph capacities. Capacity errors reject the operation;
+an async sketch adopts only its completed result. Surface generators retain
+exact coordinates and validated supporting triangles internally. The existing
+GPU visibility path refines rational curve candidates on the CPU.
+
+### Advanced: supported curve graphs
+
+Kernel integrations can construct `SurfaceCurves` from `surfaceCurveNetwork3`
+through `occlude/3d/advanced`. Sources use owned `surfaceBinding3` values; nodes
+carry exact homogeneous coordinates, and segments declare their actual support
+triangles. Every endpoint must lie on every declared support. Ordinary sketches
+use the surface generators above, which maintain this information automatically.

@@ -1,0 +1,13 @@
+{
+  "baseCommit": "6ab53b6b807ae82f9612a0e9ee29272ea3d71714",
+  "buildStamp": "6ab53b6-intersections",
+  "image": "sha256:bce2e269b9320b3ada11f25e32316183a1e941fae8da2d3deb5b1dd7979d0fb6",
+  "origin": "http://127.0.0.1:5273",
+  "sketch": "crossing-forms",
+  "storeReadbackMatches": true,
+  "playwrightExamples": [
+    12,
+    24
+  ],
+  "allNineGatesPassed": true
+}

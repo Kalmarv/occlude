@@ -5,10 +5,18 @@ import {identity} from './identity.js';
 import {assembleSurface3,type Attribute3,type Attributes3,type SurfacePoint3,type SurfaceFace3,type SurfaceEdge3,type SurfaceTriangle3} from '../geometry/surface.js';
 import {transformSurface3} from '../geometry/model.js';
 import {add3,finite3,type Vec3} from '../math.js';
+import {captureSurfacePlacement3,type SurfacePlacement3} from '../geometry/location.js';
+import {surfaceBinding3,type SurfaceBinding3} from '../curves/network.js';
 
 export interface InstanceTransform {readonly translate:Vec3;readonly rotate:RotationInput;readonly scale:Vec3}
 export interface InstanceTransformInput {readonly translate?:Vec3;readonly rotate?:RotationInput;readonly scale?:number|Vec3}
 interface InstanceData<A extends Attributes3,S extends Attributes3,R extends PointRow<{}>=PointRow<S>> {readonly id:string;readonly source:R;readonly attributes:Readonly<A>;readonly transform:InstanceTransform}
+// Selection and attribute edits retain actual placement ownership. Labels and
+// numerically equal transforms never establish identity between unrelated rows.
+const placements=new WeakMap<object,SurfacePlacement3>();
+function retainPlacement<T extends object>(source:object,target:T):T {
+  const placement=placements.get(source);if(placement)placements.set(target,placement);return target;
+}
 export type InstanceRow<A extends Attributes3={},S extends Attributes3={},R extends PointRow<{}>=PointRow<S>> = Readonly<Omit<A,'id'|'index'|'source'|'attributes'|'transform'> & InstanceData<A,S,R> & {index:number}>;
 export interface InstanceOnPointsOptions<S extends Attributes3,R extends PointRow<{}>=PointRow<S>> extends GeometryOptions {
   readonly scale?:Field<R,number|Vec3>;
@@ -42,7 +50,12 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
     if(!(prototype instanceof Mesh))throw new Error('mesh instances require a mesh prototype');
     this.key=key(options.key);
     if(new Set(rows.map(r=>r.id)).size!==rows.length)throw new Error('instance IDs must be unique');
-    this.rows=Object.freeze(rows.map((row,index)=>{const attributes=ownAttributes(row.attributes as A);return Object.freeze({...attributes,id:row.id,index,source:row.source,attributes,transform:transform(row.transform)}) as InstanceRow<A,S,R>;}));
+    this.rows=Object.freeze(rows.map((row,index)=>{
+      const attributes=ownAttributes(row.attributes as A),captured=transform(row.transform);
+      const value=Object.freeze({...attributes,id:row.id,index,source:row.source,attributes,transform:captured}) as InstanceRow<A,S,R>;
+      placements.set(value,placements.get(row)??captureSurfacePlacement3({id:row.id,transform:captured})!);
+      return value;
+    }));
     Object.freeze(this);
   }
   get length():number{return this.rows.length;}
@@ -50,7 +63,7 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
   withKey(value:string):Instances<P,E,F,A,S,R,C>{return new Instances<P,E,F,A,S,R,C>(this.prototype,this.rows,{key:value});}
   attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<InstanceRow<A,S,R>,Value>):Instances<P,E,F,Omit<A,Name>&Record<Name,Value>,S,R,C>{
     attributeName(name);if(name==='transform')throw new Error('reserved instance attribute name: transform');
-    const rows=this.rows.map(row=>({...row,attributes:{...(row.attributes as Readonly<A>),[name]:attributeValue(evaluate(field,row))}}));
+    const rows=this.rows.map(row=>retainPlacement(row,{...row,attributes:{...(row.attributes as Readonly<A>),[name]:attributeValue(evaluate(field,row))}}));
     return new Instances<P,E,F,Omit<A,Name>&Record<Name,Value>,S,R,C>(this.prototype,rows as unknown as InstanceData<Omit<A,Name>&Record<Name,Value>,S,R>[],this);
   }
   /** Replace supplied S/R/T components; omitted components retain their values.
@@ -76,6 +89,12 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
     }
     return new Mesh(assembleSurface3(points,faces,triangles,{points,faces,edges,triangles}),{key:this.key,transfers:this.prototype.transfers,cornerTransfers:this.prototype.cornerTransfers});
   }
+}
+/** Internal bridge shared by surface generators and ordinary view capture. */
+export function instanceSurfaceBinding3(instances:Instances<any,any,any,any,any,any,any>,row:InstanceRow<any,any,any>):SurfaceBinding3 {
+  if(instances.rows[row.index]!==row)throw new Error('instance placement belongs to another collection');
+  const placement=placements.get(row);if(!placement)throw new Error('instance requires an owned placement');
+  return surfaceBinding3(instances.prototype.surface,placement);
 }
 
 export function instanceOnPoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3,R extends PointRow<{}>>(

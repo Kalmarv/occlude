@@ -3,7 +3,7 @@ import {rebindTriangle3,captureSurfacePlacement3,type SurfacePlacement3} from '.
 import type {Surface3,Attributes3,Attribute3} from '../geometry/surface.js';
 import {point,encodePoint,decodePoint,pointNumber,canonicalPoint,triangleWeights,ratioNumber,integerWeights,weightedPoint,type H,type EncodedPoint3,type V} from '../geometry/exact.js';
 import {sameAttachmentTopology3} from '../geometry/topology.js';
-import type {Vec3} from '../math.js';
+import {finite3,type Vec3} from '../math.js';
 import {validateSurfaceCurves3,type SurfaceCurves3} from './surface.js';
 
 /** Captured prototype plus optional placement. Labels never grant incidence. */
@@ -29,16 +29,21 @@ export function bindingWorld3(binding:SurfaceBinding3):Surface3 {
   const world=binding.placement?snapshotSurface3(transformSurface3(binding.source,binding.placement.transform)):binding.source;
   worlds.set(binding,world);return world;
 }
-function worldPoint(binding:SurfaceBinding3,index:number):Vec3 {
+const positions=new WeakMap<SurfaceBinding3,Map<number,Vec3>>();
+export function bindingPosition3(binding:SurfaceBinding3,index:number):Vec3 {
+  validateSurfaceBinding3(binding);
+  if(!Number.isSafeInteger(index)||!binding.source.points[index])throw new Error('invalid surface binding point');
   const position=binding.source.points[index].position,t=binding.placement?.transform;if(!t)return position;
-  return transformPosition3(position,t);
+  let cache=positions.get(binding);if(!cache){cache=new Map();positions.set(binding,cache);}
+  const previous=cache.get(index);if(previous)return previous;
+  const value=transformPosition3(position,t);finite3(value);const result=Object.freeze(value);cache.set(index,result);return result;
 }
 export function bindingTriangle3(binding:SurfaceBinding3,index:number):readonly [H,H,H] {
   validateSurfaceBinding3(binding);
   if(!Number.isSafeInteger(index)||!binding.source.triangles[index])throw new Error('curve support requires a valid source triangle');
   let cache=triangles.get(binding);if(!cache){cache=new Map();triangles.set(binding,cache);}
   const previous=cache.get(index);if(previous)return previous;
-  const value=Object.freeze(binding.source.triangles[index].vertices.map(v=>canonicalPoint(point(worldPoint(binding,v))))) as unknown as readonly [H,H,H];
+  const value=Object.freeze(binding.source.triangles[index].vertices.map(v=>canonicalPoint(point(bindingPosition3(binding,v))))) as unknown as readonly [H,H,H];
   cache.set(index,value);return value;
 }
 export function bindingPoint3(binding:SurfaceBinding3,triangle:number,weights:Vec3):H {
@@ -99,17 +104,27 @@ function metric(a:H,b:H):number {
   const w=a[3]*b[3];return Math.hypot(...[0,1,2].map(k=>ratioNumber([b[k]*a[3]-a[k]*b[3],w])));
 }
 export function surfaceCurveNetwork3(input:SurfaceCurveNetworkInput3,budget:SurfaceCurveBudget3={}):SurfaceCurveNetwork3 {
+  const job=surfaceCurveNetworkJob3(input,budget);let next=job.next();while(!next.done)next=job.next();return next.value;
+}
+/** Shared validator with checkpoints for generated graphs. Async callers own
+ * their input draft until this job completes; only a complete graph is owned. */
+export function* surfaceCurveNetworkJob3(input:SurfaceCurveNetworkInput3,budget:SurfaceCurveBudget3={}):Generator<void,SurfaceCurveNetwork3> {
   const maxSources=budget.maxSources??100000,maxCoordinateBits=budget.maxCoordinateBits??32768,maxNodes=budget.maxNodes??250000,maxSegments=budget.maxSegments??250000,maxSupports=budget.maxSupports??1000000,maxExactBytes=budget.maxExactBytes??64000000;
   if([maxSources,maxCoordinateBits,maxNodes,maxSegments,maxSupports,maxExactBytes].some(n=>!Number.isSafeInteger(n)||n<0))throw new Error('curve budgets must be nonnegative integers');
   if(input.sources.length>maxSources)throw new Error('surface curve graph exceeds source budget');
   if(input.nodes.length>maxNodes||input.segments.length>maxSegments)throw new Error('surface curve graph exceeds node/segment budget');
-  let supports=input.nodes.reduce((n,p)=>n+(p.supports?.length??0),0);if(supports>maxSupports)throw new Error('surface curve graph exceeds support budget');
-  for(const segment of input.segments){supports+=3*segment.supports.length;if(supports>maxSupports)throw new Error('surface curve graph exceeds support budget');}
+  let supports=0,work=0;
+  for(const node of input.nodes){supports+=node.supports?.length??0;if(supports>maxSupports)throw new Error('surface curve graph exceeds support budget');if((++work&127)===0)yield;}
+  for(const segment of input.segments){supports+=3*segment.supports.length;if(supports>maxSupports)throw new Error('surface curve graph exceeds support budget');if((++work&127)===0)yield;}
   const sourceIds=new Set<string>(),nodeIds=new Set<string>(),segmentIds=new Set<string>();let bytes=0;
   const account=(values:readonly string[])=>{for(const value of values)bytes+=value.length*2;if(bytes>maxExactBytes)throw new Error('surface curve graph exceeds exact-coordinate byte budget');};
-  const sources=Object.freeze(input.sources.map(s=>{identity(s.id,sourceIds,'source');validateSurfaceBinding3(s.binding);return Object.freeze({...s,attributes:attrs(s.attributes)});}));
+  const sourceRows:SurfaceCurveSource3[]=[];
+  for(const s of input.sources){identity(s.id,sourceIds,'source');validateSurfaceBinding3(s.binding);sourceRows.push(Object.freeze({...s,attributes:attrs(s.attributes)}));if((++work&127)===0)yield;}
+  const sources=Object.freeze(sourceRows);
   const exact:H[]=[],nodeIndex=new Map<string,number>(),nodeSupports:Map<string,SurfacePointSupport3>[]=[];
-  const drafts=input.nodes.map((node,index)=>{
+  const drafts:Omit<SurfaceCurveNode3,'supports'>[]=[];
+  for(let index=0;index<input.nodes.length;index++){
+    const node=input.nodes[index];
     identity(node.id,nodeIds,'node');
     if(node.point.length!==4||node.point.some(n=>typeof n!=='bigint'||n.toString(2).length>maxCoordinateBits))throw new Error('surface curve graph exceeds coordinate bit budget');
     const p=canonicalPoint(node.point),encoded=encodePoint(p);account(encoded);exact.push(p);nodeIndex.set(node.id,index);
@@ -118,10 +133,13 @@ export function surfaceCurveNetwork3(input:SurfaceCurveNetworkInput3,budget:Surf
       const source=sources[s.source];if(!Number.isSafeInteger(s.source)||!source)throw new Error('point support refers to a missing source');
       const weights=triangleWeights(bindingTriangle3(source.binding,s.triangle),p);if(!weights)throw new Error('contact point is not incident to its declared triangle');
       const encoded=encodeWeights(weights);account(encoded);attached.set(`${s.source}:${s.triangle}`,Object.freeze({...s,weights:encoded}));
+      if((++work&127)===0)yield;
     }
-    return {id:node.id,position:pointNumber(p),exact:encoded,attributes:attrs(node.attributes)};
-  });
-  const segments=Object.freeze(input.segments.map(segment=>{
+    drafts.push({id:node.id,position:pointNumber(p),exact:encoded,attributes:attrs(node.attributes)});
+    if((++work&127)===0)yield;
+  }
+  const segmentRows:SupportedCurveSegment3[]=[];
+  for(const segment of input.segments){
     identity(segment.id,segmentIds,'segment');if(!kinds.includes(segment.kind))throw new Error('unsupported surface curve kind');
     const a=nodeIndex.get(segment.a),b=nodeIndex.get(segment.b);
     if(a===undefined||b===undefined)throw new Error('curve segment refers to a missing graph node');
@@ -130,23 +148,34 @@ export function surfaceCurveNetwork3(input:SurfaceCurveNetworkInput3,budget:Surf
     if(!chainId||range.length!==2||!range.every(Number.isFinite)||range[0]<0||range[1]>1||range[0]>=range[1])throw new Error('curve source ranges must increase within [0,1]');
     if(!segment.supports.length)throw new Error('a surface curve segment requires actual triangle support');
     const seen=new Set<string>();
-    const supports=Object.freeze(segment.supports.map(s=>{
+    const supportRows:SurfaceCurveSupport3[]=[];
+    for(const s of segment.supports){
       const source=sources[s.source];if(!Number.isSafeInteger(s.source)||!source)throw new Error('curve support refers to a missing source');
       const key=`${s.source}:${s.triangle}`;if(seen.has(key))throw new Error('duplicate curve triangle support');seen.add(key);
       const triangle=bindingTriangle3(source.binding,s.triangle),wa=triangleWeights(triangle,exact[a]),wb=triangleWeights(triangle,exact[b]);
       if(!wa||!wb)throw new Error('curve segment is not incident to its declared supporting triangle');
       const encodedA=encodeWeights(wa),encodedB=encodeWeights(wb);account(encodedA);account(encodedB);
       nodeSupports[a].set(key,Object.freeze({...s,weights:encodedA}));nodeSupports[b].set(key,Object.freeze({...s,weights:encodedB}));
-      return Object.freeze({...s,a:encodedA,b:encodedB});
-    }));
+      supportRows.push(Object.freeze({...s,a:encodedA,b:encodedB}));
+      if((++work&127)===0)yield;
+    }
+    const supports=Object.freeze(supportRows);
     const length=metric(exact[a],exact[b]);if(!Number.isFinite(length))throw new Error('curve metric exceeds finite range');
-    return Object.freeze({id:segment.id,kind:segment.kind,a,b,supports,chainId,range:Object.freeze([...range]) as readonly [number,number],length,attributes:attrs(segment.attributes)});
-  }));
-  const ranges=new Map<string,SupportedCurveSegment3[]>();for(const segment of segments){const rows=ranges.get(segment.chainId)??[];rows.push(segment);ranges.set(segment.chainId,rows);}
-  for(const rows of ranges.values()){
-    rows.sort((a,b)=>a.range[0]-b.range[0]);for(let i=1;i<rows.length;i++)if(rows[i].range[0]<rows[i-1].range[1])throw new Error('a source chain cannot have overlapping parameter intervals');
+    segmentRows.push(Object.freeze({id:segment.id,kind:segment.kind,a,b,supports,chainId,range:Object.freeze([...range]) as readonly [number,number],length,attributes:attrs(segment.attributes)}));
+    if((++work&127)===0)yield;
   }
-  const nodes=Object.freeze(drafts.map((node,i)=>{if(!nodeSupports[i].size)throw new Error('isolated surface contacts require declared support');return Object.freeze({...node,supports:Object.freeze([...nodeSupports[i].values()])});}));
+  const segments=Object.freeze(segmentRows);
+  const ranges=new Map<string,SupportedCurveSegment3[]>();for(const segment of segments){const rows=ranges.get(segment.chainId)??[];rows.push(segment);ranges.set(segment.chainId,rows);if((++work&127)===0)yield;}
+  for(const rows of ranges.values()){
+    rows.sort((a,b)=>a.range[0]-b.range[0]);yield;
+    for(let i=1;i<rows.length;i++){if(rows[i].range[0]<rows[i-1].range[1])throw new Error('a source chain cannot have overlapping parameter intervals');if((++work&127)===0)yield;}
+  }
+  const nodeRows:SurfaceCurveNode3[]=[];
+  for(let i=0;i<drafts.length;i++){
+    if(!nodeSupports[i].size)throw new Error('isolated surface contacts require declared support');
+    nodeRows.push(Object.freeze({...drafts[i],supports:Object.freeze([...nodeSupports[i].values()])}));if((++work&127)===0)yield;
+  }
+  const nodes=Object.freeze(nodeRows);
   const network=Object.freeze({sources,nodes,segments});networks.add(network);return network;
 }
 export function validateSurfaceCurveNetwork3(network:SurfaceCurveNetwork3):void {
@@ -183,7 +212,7 @@ export function legacySurfaceCurveNetwork3(curves:SurfaceCurves3,binding:Surface
   validateSurfaceBinding3(binding);validateSurfaceCurves3(curves,binding.source);
   const nodes=new Map<string,SurfaceCurveNetworkInput3['nodes'][number]>();
   for(const segment of curves.segments)for(const p of [segment.a,segment.b])if(!nodes.has(p.id)){
-    const vertices=p.vertices.map(v=>point(worldPoint(binding,v)));
+    const vertices=p.vertices.map(v=>point(bindingPosition3(binding,v)));
     nodes.set(p.id,{id:p.id,point:weightedPoint(vertices,integerWeights(p.weights))});
   }
   return surfaceCurveNetwork3({sources:[{id:'surface',binding}],nodes:[...nodes.values()],segments:curves.segments.map(s=>({

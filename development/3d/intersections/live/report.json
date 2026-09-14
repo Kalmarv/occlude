@@ -1,0 +1,132 @@
+{
+  "passed": true,
+  "base": "http://127.0.0.1:5273",
+  "examples": 2,
+  "results": [
+    {
+      "example": "three#12",
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 101960,
+            "dispatches": 13,
+            "refinements": 79868,
+            "transferBytes": 11419728,
+            "wallMs": 1582.7000000476837,
+            "gpuMs": 0.126336,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 277.3000000715256,
+              "queueMs": 0.3999999761581421,
+              "setupMs": 383,
+              "packingMs": 334.3999999165535,
+              "uploadSubmitMs": 4.800000071525574,
+              "dispatchSubmitMs": 2.399999976158142,
+              "readbackWaitMs": 100.70000010728836,
+              "readbackCopyMs": 2.9000000953674316,
+              "refinementMs": 939.9000000357628,
+              "candidateMs": 56.49999988079071,
+              "finalizeMs": 6.500000059604645,
+              "validationWaitMs": 8.899999976158142,
+              "cpuMs": 0,
+              "wallMs": 2125,
+              "unattributedMs": 7.299999833106995
+            }
+          }
+        ]
+      },
+      "diagnostics": [],
+      "svgBytes": 30291
+    },
+    {
+      "example": "three#24",
+      "stats": {
+        "modeling": [
+          {
+            "operation": "intersections",
+            "backend": "cpu",
+            "dispatches": 0,
+            "transferBytes": 0,
+            "timings": {
+              "captureMs": 0.30000001192092896,
+              "queueMs": 0.19999998807907104,
+              "setupMs": 0,
+              "packingMs": 0,
+              "uploadSubmitMs": 0,
+              "dispatchSubmitMs": 0,
+              "readbackWaitMs": 0,
+              "readbackCopyMs": 0,
+              "refinementMs": 0,
+              "candidateMs": 0,
+              "finalizeMs": 0,
+              "validationWaitMs": 0,
+              "cpuMs": 37.700000047683716,
+              "wallMs": 38.90000003576279,
+              "unattributedMs": 0.699999988079071
+            },
+            "intersections": {
+              "pairs": 1,
+              "candidates": 24,
+              "arrangementCandidates": 15,
+              "supportCandidates": 60,
+              "contacts": 15,
+              "contactPoints": 30,
+              "exactBytes": 6204,
+              "sourceCacheHits": 0,
+              "outputNodes": 15,
+              "outputSegments": 15
+            }
+          }
+        ],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 341,
+            "dispatches": 1,
+            "refinements": 325,
+            "transferBytes": 38208,
+            "wallMs": 17.69999998807907,
+            "gpuMs": 0.009152,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 2.700000047683716,
+              "queueMs": 0,
+              "setupMs": 0,
+              "packingMs": 1.899999976158142,
+              "uploadSubmitMs": 0.09999996423721313,
+              "dispatchSubmitMs": 0.30000001192092896,
+              "readbackWaitMs": 2.800000011920929,
+              "readbackCopyMs": 0.19999998807907104,
+              "refinementMs": 10,
+              "candidateMs": 0.30000001192092896,
+              "finalizeMs": 0.10000002384185791,
+              "validationWaitMs": 0.800000011920929,
+              "cpuMs": 0,
+              "wallMs": 19.900000035762787,
+              "unattributedMs": 0.699999988079071
+            }
+          }
+        ]
+      },
+      "diagnostics": [],
+      "svgBytes": 3600
+    }
+  ],
+  "errors": []
+}

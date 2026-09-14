@@ -5,6 +5,8 @@ import type { Surface3 } from './geometry/surface.js';
 import { prepareSurfaceQueries3, type RayQuery3, type NearestQuery3, type SurfaceHit3 } from './queries/surface.js';
 import type { Vec3 } from './math.js';
 import type { SceneCompute3 } from './scene.js';
+import {captureIntersections,intersectionConstructionJob,type IntersectionInput,type IntersectionOptions} from './api/intersections.js';
+import {runGeometryJobAsync3} from './geometry/job.js';
 
 export interface SurfaceQueryInput3 {
   readonly rays?: readonly RayQuery3[];
@@ -16,7 +18,8 @@ export interface SurfaceQueryResult3 {
   readonly segments: readonly (SurfaceHit3 | null)[];
   readonly nearest: readonly (SurfaceHit3 | null)[];
 }
-export interface ModelingStats3 { readonly operation: 'deform' | 'query'; readonly backend: 'cpu' | 'gpu'; readonly dispatches: number; readonly transferBytes: number; readonly timings?:PhaseTimings3;readonly refinements?:number;readonly targetCacheHit?:boolean;readonly targetUploadBytes?:number }
+export interface ModelingStats3 { readonly operation: 'deform' | 'query' | 'intersections'; readonly backend: 'cpu' | 'gpu'; readonly dispatches: number; readonly transferBytes: number; readonly timings?:PhaseTimings3;readonly refinements?:number;readonly targetCacheHit?:boolean;readonly targetUploadBytes?:number;readonly intersections?:Awaited<ReturnType<typeof runIntersectionConstruction>>['value']['stats'] }
+const runIntersectionConstruction=(captured:ReturnType<typeof captureIntersections>,signal?:AbortSignal)=>runGeometryJobAsync3(intersectionConstructionJob(captured),signal);
 export interface ModelingCompute3 {
   deform(surface: Surface3, options: DeformOptions3): Promise<{ surface: Surface3; stats: { dispatches: number; transferBytes: number; timings?:PhaseTimings3 } }>;
   query(surface: Surface3, queries: SurfaceQueryInput3, options: { signal?: AbortSignal }): Promise<{ result: SurfaceQueryResult3; stats: { dispatches: number; transferBytes: number; timings?:PhaseTimings3 } }>;
@@ -30,6 +33,14 @@ export function bindModeling3(exec: Execution, scope?: { signal?: AbortSignal; c
     scope.signal?.throwIfAborted();
   };
   return {
+    intersections(a:IntersectionInput,b:IntersectionInput,options:IntersectionOptions={}) {
+      check();const timing=new PhaseClock3(),captured=timing.measure('captureMs',()=>captureIntersections(a,b,options));
+      return (async()=>{
+        const result=await runIntersectionConstruction(captured,scope!.signal);check();timing.merge(result.timings);
+        exec.modeling3.push({operation:'intersections',backend:'cpu',dispatches:0,transferBytes:0,timings:timing.finish(),intersections:result.value.stats});
+        return result.value.curves;
+      })();
+    },
     deform3(surface: Surface3, options: Omit<DeformOptions3, 'signal'>): Promise<Surface3> {
       check();
       const timing=new PhaseClock3(),captured = timing.measure('captureMs',()=>captureDeform3(surface, options));
