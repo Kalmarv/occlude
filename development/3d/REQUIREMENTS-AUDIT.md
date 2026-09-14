@@ -6,7 +6,7 @@ Scope: every requirement in [spec.md](spec.md), with subsequent user-approved de
 
 | Requirement | Current evidence and remaining work |
 | --- | --- |
-| §4, §16 pinned Blender comparisons | Eight CPU and hardware-GPU/Line Art vector comparisons now pass against pinned Blender 5.2.1; see reference/README.md. Add Freestyle selection/style references. |
+| §4, §16 pinned Blender comparisons | Eight CPU and hardware-GPU/Line Art vector comparisons now pass against pinned Blender 5.2.1; see reference/README.md. Freestyle selection/constant-style references now cover the same fixtures; six match and two intersecting-box discrepancies are explicitly retained, with Line Art and independent rays supporting Occlude (reference/FREESTYLE.md). |
 | §6, §9, §16 abandoned work never adopts | Laboratory worker has lease/revision tests and hardware cancellation/restart evidence. Main Studio now stages publication and passes real-GPU late-completion/newer-failed-render checks for ordinary renders and camera commits (STUDIO-ADOPTION.md). Audit remaining compute cancellation boundaries. Hard worker restart/export recovery and actual GPU device-loss recovery are explicitly deferred by the user; page reload is the accepted workaround. |
 | §12 GPU timing when supported | Wall time, transfer, refinement and resident-buffer baselines exist. GPU timestamp support is not yet enabled/recorded. |
 | §15 visibility laboratory demo | Complete named demo in demos/visibility-laboratory.ts; main Studio hardware evidence covers all required objects, cached clean/dashed/wobbled/filtered interpretations, console stroke inspection/counters and camera commit. See demos/README.md. |

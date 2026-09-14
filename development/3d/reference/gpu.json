@@ -15,7 +15,7 @@
         "dispatches": 1,
         "refinements": 51,
         "transferBytes": 5488,
-        "wallMs": 65.19999998807907
+        "wallMs": 53.80000001192093
       },
       "segments": [
         [
@@ -118,7 +118,7 @@
         "dispatches": 1,
         "refinements": 51,
         "transferBytes": 5488,
-        "wallMs": 65.19999998807907
+        "wallMs": 53.80000001192093
       },
       "segments": [
         [
@@ -161,7 +161,7 @@
         "dispatches": 1,
         "refinements": 48,
         "transferBytes": 5152,
-        "wallMs": 9.5
+        "wallMs": 8.100000023841858
       },
       "segments": [
         [
@@ -274,7 +274,7 @@
         "dispatches": 1,
         "refinements": 48,
         "transferBytes": 5152,
-        "wallMs": 9.5
+        "wallMs": 8.100000023841858
       },
       "segments": [
         [
@@ -327,7 +327,7 @@
         "dispatches": 0,
         "refinements": 0,
         "transferBytes": 0,
-        "wallMs": 0
+        "wallMs": 0.10000002384185791
       },
       "segments": [
         [
@@ -380,7 +380,7 @@
         "dispatches": 1,
         "refinements": 165,
         "transferBytes": 21952,
-        "wallMs": 6.300000011920929
+        "wallMs": 46.89999997615814
       },
       "segments": [
         [
@@ -563,7 +563,7 @@
         "dispatches": 1,
         "refinements": 165,
         "transferBytes": 21952,
-        "wallMs": 6.300000011920929
+        "wallMs": 46.89999997615814
       },
       "segments": [
         [
@@ -696,7 +696,7 @@
         "dispatches": 1,
         "refinements": 4,
         "transferBytes": 448,
-        "wallMs": 1.100000023841858
+        "wallMs": 3.100000023841858
       },
       "segments": [
         [

@@ -5,7 +5,7 @@
   "buildHash": "9e2066aef7ef",
   "toleranceMm": 0.0001,
   "comparison": "bidirectional collinear segment coverage, independent of chaining",
-  "passed": true,
+  "passed": false,
   "cases": [
     {
       "id": "cube-ortho",
@@ -68,10 +68,10 @@
       "rayChecks": 51,
       "unrepresentableInteriorSamples": 0,
       "occludeSegments": 17,
-      "blenderSegments": 17,
-      "extraMm": 0,
-      "missingMm": 0,
-      "passed": true
+      "blenderSegments": 21,
+      "extraMm": 6.859943405700362,
+      "missingMm": 11.659671431555477,
+      "passed": false
     },
     {
       "id": "crossing-boxes",
@@ -80,9 +80,9 @@
       "unrepresentableInteriorSamples": 0,
       "occludeSegments": 12,
       "blenderSegments": 19,
-      "extraMm": 0,
-      "missingMm": 0,
-      "passed": true
+      "extraMm": 11.659671431556662,
+      "missingMm": 6.859954849973502,
+      "passed": false
     },
     {
       "id": "marked-flat-edge",

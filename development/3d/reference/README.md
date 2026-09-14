@@ -34,4 +34,4 @@ pnpm --filter occlude exec tsx tools/compare-blender3.ts ../../development/3d/re
 
 Full isolated `pnpm check` passes: Rust 10.0s, TS 21.1s, library types 6.0s, Studio types 5.0s, docs 12.8s, ink 14.5s, build 37.8s and smoke 2.3s. WASM remains `615f9d1b7a63396d451fd33aac18b559`; all existing docs ink remains unchanged. These are local/container gates, not a remote CI claim.
 
-Freestyle style/selection references and the broader precision/lifecycle audit remain outstanding. No complete parity or M5 completion claim.
+Freestyle selection and constant physical width/color references are now captured in [FREESTYLE.md](FREESTYLE.md), including two explicit intersecting-box discrepancies corroborated against Line Art and independent ray checks. The broader precision/performance/final audit remains outstanding. No complete parity or M5 completion claim.

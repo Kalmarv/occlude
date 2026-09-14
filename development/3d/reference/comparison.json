@@ -1,5 +1,6 @@
 {
   "backend": "cpu",
+  "independentRayBackend": "cpu",
   "referenceVersion": "5.2.1 LTS",
   "buildHash": "9e2066aef7ef",
   "toleranceMm": 0.0001,
@@ -9,6 +10,8 @@
     {
       "id": "cube-ortho",
       "visibility": "visible",
+      "rayChecks": 27,
+      "unrepresentableInteriorSamples": 0,
       "occludeSegments": 9,
       "blenderSegments": 9,
       "extraMm": 0,
@@ -18,6 +21,8 @@
     {
       "id": "cube-ortho",
       "visibility": "hidden",
+      "rayChecks": 9,
+      "unrepresentableInteriorSamples": 0,
       "occludeSegments": 3,
       "blenderSegments": 3,
       "extraMm": 0,
@@ -27,6 +32,8 @@
     {
       "id": "cube-perspective",
       "visibility": "visible",
+      "rayChecks": 27,
+      "unrepresentableInteriorSamples": 3,
       "occludeSegments": 10,
       "blenderSegments": 9,
       "extraMm": 0,
@@ -36,6 +43,8 @@
     {
       "id": "cube-perspective",
       "visibility": "hidden",
+      "rayChecks": 12,
+      "unrepresentableInteriorSamples": 0,
       "occludeSegments": 4,
       "blenderSegments": 3,
       "extraMm": 0,
@@ -45,6 +54,8 @@
     {
       "id": "open-plane",
       "visibility": "visible",
+      "rayChecks": 12,
+      "unrepresentableInteriorSamples": 0,
       "occludeSegments": 4,
       "blenderSegments": 4,
       "extraMm": 0,
@@ -54,6 +65,8 @@
     {
       "id": "crossing-boxes",
       "visibility": "visible",
+      "rayChecks": 51,
+      "unrepresentableInteriorSamples": 0,
       "occludeSegments": 17,
       "blenderSegments": 17,
       "extraMm": 0,
@@ -63,6 +76,8 @@
     {
       "id": "crossing-boxes",
       "visibility": "hidden",
+      "rayChecks": 36,
+      "unrepresentableInteriorSamples": 0,
       "occludeSegments": 12,
       "blenderSegments": 19,
       "extraMm": 0,
@@ -72,6 +87,8 @@
     {
       "id": "marked-flat-edge",
       "visibility": "visible",
+      "rayChecks": 3,
+      "unrepresentableInteriorSamples": 0,
       "occludeSegments": 1,
       "blenderSegments": 1,
       "extraMm": 0,
