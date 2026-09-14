@@ -55,7 +55,7 @@ export async function classifyForRun3(exec: Execution, scene: LineArtScene3, opt
     const viewport = scene.viewport ?? { x: f.offsetX, y: f.offsetY, width: f.inner.innerW, height: f.inner.innerH };
     const key = exec.cameraKey3(scene);
     const camera = Object.hasOwn(exec.cameras3, key) ? exec.cameras3[key] : scene.camera;
-    const snapshot = timing.measure('captureMs',()=>featureSnapshot3(scene.objects, scene.wires, cameraFrame3(camera, viewport),f.inner));
+    const snapshot = timing.measure('captureMs',()=>featureSnapshot3(scene.objects, scene.wires, cameraFrame3(camera, viewport),f.inner,scene.curves));
     const result = options.compute3 ? await options.compute3.classify(snapshot, { ...options, paperToleranceMm: paperBudget3([...exec.pens.values()].map(pen => pen.width)) }) : classifySceneCpu3(snapshot);
     timing.merge(result.stats.timings);
     const classified=Object.freeze({...result,stats:Object.freeze({...result.stats,timings:timing.finish()})});

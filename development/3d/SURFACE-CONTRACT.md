@@ -141,3 +141,22 @@ unchanged incidence, including fixed triangles; mirrors may reverse winding.
 Equal IDs on independently built meshes are insufficient. Placement revisions
 also distinguish input identity from labels. The shared multi-source curve
 carrier, query/construction integration and renderer support remain next work.
+
+## Implemented supported-curve graph foundation
+
+One owned graph now carries single- and multi-source marks. It retains exact
+homogeneous node coordinates, per-segment/source triangle weights, branch nodes,
+attributes and uncut source parameters. Legacy sections/paper hatch normalize at
+feature capture; their established camera arithmetic remains compatible. Only
+actual incident triangle IDs exempt generated marks from hiding. Captured object
+bindings distinguish placements from labels and diagnose ambiguity.
+
+`SurfaceCurves` points/edges use existing collections. `view` accepts these values
+alongside meshes; ordinary `strokes` retains full reference phase through edge
+selection. Explicit rebind follows shared topology lineage and original affine
+weights; separated multi-source attachments require construction regeneration.
+The graph also stores isolated supported contacts without inventing strokes.
+Rational graph candidates use CPU world refinement after GPU candidate work.
+Advanced constructors and a live exact-seam example expose the carrier; actual
+mesh contacts, ordinary placement conveniences, resampling/trim and shared
+query/location contexts remain the next implementation, not delivered claims.

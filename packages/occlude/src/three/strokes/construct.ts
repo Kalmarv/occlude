@@ -95,10 +95,14 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
     const selection=set.select instanceof FeatureSelection3?set.select:undefined;
     if(selection && selection.source!==source)throw new Error('line set selection belongs to another classified snapshot');
     const included=selection?new Set(selection.map(row=>row.feature.id)):undefined;
-    for(const record of source.features) {
-      const f=record.feature;if(included&&!included.has(f.id)||typeof set.select==='function'&&!set.select(f))continue;
+    const include=(f:Feature3)=>!(included&&!included.has(f.id)||typeof set.select==='function'&&!set.select(f));
+    for(const f of source.referenceFeatures??source.features.map(r=>r.feature)){
+      if(!include(f))continue;
       const ra=toPaper3(frame,f.a),rb=toPaper3(frame,f.b),rl=distance(ra,rb);
       if(rl>0)referenceRuns.push({key:JSON.stringify([set.id,f.id,0,1]),set,visibility,part:{feature:f,range:f.range,a:ra,b:rb,length:rl},ends:[f.range[0]===0?f.endpoints[0]:null,f.range[1]===1?f.endpoints[1]:null],breaks:[f.range[0]===0?'source':'clipping',f.range[1]===1?'source':'clipping']});
+    }
+    for(const record of source.features) {
+      const f=record.feature;if(!include(f))continue;
       const requested=set.ranges?.(f)??[[0,1]];
       if(requested.some(r=>r.length!==2||!r.every(Number.isFinite)||r[0]<0||r[1]>1||r[0]>r[1]))throw new Error('line set ranges must be ordered within [0,1]');
       const key=JSON.stringify([f.id,visibility]), occupied=claimed.get(key)??[];

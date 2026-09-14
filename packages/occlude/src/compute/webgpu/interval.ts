@@ -146,7 +146,10 @@ export class GpuIntervals3 {
       transferBytes += packed.byteLength + read.byteLength + (this.timestamps ? 16 : 0);
       const refineStarted = performance.now();
       for (let i = 0; i < batch.length; i++) {
-        if (read[i * 4 + 2] !== 0 || !Number.isFinite(read[i * 4]) || !Number.isFinite(read[i * 4 + 1])) {
+        // The current WGSL certificate bounds binary source coordinates. A
+        // rational construction retains stronger incidence than its evaluated
+        // position; refine until that certificate accounts for this encoding.
+        if (batch[i].basis?.some(terms=>terms.some(t=>t.exactWorld!==undefined)) || read[i * 4 + 2] !== 0 || !Number.isFinite(read[i * 4]) || !Number.isFinite(read[i * 4 + 1])) {
           refinements++; const p = batch[i]; intervals.push(hiddenInterval3(p.a, p.b, p.volume, p.basis));
         } else intervals.push(read[i * 4 + 3] === 0 ? null : [read[i * 4], read[i * 4 + 1]]);
       }

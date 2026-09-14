@@ -43,7 +43,7 @@ describe('mesh-plane sections',()=>{
     const source=classifySceneCpu3(featureSnapshot3(scene.objects,[],frame));
     const sections=source.features.filter(r=>select(r.feature));
     expect(sections).toHaveLength(8);
-    expect(sections.every(r=>r.feature.support.length>=2 && r.feature.faceAttributes.every(a=>a.importance===7) && r.feature.attributes.layer===4)).toBe(true);
+    expect(sections.every(r=>r.feature.support.length===r.feature.curve!.triangles.length && r.feature.faceAttributes.every(a=>a.importance===7) && r.feature.attributes.layer===4)).toBe(true);
     expect(sections.some(r=>r.hidden.length>0)).toBe(true);
     expect(sections.some(r=>r.visible.length>0)).toBe(true);
     expect(scene.objects[0].curves!.surface).toBe(scene.objects[0].surface);

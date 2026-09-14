@@ -1,0 +1,9 @@
+
+ RUN  v2.1.9 /home/kalmarv/containers/occlude-3d/packages/occlude
+
+ ✓ test/three-supported-render.test.ts (8 tests) 60ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  17:07:53
+   Duration  1.54s (transform 878ms, setup 0ms, collect 1.18s, tests 60ms, environment 0ms, prepare 70ms)

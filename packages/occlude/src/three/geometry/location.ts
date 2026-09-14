@@ -1,5 +1,5 @@
 import {orient2d} from 'robust-predicates';
-import {snapshotSurface3,transformSurface3} from './model.js';
+import {snapshotSurface3,transformSurface3,transformPosition3} from './model.js';
 import {triangleCorners3} from './corners.js';
 import {sameAttachmentTopology3} from './topology.js';
 import type {Attribute3,Attributes3,Surface3,SurfacePoint3} from './surface.js';
@@ -78,9 +78,11 @@ export function interpolateAttributes3(rows:readonly Pick<SurfacePoint3,'id'|'at
     else out[name]=structuredClone(values[nearest]);
   }return out;
 }
-function direction(v:Vec3,transform?:SurfaceTransform3):Vec3 {
-  if(!transform)return v;const s=transform.scale??[1,1,1];
-  return freeze(rotateVector3(v.map((n,i)=>n*s[i]) as unknown as Vec3,transform.rotate??[0,0,0]));
+function geometricNormal(ab:Vec3,ac:Vec3):Vec3 {
+  // Preserve established sample arithmetic where its intermediates are finite.
+  const edgeScale=Math.max(Math.hypot(...ab),Math.hypot(...ac));
+  const scaledCross=cross3(mul3(ab,1/edgeScale),mul3(ac,1/edgeScale)),normalLength=Math.hypot(...scaledCross);
+  return freeze(normalLength>0&&Number.isFinite(1/normalLength)?unit3(scaledCross):unit(cross3(unit(ab),unit(ac))));
 }
 function normal(v:Vec3,transform?:SurfaceTransform3):Vec3 {
   if(!transform)return v;const s=transform.scale??[1,1,1];
@@ -91,8 +93,7 @@ function normal(v:Vec3,transform?:SurfaceTransform3):Vec3 {
   return unit(rotateVector3(unit(inverse),transform.rotate??[0,0,0]));
 }
 function placedPosition(p:Vec3,transform?:SurfaceTransform3):Vec3 {
-  if(!transform)return p;const origin=transform.origin??[0,0,0];
-  const result=add3(add3(direction(sub3(p,origin),transform),origin),transform.translate??[0,0,0]);finite3(result);return freeze(result);
+  if(!transform)return p;const result=transformPosition3(p,transform);finite3(result);return freeze(result);
 }
 function frame(du:Vec3,dv:Vec3,n:Vec3,orientation:1|-1):SurfaceTangentFrame3 {
   finite3(du);finite3(dv);const tangent=unit(du);unit(dv);
@@ -100,7 +101,7 @@ function frame(du:Vec3,dv:Vec3,n:Vec3,orientation:1|-1):SurfaceTangentFrame3 {
 }
 const capturedPlacements=new WeakSet<SurfacePlacement3>();
 const placementRevisions=new WeakMap<SurfacePlacement3,{signature:string;captured:SurfacePlacement3}>();
-function placement(value?:SurfacePlacement3):SurfacePlacement3|undefined {
+export function captureSurfacePlacement3(value?:SurfacePlacement3):SurfacePlacement3|undefined {
   if(!value)return;
   if(capturedPlacements.has(value))return value;
   if(typeof value.id!=='string'||!value.id)throw new Error('surface placement requires a nonempty identity');
@@ -124,13 +125,15 @@ export function surfaceLocation3(source:Surface3,triangle:number,barycentric:Vec
   const rows=t.vertices.map(v=>source.points[v]),cornerRows=corners.map(i=>face.corners![i]);
   const [a,b,c]=rows.map(p=>p.position),ab=sub3(b,a),ac=sub3(c,a);
   const modelPosition=freeze(add3(a,add3(mul3(ab,weights[1]),mul3(ac,weights[2]))));finite3(modelPosition);
-  // Keep the established sample-normal arithmetic in its representable range.
-  const edgeScale=Math.max(Math.hypot(...ab),Math.hypot(...ac));
-  const scaledCross=cross3(mul3(ab,1/edgeScale),mul3(ac,1/edgeScale));
-  const normalLength=Math.hypot(...scaledCross);
-  const modelNormal=freeze(normalLength>0&&Number.isFinite(1/normalLength)?unit3(scaledCross):unit(cross3(unit(ab),unit(ac))));
-  const place=placement(options.placement);
-  const worldNormal=normal(modelNormal,place?.transform);
+  const modelNormal=geometricNormal(ab,ac);
+  const place=captureSurfacePlacement3(options.placement),mirrored=(place?.transform.scale??[1,1,1]).filter(n=>n<0).length%2===1;
+  // Attachment follows the represented transformed vertices. Transforming a
+  // previously rounded interpolated point can disagree at large translations.
+  const worldPoints=place?[a,b,c].map(p=>placedPosition(p,place.transform)):[a,b,c];
+  const worldAb=sub3(worldPoints[1],worldPoints[0]),worldAc=sub3(worldPoints[2],worldPoints[0]);
+  const worldNormal=place?freeze(geometricNormal(worldAb,worldAc).map(n=>n===0?0:mirrored?-n:n) as unknown as Vec3):modelNormal;
+  const worldPosition=place?freeze(add3(worldPoints[0],add3(mul3(worldAb,weights[1]),mul3(worldAc,weights[2])))):modelPosition;
+  finite3(worldPosition);
   const pointAttributes=freeze(interpolateAttributes3(rows,weights,options.pointTransfers));
   const cornerAttributes=freeze(interpolateAttributes3(cornerRows,weights,options.cornerTransfers));
   const uvName=options.uvAttribute??'uv',chartName=options.chartAttribute??'chart';
@@ -153,14 +156,17 @@ export function surfaceLocation3(source:Surface3,triangle:number,barycentric:Vec
     const determinant=scale?-orient2d(0,0,u1/scale,v1/scale,u2/scale,v2/scale):0;
     chartStatus=determinant===0?'degenerate':'regular';
     if(determinant!==0){
-      const du=ab.map((n,k)=>(n*(v2/scale)-ac[k]*(v1/scale))/determinant/scale) as unknown as Vec3;
-      const dv=ab.map((n,k)=>(ac[k]*(u1/scale)-n*(u2/scale))/determinant/scale) as unknown as Vec3;
-      const orientation=determinant>0?1:-1,mirrored=(place?.transform.scale??[1,1,1]).filter(n=>n<0).length%2===1;
-      modelFrame=frame(du,dv,modelNormal,orientation);worldFrame=place?frame(direction(du,place.transform),direction(dv,place.transform),worldNormal,mirrored?(orientation===1?-1:1):orientation):modelFrame;
+      const derivatives=(ab:Vec3,ac:Vec3)=>({
+        du:ab.map((n,k)=>(n*(v2/scale)-ac[k]*(v1/scale))/determinant/scale) as unknown as Vec3,
+        dv:ab.map((n,k)=>(ac[k]*(u1/scale)-n*(u2/scale))/determinant/scale) as unknown as Vec3,
+      });
+      const model=derivatives(ab,ac),world=place?derivatives(worldAb,worldAc):model,orientation=determinant>0?1:-1;
+      modelFrame=frame(model.du,model.dv,modelNormal,orientation);
+      worldFrame=place?frame(world.du,world.dv,worldNormal,mirrored?(orientation===1?-1:1):orientation):modelFrame;
     }
   }
   const modelShadingNormal=options.shadingNormal?unit(options.shadingNormal):undefined;
-  const location=freeze({source,placement:place,triangle,face:t.face,faceId:face.id,vertices:t.vertices,vertexIds:rows.map(p=>p.id) as [string,string,string],corners,barycentric:weights,space:place?'world' as const:'model' as const,modelPosition,position:placedPosition(modelPosition,place?.transform),modelNormal,normal:worldNormal,modelShadingNormal,shadingNormal:modelShadingNormal?normal(modelShadingNormal,place?.transform):undefined,pointAttributes,faceAttributes:face.attributes,cornerAttributes,uv,chart,modelFrame,frame:worldFrame,chartStatus});
+  const location=freeze({source,placement:place,triangle,face:t.face,faceId:face.id,vertices:t.vertices,vertexIds:rows.map(p=>p.id) as [string,string,string],corners,barycentric:weights,space:place?'world' as const:'model' as const,modelPosition,position:worldPosition,modelNormal,normal:worldNormal,modelShadingNormal,shadingNormal:modelShadingNormal?normal(modelShadingNormal,place?.transform):undefined,pointAttributes,faceAttributes:face.attributes,cornerAttributes,uv,chart,modelFrame,frame:worldFrame,chartStatus});
   owned.set(location,{options:freeze({...structuredClone(options),placement:place})});return location;
 }
 /** Rebinding is explicit and never changes the old location. Supplied shading
@@ -169,9 +175,16 @@ export function surfaceLocation3(source:Surface3,triangle:number,barycentric:Vec
 export function rebindSurfaceLocation3(location:SurfaceLocation3,target:Surface3,options:SurfaceLocationOptions3={}):SurfaceLocation3 {
   const state=owned.get(location);if(!state)throw new Error('rebind requires an owned surface location');
   target=snapshotSurface3(target);
-  if(!sameAttachmentTopology3(location.source,target))throw new Error('surface topology or authoring lineage changed; regenerate locations or use an explicit topology transfer');
-  const triangle=triangleIndex(target).get(triangleKey(location.faceId,location.vertexIds));
-  if(triangle===undefined)throw new Error('source triangle was not retained by the target');
-  const weights=target.triangles[triangle].vertices.map(v=>location.barycentric[location.vertexIds.indexOf(target.points[v].id)]) as unknown as Vec3;
+  const attachment=rebindTriangle3(location.source,location.triangle,target),triangle=attachment.triangle;
+  const weights=attachment.order.map(i=>location.barycentric[i]) as unknown as Vec3;
   return surfaceLocation3(target,triangle,weights,{...state.options,shadingNormal:undefined,...options});
+}
+
+/** Shared identity correspondence for exact curves and evaluated locations. */
+export function rebindTriangle3(source:Surface3,index:number,target:Surface3):{readonly triangle:number;readonly order:readonly [number,number,number]} {
+  if(!sameAttachmentTopology3(source,target))throw new Error('surface topology or authoring lineage changed; regenerate locations or use an explicit topology transfer');
+  const original=source.triangles[index];if(!original)throw new Error('source triangle was not retained by the target');
+  const ids=original.vertices.map(v=>source.points[v].id),triangle=triangleIndex(target).get(triangleKey(source.faces[original.face].id,ids));
+  if(triangle===undefined)throw new Error('source triangle was not retained by the target');
+  return {triangle,order:target.triangles[triangle].vertices.map(v=>ids.indexOf(target.points[v].id)) as [number,number,number]};
 }

@@ -1220,3 +1220,77 @@ export default sketch({ seed: 42, pens: {
   });
 });
 ```
+
+### Advanced: supported curve graphs
+
+Kernel authors can construct `SurfaceCurves` from a validated graph. Ordinary
+`view([meshA, meshB, curves], ...)` and `strokes` interpret its edges. This is the
+shared carrier for surface marks; the mesh–mesh intersection generator is a
+separate construction operation.
+
+Each source binds an actual captured mesh and, when placed, its captured
+transform. A segment must lie on every declared support triangle. Endpoint
+coordinates are exact homogeneous integer quadruples: `[1n, 1n, 1n, 3n]`
+represents `(1/3, 1/3, 1/3)` without losing incidence to either source plane.
+Rounded positions remain available for ordinary inspection. Coincident graph
+nodes retain separate support coordinates, including corner seams.
+
+`curves.points` and `curves.edges` are ordinary collections. Edge extraction
+retains the complete uncut reference, so filtering does not restart stroke
+phase or join branches. Edges expose `kind`, `chainId`, normalized source
+`range`, model/world `length`, `attributes` and `supports`.
+`curves.rebind(mesh)` explicitly reevaluates one-source attachments after a
+topology-preserving edit; multiple sources require a mesh array in source order.
+The previous value stays unchanged. Changed topology requires regeneration or
+an explicit transfer; separated supports of an intersection require regenerating
+that intersection. No nearest-surface projection is implicit.
+
+The graph constructor budgets sources, nodes, segments, supports and exact
+coordinate storage. Visibility uses the existing world-depth renderer and
+exempts only validated supporting triangles. The current GPU path refines
+rational graph candidates on the CPU; it does not claim a rational GPU predicate.
+
+```ts live
+import { sketch, strokes, label, pen, mm } from 'occlude';
+import { mesh, view, orthographic } from 'occlude/3d';
+import { SurfaceCurves, surfaceBinding3, surfaceCurveNetwork3 } from 'occlude/3d/advanced';
+
+export default sketch({
+  seed: 42,
+  pens: {
+    outline: pen({ width: mm(0.3), color: '#18202A' }),
+    seam: pen({ width: mm(0.4), color: '#A84932' }),
+  },
+}, () => {
+  const a = mesh([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [[0, 1, 2]]);
+  const b = mesh([[0, 0, 0], [1, 1, 0], [0, 0, 1]], [[0, 1, 2]]);
+  const seam = new SurfaceCurves(surfaceCurveNetwork3({
+    sources: [
+      { id: 'a', binding: surfaceBinding3(a.surface) },
+      { id: 'b', binding: surfaceBinding3(b.surface) },
+    ],
+    nodes: [
+      { id: 'top', point: [0n, 0n, 1n, 1n] },
+      { id: 'thirds', point: [1n, 1n, 1n, 3n] },
+      { id: 'base', point: [1n, 1n, 0n, 2n] },
+    ],
+    segments: [
+      { id: 'upper', kind: 'intersection', a: 'top', b: 'thirds',
+        chainId: 'seam', range: [0, 2 / 3],
+        supports: [{ source: 0, triangle: 0 }, { source: 1, triangle: 0 }] },
+      { id: 'lower', kind: 'intersection', a: 'thirds', b: 'base',
+        chainId: 'seam', range: [2 / 3, 1],
+        supports: [{ source: 0, triangle: 0 }, { source: 1, triangle: 0 }] },
+    ],
+  }));
+  return [
+    view([a, b, seam], {
+      camera: orthographic({ eye: [3, 4, 3], target: [0.4, 0.4, 0.4], span: 1.8 }),
+    }, lines => [
+      strokes(lines.visible.filter(c => c.kinds.has('boundary')), { stroke: 'outline' }),
+      strokes(lines.visible.filter(c => c.kinds.has('intersection')), { stroke: 'seam' }),
+    ]),
+    label('EXACT / SHARED SEAM', 8, 94, 4, { stroke: 'outline' }),
+  ];
+});
+```

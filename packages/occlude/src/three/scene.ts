@@ -1,3 +1,4 @@
+import {objectSurfaceBinding3,validateSurfaceCurveNetwork3,type SurfaceCurveObject3} from './curves/network.js';
 import { validateHatch3 } from './curves/hatch.js';
 import { validateSurfaceCurves3 } from './curves/surface.js';
 import type { ModelingCompute3 } from './modeling.js';
@@ -15,6 +16,7 @@ export interface LineArtOptions3 {
   readonly id?: string;
   readonly objects?: readonly SurfaceObject3[];
   readonly wires?: readonly WireObject3[];
+  readonly curves?: readonly SurfaceCurveObject3[];
   readonly camera: Camera3;
   /** Physical paper rectangle. By default use the execution's drawable frame. */
   readonly viewport?: PaperFrame3;
@@ -47,14 +49,17 @@ export function lineArt3(options: LineArtOptions3): LineArtScene3 {
   for(const object of options.objects??[]) {
     if(object.curves)validateSurfaceCurves3(object.curves,object.surface);
     if(object.hatch)validateHatch3(object.hatch,object.surface);
+    if(object.binding)objectSurfaceBinding3(object);
   }
+  for(const entry of options.curves??[])validateSurfaceCurveNetwork3(entry.network);
   return Object.freeze({
     __occludeLineArt3: true,
     id: options.id,
     camera,
     viewport: options.viewport && Object.freeze({ ...options.viewport }),
-    objects: Object.freeze((options.objects ?? []).map(object => Object.freeze({ ...object, ...(object.instance?{instance:freeze(structuredClone(object.instance))}:{}), surface: captureSurface(object.surface), curves: object.curves && freeze({surface:captureSurface(object.surface),segments:structuredClone(object.curves.segments)}), hatch: object.hatch && freeze({...object.hatch,surface:captureSurface(object.surface),families:structuredClone(object.hatch.families)}), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)) }))),
+    objects: Object.freeze((options.objects ?? []).map(object => Object.freeze({ ...object, binding:object.binding??objectSurfaceBinding3({...object,surface:captureSurface(object.surface)}), ...(object.instance?{instance:freeze(structuredClone(object.instance))}:{}), surface: captureSurface(object.surface), curves: object.curves && freeze({surface:captureSurface(object.surface),segments:structuredClone(object.curves.segments)}), hatch: object.hatch && freeze({...object.hatch,surface:captureSurface(object.surface),families:structuredClone(object.hatch.families)}), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)) }))),
     wires: freeze(structuredClone(options.wires ?? [])),
+    curves:Object.freeze((options.curves??[]).map(entry=>Object.freeze({...entry,attributes:freeze(structuredClone(entry.attributes))}))),
     lineSets: Object.freeze(options.lineSets.map(set => Object.freeze({ ...set }))),
     strokes: options.strokes && Object.freeze({ ...options.strokes }),
   });

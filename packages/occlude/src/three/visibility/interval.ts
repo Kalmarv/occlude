@@ -1,9 +1,10 @@
+import type {EncodedPoint3} from '../geometry/exact.js';
 import {hiddenWorldInterval3,type WorldOcclusion3} from './worldInterval.js';
 import { orient2d, orient3d } from 'robust-predicates';
 import { cross3, dot3, mul3, sub3, type Triangle3, type Vec3 } from '../math.js';
 /** Source interpolation is kept symbolic until the halfspace evaluation, so
  * rounding a reconstructed point cannot detach it from its supporting edge. */
-export type AffinePoint3 = readonly { readonly point: Vec3; readonly world?: Vec3; readonly weight: number }[];
+export type AffinePoint3 = readonly { readonly point: Vec3; readonly world?: Vec3; readonly exactWorld?: EncodedPoint3; readonly weight: number }[];
 export type SegmentBasis3 = readonly [AffinePoint3, AffinePoint3];
 export type Interval3 = readonly [number, number];
 /** Interior is n·p + w >= 0. The last plane is strictly behind the surface. */

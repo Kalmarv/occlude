@@ -1,6 +1,7 @@
 import type { Execution } from 'occlude';
 import type { CameraFrame3 } from 'occlude/src/three/camera.js';
 import type { SurfaceObject3, WireObject3 } from 'occlude/src/three/features/snapshot.js';
+import type {SurfaceCurveNetwork3} from 'occlude/src/three/curves/network.js';
 import type { SurfaceCurveSegment3 } from 'occlude/src/three/curves/surface.js';
 import type { ModelingStats3 } from 'occlude/src/three/modeling.js';
 
@@ -18,6 +19,7 @@ export interface CapturedThree3 {
     frame: CameraFrame3;
     objects: readonly Omit<SurfaceObject3, 'hatch'>[];
     wires: readonly WireObject3[];
+    supported?:readonly {objectId:string;network:SurfaceCurveNetwork3}[];
     generated: readonly { objectId: string; curve: SurfaceCurveSegment3 }[];
   }[];
 }
@@ -30,6 +32,7 @@ export function captureThree3(run: Execution, context: Pick<CapturedThree3,'engi
       frame: classified.frame,
       objects: scene.objects.map(({hatch, ...object}) => object),
       wires: scene.wires,
+      supported:classified.curveGraphs?.map(entry=>({objectId:entry.id,network:entry.network})),
       generated: classified.features.flatMap(({feature}) => feature.curve ? [{objectId:feature.objectId,curve:feature.curve}] : []),
     })),
   });

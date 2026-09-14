@@ -129,3 +129,24 @@ Next is the shared multi-source curve carrier and its construction/rendering
 integration. This checkpoint does not complete M6/M7: primitive UVs, contacts,
 mapping, generic tracing/spacing/tone/curvature, the new GPU batch and selected
 M8 region extrusion remain required, along with all acceptance/performance work.
+
+## Supported-curve graph integration
+
+Implemented exact rational graph nodes, multiple owned surface/placement
+supports, branch/contact records and capacity limits. Legacy section/paper hatch
+now normalize through the graph. Feature capture, scene options, ordinary view,
+source-reference construction and Studio persistence carry it end to end.
+Only actual supporting triangles are exempt from occlusion. Explicit rebind
+preserves source parameters/attributes and rejects separated intersection
+attachments. Placed locations now evaluate the represented transformed vertices.
+
+All nine Docker gates pass (915 library / 168 Studio tests). All 244 prior stable
+docs hashes and church routing are unchanged; `three#24` adds an advanced known
+seam demonstration. All 25 served Studio examples, four independent rational
+seam probes, four paper-box cameras (96 edges / 1685 curves, zero interval error)
+and nine world-depth probes pass. The scene uses one indexed graph registry,
+including contact-only data, rather than duplicating graphs in every feature.
+Dev stamp `e9e4e60-supported-curves`; evidence is in `supported-curves/`. No M6/M7 completion
+claim: the actual contact generator and the full remaining assignment remain
+required, including mapping/tracing/tone, region extrusion, GPU evaluation and
+acceptance/performance integration.

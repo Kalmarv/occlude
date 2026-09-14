@@ -9,6 +9,8 @@ import {hatch3} from '../curves/hatch.js';
 import {section3} from '../curves/section.js';
 import {Mesh,CurveGeometry,evaluate,type Field,type FaceRow,type PointRow,type EdgeAttributes} from './mesh.js';
 import {Instances} from './instances.js';
+import {SurfaceCurves} from './supported.js';
+import type {SurfaceCurveObject3} from '../curves/network.js';
 import type {SurfaceObject3} from '../features/snapshot.js';
 import {projectedLines,projectedStrokes,captureValue,type ProjectedLines} from './projected.js';
 export interface CameraOptions {readonly eye:Vec3;readonly target?:Vec3;readonly up?:Vec3;readonly near?:number;readonly far?:number}
@@ -41,10 +43,10 @@ export interface ViewOptions<F extends Attributes3=Attributes3> {
 // Heterogeneous meshes intentionally expose an attribute map at this boundary;
 // a single mesh overload preserves its precise face-column types.
 type AnyMesh=Mesh<any,any,any,any>;
-type ViewGeometry=AnyMesh|CurveGeometry<any,any>|Instances<any,any,any,any,any,any,any>;
+type ViewGeometry=SurfaceCurves|AnyMesh|CurveGeometry<any,any>|Instances<any,any,any,any,any,any,any>;
 export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(geometry:Mesh<P,E,F,C>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,A extends Attributes3,S extends Attributes3,R extends PointRow<{}>,C extends Attributes3>(geometry:Instances<P,E,F,A,S,R,C>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
-export function view(geometry:CurveGeometry<any,any>,options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
+export function view(geometry:SurfaceCurves|CurveGeometry<any,any>,options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view(geometry:readonly ViewGeometry[],options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewOptions<any>,draw?:(lines:ProjectedLines)=>Tree):Drawing3 {
   const settings=captureValue(options),crease=settings.creaseAngle??30;
@@ -56,12 +58,13 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
     if(keys.some(k=>typeof k!=='string'||!k)||new Set(keys).size!==keys.length)throw new Error(`view ${kind} keys must be nonempty and unique`);
   }
   const meshes=Array.isArray(geometry)?geometry:[geometry];
-  const objects:SurfaceObject3[]=[];
+  const objects:SurfaceObject3[]=[],supported:SurfaceCurveObject3[]=[];
   const geometryKeys=new Set<string>();
   meshes.forEach((value:ViewGeometry,index:number)=>{
-    if(!(value instanceof Mesh)&&!(value instanceof Instances)&&!(value instanceof CurveGeometry))throw new Error('view requires mesh, curve or instance geometry');
+    if(!(value instanceof Mesh)&&!(value instanceof Instances)&&!(value instanceof CurveGeometry)&&!(value instanceof SurfaceCurves))throw new Error('view requires mesh, curve or instance geometry');
     const id=value.key??`object:${index}`;
     if(geometryKeys.has(id))throw new Error('view geometry keys must be unique');geometryKeys.add(id);
+    if(value instanceof SurfaceCurves){supported.push({id,network:value.network});return;}
     if(value instanceof CurveGeometry){objects.push({id,surface:value.surface,occluder:false});return;}
     const mesh=value instanceof Instances?value.prototype:value;
     const faces=mesh.faces();
@@ -77,12 +80,12 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
     }else objects.push({id,surface:mesh.surface,hatch,curves});
   });
   if(new Set(objects.map(o=>o.id)).size!==objects.length)throw new Error('view geometry keys must be unique');
-  const scene=lineArt3({id:settings.key,objects,camera:settings.camera,viewport:settings.viewport,lineSets:[]});
+  const scene=lineArt3({id:settings.key,objects,curves:supported,camera:settings.camera,viewport:settings.viewport,lineSets:[]});
   return drawing3(scene,classified=>{
     const lines=projectedLines(classified);
     if(draw)return draw(lines);
     return [
-      projectedStrokes(lines.visible.filter(c=>c.kinds.has('boundary')||c.kinds.has('silhouette')||c.kinds.has('wire')||(c.kinds.has('crease')&&c.feature.creaseAngle>=crease)),{stroke:settings.stroke}),
+      projectedStrokes(lines.visible.filter(c=>c.kinds.has('boundary')||c.kinds.has('silhouette')||c.kinds.has('wire')||c.kinds.has('intersection')||c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||(c.kinds.has('crease')&&c.feature.creaseAngle>=crease)),{stroke:settings.stroke}),
       ...recipes.map((recipe,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('hatch')&&c.attributes.hatchFamily===hatchKeys[i]),{stroke:recipe.stroke??settings.stroke})),
       ...planes.map((plane,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('section')&&c.attributes.sectionPlane===sectionKeys[i]),{stroke:plane.stroke??settings.stroke})),
     ];

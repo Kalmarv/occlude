@@ -1,6 +1,7 @@
+import {objectSurfaceBinding3,legacySurfaceCurveNetwork3,validateSurfaceCurveNetwork3,type SurfaceBinding3,type SurfaceCurveObject3} from '../curves/network.js';
 import { realizeHatch3, validateHatch3, type HatchSource3 } from '../curves/hatch.js';
 import type { UnitCtx } from '../../units.js';
-import { validateSurfaceCurves3, type SurfaceCurves3, type SurfaceCurvePoint3, type SurfaceCurveSegment3 } from '../curves/surface.js';
+import { validateSurfaceCurves3, type SurfaceCurves3, type SurfaceCurveSegment3 } from '../curves/surface.js';
 import { orient3d } from 'robust-predicates';
 import { clipSegment3, clipTriangle3, toCamera3, toPaper3, type CameraFrame3 } from '../camera.js';
 import { cross3, dot3, lerp3, mul3, sub3, unit3, type Triangle3, type Vec3 } from '../math.js';
@@ -9,15 +10,17 @@ import type { Attributes3, Surface3 } from '../geometry/surface.js';
 import { occlusionVolume3, type Interval3, type SegmentBasis3, type OcclusionVolume3 } from '../visibility/interval.js';
 import { ProjectedIndex3, projectedBounds3, type Bounds3 } from '../visibility/index.js';
 
-export const FeatureKind3 = { boundary: 1, silhouette: 2, crease: 4, marked: 8, wire: 16, section: 32, hatch: 64 } as const;
+export const FeatureKind3 = { boundary: 1, silhouette: 2, crease: 4, marked: 8, wire: 16, section: 32, hatch: 64, intersection:128, mapped:256, trace:512, isoline:1024 } as const;
 export interface InstanceSource3 {readonly id:string;readonly pointId:string;readonly pointIndex:number;readonly prototypeKey?:string}
-export interface SurfaceObject3 { readonly instance?:InstanceSource3; readonly id: string; readonly surface: Surface3; readonly curves?: SurfaceCurves3; readonly hatch?: HatchSource3; readonly transform?: Parameters<typeof transformSurface3>[1]; readonly lineSource?: boolean; readonly occluder?: boolean; readonly attributes?: Attributes3 }
+export interface SurfaceObject3 { readonly binding?:SurfaceBinding3; readonly instance?:InstanceSource3; readonly id: string; readonly surface: Surface3; readonly curves?: SurfaceCurves3; readonly hatch?: HatchSource3; readonly transform?: Parameters<typeof transformSurface3>[1]; readonly lineSource?: boolean; readonly occluder?: boolean; readonly attributes?: Attributes3 }
 export interface WireObject3 { readonly id: string; readonly points: readonly Vec3[]; readonly attributes?: Attributes3 }
 export interface Feature3 {
   /** Source placement identity, independent of per-view object naming. */
   readonly instance?:InstanceSource3;
   /** Captured model-space curve data before camera clipping, when generated. */
   readonly curve?: SurfaceCurveSegment3;
+  /** Canonical supported graph and segment index, including both-source marks. */
+  readonly supportedCurve?: {readonly graph:number;readonly segment:number};
   /** Camera/world affine source terms, retained through near/far clipping. */
   readonly basis?: SegmentBasis3;
   readonly id: string;
@@ -38,6 +41,10 @@ export interface Occluder3 { readonly id: string; readonly triangle: Triangle3; 
 export interface FeatureSnapshot3 {
   readonly frame: CameraFrame3;
   readonly features: readonly Feature3[];
+  /** Includes unselected source segments for continuous stroke phase. */
+  readonly referenceFeatures?:readonly Feature3[];
+  /** Each generated graph occurs once, including isolated point contacts. */
+  readonly curveGraphs?:readonly SurfaceCurveObject3[];
   readonly triangles: readonly Triangle3[];
   readonly occluders: readonly Occluder3[];
   readonly index: ProjectedIndex3;
@@ -50,12 +57,12 @@ const edgeKey = (a: number, b: number) => a < b ? `${a}:${b}` : `${b}:${a}`;
  * are retained so downstream thresholds/marks can select without re-dispatch.
  * Planar triangulation diagonals are not candidates. A folded face's actual
  * triangle-facing transition is a silhouette and retains face parentage. */
-export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: readonly WireObject3[], frame: CameraFrame3, units:UnitCtx={innerW:frame.paper.width,innerH:frame.paper.height}): FeatureSnapshot3 {
-  const features: Feature3[] = [], triangles: Triangle3[] = [], occluders: Occluder3[] = [];
+export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: readonly WireObject3[], frame: CameraFrame3, units:UnitCtx={innerW:frame.paper.width,innerH:frame.paper.height}, curves:readonly SurfaceCurveObject3[]=[]): FeatureSnapshot3 {
+  const features: Feature3[] = [], referenceFeatures:Feature3[]=[], curveGraphs:SurfaceCurveObject3[]=[], triangles: Triangle3[] = [], occluders: Occluder3[] = [];
   const worldView=Object.freeze({perspective:frame.camera.kind==='perspective',eye:frame.camera.eye,target:frame.camera.target,back:frame.back,near:frame.camera.near,far:frame.camera.far});
-  const ids = [...objects, ...wires].map(v => v.id);
+  const ids = [...objects, ...wires, ...curves].map(v => v.id);
   if (new Set(ids).size !== ids.length || ids.some(id => !id)) throw new Error('scene object IDs must be nonempty and unique');
-  const add = (feature: Omit<Feature3, 'range'>) => {
+  const add = (feature: Omit<Feature3, 'range'>, referenceOnly=false) => {
     const range = clipSegment3(feature.a, feature.b, frame.camera.near, frame.camera.far);
     if (!range || Math.hypot(...sub3(feature.a, feature.b)) === 0) return;
     const basisAt = (t: number) => {
@@ -67,7 +74,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
         ...basis[1].map(v => Object.freeze({ ...v, weight: v.weight * t })),
       ]);
     };
-    features.push(Object.freeze({
+    const captured=Object.freeze({
       ...feature,
       a: Object.freeze([...lerp3(feature.a, feature.b, range[0])]) as Vec3,
       b: Object.freeze([...lerp3(feature.a, feature.b, range[1])]) as Vec3,
@@ -76,7 +83,24 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       support: Object.freeze([...feature.support]),
       endpoints: Object.freeze([...feature.endpoints]) as readonly [string, string],
       faceAttributes: Object.freeze([...feature.faceAttributes]),
-    }));
+    });
+    referenceFeatures.push(captured);if(!referenceOnly)features.push(captured);
+  };
+  type BindingCapture={object:SurfaceObject3;triangleIds:readonly string[];faceAttrs:readonly Readonly<Attributes3>[]};
+  const captures=new Map<SurfaceBinding3,BindingCapture[]>();
+  const emitNetwork=(entry:SurfaceCurveObject3,bindings:readonly BindingCapture[],legacy?:{object:SurfaceObject3;segments:readonly SurfaceCurveSegment3[];positions:readonly Vec3[];worldPositions:readonly Vec3[]})=>{
+    const network=entry.network.reference??entry.network,selected=new Set(entry.network.segments.map(s=>s.id));
+    const graph=curveGraphs.length;curveGraphs.push(Object.freeze({...entry,network,attributes:attributes(entry.attributes)}));
+    network.segments.forEach((segment,index)=>{
+      const a=network.nodes[segment.a],b=network.nodes[segment.b],curve=legacy?.segments[index];
+      const position=(end:'a'|'b'):Vec3=>curve?curve[end].vertices.reduce((sum,v,i)=>sum.map((x,k)=>x+legacy!.positions[v][k]*curve[end].weights[i]) as unknown as Vec3,[0,0,0] as Vec3):toCamera3(frame,(end==='a'?a:b).position);
+      const basis=curve?Object.freeze([curve.a,curve.b].map(p=>Object.freeze(p.vertices.flatMap((v,i)=>p.weights[i]===0?[]:[Object.freeze({point:legacy!.positions[v],world:legacy!.worldPositions[v],weight:p.weights[i]})])))) as SegmentBasis3:
+        Object.freeze([a,b].map(p=>Object.freeze([Object.freeze({point:Object.freeze(toCamera3(frame,p.position)),world:p.position,exactWorld:p.exact,weight:1})]))) as SegmentBasis3;
+      const support=[...new Set(segment.supports.map(s=>bindings[s.source].triangleIds[s.triangle]))];
+      const faces=new Map<string,Readonly<Attributes3>>();
+      for(const s of segment.supports){const face=network.sources[s.source].binding.source.triangles[s.triangle].face;faces.set(key(s.source,face),bindings[s.source].faceAttrs[face]);}
+      add({...(legacy?.object.instance?{instance:Object.freeze({...legacy.object.instance})}:{}),id:key(entry.id,segment.id),objectId:entry.id,sourceId:segment.id,flags:FeatureKind3[segment.kind],curve,supportedCurve:Object.freeze({graph,segment:index}),basis,creaseAngle:0,a:position('a'),b:position('b'),endpoints:[key(entry.id,'curve',a.id),key(entry.id,'curve',b.id)],support,attributes:attributes({...entry.attributes,...segment.attributes}),faceAttributes:[...faces.values()]},!selected.has(segment.id));
+    });
   };
   for (const object of objects) {
     if(object.curves)validateSurfaceCurves3(object.curves,object.surface);
@@ -116,6 +140,8 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
         if (volume) occluders.push(Object.freeze({ id, triangle: owned, volume:Object.freeze({...volume,world:worldVolume}), bounds: Object.freeze(projectedBounds3(owned.map(p => toPaper3(frame, p)))) }));
       }
     });
+    const binding=objectSurfaceBinding3(object),capture={object,triangleIds,faceAttrs};
+    const matching=captures.get(binding)??[];matching.push(capture);captures.set(binding,matching);
     if (object.lineSource === false) continue;
     for (const [k, edge] of triangleEdges) {
       const original = originals.get(k), incident = edge.triangles;
@@ -143,13 +169,19 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     }
     const hatch=object.hatch?realizeHatch3(object.hatch,surface,frame,units):undefined;
     if(hatch)validateSurfaceCurves3(hatch,object.surface);
-    for(const curve of [...object.curves?.segments??[],...hatch?.segments??[]]) {
-      const position=(p:SurfaceCurvePoint3):Vec3=>p.vertices.reduce((sum,v,i)=>sum.map((x,k)=>x+positions[v][k]*p.weights[i]) as unknown as Vec3,[0,0,0] as Vec3);
-      const basis = Object.freeze([curve.a, curve.b].map(p => Object.freeze(p.vertices.flatMap((v,i) => p.weights[i] === 0 ? [] : [Object.freeze({ point: positions[v], world:worldPositions[v], weight: p.weights[i] })])))) as SegmentBasis3;
-      const faces=[...new Set(curve.triangles.map(i=>surface.triangles[i].face))];
-      const support=[...new Set(curve.triangles.flatMap(i=>{const face=surface.triangles[i].face;return planar[face]?faceTriangles[face]:[i];}))].map(i=>triangleIds[i]);
-      add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),id:key(object.id,curve.id),objectId:object.id,sourceId:curve.id,flags:curve.kind==='hatch'?FeatureKind3.hatch:FeatureKind3.section,curve,basis,creaseAngle:0,a:position(curve.a),b:position(curve.b),endpoints:[key(object.id,'curve',curve.a.id),key(object.id,'curve',curve.b.id)],support,attributes:attributes({...object.attributes,...curve.attributes}),faceAttributes:faces.map(i=>faceAttrs[i])});
+    for(const source of [object.curves,hatch])if(source){
+      const network=legacySurfaceCurveNetwork3(source,binding);
+      emitNetwork({id:object.id,network,attributes:object.attributes},[capture],{object,segments:source.segments,positions,worldPositions});
     }
+  }
+  for(const entry of curves){
+    validateSurfaceCurveNetwork3(entry.network);
+    const bindings=entry.network.sources.map(source=>{
+      const matches=captures.get(source.binding)??[];
+      if(matches.length!==1)throw new Error(matches.length?'surface curve placement is ambiguous; provide distinct placement bindings':'surface curve source placement is missing from this scene');
+      return matches[0];
+    });
+    emitNetwork(entry,bindings);
   }
   for (const wire of wires) for (let i = 0; i + 1 < wire.points.length; i++) {
     const world=[wire.points[i],wire.points[i+1]].map(p=>Object.freeze([...p]) as Vec3);
@@ -157,5 +189,5 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     const basis=Object.freeze(positions.map((point,i)=>Object.freeze([Object.freeze({point,world:world[i],weight:1})]))) as SegmentBasis3;
     add({ id: key(wire.id, i), objectId: wire.id, sourceId: `segment:${i}`, flags: FeatureKind3.wire, creaseAngle: 0, a: positions[0], b: positions[1], basis, endpoints: [key(wire.id, i), key(wire.id, i + 1)], support: [], attributes: attributes(wire.attributes), faceAttributes: [] });
   }
-  return Object.freeze({ frame, features: Object.freeze(features), triangles: Object.freeze(triangles), occluders: Object.freeze(occluders), index: new ProjectedIndex3(occluders.map(t => t.bounds)) });
+  return Object.freeze({ frame, features: Object.freeze(features), referenceFeatures:referenceFeatures.length===features.length?undefined:Object.freeze(referenceFeatures), curveGraphs:curveGraphs.length?Object.freeze(curveGraphs):undefined, triangles: Object.freeze(triangles), occluders: Object.freeze(occluders), index: new ProjectedIndex3(occluders.map(t => t.bounds)) });
 }

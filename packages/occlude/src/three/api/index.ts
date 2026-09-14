@@ -28,3 +28,5 @@ export {axisAngle,alignAxis} from '../rotation.js';
 export type {Rotation,RotationData,RotationInput,AlignAxisOptions,Axis3,Quaternion3,Vector3} from '../rotation.js';
 export {grid} from './grid.js';
 export type {GridOptions} from './grid.js';
+
+export type {SurfaceCurves,SurfaceCurvePoint,SurfaceCurveEdge} from './supported.js';

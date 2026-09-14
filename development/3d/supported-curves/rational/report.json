@@ -1,0 +1,691 @@
+{
+  "passed": true,
+  "base": "http://127.0.0.1:5273",
+  "results": [
+    {
+      "z": 0,
+      "near": 0.1,
+      "actual": {
+        "frame": {
+          "camera": {
+            "eye": [
+              3,
+              4,
+              5
+            ],
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "span": 2,
+            "near": 0.1,
+            "far": 10,
+            "kind": "orthographic",
+            "up": [
+              0,
+              0,
+              1
+            ]
+          },
+          "right": [
+            -0.8,
+            0.6000000000000001,
+            0
+          ],
+          "up": [
+            -0.42426406871192857,
+            -0.565685424949238,
+            0.7071067811865476
+          ],
+          "back": [
+            0.4242640687119285,
+            0.565685424949238,
+            0.7071067811865475
+          ],
+          "paper": {
+            "x": 10.16,
+            "y": 10.16,
+            "width": 182.88,
+            "height": 182.88
+          }
+        },
+        "hidden": [],
+        "visible": [
+          [
+            0,
+            1
+          ]
+        ],
+        "features": [
+          {
+            "range": [
+              0,
+              1
+            ],
+            "basis": [
+              [
+                {
+                  "point": [
+                    -0.06666666666666687,
+                    -0.09428090415820689,
+                    -6.505382386916237
+                  ],
+                  "world": [
+                    0.3333333333333333,
+                    0.3333333333333333,
+                    0.3333333333333333
+                  ],
+                  "exactWorld": [
+                    "1",
+                    "1",
+                    "1",
+                    "3"
+                  ],
+                  "weight": 1
+                }
+              ],
+              [
+                {
+                  "point": [
+                    -0.08000000000000052,
+                    -0.2545584412271569,
+                    -6.533666658163699
+                  ],
+                  "world": [
+                    0.4,
+                    0.4,
+                    0.2
+                  ],
+                  "exactWorld": [
+                    "2",
+                    "2",
+                    "1",
+                    "5"
+                  ],
+                  "weight": 1
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "hidden": [],
+        "visible": [
+          [
+            0,
+            1
+          ]
+        ]
+      },
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 19,
+            "dispatches": 1,
+            "refinements": 21,
+            "transferBytes": 2144,
+            "wallMs": 44,
+            "gpuMs": 0.013824,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 2.9999999403953552,
+              "queueMs": 0,
+              "setupMs": 411.60000002384186,
+              "packingMs": 0.40000003576278687,
+              "uploadSubmitMs": 2.199999988079071,
+              "dispatchSubmitMs": 0.3999999761581421,
+              "readbackWaitMs": 36.60000002384186,
+              "readbackCopyMs": 0.19999998807907104,
+              "refinementMs": 2,
+              "candidateMs": 0.5,
+              "finalizeMs": 0.30000001192092896,
+              "validationWaitMs": 0.40000003576278687,
+              "cpuMs": 0,
+              "wallMs": 459.30000001192093,
+              "unattributedMs": 1.699999988079071
+            }
+          }
+        ]
+      }
+    },
+    {
+      "z": 2.220446049250313e-16,
+      "near": 0.1,
+      "actual": {
+        "frame": {
+          "camera": {
+            "eye": [
+              3,
+              4,
+              5
+            ],
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "span": 2,
+            "near": 0.1,
+            "far": 10,
+            "kind": "orthographic",
+            "up": [
+              0,
+              0,
+              1
+            ]
+          },
+          "right": [
+            -0.8,
+            0.6000000000000001,
+            0
+          ],
+          "up": [
+            -0.42426406871192857,
+            -0.565685424949238,
+            0.7071067811865476
+          ],
+          "back": [
+            0.4242640687119285,
+            0.565685424949238,
+            0.7071067811865475
+          ],
+          "paper": {
+            "x": 10.16,
+            "y": 10.16,
+            "width": 182.88,
+            "height": 182.88
+          }
+        },
+        "hidden": [
+          [
+            0,
+            1
+          ]
+        ],
+        "visible": [],
+        "features": [
+          {
+            "range": [
+              0,
+              1
+            ],
+            "basis": [
+              [
+                {
+                  "point": [
+                    -0.06666666666666687,
+                    -0.09428090415820689,
+                    -6.505382386916237
+                  ],
+                  "world": [
+                    0.3333333333333333,
+                    0.3333333333333333,
+                    0.3333333333333333
+                  ],
+                  "exactWorld": [
+                    "1",
+                    "1",
+                    "1",
+                    "3"
+                  ],
+                  "weight": 1
+                }
+              ],
+              [
+                {
+                  "point": [
+                    -0.08000000000000052,
+                    -0.2545584412271569,
+                    -6.533666658163699
+                  ],
+                  "world": [
+                    0.4,
+                    0.4,
+                    0.2
+                  ],
+                  "exactWorld": [
+                    "2",
+                    "2",
+                    "1",
+                    "5"
+                  ],
+                  "weight": 1
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "hidden": [
+          [
+            0,
+            1
+          ]
+        ],
+        "visible": [],
+        "exactRange": [
+          "0",
+          "1"
+        ]
+      },
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 19,
+            "dispatches": 1,
+            "refinements": 21,
+            "transferBytes": 2144,
+            "wallMs": 4.5,
+            "gpuMs": 0.009088,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 0.9000000357627869,
+              "queueMs": 0,
+              "setupMs": 0,
+              "packingMs": 0.19999998807907104,
+              "uploadSubmitMs": 0.10000002384185791,
+              "dispatchSubmitMs": 0.19999998807907104,
+              "readbackWaitMs": 2.600000023841858,
+              "readbackCopyMs": 0.09999996423721313,
+              "refinementMs": 0.8999999761581421,
+              "candidateMs": 0.19999998807907104,
+              "finalizeMs": 0,
+              "validationWaitMs": 0.10000002384185791,
+              "cpuMs": 0,
+              "wallMs": 5.400000035762787,
+              "unattributedMs": 0.10000002384185791
+            }
+          }
+        ]
+      }
+    },
+    {
+      "z": 0,
+      "near": 6.52,
+      "actual": {
+        "frame": {
+          "camera": {
+            "eye": [
+              3,
+              4,
+              5
+            ],
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "span": 2,
+            "near": 6.52,
+            "far": 10,
+            "kind": "orthographic",
+            "up": [
+              0,
+              0,
+              1
+            ]
+          },
+          "right": [
+            -0.8,
+            0.6000000000000001,
+            0
+          ],
+          "up": [
+            -0.42426406871192857,
+            -0.565685424949238,
+            0.7071067811865476
+          ],
+          "back": [
+            0.4242640687119285,
+            0.565685424949238,
+            0.7071067811865475
+          ],
+          "paper": {
+            "x": 10.16,
+            "y": 10.16,
+            "width": 182.88,
+            "height": 182.88
+          }
+        },
+        "hidden": [],
+        "visible": [
+          [
+            0,
+            1
+          ]
+        ],
+        "features": [
+          {
+            "range": [
+              0.5168106668144897,
+              1
+            ],
+            "basis": [
+              [
+                {
+                  "point": [
+                    -0.06666666666666687,
+                    -0.09428090415820689,
+                    -6.505382386916237
+                  ],
+                  "world": [
+                    0.3333333333333333,
+                    0.3333333333333333,
+                    0.3333333333333333
+                  ],
+                  "exactWorld": [
+                    "1",
+                    "1",
+                    "1",
+                    "3"
+                  ],
+                  "weight": 0.4831893331855103
+                },
+                {
+                  "point": [
+                    -0.08000000000000052,
+                    -0.2545584412271569,
+                    -6.533666658163699
+                  ],
+                  "world": [
+                    0.4,
+                    0.4,
+                    0.2
+                  ],
+                  "exactWorld": [
+                    "2",
+                    "2",
+                    "1",
+                    "5"
+                  ],
+                  "weight": 0.5168106668144897
+                }
+              ],
+              [
+                {
+                  "point": [
+                    -0.08000000000000052,
+                    -0.2545584412271569,
+                    -6.533666658163699
+                  ],
+                  "world": [
+                    0.4,
+                    0.4,
+                    0.2
+                  ],
+                  "exactWorld": [
+                    "2",
+                    "2",
+                    "1",
+                    "5"
+                  ],
+                  "weight": 1
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "hidden": [],
+        "visible": [
+          [
+            0,
+            1
+          ]
+        ]
+      },
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 11,
+            "dispatches": 1,
+            "refinements": 9,
+            "transferBytes": 1248,
+            "wallMs": 4.800000011920929,
+            "gpuMs": 0.008832,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 0.800000011920929,
+              "queueMs": 0,
+              "setupMs": 0,
+              "packingMs": 0,
+              "uploadSubmitMs": 0,
+              "dispatchSubmitMs": 0.20000004768371582,
+              "readbackWaitMs": 3.099999964237213,
+              "readbackCopyMs": 0,
+              "refinementMs": 0.800000011920929,
+              "candidateMs": 0.10000002384185791,
+              "finalizeMs": 0,
+              "validationWaitMs": 0.30000001192092896,
+              "cpuMs": 0,
+              "wallMs": 5.5,
+              "unattributedMs": 0.19999992847442627
+            }
+          }
+        ]
+      }
+    },
+    {
+      "z": 2.220446049250313e-16,
+      "near": 6.52,
+      "actual": {
+        "frame": {
+          "camera": {
+            "eye": [
+              3,
+              4,
+              5
+            ],
+            "target": [
+              0,
+              0,
+              0
+            ],
+            "span": 2,
+            "near": 6.52,
+            "far": 10,
+            "kind": "orthographic",
+            "up": [
+              0,
+              0,
+              1
+            ]
+          },
+          "right": [
+            -0.8,
+            0.6000000000000001,
+            0
+          ],
+          "up": [
+            -0.42426406871192857,
+            -0.565685424949238,
+            0.7071067811865476
+          ],
+          "back": [
+            0.4242640687119285,
+            0.565685424949238,
+            0.7071067811865475
+          ],
+          "paper": {
+            "x": 10.16,
+            "y": 10.16,
+            "width": 182.88,
+            "height": 182.88
+          }
+        },
+        "hidden": [
+          [
+            9.133536167931288e-15,
+            1
+          ]
+        ],
+        "visible": [
+          [
+            0,
+            9.133536167931288e-15
+          ]
+        ],
+        "features": [
+          {
+            "range": [
+              0.5168106668144897,
+              1
+            ],
+            "basis": [
+              [
+                {
+                  "point": [
+                    -0.06666666666666687,
+                    -0.09428090415820689,
+                    -6.505382386916237
+                  ],
+                  "world": [
+                    0.3333333333333333,
+                    0.3333333333333333,
+                    0.3333333333333333
+                  ],
+                  "exactWorld": [
+                    "1",
+                    "1",
+                    "1",
+                    "3"
+                  ],
+                  "weight": 0.4831893331855103
+                },
+                {
+                  "point": [
+                    -0.08000000000000052,
+                    -0.2545584412271569,
+                    -6.533666658163699
+                  ],
+                  "world": [
+                    0.4,
+                    0.4,
+                    0.2
+                  ],
+                  "exactWorld": [
+                    "2",
+                    "2",
+                    "1",
+                    "5"
+                  ],
+                  "weight": 0.5168106668144897
+                }
+              ],
+              [
+                {
+                  "point": [
+                    -0.08000000000000052,
+                    -0.2545584412271569,
+                    -6.533666658163699
+                  ],
+                  "world": [
+                    0.4,
+                    0.4,
+                    0.2
+                  ],
+                  "exactWorld": [
+                    "2",
+                    "2",
+                    "1",
+                    "5"
+                  ],
+                  "weight": 1
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "hidden": [
+          [
+            9.133536167931288e-15,
+            1
+          ]
+        ],
+        "visible": [
+          [
+            0,
+            9.133536167931288e-15
+          ]
+        ],
+        "exactRange": [
+          "121524004218727359/13305252421883396217392371810250",
+          "1"
+        ]
+      },
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 11,
+            "dispatches": 1,
+            "refinements": 9,
+            "transferBytes": 1248,
+            "wallMs": 6,
+            "gpuMs": 0.008736,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 0.40000003576278687,
+              "queueMs": 0,
+              "setupMs": 0,
+              "packingMs": 0.699999988079071,
+              "uploadSubmitMs": 0,
+              "dispatchSubmitMs": 0.30000001192092896,
+              "readbackWaitMs": 3.600000023841858,
+              "readbackCopyMs": 0.09999996423721313,
+              "refinementMs": 0.9000000357627869,
+              "candidateMs": 0.09999996423721313,
+              "finalizeMs": 0,
+              "validationWaitMs": 0.19999998807907104,
+              "cpuMs": 0,
+              "wallMs": 6.399999976158142,
+              "unattributedMs": 0.09999996423721313
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "errors": []
+}
