@@ -49,6 +49,11 @@ export interface SurfaceLocation3 {
    * increasing u and the normal-consistent perpendicular. Absent without a
    * regular chart. Convenient for direction fields: `s => s.tangentU`. */
   readonly tangentU?:Vec3;readonly tangentV?:Vec3;
+  /** `position` spelled out, for fields that read one coordinate. */
+  readonly x:number;readonly y:number;readonly z:number;
+  /** Cosine of the angle between the normal and a direction, clamped at 0:
+   * the term a light sees. */
+  facing(direction:Vec3):number;
   readonly chartStatus:'missing'|'regular'|'degenerate';
 }
 interface State {readonly options:SurfaceLocationOptions3}
@@ -217,7 +222,7 @@ export function surfaceLocation3(source:Surface3,triangle:number,barycentric:Vec
     if(!uv.every(Number.isFinite))throw new Error('surface UV position is not representable');
   }
   const modelShadingNormal=options.shadingNormal?unit(options.shadingNormal):undefined;
-  const location={...(exact?{exact:encodePoint(exact)}:{}),source,placement:place,triangle,face:ctx.face,faceId:ctx.faceId,vertices:t.vertices,vertexIds:ctx.vertexIds,corners:ctx.corners,barycentric:weights,space:place?'world' as const:'model' as const,modelPosition,position:worldPosition,modelNormal:ctx.modelNormal,normal:ctx.worldNormal,modelShadingNormal,shadingNormal:modelShadingNormal?normal(modelShadingNormal,place?.transform):undefined,faceAttributes:source.faces[ctx.face].attributes,uv,chart:ctx.chart,modelFrame:ctx.modelFrame,frame:ctx.worldFrame,tangentU:ctx.worldFrame?.tangent,tangentV:ctx.worldFrame?.bitangent,chartStatus:ctx.chartStatus} as SurfaceLocation3;
+  const location={...(exact?{exact:encodePoint(exact)}:{}),source,placement:place,triangle,face:ctx.face,faceId:ctx.faceId,vertices:t.vertices,vertexIds:ctx.vertexIds,corners:ctx.corners,barycentric:weights,space:place?'world' as const:'model' as const,modelPosition,position:worldPosition,modelNormal:ctx.modelNormal,normal:ctx.worldNormal,modelShadingNormal,shadingNormal:modelShadingNormal?normal(modelShadingNormal,place?.transform):undefined,faceAttributes:source.faces[ctx.face].attributes,uv,chart:ctx.chart,modelFrame:ctx.modelFrame,frame:ctx.worldFrame,tangentU:ctx.worldFrame?.tangent,tangentV:ctx.worldFrame?.bitangent,x:worldPosition[0],y:worldPosition[1],z:worldPosition[2],facing(direction:Vec3){const l=Math.hypot(...direction);if(!(l>0))throw new Error('facing requires a nonzero direction');const n=ctx.worldNormal;return Math.max(0,(n[0]*direction[0]+n[1]*direction[1]+n[2]*direction[2])/l);},chartStatus:ctx.chartStatus} as SurfaceLocation3;
   let pointAttributes:Readonly<Attributes3>|undefined,cornerAttributes:Readonly<Attributes3>|undefined;
   Object.defineProperty(location,'pointAttributes',{enumerable:true,get(){return pointAttributes??=freeze(interpolateAttributes3(ctx.rows,weights,options.pointTransfers));}});
   Object.defineProperty(location,'cornerAttributes',{enumerable:true,get(){return cornerAttributes??=freeze(interpolateAttributes3(ctx.cornerRows,weights,options.cornerTransfers));}});

@@ -35,6 +35,10 @@ export class ProjectedCurves implements Iterable<ProjectedCurve> {
   [Symbol.iterator]():IterableIterator<ProjectedCurve>{return this.rows[Symbol.iterator]();}
   map<T>(fn:(row:ProjectedCurve,index:number)=>T):T[]{return this.rows.map(fn);}
   filter(fn:(row:ProjectedCurve,index:number)=>boolean):ProjectedCurves{return new ProjectedCurves(this.source,this.visibility,this.rows.filter(fn),this.key);}
+  /** Lines of any of these kinds (boundary, silhouette, crease, wire, section, hatch, intersection, mapped, trace, isoline). */
+  kind(...names:readonly FeatureKind[]):ProjectedCurves{return this.filter(row=>names.some(name=>row.kinds.has(name)));}
+  /** Lines of none of these kinds. */
+  except(...names:readonly FeatureKind[]):ProjectedCurves{return this.filter(row=>!names.some(name=>row.kinds.has(name)));}
   groupBy<K>(fn:(row:ProjectedCurve)=>K):readonly (ProjectedCurves&{readonly key:K})[]{const groups=new Map<K,ProjectedCurve[]>();for(const row of this.rows){const k=fn(row);const group=groups.get(k);if(group)group.push(row);else groups.set(k,[row]);}return Object.freeze([...groups].map(([key,rows])=>new ProjectedCurves(this.source,this.visibility,rows,key) as ProjectedCurves&{readonly key:K}));}
 }
 export interface ProjectedLines {readonly visible:ProjectedCurves;readonly hidden:ProjectedCurves}

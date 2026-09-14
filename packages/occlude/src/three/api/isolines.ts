@@ -1,17 +1,22 @@
 import {Mesh,type GeometryOptions} from './mesh.js';
 import type {MeshCornerRow} from './topology.js';
-import {SurfaceCurves} from './supported.js';
+import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {isolines3} from '../curves/isolines.js';
 import type {SurfaceCurveBudget3} from '../curves/network.js';
 
 export type IsolineLevels=readonly number[]|{readonly count:number;readonly min?:number;readonly max?:number}|{readonly spacing:number;readonly offset?:number};
-export interface IsolineOptions extends GeometryOptions {
-  readonly levels:IsolineLevels;
+export interface IsolineOptions extends SurfaceCurveOptions {
+  /** Explicit levels; or `count` evenly inside the field's range; or `spacing` (with `offset`). */
+  readonly levels?:IsolineLevels;readonly count?:number;readonly spacing?:number;readonly offset?:number;
   readonly maxSegments?:number;readonly maxNodes?:number;readonly budget?:SurfaceCurveBudget3;
 }
 /** `levelIndex` rather than `index`: edge rows already carry their row index. */
 export type IsolineAttributes={level:number;levelIndex:number};
-export type IsolineField=string|((corner:MeshCornerRow<any,any,any,any>)=>number);
+/** The field's row: the corner (uv, chart, `.point`, `.face`) with its point's
+ * `x`, `y`, `z` and point attributes merged in, so `p => p.z` and
+ * `c => c.uv[1]` both read naturally. */
+export type IsolineRow=MeshCornerRow<any,any,any,any>&{readonly x:number;readonly y:number;readonly z:number};
+export type IsolineField=string|((row:IsolineRow)=>number);
 function resolveLevels(spec:IsolineLevels,values:ArrayLike<number>):number[] {
   let min=Infinity,max=-Infinity;for(let i=0;i<values.length;i++){min=Math.min(min,values[i]);max=Math.max(max,values[i]);}
   if(Array.isArray(spec)){if(!spec.length||spec.some(l=>!Number.isFinite(l)))throw new Error('isolines levels must be a nonempty finite array');return [...spec];}
@@ -36,14 +41,18 @@ function resolveLevels(spec:IsolineLevels,values:ArrayLike<number>):number[] {
  * accuracy. Reusable supported construction geometry, not a view feature. */
 export function isolines(mesh:Mesh<any,any,any,any>,field:IsolineField,options:IsolineOptions):SurfaceCurves<IsolineAttributes> {
   if(!(mesh instanceof Mesh))throw new Error('isolines require a mesh');
-  if(!options||typeof options!=='object'||Array.isArray(options)||options.levels===undefined)throw new Error('isolines require { levels }');
+  if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('isolines require options: { count }, { spacing } or { levels }');
+  const given=[options.levels!==undefined,options.count!==undefined,options.spacing!==undefined].filter(Boolean).length;
+  if(given!==1)throw new Error('isolines take exactly one of levels, count or spacing');
+  const spec:IsolineLevels=options.levels??(options.count!==undefined?{count:options.count}:{spacing:options.spacing!,offset:options.offset});
   const corners=[...mesh.corners];
   const values=Float64Array.from(corners,c=>{
-    const v=typeof field==='string'?c.point.attributes[field]:field(c);
+    const row:IsolineRow=Object.freeze(Object.assign(Object.create(c) as IsolineRow,{...c.point.attributes,x:c.point.x,y:c.point.y,z:c.point.z}));
+    const v=typeof field==='string'?(c.point.attributes[field]??c.attributes[field]):field(row);
     if(typeof v!=='number'||!Number.isFinite(v))throw new Error(typeof field==='string'?`isolines require a finite numeric point attribute '${field}'`:'isolines field must return finite numbers');
     return v;
   });
-  const levels=resolveLevels(options.levels,values);
+  const levels=resolveLevels(spec,values);
   const result=isolines3(mesh.surface,values,levels,{key:options.key??mesh.key,maxSegments:options.maxSegments,maxNodes:options.maxNodes,budget:options.budget});
-  return new SurfaceCurves<IsolineAttributes>(result.network,{key:options.key});
+  return new SurfaceCurves<IsolineAttributes>(result.network,{key:options.key,stroke:options.stroke});
 }

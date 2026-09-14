@@ -15,6 +15,8 @@ export interface LightRecipe3 {
   readonly ramp:'linear'|'smooth';
   /** World uses the placed geometric normal; model uses the prototype normal. */
   readonly space:'world'|'model';
+  /** Lowest tone anywhere: lit faces keep this much hatch. */
+  readonly floor:number;
 }
 export interface ImageRecipe3 {
   readonly kind:'image';
@@ -35,14 +37,19 @@ export function registerToneRecipe3<F extends object>(field:F,recipe:ToneRecipe3
 /** A user callback without a registered recipe is arbitrary JS: CPU only. */
 export function toneRecipe3(field:unknown):ToneRecipe3|undefined{return typeof field==='function'||typeof field==='object'&&field?recipes.get(field as object):undefined;}
 
-export function lightRecipe3(options:{direction:Vec3;ambient?:number;ramp?:'linear'|'smooth';space?:'world'|'model'}):LightRecipe3 {
-  finite3(options.direction);
-  if(!options.direction.some(n=>n!==0))throw new Error('light direction must be nonzero');
-  const ambient=options.ambient??0.15,ramp=options.ramp??'linear',space=options.space??'world';
+export type LightDirection3=Vec3|'up'|'down'|'x'|'y'|'z';
+export function lightRecipe3(options:{direction:LightDirection3;ambient?:number;ramp?:'linear'|'smooth';space?:'world'|'model';floor?:number}):LightRecipe3 {
+  const named:Record<string,Vec3>={up:[0,0,1],down:[0,0,-1],x:[1,0,0],y:[0,1,0],z:[0,0,1]};
+  const direction:Vec3|undefined=typeof options.direction==='string'?named[options.direction]:options.direction;
+  if(!direction)throw new Error('light direction must be a vector or up/down/x/y/z');
+  finite3(direction);
+  if(!direction.some(n=>n!==0))throw new Error('light direction must be nonzero');
+  const ambient=options.ambient??0.15,ramp=options.ramp??'linear',space=options.space??'world',floor=options.floor??0;
+  if(!Number.isFinite(floor)||floor<0||floor>1)throw new Error('light floor must lie in [0,1]');
   if(!Number.isFinite(ambient)||ambient<0||ambient>1)throw new Error('light ambient must lie in [0,1]');
   if(ramp!=='linear'&&ramp!=='smooth')throw new Error('light ramp must be linear or smooth');
   if(space!=='world'&&space!=='model')throw new Error('light space must be world or model');
-  return Object.freeze({kind:'light',direction:Object.freeze(unit3(options.direction)) as Vec3,ambient,ramp,space});
+  return Object.freeze({kind:'light',direction:Object.freeze(unit3(direction)) as Vec3,ambient,ramp,space,floor});
 }
 /** CPU reference. Illumination is ambient plus the ramped cosine; tone is its
  * complement. A face turned away from the light reaches 1 - ambient. */
@@ -50,7 +57,7 @@ export function lightTone3(normal:Vec3,recipe:LightRecipe3):number {
   const cosine=Math.max(0,dot3(normal,recipe.direction));
   const response=recipe.ramp==='smooth'?cosine*cosine*(3-2*cosine):cosine;
   const illumination=recipe.ambient+(1-recipe.ambient)*response;
-  return Math.min(1,Math.max(0,1-illumination));
+  return recipe.floor+(1-recipe.floor)*Math.min(1,Math.max(0,1-illumination));
 }
 /** Rec. 709 luminance with integer weights, so a white pixel is exactly 255
  * and `dark` is exactly zero there (the float coefficients sum to 1 - 1e-16). */

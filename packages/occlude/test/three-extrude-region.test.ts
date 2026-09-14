@@ -10,7 +10,7 @@ const sheet=(n=4)=>plane(4,4).subdivide(n===4?2:1);
 describe('connected-region extrusion',()=>{
   it('extrudes an adjacent patch as one cap with walls on every boundary edge',()=>{
     const model=sheet();
-    const region=model.faces().filter(f=>Math.abs(f.center[0])<1.5&&Math.abs(f.center[1])<1.5);
+    const region=model.faces.filter(f=>Math.abs(f.center[0])<1.5&&Math.abs(f.center[1])<1.5);
     expect(region.length).toBe(4);
     const out=model.extrude(region,[0,0,0.5]);
     const boundary=region.boundaryEdges().length;
@@ -28,7 +28,7 @@ describe('connected-region extrusion',()=>{
   });
   it('changes a box volume by area times distance, for positive and negative offsets',()=>{
     const model=box(2);
-    const top=model.faces().filter(f=>f.normal[2]>0.9);
+    const top=model.faces.filter(f=>f.normal[2]>0.9);
     for(const d of [1,-0.5]){
       const out=model.extrude(top,{distance:d});
       expect(closed(out.surface)).toBe(true);
@@ -39,7 +39,7 @@ describe('connected-region extrusion',()=>{
   });
   it('gives each connected component its own vector and reports zero vectors',()=>{
     const model=sheet();
-    const faces=model.faces();
+    const faces=model.faces;
     const left=faces.filter(f=>f.center[0]<-1),right=faces.filter(f=>f.center[0]>1);
     const region=left.union(right);
     expect(region.components().length).toBe(2);
@@ -51,13 +51,13 @@ describe('connected-region extrusion',()=>{
   });
   it('walls hole loops and open sheet edges',()=>{
     const model=sheet();
-    const ring=model.faces().filter(f=>!(Math.abs(f.center[0])<1&&Math.abs(f.center[1])<1));
+    const ring=model.faces.filter(f=>!(Math.abs(f.center[0])<1&&Math.abs(f.center[1])<1));
     expect(ring.length).toBe(12);
     expect(ring.components().length).toBe(1);
     const out=model.extrude(ring,[0,0,1]);
     // Outer loop (open sheet boundary, 16 edges) plus the hole loop (8 edges).
     expect(out.surface.faces.length).toBe(model.surface.faces.length+24);
-    const centre=model.faces().filter(f=>Math.abs(f.center[0])<1&&Math.abs(f.center[1])<1);
+    const centre=model.faces.filter(f=>Math.abs(f.center[0])<1&&Math.abs(f.center[1])<1);
     for(const f of centre){const same=out.surface.faces.find(x=>x.id===f.id)!;expect(same.vertices.every(v=>out.surface.points[v].position[2]===0)).toBe(true);}
     expect(out.surface.edges.every(e=>e.faces.length<=2)).toBe(true);
     const walls=out.surface.faces.filter(f=>f.provenance?.operation==='extrude');
@@ -66,24 +66,24 @@ describe('connected-region extrusion',()=>{
   });
   it('rejects closed shells, foreign selections and bad offsets',()=>{
     const model=box(1);
-    expect(()=>model.extrude(model.faces(),[0,0,1])).toThrow('closed shell');
+    expect(()=>model.extrude(model.faces,[0,0,1])).toThrow('closed shell');
     const other=box(1);
-    expect(()=>model.extrude(other.faces(),[0,0,1])).toThrow('this mesh revision');
-    expect(()=>model.extrude(model.faces().filter(f=>f.normal[2]>0.9),{distance:Number.NaN})).toThrow('finite');
-    expect(()=>model.extrude(model.faces().filter(f=>f.normal[2]>0.9),[0,0,1],{key:''})).toThrow('nonempty');
+    expect(()=>model.extrude(other.faces,[0,0,1])).toThrow('this mesh revision');
+    expect(()=>model.extrude(model.faces.filter(f=>f.normal[2]>0.9),{distance:Number.NaN})).toThrow('finite');
+    expect(()=>model.extrude(model.faces.filter(f=>f.normal[2]>0.9),[0,0,1],{key:''})).toThrow('nonempty');
     // Two opposite faces cancel: no region direction for a scalar distance.
-    const ends=model.faces().filter(f=>Math.abs(f.normal[2])>0.9);
+    const ends=model.faces.filter(f=>Math.abs(f.normal[2])>0.9);
     expect(ends.components().length).toBe(2);
     expect(()=>model.extrude(ends,{distance:1})).not.toThrow();
     // A folded strip: floor, wall, and a ceiling wound back over the floor.
     const cancelling=mesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[1,1,1],[0,1,1],[1,0,1],[0,0,1]],[[0,1,2,3],[3,2,4,5],[5,4,6,7]]);
-    const both=cancelling.faces();
+    const both=cancelling.faces;
     expect(both.components().length).toBe(1);
     expect(()=>cancelling.extrude(both,{distance:1})).toThrow('well-defined direction');
   });
   it('retains cap corner UVs and generates continuous side charts',()=>{
     const model=plane(2,2).subdivide(1);
-    const region=model.faces().filter(f=>f.center[0]<0);
+    const region=model.faces.filter(f=>f.center[0]<0);
     const out=model.extrude(region,[0,0,1]);
     for(const f of region){
       const cap=out.surface.faces.find(x=>x.id===f.id)!,source=model.surface.faces[f.index];
@@ -104,24 +104,24 @@ describe('connected-region extrusion',()=>{
   });
   it('keeps IDs stable and unique across a second extrusion, and subdivides afterwards',()=>{
     const model=sheet();
-    const select=(m:typeof model)=>m.faces().filter(f=>Math.abs(f.center[0])<1.5&&Math.abs(f.center[1])<1.5&&f.center[2]>=0);
+    const select=(m:typeof model)=>m.faces.filter(f=>Math.abs(f.center[0])<1.5&&Math.abs(f.center[1])<1.5&&f.center[2]>=0);
     const once=model.extrude(select(model),[0,0,0.5],{key:'tower'});
     const again=model.extrude(select(model),[0,0,0.5],{key:'tower'});
     expect(again.surface.points.map(p=>p.id)).toEqual(once.surface.points.map(p=>p.id));
     expect(again.surface.faces.map(f=>f.id)).toEqual(once.surface.faces.map(f=>f.id));
-    const caps=once.faces().filter(f=>f.center[2]===0.5&&f.normal[2]>0.9);
+    const caps=once.faces.filter(f=>f.center[2]===0.5&&f.normal[2]>0.9);
     expect(caps.length).toBe(4);
     const twice=once.extrude(caps,[0,0,0.5],{key:'tower'});
     expect(new Set(twice.surface.points.map(p=>p.id)).size).toBe(twice.surface.points.length);
     expect(twice.surface.faces.length).toBe(once.surface.faces.length+8);
-    expect(twice.faces().filter(f=>f.center[2]===1&&f.normal[2]>0.9).length).toBe(4);
+    expect(twice.faces.filter(f=>f.center[2]===1&&f.normal[2]>0.9).length).toBe(4);
     const refined=twice.subdivide(1);
     expect(refined.surface.faces.length).toBe(twice.surface.faces.length*4);
     expect(refined.corners.every(c=>Array.isArray(c.uv)&&typeof c.chart==='string')).toBe(true);
   });
   it('copies attributes to walls and edges without adding label columns',()=>{
     const model=plane(2,2).subdivide(1).faceAttributes({tone:(f:{center:Vec3})=>f.center[0]<0?0.7:0.2}).edgeAttributes({marked:1});
-    const region=model.faces().filter(f=>f.center[0]<0);
+    const region=model.faces.filter(f=>f.center[0]<0);
     const out=model.extrude(region,[0,0,1]);
     const walls=out.surface.faces.filter(f=>f.provenance?.operation==='extrude');
     expect(walls.every(f=>f.attributes.tone===0.7&&Object.keys(f.attributes).join()==='tone')).toBe(true);

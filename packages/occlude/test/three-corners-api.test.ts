@@ -8,7 +8,7 @@ describe('typed corner fields and edits',()=>{
   const c=model.corners.at(0)!;
   expectTypeOf(c.uv).toEqualTypeOf<readonly [number,number]>();expectTypeOf(c.point.mass).toEqualTypeOf<2>();expectTypeOf(c.face.tone).toEqualTypeOf<0.5>();
   expect(c.point.corners.length).toBe(3);expect(c.face.corners.length).toBe(4);expect(c.face.corners.has(c)).toBe(true);
-  expect(model.faces().filter(f=>f.index===0).corners().points().length).toBe(4);
+  expect(model.faces.filter(f=>f.index===0).corners().points().length).toBe(4);
   expect(model.points.filter(p=>p.index===0).corners().faces().length).toBe(3);
   expect(model.corners.groupBy(c=>c.face.index).map(g=>g.points().length)).toEqual([4,4,4,4,4,4]);
   expect(model.corners.filter(c=>c.index===0).complement().length).toBe(23);
@@ -43,8 +43,8 @@ describe('typed corner fields and edits',()=>{
  });
  it('preserves typed corner data and transfer policies through extraction and realization',()=>{
   const source=box().cornerAttributes({uv:c=>[c.point.x,c.point.y] as const,label:c=>c.index},{transfer:{label:'nearest'}});
-  const selected=source.faces().filter(f=>f.index===0).extract();
-  expect(selected.corners.map(c=>c.uv)).toEqual(source.faces().at(0)!.corners.map(c=>c.uv));
+  const selected=source.faces.filter(f=>f.index===0).extract();
+  expect(selected.corners.map(c=>c.uv)).toEqual(source.faces.at(0)!.corners.map(c=>c.uv));
   expect(selected.cornerTransfers.label).toBe('nearest');
   const refined=selected.subdivide();expect(refined.cornerTransfers.label).toBe('nearest');
   expect(refined.corners.every(c=>selected.corners.some(p=>p.label===c.label))).toBe(true);

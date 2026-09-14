@@ -20,7 +20,7 @@ describe('prepared surface query facade',()=>{
   const selected=points.points.filter(p=>p.index!==2),hits=q.batch().rays(selected,{direction:[0,0,-2]});
   expect(hits).toHaveLength(2);expect(hits[0].source).toBe(points.points.at(0));expect(hits[1].source).toBe(points.points.at(1));expect(hits[0].hit!.t).toBe(1);expect(hits[1].hit).toBeNull();expect(hits[1].source.tag).toBe(1);
   expect(q.batch().nearest(points.points.filter(()=>false))).toEqual([]);expect(Object.isFrozen(hits)).toBe(true);expect(Object.isFrozen(hits[1])).toBe(true);
-  expect(()=>q.batch().nearest(plane().faces() as any)).toThrow('point collection');
+  expect(()=>q.batch().nearest(plane().faces as any)).toThrow('point collection');
  });
  it('treats zero-length segments as contact queries and returns identity for contact misses',()=>{
   const q=query(plane(2)),points=pointCloud([[0,0,0],[0,0,1],[.25,.25,2]]);

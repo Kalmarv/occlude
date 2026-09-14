@@ -90,7 +90,7 @@ A material is a set of vertices, each with `x`, `y` and any named attribute colu
 |---|---|
 | making | `t.sample(shape)`, `material(points)`, `curve(pts)`, `connect.*`, `.attribute()`, `.resample()` |
 | vectors | `add sub mul length distance unit limit perp dot cross fromAngle angleOf sum sumBy`: tuples in either spelling, tuples out, nothing mutated; angles in radians |
-| rules | `.steps(n, (current, next, k) => …)` with the collection edits; forces prepared once and evaluated at a point |
+| rules | `.steps(n, (current, next, k) => …)` with the collection edits, or the shorthand `.steps(n, { move: p => [dx, dy], set })` over every point; forces prepared once and evaluated at a point |
 | collections | `.points`, `.edges`, `.faces()`: iterate, `length`, `at`, `map`, `filter` (a selection), `groupBy` (selections by key); `.extract()` for independent material; `connectedPoints`, `components`, `meanBy` |
 | areas | `.planarize()` shares crossings on purpose; `.faces()` reads the enclosed regions; `boundaries()` outlines a union |
 | drawing | `.curves()`, `.along()` for stations to place things at, `strokes()`, `segmentRuns`, `extent`, `banding`, then `stroke`, `polygon`, `circle` |

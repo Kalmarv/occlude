@@ -64,10 +64,10 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
     if(!(value instanceof Mesh)&&!(value instanceof Instances)&&!(value instanceof CurveGeometry)&&!(value instanceof SurfaceCurves))throw new Error('view requires mesh, curve or instance geometry');
     const id=value.key??`object:${index}`;
     if(geometryKeys.has(id))throw new Error('view geometry keys must be unique');geometryKeys.add(id);
-    if(value instanceof SurfaceCurves){supported.push({id,network:value.network});return;}
+    if(value instanceof SurfaceCurves){supported.push({id,network:value.network,...(value.stroke?{attributes:{stroke:value.stroke}}:{})});return;}
     if(value instanceof CurveGeometry){objects.push({id,surface:value.surface,occluder:false});return;}
     const mesh=value instanceof Instances?value.prototype:value;
-    const faces=mesh.faces();
+    const faces=mesh.faces;
     // Eligibility belongs to the prototype; the hatch lattice is resolved on
     // each transformed surface in the existing renderer.
     const hatch=recipes.length?hatch3(mesh.surface,face=>{
@@ -86,10 +86,11 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
     if(draw)return draw(lines);
     // Generated marks may name their own pen through a `stroke` attribute (hatch
     // families); everything else follows the view's stroke.
-    const named=lines.visible.filter(c=>typeof c.attributes.stroke==='string'&&(c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')));
+    const generated=(c:{kinds:ReadonlySet<string>})=>c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||c.kinds.has('intersection');
+    const named=lines.visible.filter(c=>typeof c.attributes.stroke==='string'&&generated(c));
     const pens=[...new Set(named.map(c=>c.attributes.stroke as string))].sort();
     return [
-      projectedStrokes(lines.visible.filter(c=>!(typeof c.attributes.stroke==='string'&&(c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')))&&(c.kinds.has('boundary')||c.kinds.has('silhouette')||c.kinds.has('wire')||c.kinds.has('intersection')||c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||(c.kinds.has('crease')&&c.feature.creaseAngle>=crease))),{stroke:settings.stroke}),
+      projectedStrokes(lines.visible.filter(c=>!(typeof c.attributes.stroke==='string'&&generated(c))&&(c.kinds.has('boundary')||c.kinds.has('silhouette')||c.kinds.has('wire')||c.kinds.has('intersection')||c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||(c.kinds.has('crease')&&c.feature.creaseAngle>=crease))),{stroke:settings.stroke}),
       ...pens.map(pen=>projectedStrokes(named.filter(c=>c.attributes.stroke===pen),{stroke:pen})),
       ...recipes.map((recipe,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('hatch')&&c.attributes.hatchFamily===hatchKeys[i]),{stroke:recipe.stroke??settings.stroke})),
       ...planes.map((plane,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('section')&&c.attributes.sectionPlane===sectionKeys[i]),{stroke:plane.stroke??settings.stroke})),

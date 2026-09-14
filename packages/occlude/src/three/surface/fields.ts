@@ -29,7 +29,7 @@ export function toneField(input:ToneInput):ToneField {
 /** Explicit directional light as a tone field: 0 facing the light, up to
  * 1 - ambient facing away. `direction` points toward the light. There is no
  * hidden camera light; a view-dependent light is an explicit input. */
-export function light(options:{direction:Vec3;ambient?:number;ramp?:'linear'|'smooth';space?:'world'|'model'}):ToneField {
+export function light(options:Parameters<typeof lightRecipe3>[0]):ToneField {
   const recipe=lightRecipe3(options);
   return registerToneRecipe3((s:SurfaceLocation3)=>lightTone3(recipe.space==='model'?s.modelNormal:s.normal,recipe),recipe);
 }

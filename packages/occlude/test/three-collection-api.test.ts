@@ -28,10 +28,10 @@ describe('source-bound collection selection algebra',()=>{
   });
   it('recognizes owned rows across fresh collection access, rejecting copied IDs',()=>{
     const source=box().faceAttribute('label','side');
-    const selected=source.faces().filter(f=>f.index===0);
-    expect(selected.has(source.faces().at(0)!)).toBe(true);
-    expect(selected.has(source.faces().at(1)!)).toBe(false);
-    expect(selected.has(source.translate([0,0,1]).faces().at(0)!)).toBe(false);
+    const selected=source.faces.filter(f=>f.index===0);
+    expect(selected.has(source.faces.at(0)!)).toBe(true);
+    expect(selected.has(source.faces.at(1)!)).toBe(false);
+    expect(selected.has(source.translate([0,0,1]).faces.at(0)!)).toBe(false);
     expect(()=>selected.has({...selected.at(0)!})).toThrow('expected a face row');
     expect(()=>selected.has(source.points.at(0)! as any)).toThrow('received point');
   });
@@ -39,7 +39,7 @@ describe('source-bound collection selection algebra',()=>{
     const a=plane(),b=a.translate([0,0,0]);
     for(const op of ['union','intersect','subtract'] as const){
       expect(()=>a.points[op](b.points)).toThrow('source revision');
-      expect(()=>a.points[op](a.faces() as any)).toThrow('same domain');
+      expect(()=>a.points[op](a.faces as any)).toThrow('same domain');
       expect(()=>a.points.filter(()=>false)[op](b.points.filter(()=>false))).toThrow('source revision');
     }
   });

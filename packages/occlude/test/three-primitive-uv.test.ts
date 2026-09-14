@@ -76,7 +76,7 @@ describe('primitive UV charts',()=>{
     expect(edited.surface.faces.flatMap(face=>face.corners!.map(c=>({uv:c.attributes.uv,chart:c.attributes.chart})))).toEqual(before);
     const mirrored=source.scale([-1,1,1]);
     expect(mirrored.surface.faces.map((face,index)=>face.corners!.map(c=>({uv:c.attributes.uv,chart:c.attributes.chart}))).flat()).toEqual(source.surface.faces.map((face,index)=>face.corners!.map(c=>({uv:c.attributes.uv,chart:c.attributes.chart})).reverse()).flat());
-    expect(source.faces().filter(face=>face.index===0).extract().surface.faces[0].corners!.map(c=>c.attributes)).toEqual(source.surface.faces[0].corners!.map(c=>c.attributes));
+    expect(source.faces.filter(face=>face.index===0).extract().surface.faces[0].corners!.map(c=>c.attributes)).toEqual(source.surface.faces[0].corners!.map(c=>c.attributes));
     const refined=source.subdivide();
     expect(refined.surface.faces.flatMap(face=>face.corners!.map(c=>c.attributes.chart)).every(chart=>typeof chart==='string')).toBe(true);
     const realized=instanceOnPoints(source,source.points.filter(point=>point.index<2)).realize();

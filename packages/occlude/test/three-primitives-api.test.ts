@@ -3,7 +3,7 @@ import {sphere,cylinder,cone,torus,type Mesh} from '../src/three/api/index.js';
 import {cross3,dot3,sub3} from '../src/three/math.js';
 function manifold(s:Mesh,chi:number){
   expect(s.surface.edges.every(e=>e.faces.length===2)).toBe(true);
-  expect(s.points.length-s.edges.length+s.faces().length).toBe(chi);
+  expect(s.points.length-s.edges.length+s.faces.length).toBe(chi);
   const directions=new Map<string,number>();
   for(const f of s.surface.faces)for(let i=0;i<f.vertices.length;i++){const a=f.vertices[i],b=f.vertices[(i+1)%f.vertices.length],key=[Math.min(a,b),Math.max(a,b)].join(':');directions.set(key,(directions.get(key)??0)+(a<b?1:-1));}
   expect([...directions.values()].every(n=>n===0)).toBe(true);
@@ -20,13 +20,13 @@ describe('common mesh primitive catalog',()=>{
  it('keeps cap choices explicit with precisely the expected open boundaries',()=>{
   expect(cylinder(1,2,{segments:9,caps:false}).surface.edges.filter(e=>e.faces.length===1)).toHaveLength(18);
   expect(cone(1,2,{segments:9,caps:false}).surface.edges.filter(e=>e.faces.length===1)).toHaveLength(9);
-  expect(cylinder(1,2,{segments:9}).faces().filter(f=>f.vertices.length===9).length).toBe(2);
+  expect(cylinder(1,2,{segments:9}).faces.filter(f=>f.vertices.length===9).length).toBe(2);
  });
  it('uses ordinary immutable attributes, frozen edits and shape-preserving subdivision',()=>{
   for(const source of [sphere(1,{segments:8,rings:4}),cylinder(1,2,{segments:8}),cone(1,2,{segments:8}),torus(1,.2,{segments:8,tubeSegments:4})]){
     const before=source.points.map(p=>[p.x,p.y,p.z]);
     const refined=source.attribute('mobility',p=>p.z).faceAttribute('material','ink').subdivide().steps(2,(current,next)=>next.move(current.points,p=>[0,0,p.mobility*.1]));
-    expect(refined.faces().map(f=>f.material).every(v=>v==='ink')).toBe(true);expect(refined.iteration).toBe(2);expect(source.points.map(p=>[p.x,p.y,p.z])).toEqual(before);
+    expect(refined.faces.map(f=>f.material).every(v=>v==='ink')).toBe(true);expect(refined.iteration).toBe(2);expect(source.points.map(p=>[p.x,p.y,p.z])).toEqual(before);
     expect(source.surface).toEqual(source.scale(1).surface);
   }
  });

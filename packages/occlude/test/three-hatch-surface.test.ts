@@ -135,19 +135,17 @@ describe('seeded surface hatch',()=>{
     const lanesLeft=new Set(shaded.edges.filter(e=>e.a.x<-.5).map(e=>e.lane)).size,lanesMiddle=new Set(shaded.edges.filter(e=>e.a.x>.2).map(e=>e.lane)).size;
     expect(lanesLeft).toBeGreaterThan(lanesMiddle);
   });
-  it('lights explicitly and keeps crosshatch families and pens distinct',()=>{
+  it('lights explicitly; crosshatch is two calls with their own pens',()=>{
     const cube=box(2),lit=light({direction:[0,0,1],ambient:.2});
-    const {curves,stats}=hatchSurface(cube,{families:[
-      {id:'a',direction:s=>s.tangentU!,stroke:'ink'},
-      {id:'b',direction:s=>s.tangentV!,tone:lit,stroke:'shade'},
-    ],spacing:.25,step:.125},stream(13));
-    expect(stats.families).toBe(2);expect(stats.tone.backend).toBe('mixed');
-    const a=curves.edges.filter(e=>e.family==='a'),b=curves.edges.filter(e=>e.family==='b');
+    const a=hatchSurface(cube,{direction:s=>s.tangentU!,stroke:'ink',spacing:.25,step:.125},stream(13)).curves.edges;
+    const {curves,stats}=hatchSurface(cube,{direction:s=>s.tangentV!,tone:lit,stroke:'shade',spacing:.25,step:.125},stream(13));
+    const b=curves.edges;
+    expect(stats.families).toBe(1);expect(stats.tone.backend).toBe('cpu');
     expect(a.length).toBeGreaterThan(0);expect(b.length).toBeGreaterThan(0);
     expect(a.every(e=>e.stroke==='ink')&&b.every(e=>e.stroke==='shade')).toBe(true);
-    // The top face faces the light: tone 0, so family b draws nothing there,
+    // The top face faces the light: tone 0, so the shaded call draws nothing on it,
     // while the bottom face (tone 0.8) is fully hatched.
-    expect(b.some(e=>e.a.z>.99&&e.b.z>.99)).toBe(false);expect(b.some(e=>e.a.z<-.99&&e.b.z<-.99)).toBe(true);
+    expect(b.some(e=>e.a.z>1-1e-9&&e.b.z>1-1e-9)).toBe(false);expect(b.some(e=>e.a.z<-1+1e-9&&e.b.z<-1+1e-9)).toBe(true);
     expect(lit(surfaceLocation3(cube.surface,0,[1/3,1/3,1/3]))).toBeGreaterThanOrEqual(0);
   });
   it('is independent of the camera and repeats prototypes through placement',{timeout:60000},async()=>{
@@ -178,7 +176,6 @@ describe('seeded surface hatch',()=>{
     expect(()=>captureHatch(sheet(),{spacing:.1} as never)).toThrow('direction');
     expect(()=>captureHatch(sheet(),{direction:[0,0,0],spacing:.1})).toThrow('direction');
     expect(()=>captureHatch(sheet(),{direction:[1,0,0],spacing:.1,tone:2})).toThrow('tone');
-    expect(()=>captureHatch(sheet(),{families:[{id:'a',direction:[1,0,0]},{id:'a',direction:[0,1,0]}],spacing:.1})).toThrow('unique');
     expect(()=>hatchSurface(sheet(),{direction:[1,0,0],spacing:.1,step:.1,maxSegments:3},stream(1))).toThrow('segment budget');
     const capped=hatchSurface(sheet(),{direction:[1,0,0],spacing:.05,step:.05,maxTotalSteps:50},stream(1));
     expect(capped.stats.stops.budget).toBeGreaterThan(0);

@@ -77,7 +77,7 @@ describe('surface curve sampling',()=>{
 
  it('works through t.sample and instance ownership on an intersection seam',()=>{
   const [a,b]=[box(2),box(2).translate([1,0,0])],curves=intersections(a,b),sites=pointCloud([[0,0,0]]),instances=instanceOnPoints(a,sites.points);
-  let sampled!:ReturnType<typeof sampleSurfaceCurves>;
+  let sampled!:ReturnType<typeof sampleSurfaceCurves<any>>;
   compileSketch(sketch({},t=>{sampled=t.sample(curves,{count:2});return null;}));
   expect(sampled.points.length).toBeGreaterThan(0);
   const seam=sampled.points.find(p=>p.sample.locations.length>1);expect(seam).toBeDefined();

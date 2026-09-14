@@ -110,6 +110,21 @@ export interface SplitOpts {
 export type EdgeRef = number | Edge;
 /** One pass reads a frozen material and batches edits for its output. */
 export type StepRule = (prev: Material, next: Next, k: number) => void;
+/** The everyday step, without the pass ceremony: `{ move, set }` fields over
+ * every point of the pass's input. (A bare callback is not a shorthand:
+ * TypeScript cannot tell a one-parameter point field from a rule.) */
+export type StepShorthand = { readonly move?: XY | ((p: Vertex) => XY); readonly set?: Record<string, number> | ((p: Vertex) => Record<string, number>) };
+export function isStepShorthand(rule: StepRule | StepShorthand): rule is StepShorthand {
+  return typeof rule === 'object' && rule !== null;
+}
+export function stepRuleOf(shorthand: StepShorthand): StepRule {
+  const { move, set } = shorthand;
+  if (move === undefined && set === undefined) throw new Error('a steps shorthand needs a move field, a set field, or both');
+  return (prev, next) => {
+    if (set !== undefined) next.set(prev.points, set);
+    if (move !== undefined) next.move(prev.points, move);
+  };
+}
 export interface StepsOptions {
   /** Capture after every m complete iterations, plus the initial and final states. */
   every?: number;

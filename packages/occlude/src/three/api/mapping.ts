@@ -1,6 +1,6 @@
 import {Material} from '../../material.js';
-import {Mesh,type GeometryOptions} from './mesh.js';
-import {SurfaceCurves} from './supported.js';
+import {Mesh} from './mesh.js';
+import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {identity} from './identity.js';
 import {chartIndexJob3} from '../curves/chartIndex.js';
 import {clipChartSegment3,mapChartClip3,type UV2} from '../curves/chartClip.js';
@@ -15,7 +15,7 @@ import type {Attributes3} from '../geometry/surface.js';
  * `t.material`/`t.sample` names the rectangle of its coordinates that should
  * cover the chart; nothing is ever interpreted as a percentage of paper. */
 export interface ChartFrame {readonly x?:number;readonly y?:number;readonly width:number;readonly height?:number}
-export interface SurfaceMappingOptions extends GeometryOptions {
+export interface SurfaceMappingOptions extends SurfaceCurveOptions {
   readonly uv?:string;
   readonly chartAttribute?:string;
   /** Omit to map every chart, including overlapping islands. */
@@ -154,7 +154,7 @@ export function* surfaceMappingJob(captured:ReturnType<typeof captureSurfaceMapp
   }
   const network=yield*surfaceCurveNetworkJob3({sources:[{id:'surface',binding}],nodes,segments},budget);
   stats.outputNodes=network.nodes.length;stats.outputSegments=network.segments.length;
-  return {curves:new SurfaceCurves<MappedAttributes>(network,settings),stats:Object.freeze(stats) as SurfaceMappingStats};
+  return {curves:new SurfaceCurves<MappedAttributes>(network,{key:settings.key,stroke:settings.stroke}),stats:Object.freeze(stats) as SurfaceMappingStats};
 }
 /** Map resolved 2D material through stored chart coordinates onto supported
  * surface curves. Straight pattern segments map exactly; a curved motif is

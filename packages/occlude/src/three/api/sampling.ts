@@ -1,7 +1,8 @@
 import {surfaceLocation3,rebindSurfaceLocation3,type SurfaceLocation3} from '../geometry/location.js';
 import {sameAttachmentTopology3} from '../geometry/topology.js';
-import type {RotationInput} from '../rotation.js';
-import {Mesh,PointGeometry,evaluate,captureAttributeFields,pointSteps,type PointSnapshot,type PointRule,type StepsOptions,type StepAttributes,type AttributeFields,type EdgeAttributes,type FaceRow,type Field,type PointRow,type GeometryOptions} from './mesh.js';
+import type {RotationInput,Axis3} from '../rotation.js';
+import {Mesh,PointGeometry,evaluate,captureAttributeFields,pointSteps,type PointSnapshot,type PointRule,type StepsOptions,type StepAttributes,type AttributeFields,type EdgeAttributes,type FaceRow,type Field,type PointRow,type GeometryOptions,type StepShorthand} from './mesh.js';
+import type {DisplaceOptions,RotateOptions,ScaleOptions} from './mesh.js';
 import {Collection} from './collection.js';
 import {surface3,assembleSurface3,type Attributes3,type Surface3,type SurfacePoint3,type Attribute3} from '../geometry/surface.js';
 import {sub3,mul3,cross3,type Vec3} from '../math.js';
@@ -47,12 +48,14 @@ export class SurfaceSamples<P extends Attributes3={},F extends Attributes3={},C 
     const surface=assembleSurface3(this.surface.points.map((p,i)=>({...p,attributes:{...p.attributes,...values[i]}})),[],[]);
     return this.changed(new PointGeometry<Omit<P,keyof A>&A>(surface,{key:this.key,iteration:this.iteration,history:[]}));
   }
-  displace(field:Field<SurfaceSampleRow<P,F,C,Q>,Vec3>):SurfaceSamples<P,F,C,Q>{return this.changed(super.displace(p=>evaluate(field,this.state.rows[p.index])));}
+  displace(field:Field<SurfaceSampleRow<P,F,C,Q>,Vec3|number>,options:DisplaceOptions={}):SurfaceSamples<P,F,C,Q>{return this.changed(super.displace(p=>evaluate(field,this.state.rows[p.index]),options));}
   translate(offset:Vec3):SurfaceSamples<P,F,C,Q>{return this.changed(super.translate(offset));}
-  rotate(angles:RotationInput,origin:Vec3=[0,0,0]):SurfaceSamples<P,F,C,Q>{return this.changed(super.rotate(angles,origin));}
-  scale(scale:number|Vec3,origin:Vec3=[0,0,0]):SurfaceSamples<P,F,C,Q>{return this.changed(super.scale(scale,origin));}
+  rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):SurfaceSamples<P,F,C,Q>;
+  rotate(axis:Axis3,degrees:number,options?:RotateOptions):SurfaceSamples<P,F,C,Q>;
+  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):SurfaceSamples<P,F,C,Q>{return this.changed((super.rotate as (...args:unknown[])=>PointGeometry<P>)(a,b,c));}
+  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):SurfaceSamples<P,F,C,Q>{return this.changed(super.scale(scale,pivot));}
   get history():readonly PointSnapshot<P,SurfaceSamples<P,F,C,Q>>[]{return super.history as readonly PointSnapshot<P,SurfaceSamples<P,F,C,Q>>[];}
-  steps(count:number,rule:PointRule<StepAttributes<P>,SurfaceSampleRow<StepAttributes<P>,F,C,Q>,SurfaceSamples<StepAttributes<P>,F,C,Q>>,...passesAndOptions:(PointRule<StepAttributes<P>,SurfaceSampleRow<StepAttributes<P>,F,C,Q>,SurfaceSamples<StepAttributes<P>,F,C,Q>>|StepsOptions)[]):SurfaceSamples<StepAttributes<P>,F,C,Q>{
+  steps(count:number,rule:PointRule<StepAttributes<P>,SurfaceSampleRow<StepAttributes<P>,F,C,Q>,SurfaceSamples<StepAttributes<P>,F,C,Q>>|StepShorthand<SurfaceSampleRow<StepAttributes<P>,F,C,Q>,StepAttributes<P>>,...passesAndOptions:(PointRule<StepAttributes<P>,SurfaceSampleRow<StepAttributes<P>,F,C,Q>,SurfaceSamples<StepAttributes<P>,F,C,Q>>|StepsOptions)[]):SurfaceSamples<StepAttributes<P>,F,C,Q>{
     return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history)=>this.changed(new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history})));
   }
   /** Put points back on their retained source attachments on a new revision.
@@ -60,7 +63,7 @@ export class SurfaceSamples<P extends Attributes3={},F extends Attributes3={},C 
   rebind<Q2 extends Attributes3,E2 extends EdgeAttributes,F2 extends Attributes3,C2 extends Attributes3>(target:Mesh<Q2,E2,F2,C2>,options:SurfaceCoordinateOptions={}):SurfaceSamples<P,F2,C2,Q2>{
     if(!(target instanceof Mesh))throw new Error('surface rebind requires a mesh');
     if(!sameAttachmentTopology3(this.target.surface,target.surface))throw new Error('surface topology or authoring lineage changed; regenerate samples');
-    const faces=target.faces().map(f=>f),samples=new Map<string,SurfaceSample<F2,C2,Q2>>();
+    const faces=target.faces.map(f=>f),samples=new Map<string,SurfaceSample<F2,C2,Q2>>();
     const points=this.surface.points.map(point=>{
       const sample=this.state.samples.get(point.id)!,location=sampleLocations.get(sample);
       if(!location)throw new Error('surface sample has no owned attachment');
@@ -95,7 +98,7 @@ function prepare<P extends Attributes3,E extends EdgeAttributes,F extends Attrib
   const source=target.surface,origin=source.points[0]?.position??[0,0,0];
   const extent=source.points.reduce((m,p)=>Math.max(m,...sub3(p.position,origin).map(Math.abs)),0);
   if(!Number.isFinite(extent))throw new Error('surface sampling extent is not representable');
-  const faces=target.faces().map(f=>f),weights=faces.map(f=>evaluate(weight??1,f));
+  const faces=target.faces.map(f=>f),weights=faces.map(f=>evaluate(weight??1,f));
   if(weights.some(w=>!Number.isFinite(w)||w<0))throw new Error('surface sampling face weights must be nonnegative and finite');
   const maxWeight=weights.reduce((a,b)=>Math.max(a,b),0),triangles:number[]=[],cumulative:number[]=[];let total=0;
   if(extent&&maxWeight)source.triangles.forEach((t,i)=>{

@@ -22,7 +22,7 @@ describe('explicit stored UV projections',()=>{
     const original=cylinder(1,4,{segments:8,caps:false}).rotate([0,90,0]).translate([3,2,1]);
     const projected=cylindricalUV(original,{origin:[1,2,1],axis:[1,0,0],seam:[0,0,-1],height:4});
     expect(projected.points.length).toBe(16);expect(projected.surface.triangles).toEqual(original.surface.triangles);
-    for(const f of projected.faces()){
+    for(const f of projected.faces){
       const uv=f.corners.map(c=>c.uv),angles=uv.map(p=>p[0]);
       expect(Math.max(...angles)-Math.min(...angles)).toBeCloseTo(1/8,12);
       for(const v of uv)expect(v[1]).toBeCloseTo(v[1]<.5?0:1,12);

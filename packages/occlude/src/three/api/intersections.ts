@@ -1,6 +1,6 @@
-import {Mesh,type GeometryOptions} from './mesh.js';
+import {Mesh} from './mesh.js';
 import {Instances,instanceSurfaceBinding3} from './instances.js';
-import {SurfaceCurves} from './supported.js';
+import {SurfaceCurves,type SurfaceCurveOptions} from './supported.js';
 import {identity} from './identity.js';
 import {decodePoint} from '../geometry/exact.js';
 import {runGeometryJob3} from '../geometry/job.js';
@@ -10,7 +10,7 @@ import type {IntersectionClass3} from '../curves/intersectionAtoms.js';
 export type IntersectionAttributes={contact:IntersectionClass3};
 
 export type IntersectionInput=Mesh<any,any,any,any>|Instances<any,any,any,any,any,any,any>;
-export interface IntersectionOptions extends GeometryOptions {
+export interface IntersectionOptions extends SurfaceCurveOptions {
  readonly maxPairs?:number;
  /** Optional advanced capacity controls; defaults cover ordinary sketches. */
  readonly budget?:IntersectionBudget3;
@@ -64,7 +64,7 @@ export function* intersectionConstructionJob(captured:ReturnType<typeof captureI
  }
  const network=yield*surfaceCurveNetworkJob3({sources:[...left,...right].map((s,i)=>({id:`source:${i}`,binding:s.binding})),nodes,segments},graphBudget);
  stats.outputNodes=network.nodes.length;stats.outputSegments=network.segments.length;
- return {curves:new SurfaceCurves<IntersectionAttributes>(network,settings),stats:Object.freeze(stats)};
+ return {curves:new SurfaceCurves<IntersectionAttributes>(network,{key:settings.key,stroke:settings.stroke}),stats:Object.freeze(stats)};
 }
 /** Synchronous construction for bounded sketches. Use t.intersections in
  * sketchAsync for substantial work that should yield and accept cancellation. */

@@ -37,8 +37,8 @@ describe('shared mesh instances',()=>{
   const prototype=box().attribute('tag','prototype').edgeAttribute('edgeTag',7).faceAttribute('faceTag',9);
   const sites=pointCloud([[0,0,0],[2,0,0]]).attribute('tag','instance').attribute('height',2);
   const placed=instanceOnPoints(prototype,sites.points),a=placed.realize(),b=placed.realize();
-  expect(a.surface).toEqual(b.surface);expect(a.points.length).toBe(16);expect(a.edges.length).toBe(24);expect(a.faces().length).toBe(12);expect(a.surface.edges.every(e=>e.faces.length===2)).toBe(true);
-  expect(a.points.map(p=>p.tag)).toEqual(Array(16).fill('prototype'));expect(a.edges.at(0)!.edgeTag).toBe(7);expect(a.faces().at(0)!.faceTag).toBe(9);expect(a.faces().at(0)!.height).toBe(2);
+  expect(a.surface).toEqual(b.surface);expect(a.points.length).toBe(16);expect(a.edges.length).toBe(24);expect(a.faces.length).toBe(12);expect(a.surface.edges.every(e=>e.faces.length===2)).toBe(true);
+  expect(a.points.map(p=>p.tag)).toEqual(Array(16).fill('prototype'));expect(a.edges.at(0)!.edgeTag).toBe(7);expect(a.faces.at(0)!.faceTag).toBe(9);expect(a.faces.at(0)!.height).toBe(2);
   expect(a.points.at(0)!.provenance!.parents).toEqual([prototype.points.at(0)!.id,placed.rows[0].id,sites.points.at(0)!.id]);
   const selected=placed.instances.filter(r=>r.index===1).extract().realize();expect(selected.points.map(p=>p.id)).toEqual(a.points.map(p=>p.id).slice(8));
   expect(()=>placed.realize({maxPoints:15})).toThrow('points budget');expect(()=>placed.realize({maxFaces:11})).toThrow('faces budget');
@@ -74,7 +74,7 @@ describe('shared mesh instances',()=>{
  it('rejects reserved attributes, singular scales and wrong geometry domains',()=>{
   const sites=pointCloud([[0,0,0]]),prototype=box();
   expect(()=>instanceOnPoints(prototype,sites.points,{scale:0})).toThrow('nonsingular');
-  expect(()=>instanceOnPoints(prototype,prototype.faces() as any)).toThrow('point collection');
+  expect(()=>instanceOnPoints(prototype,prototype.faces as any)).toThrow('point collection');
   expect(()=>instanceOnPoints(sites as any,sites.points)).toThrow('mesh prototype');
   expect(()=>instanceOnPoints(prototype,sites.points).attribute('transform',1)).toThrow('reserved');
  });

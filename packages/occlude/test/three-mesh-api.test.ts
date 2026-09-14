@@ -9,14 +9,14 @@ describe('immutable mesh values and frozen domains',()=>{
    expect(edited.points.length).toBeGreaterThan(shape.points.length);expect(shape.points.map(p=>[p.x,p.y,p.z])).toEqual(original);
    expect(edited.points.map(p=>p.mobility).every(v=>typeof v==='number')).toBe(true);
   }
-  expect(plane().points.length).toBe(4);expect(plane().edges.length).toBe(4);expect(plane().faces().length).toBe(1);
-  expect(plane().faces().at(0)?.normal).toEqual([0,0,1]);
+  expect(plane().points.length).toBe(4);expect(plane().edges.length).toBe(4);expect(plane().faces.length).toBe(1);
+  expect(plane().faces.at(0)?.normal).toEqual([0,0,1]);
  });
  it('propagates typed attributes, supports replacement, and protects row names',()=>{
   const value=plane().attribute('weight',p=>p.x+1).faceAttribute('height',()=>1.5).faceAttributes(f=>({label:f.height>1?'high':'low'}));
   expectTypeOf(value.points.at(0)!.weight).toEqualTypeOf<number>();
-  expectTypeOf(value.faces().at(0)!.height).toMatchTypeOf<number>();
-  expect(value.faces().at(0)?.label).toBe('high');
+  expectTypeOf(value.faces.at(0)!.height).toMatchTypeOf<number>();
+  expect(value.faces.at(0)?.label).toBe('high');
   const changed=value.attribute('weight','heavy');expectTypeOf(changed.points.at(0)!.weight).toEqualTypeOf<'heavy'>();
   expect(changed.points.at(0)?.attributes.weight).toBe('heavy');
   expect(()=>value.attribute('x',2)).toThrow('reserved');expect(()=>value.faceAttribute('area',2)).toThrow('reserved');
@@ -25,10 +25,10 @@ describe('immutable mesh values and frozen domains',()=>{
  });
  it('keeps groups as selections and extracts shared face topology',()=>{
   const b=box().faceAttribute('axis',f=>Math.abs(f.normal[2]));
-  const groups=b.faces().groupBy(f=>f.axis);expect(groups.length).toBe(2);
+  const groups=b.faces.groupBy(f=>f.axis);expect(groups.length).toBe(2);
   expect(groups.map(g=>[g.key,g.length]).sort()).toEqual([[0,4],[1,2]]);
-  const side=groups.find(g=>g.key===0)!.extract();expect(side.points.length).toBe(8);expect(side.faces().length).toBe(4);
-  expect(side.edges.length).toBe(12);expect(side.faces().map(f=>f.axis)).toEqual([0,0,0,0]);
+  const side=groups.find(g=>g.key===0)!.extract();expect(side.points.length).toBe(8);expect(side.faces.length).toBe(4);
+  expect(side.edges.length).toBe(12);expect(side.faces.map(f=>f.axis)).toEqual([0,0,0,0]);
   const points=b.points.filter(p=>p.z>0).extract();expect(points.points.length).toBe(4);expect('faces' in points).toBe(false);
   const curves=b.edges.filter(e=>e.a.z>0&&e.b.z>0).extract();expect(curves.segments.length).toBe(4);expect('faces' in curves).toBe(false);
  });
@@ -51,7 +51,7 @@ describe('immutable mesh values and frozen domains',()=>{
   const raw=box3();raw.faces[0].attributes.label='bottom';// preserve source identity
   const imported=mesh(raw);raw.points[0].position=[99,99,99];raw.faces[0].attributes.label='changed';
   expect(imported.points.at(0)?.id).toBe('p0');expect(imported.points.at(0)?.x).toBe(-.5);
-  expect(imported.faces().at(0)?.attributes.label).toBe('bottom');
+  expect(imported.faces.at(0)?.attributes.label).toBe('bottom');
   const invalid={...box3(),triangles:[]};expect(()=>mesh(invalid)).toThrow('triangulation');
  });
  it('owns raw inputs, preserves edge transfer and leaves new interior attributes optional',()=>{

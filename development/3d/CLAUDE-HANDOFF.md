@@ -41,6 +41,15 @@ Dev sketch store demos: `mapped-stripes`, `rest-motif`, `field-ingredients`,
 `diffused-extrusion`, `two-views` (plus the earlier `crossing-forms`,
 `sampled-seams`, `rest-coordinates`). Sources under `surface-drawing/demos/`.
 
+### API ergonomics batch (after camera controls)
+
+The owner's API review (`api-3d.md`, untracked) approved items 1, 2, 4, 6, 7,
+8, 9, 10, 11, 17, 18; all built, documented on `docs/three.md`, tested in
+`test/three-api-ergonomics.test.ts`, evidence in `api-ergonomics/README.md`
+(what changed, the ink mapping for three#21/#23, the TypeScript finding that
+keeps the steps shorthand object-only). `OPTIMIZATION-BRIEF.md` is the brief
+for the planned 3D performance pass by another agent.
+
 ## 3. Verification
 
 - Docker verified build (`surface-drawing/build.log`): all nine gates.

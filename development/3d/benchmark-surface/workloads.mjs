@@ -11,11 +11,9 @@ export default sketchAsync({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } },
 import { torus, light, across, view, orthographic } from 'occlude/3d';
 export default sketchAsync({ seed: 42, pens: { ink: pen({ width: mm(0.2) }) } }, async t => {
   const model = torus(1.4, 0.5, { segments: 48, tubeSegments: 20 }), sun = light({ direction: [-1, -2, 3], ambient: 0.1 });
-  const marks = await t.hatch(model, { spacing: 0.06, families: [
-    { id: 'a', direction: s => s.tangentU, tone: s => 0.3 + 0.7 * sun(s) },
-    { id: 'b', direction: across(s => s.tangentU), tone: s => Math.max(0, 2 * sun(s) - 1) },
-  ] });
-  return view([model, marks], { camera: orthographic({ eye: [5, 7, 5], span: 5 }), stroke: 'ink' });
+  const along = await t.hatch(model, { spacing: 0.06, direction: s => s.tangentU, tone: s => 0.3 + 0.7 * sun(s) });
+  const crossing = await t.hatch(model, { spacing: 0.06, direction: across(s => s.tangentU), tone: s => Math.max(0, 2 * sun(s) - 1) });
+  return view([model, along, crossing], { camera: orthographic({ eye: [5, 7, 5], span: 5 }), stroke: 'ink' });
 });`},
 {name:'custom-curvature',src:`import { sketchAsync, pen, mm } from 'occlude';
 import { plane, curvature, light, view, perspective } from 'occlude/3d';

@@ -2,7 +2,7 @@ import {describe,it,expect,expectTypeOf,beforeAll} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {plane,box,polyline,pointCloud,query} from 'occlude/3d';
 import {initOcclude,sketch,compileSketch} from '../src/index.js';
-import type {MeshEdit,CurveEdit} from 'occlude/3d';
+import type {MeshEdit,CurveEdit,PointEdit} from 'occlude/3d';
 beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 
 describe('field-map initialization and frozen attribute edits',()=>{
@@ -21,9 +21,9 @@ describe('field-map initialization and frozen attribute edits',()=>{
     const source=box().edgeAttributes({rest:e=>e.length,age:()=>0}).faceAttributes({areaCopy:f=>f.area,age:()=>0});
     const out=source.edgeAttributes({age:e=>e.age+1,rest:e=>e.rest+e.age}).faceAttributes({age:f=>f.age+2,areaCopy:f=>f.areaCopy+f.age});
     expect(out.edges.every(e=>e.rest===1&&e.age===1)).toBe(true);
-    expect(out.faces().every(f=>f.areaCopy===1&&f.age===2)).toBe(true);
-    expect(out.faceAttributes(f=>({label:f.age===2?'ready':'waiting'})).faces().every(f=>f.label==='ready')).toBe(true);
-    expectTypeOf(out.faces().at(0)!.areaCopy).toEqualTypeOf<number>();
+    expect(out.faces.every(f=>f.areaCopy===1&&f.age===2)).toBe(true);
+    expect(out.faceAttributes(f=>({label:f.age===2?'ready':'waiting'})).faces.every(f=>f.label==='ready')).toBe(true);
+    expectTypeOf(out.faces.at(0)!.areaCopy).toEqualTypeOf<number>();
   });
   it('captures multiple query fields before moving to another revision',()=>{
     const source=plane().translate([0,0,2]),hits=query(plane(4)).batch().nearest(source.points);
@@ -49,17 +49,17 @@ describe('field-map initialization and frozen attribute edits',()=>{
       next.move(current.points,p=>[0,0,p.energy]);
       next.move(current.points,[0,0,1]);
       next.setEdges(current.edges,e=>({age:e.age+2}));
-      next.setFaces(current.faces(),f=>({age:f.age+3}));
+      next.setFaces(current.faces,f=>({age:f.age+3}));
       expect(current.points.at(0)!.energy).toBe(2+current.iteration);
     },{every:1});
     expect(result.points.every(p=>p.age===3&&p.energy===5&&p.z===12)).toBe(true);
     expect(result.edges.every(e=>e.age===6)).toBe(true);
-    expect(result.faces().every(f=>f.age===9)).toBe(true);
+    expect(result.faces.every(f=>f.age===9)).toBe(true);
     expect(result.history.map(h=>h.geometry.points.at(0)!.energy)).toEqual([2,3,4,5]);
     expect(source.points.at(0)!.energy).toBe(2);
     expect(()=>escaped!.set(source.points,{age:4})).toThrow('closed');
     expect(()=>escaped!.setEdges(source.edges,{age:4})).toThrow('closed');
-    expect(()=>escaped!.setFaces(source.faces(),{age:4})).toThrow('closed');
+    expect(()=>escaped!.setFaces(source.faces,{age:4})).toThrow('closed');
   });
   it('checks single-row ownership, initialized schema, and operation atomicity',()=>{
     const source=plane().attributes({age:()=>0,vector:()=>[1,2]}).edgeAttributes({age:()=>0}).faceAttributes({age:()=>0});
@@ -71,12 +71,12 @@ describe('field-map initialization and frozen attribute edits',()=>{
       expect(()=>next.set(current.points,{vector:[1,2,3]})).toThrow('vector dimension');
       next.set(current.points.at(0)!,{age:2});
       next.setEdge(current.edges.at(0)!,{age:3});
-      next.setFace(current.faces().at(0)!,{age:4});
+      next.setFace(current.faces.at(0)!,{age:4});
       expect(()=>next.set({...current.points.at(0)!},{age:5})).toThrow('expected a point row');
     });
     expect(result.points.map(p=>p.age)).toEqual([2,1,1,1]);
     expect(result.edges.map(e=>e.age)).toEqual([3,0,0,0]);
-    expect(result.faces().at(0)!.age).toBe(4);
+    expect(result.faces.at(0)!.age).toBe(4);
   });
   it('keeps curve domains honest while reusing frozen point/edge edits',()=>{
     const source=polyline([[0,0,0],[1,0,0],[2,0,0]]).attributes({age:()=>0}).edgeAttributes({age:()=>0});
@@ -104,7 +104,7 @@ describe('field-map initialization and frozen attribute edits',()=>{
 describe('point and sampled point passes',()=>{
   it('accumulates moves with frozen state and records point-only history',()=>{
     const source=pointCloud([[1,0,0],[2,0,0]]).attributes({age:0}).withKey('points');
-    let escaped:Parameters<Parameters<typeof source.steps>[1]>[1]|undefined;
+    let escaped:PointEdit<any,any>|undefined;
     const result=source.steps(2,(current,next)=>{
       escaped=next;
       expect('setEdges' in next).toBe(false);

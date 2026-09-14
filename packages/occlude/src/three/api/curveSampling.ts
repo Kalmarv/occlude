@@ -1,5 +1,6 @@
 import {Collection} from './collection.js';
-import {Mesh,PointGeometry,captureAttributeFields,evaluate,pointSteps,type PointRow,type Field,type AttributeFields,type GeometryOptions,type PointRule,type StepAttributes,type StepsOptions,type PointSnapshot} from './mesh.js';
+import {Mesh,PointGeometry,captureAttributeFields,evaluate,pointSteps,type PointRow,type Field,type AttributeFields,type GeometryOptions,type PointRule,type StepAttributes,type StepsOptions,type PointSnapshot,type StepShorthand} from './mesh.js';
+import type {DisplaceOptions,RotateOptions,ScaleOptions} from './mesh.js';
 import {Instances,instanceSurfaceBinding3} from './instances.js';
 import {SurfaceCurves} from './supported.js';
 import {identity} from './identity.js';
@@ -8,7 +9,7 @@ import {surfaceLocation3,type SurfaceLocation3} from '../geometry/location.js';
 import {decodePoint,encodePoint,mixPoint,pointNumber,triangleWeights,integerWeights,ratioNumber,difference,abs,type Ratio,type EncodedPoint3} from '../geometry/exact.js';
 import {bindingTriangle3,sameSurfaceCurveLineage3,type SurfaceCurveNetwork3,type SupportedCurveSegment3} from '../curves/network.js';
 import type {Vec3} from '../math.js';
-import type {RotationInput} from '../rotation.js';
+import type {RotationInput,Axis3} from '../rotation.js';
 
 export interface CurveSamplingOptions extends GeometryOptions {
  readonly count?:number;
@@ -76,13 +77,15 @@ export class CurveSamples<P extends Attributes3={},A extends Attributes3={}> ext
   const values=captureAttributeFields(this.state.rows,fields);
   return this.changed(new PointGeometry<Omit<P,keyof Q>&Q>(assembleSurface3(this.surface.points.map((p,i)=>({...p,attributes:{...p.attributes,...values[i]}})),[],[]),{key:this.key}));
  }
- displace(field:Field<CurveSampleRow<P>,Vec3>):CurveSamples<P,A>{return this.changed(super.displace(p=>evaluate(field,this.state.rows[p.index])));}
+ displace(field:Field<CurveSampleRow<P>,Vec3|number>,options:DisplaceOptions={}):CurveSamples<P,A>{return this.changed(super.displace(p=>evaluate(field,this.state.rows[p.index]),options));}
  translate(offset:Vec3):CurveSamples<P,A>{return this.changed(super.translate(offset));}
- rotate(angles:RotationInput,origin:Vec3=[0,0,0]):CurveSamples<P,A>{return this.changed(super.rotate(angles,origin));}
- scale(scale:number|Vec3,origin:Vec3=[0,0,0]):CurveSamples<P,A>{return this.changed(super.scale(scale,origin));}
+ rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):CurveSamples<P,A>;
+ rotate(axis:Axis3,degrees:number,options?:RotateOptions):CurveSamples<P,A>;
+ rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):CurveSamples<P,A>{return this.changed((super.rotate as (...args:unknown[])=>PointGeometry<P>)(a,b,c));}
+ scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):CurveSamples<P,A>{return this.changed(super.scale(scale,pivot));}
  withKey(key:string):CurveSamples<P,A>{return this.changed(super.withKey(key));}
  get history():readonly PointSnapshot<P,CurveSamples<P,A>>[]{return super.history as readonly PointSnapshot<P,CurveSamples<P,A>>[];}
- steps(count:number,rule:PointRule<StepAttributes<P>,CurveSampleRow<StepAttributes<P>>,CurveSamples<StepAttributes<P>,A>>,...passesAndOptions:(PointRule<StepAttributes<P>,CurveSampleRow<StepAttributes<P>>,CurveSamples<StepAttributes<P>,A>>|StepsOptions)[]):CurveSamples<StepAttributes<P>,A>{
+ steps(count:number,rule:PointRule<StepAttributes<P>,CurveSampleRow<StepAttributes<P>>,CurveSamples<StepAttributes<P>,A>>|StepShorthand<CurveSampleRow<StepAttributes<P>>,StepAttributes<P>>,...passesAndOptions:(PointRule<StepAttributes<P>,CurveSampleRow<StepAttributes<P>>,CurveSamples<StepAttributes<P>,A>>|StepsOptions)[]):CurveSamples<StepAttributes<P>,A>{
   return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history)=>this.changed(new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history})));
  }
  rebind(target:SurfaceCurves<A>):CurveSamples<P,A>{

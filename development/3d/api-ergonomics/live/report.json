@@ -1,0 +1,125 @@
+{
+  "passed": true,
+  "base": "http://127.0.0.1:5273",
+  "stamp": "ecb4f59-api-ergonomics",
+  "examples": 8,
+  "results": [
+    {
+      "example": "three#6",
+      "ms": 2303,
+      "status": "ok",
+      "modeling": [],
+      "svgBytes": 4508
+    },
+    {
+      "example": "three#16",
+      "ms": 511,
+      "status": "ok",
+      "modeling": [
+        {
+          "operation": "intersections",
+          "backend": "cpu",
+          "wallMs": 18.400000035762787
+        }
+      ],
+      "svgBytes": 3520
+    },
+    {
+      "example": "three#17",
+      "ms": 656,
+      "status": "ok",
+      "modeling": [
+        {
+          "operation": "intersections",
+          "backend": "cpu",
+          "wallMs": 12.5
+        }
+      ],
+      "svgBytes": 6681
+    },
+    {
+      "example": "three#18",
+      "ms": 1640,
+      "status": "ok",
+      "modeling": [],
+      "svgBytes": 62210
+    },
+    {
+      "example": "three#21",
+      "ms": 6630,
+      "status": "ok",
+      "modeling": [
+        {
+          "operation": "hatch",
+          "backend": "cpu",
+          "wallMs": 1580,
+          "hatch": {
+            "traces": 205,
+            "segments": 6361
+          }
+        },
+        {
+          "operation": "hatch",
+          "backend": "cpu",
+          "wallMs": 1295.300000011921,
+          "hatch": {
+            "traces": 42,
+            "segments": 5997
+          }
+        }
+      ],
+      "svgBytes": 64341
+    },
+    {
+      "example": "three#23",
+      "ms": 2163,
+      "status": "ok",
+      "modeling": [
+        {
+          "operation": "hatch",
+          "backend": "gpu",
+          "wallMs": 624.8000000119209,
+          "hatch": {
+            "traces": 207,
+            "segments": 2623
+          }
+        },
+        {
+          "operation": "hatch",
+          "backend": "cpu",
+          "wallMs": 287.5,
+          "hatch": {
+            "traces": 245,
+            "segments": 406
+          }
+        }
+      ],
+      "svgBytes": 62778
+    },
+    {
+      "example": "three#25",
+      "ms": 774,
+      "status": "ok",
+      "modeling": [],
+      "svgBytes": 16318
+    },
+    {
+      "example": "api-ergonomics",
+      "ms": 2436,
+      "status": "ok",
+      "modeling": [
+        {
+          "operation": "hatch",
+          "backend": "gpu",
+          "wallMs": 672.8000000119209,
+          "hatch": {
+            "traces": 26,
+            "segments": 3462
+          }
+        }
+      ],
+      "svgBytes": 47525
+    }
+  ],
+  "errors": []
+}

@@ -37,7 +37,7 @@ import { Delaunay } from 'd3-delaunay';
 import { orient2d } from 'robust-predicates';
 import { distance, perp, isArr, vx, vy, type XY } from './vec.js';
 import { ownerOf, ownedBy, ownerOfView, pairKey, viewKind, viewProto } from './views.js';
-import { checkAttrs, stepOnce, type StepKit, type StepRule, type StepsOptions } from './steps.js';
+import { checkAttrs, stepOnce, isStepShorthand, stepRuleOf, type StepKit, type StepRule, type StepShorthand, type StepsOptions } from './steps.js';
 
 // The vocabulary this module was one file with, re-exported so its
 // importers keep one door: vectors (vec.ts), view identity (views.ts) and
@@ -50,7 +50,7 @@ export type { XY, Vec } from './vec.js';
 export { viewKind, viewProto, ownedBy, ownerOfView } from './views.js';
 export { inheritEdge } from './steps.js';
 export type {
-  Handle, Ref, ChildSpec, ChildInterval, SplitOpts, EdgeRef, StepRule, StepsOptions, Next, StepKit,
+  Handle, Ref, ChildSpec, ChildInterval, SplitOpts, EdgeRef, StepRule, StepShorthand, StepsOptions, Next, StepKit,
 } from './steps.js';
 
 // ---- the material --------------------------------------------------------------------
@@ -864,8 +864,12 @@ export class Material {
    * iteration 0, every m-th iteration, and the final one (no duplicates)
    * on the result's `history`, each labelled with its iteration number.
    * Nothing a later step does can disturb an earlier snapshot.
+   *
+   * The everyday step is shorter: `.steps(n, { move: p => [dx, dy] })` moves
+   * every point by a field and `set` writes attributes in the same pass.
    */
-  steps(n: number, rule: StepRule, ...passesAndOptions: StepRule[] | [...StepRule[], StepsOptions]): Material {
+  steps(n: number, rule: StepRule | StepShorthand, ...passesAndOptions: StepRule[] | [...StepRule[], StepsOptions]): Material {
+    if (isStepShorthand(rule)) rule = stepRuleOf(rule);
     const last = passesAndOptions[passesAndOptions.length - 1];
     const opts: StepsOptions = typeof last === 'object' ? last : {};
     const passes: StepRule[] = [rule, ...(passesAndOptions as (StepRule | StepsOptions)[]).filter((pass): pass is StepRule => typeof pass === 'function')];

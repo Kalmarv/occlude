@@ -10,9 +10,9 @@ const manifold=(mesh:Mesh<any,any,any>)=>{expect(mesh.surface.edges.every(e=>e.f
 describe('transported profile sweeps',()=>{
  it('produces a shared-rim prism with analytic volume, normals and ray hits',()=>{
   const n=12,r=2,h=3,profile=circle(r,{segments:n}),path=polyline([[0,0,0],[0,0,h]]),solid=sweep(profile,path,{caps:true,normal:[1,0,0]});
-  manifold(solid);expect(solid.points.length).toBe(2*n);expect(solid.faces().length).toBe(n+2);
+  manifold(solid);expect(solid.points.length).toBe(2*n);expect(solid.faces.length).toBe(n+2);
   expect(volume(solid)).toBeCloseTo(n*r*r*Math.sin(2*Math.PI/n)*h/2,12);
-  expect(solid.faces().at(-2)!.normal[2]).toBe(-1);expect(solid.faces().at(-1)!.normal[2]).toBe(1);
+  expect(solid.faces.at(-2)!.normal[2]).toBe(-1);expect(solid.faces.at(-1)!.normal[2]).toBe(1);
   const hit=query(solid).ray([0,0,5],[0,0,-2]);expect(hit!.distance).toBeCloseTo(2,12);expect(hit!.t).toBeCloseTo(1,12);
   expect(solid.surface).toEqual(sweep(profile,path,{caps:true,normal:[1,0,0]}).surface);
  });
@@ -27,13 +27,13 @@ describe('transported profile sweeps',()=>{
   expect(solid.points.at(8)!.x).toBeCloseTo(Math.SQRT1_2,12);expect(solid.points.at(8)!.y).toBeCloseTo(Math.SQRT1_2,12);
   expect(solid.points.at(16)!.x).toBeCloseTo(0,12);expect(solid.points.at(16)!.y).toBeCloseTo(1.5,12);
   expect(solid.points.at(8)!.provenance!.parents).toEqual([profile.points.at(0)!.id,path.points.at(1)!.id]);
-  expect(solid.faces().at(0)).toMatchObject({material:'ink',section:0});expect(solid.faces().at(-1)!.material).toBeUndefined();
+  expect(solid.faces.at(0)).toMatchObject({material:'ink',section:0});expect(solid.faces.at(-1)!.material).toBeUndefined();
   const before=volume(solid),changed=solid.subdivide().displace(p=>[0,0,p.weight]).steps(1,(current,next)=>next.move(current.points,[0,0,1]));manifold(changed);expect(volume(changed)).toBeCloseTo(before,10);
   expect(path.points.at(0)!.z).toBe(0);
  });
  it('shares both closed seams and has the independent polygonal torus volume',()=>{
   const n=24,m=12,R=2,r=.3,path=circle(R,{segments:n}),profile=circle(r,{segments:m});
-  const solid=sweep(profile,path,{normal:[0,0,1]});manifold(solid);expect(solid.points.length).toBe(n*m);expect(solid.faces().length).toBe(n*m);
+  const solid=sweep(profile,path,{normal:[0,0,1]});manifold(solid);expect(solid.points.length).toBe(n*m);expect(solid.faces.length).toBe(n*m);
   const profileArea=m*r*r*Math.sin(2*Math.PI/m)/2;
   expect(volume(solid)).toBeCloseTo(n*Math.sin(2*Math.PI/n)*R*profileArea,11);
   for(let i=0;i<n;i++){const p=solid.points.at(i*m)!;expect(p.x).toBeCloseTo(path.points.at(i)!.x,12);expect(p.y).toBeCloseTo(path.points.at(i)!.y,12);expect(p.z).toBeCloseTo(r,12);}
@@ -42,7 +42,7 @@ describe('transported profile sweeps',()=>{
  });
  it('supports open ribbon profiles and open tubes without implicit caps',()=>{
   const path=polyline([[0,0,0],[0,0,1],[1,0,2]]),ribbon=sweep(polyline([[-.5,0,0],[.5,0,0]]),path);
-  expect(ribbon.points.length).toBe(6);expect(ribbon.faces().length).toBe(2);expect(ribbon.surface.edges.filter(e=>e.faces.length===1).length).toBe(6);
+  expect(ribbon.points.length).toBe(6);expect(ribbon.faces.length).toBe(2);expect(ribbon.surface.edges.filter(e=>e.faces.length===1).length).toBe(6);
   const tube=sweep(circle(.2,{segments:8}),path);expect(tube.surface.edges.filter(e=>e.faces.length===1).length).toBe(16);
  });
  it('rejects undefined frames, singular fields and oversized topology before field evaluation',()=>{

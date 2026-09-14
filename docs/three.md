@@ -4,13 +4,13 @@ Ordinary sketches import their 3D vocabulary from `occlude/3d`: `plane`, `box`, 
 
 ## Procedural mesh values
 
-Import the ordinary 3D vocabulary from `occlude/3d`. `plane(width = 1, height = width)` creates four points, four edges and one +Z quad centered in XY. `box(size = 1)` accepts a scalar or a dimension triple. `mesh(points, faces)` takes ownership of validated polygon topology. Each returns the same immutable mesh value with `.points`, `.edges` and `.faces()` collections.
+Import the ordinary 3D vocabulary from `occlude/3d`. `plane(width = 1, height = width)` creates four points, four edges and one +Z quad centered in XY. `box(size = 1)` accepts a scalar or a dimension triple. `mesh(points, faces)` takes ownership of validated polygon topology. Each returns the same immutable mesh value with `.points`, `.edges` and `.faces` collections.
 
 `subdivide(levels = 1)` preserves the represented surface: planar convex quads split into four quads, triangles into four triangles, and concave or folded polygons refine their validated triangles. Shared edges get one midpoint. A plane at level five has 32×32 quads. It does not smooth a box or push points onto an analytic sphere. The entire request is checked before allocation; defaults are 250,000 faces and 500,000 points, configurable with `{ maxFaces, maxPoints }`. The point budget uses a conservative upper bound.
 
 Point rows expose `id`, `index`, `x/y/z` and immutable attributes both by name and through `.attributes`. `attribute(name, field)` preserves types in later fields; `{ transfer: 'nearest' }` protects numeric categories during refinement. Continuous numbers and numeric vectors interpolate. Other categories choose the first contributor in canonical ID order; missing columns remain missing. Child faces inherit attributes, and child boundary edges copy their parent's edge attributes. Newly introduced interior edges have no edge attributes, so their typed values are optional. Parent IDs remain available as provenance. Built-in row names—including coordinates, `id`, `index`, `attributes`, `normal`, `area` and `length`—are reserved.
 
-`displace(field)` is one immutable displacement pass. `steps(count, (current, next, k) => …, { every })` accumulates edits while reads remain frozen. Select from `current.points` inside each pass; a prior revision's selection is rejected. History includes the initial state, every requested completed iteration and the final state, with continuing `.iteration` counts. Fields run as ordinary synchronous JavaScript; they are not implicitly compiled into GPU shaders.
+`displace(field)` is one immutable displacement pass: a triple per point, or a number along the vertex normal (`{ along: 'z' }` or a triple picks another direction). `steps(count, (current, next, k) => …, { every })` accumulates edits while reads remain frozen; the everyday step is the shorthand `steps(count, { move: p => [dx, dy, dz], set })` (a numeric move follows the vertex normal), which desugars to that rule over every point. Select from `current.points` inside each pass; a prior revision's selection is rejected. History includes the initial state, every requested completed iteration and the final state, with continuing `.iteration` counts. Fields run as ordinary synchronous JavaScript; they are not implicitly compiled into GPU shaders.
 
 ```ts live
 import { sketch, paper, pen, mm, inch } from 'occlude';
@@ -36,7 +36,7 @@ export default sketch({ seed: 42, paper: paper({ width: inch(8.5), height: inch(
 
 `view` is the explicit drawing boundary. It automatically captures geometry and hatch ownership and retains its interpretation for camera commits. Default ink includes visible boundaries, silhouettes and creases of at least 30°. Set `creaseAngle` in degrees to control that artistic threshold. `orthographic` defaults to span 6 and `perspective` to a 45° vertical FOV; both require an eye and default their target to the origin, near distance to 0.1, and far distance to at least 100 (expanded for distant cameras). Explicit near/far values remain available.
 
-Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupBy` and `extract`. `has(row)` checks an actual owned row, not a copied object or matching ID. `union`, `intersect` and `subtract` require the same source revision and domain; their results follow source order. `complement()` selects the remaining rows of the complete source domain, including when called on a filtered group. Groups are selections with a `.key`. Face extraction retains shared mesh topology; extracting points produces point geometry and extracting edges produces curve data. Those types do not claim editable mesh faces. `faceAttribute` and `faceAttributes` store face fields; `edgeAttribute` stores edge fields. Transforms return new values: `.translate(triple)`, `.rotate(degreesTriple, origin)` and `.scale(scalarOrTriple, origin)`. Optional factory keys and `.withKey(key)` provide semantic identity when local input order is insufficient.
+Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupBy` and `extract`. `has(row)` checks an actual owned row, not a copied object or matching ID. `union`, `intersect` and `subtract` require the same source revision and domain; their results follow source order. `complement()` selects the remaining rows of the complete source domain, including when called on a filtered group. Groups are selections with a `.key`. Face extraction retains shared mesh topology; extracting points produces point geometry and extracting edges produces curve data. Those types do not claim editable mesh faces. `faceAttribute` and `faceAttributes` store face fields; `edgeAttribute` stores edge fields. Transforms return new values and pivot on the object's own `origin`, which primitives are born with at the world origin and `translate` carries along: `.translate(triple)`, `.rotate(degreesTriple)` or `.rotate('z', degrees, { about?: 'origin' | 'world' | triple, local?: true })`, and `.scale(scalarOrTriple, { about? })`. A `local` rotation reads its axis in the object's accumulated `orientation`; a bare `rotate([0, 0, 90])` turns the object where it stands, not around the world. Keys: values are matched between renders by their position in the sketch's evaluation order, which is enough for ordinary sketches. When that order is unstable (a loop whose count changes, a conditional branch), a factory `{ key }` option or `.withKey(key)` gives a value a stable identity; `view` and the curve derivations accept `key` the same way. Keys never change the ink, only what Studio can carry across edits.
 
 ## Interpreting projected intervals
 
@@ -301,7 +301,7 @@ export default sketch({ seed: 42, pens: {
   const ring = circle(1.2, { segments: 64 }).translate([0, 0, 2.1]);
   const path = polyline([[-2, -1, -1.5], [0, 0, -1.5], [2, 1, -1.5]])
     .attribute('lift', p => p.index === 1 ? 0.25 : 0)
-    .steps(3, (current, next) => next.move(current.points, p => [0, 0, p.lift]));
+    .steps(3, { move: p => [0, 0, p.lift] });
   const frame = box([4.4, 4.4, 4.4]).edges
     .filter(e => e.a.z < 0 && e.b.z < 0).extract();
   return view([block, spiral, ring, path, frame], {
@@ -924,12 +924,11 @@ export default sketchAsync({
     seam: pen({ width: mm(0.5), color: '#A84932' }),
   },
 }, async t => {
-  const block = box([2.8, 1.5, 1.6]).withKey('block');
-  const tower = box([1, 1, 2.8]).translate([0.6, 0.3, 0.6]).withKey('tower');
-  const seams = await t.intersections(block, tower, { key: 'seams' });
+  const block = box([2.8, 1.5, 1.6]);
+  const tower = box([1, 1, 2.8]).translate([0.6, 0.3, 0.6]);
+  const seams = await t.intersections(block, tower);
   return [
     view([block, tower, seams], {
-      key: 'crossing-forms',
       camera: orthographic({ eye: [5, 7, 6], target: [0, 0, 0.4], span: 4.6 }),
     }, lines => [
       strokes(lines.visible.filter(c => !c.kinds.has('intersection')), { stroke: 'outline' }),
@@ -955,8 +954,8 @@ Isolated tangent contacts are point data with `attributes.contact` equal to
 three edge classes; filter the construction or projected attributes when they
 need different treatment. No Boolean, mesh splitting or capping is performed.
 
-`withKey` names a curve value. Edge extraction retains its complete source
-reference through visibility and cropping. `rebind(mesh)` refreshes a one-source
+Edge extraction retains its complete source reference through visibility and
+cropping. `rebind(mesh)` refreshes a one-source
 attachment after an incidence-preserving edit; multiple sources require one mesh
 per source in `curves.sources` order. If intersection supports separate, regenerate
 with `intersections` instead of projecting a seam onto a nearby surface.
@@ -983,8 +982,8 @@ import { box, view, orthographic, instanceOnPoints, alignAxis } from 'occlude/3d
 export default sketchAsync({ seed: 42, pens: {
   ink: pen({ width: mm(0.3), color: '#18202A' }),
 } }, async t => {
-  const block = box([2.8, 1.5, 1.6]).withKey('block');
-  const tower = box([1, 1, 2.8]).translate([0.6, 0.3, 0.6]).withKey('tower');
+  const block = box([2.8, 1.5, 1.6]);
+  const tower = box([1, 1, 2.8]).translate([0.6, 0.3, 0.6]);
   const seams = await t.intersections(block, tower);
   const sites = t.sample(seams, { spacing: 0.3 });
   const markers = instanceOnPoints(box([0.08, 0.08, 0.12]), sites.points, {
@@ -992,7 +991,6 @@ export default sketchAsync({ seed: 42, pens: {
   });
   return [
     view([block, tower, markers], {
-      key: 'sampled-seams',
       camera: orthographic({ eye: [5, 7, 6], target: [0, 0, 0.4], span: 4.6 }),
       stroke: 'ink',
     }),
@@ -1079,7 +1077,6 @@ export default sketch({ seed: 42, pens: {
   });
   return [
     view([sheet, marks], {
-      key: 'rest-coordinates',
       camera: orthographic({ eye: [5, 7, 6], span: 5.3 }),
     }, lines => [
       strokes(lines.visible.filter(c => !c.faceAttributes.some(a => a.mark)), { stroke: 'outline' }),
@@ -1261,12 +1258,10 @@ export default sketchAsync({ seed: 42, pens: {
   const ball = sphere(1.6, { segments: 32, rings: 16 });
   const height = gradient(s => s.position[2]);
   const sun = light({ direction: [-1, -2, 2], ambient: 0.1, ramp: 'smooth' });
-  const marks = await t.hatch(ball, { spacing: 0.12, families: [
-    { id: 'meridians', direction: height, tone: s => 0.25 + 0.75 * sun(s), stroke: 'warm' },
-    { id: 'parallels', direction: across(height), tone: s => Math.max(0, 1.6 * sun(s) - 0.6), stroke: 'cool' },
-  ] });
+  const meridians = await t.hatch(ball, { spacing: 0.12, direction: height, tone: s => 0.25 + 0.75 * sun(s), stroke: 'warm' });
+  const parallels = await t.hatch(ball, { spacing: 0.12, direction: across(height), tone: s => Math.max(0, 1.6 * sun(s) - 0.6), stroke: 'cool' });
   return [
-    view([ball, marks], { camera: perspective({ eye: [4, -6, 3], target: [0, 0, 0], fovDegrees: 36 }), stroke: 'ink' }),
+    view([ball, meridians, parallels], { camera: perspective({ eye: [4, -6, 3], target: [0, 0, 0], fovDegrees: 36 }), stroke: 'ink' }),
     label('GRADIENT / ACROSS / LIGHT', 8, 94, 4, { stroke: 'ink' }),
   ];
 });
@@ -1285,12 +1280,16 @@ camera. Options:
   neighbouring lines in model/world units (not chart units, not paper).
 - `tone`: 0..1 constant or field (default 1); `stroke`: a pen name recorded on
   the lines so `view`'s default drawing uses it.
-- `families: [{ id, direction, tone, stroke, spacing }]` traces several
-  families over the same surface; each keeps its `family` identity.
 - `step` (default spacing / 2), `maxLength` and `maxSteps` per direction from a
   seed, `seeds` random restarts per surface, `maxTraces`, `maxSegments`,
   `maxTotalSteps`, `creaseDegrees` (default 60; 180 crosses every fold),
-  `fallback` direction where the family's field reports none.
+  `fallback` direction where the field reports none (an umbilic, a flat
+  region): by default the chart's u direction, else world +X projected onto
+  the surface.
+
+One call is one family of lines. Crosshatch is a second call with its own
+direction, tone and pen, and both values go into the same view; each call
+keeps its own occupancy, so the two families cross freely.
 
 Coverage is Jobard–Lefer style: every accepted line proposes new seeds one
 spacing to either side, reached by walking across the surface, and a line stops
@@ -1331,10 +1330,10 @@ export default sketchAsync({
 });
 ```
 
-Crosshatch is a second family. Here the first family follows the estimated
-maximum-curvature direction of a custom deformed mesh under an explicit light,
-the second runs across it in another pen and appears only in shadow, and the
-chart direction is the fallback where curvature is undecided.
+Here the first call follows the estimated maximum-curvature direction of a
+custom deformed mesh under an explicit light, and the second runs across it in
+another pen and appears only in shadow. Where curvature is undecided the
+built-in fallback (the chart direction) takes over.
 
 ```ts live
 import { sketchAsync, label, pen, mm } from 'occlude';
@@ -1348,16 +1347,10 @@ export default sketchAsync({ seed: 42, pens: {
   const relief = plane(5, 4).subdivide(4)
     .displace(p => [0, 0, 0.6 * Math.sin(p.x * 1.4) * Math.cos(p.y * 1.1) + 0.15 * t.noise(p.x, p.y)]);
   const sun = light({ direction: [-2, 1, 3], ambient: 0.05 });
-  const marks = await t.hatch(relief, {
-    spacing: 0.12,
-    families: [
-      { id: 'form', direction: curvature('max'), tone: sun, stroke: 'shade' },
-      { id: 'cross', direction: across(curvature('max')), tone: s => Math.max(0, 2 * sun(s) - 1), stroke: 'cross' },
-    ],
-    fallback: s => s.tangentU,
-  });
+  const form = await t.hatch(relief, { spacing: 0.12, direction: curvature('max'), tone: sun, stroke: 'shade' });
+  const cross = await t.hatch(relief, { spacing: 0.12, direction: across(curvature('max')), tone: s => Math.max(0, 2 * sun(s) - 1), stroke: 'cross' });
   return [
-    view([relief, marks], { camera: perspective({ eye: [6, -8, 6], target: [0, 0, 0], fovDegrees: 38 }), stroke: 'ink' }),
+    view([relief, form, cross], { camera: perspective({ eye: [6, -8, 6], target: [0, 0, 0], fovDegrees: 38 }), stroke: 'ink' }),
     label('CURVATURE / CROSSHATCH', 8, 94, 4, { stroke: 'ink' }),
   ];
 });
@@ -1389,12 +1382,14 @@ Every emitted piece records the triangle it was traced in.
 
 ## Scalar isolines and cross-contours
 
-`isolines(mesh, field, { levels })` builds supported curves where a per-corner
-scalar crosses each level: a numeric point attribute by name, or a callback over
-corner rows such as `c => c.point.z` or `c => c.uv[1]` (a cross-contour of the
-stored coordinates). Values interpolate linearly inside each represented
-triangle, so a nonlinear field is only as accurate as the mesh. Levels are an
-explicit array, `{ count }` evenly inside the range, or `{ spacing, offset }`.
+`isolines(mesh, field, { count })` builds supported curves where a scalar
+crosses each level. The field is a numeric attribute by name, or a callback over
+a row that carries the point's `x`, `y`, `z` and attributes together with the
+corner's `uv` and `chart`, so `p => p.z` and `c => c.uv[1]` (a cross-contour of
+the stored coordinates) both read naturally. Values interpolate linearly inside
+each represented triangle, so a nonlinear field is only as accurate as the
+mesh. Levels are `{ count }` evenly inside the range, `{ spacing, offset? }`,
+or an explicit `{ levels: [...] }` array.
 Edges carry `level` and `levelIndex`. Seams keep their own chains; a level
 through a vertex passes through it once. Silhouettes remain view features;
 these are reusable model data.
@@ -1405,11 +1400,10 @@ import { plane, cylinder, isolines, view, orthographic } from 'occlude/3d';
 
 export default sketch({ seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, () => {
   const relief = plane(3, 3).subdivide(4)
-    .displace(p => [0, 0, 0.5 * Math.sin(p.x * 2) * Math.cos(p.y * 1.5)])
-    .attributes({ height: p => p.z });
-  const heights = isolines(relief, 'height', { levels: { count: 7 } });
+    .displace(p => [0, 0, 0.5 * Math.sin(p.x * 2) * Math.cos(p.y * 1.5)]);
+  const heights = isolines(relief, p => p.z, { count: 7 });
   const tube = cylinder(0.6, 2.2, { segments: 24 }).translate([2.6, 0, 1.1]);
-  const rings = isolines(tube, c => c.chart === 'side' ? c.uv[1] : -1, { levels: { count: 8 } });
+  const rings = isolines(tube, c => c.chart === 'side' ? c.uv[1] : -1, { count: 8 });
   return [
     view([relief, heights, tube, rings], { camera: orthographic({ eye: [5, 7, 6], span: 6 }), stroke: 'ink' }),
     label('ISOLINES / CROSS-CONTOURS', 8, 94, 4, { stroke: 'ink' }),
@@ -1448,11 +1442,11 @@ export default sketchAsync({ seed: 42, pens: {
   const sheet = plane(4, 4).subdivide(3)
     .faceAttributes({ heat: f => Math.exp(-3 * (f.center[0] ** 2 + f.center[1] ** 2)) })
     .steps(4, (current, next) => {
-      next.setFaces(current.faces(), f => ({
+      next.setFaces(current.faces, f => ({
         heat: 0.5 * f.heat + 0.5 * f.adjacent.map(a => a.heat).reduce((a, b) => a + b, 0) / Math.max(1, f.adjacent.length),
       }));
     });
-  const warm = sheet.faces().filter(f => f.heat > 0.2);
+  const warm = sheet.faces.filter(f => f.heat > 0.2);
   const model = sheet.extrude(warm, { distance: 0.7 }, { key: 'plateau' });
   const marks = await t.hatch(model, {
     direction: s => s.tangentU, spacing: 0.1, stroke: 'shade',

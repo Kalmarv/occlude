@@ -16,14 +16,20 @@ export type SurfaceCurveEdge<A extends Attributes3={}> = Readonly<Omit<A,keyof S
 const rows=new WeakMap<SurfaceCurveNetwork3,{points:readonly SurfaceCurvePoint[];edges:readonly SurfaceCurveEdge[]}>();
 /** Supported construction geometry, before camera interpretation. Generators
  * create these values; edge extraction retains attachments and full source phase. */
+export interface SurfaceCurveOptions extends GeometryOptions {
+ /** Named pen for `view`'s default drawing of these marks. */
+ readonly stroke?:string;
+}
 export class SurfaceCurves<A extends Attributes3={}> {
  readonly key?:string;
+ readonly stroke?:string;
  readonly points:Collection<SurfaceCurvePoint,readonly SurfaceCurvePoint[]>;
  readonly edges:Collection<SurfaceCurveEdge<A>,SurfaceCurves<A>>;
- constructor(readonly network:SurfaceCurveNetwork3,options:GeometryOptions={}){
+ constructor(readonly network:SurfaceCurveNetwork3,options:SurfaceCurveOptions={}){
   validateSurfaceCurveNetwork3(network);
   if(options.key!==undefined&&(typeof options.key!=='string'||!options.key))throw new Error('surface curve key must be nonempty');
-  this.key=options.key;
+  if(options.stroke!==undefined&&(typeof options.stroke!=='string'||!options.stroke))throw new Error('surface curve stroke must be a pen name');
+  this.key=options.key;this.stroke=options.stroke;
   let cached=rows.get(network);
   if(!cached){
    const points=Object.freeze(network.nodes.map((node,index)=>Object.freeze({id:node.id,index,x:node.position[0],y:node.position[1],z:node.position[2],attributes:node.attributes,exact:node.exact,supports:node.supports})));
@@ -43,7 +49,9 @@ export class SurfaceCurves<A extends Attributes3={}> {
   const bindings=targets.map((t,i)=>surfaceBinding3(t.surface,this.sources[i].binding.placement));
   return new SurfaceCurves<A>(rebindSurfaceCurveNetwork3(this.network,bindings),this);
  }
- withKey(key:string):SurfaceCurves<A>{return new SurfaceCurves<A>(this.network,{key});}
+ withKey(key:string):SurfaceCurves<A>{return new SurfaceCurves<A>(this.network,{key,stroke:this.stroke});}
+ /** The same marks drawn with a named pen by `view`. */
+ withStroke(stroke:string):SurfaceCurves<A>{return new SurfaceCurves<A>(this.network,{key:this.key,stroke});}
  /** Repeat prototype-attached marks at every placement of an instance set.
   * Attachments are re-evaluated on each placed triangle from their retained
   * affine weights; the prototype mesh is not realized. Segment attributes gain
@@ -63,7 +71,7 @@ export class SurfaceCurves<A extends Attributes3={}> {
    id:identity('placed-segment',source.id,segment.id),kind:segment.kind,a:identity('placed-node',source.id,network.nodes[segment.a].id),b:identity('placed-node',source.id,network.nodes[segment.b].id),
    chainId:identity('placed-chain',source.id,segment.chainId),range:segment.range,supports:segment.supports.map(s=>({source:si,triangle:s.triangle})),attributes:{...segment.attributes,instance:source.id},
   })));
-  const placed=surfaceCurveNetwork3({sources,nodes,segments}),curves=new SurfaceCurves<A&{instance:string}>(placed,{key:this.key});
+  const placed=surfaceCurveNetwork3({sources,nodes,segments}),curves=new SurfaceCurves<A&{instance:string}>(placed,{key:this.key,stroke:this.stroke});
   if(selected.size===network.segments.length)return curves;
   return curves.edges.filter(e=>selected.has(network.segments.find(s=>identity('placed-segment',e.instance,s.id)===e.id)?.id??'')).extract();
  }

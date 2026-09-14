@@ -59,7 +59,7 @@ function convertRays<F extends Attributes3>(prepared:PreparedQuery<F>,values:rea
 
 /** One owned target and cached CPU spatial index, shared by scalar and batch queries. */
 export class PreparedQuery<F extends Attributes3=Attributes3> {
-  constructor(readonly target:Mesh<any,any,F>){if(!(target instanceof Mesh))throw new Error('query requires a mesh target; realize mesh instances explicitly');queryStates.set(this,{source:prepareSurfaceQueries3(target.surface),faces:Object.freeze([...target.faces()])});Object.freeze(this);}
+  constructor(readonly target:Mesh<any,any,F>){if(!(target instanceof Mesh))throw new Error('query requires a mesh target; realize mesh instances explicitly');queryStates.set(this,{source:prepareSurfaceQueries3(target.surface),faces:Object.freeze([...target.faces])});Object.freeze(this);}
   nearest(point:PointLike3,options:NearestOptions={}):SurfaceHit<F>|null{return hit(this,state(this).source.nearest([{point:position3(point),maxDistance:options.within}])[0]);}
   ray(origin:PointLike3,direction:Vec3,options:RayOptions={}):RayHit<F>|null{const p=position3(origin);return rayHit(this,state(this).source.rays([{origin:p,direction:position3(direction),...options}])[0],p);}
   segment(from:PointLike3,to:PointLike3):RayHit<F>|null{

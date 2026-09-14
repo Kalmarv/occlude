@@ -812,7 +812,8 @@ export type Toolkit = ReturnType<typeof bindToolkit>;
 export interface SketchDef {
   readonly __occludeSketch: true;
   readonly config: SketchConfig;
-  readonly fn: (toolkit: Toolkit) => Tree;
+  /** A synchronous tree, or a promise of one when the function is `async`. */
+  readonly fn: (toolkit: Toolkit) => Tree | Promise<Tree>;
 }
 
 /** An explicitly asynchronous sketch; ordinary sketches retain their synchronous contract. */
@@ -822,8 +823,13 @@ export interface AsyncSketchDef {
   readonly fn: (toolkit: Toolkit) => Tree | Promise<Tree>;
 }
 
+/** `sketchAsync` definitions, and `sketch` definitions whose function is
+ * `async`: anything on the toolkit may be awaited inside either. */
 export function isSketchAsync(v: unknown): v is AsyncSketchDef {
-  return typeof v === 'object' && v !== null && (v as AsyncSketchDef).__occludeAsyncSketch === true;
+  if (typeof v !== 'object' || v === null) return false;
+  if ((v as AsyncSketchDef).__occludeAsyncSketch === true) return true;
+  const fn = (v as SketchDef).__occludeSketch === true ? (v as SketchDef).fn : undefined;
+  return typeof fn === 'function' && fn.constructor?.name === 'AsyncFunction';
 }
 
 export function sketchAsync(config: SketchConfig, fn: AsyncSketchDef['fn']): AsyncSketchDef {
@@ -839,7 +845,7 @@ export function isSketch(v: unknown): v is SketchDef {
  * Define a sketch (declarative form), or reset the legacy recording state
  * when called with only a config (old-style sketches keep working).
  */
-export function sketch(config: SketchConfig, fn: (toolkit: Toolkit) => Tree): SketchDef {
+export function sketch(config: SketchConfig, fn: (toolkit: Toolkit) => Tree | Promise<Tree>): SketchDef {
   if (typeof fn !== 'function') throw new Error('sketch(config, fn): the second argument is the sketch function (toolkit) => tree');
   return { __occludeSketch: true, config, fn };
 }
@@ -889,6 +895,15 @@ function boundEnv(run: Execution): BoundEnv {
  * closes over THIS execution. The pure module factories (shapes, fills,
  * modifiers, units, map/ease) are the same functions the package exports.
  */
+/** A point for `t.noise`: `{ x, y, z? }` rows or `[x, y, z?]` triples. */
+export type NoisePoint = readonly number[] | { readonly x: number; readonly y: number; readonly z?: number };
+export interface NoiseOptions {
+  /** Distance over which the noise varies once (default 1): inputs divide by it. */
+  readonly wavelength?: number;
+  /** Output scale (default 1). */
+  readonly amount?: number;
+}
+
 export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; compute3?: SceneCompute3; isOpen?: () => boolean; onProgress?: import('./three/modeling.js').ProgressListener3 }) {
   /** Environment handed to the points module: seeded stream, drawable
    * bounds, and sketch-time length resolution (mm via the paper). */
@@ -1142,8 +1157,20 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   }
   /** The seeded stream: `rnd()`, `rnd(n)`, `rnd(a, b)`. */
   const rnd: Execution['rnd'] = (a?: number, b?: number) => (b !== undefined ? exec.rnd(a as number, b) : a !== undefined ? exec.rnd(a) : exec.rnd());
-  /** Seeded 3D noise in [-1, 1]. */
-  const noise = (x: number, y = 0, z = 0): number => exec.noise(x, y, z);
+  /** Seeded 3D noise in [-1, 1]: `noise(x, y?, z?)`, or a point row or
+   * triple with `{ wavelength, amount }` so a field reads
+   * `p => t.noise(p, { wavelength: 40, amount: 3 })`. */
+  function noise(x: number, y?: number, z?: number): number;
+  function noise(point: NoisePoint, options?: NoiseOptions): number;
+  function noise(a: number | NoisePoint, b?: number | NoiseOptions, c?: number): number {
+    if (typeof a === 'number') return exec.noise(a, (b as number | undefined) ?? 0, c ?? 0);
+    const row = a as { readonly x: number; readonly y: number; readonly z?: number };
+    const [x, y, z] = Array.isArray(a) ? [a[0], a[1], a[2] ?? 0] : [row.x, row.y, row.z ?? 0];
+    const options = (b as NoiseOptions | undefined) ?? {};
+    const wavelength = options.wavelength ?? 1, amount = options.amount ?? 1;
+    if (!(wavelength > 0) || !Number.isFinite(amount)) throw new Error('noise wavelength must be positive and amount finite');
+    return amount * exec.noise(x / wavelength, y / wavelength, z / wavelength);
+  }
   const b0 = exec.bounds();
   const within = ((x: never, area: Boundary | ShapeValue, opts?: never) => withinAny(exec, x, area, opts)) as Within;
   const synthEnv = (opts: SynthOpts): SynthOpts => ({
@@ -1244,8 +1271,9 @@ export function compileSketch(def: SketchDef, inputs: ExecutionInputs | Executio
   const cfg = def.config;
   exec.begin(cfg);
   const toolkit = bindToolkit(exec);
-  const tree = def.fn(toolkit);
-  emit(exec, tree, { pen: undefined, z: undefined, decimate: undefined, wobble: undefined, bridge: undefined, modifiers: [] });
+  const result = def.fn(toolkit);
+  if (result && typeof (result as PromiseLike<unknown>).then === 'function') { void Promise.resolve(result).catch(() => {}); throw new Error('compileSketch: the sketch function returned a promise; use compileSketchAsync or renderAsync'); }
+  emit(exec, result as Tree, { pen: undefined, z: undefined, decimate: undefined, wobble: undefined, bridge: undefined, modifiers: [] });
   return exec;
 }
 
