@@ -11,6 +11,8 @@ export interface SceneCompute3 extends Partial<ModelingCompute3> {
   classify(snapshot: FeatureSnapshot3, options: { signal?: AbortSignal }): Promise<ClassifiedScene3>;
 }
 export interface LineArtOptions3 {
+  /** Stable key for a camera override in sketch configuration. */
+  readonly id?: string;
   readonly objects?: readonly SurfaceObject3[];
   readonly wires?: readonly WireObject3[];
   readonly camera: Camera3;
@@ -34,6 +36,7 @@ const freeze = <T>(value: T): T => {
 /** Capture editable geometry now; projection waits for the execution's paper.
  * Selection callbacks must be pure functions of their captured feature rows. */
 export function lineArt3(options: LineArtOptions3): LineArtScene3 {
+  if (options.id !== undefined && (typeof options.id !== 'string' || !options.id || options.id.startsWith('@'))) throw new Error('scene id must be nonempty and must not start with @');
   const camera = cameraFrame3(options.camera, options.viewport ?? { x: 0, y: 0, width: 1, height: 1 }).camera;
   const surfaces = new Map<import('./geometry/surface.js').Surface3, import('./geometry/surface.js').Surface3>();
   const captureSurface = (surface: import('./geometry/surface.js').Surface3) => {
@@ -47,6 +50,7 @@ export function lineArt3(options: LineArtOptions3): LineArtScene3 {
   }
   return Object.freeze({
     __occludeLineArt3: true,
+    id: options.id,
     camera,
     viewport: options.viewport && Object.freeze({ ...options.viewport }),
     objects: Object.freeze((options.objects ?? []).map(object => Object.freeze({ ...object, surface: captureSurface(object.surface), curves: object.curves && freeze({surface:captureSurface(object.surface),segments:structuredClone(object.curves.segments)}), hatch: object.hatch && freeze({...object.hatch,surface:captureSurface(object.surface),families:structuredClone(object.hatch.families)}), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)) }))),

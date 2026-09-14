@@ -38,7 +38,10 @@ function copy<T>(value: T, seen = new Map<object, unknown>()): T {
   }
   const out = Array.isArray(value) ? [] : Object.create(Object.getPrototypeOf(value));
   seen.set(value, out);
-  for (const key of Object.keys(value)) out[key] = copy((value as Record<string, unknown>)[key], seen);
+  for (const key of Object.keys(value)) Object.defineProperty(out, key, {
+    value: copy((value as Record<string, unknown>)[key], seen),
+    enumerable: true, configurable: true, writable: true,
+  });
   return out;
 }
 
@@ -52,7 +55,7 @@ export function retainDrawing3(exec: Execution, tree: Tree): RetainedDrawing3 {
     ...[...exec.pens].filter(([name]) => name !== exec.currentPen)];
   return {
     tree: copy(tree),
-    config: copy({ paper: exec.paper, pens: Object.fromEntries(pens), seed: exec.seedUsed,
+    config: copy({ paper: exec.paper, pens: Object.fromEntries(pens), seed: exec.seedUsed, cameras3: exec.cameras3,
       aspect: exec.aspect, origin: exec.origin, yUp: exec.yUp, rectMode: exec.rectMode, margin: exec.marginPct }),
   };
 }
@@ -81,5 +84,7 @@ export function cameraDrawing3(exec: Execution, scene: LineArtScene3, camera: Ca
   }
   const tree = replace(copy(retained.tree));
   if (!found) throw new Error('camera commit requires a retained lineArt3 or drawing3 node');
-  return { tree, config: copy(retained.config), scene: next };
+  const config = copy(retained.config);
+  config.cameras3 = { ...config.cameras3, [exec.cameraKey3(scene)]: next.camera };
+  return { tree, config, scene: next };
 }

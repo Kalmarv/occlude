@@ -1,6 +1,6 @@
 /** Public lineArt3 sketches through the actual Studio render worker. */
 import { chromium } from 'playwright';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 const base = process.env.OCCLUDE_GPU_URL ?? 'http://127.0.0.1:5273';
@@ -19,6 +19,7 @@ try {
   await page.addInitScript(({cameraCheck}) => {
     window.sceneReports = [];
     window.workerRequests = [];
+    window.cameraRequests = [];
     window.adapterRequests = 0;
     if (navigator.gpu) {
       const request = navigator.gpu.requestAdapter.bind(navigator.gpu);
@@ -31,6 +32,7 @@ try {
           message={...message,js:message.js.replace(/let surface\s*=/,'console.info("camera-model-generation"); let surface =')};
         }
         if(typeof message.type==='string')window.workerRequests.push(message.type);
+        if(message.type==='construction')window.cameraRequests.push({camera:message.camera});
         if(message.type==='plan-load'||message.type==='render')window.planWorker=this;
         return super.postMessage(message,...rest);
       }
@@ -142,7 +144,7 @@ try {
   await page.screenshot({ path: resolve(output, 'studio.png'), fullPage: true });
   assert.deepEqual(errors, []);
   if (process.env.OCCLUDE_CAMERA_CHECK === '1') {
-    const before=await page.evaluate(()=>({hash:window.sceneReply.planHash,execution:window.sceneReply.executionId,camera:window.sceneReply.construction[0].camera,modeling:window.sceneReply.three.modeling,requests:window.workerRequests.filter(t=>t==='render').length}));
+    const before=await page.evaluate(()=>({hash:window.sceneReply.planHash,execution:window.sceneReply.executionId,camera:window.sceneReply.construction[0].camera,paper:window.sceneReply.paper,modeling:window.sceneReply.three.modeling,requests:window.workerRequests.filter(t=>t==='render').length}));
     const generationCount=modelGenerations;
     assert(generationCount>0,'the procedural model must be instrumented');
     await page.evaluate(()=>{
@@ -161,7 +163,7 @@ try {
     await page.waitForFunction(r=>document.querySelector('#construction-canvas')?.dataset.revision!==r,revision);
     await page.getByRole('button',{name:'Commit view',exact:true}).click();
     await page.waitForFunction(hash=>window.__occlude.drawing.plan?.planHash!==hash && document.querySelector('.construction-pick')?.textContent?.startsWith('View committed.'),before.hash,{timeout:60000});
-    const after=await page.evaluate(()=>({hash:window.sceneReply.planHash,execution:window.sceneReply.executionId,camera:window.sceneReply.construction[0].camera,modeling:window.sceneReply.three.modeling,requests:window.workerRequests.filter(t=>t==='render').length}));
+    const after=await page.evaluate(()=>({hash:window.sceneReply.planHash,execution:window.sceneReply.executionId,camera:window.sceneReply.construction[0].camera,paper:window.sceneReply.paper,modeling:window.sceneReply.three.modeling,requests:window.workerRequests.filter(t=>t==='render').length}));
     assert.notEqual(after.hash,before.hash);assert.notEqual(after.execution,before.execution);assert.notDeepEqual(after.camera,before.camera);
     assert.equal(after.requests,before.requests);assert.equal(modelGenerations,generationCount);assert.deepEqual(after.modeling,before.modeling);
     const captured=await page.evaluate(()=>window.cameraRpc({type:'plan-three',planHash:window.sceneReply.planHash}));
@@ -179,6 +181,24 @@ try {
     await page.screenshot({path:resolve(output,'camera-commit.png'),fullPage:true});
     await writeFile(resolve(output,'camera-commit.svg'),exported.svg);
     await writeFile(resolve(output,'camera-commit.json'),JSON.stringify({passed:true,before,after,modelGenerations:generationCount,invalid:invalid.message,stale:stale.message,cancelled:cancelled.cancelled},null,2));
+    if(process.env.OCCLUDE_CAMERA_CONFIG_CHECK==='1') {
+      const configured=await page.evaluate(()=>window.__occlude.editor.getValue());
+      assert(configured.includes('cameras3:'));assert(configured.includes(JSON.stringify(after.camera)));
+      const pendingDownload=page.waitForEvent('download');
+      await page.getByRole('button',{name:'Download',exact:true}).click();
+      const download=await pendingDownload,downloaded=await readFile(await download.path(),'utf8');
+      assert(downloaded.includes(JSON.stringify(after.camera)));
+      await writeFile(resolve(output,'camera-sketch.ts'),downloaded);
+      await page.evaluate(source=>localStorage.setItem('occlude.sketch',source),downloaded);
+      await page.reload();
+      await page.waitForFunction(()=>window.sceneReply && window.__occlude.drawing.plan,{},{timeout:60000});
+      const reopened=await page.evaluate(()=>({hash:window.sceneReply.planHash,camera:window.sceneReply.construction[0].camera,paper:window.sceneReply.paper,cameras3:window.sceneReply.cameras3}));
+      await writeFile(resolve(output,'camera-config-inputs.json'),JSON.stringify({before:after,reopened},null,2));
+      assert.deepEqual(reopened.camera,after.camera);assert.equal(reopened.hash,after.hash);
+      assert.equal(modelGenerations,generationCount+1,'reopening runs the model once with its captured camera configuration');
+      await writeFile(resolve(output,'camera-config.json'),JSON.stringify({passed:true,camera:after.camera,planHash:after.hash,reopened,sourceBytes:downloaded.length},null,2));
+    }
+
   }
   if (process.env.OCCLUDE_PERSISTENCE_CHECK === '1') {
     const madePromise=page.waitForResponse(r=>r.url()===`${base}/api/results`&&r.request().method()==='POST');
@@ -200,7 +220,7 @@ try {
       const revision=await viewport.getAttribute('data-revision');
       await page.mouse.move(bounds.x+bounds.width*.5,bounds.y+bounds.height*.5);await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.5+90,bounds.y+bounds.height*.5,{steps:6});await page.mouse.up();
       await page.waitForFunction(r=>document.querySelector('#construction-canvas')?.dataset.revision!==r,revision);
-      if(process.env.OCCLUDE_CONSTRUCTION_CHECK==='1')assert.notDeepEqual(await page.evaluate(()=>window.constructionRequests.filter(r=>r.camera).at(-1).camera),committedCamera);
+      if(process.env.OCCLUDE_CONSTRUCTION_CHECK==='1')assert.notDeepEqual(await page.evaluate(()=>window.cameraRequests.at(-1).camera),committedCamera);
       const frozenSvg=await (await page.request.get(`${base}/api/results/${id}/svg`)).text();
       const planBytes=await (await page.request.get(`${base}/api/results/${id}/plan`)).body();
       // Supply changed libraries to the reopened application. The persistent

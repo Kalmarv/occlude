@@ -1279,6 +1279,7 @@ export async function commitCamera3(
   options.signal?.throwIfAborted();
   const drawing = cameraDrawing3(previous, scene, camera);
   const next = new Execution(previous.inputs);
+  for (const [source, key] of previous.cameraKeys3) next.cameraKeys3.set(source === scene ? drawing.scene : source, key);
   // Reuse unaffected classifications, but never publish into the old run.
   for (const [source, view] of previous.scenes3) if (source !== scene) next.scenes3.set(source, view);
   for (const view of previous.fixedStrokes3) next.fixedStrokes3.add(view);

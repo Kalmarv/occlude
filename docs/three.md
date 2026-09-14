@@ -7,9 +7,11 @@ import { sketch, lineArt3, box3, label, pen, mm } from 'occlude';
 
 export default sketch({
   seed: 42,
+  cameras3: { boxes: { kind: 'orthographic', span: 4.5, eye: [5, 7, 6], target: [0, 0, 0], near: 0.1, far: 30 } },
   pens: { outline: pen({ color: '#18202A', width: mm(0.3) }) },
 }, () => [
   lineArt3({
+    id: 'boxes',
     objects: [
       { id: 'wide', surface: box3([3, 1, 1]) },
       { id: 'tall', surface: box3([1, 2, 2], [0.3, 0, 0.2]) },
@@ -22,6 +24,8 @@ export default sketch({
 ```
 
 `surface3(positions, polygons)` constructs a polygon surface. `box3(size, center)` is an editable box factory. A scene captures its input geometry when `lineArt3` is called; later edits to the original surface do not change that drawing. IDs must be unique across objects and wires. Set `lineSource: false` to keep an object only as an occluder, or `occluder: false` to draw its lines without hiding other geometry.
+
+A scene's optional `id` names its camera in `sketch({ cameras3: { [id]: camera } }, ...)`. That configuration overrides the scene's default camera before classification, in both Studio and headless rendering. Scene IDs must be unique and cannot start with `@`. Unnamed scenes receive `@1`, `@2`, and so on in classification-request order; name scenes explicitly when their order can change. The scene value keeps its declared default camera; the classified `frame.camera` is the effective captured view.
 
 The default coordinate system is right-handed with Z up. Camera `eye`, `target`, and optional `up` use world coordinates. Orthographic cameras require `span`; perspective cameras require `fovDegrees`. Both require positive `near` and a greater `far`. Camera span and FOV control apparent scale independently of paper units.
 
@@ -247,10 +251,12 @@ Rulings share one paper-origin lattice across every triangle of a modeled face. 
 
 Select `FeatureKind3.hatch`. Captured feature records retain `hatchFamily`, `hatchFace`, `hatchLine`, resolved `hatchSpacingMm`, family attributes and source face attributes. A generated feature's `curve` contains inspectable model-space endpoint positions, barycentric weights and supporting triangle indices before camera clipping. Hatch and sections can share the same immutable source: generate sections first, then pass `sections.surface` to `hatch3`. Trusted immutable snapshots are reused rather than copied again.
 
-```ts live
-import { sketchAsync, grid3, FaceSelection3, extrudeFaces3, transformSurface3, section3, hatch3, lineArt3, drawing3, FeatureKind3, constructStrokes3, clip, rect, mask, label, pen, mm } from 'occlude';
+This example declares its square sheet and margin so its downloaded source uses the same paper mapping when reopened.
 
-export default sketchAsync({ seed: 42, pens: {
+```ts live
+import { sketchAsync, grid3, FaceSelection3, extrudeFaces3, transformSurface3, section3, hatch3, lineArt3, drawing3, FeatureKind3, constructStrokes3, clip, rect, mask, label, paper, pen, mm } from 'occlude';
+
+export default sketchAsync({ seed: 42, paper: paper({ width: mm(200), height: mm(200) }), margin: 5, pens: {
   outline: pen({ width: mm(0.3), color: '#18202A' }),
   fine: pen({ width: mm(0.18), color: '#56626A' }),
   accent: pen({ width: mm(0.25), color: '#A84932' }),
@@ -302,6 +308,6 @@ export default sketchAsync({ seed: 42, pens: {
 
 Open any live example above in Studio, then choose **3D** above the paper view. Drag to orbit, scroll to zoom, and click a mesh face to inspect its source ID and captured modeling attributes. The scene menu selects among the sketch's captured 3D scenes. **Reset camera** restores that scene's committed camera; **Copy camera** copies explicit camera values for use in the sketch.
 
-Construction keeps normalized world-space mesh and wire buffers on the GPU. Orbit updates a camera uniform; depth testing and camera clipping happen in the construction shader. Orbiting does not rerun modeling, surface queries or vector visibility, and does not change the committed paper drawing or its exports. Returning to the paper view shows the same cached result. **Commit view** classifies the explored camera against retained geometry and publishes a new vector drawing, preserving labels, clipping and styles. It does not rerun modeling. **Save result** captures this camera and its drawing. Rendering or reopening the sketch uses the camera in its source again; use **Copy camera** to put the view into the sketch itself. Saved results preserve the camera actually used by their plan.
+Construction keeps normalized world-space mesh and wire buffers on the GPU. Orbit updates a camera uniform; depth testing and camera clipping happen in the construction shader. Orbiting does not rerun modeling, surface queries or vector visibility, and does not change the committed paper drawing or its exports. Returning to the paper view shows the same cached result. **Commit view** classifies the explored camera against retained geometry and publishes a new vector drawing, preserving labels, clipping and styles. It does not rerun modeling. **Commit view** also writes the camera into `cameras3` in the editor without running the model again. Save or download the sketch to keep that configuration; rerendering or reopening it uses the committed camera. **Save result** captures the exact camera and drawing without requiring regeneration. Saved results preserve the camera actually used by their plan.
 
 **Save result** preserves the selected plan and its exact SVG, resolved paper color, pens and timing settings. A 3D result also retains the committed camera frame, realized source meshes and attributes, generated curve attachments, compiled source, seed, engine and available GPU adapter details. Reopening that result uses its saved plan; it does not rerun deformation or read a new camera from the editor. Library changes do not replace the captured pens or paper. Construction preview cameras are exploratory and are not substituted for the committed camera in this record.

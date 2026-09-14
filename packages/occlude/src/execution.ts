@@ -2,6 +2,7 @@ import type { ModelingStats3 } from './three/modeling.js';
 import type { LineArtScene3 } from './three/scene.js';
 import type { ClassifiedScene3 } from './three/visibility/scene.js';
 import type { RetainedDrawing3 } from './three/drawing.js';
+import { cameraFrame3, type Camera3 } from './three/camera.js';
 /**
  * One execution of a sketch: everything a run owns, held by ONE object the
  * host creates, compiles a sketch into, encodes, renders, plans and exports
@@ -47,6 +48,8 @@ export interface TransformOp {
 }
 
 export interface SketchOptions {
+  /** Captured camera overrides keyed by scene id (or @1, @2 for unnamed scenes). */
+  cameras3?: Readonly<Record<string, Camera3>>;
   aspect?: [number, number] | 'square' | 'paper';
   seed?: 'url' | number | string;
   origin?: 'topLeft' | 'center';
@@ -211,6 +214,17 @@ export class Execution {
   drawing3?: RetainedDrawing3;
   /** Eager paper interpretation stays tied to its original snapshot. */
   readonly fixedStrokes3 = new Set<ClassifiedScene3>();
+  cameras3: Readonly<Record<string, Camera3>> = Object.freeze({});
+  readonly cameraKeys3 = new Map<LineArtScene3, string>();
+
+  cameraKey3(scene: LineArtScene3): string {
+    const existing = this.cameraKeys3.get(scene);
+    if (existing !== undefined) return existing;
+    const key = scene.id ?? `@${this.cameraKeys3.size + 1}`;
+    if ([...this.cameraKeys3.values()].includes(key)) throw new Error(`duplicate 3D scene id '${key}'`);
+    this.cameraKeys3.set(scene, key);
+    return key;
+  }
 
   // ---- the recording ----
   shapes: Shape[] = [];
@@ -263,6 +277,9 @@ export class Execution {
   begin(cfg: CompileConfig): void {
     if (this.compiled) throw new Error('Execution: already compiled — one execution runs one sketch once');
     this.compiled = true;
+    this.cameras3 = Object.freeze(Object.fromEntries(Object.entries(cfg.cameras3 ?? {}).map(([key, camera]) => [key,
+      cameraFrame3(camera, { x: 0, y: 0, width: 1, height: 1 }).camera,
+    ])));
     this.aspect = cfg.aspect ?? 'paper';
     this.origin = cfg.origin ?? 'topLeft';
     this.yUp = cfg.yUp ?? false;

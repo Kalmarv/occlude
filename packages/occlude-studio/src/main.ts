@@ -1,6 +1,7 @@
 /** occlude studio: wire editor → runner → render worker → preview → panels. */
 
 import './style.css';
+import { cameraConfigEdit } from './three/cameraConfig.js';
 import { ConstructionPanel3 } from './three/constructionPanel.js';
 import { clearRuntimeMarkers, createEditor, setRuntimeMarker, setUserModuleTypes } from './editor.js';
 import { Inspector } from './inspector.js';
@@ -137,6 +138,7 @@ async function boot(): Promise<void> {
   let ticker: ReturnType<typeof setInterval> | null = null;
   let pending: number | null = null;
   let renderedSource: string | null = null;
+  let applyingCameraConfig = false;
   let sketchName = loadSketchName();
   /** One-shot note appended to the next 'ok' status (import summaries). */
   let note: string | null = null;
@@ -208,6 +210,8 @@ async function boot(): Promise<void> {
   async function runInner(cameraCommit?: CameraCommitRequest): Promise<void> {
     const source = editor.getValue();
     if (cameraCommit && (source !== renderedSource || ticker || frozenId)) throw new Error('Render the current sketch before committing a view.');
+    const editCameraConfig = cameraCommit ? await cameraConfigEdit(source) : undefined;
+    if (cameraCommit && editor.getValue() !== source) throw new Error('The sketch changed while preparing its camera configuration.');
     saveSketch(source); // persist BEFORE executing — survives anything
     if (frozenId) {
       statusMsg.className = 'status-err';
@@ -285,7 +289,18 @@ async function boot(): Promise<void> {
       return;
     }
     const latest = finish();
-    if (latest) { preview.setStale(false); renderedSource = source; }
+    if (latest) {
+      preview.setStale(false);
+      renderedSource = source;
+      if (editCameraConfig) {
+        if (editor.getValue() !== source) throw new Error('The sketch changed before its camera configuration could be saved.');
+        const configured = editCameraConfig(reply.cameras3);
+        applyingCameraConfig = true;
+        try { editor.replaceValue(configured); } finally { applyingCameraConfig = false; }
+        renderedSource = configured;
+        saveSketch(configured);
+      }
+    }
     const result: RenderResult = reply.result;
     // An older run landing behind a newer one still shows its drawing (the
     // newer will replace it), but the status line belongs to the newer run.
@@ -351,7 +366,7 @@ async function boot(): Promise<void> {
   const uiPanel = new UiPanel($('bench'), editor);
   uiPanel.sync();
   editor.onChange(() => uiPanel.sync());
-  editor.onChange(() => { client.cancelCameraCommit(); scheduleRun(); });
+  editor.onChange(() => { if (!applyingCameraConfig) { client.cancelCameraCommit(); scheduleRun(); } });
   // Debug/automation handle (used by headless driving; harmless otherwise).
   (window as unknown as Record<string, unknown>).__occlude = {
     editor,

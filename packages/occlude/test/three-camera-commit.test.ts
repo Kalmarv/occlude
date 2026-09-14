@@ -79,3 +79,39 @@ it('does not adopt a canceled classification or corrupt the original result', as
   const committed = await commitCamera3(original, source, other);
   expect(render(committed).raw.prims).not.toEqual(before);
 });
+
+it('replays explicit camera configuration headlessly without changing the scene value', async () => {
+  const source = lineArt3({ ...scene(), id: 'main' });
+  const configured = await compileSketchAsync(sketch({ ...config, cameras3: { main: other } }, () => source));
+  const expected = await compileSketchAsync(sketch(config, () => lineArt3({ ...source, camera: other })));
+  expect(render(configured).raw.prims).toEqual(render(expected).raw.prims);
+  expect(source.camera.eye).toEqual(camera.eye);
+  const committed = await commitCamera3(configured, source, camera);
+  expect(committed.cameras3.main.eye).toEqual(camera.eye);
+  const reopened = await compileSketchAsync(sketch({ ...config, cameras3: committed.cameras3 }, () => source));
+  expect(render(reopened).raw.prims).toEqual(render(committed).raw.prims);
+});
+
+it('keeps numbered camera keys through commits and refuses duplicate explicit IDs', async () => {
+  const a = scene(), b = scene();
+  const original = await compileSketchAsync(sketch(config, () => [a,b]));
+  expect([...original.cameraKeys3.values()]).toEqual(['@1','@2']);
+  const committed = await commitCamera3(original,a,other);
+  expect([...committed.cameraKeys3.values()]).toEqual(['@1','@2']);
+  expect(committed.cameras3['@1'].eye).toEqual(other.eye);
+  expect(committed.scenes3.get(b)).toBe(original.scenes3.get(b));
+  await expect(compileSketchAsync(sketch(config,()=>[lineArt3({...a,id:'same'}),lineArt3({...b,id:'same'})]))).rejects.toThrow('duplicate 3D scene id');
+  const prototypeName = lineArt3({ ...a, id: 'constructor' });
+  const run = await compileSketchAsync(sketch(config,()=>prototypeName));
+  expect(run.scenes3.get(prototypeName)?.frame.camera.eye).toEqual(camera.eye);
+});
+
+it('preserves prototype-like camera configuration keys when committing another scene', async () => {
+  const a = lineArt3({ ...scene(), id: '__proto__' }), b = lineArt3({ ...scene(), id: 'main' });
+  const cameras3 = Object.fromEntries([['__proto__', other]]);
+  const original = await compileSketchAsync(sketch({ ...config, cameras3 }, () => [a,b]));
+  const committed = await commitCamera3(original, b, other);
+  expect(Object.hasOwn(committed.cameras3, '__proto__')).toBe(true);
+  const reopened = await compileSketchAsync(sketch({ ...config, cameras3: committed.cameras3 }, () => [a,b]));
+  expect(render(reopened).raw.prims).toEqual(render(committed).raw.prims);
+});

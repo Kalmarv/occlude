@@ -36,7 +36,7 @@ export class ConstructionPanel3 {
       this.note.textContent = 'Committing vector drawing…';
       try {
         await commit(request);
-        this.note.textContent = 'View committed. Save result preserves this camera and drawing. Rendering the sketch restores its source camera.';
+        this.note.textContent = 'View committed. Camera saved in sketch configuration; save or download the sketch to keep it with your project.';
       } catch (error) { this.note.textContent = String(error); }
       finally { this.commitButton.disabled = false; }
     };

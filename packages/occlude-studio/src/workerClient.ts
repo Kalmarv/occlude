@@ -26,6 +26,7 @@ export type RenderRequest = { js: string; cfg: RunConfig } | { cameraCommit: Cam
 /** A render carrying its worker-side seed (the main thread has no sketch
  * state to read it from anymore). */
 export interface RenderReply {
+  cameras3: Record<string, Camera3>;
   construction: ConstructionInfo3[];
   result: RenderResult;
   /** The seed as used: base plus the overrides that landed, one string. */
@@ -237,6 +238,7 @@ export class RenderClient {
             draw?: DrawRequest;
             executionId: number;
             construction?: ConstructionInfo3[];
+            cameras3?: Record<string, Camera3>;
             inspections?: InspectionEntry[];
           };
           // decodeRender reads only pens/frame/paper from the scene half.
@@ -247,6 +249,7 @@ export class RenderClient {
             draw: m.draw,
             executionId: m.executionId,
             construction: m.construction ?? [],
+            cameras3: m.cameras3 ?? {},
             inspections: m.inspections ?? [],
           });
         },
