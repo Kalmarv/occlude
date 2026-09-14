@@ -1,0 +1,105 @@
+{
+  "passed": true,
+  "base": "http://127.0.0.1:5273",
+  "diagnostics": [],
+  "negative": [
+    {
+      "code": 2322,
+      "message": "Type 'number' is not assignable to type 'string'."
+    },
+    {
+      "code": 2322,
+      "message": "Type 'boolean' is not assignable to type 'string'."
+    }
+  ],
+  "modelsBeforeReopen": 1,
+  "modelsAfterReopen": 2,
+  "reopened": {
+    "hash": "fed8e29dd0e87d3dbe86a0404647ceb1524e2052ff6a419caf0bfcf644e1f147",
+    "camera": {
+      "eye": [
+        6,
+        8,
+        5
+      ],
+      "target": [
+        0,
+        0,
+        0.2
+      ],
+      "kind": "perspective",
+      "near": 0.1,
+      "far": 100,
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "fovDegrees": 37.35782324544728
+    }
+  },
+  "stats": {
+    "modeling": [
+      {
+        "operation": "query",
+        "backend": "gpu",
+        "dispatches": 1,
+        "transferBytes": 13968,
+        "targetCacheHit": false,
+        "targetUploadBytes": 96
+      },
+      {
+        "operation": "query",
+        "backend": "gpu",
+        "dispatches": 1,
+        "transferBytes": 13872,
+        "targetCacheHit": true,
+        "targetUploadBytes": 0
+      }
+    ],
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "scenes": [
+      {
+        "candidates": 34879,
+        "dispatches": 5,
+        "refinements": 25323,
+        "transferBytes": 3906528,
+        "wallMs": 979.5999999642372,
+        "gpuMs": 0.055008,
+        "paperToleranceMm": 0.005,
+        "parameterTolerance": 0.00001
+      }
+    ]
+  },
+  "zeroLengthPaths": 0,
+  "sharedPrototypeCounts": [],
+  "queries": [
+    {
+      "rows": 289,
+      "misses": 120,
+      "nearestMisses": 193,
+      "identity": true,
+      "typedFaces": true,
+      "distanceVsT": true,
+      "rayOracle": true,
+      "nearestOracle": true
+    },
+    {
+      "rows": 289,
+      "misses": 120,
+      "nearestMisses": 193,
+      "identity": true,
+      "typedFaces": true,
+      "distanceVsT": true,
+      "rayOracle": true,
+      "nearestOracle": true
+    }
+  ],
+  "errors": []
+}

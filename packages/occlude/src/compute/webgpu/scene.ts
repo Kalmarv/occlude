@@ -9,7 +9,7 @@ import { GpuIntervals3 } from './interval.js';
 import { GpuDeform3 } from './deform.js';
 import { GpuSurfaceQueries3 } from './queries.js';
 import { captureDeform3, type DeformOptions3 } from '../../three/geometry/deform.js';
-import { SurfaceQueries3 } from '../../three/queries/surface.js';
+import { prepareSurfaceQueries3, type SurfaceQueries3 } from '../../three/queries/surface.js';
 import type { Surface3 } from '../../three/geometry/surface.js';
 import type { SurfaceQueryInput3 } from '../../three/modeling.js';
 
@@ -20,6 +20,21 @@ export class GpuSceneCompute3 implements SceneCompute3 {
   private creating?: Promise<GpuIntervals3>;
   private closed = false;
   private deformation?: GpuDeform3;
+  private readonly queryTargets=new Map<SurfaceQueries3,GpuSurfaceQueries3>();
+  private queryTargetBytes=0;
+  private async clearQueryTargets():Promise<void>{for(const target of this.queryTargets.values())await target.dispose();this.queryTargets.clear();this.queryTargetBytes=0;}
+  private async queryTarget(device:GPUDevice,source:SurfaceQueries3){
+    const cached=this.queryTargets.get(source);
+    if(cached){this.queryTargets.delete(source);this.queryTargets.set(source,cached);return {prepared:cached,cacheHit:true,uploadBytes:0};}
+    const bytes=source.triangles.length*48,budget=this.options.memoryBudgetBytes??128*1024*1024,retainedBudget=Math.max(bytes,budget/2);
+    // Reserve half the query buffer budget for batch scratch. A target larger
+    // than that occupies the cache alone and uses the remaining budget.
+    while(this.queryTargets.size&&(this.queryTargets.size>=4||this.queryTargetBytes+bytes>retainedBudget)){
+      const [old,target]=this.queryTargets.entries().next().value!;await target.dispose();this.queryTargets.delete(old);this.queryTargetBytes-=old.triangles.length*48;
+    }
+    const prepared=await GpuSurfaceQueries3.create(device,source,{memoryBudgetBytes:bytes>budget/2?budget:bytes+budget/2});
+    this.queryTargets.set(source,prepared);this.queryTargetBytes+=bytes;return {prepared,cacheHit:false,uploadBytes:prepared.uploadBytes};
+  }
   private preview?: { canvas: OffscreenCanvas; viewport: GpuWorldViewport3 };
   private tail: Promise<unknown> = Promise.resolve();
   private submit<T>(job: () => Promise<T>): Promise<T> {
@@ -43,6 +58,7 @@ export class GpuSceneCompute3 implements SceneCompute3 {
     if (!this.creating) {
       this.creating = (async () => {
         this.deformation = undefined;
+        await this.clearQueryTargets();
         this.preview?.viewport.dispose(); this.preview = undefined;
         await this.session?.dispose();
         const session = await GpuIntervals3.create(this.gpu!, this.options);
@@ -90,21 +106,20 @@ export class GpuSceneCompute3 implements SceneCompute3 {
     });
   }
   query(surface: Surface3, queries: SurfaceQueryInput3, options: { signal?: AbortSignal } = {}) {
-    const source = new SurfaceQueries3(surface), captured = structuredClone(queries), signal = options.signal;
+    const source = prepareSurfaceQueries3(surface), captured = structuredClone(queries), signal = options.signal;
     return this.submit(async () => {
       signal?.throwIfAborted();
       const session = await this.acquire();
-      const prepared = await GpuSurfaceQueries3.create(session.device, source);
-      try {
-        const rays = await prepared.rays(captured.rays ?? [], { signal });
-        const segments = await prepared.segments(captured.segments ?? [], { signal });
-        const nearest = await prepared.nearest(captured.nearest ?? [], { signal });
-        signal?.throwIfAborted();
-        return { result: { rays: rays.hits, segments: segments.hits, nearest: nearest.hits }, stats: {
-          dispatches: rays.stats.dispatches + segments.stats.dispatches + nearest.stats.dispatches,
-          transferBytes: rays.stats.transferBytes + segments.stats.transferBytes + nearest.stats.transferBytes,
-        } };
-      } finally { await prepared.dispose(); }
+      const {prepared,cacheHit,uploadBytes}=await this.queryTarget(session.device,source);
+      const rays = await prepared.rays(captured.rays ?? [], { signal });
+      const segments = await prepared.segments(captured.segments ?? [], { signal });
+      const nearest = await prepared.nearest(captured.nearest ?? [], { signal });
+      signal?.throwIfAborted();
+      return { result: { rays: rays.hits, segments: segments.hits, nearest: nearest.hits }, stats: {
+        dispatches: rays.stats.dispatches + segments.stats.dispatches + nearest.stats.dispatches,
+        transferBytes: uploadBytes + rays.stats.transferBytes + segments.stats.transferBytes + nearest.stats.transferBytes,
+        targetCacheHit:cacheHit,targetUploadBytes:uploadBytes,
+      } };
     });
   }
   async dispose(): Promise<void> {
@@ -112,6 +127,7 @@ export class GpuSceneCompute3 implements SceneCompute3 {
     await this.tail;
     await this.creating?.catch(() => undefined);
     this.preview?.viewport.dispose(); this.preview = undefined;
+    await this.clearQueryTargets();
     await this.session?.dispose();
     this.session = undefined;
   }

@@ -2,8 +2,9 @@
 
 Implementation contract for `3dapi.md`. The acceptance examples in
 `api-examples/` are tracked targets. Terrain and instanced forms are now executable
-and live in `docs/three.md`; the complete acceptance set still requires the
-remaining query/curve work and verification.
+and live in `docs/three.md`; the paper composition target still needs its
+dedicated acceptance verification. The broader curve and GPU profiling work
+remains separate and pending.
 
 ## Values and domains
 

@@ -54,3 +54,11 @@ export class SurfaceQueries3 {
   segments(segments:readonly(readonly[Vec3,Vec3])[],signal?:AbortSignal):readonly(SurfaceHit3|null)[]{return this.rays(segments.map(([a,b])=>({origin:a,direction:sub3(b,a),near:0,far:1})),signal);}
   nearest(queries:readonly NearestQuery3[],signal?:AbortSignal):readonly(SurfaceHit3|null)[]{return queries.map(q=>{signal?.throwIfAborted();validateNearest3(q);let best:SurfaceHit3|null=null;const stack=this.root?[this.root]:[];while(stack.length){const node=stack.pop()!;if(boxDistance(node.bounds,q.point)>(best?.distance??q.maxDistance??Infinity))continue;if(node.indices){for(const i of node.indices){const hit=nearestTriangle3(this.triangles[i],q.point);if(hit.distance<=(q.maxDistance??Infinity)&&(!best||hit.distance<best.distance||hit.distance===best.distance&&i<best.triangle))best=this.hit(i,hit);}}else {const a=node.left!,b=node.right!;if(boxDistance(a.bounds,q.point)<=boxDistance(b.bounds,q.point))stack.push(b,a);else stack.push(a,b);}}return best;});}
 }
+
+const preparedSurfaces=new WeakMap<Surface3,SurfaceQueries3>();
+/** Reuse the index only for the same owned revision. Mutable inputs are
+ * snapshotted before lookup, so a later edit never reuses a stale index. */
+export function prepareSurfaceQueries3(surface:Surface3):SurfaceQueries3 {
+  const owned=snapshotSurface3(surface);let prepared=preparedSurfaces.get(owned);
+  if(!prepared){prepared=new SurfaceQueries3(owned);preparedSurfaces.set(owned,prepared);}return prepared;
+}

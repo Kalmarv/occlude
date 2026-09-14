@@ -1,0 +1,26 @@
+{
+  "paperMm": [
+    210,
+    297
+  ],
+  "exportedPoint": [
+    101.27,
+    130.24
+  ],
+  "sourcePaperEndpoints": [
+    [
+      101.26979175779363,
+      130.23951659554143
+    ],
+    [
+      101.27004499042877,
+      130.23969391094147
+    ]
+  ],
+  "visibleParameterRange": [
+    0,
+    1
+  ],
+  "sourcePaperLengthMm": 0.00030913996602392556,
+  "meaning": "A full, real short hatch segment is quantized by the existing 2D output path; this is not an erroneous visibility interval."
+}

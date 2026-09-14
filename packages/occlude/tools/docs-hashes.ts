@@ -134,4 +134,5 @@ for (const k of changed) console.error(`changed  ${k}\n  before ${before[k]}\n  
 for (const k of added) console.error(`added    ${k}`);
 for (const k of missing) console.error(`missing  ${k}`);
 console.log(`${comparable.length - changed.length - missing.length}/${comparable.length} examples ink-identical (${skipped.length} no stable ink, ${added.length} added, ${missing.length} missing)`);
-process.exit(changed.length || missing.length ? 1 : 0);
+for (const f of failed) console.error(`  fail ${f}`);
+process.exit(changed.length || missing.length || failed.length ? 1 : 0);

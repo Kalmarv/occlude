@@ -487,3 +487,86 @@ export default sketch({seed:42,pens:{ink:pen({width:mm(.25),color:'#18202A'})}},
   return view(forms,{camera:perspective({eye:[8,10,8],target:[0,0,.5],fovDegrees:50}),stroke:'ink'});
 });
 ```
+
+### Prepared queries and forces
+
+`query(mesh)` captures a target revision and prepares its CPU spatial index.
+It accepts any ordinary mesh, including a realized instance collection. Edits
+produce a different target; an existing query continues to read its captured
+revision. Positions accept triples or point rows with `x/y/z`.
+
+- `.nearest(position, {within?})` returns the nearest surface point within a
+  world-distance bound, or `null`. Inside a closed object still means nearest
+  *surface*, not containment.
+- `.ray(origin, direction, {near?, far?})` returns the first two-sided hit.
+  Direction need not be normalized. `near` and `far` bound the parameter `t` in
+  `origin + direction * t` (defaults 0 and infinity).
+- `.segment(from, to)` uses `t` between 0 and 1. A zero-length segment is an
+  exact contact query, returning `t: 0` for contact or `null` for a miss.
+
+Hits include `position`, `normal`, world `distance`, `triangle`, `barycentric`
+coordinates and a typed `face` row. Ray/segment hits additionally include `t`.
+Parallel or coplanar rays have no isolated hit. Bounds are inclusive and ties
+choose the earliest triangle in the captured target.
+
+`prepared.batch()` supplies synchronous CPU batches. In `sketchAsync`, use
+`prepared.batch(t)` and await its results to use the execution host (WebGPU in
+Studio, explicit CPU execution in the headless renderer). It offers:
+
+- `.nearest(points, {position?, within?})`;
+- `.rays(points, {direction, origin?, near?, far?})`;
+- `.segments(points, {to, from?})`.
+
+Options may be constants or fields evaluated on source point rows. The default
+position/origin/from is the point itself. Every result is `{source, hit}`,
+including misses; arrays preserve selection order and retain the actual source
+rows. Fields are captured before awaiting. Empty selections return empty
+results. There is no synchronous GPU readback or implicit device acquisition
+in a geometry factory. A batch bound to `t` expires with that sketch execution.
+
+Owned CPU targets reuse their spatial index. The GPU host retains up to four
+recent targets, bounded by its triangle-buffer budget; eviction or a new target
+revision causes preparation again. Diagnostics report `targetCacheHit` and
+`targetUploadBytes`; query transfer totals include target uploads. Authors do
+not manage GPU buffers or device lifetime.
+
+Reusable `force` recipes are ordinary CPU fields evaluated against each
+iteration's current points:
+
+- `force.attract(target, {strength = 1})` moves toward a world point;
+- `force.plane({origin, normal, side, strength = 1})` corrects violations of
+  `'below'` (nonpositive signed distance) or `'above'` (nonnegative signed
+  distance). Normal magnitude is irrelevant; strength lies between 0 and 1;
+- `force.project(preparedQuery, {strength = 1, within?})` moves toward the
+  nearest surface, returning zero for a miss;
+- `force.sum(...forces)` adds displacements and forwards the iteration number.
+
+Use separate frozen passes when a constraint must observe another force's
+committed move. Summing forces evaluates all of them on the same input.
+Arbitrary JavaScript force functions are not compiled or reevaluated on the GPU.
+The advanced module retains packed deformation/query access for that purpose.
+
+This sketch first applies attraction and a sided plane constraint, then uses
+GPU query batches to clip the relief under a bounded tilted roof and select
+nearby faces for hatch. The roof is query geometry; only the final terrain is
+drawn.
+
+```ts live
+import {sketchAsync,pen,mm} from 'occlude';
+import {plane,query,force,view,orthographic} from 'occlude/3d';
+export default sketchAsync({seed:42,pens:{ink:pen({width:mm(.3),color:'#18202A'}),shade:pen({width:mm(.18),color:'#A84932'})}},async t=>{
+  const pull=force.attract([0,0,.4],{strength:.015});
+  const ceiling=force.plane({origin:[0,0,.8],normal:[0,0,1],side:'below'});
+  let terrain=plane(4,4).subdivide(4).displace(p=>[0,0,t.noise(p.x,p.y)*.9])
+    .steps(4,(current,next)=>next.move(current.points,pull),(current,next)=>next.move(current.points,ceiling));
+  const roof=plane(3,3).rotate([0,15,0]).translate([0,0,.4]).faceAttribute('roof',true);
+  const target=query(roof),batch=target.batch(t);
+  const roofHits=await batch.rays(terrain.points,{origin:p=>[p.x,p.y,3],direction:[0,0,-2]});
+  const nearby=await batch.nearest(terrain.points,{within:.35});
+  const limits=new Map(roofHits.map(r=>[r.source.id,r.hit?.position[2]??2]));
+  const nearIds=new Set(nearby.filter(r=>r.hit!==null).map(r=>r.source.id));
+  terrain=terrain.displace(p=>[0,0,Math.min(0,(limits.get(p.id)??p.z)-p.z)]);
+  const drawing=terrain.faceAttribute('shade',f=>f.vertices.some(i=>nearIds.has(terrain.points.at(i)?.id??'')));
+  return view(drawing,{camera:orthographic({eye:[6,8,5],target:[0,0,.2],span:7.5}),stroke:'ink',hatch:{spacing:mm(1.8),angle:35,stroke:'shade',select:f=>f.shade}});
+});
+```

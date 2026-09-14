@@ -12,7 +12,8 @@ the earlier API and does not imply this redesign is finished.
   no model rerun, and stale/cancelled request rejection. The served build passes all Docker gates and both focused
   Playwright verifiers; see `projection-controls/`.
 - Contract and three target acceptance sketches: `API-CONTRACT.md` and
-  `api-examples/`. These imports are explicitly not yet implemented.
+  `api-examples/`. Terrain and instanced forms are live; the paper composition
+  target still needs its dedicated acceptance verification.
 - First working API slice: implemented and deployed. `occlude/3d` exposes the
   common immutable mesh, four-point plane, box/raw import, generic subdivision,
   typed domain attributes/collections, displacement and frozen steps/history.
@@ -43,10 +44,20 @@ the earlier API and does not imply this redesign is finished.
   Canonical edge ordering fixes the interval roots without an epsilon; the
   independent convex-cone regression fails before and passes after. See
   `shared-boundary/README.md` and `instances-api/` evidence.
-- Curves/profiles/sweep/revolve, M5 demo migration, prepared queries, reusable
-  forces and detailed GPU phase accounting remain pending. Terrain and
-  instanced forms are runnable live examples; the complete acceptance set is
-  not yet verified.
+- Prepared queries and reusable forces are implemented. Scalar and batch
+  nearest/ray/segment results separate world distance from t; batches retain
+  source rows including misses. CPU indexes follow owned revisions; the GPU
+  host reuses bounded target buffers. Frozen-pass force fields provide explicit
+  plane sidedness, attraction, nearest-surface projection and composition.
+  Unit and served Studio checks pass, including independent analytic ray/nearest
+  oracles, target reuse, typed hit/source attributes and camera-only commit.
+  All nine Docker gates and fourteen live examples pass; see `query-api/`.
+- The docs ink checker now rejects compilation errors in new examples as well
+  as changes to existing baselines. A deliberately broken appended example
+  verifies the failure path.
+- Curves/profiles/sweep/revolve, M5 demo migration and detailed GPU phase
+  accounting remain pending. Terrain and instanced forms are runnable live
+  examples; the complete acceptance set is not yet verified.
 
 Worker restart/device-loss recovery remains deferred by the user. Use
 Playwright, not ProofShot. Continue in this isolated checkout; production

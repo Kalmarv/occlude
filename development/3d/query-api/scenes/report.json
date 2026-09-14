@@ -1,0 +1,449 @@
+{
+  "passed": true,
+  "base": "http://127.0.0.1:5273",
+  "reports": [
+    {
+      "modeling": [],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 246,
+          "dispatches": 1,
+          "refinements": 191,
+          "transferBytes": 27568,
+          "wallMs": 93.59999996423721,
+          "gpuMs": 0.017792,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 1008,
+      "fragments": 1035
+    },
+    {
+      "modeling": [],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 50,
+          "dispatches": 1,
+          "refinements": 49,
+          "transferBytes": 5616,
+          "wallMs": 108.89999997615814,
+          "gpuMs": 0.010112,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 81,
+      "fragments": 81
+    },
+    {
+      "modeling": [
+        {
+          "operation": "deform",
+          "backend": "gpu",
+          "iterations": 16,
+          "dispatches": 16,
+          "transferBytes": 5688,
+          "residentBytes": 7048,
+          "wallMs": 37.80000001192093
+        },
+        {
+          "operation": "query",
+          "backend": "gpu",
+          "dispatches": 1,
+          "transferBytes": 4176,
+          "targetCacheHit": false,
+          "targetUploadBytes": 96
+        }
+      ],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 1589,
+          "dispatches": 1,
+          "refinements": 1507,
+          "transferBytes": 177984,
+          "wallMs": 71.5,
+          "gpuMs": 0.011744,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 882,
+      "fragments": 882
+    },
+    {
+      "modeling": [],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 156,
+          "dispatches": 1,
+          "refinements": 142,
+          "transferBytes": 17488,
+          "wallMs": 75.60000002384186,
+          "gpuMs": 0.009504,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 378,
+      "fragments": 333
+    },
+    {
+      "modeling": [],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 50,
+          "dispatches": 1,
+          "refinements": 49,
+          "transferBytes": 5616,
+          "wallMs": 118.80000001192093,
+          "gpuMs": 0.010016,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 4554,
+      "fragments": 4842
+    },
+    {
+      "modeling": [],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 8,
+          "dispatches": 1,
+          "refinements": 8,
+          "transferBytes": 912,
+          "wallMs": 18.19999998807907,
+          "gpuMs": 0.01024,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 4131,
+      "fragments": 2709
+    },
+    {
+      "modeling": [],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 3626,
+          "dispatches": 1,
+          "refinements": 3018,
+          "transferBytes": 406128,
+          "wallMs": 145.19999998807907,
+          "gpuMs": 0.01008,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 3528,
+      "fragments": 2457
+    },
+    {
+      "modeling": [
+        {
+          "operation": "deform",
+          "backend": "gpu",
+          "iterations": 8,
+          "dispatches": 8,
+          "transferBytes": 5688,
+          "residentBytes": 7048,
+          "wallMs": 91.69999998807907
+        },
+        {
+          "operation": "query",
+          "backend": "gpu",
+          "dispatches": 1,
+          "transferBytes": 4176,
+          "targetCacheHit": false,
+          "targetUploadBytes": 96
+        }
+      ],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 11663,
+          "dispatches": 2,
+          "refinements": 8528,
+          "transferBytes": 1306288,
+          "wallMs": 391.89999997615814,
+          "gpuMs": 0.02048,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 10161,
+      "fragments": 9027
+    },
+    {
+      "modeling": [],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 11372,
+          "dispatches": 2,
+          "refinements": 7945,
+          "transferBytes": 1273696,
+          "wallMs": 299.0999999642372,
+          "gpuMs": 0.01856,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 8316,
+      "fragments": 7281
+    },
+    {
+      "modeling": [],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 214,
+          "dispatches": 1,
+          "refinements": 184,
+          "transferBytes": 23984,
+          "wallMs": 53.89999997615814,
+          "gpuMs": 0.02112,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 261,
+      "fragments": 1872
+    },
+    {
+      "modeling": [],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 21380,
+          "dispatches": 3,
+          "refinements": 17198,
+          "transferBytes": 2394608,
+          "wallMs": 503.19999998807907,
+          "gpuMs": 0.030592,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 9801,
+      "fragments": 9783
+    },
+    {
+      "modeling": [],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 202451,
+          "dispatches": 25,
+          "refinements": 149725,
+          "transferBytes": 22674912,
+          "wallMs": 4700.199999988079,
+          "gpuMs": 0.23526400000000006,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 48114,
+      "fragments": 45612
+    },
+    {
+      "modeling": [],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 101960,
+          "dispatches": 13,
+          "refinements": 79868,
+          "transferBytes": 11419728,
+          "wallMs": 1475.5,
+          "gpuMs": 0.12255999999999999,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 5769,
+      "fragments": 5778
+    },
+    {
+      "modeling": [
+        {
+          "operation": "query",
+          "backend": "gpu",
+          "dispatches": 1,
+          "transferBytes": 13968,
+          "targetCacheHit": false,
+          "targetUploadBytes": 96
+        },
+        {
+          "operation": "query",
+          "backend": "gpu",
+          "dispatches": 1,
+          "transferBytes": 13872,
+          "targetCacheHit": true,
+          "targetUploadBytes": 0
+        }
+      ],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 34520,
+          "dispatches": 5,
+          "refinements": 25025,
+          "transferBytes": 3866320,
+          "wallMs": 723.1999999880791,
+          "gpuMs": 0.04959999999999999,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ],
+      "primitives": 12528,
+      "fragments": 11349
+    }
+  ],
+  "studio": {
+    "modeling": [
+      {
+        "operation": "deform",
+        "backend": "gpu",
+        "iterations": 8,
+        "dispatches": 8,
+        "transferBytes": 5688,
+        "residentBytes": 7048,
+        "wallMs": 17.700000047683716
+      },
+      {
+        "operation": "query",
+        "backend": "gpu",
+        "dispatches": 1,
+        "transferBytes": 4176,
+        "targetCacheHit": false,
+        "targetUploadBytes": 96
+      }
+    ],
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "scenes": [
+      {
+        "candidates": 11663,
+        "dispatches": 2,
+        "refinements": 8528,
+        "transferBytes": 1306288,
+        "wallMs": 322.80000001192093,
+        "gpuMs": 0.022496000000000002,
+        "paperToleranceMm": 0.005,
+        "parameterTolerance": 0.00001
+      }
+    ],
+    "primitives": 10161,
+    "fragments": 9027
+  },
+  "svgBytes": 33719,
+  "errors": [],
+  "networkFailures": [
+    {
+      "url": "http://127.0.0.1:5273/api/pens",
+      "status": 404
+    },
+    {
+      "url": "http://127.0.0.1:5273/api/plot-progress",
+      "status": 404
+    }
+  ]
+}

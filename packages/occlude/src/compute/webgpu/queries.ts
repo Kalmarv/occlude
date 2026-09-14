@@ -47,6 +47,8 @@ export interface QueryBatch3 {readonly hits:readonly(SurfaceHit3|null)[];readonl
  * all-pairs allocation. Explicit work cap bounds this initial batch kernel;
  * the CPU BVH refines uncertain results and handles extreme f32 ranges. */
 export class GpuSurfaceQueries3 {
+  /** Bytes actually uploaded when this target was prepared (zero for CPU-only normalization). */
+  get uploadBytes():number{return this.triangles&&!this.forceCpu?this.source.triangles.length*48:0;}
   private tail:Promise<unknown>=Promise.resolve();private closed=false;
   private constructor(private device:GPUDevice,readonly source:SurfaceQueries3,private triangles:GPUBuffer|null,private pipelines:{rays:GPUComputePipeline;nearest:GPUComputePipeline},private origin:Vec3,private scale:number,private capacity:number,private forceCpu:boolean){}
   static async create(device:GPUDevice,source:SurfaceQueries3,options:{memoryBudgetBytes?:number;batchSize?:number}={}):Promise<GpuSurfaceQueries3>{
