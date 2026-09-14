@@ -4,6 +4,8 @@ Original specification: [spec.md](spec.md). All M0–M5 requirements remain in s
 
 Latest camera work: retained composition and `commitCamera3` support creating a new camera result without rerunning procedural modeling; see [CAMERA-COMPOSITION.md](CAMERA-COMPOSITION.md). Studio provides Commit view; see [CAMERA-STUDIO.md](CAMERA-STUDIO.md). Committed cameras now persist in saved/downloaded sketch configuration; see [CAMERA-CONFIG.md](CAMERA-CONFIG.md). Broader lifecycle hardening and the full M5 audit remain unfinished.
 
+Recent correctness work: world-space crease angles and exact coplanarity remove false base-grid lines; see [CREASE-CORRECTNESS.md](CREASE-CORRECTNESS.md). Include [USER-FOLLOWUPS.md](USER-FOLLOWUPS.md) in the final handoff; camera controls and crease-tolerance API choices are deferred.
+
 ## Isolation
 
 - Starting commit: c705cdeb6a575eecc2759572e8d43dbb8e4316d2 (clean production checkout).

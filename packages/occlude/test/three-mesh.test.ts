@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { grid3, extrudeFaces3, FaceSelection3 } from '../src/three/geometry/model.js';
 import { surface3, box3 } from '../src/three/geometry/surface.js';
 import { cameraFrame3 } from '../src/three/camera.js';
 import { cross3, sub3, type Vec3 } from '../src/three/math.js';
@@ -10,6 +11,35 @@ import type { GpuIntervals3 } from '../src/compute/webgpu/interval.js';
 const frame = (perspective = false) => cameraFrame3({ ...(perspective ? {kind:'perspective' as const,fovDegrees:60} : {kind:'orthographic' as const,span:6}), eye:[4,-6,4],target:[0,0,0],near:.1,far:100 },{x:10,y:20,width:180,height:120});
 
 describe('polygon surfaces and topology features', () => {
+  it('keeps flat relief ground edges crease-free across camera views', () => {
+    let surface = grid3(6, 6, [4, 4]);
+    const selected = new FaceSelection3(surface).filter(f => f.index % 6 % 2 === 0 && Math.floor(f.index / 6) % 2 === 0);
+    surface = extrudeFaces3(surface, selected, 1, { operation: 'ground-regression' });
+    const ground = new Set(surface.edges.filter(e => e.faces.length === 2 && e.faces.every(f =>
+      surface.faces[f].vertices.every(v => surface.points[v].position[2] === 0))).map(e => e.id));
+    expect(ground.size).toBe(30);
+    for (const eye of [[5, 7, 6], [-3, 5, 8]] as const) {
+      const camera = cameraFrame3({ kind: 'orthographic', span: 5.5, eye, target: [0, 0, 0.4], near: 0.1, far: 30 }, { x: 0, y: 0, width: 200, height: 200 });
+      const features = featureSnapshot3([{ id: 'relief', surface }], [], camera).features;
+      for (const f of features.filter(f => ground.has(f.sourceId))) {
+        expect(f.creaseAngle).toBe(0);
+        expect(f.flags & FeatureKind3.crease).toBe(0);
+      }
+      expect(features.some(f => f.creaseAngle === 90)).toBe(true);
+    }
+  });
+  it('retains a real shallow fold and its angle independently of camera', () => {
+    const surface = surface3([[0,0,0],[1,0,0],[0,1,0],[0,-1,1e-10]], [[0,1,2],[1,0,3]]);
+    const angles = [frame(), frame(true)].map(camera => {
+      const edge = featureSnapshot3([{ id: 'fold', surface }], [], camera).features.find(f => !(f.flags & FeatureKind3.boundary))!;
+      expect(edge.flags & FeatureKind3.crease).toBeTruthy();
+      expect(edge.creaseAngle).toBeGreaterThan(0);
+      expect(edge.creaseAngle).toBeCloseTo(Math.atan(1e-10) * 180 / Math.PI, 16);
+      return edge.creaseAngle;
+    });
+    expect(angles[0]).toBe(angles[1]);
+  });
+
   it('keeps box polygons, real edges, triangle parentage and multi-flags', () => {
     const box=box3();expect(box.points).toHaveLength(8);expect(box.faces).toHaveLength(6);expect(box.triangles).toHaveLength(12);expect(box.edges).toHaveLength(12);
     box.edges[0].attributes.marked=true;

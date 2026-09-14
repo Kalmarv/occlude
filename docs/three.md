@@ -33,7 +33,7 @@ A camera's optional `viewport` belongs on the scene and uses absolute paper mill
 
 ## Selecting lines
 
-Each line set has a unique `id`, named `stroke`, optional `select(feature)`, and `visibility: 'visible' | 'hidden'` (default visible). Higher `priority` owns overlapping source intervals; `overdraw: true` explicitly retains duplicates. Selection callbacks read captured feature rows and must be pure. Features retain object/source IDs, flags, crease angle, edge attributes and incident face attributes.
+Each line set has a unique `id`, named `stroke`, optional `select(feature)`, and `visibility: 'visible' | 'hidden'` (default visible). Higher `priority` owns overlapping source intervals; `overdraw: true` explicitly retains duplicates. Selection callbacks read captured feature rows and must be pure. Features retain object/source IDs, flags, crease angle, edge attributes and incident face attributes. Crease angles are measured in world geometry independently of the camera. Exactly coplanar neighboring triangles have no crease; flat ground-cell seams are omitted by a crease/silhouette/boundary selector, while tower-to-ground folds and outer boundaries remain eligible. Visibility then removes portions hidden by the model.
 
 ```ts live
 import { sketch, lineArt3, box3, FeatureKind3, pen, mm } from 'occlude';

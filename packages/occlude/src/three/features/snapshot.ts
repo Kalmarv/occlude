@@ -68,11 +68,13 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     });
     const originals = new Map(surface.edges.map(e => [edgeKey(...e.vertices), e]));
     const triangleEdges = new Map<string, { vertices: readonly [number, number]; triangles: number[] }>();
-    const normals: Vec3[] = [], facing: number[] = [], triangleIds: string[] = [];
+    const worldNormals: Vec3[] = [], facing: number[] = [], triangleIds: string[] = [];
     surface.triangles.forEach((t, i) => {
       const triangle = t.vertices.map(v => positions[v]) as unknown as Triangle3;
       const n = unit3(cross3(sub3(triangle[1], triangle[0]), sub3(triangle[2], triangle[0])));
-      normals.push(n); facing.push(frame.camera.kind === 'perspective' ? dot3(n, mul3(triangle[0], -1)) : n[2]);
+      const world = t.vertices.map(v => surface.points[v].position);
+      worldNormals.push(unit3(cross3(sub3(world[1], world[0]), sub3(world[2], world[0]))));
+      facing.push(frame.camera.kind === 'perspective' ? dot3(n, mul3(triangle[0], -1)) : n[2]);
       const id = key(object.id, surface.faces[t.face].id, ...t.vertices.map(v => surface.points[v].id)); triangleIds.push(id);
       for (let j = 0; j < 3; j++) {
         const a = t.vertices[j], b = t.vertices[(j + 1) % 3], k = edgeKey(a, b), edge = triangleEdges.get(k);
@@ -92,7 +94,16 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       if (incident.length > 2) throw new Error('non-manifold render triangulation');
       const silhouette = incident.length === 2 && (facing[incident[0]] > 0) !== (facing[incident[1]] > 0);
       if (!original && !silhouette) continue;
-      const angle = incident.length === 2 ? Math.acos(Math.max(-1, Math.min(1, dot3(normals[incident[0]], normals[incident[1]])))) * 180 / Math.PI : 0;
+      let angle = 0;
+      if (incident.length === 2) {
+        // Creases belong to the model, independent of camera-space roundoff.
+        // Exact coplanarity avoids inventing folds; atan2 retains real shallow folds.
+        const [left, right] = incident.map(i => worldNormals[i]);
+        const [a, b, c] = surface.triangles[incident[0]].vertices.map(v => surface.points[v].position);
+        const coplanar = surface.triangles[incident[1]].vertices.every(v => orient3d(...a, ...b, ...c, ...surface.points[v].position) === 0);
+        const cosine = dot3(left, right);
+        angle = coplanar && cosine > 0 ? 0 : Math.atan2(Math.hypot(...cross3(left, right)), cosine) * 180 / Math.PI;
+      }
       const sourceId = original?.id ?? key('diagonal', surface.faces[surface.triangles[incident[0]].face].id, ...edge.vertices.map(v => surface.points[v].id));
       const flags = (original?.faces.length === 1 ? FeatureKind3.boundary : 0) | (silhouette ? FeatureKind3.silhouette : 0) | (original && angle > 0 ? FeatureKind3.crease : 0) | (original?.attributes.marked === true ? FeatureKind3.marked : 0);
       const support = [...new Set(incident.flatMap(i => { const f=surface.triangles[i].face; return planar[f] ? faceTriangles[f] : [i]; }))].map(i=>triangleIds[i]);
