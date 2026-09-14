@@ -49,7 +49,14 @@ export function hiddenInterval3(a: Vec3, b: Vec3, volume: OcclusionVolume3, basi
         const cameraSide = volume.perspective ? determinant(tri[0], tri[1], tri[2], [0,0,0]) : orient2d(tri[0][0],tri[0][1],tri[1][0],tri[1][1],tri[2][0],tri[2][1]);
         return -Math.sign(cameraSide) * determinant(tri[0],tri[1],tri[2],point);
       }
-      const u=tri[i], v=tri[(i+1)%3], other=tri[(i+2)%3];
+      const first=tri[i],second=tri[(i+1)%3],other=tri[(i+2)%3];
+      // Adjacent triangles traverse their common edge in opposite directions.
+      // Robust predicates guarantee the sign, but their approximate determinant
+      // magnitudes need not be exact negatives after that permutation. Evaluate
+      // the shared boundary in one canonical order so its interval root is
+      // identical on both sides; retain every genuinely positive gap.
+      const forward=first[0]!==second[0]?first[0]<second[0]:first[1]!==second[1]?first[1]<second[1]:first[2]<second[2];
+      const u=forward?first:second,v=forward?second:first;
       const side = (q: Vec3) => volume.perspective ? determinant([0,0,0],u,v,q) : orient2d(u[0],u[1],v[0],v[1],q[0],q[1]);
       return Math.sign(side(other)) * side(point);
     };

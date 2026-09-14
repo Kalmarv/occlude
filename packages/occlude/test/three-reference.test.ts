@@ -37,10 +37,11 @@ it('records Freestyle coverage differences while independent rays validate Occlu
     expect(different[0].missingMm).toBeCloseTo(11.6596714,5);
     expect(different[1].extraMm).toBeCloseTo(11.6596714,5);
     expect(different[1].missingMm).toBeCloseTo(6.8599548,5);
-    expect(comparison.cases.reduce((n:number,c:{rayChecks:number})=>n+c.rayChecks,0)).toBe(177);
-    // Adjacent f64 endpoints have no representable strict interior. They are
-    // recorded explicitly, not sampled at their boundary or hidden by a tolerance.
-    expect(comparison.cases.reduce((n:number,c:{unrepresentableInteriorSamples:number})=>n+c.unrepresentableInteriorSamples,0)).toBe(3);
+    expect(comparison.cases.reduce((n:number,c:{rayChecks:number})=>n+c.rayChecks,0)).toBe(174);
+    // Canonical shared-edge roots close the perspective cube's false visible
+    // gap and merge its adjoining hidden runs. Surviving runs have interiors;
+    // coverage differences and their independent ray checks remain explicit.
+    expect(comparison.cases.reduce((n:number,c:{unrepresentableInteriorSamples:number})=>n+c.unrepresentableInteriorSamples,0)).toBe(0);
   } finally { rmSync(directory,{recursive:true,force:true}); }
 });
 
