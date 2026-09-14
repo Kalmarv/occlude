@@ -1,0 +1,18 @@
+{
+  "origin": "http://127.0.0.1:5273/api/sketches/",
+  "time": "2026-09-14T07:10:36.321332+00:00",
+  "sketches": [
+    {
+      "name": "visibility-laboratory",
+      "sourceSha256": "8774a9535814d62f38e44d60e8846fdeb35ee01188ac6e789a93dccf3fb14f3c",
+      "readAfterWriteMatches": true,
+      "preflightSourceUnchanged": true
+    },
+    {
+      "name": "paper-composition",
+      "sourceSha256": "94bd61ef7e0ba974cbfcc06b326c94d6f56dcd84210c64db7311c4d08866c450",
+      "readAfterWriteMatches": true,
+      "preflightSourceUnchanged": true
+    }
+  ]
+}

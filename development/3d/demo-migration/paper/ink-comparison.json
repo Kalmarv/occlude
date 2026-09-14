@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "beforeSvg": "../../paper-depth/paper.svg",
+  "afterSvg": "report.json:initial.svg",
+  "beforeSourceSha256": "04766ce97731a1eff940adf57575523e9d5775a2328b28cf2f01f8442165aa93",
+  "paths": 296,
+  "comparison": "Exact multiset of (named pen, SVG path d), including labels; no rounding or tolerance."
+}

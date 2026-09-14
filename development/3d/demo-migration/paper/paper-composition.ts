@@ -11,7 +11,7 @@ export default sketch({ ...({ seed: 42, paper: Letter({ color: '#F5F0E6' }), mar
   rust: fineliner({ color: '#A84932' }),
   caption: pen({ width: mm(0.4), color: '#234B65', feed: 2100, penDelay: 140 }),
 } }), cameras3: {
-    "paper-study": {"kind":"orthographic","span":4.6,"eye":[7.002452800089903,3.921911867185166,6.798770357540987],"target":[0,0,0.4],"near":0.1,"far":30,"up":[0,0,1]}
+    "paper-study": {"kind":"orthographic","span":4.6,"eye":[7.357301403255116,0.5198971417345316,7.538614923336074],"target":[0,0,0.4],"near":0.1,"far":30,"up":[0,0,1]}
   } }, () => {
   const block = box([2.8, 1.5, 1.6]).withKey('block').faceAttribute('decorate', true);
   const tower = box([1, 1, 2.8]).translate([0.6, 0.3, 0.6]).withKey('tower');

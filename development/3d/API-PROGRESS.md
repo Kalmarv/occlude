@@ -13,7 +13,7 @@ the earlier API and does not imply this redesign is finished.
   Playwright verifiers; see `projection-controls/`.
 - Contract and three target acceptance sketches: `API-CONTRACT.md` and
   `api-examples/`. Terrain and instanced forms are live; the paper composition
-  target still needs its dedicated acceptance verification.
+  target has dedicated served Studio acceptance evidence in `paper-api/`.
 - First working API slice: implemented and deployed. `occlude/3d` exposes the
   common immutable mesh, four-point plane, box/raw import, generic subdivision,
   typed domain attributes/collections, displacement and frozen steps/history.
@@ -77,9 +77,18 @@ the earlier API and does not imply this redesign is finished.
   All nine Docker gates and seventeen served live examples pass. Three GPU
   query batches preserve rich sample rows and match analytic plane hits; their
   target cache and Monaco checks pass. See `sampling-api/`.
-- M5 demo migration and detailed GPU phase
-  accounting remain pending. Terrain and instanced forms are runnable live
-  examples; the complete acceptance set is not yet verified.
+- Visibility laboratory and paper composition now use the ordinary mesh/curve,
+  view and projected-stroke API. Main Studio verifies typed source inspection,
+  three styles, camera commit, preserved bundled libraries and exact download
+  reopen. The paper migration preserves all 296 exported paths at the user's
+  saved camera. See `demo-migration/` for verification and store publication.
+- The separate paper acceptance target passes selective hatch/support and
+  hidden-crease inspection, physical mask/clip checks with negative controls,
+  orthographic/perspective commit without modeling reruns, and exact portable
+  reopen. See `paper-api/`. This does not resolve the fresh underside report.
+- Procedural relief migration and detailed GPU phase accounting remain pending.
+  The three acceptance targets have focused evidence; the full requirement
+  audit remains outstanding.
 
 Worker restart/device-loss recovery remains deferred by the user. Use
 Playwright, not ProofShot. Continue in this isolated checkout; production

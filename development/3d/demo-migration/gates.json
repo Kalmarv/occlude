@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "gates": {
+    "rust": "11.0s",
+    "ts": "31.8s",
+    "types": "6.9s",
+    "studio": "6.1s",
+    "docs": "24.1s",
+    "ink": "26.0s",
+    "build": "40.8s",
+    "wasm": "8bf0034cb79606aa8d6c7293496a1b7e",
+    "smoke": "2.3s"
+  },
+  "church": {
+    "chains": 15601,
+    "drawMm": 96037,
+    "travelMm": 16515,
+    "minutes": 381.0,
+    "bridge": 0,
+    "euler": 15593,
+    "coincidentMm": 18.1,
+    "unchanged": true
+  }
+}

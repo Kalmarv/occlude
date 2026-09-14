@@ -1,0 +1,1562 @@
+{
+  "passed": true,
+  "diagnostics": [],
+  "first": {
+    "hash": "abc0e16ddb6325deefe1a8ce136c59db4569b793be99b5446c47b7a3d8429680",
+    "stats": {
+      "modeling": [],
+      "adapter": {
+        "vendor": "nvidia",
+        "architecture": "turing",
+        "device": "",
+        "description": "",
+        "isFallbackAdapter": false
+      },
+      "scenes": [
+        {
+          "candidates": 516,
+          "dispatches": 1,
+          "refinements": 372,
+          "transferBytes": 57808,
+          "wallMs": 56.60000002384186,
+          "gpuMs": 0.012576,
+          "paperToleranceMm": 0.005,
+          "parameterTolerance": 0.00001
+        }
+      ]
+    },
+    "captured": {
+      "type": "plan-three",
+      "id": 900000001,
+      "three": {
+        "schemaVersion": 1,
+        "engine": "docker 2026-09-14 06:50",
+        "scriptJs": "\"use strict\";\nObject.defineProperty(exports, \"__esModule\", { value: true });\nconst occlude_1 = require(\"occlude\");\nconst _3d_1 = require(\"occlude/3d\");\nexports.default = (0, occlude_1.sketch)({ seed: 42, paper: (0, occlude_1.paper)({ width: (0, occlude_1.mm)(300), height: (0, occlude_1.mm)(150) }), margin: 0, pens: {\n        outline: (0, occlude_1.pen)({ width: (0, occlude_1.mm)(0.3), color: '#18202A' }),\n        hidden: (0, occlude_1.pen)({ width: (0, occlude_1.mm)(0.2), color: '#A84932' }),\n    } }, () => {\n    const model = [\n        (0, _3d_1.box)(0.8).translate([-1.5, -1, 0]).withKey('cube'),\n        (0, _3d_1.plane)(4.5, 4).translate([0, 0, -0.8]).withKey('open-plane'),\n        (0, _3d_1.box)([2.6, 0.7, 0.8]).translate([0.3, 0.1, 0]).withKey('cross-wide'),\n        (0, _3d_1.box)([0.7, 1.4, 1.9]).translate([0.3, 0.1, 0.1]).withKey('cross-tall'),\n        (0, _3d_1.polyline)([[-2.2, 0, 0.2], [2.2, 0, 0.2], [2.2, 1.5, 0.5]], { key: 'authored-wire' }),\n    ];\n    return (0, _3d_1.view)(model, {\n        key: 'visibility-laboratory',\n        camera: (0, _3d_1.orthographic)({ span: 7.2, eye: [5, 7, 6], near: 0.1, far: 30 }),\n        viewport: { x: 5, y: 10, width: 90, height: 110 },\n    }, lines => {\n        const { visible, hidden } = lines;\n        const contour = visible.filter(c => c.kinds.has('silhouette') || c.kinds.has('boundary') || c.kinds.has('wire'));\n        // These are classified intervals; all three styles reuse the same result.\n        console.info('visibility-laboratory', JSON.stringify({\n            visible: visible.length, hidden: hidden.length, contour: contour.length,\n            inspected: visible.rows.slice(0, 3).map(c => ({ id: c.id, range: c.range, support: c.support, objectId: c.feature.objectId, sourceId: c.feature.sourceId })),\n        }));\n        return [\n            (0, occlude_1.strokes)(visible, { stroke: 'outline' }),\n            (0, occlude_1.strokes)(hidden, { stroke: 'hidden', modifiers: [(0, occlude_1.dash)((0, occlude_1.mm)(2), (0, occlude_1.mm)(1))] }),\n            (0, occlude_1.group)({ translate: [(0, occlude_1.mm)(100), 0] }, [\n                (0, occlude_1.strokes)(visible, { stroke: 'outline', modifiers: [(0, occlude_1.dash)((0, occlude_1.mm)(3), (0, occlude_1.mm)(1)), (0, occlude_1.wobble)({ amount: (0, occlude_1.mm)(0.25), wavelength: (0, occlude_1.mm)(7) })] }),\n                (0, occlude_1.strokes)(hidden, { stroke: 'hidden', modifiers: [(0, occlude_1.dash)((0, occlude_1.mm)(1), (0, occlude_1.mm)(1.5))] }),\n            ]),\n            (0, occlude_1.group)({ translate: [(0, occlude_1.mm)(200), 0] }, (0, occlude_1.strokes)(contour, { stroke: 'outline' })),\n            // label() takes numeric drawable units: 1 unit = 1.5 mm on this sheet.\n            (0, occlude_1.label)('CLEAN / HIDDEN', 6, 89, 2.5),\n            (0, occlude_1.label)('DASH / WOBBLE', 109 / 1.5, 89, 2.5),\n            (0, occlude_1.label)('CONTOUR / WIRE', 209 / 1.5, 89, 2.5),\n        ];\n    });\n});\n",
+        "seed": "42",
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "precision": "f64 source / normalized f32 GPU / f64 refinement",
+        "modeling": [],
+        "scenes": [
+          {
+            "frame": {
+              "camera": {
+                "span": 7.2,
+                "eye": [
+                  5,
+                  7,
+                  6
+                ],
+                "near": 0.1,
+                "far": 30,
+                "kind": "orthographic",
+                "target": [
+                  0,
+                  0,
+                  0
+                ],
+                "up": [
+                  0,
+                  0,
+                  1
+                ]
+              },
+              "right": [
+                -0.813733471206735,
+                0.5812381937190965,
+                0
+              ],
+              "up": [
+                -0.33251332389110455,
+                -0.4655186534475464,
+                0.8201995322647246
+              ],
+              "back": [
+                0.4767312946227963,
+                0.6674238124719147,
+                0.5720775535473555
+              ],
+              "paper": {
+                "x": 5,
+                "y": 10,
+                "width": 90,
+                "height": 110
+              }
+            },
+            "objects": [
+              {
+                "id": "cube",
+                "surface": {
+                  "points": [
+                    {
+                      "id": "p0",
+                      "position": [
+                        -1.9,
+                        -1.4,
+                        -0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p1",
+                      "position": [
+                        -1.1,
+                        -1.4,
+                        -0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p2",
+                      "position": [
+                        -1.1,
+                        -0.6,
+                        -0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p3",
+                      "position": [
+                        -1.9,
+                        -0.6,
+                        -0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p4",
+                      "position": [
+                        -1.9,
+                        -1.4,
+                        0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p5",
+                      "position": [
+                        -1.1,
+                        -1.4,
+                        0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p6",
+                      "position": [
+                        -1.1,
+                        -0.6,
+                        0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p7",
+                      "position": [
+                        -1.9,
+                        -0.6,
+                        0.4
+                      ],
+                      "attributes": {}
+                    }
+                  ],
+                  "faces": [
+                    {
+                      "id": "f0",
+                      "vertices": [
+                        3,
+                        2,
+                        1,
+                        0
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f1",
+                      "vertices": [
+                        4,
+                        5,
+                        6,
+                        7
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f2",
+                      "vertices": [
+                        0,
+                        1,
+                        5,
+                        4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f3",
+                      "vertices": [
+                        1,
+                        2,
+                        6,
+                        5
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f4",
+                      "vertices": [
+                        2,
+                        3,
+                        7,
+                        6
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f5",
+                      "vertices": [
+                        3,
+                        0,
+                        4,
+                        7
+                      ],
+                      "attributes": {}
+                    }
+                  ],
+                  "triangles": [
+                    {
+                      "vertices": [
+                        0,
+                        3,
+                        2
+                      ],
+                      "face": 0
+                    },
+                    {
+                      "vertices": [
+                        2,
+                        1,
+                        0
+                      ],
+                      "face": 0
+                    },
+                    {
+                      "vertices": [
+                        7,
+                        4,
+                        5
+                      ],
+                      "face": 1
+                    },
+                    {
+                      "vertices": [
+                        5,
+                        6,
+                        7
+                      ],
+                      "face": 1
+                    },
+                    {
+                      "vertices": [
+                        4,
+                        0,
+                        1
+                      ],
+                      "face": 2
+                    },
+                    {
+                      "vertices": [
+                        1,
+                        5,
+                        4
+                      ],
+                      "face": 2
+                    },
+                    {
+                      "vertices": [
+                        5,
+                        1,
+                        2
+                      ],
+                      "face": 3
+                    },
+                    {
+                      "vertices": [
+                        2,
+                        6,
+                        5
+                      ],
+                      "face": 3
+                    },
+                    {
+                      "vertices": [
+                        6,
+                        2,
+                        3
+                      ],
+                      "face": 4
+                    },
+                    {
+                      "vertices": [
+                        3,
+                        7,
+                        6
+                      ],
+                      "face": 4
+                    },
+                    {
+                      "vertices": [
+                        7,
+                        3,
+                        0
+                      ],
+                      "face": 5
+                    },
+                    {
+                      "vertices": [
+                        0,
+                        4,
+                        7
+                      ],
+                      "face": 5
+                    }
+                  ],
+                  "edges": [
+                    {
+                      "id": "e:p2:p3",
+                      "vertices": [
+                        2,
+                        3
+                      ],
+                      "faces": [
+                        0,
+                        4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p1:p2",
+                      "vertices": [
+                        1,
+                        2
+                      ],
+                      "faces": [
+                        0,
+                        3
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p0:p1",
+                      "vertices": [
+                        0,
+                        1
+                      ],
+                      "faces": [
+                        0,
+                        2
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p0:p3",
+                      "vertices": [
+                        0,
+                        3
+                      ],
+                      "faces": [
+                        0,
+                        5
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p4:p5",
+                      "vertices": [
+                        4,
+                        5
+                      ],
+                      "faces": [
+                        1,
+                        2
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p5:p6",
+                      "vertices": [
+                        5,
+                        6
+                      ],
+                      "faces": [
+                        1,
+                        3
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p6:p7",
+                      "vertices": [
+                        6,
+                        7
+                      ],
+                      "faces": [
+                        1,
+                        4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p4:p7",
+                      "vertices": [
+                        4,
+                        7
+                      ],
+                      "faces": [
+                        1,
+                        5
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p1:p5",
+                      "vertices": [
+                        1,
+                        5
+                      ],
+                      "faces": [
+                        2,
+                        3
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p0:p4",
+                      "vertices": [
+                        0,
+                        4
+                      ],
+                      "faces": [
+                        2,
+                        5
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p2:p6",
+                      "vertices": [
+                        2,
+                        6
+                      ],
+                      "faces": [
+                        3,
+                        4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p3:p7",
+                      "vertices": [
+                        3,
+                        7
+                      ],
+                      "faces": [
+                        4,
+                        5
+                      ],
+                      "attributes": {}
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "open-plane",
+                "surface": {
+                  "points": [
+                    {
+                      "id": "p0",
+                      "position": [
+                        -2.25,
+                        -2,
+                        -0.8
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p1",
+                      "position": [
+                        2.25,
+                        -2,
+                        -0.8
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p2",
+                      "position": [
+                        2.25,
+                        2,
+                        -0.8
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p3",
+                      "position": [
+                        -2.25,
+                        2,
+                        -0.8
+                      ],
+                      "attributes": {}
+                    }
+                  ],
+                  "faces": [
+                    {
+                      "id": "f0",
+                      "vertices": [
+                        0,
+                        1,
+                        2,
+                        3
+                      ],
+                      "attributes": {}
+                    }
+                  ],
+                  "triangles": [
+                    {
+                      "vertices": [
+                        3,
+                        0,
+                        1
+                      ],
+                      "face": 0
+                    },
+                    {
+                      "vertices": [
+                        1,
+                        2,
+                        3
+                      ],
+                      "face": 0
+                    }
+                  ],
+                  "edges": [
+                    {
+                      "id": "e:p0:p1",
+                      "vertices": [
+                        0,
+                        1
+                      ],
+                      "faces": [
+                        0
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p1:p2",
+                      "vertices": [
+                        1,
+                        2
+                      ],
+                      "faces": [
+                        0
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p2:p3",
+                      "vertices": [
+                        2,
+                        3
+                      ],
+                      "faces": [
+                        0
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p0:p3",
+                      "vertices": [
+                        0,
+                        3
+                      ],
+                      "faces": [
+                        0
+                      ],
+                      "attributes": {}
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "cross-wide",
+                "surface": {
+                  "points": [
+                    {
+                      "id": "p0",
+                      "position": [
+                        -1,
+                        -0.24999999999999997,
+                        -0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p1",
+                      "position": [
+                        1.6,
+                        -0.24999999999999997,
+                        -0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p2",
+                      "position": [
+                        1.6,
+                        0.44999999999999996,
+                        -0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p3",
+                      "position": [
+                        -1,
+                        0.44999999999999996,
+                        -0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p4",
+                      "position": [
+                        -1,
+                        -0.24999999999999997,
+                        0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p5",
+                      "position": [
+                        1.6,
+                        -0.24999999999999997,
+                        0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p6",
+                      "position": [
+                        1.6,
+                        0.44999999999999996,
+                        0.4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p7",
+                      "position": [
+                        -1,
+                        0.44999999999999996,
+                        0.4
+                      ],
+                      "attributes": {}
+                    }
+                  ],
+                  "faces": [
+                    {
+                      "id": "f0",
+                      "vertices": [
+                        3,
+                        2,
+                        1,
+                        0
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f1",
+                      "vertices": [
+                        4,
+                        5,
+                        6,
+                        7
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f2",
+                      "vertices": [
+                        0,
+                        1,
+                        5,
+                        4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f3",
+                      "vertices": [
+                        1,
+                        2,
+                        6,
+                        5
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f4",
+                      "vertices": [
+                        2,
+                        3,
+                        7,
+                        6
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f5",
+                      "vertices": [
+                        3,
+                        0,
+                        4,
+                        7
+                      ],
+                      "attributes": {}
+                    }
+                  ],
+                  "triangles": [
+                    {
+                      "vertices": [
+                        0,
+                        3,
+                        2
+                      ],
+                      "face": 0
+                    },
+                    {
+                      "vertices": [
+                        2,
+                        1,
+                        0
+                      ],
+                      "face": 0
+                    },
+                    {
+                      "vertices": [
+                        7,
+                        4,
+                        5
+                      ],
+                      "face": 1
+                    },
+                    {
+                      "vertices": [
+                        5,
+                        6,
+                        7
+                      ],
+                      "face": 1
+                    },
+                    {
+                      "vertices": [
+                        4,
+                        0,
+                        1
+                      ],
+                      "face": 2
+                    },
+                    {
+                      "vertices": [
+                        1,
+                        5,
+                        4
+                      ],
+                      "face": 2
+                    },
+                    {
+                      "vertices": [
+                        5,
+                        1,
+                        2
+                      ],
+                      "face": 3
+                    },
+                    {
+                      "vertices": [
+                        2,
+                        6,
+                        5
+                      ],
+                      "face": 3
+                    },
+                    {
+                      "vertices": [
+                        6,
+                        2,
+                        3
+                      ],
+                      "face": 4
+                    },
+                    {
+                      "vertices": [
+                        3,
+                        7,
+                        6
+                      ],
+                      "face": 4
+                    },
+                    {
+                      "vertices": [
+                        7,
+                        3,
+                        0
+                      ],
+                      "face": 5
+                    },
+                    {
+                      "vertices": [
+                        0,
+                        4,
+                        7
+                      ],
+                      "face": 5
+                    }
+                  ],
+                  "edges": [
+                    {
+                      "id": "e:p2:p3",
+                      "vertices": [
+                        2,
+                        3
+                      ],
+                      "faces": [
+                        0,
+                        4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p1:p2",
+                      "vertices": [
+                        1,
+                        2
+                      ],
+                      "faces": [
+                        0,
+                        3
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p0:p1",
+                      "vertices": [
+                        0,
+                        1
+                      ],
+                      "faces": [
+                        0,
+                        2
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p0:p3",
+                      "vertices": [
+                        0,
+                        3
+                      ],
+                      "faces": [
+                        0,
+                        5
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p4:p5",
+                      "vertices": [
+                        4,
+                        5
+                      ],
+                      "faces": [
+                        1,
+                        2
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p5:p6",
+                      "vertices": [
+                        5,
+                        6
+                      ],
+                      "faces": [
+                        1,
+                        3
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p6:p7",
+                      "vertices": [
+                        6,
+                        7
+                      ],
+                      "faces": [
+                        1,
+                        4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p4:p7",
+                      "vertices": [
+                        4,
+                        7
+                      ],
+                      "faces": [
+                        1,
+                        5
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p1:p5",
+                      "vertices": [
+                        1,
+                        5
+                      ],
+                      "faces": [
+                        2,
+                        3
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p0:p4",
+                      "vertices": [
+                        0,
+                        4
+                      ],
+                      "faces": [
+                        2,
+                        5
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p2:p6",
+                      "vertices": [
+                        2,
+                        6
+                      ],
+                      "faces": [
+                        3,
+                        4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p3:p7",
+                      "vertices": [
+                        3,
+                        7
+                      ],
+                      "faces": [
+                        4,
+                        5
+                      ],
+                      "attributes": {}
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "cross-tall",
+                "surface": {
+                  "points": [
+                    {
+                      "id": "p0",
+                      "position": [
+                        -0.04999999999999999,
+                        -0.6,
+                        -0.85
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p1",
+                      "position": [
+                        0.6499999999999999,
+                        -0.6,
+                        -0.85
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p2",
+                      "position": [
+                        0.6499999999999999,
+                        0.7999999999999999,
+                        -0.85
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p3",
+                      "position": [
+                        -0.04999999999999999,
+                        0.7999999999999999,
+                        -0.85
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p4",
+                      "position": [
+                        -0.04999999999999999,
+                        -0.6,
+                        1.05
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p5",
+                      "position": [
+                        0.6499999999999999,
+                        -0.6,
+                        1.05
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p6",
+                      "position": [
+                        0.6499999999999999,
+                        0.7999999999999999,
+                        1.05
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p7",
+                      "position": [
+                        -0.04999999999999999,
+                        0.7999999999999999,
+                        1.05
+                      ],
+                      "attributes": {}
+                    }
+                  ],
+                  "faces": [
+                    {
+                      "id": "f0",
+                      "vertices": [
+                        3,
+                        2,
+                        1,
+                        0
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f1",
+                      "vertices": [
+                        4,
+                        5,
+                        6,
+                        7
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f2",
+                      "vertices": [
+                        0,
+                        1,
+                        5,
+                        4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f3",
+                      "vertices": [
+                        1,
+                        2,
+                        6,
+                        5
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f4",
+                      "vertices": [
+                        2,
+                        3,
+                        7,
+                        6
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "f5",
+                      "vertices": [
+                        3,
+                        0,
+                        4,
+                        7
+                      ],
+                      "attributes": {}
+                    }
+                  ],
+                  "triangles": [
+                    {
+                      "vertices": [
+                        0,
+                        3,
+                        2
+                      ],
+                      "face": 0
+                    },
+                    {
+                      "vertices": [
+                        2,
+                        1,
+                        0
+                      ],
+                      "face": 0
+                    },
+                    {
+                      "vertices": [
+                        7,
+                        4,
+                        5
+                      ],
+                      "face": 1
+                    },
+                    {
+                      "vertices": [
+                        5,
+                        6,
+                        7
+                      ],
+                      "face": 1
+                    },
+                    {
+                      "vertices": [
+                        4,
+                        0,
+                        1
+                      ],
+                      "face": 2
+                    },
+                    {
+                      "vertices": [
+                        1,
+                        5,
+                        4
+                      ],
+                      "face": 2
+                    },
+                    {
+                      "vertices": [
+                        5,
+                        1,
+                        2
+                      ],
+                      "face": 3
+                    },
+                    {
+                      "vertices": [
+                        2,
+                        6,
+                        5
+                      ],
+                      "face": 3
+                    },
+                    {
+                      "vertices": [
+                        6,
+                        2,
+                        3
+                      ],
+                      "face": 4
+                    },
+                    {
+                      "vertices": [
+                        3,
+                        7,
+                        6
+                      ],
+                      "face": 4
+                    },
+                    {
+                      "vertices": [
+                        7,
+                        3,
+                        0
+                      ],
+                      "face": 5
+                    },
+                    {
+                      "vertices": [
+                        0,
+                        4,
+                        7
+                      ],
+                      "face": 5
+                    }
+                  ],
+                  "edges": [
+                    {
+                      "id": "e:p2:p3",
+                      "vertices": [
+                        2,
+                        3
+                      ],
+                      "faces": [
+                        0,
+                        4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p1:p2",
+                      "vertices": [
+                        1,
+                        2
+                      ],
+                      "faces": [
+                        0,
+                        3
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p0:p1",
+                      "vertices": [
+                        0,
+                        1
+                      ],
+                      "faces": [
+                        0,
+                        2
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p0:p3",
+                      "vertices": [
+                        0,
+                        3
+                      ],
+                      "faces": [
+                        0,
+                        5
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p4:p5",
+                      "vertices": [
+                        4,
+                        5
+                      ],
+                      "faces": [
+                        1,
+                        2
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p5:p6",
+                      "vertices": [
+                        5,
+                        6
+                      ],
+                      "faces": [
+                        1,
+                        3
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p6:p7",
+                      "vertices": [
+                        6,
+                        7
+                      ],
+                      "faces": [
+                        1,
+                        4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p4:p7",
+                      "vertices": [
+                        4,
+                        7
+                      ],
+                      "faces": [
+                        1,
+                        5
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p1:p5",
+                      "vertices": [
+                        1,
+                        5
+                      ],
+                      "faces": [
+                        2,
+                        3
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p0:p4",
+                      "vertices": [
+                        0,
+                        4
+                      ],
+                      "faces": [
+                        2,
+                        5
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p2:p6",
+                      "vertices": [
+                        2,
+                        6
+                      ],
+                      "faces": [
+                        3,
+                        4
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p3:p7",
+                      "vertices": [
+                        3,
+                        7
+                      ],
+                      "faces": [
+                        4,
+                        5
+                      ],
+                      "attributes": {}
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "authored-wire",
+                "surface": {
+                  "points": [
+                    {
+                      "id": "p0",
+                      "position": [
+                        -2.2,
+                        0,
+                        0.2
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p1",
+                      "position": [
+                        2.2,
+                        0,
+                        0.2
+                      ],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "p2",
+                      "position": [
+                        2.2,
+                        1.5,
+                        0.5
+                      ],
+                      "attributes": {}
+                    }
+                  ],
+                  "faces": [],
+                  "triangles": [],
+                  "edges": [
+                    {
+                      "id": "e:p0:p1",
+                      "vertices": [
+                        0,
+                        1
+                      ],
+                      "faces": [],
+                      "attributes": {}
+                    },
+                    {
+                      "id": "e:p1:p2",
+                      "vertices": [
+                        1,
+                        2
+                      ],
+                      "faces": [],
+                      "attributes": {}
+                    }
+                  ]
+                },
+                "occluder": false
+              }
+            ],
+            "wires": [],
+            "generated": []
+          }
+        ]
+      }
+    },
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"300mm\" height=\"150mm\" viewBox=\"0 0 300 150\"><g fill=\"none\" stroke=\"#18202A\" stroke-width=\"0.3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" data-pen=\"outline\"><path d=\"M36.5900 50.8750L36.5900 62.7800\"/><path d=\"M36.5909 59.0220L4.2700 72.2300L39.7900 100.6800L95.7300 77.8200L68.2908 55.8424\"/><path d=\"M64.5038 56.5689L77.3500 51.3200\"/><path d=\"M68.2950 46.0700L58.3450 50.1300\"/><path d=\"M51.2450 44.4450L58.3450 50.1300\"/><path d=\"M58.3450 50.1300L58.3450 53.8894\"/><path d=\"M55.1341 55.2046L60.2100 53.1300\"/><path d=\"M60.2100 53.1300L66.4300 58.1100\"/><path d=\"M66.4300 58.1100L66.4300 68.1350\"/><path d=\"M66.4300 68.1350L57.7271 71.6902\"/><path d=\"M57.7250 80.4586L57.7250 57.2800\"/><path d=\"M57.7250 57.2800L45.2950 47.3200\"/><path d=\"M45.2950 47.3200L36.5900 50.8750\"/><path d=\"M36.5900 50.8750L49.0250 60.8350\"/><path d=\"M49.0250 60.8350L49.0250 84.0184\"/><path d=\"M45.9161 76.5151L34.1050 81.3400\"/><path d=\"M34.1050 81.3400L27.8900 76.3600\"/><path d=\"M27.8900 76.3600L27.8900 66.3400\"/><path d=\"M27.8900 66.3400L39.6992 61.5133\"/><path d=\"M51.2450 52.0852L51.2450 44.4450\"/><path d=\"M51.2450 44.4450L61.1900 40.3800\"/><path d=\"M61.1900 40.3800L68.2950 46.0700\"/><path d=\"M68.2950 46.0700L68.2950 56.0950\"/><path d=\"M68.2950 56.0950L65.3929 57.2792\"/><path d=\"M66.4300 58.1100L57.7271 61.6652\"/><path d=\"M57.7250 57.2800L49.0250 60.8350\"/><path d=\"M45.9161 66.4901L34.1050 71.3150\"/><path d=\"M34.1050 71.3150L34.1050 81.3400\"/><path d=\"M35.9700 80.5800L22.6500 73.6700L30.1091 70.6223\"/><path d=\"M27.8900 66.3400L34.1050 71.3150\"/><path d=\"M10.3500 134.0650L10.0150 133.5000L9.3400 133.5000L9.0000 134.0650L9.0000 136.6900L9.3400 137.2500L10.0150 137.2500L10.3500 136.6900\"/><path d=\"M11.9250 133.5000L11.9250 137.2500L13.2750 137.2500\"/><path d=\"M14.8500 135.3750L15.8650 135.3750\"/><path d=\"M16.2000 133.5000L14.8500 133.5000L14.8500 137.2500L16.2000 137.2500\"/><path d=\"M17.7750 137.2500L17.7750 134.8150L18.4500 133.5000L19.1250 134.8150L19.1250 137.2500\"/><path d=\"M17.7750 135.7500L19.1250 135.7500\"/><path d=\"M20.7000 137.2500L20.7000 133.5000L22.0500 137.2500L22.0500 133.5000\"/><path d=\"M26.5500 137.2500L27.9000 133.5000\"/><path d=\"M32.4000 135.3750L33.7500 135.3750\"/><path d=\"M32.4000 137.2500L32.4000 133.5000\"/><path d=\"M33.7500 133.5000L33.7500 137.2500\"/><path d=\"M35.5500 137.2500L36.4500 137.2500\"/><path d=\"M36.0000 137.2500L36.0000 133.5000\"/><path d=\"M35.5500 133.5000L36.4500 133.5000\"/><path d=\"M38.2500 133.5000L39.1500 133.5000L39.6000 134.2500L39.6000 136.5000L39.1500 137.2500L38.2500 137.2500L38.2500 133.5000\"/><path d=\"M41.1750 133.5000L42.0750 133.5000L42.5250 134.2500L42.5250 136.5000L42.0750 137.2500L41.1750 137.2500L41.1750 133.5000\"/><path d=\"M44.1000 135.3750L45.1150 135.3750\"/><path d=\"M45.4500 133.5000L44.1000 133.5000L44.1000 137.2500L45.4500 137.2500\"/><path d=\"M47.0250 137.2500L47.0250 133.5000L48.3750 137.2500L48.3750 133.5000\"/><path d=\"M109.0000 133.5000L109.9000 133.5000L110.3500 134.2500L110.3500 136.5000L109.9000 137.2500L109.0000 137.2500L109.0000 133.5000\"/><path d=\"M111.9250 135.7500L113.2750 135.7500\"/><path d=\"M111.9250 137.2500L111.9250 134.8150L112.6000 133.5000L113.2750 134.8150L113.2750 137.2500\"/><path d=\"M114.8500 136.8000L115.1900 137.2500L115.8650 137.2500L116.2000 136.8000L116.2000 135.8250L115.8650 135.3750L115.1900 135.3750L114.8500 134.9250L114.8500 133.9500L115.1900 133.5000L115.8650 133.5000L116.2000 133.9500\"/><path d=\"M117.7750 135.3750L119.1250 135.3750\"/><path d=\"M117.7750 137.2500L117.7750 133.5000\"/><path d=\"M119.1250 133.5000L119.1250 137.2500\"/><path d=\"M123.6250 137.2500L124.9750 133.5000\"/><path d=\"M129.4750 133.5000L129.7450 137.2500L130.1500 135.3750L130.5550 137.2500L130.8250 133.5000\"/><path d=\"M132.7400 133.5000L132.4000 134.0650L132.4000 136.6900L132.7400 137.2500L133.4150 137.2500L133.7500 136.6900L133.7500 134.0650L133.4150 133.5000L132.7400 133.5000\"/><path d=\"M135.3250 133.5000L136.3400 133.5000L136.6750 134.0650L136.6750 134.8150L136.3400 135.3750L136.6750 135.9400L136.6750 136.6900L136.3400 137.2500L135.3250 137.2500L135.3250 133.5000\"/><path d=\"M135.3250 135.3750L136.3400 135.3750\"/><path d=\"M138.2500 135.3750L139.2650 135.3750\"/><path d=\"M138.2500 133.5000L138.2500 137.2500L139.2650 137.2500L139.6000 136.6900L139.6000 135.9400L139.2650 135.3750L139.6000 134.8150L139.6000 134.0650L139.2650 133.5000L138.2500 133.5000\"/><path d=\"M141.1750 133.5000L141.1750 137.2500L142.5250 137.2500\"/><path d=\"M144.1000 135.3750L145.1150 135.3750\"/><path d=\"M145.4500 137.2500L144.1000 137.2500L144.1000 133.5000L145.4500 133.5000\"/><path d=\"M148.3229 97.2635L147.6490 97.5473L146.9612 97.8331L146.2669 98.1221L145.5699 98.4145\"/><path d=\"M144.6380 98.8068L143.9384 99.1002L143.2391 99.3907L142.5406 99.6767L141.8432 99.9573\"/><path d=\"M140.9142 100.3225L140.4213 100.5124L139.9276 100.7002L139.4288 100.3181L138.9287 99.9304L138.4267 99.5364\"/><path d=\"M137.6465 98.9144L137.0586 98.4380L136.4689 97.9538L135.8736 97.4641L135.2723 96.9705\"/><path d=\"M134.4646 96.3093L133.8560 95.8132L133.2457 95.3192L132.6341 94.8291L132.0227 94.3443\"/><path d=\"M131.2078 93.7112L130.5970 93.2488L129.9873 92.7972L129.3798 92.3549L128.7760 91.9188\"/><path d=\"M127.9797 91.3399L127.3913 90.9011L126.8076 90.4538L126.2267 89.9950L125.6487 89.5245\"/><path d=\"M124.8862 88.8967L124.3180 88.4267L123.7501 87.9560L123.1801 87.4835L122.6066 87.0085\"/><path d=\"M121.8353 86.3715L121.2521 85.8919L120.6659 85.4120L120.0781 84.9333L119.4903 84.4575\"/><path d=\"M118.7097 83.8305L118.1337 83.3699L117.5667 82.9166L117.0066 82.4672L116.4519 82.0187\"/><path d=\"M115.7172 81.4169L115.1676 80.9604L114.6171 80.4985L114.0638 80.0315L113.5058 79.5608\"/><path d=\"M112.7510 78.9313L112.1742 78.4615L111.5864 77.9952L110.9882 77.5323L110.3813 77.0720\"/><path d=\"M109.5633 76.4626L108.9487 76.0080L108.3375 75.5536L107.7327 75.0979L107.1364 74.6401\"/><path d=\"M106.3556 74.0252L105.6986 73.4946L105.0490 72.9610L104.3902 72.4239L104.8027 72.2631\"/><path d=\"M105.7434 71.8855L106.4468 71.6014L107.1481 71.3175L107.8466 71.0338L108.5426 70.7505\"/><path d=\"M109.4677 70.3728L110.1607 70.0889L110.8516 69.8042L111.5401 69.5191L112.2264 69.2335\"/><path d=\"M113.1218 68.8300L113.7784 68.5076L114.4294 68.1744L115.0806 67.8359L115.7369 67.4969\"/><path d=\"M116.6256 67.0521L117.3047 66.7291L117.9946 66.4192L118.6937 66.1252L119.3993 65.8482\"/><path d=\"M120.3471 65.4960L121.0605 65.2394L121.7742 64.9856L122.4869 64.7318L123.1976 64.4759\"/><path d=\"M124.1409 64.1282L124.8445 63.8608L125.5445 63.5864L126.2405 63.3040L126.9338 63.0211\"/><path d=\"M127.8566 62.6474L128.5485 62.3688L129.2402 62.0899L129.9319 61.8095L130.6236 61.5267\"/><path d=\"M131.4437 64.9228L132.1070 64.6736L132.7803 64.4114L133.4625 64.1336L134.1447 63.8454\"/><path d=\"M135.0554 63.4473L135.7404 63.1411L136.4280 62.8317L137.1195 62.5234L137.8156 62.2204\"/><path d=\"M136.6406 62.7863L136.6406 62.0294L136.6405 61.2666L136.6404 60.4998L136.6403 59.7307\"/><path d=\"M136.6786 59.0676L135.9809 59.3364L135.2723 59.6153\"/><path d=\"M134.3336 59.9936L133.6335 60.2806L132.9358 60.5685L132.2403 60.8571L131.5467 61.1454\"/><path d=\"M136.5765 51.5743L136.5914 52.3455L136.6064 53.1169L136.6202 53.8864L136.6313 54.6522\"/><path d=\"M136.6395 55.6639L136.6401 56.4160L136.6401 57.1740L136.6402 57.9375L136.6402 58.7049\"/><path d=\"M138.7517 61.8295L139.4600 61.5475L139.5475 61.5139\"/><path d=\"M144.2396 67.1289L143.5742 67.4369L142.9151 67.7496L142.2589 68.0636L141.6012 68.3747\"/><path d=\"M140.7130 68.7771L140.0308 69.0633L139.3298 69.3482L138.6111 69.6402L137.8783 69.9381\"/><path d=\"M136.8882 70.3404L136.1434 70.6425L135.4022 70.9426L134.6689 71.2388L133.9477 71.5296\"/><path d=\"M134.2775 71.4614L134.2351 72.1296L134.1828 72.7962L134.1251 73.4619\"/><path d=\"M134.0390 74.4481L133.9815 75.1888L133.9368 75.9316L133.9109 76.6775L133.9073 77.4261\"/><path d=\"M133.3589 79.1718L132.7044 78.8378L132.0304 78.4920L131.3388 78.1315L130.6328 77.7574\"/><path d=\"M129.6763 77.2438L128.9539 76.8554L128.2331 76.4710L127.5192 76.0948L126.8168 75.7301\"/><path d=\"M125.9052 75.2661L125.2398 74.9310L124.5823 74.5949L123.9331 74.2561L123.2921 73.9139\"/><path d=\"M122.6045 73.4621L123.2697 73.2012L123.9344 72.9414L124.6025 72.6805L125.2785 72.4161\"/><path d=\"M126.2011 72.0559L126.9099 71.7884L127.6289 71.5226L128.3545 71.2563L129.0834 70.9883\"/><path d=\"M133.3349 70.5027L132.7525 70.0284L132.1738 69.5621L131.5972 69.1051L131.0202 68.6536\"/><path d=\"M130.2460 68.0524L129.6591 67.5968L129.0654 67.1340L128.4644 66.6629L127.8564 66.1843\"/><path d=\"M127.9565 66.2528L128.6202 65.9866L129.2755 65.7315L129.9231 65.4860L130.5652 65.2474\"/><path d=\"M127.9286 66.4790L127.9024 67.1532L127.8776 67.8275L127.8563 68.5016\"/><path d=\"M127.8352 69.5023L127.8310 70.2522L127.8375 70.9869L127.8524 71.7023L127.8732 72.4037\"/><path d=\"M127.9062 73.3268L127.9318 74.0172L127.9554 74.7121L127.9747 75.4170L127.9874 76.1375\"/><path d=\"M128.8001 76.9089L129.3836 77.3673L129.9654 77.8258L130.5486 78.2837L131.1352 78.7409\"/><path d=\"M131.9230 79.3505L132.5163 79.8094L133.1080 80.2719L133.6912 80.7387L134.2625 81.2057\"/><path d=\"M135.9527 80.6017L135.3755 80.2721L134.7954 79.9456L134.2103 79.6234\"/><path d=\"M133.9136 78.4167L133.9220 79.1541L133.9323 79.8886L133.9435 80.6218L133.9546 81.3551\"/><path d=\"M134.2307 81.4532L134.9037 81.1402L135.5702 80.8235L136.2300 80.5062L136.8837 80.1907\"/><path d=\"M137.7728 79.7646L138.4382 79.4517L139.1067 79.1458L139.7830 78.8473L140.4668 78.5568\"/><path d=\"M141.3733 78.1825L142.0507 77.9100L142.7276 77.6429L143.4052 77.3793L144.0843 77.1173\"/><path d=\"M144.9937 76.7665L145.6800 76.4982L145.7633 76.4650\"/><path d=\"M145.1405 66.7305L145.8275 66.4433L145.8355 66.4401\"/><path d=\"M149.0265 65.6850L148.9720 66.4678L148.9168 67.2511L148.8660 68.0317L148.8248 68.8065\"/><path d=\"M148.7934 69.8254L148.7910 70.5753L148.7919 71.3135L148.7935 72.0431L148.7957 72.7667\"/><path d=\"M148.7989 73.7270L148.8012 74.4476L148.8034 75.1714L148.8050 75.9013L148.8059 76.6401\"/><path d=\"M148.8067 77.6387L148.8089 78.3887L148.8123 79.1386L148.8165 79.8884L148.8210 80.6383\"/><path d=\"M148.8269 81.6382L148.8306 82.3881L148.8332 83.1380L148.8343 83.8880L148.8358 84.0116\"/><path d=\"M157.7405 80.3601L157.7469 80.2348L157.7852 79.4743L157.8190 78.7151L157.8449 77.9580\"/><path d=\"M157.8606 76.9537L157.8561 76.2040L157.8415 75.4551L157.8196 74.7067L157.7929 73.9586\"/><path d=\"M157.7545 72.9614L157.7270 72.2134L157.7038 71.4651L157.6873 70.7163L157.6803 69.9668\"/><path d=\"M157.8017 71.6128L158.3919 71.3662L159.0698 71.0791\"/><path d=\"M159.9755 70.6945L160.6602 70.4069L161.3514 70.1232L162.0424 69.8513L162.7321 69.5881\"/><path d=\"M163.6498 69.2441L164.3372 68.9869L165.0243 68.7268L165.7114 68.4611L166.3994 68.1874\"/><path d=\"M166.5096 68.3061L166.4901 67.5446L166.4683 66.7817L166.4460 66.0185L166.4255 65.2564\"/><path d=\"M166.4043 64.2438L166.3957 63.4887L166.3955 62.7362L166.4034 61.9726L166.4175 61.1985\"/><path d=\"M166.4425 60.1556L166.4613 59.4483L166.4800 58.7412L166.4972 58.0366\"/><path d=\"M166.6092 58.1095L165.9200 58.3984L165.2236 58.6878L164.5196 58.9754L163.8086 59.2592\"/><path d=\"M162.8266 59.6396L162.0890 59.9174L161.3560 60.1887L160.6323 60.4541L159.9100 60.7171\"/><path d=\"M158.9499 61.0680L158.2348 61.3333L157.5413 61.5953\"/><path d=\"M157.6789 68.9654L157.6763 68.2123L157.6728 67.4582L157.6686 66.7033L157.6643 65.9483\"/><path d=\"M157.6589 64.9421L157.6558 64.1884L157.6537 63.4360L157.6532 62.6857L157.6529 61.9458\"/><path d=\"M157.6520 60.9761L157.6512 60.2574L157.6502 59.5423L157.6492 58.8276L157.6483 58.1100\"/><path d=\"M156.5905 54.6502L155.9344 54.9501L155.2865 55.2412\"/><path d=\"M155.1839 55.2092L155.8038 55.6771L156.4360 56.1483L157.0716 56.6279L157.7051 57.1148\"/><path d=\"M157.8367 57.3185L157.2095 57.5470L156.5768 57.7816\"/><path d=\"M155.6593 58.1334L154.9609 58.4128L154.2544 58.7067L153.5419 59.0130L152.8277 59.3228\"/><path d=\"M151.8815 59.7312L151.1809 60.0285L150.4896 60.3161L149.8073 60.5938L149.1319 60.8635\"/><path d=\"M149.1333 61.6093L149.1367 62.3662L149.1372 63.1183L149.1221 63.8774L149.0892 64.6472\"/><path d=\"M148.4605 60.2810L147.8769 59.7789L147.2890 59.2701L146.6970 58.7638L146.1010 58.2667\"/><path d=\"M145.3018 57.6273L144.7004 57.1679L144.0982 56.7242L143.4964 56.2914L142.8962 55.8628\"/><path d=\"M142.1021 55.2846L141.5143 54.8392L140.9343 54.3801L140.3614 53.9072L139.7923 53.4234\"/><path d=\"M139.0263 52.7763L138.4471 52.2917L137.8655 51.8085L137.2822 51.3272L136.6978 50.8482\"/><path d=\"M136.6799 50.7997L137.3461 50.5084L138.0097 50.2179\"/><path d=\"M138.9500 49.8091L139.6503 49.5099L140.3460 49.2201L141.0386 48.9435L141.7287 48.6789\"/><path d=\"M142.6430 48.3372L143.3246 48.0840L144.0030 47.8291L144.6787 47.5692L145.3525 47.3015\"/><path d=\"M145.8985 47.7066L146.4721 48.1625L147.0548 48.6253L147.6479 49.0966L148.2529 49.5744\"/><path d=\"M149.0673 50.2168L149.6749 50.6984L150.2731 51.1770L150.8579 51.6508L151.4279 52.1189\"/><path d=\"M151.2100 52.0978L151.2164 51.4779\"/><path d=\"M151.2251 50.4784L151.2293 49.7286L151.2308 48.9787L151.2316 48.2322L151.2335 47.4911\"/><path d=\"M151.2375 46.5087L151.2406 45.8494L151.2438 45.1905L151.2468 44.5310\"/><path d=\"M153.4648 46.4105L152.8761 45.9509L152.2979 45.4847L151.7303 45.0102L151.1724 44.5265\"/><path d=\"M151.1566 44.3161L151.7606 44.0607L152.3658 43.8028L152.9741 43.5423L153.5871 43.2794\"/><path d=\"M154.5024 42.9036L155.2176 42.6418L155.9539 42.3940L156.7057 42.1560L157.4666 41.9233\"/><path d=\"M158.4803 41.6110L159.2307 41.3669L159.9658 41.1087L160.6810 40.8332L161.3735 40.5399\"/><path d=\"M161.2255 40.2528L161.6736 40.6071L162.1218 40.9634\"/><path d=\"M162.9323 41.6126L163.5363 42.0998L164.1400 42.5874L164.7423 43.0765L165.3409 43.5674\"/><path d=\"M166.1304 44.2242L166.7151 44.7169L167.2936 45.2072L167.8671 45.6919L168.4365 46.1678\"/><path d=\"M168.4519 46.1829L167.8246 46.4425L167.1845 46.7019L166.5310 46.9619L165.8651 47.2223\"/><path d=\"M164.8775 47.6022L164.1282 47.8875L163.3773 48.1729L162.6310 48.4581L161.8959 48.7430\"/><path d=\"M160.9440 49.1217L160.2562 49.4008L159.5861 49.6699L158.9283 49.9315L158.2773 50.1887\"/><path d=\"M158.2595 50.0141L157.8265 49.6889L157.3977 49.3660\"/><path d=\"M156.6225 48.7805L156.0394 48.3428L155.4516 47.9044L154.8592 47.4631L154.2624 47.0166\"/><path d=\"M152.1678 52.7355L152.7136 53.1947L153.2597 53.6543L153.8149 54.1181L154.3876 54.5856\"/><path d=\"M158.3964 50.2467L158.3914 50.9237L158.3849 51.6011L158.3776 52.2789\"/><path d=\"M158.3663 53.2832L158.3588 54.0205\"/><path d=\"M157.4621 54.2506L158.1181 53.9536L158.7790 53.6605L159.4466 53.3719L160.1218 53.0880\"/><path d=\"M161.1405 53.7744L161.7405 54.2682L162.3267 54.7479L162.8994 55.2104L163.4598 55.6569\"/><path d=\"M164.1929 56.2364L164.7366 56.6675L165.2785 57.1016L165.8213 57.5429L166.3676 57.9942\"/><path d=\"M166.2145 56.0208L165.5548 56.2854L164.9002 56.5446L164.5708 56.6735\"/><path d=\"M165.4078 57.2633L166.0698 56.9647L166.7370 56.6671L167.4142 56.3741L168.1044 56.0867\"/><path d=\"M167.1090 55.6575L167.7958 55.3748L168.4986 55.0857L169.2157 54.7970L169.9419 54.5097\"/><path d=\"M170.9155 54.1299L171.6440 53.8477L172.3669 53.5677L173.0818 53.2892L173.7871 53.0108\"/><path d=\"M174.7120 52.6367L175.3951 52.3508L176.0696 52.0591L176.7406 51.7630L177.4124 51.4642\"/><path d=\"M168.1663 46.1842L168.1692 46.8640L168.1718 47.5432L168.1736 48.2212\"/><path d=\"M168.1748 49.2226L168.1829 49.9612L168.2019 50.6847L168.2285 51.3974L168.2599 52.1036\"/><path d=\"M168.3037 53.0423L168.3342 53.7497L168.3591 54.4648L168.3756 55.1917L168.3807 55.9346\"/><path d=\"M168.3056 55.9785L168.3259 55.9950L168.9022 56.4571L169.4709 56.9135\"/><path d=\"M170.2244 57.5143L170.7915 57.9593L171.3647 58.3999L171.9465 58.8369L172.5378 59.2719\"/><path d=\"M173.3398 59.8525L173.9482 60.2922L174.5582 60.7394L175.1650 61.1976L175.7629 61.6582\"/><path d=\"M176.5421 62.2702L177.1135 62.7287L177.6792 63.1898L178.2474 63.6575L178.8203 64.1321\"/><path d=\"M179.5939 64.7753L180.1825 65.2649L180.7785 65.7600L181.3814 66.2594L181.9899 66.7619\"/><path d=\"M182.8051 67.4349L183.4162 67.9379L184.0261 68.4353L184.6336 68.9250L185.2372 69.4065\"/><path d=\"M186.0335 70.0373L186.6236 70.5039L187.2084 70.9643L187.7869 71.4175L188.3593 71.8644\"/><path d=\"M189.1153 72.4542L189.6768 72.8939L190.2357 73.3310L190.7986 73.7681L191.3701 74.2076\"/><path d=\"M192.1496 74.7997L192.7470 75.2497L193.3522 75.7053L193.9606 76.1662L194.5663 76.6322\"/><path d=\"M195.3632 77.2609L195.8609 77.6609L195.1219 77.9659L194.3740 78.2730L193.6184 78.5831\"/><path d=\"M192.6540 78.9809L191.9269 79.2833L191.1992 79.5889L190.4737 79.8968L189.7538 80.2058\"/><path d=\"M188.8096 80.6161L188.1129 80.9261L187.4216 81.2387L186.7333 81.5502L186.0464 81.8581\"/><path d=\"M185.1303 82.2606L184.4418 82.5560L183.7515 82.8466L183.0589 83.1336L182.3637 83.4186\"/><path d=\"M181.4333 83.7983L180.7365 84.0841L180.0413 84.3706L179.3477 84.6570L178.6563 84.9412\"/><path d=\"M177.7385 85.3138L177.0534 85.5869L176.3711 85.8547L175.6910 86.1185L175.0124 86.3814\"/><path d=\"M174.1085 86.7283L173.4313 86.9856L172.7545 87.2448L172.0779 87.5087L171.4013 87.7790\"/><path d=\"M170.4988 88.1499L169.8214 88.4346L169.1433 88.7225L168.4642 89.0102L167.7812 89.2936\"/><path d=\"M166.8422 89.6593L166.1172 89.9269L165.3781 90.1909L164.6296 90.4530L163.8778 90.7148\"/><path d=\"M162.8809 91.0658L162.1439 91.3326L161.4216 91.6046L160.7182 91.8836L160.0289 92.1730\"/><path d=\"M159.1219 92.5748L158.4475 92.8853L157.7756 93.2012L157.1040 93.5201L156.4305 93.8393\"/><path d=\"M155.5265 94.2601L154.8416 94.5678L154.1490 94.8645L153.4515 95.1483L152.7612 95.4249\"/><path d=\"M151.8546 95.7885L151.1850 96.0606L150.5224 96.3341L149.8642 96.6099L149.2065 96.8884\"/><path d=\"M210.3500 136.6900L210.0150 137.2500L209.3400 137.2500L209.0000 136.6900L209.0000 134.0650L209.3400 133.5000L210.0150 133.5000L210.3500 134.0650\"/><path d=\"M212.2650 133.5000L212.9400 133.5000L213.2750 134.0650L213.2750 136.6900L212.9400 137.2500L212.2650 137.2500L211.9250 136.6900L211.9250 134.0650L212.2650 133.5000\"/><path d=\"M216.2000 133.5000L216.2000 137.2500L214.8500 133.5000L214.8500 137.2500\"/><path d=\"M218.4500 137.2500L218.4500 133.5000\"/><path d=\"M217.7750 133.5000L219.1250 133.5000\"/><path d=\"M221.0350 133.5000L221.7100 133.5000L222.0500 134.0650L222.0500 136.6900L221.7100 137.2500L221.0350 137.2500L220.7000 136.6900L220.7000 134.0650L221.0350 133.5000\"/><path d=\"M223.6250 133.5000L223.6250 136.6900L223.9600 137.2500L224.6350 137.2500L224.9750 136.6900L224.9750 133.5000\"/><path d=\"M226.5500 135.3750L227.5600 135.3750L227.9000 134.8150L227.9000 134.0650L227.5600 133.5000L226.5500 133.5000L226.5500 137.2500\"/><path d=\"M227.2250 135.3750L227.9000 137.2500\"/><path d=\"M232.4000 137.2500L233.7500 133.5000\"/><path d=\"M238.2500 133.5000L238.5200 137.2500L238.9250 135.3750L239.3300 137.2500L239.6000 133.5000\"/><path d=\"M241.4000 133.5000L242.3000 133.5000\"/><path d=\"M241.8500 133.5000L241.8500 137.2500\"/><path d=\"M241.4000 137.2500L242.3000 137.2500\"/><path d=\"M244.1000 137.2500L244.1000 133.5000L245.1100 133.5000L245.4500 134.0650L245.4500 134.8150L245.1100 135.3750L244.1000 135.3750\"/><path d=\"M244.7750 135.3750L245.4500 137.2500\"/><path d=\"M248.3750 137.2500L247.0250 137.2500L247.0250 133.5000L248.3750 133.5000\"/><path d=\"M248.0350 135.3750L247.0250 135.3750\"/><path d=\"M257.7250 80.4586L257.7250 57.2800\"/><path d=\"M257.7250 57.2800L245.2950 47.3200\"/><path d=\"M245.2950 47.3200L236.5900 50.8750\"/><path d=\"M236.5900 50.8750L236.5900 62.7800\"/><path d=\"M230.1091 70.6223L222.6500 73.6700L235.9700 80.5800\"/><path d=\"M245.9161 76.5151L234.1050 81.3400\"/><path d=\"M234.1050 81.3400L227.8900 76.3600\"/><path d=\"M227.8900 76.3600L227.8900 66.3400\"/><path d=\"M227.8900 66.3400L239.6992 61.5133\"/><path d=\"M236.5909 59.0220L204.2700 72.2300L239.7900 100.6800L295.7300 77.8200L268.2908 55.8424\"/><path d=\"M277.3500 51.3200L264.5038 56.5689\"/><path d=\"M265.3929 57.2792L268.2950 56.0950\"/><path d=\"M268.2950 56.0950L268.2950 46.0700\"/><path d=\"M268.2950 46.0700L261.1900 40.3800\"/><path d=\"M261.1900 40.3800L251.2450 44.4450\"/><path d=\"M251.2450 44.4450L251.2450 52.0852\"/><path d=\"M255.1341 55.2046L260.2100 53.1300\"/><path d=\"M260.2100 53.1300L266.4300 58.1100\"/><path d=\"M266.4300 58.1100L266.4300 68.1350\"/><path d=\"M266.4300 68.1350L257.7271 71.6902\"/></g><g fill=\"none\" stroke=\"#A84932\" stroke-width=\"0.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" data-pen=\"hidden\"><path d=\"M45.2950 47.3200L45.2950 49.3200\"/><path d=\"M45.2950 50.3200L45.2950 52.3200\"/><path d=\"M45.2950 53.3200L45.2950 55.3200\"/><path d=\"M45.2950 56.3200L45.2950 58.3200\"/><path d=\"M45.2950 59.3200L45.2950 61.3200\"/><path d=\"M45.2950 62.3200L45.2950 64.3200\"/><path d=\"M46.8016 63.8018L44.9502 64.5583\"/><path d=\"M45.2950 65.3200L45.2950 67.3200\"/><path d=\"M45.2950 68.3200L45.2950 70.3200\"/><path d=\"M46.4043 68.7956L44.5529 69.5520\"/><path d=\"M43.6272 69.9303L41.7757 70.6867\"/><path d=\"M40.8500 71.0649L38.9986 71.8214\"/><path d=\"M42.1447 72.4166L43.9962 71.6604\"/><path d=\"M44.9220 71.2823L45.2950 71.1300\"/><path d=\"M45.2950 71.1300L46.8561 72.3802\"/><path d=\"M47.6366 73.0053L49.1977 74.2556\"/><path d=\"M49.7667 74.9421L47.9153 75.6984\"/><path d=\"M46.9895 76.0766L45.9161 76.5151\"/><path d=\"M41.2189 72.7946L39.3673 73.5508\"/><path d=\"M38.4416 73.9289L36.5900 74.6850\"/><path d=\"M36.5900 74.6850L36.5900 72.6850\"/><path d=\"M36.2214 72.9560L38.0729 72.1996\"/><path d=\"M36.5900 71.6850L36.5900 69.6850\"/><path d=\"M36.5900 68.6850L36.5900 66.6850\"/><path d=\"M36.5900 65.6850L36.5900 63.6850\"/><path d=\"M36.5909 59.0220L37.9935 58.4488\"/><path d=\"M38.9191 58.0706L40.7705 57.3140\"/><path d=\"M41.6962 56.9357L43.5476 56.1791\"/><path d=\"M44.4733 55.8008L46.3247 55.0443\"/><path d=\"M47.2504 54.6660L49.1017 53.9094\"/><path d=\"M50.0274 53.5311L51.8788 52.7746\"/><path d=\"M52.8045 52.3963L54.6559 51.6397\"/><path d=\"M55.5816 51.2614L57.4329 50.5049\"/><path d=\"M58.3586 50.1266L60.2100 49.3700\"/><path d=\"M60.2100 49.3700L61.6769 50.5449\"/><path d=\"M61.1900 50.4050L61.1900 49.3800\"/><path d=\"M61.1900 48.3800L61.1900 46.3800\"/><path d=\"M61.1900 45.3800L61.1900 43.3800\"/><path d=\"M61.1900 42.3800L61.1900 40.3800\"/><path d=\"M59.5774 51.0633L61.1900 50.4050\"/><path d=\"M61.1900 50.4050L62.7511 51.6552\"/><path d=\"M62.4574 51.1700L64.0184 52.4203\"/><path d=\"M63.5316 52.2803L65.0927 53.5305\"/><path d=\"M64.7989 53.0455L66.3599 54.2958\"/><path d=\"M65.8733 54.1556L67.4344 55.4058\"/><path d=\"M67.1404 54.9209L68.2908 55.8424\"/><path d=\"M68.2149 56.0309L68.2950 56.0950\"/><path d=\"M65.3929 57.2792L63.6656 57.9840\"/><path d=\"M64.5038 56.5689L64.3901 56.6153\"/><path d=\"M63.4644 56.9936L61.6130 57.7500\"/><path d=\"M62.7397 58.3618L60.8879 59.1174\"/><path d=\"M60.2100 58.1300L60.2100 56.1300\"/><path d=\"M60.6872 58.1283L58.8358 58.8847\"/><path d=\"M58.3450 58.1550L58.3450 60.1550\"/><path d=\"M58.3450 60.1550L56.7843 58.9043\"/><path d=\"M56.0040 58.2789L54.4433 57.0282\"/><path d=\"M53.6630 56.4028L52.1023 55.1521\"/><path d=\"M51.3220 54.5267L51.2450 54.4650\"/><path d=\"M51.2450 52.4650L51.2450 54.4650\"/><path d=\"M51.2450 54.4650L53.0966 53.7091\"/><path d=\"M54.0225 53.3311L55.8741 52.5752\"/><path d=\"M56.7999 52.1972L58.6516 51.4413\"/><path d=\"M60.2100 53.1300L60.2100 55.1300\"/><path d=\"M58.3450 53.8894L58.3450 54.1550\"/><path d=\"M58.3450 55.1550L58.3450 57.1550\"/><path d=\"M54.6560 55.4001L52.8047 56.1567\"/><path d=\"M51.8790 56.5351L50.0277 57.2918\"/><path d=\"M49.1020 57.6701L47.2507 58.4268\"/><path d=\"M46.3250 58.8051L44.4737 59.5618\"/><path d=\"M43.5480 59.9402L41.6967 60.6969\"/><path d=\"M40.7710 61.0752L39.6992 61.5133\"/><path d=\"M44.0245 64.9365L42.1731 65.6930\"/><path d=\"M41.2474 66.0713L39.3959 66.8277\"/><path d=\"M38.4702 67.2060L36.6188 67.9624\"/><path d=\"M35.6931 68.3407L33.8417 69.0972\"/><path d=\"M32.9160 69.4754L31.0646 70.2319\"/><path d=\"M30.1389 70.6101L30.1091 70.6223\"/><path d=\"M27.8900 76.3600L29.7414 75.6036\"/><path d=\"M30.6671 75.2253L32.5186 74.4689\"/><path d=\"M33.4443 74.0907L35.2957 73.3342\"/><path d=\"M36.5900 74.6850L37.3175 75.2677\"/><path d=\"M38.0980 75.8928L39.6590 77.1431\"/><path d=\"M40.4395 77.7683L42.0005 79.0186\"/><path d=\"M42.7810 79.6438L44.3420 80.8941\"/><path d=\"M45.1225 81.5192L46.6835 82.7695\"/><path d=\"M47.4640 83.3947L49.0250 84.6450\"/><path d=\"M49.0250 84.6450L49.3954 84.4934\"/><path d=\"M49.0250 84.6450L49.0250 84.0184\"/><path d=\"M50.3209 84.1147L52.1719 83.3573\"/><path d=\"M53.0974 82.9786L54.9485 82.2211\"/><path d=\"M55.8740 81.8424L57.7250 81.0850\"/><path d=\"M57.7250 81.0850L57.0030 80.5067\"/><path d=\"M57.7250 81.0850L57.7250 80.4586\"/><path d=\"M56.2224 79.8816L54.6614 78.6314\"/><path d=\"M53.8808 78.0063L52.3198 76.7560\"/><path d=\"M51.5393 76.1309L49.9782 74.8807\"/><path d=\"M50.6925 74.5639L52.5440 73.8076\"/><path d=\"M53.4697 73.4294L55.3212 72.6730\"/><path d=\"M56.2469 72.2949L57.7271 71.6902\"/><path d=\"M51.9586 66.5263L50.1072 67.2827\"/><path d=\"M49.1815 67.6609L47.3300 68.4174\"/><path d=\"M45.9161 66.4901L47.0653 66.0206\"/><path d=\"M47.9910 65.6424L49.8425 64.8861\"/><path d=\"M47.7273 63.4236L49.5787 62.6671\"/><path d=\"M50.5045 62.2889L52.3559 61.5324\"/><path d=\"M53.2816 61.1542L55.1330 60.3977\"/><path d=\"M56.0587 60.0195L57.9101 59.2630\"/><path d=\"M58.3450 60.1550L59.9620 59.4952\"/><path d=\"M60.2100 59.1300L60.2100 61.1300\"/><path d=\"M57.7271 61.6652L56.3227 62.2389\"/><path d=\"M55.3969 62.6171L53.5455 63.3734\"/><path d=\"M52.6197 63.7516L50.7683 64.5079\"/><path d=\"M52.8843 66.1481L54.7358 65.3916\"/><path d=\"M55.6615 65.0134L57.5129 64.2570\"/><path d=\"M58.4386 63.8787L60.2100 63.1550\"/><path d=\"M60.2100 63.1550L60.2100 62.1300\"/><path d=\"M60.2100 63.1550L61.7712 64.4050\"/><path d=\"M62.5519 65.0300L64.1131 66.2800\"/><path d=\"M64.8937 66.9050L66.4300 68.1350\"/><path d=\"M127.8900 76.3600L128.8157 75.9818\"/><path d=\"M130.2043 75.4144L131.1300 75.0362\"/><path d=\"M132.5186 74.4689L133.4443 74.0907\"/><path d=\"M134.8329 73.5233L135.7586 73.1451\"/><path d=\"M137.1472 72.5778L138.0729 72.1996\"/><path d=\"M136.5900 72.1850L136.5900 71.1850\"/><path d=\"M136.5900 69.6850L136.5900 68.6850\"/><path d=\"M135.6931 68.3407L134.7674 68.7189\"/><path d=\"M133.3788 69.2863L132.4531 69.6645\"/><path d=\"M131.0646 70.2319L130.1389 70.6101\"/><path d=\"M136.5900 63.6850L136.5900 64.6850\"/><path d=\"M136.5900 66.1850L136.5900 67.1850\"/><path d=\"M137.0817 67.7733L138.0074 67.3951\"/><path d=\"M139.3959 66.8277L140.3217 66.4495\"/><path d=\"M141.7102 65.8821L142.6359 65.5039\"/><path d=\"M144.0245 64.9365L144.9502 64.5583\"/><path d=\"M145.2950 64.8200L145.2950 65.8200\"/><path d=\"M146.6024 66.2097L145.9161 66.4901\"/><path d=\"M145.2950 67.3200L145.2950 68.3200\"/><path d=\"M146.4043 68.7956L147.3300 68.4174\"/><path d=\"M148.7186 67.8500L149.6443 67.4718\"/><path d=\"M151.0329 66.9045L151.9586 66.5263\"/><path d=\"M147.9910 65.6424L148.9168 65.2643\"/><path d=\"M150.3054 64.6970L151.2311 64.3189\"/><path d=\"M152.6197 63.7516L153.5455 63.3734\"/><path d=\"M154.9341 62.8062L155.8598 62.4280\"/><path d=\"M157.2484 61.8607L157.7271 61.6652\"/><path d=\"M158.3450 60.1550L157.5647 59.5296\"/><path d=\"M157.9101 59.2630L158.8358 58.8847\"/><path d=\"M159.0361 59.8730L158.3450 60.1550\"/><path d=\"M158.3450 60.1550L158.3450 59.1550\"/><path d=\"M158.3450 57.6550L158.3450 56.6550\"/><path d=\"M160.2100 56.6300L160.2100 55.6300\"/><path d=\"M160.2100 54.1300L160.2100 53.1300\"/><path d=\"M159.1145 51.2523L158.1887 51.6303\"/><path d=\"M156.7999 52.1972L155.8741 52.5752\"/><path d=\"M158.3450 54.1550L158.3450 55.1550\"/><path d=\"M155.1341 55.2046L154.6560 55.4001\"/><path d=\"M153.6630 56.4028L154.4433 57.0282\"/><path d=\"M155.6138 57.9662L156.3942 58.5916\"/><path d=\"M156.5216 59.8303L155.5958 60.2086\"/><path d=\"M154.2073 60.7759L153.2816 61.1542\"/><path d=\"M151.8930 61.7215L150.9673 62.0998\"/><path d=\"M149.5787 62.6671L148.6530 63.0454\"/><path d=\"M147.2645 63.6127L146.3388 63.9910\"/><path d=\"M145.2950 63.3200L145.2950 62.3200\"/><path d=\"M145.2950 60.8200L145.2950 59.8200\"/><path d=\"M144.0109 59.7510L143.0852 60.1293\"/><path d=\"M141.6967 60.6969L140.7710 61.0752\"/><path d=\"M136.5909 59.0220L137.0678 58.8271\"/><path d=\"M138.4563 58.2597L139.3820 57.8814\"/><path d=\"M140.7705 57.3140L141.6962 56.9357\"/><path d=\"M143.0847 56.3683L144.0104 55.9900\"/><path d=\"M145.2950 57.3200L145.2950 58.3200\"/><path d=\"M145.3994 59.1835L146.3250 58.8051\"/><path d=\"M147.7135 58.2376L148.6392 57.8593\"/><path d=\"M150.0277 57.2918L150.9533 56.9134\"/><path d=\"M152.3418 56.3459L153.2675 55.9676\"/><path d=\"M152.4925 55.4648L151.7122 54.8394\"/><path d=\"M152.1708 54.0870L151.2450 54.4650\"/><path d=\"M151.2450 54.4650L151.2450 53.4650\"/><path d=\"M150.9531 53.1528L150.0274 53.5311\"/><path d=\"M148.6389 54.0986L147.7132 54.4768\"/><path d=\"M146.3247 55.0443L145.3990 55.4226\"/><path d=\"M145.2950 55.8200L145.2950 54.8200\"/><path d=\"M145.2950 53.3200L145.2950 52.3200\"/><path d=\"M145.2950 50.8200L145.2950 49.8200\"/><path d=\"M145.2950 48.3200L145.2950 47.3200\"/><path d=\"M152.3416 52.5854L153.2673 52.2071\"/><path d=\"M153.5596 53.5201L154.4854 53.1421\"/><path d=\"M154.6559 51.6397L155.5816 51.2614\"/><path d=\"M156.9701 50.6940L157.8958 50.3157\"/><path d=\"M159.2843 49.7483L160.2100 49.3700\"/><path d=\"M161.1900 40.3800L161.1900 41.3800\"/><path d=\"M161.1900 42.8800L161.1900 43.8800\"/><path d=\"M161.1900 45.3800L161.1900 46.3800\"/><path d=\"M161.1900 47.8800L161.1900 48.8800\"/><path d=\"M160.8964 49.9197L161.6769 50.5449\"/><path d=\"M161.1900 50.3800L161.1900 50.4050\"/><path d=\"M160.5032 50.6854L161.1900 50.4050\"/><path d=\"M161.1900 50.4050L161.9705 51.0301\"/><path d=\"M162.8476 51.4826L163.6281 52.1078\"/><path d=\"M163.1414 51.9677L163.9219 52.5928\"/><path d=\"M164.7989 53.0455L165.5794 53.6706\"/><path d=\"M165.0927 53.5305L165.8733 54.1556\"/><path d=\"M166.7501 54.6084L167.5306 55.2335\"/><path d=\"M167.8247 55.7183L167.0441 55.0932\"/><path d=\"M165.3929 57.2792L165.0544 57.4173\"/><path d=\"M163.6656 57.9840L162.7397 58.3618\"/><path d=\"M163.4644 56.9936L162.5387 57.3718\"/><path d=\"M161.1501 57.9392L160.2244 58.3174\"/><path d=\"M160.2100 58.1300L160.2100 59.1300\"/><path d=\"M160.4250 59.3063L161.3508 58.9285\"/><path d=\"M160.2100 60.6300L160.2100 61.6300\"/><path d=\"M160.2100 63.1300L160.2100 63.1550\"/><path d=\"M160.2100 63.1550L160.9906 63.7800\"/><path d=\"M162.1616 64.7175L162.9422 65.3425\"/><path d=\"M164.1131 66.2800L164.8937 66.9050\"/><path d=\"M166.0647 67.8425L166.4300 68.1350\"/><path d=\"M158.9015 63.6896L157.9758 64.0678\"/><path d=\"M156.5872 64.6352L155.6615 65.0134\"/><path d=\"M154.2729 65.5807L153.3472 65.9589\"/><path d=\"M157.1726 71.9167L156.2469 72.2949\"/><path d=\"M154.8583 72.8621L153.9326 73.2403\"/><path d=\"M152.5440 73.8076L151.6182 74.1857\"/><path d=\"M151.1490 75.8184L151.9295 76.4435\"/><path d=\"M153.1003 77.3812L153.8808 78.0063\"/><path d=\"M155.0516 78.9440L155.8322 79.5691\"/><path d=\"M157.7250 80.4586L157.7250 81.0850\"/><path d=\"M157.0030 80.5067L157.7250 81.0850\"/><path d=\"M157.7250 81.0850L156.7995 81.4637\"/><path d=\"M155.4112 82.0318L154.4857 82.4105\"/><path d=\"M153.0974 82.9786L152.1719 83.3573\"/><path d=\"M150.7837 83.9254L149.8581 84.3041\"/><path d=\"M149.0250 84.0184L149.0250 84.6450\"/><path d=\"M149.0250 84.6450L148.2445 84.0198\"/><path d=\"M147.0737 83.0821L146.2932 82.4570\"/><path d=\"M145.1225 81.5192L144.3420 80.8941\"/><path d=\"M143.1712 79.9563L142.3907 79.3312\"/><path d=\"M141.2200 78.3935L140.4395 77.7683\"/><path d=\"M139.2687 76.8306L138.4882 76.2054\"/><path d=\"M137.3175 75.2677L136.5900 74.6850\"/><path d=\"M136.5900 73.6850L136.5900 74.6850\"/><path d=\"M136.5900 74.6850L137.5158 74.3069\"/><path d=\"M138.9044 73.7398L139.8302 73.3617\"/><path d=\"M141.2189 72.7946L142.1447 72.4166\"/><path d=\"M143.5333 71.8494L144.4591 71.4714\"/><path d=\"M139.4614 71.6322L140.3872 71.2540\"/><path d=\"M141.7757 70.6867L142.7015 70.3085\"/><path d=\"M144.0900 69.7411L145.0157 69.3629\"/><path d=\"M145.2950 69.8200L145.2950 70.8200\"/><path d=\"M145.2950 71.1300L146.0755 71.7551\"/><path d=\"M147.2463 72.6928L148.0269 73.3179\"/><path d=\"M149.1977 74.2556L149.9782 74.8807\"/><path d=\"M150.2296 74.7530L149.3039 75.1311\"/><path d=\"M147.9153 75.6984L146.9895 76.0766\"/></g></svg>"
+  },
+  "committedHash": "7ddd2096dd38f2bd54c6c80461635e8d269879d0a0eeca5c66f929ce8ef204ca",
+  "committedStats": {
+    "modeling": [],
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "scenes": [
+      {
+        "candidates": 550,
+        "dispatches": 1,
+        "refinements": 372,
+        "transferBytes": 61616,
+        "wallMs": 117.40000003576279,
+        "gpuMs": 0.009216,
+        "paperToleranceMm": 0.005,
+        "parameterTolerance": 0.00001
+      }
+    ]
+  },
+  "inspections": [
+    {
+      "visible": 34,
+      "hidden": 24,
+      "contour": 24,
+      "inspected": [
+        {
+          "id": "[\"[\\\"cube\\\",\\\"e:p2:p3\\\"]\",\"visible\",0]",
+          "range": [
+            0,
+            0.2916666666666657
+          ],
+          "support": [
+            "[\"cube\",\"f0\",\"p0\",\"p3\",\"p2\"]",
+            "[\"cube\",\"f0\",\"p2\",\"p1\",\"p0\"]",
+            "[\"cube\",\"f4\",\"p6\",\"p2\",\"p3\"]",
+            "[\"cube\",\"f4\",\"p3\",\"p7\",\"p6\"]"
+          ],
+          "objectId": "cube",
+          "sourceId": "e:p2:p3"
+        },
+        {
+          "id": "[\"[\\\"cube\\\",\\\"e:p4:p7\\\"]\",\"visible\",0]",
+          "range": [
+            0,
+            1
+          ],
+          "support": [
+            "[\"cube\",\"f1\",\"p7\",\"p4\",\"p5\"]",
+            "[\"cube\",\"f1\",\"p5\",\"p6\",\"p7\"]",
+            "[\"cube\",\"f5\",\"p7\",\"p3\",\"p0\"]",
+            "[\"cube\",\"f5\",\"p0\",\"p4\",\"p7\"]"
+          ],
+          "objectId": "cube",
+          "sourceId": "e:p4:p7"
+        },
+        {
+          "id": "[\"[\\\"cube\\\",\\\"e:p4:p5\\\"]\",\"visible\",0]",
+          "range": [
+            0,
+            1
+          ],
+          "support": [
+            "[\"cube\",\"f1\",\"p7\",\"p4\",\"p5\"]",
+            "[\"cube\",\"f1\",\"p5\",\"p6\",\"p7\"]",
+            "[\"cube\",\"f2\",\"p4\",\"p0\",\"p1\"]",
+            "[\"cube\",\"f2\",\"p1\",\"p5\",\"p4\"]"
+          ],
+          "objectId": "cube",
+          "sourceId": "e:p4:p5"
+        }
+      ]
+    },
+    {
+      "visible": 36,
+      "hidden": 22,
+      "contour": 26,
+      "inspected": [
+        {
+          "id": "[\"[\\\"cube\\\",\\\"e:p2:p3\\\"]\",\"visible\",0]",
+          "range": [
+            0,
+            0.20402488382356682
+          ],
+          "support": [
+            "[\"cube\",\"f0\",\"p0\",\"p3\",\"p2\"]",
+            "[\"cube\",\"f0\",\"p2\",\"p1\",\"p0\"]",
+            "[\"cube\",\"f4\",\"p6\",\"p2\",\"p3\"]",
+            "[\"cube\",\"f4\",\"p3\",\"p7\",\"p6\"]"
+          ],
+          "objectId": "cube",
+          "sourceId": "e:p2:p3"
+        },
+        {
+          "id": "[\"[\\\"cube\\\",\\\"e:p1:p2\\\"]\",\"visible\",0]",
+          "range": [
+            0.8490795894319854,
+            1
+          ],
+          "support": [
+            "[\"cube\",\"f0\",\"p0\",\"p3\",\"p2\"]",
+            "[\"cube\",\"f0\",\"p2\",\"p1\",\"p0\"]",
+            "[\"cube\",\"f3\",\"p5\",\"p1\",\"p2\"]",
+            "[\"cube\",\"f3\",\"p2\",\"p6\",\"p5\"]"
+          ],
+          "objectId": "cube",
+          "sourceId": "e:p1:p2"
+        },
+        {
+          "id": "[\"[\\\"cube\\\",\\\"e:p4:p7\\\"]\",\"visible\",0]",
+          "range": [
+            0,
+            1
+          ],
+          "support": [
+            "[\"cube\",\"f1\",\"p7\",\"p4\",\"p5\"]",
+            "[\"cube\",\"f1\",\"p5\",\"p6\",\"p7\"]",
+            "[\"cube\",\"f5\",\"p7\",\"p3\",\"p0\"]",
+            "[\"cube\",\"f5\",\"p0\",\"p4\",\"p7\"]"
+          ],
+          "objectId": "cube",
+          "sourceId": "e:p4:p7"
+        }
+      ]
+    }
+  ],
+  "errors": []
+}

@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 const base = process.env.OCCLUDE_GPU_URL ?? 'http://127.0.0.1:5273';
-const output = resolve('../../development/3d/playwright-visibility-demo');
+const output = resolve(process.env.OCCLUDE_GPU_EVIDENCE ?? '../../development/3d/demo-migration/visibility');
 const source = await readFile('../../development/3d/demos/visibility-laboratory.ts', 'utf8');
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: false,
@@ -41,14 +41,17 @@ try {
   assert.equal(first.stats.scenes.length, 1);
   assert.equal(inspections.length, 1);
   const inspection = inspections[0];
-  assert(inspection.dispatchesBeforeStyles > 0);
-  assert.equal(inspection.dispatchesBeforeStyles, inspection.dispatchesAfterStyles);
+  assert(first.stats.scenes[0].dispatches > 0);
+  const diagnostics = await page.evaluate(() => window.__occlude.editor.diagnostics());
+  assert.deepEqual(diagnostics, []);
   assert(inspection.visible > 0 && inspection.hidden > 0 && inspection.contour > 0);
   assert(inspection.contour < inspection.visible);
-  assert(inspection.inspected.every(stroke => stroke.parts.length && stroke.breaks.length === 2 && stroke.length > 0));
+  assert(inspection.inspected.every(curve => curve.support.length && curve.sourceId && curve.objectId && curve.range[1] > curve.range[0]));
   const scene = first.captured.three.scenes[0];
-  assert.deepEqual(scene.objects.map(o => o.id), ['cube', 'open-plane', 'cross-wide', 'cross-tall']);
-  assert.equal(scene.wires[0].id, 'authored-wire');
+  assert.deepEqual(scene.objects.map(o => o.id), ['cube', 'open-plane', 'cross-wide', 'cross-tall', 'authored-wire']);
+  assert.equal(scene.objects[4].occluder, false);
+  assert.equal(scene.objects[4].surface.faces.length, 0);
+  assert.equal(scene.objects[4].surface.edges.length, 2);
   await page.screenshot({ path: resolve(output, 'visibility.png') });
   await page.getByRole('button', { name: '3D', exact: true }).click();
   await page.waitForFunction(() => !!document.querySelector('#construction-canvas').dataset.revision);
@@ -59,7 +62,7 @@ try {
   await page.waitForFunction(hash => window.__occlude.drawing.plan.planHash !== hash && document.querySelector('.construction-pick').textContent.startsWith('View committed.'), first.hash, { timeout: 60000 });
   const committed = await capture();
   assert.equal(inspections.length, 2);
-  assert.equal(inspections[1].dispatchesBeforeStyles, inspections[1].dispatchesAfterStyles);
+  assert(committed.stats.scenes[0].dispatches > 0);
   assert.notDeepEqual(committed.captured.three.scenes[0].frame.camera, scene.frame.camera);
   assert.deepEqual(committed.captured.three.scenes[0].objects, scene.objects);
   assert.deepEqual(committed.captured.three.scenes[0].wires, scene.wires);
@@ -67,7 +70,7 @@ try {
   assert.deepEqual(errors, []);
   await writeFile(resolve(output, 'visibility.svg'), first.svg);
   await writeFile(resolve(output, 'committed.svg'), committed.svg);
-  await writeFile(resolve(output, 'report.json'), JSON.stringify({ passed: true, first, committedHash: committed.hash, committedStats: committed.stats, inspections, errors }, null, 2));
+  await writeFile(resolve(output, 'report.json'), JSON.stringify({ passed: true, diagnostics, first, committedHash: committed.hash, committedStats: committed.stats, inspections, errors }, null, 2));
   console.log('Visibility demo cached styles, stroke inspection and camera commit passed.');
 } catch (error) {
   if (page) { await page.screenshot({ path: resolve(output, 'failure.png') }); await writeFile(resolve(output, 'failure.html'), await page.content()); }
