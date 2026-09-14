@@ -1,3 +1,4 @@
+import { intervalTolerance3 } from './precision.js';
 import { toPaper3, type CameraFrame3 } from '../camera.js';
 import type { Feature3, FeatureSnapshot3 } from '../features/snapshot.js';
 import { projectedBounds3 } from './index.js';
@@ -5,7 +6,7 @@ import { hiddenInterval3, unionIntervals3, visibleIntervals3, type Interval3 } f
 import type { GpuIntervals3, VisibilityPair3 } from '../../compute/webgpu/interval.js';
 
 export interface ClassifiedFeature3 { readonly feature: Feature3; readonly hidden: readonly Interval3[]; readonly visible: readonly Interval3[] }
-export interface ClassifiedScene3 { readonly frame: CameraFrame3; readonly features: readonly ClassifiedFeature3[]; readonly stats: { candidates: number; dispatches: number; refinements: number; transferBytes: number; gpuMs?: number; wallMs: number } }
+export interface ClassifiedScene3 { readonly frame: CameraFrame3; readonly features: readonly ClassifiedFeature3[]; readonly stats: { candidates: number; dispatches: number; refinements: number; transferBytes: number; gpuMs?: number; paperToleranceMm?: number; parameterTolerance?: number; wallMs: number } }
 
 /** Bounded pair streaming. The index is queried with un-cropped paper bounds;
  * no side-frustum or page cull may discard future style overscan. */
@@ -25,18 +26,20 @@ export function classifySceneCpu3(snapshot: FeatureSnapshot3): ClassifiedScene3 
   for (const { feature, pair } of candidatePairs3(snapshot)) { candidates++; const interval = hiddenInterval3(pair.a, pair.b, pair.volume); if (interval) hidden[feature].push(interval); }
   return finish(snapshot, hidden, { candidates, dispatches: 0, refinements: 0, transferBytes: 0, wallMs: performance.now() - start });
 }
-export async function classifySceneGpu3(snapshot: FeatureSnapshot3, gpu: GpuIntervals3, options: { signal?: AbortSignal; pairCapacity?: number; maxCandidates?: number; parameterTolerance?: number } = {}): Promise<ClassifiedScene3> {
+export async function classifySceneGpu3(snapshot: FeatureSnapshot3, gpu: GpuIntervals3, options: { signal?: AbortSignal; pairCapacity?: number; maxCandidates?: number; parameterTolerance?: number; paperToleranceMm?: number } = {}): Promise<ClassifiedScene3> {
   const capacity = options.pairCapacity ?? 8192, limit = options.maxCandidates ?? 10_000_000;
   if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > 65536 || !Number.isSafeInteger(limit) || limit < 0) throw new Error('invalid scene visibility capacity');
   const start = performance.now(), hidden: Interval3[][] = snapshot.features.map(() => []), stats: ClassifiedScene3['stats'] = { candidates: 0, dispatches: 0, refinements: 0, transferBytes: 0, wallMs: 0, ...(gpu.timestampsEnabled ? { gpuMs: 0 } : {}) };
   // Retain only nonempty results for cross-pair topology refinement. Two
   // individually acceptable f32 endpoints can straddle a shared boundary.
   const records: { interval: Interval3; pair: VisibilityPair3 }[][] = snapshot.features.map(() => []);
-  const tolerance = options.parameterTolerance ?? 1e-5;
+  const tolerance = intervalTolerance3(snapshot, options.paperToleranceMm ?? .005, options.parameterTolerance);
+  stats.paperToleranceMm = options.paperToleranceMm ?? .005;
+  stats.parameterTolerance = tolerance;
   let pairs: VisibilityPair3[] = [], owners: number[] = [];
   const flush = async () => {
     options.signal?.throwIfAborted();
-    const result = await gpu.classify(pairs, options);
+    const result = await gpu.classify(pairs, { signal: options.signal, parameterTolerance: tolerance });
     result.intervals.forEach((interval, i) => { if (interval) records[owners[i]].push({ interval, pair: pairs[i] }); });
     stats.dispatches += result.dispatches; stats.refinements += result.refinements; stats.transferBytes += result.transferBytes;
     if (result.gpuMs !== undefined) stats.gpuMs = (stats.gpuMs ?? 0) + result.gpuMs;

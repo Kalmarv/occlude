@@ -8,7 +8,7 @@ import type { ClassifiedScene3 } from './visibility/scene.js';
 import type { LineSet3, constructStrokes3 } from './strokes/construct.js';
 
 export interface SceneCompute3 extends Partial<ModelingCompute3> {
-  classify(snapshot: FeatureSnapshot3, options: { signal?: AbortSignal }): Promise<ClassifiedScene3>;
+  classify(snapshot: FeatureSnapshot3, options: { signal?: AbortSignal; paperToleranceMm?: number }): Promise<ClassifiedScene3>;
 }
 export interface LineArtOptions3 {
   /** Stable key for a camera override in sketch configuration. */

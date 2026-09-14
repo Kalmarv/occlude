@@ -11,13 +11,15 @@ try{
   await page.goto(`${base}/three.html`);await page.waitForFunction(()=>window.threeLabApi?.createBenchmarkWorker);
   const report=await page.evaluate(()=>new Promise((resolve,reject)=>{
     const worker=window.threeLabApi.createBenchmarkWorker();
-    const timeout=setTimeout(()=>{worker.terminate();reject(new Error('reference worker timed out'));},60000);
+    const timeout=setTimeout(()=>{worker.terminate();reject(new Error('precision worker timed out'));},60000);
     worker.onerror=e=>{clearTimeout(timeout);reject(new Error(e.message));};
     worker.onmessage=e=>{if(e.data.type==='result'){clearTimeout(timeout);resolve(e.data.report);}else if(e.data.type==='error'){clearTimeout(timeout);reject(new Error(e.data.message));}};
     worker.postMessage({type:'precision'});
   }));
   assert.equal(report.adapter.isFallbackAdapter,false);assert.equal(report.cases.length,36);assert(report.passed);
   assert(report.cases.some(c=>c.stats.dispatches>0));
+  assert.equal(report.physicalBudgetCases.length,4);
+  assert(report.physicalBudgetCases.every(c=>c.fixedToleranceErrorMm>c.paperToleranceMm && c.paperErrorMm<=c.paperToleranceMm/2 && c.stats.refinements>0));
   await writeFile(resolve(directory,'report.json'),JSON.stringify({base,browser:browser.version(),...report},null,2)+'\n');
   console.log(JSON.stringify({passed:true,adapter:report.adapter,cases:report.cases.length}));
 }finally{await browser.close();}

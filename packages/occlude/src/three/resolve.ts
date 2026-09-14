@@ -1,3 +1,4 @@
+import { paperBudget3 } from './visibility/precision.js';
 import { sourceStrokeShapes3 } from './strokes/paper.js';
 import type { ModifierValue } from '../shapes.js';
 import { stroke, type Tree, type GroupValue, type ClipValue } from '../api.js';
@@ -50,7 +51,7 @@ export async function classifyForRun3(exec: Execution, scene: LineArtScene3, opt
     const key = exec.cameraKey3(scene);
     const camera = Object.hasOwn(exec.cameras3, key) ? exec.cameras3[key] : scene.camera;
     const snapshot = featureSnapshot3(scene.objects, scene.wires, cameraFrame3(camera, viewport),f.inner);
-    const classified = options.compute3 ? await options.compute3.classify(snapshot, options) : classifySceneCpu3(snapshot);
+    const classified = options.compute3 ? await options.compute3.classify(snapshot, { ...options, paperToleranceMm: paperBudget3([...exec.pens.values()].map(pen => pen.width)) }) : classifySceneCpu3(snapshot);
     options.signal?.throwIfAborted();
     if (options.isOpen && !options.isOpen()) throw new Error('3D classification execution has finished');
     exec.scenes3.set(scene, classified);

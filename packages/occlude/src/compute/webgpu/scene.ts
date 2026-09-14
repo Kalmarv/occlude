@@ -53,13 +53,13 @@ export class GpuSceneCompute3 implements SceneCompute3 {
     }
     return this.creating;
   }
-  classify(snapshot: FeatureSnapshot3, options: { signal?: AbortSignal } = {}) {
-    const signal = options.signal;
+  classify(snapshot: FeatureSnapshot3, options: { signal?: AbortSignal; paperToleranceMm?: number } = {}) {
+    const signal = options.signal, paperToleranceMm = options.paperToleranceMm;
     return this.submit(async () => {
       signal?.throwIfAborted();
       const session = await this.acquire();
       signal?.throwIfAborted();
-      return classifySceneGpu3(snapshot, session, { signal });
+      return classifySceneGpu3(snapshot, session, { signal, paperToleranceMm });
     });
   }
   /** Raster-only construction view of retained WORLD geometry, sharing this host's worker-owned device. */

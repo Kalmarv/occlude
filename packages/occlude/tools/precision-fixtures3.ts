@@ -41,3 +41,18 @@ export function precisionFixtures3():PrecisionFixture3[] {
   }
   return out;
 }
+
+/** Deliberately demanding paper/nib combinations expose a fixed parameter budget. */
+export function paperBudgetFixtures3() {
+  return [false, true].flatMap(perspective => [
+    { size: 1e7, nib: .3, name: 'large-paper' },
+    { size: 100, nib: 1e-6, name: 'thin-nib' },
+  ].map(({ size, nib, name }) => {
+    const camera: Camera3 = { ...(perspective ? { kind: 'perspective' as const, fovDegrees: 90 } : { kind: 'orthographic' as const, span: 4 }), eye: [0,0,0], target: [0,0,-1], up: [0,1,0], near: .1, far: 100 };
+    return {
+      id: `${camera.kind}/${name}`, nib,
+      hidden: [perspective ? [.25,.75] : [.375,.625]] as Interval3[],
+      snapshot: featureSnapshot3([{ id: 'occluder', lineSource: false, surface: surface3([[-1,-1,-2],[1,-1,-2],[0,1,-2]],[[0,1,2]]) }], [{ id: 'wire', points: [[-2,0,-4],[2,0,-4]] }], cameraFrame3(camera,{x:0,y:0,width:size,height:size})),
+    };
+  }));
+}
