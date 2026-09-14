@@ -17,3 +17,23 @@ export function zoomCamera3(camera: Camera3, factor: number): Camera3 {
   const ratio = Math.max(1e-9,Math.min(1e12,distance*factor))/distance;
   return camera.kind === 'orthographic' ? {...camera,span:Math.max(1e-9,Math.min(1e12,camera.span*factor))} : {...camera,eye:add3(camera.target,mul3(delta,ratio))};
 }
+
+/** Switch projection at the target-plane scale. Start at 45° perspective FOV;
+ * narrow it if necessary to preserve the existing near-distance precision.
+ * Shift clipping distances with the eye so their world-space planes stay put. */
+export function switchProjection3(camera: Camera3, kind: Camera3['kind']): Camera3 {
+  cameraFrame3(camera,{x:0,y:0,width:1,height:1});
+  if(camera.kind===kind)return camera;
+  const delta=sub3(camera.eye,camera.target),oldDistance=Math.hypot(...delta);
+  if(kind==='orthographic'){
+    const {fovDegrees,...base}=camera as Extract<Camera3,{kind:'perspective'}>;
+    return {...base,kind,span:2*oldDistance*Math.tan(fovDegrees*Math.PI/360)};
+  }
+  const {span,...base}=camera as Extract<Camera3,{kind:'orthographic'}>;
+  const distance=Math.max(span/(2*Math.tan(Math.PI/8)),oldDistance);
+  const shift=distance-oldDistance;
+  const result:Camera3={...base,kind:'perspective',fovDegrees:Math.atan(span/(2*distance))*360/Math.PI,
+    eye:add3(camera.target,mul3(delta,distance/oldDistance)),near:camera.near+shift,far:camera.far+shift};
+  cameraFrame3(result,{x:0,y:0,width:1,height:1});
+  return result;
+}

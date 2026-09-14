@@ -161,9 +161,41 @@ try {
     const revision=await canvas.getAttribute('data-revision');
     await page.mouse.move(bounds.x+bounds.width*.5,bounds.y+bounds.height*.5);await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.5+100,bounds.y+bounds.height*.5+30,{steps:10});await page.mouse.up();
     await page.waitForFunction(r=>document.querySelector('#construction-canvas')?.dataset.revision!==r,revision);
+    if(process.env.OCCLUDE_PROJECTION_CHECK==='1') {
+      const oldHash=await page.evaluate(()=>window.sceneReply.planHash);
+      await page.getByLabel('Projection',{exact:true}).selectOption('perspective');
+      await page.getByLabel('Vertical FOV (degrees)',{exact:true}).fill('38');
+      await page.getByLabel('Vertical FOV (degrees)',{exact:true}).press('Tab');
+      await page.waitForFunction(()=>window.cameraRequests.at(-1)?.camera.fovDegrees===38);
+      assert.equal(await page.evaluate(()=>window.sceneReply.planHash),oldHash);
+      assert.equal(modelGenerations,generationCount);
+      await page.context().grantPermissions(['clipboard-read','clipboard-write']);
+      await page.getByRole('button',{name:'Copy camera',exact:true}).click();
+      await page.waitForFunction(()=>document.querySelector('.construction-pick')?.textContent?.startsWith('Camera copied'));
+      const copied=await page.evaluate(async()=>JSON.parse(await navigator.clipboard.readText()));
+      assert.equal(copied.kind,'perspective');assert.equal(copied.fovDegrees,38);
+      await page.getByRole('button',{name:'Reset camera',exact:true}).click();
+      assert.equal(await page.getByLabel('Projection',{exact:true}).inputValue(),before.camera.kind);
+      await page.getByLabel('Projection',{exact:true}).selectOption('perspective');
+      await page.getByLabel('Vertical FOV (degrees)',{exact:true}).fill('38');
+      await page.getByLabel('Vertical FOV (degrees)',{exact:true}).press('Tab');
+      const rev=await canvas.getAttribute('data-revision');
+      await page.mouse.move(bounds.x+bounds.width*.5,bounds.y+bounds.height*.5);
+      await page.mouse.wheel(0,-100);
+      await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.5+50,bounds.y+bounds.height*.5+20,{steps:5});await page.mouse.up();
+      await page.waitForFunction(r=>document.querySelector('#construction-canvas')?.dataset.revision!==r,rev);
+      let picked=false;
+      for(const [x,y] of [[.5,.5],[.4,.5],[.6,.5],[.5,.6],[.5,.4]]){
+        await canvas.click({position:{x:bounds.width*x,y:bounds.height*y}});
+        try{await page.waitForFunction(()=>document.querySelector('.construction-pick')?.textContent?.includes('relief /'),{},{timeout:1000});picked=true;break;}catch{}
+      }
+      assert(picked,'perspective picking must identify a modeled face');
+      await page.screenshot({path:resolve(output,'projection-controls.png'),fullPage:true});
+    }
     await page.getByRole('button',{name:'Commit view',exact:true}).click();
     await page.waitForFunction(hash=>window.__occlude.drawing.plan?.planHash!==hash && document.querySelector('.construction-pick')?.textContent?.startsWith('View committed.'),before.hash,{timeout:60000});
     const after=await page.evaluate(()=>({hash:window.sceneReply.planHash,execution:window.sceneReply.executionId,camera:window.sceneReply.construction[0].camera,paper:window.sceneReply.paper,modeling:window.sceneReply.three.modeling,requests:window.workerRequests.filter(t=>t==='render').length}));
+    if(process.env.OCCLUDE_PROJECTION_CHECK==='1'){assert.equal(after.camera.kind,'perspective');assert.equal(after.camera.fovDegrees,38);}
     assert.notEqual(after.hash,before.hash);assert.notEqual(after.execution,before.execution);assert.notDeepEqual(after.camera,before.camera);
     assert.equal(after.requests,before.requests);assert.equal(modelGenerations,generationCount);assert.deepEqual(after.modeling,before.modeling);
     const captured=await page.evaluate(()=>window.cameraRpc({type:'plan-three',planHash:window.sceneReply.planHash}));
