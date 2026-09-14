@@ -2916,11 +2916,17 @@ button.armed {
 .optimization-comparison .segmented > button { padding: 5px 4px; }
 .optimization-metrics th { padding: 4px; text-align: right; }
 
-/* Independent construction view; paper remains the committed plot preview. */
-#construction-pane { position:absolute; inset:48px 0 0; z-index:4; background:#15191c; display:flex; flex-direction:column; padding:12px; gap:8px; }
-#construction-pane[hidden] { display:none; }
-.construction-toolbar { display:flex; gap:8px; flex-wrap:wrap; }
-#construction-canvas { display:block; width:100%; flex:1; min-height:100px; touch-action:none; cursor:grab; }
+/* Construction view: an overlay in exactly the sheet's box. Toggling it never
+   moves the paper; the toolbar and hint float over the bench like the HUD. */
+#construction-canvas { position:absolute; inset:0; width:100%; height:100%; z-index:4; touch-action:none; cursor:grab; outline:none; }
 #construction-canvas:active { cursor:grabbing; }
-.construction-hint, .construction-pick { margin:0; font-size:12px; color:#9eabb7; }
-.construction-pick { max-height:80px; overflow:auto; overflow-wrap:anywhere; }
+#construction-canvas[hidden] { display:none; }
+.construction-toolbar { position:absolute; top:10px; left:10px; z-index:5; display:flex; gap:6px; flex-wrap:wrap; align-items:center; padding:6px 8px; border-radius:8px; background:rgba(21,25,28,.82); backdrop-filter:blur(6px); }
+.construction-toolbar[hidden] { display:none; }
+.construction-note { position:absolute; left:10px; bottom:10px; z-index:5; margin:0; max-width:60%; max-height:80px; overflow:auto; overflow-wrap:anywhere; font-size:12px; color:#9eabb7; padding:4px 8px; border-radius:6px; background:rgba(21,25,28,.72); }
+.construction-note[hidden] { display:none; }
+.view-switch { position:absolute; right:10px; bottom:10px; z-index:6; display:inline-flex; gap:0; border-radius:8px; overflow:hidden; background:rgba(21,25,28,.82); backdrop-filter:blur(6px); }
+.view-switch[hidden] { display:none; }
+.view-switch button { display:inline-flex; align-items:center; justify-content:center; width:34px; height:30px; padding:0; margin:0; border:0; border-radius:0; background:transparent; color:#9eabb7; cursor:pointer; }
+.view-switch button[aria-pressed="true"] { background:rgba(255,255,255,.14); color:#fff; }
+.view-switch button svg { width:18px; height:18px; }

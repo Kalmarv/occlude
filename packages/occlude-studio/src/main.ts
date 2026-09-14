@@ -1,7 +1,7 @@
 /** occlude studio: wire editor → runner → render worker → preview → panels. */
 
 import './style.css';
-import { cameraConfigEdit } from './three/cameraConfig.js';
+import { viewCameraEdit } from './three/viewCamera.js';
 import { ConstructionPanel3 } from './three/constructionPanel.js';
 import { clearRuntimeMarkers, createEditor, setRuntimeMarker, setUserModuleTypes } from './editor.js';
 import { Inspector } from './inspector.js';
@@ -89,9 +89,9 @@ async function boot(): Promise<void> {
     settings.activeProfile = profiles[0].name;
   }
   const client = new RenderClient();
-  const construction = new ConstructionPanel3(client, document.getElementById('bench')!, document.getElementById('bench-hud')!, request => runInner(request));
   const editor = createEditor($('editor'), loadSketch());
   const preview = new Preview($('preview') as HTMLCanvasElement);
+  const construction = new ConstructionPanel3(client, document.getElementById('bench')!, preview, request => runInner(request));
   preview.setPaperColor(settings.paperColor);
   // The material inspector: its registry is made by the run, so flipping it
   // reruns the sketch (like the occlusion ghost); everything after that is
@@ -214,7 +214,7 @@ async function boot(): Promise<void> {
     client.cancelRender();
     if (ticker) clearInterval(ticker);
     ticker = null;
-    const editCameraConfig = cameraCommit ? await cameraConfigEdit(source) : undefined;
+    const editCameraConfig = cameraCommit ? await viewCameraEdit(source) : undefined;
     if (myRun !== runSeq || editor.getValue() !== source) return;
     saveSketch(source); // persist BEFORE executing — survives anything
     if (frozenId) {
@@ -313,7 +313,7 @@ async function boot(): Promise<void> {
       renderedSource = source;
       if (editCameraConfig) {
         if (editor.getValue() !== source) throw new Error('The sketch changed before its camera configuration could be saved.');
-        const configured = editCameraConfig(reply.cameras3);
+        const configured = await editCameraConfig(reply.cameras3);
         applyingCameraConfig = true;
         try { editor.replaceValue(configured); } finally { applyingCameraConfig = false; }
         renderedSource = configured;

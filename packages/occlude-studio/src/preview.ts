@@ -513,8 +513,17 @@ export class Preview {
     this.panY = (ch - h * this.scale) / 2;
     this.fitted = true;
     this.draw();
+    this.viewChanged();
   }
 
+  /** Called after every pan, zoom or fit, so an overlay drawn in paper
+   * coordinates (the 3D construction view) can follow the sheet exactly. */
+  onViewChange: (() => void) | null = null;
+  /** The sheet's placement on the canvas: CSS px offset and px per mm. */
+  viewTransform(): { panX: number; panY: number; scale: number; paper: { w: number; h: number } | null; color: string } {
+    return { panX: this.panX, panY: this.panY, scale: this.scale, paper: this.result?.paper ?? (this.draft && this.draft.paper.w > 0 ? this.draft.paper : null), color: this.paperColor };
+  }
+  private viewChanged(): void { this.onViewChange?.(); }
   /** Screen (client) coordinates → paper mm. */
   toPaper(clientX: number, clientY: number): [number, number] {
     const rect = this.canvas.getBoundingClientRect();
@@ -561,6 +570,7 @@ export class Preview {
       lastY = e.clientY;
       moved = Math.max(moved, Math.hypot(e.clientX - downX, e.clientY - downY));
       this.draw();
+      this.viewChanged();
     });
     this.canvas.addEventListener('pointerup', (e) => {
       if (painting) {
@@ -594,6 +604,7 @@ export class Preview {
         this.panY = my - ((my - this.panY) / this.scale) * ns;
         this.scale = ns;
         this.draw();
+        this.viewChanged();
       },
       { passive: false },
     );

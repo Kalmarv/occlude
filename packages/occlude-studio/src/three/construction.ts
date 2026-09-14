@@ -4,11 +4,20 @@ import { SurfaceQueries3 } from 'occlude/src/three/queries/surface.js';
 import type { LineArtScene3 } from 'occlude/src/three/scene.js';
 import { add3, mul3, type Triangle3, type Vec3 } from 'occlude/src/three/math.js';
 
-export interface ConstructionInfo3 { camera: Camera3; objects: number; triangles: number; wires: number }
+export interface ConstructionInfo3 { camera: Camera3; objects: number; triangles: number; wires: number; bounds?: { min: Vec3; max: Vec3 }; viewport?: { x: number; y: number; width: number; height: number } }
+/** World bounds over placed vertices and wires, for framing (Blender Home). */
+export function constructionBounds3(scene: LineArtScene3): { min: Vec3; max: Vec3 } | undefined {
+  const min = [Infinity,Infinity,Infinity], max = [-Infinity,-Infinity,-Infinity];
+  const take = (p: Vec3) => { for (let k = 0; k < 3; k++) { if (p[k] < min[k]) min[k] = p[k]; if (p[k] > max[k]) max[k] = p[k]; } };
+  for (const object of scene.objects) { const surface = object.transform ? transformSurface3(object.surface, object.transform) : object.surface; for (const point of surface.points) take(point.position); }
+  for (const wire of scene.wires) for (const p of wire.points) take(p);
+  return Number.isFinite(min[0]) ? { min: min as unknown as Vec3, max: max as unknown as Vec3 } : undefined;
+}
 export const constructionInfo3 = (scene: LineArtScene3): ConstructionInfo3 => ({
   camera: scene.camera, objects: scene.objects.length,
   triangles: scene.objects.reduce((n,o)=>n+o.surface.triangles.length,0),
   wires: scene.objects.reduce((n,o)=>n+o.surface.edges.length,0)+scene.wires.reduce((n,w)=>n+Math.max(0,w.points.length-1),0),
+  bounds: constructionBounds3(scene),
 });
 export interface ConstructionPick3 { objectId: string; faceId: string; triangle: number; point: Vec3; barycentric: Vec3; attributes: Record<string, unknown> }
 /** World geometry is captured once per scene, independent of the preview camera.

@@ -17,6 +17,53 @@ export function zoomCamera3(camera: Camera3, factor: number): Camera3 {
   const ratio = Math.max(1e-9,Math.min(1e12,distance*factor))/distance;
   return camera.kind === 'orthographic' ? {...camera,span:Math.max(1e-9,Math.min(1e12,camera.span*factor))} : {...camera,eye:add3(camera.target,mul3(delta,ratio))};
 }
+/** Half the visible height at the target plane, in world units. */
+export function viewHalfHeight3(camera: Camera3): number {
+  return camera.kind === 'orthographic' ? camera.span/2 : Math.hypot(...sub3(camera.eye,camera.target))*Math.tan(camera.fovDegrees*Math.PI/360);
+}
+/** Blender pan: eye and target slide together in the view plane. `dx`/`dy`
+ * are fractions of the visible height (screen right and screen up). */
+export function panCamera3(camera: Camera3, dx: number, dy: number): Camera3 {
+  if (![dx,dy].every(Number.isFinite)) throw new Error('invalid pan');
+  const frame = cameraFrame3(camera,{x:0,y:0,width:1,height:1}), h = viewHalfHeight3(camera)*2;
+  const move = add3(mul3(frame.right,-dx*h),mul3(frame.up,-dy*h));
+  return {...camera,eye:add3(camera.eye,move),target:add3(camera.target,move)};
+}
+export type ViewPreset3 = 'front'|'back'|'right'|'left'|'top'|'bottom';
+/** Blender numpad views: front looks along +Y, right along -X, top along -Z.
+ * Distance, target and the up axis are kept (turntable orbit stays about the
+ * world up afterwards); top and bottom sit just inside the orbit's pole
+ * margin toward the front, so screen up is +Y as in Blender. */
+export function presetCamera3(camera: Camera3, view: ViewPreset3): Camera3 {
+  const distance = Math.hypot(...sub3(camera.eye,camera.target)), up = unit3(camera.up ?? [0,0,1]);
+  const front: Vec3 = Math.abs(up[1]) < .9 ? [0,-1,0] : [0,0,-1];
+  const side = unit3(cross3(mul3(front,-1),up)); // screen right of the front view: forward × up
+  const tilt = .001;
+  const directions: Record<ViewPreset3, Vec3 | undefined> = {
+    front, back: mul3(front,-1), right: side, left: mul3(side,-1),
+    top: add3(mul3(up,Math.cos(tilt)),mul3(front,Math.sin(tilt))), bottom: add3(mul3(up,-Math.cos(tilt)),mul3(front,Math.sin(tilt))),
+  };
+  const from = directions[view];
+  if (!from) throw new Error('unknown view preset');
+  const result: Camera3 = {...camera,eye:add3(camera.target,mul3(unit3(from),distance))};
+  cameraFrame3(result,{x:0,y:0,width:1,height:1});
+  return result;
+}
+/** Frame world bounds: look at their center from the current direction, at a
+ * distance/span that fits their bounding sphere with a small margin. Clipping
+ * distances follow the eye so the whole sphere stays inside them. */
+export function fitCamera3(camera: Camera3, bounds: { min: Vec3; max: Vec3 }, aspect = 1): Camera3 {
+  const center = mul3(add3(bounds.min,bounds.max),.5), radius = Math.max(1e-9,Math.hypot(...sub3(bounds.max,bounds.min))/2);
+  const direction = unit3(sub3(camera.eye,camera.target));
+  if (!Number.isFinite(aspect) || aspect <= 0) throw new Error('invalid aspect');
+  const margin = 1.1, fitRadius = radius*margin/Math.min(1,aspect);
+  if (camera.kind === 'orthographic') {
+    const distance = Math.max(radius*2,Math.hypot(...sub3(camera.eye,camera.target)));
+    return {...camera,target:center,eye:add3(center,mul3(direction,distance)),span:2*fitRadius,near:Math.max(1e-6,distance-radius*2),far:distance+radius*2};
+  }
+  const distance = fitRadius/Math.sin(camera.fovDegrees*Math.PI/360);
+  return {...camera,target:center,eye:add3(center,mul3(direction,distance)),near:Math.max(1e-6,distance-radius*2),far:distance+radius*2};
+}
 
 /** Switch projection at the target-plane scale. Start at 45° perspective FOV;
  * narrow it if necessary to preserve the existing near-distance precision.

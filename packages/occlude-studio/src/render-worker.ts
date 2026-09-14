@@ -244,7 +244,7 @@ async function handleMessage(msg: Msg): Promise<void> {
           {
             type: 'render',
             id: msg.id,
-            construction: nextConstruction.map(scene => ({ ...constructionInfo3(scene.source), camera: run.scenes3.get(scene.source)!.frame.camera })),
+            construction: nextConstruction.map(scene => ({ ...constructionInfo3(scene.source), camera: run.scenes3.get(scene.source)!.frame.camera, viewport: { ...run.scenes3.get(scene.source)!.frame.paper } })),
             cameras3: { ...run.cameras3, ...Object.fromEntries([...run.scenes3].map(([scene, view]) => [run.cameraKey3(scene), view.frame.camera])) },
             three: run.scenes3.size || run.modeling3.length ? { modeling: run.modeling3, adapter: compute3.adapterInfo, scenes: [...run.scenes3.values()].map(s => s.stats) } : undefined,
             prims,
