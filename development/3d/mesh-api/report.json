@@ -1,0 +1,60 @@
+{
+  "passed": true,
+  "base": "http://127.0.0.1:5273",
+  "diagnostics": [],
+  "negative": [
+    {
+      "code": 2322,
+      "message": "Type 'number' is not assignable to type 'string'."
+    }
+  ],
+  "modelsBeforeReopen": 1,
+  "modelsAfterReopen": 2,
+  "reopened": {
+    "hash": "d8358cd8d7175337b0039f48c34499c638e617218bc1d76cbb1f0850380c97cf",
+    "camera": {
+      "eye": [
+        6.478014765201803,
+        8.637353020269071,
+        5.39834563766817
+      ],
+      "target": [
+        0,
+        0,
+        0
+      ],
+      "kind": "perspective",
+      "near": 0.9907279243665265,
+      "far": 100.89072792436653,
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "fovDegrees": 45
+    }
+  },
+  "stats": {
+    "modeling": [],
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "scenes": [
+      {
+        "candidates": 11372,
+        "dispatches": 2,
+        "refinements": 7945,
+        "transferBytes": 1273696,
+        "wallMs": 534.4000000357628,
+        "gpuMs": 0.022976,
+        "paperToleranceMm": 0.005,
+        "parameterTolerance": 0.00001
+      }
+    ]
+  },
+  "errors": []
+}

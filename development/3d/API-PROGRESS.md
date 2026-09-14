@@ -13,11 +13,22 @@ the earlier API and does not imply this redesign is finished.
   Playwright verifiers; see `projection-controls/`.
 - Contract and three target acceptance sketches: `API-CONTRACT.md` and
   `api-examples/`. These imports are explicitly not yet implemented.
-- Generic subdivision kernel: implemented internally, four focused tests pass
-  for shared plane/box/mixed-concave/folded topology, attributes and budgets.
-  Still needs integration into the common immutable mesh facade.
-- Mesh facade, public primitive expansion, projected-curve interpretation,
-  query/force/instance ergonomics and detailed performance accounting: pending.
+- First working API slice: implemented and deployed. `occlude/3d` exposes the
+  common immutable mesh, four-point plane, box/raw import, generic subdivision,
+  typed domain attributes/collections, displacement and frozen steps/history.
+  Selections enforce revision ownership; imported topology is validated.
+- Retained default `view` and visible/hidden projected collections: implemented.
+  Existing `strokes` preserves the full source reference and dash phase through
+  selection and interpretation. Hatch selection captures owned face rows;
+  multiple views and camera-only commits reuse model geometry.
+- Public imports are wired through Studio, headless compilation, live docs and
+  Monaco. Two live examples are added; all 228 existing docs ink entries are
+  unchanged. Full Docker gates and served NVIDIA Playwright checks pass; see
+  `mesh-api/README.md`, `gates.json`, `report.json` and `scenes/`.
+- Primitive expansion (sphere/cylinder/cone/torus), curves/profiles/sweep/revolve,
+  M5 demo migration, prepared queries, reusable forces, shared instances and
+  detailed GPU phase accounting remain pending. The three acceptance targets
+  still require those dependencies and are not yet complete.
 
 Worker restart/device-loss recovery remains deferred by the user. Use
 Playwright, not ProofShot. Continue in this isolated checkout; production

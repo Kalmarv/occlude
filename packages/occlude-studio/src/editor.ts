@@ -11,7 +11,7 @@ import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 // EVERY source file of the occlude package becomes a Monaco extra lib —
 // globbed, so a new module (ease.ts once, memorably) can never be left
 // out of the editor's type universe again.
-const libSources = import.meta.glob('../../occlude/src/*.ts', {
+const libSources = import.meta.glob('../../occlude/src/**/*.ts', {
   query: '?raw',
   import: 'default',
   eager: true,
@@ -40,6 +40,8 @@ export interface Editor {
   editor: monaco.editor.IStandaloneCodeEditor;
   /** Transpile the current sketch to CommonJS JS (or null on syntax errors). */
   emit(): Promise<{ js: string | null; errors: string[] }>;
+  /** Semantic diagnostics for tooling; drawing remains independent of type errors. */
+  diagnostics?(): Promise<readonly {code:number;message:string}[]>;
   onChange(fn: () => void): void;
   setValue(src: string): void;
   /** Replace the whole text as one undoable edit (setValue clears history). */
@@ -81,13 +83,15 @@ function setupMonaco(): void {
   ts.setEagerModelSync(true);
 
   for (const [path, src] of Object.entries(libSources)) {
-    const name = path.split('/').pop()!;
+    const name = path.slice(path.indexOf('/src/')+5);
     ts.addExtraLib(src, `file:///node_modules/occlude/src/${name}`);
   }
   ts.addExtraLib(
     JSON.stringify({ name: 'occlude', types: './src/index.ts', main: './src/index.ts' }),
     'file:///node_modules/occlude/package.json',
   );
+  ts.addExtraLib("export * from './src/three/api/index';", 'file:///node_modules/occlude/3d.d.ts');
+  ts.addExtraLib("export * from '../src/three/api/advanced';", 'file:///node_modules/occlude/3d/advanced.d.ts');
   applyUserModuleTypes();
   // occlude-core types aren't needed for sketches; stub the import used by init.ts.
   ts.addExtraLib(
@@ -222,6 +226,10 @@ export function createEditor(container: HTMLElement, initial: string, opts: Edit
       if (errors.length > 0) return { js: null, errors };
       const file = out.outputFiles.find((f) => f.name.endsWith('.js'));
       return { js: file?.text ?? null, errors: [] };
+    },
+    async diagnostics() {
+      const worker=await monaco.languages.typescript.getTypeScriptWorker(),client=await worker(uri);
+      return (await client.getSemanticDiagnostics(uri.toString())).map(d=>({code:d.code,message:typeof d.messageText==='string'?d.messageText:d.messageText.messageText}));
     },
     onChange(fn) {
       model.onDidChangeContent(() => fn());

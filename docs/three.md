@@ -1,6 +1,6 @@
 # 3D line art
 
-Build geometry in world coordinates, then return `lineArt3(...)` beside ordinary shapes. The camera projects geometry into the sketch's drawable frame. Studio computes hidden lines on its worker's WebGPU device and sends the resulting strokes through the same pen, preview, planning and export pipeline as 2D drawings.
+For ordinary sketches, use `plane`, `box` and `view` from `occlude/3d`; see [Procedural mesh values](#procedural-mesh-values). The lower-level examples below expose `lineArt3` and its explicit stages for advanced work. The camera projects geometry into the sketch's drawable frame. Studio computes hidden lines on its worker's WebGPU device and sends the resulting strokes through the same pen, preview, planning and export pipeline as 2D drawings.
 
 ```ts live
 import { sketch, lineArt3, box3, label, pen, mm } from 'occlude';
@@ -317,3 +317,65 @@ Construction keeps normalized world-space mesh and wire buffers on the GPU. Orbi
 GPU interval refinement uses a physical paper budget of `min(0.005 mm, narrowest resolved nib / 20)`. All pens available to the execution count, because a retained classification can later be interpreted with another pen. Half the budget goes to interval endpoints; the other half is reserved for double-precision projection. Polygon triangles and authored straight segments introduce no smooth-surface tessellation approximation. The host converts the interval allocation into a source-parameter tolerance using the greatest projected speed along the clipped features, including perspective depth changes and off-page geometry. Uncertain GPU cuts are refined on the CPU. Classification statistics report `paperToleranceMm` and `parameterTolerance`.
 
 This budget is measured before the planner's existing input snap and is not a guarantee for arbitrary numeric magnitudes: double precision cannot recover detail already lost in the supplied coordinates. Paper size, camera and pen changes belong to the execution; a camera commit recomputes the projection-dependent tolerance. Pixel dimensions of the construction preview do not control vector precision.
+
+## Procedural mesh values
+
+Import the ordinary 3D vocabulary from `occlude/3d`. `plane(width = 1, height = width)` creates four points, four edges and one +Z quad centered in XY. `box(size = 1)` accepts a scalar or a dimension triple. `mesh(points, faces)` takes ownership of validated polygon topology. Each returns the same immutable mesh value with `.points`, `.edges` and `.faces()` collections.
+
+`subdivide(levels = 1)` preserves the represented surface: planar convex quads split into four quads, triangles into four triangles, and concave or folded polygons refine their validated triangles. Shared edges get one midpoint. A plane at level five has 32×32 quads. It does not smooth a box or push points onto an analytic sphere. The entire request is checked before allocation; defaults are 250,000 faces and 500,000 points, configurable with `{ maxFaces, maxPoints }`. The point budget uses a conservative upper bound.
+
+Point rows expose `id`, `index`, `x/y/z` and immutable attributes both by name and through `.attributes`. `attribute(name, field)` preserves types in later fields; `{ transfer: 'nearest' }` protects numeric categories during refinement. Continuous numbers and numeric vectors interpolate. Other categories choose the first contributor in canonical ID order; missing columns remain missing. Child faces inherit attributes, and child boundary edges copy their parent's edge attributes. Newly introduced interior edges have no edge attributes, so their typed values are optional. Parent IDs remain available as provenance. Built-in row names—including coordinates, `id`, `index`, `attributes`, `normal`, `area` and `length`—are reserved.
+
+`displace(field)` is one immutable displacement pass. `steps(count, (current, next, k) => …, { every })` accumulates edits while reads remain frozen. Select from `current.points` inside each pass; a prior revision's selection is rejected. History includes the initial state, every requested completed iteration and the final state, with continuing `.iteration` counts. Fields run as ordinary synchronous JavaScript; they are not implicitly compiled into GPU shaders.
+
+```ts live
+import { sketch, paper, pen, mm, inch } from 'occlude';
+import { plane, box, view, orthographic } from 'occlude/3d';
+
+export default sketch({ seed: 42, paper: paper({ width: inch(8.5), height: inch(11), color: '#F5F0E6' }), pens: {
+  ink: pen({ width: mm(0.3), color: '#18202A' }),
+  shade: pen({ width: mm(0.18), color: '#A84932' }),
+} }, t => {
+  const terrain = plane(5, 5).subdivide(3)
+    .attribute('mobility', p => Math.max(0, 1 - Math.hypot(p.x, p.y) / 3))
+    .displace(p => [0, 0, t.noise(p.x * 0.7, p.y * 0.7) * 0.7])
+    .steps(4, (current, next, k) => {
+      next.move(current.points, p => [0, 0, Math.sin(p.x + k * 0.1) * p.mobility * 0.03]);
+    });
+  return view([terrain, box([0.9, 0.9, 1.8]).translate([0, 0, 1])], {
+    camera: orthographic({ eye: [6, 8, 5], target: [0, 0, 0], span: 10 }),
+    stroke: 'ink',
+    hatch: { spacing: mm(2), angle: 35, stroke: 'shade' },
+  });
+});
+```
+
+`view` is the explicit drawing boundary. It automatically captures geometry and hatch ownership and retains its interpretation for camera commits. Default ink includes visible boundaries, silhouettes and creases of at least 30°. Set `creaseAngle` in degrees to control that artistic threshold. `orthographic` defaults to span 6 and `perspective` to a 45° vertical FOV; both require an eye and default their target to the origin, near distance to 0.1, and far distance to at least 100 (expanded for distant cameras). Explicit near/far values remain available.
+
+Collections support iteration, `filter`, `map`, `groupBy` and `extract`. Groups are selections with a `.key`. Face extraction retains shared mesh topology; extracting points produces point geometry and extracting edges produces curve data. Those types do not claim editable mesh faces. `faceAttribute` and `faceAttributes` store face fields; `edgeAttribute` stores edge fields. Transforms return new values: `.translate(triple)`, `.rotate(degreesTriple, origin)` and `.scale(scalarOrTriple, origin)`. Optional factory keys and `.withKey(key)` provide semantic identity when local input order is insufficient.
+
+## Interpreting projected intervals
+
+An optional `view` callback replaces default ink emission. `lines.visible` and `lines.hidden` contain classified intervals, with readable `.kinds` sets, original features, support and captured attributes. `strokes` accepts these collections directly and retains the full source reference through filtering, physical-paper conversion, clipping and supported post modifiers. It does not flatten them into anonymous contours. `stroke:`, group pen defaults and ordinary clips/masks keep their usual meanings.
+
+```ts live
+import { sketch, pen, mm, strokes, dash, clip, rect } from 'occlude';
+import { box, view, perspective } from 'occlude/3d';
+
+export default sketch({ seed: 42, pens: {
+  ink: pen({ width: mm(0.3), color: '#18202A' }),
+  hidden: pen({ width: mm(0.15), color: '#A84932' }),
+} }, () => clip(rect(5, 5, 90, 90), view([
+  box([2.8, 1.4, 1.4]),
+  box([0.9, 0.9, 2.6]).translate([0.5, 0.2, 0.5]),
+], {
+  camera: perspective({ eye: [5, 7, 6], target: [0, 0, 0.3], fovDegrees: 25 }),
+}, lines => [
+  strokes(lines.visible, { stroke: 'ink' }),
+  strokes(lines.hidden.filter(c => c.kinds.has('crease')), {
+    stroke: 'hidden', modifiers: [dash(mm(2), mm(1))],
+  }),
+])));
+```
+
+Custom interpretation callbacks may rerun for a camera change. Keep them pure: capture stable geometry/style inputs and do not consume mutable RNG or mutate outside state. JavaScript closures cannot be magically serialized or snapshotted. Already classified projected collections remain bound to their source camera; using them outside a retained callback requires reclassification when that camera changes. Advanced access to the same renderer and `projectedLines(classified)` is available through `occlude/3d/advanced`.

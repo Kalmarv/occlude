@@ -7,7 +7,7 @@ export default sketch({seed:42,paper:paper({width:inch(8.5),height:inch(11),colo
     .displace(p=>[0,0,t.noise(p.x*.7,p.y*.7)*.8])
     .steps(8,(current,next,k)=>next.move(current.points,p=>[0,0,Math.sin(p.x+k*.1)*p.mobility*.01]));
   return view([terrain,sphere(.8).translate([0,0,1.6])],{
-    camera:orthographic({eye:[6,8,5],target:[0,0,0],span:8}),stroke:'ink',
+    camera:orthographic({eye:[6,8,5],target:[0,0,0],span:12}),stroke:'ink',
     hatch:{spacing:mm(1.4),angle:35,stroke:'shade'},
   });
 });

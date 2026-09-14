@@ -20,6 +20,7 @@
  *   stays usable — build() snapshots)
  */
 
+import {ProjectedCurves,projectedStrokes,isProjectedStrokes,emitProjectedStrokes,type ProjectedStrokes,type ProjectedStrokeOptions} from './three/api/projected.js';
 import type { LineArtScene3, SceneCompute3 } from './three/scene.js';
 import { isDrawing3, retainDrawing3, cameraDrawing3, type Drawing3 } from './three/drawing.js';
 import type { Camera3 } from './three/camera.js';
@@ -180,6 +181,7 @@ export type Tree =
   | ShapeValue
   | LineArtScene3
   | Drawing3
+  | ProjectedStrokes
   | GroupValue
   | ClipValue
   | Tree[]
@@ -237,10 +239,13 @@ export type Contour = [L, L][];
  * A decision per contour (a pen by run key, a width by chain) stays a
  * `.map`: nothing here assigns pens from keys.
  */
+export function strokes(source:ProjectedCurves,opts?:ProjectedStrokeOptions):ProjectedStrokes;
+export function strokes(source:readonly IsoContour[]|{curves():IsoContour[]},opts?:ShapeOpts):ShapeValue[];
 export function strokes(
-  source: readonly IsoContour[] | { curves(): IsoContour[] },
-  opts?: ShapeOpts,
-): ShapeValue[] {
+  source: readonly IsoContour[] | { curves(): IsoContour[] } | ProjectedCurves,
+  opts?: ShapeOpts | ProjectedStrokeOptions,
+): ShapeValue[] | ProjectedStrokes {
+  if(source instanceof ProjectedCurves)return projectedStrokes(source,opts);
   const contours = Array.isArray(source) ? (source as readonly IsoContour[]) : (source as { curves(): IsoContour[] }).curves();
   return contours.map((c) => stroke(c, opts));
 }
@@ -1235,7 +1240,7 @@ const compilingAsync = new WeakSet<Execution>();
 function containsLineArt3(tree: Tree): boolean {
   if (!tree) return false;
   if (Array.isArray(tree)) return tree.some(containsLineArt3);
-  if ((tree as LineArtScene3).__occludeLineArt3 || isDrawing3(tree)) return true;
+  if ((tree as LineArtScene3).__occludeLineArt3 || isDrawing3(tree) || isProjectedStrokes(tree)) return true;
   if ((tree as GroupValue).__occludeGroup || (tree as ClipValue).__occludeClip) return (tree as GroupValue | ClipValue).children.some(containsLineArt3);
   return false;
 }
@@ -1307,6 +1312,7 @@ export async function commitCamera3(
 function emit(exec: Execution, tree: Tree, ctx: EmitCtx): void {
   if (!tree) return;
   if ((tree as LineArtScene3).__occludeLineArt3 || isDrawing3(tree)) throw new Error('lineArt3: async rendering required; use compileSketchAsync or renderAsync');
+  if(isProjectedStrokes(tree)){for(const shape of emitProjectedStrokes(exec,tree,ctx.pen??exec.currentPen))emit(exec,shape,ctx);return;}
   if (Array.isArray(tree)) {
     for (const child of tree) emit(exec, child, ctx);
     return;

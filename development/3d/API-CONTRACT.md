@@ -111,8 +111,7 @@ alone do not establish an end-to-end speedup.
 ## Integration checklist
 
 The new package exports must also be recognized by the Studio runner and the
-headless `requireFor` adapter. `liveExampleToJs` currently rewrites only root
-imports; extend it for the new namespaces. Monaco currently loads only
-`src/*.ts` and flattens filenames: load nested modules with their relative
-paths and register the new entry declarations. Test actual compiled examples
+headless `requireFor` adapter. `liveExampleToJs` rewrites root and 3D namespace imports. Monaco loads
+nested source modules with their relative paths and registers both new entry
+declarations. These integrations landed with the first working mesh slice. Test actual compiled examples
 and editor diagnostics, not only direct TypeScript imports in unit tests.

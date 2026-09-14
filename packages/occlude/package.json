@@ -7,7 +7,9 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./src/*": "./src/*"
+    "./src/*": "./src/*",
+    "./3d": "./src/three/api/index.ts",
+    "./3d/advanced": "./src/three/api/advanced.ts"
   },
   "scripts": {
     "test": "vitest run",

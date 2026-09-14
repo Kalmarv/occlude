@@ -1,0 +1,14 @@
+/** Advanced access shares the existing renderer and modeling kernels. */
+export {lineArt3} from '../scene.js';
+export {drawing3} from '../drawing.js';
+export {featureSnapshot3,FeatureKind3} from '../features/snapshot.js';
+export {classifySceneCpu3,classifySceneGpu3,candidatePairs3} from '../visibility/scene.js';
+export {constructStrokes3,FeatureSelection3} from '../strokes/construct.js';
+export {surface3,box3,pointCloud3} from '../geometry/surface.js';
+export {grid3,FaceSelection3,extrudeFaces3,transformSurface3,snapshotSurface3} from '../geometry/model.js';
+export {section3} from '../curves/section.js';
+export {hatch3} from '../curves/hatch.js';
+export {projectedLines} from './projected.js';
+export type {Surface3,Attributes3} from '../geometry/surface.js';
+export type {SceneCompute3,LineArtScene3} from '../scene.js';
+export type {ClassifiedScene3} from '../visibility/scene.js';

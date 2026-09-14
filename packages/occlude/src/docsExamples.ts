@@ -9,8 +9,8 @@
 export function liveExampleToJs(src: string): string {
   return src
     .replace(
-      /import\s*\{([^}]*)\}\s*from\s*['"]occlude['"];?/g,
-      (_, names: string) => `const {${names}} = require('occlude');`,
+      /import\s*\{([^}]*)\}\s*from\s*['"](occlude(?:\/3d(?:\/advanced)?)?)['"];?/g,
+      (_, names: string, module: string) => `const {${names}} = require('${module}');`,
     )
     .replace(/export\s+default\s+/, 'module.exports.default = ');
 }

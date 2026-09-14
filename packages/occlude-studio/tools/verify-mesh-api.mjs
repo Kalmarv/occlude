@@ -1,0 +1,32 @@
+import {chromium} from 'playwright';
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const base=process.env.OCCLUDE_GPU_URL??'http://127.0.0.1:5273';
+const output='../../development/3d/mesh-api';await mkdir(output,{recursive:true});
+const docs=await readFile('../../docs/three.md','utf8');
+const source=[...docs.matchAll(/```ts live[^\n]*\n([\s\S]*?)```/g)][8][1].replace('const terrain =',"console.info('mesh-model'); const terrain =");
+const browser=await chromium.launch({executablePath:'/usr/bin/google-chrome',headless:false,env:{...process.env,VK_DRIVER_FILES:'/usr/share/vulkan/icd.d/nvidia_icd.json'},args:['--no-sandbox','--enable-unsafe-webgpu','--enable-features=Vulkan','--use-angle=vulkan','--disable-vulkan-surface','--ignore-gpu-blocklist']});
+try{
+ const page=await browser.newPage({viewport:{width:1500,height:1100}});let models=0;const errors=[];
+ page.on('console',m=>{if(m.text()==='mesh-model')models++;});page.on('pageerror',e=>errors.push(String(e)));
+ await page.addInitScript(source=>{if(!sessionStorage.getItem('mesh-api-initialized')){localStorage.setItem('occlude.sketch',source);sessionStorage.setItem('mesh-api-initialized','1');}window.requests=[];const Original=Worker;window.Worker=class extends Original{postMessage(m,...r){window.requests.push(m.type);return super.postMessage(m,...r);}constructor(...a){super(...a);this.addEventListener('message',e=>{if(e.data.type==='render')window.reply=e.data;});}};},source);
+ await page.goto(base);await page.waitForFunction(()=>window.reply&&window.__occlude?.drawing.plan&&document.querySelector('#status-msg').textContent==='ok',{},{timeout:60000});
+ const diagnostics=await page.evaluate(()=>window.__occlude.editor.diagnostics());await writeFile(output+'/diagnostics.json',JSON.stringify(diagnostics,null,2));assert.deepEqual(diagnostics,[]);
+ const before=await page.evaluate(async()=>({hash:window.reply.planHash,svg:await window.__occlude.drawing.svg('#fff',-1),stats:window.reply.three}));
+ assert.equal(before.stats.adapter.isFallbackAdapter,false);assert(before.stats.scenes[0].dispatches>0);assert.equal(models,1);
+ await page.screenshot({path:output+'/default-view.png',fullPage:true});await writeFile(output+'/default-view.svg',before.svg);
+ await page.getByRole('button',{name:'3D',exact:true}).click();await page.getByLabel('Projection',{exact:true}).selectOption('perspective');
+ assert.equal(await page.evaluate(()=>window.reply.planHash),before.hash);assert.equal(models,1);
+ await page.getByRole('button',{name:'Commit view',exact:true}).click();
+ await page.waitForFunction(hash=>window.reply.planHash!==hash&&document.querySelector('.construction-pick')?.textContent?.startsWith('View committed.'),before.hash,{timeout:60000});
+ const after=await page.evaluate(async()=>({hash:window.reply.planHash,camera:window.reply.construction[0].camera,svg:await window.__occlude.drawing.svg('#fff',-1),renders:window.requests.filter(t=>t==='render').length}));
+ assert.equal(models,1);assert.equal(after.renders,1);assert.equal(after.camera.kind,'perspective');assert.notEqual(after.svg,before.svg);
+ const pending=page.waitForEvent('download');await page.getByRole('button',{name:'Download',exact:true}).click();const file=await pending,portable=await readFile(await file.path(),'utf8');
+ assert(portable.includes('cameras3:'));assert(portable.includes(JSON.stringify(after.camera)));await writeFile(output+'/portable.ts',portable);
+ await page.evaluate(source=>localStorage.setItem('occlude.sketch',source),portable);await page.reload();await page.waitForFunction(()=>window.reply&&window.__occlude?.drawing.plan,{},{timeout:60000});
+ const reopened=await page.evaluate(()=>({hash:window.reply.planHash,camera:window.reply.construction[0].camera}));assert.deepEqual(reopened,{hash:after.hash,camera:after.camera});assert.equal(models,2);
+ await page.evaluate(()=>window.__occlude.editor.setValue(window.__occlude.editor.getValue()+"\nconst __typeProbe: string = plane().attribute('height',1).points.at(0).height;"));
+ const negative=await page.evaluate(()=>window.__occlude.editor.diagnostics());assert(negative.some(d=>d.code===2322),'Monaco must retain numeric attribute types rather than any');
+ assert.deepEqual(errors,[]);
+ const report={passed:true,base,diagnostics,negative,modelsBeforeReopen:1,modelsAfterReopen:2,reopened,stats:before.stats,errors};await writeFile(output+'/report.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));
+}finally{await browser.close();}

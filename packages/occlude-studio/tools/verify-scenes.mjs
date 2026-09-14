@@ -47,8 +47,8 @@ try {
   await page.goto(`${base}/docs.html#/three`);
   await page.locator('.live-example').first().waitFor().catch(async error => { await writeFile(resolve(output, 'failure.html'), await page.content()); await page.screenshot({ path: resolve(output, 'failure.png') }); throw error; });
   const examples = page.locator('.live-example');
-  assert.equal(await examples.count(), 8);
-  for (let i = 0; i < 8; i++) {
+  const count=await examples.count();assert(count>=8);
+  for (let i = 0; i < count; i++) {
     const example = examples.nth(i);
     await example.scrollIntoViewIfNeeded();
     await page.waitForFunction(index => { const out = document.querySelectorAll('.live-example')[index]; return out?.querySelector('canvas.live-canvas, .live-error'); }, i, { timeout: 60000 });
@@ -58,7 +58,7 @@ try {
     await example.screenshot({ path: resolve(output, `scene-${i}.png`) });
   }
   const reports = await page.evaluate(() => window.sceneReports);
-  assert.equal(reports.length, 8);
+  assert.equal(reports.length, count);
   for (const report of reports) {
     assert.equal(report.adapter.isFallbackAdapter, false);
     assert(report.primitives > 0 && report.fragments > 0);
@@ -74,7 +74,7 @@ try {
   assert.deepEqual(reports[2].modeling.map(job => [job.operation, job.backend]), [['deform', 'gpu'], ['query', 'gpu']]);
   assert.equal(reports[2].modeling[0].dispatches, 16);
   assert.equal(reports[2].modeling[1].dispatches, 1);
-  await examples.last().getByRole('button', { name: 'open in studio' }).click();
+  await examples.nth(7).getByRole('button', { name: 'open in studio' }).click();
   await page.waitForFunction(() => window.sceneReports?.length > 0, {}, { timeout: 60000 });
   const studio = await page.evaluate(() => window.sceneReports[0]);
   assert.equal(studio.adapter.isFallbackAdapter, false);

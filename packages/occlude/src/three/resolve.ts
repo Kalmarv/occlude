@@ -1,3 +1,5 @@
+import {isProjectedStrokes} from './api/projected.js';
+import type {ClassifiedScene3} from './visibility/scene.js';
 import { paperBudget3 } from './visibility/precision.js';
 import { sourceStrokeShapes3 } from './strokes/paper.js';
 import type { ModifierValue } from '../shapes.js';
@@ -13,12 +15,13 @@ import { isDrawing3 } from './drawing.js';
 
 /** Resolve before recording, preserving ordinary composition order. The CPU
  * reference is the documented headless default; hosts pass GPU resources. */
-export async function resolveTree3(exec: Execution, tree: Tree, options: { signal?: AbortSignal; compute3?: SceneCompute3 }): Promise<Tree> {
+export async function resolveTree3(exec: Execution, tree: Tree, options: { signal?: AbortSignal; compute3?: SceneCompute3; retainedSource?:ClassifiedScene3 }): Promise<Tree> {
   options.signal?.throwIfAborted();
   if (!tree) return tree;
+  if(isProjectedStrokes(tree)){if(tree.curves.source!==options.retainedSource)exec.fixedStrokes3.add(tree.curves.source);return tree;}
   if (isDrawing3(tree)) {
     const view = await classifyForRun3(exec, tree.scene, options);
-    return resolveTree3(exec, tree.draw(view, { strokes3: (runs, settings) => strokesForRun3(exec, runs, settings) }), options);
+    return resolveTree3(exec, tree.draw(view, { strokes3: (runs, settings) => strokesForRun3(exec, runs, settings) }), {...options,retainedSource:view});
   }
   if (Array.isArray(tree)) {
     const children: Tree[] = [];

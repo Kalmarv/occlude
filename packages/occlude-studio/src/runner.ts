@@ -1,3 +1,5 @@
+import * as three from 'occlude/3d';
+import * as threeAdvanced from 'occlude/3d/advanced';
 /**
  * Execute a sketch module and encode the scene. A sketch exports a
  * `sketch(config, fn)` definition (default export preferred, else the first
@@ -73,9 +75,11 @@ function prepareSketch(js: string, cfg: RunConfig, seed: number | string, assets
   const modules = userModules(cfg.pens, cfg.papers ?? []);
   const require = (name: string): unknown => {
     if (name === 'occlude') return occlude;
+    if (name === 'occlude/3d') return three;
+    if (name === 'occlude/3d/advanced') return threeAdvanced;
     const mod = modules[name as keyof typeof modules];
     if (mod) return mod;
-    throw new Error(`sketches can import from 'occlude', '@user/pens' and '@user/papers' (tried '${name}')`);
+    throw new Error(`sketches can import from 'occlude', 'occlude/3d', 'occlude/3d/advanced', '@user/pens' and '@user/papers' (tried '${name}')`);
   };
   const module = { exports: {} as Record<string, unknown> };
   try {
