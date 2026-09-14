@@ -8,7 +8,7 @@ same day. Read with **[3dpt2.md](3dpt2.md)** (the assignment) and
 
 - Worktree `/home/kalmarv/containers/occlude-3d`, branch `feat/3d-webgpu`,
   pushed to `origin/dev`. Starting commit this session: `bae1191`. Final
-  commit: see `git log -1` on dev (recorded in `surface-drawing/deployment.json`).
+  commit: `dbae2ff` (pushed to `origin/dev`).
 - Dev service: Compose project `occlude-3d`, container `occlude-3d-dev-1`,
   host port 5273, served stamp `bae1191-surface-final`. Stores under this
   checkout's `packages/occlude-studio/dev-store/` (`ivy.png` uploaded there

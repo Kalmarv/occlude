@@ -20,5 +20,6 @@
     "progressive": "three#23, three#27 passed",
     "benchmark": "six workloads; woven-vessel timed out"
   },
-  "screenshotInspected": true
+  "screenshotInspected": true,
+  "commit": "dbae2ffd4595c5c22c58ecdc1d56f1647d168282"
 }
