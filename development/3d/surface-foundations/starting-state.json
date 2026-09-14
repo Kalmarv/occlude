@@ -1,0 +1,101 @@
+{
+  "startedAt": "2026-09-14T14:23:16.415849+00:00",
+  "startingCommit": "000c9cb0e86af431ee48e4b8a3129d7fcf23e52c",
+  "devHeadAtFetch": "000c9cb0e86af431ee48e4b8a3129d7fcf23e52c",
+  "branch": "feat/3d-webgpu",
+  "devContainer": {
+    "id": "c2436c640a4f71e3850bcfe8d16838e78efdb8b7961b6606d3425f85c1d1f374",
+    "image": "sha256:78a1e3b0305154df2d5ec96dde381558463e64aad8dc774f0b04d12f1d15e699",
+    "mounts": [
+      {
+        "Type": "bind",
+        "Source": "/home/kalmarv/containers/occlude-3d/packages/occlude-studio/dev-store/assets",
+        "Destination": "/src/packages/occlude-studio/assets",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/kalmarv/containers/occlude-3d/packages/occlude-studio/dev-store/results",
+        "Destination": "/src/packages/occlude-studio/results",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/kalmarv/containers/occlude-3d/packages/occlude/src",
+        "Destination": "/src/packages/occlude/src",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/kalmarv/containers/occlude-3d/packages/occlude-studio/src",
+        "Destination": "/src/packages/occlude-studio/src",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/kalmarv/containers/occlude-3d/docs",
+        "Destination": "/src/docs",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/kalmarv/containers/occlude-3d/packages/occlude-studio/dev-store/sketches",
+        "Destination": "/src/packages/occlude-studio/sketches",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      },
+      {
+        "Type": "bind",
+        "Source": "/home/kalmarv/containers/occlude-3d/packages/occlude-studio/dev-store/fills",
+        "Destination": "/src/packages/occlude-studio/fills",
+        "Mode": "rw",
+        "RW": true,
+        "Propagation": "rprivate"
+      }
+    ],
+    "command": [
+      "node",
+      "/src/packages/occlude-studio/server.mjs"
+    ],
+    "environment": [
+      "HOST=0.0.0.0",
+      "OCCLUDE_DEV_HOSTS=dev-occlude.ivyhq.xyz,occlude-dev.ivyhq.xyz,dev.occlude.ivyhq.xyz",
+      "PORT=5273",
+      "PATH=/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "NODE_VERSION=24.21.0",
+      "YARN_VERSION=1.22.22",
+      "RUSTUP_HOME=/usr/local/rustup",
+      "CARGO_HOME=/usr/local/cargo",
+      "PNPM_HOME=/usr/local/pnpm-store",
+      "CARGO_BUILD_JOBS=4",
+      "CI=true",
+      "OCCLUDE_BUILD_STAMP=docker"
+    ]
+  },
+  "storedDemos": [
+    {
+      "name": "visibility-laboratory",
+      "sha256": "8774a9535814d62f38e44d60e8846fdeb35ee01188ac6e789a93dccf3fb14f3c"
+    },
+    {
+      "name": "procedural-relief",
+      "sha256": "b6bb90c5da1e0e358a194fc1b2af52880d032b52236ca84da167755d9b7d05f9"
+    },
+    {
+      "name": "paper-composition",
+      "sha256": "94bd61ef7e0ba974cbfcc06b326c94d6f56dcd84210c64db7311c4d08866c450"
+    }
+  ],
+  "storeReadOnly": true
+}

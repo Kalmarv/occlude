@@ -11,7 +11,7 @@ export type {SphereOptions,RadialOptions,TorusOptions} from './primitives.js';
 export {instanceOnPoints} from './instances.js';
 export type {Instances,InstanceRow,InstanceTransform,InstanceTransformInput,InstanceOnPointsOptions,RealizeOptions} from './instances.js';
 export {query} from './query.js';
-export type {PreparedQuery,QueryBatch,AsyncQueryBatch,SurfaceHit,RayHit,QueryResult,NearestOptions,RayOptions,NearestBatchOptions,RayBatchOptions,SegmentBatchOptions,PointLike3,Position3} from './query.js';
+export type {PreparedQuery,QueryBatch,AsyncQueryBatch,SurfaceHit,RayHit,QueryResult,QueryResults,NearestOptions,RayOptions,NearestBatchOptions,RayBatchOptions,SegmentBatchOptions,PointLike3,Position3} from './query.js';
 export {force} from './force.js';
 export type {Force} from './force.js';
 export {polyline,curve,circle} from './curves.js';

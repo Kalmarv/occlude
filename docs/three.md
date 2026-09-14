@@ -352,7 +352,7 @@ export default sketch({ seed: 42, paper: paper({ width: inch(8.5), height: inch(
 
 `view` is the explicit drawing boundary. It automatically captures geometry and hatch ownership and retains its interpretation for camera commits. Default ink includes visible boundaries, silhouettes and creases of at least 30°. Set `creaseAngle` in degrees to control that artistic threshold. `orthographic` defaults to span 6 and `perspective` to a 45° vertical FOV; both require an eye and default their target to the origin, near distance to 0.1, and far distance to at least 100 (expanded for distant cameras). Explicit near/far values remain available.
 
-Collections support iteration, `filter`, `map`, `groupBy` and `extract`. Groups are selections with a `.key`. Face extraction retains shared mesh topology; extracting points produces point geometry and extracting edges produces curve data. Those types do not claim editable mesh faces. `faceAttribute` and `faceAttributes` store face fields; `edgeAttribute` stores edge fields. Transforms return new values: `.translate(triple)`, `.rotate(degreesTriple, origin)` and `.scale(scalarOrTriple, origin)`. Optional factory keys and `.withKey(key)` provide semantic identity when local input order is insufficient.
+Collections support iteration, `find`, `some`, `every`, `filter`, `map`, `groupBy` and `extract`. `has(row)` checks an actual owned row, not a copied object or matching ID. `union`, `intersect` and `subtract` require the same source revision and domain; their results follow source order. `complement()` selects the remaining rows of the complete source domain, including when called on a filtered group. Groups are selections with a `.key`. Face extraction retains shared mesh topology; extracting points produces point geometry and extracting edges produces curve data. Those types do not claim editable mesh faces. `faceAttribute` and `faceAttributes` store face fields; `edgeAttribute` stores edge fields. Transforms return new values: `.translate(triple)`, `.rotate(degreesTriple, origin)` and `.scale(scalarOrTriple, origin)`. Optional factory keys and `.withKey(key)` provide semantic identity when local input order is insufficient.
 
 ## Interpreting projected intervals
 
@@ -520,7 +520,7 @@ Studio, explicit CPU execution in the headless renderer). It offers:
 Options may be constants or fields evaluated on source point rows. The default
 position/origin/from is the point itself. Every result is `{source, hit}`,
 including misses; arrays preserve selection order and retain the actual source
-rows. Fields are captured before awaiting. Empty selections return empty
+rows. `results.field((point, hit) => value)` evaluates a captured answer without another query; `results.sources((point, hit) => condition)` returns a normal source selection with typed extraction. A field accepts only rows actually queried on the captured revision, including misses. It rejects copied rows or a later geometry revision even when IDs match. Capture the answer into an attribute before deformation when you want a stored reference measurement, or query the edited geometry for current answers. Fields are captured before awaiting. Empty selections return empty
 results. There is no synchronous GPU readback or implicit device acquisition
 in a geometry factory. A batch bound to `t` expires with that sketch execution.
 
@@ -908,4 +908,42 @@ export default sketch({ seed: 42,
   console.info('3D phases', stats.timings, 'shader ms', stats.gpuMs);
   return strokes(lines.visible, { stroke: 'ink' });
 }));
+```
+
+
+## Consuming captured queries
+
+This relief uses one batched roof query. The resulting field reads each source
+point and its captured hit directly; points outside the roof keep their original
+height. Query fields work with ordinary geometry fields and do not submit GPU
+work when evaluated. To retain a measurement through later motion, first call
+`mesh.attribute('restDistance', hits.field((point, hit) => hit?.distance ?? 10))`,
+then transform that returned mesh. The attribute is intentionally a stored
+measurement; it does not become a fresh spatial query after the move.
+
+```ts live
+import { sketchAsync, pen, mm } from 'occlude';
+import { plane, query, view, orthographic } from 'occlude/3d';
+
+export default sketchAsync({ seed: 42, pens: {
+  ink: pen({ width: mm(0.3), color: '#18202A' }),
+  shade: pen({ width: mm(0.18), color: '#A84932' }),
+} }, async t => {
+  const terrain = plane(4).subdivide(4)
+    .displace(p => [0, 0, t.noise(p.x, p.y) * 0.9]);
+  const roof = plane(2.7).rotate([0, 15, 0]).translate([0, 0, 0.25]);
+  const hits = await query(roof).batch(t).rays(terrain.points, {
+    origin: p => [p.x, p.y, 3],
+    direction: [0, 0, -1],
+  });
+  const relief = terrain.displace(hits.field((point, hit) => [
+    0, 0, hit ? Math.min(0, hit.position[2] - point.z) : 0,
+  ]));
+  return view(relief, {
+    camera: orthographic({ eye: [6, 8, 5], target: [0, 0, 0.2], span: 7 }),
+    creaseAngle: 0,
+    stroke: 'ink',
+    hatch: { spacing: mm(1.8), angle: 35, stroke: 'shade' },
+  });
+});
 ```
