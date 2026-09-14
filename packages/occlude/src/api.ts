@@ -903,13 +903,13 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   /** Field-modulated Poisson-disk points as point-only material with a
    * `density` column (the field at each point). `t.relax` and `t.settle`
    * refine it; `t.voronoi` reads its cells. */
-  function scatter<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3>(mesh:Mesh<P,E,F>,options:SurfaceScatterOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F>;
+  function scatter<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>,options:SurfaceScatterOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
   function scatter(field: FieldFn2 | undefined, opts: ScatterOpts): Material;
   function scatter(opts: ScatterOpts): Material;
   function scatter(
     a: FieldFn2 | ScatterOpts | Mesh<any,any,any> | undefined,
     b?: ScatterOpts | SurfaceScatterOptions<any>,
-  ): Material | SurfaceSamples<any,any> {
+  ): Material | SurfaceSamples<any,any,any,any> {
     if(a instanceof Mesh){const options=b as SurfaceScatterOptions<any>;return scatterSurfacePoints(a,options,{rnd:exec.stream('__surface-scatter:'+ (options?.key??a.key??'default')).rnd,signal:scope?.signal});}
     const field = typeof a === 'function' ? a : undefined;
     const raw = (typeof a === 'function' || a === undefined ? b : a) as ScatterOpts;
@@ -1059,12 +1059,12 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * keep the shape's own vertices — `t.material(shape)` does. Positions and
    * connectivity only — attributes come from `.attribute()`.
    */
-  function sample<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3>(mesh:Mesh<P,E,F>,options:SurfaceSamplingOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F>;
+  function sample<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>,options:SurfaceSamplingOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
   function sample(shape:ShapeValue,options:{count?:number;spacing?:L;tolerance?:L}):Material;
   function sample(
     shape: ShapeValue | Mesh<any,any,any>,
     options: { count?: number; spacing?: L; tolerance?: L } | SurfaceSamplingOptions<any>,
-  ): Material | SurfaceSamples<any,any> {
+  ): Material | SurfaceSamples<any,any,any,any> {
     if(shape instanceof Mesh){const opts=options as SurfaceSamplingOptions<any>;return sampleSurfacePoints(shape,opts,{rnd:exec.stream('__surface-sample:'+(opts?.key??shape.key??'default')).rnd,signal:scope?.signal});}
     const opts=options as {count?:number;spacing?:L;tolerance?:L};
     checkSampling('sample', { count: opts.count, spacing: opts.spacing === undefined ? undefined : 1 });

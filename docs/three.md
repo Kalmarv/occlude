@@ -1144,3 +1144,79 @@ export default sketch({ seed: 42, pens: {
   });
 });
 ```
+
+### Surface locations and rebinding
+
+A sampled point's `.sample` retains its owned source revision, triangle,
+vertex identities and barycentric coordinates. `position` and `normal` describe
+that attachment; `modelPosition` and `modelNormal` make the model interpretation
+explicit. `space` is `'model'` for ordinary mesh sampling. These values do not
+follow later independent edits to the sampled point geometry.
+
+The context separates typed `pointAttributes`, `faceAttributes` and
+`cornerAttributes`. Numeric source values interpolate inside the triangle;
+nearest and categorical values choose the largest barycentric weight, with
+source ID breaking ties. Missing source columns stay missing. `.face` retains
+the existing typed face row.
+
+When triangle corners contain finite `uv` pairs and a consistent optional
+`chart` identity, `.sample.uv` gives affine chart coordinates. `frame.du` and
+`frame.dv` are derivatives in model units per chart unit; `tangent` and
+`bitangent` are normalized directions, and `orientation` records chart
+handedness. `chartStatus` distinguishes `'missing'`, `'regular'` and
+`'degenerate'`. A degenerate chart has coordinates but no tangent frame.
+Sampling/scatter options `uvAttribute` and `chartAttribute` select different
+column names. Active UV coordinates require interpolated values; a `nearest`
+transfer policy belongs on discrete columns instead. Different seam sides keep
+their own corner values. Mixed chart identities or
+partially specified UVs on one triangle are diagnosed.
+
+Use `samples.rebind(editedMesh)` to place the samples onto a topology-preserving
+revision. This evaluates the retained triangle weights; it does not sample again
+or search for a nearby surface. Point IDs, captured point columns and generation
+statistics remain unchanged. The sample context refreshes from the target,
+including its new attribute types. Rebinding resets point positions to their
+attachments and starts a new edit history. Previously captured samples remain
+unchanged.
+
+Rebinding requires shared authoring lineage and unchanged face/triangle/corner
+relationships. Point motion, attribute edits and mirrors qualify. An unrelated
+mesh with matching generated IDs does not. Subdivision and other topology
+changes require regeneration or an explicit topology transfer.
+
+This example repeats the same sampled sites before and after a deformation.
+Corner coordinates control pin height, and retained triangle normals orient the
+pins. The two placements use the same point IDs and chart values.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { plane, box, instanceOnPoints, alignAxis, view, orthographic } from 'occlude/3d';
+
+export default sketch({ seed: 42, pens: {
+  ink: pen({ width: mm(0.25), color: '#18202A' }),
+} }, t => {
+  const rest = plane(2.6, 2.6).subdivide(3).cornerAttributes({
+    uv: c => [(c.point.x + 1.3) / 2.6, (c.point.y + 1.3) / 2.6],
+    chart: 'sheet',
+  });
+  const sites = t.sample(rest, { count: 70 });
+  const bent = rest.displace(p => [0, 0, 0.45 * Math.sin(p.x * 2) * Math.cos(p.y)]);
+  const attached = sites.rebind(bent);
+  const pin = box([0.06, 0.06, 0.25]).translate([0, 0, 0.125]);
+  const flatPins = instanceOnPoints(pin, sites.points, {
+    scale: p => [1, 1, 0.6 + p.sample.cornerAttributes.uv[0]],
+    rotate: p => alignAxis('z', p.sample.normal),
+  });
+  const bentPins = instanceOnPoints(pin, attached.points, {
+    scale: p => [1, 1, 0.6 + p.sample.cornerAttributes.uv[0]],
+    rotate: p => alignAxis('z', p.sample.normal),
+  });
+  return view([
+    rest.translate([-1.6, 0, 0]), flatPins.translate([-1.6, 0, 0]),
+    bent.translate([1.6, 0, 0]), bentPins.translate([1.6, 0, 0]),
+  ], {
+    camera: orthographic({ eye: [5, 9, 8], target: [0, 0, 0.2], span: 7.2 }),
+    stroke: 'ink',
+  });
+});
+```

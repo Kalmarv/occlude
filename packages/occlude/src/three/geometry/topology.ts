@@ -29,7 +29,33 @@ function revision(surface:Surface3):TopologyRevision {
 }
 export function inheritTopology3(surface:Surface3,previous?:Surface3):void {
   const key=signature(surface),old=previous?revision(previous):undefined;
-  revisions.set(surface,old?.signature===key?old:Object.freeze({signature:key}));
+  const next=old?.signature===key?old:Object.freeze({signature:key});
+  revisions.set(surface,next);
+  // A mirror or index reorder changes oriented adjacency, but attachment can
+  // retain the same face/vertex/corner incidence. Independently built meshes
+  // never share this lineage merely because their generated IDs match.
+  if(previous&&old!==next&&surface.points.length===previous.points.length&&surface.faces.length===previous.faces.length&&surface.edges.length===previous.edges.length&&surface.triangles.length===previous.triangles.length){
+    const before=attachmentRevision(previous),after=attachmentRevision(surface);
+    if(before.signature===after.signature)attachments.set(next,{signature:after.signature,token:before.token});
+  }
+}
+interface AttachmentRevision {readonly signature:string;readonly token:object}
+const attachments=new WeakMap<TopologyRevision,AttachmentRevision>();
+function attachmentRevision(surface:Surface3):AttachmentRevision {
+  const key=revision(surface),cached=attachments.get(key);if(cached)return cached;
+  const point=(index:number)=>surface.points[index].id;
+  const signature=JSON.stringify([
+    surface.points.map(p=>p.id).sort(),
+    surface.faces.map(f=>JSON.stringify([f.id,f.vertices.map((v,i)=>[point(v),f.corners?.[i].id??JSON.stringify(['corner',f.id,point(v)])]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0)])).sort(),
+    surface.triangles.map(t=>JSON.stringify([surface.faces[t.face].id,t.vertices.map(point).sort()])).sort(),
+    surface.edges.map(e=>JSON.stringify([e.id,e.vertices.map(point).sort()])).sort(),
+  ]);
+  const value=Object.freeze({signature,token:Object.freeze({})});attachments.set(key,value);return value;
+}
+/** Explicit rebind requires shared authoring lineage and unchanged incidence,
+ * not just equal labels or a nearest-point guess. Winding may reverse. */
+export function sameAttachmentTopology3(a:Surface3,b:Surface3):boolean {
+  return attachmentRevision(a).token===attachmentRevision(b).token;
 }
 const frozen=(rows:readonly Set<number>[])=>Object.freeze(rows.map(row=>Object.freeze([...row].sort((a,b)=>a-b))));
 export function topology3(surface:Surface3):SurfaceTopology3 {

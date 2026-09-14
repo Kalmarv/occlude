@@ -122,3 +122,22 @@ inside the parent face and refines fixed triangles for non-affine numeric corner
 quads. No cross-seam averaging is implicit. Side transfer in advanced independent
 extrusion, primitive charts and the shared owned-location/curve contract still
 need the subsequent implementation; this is not an M7 completion claim.
+
+## Implemented location and sample-rebind foundation
+
+Owned locations retain a source snapshot, face/triangle/vertex identity and
+barycentric weights, with separate model/placed position and normal contexts.
+Corner UVs, chart identity and tangent derivatives preserve seams. Optional
+explicit shading normals use inverse-transpose placement, separate from
+geometric support. Active coordinate columns and invalid/degenerate chart rules
+are explicit. Floating positions are convenient evaluations; source geometry
+and retained affine weights remain the attachment information.
+
+`t.sample`/`t.scatter` now expose the context through `.sample`. Their point
+state schema stays separate from captured target point/face/corner schemas.
+Explicit `.rebind(target)` refreshes attachment contexts without reseeding and
+preserves edited point state and IDs. It requires shared authoring lineage and
+unchanged incidence, including fixed triangles; mirrors may reverse winding.
+Equal IDs on independently built meshes are insufficient. Placement revisions
+also distinguish input identity from labels. The shared multi-source curve
+carrier, query/construction integration and renderer support remain next work.

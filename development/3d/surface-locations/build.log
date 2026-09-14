@@ -1,0 +1,107 @@
+ Image occlude-3d-dev:latest Building
+#1 [internal] load local bake definitions
+#1 reading from stdin 630B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 5.77kB done
+#2 DONE 0.0s
+
+#3 resolve image config for docker-image://docker.io/docker/dockerfile:1.7
+#3 DONE 0.3s
+
+#4 docker-image://docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+#4 resolve docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e 0.0s done
+#4 CACHED
+
+#5 [internal] load metadata for docker.io/library/node:24.21.0-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553
+#5 DONE 0.3s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 986B done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 DONE 0.0s
+
+#8 [toolchain 1/5] FROM docker.io/library/node:24.21.0-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553
+#8 resolve docker.io/library/node:24.21.0-bookworm-slim@sha256:2fe369e969550cde8e867afc3fe370b260140cab4a23d467074295b42163d553 0.0s done
+#8 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 4.22MB 0.1s done
+#7 DONE 0.1s
+
+#9 [verified  7/10] COPY packages/occlude-studio/package.json ./packages/occlude-studio/
+#9 CACHED
+
+#10 [verified  5/10] COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+#10 CACHED
+
+#11 [verified  4/10] RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked     --mount=type=cache,target=/src/target,sharing=locked     cd crates/occlude-core  && wasm-pack build --target web --out-dir pkg --features wasm,contour-sdf --no-default-features --locked
+#11 CACHED
+
+#12 [verified  6/10] COPY packages/occlude/package.json ./packages/occlude/
+#12 CACHED
+
+#13 [verified  1/10] WORKDIR /src
+#13 CACHED
+
+#14 [verified  3/10] COPY crates ./crates
+#14 CACHED
+
+#15 [toolchain 3/5] RUN npm install -g pnpm@10.30.1
+#15 CACHED
+
+#16 [toolchain 4/5] RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal       --default-toolchain 1.98.0 --target wasm32-unknown-unknown  && rustc --version && cargo --version
+#16 CACHED
+
+#17 [toolchain 2/5] RUN apt-get update  && apt-get install -y --no-install-recommends ca-certificates curl git gcc libc6-dev  && rm -rf /var/lib/apt/lists/*
+#17 CACHED
+
+#18 [toolchain 5/5] RUN curl -sSfL -o /tmp/wasm-pack.tgz       https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz  && echo "c539d91ccab2591a7e975bcf82c82e1911b03335c80aa83d67ad25ed2ad06539  /tmp/wasm-pack.tgz" | sha256sum -c -  && tar -xzf /tmp/wasm-pack.tgz -C /tmp  && install -m 755 /tmp/wasm-pack-v0.13.1-x86_64-unknown-linux-musl/wasm-pack /usr/local/bin/wasm-pack  && rm -rf /tmp/wasm-pack* && wasm-pack --version
+#18 CACHED
+
+#19 [verified  2/10] COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
+#19 CACHED
+
+#20 [verified  8/10] RUN --mount=type=cache,target=/usr/local/pnpm-store,sharing=locked     pnpm config set store-dir /usr/local/pnpm-store  && pnpm install --frozen-lockfile
+#20 CACHED
+
+#21 [verified  9/10] COPY . .
+#21 DONE 0.5s
+
+#22 [verified 10/10] RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked     --mount=type=cache,target=/src/target,sharing=locked     pnpm check
+#22 0.612
+#22 0.612 > occlude-workspace@ check /src
+#22 0.612 > node check.mjs
+#22 0.612
+#22 11.02 ok   rust   10.4s
+#22 38.19 ok   ts     27.2s
+#22 46.79 ok   types  8.6s
+#22 53.33 ok   studio 6.5s
+#22 79.85 ok   docs   26.5s
+#22 107.5 ok   ink    27.6s
+#22 148.0 ok   build  40.5s
+#22 148.0 ok   wasm   8bf0034cb79606aa8d6c7293496a1b7e
+#22 150.4 ok   smoke  2.3s
+#22 150.4
+#22 150.4 all gates pass
+#22 DONE 150.5s
+
+#23 exporting to image
+#23 exporting layers
+#23 exporting layers 3.9s done
+#23 exporting manifest sha256:5e554093b5502a9bf4c87082eb292d35d8bddd9aca9e68cfb23edfd4050c91aa 0.0s done
+#23 exporting config sha256:43619e2d59ef1877e91ea69441c9e39a08bab1eead816ba0df875a55ce6763c1 0.0s done
+#23 exporting attestation manifest sha256:a769ed478b6c7b90be555ca351925b3219a49bc82f95c61bc14a41492d4caf17 0.0s done
+#23 exporting manifest list sha256:d24f9bb5550a90736a4383cb370e863f3a873cf3263dbca6dfd13850c8c871b2
+#23 exporting manifest list sha256:d24f9bb5550a90736a4383cb370e863f3a873cf3263dbca6dfd13850c8c871b2 0.0s done
+#23 naming to docker.io/library/occlude-3d-dev:latest done
+#23 unpacking to docker.io/library/occlude-3d-dev:latest
+#23 unpacking to docker.io/library/occlude-3d-dev:latest 1.0s done
+#23 DONE 5.1s
+
+#24 resolving provenance for metadata file
+#24 DONE 0.0s
+ Image occlude-3d-dev:latest Built

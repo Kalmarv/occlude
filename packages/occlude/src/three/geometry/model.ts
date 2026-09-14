@@ -73,7 +73,7 @@ export function extrudeFaces3(surface:Surface3,selection:FaceSelection3,distance
 export function transformSurface3(surface:Surface3,options:{translate?:Vec3;rotate?:RotationInput;scale?:Vec3;origin?:Vec3}):Surface3 {
   const translate=options.translate??[0,0,0],rotate=options.rotate??[0,0,0],scale=options.scale??[1,1,1],origin=options.origin??[0,0,0];[translate,scale,origin].forEach(finite3);rotation3(rotate);if(scale.some(v=>v===0))throw new Error('surface scale must be nonsingular');
   const points=surface.points.map(p=>{const v=rotateVector3(sub3(p.position,origin).map((n,i)=>n*scale[i]) as unknown as Vec3,rotate);return {...p,position:add3(add3(v,origin),translate)};});
-  const mirrored=scale[0]*scale[1]*scale[2]<0;
+  const mirrored=scale.filter(n=>n<0).length%2===1;
   return assembleSurface3(points,surface.faces.map(f=>({...f,vertices:mirrored?[...f.vertices].reverse():f.vertices,corners:mirrored?f.corners&&[...f.corners].reverse():f.corners})),surface.triangles.map(t=>({...t,vertices:mirrored?[t.vertices[0],t.vertices[2],t.vertices[1]]:t.vertices})),surface);
 }
 

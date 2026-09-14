@@ -106,3 +106,26 @@ The complete M6/M7/selected-M8 scope remains open. Next are owned surface
 locations, explicit rebind and multi-source supported curves. Corner storage
 alone does not deliver primitive UVs, surface mapping/tracing/hatch, contacts,
 region extrusion, the GPU batch or final acceptance/performance evidence.
+
+## Owned locations and sample rebinding
+
+Added owned source/triangle/affine locations with distinct point/face/corner
+attributes, model/placement coordinates, normals, selected UV/chart columns and
+tangent derivatives. Placement identity is independent of labels. An attachment
+lineage survives unchanged incidence through motion, attributes and mirrors;
+independent meshes and topology changes require regeneration/transfer.
+
+Sampling/scatter retain the richer typed context. `.rebind(target)` refreshes it
+without RNG or nearest projection, preserves edited point state and IDs, and
+starts a new history. The tiny-scale mirror sign now avoids determinant
+underflow. Eleven new location/rebind tests and existing regressions pass.
+
+All nine Docker gates and 24 served Studio examples pass. All 243 prior stable
+hashes are unchanged, with `three#23` added. Church/WASM are unchanged; four
+paper-box cameras retain zero interval error and nine world-depth probes pass.
+Dev-only stamp `8f50ce6-surface-locations`; evidence is in `surface-locations/`.
+
+Next is the shared multi-source curve carrier and its construction/rendering
+integration. This checkpoint does not complete M6/M7: primitive UVs, contacts,
+mapping, generic tracing/spacing/tone/curvature, the new GPU batch and selected
+M8 region extrusion remain required, along with all acceptance/performance work.
