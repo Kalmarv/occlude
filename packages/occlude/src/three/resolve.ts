@@ -1,3 +1,4 @@
+import {PhaseClock3} from './timing.js';
 import {isProjectedStrokes} from './api/projected.js';
 import type {ClassifiedScene3} from './visibility/scene.js';
 import { paperBudget3 } from './visibility/precision.js';
@@ -49,12 +50,15 @@ export async function classifyForRun3(exec: Execution, scene: LineArtScene3, opt
   const pending = exec.pendingScenes3.get(scene);
   if (pending) return pending;
   const job = (async () => {
+    const timing=new PhaseClock3();
     const f = exec.frame;
     const viewport = scene.viewport ?? { x: f.offsetX, y: f.offsetY, width: f.inner.innerW, height: f.inner.innerH };
     const key = exec.cameraKey3(scene);
     const camera = Object.hasOwn(exec.cameras3, key) ? exec.cameras3[key] : scene.camera;
-    const snapshot = featureSnapshot3(scene.objects, scene.wires, cameraFrame3(camera, viewport),f.inner);
-    const classified = options.compute3 ? await options.compute3.classify(snapshot, { ...options, paperToleranceMm: paperBudget3([...exec.pens.values()].map(pen => pen.width)) }) : classifySceneCpu3(snapshot);
+    const snapshot = timing.measure('captureMs',()=>featureSnapshot3(scene.objects, scene.wires, cameraFrame3(camera, viewport),f.inner));
+    const result = options.compute3 ? await options.compute3.classify(snapshot, { ...options, paperToleranceMm: paperBudget3([...exec.pens.values()].map(pen => pen.width)) }) : classifySceneCpu3(snapshot);
+    timing.merge(result.stats.timings);
+    const classified=Object.freeze({...result,stats:Object.freeze({...result.stats,timings:timing.finish()})});
     options.signal?.throwIfAborted();
     if (options.isOpen && !options.isOpen()) throw new Error('3D classification execution has finished');
     exec.scenes3.set(scene, classified);

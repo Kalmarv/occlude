@@ -844,3 +844,68 @@ export default sketch({ seed: 42, pens: {
   });
 });
 ```
+
+## Measuring 3D execution
+
+Classified scenes and modeling batch reports expose `stats.timings`, typed as
+`PhaseTimings3` from `occlude/3d/advanced`. In Studio these are also present in
+the render worker's `three.scenes` and `three.modeling` diagnostics. A custom
+backend may omit phase data. The native CPU and GPU paths report all keys,
+using zero when a phase does no work or is shorter than clock resolution.
+
+| Field | Measured host work |
+| --- | --- |
+| `captureMs` | Owned input copies/structured cloning, and view feature/hatch realization |
+| `queueMs` | Waiting for this host or resource's previous job |
+| `setupMs` | Device/pipeline preparation and buffer allocation, including awaited compilation |
+| `packingMs` | Normalization and construction of GPU input arrays |
+| `uploadSubmitMs` | CPU time in `queue.writeBuffer` calls |
+| `dispatchSubmitMs` | Bind groups, command encoding, copies and queue submission |
+| `readbackWaitMs` | Awaiting mapped results: queued GPU execution, transfers and promise scheduling |
+| `readbackCopyMs` | Copying mapped data to owned CPU arrays and unmapping |
+| `refinementMs` | CPU numeric refinement and reconstruction of GPU query/interval results |
+| `candidateMs` | Visibility broad-phase pairing and bounded batch gathering |
+| `finalizeMs` | Interval unions, result assembly and deformed-point reconstruction |
+| `validationWaitMs` | Awaited GPU validation scopes |
+| `cpuMs` | Explicit CPU reference modeling or visibility classification |
+| `unattributedMs` | Remaining orchestration, bookkeeping and cleanup |
+| `wallMs` | Entire measured operation boundary, equal to the other host fields' sum |
+
+These are exclusive host phases. Parents add child phases without also adding
+child wall time. A queued call's wall time includes its own wait; do not sum
+concurrent calls to estimate the batch's elapsed wall time. Cached query targets
+report zero target upload bytes on reuse, and their original preparation time
+is counted only on the cache miss.
+
+`uploadSubmitMs` measures submission, not physical PCIe transfer time.
+`readbackWaitMs` includes GPU work and transfer completion; it is not a pure
+copy-duration measurement. `transferBytes` records upload plus readback volume.
+Visibility's optional `gpuMs` uses device compute-pass timestamps, excludes
+host work, and is never added to these host phases. Deformation and query
+kernels do not currently expose shader timestamps; absence does not mean zero
+shader time. Do not infer a speedup from shader time alone.
+
+View phase totals begin before feature/hatch realization and end after
+classification. Modeling totals begin at the toolkit batch's input capture and
+end after its result and validation complete. Geometry creation, earlier
+`view(...)` construction, final 2D finishing/planning and worker messaging are
+outside those boundaries. The phase-accounting workload measures view capture
+and CPU snapshot creation separately for an aligned CPU/GPU comparison. The
+older outer `stats.wallMs` fields retain their narrower kernel-specific scopes;
+use `stats.timings.wallMs` for the boundaries described here.
+
+```ts live
+import { sketch, paper, pen, mm, strokes } from 'occlude';
+import { box, view, orthographic } from 'occlude/3d';
+
+export default sketch({ seed: 42,
+  paper: paper({ width: mm(100), height: mm(100) }),
+  pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) },
+}, () => view(box([2, 1.5, 2.5]), {
+  camera: orthographic({ eye: [5, 7, 6], span: 5 }),
+}, lines => {
+  const stats = lines.visible.source.stats;
+  console.info('3D phases', stats.timings, 'shader ms', stats.gpuMs);
+  return strokes(lines.visible, { stroke: 'ink' });
+}));
+```

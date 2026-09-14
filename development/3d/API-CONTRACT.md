@@ -113,7 +113,9 @@ This pass does not claim a general GPU field compiler, curvature-following
 hatch, mesh–mesh intersection curves, connected-region extrusion, inset,
 bevel or automatic GPU-device recovery. Profile input capture/serialization,
 upload, dispatch, readback and CPU refinement separately; shader timestamps
-alone do not establish an end-to-end speedup.
+alone do not establish an end-to-end speedup. Native reports now expose
+exclusive `stats.timings`; scopes, transfer limitations and measured hardware
+workloads are documented in `phase-accounting/` and the live 3D docs.
 
 ## Integration checklist
 

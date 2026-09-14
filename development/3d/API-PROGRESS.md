@@ -100,9 +100,18 @@ the earlier API and does not imply this redesign is finished.
   one GPU query, typed hatch fields and camera commit without a model rerun.
   All nine Docker gates and eighteen served live examples pass. The migrated
   relief is installed in the dev sketch store; see `decoration-api/`.
-- Detailed GPU phase accounting and the full requirement audit remain pending.
-  The three acceptance targets have focused evidence. The fresh underside
-  report remains unresolved.
+- Detailed phase accounting is implemented for native CPU/GPU visibility,
+  deformation and surface-query batches. Capture/serialization, queue/setup,
+  packing, upload/command submission, readback wait/copy, CPU refinement,
+  finalization and remaining overhead are exclusive; shader timestamps stay
+  separate. The workload measures earlier view capture and CPU snapshot time
+  explicitly and states the observable transfer/timing limits. Unit and served
+  hardware checks cover nested totals, queue/cache behavior, zero-work paths,
+  independent plane hits, CPU/GPU interval agreement and unchanged repeated ink.
+  All nine Docker gates and nineteen served live examples pass; see
+  `phase-accounting/` for measurements and scope.
+- The three acceptance targets have focused evidence. The fresh underside
+  report and full requirement-by-requirement audit remain unresolved.
 
 Worker restart/device-loss recovery remains deferred by the user. Use
 Playwright, not ProofShot. Continue in this isolated checkout; production

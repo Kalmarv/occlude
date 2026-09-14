@@ -1,6 +1,7 @@
 /// <reference types="@webgpu/types" />
 import { hiddenInterval3, type Interval3, type SegmentBasis3, type OcclusionVolume3 } from '../../three/visibility/interval.js';
 import { type Vec3 } from '../../three/math.js';
+import { PhaseClock3, type PhaseTimings3 } from '../../three/timing.js';
 import { intervalShader } from './intervalShader.js';
 
 export interface VisibilityPair3 { readonly a: Vec3; readonly b: Vec3; readonly volume: OcclusionVolume3; readonly basis?: SegmentBasis3 }
@@ -13,6 +14,7 @@ export interface GpuIntervalResult3 {
   /** Sum of compute-pass timestamps in milliseconds; absent when unsupported/disabled. */
   readonly gpuMs?: number;
   readonly wallMs: number;
+  readonly timings: PhaseTimings3;
 }
 export interface GpuIntervalOptions3 { readonly signal?: AbortSignal; readonly parameterTolerance?: number }
 
@@ -63,8 +65,10 @@ export class GpuIntervals3 {
   classify(pairs: readonly VisibilityPair3[], options: GpuIntervalOptions3 = {}): Promise<GpuIntervalResult3> {
     const tolerance = options.parameterTolerance ?? 1e-5;
     if (!(tolerance > 0) || !Number.isFinite(tolerance)) return Promise.reject(new Error('parameter tolerance must be positive and finite'));
-    const owned = pairs.map(p => ({ a: [...p.a] as Vec3, b: [...p.b] as Vec3, volume: structuredClone(p.volume), basis: p.basis && structuredClone(p.basis) }));
-    const job = this.tail.then(() => this.run(owned, { ...options, parameterTolerance: tolerance }));
+    const timing = new PhaseClock3();
+    const owned = timing.measure('captureMs', () => pairs.map(p => ({ a: [...p.a] as Vec3, b: [...p.b] as Vec3, volume: structuredClone(p.volume), basis: p.basis && structuredClone(p.basis) })));
+    const queued = performance.now();
+    const job = this.tail.then(() => { timing.since('queueMs', queued); return this.run(owned, { ...options, parameterTolerance: tolerance }, timing); });
     this.tail = job.catch(() => {});
     return job;
   }
@@ -72,12 +76,13 @@ export class GpuIntervals3 {
     signal?.throwIfAborted();
     if (this.lost !== null) throw new Error(`WebGPU session unavailable: ${this.lost}`);
   }
-  private async run(pairs: readonly VisibilityPair3[], options: GpuIntervalOptions3): Promise<GpuIntervalResult3> {
+  private async run(pairs: readonly VisibilityPair3[], options: GpuIntervalOptions3, timing: PhaseClock3): Promise<GpuIntervalResult3> {
     this.check(options.signal);
     const started = performance.now(), intervals: (Interval3 | null)[] = [];
     let dispatches = 0, refinements = 0, transferBytes = 0, gpuMs = 0;
     for (let start = 0; start < pairs.length; start += this.capacity) {
       this.check(options.signal);
+      const packingStarted = performance.now();
       const batch = pairs.slice(start, start + this.capacity), packed = new Float32Array(batch.length * 24);
       for (let i = 0; i < batch.length; i++) {
         const p = batch[i];
@@ -91,11 +96,13 @@ export class GpuIntervals3 {
           packed.set([plane[0], plane[1], plane[2], plane[3] / scale], i * 24 + 8 + j * 4);
         }
       }
+      timing.since('packingMs', packingStarted);
       this.device.pushErrorScope('validation');
       let read: Float32Array;
       try {
-        this.device.queue.writeBuffer(this.input, 0, packed);
+        timing.measure('uploadSubmitMs', () => this.device.queue.writeBuffer(this.input, 0, packed));
         this.check(options.signal);
+        const dispatchStarted = performance.now();
         const bindGroup = this.device.createBindGroup({ layout: this.pipeline.getBindGroupLayout(0), entries: [
           { binding: 0, resource: { buffer: this.input, size: packed.byteLength } },
           { binding: 1, resource: { buffer: this.output, size: batch.length * 16 } },
@@ -109,7 +116,9 @@ export class GpuIntervals3 {
           encoder.copyBufferToBuffer(this.timestampResolve, 0, this.staging, batch.length * 16, 16);
         }
         this.device.queue.submit([encoder.finish()]); dispatches++;
-        await this.staging.mapAsync(GPUMapMode.READ, 0, batch.length * 16 + (this.timestamps ? 16 : 0));
+        timing.since('dispatchSubmitMs', dispatchStarted);
+        await timing.wait('readbackWaitMs', () => this.staging.mapAsync(GPUMapMode.READ, 0, batch.length * 16 + (this.timestamps ? 16 : 0)));
+        const copyStarted = performance.now();
         try {
           read = new Float32Array(this.staging.getMappedRange(0, batch.length * 16).slice(0));
           if (this.timestamps) {
@@ -118,20 +127,22 @@ export class GpuIntervals3 {
             gpuMs += Number(times[1] - times[0]) / 1e6;
           }
         }
-        finally { this.staging.unmap(); }
+        finally { this.staging.unmap(); timing.since('readbackCopyMs', copyStarted); }
       } finally {
-        const error = await this.device.popErrorScope();
+        const error = await timing.wait('validationWaitMs', () => this.device.popErrorScope());
         if (error) throw new Error(`WebGPU visibility: ${error.message}`);
       }
       this.check(options.signal);
       transferBytes += packed.byteLength + read.byteLength + (this.timestamps ? 16 : 0);
+      const refineStarted = performance.now();
       for (let i = 0; i < batch.length; i++) {
         if (read[i * 4 + 2] !== 0 || !Number.isFinite(read[i * 4]) || !Number.isFinite(read[i * 4 + 1])) {
           refinements++; const p = batch[i]; intervals.push(hiddenInterval3(p.a, p.b, p.volume, p.basis));
         } else intervals.push(read[i * 4 + 3] === 0 ? null : [read[i * 4], read[i * 4 + 1]]);
       }
+      timing.since('refinementMs', refineStarted);
     }
-    return { intervals, dispatches, refinements, transferBytes, residentBytes: this.capacity * 128 + (this.timestamps ? 32 : 0), ...(this.timestamps ? { gpuMs } : {}), wallMs: performance.now() - started };
+    return { intervals, dispatches, refinements, transferBytes, residentBytes: this.capacity * 128 + (this.timestamps ? 32 : 0), ...(this.timestamps ? { gpuMs } : {}), wallMs: performance.now() - started, timings: timing.finish() };
   }
   /** Prevent queued adoption immediately, then wait for in-flight leases. */
   async dispose(): Promise<void> {
