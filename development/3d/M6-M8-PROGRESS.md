@@ -7,7 +7,7 @@ No completion claim. The scope below remains required until directly verified.
 | Checkpoint | Required outcome | Current state / evidence |
 | --- | --- | --- |
 | 1. Contract and reuse | Inventory existing helpers, settle coordinate/domain contracts, actual target examples | Initial inspection and contract in `SURFACE-CONTRACT.md`; latest dev and isolation verified. Examples pending implementation. |
-| 2. Shared data/API | Collections, topology, frozen edits, query fields, orientation, corners, surface locations and multi-source support | Partial: selection algebra and captured query fields implemented; 10 new tests plus regression coverage, all nine Docker gates and 20 served live examples pass. See `surface-foundations/`. Other shared-data requirements remain pending. |
+| 2. Shared data/API | Collections, topology, frozen edits, query fields, orientation, corners, surface locations and multi-source support | Partial: selection algebra, captured query fields, attribute maps/frozen writes, point/sample passes and typed mesh topology relationships implemented. All nine Docker gates and 21 served live examples pass. See `surface-foundations/` and `attributes-topology/`. Orientation, corner/location and multi-source support remain pending. |
 | 3. M6 intersections | Candidate BVH, exact contacts/policies, graphs, both-source support, editable demo and independent oracle | Required, not implemented. |
 | 4. M7 mapping | Primitive/custom corners/UVs and transfers; vector patterns/images; rebind and repeated prototypes | Required, not implemented. |
 | 5. M7 tracing/tone | General tangent tracer/curvature/spacing, crosshatch, isolines, CPU/GPU surface evaluation, curved/custom demos | Required, not implemented. |
@@ -46,3 +46,25 @@ contours; automatic worker/device recovery. Production and plotters untouched.
 Next: topology relationships and cache ownership, multi-attribute field maps,
 frozen attribute edits and point/sample pass parity, then orientation and the
 shared corner/location/curve foundation. The full M6/M7/M8 scope remains open.
+
+## Attribute and topology slice
+
+Implemented field maps for multiple attributes; initialized point/edge/face
+state writes in frozen passes; point/sample transforms, steps and typed history;
+mesh row/selection relationships and adjacency cache reuse across motion.
+Captured sample interpretation stays attached to its original surface reference.
+Existing query/force demo now consumes captured fields and typed `face.points`
+without manual ID maps. New live `three#20` demonstrates evolving state.
+
+Seventeen new focused tests cover frozen reads/writes, ownership, async and
+closed-editor rejection, sample history, incident domains, disconnected sheets,
+components, extraction and topology reuse. Existing query/selection and broader
+regressions also pass. All nine Docker gates and 21 served Studio live examples
+pass. All 240 prior stable drawings retain their hashes; only the new example's
+hash is added. Church routing/timing and WASM identity are unchanged. Evidence
+and remaining scope are in `attributes-topology/`.
+
+Next: orientation values, generic corners and their frozen edits/transfers,
+owned surface locations and multi-source curve support. M6 intersections, M7
+mapping/tracing/tone/GPU evaluation and selected M8 region extrusion remain
+required. No full milestone completion claim.

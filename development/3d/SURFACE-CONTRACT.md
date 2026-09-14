@@ -64,3 +64,31 @@ Critical contact geometry uses independent analytic/rational oracles and full
 segment/topology comparisons. Existing world-depth oracles remain regressions.
 Approximate curvature and shading normals do not replace represented geometry.
 CPU/GPU tone thresholds use a documented shared/refined quantization contract.
+
+## Implemented attribute/topology slice
+
+The next slice uses typed mesh-only row relationships and collection subclasses;
+point clouds and curves keep their own domain capabilities. Relations on rows
+are nonenumerable getters so inspecting/serializing a row cannot recursively
+walk the entire mesh. Set operations and groups preserve the concrete selection
+capabilities; derived selections retain the group's key metadata.
+
+Face connectivity follows shared polygon edges. `connected()` expands through
+the source graph; `components()` partitions only the selected induced graph.
+`boundaryEdges()` counts one selected incident face. Equal coordinates and
+vertex-only face contact do not merge components. Mesh field maps and frozen
+editor callbacks receive the same rich rows as direct selection iteration.
+
+Adjacency is weakly owned by exact topology signatures (IDs, polygon/edge
+incidence and fixed triangles), not positions or attribute values. Assembly
+validates the topology signature before inheriting its token. Trusted frozen
+snapshots reuse the token directly; mutable advanced surfaces revalidate their
+signature. Motion/state passes retain adjacency but recapture measurements and
+row ownership. Topology comparison remains linear work; this is adjacency reuse,
+not a claim of constant-time geometry edits or bounded total scene size.
+
+Point/sample passes retain captured sample provenance and typed history. State
+literals widen to their value kind at the stepping boundary; vector dimensions
+remain fixed. Attribute writes validate a whole selected operation before
+publishing it, merge partial records and use last-write-wins per column. Corner
+fields/edits still await the generic corner domain; they are not delivered here.

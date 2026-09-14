@@ -1,0 +1,903 @@
+{
+  "passed": true,
+  "base": "http://127.0.0.1:5273",
+  "results": [
+    {
+      "id": "ulp--0.8000000000000002",
+      "points": [
+        [
+          -1,
+          -1,
+          -0.8000000000000002
+        ],
+        [
+          1,
+          -1,
+          -0.8000000000000002
+        ],
+        [
+          0,
+          1,
+          -0.8000000000000002
+        ]
+      ],
+      "wire": [
+        [
+          -2,
+          0,
+          -0.8
+        ],
+        [
+          2,
+          0,
+          -0.8
+        ]
+      ],
+      "camera": {
+        "kind": "orthographic",
+        "span": 5,
+        "eye": [
+          0,
+          0,
+          -5
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "near": 0.1,
+        "far": 10
+      },
+      "expected": [
+        [
+          0.375,
+          0.625
+        ]
+      ],
+      "actual": [
+        [
+          0.375,
+          0.625
+        ]
+      ],
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 1,
+            "dispatches": 1,
+            "refinements": 1,
+            "transferBytes": 128,
+            "wallMs": 49.09999996423721,
+            "gpuMs": 0.014272,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 2.099999964237213,
+              "queueMs": 0.10000002384185791,
+              "setupMs": 409.19999998807907,
+              "packingMs": 0,
+              "uploadSubmitMs": 1.199999988079071,
+              "dispatchSubmitMs": 0.30000001192092896,
+              "readbackWaitMs": 42.5,
+              "readbackCopyMs": 0.19999998807907104,
+              "refinementMs": 1.600000023841858,
+              "candidateMs": 0.30000001192092896,
+              "finalizeMs": 0.30000001192092896,
+              "validationWaitMs": 2,
+              "cpuMs": 0,
+              "wallMs": 461.10000002384186,
+              "unattributedMs": 1.300000011920929
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "ulp--0.8",
+      "points": [
+        [
+          -1,
+          -1,
+          -0.8
+        ],
+        [
+          1,
+          -1,
+          -0.8
+        ],
+        [
+          0,
+          1,
+          -0.8
+        ]
+      ],
+      "wire": [
+        [
+          -2,
+          0,
+          -0.8
+        ],
+        [
+          2,
+          0,
+          -0.8
+        ]
+      ],
+      "camera": {
+        "kind": "orthographic",
+        "span": 5,
+        "eye": [
+          0,
+          0,
+          -5
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "near": 0.1,
+        "far": 10
+      },
+      "expected": [],
+      "actual": [],
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 1,
+            "dispatches": 1,
+            "refinements": 1,
+            "transferBytes": 128,
+            "wallMs": 4.099999964237213,
+            "gpuMs": 0.009504,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 0.5,
+              "queueMs": 0,
+              "setupMs": 0,
+              "packingMs": 0.09999996423721313,
+              "uploadSubmitMs": 0,
+              "dispatchSubmitMs": 0.20000004768371582,
+              "readbackWaitMs": 3,
+              "readbackCopyMs": 0,
+              "refinementMs": 0.3999999761581421,
+              "candidateMs": 0,
+              "finalizeMs": 0,
+              "validationWaitMs": 0.19999998807907104,
+              "cpuMs": 0,
+              "wallMs": 4.599999964237213,
+              "unattributedMs": 0.19999998807907104
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "ulp--0.7999999999999999",
+      "points": [
+        [
+          -1,
+          -1,
+          -0.7999999999999999
+        ],
+        [
+          1,
+          -1,
+          -0.7999999999999999
+        ],
+        [
+          0,
+          1,
+          -0.7999999999999999
+        ]
+      ],
+      "wire": [
+        [
+          -2,
+          0,
+          -0.8
+        ],
+        [
+          2,
+          0,
+          -0.8
+        ]
+      ],
+      "camera": {
+        "kind": "orthographic",
+        "span": 5,
+        "eye": [
+          0,
+          0,
+          -5
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "near": 0.1,
+        "far": 10
+      },
+      "expected": [],
+      "actual": [],
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 1,
+            "dispatches": 1,
+            "refinements": 1,
+            "transferBytes": 128,
+            "wallMs": 4.600000023841858,
+            "gpuMs": 0.008992,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 1.5999999642372131,
+              "queueMs": 0,
+              "setupMs": 0,
+              "packingMs": 0.10000002384185791,
+              "uploadSubmitMs": 0,
+              "dispatchSubmitMs": 0.09999996423721313,
+              "readbackWaitMs": 3.400000035762787,
+              "readbackCopyMs": 0.09999996423721313,
+              "refinementMs": 0.30000001192092896,
+              "candidateMs": 0,
+              "finalizeMs": 0,
+              "validationWaitMs": 0.30000001192092896,
+              "cpuMs": 0,
+              "wallMs": 6.100000023841858,
+              "unattributedMs": 0.20000004768371582
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "orthographic-near-0.1",
+      "points": [
+        [
+          -1,
+          -1,
+          -1
+        ],
+        [
+          1,
+          -1,
+          -3
+        ],
+        [
+          0,
+          1,
+          -2
+        ]
+      ],
+      "wire": [
+        [
+          -2,
+          0,
+          -4
+        ],
+        [
+          2,
+          0,
+          -4
+        ]
+      ],
+      "camera": {
+        "kind": "orthographic",
+        "span": 5,
+        "eye": [
+          0,
+          0,
+          0
+        ],
+        "target": [
+          0,
+          0,
+          -1
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "near": 0.1,
+        "far": 5
+      },
+      "expected": [
+        [
+          0.375,
+          0.625
+        ]
+      ],
+      "actual": [
+        [
+          0.375,
+          0.625
+        ]
+      ],
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 1,
+            "dispatches": 1,
+            "refinements": 1,
+            "transferBytes": 128,
+            "wallMs": 4.300000011920929,
+            "gpuMs": 0.01024,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 0.5,
+              "queueMs": 0,
+              "setupMs": 0,
+              "packingMs": 0.10000002384185791,
+              "uploadSubmitMs": 0,
+              "dispatchSubmitMs": 0.19999998807907104,
+              "readbackWaitMs": 3.100000023841858,
+              "readbackCopyMs": 0.09999996423721313,
+              "refinementMs": 0.3999999761581421,
+              "candidateMs": 0,
+              "finalizeMs": 0,
+              "validationWaitMs": 0.20000004768371582,
+              "cpuMs": 0,
+              "wallMs": 5,
+              "unattributedMs": 0.3999999761581421
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "orthographic-near-2",
+      "points": [
+        [
+          -1,
+          -1,
+          -1
+        ],
+        [
+          1,
+          -1,
+          -3
+        ],
+        [
+          0,
+          1,
+          -2
+        ]
+      ],
+      "wire": [
+        [
+          -2,
+          0,
+          -4
+        ],
+        [
+          2,
+          0,
+          -4
+        ]
+      ],
+      "camera": {
+        "kind": "orthographic",
+        "span": 5,
+        "eye": [
+          0,
+          0,
+          0
+        ],
+        "target": [
+          0,
+          0,
+          -1
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "near": 2,
+        "far": 5
+      },
+      "expected": [
+        [
+          0.5,
+          0.625
+        ]
+      ],
+      "actual": [
+        [
+          0.5,
+          0.625
+        ]
+      ],
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 1,
+            "dispatches": 1,
+            "refinements": 1,
+            "transferBytes": 128,
+            "wallMs": 4.100000023841858,
+            "gpuMs": 0.008736,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 0.30000001192092896,
+              "queueMs": 0,
+              "setupMs": 0,
+              "packingMs": 0,
+              "uploadSubmitMs": 0.09999996423721313,
+              "dispatchSubmitMs": 0,
+              "readbackWaitMs": 2.900000035762787,
+              "readbackCopyMs": 0.09999996423721313,
+              "refinementMs": 0.30000001192092896,
+              "candidateMs": 0,
+              "finalizeMs": 0.30000001192092896,
+              "validationWaitMs": 0.5,
+              "cpuMs": 0,
+              "wallMs": 4.600000023841858,
+              "unattributedMs": 0.10000002384185791
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "orthographic-near-2.9",
+      "points": [
+        [
+          -1,
+          -1,
+          -1
+        ],
+        [
+          1,
+          -1,
+          -3
+        ],
+        [
+          0,
+          1,
+          -2
+        ]
+      ],
+      "wire": [
+        [
+          -2,
+          0,
+          -4
+        ],
+        [
+          2,
+          0,
+          -4
+        ]
+      ],
+      "camera": {
+        "kind": "orthographic",
+        "span": 5,
+        "eye": [
+          0,
+          0,
+          0
+        ],
+        "target": [
+          0,
+          0,
+          -1
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "near": 2.9,
+        "far": 5
+      },
+      "expected": [],
+      "actual": [],
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 0,
+            "dispatches": 0,
+            "refinements": 0,
+            "transferBytes": 0,
+            "wallMs": 0.10000002384185791,
+            "gpuMs": 0,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 0.19999998807907104,
+              "queueMs": 0,
+              "setupMs": 0,
+              "packingMs": 0,
+              "uploadSubmitMs": 0,
+              "dispatchSubmitMs": 0,
+              "readbackWaitMs": 0,
+              "readbackCopyMs": 0,
+              "refinementMs": 0,
+              "candidateMs": 0.10000002384185791,
+              "finalizeMs": 0,
+              "validationWaitMs": 0,
+              "cpuMs": 0,
+              "wallMs": 0.40000003576278687,
+              "unattributedMs": 0.10000002384185791
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "perspective-near-0.1",
+      "points": [
+        [
+          -1,
+          -1,
+          -1
+        ],
+        [
+          1,
+          -1,
+          -3
+        ],
+        [
+          0,
+          1,
+          -2
+        ]
+      ],
+      "wire": [
+        [
+          -2,
+          0,
+          -4
+        ],
+        [
+          2,
+          0,
+          -4
+        ]
+      ],
+      "camera": {
+        "kind": "perspective",
+        "fovDegrees": 50,
+        "eye": [
+          0,
+          0,
+          0
+        ],
+        "target": [
+          0,
+          0,
+          -1
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "near": 0.1,
+        "far": 5
+      },
+      "expected": [
+        [
+          0.16666666666666666,
+          0.7
+        ]
+      ],
+      "actual": [
+        [
+          0.16666666666666666,
+          0.7
+        ]
+      ],
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 1,
+            "dispatches": 1,
+            "refinements": 1,
+            "transferBytes": 128,
+            "wallMs": 5.200000047683716,
+            "gpuMs": 0.01024,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.000002850764496017364,
+            "timings": {
+              "captureMs": 0.19999998807907104,
+              "queueMs": 0,
+              "setupMs": 0,
+              "packingMs": 0,
+              "uploadSubmitMs": 0,
+              "dispatchSubmitMs": 0.10000002384185791,
+              "readbackWaitMs": 4,
+              "readbackCopyMs": 0,
+              "refinementMs": 0.19999998807907104,
+              "candidateMs": 0,
+              "finalizeMs": 0.10000002384185791,
+              "validationWaitMs": 0.699999988079071,
+              "cpuMs": 0,
+              "wallMs": 5.400000035762787,
+              "unattributedMs": 0.10000002384185791
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "perspective-near-2",
+      "points": [
+        [
+          -1,
+          -1,
+          -1
+        ],
+        [
+          1,
+          -1,
+          -3
+        ],
+        [
+          0,
+          1,
+          -2
+        ]
+      ],
+      "wire": [
+        [
+          -2,
+          0,
+          -4
+        ],
+        [
+          2,
+          0,
+          -4
+        ]
+      ],
+      "camera": {
+        "kind": "perspective",
+        "fovDegrees": 50,
+        "eye": [
+          0,
+          0,
+          0
+        ],
+        "target": [
+          0,
+          0,
+          -1
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "near": 2,
+        "far": 5
+      },
+      "expected": [
+        [
+          0.5,
+          0.7
+        ]
+      ],
+      "actual": [
+        [
+          0.5,
+          0.7
+        ]
+      ],
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 1,
+            "dispatches": 1,
+            "refinements": 1,
+            "transferBytes": 128,
+            "wallMs": 3.599999964237213,
+            "gpuMs": 0.008288,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.000009469724220870686,
+            "timings": {
+              "captureMs": 0.10000002384185791,
+              "queueMs": 0,
+              "setupMs": 0,
+              "packingMs": 0,
+              "uploadSubmitMs": 0.09999996423721313,
+              "dispatchSubmitMs": 0.10000002384185791,
+              "readbackWaitMs": 2.800000011920929,
+              "readbackCopyMs": 0,
+              "refinementMs": 0.09999996423721313,
+              "candidateMs": 0.09999996423721313,
+              "finalizeMs": 0,
+              "validationWaitMs": 0.30000001192092896,
+              "cpuMs": 0,
+              "wallMs": 3.699999988079071,
+              "unattributedMs": 0.10000002384185791
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "perspective-near-2.9",
+      "points": [
+        [
+          -1,
+          -1,
+          -1
+        ],
+        [
+          1,
+          -1,
+          -3
+        ],
+        [
+          0,
+          1,
+          -2
+        ]
+      ],
+      "wire": [
+        [
+          -2,
+          0,
+          -4
+        ],
+        [
+          2,
+          0,
+          -4
+        ]
+      ],
+      "camera": {
+        "kind": "perspective",
+        "fovDegrees": 50,
+        "eye": [
+          0,
+          0,
+          0
+        ],
+        "target": [
+          0,
+          0,
+          -1
+        ],
+        "up": [
+          0,
+          1,
+          0
+        ],
+        "near": 2.9,
+        "far": 5
+      },
+      "expected": [],
+      "actual": [],
+      "stats": {
+        "modeling": [],
+        "adapter": {
+          "vendor": "nvidia",
+          "architecture": "turing",
+          "device": "",
+          "description": "",
+          "isFallbackAdapter": false
+        },
+        "scenes": [
+          {
+            "candidates": 0,
+            "dispatches": 0,
+            "refinements": 0,
+            "transferBytes": 0,
+            "wallMs": 0,
+            "gpuMs": 0,
+            "paperToleranceMm": 0.005,
+            "parameterTolerance": 0.00001,
+            "timings": {
+              "captureMs": 0.19999998807907104,
+              "queueMs": 0.10000002384185791,
+              "setupMs": 0,
+              "packingMs": 0,
+              "uploadSubmitMs": 0,
+              "dispatchSubmitMs": 0,
+              "readbackWaitMs": 0,
+              "readbackCopyMs": 0,
+              "refinementMs": 0,
+              "candidateMs": 0,
+              "finalizeMs": 0,
+              "validationWaitMs": 0,
+              "cpuMs": 0,
+              "wallMs": 0.40000003576278687,
+              "unattributedMs": 0.10000002384185791
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "errors": []
+}

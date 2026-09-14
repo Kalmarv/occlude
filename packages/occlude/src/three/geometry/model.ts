@@ -1,3 +1,4 @@
+import {sealTopology3,topology3} from './topology.js';
 import { groupRows } from '../../groupRows.js';
 import { add3,cross3,finite3,mul3,sub3,unit3,type Vec3 } from '../math.js';
 import { assembleSurface3,surface3,type Surface3,type SurfaceFace3,type SurfaceTriangle3,type Attributes3 } from './surface.js';
@@ -12,10 +13,10 @@ export function grid3(columns:number,rows:number,size:readonly[number,number]=[1
 export interface FaceMeasure3 { readonly source:Surface3;readonly index:number;readonly id:string;readonly normal:Vec3;readonly center:Vec3;readonly area:number;readonly attributes:Readonly<Attributes3>;readonly adjacent:readonly number[] }
 /** Measures follow the represented triangles, including deformed polygons. */
 export function measureFaces3(surface:Surface3):readonly FaceMeasure3[] {
-  const normals=surface.faces.map(()=>[0,0,0] as Vec3),centers=surface.faces.map(()=>[0,0,0] as Vec3),areas=surface.faces.map(()=>0),neighbors=surface.faces.map(()=>new Set<number>());
-  for(const edge of surface.edges)for(const a of edge.faces)for(const b of edge.faces)if(a!==b)neighbors[a].add(b);
+  const normals=surface.faces.map(()=>[0,0,0] as Vec3),centers=surface.faces.map(()=>[0,0,0] as Vec3),areas=surface.faces.map(()=>0);
+  const neighbors=topology3(surface).faceNeighbors;
   for(const t of surface.triangles){const [a,b,c]=t.vertices.map(v=>surface.points[v].position),n=cross3(sub3(b,a),sub3(c,a)),area=Math.hypot(...n)/2;normals[t.face]=add3(normals[t.face],n);areas[t.face]+=area;centers[t.face]=add3(centers[t.face],mul3(add3(add3(a,b),c),area/3));}
-  return Object.freeze(surface.faces.map((f,i)=>Object.freeze({source:surface,index:i,id:f.id,normal:Object.freeze(unit3(normals[i])),center:Object.freeze(mul3(centers[i],1/areas[i])),area:areas[i],attributes:Object.freeze(structuredClone(f.attributes)),adjacent:Object.freeze([...neighbors[i]].sort((a,b)=>a-b))})));
+  return Object.freeze(surface.faces.map((f,i)=>Object.freeze({source:surface,index:i,id:f.id,normal:Object.freeze(unit3(normals[i])),center:Object.freeze(mul3(centers[i],1/areas[i])),area:areas[i],attributes:Object.freeze(structuredClone(f.attributes)),adjacent:neighbors[i]})));
 }
 export class FaceSelection3 implements Iterable<FaceMeasure3> {
   private readonly measures:readonly FaceMeasure3[];
@@ -85,7 +86,7 @@ export function snapshotSurface3(surface:Surface3):Surface3 {
   const freeze=(value:unknown):void=>{if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const child of Object.values(value))freeze(child);Object.freeze(value);}};
   // Array containers are already frozen by assembly; recurse through rows.
   for(const p of snapshot.points){freeze(p.position);freeze(p.attributes);freeze(p);}for(const f of snapshot.faces){freeze(f.attributes);freeze(f);}for(const e of snapshot.edges){freeze(e.attributes);freeze(e);}
-  capturedSurfaces3.add(snapshot);
+  capturedSurfaces3.add(snapshot);sealTopology3(snapshot);
   return Object.freeze(snapshot);
 }
 export function stepsSurface3(initial:Surface3,count:number,pass:(input:Surface3,iteration:number)=>Surface3,options:{history?:number}={}):{surface:Surface3;history:readonly Surface3[]} {

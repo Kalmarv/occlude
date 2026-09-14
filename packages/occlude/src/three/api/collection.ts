@@ -28,6 +28,7 @@ export class Collection<Row extends {readonly id:string;readonly index:number}, 
     }
     this.indices=Object.freeze([...new Set(indices)].sort((a,b)=>a-b));this.key=key;Object.freeze(this);
   }
+  protected derive(indices:readonly number[],key:unknown=this.key):this {return new Collection(this.source,this.domain,this.rows,this.extractor,indices,key) as this;}
   get length():number{return this.indices.length;}
   *[Symbol.iterator]():IterableIterator<Row>{for(const i of this.indices)yield this.rows[i];}
   at(index:number):Row|undefined {
@@ -52,29 +53,29 @@ export class Collection<Row extends {readonly id:string;readonly index:number}, 
     if(!(other instanceof Collection)||other.domain!==this.domain)throw new Error('selection set operations require the same domain');
     if(other.source!==this.source)throw new Error('selection set operations require the same source revision');
   }
-  union(other:Collection<Row,Extracted>):Collection<Row,Extracted>{
-    this.same(other);return new Collection(this.source,this.domain,this.rows,this.extractor,[...this.indices,...other.indices]);
+  union(other:Collection<Row,Extracted>):this{
+    this.same(other);return this.derive([...this.indices,...other.indices]);
   }
-  intersect(other:Collection<Row,Extracted>):Collection<Row,Extracted>{
+  intersect(other:Collection<Row,Extracted>):this{
     this.same(other);const selected=new Set(other.indices);
-    return new Collection(this.source,this.domain,this.rows,this.extractor,this.indices.filter(i=>selected.has(i)));
+    return this.derive(this.indices.filter(i=>selected.has(i)));
   }
-  subtract(other:Collection<Row,Extracted>):Collection<Row,Extracted>{
+  subtract(other:Collection<Row,Extracted>):this{
     this.same(other);const selected=new Set(other.indices);
-    return new Collection(this.source,this.domain,this.rows,this.extractor,this.indices.filter(i=>!selected.has(i)));
+    return this.derive(this.indices.filter(i=>!selected.has(i)));
   }
   /** Complement is relative to the complete source domain, not a group. */
-  complement():Collection<Row,Extracted>{
+  complement():this{
     const selected=new Set(this.indices);
-    return new Collection(this.source,this.domain,this.rows,this.extractor,this.rows.map((_,i)=>i).filter(i=>!selected.has(i)));
+    return this.derive(this.rows.map((_,i)=>i).filter(i=>!selected.has(i)));
   }
-  filter(predicate:(row:Row,index:number)=>boolean):Collection<Row,Extracted>{
-    return new Collection(this.source,this.domain,this.rows,this.extractor,this.indices.filter((i,j)=>predicate(this.rows[i],j)),this.key);
+  filter(predicate:(row:Row,index:number)=>boolean):this{
+    return this.derive(this.indices.filter((i,j)=>predicate(this.rows[i],j)),this.key);
   }
-  groupBy<Key>(field:(row:Row)=>Key):readonly (Collection<Row,Extracted>&{readonly key:Key})[]{
+  groupBy<Key>(field:(row:Row)=>Key):readonly (this&{readonly key:Key})[]{
     const groups=new Map<Key,number[]>();
     for(const i of this.indices){const key=field(this.rows[i]);const list=groups.get(key);if(list)list.push(i);else groups.set(key,[i]);}
-    return Object.freeze([...groups].map(([key,indices])=>new Collection(this.source,this.domain,this.rows,this.extractor,indices,key) as Collection<Row,Extracted>&{readonly key:Key}));
+    return Object.freeze([...groups].map(([key,indices])=>this.derive(indices,key) as this&{readonly key:Key}));
   }
   extract():Extracted{return this.extractor(this.indices);}
 }

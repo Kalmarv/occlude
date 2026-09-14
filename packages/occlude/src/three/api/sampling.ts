@@ -1,6 +1,6 @@
-import {Mesh,PointGeometry,evaluate,type EdgeAttributes,type FaceRow,type Field,type PointRow,type GeometryOptions} from './mesh.js';
+import {Mesh,PointGeometry,evaluate,captureAttributeFields,pointSteps,type PointSnapshot,type PointRule,type StepsOptions,type StepAttributes,type AttributeFields,type EdgeAttributes,type FaceRow,type Field,type PointRow,type GeometryOptions} from './mesh.js';
 import {Collection} from './collection.js';
-import {surface3,type Attributes3,type Surface3,type SurfacePoint3,type Attribute3} from '../geometry/surface.js';
+import {surface3,assembleSurface3,type Attributes3,type Surface3,type SurfacePoint3,type Attribute3} from '../geometry/surface.js';
 import {add3,sub3,mul3,cross3,unit3,type Vec3} from '../math.js';
 type Combined<A,B>=Omit<A,keyof B>&B;
 export interface SurfaceSample<F extends Attributes3> {
@@ -34,8 +34,19 @@ export class SurfaceSamples<P extends Attributes3={},F extends Attributes3={}> e
   }
   private changed<A extends Attributes3>(geometry:PointGeometry<A>):SurfaceSamples<A,F>{return new SurfaceSamples(geometry,this.target,this.state.samples,this.generation);}
   attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<SurfaceSampleRow<P,F>,Value>):SurfaceSamples<Omit<P,Name>&Record<Name,Value>,F>{return this.changed(super.attribute(name,p=>evaluate(field,this.state.rows[p.index])));}
+  attributes<A extends Attributes3>(fields:AttributeFields<SurfaceSampleRow<P,F>,A>):SurfaceSamples<Omit<P,keyof A>&A,F>{
+    const values=captureAttributeFields(this.state.rows,fields);
+    const surface=assembleSurface3(this.surface.points.map((p,i)=>({...p,attributes:{...p.attributes,...values[i]}})),[],[]);
+    return this.changed(new PointGeometry<Omit<P,keyof A>&A>(surface,{key:this.key,iteration:this.iteration,history:[]}));
+  }
   displace(field:Field<SurfaceSampleRow<P,F>,Vec3>):SurfaceSamples<P,F>{return this.changed(super.displace(p=>evaluate(field,this.state.rows[p.index])));}
   translate(offset:Vec3):SurfaceSamples<P,F>{return this.changed(super.translate(offset));}
+  rotate(angles:Vec3,origin:Vec3=[0,0,0]):SurfaceSamples<P,F>{return this.changed(super.rotate(angles,origin));}
+  scale(scale:number|Vec3,origin:Vec3=[0,0,0]):SurfaceSamples<P,F>{return this.changed(super.scale(scale,origin));}
+  get history():readonly PointSnapshot<P,SurfaceSamples<P,F>>[]{return super.history as readonly PointSnapshot<P,SurfaceSamples<P,F>>[];}
+  steps(count:number,rule:PointRule<StepAttributes<P>,SurfaceSampleRow<StepAttributes<P>,F>,SurfaceSamples<StepAttributes<P>,F>>,...passesAndOptions:(PointRule<StepAttributes<P>,SurfaceSampleRow<StepAttributes<P>,F>,SurfaceSamples<StepAttributes<P>,F>>|StepsOptions)[]):SurfaceSamples<StepAttributes<P>,F>{
+    return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history)=>this.changed(new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history})));
+  }
   withKey(key:string):SurfaceSamples<P,F>{return this.changed(super.withKey(key));}
 }
 export interface SurfaceSamplingOptions<F extends Attributes3={}> extends GeometryOptions {

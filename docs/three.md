@@ -563,10 +563,11 @@ export default sketchAsync({seed:42,pens:{ink:pen({width:mm(.3),color:'#18202A'}
   const target=query(roof),batch=target.batch(t);
   const roofHits=await batch.rays(terrain.points,{origin:p=>[p.x,p.y,3],direction:[0,0,-2]});
   const nearby=await batch.nearest(terrain.points,{within:.35});
-  const limits=new Map(roofHits.map(r=>[r.source.id,r.hit?.position[2]??2]));
-  const nearIds=new Set(nearby.filter(r=>r.hit!==null).map(r=>r.source.id));
-  terrain=terrain.displace(p=>[0,0,Math.min(0,(limits.get(p.id)??p.z)-p.z)]);
-  const drawing=terrain.faceAttribute('shade',f=>f.vertices.some(i=>nearIds.has(terrain.points.at(i)?.id??'')));
+  const captured = terrain.attributes({
+    ceiling: roofHits.field((_, hit) => hit?.position[2] ?? 2),
+    nearRoof: nearby.field((_, hit) => hit !== null),
+  }).displace(p => [0, 0, Math.min(0, p.ceiling - p.z)]);
+  const drawing = captured.faceAttribute('shade', f => f.points.some(p => p.nearRoof));
   return view(drawing,{camera:orthographic({eye:[6,8,5],target:[0,0,.2],span:7.5}),stroke:'ink',hatch:{spacing:mm(1.8),angle:35,stroke:'shade',select:f=>f.shade}});
 });
 ```
@@ -947,3 +948,72 @@ export default sketchAsync({ seed: 42, pens: {
   });
 });
 ```
+
+### Evolving attributes in frozen passes
+
+Initialize several columns with `.attributes({ name: field, ... })`. Every field
+reads the same incoming geometry, including when it replaces an existing column.
+Meshes and curves also have `.edgeAttributes`; meshes have `.faceAttributes`.
+Mesh point transfer policies can be set with
+`.attributes(fields, { transfer: { category: 'nearest' } })` and survive later
+attribute replacement unless explicitly changed.
+
+Within `.steps`, `next.set(points, field)` merges a partial attribute record into
+selected points. It also accepts a single point row. `next.setEdges` and
+`next.setFaces` update their corresponding domains; `next.setEdge` and
+`next.setFace` accept single rows. Initialize columns before stepping: edits
+preserve each column's value kind and numeric-vector dimension. Literal values
+such as `0` widen to `number` in the evolving state.
+
+All reads in a pass see its incoming state. Moves accumulate; the last write to
+each attribute wins. Separate passes observe the preceding pass's committed
+state. Callbacks must be synchronous, and an editor cannot escape its pass.
+Point clouds and surface samples also support `.steps`, rotation and scaling.
+Samples retain their captured surface interpretation in fields and history;
+moving a sample point does not reproject its original surface location.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { plane, view, orthographic } from 'occlude/3d';
+
+export default sketch({ seed: 42, pens: {
+  ink: pen({ width: mm(0.25), color: '#18202A' }),
+} }, () => {
+  const sheet = plane(4).subdivide(3)
+    .attributes({ age: 0, velocity: p => 0.08 * Math.cos(p.x) * Math.cos(p.y) })
+    .steps(6, (current, next) => {
+      next.set(current.points, p => ({ age: p.age + 1, velocity: p.velocity * 0.9 }));
+      next.move(current.points, p => [0, 0, p.velocity]);
+    });
+  return view(sheet, {
+    camera: orthographic({ eye: [5, 7, 5], target: [0, 0, 0], span: 6 }),
+    stroke: 'ink',
+  });
+});
+```
+
+### Topology relationships
+
+Mesh rows expose ordinary collections: `face.points`, `face.edges`,
+`face.adjacent`, `edge.points`, `edge.faces`, and `point.edges`, `point.faces`,
+`point.adjacent`. Edge endpoints `a` and `b` are the same typed point rows.
+Relations follow polygon edges, without adding triangulation diagonals.
+
+A face selection has `.points()`, `.edges()`, `.boundaryEdges()`, `.adjacent()`,
+`.connected()` and `.components()`. Point selections have `.edges()`, `.faces()`,
+`.adjacent()`, `.connected()` and `.components()`; edge selections have
+`.points()` and `.faces()`. Filtering, grouping and set operations preserve these
+capabilities. Row fields retain attributes across every relation.
+
+`.adjacent()` collects one-hop neighbors; subtract the starting selection when
+only its outside neighbors are wanted. `.connected()` expands through the whole
+source domain and includes its starting rows. `.components()` instead partitions
+the selected induced graph. Faces connect through shared edges, not merely a
+shared vertex or equal coordinates. `.boundaryEdges()` selects edges incident to
+exactly one selected face. All results use deterministic source order and keep
+the original revision's ownership checks.
+
+Adjacency is cached by topology revision and reused through point motion and
+attribute edits. Measurements still follow the current positions. Extraction,
+subdivision, winding changes and topology edits establish a new revision.
+Point-only geometry does not acquire mesh face or edge capabilities.
