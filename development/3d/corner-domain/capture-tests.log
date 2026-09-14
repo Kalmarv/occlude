@@ -1,0 +1,13 @@
+
+> occlude-studio@0.1.0 test /home/kalmarv/containers/occlude-3d/packages/occlude-studio
+> ../occlude/node_modules/.bin/vitest run src/three/capture.test.ts
+
+
+ RUN  v2.1.9 /home/kalmarv/containers/occlude-3d/packages/occlude-studio
+
+ ✓ src/three/capture.test.ts (3 tests) 307ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:47:33
+   Duration  3.12s (transform 1.49s, setup 0ms, collect 2.06s, tests 307ms, environment 0ms, prepare 209ms)

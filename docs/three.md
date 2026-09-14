@@ -1085,3 +1085,62 @@ Each point has `i`, `j` and `k` attributes for its column, row and layer. X vari
 fastest, then Y, then Z; filtering preserves the original coordinates and IDs.
 This is a point domain for placement and construction. `t.grid` continues to
 lay out paper cells, and mesh topology remains explicit through mesh factories.
+
+### Corner attributes
+
+A corner is a point as used by one polygon. A box has eight geometric points
+and 24 corners, so neighboring faces can keep different values at a shared
+point. Corners do not duplicate or move geometric points.
+
+Use `.cornerAttributes({ name: valueOrField })` or
+`.cornerAttribute(name, valueOrField)` to initialize columns. A corner exposes
+`point`, `face`, `localIndex`, and the ordinary row identity and attributes.
+`face.corners` and `point.corners` are owned collections; face and point
+selections also provide `.corners()`. A corner selection can recover `.points()`
+and `.faces()`. Its `.extract()` returns readonly corner rows, since corners
+alone do not define a mesh.
+
+`next.setCorner(row, patch)` and `next.setCorners(selection, patchOrField)`
+update initialized columns in frozen `.steps` passes. Every field reads the
+incoming revision, including fields reached through another domain. As with
+point and face state, assignments merge by column and the last assignment wins.
+
+Transforms, face extraction and realization preserve corner values and their
+provenance. Subdivision interpolates numeric columns within each parent face;
+it never averages across a seam. Categorical columns use a deterministic
+source, and `{ transfer: { label: 'nearest' } }` preserves numeric labels.
+If a quad's numeric corner field is not affine, subdivision refines its fixed
+triangles to preserve the field across the original diagonal. Missing columns
+remain missing. Corner attributes store data; drawing remains explicit.
+
+This sheet stores heat per corner, then exchanges it through shared points and faces.
+Each pass reads the preceding heat values. The resulting face averages select
+an ordinary paper-directed hatch, while point averages shape the sheet.
+
+```ts live
+import { sketch, pen, mm, meanBy } from 'occlude';
+import { plane, view, orthographic } from 'occlude/3d';
+
+export default sketch({ seed: 42, pens: {
+  ink: pen({ width: mm(0.25), color: '#18202A' }),
+  warm: pen({ width: mm(0.2), color: '#A84932' }),
+} }, () => {
+  const sheet = plane(4, 4).subdivide(3)
+    .cornerAttributes({
+      heat: c => Math.max(0, 1 - Math.hypot(c.face.center[0] + 0.7, c.point.y) / 2),
+    })
+    .steps(4, (current, next) => {
+      next.setCorners(current.corners, c => ({
+        heat: 0.5 * meanBy(c.point.corners, p => p.heat)
+          + 0.5 * meanBy(c.face.corners, p => p.heat),
+      }));
+    })
+    .faceAttributes({ heat: f => meanBy(f.corners, c => c.heat) })
+    .displace(p => [0, 0, meanBy(p.corners, c => c.heat)]);
+  return view(sheet, {
+    camera: orthographic({ eye: [5, 7, 6], target: [0, 0, 0.3], span: 5.5 }),
+    stroke: 'ink',
+    hatch: { spacing: mm(1.5), angle: 35, stroke: 'warm', select: f => f.heat > 0.3 },
+  });
+});
+```

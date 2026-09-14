@@ -5,6 +5,8 @@ import type {Surface3} from './surface.js';
  * without an unbounded global string-keyed cache. */
 interface TopologyRevision {readonly signature:string}
 export interface SurfaceTopology3 {
+  readonly pointCorners:readonly (readonly number[])[];
+  readonly faceCorners:readonly (readonly number[])[];
   readonly pointEdges:readonly (readonly number[])[];
   readonly pointFaces:readonly (readonly number[])[];
   readonly pointNeighbors:readonly (readonly number[])[];
@@ -16,7 +18,7 @@ export function sealTopology3(surface:Surface3):void{revision(surface);immutable
 const revisions=new WeakMap<Surface3,TopologyRevision>();
 const adjacency=new WeakMap<TopologyRevision,SurfaceTopology3>();
 function signature(surface:Surface3):string {
-  return JSON.stringify([surface.points.map(p=>p.id),surface.faces.map(f=>[f.id,f.vertices]),surface.edges.map(e=>[e.id,e.vertices,e.faces]),surface.triangles.map(t=>[t.face,t.vertices])]);
+  return JSON.stringify([surface.points.map(p=>p.id),surface.faces.map(f=>[f.id,f.vertices,f.corners?.map(c=>c.id)??f.vertices.map(v=>JSON.stringify(['corner',f.id,surface.points[v].id]))]),surface.edges.map(e=>[e.id,e.vertices,e.faces]),surface.triangles.map(t=>[t.face,t.vertices])]);
 }
 function revision(surface:Surface3):TopologyRevision {
   const old=revisions.get(surface);
@@ -34,12 +36,13 @@ export function topology3(surface:Surface3):SurfaceTopology3 {
   const key=revision(surface),cached=adjacency.get(key);if(cached)return cached;
   const pointEdges=surface.points.map(()=>new Set<number>()),pointFaces=surface.points.map(()=>new Set<number>()),pointNeighbors=surface.points.map(()=>new Set<number>());
   const faceEdges=surface.faces.map(()=>new Set<number>()),faceNeighbors=surface.faces.map(()=>new Set<number>());
-  surface.faces.forEach((face,i)=>face.vertices.forEach(v=>pointFaces[v].add(i)));
+  const pointCorners=surface.points.map(()=>new Set<number>()),faceCorners=surface.faces.map(()=>new Set<number>());let corner=0;
+  surface.faces.forEach((face,i)=>face.vertices.forEach(v=>{pointFaces[v].add(i);pointCorners[v].add(corner);faceCorners[i].add(corner++);}));
   surface.edges.forEach((edge,i)=>{
     const [a,b]=edge.vertices;pointEdges[a].add(i);pointEdges[b].add(i);pointNeighbors[a].add(b);pointNeighbors[b].add(a);
     for(const face of edge.faces){faceEdges[face].add(i);for(const other of edge.faces)if(face!==other)faceNeighbors[face].add(other);}
   });
-  const result=Object.freeze({pointEdges:frozen(pointEdges),pointFaces:frozen(pointFaces),pointNeighbors:frozen(pointNeighbors),faceEdges:frozen(faceEdges),faceNeighbors:frozen(faceNeighbors)});
+  const result=Object.freeze({pointCorners:frozen(pointCorners),faceCorners:frozen(faceCorners),pointEdges:frozen(pointEdges),pointFaces:frozen(pointFaces),pointNeighbors:frozen(pointNeighbors),faceEdges:frozen(faceEdges),faceNeighbors:frozen(faceNeighbors)});
   adjacency.set(key,result);return result;
 }
 /** Components of the induced selection, in deterministic source order. */

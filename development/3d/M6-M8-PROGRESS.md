@@ -85,3 +85,24 @@ pass. All nine Docker gates and 22 served Studio examples pass on the isolated
 dev build. Evidence and the deliberate ink-change explanation are in
 `orientation-grid/`. Generic corners, surface locations/multi-source curves and
 the entire M6/M7/selected-M8 implementation/integration scope remain required.
+
+## Generic corner foundation
+
+Added polygon-corner storage without splitting geometric points, typed corner
+collections and point/face relationships, field maps, and frozen corner edits.
+Transforms/mirrors, extraction and instance realization preserve corner values;
+subdivision transfers within each parent face and retains fixed triangle fields
+for non-affine quads. Both preflight and allocation guards enforce subdivision
+budgets. Raw mesh import and ordinary view/instance types carry the new domain.
+
+Ten focused tests plus a new committed-scene JSON round-trip test cover the
+corner contract. All nine Docker gates pass; 23 served Studio examples pass
+Monaco, SVG and nonfallback GPU checks. All 242 prior stable hashes remain
+unchanged, with only `three#22` added. Church and WASM are unchanged; four
+paper-box oracles retain zero interval error and nine world-depth probes pass.
+Dev-only stamp `1baa409-corner-domain`; evidence is in `corner-domain/`.
+
+The complete M6/M7/selected-M8 scope remains open. Next are owned surface
+locations, explicit rebind and multi-source supported curves. Corner storage
+alone does not deliver primitive UVs, surface mapping/tracing/hatch, contacts,
+region extrusion, the GPU batch or final acceptance/performance evidence.

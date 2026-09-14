@@ -1,0 +1,12 @@
+
+ RUN  v2.1.9 /home/kalmarv/containers/occlude-3d/packages/occlude
+
+ ✓ test/three-corner-storage.test.ts (6 tests) 74ms
+ ✓ test/three-corners-api.test.ts (4 tests) 56ms
+ ✓ test/three-topology-api.test.ts (6 tests) 89ms
+ ✓ test/three-attribute-edits.test.ts (11 tests) 92ms
+
+ Test Files  4 passed (4)
+      Tests  27 passed (27)
+   Start at  15:47:29
+   Duration  3.10s (transform 1.88s, setup 0ms, collect 5.68s, tests 311ms, environment 6ms, prepare 827ms)

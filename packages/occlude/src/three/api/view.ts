@@ -7,7 +7,7 @@ import {lineArt3} from '../scene.js';
 import {drawing3,type Drawing3} from '../drawing.js';
 import {hatch3} from '../curves/hatch.js';
 import {section3} from '../curves/section.js';
-import {Mesh,CurveGeometry,evaluate,type Field,type FaceRow,type EdgeAttributes} from './mesh.js';
+import {Mesh,CurveGeometry,evaluate,type Field,type FaceRow,type PointRow,type EdgeAttributes} from './mesh.js';
 import {Instances} from './instances.js';
 import type {SurfaceObject3} from '../features/snapshot.js';
 import {projectedLines,projectedStrokes,captureValue,type ProjectedLines} from './projected.js';
@@ -40,10 +40,10 @@ export interface ViewOptions<F extends Attributes3=Attributes3> {
 }
 // Heterogeneous meshes intentionally expose an attribute map at this boundary;
 // a single mesh overload preserves its precise face-column types.
-type AnyMesh=Mesh<any,any,any>;
-type ViewGeometry=AnyMesh|CurveGeometry<any,any>|Instances<any,any,any,any,any>;
-export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3>(geometry:Mesh<P,E,F>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
-export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,A extends Attributes3,S extends Attributes3>(geometry:Instances<P,E,F,A,S>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
+type AnyMesh=Mesh<any,any,any,any>;
+type ViewGeometry=AnyMesh|CurveGeometry<any,any>|Instances<any,any,any,any,any,any,any>;
+export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(geometry:Mesh<P,E,F,C>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
+export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,A extends Attributes3,S extends Attributes3,R extends PointRow<{}>,C extends Attributes3>(geometry:Instances<P,E,F,A,S,R,C>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view(geometry:CurveGeometry<any,any>,options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view(geometry:readonly ViewGeometry[],options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewOptions<any>,draw?:(lines:ProjectedLines)=>Tree):Drawing3 {

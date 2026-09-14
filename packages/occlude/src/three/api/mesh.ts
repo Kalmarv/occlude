@@ -1,6 +1,6 @@
 import type {RotationInput} from '../rotation.js';
 import {inheritTopology3} from '../geometry/topology.js';
-import {meshPoints,meshEdges,meshFaces,type MeshPoints,type MeshEdges,type MeshFaces,type MeshPointRow,type MeshEdgeRow,type MeshFaceRow} from './topology.js';
+import {meshPoints,meshEdges,meshFaces,meshCorners,type MeshCorners,type MeshCornerRow,type MeshPoints,type MeshEdges,type MeshFaces,type MeshPointRow,type MeshEdgeRow,type MeshFaceRow} from './topology.js';
 import {assembleSurface3,surface3,box3,type Surface3,type SurfacePoint3,type Attributes3,type Attribute3,type Provenance3} from '../geometry/surface.js';
 import {snapshotSurface3,cloneSurface3,transformSurface3,measureFaces3} from '../geometry/model.js';
 import {add3,sub3,finite3,type Vec3} from '../math.js';
@@ -17,7 +17,8 @@ export interface GeometryOptions {readonly key?:string}
 export type PointRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;x:number;y:number;z:number;attributes:Readonly<A>;provenance?:Provenance3}>;
 export type EdgeRow<A extends EdgeAttributes={},P extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly [number,number];a:PointRow<P>; b:PointRow<P>;length:number;attributes:Readonly<A>;provenance?:Provenance3}>;
 export type FaceRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly number[];normal:Vec3;center:Vec3;area:number;attributes:Readonly<A>;provenance?:Provenance3}>;
-const reserved=new Set(['id','index','x','y','z','attributes','provenance','vertices','normal','center','area','a','b','length','source','sample','points','edges','faces','adjacent']);
+export type CornerRow<A extends Attributes3={}> = Readonly<A&{id:string;index:number;localIndex:number;attributes:Readonly<A>;provenance?:Provenance3}>;
+const reserved=new Set(['id','index','x','y','z','attributes','provenance','vertices','normal','center','area','a','b','length','source','sample','points','edges','faces','adjacent','corners','face','point','localIndex']);
 export function attributeName(name:string):void {if(!name||reserved.has(name)||name==='__proto__'||name==='constructor'||name==='prototype')throw new Error(`reserved or empty geometry attribute name: ${name}`);}
 export function attributeValue(value:Attribute3):Attribute3 {
   if(typeof value==='string'||typeof value==='boolean')return value;
@@ -41,7 +42,7 @@ function pointRows<P extends Attributes3>(surface:Surface3):readonly PointRow<P>
 }
 function checkOptions(options:GeometryOptions):void{if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('geometry options must be an object; plane subdivisions use .subdivide(levels)');}
 function checkedKey(key?:string):string|undefined {if(key!==undefined&&(typeof key!=='string'||!key))throw new Error('geometry key must be a nonempty string');return key;}
-function validateAttributes(surface:Surface3):void {for(const rows of [surface.points,surface.edges,surface.faces])for(const row of rows)for(const [name,value] of Object.entries(row.attributes)){attributeName(name);attributeValue(value);}}
+function validateAttributes(surface:Surface3):void {for(const rows of [surface.points,surface.edges,surface.faces,surface.faces.flatMap(f=>f.corners??[])])for(const row of rows)for(const [name,value] of Object.entries(row.attributes)){attributeName(name);attributeValue(value);}}
 function pointsOnly(surface:Surface3,indices:readonly number[]):Surface3{return assembleSurface3(indices.map(i=>surface.points[i]),[],[]);}
 function setPoints<R extends PointRow<any>>(surface:Surface3,name:string,field:Field<R,Attribute3>,rows:readonly R[]=pointRows(surface) as readonly R[]):Surface3 {
   attributeName(name);const values=rows.map(row=>attributeValue(evaluate(field,row)));
@@ -222,60 +223,71 @@ export class CurveEdit<P extends Attributes3,E extends EdgeAttributes> {
 }
 
 export interface StepsOptions {readonly every?:number}
-export interface MeshSnapshot<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3>{readonly iteration:number;readonly geometry:Mesh<P,E,F>}
-export type MeshRule<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3>=(current:Mesh<P,E,F>,next:MeshEdit<P,E,F>,k:number)=>void;
+export interface MeshSnapshot<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}>{readonly iteration:number;readonly geometry:Mesh<P,E,F,C>}
+export type MeshRule<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}>=(current:Mesh<P,E,F,C>,next:MeshEdit<P,E,F,C>,k:number)=>void;
 
 /** One common immutable polygon-mesh contract, regardless of its factory. */
-export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={}> {
+export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> {
   readonly surface:Surface3;readonly key?:string;readonly iteration:number;
-  readonly history:readonly MeshSnapshot<P,E,F>[];
-  readonly transfers:PointTransfers;
-  constructor(surface:Surface3,options:GeometryOptions&{iteration?:number;history?:readonly MeshSnapshot<P,E,F>[];transfers?:PointTransfers}={}) {
+  readonly history:readonly MeshSnapshot<P,E,F,C>[];
+  readonly transfers:PointTransfers;readonly cornerTransfers:PointTransfers;
+  constructor(surface:Surface3,options:GeometryOptions&{iteration?:number;history?:readonly MeshSnapshot<P,E,F,C>[];transfers?:PointTransfers;cornerTransfers?:PointTransfers}={}) {
     checkOptions(options);validateAttributes(surface);this.surface=snapshotSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
-    this.history=Object.freeze([...(options.history??[])]);this.transfers=Object.freeze({...options.transfers});Object.freeze(this);
+    this.history=Object.freeze([...(options.history??[])]);this.transfers=Object.freeze({...options.transfers});this.cornerTransfers=Object.freeze({...options.cornerTransfers});Object.freeze(this);
   }
-  get points():MeshPoints<P,E,F>{return meshPoints(this);}
-  get edges():MeshEdges<P,E,F>{return meshEdges(this);}
-  faces():MeshFaces<P,E,F>{return meshFaces(this);}
-  attributes<A extends Attributes3>(fields:AttributeFields<MeshPointRow<P,E,F>,A>,options:AttributeOptions={}):Mesh<Omit<P,keyof A>&A,E,F>{
+  get points():MeshPoints<P,E,F,C>{return meshPoints(this);}
+  get edges():MeshEdges<P,E,F,C>{return meshEdges(this);}
+  get corners():MeshCorners<P,E,F,C>{return meshCorners(this);}
+  faces():MeshFaces<P,E,F,C>{return meshFaces(this);}
+  attributes<A extends Attributes3>(fields:AttributeFields<MeshPointRow<P,E,F,C>,A>,options:AttributeOptions={}):Mesh<Omit<P,keyof A>&A,E,F,C>{
     const transfers=pointTransfers(this.transfers,fields,options);
-    return new Mesh<Omit<P,keyof A>&A,E,F>(setPointFields(this.surface,fields,[...this.points]),{...this,history:[],transfers});
+    return new Mesh<Omit<P,keyof A>&A,E,F,C>(setPointFields(this.surface,fields,[...this.points]),{...this,history:[],transfers});
   }
-  edgeAttributes<A extends Attributes3>(fields:AttributeFields<MeshEdgeRow<E,P,F>,A>):Mesh<P,Omit<E,keyof A>&A,F>{
+  edgeAttributes<A extends Attributes3>(fields:AttributeFields<MeshEdgeRow<E,P,F,C>,A>):Mesh<P,Omit<E,keyof A>&A,F,C>{
     const values=captureAttributeFields([...this.edges],fields),surface=cloneSurface3(this.surface);
     surface.edges.forEach((edge,i)=>Object.assign(edge.attributes,values[i]));
-    return new Mesh<P,Omit<E,keyof A>&A,F>(surface,{...this,history:[]});
+    return new Mesh<P,Omit<E,keyof A>&A,F,C>(surface,{...this,history:[]});
   }
-  attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshPointRow<P,E,F>,Value>,options:{transfer?:'interpolate'|'nearest'}={}):Mesh<Omit<P,Name>&Record<Name,Value>,E,F>{
-    return new Mesh<Omit<P,Name>&Record<Name,Value>,E,F>(setPoints(this.surface,name,field,[...this.points]),{...this,history:[],transfers:{...this.transfers,[name]:options.transfer??this.transfers[name]??'interpolate'}});
+  attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshPointRow<P,E,F,C>,Value>,options:{transfer?:'interpolate'|'nearest'}={}):Mesh<Omit<P,Name>&Record<Name,Value>,E,F,C>{
+    return new Mesh<Omit<P,Name>&Record<Name,Value>,E,F,C>(setPoints(this.surface,name,field,[...this.points]),{...this,history:[],transfers:pointTransfers(this.transfers,{[name]:field},{transfer:{[name]:options.transfer??this.transfers[name]??'interpolate'}})});
   }
-  edgeAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshEdgeRow<E,P,F>,Value>):Mesh<P,Omit<E,Name>&Record<Name,Value>,F>{
+  edgeAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshEdgeRow<E,P,F,C>,Value>):Mesh<P,Omit<E,Name>&Record<Name,Value>,F,C>{
     attributeName(name);const values=this.edges.map(row=>attributeValue(evaluate(field,row))),surface=cloneSurface3(this.surface);
-    surface.edges.forEach((e,i)=>e.attributes[name]=values[i]);return new Mesh<P,Omit<E,Name>&Record<Name,Value>,F>(surface,{...this,history:[]});
+    surface.edges.forEach((e,i)=>e.attributes[name]=values[i]);return new Mesh<P,Omit<E,Name>&Record<Name,Value>,F,C>(surface,{...this,history:[]});
   }
-  faceAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshFaceRow<F,P,E>,Value>):Mesh<P,E,Omit<F,Name>&Record<Name,Value>>{
+  faceAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshFaceRow<F,P,E,C>,Value>):Mesh<P,E,Omit<F,Name>&Record<Name,Value>,C>{
     attributeName(name);const values=this.faces().map(row=>attributeValue(evaluate(field,row))),surface=cloneSurface3(this.surface);
-    surface.faces.forEach((f,i)=>f.attributes[name]=values[i]);return new Mesh<P,E,Omit<F,Name>&Record<Name,Value>>(surface,{...this,history:[]});
+    surface.faces.forEach((f,i)=>f.attributes[name]=values[i]);return new Mesh<P,E,Omit<F,Name>&Record<Name,Value>,C>(surface,{...this,history:[]});
   }
-  faceAttributes<A extends Attributes3>(field:(row:MeshFaceRow<F,P,E>)=>A):Mesh<P,E,Omit<F,keyof A>&A>;
-  faceAttributes<A extends Attributes3>(fields:AttributeFields<MeshFaceRow<F,P,E>,A>):Mesh<P,E,Omit<F,keyof A>&A>;
-  faceAttributes<A extends Attributes3>(fields:AttributeFields<MeshFaceRow<F,P,E>,A>|((row:MeshFaceRow<F,P,E>)=>A)):Mesh<P,E,Omit<F,keyof A>&A>{
+  faceAttributes<A extends Attributes3>(field:(row:MeshFaceRow<F,P,E,C>)=>A):Mesh<P,E,Omit<F,keyof A>&A,C>;
+  faceAttributes<A extends Attributes3>(fields:AttributeFields<MeshFaceRow<F,P,E,C>,A>):Mesh<P,E,Omit<F,keyof A>&A,C>;
+  faceAttributes<A extends Attributes3>(fields:AttributeFields<MeshFaceRow<F,P,E,C>,A>|((row:MeshFaceRow<F,P,E,C>)=>A)):Mesh<P,E,Omit<F,keyof A>&A,C>{
     const rows=[...this.faces()],values=typeof fields==='function'?rows.map(fields):captureAttributeFields(rows,fields),surface=cloneSurface3(this.surface);
     values.forEach((attrs,i)=>{attributeRecord(attrs);for(const [name,value] of Object.entries(attrs)){attributeName(name);surface.faces[i].attributes[name]=attributeValue(value);}});
-    return new Mesh<P,E,Omit<F,keyof A>&A>(surface,{...this,history:[]});
+    return new Mesh<P,E,Omit<F,keyof A>&A,C>(surface,{...this,history:[]});
   }
-  subdivide(levels=1,options:SubdivisionOptions={}):Mesh<P,Partial<E>,F>{return new Mesh<P,Partial<E>,F>(subdivideSurface(this.surface,levels,options,this.transfers),{...this,history:[]});}
-  displace(field:Field<MeshPointRow<P,E,F>,Vec3>):Mesh<P,E,F>{return new Mesh(displaced(this.surface,field,[...this.points]),{...this,history:[]});}
-  translate(offset:Vec3):Mesh<P,E,F>{return new Mesh(transformSurface3(this.surface,{translate:offset}),{...this,history:[]});}
-  rotate(angles:RotationInput,origin:Vec3=[0,0,0]):Mesh<P,E,F>{return new Mesh(transformSurface3(this.surface,{rotate:angles,origin}),{...this,history:[]});}
-  scale(scale:number|Vec3,origin:Vec3=[0,0,0]):Mesh<P,E,F>{return new Mesh(transformSurface3(this.surface,{scale:typeof scale==='number'?[scale,scale,scale]:scale,origin}),{...this,history:[]});}
-  withKey(key:string):Mesh<P,E,F>{return new Mesh(this.surface,{...this,key});}
-  steps(count:number,rule:MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>>,...passesAndOptions:(MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>>|StepsOptions)[]):Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>>{
+  cornerAttributes<A extends Attributes3>(fields:AttributeFields<MeshCornerRow<C,P,E,F>,A>,options:AttributeOptions={}):Mesh<P,E,F,Omit<C,keyof A>&A>{
+    const values=captureAttributeFields([...this.corners],fields),surface=cloneSurface3(this.surface);let i=0;
+    for(const face of surface.faces)for(const corner of face.corners!)Object.assign(corner.attributes,values[i++]);
+    return new Mesh<P,E,F,Omit<C,keyof A>&A>(surface,{...this,history:[],cornerTransfers:pointTransfers(this.cornerTransfers,fields,options)});
+  }
+  cornerAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshCornerRow<C,P,E,F>,Value>,options:{transfer?:'interpolate'|'nearest'}={}):Mesh<P,E,F,Omit<C,Name>&Record<Name,Value>>{
+    attributeName(name);const values=this.corners.map(c=>attributeValue(evaluate(field,c))),surface=cloneSurface3(this.surface);let i=0;
+    for(const face of surface.faces)for(const corner of face.corners!)corner.attributes[name]=values[i++];
+    return new Mesh<P,E,F,Omit<C,Name>&Record<Name,Value>>(surface,{...this,history:[],cornerTransfers:pointTransfers(this.cornerTransfers,{[name]:field},{transfer:{[name]:options.transfer??this.cornerTransfers[name]??'interpolate'}})});
+  }
+  subdivide(levels=1,options:SubdivisionOptions={}):Mesh<P,Partial<E>,F,C>{return new Mesh<P,Partial<E>,F,C>(subdivideSurface(this.surface,levels,options,this.transfers,this.cornerTransfers),{...this,history:[]});}
+  displace(field:Field<MeshPointRow<P,E,F,C>,Vec3>):Mesh<P,E,F,C>{return new Mesh(displaced(this.surface,field,[...this.points]),{...this,history:[]});}
+  translate(offset:Vec3):Mesh<P,E,F,C>{return new Mesh(transformSurface3(this.surface,{translate:offset}),{...this,history:[]});}
+  rotate(angles:RotationInput,origin:Vec3=[0,0,0]):Mesh<P,E,F,C>{return new Mesh(transformSurface3(this.surface,{rotate:angles,origin}),{...this,history:[]});}
+  scale(scale:number|Vec3,origin:Vec3=[0,0,0]):Mesh<P,E,F,C>{return new Mesh(transformSurface3(this.surface,{scale:typeof scale==='number'?[scale,scale,scale]:scale,origin}),{...this,history:[]});}
+  withKey(key:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,key});}
+  steps(count:number,rule:MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>,...passesAndOptions:(MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepsOptions)[]):Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>{
     if(!Number.isSafeInteger(count)||count<0)throw new Error('steps count must be a nonnegative integer');
     const last=passesAndOptions.at(-1),options=typeof last==='object'?last:{},every=options.every??0;
     if(!Number.isSafeInteger(every)||every<0)throw new Error('steps history interval must be a nonnegative integer');
-    const passes=[rule,...passesAndOptions.filter((p):p is MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>>=>typeof p==='function')];
-    let current=new Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>>(this.surface,{...this,history:[]});const history:MeshSnapshot<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>>[]=[];
+    const passes=[rule,...passesAndOptions.filter((p):p is MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>=>typeof p==='function')];
+    let current=new Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>(this.surface,{...this,history:[]});const history:MeshSnapshot<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>[]=[];
     if(every)history.push(Object.freeze({iteration:current.iteration,geometry:current}));
     for(let k=0;k<count;k++){
       for(const pass of passes){const edit=new MeshEdit(current);try{const result:unknown=pass(current,edit,k);if(result&&typeof (result as PromiseLike<unknown>).then==='function'){void Promise.resolve(result).catch(()=>{});throw new Error('mesh steps callbacks must be synchronous');}current=edit.finish(this.iteration+k+1);}finally{edit.close();}}
@@ -286,17 +298,19 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
 }
 
 /** An editor is valid only during its frozen pass; all reads use its input. */
-export class MeshEdit<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3> {
+export class MeshEdit<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3={}> {
   private active=true;
   private readonly points:SurfacePoint3[];
   private readonly edgeAttributes:Attributes3[];
   private readonly faceAttributes:Attributes3[];
-  constructor(private readonly input:Mesh<P,E,F>){
+  private readonly cornerAttributes:Attributes3[];
+  constructor(private readonly input:Mesh<P,E,F,C>){
     this.points=input.surface.points.map(p=>({...p,position:[...p.position] as Vec3,attributes:structuredClone(p.attributes)}));
     this.edgeAttributes=input.surface.edges.map(e=>structuredClone(e.attributes));
     this.faceAttributes=input.surface.faces.map(f=>structuredClone(f.attributes));
+    this.cornerAttributes=input.surface.faces.flatMap(f=>f.corners!.map(c=>structuredClone(c.attributes)));
   }
-  private check<R extends {id:string;index:number}>(selection:Collection<R,unknown>,domain:'point'|'edge'|'face'):void {
+  private check<R extends {id:string;index:number}>(selection:Collection<R,unknown>,domain:'point'|'edge'|'face'|'corner'):void {
     if(!this.active)throw new Error('mesh editor is closed');
     if(!(selection instanceof Collection)||selection.domain!==domain||selection.source!==this.input.surface)throw new Error(`${domain} selection belongs to another mesh revision or domain; select from the current geometry`);
   }
@@ -305,7 +319,7 @@ export class MeshEdit<P extends Attributes3,E extends EdgeAttributes,F extends A
     if(!rows.has(row))throw new Error('edit row belongs to another mesh revision');
     return rows.filter(r=>r.index===row.index);
   }
-  private write<R extends {id:string;index:number;attributes:Readonly<Record<string,Attribute3|undefined>>}>(selection:Collection<R,unknown>,field:Field<R,object>,target:Attributes3[],domain:'point'|'edge'|'face'):void {
+  private write<R extends {id:string;index:number;attributes:Readonly<Record<string,Attribute3|undefined>>}>(selection:Collection<R,unknown>,field:Field<R,object>,target:Attributes3[],domain:'point'|'edge'|'face'|'corner'):void {
     this.check(selection,domain);
     // Capture/validate the whole operation before publishing any of its writes.
     const patches=selection.map(row=>{
@@ -332,9 +346,12 @@ export class MeshEdit<P extends Attributes3,E extends EdgeAttributes,F extends A
   setEdges<R extends EdgeRow<E,P>>(selection:Collection<R,unknown>,field:Field<R,Partial<E>>):void{this.write(selection,field,this.edgeAttributes,'edge');}
   setFace(row:FaceRow<F>,attributes:Partial<F>):void{this.setFaces(this.single(this.input.faces(),row),attributes);}
   setFaces<R extends FaceRow<F>>(selection:Collection<R,unknown>,field:Field<R,Partial<F>>):void{this.write(selection,field,this.faceAttributes,'face');}
-  finish(iteration:number):Mesh<P,E,F>{
+  setCorner(row:CornerRow<C>,attributes:Partial<C>):void{this.setCorners(this.single(this.input.corners,row),attributes);}
+  setCorners<R extends CornerRow<C>>(selection:Collection<R,unknown>,field:Field<R,Partial<C>>):void{this.write(selection,field,this.cornerAttributes,'corner');}
+  finish(iteration:number):Mesh<P,E,F,C>{
     if(!this.active)throw new Error('mesh editor is closed');this.active=false;
-    const faces=this.input.surface.faces.map((face,i)=>({...face,attributes:this.faceAttributes[i]}));
+    let corner=0;
+    const faces=this.input.surface.faces.map((face,i)=>({...face,corners:face.corners!.map(c=>({...c,attributes:this.cornerAttributes[corner++]})),attributes:this.faceAttributes[i]}));
     const previous={...this.input.surface,edges:this.input.surface.edges.map((edge,i)=>({...edge,attributes:this.edgeAttributes[i]}))};
     inheritTopology3(previous,this.input.surface);
     return new Mesh(assembleSurface3(this.points,faces,this.input.surface.triangles,previous),{...this.input,iteration,history:[]});
@@ -364,9 +381,9 @@ function validateImportedSurface(surface:Surface3):void {
     if([...edges.values()].some(n=>n!==0))throw new Error('mesh import triangulation does not match its polygon boundary');
   });
 }
-export function mesh(source:Surface3,options?:GeometryOptions):Mesh<Attributes3,Attributes3,Attributes3>;
+export function mesh(source:Surface3,options?:GeometryOptions):Mesh<Attributes3,Attributes3,Attributes3,Attributes3>;
 export function mesh(positions:readonly Vec3[],faces:readonly (readonly number[])[],options?:GeometryOptions):Mesh;
-export function mesh(source:Surface3|readonly Vec3[],facesOrOptions:readonly (readonly number[])[]|GeometryOptions={},options:GeometryOptions={}):Mesh<any,any,any>{
+export function mesh(source:Surface3|readonly Vec3[],facesOrOptions:readonly (readonly number[])[]|GeometryOptions={},options:GeometryOptions={}):Mesh<any,any,any,any>{
   if(Array.isArray(source)){
     if(!Array.isArray(facesOrOptions))throw new Error('mesh positions require polygon index arrays');
     return new Mesh(surface3(source,facesOrOptions),options);

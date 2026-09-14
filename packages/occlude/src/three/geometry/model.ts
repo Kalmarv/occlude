@@ -56,7 +56,7 @@ export function extrudeFaces3(surface:Surface3,selection:FaceSelection3,distance
     if(d===undefined){add({...f},byFace[i].map(t=>t.vertices),i);return;}
     const mapping=new Map<number,number>();capPoints.set(i,mapping);
     for(const v of f.vertices){mapping.set(v,points.length);const p=surface.points[v];points.push({id:id(f.id,'point',p.id),position:add3(p.position,mul3(measures[i].normal,d)),attributes:{...structuredClone(p.attributes),parentPoint:p.id}});}
-    add({id:id(f.id,'cap'),vertices:f.vertices.map(v=>mapping.get(v)!),attributes:{...structuredClone(f.attributes),parentFace:f.id,role:'cap'}},byFace[i].map(t=>t.vertices.map(v=>mapping.get(v)!) as [number,number,number]),i);
+    add({id:id(f.id,'cap'),vertices:f.vertices.map(v=>mapping.get(v)!),corners:f.corners?.map(c=>({...c,id:id(f.id,'corner',c.id),provenance:{operation:'extrude',parents:[c.id]}})),attributes:{...structuredClone(f.attributes),parentFace:f.id,role:'cap'}},byFace[i].map(t=>t.vertices.map(v=>mapping.get(v)!) as [number,number,number]),i);
     f.vertices.forEach((a,j)=>{const b=f.vertices[(j+1)%f.vertices.length],c=mapping.get(b)!,e=mapping.get(a)!;add({id:id(f.id,'side',j),vertices:[a,b,c,e],attributes:{...structuredClone(f.attributes),parentFace:f.id,role:'side'}},[[a,b,c],[a,c,e]],i);});
   });
   const result=assembleSurface3(points,faces,triangles,surface);
@@ -74,7 +74,7 @@ export function transformSurface3(surface:Surface3,options:{translate?:Vec3;rota
   const translate=options.translate??[0,0,0],rotate=options.rotate??[0,0,0],scale=options.scale??[1,1,1],origin=options.origin??[0,0,0];[translate,scale,origin].forEach(finite3);rotation3(rotate);if(scale.some(v=>v===0))throw new Error('surface scale must be nonsingular');
   const points=surface.points.map(p=>{const v=rotateVector3(sub3(p.position,origin).map((n,i)=>n*scale[i]) as unknown as Vec3,rotate);return {...p,position:add3(add3(v,origin),translate)};});
   const mirrored=scale[0]*scale[1]*scale[2]<0;
-  return assembleSurface3(points,surface.faces.map(f=>({...f,vertices:mirrored?[...f.vertices].reverse():f.vertices})),surface.triangles.map(t=>({...t,vertices:mirrored?[t.vertices[0],t.vertices[2],t.vertices[1]]:t.vertices})),surface);
+  return assembleSurface3(points,surface.faces.map(f=>({...f,vertices:mirrored?[...f.vertices].reverse():f.vertices,corners:mirrored?f.corners&&[...f.corners].reverse():f.corners})),surface.triangles.map(t=>({...t,vertices:mirrored?[t.vertices[0],t.vertices[2],t.vertices[1]]:t.vertices})),surface);
 }
 
 const capturedSurfaces3=new WeakSet<Surface3>();
@@ -86,7 +86,7 @@ export function snapshotSurface3(surface:Surface3):Surface3 {
   const snapshot=cloneSurface3(surface);
   const freeze=(value:unknown):void=>{if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const child of Object.values(value))freeze(child);Object.freeze(value);}};
   // Array containers are already frozen by assembly; recurse through rows.
-  for(const p of snapshot.points){freeze(p.position);freeze(p.attributes);freeze(p);}for(const f of snapshot.faces){freeze(f.attributes);freeze(f);}for(const e of snapshot.edges){freeze(e.attributes);freeze(e);}
+  for(const p of snapshot.points){freeze(p.position);freeze(p.attributes);freeze(p);}for(const f of snapshot.faces){freeze(f.attributes);for(const c of f.corners??[]){freeze(c.attributes);freeze(c);}freeze(f);}for(const e of snapshot.edges){freeze(e.attributes);freeze(e);}
   capturedSurfaces3.add(snapshot);sealTopology3(snapshot);
   return Object.freeze(snapshot);
 }

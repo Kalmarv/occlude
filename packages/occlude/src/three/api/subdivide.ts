@@ -1,6 +1,6 @@
 import { identity } from './identity.js';
 import { orient2d, orient3d } from 'robust-predicates';
-import { assembleSurface3, type Attributes3, type Surface3, type SurfacePoint3, type SurfaceFace3, type SurfaceTriangle3 } from '../geometry/surface.js';
+import { assembleSurface3, type Attributes3, type Surface3, type SurfacePoint3, type SurfaceFace3, type SurfaceTriangle3, type SurfaceCorner3 } from '../geometry/surface.js';
 import { cross3, sub3, type Vec3 } from '../math.js';
 
 export interface SubdivisionOptions {
@@ -13,7 +13,7 @@ const pair = (a: number, b: number) => a < b ? `${a}:${b}` : `${b}:${a}`;
 /** Continuous numeric columns interpolate; categorical columns use the first
  * source in canonical point-ID order. Explicit nearest also protects numeric
  * labels. Missing columns remain missing rather than acquiring fake zeros. */
-function interpolate(rows: readonly SurfacePoint3[], transfers: PointTransfers): Attributes3 {
+function interpolate(rows: readonly Pick<SurfacePoint3,'id'|'attributes'>[], transfers: PointTransfers): Attributes3 {
   const ordered = [...rows].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0), out: Attributes3 = {};
   for (const name of Object.keys(ordered[0].attributes)) {
     if (!ordered.every(p=>Object.hasOwn(p.attributes,name))) continue;
@@ -27,6 +27,23 @@ function interpolate(rows: readonly SurfacePoint3[], transfers: PointTransfers):
   return out;
 }
 
+/** A center split must not cross a discontinuity in a piecewise-affine corner
+ * field. Non-affine chart quads refine their fixed source triangles instead. */
+function affineCorners(face:SurfaceFace3,xy:readonly (readonly [number,number])[]):boolean {
+  if(!face.corners)return true;
+  const names=new Set(face.corners.flatMap(c=>Object.keys(c.attributes)));
+  for(const name of names){
+    const values=face.corners.map(c=>c.attributes[name]);
+    if(values.some(v=>v===undefined))return false;
+    const columns=values.every(v=>typeof v==='number')?[values as number[]]:values.every(v=>Array.isArray(v)&&v.length===(values[0] as number[]).length)?(values[0] as number[]).map((_,k)=>values.map(v=>(v as number[])[k])):[];
+    for(const column of columns){
+      const positions=xy.map((p,i)=>[p[0],p[1],column[i]] as Vec3);
+      if(orient3d(...positions[0],...positions[1],...positions[2],...positions[3])!==0)return false;
+    }
+  }
+  return true;
+}
+
 /** Only convex, exactly planar quads have a center split. Other polygons use
  * their existing validated triangulation, preserving even folded faces. */
 function isQuad(surface: Surface3, face: SurfaceFace3): boolean {
@@ -37,10 +54,10 @@ function isQuad(surface: Surface3, face: SurfaceFace3): boolean {
   const axis=n.map(Math.abs).indexOf(Math.max(...n.map(Math.abs)));
   const xy=p.map(v=>v.filter((_,i)=>i!==axis) as [number,number]);
   const turns=xy.map((_,i)=>Math.sign(orient2d(...xy[i],...xy[(i+1)%4],...xy[(i+2)%4])));
-  return turns[0]!==0 && turns.every(v=>v===turns[0]);
+  return turns[0]!==0 && turns.every(v=>v===turns[0]) && affineCorners(face,xy);
 }
 
-export function subdivideSurface(surface: Surface3, levels=1, options: SubdivisionOptions={}, transfers: PointTransfers={}): Surface3 {
+export function subdivideSurface(surface: Surface3, levels=1, options: SubdivisionOptions={}, transfers: PointTransfers={}, cornerTransfers:PointTransfers={}): Surface3 {
   const maxFaces=options.maxFaces??250_000, maxPoints=options.maxPoints??500_000;
   if (!Number.isSafeInteger(levels)||levels<0) throw new Error('subdivide levels must be a nonnegative integer');
   if (![maxFaces,maxPoints].every(n=>Number.isSafeInteger(n)&&n>0)) throw new Error('subdivide budgets must be positive integers');
@@ -58,19 +75,21 @@ export function subdivideSurface(surface: Surface3, levels=1, options: Subdivisi
     points += 5*faces; faces *= 4;
   }
   let current=surface;
-  for(let level=0;level<levels;level++) current=refine(current,transfers);
+  for(let level=0;level<levels;level++) current=refine(current,transfers,cornerTransfers,maxPoints,maxFaces);
   return current;
 }
 
-function refine(surface: Surface3, transfers: PointTransfers): Surface3 {
+function refine(surface: Surface3, transfers: PointTransfers, cornerTransfers:PointTransfers, maxPoints:number, maxFaces:number): Surface3 {
   const points: SurfacePoint3[]=surface.points.map(p=>({...p}));
   const faces: SurfaceFace3[]=[], triangles: SurfaceTriangle3[]=[];
+  const contributors=new Map<number,readonly number[]>();
   const midpoints=new Map<string,number>(), children=new Map<string,Surface3['edges'][number]>();
   const originals=new Map(surface.edges.map(e=>[pair(...e.vertices),e]));
   const center=(vertices:readonly number[], id:string):number=>{
+    if(points.length>=maxPoints)throw new Error(`subdivide exceeds point budget (${maxPoints})`);
     const rows=vertices.map(v=>surface.points[v]);
     const position=[0,1,2].map(k=>rows.reduce((sum,p)=>sum+p.position[k]/rows.length,0)) as unknown as Vec3;
-    const index=points.length; points.push({id,position,provenance:{operation:'subdivide',parents:rows.map(p=>p.id)},attributes:interpolate(rows,transfers)});return index;
+    const index=points.length;contributors.set(index,vertices); points.push({id,position,provenance:{operation:'subdivide',parents:rows.map(p=>p.id)},attributes:interpolate(rows,transfers)});return index;
   };
   const midpoint=(a:number,b:number):number=>{
     const key=pair(a,b),found=midpoints.get(key);if(found!==undefined)return found;
@@ -80,7 +99,16 @@ function refine(surface: Surface3, transfers: PointTransfers): Surface3 {
     return index;
   };
   const add=(parent:SurfaceFace3,vertices:number[],part:number)=>{
-    const face=faces.length;faces.push({id:identity('face',parent.id,part),vertices,provenance:{operation:'subdivide',parents:[parent.id]},attributes:structuredClone(parent.attributes)});
+    if(faces.length>=maxFaces)throw new Error(`subdivide exceeds face budget (${maxFaces})`);
+    const face=faces.length,faceId=identity('face',parent.id,part);
+    const corners:SurfaceCorner3[]=vertices.map(v=>{
+      const source=(contributors.get(v)??[v]).map(point=>{
+        const local=parent.vertices.indexOf(point);if(local<0)throw new Error('subdivision corner source is outside its parent polygon');
+        return parent.corners?.[local]??{id:JSON.stringify(['corner',parent.id,surface.points[point].id]),attributes:{}};
+      });
+      return {id:identity('corner',faceId,points[v].id),attributes:interpolate(source,cornerTransfers),provenance:{operation:'subdivide',parents:source.map(c=>c.id)}};
+    });
+    faces.push({id:faceId,vertices,corners,provenance:{operation:'subdivide',parents:[parent.id]},attributes:structuredClone(parent.attributes)});
     triangles.push({face,vertices:[vertices[0],vertices[1],vertices[2]]});
     if(vertices.length===4)triangles.push({face,vertices:[vertices[0],vertices[2],vertices[3]]});
   };

@@ -6,7 +6,9 @@ export type Attribute3 = number | string | boolean | readonly number[];
 export type Attributes3 = Record<string, Attribute3>;
 export interface Provenance3 { readonly operation: string; readonly parents: readonly string[] }
 export interface SurfacePoint3 { readonly provenance?: Provenance3; readonly id: string; position: Vec3; attributes: Attributes3 }
-export interface SurfaceFace3 { readonly provenance?: Provenance3; readonly id: string; readonly vertices: readonly number[]; attributes: Attributes3 }
+/** One corner per polygon vertex, in the polygon's winding order. */
+export interface SurfaceCorner3 { readonly id:string; readonly provenance?:Provenance3; attributes:Attributes3 }
+export interface SurfaceFace3 { readonly provenance?: Provenance3; readonly id: string; readonly vertices: readonly number[]; readonly corners?:readonly SurfaceCorner3[]; attributes: Attributes3 }
 export interface SurfaceEdge3 { readonly provenance?: Provenance3; readonly id: string; readonly vertices: readonly [number, number]; readonly faces: readonly number[]; attributes: Attributes3 }
 export interface SurfaceTriangle3 { readonly vertices: readonly [number, number, number]; readonly face: number }
 /** Polygon topology and its fixed triangulation are separate. Positions and
@@ -90,8 +92,23 @@ export function assembleSurface3(points: readonly SurfacePoint3[], faces: readon
       if(!edges.has(key))edges.set(key,{vertices:[a,b],faces:[],forward:a});
     }
   }
+  const previousFaces=new Map(previous?.faces.map(f=>[f.id,f]));
+  const cornerIds=new Set<string>();
+  const cornerRows=faces.map(face=>{
+    if(face.corners&&face.corners.length!==face.vertices.length)throw new Error('face corners must correspond to every polygon vertex');
+    const old=previousFaces.get(face.id),byPoint=new Map(old?.vertices.map((v,i)=>[previous!.points[v].id,old.corners?.[i]]));
+    return Object.freeze(face.vertices.map((v,i)=>{
+      if(face.corners&&!face.corners[i])throw new Error('explicit face corners must contain a record at every vertex');
+      const inherited=face.corners?.[i]??byPoint.get(points[v].id);
+      const corner:SurfaceCorner3=inherited??{id:JSON.stringify(['corner',face.id,points[v].id]),attributes:{}};
+      if(typeof corner.id!=='string'||!corner.id||cornerIds.has(corner.id))throw new Error('surface corner IDs must be nonempty and unique');
+      if(!corner.attributes||typeof corner.attributes!=='object'||Array.isArray(corner.attributes))throw new Error('corner attributes require a record');
+      cornerIds.add(corner.id);
+      return {...corner,attributes:structuredClone(corner.attributes),...(corner.provenance?{provenance:structuredClone(corner.provenance)}:{})};
+    }));
+  });
   const prior=new Map(previous?.edges.map(e=>[JSON.stringify(e.vertices.map(v=>previous.points[v].id).sort()),e]));
-  const result:Surface3={ points: Object.freeze(points.map(p=>({...p,...(p.provenance?{provenance:structuredClone(p.provenance)}:{}),position:[...p.position] as Vec3,attributes:structuredClone(p.attributes)}))), faces: Object.freeze(faces.map(f=>({...f,...(f.provenance?{provenance:structuredClone(f.provenance)}:{}),vertices:Object.freeze([...f.vertices]),attributes:structuredClone(f.attributes)}))), triangles: Object.freeze(triangles.map(t=>Object.freeze({...t,vertices:Object.freeze([...t.vertices]) as readonly [number,number,number]}))), edges: Object.freeze([...edges.values()].map(e => {
+  const result:Surface3={ points: Object.freeze(points.map(p=>({...p,...(p.provenance?{provenance:structuredClone(p.provenance)}:{}),position:[...p.position] as Vec3,attributes:structuredClone(p.attributes)}))), faces: Object.freeze(faces.map((f,i)=>({...f,corners:cornerRows[i],...(f.provenance?{provenance:structuredClone(f.provenance)}:{}),vertices:Object.freeze([...f.vertices]),attributes:structuredClone(f.attributes)}))), triangles: Object.freeze(triangles.map(t=>Object.freeze({...t,vertices:Object.freeze([...t.vertices]) as readonly [number,number,number]}))), edges: Object.freeze([...edges.values()].map(e => {
     const old=prior.get(JSON.stringify(e.vertices.map(v=>points[v].id).sort()));
     return { ...(old?.provenance?{provenance:structuredClone(old.provenance)}:{}), id: old?.id ?? `e:${points[e.vertices[0]].id}:${points[e.vertices[1]].id}`, vertices: Object.freeze(e.vertices), faces: Object.freeze(e.faces), attributes: structuredClone(old?.attributes??{}) };
   })) };

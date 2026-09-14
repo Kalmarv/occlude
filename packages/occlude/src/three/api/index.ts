@@ -1,5 +1,5 @@
 export {mesh,plane,box,pointCloud} from './mesh.js';
-export type {Mesh,PointGeometry,PointEdit,PointRule,PointSnapshot,CurveGeometry,CurveRule,CurveEdit,CurveSnapshot,PointRow,EdgeRow,EdgeAttributes,FaceRow,Field,AttributeFields,AttributeOptions,StepAttributes,GeometryOptions,MeshEdit,MeshRule,StepsOptions,MeshSnapshot} from './mesh.js';
+export type {Mesh,PointGeometry,PointEdit,PointRule,PointSnapshot,CurveGeometry,CurveRule,CurveEdit,CurveSnapshot,PointRow,CornerRow,EdgeRow,EdgeAttributes,FaceRow,Field,AttributeFields,AttributeOptions,StepAttributes,GeometryOptions,MeshEdit,MeshRule,StepsOptions,MeshSnapshot} from './mesh.js';
 export {view,orthographic,perspective} from './view.js';
 export type {ViewOptions,ViewHatch,ViewSection,CameraOptions} from './view.js';
 export type {ProjectedCurve,ProjectedCurves,ProjectedLines,ProjectedStrokeOptions} from './projected.js';
@@ -22,7 +22,7 @@ export {sweep} from './sweep.js';
 export type {SweepOptions} from './sweep.js';
 export type {SurfaceSamples,SurfaceSample,SurfaceSampleRow,SurfaceSamplingOptions,SurfaceScatterOptions,SamplingGeneration} from './sampling.js';
 
-export type {MeshPointRow,MeshEdgeRow,MeshFaceRow,MeshPoints,MeshEdges,MeshFaces} from './topology.js';
+export type {MeshPointRow,MeshEdgeRow,MeshFaceRow,MeshCornerRow,MeshPoints,MeshEdges,MeshFaces,MeshCorners} from './topology.js';
 
 export {axisAngle,alignAxis} from '../rotation.js';
 export type {Rotation,RotationData,RotationInput,AlignAxisOptions,Axis3,Quaternion3,Vector3} from '../rotation.js';

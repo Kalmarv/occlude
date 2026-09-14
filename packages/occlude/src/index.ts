@@ -200,7 +200,7 @@ export { drawing3 } from './three/drawing.js';
 export type { Drawing3 } from './three/drawing.js';
 export type { LineArtScene3, LineArtOptions3, SceneCompute3 } from './three/scene.js';
 export { surface3, box3, pointCloud3 } from './three/geometry/surface.js';
-export type { Surface3, Attributes3 } from './three/geometry/surface.js';
+export type { Surface3, SurfaceCorner3, Attributes3 } from './three/geometry/surface.js';
 export { FeatureKind3 } from './three/features/snapshot.js';
 export type { SurfaceObject3, WireObject3, Feature3 } from './three/features/snapshot.js';
 export type { Camera3, PaperFrame3 } from './three/camera.js';

@@ -109,3 +109,16 @@ The user identified the modulo-based 6x6 instance layout as missing a helper.
 model-space point geometry with typed i/j/k metadata. This reuses the familiar
 cols/rows vocabulary and ordinary point editing/placement, while preserving
 `t.grid` as the existing drawable/paper-cell helper. It has no mesh domains.
+
+## Implemented corner foundation
+
+Corner records now live alongside each polygon's ordered vertex list. Assembly
+canonicalizes missing legacy records; a triangle maps into its source polygon's
+corners. Mesh's fourth generic is the corner schema. `.corners`, field maps and
+frozen `setCorner`/`setCorners` edits preserve actual row ownership and typed
+point/face relations. Mirroring reverses both polygon lists together. Face
+extraction and realization preserve columns/policies; subdivision interpolates
+inside the parent face and refines fixed triangles for non-affine numeric corner
+quads. No cross-seam averaging is implicit. Side transfer in advanced independent
+extrusion, primitive charts and the shared owned-location/curve contract still
+need the subsequent implementation; this is not an M7 completion claim.
