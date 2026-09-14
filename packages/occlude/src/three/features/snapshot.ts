@@ -18,7 +18,7 @@ export interface Feature3 {
   readonly instance?:InstanceSource3;
   /** Captured model-space curve data before camera clipping, when generated. */
   readonly curve?: SurfaceCurveSegment3;
-  /** Camera-space affine source terms, retained through near/far clipping. */
+  /** Camera/world affine source terms, retained through near/far clipping. */
   readonly basis?: SegmentBasis3;
   readonly id: string;
   readonly objectId: string;
@@ -52,6 +52,7 @@ const edgeKey = (a: number, b: number) => a < b ? `${a}:${b}` : `${b}:${a}`;
  * triangle-facing transition is a silhouette and retains face parentage. */
 export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: readonly WireObject3[], frame: CameraFrame3, units:UnitCtx={innerW:frame.paper.width,innerH:frame.paper.height}): FeatureSnapshot3 {
   const features: Feature3[] = [], triangles: Triangle3[] = [], occluders: Occluder3[] = [];
+  const worldView=Object.freeze({perspective:frame.camera.kind==='perspective',eye:frame.camera.eye,target:frame.camera.target,back:frame.back,near:frame.camera.near,far:frame.camera.far});
   const ids = [...objects, ...wires].map(v => v.id);
   if (new Set(ids).size !== ids.length || ids.some(id => !id)) throw new Error('scene object IDs must be nonempty and unique');
   const add = (feature: Omit<Feature3, 'range'>) => {
@@ -62,8 +63,8 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       if (t === 0) return basis[0];
       if (t === 1) return basis[1];
       return Object.freeze([
-        ...basis[0].map(v => Object.freeze({ point: v.point, weight: v.weight * (1-t) })),
-        ...basis[1].map(v => Object.freeze({ point: v.point, weight: v.weight * t })),
+        ...basis[0].map(v => Object.freeze({ ...v, weight: v.weight * (1-t) })),
+        ...basis[1].map(v => Object.freeze({ ...v, weight: v.weight * t })),
       ]);
     };
     features.push(Object.freeze({
@@ -80,7 +81,10 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
   for (const object of objects) {
     if(object.curves)validateSurfaceCurves3(object.curves,object.surface);
     if(object.hatch)validateHatch3(object.hatch,object.surface);
-    const surface = object.transform ? transformSurface3(object.surface, object.transform) : object.surface, positions = surface.points.map(p => toCamera3(frame, p.position));
+    const surface = object.transform ? transformSurface3(object.surface, object.transform) : object.surface;
+    const worldPositions=surface.points.map(p=>Object.freeze([...p.position]) as Vec3);
+    const positions=worldPositions.map(p=>Object.freeze(toCamera3(frame,p)));
+    const edgeBasis=(vertices:readonly [number,number]):SegmentBasis3=>Object.freeze(vertices.map(v=>Object.freeze([Object.freeze({point:positions[v],world:worldPositions[v],weight:1})]))) as SegmentBasis3;
     const faceAttrs = surface.faces.map(f => attributes(f.attributes));
     const faceTriangles: number[][] = surface.faces.map(() => []);
     surface.triangles.forEach((t,i)=>faceTriangles[t.face].push(i));
@@ -95,7 +99,8 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     surface.triangles.forEach((t, i) => {
       const triangle = t.vertices.map(v => positions[v]) as unknown as Triangle3;
       const n = unit3(cross3(sub3(triangle[1], triangle[0]), sub3(triangle[2], triangle[0])));
-      const world = t.vertices.map(v => surface.points[v].position);
+      const world = Object.freeze(t.vertices.map(v => worldPositions[v])) as unknown as Triangle3;
+      const worldVolume=Object.freeze({triangle:world,view:worldView});
       worldNormals.push(unit3(cross3(sub3(world[1], world[0]), sub3(world[2], world[0]))));
       facing.push(frame.camera.kind === 'perspective' ? dot3(n, mul3(triangle[0], -1)) : n[2]);
       const id = key(object.id, surface.faces[t.face].id, ...t.vertices.map(v => surface.points[v].id)); triangleIds.push(id);
@@ -108,7 +113,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
         triangles.push(owned);
         if (object.occluder === false) continue;
         const volume = occlusionVolume3(clipped, frame.camera.kind === 'perspective');
-        if (volume) occluders.push(Object.freeze({ id, triangle: owned, volume, bounds: Object.freeze(projectedBounds3(owned.map(p => toPaper3(frame, p)))) }));
+        if (volume) occluders.push(Object.freeze({ id, triangle: owned, volume:Object.freeze({...volume,world:worldVolume}), bounds: Object.freeze(projectedBounds3(owned.map(p => toPaper3(frame, p)))) }));
       }
     });
     if (object.lineSource === false) continue;
@@ -130,24 +135,27 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       const sourceId = original?.id ?? key('diagonal', surface.faces[surface.triangles[incident[0]].face].id, ...edge.vertices.map(v => surface.points[v].id));
       const flags = (original?.faces.length === 1 ? FeatureKind3.boundary : 0) | (silhouette ? FeatureKind3.silhouette : 0) | (original && angle > 0 ? FeatureKind3.crease : 0) | (original?.attributes.marked === true ? FeatureKind3.marked : 0);
       const support = [...new Set(incident.flatMap(i => { const f=surface.triangles[i].face; return planar[f] ? faceTriangles[f] : [i]; }))].map(i=>triangleIds[i]);
-      add({ ...(object.instance?{instance:Object.freeze({...object.instance})}:{}), id: key(object.id, sourceId), objectId: object.id, sourceId, flags, creaseAngle: angle, a: positions[edge.vertices[0]], b: positions[edge.vertices[1]], endpoints: edge.vertices.map(v => key(object.id, surface.points[v].id)) as [string, string], support, attributes: attributes({ ...object.attributes, ...original?.attributes }), faceAttributes: [...new Set(incident.map(i => surface.triangles[i].face))].map(i => faceAttrs[i]) });
+      add({ ...(object.instance?{instance:Object.freeze({...object.instance})}:{}), id: key(object.id, sourceId), objectId: object.id, sourceId, flags, creaseAngle: angle, a: positions[edge.vertices[0]], b: positions[edge.vertices[1]], basis:edgeBasis(edge.vertices), endpoints: edge.vertices.map(v => key(object.id, surface.points[v].id)) as [string, string], support, attributes: attributes({ ...object.attributes, ...original?.attributes }), faceAttributes: [...new Set(incident.map(i => surface.triangles[i].face))].map(i => faceAttrs[i]) });
     }
     for(const edge of surface.edges){
       if(edge.faces.length)continue;
-      add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),id:key(object.id,edge.id),objectId:object.id,sourceId:edge.id,flags:FeatureKind3.wire,creaseAngle:0,a:positions[edge.vertices[0]],b:positions[edge.vertices[1]],endpoints:edge.vertices.map(v=>key(object.id,surface.points[v].id)) as [string,string],support:[],attributes:attributes({...object.attributes,...edge.attributes}),faceAttributes:[]});
+      add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),id:key(object.id,edge.id),objectId:object.id,sourceId:edge.id,flags:FeatureKind3.wire,creaseAngle:0,a:positions[edge.vertices[0]],b:positions[edge.vertices[1]],basis:edgeBasis(edge.vertices),endpoints:edge.vertices.map(v=>key(object.id,surface.points[v].id)) as [string,string],support:[],attributes:attributes({...object.attributes,...edge.attributes}),faceAttributes:[]});
     }
     const hatch=object.hatch?realizeHatch3(object.hatch,surface,frame,units):undefined;
     if(hatch)validateSurfaceCurves3(hatch,object.surface);
     for(const curve of [...object.curves?.segments??[],...hatch?.segments??[]]) {
       const position=(p:SurfaceCurvePoint3):Vec3=>p.vertices.reduce((sum,v,i)=>sum.map((x,k)=>x+positions[v][k]*p.weights[i]) as unknown as Vec3,[0,0,0] as Vec3);
-      const basis = Object.freeze([curve.a, curve.b].map(p => Object.freeze(p.vertices.flatMap((v,i) => p.weights[i] === 0 ? [] : [Object.freeze({ point: Object.freeze([...positions[v]]) as Vec3, weight: p.weights[i] })])))) as SegmentBasis3;
+      const basis = Object.freeze([curve.a, curve.b].map(p => Object.freeze(p.vertices.flatMap((v,i) => p.weights[i] === 0 ? [] : [Object.freeze({ point: positions[v], world:worldPositions[v], weight: p.weights[i] })])))) as SegmentBasis3;
       const faces=[...new Set(curve.triangles.map(i=>surface.triangles[i].face))];
       const support=[...new Set(curve.triangles.flatMap(i=>{const face=surface.triangles[i].face;return planar[face]?faceTriangles[face]:[i];}))].map(i=>triangleIds[i]);
       add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),id:key(object.id,curve.id),objectId:object.id,sourceId:curve.id,flags:curve.kind==='hatch'?FeatureKind3.hatch:FeatureKind3.section,curve,basis,creaseAngle:0,a:position(curve.a),b:position(curve.b),endpoints:[key(object.id,'curve',curve.a.id),key(object.id,'curve',curve.b.id)],support,attributes:attributes({...object.attributes,...curve.attributes}),faceAttributes:faces.map(i=>faceAttrs[i])});
     }
   }
   for (const wire of wires) for (let i = 0; i + 1 < wire.points.length; i++) {
-    add({ id: key(wire.id, i), objectId: wire.id, sourceId: `segment:${i}`, flags: FeatureKind3.wire, creaseAngle: 0, a: toCamera3(frame, wire.points[i]), b: toCamera3(frame, wire.points[i + 1]), endpoints: [key(wire.id, i), key(wire.id, i + 1)], support: [], attributes: attributes(wire.attributes), faceAttributes: [] });
+    const world=[wire.points[i],wire.points[i+1]].map(p=>Object.freeze([...p]) as Vec3);
+    const positions=world.map(p=>Object.freeze(toCamera3(frame,p)));
+    const basis=Object.freeze(positions.map((point,i)=>Object.freeze([Object.freeze({point,world:world[i],weight:1})]))) as SegmentBasis3;
+    add({ id: key(wire.id, i), objectId: wire.id, sourceId: `segment:${i}`, flags: FeatureKind3.wire, creaseAngle: 0, a: positions[0], b: positions[1], basis, endpoints: [key(wire.id, i), key(wire.id, i + 1)], support: [], attributes: attributes(wire.attributes), faceAttributes: [] });
   }
   return Object.freeze({ frame, features: Object.freeze(features), triangles: Object.freeze(triangles), occluders: Object.freeze(occluders), index: new ProjectedIndex3(occluders.map(t => t.bounds)) });
 }

@@ -66,7 +66,17 @@ export class GpuIntervals3 {
     const tolerance = options.parameterTolerance ?? 1e-5;
     if (!(tolerance > 0) || !Number.isFinite(tolerance)) return Promise.reject(new Error('parameter tolerance must be positive and finite'));
     const timing = new PhaseClock3();
-    const owned = timing.measure('captureMs', () => pairs.map(p => ({ a: [...p.a] as Vec3, b: [...p.b] as Vec3, volume: structuredClone(p.volume), basis: p.basis && structuredClone(p.basis) })));
+    const owned = timing.measure('captureMs', () => {
+      // A scene reuses each source basis/occluder across many candidate pairs.
+      // Own each once per submission, preserving exact-refinement cache keys
+      // while still isolating later caller mutations before the queued work.
+      const volumes=new Map<OcclusionVolume3,OcclusionVolume3>(),bases=new Map<SegmentBasis3,SegmentBasis3>();
+      return pairs.map(p=>{
+        let volume=volumes.get(p.volume);if(!volume){volume=structuredClone(p.volume);volumes.set(p.volume,volume);}
+        let basis=p.basis&&bases.get(p.basis);if(p.basis&&!basis){basis=structuredClone(p.basis);bases.set(p.basis,basis);}
+        return {a:[...p.a] as Vec3,b:[...p.b] as Vec3,volume,basis};
+      });
+    });
     const queued = performance.now();
     const job = this.tail.then(() => { timing.since('queueMs', queued); return this.run(owned, { ...options, parameterTolerance: tolerance }, timing); });
     this.tail = job.catch(() => {});

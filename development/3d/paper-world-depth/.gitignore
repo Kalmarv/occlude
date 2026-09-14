@@ -1,0 +1,12 @@
+/ink/*.mjs
+/after/cpu.json
+/after/gpu/report.json
+/after/oracle.json
+/before/cpu.json
+/before/gpu/report.json
+/ink/after.svg.json
+/ink/after.svg.world.json
+/ink/before.svg.json
+/ink/before.svg.world.json
+/ink/comparison.json
+/served/report.json

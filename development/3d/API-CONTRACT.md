@@ -5,7 +5,8 @@ Implementation contract for `3dapi.md`. The three acceptance examples in
 instanced forms are live in `docs/three.md`; the paper target has dedicated
 evidence in `paper-api/`. Curves, profile construction, surface sampling and
 phase accounting are implemented. See `API-REQUIREMENTS-AUDIT.md` for the
-requirement-by-requirement record and the remaining reported-output question.
+requirement-by-requirement record. The exact reported underside camera is
+resolved with independent world-space visibility evidence in `paper-world-depth/`.
 
 ## Values and domains
 

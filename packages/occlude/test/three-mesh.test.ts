@@ -86,7 +86,7 @@ describe('conservative indexed scene visibility', () => {
     const wires=Array.from({length:12},(_,i)=>({id:`wire${i}`,points:[[-3,Math.sin(i)*2,0],[3,Math.cos(i)*2,2]] as Vec3[]}));
     const snapshot=featureSnapshot3(objects,wires,frame(perspective)), indexed=classifySceneCpu3(snapshot);
     snapshot.features.forEach((feature,i)=>{
-      const hidden=snapshot.occluders.flatMap(o=>{if(feature.support.includes(o.id))return [];const interval=hiddenInterval3(feature.a,feature.b,o.volume);return interval?[interval]:[]});
+      const hidden=snapshot.occluders.flatMap(o=>{if(feature.support.includes(o.id))return [];const interval=hiddenInterval3(feature.a,feature.b,o.volume,feature.basis);return interval?[interval]:[]});
       expect(indexed.features[i].hidden).toEqual(unionIntervals3(hidden));
     });
     expect(indexed.stats.candidates).toBeLessThan(snapshot.features.length*snapshot.occluders.length/2);

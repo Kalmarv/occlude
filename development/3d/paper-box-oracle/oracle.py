@@ -9,8 +9,8 @@ model approximations. Cameras here are outside each box in all three axes.
 """
 from fractions import Fraction as Q
 from pathlib import Path
-import json
-root=Path(__file__).parent
+import json,os
+root=Path(os.environ.get('OCCLUDE_PAPER_FIXTURE',Path(__file__).parent))
 fixture=json.loads((root/'cpu.json').read_text())
 objects={o['id']:o for o in fixture['objects']}
 for o in objects.values():
@@ -60,20 +60,24 @@ def merge(ranges):
 
 reports=[];differences=[]
 for case in fixture['cases']:
-    rows=[]
-    for r in case['features']:
+    rows=[];curves=[]
+    for r in case['features']+case.get('curves',[]):
         f=r['feature'];assert f['range']==[0,1]
-        endpoints=[json.loads(k) for k in f['endpoints']]
-        a,b=[objects[obj]['byId'][point] for obj,point in endpoints]
+        if f.get('curve'):
+            surface=objects[f['objectId']]['surface']
+            a,b=[[sum(Q(w)*Q(surface['points'][v]['position'][k]) for v,w in zip(end['vertices'],end['weights']))/sum(Q(w) for w in end['weights']) for k in range(3)] for end in [f['curve']['a'],f['curve']['b']]]
+        else:
+            endpoints=[json.loads(k) for k in f['endpoints']]
+            a,b=[objects[obj]['byId'][point] for obj,point in endpoints]
         expected=merge([hidden(a,b,o['bounds'],case['camera']) for o in objects.values()])
         # Endpoint error is reported separately from different interval topology.
         approx=[[float(x) for x in span] for span in expected]
         actual=r['hidden']
         error=max([abs(v-actual[i][k]) for i,span in enumerate(approx) for k,v in enumerate(span)],default=0) if len(approx)==len(actual) else None
         row={'id':f['id'],'world':[list(map(float,a)),list(map(float,b))],'expectedHidden':approx,'actualHidden':actual,'actualVisible':r['visible'],'endpointError':error,'bottom':all(p[2]==Q(objects[f['objectId']]['bounds'][2][0]) for p in [a,b])}
-        rows.append(row)
+        (curves if f.get('curve') else rows).append(row)
         if error is None or error>1e-12:differences.append({'case':case['index'],**row})
-    reports.append({'case':case['index'],'camera':case['camera'],'edges':rows})
-result={'cases':reports,'differences':differences,'comparedEdges':sum(len(c['edges']) for c in reports)}
-(root/'oracle.json').write_text(json.dumps(result,indent=2)+'\n')
-print(json.dumps({'comparedEdges':result['comparedEdges'],'differences':differences},indent=2))
+    reports.append({'case':case['index'],'camera':case['camera'],'edges':rows,'curves':curves})
+result={'cases':reports,'differences':differences,'comparedEdges':sum(len(c['edges']) for c in reports),'comparedCurves':sum(len(c['curves']) for c in reports)}
+(root/'oracle.json').write_text(json.dumps(result,separators=(',',':'))+'\n')
+print(json.dumps({'comparedEdges':result['comparedEdges'],'comparedCurves':result['comparedCurves'],'differenceCount':len(differences)},indent=2))

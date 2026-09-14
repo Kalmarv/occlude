@@ -1,13 +1,19 @@
+import {hiddenWorldInterval3,type WorldOcclusion3} from './worldInterval.js';
 import { orient2d, orient3d } from 'robust-predicates';
 import { cross3, dot3, mul3, sub3, type Triangle3, type Vec3 } from '../math.js';
 /** Source interpolation is kept symbolic until the halfspace evaluation, so
  * rounding a reconstructed point cannot detach it from its supporting edge. */
-export type AffinePoint3 = readonly { readonly point: Vec3; readonly weight: number }[];
+export type AffinePoint3 = readonly { readonly point: Vec3; readonly world?: Vec3; readonly weight: number }[];
 export type SegmentBasis3 = readonly [AffinePoint3, AffinePoint3];
 export type Interval3 = readonly [number, number];
 /** Interior is n·p + w >= 0. The last plane is strictly behind the surface. */
 export type Plane3 = readonly [number, number, number, number];
-export interface OcclusionVolume3 { readonly planes: readonly Plane3[]; readonly triangle?: Triangle3; readonly perspective?: boolean }
+export interface OcclusionVolume3 {
+  readonly planes: readonly Plane3[]; readonly triangle?: Triangle3; readonly perspective?: boolean;
+  /** Original world geometry, before camera transformation or triangle clipping.
+   * Camera-space rounding must not reverse nearly coplanar surface depth. */
+  readonly world?: WorldOcclusion3;
+}
 
 /** Camera-space shadow cone/prism, independent of winding. Degenerate or edge-on
  * triangles have zero occluding area and yield no volume. */
@@ -38,6 +44,7 @@ export function occlusionVolume3(triangle: Triangle3, perspective: boolean): Occ
 /** f64 reference. Exact support is excluded by provenance before this call;
  * coplanar distinct geometry does not obscure ink on the same plane. */
 export function hiddenInterval3(a: Vec3, b: Vec3, volume: OcclusionVolume3, basis?: SegmentBasis3): Interval3 | null {
+  if(volume.world&&basis?.every(terms=>terms.every(term=>term.world!==undefined)))return hiddenWorldInterval3(volume.world,basis);
   let lo = 0, hi = 1;
   for (let i = 0; i < volume.planes.length; i++) {
     const p = volume.planes[i];

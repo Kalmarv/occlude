@@ -1,7 +1,8 @@
 # Procedural 3D API implementation progress
 
 Target: `3dapi.md`, starting from 821ea62. The M0–M5 completion record describes
-the earlier API and does not imply this redesign is finished.
+the earlier API. This redesign is now complete within the proposal scope;
+`API-REQUIREMENTS-AUDIT.md` maps every requirement to its evidence.
 
 - Export defect: exact paper-composition store fixture reproduced; affine
   endpoint-incidence fix and negative controls implemented. See
@@ -85,7 +86,7 @@ the earlier API and does not imply this redesign is finished.
 - The separate paper acceptance target passes selective hatch/support and
   hidden-crease inspection, physical mask/clip checks with negative controls,
   orthographic/perspective commit without modeling reruns, and exact portable
-  reopen. See `paper-api/`. This does not resolve the fresh underside report.
+  reopen. See `paper-api/`. The later exact underside camera is covered by the final correction below.
 - Captured hatch arrays with typed per-face spacing/angle/offset fields and
   model-space section planes are implemented in `view`. Default ink routes each
   recipe to its named pen; shared revision ownership is automatic. Five focused
@@ -110,19 +111,26 @@ the earlier API and does not imply this redesign is finished.
   independent plane hits, CPU/GPU interval agreement and unchanged repeated ink.
   All nine Docker gates and nineteen served live examples pass; see
   `phase-accounting/` for measurements and scope.
-- The independent saved-box oracle now compares all 96 mesh edges across four
-  cameras with exact rational world-space ray/box geometry. CPU and served
-  NVIDIA results agree. The saved camera exports no collapsed point paths;
-  underside cameras expose two/three. Exact world-space tracing also finds
-  positive microscopic hatch gaps because the bottoms differ by one floating
-  point rounding amount. An independent paper projection/clip/mask calculation also matches all 23
-  saved-view box-edge fragments to SVG precision, including the bottom notch.
-  No epsilon, coordinate shift or blanket coincident-line suppression was applied. See `paper-box-oracle/`; the fresh report remains
-  open and the failed zero-path assertion is retained honestly.
-- The full requirement audit is in `API-REQUIREMENTS-AUDIT.md`. It distinguishes
-  implemented requirements, authoritative verification, explicit future work
-  and the unresolved fresh output report. The three acceptance targets have
-  focused evidence; completion is not yet claimed.
+- The earlier saved-box oracle correctly checked its own four cameras but did
+  not reproduce the user's later exact camera. The submitted camera exposed
+  wrong depth ordering after camera-space rounding: missing bottom hatch bands
+  and seven incorrect edge intervals. Source capture and exact refinement now
+  retain consistent world geometry. Seven unit regressions cover clipping,
+  mirrored placement and one-ULP front/equal/behind planes. Independent rational
+  ray/box checks match all 96 edges and 1,685 hatch segments on CPU and served
+  NVIDIA GPU, with no incorrectly hidden bottom rows. Nine analytic main Studio
+  GPU probes also pass. All remaining collapsed SVG paths trace to positive
+  microscopic source gaps; no geometric epsilon or coordinate changes were used.
+- The changed forest documentation drawing has a separate exact ray/triangle
+  oracle: 165 samples, 57 old mismatches, zero new mismatches. Only its `three#16`
+  baseline changed deliberately; the other 238 stable examples are unchanged.
+  All nine Docker gates pass and church routing is unchanged. See
+  `paper-world-depth/` for the final correction, served proof and deployment.
+- The full requirement audit is complete in `API-REQUIREMENTS-AUDIT.md`. It
+  separates implemented requirements, authoritative verification and explicit
+  future work. User-noted camera ergonomics, curvature-following hatch,
+  intersection curves and the proposed axis-alignment helper remain recorded.
+  Artistic crease selection is already user controlled with `view.creaseAngle`.
 
 Worker restart/device-loss recovery remains deferred by the user. Use
 Playwright, not ProofShot. Continue in this isolated checkout; production
