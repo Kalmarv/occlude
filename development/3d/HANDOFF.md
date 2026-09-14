@@ -6,7 +6,7 @@ The procedural 3D MVP is implemented in the isolated clone `/home/kalmarv/contai
 
 The isolated dev Studio listens on **0.0.0.0:5273**, used by **https://dev-occlude.ivyhq.xyz**. Local hardware verification uses `http://127.0.0.1:5273`; it does not claim an authenticated Cloudflare session. The service serves the verified built bundle through `server.mjs`, avoiding raw Vite `/@fs` URLs. Production remains separate.
 
-The three demos are importable `.ts` files, **not entries in Studio's example picker**:
+The three demos are installed in the isolated **dev sketch store** as `visibility-laboratory`, `procedural-relief` and `paper-composition`. Refresh Studio’s Sketches page to open them. The paper composition uses the portable bundled version. Their source/export files are also available below:
 
 | Demo | Source | Vector/export evidence |
 | --- | --- | --- |
@@ -14,7 +14,7 @@ The three demos are importable `.ts` files, **not entries in Studio's example pi
 | Procedural relief | [procedural-relief.ts](demos/procedural-relief.ts) | [SVG](playwright-relief/relief.svg): seed selection, extrusion, eight deformation passes, effective ceiling query, attribute hatch and sections. |
 | Imperial paper composition | [paper-composition.ts](demos/paper-composition.ts) | [Portable bundled sketch](playwright-paper-composition/paper-composition.ts), [SVG](playwright-paper-composition/composition.svg): Letter paper, imported model in two colors, one-off pen, labels/mask and committed camera. |
 
-Use **Import** in Studio. For the paper-composition source, use the starter `Letter` paper and `pigma-01-black` model, or import the portable bundled version. Use **3D** to explore; **Commit view** creates the new committed vector result. Exploration alone leaves the exported drawing unchanged. Change the relief seed to see different sites. [Demo instructions](demos/README.md) describe the remaining controls and assertions.
+Open the named sketches from the dev store, or use **Import** for the files. For the unbundled paper-composition source, use the starter `Letter` paper and `pigma-01-black` model, or import the portable bundled version. Use **3D** to explore; **Commit view** creates the new committed vector result. Exploration alone leaves the exported drawing unchanged. Change the relief seed to see different sites. [Demo instructions](demos/README.md) describe the remaining controls and assertions.
 
 ## Implemented API
 

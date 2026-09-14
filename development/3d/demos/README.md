@@ -1,5 +1,7 @@
 # M5 demonstration sketches
 
+All three are now installed in the isolated dev sketch store: `visibility-laboratory`, `procedural-relief`, and `paper-composition` (portable bundled definitions). Refresh Studio’s Sketches page to open them.
+
 Import these `.ts` files into the isolated Studio at `http://localhost:5273` (or its configured tunnel). These are complete sketches using the public library API. Direct Playwright verification uses the actual main Studio and hardware WebGPU; `three.html` is not the UI evidence for these demos.
 
 | Demo | What to try | Verified artifacts |
