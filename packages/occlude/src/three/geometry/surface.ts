@@ -76,6 +76,19 @@ export function assembleSurface3(points: readonly SurfacePoint3[], faces: readon
       } else edges.set(key, { vertices: a < b ? [a, b] : [b, a], faces: [face], forward: a });
     }
   });
+  // Loose edges are authoring topology too. Preserve them through point edits,
+  // snapshots and transforms, remapping by point identity after extraction.
+  if(previous){
+    const indices=new Map(points.map((p,i)=>[p.id,i]));
+    for(const edge of previous.edges){
+      if(edge.faces.length)continue;
+      const [a,b]=edge.vertices.map(v=>indices.get(previous.points[v]?.id));
+      if(a===undefined||b===undefined)continue;
+      if(a===b)throw new Error('loose edge requires distinct point indices');
+      const key=edgeKey(a,b);
+      if(!edges.has(key))edges.set(key,{vertices:[a,b],faces:[],forward:a});
+    }
+  }
   const prior=new Map(previous?.edges.map(e=>[JSON.stringify(e.vertices.map(v=>previous.points[v].id).sort()),e]));
   return { points: Object.freeze(points.map(p=>({...p,...(p.provenance?{provenance:structuredClone(p.provenance)}:{}),position:[...p.position] as Vec3,attributes:structuredClone(p.attributes)}))), faces: Object.freeze(faces.map(f=>({...f,...(f.provenance?{provenance:structuredClone(f.provenance)}:{}),vertices:Object.freeze([...f.vertices]),attributes:structuredClone(f.attributes)}))), triangles: Object.freeze(triangles.map(t=>Object.freeze({...t,vertices:Object.freeze([...t.vertices]) as readonly [number,number,number]}))), edges: Object.freeze([...edges.values()].map(e => {
     const old=prior.get(JSON.stringify(e.vertices.map(v=>points[v].id).sort()));

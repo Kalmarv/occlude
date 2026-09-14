@@ -6,7 +6,7 @@ import {sub3,type Vec3} from '../math.js';
 import {lineArt3} from '../scene.js';
 import {drawing3,type Drawing3} from '../drawing.js';
 import {hatch3} from '../curves/hatch.js';
-import {Mesh,type FaceRow,type EdgeAttributes} from './mesh.js';
+import {Mesh,CurveGeometry,type FaceRow,type EdgeAttributes} from './mesh.js';
 import {Instances} from './instances.js';
 import type {SurfaceObject3} from '../features/snapshot.js';
 import {projectedLines,projectedStrokes,captureValue,type ProjectedLines} from './projected.js';
@@ -28,9 +28,10 @@ export interface ViewOptions<F extends Attributes3=Attributes3> {
 // Heterogeneous meshes intentionally expose an attribute map at this boundary;
 // a single mesh overload preserves its precise face-column types.
 type AnyMesh=Mesh<any,any,any>;
-type ViewGeometry=AnyMesh|Instances<any,any,any,any,any>;
+type ViewGeometry=AnyMesh|CurveGeometry<any,any>|Instances<any,any,any,any,any>;
 export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3>(geometry:Mesh<P,E,F>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,A extends Attributes3,S extends Attributes3>(geometry:Instances<P,E,F,A,S>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
+export function view(geometry:CurveGeometry<any,any>,options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view(geometry:readonly ViewGeometry[],options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewOptions<any>,draw?:(lines:ProjectedLines)=>Tree):Drawing3 {
   const settings=captureValue(options),crease=settings.creaseAngle??30;
@@ -39,9 +40,10 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
   const objects:SurfaceObject3[]=[];
   const geometryKeys=new Set<string>();
   meshes.forEach((value:ViewGeometry,index:number)=>{
-    if(!(value instanceof Mesh)&&!(value instanceof Instances))throw new Error('view requires mesh or instance geometry');
+    if(!(value instanceof Mesh)&&!(value instanceof Instances)&&!(value instanceof CurveGeometry))throw new Error('view requires mesh, curve or instance geometry');
     const id=value.key??`object:${index}`;
     if(geometryKeys.has(id))throw new Error('view geometry keys must be unique');geometryKeys.add(id);
+    if(value instanceof CurveGeometry){objects.push({id,surface:value.surface,occluder:false});return;}
     const mesh=value instanceof Instances?value.prototype:value;
     const faces=mesh.faces(),recipe=settings.hatch;
     // Eligibility belongs to the prototype; the hatch lattice is resolved on

@@ -570,3 +570,58 @@ export default sketchAsync({seed:42,pens:{ink:pen({width:mm(.3),color:'#18202A'}
   return view(drawing,{camera:orthographic({eye:[6,8,5],target:[0,0,.2],span:7.5}),stroke:'ink',hatch:{spacing:mm(1.8),angle:35,stroke:'shade',select:f=>f.shade}});
 });
 ```
+
+
+## Curves, paths and circle profiles
+
+`polyline(points, { closed? })` owns a piecewise-linear path through 3D vectors.
+A closed path connects its final point to its first: do not repeat the first
+point. `curve(t => [x, y, z], { segments: 64, closed? })` samples a parameterized
+path uniformly in t, once during modeling. Open paths include both endpoints;
+closed paths omit t=1 and share the seam. These are polygonal curves, not an
+analytic spline representation. `circle(radius = 1, { segments: 64 })` constructs
+a counterclockwise circle profile in XY using the same curve data.
+
+Curve constructors check `maxPoints` (default 100,000) before sampling or topology
+allocation. Adjacent duplicate points and malformed or non-finite inputs are
+rejected. A circle has at least three segments. Geometry coordinates are world
+units; `view` handles camera projection into the explicit paper frame.
+
+Curves expose `.points`, `.edges`, typed `.attribute` / `.edgeAttribute`, selection
+and extraction, `.translate`, `.rotate`, `.scale`, `.displace` and frozen `.steps`.
+Their point passes and history follow mesh semantics. Curve edits keep point and
+edge IDs and attributes; extracted mesh edges retain those same IDs while
+becoming independent curve geometry. Curves have no face domain. Extracting
+points removes connectivity; extracting edges retains only their used points.
+
+The ordinary `view` accepts curves alongside meshes and instances. Curve edges
+are wire features with shared endpoint IDs and source edge attributes; meshes
+can hide them, but a curve does not occlude another object. The existing visible
+and hidden projected collections, named pens and retained camera commits apply.
+A view-wide hatch recipe decorates mesh surfaces and does not fill curve loops.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { box, circle, curve, polyline, view, orthographic } from 'occlude/3d';
+
+export default sketch({ seed: 42, pens: {
+  ink: pen({ width: mm(0.3), color: '#18202A' }),
+} }, () => {
+  const block = box([1.6, 1.6, 2]);
+  const spiral = curve(t => [
+    1.5 * Math.cos(t * Math.PI * 6),
+    1.5 * Math.sin(t * Math.PI * 6),
+    (t - 0.5) * 3.5,
+  ], { segments: 180 });
+  const ring = circle(1.2, { segments: 64 }).translate([0, 0, 2.1]);
+  const path = polyline([[-2, -1, -1.5], [0, 0, -1.5], [2, 1, -1.5]])
+    .attribute('lift', p => p.index === 1 ? 0.25 : 0)
+    .steps(3, (current, next) => next.move(current.points, p => [0, 0, p.lift]));
+  const frame = box([4.4, 4.4, 4.4]).edges
+    .filter(e => e.a.z < 0 && e.b.z < 0).extract();
+  return view([block, spiral, ring, path, frame], {
+    camera: orthographic({ eye: [6, 8, 5], target: [0, 0, 0], span: 9.5 }),
+    stroke: 'ink',
+  });
+});
+```

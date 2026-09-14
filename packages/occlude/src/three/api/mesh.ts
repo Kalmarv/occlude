@@ -48,16 +48,66 @@ export class PointGeometry<P extends Attributes3={}> {
   withKey(key:string):PointGeometry<P>{return new PointGeometry(this.surface,{key});}
 }
 
-/** An extracted edge graph is curve data, with no face-editing capability. */
+/** Owned polyline/edge-graph data with point and edge domains, never faces. */
 export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}> {
-  readonly surface:Surface3;readonly key?:string;
-  readonly segments:readonly {readonly id:string;readonly vertices:readonly [number,number];readonly attributes:Readonly<Partial<E>>}[];
-  constructor(surface:Surface3,indices:readonly number[],options:GeometryOptions={}) {
-    this.surface=snapshotSurface3(surface);this.key=checkedKey(options.key);
-    this.segments=Object.freeze(indices.map(i=>Object.freeze({id:surface.edges[i].id,vertices:this.surface.edges[i].vertices,attributes:this.surface.edges[i].attributes}))) as typeof this.segments;
-    Object.freeze(this);
+  readonly surface:Surface3;readonly key?:string;readonly iteration:number;
+  readonly history:readonly CurveSnapshot<P,E>[];
+  readonly segments:readonly {readonly id:string;readonly vertices:readonly [number,number];readonly attributes:Readonly<Partial<E>>;readonly provenance?:Provenance3}[];
+  constructor(surface:Surface3,indices:readonly number[],options:GeometryOptions&{iteration?:number;history?:readonly CurveSnapshot<P,E>[]}={}) {
+    checkOptions(options);validateAttributes(surface);
+    if(indices.some(i=>!Number.isSafeInteger(i)||!surface.edges[i]))throw new Error('invalid curve edge index');
+    const selected=[...new Set(indices)],used=[...new Set(selected.flatMap(i=>surface.edges[i].vertices))].sort((a,b)=>a-b);
+    const mapping=new Map(used.map((v,i)=>[v,i]));
+    const source:Surface3={points:used.map(i=>surface.points[i]),faces:[],triangles:[],edges:selected.map(i=>({...surface.edges[i],vertices:surface.edges[i].vertices.map(v=>mapping.get(v)!) as [number,number],faces:[]}))};
+    this.surface=snapshotSurface3(source);this.key=checkedKey(options.key);
+    this.iteration=options.iteration??0;this.history=Object.freeze([...(options.history??[])]);
+    this.segments=this.surface.edges as unknown as typeof this.segments;Object.freeze(this);
   }
-  get points():Collection<PointRow<P>,PointGeometry<P>>{const indices=[...new Set(this.segments.flatMap(e=>e.vertices))];return new Collection(this.surface,'point',pointRows<P>(this.surface),ids=>new PointGeometry(pointsOnly(this.surface,ids)),indices);}
+  get points():Collection<PointRow<P>,PointGeometry<P>>{return new Collection(this.surface,'point',pointRows<P>(this.surface),ids=>new PointGeometry(pointsOnly(this.surface,ids)));}
+  get edges():Collection<EdgeRow<E,P>,CurveGeometry<P,E>>{
+    const points=pointRows<P>(this.surface);
+    const rows=this.surface.edges.map((e,index)=>Object.freeze({...e.attributes,id:e.id,index,vertices:e.vertices,a:points[e.vertices[0]],b:points[e.vertices[1]],length:Math.hypot(...sub3(this.surface.points[e.vertices[0]].position,this.surface.points[e.vertices[1]].position)),attributes:e.attributes,provenance:e.provenance})) as unknown as readonly EdgeRow<E,P>[];
+    return new Collection(this.surface,'edge',rows,indices=>new CurveGeometry<P,E>(this.surface,indices));
+  }
+  attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<PointRow<P>,Value>):CurveGeometry<Omit<P,Name>&Record<Name,Value>,E>{return new CurveGeometry<Omit<P,Name>&Record<Name,Value>,E>(setPoints(this.surface,name,field),this.surface.edges.map((_,i)=>i),{...this,history:[]});}
+  edgeAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<EdgeRow<E,P>,Value>):CurveGeometry<P,Omit<E,Name>&Record<Name,Value>>{
+    attributeName(name);const values=this.edges.map(row=>attributeValue(evaluate(field,row))),surface=cloneSurface3(this.surface);
+    surface.edges.forEach((e,i)=>e.attributes[name]=values[i]);return new CurveGeometry<P,Omit<E,Name>&Record<Name,Value>>(surface,surface.edges.map((_,i)=>i),{...this,history:[]});
+  }
+  private changed(surface:Surface3):CurveGeometry<P,E>{return new CurveGeometry(surface,surface.edges.map((_,i)=>i),{...this,history:[]});}
+  displace(field:Field<PointRow<P>,Vec3>):CurveGeometry<P,E>{return this.changed(displaced(this.surface,field));}
+  translate(offset:Vec3):CurveGeometry<P,E>{return this.changed(transformSurface3(this.surface,{translate:offset}));}
+  rotate(angles:Vec3,origin:Vec3=[0,0,0]):CurveGeometry<P,E>{return this.changed(transformSurface3(this.surface,{rotate:angles,origin}));}
+  scale(scale:number|Vec3,origin:Vec3=[0,0,0]):CurveGeometry<P,E>{return this.changed(transformSurface3(this.surface,{scale:typeof scale==='number'?[scale,scale,scale]:scale,origin}));}
+  withKey(key:string):CurveGeometry<P,E>{return new CurveGeometry(this.surface,this.surface.edges.map((_,i)=>i),{...this,key});}
+  steps(count:number,rule:CurveRule<P,E>,...passesAndOptions:(CurveRule<P,E>|StepsOptions)[]):CurveGeometry<P,E>{
+    const pass=(rule:CurveRule<P,E>):MeshRule<P,E,{}>=>(input,next,k)=>{
+      const current=new CurveGeometry<P,E>(input.surface,input.surface.edges.map((_,i)=>i),{key:this.key,iteration:input.iteration});
+      // Bind the public curve selection to the underlying frozen point pass.
+      const edit=new CurveEdit(current,input,next);
+      try{return rule(current,edit,k);}finally{edit.close();}
+    };
+    const options=passesAndOptions.map(p=>typeof p==='function'?pass(p):p);
+    const result=new Mesh<P,E,{}>(this.surface,{key:this.key,iteration:this.iteration}).steps(count,pass(rule),...options);
+    const convert=(value:Mesh<P,E,{}>)=>new CurveGeometry<P,E>(value.surface,value.surface.edges.map((_,i)=>i),{key:this.key,iteration:value.iteration});
+    return new CurveGeometry<P,E>(result.surface,result.surface.edges.map((_,i)=>i),{key:this.key,iteration:result.iteration,history:result.history.map(row=>Object.freeze({iteration:row.iteration,geometry:convert(row.geometry)}))});
+  }
+
+}
+
+export interface CurveSnapshot<P extends Attributes3,E extends EdgeAttributes>{readonly iteration:number;readonly geometry:CurveGeometry<P,E>}
+export type CurveRule<P extends Attributes3,E extends EdgeAttributes>=(current:CurveGeometry<P,E>,next:CurveEdit<P,E>,k:number)=>void;
+/** Curve edits reuse the same frozen point-edit machinery as mesh steps. */
+export class CurveEdit<P extends Attributes3,E extends EdgeAttributes> {
+  private active=true;
+  constructor(private readonly curve:CurveGeometry<P,E>,private readonly input:Mesh<P,E,{}>,private readonly edit:MeshEdit<P,E,{}>){}
+  move(selection:Collection<PointRow<P>,unknown>,field:Field<PointRow<P>,Vec3>):void{
+    if(!this.active)throw new Error('curve editor is closed');
+    if(selection.domain!=='point'||selection.source!==this.curve.surface)throw new Error('point selection belongs to another curve revision; select from current.points');
+    const indices=new Set(selection.indices),rows=new Map(selection.map(p=>[p.index,p]));
+    this.edit.move(this.input.points.filter(p=>indices.has(p.index)),p=>evaluate(field,rows.get(p.index)!));
+  }
+  close():void{this.active=false;}
 }
 
 export interface StepsOptions {readonly every?:number}

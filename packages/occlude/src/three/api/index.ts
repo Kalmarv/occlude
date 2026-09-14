@@ -1,5 +1,5 @@
 export {mesh,plane,box,pointCloud} from './mesh.js';
-export type {Mesh,PointGeometry,CurveGeometry,PointRow,EdgeRow,EdgeAttributes,FaceRow,Field,GeometryOptions,MeshEdit,MeshRule,StepsOptions,MeshSnapshot} from './mesh.js';
+export type {Mesh,PointGeometry,CurveGeometry,CurveRule,CurveEdit,CurveSnapshot,PointRow,EdgeRow,EdgeAttributes,FaceRow,Field,GeometryOptions,MeshEdit,MeshRule,StepsOptions,MeshSnapshot} from './mesh.js';
 export {view,orthographic,perspective} from './view.js';
 export type {ViewOptions,CameraOptions} from './view.js';
 export type {ProjectedCurve,ProjectedCurves,ProjectedLines,ProjectedStrokeOptions} from './projected.js';
@@ -14,3 +14,5 @@ export {query} from './query.js';
 export type {PreparedQuery,QueryBatch,AsyncQueryBatch,SurfaceHit,RayHit,QueryResult,NearestOptions,RayOptions,NearestBatchOptions,RayBatchOptions,SegmentBatchOptions,PointLike3,Position3} from './query.js';
 export {force} from './force.js';
 export type {Force} from './force.js';
+export {polyline,curve,circle} from './curves.js';
+export type {PolylineOptions,CurveOptions} from './curves.js';

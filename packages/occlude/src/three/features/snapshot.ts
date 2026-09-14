@@ -132,6 +132,10 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       const support = [...new Set(incident.flatMap(i => { const f=surface.triangles[i].face; return planar[f] ? faceTriangles[f] : [i]; }))].map(i=>triangleIds[i]);
       add({ ...(object.instance?{instance:Object.freeze({...object.instance})}:{}), id: key(object.id, sourceId), objectId: object.id, sourceId, flags, creaseAngle: angle, a: positions[edge.vertices[0]], b: positions[edge.vertices[1]], endpoints: edge.vertices.map(v => key(object.id, surface.points[v].id)) as [string, string], support, attributes: attributes({ ...object.attributes, ...original?.attributes }), faceAttributes: [...new Set(incident.map(i => surface.triangles[i].face))].map(i => faceAttrs[i]) });
     }
+    for(const edge of surface.edges){
+      if(edge.faces.length)continue;
+      add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),id:key(object.id,edge.id),objectId:object.id,sourceId:edge.id,flags:FeatureKind3.wire,creaseAngle:0,a:positions[edge.vertices[0]],b:positions[edge.vertices[1]],endpoints:edge.vertices.map(v=>key(object.id,surface.points[v].id)) as [string,string],support:[],attributes:attributes({...object.attributes,...edge.attributes}),faceAttributes:[]});
+    }
     const hatch=object.hatch?realizeHatch3(object.hatch,surface,frame,units):undefined;
     if(hatch)validateSurfaceCurves3(hatch,object.surface);
     for(const curve of [...object.curves?.segments??[],...hatch?.segments??[]]) {
