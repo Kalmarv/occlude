@@ -110,8 +110,19 @@ the earlier API and does not imply this redesign is finished.
   independent plane hits, CPU/GPU interval agreement and unchanged repeated ink.
   All nine Docker gates and nineteen served live examples pass; see
   `phase-accounting/` for measurements and scope.
-- The three acceptance targets have focused evidence. The fresh underside
-  report and full requirement-by-requirement audit remain unresolved.
+- The independent saved-box oracle now compares all 96 mesh edges across four
+  cameras with exact rational world-space ray/box geometry. CPU and served
+  NVIDIA results agree. The saved camera exports no collapsed point paths;
+  underside cameras expose two/three. Exact world-space tracing also finds
+  positive microscopic hatch gaps because the bottoms differ by one floating
+  point rounding amount. An independent paper projection/clip/mask calculation also matches all 23
+  saved-view box-edge fragments to SVG precision, including the bottom notch.
+  No epsilon, coordinate shift or blanket coincident-line suppression was applied. See `paper-box-oracle/`; the fresh report remains
+  open and the failed zero-path assertion is retained honestly.
+- The full requirement audit is in `API-REQUIREMENTS-AUDIT.md`. It distinguishes
+  implemented requirements, authoritative verification, explicit future work
+  and the unresolved fresh output report. The three acceptance targets have
+  focused evidence; completion is not yet claimed.
 
 Worker restart/device-loss recovery remains deferred by the user. Use
 Playwright, not ProofShot. Continue in this isolated checkout; production

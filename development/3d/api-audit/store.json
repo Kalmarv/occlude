@@ -1,0 +1,28 @@
+{
+  "checkedAt": "2026-09-14T08:09:26.328007+00:00",
+  "origin": "http://127.0.0.1:5273",
+  "readOnly": true,
+  "demos": [
+    {
+      "name": "visibility-laboratory",
+      "status": 200,
+      "sha256": "8774a9535814d62f38e44d60e8846fdeb35ee01188ac6e789a93dccf3fb14f3c",
+      "matchesTrackedDemo": true,
+      "ordinaryViewImport": true
+    },
+    {
+      "name": "procedural-relief",
+      "status": 200,
+      "sha256": "b6bb90c5da1e0e358a194fc1b2af52880d032b52236ca84da167755d9b7d05f9",
+      "matchesTrackedDemo": true,
+      "ordinaryViewImport": true
+    },
+    {
+      "name": "paper-composition",
+      "status": 200,
+      "sha256": "94bd61ef7e0ba974cbfcc06b326c94d6f56dcd84210c64db7311c4d08866c450",
+      "matchesTrackedDemo": true,
+      "ordinaryViewImport": true
+    }
+  ]
+}

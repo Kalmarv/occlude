@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "checkedAt": "2026-09-14T08:16:44.849280+00:00",
+  "gates": {
+    "rust": "10.8s",
+    "ts": "26.6s",
+    "types": "6.6s",
+    "studio": "5.9s",
+    "docs": "23.2s",
+    "ink": "25.9s",
+    "build": "40.4s",
+    "wasm": "8bf0034cb79606aa8d6c7293496a1b7e",
+    "smoke": "2.3s"
+  },
+  "implementationHead": "0889e2c",
+  "rendererChanges": false,
+  "inkBaselineChanged": false,
+  "liveSourcesUnchanged": 19,
+  "independentBoxEdges": 96,
+  "independentSavedPaperSegments": 23,
+  "freshUndersideDiagnosticPassed": false
+}

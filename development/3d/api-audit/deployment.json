@@ -1,0 +1,23 @@
+{
+  "checkedAt": "2026-09-14T08:18:19.600961+00:00",
+  "containers": [
+    {
+      "Name": "/occlude-3d-dev-1",
+      "Id": "d04cc8a215c16c490560a0fa55916bd1d99e9689a910e4e0fdc247a513bb2642",
+      "Image": "sha256:47d072cf36e1931421e2642d8349f2d0b48b06a8a28712014b78b274734c833e"
+    },
+    {
+      "Name": "/occlude-studio-1",
+      "Id": "b992b42d6f3339d584af9cabff1e152c3e20900c77829d815d547f5a875bce62",
+      "Image": "sha256:9d0369b35261d682b6cb38e9977663b201f6ab4ab6cef5a1d8d60e426b840431"
+    },
+    {
+      "Name": "/occlude-dev-1",
+      "Id": "415b0e14233b5975e257c14d00735b239a059a0f86bca856001ae8bdba2336b8",
+      "Image": "sha256:e1cf7751c5f24e46b88e5e8288f93777b38f7b79eec3f1ff3b4bee8fca41def9"
+    }
+  ],
+  "productionUnchanged": true,
+  "storedDemosUnchangedAfterDeploy": true,
+  "docsVerified": "docs.json"
+}

@@ -1,15 +1,17 @@
 # Procedural 3D contract
 
-Implementation contract for `3dapi.md`. The acceptance examples in
-`api-examples/` are tracked targets. Terrain and instanced forms are now executable
-and live in `docs/three.md`; the paper composition target still needs its
-dedicated acceptance verification. The broader curve and GPU profiling work
-remains separate and pending.
+Implementation contract for `3dapi.md`. The three acceptance examples in
+`api-examples/` are executable and verified in main Studio. Terrain and
+instanced forms are live in `docs/three.md`; the paper target has dedicated
+evidence in `paper-api/`. Curves, profile construction, surface sampling and
+phase accounting are implemented. See `API-REQUIREMENTS-AUDIT.md` for the
+requirement-by-requirement record and the remaining reported-output question.
 
 ## Values and domains
 
 `occlude/3d` exports `mesh`, `plane`, `box`, `sphere`, `cylinder`, `cone`,
-`torus`, `view`, `orthographic`, `perspective`, `pointCloud`,
+`torus`, `polyline`, `curve`, `circle`, `revolve`, `sweep`, `view`,
+`orthographic`, `perspective`, `pointCloud`,
 `instanceOnPoints`, prepared `query`, and reusable `force` recipes. The existing
 `strokes` import remains in `occlude`. Advanced `*3` access is available from
 `occlude/3d/advanced`; the same visibility and output engines serve both APIs.
@@ -116,6 +118,24 @@ upload, dispatch, readback and CPU refinement separately; shader timestamps
 alone do not establish an end-to-end speedup. Native reports now expose
 exclusive `stats.timings`; scopes, transfer limitations and measured hardware
 workloads are documented in `phase-accounting/` and the live 3D docs.
+
+## Curves, profiles and surface populations
+
+`polyline`, sampled `curve` and `circle` return immutable curve geometry with
+point/edge collections, typed attributes, transforms and frozen steps. Their
+segments participate in visibility without pretending to be occluding faces.
+`revolve` and `sweep` construct ordinary meshes from connected curve profiles;
+shared seams, axis points, explicit caps and construction budgets belong to
+those operations. Resulting meshes use the same downstream mesh workflow.
+They do not provide a Boolean or self-intersection repair service.
+
+`t.sample(mesh, options)` samples the captured surface by world-space triangle
+area and optional face weight. `t.scatter(mesh, options)` uses bounded attempts
+and fixed Euclidean spacing; it is not geodesic spacing or guaranteed packing.
+Both consume the explicit sketch seed. Sample rows retain supporting face,
+triangle, barycentric and source metadata through point edits, instances and
+prepared query batches. Sampling remains a CPU modeling operation, not an
+implicit shader compiler.
 
 ## Integration checklist
 

@@ -1,0 +1,2858 @@
+{
+  "cases": [
+    {
+      "case": 0,
+      "camera": {
+        "kind": "orthographic",
+        "span": 4.6,
+        "eye": [
+          7.002452800089903,
+          3.921911867185166,
+          6.798770357540987
+        ],
+        "target": [
+          0,
+          0,
+          0.4
+        ],
+        "near": 0.1,
+        "far": 30,
+        "up": [
+          0,
+          0,
+          1
+        ]
+      },
+      "edges": [
+        {
+          "id": "[\"block\",\"e:p0:p3\"]",
+          "world": [
+            [
+              -1.4,
+              -0.75,
+              -0.8
+            ],
+            [
+              -1.4,
+              0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p2:p3\"]",
+          "world": [
+            [
+              -1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.5038309073426672,
+              0.8928571428571429
+            ]
+          ],
+          "actualHidden": [
+            [
+              0.503830907342667,
+              0.8928571428571428
+            ]
+          ],
+          "actualVisible": [
+            [
+              0,
+              0.503830907342667
+            ],
+            [
+              0.8928571428571428,
+              1
+            ]
+          ],
+          "endpointError": 2.220446049250313e-16,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p1:p2\"]",
+          "world": [
+            [
+              1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              -0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p0:p1\"]",
+          "world": [
+            [
+              1.4,
+              -0.75,
+              -0.8
+            ],
+            [
+              -1.4,
+              -0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p4:p7\"]",
+          "world": [
+            [
+              -1.4,
+              0.75,
+              0.8
+            ],
+            [
+              -1.4,
+              -0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p4:p5\"]",
+          "world": [
+            [
+              -1.4,
+              -0.75,
+              0.8
+            ],
+            [
+              1.4,
+              -0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.06670992513401049,
+              0.5421399807693396
+            ]
+          ],
+          "actualHidden": [
+            [
+              0.06670992513401017,
+              0.5421399807693399
+            ]
+          ],
+          "actualVisible": [
+            [
+              0,
+              0.06670992513401017
+            ],
+            [
+              0.5421399807693399,
+              1
+            ]
+          ],
+          "endpointError": 3.3306690738754696e-16,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p5:p6\"]",
+          "world": [
+            [
+              1.4,
+              -0.75,
+              0.8
+            ],
+            [
+              1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p6:p7\"]",
+          "world": [
+            [
+              1.4,
+              0.75,
+              0.8
+            ],
+            [
+              -1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.10714285714285708,
+              0.49616909265733283
+            ]
+          ],
+          "actualHidden": [
+            [
+              0.10714285714285628,
+              0.49616909265733294
+            ]
+          ],
+          "actualVisible": [
+            [
+              0,
+              0.10714285714285628
+            ],
+            [
+              0.49616909265733294,
+              1
+            ]
+          ],
+          "endpointError": 8.049116928532385e-16,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p0:p4\"]",
+          "world": [
+            [
+              -1.4,
+              -0.75,
+              0.8
+            ],
+            [
+              -1.4,
+              -0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p1:p5\"]",
+          "world": [
+            [
+              1.4,
+              -0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              -0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p2:p6\"]",
+          "world": [
+            [
+              1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p3:p7\"]",
+          "world": [
+            [
+              -1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              -1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p0:p3\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              -0.2,
+              -0.7999999999999999
+            ],
+            [
+              0.09999999999999998,
+              0.8,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p2:p3\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              0.8,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p1:p2\"]",
+          "world": [
+            [
+              1.1,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              -0.2,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.050000000000000044,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0.04999999999999999,
+              1
+            ]
+          ],
+          "actualVisible": [
+            [
+              0,
+              0.04999999999999999
+            ]
+          ],
+          "endpointError": 5.551115123125783e-17,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p0:p1\"]",
+          "world": [
+            [
+              1.1,
+              -0.2,
+              -0.7999999999999999
+            ],
+            [
+              0.09999999999999998,
+              -0.2,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p4:p7\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              0.8,
+              2.0
+            ],
+            [
+              0.09999999999999998,
+              -0.2,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p4:p5\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              -0.2,
+              2.0
+            ],
+            [
+              1.1,
+              -0.2,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p5:p6\"]",
+          "world": [
+            [
+              1.1,
+              -0.2,
+              2.0
+            ],
+            [
+              1.1,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p6:p7\"]",
+          "world": [
+            [
+              1.1,
+              0.8,
+              2.0
+            ],
+            [
+              0.09999999999999998,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p0:p4\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              -0.2,
+              2.0
+            ],
+            [
+              0.09999999999999998,
+              -0.2,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p1:p5\"]",
+          "world": [
+            [
+              1.1,
+              -0.2,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              -0.2,
+              2.0
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              0.5714285714285714
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              0.571428571428571
+            ]
+          ],
+          "actualVisible": [
+            [
+              0.571428571428571,
+              1
+            ]
+          ],
+          "endpointError": 4.440892098500626e-16,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p2:p6\"]",
+          "world": [
+            [
+              1.1,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p3:p7\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              0.09999999999999998,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        }
+      ]
+    },
+    {
+      "case": 1,
+      "camera": {
+        "target": [
+          0,
+          0,
+          0.4
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "near": 0.1,
+        "far": 30,
+        "kind": "perspective",
+        "fovDegrees": 40,
+        "eye": [
+          7.002452800089903,
+          3.921911867185166,
+          6.798770357540987
+        ]
+      },
+      "edges": [
+        {
+          "id": "[\"block\",\"e:p0:p3\"]",
+          "world": [
+            [
+              -1.4,
+              -0.75,
+              -0.8
+            ],
+            [
+              -1.4,
+              0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p2:p3\"]",
+          "world": [
+            [
+              -1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.4962326824661372,
+              0.8928571428571429
+            ]
+          ],
+          "actualHidden": [
+            [
+              0.49623268246613694,
+              0.8928571428571429
+            ]
+          ],
+          "actualVisible": [
+            [
+              0,
+              0.49623268246613694
+            ],
+            [
+              0.8928571428571429,
+              1
+            ]
+          ],
+          "endpointError": 2.7755575615628914e-16,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p1:p2\"]",
+          "world": [
+            [
+              1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              -0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p0:p1\"]",
+          "world": [
+            [
+              1.4,
+              -0.75,
+              -0.8
+            ],
+            [
+              -1.4,
+              -0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p4:p7\"]",
+          "world": [
+            [
+              -1.4,
+              0.75,
+              0.8
+            ],
+            [
+              -1.4,
+              -0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.4189568825656444,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0.4189568825656439,
+              1
+            ]
+          ],
+          "actualVisible": [
+            [
+              0,
+              0.4189568825656439
+            ]
+          ],
+          "endpointError": 4.996003610813204e-16,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p4:p5\"]",
+          "world": [
+            [
+              -1.4,
+              -0.75,
+              0.8
+            ],
+            [
+              1.4,
+              -0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              0.6115773851125925
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              0.611577385112593
+            ]
+          ],
+          "actualVisible": [
+            [
+              0.611577385112593,
+              1
+            ]
+          ],
+          "endpointError": 4.440892098500626e-16,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p5:p6\"]",
+          "world": [
+            [
+              1.4,
+              -0.75,
+              0.8
+            ],
+            [
+              1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p6:p7\"]",
+          "world": [
+            [
+              1.4,
+              0.75,
+              0.8
+            ],
+            [
+              -1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.10714285714285708,
+              0.5037673175338628
+            ]
+          ],
+          "actualHidden": [
+            [
+              0.10714285714285628,
+              0.5037673175338631
+            ]
+          ],
+          "actualVisible": [
+            [
+              0,
+              0.10714285714285628
+            ],
+            [
+              0.5037673175338631,
+              1
+            ]
+          ],
+          "endpointError": 8.049116928532385e-16,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p0:p4\"]",
+          "world": [
+            [
+              -1.4,
+              -0.75,
+              0.8
+            ],
+            [
+              -1.4,
+              -0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p1:p5\"]",
+          "world": [
+            [
+              1.4,
+              -0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              -0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p2:p6\"]",
+          "world": [
+            [
+              1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p3:p7\"]",
+          "world": [
+            [
+              -1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              -1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p0:p3\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              -0.2,
+              -0.7999999999999999
+            ],
+            [
+              0.09999999999999998,
+              0.8,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p2:p3\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              0.8,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p1:p2\"]",
+          "world": [
+            [
+              1.1,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              -0.2,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.050000000000000044,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0.04999999999999999,
+              1
+            ]
+          ],
+          "actualVisible": [
+            [
+              0,
+              0.04999999999999999
+            ]
+          ],
+          "endpointError": 5.551115123125783e-17,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p0:p1\"]",
+          "world": [
+            [
+              1.1,
+              -0.2,
+              -0.7999999999999999
+            ],
+            [
+              0.09999999999999998,
+              -0.2,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p4:p7\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              0.8,
+              2.0
+            ],
+            [
+              0.09999999999999998,
+              -0.2,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p4:p5\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              -0.2,
+              2.0
+            ],
+            [
+              1.1,
+              -0.2,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p5:p6\"]",
+          "world": [
+            [
+              1.1,
+              -0.2,
+              2.0
+            ],
+            [
+              1.1,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p6:p7\"]",
+          "world": [
+            [
+              1.1,
+              0.8,
+              2.0
+            ],
+            [
+              0.09999999999999998,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p0:p4\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              -0.2,
+              2.0
+            ],
+            [
+              0.09999999999999998,
+              -0.2,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p1:p5\"]",
+          "world": [
+            [
+              1.1,
+              -0.2,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              -0.2,
+              2.0
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              0.5714285714285714
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              0.571428571428571
+            ]
+          ],
+          "actualVisible": [
+            [
+              0.571428571428571,
+              1
+            ]
+          ],
+          "endpointError": 4.440892098500626e-16,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p2:p6\"]",
+          "world": [
+            [
+              1.1,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p3:p7\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              0.09999999999999998,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        }
+      ]
+    },
+    {
+      "case": 2,
+      "camera": {
+        "target": [
+          0,
+          0,
+          0.4
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "near": 0.1,
+        "far": 30,
+        "kind": "orthographic",
+        "span": 4.6,
+        "eye": [
+          7,
+          4,
+          -6
+        ]
+      },
+      "edges": [
+        {
+          "id": "[\"block\",\"e:p0:p3\"]",
+          "world": [
+            [
+              -1.4,
+              -0.75,
+              -0.8
+            ],
+            [
+              -1.4,
+              0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p2:p3\"]",
+          "world": [
+            [
+              -1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p1:p2\"]",
+          "world": [
+            [
+              1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              -0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p0:p1\"]",
+          "world": [
+            [
+              1.4,
+              -0.75,
+              -0.8
+            ],
+            [
+              -1.4,
+              -0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p4:p7\"]",
+          "world": [
+            [
+              -1.4,
+              0.75,
+              0.8
+            ],
+            [
+              -1.4,
+              -0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p4:p5\"]",
+          "world": [
+            [
+              -1.4,
+              -0.75,
+              0.8
+            ],
+            [
+              1.4,
+              -0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p5:p6\"]",
+          "world": [
+            [
+              1.4,
+              -0.75,
+              0.8
+            ],
+            [
+              1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p6:p7\"]",
+          "world": [
+            [
+              1.4,
+              0.75,
+              0.8
+            ],
+            [
+              -1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.10714285714285708,
+              0.4955357142857143
+            ]
+          ],
+          "actualHidden": [
+            [
+              0.10714285714285755,
+              0.4955357142857143
+            ]
+          ],
+          "actualVisible": [
+            [
+              0,
+              0.10714285714285755
+            ],
+            [
+              0.4955357142857143,
+              1
+            ]
+          ],
+          "endpointError": 4.718447854656915e-16,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p0:p4\"]",
+          "world": [
+            [
+              -1.4,
+              -0.75,
+              0.8
+            ],
+            [
+              -1.4,
+              -0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p1:p5\"]",
+          "world": [
+            [
+              1.4,
+              -0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              -0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p2:p6\"]",
+          "world": [
+            [
+              1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p3:p7\"]",
+          "world": [
+            [
+              -1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              -1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p0:p3\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              -0.2,
+              -0.7999999999999999
+            ],
+            [
+              0.09999999999999998,
+              0.8,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              0.95
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              0.9500000000000006
+            ]
+          ],
+          "actualVisible": [
+            [
+              0.9500000000000006,
+              1
+            ]
+          ],
+          "endpointError": 6.661338147750939e-16,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p2:p3\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              0.8,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p1:p2\"]",
+          "world": [
+            [
+              1.1,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              -0.2,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.050000000000000044,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0.049999999999999635,
+              1
+            ]
+          ],
+          "actualVisible": [
+            [
+              0,
+              0.049999999999999635
+            ]
+          ],
+          "endpointError": 4.0939474033052647e-16,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p0:p1\"]",
+          "world": [
+            [
+              1.1,
+              -0.2,
+              -0.7999999999999999
+            ],
+            [
+              0.09999999999999998,
+              -0.2,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p4:p7\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              0.8,
+              2.0
+            ],
+            [
+              0.09999999999999998,
+              -0.2,
+              2.0
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p4:p5\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              -0.2,
+              2.0
+            ],
+            [
+              1.1,
+              -0.2,
+              2.0
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p5:p6\"]",
+          "world": [
+            [
+              1.1,
+              -0.2,
+              2.0
+            ],
+            [
+              1.1,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p6:p7\"]",
+          "world": [
+            [
+              1.1,
+              0.8,
+              2.0
+            ],
+            [
+              0.09999999999999998,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p0:p4\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              -0.2,
+              2.0
+            ],
+            [
+              0.09999999999999998,
+              -0.2,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p1:p5\"]",
+          "world": [
+            [
+              1.1,
+              -0.2,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              -0.2,
+              2.0
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              0.6693877551020407
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              0.6693877551020406
+            ]
+          ],
+          "actualVisible": [
+            [
+              0.6693877551020406,
+              1
+            ]
+          ],
+          "endpointError": 1.1102230246251565e-16,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p2:p6\"]",
+          "world": [
+            [
+              1.1,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p3:p7\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              0.09999999999999998,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        }
+      ]
+    },
+    {
+      "case": 3,
+      "camera": {
+        "target": [
+          0,
+          0,
+          0.4
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "near": 0.1,
+        "far": 30,
+        "kind": "perspective",
+        "fovDegrees": 40,
+        "eye": [
+          7,
+          4,
+          -6
+        ]
+      },
+      "edges": [
+        {
+          "id": "[\"block\",\"e:p0:p3\"]",
+          "world": [
+            [
+              -1.4,
+              -0.75,
+              -0.8
+            ],
+            [
+              -1.4,
+              0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p2:p3\"]",
+          "world": [
+            [
+              -1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p1:p2\"]",
+          "world": [
+            [
+              1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              -0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p0:p1\"]",
+          "world": [
+            [
+              1.4,
+              -0.75,
+              -0.8
+            ],
+            [
+              -1.4,
+              -0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"block\",\"e:p4:p7\"]",
+          "world": [
+            [
+              -1.4,
+              0.75,
+              0.8
+            ],
+            [
+              -1.4,
+              -0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p4:p5\"]",
+          "world": [
+            [
+              -1.4,
+              -0.75,
+              0.8
+            ],
+            [
+              1.4,
+              -0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p5:p6\"]",
+          "world": [
+            [
+              1.4,
+              -0.75,
+              0.8
+            ],
+            [
+              1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p6:p7\"]",
+          "world": [
+            [
+              1.4,
+              0.75,
+              0.8
+            ],
+            [
+              -1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.10714285714285708,
+              0.5027901785714286
+            ]
+          ],
+          "actualHidden": [
+            [
+              0.10714285714285755,
+              0.5027901785714286
+            ]
+          ],
+          "actualVisible": [
+            [
+              0,
+              0.10714285714285755
+            ],
+            [
+              0.5027901785714286,
+              1
+            ]
+          ],
+          "endpointError": 4.718447854656915e-16,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p0:p4\"]",
+          "world": [
+            [
+              -1.4,
+              -0.75,
+              0.8
+            ],
+            [
+              -1.4,
+              -0.75,
+              -0.8
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p1:p5\"]",
+          "world": [
+            [
+              1.4,
+              -0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              -0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p2:p6\"]",
+          "world": [
+            [
+              1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"block\",\"e:p3:p7\"]",
+          "world": [
+            [
+              -1.4,
+              0.75,
+              -0.8
+            ],
+            [
+              -1.4,
+              0.75,
+              0.8
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p0:p3\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              -0.2,
+              -0.7999999999999999
+            ],
+            [
+              0.09999999999999998,
+              0.8,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              0.95
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              0.9500000000000006
+            ]
+          ],
+          "actualVisible": [
+            [
+              0.9500000000000006,
+              1
+            ]
+          ],
+          "endpointError": 6.661338147750939e-16,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p2:p3\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              0.8,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p1:p2\"]",
+          "world": [
+            [
+              1.1,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              -0.2,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.050000000000000044,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0.049999999999999635,
+              1
+            ]
+          ],
+          "actualVisible": [
+            [
+              0,
+              0.049999999999999635
+            ]
+          ],
+          "endpointError": 4.0939474033052647e-16,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p0:p1\"]",
+          "world": [
+            [
+              1.1,
+              -0.2,
+              -0.7999999999999999
+            ],
+            [
+              0.09999999999999998,
+              -0.2,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": true
+        },
+        {
+          "id": "[\"tower\",\"e:p4:p7\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              0.8,
+              2.0
+            ],
+            [
+              0.09999999999999998,
+              -0.2,
+              2.0
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p4:p5\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              -0.2,
+              2.0
+            ],
+            [
+              1.1,
+              -0.2,
+              2.0
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p5:p6\"]",
+          "world": [
+            [
+              1.1,
+              -0.2,
+              2.0
+            ],
+            [
+              1.1,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p6:p7\"]",
+          "world": [
+            [
+              1.1,
+              0.8,
+              2.0
+            ],
+            [
+              0.09999999999999998,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p0:p4\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              -0.2,
+              2.0
+            ],
+            [
+              0.09999999999999998,
+              -0.2,
+              -0.7999999999999999
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              1.0
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              1
+            ]
+          ],
+          "actualVisible": [],
+          "endpointError": 0.0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p1:p5\"]",
+          "world": [
+            [
+              1.1,
+              -0.2,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              -0.2,
+              2.0
+            ]
+          ],
+          "expectedHidden": [
+            [
+              0.0,
+              0.7015306122448979
+            ]
+          ],
+          "actualHidden": [
+            [
+              0,
+              0.701530612244898
+            ]
+          ],
+          "actualVisible": [
+            [
+              0.701530612244898,
+              1
+            ]
+          ],
+          "endpointError": 1.1102230246251565e-16,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p2:p6\"]",
+          "world": [
+            [
+              1.1,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              1.1,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        },
+        {
+          "id": "[\"tower\",\"e:p3:p7\"]",
+          "world": [
+            [
+              0.09999999999999998,
+              0.8,
+              -0.7999999999999999
+            ],
+            [
+              0.09999999999999998,
+              0.8,
+              2.0
+            ]
+          ],
+          "expectedHidden": [],
+          "actualHidden": [],
+          "actualVisible": [
+            [
+              0,
+              1
+            ]
+          ],
+          "endpointError": 0,
+          "bottom": false
+        }
+      ]
+    }
+  ],
+  "differences": [],
+  "comparedEdges": 96
+}

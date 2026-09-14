@@ -56,7 +56,7 @@ Scenes chain compatible source edges and preserve visibility breaks. `strokes: {
 
 A normal `sketch` can return a deferred scene. Compile it with `compileSketchAsync` or render it with `renderAsync`; synchronous entry points report that async rendering is required. The headless default uses the geometric CPU reference. To use WebGPU, create a host-owned `new GpuSceneCompute3(navigator.gpu)` and pass it as `{ compute3 }` to the async entry point. Reuse it across runs and `await compute3.dispose()` when the host closes. Importing the library and rendering ordinary 2D sketches never request a GPU adapter. Studio supplies this resource automatically and reports unavailable WebGPU rather than silently changing compute paths.
 
-Each execution retains its classified scene results in `run.scenes3`. Repeating the same scene value within that execution reuses its visibility calculation. Cross-execution model/camera caching and the main Studio 3D viewport are still being integrated.
+Each execution retains its classified scene results in `run.scenes3`. Repeating the same scene value within that execution reuses its visibility calculation. The main Studio 3D viewport retains captured geometry during exploration. Switching projection, orbiting and zooming leave the committed drawing unchanged; Commit view reclassifies the retained model and saves the chosen camera. A fresh sketch execution still rebuilds its model.
 
 ## Procedural construction
 
