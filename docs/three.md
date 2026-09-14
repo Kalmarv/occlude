@@ -379,3 +379,62 @@ export default sketch({ seed: 42, pens: {
 ```
 
 Custom interpretation callbacks may rerun for a camera change. Keep them pure: capture stable geometry/style inputs and do not consume mutable RNG or mutate outside state. JavaScript closures cannot be magically serialized or snapshotted. Already classified projected collections remain bound to their source camera; using them outside a retained callback requires reclassification when that camera changes. Advanced access to the same renderer and `projectedLines(classified)` is available through `occlude/3d/advanced`.
+
+### Curved primitives
+
+`sphere(radius = 1, {segments = 32, rings = 16, key?})` uses shared latitude
+rings and one point at each pole. `rings` counts pole-to-pole bands (minimum
+2); angular segment counts are integers of at least 3.
+
+`cylinder(radius = 1, height = 2, {segments = 32, caps = true, key?})` and
+`cone(radius = 1, height = 2, {segments = 32, caps = true, key?})` are centered
+on the Z axis, from `-height/2` to `+height/2`. The cone's apex is at the top.
+Caps share their rim points with the sides; `caps: false` leaves open rims.
+
+`torus(radius = 1, tubeRadius = 0.25, {segments = 32, tubeSegments = 12, key?})`
+lies in XY. Its radius measures the tube centerline, so its outer radius is
+`radius + tubeRadius`. The tube radius must be smaller than the centerline
+radius; self-intersecting and pinched tori are not accepted.
+
+These are ordinary polygon meshes. They support the same attributes,
+selections, transforms, frozen steps and subdivision as imported geometry.
+Increasing construction resolution samples the curved form more closely;
+`.subdivide()` preserves the existing polygon surface and does not round it.
+Seams share points and render triangulation does not add authoring edges.
+Dimensions must be positive and finite. Primitive requests exceeding 500,000
+points or 250,000 faces are rejected before generating arrays.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { sphere, cylinder, cone, torus, view, orthographic } from 'occlude/3d';
+export default sketch({ seed: 42, pens: {
+  ink: pen({ width: mm(0.3), color: '#18202A' }),
+  shade: pen({ width: mm(0.18), color: '#A84932' }),
+} }, () => view([
+  sphere(0.7, { segments: 16, rings: 8 }).translate([-1.2, -1.2, 0.8]),
+  cylinder(0.6, 1.6, { segments: 16 }).translate([1.2, -1.2, 0.8]),
+  cone(0.7, 1.8, { segments: 16 }).translate([-1.2, 1.2, 0.9]),
+  torus(0.65, 0.22, { segments: 16, tubeSegments: 8 }).translate([1.2, 1.2, 0.5]),
+], {
+  camera: orthographic({ eye: [6, 8, 7], target: [0, 0, 0.5], span: 7.5 }),
+  stroke: 'ink', hatch: { spacing: mm(2), angle: 35, stroke: 'shade' },
+}));
+```
+
+The terrain acceptance sketch combines the same workflow with a sphere and
+explicit Letter paper.
+
+```ts live
+import {sketch,paper,pen,mm,inch} from 'occlude';
+import {plane,sphere,view,orthographic} from 'occlude/3d';
+export default sketch({seed:42,paper:paper({width:inch(8.5),height:inch(11),color:'#F5F0E6'}),margin:5,pens:{ink:pen({width:mm(.3),color:'#18202A'}),shade:pen({width:mm(.18),color:'#A84932'})}},t=>{
+  const terrain=plane(6,6).subdivide(5)
+    .attribute('mobility',p=>Math.max(0,1-Math.hypot(p.x,p.y)/3))
+    .displace(p=>[0,0,t.noise(p.x*.7,p.y*.7)*.8])
+    .steps(8,(current,next,k)=>next.move(current.points,p=>[0,0,Math.sin(p.x+k*.1)*p.mobility*.01]));
+  return view([terrain,sphere(.8).translate([0,0,1.6])],{
+    camera:orthographic({eye:[6,8,5],target:[0,0,0],span:12}),stroke:'ink',
+    hatch:{spacing:mm(1.4),angle:35,stroke:'shade'},
+  });
+});
+```

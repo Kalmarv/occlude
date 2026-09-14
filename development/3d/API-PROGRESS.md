@@ -25,10 +25,17 @@ the earlier API and does not imply this redesign is finished.
   Monaco. Two live examples are added; all 228 existing docs ink entries are
   unchanged. Full Docker gates and served NVIDIA Playwright checks pass; see
   `mesh-api/README.md`, `gates.json`, `report.json` and `scenes/`.
-- Primitive expansion (sphere/cylinder/cone/torus), curves/profiles/sweep/revolve,
+- Sphere/cylinder/cone/torus now share the ordinary mesh contract. Four focused
+  tests cover watertight seams/poles/caps, winding, valid minimal resolutions,
+  dimensions, budgets and the downstream attribute/subdivision/steps workflow.
+  All Docker gates and served NVIDIA Playwright checks pass for twelve live
+  examples, including the catalog and full terrain acceptance sketch. See
+  `primitives-api/README.md` and its gate/render evidence.
+- Curves/profiles/sweep/revolve,
   M5 demo migration, prepared queries, reusable forces, shared instances and
   detailed GPU phase accounting remain pending. The three acceptance targets
-  still require those dependencies and are not yet complete.
+  include a runnable terrain example; the instanced forms example still needs
+  instances, and the full acceptance set is not yet verified.
 
 Worker restart/device-loss recovery remains deferred by the user. Use
 Playwright, not ProofShot. Continue in this isolated checkout; production

@@ -1,0 +1,51 @@
+{
+  "command": "Docker dev image build: pnpm check",
+  "passed": true,
+  "gates": [
+    {
+      "gate": "rust",
+      "passed": true,
+      "result": "12.0s"
+    },
+    {
+      "gate": "ts",
+      "passed": true,
+      "result": "26.1s"
+    },
+    {
+      "gate": "types",
+      "passed": true,
+      "result": "6.6s"
+    },
+    {
+      "gate": "studio",
+      "passed": true,
+      "result": "6.0s"
+    },
+    {
+      "gate": "docs",
+      "passed": true,
+      "result": "19.5s"
+    },
+    {
+      "gate": "ink",
+      "passed": true,
+      "result": "21.5s"
+    },
+    {
+      "gate": "build",
+      "passed": true,
+      "result": "40.2s"
+    },
+    {
+      "gate": "wasm",
+      "passed": true,
+      "result": "8bf0034cb79606aa8d6c7293496a1b7e"
+    },
+    {
+      "gate": "smoke",
+      "passed": true,
+      "result": "2.3s"
+    }
+  ]
+}

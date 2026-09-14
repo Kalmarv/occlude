@@ -1,8 +1,9 @@
 # Procedural 3D contract
 
 Implementation contract for `3dapi.md`. The acceptance examples in
-`api-examples/` are targets, not yet supported public imports. Promote them to
-executable checks and live documentation as their dependencies land.
+`api-examples/` are tracked targets. Terrain is now executable and live in
+`docs/three.md`; the complete acceptance set still requires the remaining
+instance/query work and verification.
 
 ## Values and domains
 

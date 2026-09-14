@@ -1,4 +1,4 @@
-// Acceptance target: promote to a live example when occlude/3d is implemented.
+// Executable acceptance sketch; also included as a live example in docs/three.md.
 import {sketch,paper,pen,mm,inch} from 'occlude';
 import {plane,sphere,view,orthographic} from 'occlude/3d';
 export default sketch({seed:42,paper:paper({width:inch(8.5),height:inch(11),color:'#F5F0E6'}),margin:5,pens:{ink:pen({width:mm(.3),color:'#18202A'}),shade:pen({width:mm(.18),color:'#A84932'})}},t=>{

@@ -6,3 +6,5 @@ export type {ProjectedCurve,ProjectedCurves,ProjectedLines,ProjectedStrokeOption
 export type {Collection} from './collection.js';
 export type {SubdivisionOptions} from './subdivide.js';
 export type {Vec3} from '../math.js';
+export {sphere,cylinder,cone,torus} from './primitives.js';
+export type {SphereOptions,RadialOptions,TorusOptions} from './primitives.js';
