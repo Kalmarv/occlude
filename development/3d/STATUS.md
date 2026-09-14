@@ -1,5 +1,7 @@
 # 3D implementation evidence
 
+Current consolidated status: [HANDOFF.md](HANDOFF.md) and [ACCEPTANCE.md](ACCEPTANCE.md). The milestone narrative below is historical and retains the state/limits recorded during implementation; its old pending statements are superseded by the consolidated audit.
+
 Original specification: [spec.md](spec.md). All M0–M5 requirements remain in scope.
 
 Latest camera work: retained composition and `commitCamera3` support creating a new camera result without rerunning procedural modeling; see [CAMERA-COMPOSITION.md](CAMERA-COMPOSITION.md). Studio provides Commit view; see [CAMERA-STUDIO.md](CAMERA-STUDIO.md). Committed cameras now persist in saved/downloaded sketch configuration; see [CAMERA-CONFIG.md](CAMERA-CONFIG.md). Broader lifecycle hardening and the full M5 audit remain unfinished.

@@ -1,5 +1,7 @@
 # M0–M5 working acceptance audit
 
+This historical working list is superseded by the clause-level [ACCEPTANCE.md](ACCEPTANCE.md) and consolidated [HANDOFF.md](HANDOFF.md).
+
 Scope: every requirement in [spec.md](spec.md), with subsequent user-approved deferrals recorded in [USER-FOLLOWUPS.md](USER-FOLLOWUPS.md). The original specification file remains unchanged. This is a working audit, not a completion certificate. Existing implementation/evidence is listed to guide targeted review; a referenced test name alone does not prove every clause.
 
 ## Remaining acceptance priorities

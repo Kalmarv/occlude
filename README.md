@@ -146,7 +146,7 @@ facts, and papers — never code**:
 | [Javascript Clipper](https://github.com/junmer/clipper-lib) | Integer polygon union for bounded TypeScript `thicken()` | Boost Software License 1.0 (bundled JSBN: BSD) |
 | [iOverlay](https://github.com/iShape-Rust/iOverlay) | Pinned Rust dependency for winding normalization, visible-area Booleans, nib sweeps and polygon offset recovery. | MIT / Apache-2.0 |
 | [d3-delaunay](https://github.com/d3/d3-delaunay) (Mike Bostock) | Bundled dependency powering `voronoi`/`triangulate`/`settle`; his weighted-stippling notebook showed the `delaunay.find` accumulation walk. | ISC |
-| [robust-predicates](https://github.com/mourner/robust-predicates) (Vladimir Agafonkin, after Shewchuk) | Bundled dependency: the exact `orient2d` predicate behind `planarize()`/`faces()` crossing and contact decisions. | Unlicense (public domain) |
+| [robust-predicates](https://github.com/mourner/robust-predicates) (Vladimir Agafonkin, after Shewchuk) | Bundled dependency: exact `orient2d`/`orient3d` predicates for 2D crossing/contact and 3D triangulation/visibility refinement. | Unlicense (public domain) |
 | [commons-math-interpolation](https://github.com/chdh/commons-math-interpolation) (Christian d'Heureuse) | Bundled dependency: the Akima / cubic / linear interpolators behind `shaper()`. | MIT |
 | [plotterbench](https://github.com/plotterbench) | Inverse-kinematics golden-test idea (backlog). Ideas only — PolyForm forbids code reuse. | PolyForm Shield |
 | Robert Penner / [easings.net](https://easings.net) | The `ease.*` curve catalog (standard formulas). | formulas |
