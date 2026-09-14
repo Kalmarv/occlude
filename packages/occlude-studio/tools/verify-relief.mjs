@@ -4,8 +4,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 const base = process.env.OCCLUDE_GPU_URL ?? 'http://127.0.0.1:5273';
-const output = resolve('../../development/3d/playwright-relief');
-const source = await readFile('../../development/3d/demos/procedural-relief.ts', 'utf8');
+const output = resolve(process.env.OCCLUDE_GPU_EVIDENCE ?? '../../development/3d/decoration-api/relief');
+const source = (await readFile(process.env.OCCLUDE_RELIEF_SOURCE ?? '../../development/3d/demos/procedural-relief.ts', 'utf8')).replace('async t => {', "async t => { console.info('relief-model');");
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: false,
   env: { ...process.env, VK_DRIVER_FILES: '/usr/share/vulkan/icd.d/nvidia_icd.json' },
@@ -13,6 +13,7 @@ const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome'
 let page;
 try {
   page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  let models = 0; page.on('console', m => { if (m.text() === 'relief-model') models++; });
   const errors = []; page.on('pageerror', e => errors.push(String(e)));
   await page.addInitScript(source => {
     localStorage.setItem('occlude.sketch', source);
@@ -36,6 +37,8 @@ try {
   });
   await page.goto(base); await ready();
   const first = await capture();
+  const diagnostics = await page.evaluate(() => window.__occlude.editor.diagnostics());
+  assert.deepEqual(diagnostics, []);
   assert.equal(first.stats.adapter.isFallbackAdapter, false);
   assert.deepEqual(first.stats.modeling.map(m => [m.operation, m.backend, m.dispatches]), [['deform', 'gpu', 8], ['query', 'gpu', 1]]);
   const scene = first.captured.three.scenes[0], surface = scene.objects[0].surface;
@@ -68,9 +71,25 @@ try {
   const changed = await capture();
   const otherCaps = changed.captured.three.scenes[0].objects[0].surface.faces.filter(f => f.attributes.role === 'cap');
   assert.notDeepEqual(otherCaps.map(f => f.id), caps.map(f => f.id), 'a different seed changes selected sites');
+  assert.equal(models, 3);
+  await page.getByRole('button', { name: '3D', exact: true }).click();
+  await page.getByLabel('Projection', { exact: true }).selectOption('perspective');
+  assert.equal((await capture()).svg, changed.svg);
+  await page.getByRole('button', { name: 'Commit view', exact: true }).click();
+  await page.waitForFunction(hash => window.demoReply.planHash !== hash && document.querySelector('.construction-pick')?.textContent?.startsWith('View committed.'), changed.hash, { timeout: 60000 });
+  const committed = await capture();
+  assert.equal(models, 3);
+  assert.equal(committed.captured.three.scenes[0].frame.camera.kind, 'perspective');
+  assert.deepEqual(committed.captured.three.scenes[0].objects, changed.captured.three.scenes[0].objects);
+  assert.notEqual(committed.svg, changed.svg);
+  const downloadEvent = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
+  const portable = await readFile(await (await downloadEvent).path(), 'utf8');
+  assert(portable.includes(JSON.stringify(committed.captured.three.scenes[0].frame.camera)));
+  await writeFile(resolve(output, 'portable.ts'), portable);
   assert.deepEqual(errors, []);
   await writeFile(resolve(output, 'relief.svg'), first.svg);
-  await writeFile(resolve(output, 'report.json'), JSON.stringify({ passed: true, first, repeatedHash: repeated.hash, changedSeedHash: changed.hash, selectedCaps: caps.map(f => f.id), changedSeedCaps: otherCaps.map(f => f.id), adjustedPoints: adjusted.length, errors }, null, 2));
+  await writeFile(resolve(output, 'report.json'), JSON.stringify({ passed: true, base, diagnostics, first, models, committedHash: committed.hash, committedCamera: committed.captured.three.scenes[0].frame.camera, repeatedHash: repeated.hash, changedSeedHash: changed.hash, selectedCaps: caps.map(f => f.id), changedSeedCaps: otherCaps.map(f => f.id), adjustedPoints: adjusted.length, errors }));
   console.log('Relief GPU modeling, query edits, seeded selection and repeatability passed.');
 } catch (error) {
   if (page) { await page.screenshot({ path: resolve(output, 'failure.png') }); await writeFile(resolve(output, 'failure.html'), await page.content()); }

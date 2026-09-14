@@ -793,3 +793,54 @@ export default sketch({ seed: 42, pens: {
   });
 });
 ```
+
+## Hatch families and model sections
+
+`view` accepts one `hatch` recipe or an array of recipes. Each recipe has a
+`spacing`, optional `angle` (45 degrees by default), `offset`, `stroke`, `select`
+and semantic `key`. Spacing, angle and offset can be constants or fields on the
+mesh's typed face rows. Eligibility and field values are captured once when the
+view is created; camera commits regenerate the paper ruling without reevaluating
+those fields. An array supplies multiple families, including crosshatching.
+Each family's pen affects only its own ink. Spacing and offset use physical
+paper lengths; angles remain paper-directed, not curvature-following.
+
+`sections: [{ origin, normal, stroke?, key?, attributes? }, ...]` intersects the
+same owned mesh with planes. Origin and normal are in the mesh's model space.
+For instances they are prototype-space planes: each resulting section moves
+with its instance. A fixed world cutting plane is a different operation; the
+advanced `section3` API can section explicitly realized world geometry. A
+section's pen defaults to the view's pen. Keys are optional and must be unique
+within the hatch or section list; automatic keys depend on list position.
+
+Hatch and sections retain source/support provenance on the same geometry
+revision. No `hatch.surface` / `sections.surface` threading is needed. A custom
+view callback still replaces all default ink; use `c.kinds.has('hatch')` or
+`c.kinds.has('section')` on its visible/hidden collections to interpret them.
+`c.attributes.hatchFamily` and `c.attributes.sectionPlane` expose recipe keys.
+The existing per-mesh one-million-segment limits remain in force. Sections are
+mesh–plane intersections, not boolean union or mesh–mesh intersection curves.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { box, view, orthographic } from 'occlude/3d';
+
+export default sketch({ seed: 42, pens: {
+  ink: pen({ width: mm(0.3), color: '#18202A' }),
+  shade: pen({ width: mm(0.15), color: '#56626A' }),
+  section: pen({ width: mm(0.25), color: '#A84932' }),
+} }, () => {
+  const model = box([2.4, 1.8, 2.8])
+    .faceAttribute('spacing', f => f.normal[2] > 0 ? 2 : 3);
+  return view(model, {
+    camera: orthographic({ eye: [5, 7, 6], span: 5 }), stroke: 'ink',
+    hatch: [
+      { spacing: f => mm(f.spacing), angle: 35, stroke: 'shade' },
+      { spacing: f => mm(f.spacing * 2), angle: -35, stroke: 'shade', select: f => f.normal[2] > 0 },
+    ],
+    sections: [-0.8, 0, 0.8].map(height => ({
+      origin: [0, 0, height], normal: [0, 0, 1], stroke: 'section',
+    })),
+  });
+});
+```

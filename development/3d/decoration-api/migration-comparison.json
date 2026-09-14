@@ -1,0 +1,9 @@
+{
+  "sameGeometry": true,
+  "beforeSegments": 847,
+  "afterSegments": 847,
+  "commonSegments": 847,
+  "removedSegments": 0,
+  "addedSegments": 0,
+  "comparison": "Exact named-pen segment multiset, with endpoint order normalized; no coordinate rounding."
+}

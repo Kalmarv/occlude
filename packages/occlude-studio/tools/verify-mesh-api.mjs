@@ -2,8 +2,8 @@ import {chromium} from 'playwright';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const base=process.env.OCCLUDE_GPU_URL??'http://127.0.0.1:5273';
-const instanceCheck=process.env.OCCLUDE_API_EXAMPLE==='instances',queryCheck=process.env.OCCLUDE_API_EXAMPLE==='queries',curveCheck=process.env.OCCLUDE_API_EXAMPLE==='curves',profileCheck=process.env.OCCLUDE_API_EXAMPLE==='profiles',samplingCheck=process.env.OCCLUDE_API_EXAMPLE==='sampling';
-const evidenceDirs={instances:'instances-api',queries:'query-api',curves:'curves-api',profiles:'profile-construction',sampling:'sampling-api'};
+const instanceCheck=process.env.OCCLUDE_API_EXAMPLE==='instances',queryCheck=process.env.OCCLUDE_API_EXAMPLE==='queries',curveCheck=process.env.OCCLUDE_API_EXAMPLE==='curves',profileCheck=process.env.OCCLUDE_API_EXAMPLE==='profiles',samplingCheck=process.env.OCCLUDE_API_EXAMPLE==='sampling',decorationCheck=process.env.OCCLUDE_API_EXAMPLE==='decorations';
+const evidenceDirs={instances:'instances-api',queries:'query-api',curves:'curves-api',profiles:'profile-construction',sampling:'sampling-api',decorations:'decoration-api/default'};
 const output=process.env.OCCLUDE_API_EVIDENCE??('../../development/3d/'+(evidenceDirs[process.env.OCCLUDE_API_EXAMPLE]??'mesh-api'));await mkdir(output,{recursive:true});
 const docs=await readFile('../../docs/three.md','utf8');
 let source=[...docs.matchAll(/```ts live[^\n]*\n([\s\S]*?)```/g)][8][1].replace('const terrain =',"console.info('mesh-model'); const terrain =");
@@ -12,6 +12,7 @@ if(queryCheck)source=(await readFile('../../development/3d/api-examples/surface-
 if(curveCheck)source=(await readFile('../../development/3d/api-examples/curves.ts','utf8')).replace('const block =',"console.info('mesh-model'); const block =");
 if(profileCheck)source=(await readFile('../../development/3d/api-examples/profile-construction.ts','utf8')).replace('const vessel =',"console.info('mesh-model'); const vessel =");
 if(samplingCheck)source=(await readFile('../../development/3d/api-examples/surface-sampling.ts','utf8')).replace('const terrain =',"console.info('mesh-model'); const terrain =").replace('return view([terrain, trees, stones]',`console.info('sampling-proof:'+JSON.stringify({count:sites.points.length,samples:marks.points.length,generation:sites.generation,typedFace:sites.points.map(p=>p.sample.face.ground).every(v=>v===true),identity:trees.rows.every(r=>r.source===sites.points.at(r.source.index)),onSurface:sites.points.map(p=>Math.hypot(p.x-p.sample.position[0],p.y-p.sample.position[1],p.z-p.sample.position[2])).every(d=>d===0),spacing:sites.points.map((p,i)=>sites.points.map((q,j)=>i<j?Math.hypot(p.x-q.x,p.y-q.y,p.z-q.z):Infinity)).flat().every(d=>d>=.45),aligned:trees.rows.every(r=>{const b=r.transform.rotate[1]*Math.PI/180,c=r.transform.rotate[2]*Math.PI/180,n=r.source.sample.normal;return Math.hypot(Math.cos(c)*Math.sin(b)-n[0],Math.sin(c)*Math.sin(b)-n[1],Math.cos(b)-n[2])<1e-12;})})); return view([terrain, trees, stones]`);
+if(decorationCheck)source=(await readFile('../../development/3d/api-examples/surface-decoration.ts','utf8')).replace('const model =',"console.info('mesh-model'); const model =");
 const browser=await chromium.launch({executablePath:'/usr/bin/google-chrome',headless:false,env:{...process.env,VK_DRIVER_FILES:'/usr/share/vulkan/icd.d/nvidia_icd.json'},args:['--no-sandbox','--enable-unsafe-webgpu','--enable-features=Vulkan','--use-angle=vulkan','--disable-vulkan-surface','--ignore-gpu-blocklist']});
 try{
  const page=await browser.newPage({viewport:{width:1500,height:1100}});let models=0;const shared=[];const queries=[];const curveOracles=[];const profileOracles=[];const samplingProofs=[];const samplingQueries=[];let samplingQueryStats;const errors=[];
@@ -36,16 +37,18 @@ try{
  assert(portable.includes('cameras3:'));assert(portable.includes(JSON.stringify(after.camera)));await writeFile(output+'/portable.ts',portable);
  await page.evaluate(source=>localStorage.setItem('occlude.sketch',source),portable);await page.reload();await page.waitForFunction(()=>window.reply&&window.__occlude?.drawing.plan,{},{timeout:60000});
  const reopened=await page.evaluate(()=>({hash:window.reply.planHash,camera:window.reply.construction[0].camera}));assert.deepEqual(reopened,{hash:after.hash,camera:after.camera});assert.equal(models,2);
- const probe=profileCheck?"revolve(polyline([[1,0,0],[1,0,1]]).attribute('height',1)).points.at(0).height":curveCheck?"circle().attribute('height',1).points.at(0).height":queryCheck?"query(plane()).batch().nearest(plane().attribute('height',1).points)[0].source.height":instanceCheck?"instanceOnPoints(cone(),pointCloud([[0,0,0]]).attribute('height',1).points).instances.at(0).height":"plane().attribute('height',1).points.at(0).height";
+ const probe=decorationCheck?"box().faceAttribute('spacing',1).faces().at(0).spacing":profileCheck?"revolve(polyline([[1,0,0],[1,0,1]]).attribute('height',1)).points.at(0).height":curveCheck?"circle().attribute('height',1).points.at(0).height":queryCheck?"query(plane()).batch().nearest(plane().attribute('height',1).points)[0].source.height":instanceCheck?"instanceOnPoints(cone(),pointCloud([[0,0,0]]).attribute('height',1).points).instances.at(0).height":"plane().attribute('height',1).points.at(0).height";
  if(samplingCheck)await page.evaluate(()=>window.__occlude.editor.setValue(window.__occlude.editor.getValue()+`
 function __samplingTypes(t: import('occlude').Toolkit) {
   const point: string = t.sample(plane().attribute('height',1),{count:1}).points.at(0).height;
   const face: string = instanceOnPoints(cone(),t.sample(plane().faceAttribute('ground',true),{count:1}).points).instances.at(0).source.sample.face.ground;
 }`));
  else await page.evaluate(({probe,queryCheck,curveCheck,profileCheck})=>window.__occlude.editor.setValue(window.__occlude.editor.getValue()+'\nconst __typeProbe: string = '+probe+';'+(queryCheck?"\nconst __faceProbe: string = query(plane().faceAttribute('roof',true)).nearest([0,0,1]).face.roof;":'')+(curveCheck?'\ncircle().faces();':'')+(profileCheck?"\nconst __pathProbe: string = sweep(circle(),polyline([[0,0,0],[0,0,1]]).attribute('radius',1)).points.at(0).radius;":'')),{probe,queryCheck,curveCheck,profileCheck});
+ if(decorationCheck)await page.evaluate(()=>window.__occlude.editor.setValue(window.__occlude.editor.getValue()+`
+view(box().faceAttribute('spacing',1), {camera:orthographic({eye:[5,7,6]}), hatch:{spacing:f=>{const __bad:string=f.spacing;return mm(1);}}});`));
  const negative=await page.evaluate(()=>window.__occlude.editor.diagnostics());await writeFile(output+'/negative-diagnostics.json',JSON.stringify(negative,null,2));assert(negative.some(d=>d.code===2322),'Monaco must retain numeric attribute types rather than any');
  if(curveCheck)assert(negative.some(d=>d.code===2339),'curve geometry must not claim a face domain');
- if(queryCheck||profileCheck||samplingCheck)assert.equal(negative.filter(d=>d.code===2322).length,2);
+ if(queryCheck||profileCheck||samplingCheck||decorationCheck)assert.equal(negative.filter(d=>d.code===2322).length,2);
  if(curveCheck){
   for(const projection of ['orthographic','perspective']){
    const oracleSource=`import {sketch,strokes} from 'occlude';

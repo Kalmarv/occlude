@@ -1,8 +1,9 @@
 # Demonstration sketches
 
-The visibility and paper demos have been migrated to `occlude/3d`; the relief
-migration remains pending. Current migration evidence is in
-[`demo-migration/`](../demo-migration/README.md). The earlier M5 evidence below
+All three demos now use `occlude/3d` for retained drawing. Migration evidence is
+in [`demo-migration/`](../demo-migration/README.md) and
+[`decoration-api/`](../decoration-api/README.md). The relief retains its explicit
+advanced independent-face extrusion and fixed-sample GPU deformation. The earlier M5 evidence below
 records the original implementation, not completion of the API redesign.
 
 All three are installed in the isolated dev sketch store: `visibility-laboratory`, `procedural-relief`, and `paper-composition` (portable bundled definitions). Refresh Studio’s Sketches page to open them.
@@ -12,7 +13,7 @@ Import these `.ts` files into the isolated Studio at `http://localhost:5273` (or
 | Demo | What to try | Verified artifacts |
 | --- | --- | --- |
 | [Visibility laboratory](visibility-laboratory.ts) | Compare the clean/hidden, dashed/wobbled and contour/wire columns. All three use the same classified scene. Open the browser console for the `visibility-laboratory` report: visible/hidden interval counts and three intervals with source IDs, parameter ranges and support. Edit the readable kind predicate to choose another filter. Choose **3D**, orbit, then **Commit view** to reproject all columns. | [SVG](../demo-migration/visibility/visibility.svg), [screenshot](../demo-migration/visibility/visibility.png), [report](../demo-migration/visibility/report.json) |
-| [Procedural relief](procedural-relief.ts) | Change the seed to select different nonadjacent sites. Heights vary, point attributes drive eight GPU deformation iterations, a nearest-surface batch trims high vertices against a ceiling, and face attributes control hatch spacing. Section contours share the realized surface. | [SVG](../playwright-relief/relief.svg), [screenshot](../playwright-relief/relief.png), [report](../playwright-relief/report.json) |
+| [Procedural relief](procedural-relief.ts) | Change the seed to select different nonadjacent sites. Heights vary, point attributes drive eight GPU deformation iterations, a nearest-surface batch trims high vertices against a ceiling, and face attributes control hatch spacing. Section contours share the realized surface. | [SVG](../decoration-api/served/relief.svg), [screenshot](../decoration-api/served/relief.png), [report](../decoration-api/served/report.json) |
 | [Paper composition](paper-composition.ts) | Uses the starter Letter paper and `pigma-01-black` pen imports, two color instances and a one-off pen. Commit a camera, download, and reopen the bundled sketch. | [Portable download](../demo-migration/paper/paper-composition.ts), [SVG](../demo-migration/paper/composition.svg), [report](../demo-migration/paper/report.json) |
 
 The visibility demo contains a cube, an open plane, two crossing boxes and an authored wire. Cross-object intersection curves are deferred; it intentionally demonstrates the supported mesh features and visibility cuts. Its console inspection is part of the sketch, not a new Studio inspector UI. Feature/style construction inside the retained drawing callback uses one classified result; changing the sketch source reruns the sketch, while its three displayed interpretations share the result within each run.

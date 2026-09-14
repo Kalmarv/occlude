@@ -2,11 +2,13 @@ import { sketchAsync, clip, rect, mask, label, paper, pen, mm } from 'occlude';
 import { mesh, plane, query, view, orthographic } from 'occlude/3d';
 import { grid3, FaceSelection3, extrudeFaces3 } from 'occlude/3d/advanced';
 
-export default sketchAsync({ seed: 42, paper: paper({ width: mm(200), height: mm(200) }), margin: 5, pens: {
+export default sketchAsync({ ...({ seed: 43, paper: paper({ width: mm(200), height: mm(200) }), margin: 5, pens: {
   outline: pen({ width: mm(0.3), color: '#18202A' }),
   fine: pen({ width: mm(0.18), color: '#56626A' }),
   accent: pen({ width: mm(0.25), color: '#A84932' }),
-} }, async t => {
+} }), cameras3: {
+    "procedural-relief": {"eye":[5,7,6],"target":[0,0,0.4],"near":0.1,"far":30,"kind":"perspective","up":[0,0,1],"fovDegrees":29.9961980673016}
+  } }, async t => { console.info('relief-model');
   // Independent-face extrusion remains an explicit advanced modeling operation.
   let surface = grid3(6, 6, [4, 4]);
   surface.faces.forEach(face => {
@@ -38,7 +40,7 @@ export default sketchAsync({ seed: 42, paper: paper({ width: mm(200), height: mm
     clip(rect(4, 4, 92, 84), view(relief, {
       key: 'procedural-relief',
       camera: orthographic({ span: 5.5, eye: [5, 7, 6], target: [0, 0, 0.4], near: 0.1, far: 30 }),
-      // Keep shallow creases in the deformed relief visible.
+      // Keep shallow relief creases visible, including the deliberately warped grid.
       creaseAngle: 0,
       stroke: 'outline',
       hatch: [

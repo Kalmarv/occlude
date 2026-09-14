@@ -72,12 +72,17 @@ silently compiled or reevaluated on the GPU.
 
 ## Interpretation
 
-`view(geometryOrArray, {camera, stroke, hatch, creaseAngle}, draw?)` returns a
+`view(geometryOrArray, {camera, stroke, hatch, sections, creaseAngle}, draw?)` returns a
 retained drawable subtree. It composes with existing clips, groups, masks and
 labels. Default ink selects visible boundaries, silhouettes and creases above
 30 degrees; `creaseAngle` explicitly controls that artistic threshold.
 `hatch` owns its input revision automatically and resolves spacing in paper
 units. A hatch `select` predicate receives face rows for selective decoration.
+Multiple hatch recipes have independent pens and optional keys; spacing,
+angle and offset accept fields captured once on the typed eligible face rows.
+`sections` captures model-space planes on the same revision. For instances the
+planes belong to the prototype and section curves transform with placements.
+Neither decoration requires callers to thread derived `.surface` values.
 The callback replaces default emission and receives visible/hidden interval
 collections with readable kind sets and captured source attributes.
 

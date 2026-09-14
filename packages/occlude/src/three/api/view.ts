@@ -6,7 +6,8 @@ import {sub3,type Vec3} from '../math.js';
 import {lineArt3} from '../scene.js';
 import {drawing3,type Drawing3} from '../drawing.js';
 import {hatch3} from '../curves/hatch.js';
-import {Mesh,CurveGeometry,type FaceRow,type EdgeAttributes} from './mesh.js';
+import {section3} from '../curves/section.js';
+import {Mesh,CurveGeometry,evaluate,type Field,type FaceRow,type EdgeAttributes} from './mesh.js';
 import {Instances} from './instances.js';
 import type {SurfaceObject3} from '../features/snapshot.js';
 import {projectedLines,projectedStrokes,captureValue,type ProjectedLines} from './projected.js';
@@ -19,11 +20,23 @@ export function perspective(options:CameraOptions&{readonly fovDegrees?:number})
   const target=options.target??[0,0,0];
   return cameraFrame3({...options,kind:'perspective',target,fovDegrees:options.fovDegrees??45,near:options.near??.1,far:options.far??Math.max(100,4*Math.hypot(...sub3(options.eye,target)))},{x:0,y:0,width:1,height:1}).camera as Extract<Camera3,{kind:'perspective'}>;
 }
+export interface ViewHatch<F extends Attributes3=Attributes3> {
+  readonly key?:string;
+  readonly spacing:Field<FaceRow<F>,L>;readonly angle?:Field<FaceRow<F>,number>;readonly offset?:Field<FaceRow<F>,L>;
+  readonly stroke?:string;readonly select?:(face:FaceRow<F>)=>boolean;
+}
+/** Planes are in the mesh/prototype's model coordinates; instances transform
+ * the resulting section with their geometry. They are not world cutting planes. */
+export interface ViewSection {
+  readonly key?:string;readonly origin:Vec3;readonly normal:Vec3;
+  readonly stroke?:string;readonly attributes?:Attributes3;
+}
 export interface ViewOptions<F extends Attributes3=Attributes3> {
   readonly camera:Camera3;readonly stroke?:string;readonly key?:string;readonly viewport?:PaperFrame3;
   /** Artistic threshold in degrees; default 30. Silhouettes remain visible. */
   readonly creaseAngle?:number;
-  readonly hatch?:{readonly spacing:L;readonly angle?:number;readonly offset?:L;readonly stroke?:string;readonly select?:(face:FaceRow<F>)=>boolean};
+  readonly hatch?:ViewHatch<F>|readonly ViewHatch<F>[];
+  readonly sections?:readonly ViewSection[];
 }
 // Heterogeneous meshes intentionally expose an attribute map at this boundary;
 // a single mesh overload preserves its precise face-column types.
@@ -36,6 +49,12 @@ export function view(geometry:readonly ViewGeometry[],options:ViewOptions,draw?:
 export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewOptions<any>,draw?:(lines:ProjectedLines)=>Tree):Drawing3 {
   const settings=captureValue(options),crease=settings.creaseAngle??30;
   if(!Number.isFinite(crease)||crease<0||crease>180)throw new Error('view creaseAngle must be between 0 and 180 degrees');
+  const recipes:readonly ViewHatch<any>[]=settings.hatch?(Array.isArray(settings.hatch)?settings.hatch:[settings.hatch]):[];
+  const hatchKeys=recipes.map((r,i)=>r.key??(Array.isArray(settings.hatch)?`hatch:${i}`:'hatch'));
+  const planes=settings.sections??[],sectionKeys=planes.map((p,i)=>p.key??`section:${i}`);
+  for(const [kind,keys] of [['hatch',hatchKeys],['section',sectionKeys]] as const){
+    if(keys.some(k=>typeof k!=='string'||!k)||new Set(keys).size!==keys.length)throw new Error(`view ${kind} keys must be nonempty and unique`);
+  }
   const meshes=Array.isArray(geometry)?geometry:[geometry];
   const objects:SurfaceObject3[]=[];
   const geometryKeys=new Set<string>();
@@ -45,13 +64,17 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
     if(geometryKeys.has(id))throw new Error('view geometry keys must be unique');geometryKeys.add(id);
     if(value instanceof CurveGeometry){objects.push({id,surface:value.surface,occluder:false});return;}
     const mesh=value instanceof Instances?value.prototype:value;
-    const faces=mesh.faces(),recipe=settings.hatch;
+    const faces=mesh.faces();
     // Eligibility belongs to the prototype; the hatch lattice is resolved on
     // each transformed surface in the existing renderer.
-    const hatch=recipe?hatch3(mesh.surface,face=>!recipe.select||recipe.select(faces.at(face.index)!)?[{id:'hatch',spacing:recipe.spacing,angle:recipe.angle??45,offset:recipe.offset}]:[]):undefined;
+    const hatch=recipes.length?hatch3(mesh.surface,face=>{
+      const row=faces.at(face.index)!;
+      return recipes.flatMap((recipe,i)=>!recipe.select||recipe.select(row)?[{id:hatchKeys[i],spacing:evaluate(recipe.spacing,row),angle:evaluate(recipe.angle??45,row),offset:recipe.offset===undefined?undefined:evaluate(recipe.offset,row)}]:[]);
+    }):undefined;
+    const curves=planes.length?section3(mesh.surface,planes.map((p,i)=>({id:sectionKeys[i],origin:p.origin,normal:p.normal,attributes:p.attributes}))):undefined;
     if(value instanceof Instances){
-      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:mesh.surface,hatch,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:row.source.id,pointIndex:row.source.index,prototypeKey:mesh.key}});
-    }else objects.push({id,surface:mesh.surface,hatch});
+      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:mesh.surface,hatch,curves,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:row.source.id,pointIndex:row.source.index,prototypeKey:mesh.key}});
+    }else objects.push({id,surface:mesh.surface,hatch,curves});
   });
   if(new Set(objects.map(o=>o.id)).size!==objects.length)throw new Error('view geometry keys must be unique');
   const scene=lineArt3({id:settings.key,objects,camera:settings.camera,viewport:settings.viewport,lineSets:[]});
@@ -60,7 +83,8 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
     if(draw)return draw(lines);
     return [
       projectedStrokes(lines.visible.filter(c=>c.kinds.has('boundary')||c.kinds.has('silhouette')||c.kinds.has('wire')||(c.kinds.has('crease')&&c.feature.creaseAngle>=crease)),{stroke:settings.stroke}),
-      ...(settings.hatch?[projectedStrokes(lines.visible.filter(c=>c.kinds.has('hatch')),{stroke:settings.hatch.stroke??settings.stroke})]:[]),
+      ...recipes.map((recipe,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('hatch')&&c.attributes.hatchFamily===hatchKeys[i]),{stroke:recipe.stroke??settings.stroke})),
+      ...planes.map((plane,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('section')&&c.attributes.sectionPlane===sectionKeys[i]),{stroke:plane.stroke??settings.stroke})),
     ];
   });
 }

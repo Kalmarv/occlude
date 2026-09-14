@@ -1,0 +1,10 @@
+[
+  {
+    "code": 2322,
+    "message": "Type 'number' is not assignable to type 'string'."
+  },
+  {
+    "code": 2322,
+    "message": "Type 'number' is not assignable to type 'string'."
+  }
+]

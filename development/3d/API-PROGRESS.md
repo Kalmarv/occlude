@@ -86,9 +86,23 @@ the earlier API and does not imply this redesign is finished.
   hidden-crease inspection, physical mask/clip checks with negative controls,
   orthographic/perspective commit without modeling reruns, and exact portable
   reopen. See `paper-api/`. This does not resolve the fresh underside report.
-- Procedural relief migration and detailed GPU phase accounting remain pending.
-  The three acceptance targets have focused evidence; the full requirement
-  audit remains outstanding.
+- Captured hatch arrays with typed per-face spacing/angle/offset fields and
+  model-space section planes are implemented in `view`. Default ink routes each
+  recipe to its named pen; shared revision ownership is automatic. Five focused
+  tests plus existing view/instance checks pass, including independent square
+  section geometry, exact shared-kernel intervals, frozen field capture and
+  camera retention. A new live example covers both decorations.
+- Procedural relief now uses those recipes and prepared, source-aware query
+  batches. Independent-face extrusion and fixed-sample GPU deformation remain
+  explicit advanced modeling operations with their existing semantics. The
+  migrated model and all 847 exported segments match the previous sketch.
+  Main Studio checks seed variation/repeatability, eight GPU deformation passes,
+  one GPU query, typed hatch fields and camera commit without a model rerun.
+  All nine Docker gates and eighteen served live examples pass. The migrated
+  relief is installed in the dev sketch store; see `decoration-api/`.
+- Detailed GPU phase accounting and the full requirement audit remain pending.
+  The three acceptance targets have focused evidence. The fresh underside
+  report remains unresolved.
 
 Worker restart/device-loss recovery remains deferred by the user. Use
 Playwright, not ProofShot. Continue in this isolated checkout; production

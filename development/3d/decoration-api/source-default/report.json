@@ -1,0 +1,71 @@
+{
+  "passed": true,
+  "base": "http://127.0.0.1:5277",
+  "diagnostics": [],
+  "negative": [
+    {
+      "code": 2322,
+      "message": "Type 'number' is not assignable to type 'string'."
+    },
+    {
+      "code": 2322,
+      "message": "Type 'number' is not assignable to type 'string'."
+    }
+  ],
+  "modelsBeforeReopen": 1,
+  "modelsAfterReopen": 2,
+  "reopened": {
+    "hash": "bebf14891efb504d615cb50aa7705bafd40b2674ad2ebee18894716fafb9176b",
+    "camera": {
+      "eye": [
+        5,
+        7,
+        6
+      ],
+      "kind": "perspective",
+      "target": [
+        0,
+        0,
+        0
+      ],
+      "near": 0.1,
+      "far": 100,
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "fovDegrees": 26.81431796194859
+    }
+  },
+  "stats": {
+    "modeling": [],
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "scenes": [
+      {
+        "candidates": 2325,
+        "dispatches": 1,
+        "refinements": 1550,
+        "transferBytes": 260416,
+        "wallMs": 143.19999998807907,
+        "gpuMs": 0.012288,
+        "paperToleranceMm": 0.005,
+        "parameterTolerance": 0.00001
+      }
+    ]
+  },
+  "zeroLengthPaths": 0,
+  "sharedPrototypeCounts": [],
+  "queries": [],
+  "curveOracles": [],
+  "profileOracles": [],
+  "samplingProofs": [],
+  "samplingQueries": [],
+  "errors": []
+}
