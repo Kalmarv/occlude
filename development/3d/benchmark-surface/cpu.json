@@ -1,0 +1,348 @@
+{
+  "hardware": "headless node, CPU reference, no GPU",
+  "node": "v24.21.0",
+  "rows": [
+    {
+      "name": "mapped-plane",
+      "runs": [
+        {
+          "pass": "cold",
+          "compileMs": 2893,
+          "svgMs": 91,
+          "svgBytes": 105245,
+          "modeling": [
+            {
+              "operation": "mapSurface",
+              "backend": "cpu",
+              "wallMs": 1223,
+              "segments": 6080
+            }
+          ],
+          "scenes": [
+            {
+              "features": 8192,
+              "candidates": 45766,
+              "wallMs": 532
+            }
+          ]
+        },
+        {
+          "pass": "warm",
+          "compileMs": 2839,
+          "svgMs": 36,
+          "svgBytes": 105245,
+          "modeling": [
+            {
+              "operation": "mapSurface",
+              "backend": "cpu",
+              "wallMs": 1216,
+              "segments": 6080
+            }
+          ],
+          "scenes": [
+            {
+              "features": 8192,
+              "candidates": 45766,
+              "wallMs": 544
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "primitive-crosshatch",
+      "runs": [
+        {
+          "pass": "cold",
+          "compileMs": 12232,
+          "svgMs": 86,
+          "svgBytes": 220161,
+          "modeling": [
+            {
+              "operation": "hatch",
+              "backend": "cpu",
+              "wallMs": 6433,
+              "segments": 36164,
+              "traces": 632,
+              "toneLocations": 50903,
+              "toneBackend": "cpu"
+            }
+          ],
+          "scenes": [
+            {
+              "features": 38082,
+              "candidates": 243039,
+              "wallMs": 2925
+            }
+          ]
+        },
+        {
+          "pass": "warm",
+          "compileMs": 12030,
+          "svgMs": 74,
+          "svgBytes": 220161,
+          "modeling": [
+            {
+              "operation": "hatch",
+              "backend": "cpu",
+              "wallMs": 6516,
+              "segments": 36164,
+              "traces": 632,
+              "toneLocations": 50903,
+              "toneBackend": "cpu"
+            }
+          ],
+          "scenes": [
+            {
+              "features": 38082,
+              "candidates": 243039,
+              "wallMs": 2909
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "custom-curvature",
+      "runs": [
+        {
+          "pass": "cold",
+          "compileMs": 4398,
+          "svgMs": 46,
+          "svgBytes": 205099,
+          "modeling": [
+            {
+              "operation": "hatch",
+              "backend": "cpu",
+              "wallMs": 2096,
+              "segments": 10850,
+              "traces": 927,
+              "toneLocations": 22977,
+              "toneBackend": "cpu"
+            }
+          ],
+          "scenes": [
+            {
+              "features": 13022,
+              "candidates": 75100,
+              "wallMs": 916
+            }
+          ]
+        },
+        {
+          "pass": "warm",
+          "compileMs": 5177,
+          "svgMs": 41,
+          "svgBytes": 205099,
+          "modeling": [
+            {
+              "operation": "hatch",
+              "backend": "cpu",
+              "wallMs": 2782,
+              "segments": 10850,
+              "traces": 927,
+              "toneLocations": 22977,
+              "toneBackend": "cpu"
+            }
+          ],
+          "scenes": [
+            {
+              "features": 13022,
+              "candidates": 75100,
+              "wallMs": 932
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "intersection-assembly",
+      "runs": [
+        {
+          "pass": "cold",
+          "compileMs": 2661,
+          "svgMs": 3,
+          "svgBytes": 7561,
+          "modeling": [
+            {
+              "operation": "intersections",
+              "backend": "cpu",
+              "wallMs": 139,
+              "segments": 136
+            },
+            {
+              "operation": "intersections",
+              "backend": "cpu",
+              "wallMs": 140,
+              "segments": 87
+            },
+            {
+              "operation": "intersections",
+              "backend": "cpu",
+              "wallMs": 437,
+              "segments": 165
+            },
+            {
+              "operation": "hatch",
+              "backend": "cpu",
+              "wallMs": 506,
+              "segments": 3348,
+              "traces": 67,
+              "toneLocations": 4277,
+              "toneBackend": "cpu"
+            }
+          ],
+          "scenes": [
+            {
+              "features": 4828,
+              "candidates": 214070,
+              "wallMs": 1038
+            }
+          ]
+        },
+        {
+          "pass": "warm",
+          "compileMs": 2574,
+          "svgMs": 2,
+          "svgBytes": 7561,
+          "modeling": [
+            {
+              "operation": "intersections",
+              "backend": "cpu",
+              "wallMs": 117,
+              "segments": 136
+            },
+            {
+              "operation": "intersections",
+              "backend": "cpu",
+              "wallMs": 125,
+              "segments": 87
+            },
+            {
+              "operation": "intersections",
+              "backend": "cpu",
+              "wallMs": 440,
+              "segments": 165
+            },
+            {
+              "operation": "hatch",
+              "backend": "cpu",
+              "wallMs": 517,
+              "segments": 3348,
+              "traces": 67,
+              "toneLocations": 4277,
+              "toneBackend": "cpu"
+            }
+          ],
+          "scenes": [
+            {
+              "features": 4828,
+              "candidates": 214070,
+              "wallMs": 1028
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "repeated-prototypes",
+      "runs": [
+        {
+          "pass": "cold",
+          "compileMs": 585,
+          "svgMs": 18,
+          "svgBytes": 63250,
+          "modeling": [
+            {
+              "operation": "mapSurface",
+              "backend": "cpu",
+              "wallMs": 5,
+              "segments": 23
+            }
+          ],
+          "scenes": [
+            {
+              "features": 2178,
+              "candidates": 19436,
+              "wallMs": 200
+            }
+          ]
+        },
+        {
+          "pass": "warm",
+          "compileMs": 756,
+          "svgMs": 21,
+          "svgBytes": 63250,
+          "modeling": [
+            {
+              "operation": "mapSurface",
+              "backend": "cpu",
+              "wallMs": 8,
+              "segments": 23
+            }
+          ],
+          "scenes": [
+            {
+              "features": 2178,
+              "candidates": 19436,
+              "wallMs": 219
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hatch-density",
+      "runs": [
+        {
+          "pass": "cold",
+          "compileMs": 24717,
+          "svgMs": 138,
+          "svgBytes": 430768,
+          "modeling": [
+            {
+              "operation": "hatch",
+              "backend": "cpu",
+              "wallMs": 12693,
+              "segments": 80978,
+              "traces": 144,
+              "toneLocations": 92513,
+              "toneBackend": "cpu"
+            }
+          ],
+          "scenes": [
+            {
+              "features": 84002,
+              "candidates": 556474,
+              "wallMs": 6119
+            }
+          ]
+        },
+        {
+          "pass": "warm",
+          "compileMs": 24498,
+          "svgMs": 120,
+          "svgBytes": 430768,
+          "modeling": [
+            {
+              "operation": "hatch",
+              "backend": "cpu",
+              "wallMs": 12796,
+              "segments": 80978,
+              "traces": 144,
+              "toneLocations": 92513,
+              "toneBackend": "cpu"
+            }
+          ],
+          "scenes": [
+            {
+              "features": 84002,
+              "candidates": 556474,
+              "wallMs": 6011
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

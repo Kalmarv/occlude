@@ -38,8 +38,8 @@ export function* intersectionAtomsJob3(input:IntersectionContacts3,options:Inter
  readonly segments:readonly IntersectionAtom3[];readonly points:readonly IntersectionPoint3[];
  readonly stats:{readonly arrangementCandidates:number;readonly supportCandidates:number;readonly supports:number;readonly atoms:number;readonly discardedInterior:number};
 }> {
- const maxSupportCandidates=options.maxSupportCandidates??1000000,maxSupports=options.maxSupports??1000000,maxSegments=options.maxSegments??250000,maxPoints=options.maxPoints??250000;
- if([maxSupportCandidates,maxSupports,maxSegments,maxPoints].some(n=>!Number.isSafeInteger(n)||n<0))throw new Error('intersection assembly budgets must be nonnegative integers');
+ const maxSupportCandidates=options.maxSupportCandidates??Infinity,maxSupports=options.maxSupports??Infinity,maxSegments=options.maxSegments??Infinity,maxPoints=options.maxPoints??Infinity;
+ if([maxSupportCandidates,maxSupports,maxSegments,maxPoints].some(n=>!(n===Infinity||Number.isSafeInteger(n))||n<0))throw new Error('intersection assembly budgets must be nonnegative integers');
  const raw:ArrangementSegment3[]=[],records:number[]=[],points:ArrangementPoint3[]=[],pointRecords:number[]=[],areaRecords:number[]=[],partitions:string[]=[];
  let supportCandidates=0,supportCount=0,discardedInterior=0;
  const candidate=()=>{if(++supportCandidates>maxSupportCandidates)throw new Error('intersection assembly exceeds support candidate budget');};

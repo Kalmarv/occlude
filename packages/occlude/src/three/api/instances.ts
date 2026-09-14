@@ -39,7 +39,7 @@ function ownAttributes<A extends Attributes3>(attributes:A):Readonly<A>{
     attributeName(name);if(name==='transform')throw new Error('reserved instance attribute name: transform');out[name]=attributeValue(value);
   }return Object.freeze(out) as Readonly<A>;
 }
-function budget(n:number,limit:number,label:string):void{if(!Number.isSafeInteger(limit)||limit<0)throw new Error(`realize ${label} budget must be a nonnegative integer`);if(!Number.isSafeInteger(n)||n>limit)throw new Error(`instance realization exceeds ${label} budget (${limit})`);}
+function budget(n:number,limit:number,label:string):void{if(!(limit===Infinity||Number.isSafeInteger(limit))||limit<0)throw new Error(`realize ${label} budget must be a nonnegative integer`);if(!Number.isSafeInteger(n)||n>limit)throw new Error(`instance realization exceeds ${label} budget (${limit})`);}
 
 /** One shared mesh prototype plus owned per-instance data. Rendering may expand
  * transformed coordinates, but authoring topology is duplicated only by realize. */
@@ -77,7 +77,7 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
   }
   realize(options:RealizeOptions={}):Mesh<Combined<A,P>,Combined<A,E>,Combined<A,F>,Combined<A,C>> {
     const prototype=this.prototype.surface;
-    budget(this.length*prototype.points.length,options.maxPoints??500000,'points');budget(this.length*prototype.faces.length,options.maxFaces??250000,'faces');
+    budget(this.length*prototype.points.length,options.maxPoints??Infinity,'points');budget(this.length*prototype.faces.length,options.maxFaces??Infinity,'faces');
     const points:SurfacePoint3[]=[],faces:SurfaceFace3[]=[],edges:SurfaceEdge3[]=[],triangles:SurfaceTriangle3[]=[];
     for(const row of this.rows){
       const surface=transformSurface3(prototype,row.transform),pointOffset=points.length,faceOffset=faces.length;

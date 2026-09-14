@@ -140,9 +140,25 @@ export interface ImageSampler {
    * a modifier's amount. `dark` is `1 − lum`; `area` averages as the
    * samplers do. Outside the placed rect the field is 0. */
   field(channel?: ImageChannel, opts?: { area?: number }): (x: number, y: number) => number;
+  /** The same pixels as a field over surface chart coordinates, for 3D tone,
+   * density or attributes: `tone: img.surface({ channel: 'dark' })`. Chart
+   * (0,0) is the image's bottom-left by default (v up); `wrap` clamps or
+   * repeats outside [0,1]; `area` is a box half-size in chart units, applied
+   * as one prefilter so CPU and GPU evaluation sample identical pixels.
+   * Luminance is Rec. 709. The placement rectangle plays no part here. */
+  surface(opts?: SurfaceImageOptions): (s: { readonly uv?: readonly [number, number] }) => number;
+}
+export interface SurfaceImageOptions {
+  channel?: 'lum' | 'dark' | 'a';
+  origin?: 'bottom-left' | 'top-left';
+  wrap?: 'clamp' | 'repeat';
+  area?: number;
+  /** Corner column holding the chart coordinates; default `uv`. */
+  uv?: string;
 }
 
 export type ImageChannel = 'lum' | 'dark' | 'a' | 'edge';
+import { imageValue3, prefilterPixels3, registerToneRecipe3, type ImageRecipe3 } from './three/surface/tone.js';
 
 /**
  * A sampler over an uploaded image, mapped into sketch space. Draws
@@ -221,6 +237,19 @@ export function image(assets: AssetTable | undefined, name: string, place: Image
       const gx = sample(LUM, x + eps, y, area) - sample(LUM, x - eps, y, area);
       const gy = sample(LUM, x, y + eps, area) - sample(LUM, x, y - eps, area);
       return Math.atan2(gy, gx);
+    },
+    surface(opts = {}) {
+      const channel = opts.channel ?? 'lum', origin = opts.origin ?? 'bottom-left', wrap = opts.wrap ?? 'clamp', area = opts.area ?? 0, uv = opts.uv ?? 'uv';
+      if (!['lum', 'dark', 'a'].includes(channel)) throw new Error(`image.surface: unknown channel '${String(channel)}' — lum, dark or a`);
+      if (origin !== 'bottom-left' && origin !== 'top-left') throw new Error('image.surface: origin must be bottom-left or top-left');
+      if (wrap !== 'clamp' && wrap !== 'repeat') throw new Error('image.surface: wrap must be clamp or repeat');
+      if (!Number.isFinite(area) || area < 0 || area > 1) throw new Error('image.surface: area is a chart-unit half-size in [0,1]');
+      if (typeof uv !== 'string' || !uv) throw new Error('image.surface: uv must name a corner column');
+      const recipe: ImageRecipe3 = Object.freeze({ kind: 'image', name, pixels: prefilterPixels3(px, area * px.width, area * px.height), channel, origin, wrap, area, uvAttribute: uv });
+      return registerToneRecipe3((s: { readonly uv?: readonly [number, number] }) => {
+        if (!s.uv) throw new Error(`image.surface: this surface location has no '${uv}' chart coordinates`);
+        return imageValue3(s.uv, recipe);
+      }, recipe);
     },
     field(channel = 'lum', opts = {}) {
       const area = opts.area;

@@ -889,7 +889,7 @@ function boundEnv(run: Execution): BoundEnv {
  * closes over THIS execution. The pure module factories (shapes, fills,
  * modifiers, units, map/ease) are the same functions the package exports.
  */
-export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; compute3?: SceneCompute3; isOpen?: () => boolean }) {
+export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; compute3?: SceneCompute3; isOpen?: () => boolean; onProgress?: import('./three/modeling.js').ProgressListener3 }) {
   /** Environment handed to the points module: seeded stream, drawable
    * bounds, and sketch-time length resolution (mm via the paper). */
   function pointsEnv(): import('./points.js').PointsEnv {
@@ -1264,7 +1264,7 @@ function containsLineArt3(tree: Tree): boolean {
 export async function compileSketchAsync(
   def: SketchDef | AsyncSketchDef,
   inputs: ExecutionInputs | Execution = DEFAULT_INPUTS,
-  options: { signal?: AbortSignal; compute3?: SceneCompute3 } = {},
+  options: { signal?: AbortSignal; compute3?: SceneCompute3; onStage?: import('./three/resolve.js').StageListener3; onProgress?: import('./three/modeling.js').ProgressListener3 } = {},
 ): Promise<Execution> {
   if (!isSketch(def) && !isSketchAsync(def)) throw new Error('compileSketchAsync: expected a sketch definition');
   options.signal?.throwIfAborted();
@@ -1294,7 +1294,7 @@ export async function compileSketchAsync(
  * and every previously encoded/exported result remain unchanged. */
 export async function commitCamera3(
   previous: Execution, scene: LineArtScene3, camera: Camera3,
-  options: { signal?: AbortSignal; compute3?: SceneCompute3 } = {},
+  options: { signal?: AbortSignal; compute3?: SceneCompute3; onStage?: import('./three/resolve.js').StageListener3 } = {},
 ): Promise<Execution> {
   options.signal?.throwIfAborted();
   const drawing = cameraDrawing3(previous, scene, camera);

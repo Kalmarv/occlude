@@ -117,3 +117,41 @@ unless the author explicitly provides an earlier view.
 ## Test strategy
 
 Use worker-client tests for ordered progress, obsolete render filtering, worker replacement, and retained-preview behavior. Add focused tests for ordered stage replacement and drafts proving revisions from an old render cannot replace a newer one. Per-feature/checkpoint tests apply only if those optional extensions are implemented. Keep final render/plan oracle tests unchanged: a progressive feature must not alter exact `RenderResult`, plan hash, SVG/G-code, or seed reproducibility. Browser verification should exercise an initially blank render, an explicit pre-scene checkpoint, a render over an old result, cancellation while a GPU batch is pending, and a late message from a terminated worker.
+
+## Implemented: stage replacement (Claude, 2026-09-14)
+
+The first version above is landed as a separate `draft` message channel:
+
+- Library: `compileSketchAsync(def, inputs, { onStage })` and `commitCamera3(..., { onStage })`
+  call the listener from `classifyForRun3` with `StageEvent3 { stage: 'source' |
+  'classified', scene, paper, segments, total }`: projected source lines right
+  after feature capture (hidden portions included), then the 3D-visible
+  intervals after classification. Segments are paper-mm `[x0, y0, x1, y1, ...]`,
+  uniformly subsampled above 200,000 so a transfer stays bounded. Nothing is
+  recorded from these events; the result, plan and exports are unchanged
+  (`test/three-stage-events.test.ts` compares a listened and a silent compile).
+- Worker: each render posts `{ type: 'draft', id, revision, stage, ... }` at
+  `assets`, `sketch`, per-scene `source`/`classified`, `render`, and `finished`
+  (copies of the finished prims/frags before planning, transferred). Drafts are
+  skipped once the job's signal is aborted and never touch retained/export state
+  or the staged candidate.
+- Client: `render(req, isCurrent, onDraft)` forwards drafts of the pending
+  render only, in rising revision order, while it is current and not obsolete;
+  a draft never resolves the render promise, and messages from a terminated
+  worker are ignored as before (`workerClient.test.ts`).
+- Preview: `setDraft` keeps a disposable layer above the retained result (scene
+  lines in draft blue, or the finished paper drawing in its pens), fits the
+  sheet when nothing is retained yet, and is cleared by `setResult`, by the
+  final reply, by an error and by cancellation. The status line names the stage.
+
+- Modeling progress: `compileSketchAsync(..., { onProgress })` receives
+  `ModelingProgress3 { operation, done, total?, detail? }` from `t.hatch` (accepted
+  traces per family), `t.mapSurface` (input segments) and `t.intersections`
+  (placement pairs). The worker forwards them as `draft` messages with stage
+  `modeling`, throttled to one per 100 ms; the status line shows the operation
+  and counts during the long `await` before any view exists. Counts are work
+  units, not time; results are unchanged (`three-stage-events.test.ts`).
+
+Not implemented (optional later work): an author checkpoint before the sketch
+returns a view, per-feature classified chunks, incremental WASM finish or
+partial plans.

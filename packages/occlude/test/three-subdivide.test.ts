@@ -13,7 +13,7 @@ describe('generic shape-preserving subdivision',()=>{
   expect(refined.faces.every(f=>f.vertices.length===4)).toBe(true);
   expect(refined.edges.filter(e=>e.faces.length===1)).toHaveLength(128);
   expect(area(refined)).toBeCloseTo(4);expect(original).toEqual(before);
-  expect(()=>subdivideSurface(original,30)).toThrow('exceeds budget');
+  expect(()=>subdivideSurface(original,30,{maxFaces:1_000_000})).toThrow('exceeds budget');
   expect(subdivideSurface(original,0)).toBe(original);
  });
  it('preserves box shape, watertight edges and crease geometry',()=>{

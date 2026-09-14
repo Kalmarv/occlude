@@ -9,6 +9,9 @@ import { classifySceneGpu3 } from '../../three/visibility/scene.js';
 import { GpuIntervals3 } from './interval.js';
 import { GpuDeform3 } from './deform.js';
 import { GpuSurfaceQueries3 } from './queries.js';
+import { GpuSurfaceEvaluation3 } from './surfaceEvaluate.js';
+import { packSurfaceTarget3, type PackedSurfaceTarget3, type SurfaceEvaluationTarget3, type SurfaceEvaluationBatch3 } from '../../three/surface/evaluate.js';
+import type { ToneRecipe3 } from '../../three/surface/tone.js';
 import { captureDeform3, type DeformOptions3 } from '../../three/geometry/deform.js';
 import { prepareSurfaceQueries3, type SurfaceQueries3 } from '../../three/queries/surface.js';
 import type { Surface3 } from '../../three/geometry/surface.js';
@@ -37,6 +40,22 @@ export class GpuSceneCompute3 implements SceneCompute3 {
     timing.merge(prepared.preparationTimings);
     this.queryTargets.set(source,prepared);this.queryTargetBytes+=bytes;return {prepared,cacheHit:false,uploadBytes:prepared.uploadBytes};
   }
+  private readonly evaluationTargets=new Map<PackedSurfaceTarget3,GpuSurfaceEvaluation3>();
+  private evaluationTargetBytes=0;
+  private async clearEvaluationTargets():Promise<void>{for(const target of this.evaluationTargets.values())await target.dispose();this.evaluationTargets.clear();this.evaluationTargetBytes=0;}
+  /** Same bounded policy as query targets: four most recent packed targets,
+   * half the budget retained, an oversized target occupies the cache alone. */
+  private async evaluationTarget(device:GPUDevice,packed:PackedSurfaceTarget3,timing:PhaseClock3){
+    const cached=this.evaluationTargets.get(packed);
+    if(cached){this.evaluationTargets.delete(packed);this.evaluationTargets.set(packed,cached);return {prepared:cached,cacheHit:true,uploadBytes:0};}
+    const bytes=packed.triangles*96,budget=this.options.memoryBudgetBytes??128*1024*1024,retainedBudget=Math.max(bytes,budget/2);
+    while(this.evaluationTargets.size&&(this.evaluationTargets.size>=4||this.evaluationTargetBytes+bytes>retainedBudget)){
+      const [old,target]=this.evaluationTargets.entries().next().value!;await timing.wait('setupMs',()=>target.dispose());this.evaluationTargets.delete(old);this.evaluationTargetBytes-=old.triangles*96;
+    }
+    const prepared=await GpuSurfaceEvaluation3.create(device,{surface:packed.source,placement:packed.placement,uvAttribute:packed.uvAttribute},{memoryBudgetBytes:bytes>budget/2?budget:bytes+budget/2});
+    timing.merge(prepared.preparationTimings);
+    this.evaluationTargets.set(packed,prepared);this.evaluationTargetBytes+=bytes;return {prepared,cacheHit:false,uploadBytes:prepared.uploadBytes};
+  }
   private preview?: { canvas: OffscreenCanvas; viewport: GpuWorldViewport3 };
   private tail: Promise<unknown> = Promise.resolve();
   private submit<T>(job: () => Promise<T>, timing?:PhaseClock3): Promise<T> {
@@ -62,6 +81,7 @@ export class GpuSceneCompute3 implements SceneCompute3 {
       this.creating = (async () => {
         this.deformation = undefined;
         await this.clearQueryTargets();
+        await this.clearEvaluationTargets();
         this.preview?.viewport.dispose(); this.preview = undefined;
         await this.session?.dispose();
         const session = await GpuIntervals3.create(this.gpu!, this.options);
@@ -132,12 +152,27 @@ export class GpuSceneCompute3 implements SceneCompute3 {
       } };
     },timing);
   }
+  evaluateSurface(target: SurfaceEvaluationTarget3, batch: SurfaceEvaluationBatch3, recipe: ToneRecipe3 | undefined, options: { signal?: AbortSignal } = {}) {
+    const timing=new PhaseClock3(),signal=options.signal;
+    let packed:PackedSurfaceTarget3;
+    try{packed=timing.measure('packingMs',()=>packSurfaceTarget3(target));}catch(e){return Promise.reject(e);}
+    return this.submit(async () => {
+      signal?.throwIfAborted();
+      const session = await timing.wait('setupMs',()=>this.acquire());
+      const {prepared,cacheHit,uploadBytes}=await this.evaluationTarget(session.device,packed,timing);
+      const out=await prepared.evaluate(batch,recipe,{signal});
+      signal?.throwIfAborted();
+      timing.merge(out.stats.timings);
+      return {...out,stats:{...out.stats,cacheHit,targetUploadBytes:uploadBytes,transferBytes:out.stats.transferBytes+uploadBytes,timings:timing.finish()}};
+    },timing);
+  }
   async dispose(): Promise<void> {
     this.closed = true;
     await this.tail;
     await this.creating?.catch(() => undefined);
     this.preview?.viewport.dispose(); this.preview = undefined;
     await this.clearQueryTargets();
+    await this.clearEvaluationTargets();
     await this.session?.dispose();
     this.session = undefined;
   }

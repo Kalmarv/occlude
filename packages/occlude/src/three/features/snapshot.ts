@@ -37,7 +37,10 @@ export interface Feature3 {
   readonly attributes: Readonly<Attributes3>;
   readonly faceAttributes: readonly Readonly<Attributes3>[];
 }
-export interface Occluder3 { readonly id: string; readonly triangle: Triangle3; readonly bounds: Bounds3; readonly volume: OcclusionVolume3 }
+/** `neighbors` are the ids of edge-adjacent triangles of the same object: two
+ * such occluders are watertight across their shared edge, so hidden intervals
+ * abutting there need no exact re-evaluation. */
+export interface Occluder3 { readonly id: string; readonly triangle: Triangle3; readonly bounds: Bounds3; readonly volume: OcclusionVolume3; readonly neighbors: readonly string[] }
 export interface FeatureSnapshot3 {
   readonly frame: CameraFrame3;
   readonly features: readonly Feature3[];
@@ -120,6 +123,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     const originals = new Map(surface.edges.map(e => [edgeKey(...e.vertices), e]));
     const triangleEdges = new Map<string, { vertices: readonly [number, number]; triangles: number[] }>();
     const worldNormals: Vec3[] = [], facing: number[] = [], triangleIds: string[] = [];
+    const objectOccluders: { occluder: number; triangle: number }[] = [];
     surface.triangles.forEach((t, i) => {
       const triangle = t.vertices.map(v => positions[v]) as unknown as Triangle3;
       const n = unit3(cross3(sub3(triangle[1], triangle[0]), sub3(triangle[2], triangle[0])));
@@ -137,9 +141,14 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
         triangles.push(owned);
         if (object.occluder === false) continue;
         const volume = occlusionVolume3(clipped, frame.camera.kind === 'perspective');
-        if (volume) occluders.push(Object.freeze({ id, triangle: owned, volume:Object.freeze({...volume,world:worldVolume}), bounds: Object.freeze(projectedBounds3(owned.map(p => toPaper3(frame, p)))) }));
+        if (volume) { objectOccluders.push({ occluder: occluders.length, triangle: i }); occluders.push({ id, triangle: owned, volume:Object.freeze({...volume,world:worldVolume}), bounds: Object.freeze(projectedBounds3(owned.map(p => toPaper3(frame, p)))), neighbors: [] }); }
       }
     });
+    {
+      const neighborIds = surface.triangles.map(() => [] as string[]);
+      for (const edge of triangleEdges.values()) if (edge.triangles.length === 2) { const [a, b] = edge.triangles; neighborIds[a].push(triangleIds[b]); neighborIds[b].push(triangleIds[a]); }
+      for (const row of objectOccluders) { const occluder = occluders[row.occluder]; occluders[row.occluder] = Object.freeze({ ...occluder, neighbors: Object.freeze([...neighborIds[row.triangle]]) }); }
+    }
     const binding=objectSurfaceBinding3(object),capture={object,triangleIds,faceAttrs};
     const matching=captures.get(binding)??[];matching.push(capture);captures.set(binding,matching);
     if (object.lineSource === false) continue;
@@ -189,5 +198,5 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     const basis=Object.freeze(positions.map((point,i)=>Object.freeze([Object.freeze({point,world:world[i],weight:1})]))) as SegmentBasis3;
     add({ id: key(wire.id, i), objectId: wire.id, sourceId: `segment:${i}`, flags: FeatureKind3.wire, creaseAngle: 0, a: positions[0], b: positions[1], basis, endpoints: [key(wire.id, i), key(wire.id, i + 1)], support: [], attributes: attributes(wire.attributes), faceAttributes: [] });
   }
-  return Object.freeze({ frame, features: Object.freeze(features), referenceFeatures:referenceFeatures.length===features.length?undefined:Object.freeze(referenceFeatures), curveGraphs:curveGraphs.length?Object.freeze(curveGraphs):undefined, triangles: Object.freeze(triangles), occluders: Object.freeze(occluders), index: new ProjectedIndex3(occluders.map(t => t.bounds)) });
+  return Object.freeze({ frame, features: Object.freeze(features), referenceFeatures:referenceFeatures.length===features.length?undefined:Object.freeze(referenceFeatures), curveGraphs:curveGraphs.length?Object.freeze(curveGraphs):undefined, triangles: Object.freeze(triangles), occluders: Object.freeze(occluders), index: new ProjectedIndex3(occluders.map(t => t.bounds), occluders.map(t => Math.max(t.triangle[0][2], t.triangle[1][2], t.triangle[2][2]))) });
 }

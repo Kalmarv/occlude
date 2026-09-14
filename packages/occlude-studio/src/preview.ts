@@ -105,8 +105,26 @@ export class Preview {
     this.canvas.classList.toggle('stale', stale);
   }
 
+  /** The render in flight, as a disposable layer over the retained result.
+   * Scene drafts accumulate by scene key and are replaced stage by stage; a
+   * finished-paper draft replaces them all. Null removes the layer. */
+  private draft: { stage: string; paper: { w: number; h: number }; scenes: Map<string, Float64Array>; result: RenderResult | null } | null = null;
+  setDraft(draft: { stage: string; scene?: string; paper?: { w: number; h: number }; segments?: Float64Array; result?: RenderResult } | null): void {
+    if (!draft) { this.draft = null; this.draw(); return; }
+    const paper = draft.result?.paper ?? draft.paper ?? this.draft?.paper ?? this.result?.paper;
+    if (!paper) { this.draft = { stage: draft.stage, paper: { w: 0, h: 0 }, scenes: new Map(), result: null }; return; }
+    const current = this.draft ?? { stage: draft.stage, paper, scenes: new Map<string, Float64Array>(), result: null };
+    current.stage = draft.stage; current.paper = paper;
+    if (draft.result) { current.result = draft.result; current.scenes.clear(); }
+    else if (draft.segments && draft.scene !== undefined) current.scenes.set(draft.scene, draft.segments);
+    this.draft = current;
+    if (!this.result && !this.fitted) { this.fitTo(paper); }
+    this.draw();
+  }
+  get draftStage(): string | null { return this.draft?.stage ?? null; }
   setResult(r: RenderResult): void {
     this.optimization = null;
+    this.draft = null;
     this.result = r;
     this.selection = null; // a new render: the selection view is re-supplied for its plan
     this.stopPlot();
@@ -485,7 +503,9 @@ export class Preview {
 
   fit(): void {
     if (!this.result) return;
-    const { w, h } = this.result.paper;
+    this.fitTo(this.result.paper);
+  }
+  private fitTo({ w, h }: { w: number; h: number }): void {
     const cw = this.canvas.clientWidth;
     const ch = this.canvas.clientHeight;
     this.scale = Math.min(cw / (w * 1.15), ch / (h * 1.15));
@@ -579,13 +599,49 @@ export class Preview {
     );
   }
 
+  /** The in-flight render over whatever is retained: scene lines in draft
+   * blue, or the finished paper drawing in its pens before the plan exists. */
+  private drawDraft(ctx: CanvasRenderingContext2D): void {
+    const d = this.draft;
+    if (!d) return;
+    ctx.save();
+    if (d.result) {
+      ctx.globalAlpha = 0.9;
+      drawFragments(ctx, d.result.frags, d.result.pens);
+    } else {
+      ctx.strokeStyle = 'rgba(91, 139, 217, 0.85)';
+      ctx.lineWidth = 0.35 / Math.max(1, this.scale / 3);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (const segments of d.scenes.values()) for (let i = 0; i + 3 < segments.length; i += 4) { ctx.moveTo(segments[i], segments[i + 1]); ctx.lineTo(segments[i + 2], segments[i + 3]); }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  /** Nothing retained yet: a sheet with the draft alone. */
+  private drawDraftOnly(ctx: CanvasRenderingContext2D): void {
+    const d = this.draft;
+    if (!d || !(d.paper.w > 0)) return;
+    ctx.save();
+    ctx.translate(this.panX, this.panY);
+    ctx.scale(this.scale, this.scale);
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = 18 / this.scale;
+    ctx.shadowOffsetY = 6 / this.scale;
+    ctx.fillStyle = this.paperColor;
+    ctx.fillRect(0, 0, d.paper.w, d.paper.h);
+    ctx.restore();
+    this.drawDraft(ctx);
+    ctx.restore();
+  }
   draw(): void {
     const { ctx, canvas } = this;
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     const r = this.result;
-    if (!r) return;
+    if (!r) { this.drawDraftOnly(ctx); return; }
 
     ctx.save();
     ctx.translate(this.panX, this.panY);
@@ -722,6 +778,7 @@ export class Preview {
     if (this.optimization) this.drawSelection(ctx, { chains: this.optimization.chains, from: 0, to: this.optimization.chains.length, showOmitted: false }, r.pens);
     else if (this.selection) this.drawSelection(ctx, this.selection, r.pens);
     else drawFragments(ctx, r.frags, r.pens);
+    this.drawDraft(ctx);
 
     if (this.optimization) {
       ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';

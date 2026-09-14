@@ -45,6 +45,10 @@ export interface SurfaceLocation3 {
   readonly cornerAttributes:Readonly<Attributes3>;
   readonly uv?:readonly [number,number];readonly chart?:string|number;
   readonly modelFrame?:SurfaceTangentFrame3;readonly frame?:SurfaceTangentFrame3;
+  /** Unit chart directions in the location's space (world when placed):
+   * increasing u and the normal-consistent perpendicular. Absent without a
+   * regular chart. Convenient for direction fields: `s => s.tangentU`. */
+  readonly tangentU?:Vec3;readonly tangentV?:Vec3;
   readonly chartStatus:'missing'|'regular'|'degenerate';
 }
 interface State {readonly options:SurfaceLocationOptions3}
@@ -117,47 +121,47 @@ export function captureSurfacePlacement3(value?:SurfacePlacement3):SurfacePlacem
   const captured=freeze(copy);capturedPlacements.add(captured);
   placementRevisions.set(value,{signature,captured});return captured;
 }
-/** Internal constructor. Ordinary artists receive these through sampling,
- * queries, mappings and traces rather than constructing triangle indices. */
-export function surfaceLocation3(source:Surface3,triangle:number,barycentric:Vec3,options:SurfaceLocationOptions3={}):SurfaceLocation3 {
-  source=snapshotSurface3(source);
-  const t=source.triangles[triangle];
-  if(!Number.isSafeInteger(triangle)||!t)throw new Error('surface location requires a valid source triangle');
-  finite3(barycentric);
-  if(barycentric.some(w=>w<0||w>1)||Math.abs(barycentric.reduce((a,b)=>a+b,0)-1)>32*Number.EPSILON)throw new Error('surface location requires barycentric weights inside its triangle');
-  const exactWeights=options.exactWeights;
-  if(exactWeights&&(exactWeights.length!==3||exactWeights.some(n=>typeof n!=='bigint'||n<0n||n.toString(2).length>32768)||!exactWeights.some(n=>n>0n)))throw new Error('surface location requires bounded nonnegative exact weights');
-  const total=exactWeights?.reduce((a,b)=>a+b,0n);
-  const weights=freeze(exactWeights?exactWeights.map(n=>ratioNumber([n,total!])):[...barycentric]) as unknown as Vec3,face=source.faces[t.face],corners=triangleCorners3(source,triangle);
+/** Everything about one triangle that does not depend on the barycentric
+ * weights: rows, edges, normals, placed vertices, chart derivatives. Cached
+ * per snapshot surface, placement and coordinate columns, so tracing and
+ * batch tone evaluation pay the geometry once per triangle. */
+interface TriangleContext {
+  readonly rows:readonly SurfacePoint3[];readonly cornerRows:readonly {readonly id:string;readonly attributes:Attributes3}[];
+  readonly corners:readonly [number,number,number];readonly face:number;readonly faceId:string;readonly vertexIds:readonly [string,string,string];
+  readonly a:Vec3;readonly b:Vec3;readonly c:Vec3;readonly ab:Vec3;readonly ac:Vec3;readonly modelNormal:Vec3;
+  readonly worldPoints:readonly Vec3[];readonly worldAb:Vec3;readonly worldAc:Vec3;readonly worldNormal:Vec3;readonly mirrored:boolean;
+  readonly coords?:readonly (readonly [number,number])[];readonly chart?:string|number;readonly chartStatus:SurfaceLocation3['chartStatus'];
+  readonly modelFrame?:SurfaceTangentFrame3;readonly worldFrame?:SurfaceTangentFrame3;
+}
+type ContextTables=Map<string,(TriangleContext|undefined)[]>;
+const contexts=new WeakMap<Surface3,{plain:ContextTables;placed:WeakMap<SurfacePlacement3,ContextTables>}>();
+/** Placements are keyed by their captured object: a revised placement with
+ * the same id is a different placement. */
+function triangleContext(source:Surface3,triangle:number,place:SurfacePlacement3|undefined,uvName:string,chartName:string,nearestUV:boolean):TriangleContext {
+  let entry=contexts.get(source);if(!entry){entry={plain:new Map(),placed:new WeakMap()};contexts.set(source,entry);}
+  let bySettings:ContextTables|undefined=place?entry.placed.get(place):entry.plain;
+  if(!bySettings){bySettings=new Map();entry.placed.set(place!,bySettings);}
+  const key=`${uvName}\u0000${chartName}\u0000${nearestUV?1:0}`;
+  let table=bySettings.get(key);if(!table){table=new Array(source.triangles.length);bySettings.set(key,table);}
+  const cached=table[triangle];if(cached)return cached;
+  const t=source.triangles[triangle],face=source.faces[t.face],corners=triangleCorners3(source,triangle);
   const rows=t.vertices.map(v=>source.points[v]),cornerRows=corners.map(i=>face.corners![i]);
-  const [a,b,c]=rows.map(p=>p.position),ab=sub3(b,a),ac=sub3(c,a);
-  const modelPosition=exactWeights?pointNumber(weightedPoint([a,b,c].map(point),exactWeights)):freeze(add3(a,add3(mul3(ab,weights[1]),mul3(ac,weights[2]))));finite3(modelPosition);
+  const [a,b,c]=rows.map(p=>p.position),ab=Object.freeze(sub3(b,a)),ac=Object.freeze(sub3(c,a));
   const modelNormal=geometricNormal(ab,ac);
-  const place=captureSurfacePlacement3(options.placement),mirrored=(place?.transform.scale??[1,1,1]).filter(n=>n<0).length%2===1;
+  const mirrored=(place?.transform.scale??[1,1,1]).filter(n=>n<0).length%2===1;
   // Attachment follows the represented transformed vertices. Transforming a
   // previously rounded interpolated point can disagree at large translations.
   const worldPoints=place?[a,b,c].map(p=>placedPosition(p,place.transform)):[a,b,c];
-  const worldAb=sub3(worldPoints[1],worldPoints[0]),worldAc=sub3(worldPoints[2],worldPoints[0]);
-  const worldNormal=place?freeze(geometricNormal(worldAb,worldAc).map(n=>n===0?0:mirrored?-n:n) as unknown as Vec3):modelNormal;
-  const exact=exactWeights?weightedPoint(worldPoints.map(point),exactWeights):undefined;
-  const worldPosition=exact?pointNumber(exact):place?freeze(add3(worldPoints[0],add3(mul3(worldAb,weights[1]),mul3(worldAc,weights[2])))):modelPosition;
-  finite3(worldPosition);
-  const pointAttributes=freeze(interpolateAttributes3(rows,weights,options.pointTransfers));
-  const cornerAttributes=freeze(interpolateAttributes3(cornerRows,weights,options.cornerTransfers));
-  const uvName=options.uvAttribute??'uv',chartName=options.chartAttribute??'chart';
-  if([uvName,chartName].some(name=>typeof name!=='string'||!name))throw new Error('surface coordinate column names must be nonempty strings');
-  const uvRows=cornerRows.map(c=>c.attributes[uvName]);
-  const charts=cornerRows.map(c=>c.attributes[chartName]);
+  const worldAb=Object.freeze(sub3(worldPoints[1],worldPoints[0])),worldAc=Object.freeze(sub3(worldPoints[2],worldPoints[0]));
+  const worldNormal=place?Object.freeze(geometricNormal(worldAb,worldAc).map(n=>n===0?0:mirrored?-n:n) as unknown as Vec3):modelNormal;
+  const uvRows=cornerRows.map(c=>c.attributes[uvName]),charts=cornerRows.map(c=>c.attributes[chartName]);
   if(charts.some(v=>v!==undefined)&&!charts.every(v=>v===charts[0]))throw new Error('a surface triangle cannot cross chart identities');
   const chart=charts[0];if(chart!==undefined&&typeof chart!=='number'&&typeof chart!=='string')throw new Error('chart identity must be a string or number');
-  let uv:readonly [number,number]|undefined,modelFrame:SurfaceTangentFrame3|undefined,worldFrame:SurfaceTangentFrame3|undefined;
-  let chartStatus:SurfaceLocation3['chartStatus']='missing';
+  let coords:readonly (readonly [number,number])[]|undefined,modelFrame:SurfaceTangentFrame3|undefined,worldFrame:SurfaceTangentFrame3|undefined,chartStatus:SurfaceLocation3['chartStatus']='missing';
   if(uvRows.some(v=>v!==undefined)){
-    if(options.cornerTransfers?.[uvName]==='nearest')throw new Error('UV chart coordinates require interpolated corner values; select a different uvAttribute for discrete columns');
+    if(nearestUV)throw new Error('UV chart coordinates require interpolated corner values; select a different uvAttribute for discrete columns');
     if(!uvRows.every(isUV))throw new Error('surface UVs require a finite pair at every triangle corner');
-    const coords=uvRows;
-    uv=freeze([coords.reduce((sum,v,i)=>sum+v[0]*weights[i],0),coords.reduce((sum,v,i)=>sum+v[1]*weights[i],0)] as const);
-    if(!uv.every(Number.isFinite))throw new Error('surface UV position is not representable');
+    coords=uvRows;
     const u1=coords[1][0]-coords[0][0],v1=coords[1][1]-coords[0][1],u2=coords[2][0]-coords[0][0],v2=coords[2][1]-coords[0][1];
     const scale=Math.max(Math.abs(u1),Math.abs(v1),Math.abs(u2),Math.abs(v2));
     if(!Number.isFinite(scale))throw new Error('surface chart extent is not representable');
@@ -173,9 +177,52 @@ export function surfaceLocation3(source:Surface3,triangle:number,barycentric:Vec
       worldFrame=place?frame(world.du,world.dv,worldNormal,mirrored?(orientation===1?-1:1):orientation):modelFrame;
     }
   }
+  const value:TriangleContext=Object.freeze({rows,cornerRows,corners,face:t.face,faceId:face.id,vertexIds:Object.freeze(rows.map(p=>p.id)) as unknown as readonly [string,string,string],a,b,c,ab,ac,modelNormal,worldPoints,worldAb,worldAc,worldNormal,mirrored,coords,chart,chartStatus,modelFrame,worldFrame});
+  table[triangle]=value;return value;
+}
+const sharedOptions=new WeakMap<SurfaceLocationOptions3,Readonly<SurfaceLocationOptions3>>();
+/** Options are retained for rebinding; the common no-exact-weight case shares
+ * one frozen copy per options object instead of cloning per location. */
+function retainOptions(options:SurfaceLocationOptions3,place:SurfacePlacement3|undefined):Readonly<SurfaceLocationOptions3> {
+  if(options.exactWeights||options.shadingNormal)return freeze({...structuredClone(options),placement:place});
+  const found=sharedOptions.get(options);if(found&&found.placement===place)return found;
+  const value=freeze({...structuredClone(options),placement:place});sharedOptions.set(options,value);return value;
+}
+/** Internal constructor. Ordinary artists receive these through sampling,
+ * queries, mappings and traces rather than constructing triangle indices.
+ * Interpolated point/corner attributes are computed on first access. */
+export function surfaceLocation3(source:Surface3,triangle:number,barycentric:Vec3,options:SurfaceLocationOptions3={}):SurfaceLocation3 {
+  source=snapshotSurface3(source);
+  const t=source.triangles[triangle];
+  if(!Number.isSafeInteger(triangle)||!t)throw new Error('surface location requires a valid source triangle');
+  finite3(barycentric);
+  if(barycentric.some(w=>w<0||w>1)||Math.abs(barycentric.reduce((a,b)=>a+b,0)-1)>32*Number.EPSILON)throw new Error('surface location requires barycentric weights inside its triangle');
+  const exactWeights=options.exactWeights;
+  if(exactWeights&&(exactWeights.length!==3||exactWeights.some(n=>typeof n!=='bigint'||n<0n||n.toString(2).length>32768)||!exactWeights.some(n=>n>0n)))throw new Error('surface location requires bounded nonnegative exact weights');
+  const total=exactWeights?.reduce((a,b)=>a+b,0n);
+  const weights=Object.freeze(exactWeights?exactWeights.map(n=>ratioNumber([n,total!])):[...barycentric]) as unknown as Vec3;
+  const uvName=options.uvAttribute??'uv',chartName=options.chartAttribute??'chart';
+  if([uvName,chartName].some(name=>typeof name!=='string'||!name))throw new Error('surface coordinate column names must be nonempty strings');
+  const place=captureSurfacePlacement3(options.placement);
+  const ctx=triangleContext(source,triangle,place,uvName,chartName,options.cornerTransfers?.[uvName]==='nearest');
+  const {a,b,c,ab,ac,worldPoints,worldAb,worldAc}=ctx;
+  const modelPosition=exactWeights?pointNumber(weightedPoint([a,b,c].map(point),exactWeights)):Object.freeze(add3(a,add3(mul3(ab,weights[1]),mul3(ac,weights[2]))));finite3(modelPosition);
+  const exact=exactWeights?weightedPoint(worldPoints.map(point),exactWeights):undefined;
+  const worldPosition=exact?pointNumber(exact):place?Object.freeze(add3(worldPoints[0],add3(mul3(worldAb,weights[1]),mul3(worldAc,weights[2])))):modelPosition;
+  finite3(worldPosition);
+  let uv:readonly [number,number]|undefined;
+  if(ctx.coords){
+    const coords=ctx.coords;
+    uv=Object.freeze([coords[0][0]*weights[0]+coords[1][0]*weights[1]+coords[2][0]*weights[2],coords[0][1]*weights[0]+coords[1][1]*weights[1]+coords[2][1]*weights[2]] as const);
+    if(!uv.every(Number.isFinite))throw new Error('surface UV position is not representable');
+  }
   const modelShadingNormal=options.shadingNormal?unit(options.shadingNormal):undefined;
-  const location=freeze({...(exact?{exact:encodePoint(exact)}:{}),source,placement:place,triangle,face:t.face,faceId:face.id,vertices:t.vertices,vertexIds:rows.map(p=>p.id) as [string,string,string],corners,barycentric:weights,space:place?'world' as const:'model' as const,modelPosition,position:worldPosition,modelNormal,normal:worldNormal,modelShadingNormal,shadingNormal:modelShadingNormal?normal(modelShadingNormal,place?.transform):undefined,pointAttributes,faceAttributes:face.attributes,cornerAttributes,uv,chart,modelFrame,frame:worldFrame,chartStatus});
-  owned.set(location,{options:freeze({...structuredClone(options),placement:place})});return location;
+  const location={...(exact?{exact:encodePoint(exact)}:{}),source,placement:place,triangle,face:ctx.face,faceId:ctx.faceId,vertices:t.vertices,vertexIds:ctx.vertexIds,corners:ctx.corners,barycentric:weights,space:place?'world' as const:'model' as const,modelPosition,position:worldPosition,modelNormal:ctx.modelNormal,normal:ctx.worldNormal,modelShadingNormal,shadingNormal:modelShadingNormal?normal(modelShadingNormal,place?.transform):undefined,faceAttributes:source.faces[ctx.face].attributes,uv,chart:ctx.chart,modelFrame:ctx.modelFrame,frame:ctx.worldFrame,tangentU:ctx.worldFrame?.tangent,tangentV:ctx.worldFrame?.bitangent,chartStatus:ctx.chartStatus} as SurfaceLocation3;
+  let pointAttributes:Readonly<Attributes3>|undefined,cornerAttributes:Readonly<Attributes3>|undefined;
+  Object.defineProperty(location,'pointAttributes',{enumerable:true,get(){return pointAttributes??=freeze(interpolateAttributes3(ctx.rows,weights,options.pointTransfers));}});
+  Object.defineProperty(location,'cornerAttributes',{enumerable:true,get(){return cornerAttributes??=freeze(interpolateAttributes3(ctx.cornerRows,weights,options.cornerTransfers));}});
+  Object.freeze(location);
+  owned.set(location,{options:retainOptions(options,place)});return location;
 }
 /** Rebinding is explicit and never changes the old location. Supplied shading
  * normals must be evaluated again on the new model; they are not transported

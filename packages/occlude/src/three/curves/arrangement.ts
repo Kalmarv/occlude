@@ -50,8 +50,8 @@ export function exactSegmentCrossing3(a:H,b:H,c:H,d:H):H|null {
 export function* arrangementJob3(input:readonly ArrangementSegment3[],points:readonly ArrangementPoint3[]=[],options:ArrangementBudget3={}):Generator<void,{
  readonly atoms:readonly ArrangementAtom3[];readonly candidates:number;readonly events:number;readonly memberships:number;
 }> {
- const limits={maxSegments:options.maxSegments??250000,maxPoints:options.maxPoints??250000,maxCandidates:options.maxCandidates??1000000,maxEvents:options.maxEvents??1000000,maxAtoms:options.maxAtoms??250000,maxMemberships:options.maxMemberships??1000000,maxExactBytes:options.maxExactBytes??64000000,maxCoordinateBits:options.maxCoordinateBits??32768};
- for(const value of Object.values(limits))if(!Number.isSafeInteger(value)||value<0)throw new Error('arrangement budgets must be nonnegative integers');
+ const limits={maxSegments:options.maxSegments??Infinity,maxPoints:options.maxPoints??Infinity,maxCandidates:options.maxCandidates??Infinity,maxEvents:options.maxEvents??Infinity,maxAtoms:options.maxAtoms??Infinity,maxMemberships:options.maxMemberships??Infinity,maxExactBytes:options.maxExactBytes??Infinity,maxCoordinateBits:options.maxCoordinateBits??32768};
+ for(const value of Object.values(limits))if(!(value===Infinity||Number.isSafeInteger(value))||value<0)throw new Error('arrangement budgets must be nonnegative integers or Infinity');
  if(input.length>limits.maxSegments||points.length>limits.maxPoints)throw new Error('arrangement exceeds input budget');
  const segments:ArrangementSegment3[]=[],bounds:WorldBounds3[]=[],lines:Line[]=[],lineIds:number[]=[],lineMap=new Map<string,number>();
  let eventCount=0,exactBytes=0,candidates=0,memberships=0;

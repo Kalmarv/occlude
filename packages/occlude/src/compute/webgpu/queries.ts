@@ -70,7 +70,7 @@ export class GpuSurfaceQueries3 {
   segments(segments:readonly(readonly[Vec3,Vec3])[],options:{signal?:AbortSignal;maxTests?:number}={}):Promise<QueryBatch3>{const timing=new PhaseClock3();const owned=timing.measure('captureMs',()=>{const rows=segments.map(([a,b])=>({origin:a,direction:[b[0]-a[0],b[1]-a[1],b[2]-a[2]] as Vec3,near:0,far:1}));rows.forEach(validateRay3);return structuredClone(rows);});return this.submit('rays',owned,options,timing);}
   nearest(queries:readonly NearestQuery3[],options:{signal?:AbortSignal;maxTests?:number}={}):Promise<QueryBatch3>{const timing=new PhaseClock3();const owned=timing.measure('captureMs',()=>{queries.forEach(validateNearest3);return structuredClone(queries);});return this.submit('nearest',owned,options,timing);}
   private submit(kind:'rays'|'nearest',queries:readonly(RayQuery3|NearestQuery3)[],options:{signal?:AbortSignal;maxTests?:number},timing:PhaseClock3){
-    const limit=options.maxTests??50_000_000;if(!Number.isSafeInteger(limit)||limit<0)return Promise.reject(new Error('query work limit must be a nonnegative integer'));
+    const limit=options.maxTests??Infinity;if(!(limit===Infinity||Number.isSafeInteger(limit))||limit<0)return Promise.reject(new Error('query work limit must be a nonnegative integer'));
     if(queries.length*this.source.triangles.length>limit)return Promise.reject(new Error(`surface query batch exceeds ${limit} triangle tests; reduce the batch or explicitly raise maxTests`));
     const queued=performance.now();
     const job=this.tail.then(()=>{timing.since('queueMs',queued);return this.run(kind,queries,timing,options.signal);});this.tail=job.catch(()=>{});return job;

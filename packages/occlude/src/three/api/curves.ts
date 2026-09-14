@@ -4,8 +4,8 @@ import {CurveGeometry,type GeometryOptions} from './mesh.js';
 export interface PolylineOptions extends GeometryOptions {readonly closed?:boolean;readonly maxPoints?:number}
 export interface CurveOptions extends PolylineOptions {readonly segments?:number}
 function count(points:number,options:PolylineOptions):void {
-  const budget=options.maxPoints??100_000;
-  if(!Number.isSafeInteger(budget)||budget<2||!Number.isSafeInteger(points)||points<2||points>budget)throw new Error('curve point count exceeds its positive integer budget');
+  const budget=options.maxPoints??Infinity;
+  if(!(budget===Infinity||Number.isSafeInteger(budget))||budget<2||!Number.isSafeInteger(points)||points<2||points>budget)throw new Error('curve point count exceeds its positive integer budget');
   if(options.closed!==undefined&&typeof options.closed!=='boolean')throw new Error('curve closed must be boolean');
   if(options.closed&&points<3)throw new Error('closed curve requires at least three points');
 }

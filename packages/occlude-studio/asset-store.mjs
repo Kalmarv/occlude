@@ -39,6 +39,8 @@ export function createAssetHandler(dir) {
     const send = (status, body, type = 'application/json') => {
       res.statusCode = status;
       res.setHeader('content-type', type);
+      // Never let an edge cache an API answer: a 404 before an upload must not outlive it.
+      res.setHeader('cache-control', 'no-store');
       res.end(body);
     };
     try {

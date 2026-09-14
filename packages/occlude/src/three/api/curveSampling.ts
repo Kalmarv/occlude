@@ -96,14 +96,14 @@ export class CurveSamples<P extends Attributes3={},A extends Attributes3={}> ext
  }
 }
 export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<A>,options:CurveSamplingOptions={}):CurveSamples<A,A> {
- const {count,spacing}=options,maxPoints=options.maxPoints??250000,maxSupports=options.maxSupports??1000000;
+ const {count,spacing}=options,maxPoints=options.maxPoints??Infinity,maxSupports=options.maxSupports??Infinity;
  if(count!==undefined&&spacing!==undefined)throw new Error('curve sample chooses count or spacing');
- if(count!==undefined&&(!Number.isSafeInteger(count)||count<1)||spacing!==undefined&&(!Number.isFinite(spacing)||spacing<=0)||[maxPoints,maxSupports].some(n=>!Number.isSafeInteger(n)||n<0))throw new Error('invalid curve sampling count, spacing or budget');
+ if(count!==undefined&&(!Number.isSafeInteger(count)||count<1)||spacing!==undefined&&(!Number.isFinite(spacing)||spacing<=0)||[maxPoints,maxSupports].some(n=>!(n===Infinity||Number.isSafeInteger(n))||n<0))throw new Error('invalid curve sampling count, spacing or budget');
  const network=target.network,groups=new Map<string,SupportedCurveSegment3[]>(),chains:SupportedCurveSegment3[][]=[];
  const degree=new Map<number,number>();for(const segment of network.reference?.segments??network.segments)for(const node of [segment.a,segment.b])degree.set(node,(degree.get(node)??0)+1);
  for(const segment of network.segments){const rows=groups.get(segment.chainId)??[];rows.push(segment);groups.set(segment.chainId,rows);}
  for(const rows of groups.values()){
-  rows.sort((a,b)=>a.range[0]-b.range[0]);let chain:SupportedCurveSegment3[]=[];
+  rows.sort((a,b)=>a.range[0]-b.range[0]||a.range[1]-b.range[1]);let chain:SupportedCurveSegment3[]=[];
   for(const row of rows){const last=chain.at(-1);if(last&&(last.b!==row.a||last.range[1]!==row.range[0]||degree.get(row.a)!==2)){chains.push(chain);chain=[];}chain.push(row);}if(chain.length)chains.push(chain);
  }
  const points:SurfacePoint3[]=[],attachments=new Map<string,Attachment>();let supports=0;

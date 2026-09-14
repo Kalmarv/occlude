@@ -55,7 +55,7 @@ describe('curve-profile revolution',()=>{
   expect(()=>revolve(profile,{segments:2})).toThrow('smaller than 180');expect(()=>revolve(profile,{angle:0})).toThrow('angle');
   expect(()=>revolve(profile,{angle:90,caps:true})).toThrow('closed profile');
   expect(()=>revolve(profile,{maxPoints:10})).toThrow('points budget');expect(()=>revolve(profile,{maxFaces:10})).toThrow('faces budget');
-  expect(()=>revolve(profile,{segments:1e9})).toThrow('budget');
+  expect(()=>revolve(profile,{segments:1e9,maxPoints:1_000_000})).toThrow('budget');
  });
  it('retains revolved mesh and selective hatch across camera-only commits',async()=>{
   let models=0;

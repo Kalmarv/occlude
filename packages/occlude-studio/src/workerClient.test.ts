@@ -96,3 +96,35 @@ it('cancels work before a debounced replacement exists and discards undecodable 
     expect(worker.messages.at(-1)).toEqual({ type: 'discard-render', id: badId });
   } finally { client.dispose(); }
 });
+
+it('delivers ordered drafts of the current render only and never resolves the render with them', async () => {
+  vi.stubGlobal('Worker', FakeWorker);
+  vi.spyOn(performance, 'now').mockReturnValue(0);
+  const client = new RenderClient();
+  try {
+    const drafts: { stage: string; revision: number; scene?: string; segments?: Float64Array }[] = [];
+    let current = true;
+    const first = client.render({ js: 'a', cfg: {} as RunConfig }, () => current, d => drafts.push({ stage: d.stage, revision: d.revision, scene: d.scene, segments: d.segments }));
+    const worker = FakeWorker.instances[0], id = worker.messages[0].id as number;
+    worker.reply({ type: 'draft', id, revision: 1, stage: 'sketch' });
+    worker.reply({ type: 'draft', id, revision: 3, stage: 'classified', scene: 'main', paper: { w: 100, h: 100 }, segments: Float64Array.from([0, 0, 1, 1]), total: 1 });
+    worker.reply({ type: 'draft', id, revision: 2, stage: 'source', scene: 'main', paper: { w: 100, h: 100 }, segments: Float64Array.from([5, 5, 6, 6]), total: 1 });
+    worker.reply({ type: 'draft', id: id + 99, revision: 9, stage: 'sketch' });
+    expect(drafts.map(d => [d.stage, d.revision])).toEqual([['sketch', 1], ['classified', 3]]);
+    expect(drafts[1].scene).toBe('main'); expect(drafts[1].segments).toEqual(Float64Array.from([0, 0, 1, 1]));
+    expect(worker.messages.map(m => m.type)).toEqual(['render']);
+    current = false;
+    worker.reply({ type: 'draft', id, revision: 4, stage: 'render' });
+    expect(drafts).toHaveLength(2);
+    const next = client.render({ js: 'b', cfg: {} as RunConfig }, () => true, d => drafts.push({ stage: d.stage, revision: d.revision }));
+    worker.reply({ type: 'draft', id, revision: 5, stage: 'finished' });
+    expect(drafts).toHaveLength(2);
+    worker.reply({ type: 'error', id, message: 'aborted', cancelled: true });
+    expect(await first).toBeNull();
+    const second = worker.messages.at(-1)!.id as number;
+    worker.reply({ type: 'draft', id: second, revision: 1, stage: 'assets' });
+    expect(drafts.at(-1)).toEqual({ stage: 'assets', revision: 1 });
+    worker.reply({ type: 'error', id: second, message: 'done' });
+    await expect(next).rejects.toThrow('done');
+  } finally { client.dispose(); }
+});

@@ -66,6 +66,22 @@ interface Pending {
   reject(err: Error): void;
   isRender?: boolean;
   obsolete?: boolean;
+  onDraft?(msg: Record<string, unknown>): void;
+}
+/** A disposable picture of the render in flight, replaced at every stage and
+ * dropped on the final reply, an error, cancellation or worker replacement.
+ * `segments` are paper-mm `[x0, y0, x1, y1, ...]` of one 3D scene; `result`
+ * is the finished paper drawing before planning. Never exportable. */
+export interface RenderDraft {
+  stage: string;
+  revision: number;
+  scene?: string;
+  paper?: { w: number; h: number };
+  segments?: Float64Array;
+  total?: number;
+  result?: RenderResult;
+  /** A modeling operation inside the sketch: operation, done and optional total. */
+  progress?: { operation: string; done: number; total?: number; detail?: string };
 }
 
 /** Give geometry-heavy sketches up to a minute before the worker watchdog
@@ -152,6 +168,7 @@ export class RenderClient {
   }): void {
     const p = this.pending.get(msg.id);
     if (!p) { (msg.bitmap as ImageBitmap | undefined)?.close(); return; }
+    if (msg.type === 'draft') { if (p.isRender && !p.obsolete) p.onDraft?.(msg); return; }
     this.pending.delete(msg.id);
     const renderFinished = msg.type === 'render' || (msg.type === 'error' && p.isRender);
     if (renderFinished) {
@@ -225,9 +242,25 @@ export class RenderClient {
   cancelCameraCommit(): void { if (this.cameraJob !== null) this.cancelRender(); }
 
   /** Run + render a sketch, or commit a retained camera. Null means cancelled. */
-  render(req: RenderRequest, isCurrent: () => boolean = () => true): Promise<RenderReply | null> {
+  render(req: RenderRequest, isCurrent: () => boolean = () => true, onDraft?: (draft: RenderDraft) => void): Promise<RenderReply | null> {
     return new Promise((resolve, reject) => {
+      let lastRevision = 0;
       const p: Pending = {
+        onDraft: onDraft && (msg => {
+          const revision = Number(msg.revision);
+          if (!(revision > lastRevision) || !isCurrent()) return;
+          lastRevision = revision;
+          const draft: RenderDraft = { stage: String(msg.stage), revision };
+          if (msg.scene !== undefined) draft.scene = String(msg.scene);
+          if (msg.paper) draft.paper = msg.paper as { w: number; h: number };
+          if (msg.progress) draft.progress = msg.progress as RenderDraft['progress'];
+          if (msg.segments) { draft.segments = msg.segments as Float64Array; draft.total = Number(msg.total ?? draft.segments.length / 4); }
+          if (msg.prims && msg.frags) {
+            const meta = { pens: msg.pens, frame: msg.frame, paper: msg.paper } as EncodedScene;
+            draft.result = decodeRender(meta, msg as unknown as Parameters<typeof decodeRender>[1]);
+          }
+          onDraft(draft);
+        }),
         resolve: (msg) => {
           if (msg === null) {
             resolve(null); // superseded by a newer request

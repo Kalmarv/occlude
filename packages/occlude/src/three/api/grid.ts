@@ -12,8 +12,8 @@ export interface GridOptions extends GeometryOptions {
 /** Centered regular point grid. X varies fastest, then Y, then Z. */
 export function grid(options:GridOptions):PointGeometry<{i:number;j:number;k:number}> {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('grid requires dimensions');
-  const {cols,rows,layers=1,maxPoints=100_000}=options;
-  for(const [name,value] of Object.entries({cols,rows,layers,maxPoints}))if(!Number.isSafeInteger(value)||value<0)throw new Error(`grid ${name} must be a nonnegative integer`);
+  const {cols,rows,layers=1,maxPoints=Infinity}=options;
+  for(const [name,value] of Object.entries({cols,rows,layers,maxPoints}))if(!(name==='maxPoints'&&value===Infinity||Number.isSafeInteger(value))||value<0)throw new Error(`grid ${name} must be a nonnegative integer`);
   const count=cols*rows*layers;if(!Number.isSafeInteger(count)||count>maxPoints)throw new Error(`grid exceeds point budget (${maxPoints})`);
   const input=options.spacing??1,spacing:Vec3=typeof input==='number'?[input,input,input]:input;
   finite3(spacing);if(spacing.some(s=>s<=0))throw new Error('grid spacing must be positive');

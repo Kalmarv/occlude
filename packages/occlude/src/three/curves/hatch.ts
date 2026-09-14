@@ -31,8 +31,8 @@ function validateFamilies3(values:readonly HatchFamily3[]):void {
 /** Capture per-face drawing intent now; generate at the resolved camera/paper.
  * A second family is crosshatch. Callbacks run once against frozen model rows. */
 export function hatch3(input:Surface3,families:readonly HatchFamily3[]|((face:FaceMeasure3)=>readonly HatchFamily3[]),options:{maxSegments?:number}={}):HatchSource3 {
-  const surface=snapshotSurface3(input),maxSegments=options.maxSegments??1_000_000;
-  if(!Number.isSafeInteger(maxSegments)||maxSegments<1)throw new Error('hatch maxSegments must be a positive integer');
+  const surface=snapshotSurface3(input),maxSegments=options.maxSegments??Infinity;
+  if(!(maxSegments===Infinity||Number.isSafeInteger(maxSegments))||maxSegments<1)throw new Error('hatch maxSegments must be a positive integer or Infinity');
   const rows=measureFaces3(surface).map(face=>{
     const values=typeof families==='function'?families(Object.freeze({...face,attributes:freezeCurves3(structuredClone(face.attributes))})):families;
     validateFamilies3(values);
@@ -42,7 +42,7 @@ export function hatch3(input:Surface3,families:readonly HatchFamily3[]|((face:Fa
 }
 export function validateHatch3(hatch:HatchSource3,surface:Surface3):void {
   if(hatch.surface!==surface)throw new Error('hatch belongs to a different captured surface; draw hatch.surface or regenerate it');
-  if(hatch.families.length!==surface.faces.length||!Number.isSafeInteger(hatch.maxSegments)||hatch.maxSegments<1)throw new Error('invalid captured hatch families or capacity');
+  if(hatch.families.length!==surface.faces.length||!(hatch.maxSegments===Infinity||Number.isSafeInteger(hatch.maxSegments))||hatch.maxSegments<1)throw new Error('invalid captured hatch families or capacity');
   hatch.families.forEach(validateFamilies3);
 }
 const edgeKey=(a:number,b:number)=>a<b?`${a}:${b}`:`${b}:${a}`;

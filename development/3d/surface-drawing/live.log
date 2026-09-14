@@ -1,0 +1,12 @@
+bae1191-surface-final 2026-09-14 21:25
+{"example":"three#19","ms":2776,"modeling":[],"svgBytes":12826}
+{"example":"three#20","ms":1437,"modeling":[],"svgBytes":50852}
+{"example":"three#21","ms":6271,"modeling":[{"operation":"hatch","backend":"cpu","dispatches":0,"transferBytes":0,"wallMs":2647.899999976158,"hatch":{"traces":249,"segments":11550,"tone":{"locations":15177,"dispatches":0,"transferBytes":0,"refinements":0,"ambiguous":0,"backend":"cpu"}}}],"svgBytes":62735}
+{"example":"three#22","ms":4091,"modeling":[{"operation":"hatch","backend":"cpu","dispatches":0,"transferBytes":0,"wallMs":1744.9000000357628,"hatch":{"traces":29,"segments":8364,"tone":{"locations":9505,"dispatches":0,"transferBytes":0,"refinements":0,"ambiguous":0,"backend":"cpu"}}}],"svgBytes":50504}
+{"example":"three#23","ms":2216,"modeling":[{"operation":"hatch","backend":"gpu","dispatches":1,"transferBytes":385968,"wallMs":953.6999999880791,"hatch":{"traces":473,"segments":3074,"tone":{"locations":10742,"dispatches":1,"transferBytes":385968,"refinements":0,"ambiguous":8,"backend":"mixed"}}}],"svgBytes":63459}
+{"example":"three#24","ms":3198,"modeling":[{"operation":"hatch","backend":"gpu","dispatches":1,"transferBytes":8943664,"wallMs":1418.5999999642372,"hatch":{"traces":82,"segments":7976,"tone":{"locations":10624,"dispatches":1,"transferBytes":8943664,"refinements":0,"ambiguous":19,"backend":"gpu"}}}],"svgBytes":101782}
+{"example":"three#25","ms":932,"modeling":[],"svgBytes":16318}
+{"example":"three#26","ms":898,"modeling":[{"operation":"hatch","backend":"gpu","dispatches":1,"transferBytes":256560,"wallMs":242.80000001192093,"hatch":{"traces":67,"segments":1130,"tone":{"locations":3792,"dispatches":1,"transferBytes":256560,"refinements":0,"ambiguous":0,"backend":"gpu"}}}],"svgBytes":15706}
+{"example":"three#27","ms":851,"modeling":[],"svgBytes":31569}
+{"passed":true,"examples":9}
+exit 0

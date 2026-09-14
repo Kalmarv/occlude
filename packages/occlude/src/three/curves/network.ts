@@ -63,7 +63,11 @@ export interface SupportedCurveSegment3 {
   readonly id:string;readonly kind:SurfaceCurveKind3;
   readonly a:number;readonly b:number;
   readonly supports:readonly SurfaceCurveSupport3[];
-  readonly chainId:string;readonly range:readonly [number,number];
+  readonly chainId:string;
+  /** Rounded projection of the exact source interval, for phase. Equal
+   * endpoints mean the exact interval is narrower than binary64 resolution;
+   * consumers scale by the width and never divide by it. */
+  readonly range:readonly [number,number];
   /** Floating metric only. Exact node identity never depends on this value. */
   readonly length:number;readonly attributes:Readonly<Attributes3>;
 }
@@ -113,8 +117,10 @@ export function surfaceCurveNetwork3(input:SurfaceCurveNetworkInput3,budget:Surf
 /** Shared validator with checkpoints for generated graphs. Async callers own
  * their input draft until this job completes; only a complete graph is owned. */
 export function* surfaceCurveNetworkJob3(input:SurfaceCurveNetworkInput3,budget:SurfaceCurveBudget3={}):Generator<void,SurfaceCurveNetwork3> {
-  const maxSources=budget.maxSources??100000,maxCoordinateBits=budget.maxCoordinateBits??32768,maxNodes=budget.maxNodes??250000,maxSegments=budget.maxSegments??250000,maxSupports=budget.maxSupports??1000000,maxExactBytes=budget.maxExactBytes??64000000;
-  if([maxSources,maxCoordinateBits,maxNodes,maxSegments,maxSupports,maxExactBytes].some(n=>!Number.isSafeInteger(n)||n<0))throw new Error('curve budgets must be nonnegative integers');
+  // Capacities are unlimited unless the caller sets one; the coordinate bit
+  // guard stays because exact arithmetic must not grow without bound.
+  const maxSources=budget.maxSources??Infinity,maxCoordinateBits=budget.maxCoordinateBits??32768,maxNodes=budget.maxNodes??Infinity,maxSegments=budget.maxSegments??Infinity,maxSupports=budget.maxSupports??Infinity,maxExactBytes=budget.maxExactBytes??Infinity;
+  if([maxSources,maxCoordinateBits,maxNodes,maxSegments,maxSupports,maxExactBytes].some(n=>!(n===Infinity||Number.isSafeInteger(n))||n<0))throw new Error('curve budgets must be nonnegative integers or Infinity');
   if(input.sources.length>maxSources)throw new Error('surface curve graph exceeds source budget');
   if(input.nodes.length>maxNodes||input.segments.length>maxSegments)throw new Error('surface curve graph exceeds node/segment budget');
   let supports=0,work=0;
@@ -149,7 +155,7 @@ export function* surfaceCurveNetworkJob3(input:SurfaceCurveNetworkInput3,budget:
     if(a===undefined||b===undefined)throw new Error('curve segment refers to a missing graph node');
     if(exact[a].every((n,i)=>n===exact[b][i]))throw new Error('isolated contacts belong to point data, not zero-length curve segments');
     const range=segment.range??[0,1],chainId=segment.chainId??segment.id;
-    if(!chainId||range.length!==2||!range.every(Number.isFinite)||range[0]<0||range[1]>1||range[0]>=range[1])throw new Error('curve source ranges must increase within [0,1]');
+    if(!chainId||range.length!==2||!range.every(Number.isFinite)||range[0]<0||range[1]>1||range[0]>range[1])throw new Error('curve source ranges must not decrease within [0,1]');
     if(!segment.supports.length)throw new Error('a surface curve segment requires actual triangle support');
     const seen=new Set<string>();
     const supportRows:SurfaceCurveSupport3[]=[];
@@ -171,7 +177,9 @@ export function* surfaceCurveNetworkJob3(input:SurfaceCurveNetworkInput3,budget:
   const segments=Object.freeze(segmentRows);
   const ranges=new Map<string,SupportedCurveSegment3[]>();for(const segment of segments){const rows=ranges.get(segment.chainId)??[];rows.push(segment);ranges.set(segment.chainId,rows);if((++work&127)===0)yield;}
   for(const rows of ranges.values()){
-    rows.sort((a,b)=>a.range[0]-b.range[0]);yield;
+    // Equal starts order by end, so a zero-width interval sits before the
+    // interval that begins where it lies.
+    rows.sort((a,b)=>a.range[0]-b.range[0]||a.range[1]-b.range[1]);yield;
     for(let i=1;i<rows.length;i++){if(rows[i].range[0]<rows[i-1].range[1])throw new Error('a source chain cannot have overlapping parameter intervals');if((++work&127)===0)yield;}
   }
   const nodeRows:SurfaceCurveNode3[]=[];

@@ -2,6 +2,8 @@ import {objectSurfaceBinding3,validateSurfaceCurveNetwork3,type SurfaceCurveObje
 import { validateHatch3 } from './curves/hatch.js';
 import { validateSurfaceCurves3 } from './curves/surface.js';
 import type { ModelingCompute3 } from './modeling.js';
+import type { SurfaceEvaluationTarget3, SurfaceEvaluationBatch3, SurfaceEvaluationResult3 } from './surface/evaluate.js';
+import type { ToneRecipe3 } from './surface/tone.js';
 import { cameraFrame3, type Camera3, type PaperFrame3 } from './camera.js';
 import { snapshotSurface3 } from './geometry/model.js';
 import type { SurfaceObject3, WireObject3, FeatureSnapshot3 } from './features/snapshot.js';
@@ -10,6 +12,9 @@ import type { LineSet3, constructStrokes3 } from './strokes/construct.js';
 
 export interface SceneCompute3 extends Partial<ModelingCompute3> {
   classify(snapshot: FeatureSnapshot3, options: { signal?: AbortSignal; paperToleranceMm?: number }): Promise<ClassifiedScene3>;
+  /** Batched surface location/attribute/tone evaluation; CPU reference is
+   * `evaluateSurfaceCpu3`. Agreement is within the shared tone quantum. */
+  evaluateSurface?(target: SurfaceEvaluationTarget3, batch: SurfaceEvaluationBatch3, recipe: ToneRecipe3 | undefined, options: { signal?: AbortSignal }): Promise<SurfaceEvaluationResult3>;
 }
 export interface LineArtOptions3 {
   /** Stable key for a camera override in sketch configuration. */

@@ -10,8 +10,8 @@ interface Node {id:string;point:H;partition:string;edges:number[]}
  * starting node topologically. IDs use a collinearity-reduced chain skeleton
  * so adding triangle support splits does not reseed an otherwise equal seam. */
 export function* intersectionGraphInputJob3(sources:readonly [SurfaceBinding3,SurfaceBinding3],segments:readonly IntersectionAtom3[],points:readonly IntersectionPoint3[],budget:Pick<SurfaceCurveBudget3,'maxNodes'|'maxSegments'>={}):Generator<void,SurfaceCurveNetworkInput3> {
- const maxNodes=budget.maxNodes??250000,maxSegments=budget.maxSegments??250000;
- if([maxNodes,maxSegments].some(n=>!Number.isSafeInteger(n)||n<0))throw new Error('curve budgets must be nonnegative integers');
+ const maxNodes=budget.maxNodes??Infinity,maxSegments=budget.maxSegments??Infinity;
+ if([maxNodes,maxSegments].some(n=>!(n===Infinity||Number.isSafeInteger(n))||n<0))throw new Error('curve budgets must be nonnegative integers');
  if(segments.length>maxSegments)throw new Error('surface curve graph exceeds node/segment budget');
  const nodes:Node[]=[],nodeIndices=new Map<string,number>(),ids=new Set<string>();
  const unique=(id:string)=>{if(ids.has(id))throw new Error('intersection geometry identity collision');ids.add(id);return id;};

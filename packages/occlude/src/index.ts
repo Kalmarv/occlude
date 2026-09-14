@@ -223,3 +223,5 @@ export type { SectionPlane3, SurfaceCurves3, SurfaceCurveSegment3, SurfaceCurveP
 
 export { hatch3 } from './three/curves/hatch.js';
 export type { HatchFamily3, HatchSource3 } from './three/curves/hatch.js';
+export type { StageEvent3, StageListener3 } from './three/resolve.js';
+export type { ModelingProgress3, ProgressListener3 } from './three/modeling.js';

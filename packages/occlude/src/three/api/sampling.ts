@@ -88,7 +88,7 @@ export interface SurfaceScatterOptions<F extends Attributes3={}> extends Geometr
 }
 export interface SurfaceSamplingEnv {readonly rnd:()=>number;readonly signal?:AbortSignal}
 interface Prepared<F extends Attributes3>{readonly faces:readonly FaceRow<F>[];readonly triangles:readonly number[];readonly cumulative:readonly number[];readonly total:number;readonly extent:number;readonly origin:Vec3}
-function nonnegativeInteger(value:number,name:string):void{if(!Number.isSafeInteger(value)||value<0)throw new Error(`${name} must be a nonnegative integer`);}
+function nonnegativeInteger(value:number,name:string):void{if(!(value===Infinity||Number.isSafeInteger(value))||value<0)throw new Error(`${name} must be a nonnegative integer or Infinity`);}
 function optionsObject(value:unknown):void{if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('surface sampling options must be an object');}
 function prepare<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(target:Mesh<P,E,F,C>,weight:Field<FaceRow<F>,number>|undefined):Prepared<F>{
   if(!(target instanceof Mesh))throw new Error('surface sampling requires a mesh');
@@ -125,7 +125,7 @@ function result<P extends Attributes3,E extends EdgeAttributes,F extends Attribu
 /** Advanced explicit random-source entry; normal sketches call t.sample(mesh). */
 export function sampleSurfacePoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(target:Mesh<P,E,F,C>,options:SurfaceSamplingOptions<F>,env:SurfaceSamplingEnv):SurfaceSamples<Combined<F,P>,F,C,P>{
   optionsObject(options);env.signal?.throwIfAborted();if(!(target instanceof Mesh))throw new Error('surface sampling requires a mesh');
-  const count=options.count,limit=options.maxPoints??100_000;nonnegativeInteger(count,'surface sample count');nonnegativeInteger(limit,'surface sample point budget');
+  const count=options.count,limit=options.maxPoints??Infinity;nonnegativeInteger(count,'surface sample count');nonnegativeInteger(limit,'surface sample point budget');
   if(count>limit)throw new Error('surface sampling exceeds point budget');
   const points:SurfacePoint3[]=[],samples=new Map<string,SurfaceSample<F,C,P>>();
   if(count){const prepared=prepare(target,options.weight);if(!prepared.total)throw new Error('surface sampling requires positive weighted surface area');
@@ -136,7 +136,7 @@ export function sampleSurfacePoints<P extends Attributes3,E extends EdgeAttribut
 /** Global dart rejection with a bounded sparse world-space neighbor grid. */
 export function scatterSurfacePoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(target:Mesh<P,E,F,C>,options:SurfaceScatterOptions<F>,env:SurfaceSamplingEnv):SurfaceSamples<Combined<F,P>,F,C,P>{
   optionsObject(options);env.signal?.throwIfAborted();if(!(target instanceof Mesh))throw new Error('surface scatter requires a mesh');
-  const spacing=options.spacing,limit=options.maxPoints??10_000,budget=options.maxAttempts??100_000;
+  const spacing=options.spacing,limit=options.maxPoints??Infinity,budget=options.maxAttempts??100_000;
   if(!Number.isFinite(spacing)||spacing<=0)throw new Error('surface scatter spacing must be positive finite world units');
   nonnegativeInteger(limit,'surface scatter point limit');nonnegativeInteger(budget,'surface scatter attempt limit');
   const points:SurfacePoint3[]=[],samples=new Map<string,SurfaceSample<F,C,P>>(),buckets=new Map<string,number[]>();let attempts=0,reason:SamplingGeneration['reason']='point-limit';

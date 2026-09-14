@@ -146,10 +146,13 @@ export class GpuIntervals3 {
       transferBytes += packed.byteLength + read.byteLength + (this.timestamps ? 16 : 0);
       const refineStarted = performance.now();
       for (let i = 0; i < batch.length; i++) {
-        // The current WGSL certificate bounds binary source coordinates. A
-        // rational construction retains stronger incidence than its evaluated
-        // position; refine until that certificate accounts for this encoding.
-        if (batch[i].basis?.some(terms=>terms.some(t=>t.exactWorld!==undefined)) || read[i * 4 + 2] !== 0 || !Number.isFinite(read[i * 4]) || !Number.isFinite(read[i * 4 + 1])) {
+        // The WGSL certificate covers 32 f32 unit roundoffs of the binary
+        // coordinates it receives. A rational construction's evaluated f64
+        // position sits within half an f64 ulp of the exact point, far inside
+        // that envelope, so its pairs take the same uncertainty flag as any
+        // other; near-incidence with a neighbouring triangle is flagged by the
+        // shader and refined exactly here.
+        if (read[i * 4 + 2] !== 0 || !Number.isFinite(read[i * 4]) || !Number.isFinite(read[i * 4 + 1])) {
           refinements++; const p = batch[i]; intervals.push(hiddenInterval3(p.a, p.b, p.volume, p.basis));
         } else intervals.push(read[i * 4 + 3] === 0 ? null : [read[i * 4], read[i * 4 + 1]]);
       }

@@ -84,8 +84,13 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
   return drawing3(scene,classified=>{
     const lines=projectedLines(classified);
     if(draw)return draw(lines);
+    // Generated marks may name their own pen through a `stroke` attribute (hatch
+    // families); everything else follows the view's stroke.
+    const named=lines.visible.filter(c=>typeof c.attributes.stroke==='string'&&(c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')));
+    const pens=[...new Set(named.map(c=>c.attributes.stroke as string))].sort();
     return [
-      projectedStrokes(lines.visible.filter(c=>c.kinds.has('boundary')||c.kinds.has('silhouette')||c.kinds.has('wire')||c.kinds.has('intersection')||c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||(c.kinds.has('crease')&&c.feature.creaseAngle>=crease)),{stroke:settings.stroke}),
+      projectedStrokes(lines.visible.filter(c=>!(typeof c.attributes.stroke==='string'&&(c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')))&&(c.kinds.has('boundary')||c.kinds.has('silhouette')||c.kinds.has('wire')||c.kinds.has('intersection')||c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||(c.kinds.has('crease')&&c.feature.creaseAngle>=crease))),{stroke:settings.stroke}),
+      ...pens.map(pen=>projectedStrokes(named.filter(c=>c.attributes.stroke===pen),{stroke:pen})),
       ...recipes.map((recipe,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('hatch')&&c.attributes.hatchFamily===hatchKeys[i]),{stroke:recipe.stroke??settings.stroke})),
       ...planes.map((plane,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('section')&&c.attributes.sectionPlane===sectionKeys[i]),{stroke:plane.stroke??settings.stroke})),
     ];

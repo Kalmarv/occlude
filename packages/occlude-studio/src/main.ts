@@ -245,16 +245,22 @@ async function boot(): Promise<void> {
     const started = performance.now();
     preview.setStale(lastResult !== null);
     if (ticker) clearInterval(ticker);
-    ticker = setInterval(() => {
+    let stage = '', progress = '';
+    // Each draft marks the START of the next stage, so the label names the work in progress.
+    const stageNames: Record<string, string> = { assets: 'loading assets', sketch: 'running sketch', modeling: 'running sketch', source: '3D visibility', classified: 'interpreting strokes', render: 'finishing paper', finished: 'planning' };
+    const tick = () => {
       const s = Math.round((performance.now() - started) / 1000);
+      const what = stage ? ` · ${stageNames[stage] ?? stage}${progress}` : '';
       statusMsg.textContent = s >= 1
-        ? `rendering… ${s}s${lastResult ? ' — showing previous result' : ''}`
-        : 'rendering…';
-    }, 1000);
+        ? `rendering… ${s}s${what}${lastResult ? ' — showing previous result' : ''}`
+        : `rendering…${what}`;
+    };
+    ticker = setInterval(tick, 1000);
     const finish = () => {
       if (myRun !== runSeq) return false; // a newer run owns the status now
       if (ticker) clearInterval(ticker);
       ticker = null;
+      preview.setDraft(null);
       return true;
     };
     // The worker runs everything: asset preload, sketch execution, encode,
@@ -276,7 +282,15 @@ async function boot(): Promise<void> {
           seed,
           draws: true, // the run's draws, for Freeze
         },
-      }, () => myRun === runSeq && editor.getValue() === source);
+      }, () => myRun === runSeq && editor.getValue() === source, draft => {
+        // A stage picture of THIS run only; the final reply replaces it.
+        if (myRun !== runSeq) return;
+        stage = draft.stage;
+        const p = draft.progress;
+        progress = p ? ` · ${p.operation} ${p.total ? `${p.done}/${p.total}` : p.done}${p.detail ? ` (${p.detail})` : ''}` : '';
+        tick();
+        if (draft.segments || draft.result) preview.setDraft(draft);
+      });
     } catch (err) {
       if ((err as WorkerError).sketch) setRuntimeMarker(editor.model, err);
       if (!finish()) { if (cameraCommit) throw err; return; } // superseded: the newer run reports

@@ -171,18 +171,32 @@ async function handleMessage(msg: Msg): Promise<void> {
         if (!source) throw new Error('render the sketch before committing a camera');
         const signal = renderJobs.get(msg.id)?.signal;
         signal?.throwIfAborted();
+        // Drafts: disposable stage pictures for the host's preview, keyed by this
+        // render and a rising revision. They never touch retained/export state.
+        let revision = 0;
+        const draft = (stage: string, body: Record<string, unknown> = {}, transfer: ArrayBuffer[] = []) => {
+          if (signal?.aborted) return;
+          self.postMessage({ type: 'draft', id: msg.id, revision: ++revision, stage, ...body }, { transfer });
+        };
         let run: Execution;
         let scene: ReturnType<typeof encodeScene>;
         if (msg.type === 'render-camera') {
           if (!lastRun || msg.executionId !== lastExecutionId || msg.planHash !== lastPlan?.planHash) throw new Error('stale camera commit: the drawing changed');
           const entry = constructionScenes[msg.scene];
           if (!entry) throw new Error('camera commit scene not found');
-          run = await commitCamera3(lastRun, entry.source, msg.camera, { compute3, signal });
+          draft('sketch');
+          run = await commitCamera3(lastRun, entry.source, msg.camera, { compute3, signal, onStage: event => draft(event.stage, { scene: event.scene, paper: event.paper, segments: event.segments, total: event.total }, [event.segments.buffer as ArrayBuffer]) });
           scene = encodeScene(run, { coarsen: source.cfg.coarsen, debugGhost: source.cfg.debugGhost });
         } else {
+          draft('assets');
           const assets = await preloadAssets(source.js);
           const fills = await preloadFills(source.js, source.cfg.draftFill);
-          const outcome = await runSketchAsync(source.js, source.cfg, source.cfg.seed ?? sessionSeed, assets, fills, signal, compute3);
+          draft('sketch');
+          // Modeling progress inside the sketch, throttled: one event per 100 ms.
+          let lastProgress = -Infinity;
+          const outcome = await runSketchAsync(source.js, source.cfg, source.cfg.seed ?? sessionSeed, assets, fills, signal, compute3,
+            event => draft(event.stage, { scene: event.scene, paper: event.paper, segments: event.segments, total: event.total }, [event.segments.buffer as ArrayBuffer]),
+            event => { const now = performance.now(); if (now - lastProgress < 100) return; lastProgress = now; draft('modeling', { progress: event }); });
           signal?.throwIfAborted();
           if (outcome.error || !outcome.scene) {
             const err = outcome.error;
@@ -192,8 +206,11 @@ async function handleMessage(msg: Msg): Promise<void> {
           run = outcome.run!; scene = outcome.scene;
         }
         signal?.throwIfAborted();
+        draft('render');
         const raw = renderEncoded(mod, scene);
         const drawing = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper };
+        // The finished paper drawing precedes planning; copies travel, originals stay.
+        { const prims = raw.prims.slice(), frags = raw.frags.slice(); draft('finished', { prims, frags, stats: raw.stats, renderMs: raw.renderMs, pens: scene.pens, frame: scene.frame, paper: scene.paper }, [prims.buffer, frags.buffer]); }
         // THE plan, once per render, under the sketch's own t.plan({...}):
         // everything downstream selects from it, as the sketch's t.draw says.
         const { buffer: planBuf, settings, planHash } = await planDrawing(drawing, scene.plan ?? {});

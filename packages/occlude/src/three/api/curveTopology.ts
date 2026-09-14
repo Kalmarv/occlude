@@ -36,8 +36,8 @@ export function curvePath<P extends Attributes3,E extends EdgeAttributes>(curve:
 }
 export interface ConstructionBudget {readonly maxPoints?:number;readonly maxFaces?:number;readonly maxCapPoints?:number}
 export function constructionBudget(points:number,faces:number,options:ConstructionBudget):void {
-  for(const [name,count,limit] of [['points',points,options.maxPoints??500_000],['faces',faces,options.maxFaces??250_000]] as const){
-    if(!Number.isSafeInteger(limit)||limit<1)throw new Error(`construction ${name} budget must be a positive integer`);
+  for(const [name,count,limit] of [['points',points,options.maxPoints??Infinity],['faces',faces,options.maxFaces??Infinity]] as const){
+    if(!(limit===Infinity||Number.isSafeInteger(limit))||limit<1)throw new Error(`construction ${name} budget must be a positive integer or Infinity`);
     if(!Number.isSafeInteger(count)||count>limit)throw new Error(`construction exceeds ${name} budget`);
   }
 }

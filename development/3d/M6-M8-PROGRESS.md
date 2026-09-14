@@ -9,7 +9,7 @@ No completion claim. The scope below remains required until directly verified.
 | 1. Contract and reuse | Inventory existing helpers, settle coordinate/domain contracts, actual target examples | Initial inspection and contract in `SURFACE-CONTRACT.md`; latest dev and isolation verified. Examples pending implementation. |
 | 2. Shared data/API | Collections, topology, frozen edits, query fields, orientation, corners, surface locations and multi-source support | Foundations implemented through supported curves at `6ab53b6`: all nine gates and 25 served examples pass. Curve resampling/query/trace consumers and ordinary-first presentation remain open. See checkpoint evidence below. |
 | 3. M6 intersections | Candidate BVH, exact contacts/policies, graphs, both-source support, editable demo and independent oracle | In progress: exact contacts, yielding BVH, atomic seam arrangement, coplanar boundaries, chain graphs, ordinary mesh/instance operation and async host adoption implemented. Construction consumers, rendering/phase audit and broader independent mesh/workflow evidence remain open. |
-| 4. M7 mapping | Primitive/custom corners/UVs and transfers; vector patterns/images; rebind and repeated prototypes | Required, not implemented. |
+| 4. M7 mapping | Primitive/custom corners/UVs and transfers; vector patterns/images; rebind and repeated prototypes | Stored UVs/projections deployed at `bae1191`. Exact chart clipping tested locally; chart lookup/material mapping draft unverified and uncommitted. Vector patterns/images and full acceptance remain open. |
 | 5. M7 tracing/tone | General tangent tracer/curvature/spacing, crosshatch, isolines, CPU/GPU surface evaluation, curved/custom demos | Required, not implemented. |
 | 6. Selected M8 | Connected-region extrusion, shared cap/walls/holes, frozen transaction, UV/provenance transfers | Required, not implemented. |
 | 7. Integration | Acceptance A–E, actual Studio workflows/persistence, CPU/GPU performance suite, all gates, dev publication/final handoff | Required, not implemented. |
@@ -232,3 +232,79 @@ of the served example pass. Dev stamp `bce6f2b-surface-uv` is running and
 `rest-coordinates` is saved/read back in the dev sketch store. Evidence is
 under `surface-uv/`. Mapping/tracing/tone and the remaining full
 M6/M7/selected-M8 acceptance are still open.
+
+## Mapping work in progress
+
+`curves/chartClip.ts` now clips a represented UV segment against one triangle
+using exact homogeneous half-plane predicates. It retains rational original
+segment parameters and affine weights, distinguishes isolated contacts from
+positive-length boundary overlaps, and maps endpoints onto represented world
+triangles without rounding away incidence. Four focused analytical tests pass,
+including reversal, one-ULP separation and very different chart/world scales.
+This kernel is not yet connected to public `mapSurface`: spatial chart lookup,
+support deduplication, island/chain identity, source phase, material capture,
+curved approximation and async orchestration remain required. This work is local
+and uncommitted; it has not been deployed as a completed feature.
+
+## User-requested pause and Claude handoff
+
+Implementation paused on 2026-09-14 at the user’s request. See
+`CLAUDE-HANDOFF.md` for exact deployed state, uncommitted mapping drafts, remaining
+scope, evidence locations, test/commit/dev deployment workflow and user decisions.
+No completion claim; mapping.ts/chartIndex.ts were written immediately before the
+pause and have not been typechecked or tested.
+
+## Surface drawing checkpoint (Claude, 2026-09-14)
+
+Resumed from the Codex handoff. The uncommitted mapping draft was reviewed and
+rewritten: closed-chain-only endpoint merging, overlap `layer` chains for a
+sheet folded onto itself in chart space, interpolated node attributes,
+`chart`/`component`/`pattern`/`layer` edge attributes, an explicit `frame` for
+sketch-unit material, monotone float phase for binary64 slivers, and
+`curves.place(instances)` for repeated prototypes. `await t.mapSurface` runs the
+same construction with yields and cancellation.
+
+New this checkpoint: `t.image(name).surface(...)` chart sampling with one
+prefilter shared by CPU and GPU; surface field ingredients (`light`, `gradient`,
+`curvature`, `across`, `tangentU/V`); an adjacency-walking tracer with direction
+transport, crease/boundary/loop/budget termination and exact per-segment
+support; seeded Jobard–Lefer hatch with surface-aware occupancy, lane-based
+nested tone selection, crosshatch families with named pens, and `await t.hatch`
+on meshes or instance sets; a batched GPU surface evaluation (`evaluateSurface`
+on the host) with a CPU reference and the shared tone quantum; scalar
+isolines/cross-contours; connected-region extrusion `mesh.extrude`; `view`
+drawing generated marks in their own pens; `docs/three.md` reorganised
+ordinary-first with nine new live examples (three#19–27). Every previous 3D
+example keeps its ink under a new position key (`surface-drawing/ink-change.json`);
+other pages are byte-identical; church routing is unchanged. Evidence and the
+honest contract/limit statements are in `surface-drawing/README.md`.
+
+Still open after this checkpoint: the six final performance workloads with
+matched CPU/GPU cold/warm medians, broader M6 rendered-seam evidence
+(oblique/near/far), a Studio A–E workflow pass (save/download/reopen,
+orbit/commit per view) beyond the served example checks, and the final
+requirement-by-requirement audit. Deferred by decision: M9, inset/bevel/smooth
+subdivision, full UV unwrap, suggestive contours, automatic device recovery.
+
+### Corrections and performance (same day)
+
+The first served check found three docs defects (tonal example lit from below,
+no live example for surface fields, an accidental clip on the two-views inset),
+a missing dev asset (ivy.png uploaded through the asset API; asset responses
+now `no-store`), and two real defects: float phase ranges of binary64 slivers
+(now a zero-width range contract in the graph validator, no nudging) and a
+tracer that bounced on gradient sinks at sphere poles until `maxSteps` (now a
+converged `degenerate` stop). Tracer cost was cut roughly 3–8× by caching
+per-triangle geometry, lazy attributes, blind side walks and an allocation-free
+occupancy test; the user plans a dedicated optimization pass later. The six
+workloads' CPU numbers are in `benchmark-surface/README.md`; the GPU run and
+final served checks follow the `bae1191-surface-final` build.
+
+### Visibility pruning, watertight abutments, unlimited capacities
+
+The user's woven-vessel sketch (six swept helices, hidden lines) timed out in
+Studio. Two exact improvements to 3D visibility: depth-cutoff candidate pruning
+and seam closure for edge-adjacent occluders instead of refining both (details
+and numbers in `surface-drawing/README.md`). At the user's direction all
+count/byte capacity defaults are now unlimited; explicit caps remain. The
+vessel is the seventh workload in `benchmark-surface/`.

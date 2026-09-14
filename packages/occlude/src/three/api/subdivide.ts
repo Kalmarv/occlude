@@ -58,9 +58,9 @@ function isQuad(surface: Surface3, face: SurfaceFace3): boolean {
 }
 
 export function subdivideSurface(surface: Surface3, levels=1, options: SubdivisionOptions={}, transfers: PointTransfers={}, cornerTransfers:PointTransfers={}): Surface3 {
-  const maxFaces=options.maxFaces??250_000, maxPoints=options.maxPoints??500_000;
+  const maxFaces=options.maxFaces??Infinity, maxPoints=options.maxPoints??Infinity;
   if (!Number.isSafeInteger(levels)||levels<0) throw new Error('subdivide levels must be a nonnegative integer');
-  if (![maxFaces,maxPoints].every(n=>Number.isSafeInteger(n)&&n>0)) throw new Error('subdivide budgets must be positive integers');
+  if (![maxFaces,maxPoints].every(n=>(n===Infinity||Number.isSafeInteger(n))&&n>0)) throw new Error('subdivide budgets must be positive integers or Infinity');
   if (!levels || !surface.faces.length) return surface;
   const quads=surface.faces.map(f=>isQuad(surface,f));
   const triangleCounts=surface.faces.map(()=>0);

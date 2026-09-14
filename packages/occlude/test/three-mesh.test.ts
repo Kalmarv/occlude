@@ -114,9 +114,15 @@ describe('conservative indexed scene visibility', () => {
       const right=surface3([[gap,-1,1],[1,-1,1],[1,1,1],[gap,1,1]],[[0,1,2,3]]);
       const snapshot=featureSnapshot3([{id:'left',surface:left,lineSource:false},{id:'right',surface:right,lineSource:false}],[{id:'wire',points:[[-2,0,0],[2,0,0]]}],camera);
       const approximate={classify:async(pairs:any[])=>({intervals:pairs.map(p=>{const r=hiddenInterval3(p.a,p.b,p.volume);return r?[r[0]+1e-8,r[1]-1e-8]:null}),dispatches:1,refinements:0,transferBytes:0})} as unknown as GpuIntervals3;
-      const result=await classifySceneGpu3(snapshot,approximate,{pairCapacity:1});
-      expect(result.features[0].hidden).toEqual(classifySceneCpu3(snapshot).features[0].hidden);
+      const result=await classifySceneGpu3(snapshot,approximate,{pairCapacity:1}),exact=classifySceneCpu3(snapshot).features[0].hidden;
+      // Each quad's two triangles abut at their diagonal: watertight, closed
+      // without refinement, so their outer ends keep the f32 offset within the
+      // tolerance. The left/right junction is between objects and is refined
+      // exactly: a 1e-7 gap survives, a zero gap does not.
       expect(result.features[0].hidden).toHaveLength(gap===0?1:2);
+      expect(result.features[0].hidden).toHaveLength(exact.length);
+      result.features[0].hidden.forEach((interval,i)=>{expect(Math.abs(interval[0]-exact[i][0])).toBeLessThan(2*result.stats.parameterTolerance!);expect(Math.abs(interval[1]-exact[i][1])).toBeLessThan(2*result.stats.parameterTolerance!);});
+      if(gap>0)expect(result.features[0].hidden[0][1]).toBeLessThan(result.features[0].hidden[1][0]);
       expect(result.stats.refinements).toBeGreaterThan(0);
     }
   });

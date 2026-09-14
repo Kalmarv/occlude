@@ -1,7 +1,10 @@
 import {Collection} from './collection.js';
 import type {Attributes3} from '../geometry/surface.js';
 import {Mesh,type GeometryOptions,type PointRow} from './mesh.js';
-import {surfaceBinding3,rebindSurfaceCurveNetwork3,selectSurfaceCurveNetwork3,validateSurfaceCurveNetwork3,type SurfaceCurveNetwork3,type SurfaceCurveNode3,type SupportedCurveSegment3} from '../curves/network.js';
+import {surfaceBinding3,rebindSurfaceCurveNetwork3,selectSurfaceCurveNetwork3,validateSurfaceCurveNetwork3,surfaceCurveNetwork3,bindingTriangle3,type SurfaceCurveNetwork3,type SurfaceCurveNode3,type SupportedCurveSegment3} from '../curves/network.js';
+import {Instances,instanceSurfaceBinding3} from './instances.js';
+import {identity} from './identity.js';
+import {weightedPoint} from '../geometry/exact.js';
 /** Multiple support contexts remain distinct at seams and intersections. */
 export interface SurfaceCurvePoint extends PointRow<{}> {
  readonly exact:SurfaceCurveNode3['exact'];readonly supports:SurfaceCurveNode3['supports'];
@@ -41,4 +44,27 @@ export class SurfaceCurves<A extends Attributes3={}> {
   return new SurfaceCurves<A>(rebindSurfaceCurveNetwork3(this.network,bindings),this);
  }
  withKey(key:string):SurfaceCurves<A>{return new SurfaceCurves<A>(this.network,{key});}
+ /** Repeat prototype-attached marks at every placement of an instance set.
+  * Attachments are re-evaluated on each placed triangle from their retained
+  * affine weights; the prototype mesh is not realized. Segment attributes gain
+  * the instance ID; chains are per placement. Single-source marks only. */
+ place(instances:Instances<any,any,any,any,any,any,any>):SurfaceCurves<A&{instance:string}> {
+  if(!(instances instanceof Instances))throw new Error('curve placement requires an instance set');
+  const network=this.network.reference??this.network;
+  if(network.sources.length!==1||network.sources[0].binding.placement)throw new Error('curve placement requires marks attached to one unplaced prototype');
+  if(network.sources[0].binding.source!==instances.prototype.surface)throw new Error('curves are attached to a different prototype than these instances');
+  const selected=new Set(this.network.segments.map(s=>s.id));
+  const sources=instances.rows.map(row=>({id:row.id,binding:instanceSurfaceBinding3(instances,row)}));
+  const nodes=sources.flatMap((source,si)=>network.nodes.map(node=>{
+   const support=node.supports[0],weights=support.weights.map(v=>BigInt(v));
+   return {id:identity('placed-node',source.id,node.id),point:weightedPoint(bindingTriangle3(source.binding,support.triangle),weights),supports:node.supports.map(s=>({source:si,triangle:s.triangle})),attributes:node.attributes};
+  }));
+  const segments=sources.flatMap((source,si)=>network.segments.map(segment=>({
+   id:identity('placed-segment',source.id,segment.id),kind:segment.kind,a:identity('placed-node',source.id,network.nodes[segment.a].id),b:identity('placed-node',source.id,network.nodes[segment.b].id),
+   chainId:identity('placed-chain',source.id,segment.chainId),range:segment.range,supports:segment.supports.map(s=>({source:si,triangle:s.triangle})),attributes:{...segment.attributes,instance:source.id},
+  })));
+  const placed=surfaceCurveNetwork3({sources,nodes,segments}),curves=new SurfaceCurves<A&{instance:string}>(placed,{key:this.key});
+  if(selected.size===network.segments.length)return curves;
+  return curves.edges.filter(e=>selected.has(network.segments.find(s=>identity('placed-segment',e.instance,s.id)===e.id)?.id??'')).extract();
+ }
 }

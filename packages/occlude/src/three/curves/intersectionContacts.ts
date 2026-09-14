@@ -35,8 +35,8 @@ function* prepare(binding:SurfaceBinding3):Generator<void,PreparedIntersectionSo
  * Budget intermediate contact coordinates before publishing each record. */
 export function* intersectionContactsJob3(a:SurfaceBinding3,b:SurfaceBinding3,options:IntersectionContactBudget3={}):Generator<void,IntersectionContacts3>{
  validateSurfaceBinding3(a);validateSurfaceBinding3(b);
- const maxInputTriangles=options.maxInputTriangles??250000,maxInputPoints=options.maxInputPoints??500000,maxCandidates=options.maxCandidates??1000000,maxContacts=options.maxContacts??250000,maxContactPoints=options.maxContactPoints??1000000,maxExactBytes=options.maxExactBytes??64000000,maxCoordinateBits=options.maxCoordinateBits??32768;
- if([maxInputTriangles,maxInputPoints,maxCandidates,maxContacts,maxContactPoints,maxExactBytes,maxCoordinateBits].some(v=>!Number.isSafeInteger(v)||v<0))throw new Error('intersection budgets must be nonnegative integers');
+ const maxInputTriangles=options.maxInputTriangles??Infinity,maxInputPoints=options.maxInputPoints??Infinity,maxCandidates=options.maxCandidates??Infinity,maxContacts=options.maxContacts??Infinity,maxContactPoints=options.maxContactPoints??Infinity,maxExactBytes=options.maxExactBytes??Infinity,maxCoordinateBits=options.maxCoordinateBits??32768;
+ if([maxInputTriangles,maxInputPoints,maxCandidates,maxContacts,maxContactPoints,maxExactBytes,maxCoordinateBits].some(v=>!(v===Infinity||Number.isSafeInteger(v))||v<0))throw new Error('intersection budgets must be nonnegative integers');
  const inputTriangles=a.source.triangles.length+b.source.triangles.length;
  if(inputTriangles>maxInputTriangles||a.source.points.length+b.source.points.length>maxInputPoints)throw new Error('intersection input exceeds triangle/point budget');
  for(const binding of [a,b])if(binding.source.faces.length>binding.source.triangles.length)throw new Error('surface faces require fixed triangulation');

@@ -37,3 +37,13 @@ export type {CurveSamples,CurveSample,CurveSampleRow,CurveSamplingOptions} from 
 export type {SurfaceUV} from '../geometry/coordinates.js';
 export {planarUV,cylindricalUV} from './coordinates.js';
 export type {PlanarUVOptions,CylindricalUVOptions} from './coordinates.js';
+export {mapSurface} from './mapping.js';
+export type {SurfaceMappingOptions,SurfaceMappingStats,MappedAttributes,ChartFrame} from './mapping.js';
+export {trace,laneThreshold} from './hatch.js';
+export type {HatchOptions,HatchFamily,HatchAttributes,HatchStats,HatchInput,TraceOptions,TraceSeed,TraceAttributes} from './hatch.js';
+export {light,gradient,curvature,across} from '../surface/fields.js';
+export type {DirectionField,DirectionInput,ToneField,ToneInput} from '../surface/fields.js';
+export type {SurfaceLocation3 as SurfaceLocation} from '../geometry/location.js';
+export {isolines} from './isolines.js';
+export type {IsolineOptions,IsolineLevels,IsolineAttributes,IsolineField} from './isolines.js';
+export type {ExtrudeRegion,ExtrudeOffset,ExtrudeOptions} from './mesh.js';

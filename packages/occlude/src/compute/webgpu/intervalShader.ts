@@ -18,6 +18,13 @@ fn classify(@builtin(global_invocation_id) id: vec3u) {
     // Degenerate/near-zero products are conservatively sent to f64.
     let ea = max(dot(abs(p), abs(a)) * 0.000001907348633, 1e-30);
     let eb = max(dot(abs(p), abs(b)) * 0.000001907348633, 1e-30);
+    // One end on the plane within its error, the other certainly outside:
+    // this half-space can hide at most a sliver at that end, no longer than
+    // ea / (ea + |vb|) of the segment. Under the caller's parameter tolerance
+    // (pair.a.w) such a sliver is dropped like every other sub-tolerance run,
+    // so the pair is empty and certain; a longer possible sliver is refined.
+    if (abs(va) <= ea && vb < -eb) { if (ea / (ea + abs(vb)) <= pair.a.w) { nonempty = 0.0; break; } uncertain = 1.0; }
+    if (abs(vb) <= eb && va < -ea) { if (eb / (eb + abs(va)) <= pair.a.w) { nonempty = 0.0; break; } uncertain = 1.0; }
     if (abs(va) <= ea || abs(vb) <= eb) { uncertain = 1.0; }
     if ((i == 3u && va <= 0.0 && vb <= 0.0) || (va < 0.0 && vb < 0.0)) { nonempty = 0.0; }
     if ((va < 0.0) != (vb < 0.0)) {

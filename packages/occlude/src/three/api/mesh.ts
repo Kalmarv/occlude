@@ -7,6 +7,18 @@ import {snapshotSurface3,cloneSurface3,transformSurface3,measureFaces3} from '..
 import {add3,sub3,finite3,type Vec3} from '../math.js';
 import {Collection} from './collection.js';
 import {subdivideSurface,type SubdivisionOptions,type PointTransfers} from './subdivide.js';
+import {extrudeRegion3,regionDirection3} from '../geometry/extrude.js';
+/** One connected component of an extrusion selection, measured on the frozen input. */
+export interface ExtrudeRegion<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> {
+  readonly index:number;readonly faces:MeshFaces<P,E,F,C>;
+  /** Unit area-weighted mean normal; undefined when the region's faces cancel. */
+  readonly normal?:Vec3;readonly center:Vec3;readonly area:number;
+}
+export type ExtrudeOffset<R>=Vec3|((region:R)=>Vec3)|{readonly distance:Field<R,number>};
+export interface ExtrudeOptions {
+  /** Stable identity for generated points, walls and corners; default 'extrude'. */
+  readonly key?:string;
+}
 export type Field<Row,Value> = Value | ((row:Row)=>Value);
 export type AttributeFields<Row,A extends Attributes3> = {readonly [K in keyof A]:Field<Row,A[K]>};
 type StepValue<V> = V extends number ? number : V extends string ? string : V extends boolean ? boolean : V extends readonly number[] ? {readonly [I in keyof V]:number} : V;
@@ -276,6 +288,33 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
     attributeName(name);const values=this.corners.map(c=>attributeValue(evaluate(field,c))),surface=cloneSurface3(this.surface);let i=0;
     for(const face of surface.faces)for(const corner of face.corners!)corner.attributes[name]=values[i++];
     return new Mesh<P,E,F,Omit<C,Name>&Record<Name,Value>>(surface,{...this,history:[],cornerTransfers:pointTransfers(this.cornerTransfers,{[name]:field},{transfer:{[name]:options.transfer??this.cornerTransfers[name]??'interpolate'}})});
+  }
+  /** Connected-region extrusion: one vector per connected component of the
+   * selection, a translated cap with retained IDs/corners, and one wall per
+   * region boundary edge (holes and open sheet edges included). Independent
+   * per-face extrusion remains the advanced `extrudeFaces3`. */
+  extrude(faces:MeshFaces<P,E,F,C>,offset:ExtrudeOffset<ExtrudeRegion<P,E,F,C>>,options:ExtrudeOptions={}):Mesh<P,E,F,C>{
+    checkOptions(options);
+    if(!(faces instanceof Collection)||faces.domain!=='face'||faces.source!==this.surface)throw new Error('extrude requires a face selection of this mesh revision; select from mesh.faces()');
+    if(offset===undefined||offset===null||typeof offset!=='function'&&!Array.isArray(offset)&&(typeof offset!=='object'||!('distance'in offset)))throw new Error('extrude offset must be a vector, a region callback or { distance }');
+    const key=options.key??'extrude';if(typeof key!=='string'||!key)throw new Error('extrude key must be a nonempty string');
+    const components=faces.components().map((component,index)=>{
+      const measure=regionDirection3(this.surface,component.indices);
+      const region:ExtrudeRegion<P,E,F,C>=Object.freeze({index,faces:component,normal:measure.normal&&Object.freeze(measure.normal) as Vec3,center:Object.freeze(measure.center) as Vec3,area:measure.area});
+      let vector:Vec3;
+      if(Array.isArray(offset))vector=offset as Vec3;
+      else if(typeof offset==='function')vector=offset(region);
+      else {
+        const distance=evaluate(offset.distance,region);
+        if(!Number.isFinite(distance))throw new Error(`extrude distance must be finite for region ${index}`);
+        if(!region.normal)throw new Error(`extrude region ${index} has no well-defined direction; supply a vector instead of a distance`);
+        vector=[region.normal[0]*distance,region.normal[1]*distance,region.normal[2]*distance];
+      }
+      if(!Array.isArray(vector)||vector.length!==3)throw new Error(`extrude offset must produce a 3-vector for region ${index}`);
+      finite3(vector);
+      return {index,faces:component.indices,vector:[vector[0],vector[1],vector[2]] as Vec3};
+    });
+    return new Mesh<P,E,F,C>(extrudeRegion3(this.surface,components,key),{...this,history:[]});
   }
   subdivide(levels=1,options:SubdivisionOptions={}):Mesh<P,Partial<E>,F,C>{return new Mesh<P,Partial<E>,F,C>(subdivideSurface(this.surface,levels,options,this.transfers,this.cornerTransfers),{...this,history:[]});}
   displace(field:Field<MeshPointRow<P,E,F,C>,Vec3>):Mesh<P,E,F,C>{return new Mesh(displaced(this.surface,field,[...this.points]),{...this,history:[]});}

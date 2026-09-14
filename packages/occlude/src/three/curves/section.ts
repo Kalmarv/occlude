@@ -12,8 +12,8 @@ export interface SectionPlane3 { readonly id:string; readonly origin:Vec3; reado
  * Topological endpoint IDs connect pieces, never a screen-space proximity test. */
 export function section3(input:Surface3,planes:readonly SectionPlane3[],options:{tolerance?:number;maxSegments?:number}={}):SurfaceCurves3 {
   const surface=snapshotSurface3(input),segments:SurfaceCurveSegment3[]=[];
-  const max=options.maxSegments??1_000_000;
-  if(!Number.isSafeInteger(max)||max<1)throw new Error('section maxSegments must be a positive integer');
+  const max=options.maxSegments??Infinity;
+  if(!(max===Infinity||Number.isSafeInteger(max))||max<1)throw new Error('section maxSegments must be a positive integer or Infinity');
   if(options.tolerance!==undefined&&(!Number.isFinite(options.tolerance)||options.tolerance<0))throw new Error('section tolerance must be finite and nonnegative');
   if(new Set(planes.map(p=>p.id)).size!==planes.length||planes.some(p=>!p.id))throw new Error('section planes require unique nonempty IDs');
   for(const plane of [...planes].sort((a,b)=>compare(a.id,b.id))) {
