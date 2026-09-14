@@ -45,6 +45,9 @@ function sfc32(a: number, b: number, c: number, d: number): () => number {
   };
 }
 
+/** Stable stream key without constructing or consuming a random stream. */
+export const hashSeed = (key: string): number => cyrb128(key)[0];
+
 export class Rng {
   private next: () => number;
   /** 32-bit seed handed to the core for stipple determinism. */

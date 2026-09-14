@@ -118,6 +118,7 @@ export class Shape {
   /** Endpoint-join tolerance (unresolved length); undefined = no bridging. */
   bridge?: import('./units.js').L;
   preserveStroke = false;
+  strokeSeed?: number;
   strokeRanges?: readonly (readonly [number, number])[];
   /** Ordered modifier stack; post-stage entries run after occlusion. */
   modifiers: ModifierValue[] = [];
@@ -140,6 +141,7 @@ export class Shape {
     this.zIndex = from && from.zIndex !== from.order ? from.zIndex : this.order;
     if (from) {
       this.preserveStroke = from.preserveStroke;
+      this.strokeSeed = from.strokeSeed;
       this.strokeRanges = from.strokeRanges?.map(r => [...r] as [number, number]);
       this.fillSpec = from.fillSpec;
       this.fillPen = from.fillPen;

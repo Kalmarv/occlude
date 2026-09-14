@@ -72,6 +72,8 @@ pub struct ShapeRec {
     /// Polyline selection in segment-index + fraction coordinates. Modifiers
     /// evaluate on the complete source before this selection and paper clipping.
     pub stroke_ranges: Option<Vec<(f64, f64)>>,
+    /// Stable source/style/pass key; absent preserves ordinary 2D randomness.
+    pub stroke_seed: Option<u32>,
     /// Indices into `RenderInput::clips` active for this shape.
     pub clips: Vec<u32>,
     /// Ordered modifier program. Post-stage entries run over this shape's
@@ -475,6 +477,7 @@ impl Prepared {
     pub fn try_finish(mut self, supplied: Vec<Option<SuppliedFill>>) -> Result<RenderOutput, String> {
         let n = self.shapes.len();
         for s in &self.shapes {
+            if s.stroke_seed.is_some() && s.stroke_ranges.is_none() {return Err("source seed requires source ranges".into());}
             if let Some(ranges) = &s.stroke_ranges {
                 if s.contours.len()!=1 || s.contours[0].iter().any(|p| !matches!(p,Primitive::Line(_))) || s.fill.is_some() || s.modifiers.iter().any(|m|m.stage()==Stage::Pre) {
                     return Err("stroke ranges require one polyline without fill or pre-stage modifiers".into());
@@ -889,7 +892,7 @@ impl Prepared {
         let mut frags = frags;
         if has_post {
             let mut interp = PostInterp {
-                seed,
+                seed, source_seed: None,
                 fields: FieldCtx {
                     grids: &self.fields,
                     uses: &self.field_uses,
@@ -917,6 +920,7 @@ impl Prepared {
                 // though its origin now points at a generated primitive.
                 let (p0, p1) = outline_range[si];
                 let is_stroke = (f.origin as usize) >= p0 && (f.origin as usize) < p1;
+                interp.source_seed=shapes[si].stroke_seed;
                 interp.run(f, prog, is_stroke, shapes[si].closed, &mut out);
             }
             // Compare the ink that survived each shape's own program, not
@@ -950,7 +954,7 @@ impl Prepared {
         let ghost: Vec<Primitive> = if self.debug_ghost {
             let mut gtable = prim_table.clone();
             let mut interp = PostInterp {
-                seed,
+                seed, source_seed: None,
                 fields: FieldCtx {
                     grids: &self.fields,
                     uses: &self.field_uses,
@@ -981,6 +985,7 @@ impl Prepared {
                         gfrags.push(f);
                     } else {
                         let is_stroke = id >= p0 && id < p1;
+                        interp.source_seed=s.stroke_seed;
                         interp.run(f, &prog, is_stroke, s.closed, &mut gfrags);
                     }
                 }
@@ -1158,6 +1163,7 @@ fn bridge_pass(shapes: &[ShapeRec], frags: &mut Vec<Frag>, prims: &mut Vec<Primi
 /// with many (wobble); generated geometry is appended to the prim table.
 struct PostInterp<'a> {
     seed: u64,
+    source_seed: Option<u32>,
     fields: FieldCtx<'a>,
     prim_table: &'a mut Vec<Primitive>,
     contour_ranges: &'a [Vec<(usize, usize)>],
@@ -1229,11 +1235,13 @@ impl PostInterp<'_> {
         if p <= 0.0 {
             return true;
         }
-        let mut h = self
+        let mut h = if let Some(key)=self.source_seed {
+            self.seed ^ ((key as u64)<<32) ^ f.run.expect("source seed requires source traversal").start.to_bits().rotate_left(17)
+        } else { self
             .seed
             .wrapping_add((f.shape as u64) << 32)
             .wrapping_add((f.origin as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15))
-            ^ f.t0.to_bits().rotate_left(17);
+            ^ f.t0.to_bits().rotate_left(17) };
         // splitmix64 finalizer
         h = h.wrapping_add(0x9E37_79B9_7F4A_7C15);
         h = (h ^ (h >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
@@ -1247,7 +1255,7 @@ impl PostInterp<'_> {
     fn wobble(&mut self, f: Frag, amp: &Param, wavelength: f64) {
         let wl = wavelength.max(1.0);
         let freq = 1.0 / wl;
-        let seed = self.seed;
+        let seed = self.seed ^ self.source_seed.map(|key|(key as u64)<<32).unwrap_or(0);
         let fields = &self.fields;
         let jiggle = |p: Vec2| -> Vec2 {
             let a = amp.at(fields, p);

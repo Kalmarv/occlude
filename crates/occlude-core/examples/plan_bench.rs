@@ -26,7 +26,7 @@ fn main() {
                 stroke: Some(0),
                 fill: None,
                 z: 0.0,
-                bridge_mm: 0.0, preserve_stroke: false, stroke_ranges: None,
+                bridge_mm: 0.0, preserve_stroke: false, stroke_ranges: None, stroke_seed: None,
                 clips: vec![],
                 modifiers: Vec::new(),
             }

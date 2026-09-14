@@ -331,6 +331,7 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
   // Shapes.
   const fillJobs = new Map<number, FillJob>();
   const sourceRangeProtocol=state.shapes.some(shape=>shape.strokeRanges!==undefined);
+  const sourceSeedProtocol=state.shapes.some(shape=>shape.strokeSeed!==undefined);
   let shapeIndex = -1;
   for (const shape of state.shapes) {
     shapeIndex++;
@@ -490,7 +491,9 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
         modsBuf.push(a,b);end=b;
       }
     }
-    if(sourceRangeProtocol)shapesF64.push(shape.strokeRanges ? rangeStart : -1,shape.strokeRanges?.length??0);
+    if(shape.strokeSeed!==undefined && (!shape.strokeRanges || !Number.isInteger(shape.strokeSeed) || shape.strokeSeed<0 || shape.strokeSeed>0xffffffff))throw new Error('strokeSeed requires source ranges and a u32 key');
+    if(sourceRangeProtocol || sourceSeedProtocol)shapesF64.push(shape.strokeRanges ? rangeStart : -1,shape.strokeRanges?.length??0);
+    if(sourceSeedProtocol)shapesF64.push(shape.strokeSeed??-1);
   }
 
   const fieldData = buildFieldGrids(uses, idOf, paperW, paperH, unit, frame.inner);

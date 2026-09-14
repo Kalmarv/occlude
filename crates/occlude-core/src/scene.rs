@@ -38,6 +38,8 @@
 //! range_start is an f64 offset in `mods` for sorted [start,end] source
 //! polyline intervals (segment index + fraction), outside modifier instructions.
 //! -1 means no source selection; count 0 with nonnegative start selects nothing.
+//! Stride 6 additionally appends source_style_seed (u32 or -1 for legacy).
+//! It keys source-linked modifiers independently of shape/primitive rows.
 //! Ordinary scenes retain stride 3; legacy stride-2 dumps remain readable.
 //!   bridge_mm: endpoint-join tolerance in paper mm; 0 = shape not opted
 //!   into bridging. Opted shapes' strokes are joined pen-down across gaps
@@ -300,7 +302,7 @@ pub fn decode_render_input(
     let field_uses = decode_field_uses(field_uses_data, domain_list, fields.len(), clips_u32.len() / 3)?;
 
     let n = shapes_u32.len() / SHAPE_U32_STRIDE;
-    let shape_stride = if shapes_f64.len() == n * 5 { 5 } else if shapes_f64.len() == n * 3 { 3 } else if shapes_f64.len() == n * 2 { 2 }
+    let shape_stride = if shapes_f64.len() == n * 6 { 6 } else if shapes_f64.len() == n * 5 { 5 } else if shapes_f64.len() == n * 3 { 3 } else if shapes_f64.len() == n * 2 { 2 }
         else { return Err(err("shapes_f64 length does not match shape count")); };
     let mut shapes = Vec::with_capacity(n);
     for i in 0..n {
@@ -340,10 +342,15 @@ pub fn decode_render_input(
             z: shapes_f64[i * shape_stride],
             bridge_mm: shapes_f64[i * shape_stride + 1],
             preserve_stroke: flags & 16 != 0,
-            stroke_ranges: if shape_stride==5 && shapes_f64[i*5+3]!=-1.0 {
-                let start=shapes_f64[i*5+3];let count=shapes_f64[i*5+4];
+            stroke_ranges: if shape_stride>=5 && shapes_f64[i*shape_stride+3]!=-1.0 {
+                let start=shapes_f64[i*shape_stride+3];let count=shapes_f64[i*shape_stride+4];
                 if !start.is_finite() || start<0.0 || start.fract()!=0.0 || !count.is_finite() || count<0.0 || count.fract()!=0.0 || start+2.0*count>mods.len() as f64 {return Err(err("source range tape out of bounds"));}
                 Some(mods[start as usize..(start+2.0*count) as usize].chunks_exact(2).map(|r|(r[0],r[1])).collect())
+            } else {None},
+            stroke_seed: if shape_stride==6 && shapes_f64[i*6+5]!=-1.0 {
+                let key=shapes_f64[i*6+5];
+                if !key.is_finite() || key<0.0 || key>u32::MAX as f64 || key.fract()!=0.0 || shapes_f64[i*6+3]<0.0 {return Err(err("source seed requires source ranges and a u32 key"));}
+                Some(key as u32)
             } else {None},
             clips: clip_list[s[6] as usize..clip_end].to_vec(),
             modifiers: decode_modifiers(mods, s[10] as usize, s[11] as usize)?,

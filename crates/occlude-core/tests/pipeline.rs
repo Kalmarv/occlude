@@ -35,7 +35,7 @@ fn stroke_shape(contours: Vec<Vec<Primitive>>, closed: bool) -> ShapeRec {
         stroke: Some(0),
         fill: None,
         z: 0.0,
-        bridge_mm: 0.0, preserve_stroke: false, stroke_ranges: None,
+        bridge_mm: 0.0, preserve_stroke: false, stroke_ranges: None, stroke_seed: None,
         clips: vec![],
         modifiers: Vec::new(),
     }
@@ -50,7 +50,7 @@ fn filled_shape(contours: Vec<Vec<Primitive>>, kind: FillKind) -> ShapeRec {
         stroke: Some(0),
         fill: Some((0, kind)),
         z: 0.0,
-        bridge_mm: 0.0, preserve_stroke: false, stroke_ranges: None,
+        bridge_mm: 0.0, preserve_stroke: false, stroke_ranges: None, stroke_seed: None,
         clips: vec![],
         modifiers: Vec::new(),
     }

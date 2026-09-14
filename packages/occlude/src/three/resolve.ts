@@ -61,7 +61,7 @@ export async function classifyForRun3(exec: Execution, scene: LineArtScene3, opt
 }
 /** Explicit interpretation of already projected data. Paper points stay in mm;
  * the current execution's inverse frame avoids applying its margin twice. */
-export function strokesForRun3(exec: Execution, runs: readonly Stroke3[], options: { modifiers?: readonly ModifierValue[] } = {}) {
+export function strokesForRun3(exec: Execution, runs: readonly Stroke3[], options: { modifiers?: readonly ModifierValue[]; pass?: string } = {}) {
   const toUser = paperToUser(exec.frame);
   return sourceStrokeShapes3(runs,(p)=>toUser(p[0],p[1]),options);
 }

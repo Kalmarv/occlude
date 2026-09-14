@@ -1,0 +1,49 @@
+{
+  "passed": true,
+  "base": "http://127.0.0.1:5273",
+  "browser": "145.0.7632.109",
+  "original": {
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100mm\" height=\"100mm\" viewBox=\"0 0 100 100\"><g fill=\"none\" stroke=\"#18202A\" stroke-width=\"0.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" data-pen=\"ink\"><path d=\"M10.0000 22.0000L90.0000 22.0000\"/><path d=\"M90.0000 30.0000L10.0000 30.0000\"/><path d=\"M10.0000 34.0000L90.0000 34.0000\"/><path d=\"M90.0000 42.0000L10.0000 42.0000\"/><path d=\"M10.0000 50.0000L90.0000 50.0000\"/><path d=\"M90.0000 54.0000L10.0000 54.0000\"/><path d=\"M10.0000 78.0000L90.0000 78.0000\"/><path d=\"M90.0000 82.0000L10.0000 82.0000\"/></g></svg>",
+    "hash": "dc7251902cd09764baa96cfebd982f4d60c8024cf5abbeba1c2de6c208a1944b",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    }
+  },
+  "reversed": {
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100mm\" height=\"100mm\" viewBox=\"0 0 100 100\"><g fill=\"none\" stroke=\"#18202A\" stroke-width=\"0.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" data-pen=\"ink\"><path d=\"M10.0000 22.0000L90.0000 22.0000\"/><path d=\"M90.0000 30.0000L10.0000 30.0000\"/><path d=\"M10.0000 34.0000L90.0000 34.0000\"/><path d=\"M90.0000 42.0000L10.0000 42.0000\"/><path d=\"M10.0000 50.0000L90.0000 50.0000\"/><path d=\"M90.0000 54.0000L10.0000 54.0000\"/><path d=\"M10.0000 78.0000L90.0000 78.0000\"/><path d=\"M90.0000 82.0000L10.0000 82.0000\"/></g></svg>",
+    "hash": "dc7251902cd09764baa96cfebd982f4d60c8024cf5abbeba1c2de6c208a1944b",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    }
+  },
+  "filtered": {
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100mm\" height=\"100mm\" viewBox=\"0 0 100 100\"><g fill=\"none\" stroke=\"#18202A\" stroke-width=\"0.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" data-pen=\"ink\"><path d=\"M10.0000 22.0000L90.0000 22.0000\"/><path d=\"M90.0000 30.0000L10.0000 30.0000\"/><path d=\"M10.0000 34.0000L90.0000 34.0000\"/><path d=\"M90.0000 42.0000L10.0000 42.0000\"/><path d=\"M10.0000 50.0000L90.0000 50.0000\"/><path d=\"M90.0000 54.0000L10.0000 54.0000\"/><path d=\"M10.0000 78.0000L90.0000 78.0000\"/><path d=\"M90.0000 82.0000L10.0000 82.0000\"/></g></svg>",
+    "hash": "dc7251902cd09764baa96cfebd982f4d60c8024cf5abbeba1c2de6c208a1944b",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    }
+  },
+  "segments": [
+    "[[10,22],[90,22]]",
+    "[[10,30],[90,30]]",
+    "[[10,34],[90,34]]",
+    "[[10,42],[90,42]]",
+    "[[10,50],[90,50]]",
+    "[[10,54],[90,54]]",
+    "[[10,78],[90,78]]",
+    "[[10,82],[90,82]]"
+  ],
+  "errors": []
+}
