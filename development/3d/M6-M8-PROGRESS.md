@@ -215,3 +215,20 @@ Progressive rendering investigation is in `PROGRESSIVE-RENDERING.md`; it is a
 proposal, not implemented streaming. Full M6/M7/selected-M8 remains open, including
 additional curve consumers, mapping/tracing/tone, region extrusion, GPU evaluation
 and comprehensive workflow/performance acceptance.
+
+## Stored coordinate checkpoint
+
+Plane, box, sphere, cylinder, cone and torus now have typed corner UV/chart data,
+including periodic seams, distinct caps and shared poles. Sweep/revolve retain
+normalized profile/path coordinates and cap charts. Explicit `planarUV` and
+`cylindricalUV` projection helpers use ordinary corner attributes. Stored values
+follow deformation; reprojecting is an explicit operation.
+
+Focused Luna primitive tests and projection/location/construction tests pass.
+The new `three#26` rest-coordinates example selects UV bands before deformation
+and rebinds the same sample points afterward. All existing docs ink and church
+routing are unchanged. All nine Docker gates and focused Playwright checks
+of the served example pass. Dev stamp `bce6f2b-surface-uv` is running and
+`rest-coordinates` is saved/read back in the dev sketch store. Evidence is
+under `surface-uv/`. Mapping/tracing/tone and the remaining full
+M6/M7/selected-M8 acceptance are still open.

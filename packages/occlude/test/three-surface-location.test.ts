@@ -76,7 +76,7 @@ describe('owned surface locations',()=>{
   expect(()=>rebindSurfaceLocation3({...p},changed.surface)).toThrow('owned surface location');
  });
  it('reports missing and degenerate charts and rejects incomplete or mixed chart data',()=>{
-  const plain=plane();expect(surfaceLocation3(plain.surface,0,[1,0,0]).chartStatus).toBe('missing');
+  const plain=mesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0]],[[0,1,2,3]]);expect(surfaceLocation3(plain.surface,0,[1,0,0]).chartStatus).toBe('missing');
   const flat=plain.cornerAttributes({uv:[0,0] as const});
   const p=surfaceLocation3(flat.surface,0,[.2,.3,.5]);expect(p.chartStatus).toBe('degenerate');expect(p.frame).toBeUndefined();expect(p.uv).toEqual([0,0]);
   expect(()=>surfaceLocation3(plain.cornerAttributes({uv:[0,0,0]}).surface,0,[1,0,0])).toThrow('finite pair');

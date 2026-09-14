@@ -1,0 +1,22 @@
+
+> occlude@0.1.0 docs:hashes /home/kalmarv/containers/occlude-3d/packages/occlude
+> tsx tools/docs-hashes.ts -- --page three --save /tmp/surface-uv-three-ink.json
+
+3D phases {
+  captureMs: 0.4545480000015232,
+  queueMs: 0,
+  setupMs: 0,
+  packingMs: 0,
+  uploadSubmitMs: 0,
+  dispatchSubmitMs: 0,
+  readbackWaitMs: 0,
+  readbackCopyMs: 0,
+  refinementMs: 0,
+  candidateMs: 0,
+  finalizeMs: 0.019650000002002344,
+  validationWaitMs: 0,
+  cpuMs: 0.6582669999988866,
+  wallMs: 1.1606339999998454,
+  unattributedMs: 0.028168999997433275
+} shader ms undefined
+27 examples hashed → /tmp/surface-uv-three-ink.json

@@ -1,3 +1,4 @@
+import {chartSurface3,type SurfaceUV} from '../geometry/coordinates.js';
 import type {RotationInput} from '../rotation.js';
 import {inheritTopology3} from '../geometry/topology.js';
 import {meshPoints,meshEdges,meshFaces,meshCorners,type MeshCorners,type MeshCornerRow,type MeshPoints,type MeshEdges,type MeshFaces,type MeshPointRow,type MeshEdgeRow,type MeshFaceRow} from './topology.js';
@@ -391,6 +392,16 @@ export function mesh(source:Surface3|readonly Vec3[],facesOrOptions:readonly (re
   validateImportedSurface(source as Surface3);
   return new Mesh(source as Surface3,facesOrOptions as GeometryOptions);
 }
-export function plane(width=1,height=width,options:GeometryOptions={}):Mesh{if(![width,height].every(n=>Number.isFinite(n)&&n>0))throw new Error('plane dimensions must be positive and finite');return mesh([[-width/2,-height/2,0],[width/2,-height/2,0],[width/2,height/2,0],[-width/2,height/2,0]],[[0,1,2,3]],options);}
-export function box(size:number|Vec3=1,options:GeometryOptions={}):Mesh{return new Mesh(box3(typeof size==='number'?[size,size,size]:size),options);}
+/** One quad with a stored unit-square XY chart. Subdivision preserves this chart. */
+export function plane(width=1,height=width,options:GeometryOptions={}):Mesh<{},{},{},SurfaceUV>{
+  if(![width,height].every(n=>Number.isFinite(n)&&n>0))throw new Error('plane dimensions must be positive and finite');
+  const source=surface3([[-width/2,-height/2,0],[width/2,-height/2,0],[width/2,height/2,0],[-width/2,height/2,0]],[[0,1,2,3]]);
+  const uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
+  return new Mesh(chartSurface3(source,(_,c)=>({uv:uv[c],chart:'plane'})),options);
+}
+/** Each outward-wound face has its own unit-square chart; vertices stay shared. */
+export function box(size:number|Vec3=1,options:GeometryOptions={}):Mesh<{},{},{},SurfaceUV>{
+  const source=box3(typeof size==='number'?[size,size,size]:size),uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
+  return new Mesh(chartSurface3(source,(f,c)=>({uv:uv[c],chart:source.faces[f].id})),options);
+}
 export function pointCloud(positions:readonly Vec3[],options:GeometryOptions={}):PointGeometry{return new PointGeometry(surface3(positions,[]),options);}

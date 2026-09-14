@@ -1,0 +1,11 @@
+{
+  "base": "bce6f2bc3825c7dde5a6e488bc89892493d4224e",
+  "stamp": "bce6f2b-surface-uv",
+  "image": "sha256:a89bc68d6d6aead3a9da408689356dddcf4146e103d24e500916cd5330192e0f",
+  "devPort": 5273,
+  "sketch": "rest-coordinates",
+  "sourceReadback": true,
+  "playwright": true,
+  "example": "three#26",
+  "screenshotInspected": true
+}

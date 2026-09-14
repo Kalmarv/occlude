@@ -160,3 +160,21 @@ Rational graph candidates use CPU world refinement after GPU candidate work.
 Advanced constructors and a live exact-seam example expose the carrier; actual
 mesh contacts, ordinary placement conveniences, resampling/trim and shared
 query/location contexts remain the next implementation, not delivered claims.
+
+## Implemented stored coordinates
+
+Primitive factories now publish typed `SurfaceUV` corner columns without changing
+geometric topology. Angular seams use distinct corner values, and poles retain
+one geometric vertex with sector-midpoint coordinates. Caps and box faces have
+separate chart identities; repeated unit-square islands are intentional. Sweep
+and revolve coordinates use represented profile/path arclength as documented in
+`docs/three.md`, with original-profile cap charts.
+
+`planarUV(mesh, options)` and `cylindricalUV(mesh, options)` are separate explicit
+projection operations. They reuse ordinary `uv`/`chart` columns and transfer
+policies rather than introduce specialized UV storage or a projection mode flag.
+Default frames use current mesh coordinates; projection captures once and later
+transforms/deformation preserve the stored values. Repeating projection after a
+world transform intentionally changes coordinates. Ambiguous wide cylindrical
+faces require subdivision or separate cap charts. This coordinate slice does
+not implement vector mapping, tone images, tracing or surface hatch.

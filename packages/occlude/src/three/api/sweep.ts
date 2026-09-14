@@ -1,3 +1,4 @@
+import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV} from '../geometry/coordinates.js';
 import {surface3,assembleSurface3,type Attributes3,type SurfacePoint3,type SurfaceFace3,type SurfaceTriangle3} from '../geometry/surface.js';
 import {add3,sub3,mul3,dot3,cross3,unit3,finite3,type Vec3} from '../math.js';
 import {Mesh,CurveGeometry,evaluate,type PointRow,type Field,type EdgeAttributes,type GeometryOptions} from './mesh.js';
@@ -24,7 +25,7 @@ function transport(normal:Vec3,from:Vec3,to:Vec3):Vec3 {
 }
 /** Carry an XY profile along an unbranched 3D path using transported frames.
  * Closed paths distribute frame-closure twist by arc length. */
-export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends Attributes3,B extends EdgeAttributes>(profile:CurveGeometry<P,E>,path:CurveGeometry<A,B>,options:SweepOptions<A>={}):Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3> {
+export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends Attributes3,B extends EdgeAttributes>(profile:CurveGeometry<P,E>,path:CurveGeometry<A,B>,options:SweepOptions<A>={}):Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3,SurfaceUV> {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('sweep options must be an object');
   const section=curvePath(profile),route=curvePath(path),shape=profile.surface,source=path.surface;
   const count=route.points.length,width=section.points.length,caps=options.caps===true&&!route.closed;
@@ -81,5 +82,13 @@ export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends A
     const [a,b,c]=triangle.vertices.map(i=>points[i].position),ab=sub3(b,a),ac=sub3(c,a),scale=Math.max(Math.hypot(...ab),Math.hypot(...ac));
     if(!(scale>0)||!Number.isFinite(scale)||Math.hypot(...cross3(mul3(ab,1/scale),mul3(ac,1/scale)))===0)throw new Error('sweep creates a degenerate triangle; adjust the profile or path');
   }
-  return new Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3>(assembleSurface3(points,faces,triangles),options);
+  const profilePoints=section.points.map(i=>shape.points[i].position),u=arcParameters3(profilePoints,section.closed),v=arcParameters3(centers,route.closed);
+  const capUV=caps?profileCoordinates3(profilePoints,[0,1]):undefined,sideCount=section.edges.length*route.edges.length;
+  const surface=chartSurface3(assembleSurface3(points,faces,triangles),(f,c,vertex)=>{
+    if(f>=sideCount)return {uv:capUV![vertex%width],chart:f===sideCount?'start':'end'};
+    const ring=Math.floor(f/section.edges.length),edge=f%section.edges.length;
+    const uv:readonly (readonly [number,number])[]=[[u[edge],v[ring]],[u[edge+1],v[ring]],[u[edge+1],v[ring+1]],[u[edge],v[ring+1]]];
+    return {uv:uv[c],chart:'side'};
+  });
+  return new Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3,SurfaceUV>(surface,options);
 }

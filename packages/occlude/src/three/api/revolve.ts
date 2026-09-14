@@ -1,3 +1,4 @@
+import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV} from '../geometry/coordinates.js';
 import {surface3,assembleSurface3,type Attributes3,type SurfacePoint3,type SurfaceFace3} from '../geometry/surface.js';
 import {Mesh,CurveGeometry,type EdgeAttributes,type GeometryOptions} from './mesh.js';
 import {curvePath,constructionBudget,constructionCapBudget,type ConstructionBudget} from './curveTopology.js';
@@ -11,7 +12,7 @@ export interface RevolveOptions extends GeometryOptions,ConstructionBudget {
 }
 /** Revolve an XZ meridian in x>=0 around Z. Point columns follow the profile;
  * side faces inherit profile edge columns, while angular caps have no columns. */
-export function revolve<P extends Attributes3,E extends EdgeAttributes>(profile:CurveGeometry<P,E>,options:RevolveOptions={}):Mesh<P,{},Partial<E>&Attributes3> {
+export function revolve<P extends Attributes3,E extends EdgeAttributes>(profile:CurveGeometry<P,E>,options:RevolveOptions={}):Mesh<P,{},Partial<E>&Attributes3,SurfaceUV> {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('revolve options must be an object');
   const path=curvePath(profile),angle=options.angle??360,n=options.segments??32,full=Math.abs(angle)===360;
   if(!Number.isFinite(angle)||angle===0||Math.abs(angle)>360)throw new Error('revolve angle must be nonzero and within -360 to 360 degrees');
@@ -44,23 +45,33 @@ export function revolve<P extends Attributes3,E extends EdgeAttributes>(profile:
     vertices.set(i,indices);
   }
   const index=(p:number,ring:number)=>vertices.get(p)![axis(p)?0:ring%rings];
-  const faces:SurfaceFace3[]=[];
-  const add=(id:string,indices:number[],attributes:Attributes3,parents:readonly string[])=>{
+  const faces:SurfaceFace3[]=[],charts:{uv:readonly (readonly [number,number])[];chart:string}[]=[];
+  const profilePoints=path.points.map(i=>source.points[i].position),parameters=arcParameters3(profilePoints,path.closed);
+  const capCoordinates=caps?profileCoordinates3(profilePoints,[0,2]):undefined;
+  const capByPoint=capCoordinates?new Map(path.points.map((p,i)=>[p,capCoordinates[i]])):undefined;
+  const add=(id:string,indices:number[],attributes:Attributes3,parents:readonly string[],coordinates:readonly (readonly [number,number])[],chart:string)=>{
     const vertices=indices.filter((v,i)=>v!==indices[(i+indices.length-1)%indices.length]);
-    if(angle<0)vertices.reverse();
+    // An axis point occupies one geometric vertex, with a distinct chart value
+    // in each angular sector. Average its two collapsed parameter corners.
+    const uv=vertices.map(vertex=>{
+      const at=indices.flatMap((v,i)=>v===vertex?[coordinates[i]]:[]);
+      return [at.reduce((sum,p)=>sum+p[0],0)/at.length,at.reduce((sum,p)=>sum+p[1],0)/at.length] as const;
+    });
+    if(angle<0){vertices.reverse();uv.reverse();}
+    charts.push({uv,chart});
     faces.push({id,vertices,attributes,provenance:{operation:'revolve',parents}});
   };
   for(let j=0;j<path.edges.length;j++){
     const edge=path.edges[j];if(!edgeSet.has(edge))continue;
     const a=path.points[j],b=path.points[(j+1)%path.points.length],e=source.edges[edge];
-    for(let ring=0;ring<n;ring++)add(JSON.stringify(['revolve',e.id,ring]),[index(a,ring),index(a,ring+1),index(b,ring+1),index(b,ring)],e.attributes,[e.id]);
+    for(let ring=0;ring<n;ring++)add(JSON.stringify(['revolve',e.id,ring]),[index(a,ring),index(a,ring+1),index(b,ring+1),index(b,ring)],e.attributes,[e.id],[[ring/n,parameters[j]],[(ring+1)/n,parameters[j]],[(ring+1)/n,parameters[j+1]],[ring/n,parameters[j+1]]],'side');
   }
   if(caps){
     // Collinear axis-only profile samples do not participate in the skin.
     const boundary=path.points.filter(i=>used.has(i));
-    add(JSON.stringify(['revolve','start']),boundary.map(i=>index(i,0)),{},path.edges.map(i=>source.edges[i].id));
-    add(JSON.stringify(['revolve','end']),boundary.map(i=>index(i,n)).reverse(),{},path.edges.map(i=>source.edges[i].id));
+    add(JSON.stringify(['revolve','start']),boundary.map(i=>index(i,0)),{},path.edges.map(i=>source.edges[i].id),boundary.map(i=>capByPoint!.get(i)!), 'start');
+    add(JSON.stringify(['revolve','end']),boundary.map(i=>index(i,n)).reverse(),{},path.edges.map(i=>source.edges[i].id),boundary.map(i=>capByPoint!.get(i)!).reverse(), 'end');
   }
   const topology=surface3(points.map(p=>p.position as Vec3),faces.map(f=>f.vertices));
-  return new Mesh<P,{},Partial<E>&Attributes3>(assembleSurface3(points,faces,topology.triangles),{...options,key:options.key??profile.key});
+  return new Mesh<P,{},Partial<E>&Attributes3,SurfaceUV>(chartSurface3(assembleSurface3(points,faces,topology.triangles),(f,c)=>({uv:charts[f].uv[c],chart:charts[f].chart})),{...options,key:options.key??profile.key});
 }

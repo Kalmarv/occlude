@@ -1348,3 +1348,90 @@ through `occlude/3d/advanced`. Sources use owned `surfaceBinding3` values; nodes
 carry exact homogeneous coordinates, and segments declare their actual support
 triangles. Every endpoint must lie on every declared support. Ordinary sketches
 use the surface generators above, which maintain this information automatically.
+
+## Stored surface coordinates
+
+`plane`, `box`, `sphere`, `cylinder`, `cone`, and `torus` now include typed
+`uv` pairs and `chart` identities on their ordinary corner domain. Geometric
+vertices remain shared: a seam, cap rim or pole can carry different coordinates
+on its incident face corners. `t.sample(model, { count })` exposes the
+interpolated coordinates and tangent frame through `point.sample`.
+
+| Generator | Stored coordinates |
+| --- | --- |
+| `plane` | Unit-square XY chart, from the negative to positive corners. |
+| `box` | One outward-wound unit-square chart per face, identified by face ID. |
+| `sphere` | Angular `u` and south-to-north latitude `v`; each pole corner uses its sector's midpoint `u`. |
+| `cylinder`, `cone` | One-turn `u`, bottom-to-top `v`; caps have separate normalized planar XY charts. |
+| `torus` | Major-angle `u` and tube-angle `v`, with separate corner values at both periodic seams. |
+| `sweep` | Normalized represented profile arclength `u` and path arclength `v`; start/end caps use the original profile's XY bounding box. |
+| `revolve` | Fraction of the signed angular sweep `u` and normalized represented profile arclength `v`; axis corners use their sector midpoint. Partial-turn caps use the profile's XZ bounding box. |
+
+These are coordinates on the represented polygon mesh, not an analytic smooth
+surface or equal-area unwrap. Pole fans have triangular chart domains. A pattern
+outside those triangles does not map to the pole. Cap islands intentionally
+reuse the unit square; chart identity lets a consumer distinguish them. Closed
+profiles/paths include their closing edge in the arclength denominator. Revolve
+includes axis-only profile edges in that denominator even when they emit no skin.
+
+The following example selects sample points in stored UV bands **before**
+deforming the sheet. Explicit rebinding moves those same attachments onto the
+changed mesh; it neither reseeds nor computes a fresh projection.
+
+```ts live
+import { sketch, label, pen, mm, strokes } from 'occlude';
+import { plane, box, instanceOnPoints, alignAxis, view, orthographic } from 'occlude/3d';
+
+export default sketch({ seed: 42, pens: {
+  outline: pen({ width: mm(0.25), color: '#18202A' }),
+  marks: pen({ width: mm(0.2), color: '#A84932' }),
+} }, t => {
+  const rest = plane(4, 3).subdivide(3);
+  const sites = t.sample(rest, { count: 320 }).points
+    .filter(p => Math.floor(p.sample.cornerAttributes.uv[0] * 8) % 2 === 0).extract();
+  const sheet = rest.displace(p => [0, 0, 0.45 * Math.sin(p.x * 1.8) * Math.cos(p.y)]);
+  const marks = instanceOnPoints(box([0.04, 0.04, 0.08]).faceAttribute('mark', true), sites.rebind(sheet).points, {
+    rotate: p => alignAxis('z', p.sample.normal),
+  });
+  return [
+    view([sheet, marks], {
+      key: 'rest-coordinates',
+      camera: orthographic({ eye: [5, 7, 6], span: 5.3 }),
+    }, lines => [
+      strokes(lines.visible.filter(c => !c.faceAttributes.some(a => a.mark)), { stroke: 'outline' }),
+      strokes(lines.visible.filter(c => c.faceAttributes.some(a => a.mark)), { stroke: 'marks' }),
+    ]),
+    label('REST / COORDINATES', 8, 94, 4, { stroke: 'outline' }),
+  ];
+});
+```
+
+Custom meshes use the same corner columns:
+
+```ts
+const charted = model.cornerAttributes({
+  uv: c => [c.point.x / 4, c.point.y / 3] as const,
+  chart: 'sheet',
+});
+```
+
+`planarUV(model, { origin, u, v, chart })` stores a planar projection. `u` and `v`
+are model vectors spanning one chart unit (defaults +X/+Y), and can be oblique.
+`cylindricalUV(model, { origin, axis, seam, height, chart })` stores one-turn
+angular `u` and axial `v`: defaults are +Z, a +X seam, and one model unit of height.
+It unwraps each face across the seam. Faces spanning half a turn or surrounding
+the projection axis require subdivision or a separate planar cap chart. Primitive
+caps already have appropriate charts. Both helpers replace only `uv` and `chart`,
+retain other columns, and set UV transfer to interpolation.
+
+Projections evaluate the mesh's current coordinates once. Moving/deforming the
+returned mesh preserves those stored values. Calling the helper again after a
+world-space transform intentionally reprojects against that explicit frame.
+There is no ambient world frame or automatic per-camera UV regeneration. Existing
+paper-directed `view(..., { hatch })` remains a separate view-dependent tool.
+
+Corner UVs also survive extraction, realization, mirroring and shape-preserving
+subdivision. Mirrors preserve the association between a corner and its vertex.
+A degenerate projected UV triangle is reported as `sample.chartStatus ===
+'degenerate'`, with no tangent frame; missing custom coordinates report `missing`.
+Mixed chart identities inside one triangle or malformed UV values are errors.

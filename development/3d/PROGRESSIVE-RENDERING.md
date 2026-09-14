@@ -1,5 +1,24 @@
 # Progressive rendering investigation
 
+## User-directed first version: replace the draft at stage boundaries
+
+The user proposed publishing unprocessed lines at the existing stages, with each
+stage replacing the previous preview. This is the preferred first implementation,
+simpler than the per-feature exact streaming explored below. The useful sequence
+is projected source lines → 3D-visible lines → interpreted strokes → finished
+paper composition → final planned drawing. Where two stages are too close or a
+representation is unavailable, combine their checkpoints rather than add work
+solely to manufacture a preview. Each event replaces a disposable draft for the
+current render ID. Only final adoption updates saved/exportable output.
+
+This version does not require incremental WASM, stable partial toolpaths, or an
+`onFeatureComplete` classifier. Those are optional future latency improvements.
+A pre-scene sketch checkpoint is also optional, needed only for showing geometry
+during user code before it returns a view; it must not block automatic drafts once
+the scene exists. Preserve final output, request cancellation and bounded/throttled
+transfers. The investigation below records deeper options, not prerequisites for
+this stage-replacement version. No progressive runtime implementation is landed.
+
 ## The blank interval
 
 Studio currently has one render transaction. `main.ts` marks the preview stale and starts an elapsed-time ticker at [packages/occlude-studio/src/main.ts:238-253](/home/kalmarv/containers/occlude-3d/packages/occlude-studio/src/main.ts:238), then awaits one `RenderClient.render()` promise at [main.ts:260-279](/home/kalmarv/containers/occlude-3d/packages/occlude-studio/src/main.ts:260). With no `lastResult`, the canvas stays blank; with one, the old result stays dimmed until the final reply. The timer is useful status, but it does not carry geometry.
@@ -23,13 +42,19 @@ After 3D resolution, the worker calls `renderEncoded`. WASM preparation, fill jo
 
 ## What can be shown
 
-### Minimal first version: progress only
+### Progress accompanies stage replacement
 
-Add a `progress` worker message carrying `{ renderId, stage, completed?, total?, detail? }`. Suggested stages are `assets`, `sketch`, `3d-capture`, `3d-classify`, `3d-refine`, `encode`, `fills`, `visibility`, `plan`, and `complete`; counts should be optional because some stages have no honest denominator. Forward the message through `RenderClient` to a callback supplied by `main.ts`, and let the existing status ticker show the latest stage and counts.
+Add a separate worker event channel carrying the current render ID, stage and
+optional completed/total counts. It must not resolve the final render promise.
+Progress is useful during assets and user-code execution before lines exist,
+and while a long stage retains the previous draft. Do not make progress-only
+reporting the first delivered version of the user's visible-lines request.
 
-The worker should emit at stage transitions and after each 3D classification flush, throttled to animation-friendly frequency. This reuses existing boundaries and `PhaseClock3` data without changing the final `RenderReply`. Progress is advisory: it must never mutate `last`, `lastRun`, `lastPlan`, or the preview's committed result.
-
-This version helps even when the first render has no retained image. It is also useful for diagnosing whether time is spent in user code, GPU setup/readback, WASM/fills, or planning. Do not report a percentage for the full run unless the denominator is real; “classifying · 3,276 candidate pairs” is more truthful than “51%”.
+Publish bounded replacement snapshots when available: projected source geometry,
+3D visibility output, interpreted strokes, finished paper fragments, and the
+final planned result. Closely spaced boundaries can share a snapshot. Internal
+stages that contain only candidates or bookkeeping need no artificial picture.
+Only final adoption updates lastRun/lastPlan and exportable data.
 
 ### Smallest useful line preview
 
@@ -43,7 +68,12 @@ There is no safe exact final-ink stream today. A defensible draft preview can be
 
 The payload must identify `renderId`, scene identity/order, camera/frame, a monotonically increasing `draftRevision`, and a `kind` such as `source` or `classified`. The UI should label or visually distinguish it as “draft” and discard it on a newer render or final adoption. Never put draft bytes into `lastPlan`, exports, freeze, or the retained result.
 
-The first actual line version should pair stage progress with complete per-feature classified stroke chunks when a scene has already been captured. It can reuse `constructStrokes3`/`strokesForRun3` and avoids pretending that a raw GPU batch is final. For the earlier user-code wait, an explicit sketch checkpoint is the viable route; source segments are a useful fallback after that checkpoint when classification itself is the long stage. All drafts must be replaced by the exact final `RenderResult` and must not claim plot fidelity.
+The first actual line version publishes whole-stage replacements. Neither the
+optional pre-scene checkpoint nor per-feature completion is a prerequisite.
+Per-feature classified chunks can reduce latency later when classification itself
+is the long stage. All drafts are replaced by the final RenderResult and are
+clearly provisional. Do not rerun user styling callbacks to manufacture drafts:
+each callback must retain its existing execution and randomness semantics.
 
 ## Protocol and authority work
 
@@ -65,19 +95,25 @@ WASM is a harder boundary. `wasm_prepare` and `wasm_finish` expose no incrementa
 
 ## Bounded implementation sequence
 
-1. Add progress events only at existing worker stage boundaries and GPU flushes; add stale-id filtering and tests for cancellation, coalescing, respawn, and “old preview remains visible”.
-2. Instrument the 3D path with counts/timings from `FeatureSnapshot3`, candidate batches, and final refinement. Keep all state worker-owned.
-3. Define and implement an explicit sketch checkpoint for long pre-scene async modeling, including its camera/frame and snapshot identity. Add a disposable draft layer in the preview.
-4. Add an `onFeatureComplete` visibility hook and send complete classified feature strokes as drafts; fall back to explicitly labeled projected source geometry after a checkpoint if classification has not completed. Bound message size and throttle updates.
-5. Validate that draft events never affect plan/export/freeze/inspection/camera commit and that a final or canceled render removes them under all stale-result paths.
-6. Only then evaluate native/WASM chunking. Define exactness and reconciliation semantics first, then add chunk identity, cross-chunk occlusion handling, and a final plan rebuild.
+1. Add a draft/progress event channel and disposable preview layer, keyed by the
+   active render ID. Preserve existing final adoption, export and cancellation.
+2. Publish projected source lines after scene capture, then replace them after
+   3D visibility, stroke interpretation, paper finishing and final planning where
+   those boundaries expose useful drawable data. Include paper/camera/scene frame
+   and composition placement; combine nearby checkpoints to avoid wasted work.
+3. Throttle and bound geometry transfers. Discard obsolete events and remove the
+   draft on success, failure, cancellation or worker replacement.
+4. Verify initially blank renders, edits over an existing result, cancellation,
+   multi-view composition and unchanged final ink/plan/export.
+5. Profile time to first lines. Only then consider optional author checkpoints
+   for pre-scene work, per-feature visibility events, or native incremental APIs.
 
-Relative effort is low for progress reporting, moderate for a disposable per-scene draft layer, and high for genuine exact chunked rendering because it crosses worker protocol, 3D classification, WASM, plan identity, and UI authority. No precise duration is implied.
-
-## Recommendation
-
-Pair progress events with the earliest honest line checkpoint. For long waits inside user code, make an explicit opt-in sketch checkpoint the first line-producing feature; after a scene exists, add exact-per-feature 3D visibility drafts. Retain the previous committed preview underneath all drafts. Do not expose raw GPU batch intervals or a partial WASM/plan result as final ink. The current architecture cannot automatically stream lines before a sketch returns because the sketch owns arbitrary async work and provides no camera/view checkpoint; even after that point, exact 2D visibility/fill/plan adoption remains atomic.
+Whole-stage replacement is the recommended first version. It does not require
+stable partial toolpaths or incremental WASM. Keep the previous committed preview
+under the draft and commit only the final result. Long user-code work before a
+view exists remains a distinct limitation; progress reporting covers that interval
+unless the author explicitly provides an earlier view.
 
 ## Test strategy
 
-Use worker-client tests for ordered progress, obsolete render filtering, worker replacement, and retained-preview behavior. Add focused 3D tests that assert progress flush counts, abort between batches, and per-feature completion only after all that feature's candidate pairs/refinement; add checkpoint and draft tests proving revisions from an old render cannot replace a newer one. Keep final render/plan oracle tests unchanged: a progressive feature must not alter exact `RenderResult`, plan hash, SVG/G-code, or seed reproducibility. Browser verification should exercise an initially blank render, an explicit pre-scene checkpoint, a render over an old result, cancellation while a GPU batch is pending, and a late message from a terminated worker.
+Use worker-client tests for ordered progress, obsolete render filtering, worker replacement, and retained-preview behavior. Add focused tests for ordered stage replacement and drafts proving revisions from an old render cannot replace a newer one. Per-feature/checkpoint tests apply only if those optional extensions are implemented. Keep final render/plan oracle tests unchanged: a progressive feature must not alter exact `RenderResult`, plan hash, SVG/G-code, or seed reproducibility. Browser verification should exercise an initially blank render, an explicit pre-scene checkpoint, a render over an old result, cancellation while a GPU batch is pending, and a late message from a terminated worker.
