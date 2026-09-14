@@ -5,7 +5,7 @@ import { hiddenInterval3, unionIntervals3, visibleIntervals3, type Interval3 } f
 import type { GpuIntervals3, VisibilityPair3 } from '../../compute/webgpu/interval.js';
 
 export interface ClassifiedFeature3 { readonly feature: Feature3; readonly hidden: readonly Interval3[]; readonly visible: readonly Interval3[] }
-export interface ClassifiedScene3 { readonly frame: CameraFrame3; readonly features: readonly ClassifiedFeature3[]; readonly stats: { candidates: number; dispatches: number; refinements: number; transferBytes: number; wallMs: number } }
+export interface ClassifiedScene3 { readonly frame: CameraFrame3; readonly features: readonly ClassifiedFeature3[]; readonly stats: { candidates: number; dispatches: number; refinements: number; transferBytes: number; gpuMs?: number; wallMs: number } }
 
 /** Bounded pair streaming. The index is queried with un-cropped paper bounds;
  * no side-frustum or page cull may discard future style overscan. */
@@ -28,7 +28,7 @@ export function classifySceneCpu3(snapshot: FeatureSnapshot3): ClassifiedScene3 
 export async function classifySceneGpu3(snapshot: FeatureSnapshot3, gpu: GpuIntervals3, options: { signal?: AbortSignal; pairCapacity?: number; maxCandidates?: number; parameterTolerance?: number } = {}): Promise<ClassifiedScene3> {
   const capacity = options.pairCapacity ?? 8192, limit = options.maxCandidates ?? 10_000_000;
   if (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > 65536 || !Number.isSafeInteger(limit) || limit < 0) throw new Error('invalid scene visibility capacity');
-  const start = performance.now(), hidden: Interval3[][] = snapshot.features.map(() => []), stats = { candidates: 0, dispatches: 0, refinements: 0, transferBytes: 0, wallMs: 0 };
+  const start = performance.now(), hidden: Interval3[][] = snapshot.features.map(() => []), stats: ClassifiedScene3['stats'] = { candidates: 0, dispatches: 0, refinements: 0, transferBytes: 0, wallMs: 0, ...(gpu.timestampsEnabled ? { gpuMs: 0 } : {}) };
   // Retain only nonempty results for cross-pair topology refinement. Two
   // individually acceptable f32 endpoints can straddle a shared boundary.
   const records: { interval: Interval3; pair: VisibilityPair3 }[][] = snapshot.features.map(() => []);
@@ -39,6 +39,7 @@ export async function classifySceneGpu3(snapshot: FeatureSnapshot3, gpu: GpuInte
     const result = await gpu.classify(pairs, options);
     result.intervals.forEach((interval, i) => { if (interval) records[owners[i]].push({ interval, pair: pairs[i] }); });
     stats.dispatches += result.dispatches; stats.refinements += result.refinements; stats.transferBytes += result.transferBytes;
+    if (result.gpuMs !== undefined) stats.gpuMs = (stats.gpuMs ?? 0) + result.gpuMs;
     pairs = []; owners = [];
   };
   for (const candidate of candidatePairs3(snapshot)) {

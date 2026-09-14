@@ -1,5 +1,7 @@
 # M5 performance baseline
 
+Historical measurements below. [TIMESTAMPS.md](TIMESTAMPS.md) contains the current served-bundle refresh, compute-pass timestamps and retained-viewport results; the slow legacy orbit numbers below are not the current main Studio path.
+
 The benchmark runs in a dedicated browser worker against the same CPU visibility oracle, streamed GPU classifier, stroke constructor, paper adapter and SVG exporter used by the implementation. It compares complete hidden/visible interval topology and parameter endpoints for every feature. Three measurements alternate CPU/GPU ordering; cold worker WASM and GPU device/pipeline startup are reported separately. Candidate transfer/readback and CPU refinement are included in wall time. Kernel timestamps are not yet collected.
 
 Run the verified dev bundle with:

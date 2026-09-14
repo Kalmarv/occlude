@@ -1,0 +1,340 @@
+{
+  "base": "http://127.0.0.1:5273",
+  "browser": "145.0.7632.109",
+  "hardware": "NVIDIA GeForce RTX 2060, 595.71.05, 6144",
+  "browserLaunchMs": 241.33135099999998,
+  "adapter": {
+    "vendor": "nvidia",
+    "architecture": "turing",
+    "device": "",
+    "description": "",
+    "isFallbackAdapter": false
+  },
+  "wasmStartupMs": 13.5,
+  "gpuStartupMs": 819.6000000238419,
+  "viewport": [
+    1120,
+    840
+  ],
+  "pairCapacity": 8192,
+  "intervalBufferBytes": 8388512,
+  "kernelTimestamps": "compute-pass sum in gpuKernelMs/gpuKernelMedianMs; wall timings also include upload/readback/refinement and finishing",
+  "cases": [
+    {
+      "name": "grid-4",
+      "objects": 1,
+      "faces": 16,
+      "triangles": 32,
+      "features": 40,
+      "modelMs": 1.899999976158142,
+      "snapshotMs": 5.5,
+      "cpuMs": [
+        1.600000023841858,
+        0.800000011920929,
+        0.5
+      ],
+      "gpuMs": [
+        21.600000023841858,
+        6.300000011920929,
+        11.100000023841858
+      ],
+      "cpuMedianMs": 0.800000011920929,
+      "gpuMedianMs": 11.100000023841858,
+      "candidates": 208,
+      "dispatches": 1,
+      "refinements": 208,
+      "transferBytes": 23312,
+      "gpuKernelMs": [
+        0.0136,
+        0.01008,
+        0.008736
+      ],
+      "gpuKernelMedianMs": 0.01008,
+      "intervals": 40,
+      "maxParameterError": 0,
+      "strokeMs": 2.399999976158142,
+      "strokes": 36,
+      "exportMs": 11.399999976158142,
+      "svgBytes": 1998,
+      "committedMedianMs": 30.399999976158142
+    },
+    {
+      "name": "grid-16",
+      "objects": 1,
+      "faces": 256,
+      "triangles": 512,
+      "features": 544,
+      "modelMs": 18.400000035762787,
+      "snapshotMs": 23.69999998807907,
+      "cpuMs": [
+        10.800000011920929,
+        8.300000011920929,
+        5.899999976158142
+      ],
+      "gpuMs": [
+        90.39999997615814,
+        87.30000001192093,
+        53.700000047683716
+      ],
+      "cpuMedianMs": 8.300000011920929,
+      "gpuMedianMs": 87.30000001192093,
+      "candidates": 4020,
+      "dispatches": 1,
+      "refinements": 3988,
+      "transferBytes": 450256,
+      "gpuKernelMs": [
+        0.009952,
+        0.008352,
+        0.008992
+      ],
+      "gpuKernelMedianMs": 0.008992,
+      "intervals": 544,
+      "maxParameterError": 0,
+      "strokeMs": 9.200000047683716,
+      "strokes": 540,
+      "exportMs": 24.799999952316284,
+      "svgBytes": 25170,
+      "committedMedianMs": 145
+    },
+    {
+      "name": "grid-40",
+      "objects": 1,
+      "faces": 1600,
+      "triangles": 3200,
+      "features": 3280,
+      "modelMs": 63.69999998807907,
+      "snapshotMs": 75.80000001192093,
+      "cpuMs": [
+        63.39999997615814,
+        46.700000047683716,
+        43.09999996423721
+      ],
+      "gpuMs": [
+        464.89999997615814,
+        334.7999999523163,
+        385.10000002384186
+      ],
+      "cpuMedianMs": 46.700000047683716,
+      "gpuMedianMs": 385.10000002384186,
+      "candidates": 26128,
+      "dispatches": 4,
+      "refinements": 25725,
+      "transferBytes": 2926400,
+      "gpuKernelMs": [
+        0.037472000000000005,
+        0.037728000000000005,
+        0.037664
+      ],
+      "gpuKernelMedianMs": 0.037664,
+      "intervals": 3280,
+      "maxParameterError": 0,
+      "strokeMs": 68.89999997615814,
+      "strokes": 3276,
+      "exportMs": 49.90000003576279,
+      "svgBytes": 150522,
+      "committedMedianMs": 579.7000000476837
+    },
+    {
+      "name": "grid-80",
+      "objects": 1,
+      "faces": 6400,
+      "triangles": 12800,
+      "features": 12960,
+      "modelMs": 111.09999996423721,
+      "snapshotMs": 286.7000000476837,
+      "cpuMs": [
+        167.29999995231628,
+        155.5,
+        162.5
+      ],
+      "gpuMs": [
+        1340.6000000238419,
+        1280.0999999642372,
+        1402.0999999642372
+      ],
+      "cpuMedianMs": 162.5,
+      "gpuMedianMs": 1340.6000000238419,
+      "candidates": 105696,
+      "dispatches": 13,
+      "refinements": 103948,
+      "transferBytes": 11838160,
+      "gpuKernelMs": [
+        0.11859199999999999,
+        0.09401599999999999,
+        0.09190400000000001
+      ],
+      "gpuKernelMedianMs": 0.09401599999999999,
+      "intervals": 12960,
+      "maxParameterError": 0,
+      "strokeMs": 270.19999998807907,
+      "strokes": 12956,
+      "exportMs": 184.19999998807907,
+      "svgBytes": 594524,
+      "committedMedianMs": 2081.7000000476837
+    },
+    {
+      "name": "grid-100",
+      "objects": 1,
+      "faces": 10000,
+      "triangles": 20000,
+      "features": 20200,
+      "modelMs": 149.0999999642372,
+      "snapshotMs": 470,
+      "cpuMs": [
+        256,
+        259.80000001192093,
+        252.80000001192093
+      ],
+      "gpuMs": [
+        2069.100000023842,
+        2002.300000011921,
+        2027.5
+      ],
+      "cpuMedianMs": 256,
+      "gpuMedianMs": 2027.5,
+      "candidates": 165450,
+      "dispatches": 21,
+      "refinements": 162726,
+      "transferBytes": 18530736,
+      "gpuKernelMs": [
+        0.17715199999999995,
+        0.17561600000000002,
+        0.175744
+      ],
+      "gpuKernelMedianMs": 0.175744,
+      "intervals": 20200,
+      "maxParameterError": 0,
+      "strokeMs": 495.5,
+      "strokes": 20196,
+      "exportMs": 280.7000000476837,
+      "svgBytes": 926513,
+      "committedMedianMs": 3273.7000000476837
+    },
+    {
+      "name": "city-30",
+      "objects": 900,
+      "faces": 5400,
+      "triangles": 10800,
+      "features": 10800,
+      "modelMs": 101.29999995231628,
+      "snapshotMs": 213.20000004768372,
+      "cpuMs": [
+        678.8999999761581,
+        664.1000000238419,
+        674.6999999880791
+      ],
+      "gpuMs": [
+        3822.100000023842,
+        3759,
+        3956.699999988079
+      ],
+      "cpuMedianMs": 674.6999999880791,
+      "gpuMedianMs": 3822.100000023842,
+      "candidates": 274701,
+      "dispatches": 34,
+      "refinements": 295197,
+      "transferBytes": 30767056,
+      "gpuKernelMs": [
+        0.31788800000000006,
+        0.3165759999999999,
+        0.31369600000000003
+      ],
+      "gpuKernelMedianMs": 0.3165759999999999,
+      "intervals": 13531,
+      "maxParameterError": 0,
+      "strokeMs": 159.5999999642372,
+      "strokes": 4898,
+      "exportMs": 63.5,
+      "svgBytes": 223838,
+      "committedMedianMs": 4258.400000035763
+    }
+  ],
+  "viewportConformance": [
+    {
+      "name": "orthographic",
+      "interiorPixels": 46099,
+      "mismatches": 4,
+      "wirePixels": 536,
+      "wireMisses": 0
+    },
+    {
+      "name": "perspective",
+      "interiorPixels": 45240,
+      "mismatches": 3,
+      "wirePixels": 792,
+      "wireMisses": 0
+    },
+    {
+      "name": "translated",
+      "interiorPixels": 45240,
+      "mismatches": 3,
+      "wirePixels": 792,
+      "wireMisses": 0
+    },
+    {
+      "name": "tiny",
+      "interiorPixels": 45240,
+      "mismatches": 3,
+      "wirePixels": 792,
+      "wireMisses": 0
+    }
+  ],
+  "orbit": {
+    "prepareMs": 233.10000002384186,
+    "coldFrameMs": 191.5,
+    "warmFrameMs": [
+      147.39999997615814,
+      189.20000004768372,
+      174.60000002384186,
+      157.30000001192093,
+      158.4000000357628,
+      135.5999999642372,
+      129.5,
+      140.4000000357628,
+      170.19999998807907,
+      145.0999999642372,
+      148,
+      154.9000000357628
+    ],
+    "warmMedianMs": 154.9000000357628,
+    "warmFps": 6.455777919749021,
+    "peakExplicitBufferBytes": 12737312,
+    "depthTextureBytes": 3763200,
+    "includes": "world-to-camera projection, raster submission, bitmap creation and GPU queue completion; excludes main-thread presentation"
+  },
+  "retainedOrbit": {
+    "coldFrameMs": 68.90000003576279,
+    "warmFrameMs": [
+      30.599999964237213,
+      24,
+      22.400000035762787,
+      22.80000001192093,
+      22.600000023841858,
+      23.899999976158142,
+      23,
+      22.80000001192093,
+      23.19999998807907,
+      24,
+      25.80000001192093,
+      25.599999964237213
+    ],
+    "warmMedianMs": 23.899999976158142,
+    "warmFps": 41.84100422583963,
+    "geometryUploads": 1,
+    "geometryUploadBytes": 1204800,
+    "uniformUploadBytes": 1040,
+    "residentBufferBytes": 1204880,
+    "peakExplicitBufferBytes": 9593392,
+    "depthTextureBytes": 3763200,
+    "includes": "camera uniforms, raster submission, bitmap creation and GPU queue completion; excludes main-thread presentation"
+  },
+  "overlap": {
+    "triangles": 1200,
+    "features": 1200,
+    "maxCandidates": 10000,
+    "wallMs": 168.30000001192093,
+    "error": "Error: scene exceeds 10000 candidate pairs; raise maxCandidates or reduce overlap"
+  },
+  "peakExplicitBufferBytes": 12737312,
+  "passed": true
+}

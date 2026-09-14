@@ -10,6 +10,8 @@ export interface GpuIntervalResult3 {
   readonly refinements: number;
   readonly transferBytes: number;
   readonly residentBytes: number;
+  /** Sum of compute-pass timestamps in milliseconds; absent when unsupported/disabled. */
+  readonly gpuMs?: number;
   readonly wallMs: number;
 }
 export interface GpuIntervalOptions3 { readonly signal?: AbortSignal; readonly parameterTolerance?: number }
@@ -24,26 +26,34 @@ export class GpuIntervals3 {
   private output: GPUBuffer;
   private staging: GPUBuffer;
   private capacity: number;
+  private timestamps?: GPUQuerySet;
+  private timestampResolve?: GPUBuffer;
+  get timestampsEnabled(): boolean { return this.timestamps !== undefined; }
   private lost: string | null = null;
   private tail: Promise<unknown> = Promise.resolve();
   private constructor(device: GPUDevice, info: GPUAdapterInfo, pipeline: GPUComputePipeline, capacity: number) {
     this.device = device; this.adapterInfo = info; this.pipeline = pipeline; this.capacity = capacity;
     this.input = device.createBuffer({ label: '3D interval pairs', size: capacity * 96, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.output = device.createBuffer({ label: '3D intervals', size: capacity * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-    this.staging = device.createBuffer({ label: '3D interval readback', size: capacity * 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    this.staging = device.createBuffer({ label: '3D interval readback', size: capacity * 16 + (device.features.has('timestamp-query') ? 16 : 0), usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    if (device.features.has('timestamp-query')) {
+      this.timestamps = device.createQuerySet({ label: '3D interval timing', type: 'timestamp', count: 2 });
+      this.timestampResolve = device.createBuffer({ label: '3D timestamp resolve', size: 16, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+    }
     void device.lost.then(info => { this.lost = info.message || info.reason; });
   }
   /** False after device loss or explicit disposal; a host may create a fresh session. */
   get available(): boolean { return this.lost === null; }
-  static async create(gpu: GPU, options: { memoryBudgetBytes?: number; requireHardware?: boolean } = {}): Promise<GpuIntervals3> {
+  static async create(gpu: GPU, options: { memoryBudgetBytes?: number; requireHardware?: boolean; timestamps?: boolean } = {}): Promise<GpuIntervals3> {
     const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
     if (!adapter) throw new Error('WebGPU adapter unavailable');
     if (options.requireHardware && adapter.info.isFallbackAdapter) throw new Error('hardware WebGPU adapter required; fallback adapter reported');
     const budget = options.memoryBudgetBytes ?? 8 * 1024 * 1024;
     if (!(budget >= 128) || !Number.isFinite(budget)) throw new Error('WebGPU interval budget must be at least 128 bytes');
-    const device = await adapter.requestDevice();
+    const timing = options.timestamps !== false && budget >= 160 && adapter.features.has('timestamp-query');
+    const device = await adapter.requestDevice({ requiredFeatures: timing ? ['timestamp-query'] : [] });
     try {
-      const capacity = Math.min(Math.floor(budget / 128), Math.floor(device.limits.maxStorageBufferBindingSize / 96), Math.floor(device.limits.maxBufferSize / 96), device.limits.maxComputeWorkgroupsPerDimension * 64);
+      const capacity = Math.min(Math.floor((budget - (timing ? 32 : 0)) / 128), Math.floor(device.limits.maxStorageBufferBindingSize / 96), Math.floor(device.limits.maxBufferSize / 96), device.limits.maxComputeWorkgroupsPerDimension * 64);
       const module = device.createShaderModule({ label: 'Geometric segment/triangle visibility', code: intervalShader });
       const pipeline = await device.createComputePipelineAsync({ label: '3D hidden intervals', layout: 'auto', compute: { module, entryPoint: 'classify' } });
       return new GpuIntervals3(device, adapter.info, pipeline, capacity);
@@ -65,7 +75,7 @@ export class GpuIntervals3 {
   private async run(pairs: readonly VisibilityPair3[], options: GpuIntervalOptions3): Promise<GpuIntervalResult3> {
     this.check(options.signal);
     const started = performance.now(), intervals: (Interval3 | null)[] = [];
-    let dispatches = 0, refinements = 0, transferBytes = 0;
+    let dispatches = 0, refinements = 0, transferBytes = 0, gpuMs = 0;
     for (let start = 0; start < pairs.length; start += this.capacity) {
       this.check(options.signal);
       const batch = pairs.slice(start, start + this.capacity), packed = new Float32Array(batch.length * 24);
@@ -91,32 +101,43 @@ export class GpuIntervals3 {
           { binding: 1, resource: { buffer: this.output, size: batch.length * 16 } },
         ] });
         const encoder = this.device.createCommandEncoder();
-        const pass = encoder.beginComputePass();
+        const pass = encoder.beginComputePass(this.timestamps ? { timestampWrites: { querySet: this.timestamps, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 } } : {});
         pass.setPipeline(this.pipeline); pass.setBindGroup(0, bindGroup); pass.dispatchWorkgroups(Math.ceil(batch.length / 64)); pass.end();
         encoder.copyBufferToBuffer(this.output, 0, this.staging, 0, batch.length * 16);
+        if (this.timestamps && this.timestampResolve) {
+          encoder.resolveQuerySet(this.timestamps, 0, 2, this.timestampResolve, 0);
+          encoder.copyBufferToBuffer(this.timestampResolve, 0, this.staging, batch.length * 16, 16);
+        }
         this.device.queue.submit([encoder.finish()]); dispatches++;
-        await this.staging.mapAsync(GPUMapMode.READ, 0, batch.length * 16);
-        try { read = new Float32Array(this.staging.getMappedRange(0, batch.length * 16).slice(0)); }
+        await this.staging.mapAsync(GPUMapMode.READ, 0, batch.length * 16 + (this.timestamps ? 16 : 0));
+        try {
+          read = new Float32Array(this.staging.getMappedRange(0, batch.length * 16).slice(0));
+          if (this.timestamps) {
+            const times = new BigUint64Array(this.staging.getMappedRange(batch.length * 16, 16));
+            if (times[1] < times[0]) throw new Error('WebGPU timestamps are nonmonotonic');
+            gpuMs += Number(times[1] - times[0]) / 1e6;
+          }
+        }
         finally { this.staging.unmap(); }
       } finally {
         const error = await this.device.popErrorScope();
         if (error) throw new Error(`WebGPU visibility: ${error.message}`);
       }
       this.check(options.signal);
-      transferBytes += packed.byteLength + read.byteLength;
+      transferBytes += packed.byteLength + read.byteLength + (this.timestamps ? 16 : 0);
       for (let i = 0; i < batch.length; i++) {
         if (read[i * 4 + 2] !== 0 || !Number.isFinite(read[i * 4]) || !Number.isFinite(read[i * 4 + 1])) {
           refinements++; const p = batch[i]; intervals.push(hiddenInterval3(p.a, p.b, p.volume));
         } else intervals.push(read[i * 4 + 3] === 0 ? null : [read[i * 4], read[i * 4 + 1]]);
       }
     }
-    return { intervals, dispatches, refinements, transferBytes, residentBytes: this.capacity * 128, wallMs: performance.now() - started };
+    return { intervals, dispatches, refinements, transferBytes, residentBytes: this.capacity * 128 + (this.timestamps ? 32 : 0), ...(this.timestamps ? { gpuMs } : {}), wallMs: performance.now() - started };
   }
   /** Prevent queued adoption immediately, then wait for in-flight leases. */
   async dispose(): Promise<void> {
     this.lost = 'disposed';
     await this.tail;
     await this.device.queue.onSubmittedWorkDone().catch(() => {});
-    this.input.destroy(); this.output.destroy(); this.staging.destroy(); this.device.destroy();
+    this.input.destroy(); this.output.destroy(); this.staging.destroy(); this.timestamps?.destroy(); this.timestampResolve?.destroy(); this.device.destroy();
   }
 }

@@ -56,7 +56,7 @@ self.onmessage=async event=>{
     const create=gpu.device.createBuffer.bind(gpu.device);
     gpu.device.createBuffer=descriptor=>{const buffer=create(descriptor);activeBytes+=descriptor.size;peakBytes=Math.max(peakBytes,activeBytes);phasePeak=Math.max(phasePeak,activeBytes);const destroy=buffer.destroy.bind(buffer);let live=true;buffer.destroy=()=>{if(live){activeBytes-=descriptor.size;live=false;}destroy();};return buffer;};
     const info=gpu.adapterInfo;
-    const report:{[key:string]:unknown}={adapter:{vendor:info.vendor,architecture:info.architecture,device:info.device,description:info.description,isFallbackAdapter:info.isFallbackAdapter},wasmStartupMs,gpuStartupMs,viewport:[1120,840],pairCapacity:8192,intervalBufferBytes:resident,kernelTimestamps:'not collected; timings are end-to-end wall time',cases:[]};
+    const report:{[key:string]:unknown}={adapter:{vendor:info.vendor,architecture:info.architecture,device:info.device,description:info.description,isFallbackAdapter:info.isFallbackAdapter},wasmStartupMs,gpuStartupMs,viewport:[1120,840],pairCapacity:8192,intervalBufferBytes:resident,kernelTimestamps:gpu.timestampsEnabled ? 'compute-pass sum in gpuKernelMs/gpuKernelMedianMs; wall timings also include upload/readback/refinement and finishing' : 'timestamp-query unavailable; end-to-end wall timings only',cases:[]};
     report.viewportConformance=await verifyWorldViewport3(gpu.device,navigator.gpu!.getPreferredCanvasFormat());
     postMessage({type:'progress',message:'retained viewport conformance passed'});
     const cases:unknown[]=[];
@@ -64,10 +64,10 @@ self.onmessage=async event=>{
       postMessage({type:'progress',message:`${name}: construct and classify`});
       const modelStart=performance.now(),objects=make(),modelMs=performance.now()-modelStart;
       const snapshotStart=performance.now(),snapshot=featureSnapshot3(objects,[],frame),snapshotMs=performance.now()-snapshotStart;
-      const cpuTimes:number[]=[],gpuTimes:number[]=[];let drawing:ClassifiedScene3|undefined,maxError=0,cpuDrawing:ClassifiedScene3|undefined;
+      const cpuTimes:number[]=[],gpuTimes:number[]=[],kernelTimes:number[]=[];let drawing:ClassifiedScene3|undefined,maxError=0,cpuDrawing:ClassifiedScene3|undefined;
       for(let iteration=0;iteration<3;iteration++){
         const cpu=()=>{const t=performance.now();cpuDrawing=classifySceneCpu3(snapshot);cpuTimes.push(performance.now()-t);};
-        const compute=async()=>{const t=performance.now();drawing=await classifySceneGpu3(snapshot,gpu!,{maxCandidates:2_000_000});gpuTimes.push(performance.now()-t);};
+        const compute=async()=>{const t=performance.now();drawing=await classifySceneGpu3(snapshot,gpu!,{maxCandidates:2_000_000});gpuTimes.push(performance.now()-t);if(drawing.stats.gpuMs!==undefined)kernelTimes.push(drawing.stats.gpuMs);};
         if(iteration%2){await compute();cpu();}else{cpu();await compute();}
         maxError=Math.max(maxError,compare(cpuDrawing!,drawing!));
       }
@@ -75,7 +75,7 @@ self.onmessage=async event=>{
       const exportStart=performance.now();
       const svg=exportSvg(sketch({paper:paper({width:mm(200),height:mm(200)}),margin:0,seed:42,pens:{ink:pen({width:mm(.2),color:'#18202A'})}},()=>paperStrokes3(strokes)));
       const exportMs=performance.now()-exportStart;
-      const entry={name,objects:objects.length,faces:objects.reduce((n,o)=>n+o.surface.faces.length,0),triangles:snapshot.triangles.length,features:snapshot.features.length,modelMs,snapshotMs,cpuMs:cpuTimes,gpuMs:gpuTimes,cpuMedianMs:median(cpuTimes),gpuMedianMs:median(gpuTimes),candidates:drawing!.stats.candidates,dispatches:drawing!.stats.dispatches,refinements:drawing!.stats.refinements,transferBytes:drawing!.stats.transferBytes,intervals:drawing!.features.reduce((n,f)=>n+f.visible.length+f.hidden.length,0),maxParameterError:maxError,strokeMs,strokes:strokes.length,exportMs,svgBytes:svg.length,committedMedianMs:snapshotMs+median(gpuTimes)+strokeMs+exportMs};
+      const entry={name,objects:objects.length,faces:objects.reduce((n,o)=>n+o.surface.faces.length,0),triangles:snapshot.triangles.length,features:snapshot.features.length,modelMs,snapshotMs,cpuMs:cpuTimes,gpuMs:gpuTimes,cpuMedianMs:median(cpuTimes),gpuMedianMs:median(gpuTimes),candidates:drawing!.stats.candidates,dispatches:drawing!.stats.dispatches,refinements:drawing!.stats.refinements,transferBytes:drawing!.stats.transferBytes,gpuKernelMs:kernelTimes,gpuKernelMedianMs:kernelTimes.length?median(kernelTimes):undefined,intervals:drawing!.features.reduce((n,f)=>n+f.visible.length+f.hidden.length,0),maxParameterError:maxError,strokeMs,strokes:strokes.length,exportMs,svgBytes:svg.length,committedMedianMs:snapshotMs+median(gpuTimes)+strokeMs+exportMs};
       cases.push(entry);postMessage({type:'case',entry});
       if(name==='grid-100'){
         const prepStart=performance.now(),source=new ConstructionScene3(lineArt3({objects,camera,lineSets:sets})),prepareMs=performance.now()-prepStart;
