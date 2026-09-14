@@ -1,3 +1,4 @@
+import { reference3 } from './reference.js';
 import { verifyWorldViewport3 } from './viewportCheck.js';
 import { initOcclude, exportSvg, sketch, paper, pen, mm } from 'occlude';
 import { grid3 } from 'occlude/src/three/geometry/model.js';
@@ -39,7 +40,13 @@ function grid(n:number):SurfaceObject3[]{
 function city(n:number):SurfaceObject3[]{
   return Array.from({length:n*n},(_,i)=>{const x=i%n,y=Math.floor(i/n),height=.3+((x*17+y*31)%23)/20;return {id:`box-${i}`,surface:box3([.28,.28,height],[(x-(n-1)/2)*.4,(y-(n-1)/2)*.4,height/2])};});
 }
-self.onmessage=async()=>{
+self.onmessage=async event=>{
+  if(event.data.type==='reference'){
+    try{postMessage({type:'result',report:await reference3(event.data.fixtures)});}
+    catch(error){postMessage({type:'error',message:String(error)});}
+    finally{close();}
+    return;
+  }
   let gpu:GpuIntervals3|undefined,viewport:GpuViewport3|undefined;
   try{
     const start=performance.now();await initOcclude();const wasmStartupMs=performance.now()-start;

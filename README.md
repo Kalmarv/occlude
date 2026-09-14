@@ -141,6 +141,7 @@ facts, and papers — never code**:
 | [Cavalier Contours](https://github.com/jbuckmccready/cavalier_contours) | Pinned Rust dependency for line/arc region offsets in native contour fill. | MIT / Apache-2.0 |
 | [robust](https://github.com/georust/robust) | Adaptive orientation predicates for native contour cleanup partition validation. | MIT / Apache-2.0 |
 | [Earcut](https://github.com/georust/earcut) | Triangulation of native contour-fill cleanup regions. | MIT / Apache-2.0; upstream Mapbox portions ISC |
+| [Blender](https://projects.blender.org/blender/blender/src/tag/v5.2.1) | Development-only Line Art vector reference fixtures and documented feature/selection concepts. Prebuilt 5.2.1 LTS; no engine code copied or runtime dependency. | GPL; Line Art source GPL-2.0-or-later |
 | [CGAL](https://www.cgal.org/) | Independent, development-only conic-arrangement reference for `thicken`; not bundled or linked into the library. | Package-specific GPL/LGPL; external test dependency |
 | [Javascript Clipper](https://github.com/junmer/clipper-lib) | Integer polygon union for bounded TypeScript `thicken()` | Boost Software License 1.0 (bundled JSBN: BSD) |
 | [iOverlay](https://github.com/iShape-Rust/iOverlay) | Pinned Rust dependency for winding normalization, visible-area Booleans, nib sweeps and polygon offset recovery. | MIT / Apache-2.0 |

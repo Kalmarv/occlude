@@ -6,6 +6,8 @@ Latest camera work: retained composition and `commitCamera3` support creating a 
 
 Recent correctness work: world-space crease angles and exact coplanarity remove false base-grid lines; see [CREASE-CORRECTNESS.md](CREASE-CORRECTNESS.md). Include [USER-FOLLOWUPS.md](USER-FOLLOWUPS.md) in the final handoff; camera controls and crease-tolerance API choices are deferred.
 
+Remaining scope is tracked in [REQUIREMENTS-AUDIT.md](REQUIREMENTS-AUDIT.md). Pinned Blender 5.2.1 Line Art comparisons now pass on CPU and hardware GPU for eight visible/hidden feature cases; see [reference/README.md](reference/README.md).
+
 ## Isolation
 
 - Starting commit: c705cdeb6a575eecc2759572e8d43dbb8e4316d2 (clean production checkout).
