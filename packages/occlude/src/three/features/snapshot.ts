@@ -10,9 +10,12 @@ import { occlusionVolume3, type Interval3, type SegmentBasis3, type OcclusionVol
 import { ProjectedIndex3, projectedBounds3, type Bounds3 } from '../visibility/index.js';
 
 export const FeatureKind3 = { boundary: 1, silhouette: 2, crease: 4, marked: 8, wire: 16, section: 32, hatch: 64 } as const;
-export interface SurfaceObject3 { readonly id: string; readonly surface: Surface3; readonly curves?: SurfaceCurves3; readonly hatch?: HatchSource3; readonly transform?: Parameters<typeof transformSurface3>[1]; readonly lineSource?: boolean; readonly occluder?: boolean; readonly attributes?: Attributes3 }
+export interface InstanceSource3 {readonly id:string;readonly pointId:string;readonly pointIndex:number;readonly prototypeKey?:string}
+export interface SurfaceObject3 { readonly instance?:InstanceSource3; readonly id: string; readonly surface: Surface3; readonly curves?: SurfaceCurves3; readonly hatch?: HatchSource3; readonly transform?: Parameters<typeof transformSurface3>[1]; readonly lineSource?: boolean; readonly occluder?: boolean; readonly attributes?: Attributes3 }
 export interface WireObject3 { readonly id: string; readonly points: readonly Vec3[]; readonly attributes?: Attributes3 }
 export interface Feature3 {
+  /** Source placement identity, independent of per-view object naming. */
+  readonly instance?:InstanceSource3;
   /** Captured model-space curve data before camera clipping, when generated. */
   readonly curve?: SurfaceCurveSegment3;
   /** Camera-space affine source terms, retained through near/far clipping. */
@@ -127,7 +130,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       const sourceId = original?.id ?? key('diagonal', surface.faces[surface.triangles[incident[0]].face].id, ...edge.vertices.map(v => surface.points[v].id));
       const flags = (original?.faces.length === 1 ? FeatureKind3.boundary : 0) | (silhouette ? FeatureKind3.silhouette : 0) | (original && angle > 0 ? FeatureKind3.crease : 0) | (original?.attributes.marked === true ? FeatureKind3.marked : 0);
       const support = [...new Set(incident.flatMap(i => { const f=surface.triangles[i].face; return planar[f] ? faceTriangles[f] : [i]; }))].map(i=>triangleIds[i]);
-      add({ id: key(object.id, sourceId), objectId: object.id, sourceId, flags, creaseAngle: angle, a: positions[edge.vertices[0]], b: positions[edge.vertices[1]], endpoints: edge.vertices.map(v => key(object.id, surface.points[v].id)) as [string, string], support, attributes: attributes({ ...object.attributes, ...original?.attributes }), faceAttributes: [...new Set(incident.map(i => surface.triangles[i].face))].map(i => faceAttrs[i]) });
+      add({ ...(object.instance?{instance:Object.freeze({...object.instance})}:{}), id: key(object.id, sourceId), objectId: object.id, sourceId, flags, creaseAngle: angle, a: positions[edge.vertices[0]], b: positions[edge.vertices[1]], endpoints: edge.vertices.map(v => key(object.id, surface.points[v].id)) as [string, string], support, attributes: attributes({ ...object.attributes, ...original?.attributes }), faceAttributes: [...new Set(incident.map(i => surface.triangles[i].face))].map(i => faceAttrs[i]) });
     }
     const hatch=object.hatch?realizeHatch3(object.hatch,surface,frame,units):undefined;
     if(hatch)validateSurfaceCurves3(hatch,object.surface);
@@ -136,7 +139,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       const basis = Object.freeze([curve.a, curve.b].map(p => Object.freeze(p.vertices.flatMap((v,i) => p.weights[i] === 0 ? [] : [Object.freeze({ point: Object.freeze([...positions[v]]) as Vec3, weight: p.weights[i] })])))) as SegmentBasis3;
       const faces=[...new Set(curve.triangles.map(i=>surface.triangles[i].face))];
       const support=[...new Set(curve.triangles.flatMap(i=>{const face=surface.triangles[i].face;return planar[face]?faceTriangles[face]:[i];}))].map(i=>triangleIds[i]);
-      add({id:key(object.id,curve.id),objectId:object.id,sourceId:curve.id,flags:curve.kind==='hatch'?FeatureKind3.hatch:FeatureKind3.section,curve,basis,creaseAngle:0,a:position(curve.a),b:position(curve.b),endpoints:[key(object.id,'curve',curve.a.id),key(object.id,'curve',curve.b.id)],support,attributes:attributes({...object.attributes,...curve.attributes}),faceAttributes:faces.map(i=>faceAttrs[i])});
+      add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),id:key(object.id,curve.id),objectId:object.id,sourceId:curve.id,flags:curve.kind==='hatch'?FeatureKind3.hatch:FeatureKind3.section,curve,basis,creaseAngle:0,a:position(curve.a),b:position(curve.b),endpoints:[key(object.id,'curve',curve.a.id),key(object.id,'curve',curve.b.id)],support,attributes:attributes({...object.attributes,...curve.attributes}),faceAttributes:faces.map(i=>faceAttrs[i])});
     }
   }
   for (const wire of wires) for (let i = 0; i + 1 < wire.points.length; i++) {

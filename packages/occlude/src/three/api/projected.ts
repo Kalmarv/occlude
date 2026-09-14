@@ -16,6 +16,7 @@ function kinds(flags:number):ReadonlySet<FeatureKind>{
 }
 export interface ProjectedCurve {
   readonly id:string;readonly index:number;
+  readonly instance?:Feature3['instance'];
   readonly feature:Feature3;readonly kinds:ReadonlySet<FeatureKind>;
   /** Local clipped source parameters; endpoints are physical paper millimeters. */
   readonly range:Interval3;readonly a:readonly [number,number];readonly b:readonly [number,number];
@@ -27,7 +28,7 @@ export class ProjectedCurves implements Iterable<ProjectedCurve> {
   readonly rows:readonly ProjectedCurve[];readonly key:unknown;
   constructor(readonly source:ClassifiedScene3,readonly visibility:'visible'|'hidden',rows?:readonly ProjectedCurve[],key?:unknown){
     this.key=key;
-    this.rows=Object.freeze(rows?[...rows]:source.features.flatMap(({feature,...ranges},index)=>ranges[visibility].map((range,i)=>Object.freeze({id:JSON.stringify([feature.id,visibility,i]),index,feature,kinds:kinds(feature.flags),range,a:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[0]))),b:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[1]))),attributes:feature.attributes,faceAttributes:feature.faceAttributes,support:feature.support}))));
+    this.rows=Object.freeze(rows?[...rows]:source.features.flatMap(({feature,...ranges},index)=>ranges[visibility].map((range,i)=>Object.freeze({id:JSON.stringify([feature.id,visibility,i]),index,feature,...(feature.instance?{instance:feature.instance}:{}),kinds:kinds(feature.flags),range,a:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[0]))),b:Object.freeze(toPaper3(source.frame,lerp3(feature.a,feature.b,range[1]))),attributes:feature.attributes,faceAttributes:feature.faceAttributes,support:feature.support}))));
     Object.freeze(this);
   }
   get length():number{return this.rows.length;}

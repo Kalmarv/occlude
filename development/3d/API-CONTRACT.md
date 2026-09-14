@@ -1,9 +1,9 @@
 # Procedural 3D contract
 
 Implementation contract for `3dapi.md`. The acceptance examples in
-`api-examples/` are tracked targets. Terrain is now executable and live in
-`docs/three.md`; the complete acceptance set still requires the remaining
-instance/query work and verification.
+`api-examples/` are tracked targets. Terrain and instanced forms are now executable
+and live in `docs/three.md`; the complete acceptance set still requires the
+remaining query/curve work and verification.
 
 ## Values and domains
 

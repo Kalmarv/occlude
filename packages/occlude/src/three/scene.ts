@@ -53,7 +53,7 @@ export function lineArt3(options: LineArtOptions3): LineArtScene3 {
     id: options.id,
     camera,
     viewport: options.viewport && Object.freeze({ ...options.viewport }),
-    objects: Object.freeze((options.objects ?? []).map(object => Object.freeze({ ...object, surface: captureSurface(object.surface), curves: object.curves && freeze({surface:captureSurface(object.surface),segments:structuredClone(object.curves.segments)}), hatch: object.hatch && freeze({...object.hatch,surface:captureSurface(object.surface),families:structuredClone(object.hatch.families)}), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)) }))),
+    objects: Object.freeze((options.objects ?? []).map(object => Object.freeze({ ...object, ...(object.instance?{instance:freeze(structuredClone(object.instance))}:{}), surface: captureSurface(object.surface), curves: object.curves && freeze({surface:captureSurface(object.surface),segments:structuredClone(object.curves.segments)}), hatch: object.hatch && freeze({...object.hatch,surface:captureSurface(object.surface),families:structuredClone(object.hatch.families)}), transform: freeze(structuredClone(object.transform)), attributes: freeze(structuredClone(object.attributes)) }))),
     wires: freeze(structuredClone(options.wires ?? [])),
     lineSets: Object.freeze(options.lineSets.map(set => Object.freeze({ ...set }))),
     strokes: options.strokes && Object.freeze({ ...options.strokes }),

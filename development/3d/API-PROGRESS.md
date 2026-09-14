@@ -31,11 +31,22 @@ the earlier API and does not imply this redesign is finished.
   All Docker gates and served NVIDIA Playwright checks pass for twelve live
   examples, including the catalog and full terrain acceptance sketch. See
   `primitives-api/README.md` and its gate/render evidence.
-- Curves/profiles/sweep/revolve,
-  M5 demo migration, prepared queries, reusable forces, shared instances and
-  detailed GPU phase accounting remain pending. The three acceptance targets
-  include a runnable terrain example; the instanced forms example still needs
-  instances, and the full acceptance set is not yet verified.
+- Shared mesh instances, typed per-instance fields/collections/transforms,
+  instance-on-points and explicit budgeted realization are implemented.
+  Captured views share a single prototype and projected curves retain placement
+  and source-point identity. Unit tests cover ownership, provenance, mirrored
+  transforms, analytic hidden geometry and realization equivalence. Source
+  NVIDIA Playwright verifies the instanced forms acceptance sketch and camera
+  commit/download/reopen without model RNG. All nine Docker gates and thirteen
+  served live examples pass; the served cone export has zero stray dot paths.
+- The cone export exposed false visible gaps between shared triangle boundaries.
+  Canonical edge ordering fixes the interval roots without an epsilon; the
+  independent convex-cone regression fails before and passes after. See
+  `shared-boundary/README.md` and `instances-api/` evidence.
+- Curves/profiles/sweep/revolve, M5 demo migration, prepared queries, reusable
+  forces and detailed GPU phase accounting remain pending. Terrain and
+  instanced forms are runnable live examples; the complete acceptance set is
+  not yet verified.
 
 Worker restart/device-loss recovery remains deferred by the user. Use
 Playwright, not ProofShot. Continue in this isolated checkout; production

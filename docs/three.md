@@ -438,3 +438,52 @@ export default sketch({seed:42,paper:paper({width:inch(8.5),height:inch(11),colo
   });
 });
 ```
+
+### Instances on points
+
+`instanceOnPoints(prototype, points, {scale?, rotate?, offset?, key?})` places
+one shared mesh prototype at every selected point. The optional fields read
+the source point rows. Scale accepts a scalar or triple; rotation uses XYZ
+Euler degrees about the prototype origin; offset is added to the point's world
+position. The resulting value owns transforms and attributes and retains its
+source rows. No prototype topology is copied while placing or editing instances.
+
+Use `.instances` for `map`, `filter`, `groupBy` and `extract`. Each row contains
+`id`, `index`, `source`, `transform`, an attribute map, and flattened attributes
+copied from its source point. `.attribute(name, field)` adds or replaces a typed
+instance column. `.transform(field)` replaces the supplied `translate`,
+`rotate` or `scale` components and retains omitted components; `.translate(field)`
+adds a world-space displacement. Scale, then rotation, then translation apply
+to the prototype. These edits return a new instance value and reuse its mesh.
+The row name `transform` is reserved in addition to the ordinary mesh row names.
+
+`view(instances, options)` accepts instances directly, including in arrays with
+ordinary meshes. Hatch eligibility is selected once on prototype faces; the
+paper hatch lattice is resolved for each transformed instance. Feature
+attributes include instance columns; projected rows expose `.instance` with
+placement ID, source point ID/index and optional prototype key. Prototype
+edge/curve columns take
+precedence on collisions. Rendering computes transformed coordinates and
+visibility for each object; sharing authoring geometry is not a claim of GPU
+instanced drawing or a visibility speedup.
+
+`.realize({maxPoints?, maxFaces?})` explicitly produces one ordinary mesh with
+a disconnected copy of each instance's topology. It preserves shared edges
+within each copy, mirrors winding for negative scales, and records prototype,
+instance and source-point IDs in derived provenance. Instance attributes are
+copied to the point/edge/face domains; existing prototype columns win collisions.
+Realization derives new IDs deterministically; selecting a subset preserves
+those IDs. The defaults limit realization to 500,000 points and 250,000 faces,
+checked before duplication. Placement itself permits at most 100,000 instances.
+An instance value has no editable mesh faces: realize it before mesh operations.
+
+```ts live
+import {sketch,pen,mm} from 'occlude';
+import {pointCloud,cone,instanceOnPoints,view,perspective} from 'occlude/3d';
+export default sketch({seed:42,pens:{ink:pen({width:mm(.25),color:'#18202A'})}},t=>{
+  const sites=pointCloud(Array.from({length:36},(_,i)=>[(i%6-2.5)*1.2,(Math.floor(i/6)-2.5)*1.2,0]))
+    .attribute('height',()=>t.rnd(.5,1.8));
+  const forms=instanceOnPoints(cone(.4,1),sites.points,{scale:p=>[1,1,p.height]});
+  return view(forms,{camera:perspective({eye:[8,10,8],target:[0,0,.5],fovDegrees:50}),stroke:'ink'});
+});
+```

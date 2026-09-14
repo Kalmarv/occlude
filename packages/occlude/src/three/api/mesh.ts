@@ -11,7 +11,7 @@ export type EdgeRow<A extends EdgeAttributes={},P extends Attributes3={}> = Read
 export type FaceRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly number[];normal:Vec3;center:Vec3;area:number;attributes:Readonly<A>;provenance?:Provenance3}>;
 const reserved=new Set(['id','index','x','y','z','attributes','provenance','vertices','normal','center','area','a','b','length','source']);
 export function attributeName(name:string):void {if(!name||reserved.has(name)||name==='__proto__'||name==='constructor'||name==='prototype')throw new Error(`reserved or empty geometry attribute name: ${name}`);}
-function attributeValue(value:Attribute3):Attribute3 {
+export function attributeValue(value:Attribute3):Attribute3 {
   if(typeof value==='string'||typeof value==='boolean')return value;
   if(typeof value==='number'&&Number.isFinite(value))return value;
   if(Array.isArray(value)&&value.every(Number.isFinite))return Object.freeze([...value]);
