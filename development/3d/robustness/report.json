@@ -1,0 +1,441 @@
+{
+  "base": "http://127.0.0.1:5273",
+  "browser": "145.0.7632.109",
+  "passed": true,
+  "adapter": {
+    "vendor": "nvidia",
+    "architecture": "turing",
+    "isFallbackAdapter": false
+  },
+  "controlBefore": {
+    "dispatches": 5,
+    "refinements": 513,
+    "residentBytes": 16384
+  },
+  "boundaries": [
+    {
+      "boundary": "upload",
+      "hits": 1,
+      "submitted": 0,
+      "mapped": 0,
+      "rejected": true,
+      "reused": {
+        "dispatches": 5,
+        "refinements": 513,
+        "residentBytes": 16384
+      }
+    },
+    {
+      "boundary": "dispatch",
+      "hits": 1,
+      "submitted": 1,
+      "mapped": 1,
+      "rejected": true,
+      "reused": {
+        "dispatches": 5,
+        "refinements": 513,
+        "residentBytes": 16384
+      }
+    },
+    {
+      "boundary": "readback",
+      "hits": 1,
+      "submitted": 1,
+      "mapped": 1,
+      "rejected": true,
+      "reused": {
+        "dispatches": 5,
+        "refinements": 513,
+        "residentBytes": 16384
+      }
+    },
+    {
+      "boundary": "before-refinement",
+      "hits": 1,
+      "submitted": 1,
+      "mapped": 1,
+      "rejected": true,
+      "reused": {
+        "dispatches": 5,
+        "refinements": 513,
+        "residentBytes": 16384
+      }
+    }
+  ],
+  "queuedStatuses": [
+    "fulfilled",
+    "rejected",
+    "fulfilled"
+  ],
+  "interleaved": [
+    {
+      "index": 0,
+      "backend": "cpu",
+      "seed": 42,
+      "paper": {
+        "w": 140,
+        "h": 180
+      },
+      "pen": {
+        "color": "#18202A",
+        "feed": 3000,
+        "penDown": 0,
+        "penUp": 5,
+        "penDelay": 100,
+        "width": 0.2,
+        "name": "ink"
+      },
+      "asset": {
+        "text": "0.2"
+      },
+      "camera": {
+        "kind": "orthographic",
+        "span": 4,
+        "eye": [
+          4,
+          6,
+          5
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "near": 0.1,
+        "far": 40,
+        "up": [
+          0,
+          0,
+          1
+        ]
+      },
+      "features": 12,
+      "svgBytes": 617,
+      "exactStandaloneMatch": true
+    },
+    {
+      "index": 0,
+      "backend": "gpu",
+      "seed": 42,
+      "paper": {
+        "w": 140,
+        "h": 180
+      },
+      "pen": {
+        "color": "#18202A",
+        "feed": 3000,
+        "penDown": 0,
+        "penUp": 5,
+        "penDelay": 100,
+        "width": 0.2,
+        "name": "ink"
+      },
+      "asset": {
+        "text": "0.2"
+      },
+      "camera": {
+        "kind": "orthographic",
+        "span": 4,
+        "eye": [
+          4,
+          6,
+          5
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "near": 0.1,
+        "far": 40,
+        "up": [
+          0,
+          0,
+          1
+        ]
+      },
+      "features": 12,
+      "svgBytes": 617,
+      "paperToleranceMm": 0.005,
+      "exactStandaloneMatch": true
+    },
+    {
+      "index": 1,
+      "backend": "cpu",
+      "seed": 43,
+      "paper": {
+        "w": 157,
+        "h": 169
+      },
+      "pen": {
+        "color": "#A84932",
+        "feed": 3000,
+        "penDown": 0,
+        "penUp": 5,
+        "penDelay": 100,
+        "width": 0.23,
+        "name": "ink"
+      },
+      "asset": {
+        "text": "0.35"
+      },
+      "camera": {
+        "kind": "perspective",
+        "fovDegrees": 49,
+        "eye": [
+          5,
+          6,
+          5
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "near": 0.1,
+        "far": 40,
+        "up": [
+          0,
+          0,
+          1
+        ]
+      },
+      "features": 12,
+      "svgBytes": 614,
+      "exactStandaloneMatch": true
+    },
+    {
+      "index": 1,
+      "backend": "gpu",
+      "seed": 43,
+      "paper": {
+        "w": 157,
+        "h": 169
+      },
+      "pen": {
+        "color": "#A84932",
+        "feed": 3000,
+        "penDown": 0,
+        "penUp": 5,
+        "penDelay": 100,
+        "width": 0.23,
+        "name": "ink"
+      },
+      "asset": {
+        "text": "0.35"
+      },
+      "camera": {
+        "kind": "perspective",
+        "fovDegrees": 49,
+        "eye": [
+          5,
+          6,
+          5
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "near": 0.1,
+        "far": 40,
+        "up": [
+          0,
+          0,
+          1
+        ]
+      },
+      "features": 12,
+      "svgBytes": 614,
+      "paperToleranceMm": 0.005,
+      "exactStandaloneMatch": true
+    },
+    {
+      "index": 2,
+      "backend": "cpu",
+      "seed": 44,
+      "paper": {
+        "w": 174,
+        "h": 158
+      },
+      "pen": {
+        "color": "#267652",
+        "feed": 3000,
+        "penDown": 0,
+        "penUp": 5,
+        "penDelay": 100,
+        "width": 0.26,
+        "name": "ink"
+      },
+      "asset": {
+        "text": "0.5"
+      },
+      "camera": {
+        "kind": "orthographic",
+        "span": 6,
+        "eye": [
+          6,
+          6,
+          5
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "near": 0.1,
+        "far": 40,
+        "up": [
+          0,
+          0,
+          1
+        ]
+      },
+      "features": 12,
+      "svgBytes": 614,
+      "exactStandaloneMatch": true
+    },
+    {
+      "index": 2,
+      "backend": "gpu",
+      "seed": 44,
+      "paper": {
+        "w": 174,
+        "h": 158
+      },
+      "pen": {
+        "color": "#267652",
+        "feed": 3000,
+        "penDown": 0,
+        "penUp": 5,
+        "penDelay": 100,
+        "width": 0.26,
+        "name": "ink"
+      },
+      "asset": {
+        "text": "0.5"
+      },
+      "camera": {
+        "kind": "orthographic",
+        "span": 6,
+        "eye": [
+          6,
+          6,
+          5
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "near": 0.1,
+        "far": 40,
+        "up": [
+          0,
+          0,
+          1
+        ]
+      },
+      "features": 12,
+      "svgBytes": 614,
+      "paperToleranceMm": 0.005,
+      "exactStandaloneMatch": true
+    },
+    {
+      "index": 3,
+      "backend": "cpu",
+      "seed": 45,
+      "paper": {
+        "w": 191,
+        "h": 147
+      },
+      "pen": {
+        "color": "#553388",
+        "feed": 3000,
+        "penDown": 0,
+        "penUp": 5,
+        "penDelay": 100,
+        "width": 0.29000000000000004,
+        "name": "ink"
+      },
+      "asset": {
+        "text": "0.6499999999999999"
+      },
+      "camera": {
+        "kind": "perspective",
+        "fovDegrees": 51,
+        "eye": [
+          7,
+          6,
+          5
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "near": 0.1,
+        "far": 40,
+        "up": [
+          0,
+          0,
+          1
+        ]
+      },
+      "features": 12,
+      "svgBytes": 631,
+      "exactStandaloneMatch": true
+    },
+    {
+      "index": 3,
+      "backend": "gpu",
+      "seed": 45,
+      "paper": {
+        "w": 191,
+        "h": 147
+      },
+      "pen": {
+        "color": "#553388",
+        "feed": 3000,
+        "penDown": 0,
+        "penUp": 5,
+        "penDelay": 100,
+        "width": 0.29000000000000004,
+        "name": "ink"
+      },
+      "asset": {
+        "text": "0.6499999999999999"
+      },
+      "camera": {
+        "kind": "perspective",
+        "fovDegrees": 51,
+        "eye": [
+          7,
+          6,
+          5
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "near": 0.1,
+        "far": 40,
+        "up": [
+          0,
+          0,
+          1
+        ]
+      },
+      "features": 12,
+      "svgBytes": 631,
+      "paperToleranceMm": 0.005,
+      "exactStandaloneMatch": true
+    }
+  ],
+  "failedGenerationRejected": true,
+  "cancelledExecutionRejected": true,
+  "priorExportUnchanged": true,
+  "remainingExplicitBuffers": 0,
+  "limitation": "Cancellation is cooperative at asynchronous boundaries. Synchronous CPU refinement cannot process a new worker message until it yields; main Studio publication revisions separately reject superseded results. Device loss and worker restart recovery are deferred."
+}
