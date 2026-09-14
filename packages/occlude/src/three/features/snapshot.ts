@@ -6,7 +6,7 @@ import { clipSegment3, clipTriangle3, toCamera3, toPaper3, type CameraFrame3 } f
 import { cross3, dot3, lerp3, mul3, sub3, unit3, type Triangle3, type Vec3 } from '../math.js';
 import { transformSurface3 } from '../geometry/model.js';
 import type { Attributes3, Surface3 } from '../geometry/surface.js';
-import { occlusionVolume3, type Interval3, type OcclusionVolume3 } from '../visibility/interval.js';
+import { occlusionVolume3, type Interval3, type SegmentBasis3, type OcclusionVolume3 } from '../visibility/interval.js';
 import { ProjectedIndex3, projectedBounds3, type Bounds3 } from '../visibility/index.js';
 
 export const FeatureKind3 = { boundary: 1, silhouette: 2, crease: 4, marked: 8, wire: 16, section: 32, hatch: 64 } as const;
@@ -15,6 +15,8 @@ export interface WireObject3 { readonly id: string; readonly points: readonly Ve
 export interface Feature3 {
   /** Captured model-space curve data before camera clipping, when generated. */
   readonly curve?: SurfaceCurveSegment3;
+  /** Camera-space affine source terms, retained through near/far clipping. */
+  readonly basis?: SegmentBasis3;
   readonly id: string;
   readonly objectId: string;
   readonly sourceId: string;
@@ -52,7 +54,25 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
   const add = (feature: Omit<Feature3, 'range'>) => {
     const range = clipSegment3(feature.a, feature.b, frame.camera.near, frame.camera.far);
     if (!range || Math.hypot(...sub3(feature.a, feature.b)) === 0) return;
-    features.push(Object.freeze({ ...feature, a: Object.freeze([...lerp3(feature.a, feature.b, range[0])]) as Vec3, b: Object.freeze([...lerp3(feature.a, feature.b, range[1])]) as Vec3, range: Object.freeze(range), support: Object.freeze([...feature.support]), endpoints: Object.freeze([...feature.endpoints]) as readonly [string, string], faceAttributes: Object.freeze([...feature.faceAttributes]) }));
+    const basisAt = (t: number) => {
+      const basis = feature.basis!;
+      if (t === 0) return basis[0];
+      if (t === 1) return basis[1];
+      return Object.freeze([
+        ...basis[0].map(v => Object.freeze({ point: v.point, weight: v.weight * (1-t) })),
+        ...basis[1].map(v => Object.freeze({ point: v.point, weight: v.weight * t })),
+      ]);
+    };
+    features.push(Object.freeze({
+      ...feature,
+      a: Object.freeze([...lerp3(feature.a, feature.b, range[0])]) as Vec3,
+      b: Object.freeze([...lerp3(feature.a, feature.b, range[1])]) as Vec3,
+      range: Object.freeze(range),
+      basis: feature.basis && Object.freeze([basisAt(range[0]), basisAt(range[1])]) as SegmentBasis3,
+      support: Object.freeze([...feature.support]),
+      endpoints: Object.freeze([...feature.endpoints]) as readonly [string, string],
+      faceAttributes: Object.freeze([...feature.faceAttributes]),
+    }));
   };
   for (const object of objects) {
     if(object.curves)validateSurfaceCurves3(object.curves,object.surface);
@@ -113,9 +133,10 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     if(hatch)validateSurfaceCurves3(hatch,object.surface);
     for(const curve of [...object.curves?.segments??[],...hatch?.segments??[]]) {
       const position=(p:SurfaceCurvePoint3):Vec3=>p.vertices.reduce((sum,v,i)=>sum.map((x,k)=>x+positions[v][k]*p.weights[i]) as unknown as Vec3,[0,0,0] as Vec3);
+      const basis = Object.freeze([curve.a, curve.b].map(p => Object.freeze(p.vertices.flatMap((v,i) => p.weights[i] === 0 ? [] : [Object.freeze({ point: Object.freeze([...positions[v]]) as Vec3, weight: p.weights[i] })])))) as SegmentBasis3;
       const faces=[...new Set(curve.triangles.map(i=>surface.triangles[i].face))];
       const support=[...new Set(curve.triangles.flatMap(i=>{const face=surface.triangles[i].face;return planar[face]?faceTriangles[face]:[i];}))].map(i=>triangleIds[i]);
-      add({id:key(object.id,curve.id),objectId:object.id,sourceId:curve.id,flags:curve.kind==='hatch'?FeatureKind3.hatch:FeatureKind3.section,curve,creaseAngle:0,a:position(curve.a),b:position(curve.b),endpoints:[key(object.id,'curve',curve.a.id),key(object.id,'curve',curve.b.id)],support,attributes:attributes({...object.attributes,...curve.attributes}),faceAttributes:faces.map(i=>faceAttrs[i])});
+      add({id:key(object.id,curve.id),objectId:object.id,sourceId:curve.id,flags:curve.kind==='hatch'?FeatureKind3.hatch:FeatureKind3.section,curve,basis,creaseAngle:0,a:position(curve.a),b:position(curve.b),endpoints:[key(object.id,'curve',curve.a.id),key(object.id,'curve',curve.b.id)],support,attributes:attributes({...object.attributes,...curve.attributes}),faceAttributes:faces.map(i=>faceAttrs[i])});
     }
   }
   for (const wire of wires) for (let i = 0; i + 1 < wire.points.length; i++) {

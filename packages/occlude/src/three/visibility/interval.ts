@@ -1,5 +1,9 @@
 import { orient2d, orient3d } from 'robust-predicates';
 import { cross3, dot3, mul3, sub3, type Triangle3, type Vec3 } from '../math.js';
+/** Source interpolation is kept symbolic until the halfspace evaluation, so
+ * rounding a reconstructed point cannot detach it from its supporting edge. */
+export type AffinePoint3 = readonly { readonly point: Vec3; readonly weight: number }[];
+export type SegmentBasis3 = readonly [AffinePoint3, AffinePoint3];
 export type Interval3 = readonly [number, number];
 /** Interior is n·p + w >= 0. The last plane is strictly behind the surface. */
 export type Plane3 = readonly [number, number, number, number];
@@ -33,7 +37,7 @@ export function occlusionVolume3(triangle: Triangle3, perspective: boolean): Occ
 
 /** f64 reference. Exact support is excluded by provenance before this call;
  * coplanar distinct geometry does not obscure ink on the same plane. */
-export function hiddenInterval3(a: Vec3, b: Vec3, volume: OcclusionVolume3): Interval3 | null {
+export function hiddenInterval3(a: Vec3, b: Vec3, volume: OcclusionVolume3, basis?: SegmentBasis3): Interval3 | null {
   let lo = 0, hi = 1;
   for (let i = 0; i < volume.planes.length; i++) {
     const p = volume.planes[i];
@@ -49,7 +53,11 @@ export function hiddenInterval3(a: Vec3, b: Vec3, volume: OcclusionVolume3): Int
       const side = (q: Vec3) => volume.perspective ? determinant([0,0,0],u,v,q) : orient2d(u[0],u[1],v[0],v[1],q[0],q[1]);
       return Math.sign(side(other)) * side(point);
     };
-    const va = value(a), vb = value(b);
+    // Evaluate the affine source representation before rounding it to a point.
+    // In particular, a curve endpoint on a mesh edge stays on that edge.
+    const evaluate = (point: Vec3, terms?: AffinePoint3) => terms
+      ? terms.reduce((sum, term) => sum + term.weight * value(term.point), 0) : value(point);
+    const va = evaluate(a, basis?.[0]), vb = evaluate(b, basis?.[1]);
     if (i === 3 && va <= 0 && vb <= 0) return null;
     if (va < 0 && vb < 0) return null;
     if (va < 0) lo = Math.max(lo, va / (va - vb));

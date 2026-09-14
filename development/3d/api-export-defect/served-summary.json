@@ -1,0 +1,28 @@
+{
+  "base": "http://127.0.0.1:5273",
+  "passed": true,
+  "zeroLengthPaths": 0,
+  "svgBytes": 18344,
+  "stats": {
+    "modeling": [],
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "scenes": [
+      {
+        "candidates": 6104,
+        "dispatches": 1,
+        "refinements": 4876,
+        "transferBytes": 683664,
+        "wallMs": 218.60000002384186,
+        "gpuMs": 0.013568,
+        "paperToleranceMm": 0.005,
+        "parameterTolerance": 0.00001
+      }
+    ]
+  }
+}

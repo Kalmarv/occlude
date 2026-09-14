@@ -1,0 +1,112 @@
+{
+  "construction": [
+    {
+      "camera": {
+        "kind": "orthographic",
+        "span": 4.6,
+        "eye": [
+          7.002452800089903,
+          3.921911867185166,
+          6.798770357540987
+        ],
+        "target": [
+          0,
+          0,
+          0.4
+        ],
+        "near": 0.1,
+        "far": 30,
+        "up": [
+          0,
+          0,
+          1
+        ]
+      },
+      "objects": 2,
+      "triangles": 24,
+      "wires": 24
+    }
+  ],
+  "cameras3": {
+    "paper-study": {
+      "kind": "orthographic",
+      "span": 4.6,
+      "eye": [
+        7.002452800089903,
+        3.921911867185166,
+        6.798770357540987
+      ],
+      "target": [
+        0,
+        0,
+        0.4
+      ],
+      "near": 0.1,
+      "far": 30,
+      "up": [
+        0,
+        0,
+        1
+      ]
+    }
+  },
+  "three": {
+    "modeling": [],
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "scenes": [
+      {
+        "candidates": 6104,
+        "dispatches": 1,
+        "refinements": 4964,
+        "transferBytes": 683664,
+        "wallMs": 180.5,
+        "gpuMs": 0.014592,
+        "paperToleranceMm": 0.005,
+        "parameterTolerance": 1e-05
+      }
+    ]
+  },
+  "paper": {
+    "w": 215.9,
+    "h": 279.4,
+    "color": "#F5F0E6"
+  },
+  "pens": [
+    {
+      "width": 0.25,
+      "color": "#18202A",
+      "feed": 3000,
+      "penDown": 0,
+      "penUp": 5,
+      "penDelay": 100,
+      "name": "graphite"
+    },
+    {
+      "width": 0.25,
+      "color": "#A84932",
+      "feed": 3000,
+      "penDown": 0,
+      "penUp": 5,
+      "penDelay": 100,
+      "name": "rust"
+    },
+    {
+      "color": "#234B65",
+      "feed": 2100,
+      "penDown": 0,
+      "penUp": 5,
+      "penDelay": 140,
+      "width": 0.4,
+      "name": "caption"
+    }
+  ],
+  "seedUsed": "42",
+  "planHash": "f60e34b083f12abc92ffc09dbbabeb7721ff33f97d5d5253dbf50fa4b4ce4587",
+  "zeroLengthPaths": 45
+}

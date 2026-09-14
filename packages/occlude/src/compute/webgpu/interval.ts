@@ -1,9 +1,9 @@
 /// <reference types="@webgpu/types" />
-import { hiddenInterval3, type Interval3, type OcclusionVolume3 } from '../../three/visibility/interval.js';
+import { hiddenInterval3, type Interval3, type SegmentBasis3, type OcclusionVolume3 } from '../../three/visibility/interval.js';
 import { type Vec3 } from '../../three/math.js';
 import { intervalShader } from './intervalShader.js';
 
-export interface VisibilityPair3 { readonly a: Vec3; readonly b: Vec3; readonly volume: OcclusionVolume3 }
+export interface VisibilityPair3 { readonly a: Vec3; readonly b: Vec3; readonly volume: OcclusionVolume3; readonly basis?: SegmentBasis3 }
 export interface GpuIntervalResult3 {
   readonly intervals: readonly (Interval3 | null)[];
   readonly dispatches: number;
@@ -63,7 +63,7 @@ export class GpuIntervals3 {
   classify(pairs: readonly VisibilityPair3[], options: GpuIntervalOptions3 = {}): Promise<GpuIntervalResult3> {
     const tolerance = options.parameterTolerance ?? 1e-5;
     if (!(tolerance > 0) || !Number.isFinite(tolerance)) return Promise.reject(new Error('parameter tolerance must be positive and finite'));
-    const owned = pairs.map(p => ({ a: [...p.a] as Vec3, b: [...p.b] as Vec3, volume: structuredClone(p.volume) }));
+    const owned = pairs.map(p => ({ a: [...p.a] as Vec3, b: [...p.b] as Vec3, volume: structuredClone(p.volume), basis: p.basis && structuredClone(p.basis) }));
     const job = this.tail.then(() => this.run(owned, { ...options, parameterTolerance: tolerance }));
     this.tail = job.catch(() => {});
     return job;
@@ -127,7 +127,7 @@ export class GpuIntervals3 {
       transferBytes += packed.byteLength + read.byteLength + (this.timestamps ? 16 : 0);
       for (let i = 0; i < batch.length; i++) {
         if (read[i * 4 + 2] !== 0 || !Number.isFinite(read[i * 4]) || !Number.isFinite(read[i * 4 + 1])) {
-          refinements++; const p = batch[i]; intervals.push(hiddenInterval3(p.a, p.b, p.volume));
+          refinements++; const p = batch[i]; intervals.push(hiddenInterval3(p.a, p.b, p.volume, p.basis));
         } else intervals.push(read[i * 4 + 3] === 0 ? null : [read[i * 4], read[i * 4 + 1]]);
       }
     }

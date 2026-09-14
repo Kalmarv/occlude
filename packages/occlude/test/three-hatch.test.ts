@@ -76,3 +76,24 @@ describe('physical surface hatch',()=>{
     expect(()=>classify(hatch3(source,[{id:'too-many',spacing:mm(.001),angle:0}],{maxSegments:10}))).toThrow('capacity');
   });
 });
+
+// A convex box gives an independent visibility oracle: with the eye in +XYZ,
+// every interior hatch on its -X, -Y and -Z faces is fully hidden.
+describe('hatch endpoint incidence', () => {
+  const eye = [7.002452800089903, 3.921911867185166, 6.798770357540987] as const;
+  for (const kind of ['orthographic', 'perspective'] as const) {
+    for (const near of [.1, 1]) {
+      it(`keeps hidden box faces empty with ${kind} projection and near ${near}`, () => {
+        const camera: Camera3 = { kind, eye, target: [0,0,.4], up: [0,0,1], near, far:30,
+          ...(kind === 'orthographic' ? {span:4.6} : {fovDegrees:35}) } as Camera3;
+        const hatch = hatch3(box3([2.8,1.5,1.6]), [{id:'rows', spacing:mm(1.8), angle:35}]);
+        const result = classify(hatch, cameraFrame3(camera, {x:10.795,y:13.97,width:194.31,height:251.46}));
+        const back = result.features.filter(r => select(r.feature) && ['f0','f2','f5'].includes(String(r.feature.attributes.hatchFace)));
+        expect(back.length).toBeGreaterThan(50);
+        expect(back.every(r => r.visible.length === 0)).toBe(true);
+        expect(constructStrokes3(result, [{id:'hidden-faces', stroke:'ink', select:f=>select(f)&&['f0','f2','f5'].includes(String(f.attributes.hatchFace))}])).toHaveLength(0);
+        expect(result.features.some(r => select(r.feature) && r.visible.length > 0)).toBe(true);
+      });
+    }
+  }
+});

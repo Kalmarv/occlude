@@ -82,6 +82,19 @@ describe('geometric hidden intervals', () => {
       expect(occlusionVolume3([[0, 0, -2], [0, 0, -2], [0, 0, -2]], perspective)).toBeNull();
     });
   }
+  it('retains real endpoint gaps and depth separation with affine source terms', () => {
+    const volume = occlusionVolume3(triangle, false)!;
+    const terms = (p: Vec3) => [{point:[p[0],p[1]-.2,p[2]] as Vec3,weight:.5}, {point:[p[0],p[1]+.2,p[2]] as Vec3,weight:.5}];
+    const a: Vec3 = [0,0,-4], b: Vec3 = [.5+1e-10,0,-4];
+    const hidden = hiddenInterval3(a,b,volume,[terms(a),terms(b)])!;
+    expect(hidden[0]).toBe(0);
+    expect(1-hidden[1]).toBeGreaterThan(0);
+    expect(1-hidden[1]).toBeLessThan(1e-8);
+    for (const offset of [-1e-12,0,1e-12]) {
+      const p: Vec3 = [-.1,0,-2+offset], q: Vec3 = [.1,0,-2+offset];
+      expect(hiddenInterval3(p,q,volume,[terms(p),terms(q)])).toEqual(offset < 0 ? [0,1] : null);
+    }
+  });
   it('unions overlap without closing a positive gap', () => {
     expect(unionIntervals3([[0.2, 0.4], [0.3, 0.5], [0.8, 1]])).toEqual([[0.2, 0.5], [0.8, 1]]);
     expect(visibleIntervals3([[0.2, 0.5], [0.50000000001, 0.8]])).toEqual([[0, 0.2], [0.5, 0.50000000001], [0.8, 1]]);
