@@ -7,7 +7,7 @@ No completion claim. The scope below remains required until directly verified.
 | Checkpoint | Required outcome | Current state / evidence |
 | --- | --- | --- |
 | 1. Contract and reuse | Inventory existing helpers, settle coordinate/domain contracts, actual target examples | Initial inspection and contract in `SURFACE-CONTRACT.md`; latest dev and isolation verified. Examples pending implementation. |
-| 2. Shared data/API | Collections, topology, frozen edits, query fields, orientation, corners, surface locations and multi-source support | Partial: selection algebra, captured query fields, attribute maps/frozen writes, point/sample passes and typed mesh topology relationships implemented. All nine Docker gates and 21 served live examples pass. See `surface-foundations/` and `attributes-topology/`. Orientation, corner/location and multi-source support remain pending. |
+| 2. Shared data/API | Collections, topology, frozen edits, query fields, orientation, corners, surface locations and multi-source support | Partial: selection algebra, captured query fields, attribute maps/frozen writes, point/sample passes, typed mesh topology, orientation values and model-space point grids implemented. All nine Docker gates and 22 served live examples pass. See `surface-foundations/` and `attributes-topology/`. Corner/location and multi-source support remain pending. |
 | 3. M6 intersections | Candidate BVH, exact contacts/policies, graphs, both-source support, editable demo and independent oracle | Required, not implemented. |
 | 4. M7 mapping | Primitive/custom corners/UVs and transfers; vector patterns/images; rebind and repeated prototypes | Required, not implemented. |
 | 5. M7 tracing/tone | General tangent tracer/curvature/spacing, crosshatch, isolines, CPU/GPU surface evaluation, curved/custom demos | Required, not implemented. |
@@ -68,3 +68,20 @@ Next: orientation values, generic corners and their frozen edits/transfers,
 owned surface locations and multi-source curve support. M6 intersections, M7
 mapping/tracing/tone/GPU evaluation and selected M8 region extrusion remain
 required. No full milestone completion claim.
+
+
+## Orientation and point-grid slice
+
+Axis-angle/alignment values now pass through modeling and instances without
+Euler conversion, with explicit composition, inverse, references/twist and
+previous-frame transport. A user-requested centered point-grid factory replaces
+the regular instance example's modulo arithmetic and preserves its ink exactly.
+The sampled-tree example intentionally changes roll to shortest-turn alignment;
+all other 240 prior stable hashes are unchanged. New `three#21` demonstrates
+alignment and twist. There are 242 stable hashes and two unstable examples.
+
+Eleven new orientation/grid tests and existing geometry/instance regressions
+pass. All nine Docker gates and 22 served Studio examples pass on the isolated
+dev build. Evidence and the deliberate ink-change explanation are in
+`orientation-grid/`. Generic corners, surface locations/multi-source curves and
+the entire M6/M7/selected-M8 implementation/integration scope remain required.

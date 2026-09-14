@@ -1,3 +1,4 @@
+import type {RotationInput} from '../rotation.js';
 import {inheritTopology3} from '../geometry/topology.js';
 import {meshPoints,meshEdges,meshFaces,type MeshPoints,type MeshEdges,type MeshFaces,type MeshPointRow,type MeshEdgeRow,type MeshFaceRow} from './topology.js';
 import {assembleSurface3,surface3,box3,type Surface3,type SurfacePoint3,type Attributes3,type Attribute3,type Provenance3} from '../geometry/surface.js';
@@ -88,7 +89,7 @@ export class PointGeometry<P extends Attributes3={}> {
   attributes<A extends Attributes3>(fields:AttributeFields<PointRow<P>,A>):PointGeometry<Omit<P,keyof A>&A>{return new PointGeometry<Omit<P,keyof A>&A>(setPointFields(this.surface,fields),{...this,history:[]});}
   displace(field:Field<PointRow<P>,Vec3>):PointGeometry<P>{return new PointGeometry(displaced(this.surface,field),{...this,history:[]});}
   translate(offset:Vec3):PointGeometry<P>{return new PointGeometry(transformSurface3(this.surface,{translate:offset}),{...this,history:[]});}
-  rotate(angles:Vec3,origin:Vec3=[0,0,0]):PointGeometry<P>{return new PointGeometry(transformSurface3(this.surface,{rotate:angles,origin}),{...this,history:[]});}
+  rotate(angles:RotationInput,origin:Vec3=[0,0,0]):PointGeometry<P>{return new PointGeometry(transformSurface3(this.surface,{rotate:angles,origin}),{...this,history:[]});}
   scale(scale:number|Vec3,origin:Vec3=[0,0,0]):PointGeometry<P>{return new PointGeometry(transformSurface3(this.surface,{scale:typeof scale==='number'?[scale,scale,scale]:scale,origin}),{...this,history:[]});}
   withKey(key:string):PointGeometry<P>{return new PointGeometry(this.surface,{key,iteration:this.iteration,history:this.history});}
   steps(count:number,rule:PointRule<StepAttributes<P>>,...passesAndOptions:(PointRule<StepAttributes<P>>|StepsOptions)[]):PointGeometry<StepAttributes<P>>{
@@ -168,7 +169,7 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
   private changed(surface:Surface3):CurveGeometry<P,E>{return new CurveGeometry(surface,surface.edges.map((_,i)=>i),{...this,history:[]});}
   displace(field:Field<PointRow<P>,Vec3>):CurveGeometry<P,E>{return this.changed(displaced(this.surface,field));}
   translate(offset:Vec3):CurveGeometry<P,E>{return this.changed(transformSurface3(this.surface,{translate:offset}));}
-  rotate(angles:Vec3,origin:Vec3=[0,0,0]):CurveGeometry<P,E>{return this.changed(transformSurface3(this.surface,{rotate:angles,origin}));}
+  rotate(angles:RotationInput,origin:Vec3=[0,0,0]):CurveGeometry<P,E>{return this.changed(transformSurface3(this.surface,{rotate:angles,origin}));}
   scale(scale:number|Vec3,origin:Vec3=[0,0,0]):CurveGeometry<P,E>{return this.changed(transformSurface3(this.surface,{scale:typeof scale==='number'?[scale,scale,scale]:scale,origin}));}
   withKey(key:string):CurveGeometry<P,E>{return new CurveGeometry(this.surface,this.surface.edges.map((_,i)=>i),{...this,key});}
   steps(count:number,rule:CurveRule<StepAttributes<P>,StepAttributes<E>>,...passesAndOptions:(CurveRule<StepAttributes<P>,StepAttributes<E>>|StepsOptions)[]):CurveGeometry<StepAttributes<P>,StepAttributes<E>>{
@@ -266,7 +267,7 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   subdivide(levels=1,options:SubdivisionOptions={}):Mesh<P,Partial<E>,F>{return new Mesh<P,Partial<E>,F>(subdivideSurface(this.surface,levels,options,this.transfers),{...this,history:[]});}
   displace(field:Field<MeshPointRow<P,E,F>,Vec3>):Mesh<P,E,F>{return new Mesh(displaced(this.surface,field,[...this.points]),{...this,history:[]});}
   translate(offset:Vec3):Mesh<P,E,F>{return new Mesh(transformSurface3(this.surface,{translate:offset}),{...this,history:[]});}
-  rotate(angles:Vec3,origin:Vec3=[0,0,0]):Mesh<P,E,F>{return new Mesh(transformSurface3(this.surface,{rotate:angles,origin}),{...this,history:[]});}
+  rotate(angles:RotationInput,origin:Vec3=[0,0,0]):Mesh<P,E,F>{return new Mesh(transformSurface3(this.surface,{rotate:angles,origin}),{...this,history:[]});}
   scale(scale:number|Vec3,origin:Vec3=[0,0,0]):Mesh<P,E,F>{return new Mesh(transformSurface3(this.surface,{scale:typeof scale==='number'?[scale,scale,scale]:scale,origin}),{...this,history:[]});}
   withKey(key:string):Mesh<P,E,F>{return new Mesh(this.surface,{...this,key});}
   steps(count:number,rule:MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>>,...passesAndOptions:(MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>>|StepsOptions)[]):Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>>{

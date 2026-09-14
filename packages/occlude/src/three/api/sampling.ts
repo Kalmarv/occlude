@@ -1,3 +1,4 @@
+import type {RotationInput} from '../rotation.js';
 import {Mesh,PointGeometry,evaluate,captureAttributeFields,pointSteps,type PointSnapshot,type PointRule,type StepsOptions,type StepAttributes,type AttributeFields,type EdgeAttributes,type FaceRow,type Field,type PointRow,type GeometryOptions} from './mesh.js';
 import {Collection} from './collection.js';
 import {surface3,assembleSurface3,type Attributes3,type Surface3,type SurfacePoint3,type Attribute3} from '../geometry/surface.js';
@@ -41,7 +42,7 @@ export class SurfaceSamples<P extends Attributes3={},F extends Attributes3={}> e
   }
   displace(field:Field<SurfaceSampleRow<P,F>,Vec3>):SurfaceSamples<P,F>{return this.changed(super.displace(p=>evaluate(field,this.state.rows[p.index])));}
   translate(offset:Vec3):SurfaceSamples<P,F>{return this.changed(super.translate(offset));}
-  rotate(angles:Vec3,origin:Vec3=[0,0,0]):SurfaceSamples<P,F>{return this.changed(super.rotate(angles,origin));}
+  rotate(angles:RotationInput,origin:Vec3=[0,0,0]):SurfaceSamples<P,F>{return this.changed(super.rotate(angles,origin));}
   scale(scale:number|Vec3,origin:Vec3=[0,0,0]):SurfaceSamples<P,F>{return this.changed(super.scale(scale,origin));}
   get history():readonly PointSnapshot<P,SurfaceSamples<P,F>>[]{return super.history as readonly PointSnapshot<P,SurfaceSamples<P,F>>[];}
   steps(count:number,rule:PointRule<StepAttributes<P>,SurfaceSampleRow<StepAttributes<P>,F>,SurfaceSamples<StepAttributes<P>,F>>,...passesAndOptions:(PointRule<StepAttributes<P>,SurfaceSampleRow<StepAttributes<P>,F>,SurfaceSamples<StepAttributes<P>,F>>|StepsOptions)[]):SurfaceSamples<StepAttributes<P>,F>{

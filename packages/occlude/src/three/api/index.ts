@@ -23,3 +23,8 @@ export type {SweepOptions} from './sweep.js';
 export type {SurfaceSamples,SurfaceSample,SurfaceSampleRow,SurfaceSamplingOptions,SurfaceScatterOptions,SamplingGeneration} from './sampling.js';
 
 export type {MeshPointRow,MeshEdgeRow,MeshFaceRow,MeshPoints,MeshEdges,MeshFaces} from './topology.js';
+
+export {axisAngle,alignAxis} from '../rotation.js';
+export type {Rotation,RotationData,RotationInput,AlignAxisOptions,Axis3,Quaternion3,Vector3} from '../rotation.js';
+export {grid} from './grid.js';
+export type {GridOptions} from './grid.js';

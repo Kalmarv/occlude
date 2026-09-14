@@ -443,8 +443,8 @@ export default sketch({seed:42,paper:paper({width:inch(8.5),height:inch(11),colo
 
 `instanceOnPoints(prototype, points, {scale?, rotate?, offset?, key?})` places
 one shared mesh prototype at every selected point. The optional fields read
-the source point rows. Scale accepts a scalar or triple; rotation uses XYZ
-Euler degrees about the prototype origin; offset is added to the point's world
+the source point rows. Scale accepts a scalar or triple; rotation accepts XYZ
+Euler degrees or a rotation value about the prototype origin; offset is added to the point's world
 position. The resulting value owns transforms and attributes and retains its
 source rows. No prototype topology is copied while placing or editing instances.
 
@@ -479,9 +479,9 @@ An instance value has no editable mesh faces: realize it before mesh operations.
 
 ```ts live
 import {sketch,pen,mm} from 'occlude';
-import {pointCloud,cone,instanceOnPoints,view,perspective} from 'occlude/3d';
+import {grid,cone,instanceOnPoints,view,perspective} from 'occlude/3d';
 export default sketch({seed:42,pens:{ink:pen({width:mm(.25),color:'#18202A'})}},t=>{
-  const sites=pointCloud(Array.from({length:36},(_,i)=>[(i%6-2.5)*1.2,(Math.floor(i/6)-2.5)*1.2,0]))
+  const sites=grid({cols:6,rows:6,spacing:1.2})
     .attribute('height',()=>t.rnd(.5,1.8));
   const forms=instanceOnPoints(cone(.4,1),sites.points,{scale:p=>[1,1,p.height]});
   return view(forms,{camera:perspective({eye:[8,10,8],target:[0,0,.5],fovDegrees:50}),stroke:'ink'});
@@ -764,7 +764,7 @@ This is CPU modeling; the resulting instances and view use the existing renderer
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { plane, cone, sphere, instanceOnPoints, view, orthographic } from 'occlude/3d';
+import { plane, cone, sphere, alignAxis, instanceOnPoints, view, orthographic } from 'occlude/3d';
 
 export default sketch({ seed: 42, pens: {
   ink: pen({ width: mm(0.3), color: '#18202A' }),
@@ -779,11 +779,7 @@ export default sketch({ seed: 42, pens: {
   }).attribute('height', p => 0.8 + 0.4 * t.noise(p.x, p.y));
   const trees = instanceOnPoints(cone(0.14, 0.7, { segments: 8 }).translate([0, 0, 0.35]), sites.points, {
     scale: p => [1, 1, p.height],
-    rotate: p => {
-      const n = p.sample.normal;
-      return [0, Math.acos(Math.max(-1, Math.min(1, n[2]))) * 180 / Math.PI,
-        Math.atan2(n[1], n[0]) * 180 / Math.PI];
-    },
+    rotate: p => alignAxis('z', p.sample.normal),
   });
   const marks = t.sample(terrain, { count: 12 });
   const stones = instanceOnPoints(sphere(0.08, { segments: 8, rings: 4 }), marks.points);
@@ -1017,3 +1013,75 @@ Adjacency is cached by topology revision and reused through point motion and
 attribute edits. Measurements still follow the current positions. Extraction,
 subdivision, winding changes and topology edits establish a new revision.
 Point-only geometry does not acquire mesh face or edge capabilities.
+
+
+### Axis rotations and alignment
+
+`axisAngle(axis, degrees)` creates a right-handed rotation around `'x'`, `'y'`,
+`'z'` or a nonzero direction. `alignAxis(localAxis, direction, options?)` rotates
+one local axis onto a target direction. Directions may be triples or point rows.
+Both return immutable rotation values accepted by mesh/curve/point `.rotate`
+and instance `rotate` fields. Geometry's optional second `.rotate` argument is
+its origin pivot; instance transforms scale about the prototype origin, rotate,
+then translate. Negative scale still mirrors geometry and reverses winding.
+
+`rotation.apply(vector)` rotates a vector about zero. `a.then(b)` applies `a`
+first, then `b`; `.inverse()` undoes a rotation. These values retain quaternion
+data through composition and serialization; no Euler conversion is required.
+For example, a rotated curve-frame normal can be passed through the existing
+`sweep(..., { normal: orientation.apply([1, 0, 0]) })` option.
+
+Alignment defaults to the shortest turn, with a deterministic local reference
+for exact antiparallel directions. That reference depends on the fixed local
+axis, not on which coordinate component of the target happens to be largest.
+No stateless orientation convention is continuous at every possible direction.
+For a sequence crossing the antipodal singularity, use
+`alignAxis('z', tangent, { previous: orientation })` to transport the preceding
+frame with the shortest incremental turn.
+
+Use `{ up: worldReference, localUp: localReference }` to constrain roll instead.
+References are projected perpendicular to their respective aligned axes;
+parallel references are rejected. Omitting `localUp` uses a fixed local
+perpendicular. An up constraint and `previous` are mutually exclusive. Optional
+`twist` adds a final turn in degrees around the resulting world direction.
+With `previous`, that twist is incremental, so do not repeatedly supply an
+absolute twist angle unless accumulating it is intended.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { box, pointCloud, axisAngle, alignAxis, instanceOnPoints, view, orthographic } from 'occlude/3d';
+
+export default sketch({ seed: 42, pens: {
+  ink: pen({ width: mm(0.25), color: '#18202A' }),
+} }, t => {
+  const sites = pointCloud(t.times(7, (_, u) => [4 * (u - 0.5), 0, 0]));
+  const fin = box([0.12, 0.55, 0.8]).translate([0, 0, 0.4]);
+  const fins = instanceOnPoints(fin, sites.points, {
+    rotate: p => alignAxis('z', [p.x * 0.5, 0.3, 1], {
+      localUp: [0, 1, 0], up: [0, 1, 0], twist: p.index * 10,
+    }),
+  });
+  const base = box([4.8, 0.8, 0.12])
+    .rotate(axisAngle('z', 4)).translate([0, 0, -0.12]);
+  return view([base, fins], {
+    camera: orthographic({ eye: [5, 7, 5], target: [0, 0, 0.3], span: 6.2 }),
+    stroke: 'ink',
+  });
+});
+```
+
+
+### Regular point grids
+
+`grid({ cols, rows, layers?: 1, spacing?: 1, maxPoints?: 100000, key? })`
+from `occlude/3d` creates centered point geometry in model coordinates. A scalar
+spacing applies to every axis; an XYZ triple sets each axis separately. One
+layer gives an XY grid. Counts are nonnegative integers, spacing is positive,
+and the point budget is checked before allocation. A zero count gives an empty
+grid. Use ordinary `.translate`, `.rotate`, `.scale`, `.attributes` and `.steps`
+to place and edit the result.
+
+Each point has `i`, `j` and `k` attributes for its column, row and layer. X varies
+fastest, then Y, then Z; filtering preserves the original coordinates and IDs.
+This is a point domain for placement and construction. `t.grid` continues to
+lay out paper cells, and mesh topology remains explicit through mesh factories.

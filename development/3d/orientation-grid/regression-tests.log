@@ -1,0 +1,14 @@
+
+ RUN  v2.1.9 /home/kalmarv/containers/occlude-3d/packages/occlude
+
+ ✓ test/three-mesh-api.test.ts (6 tests) 40ms
+ ✓ test/three-rotation.test.ts (8 tests) 56ms
+ ✓ test/three-curves-api.test.ts (6 tests) 82ms
+ ✓ test/three-instances-api.test.ts (7 tests) 333ms
+ ✓ test/three-sampling-api.test.ts (7 tests) 1238ms
+   ✓ surface samples and scatter > samples triangle interiors uniformly and interpolates numeric columns without averaging labels 904ms
+
+ Test Files  5 passed (5)
+      Tests  34 passed (34)
+   Start at  15:09:24
+   Duration  2.79s (transform 1.26s, setup 0ms, collect 4.95s, tests 1.75s, environment 1ms, prepare 444ms)

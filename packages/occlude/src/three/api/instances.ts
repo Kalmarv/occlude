@@ -1,3 +1,4 @@
+import {rotation3,type RotationInput} from '../rotation.js';
 import {Mesh,attributeName,attributeValue,evaluate,type EdgeAttributes,type Field,type GeometryOptions,type PointRow} from './mesh.js';
 import {Collection} from './collection.js';
 import {identity} from './identity.js';
@@ -5,13 +6,13 @@ import {assembleSurface3,type Attribute3,type Attributes3,type SurfacePoint3,typ
 import {transformSurface3} from '../geometry/model.js';
 import {add3,finite3,type Vec3} from '../math.js';
 
-export interface InstanceTransform {readonly translate:Vec3;readonly rotate:Vec3;readonly scale:Vec3}
-export interface InstanceTransformInput {readonly translate?:Vec3;readonly rotate?:Vec3;readonly scale?:number|Vec3}
+export interface InstanceTransform {readonly translate:Vec3;readonly rotate:RotationInput;readonly scale:Vec3}
+export interface InstanceTransformInput {readonly translate?:Vec3;readonly rotate?:RotationInput;readonly scale?:number|Vec3}
 interface InstanceData<A extends Attributes3,S extends Attributes3,R extends PointRow<{}>=PointRow<S>> {readonly id:string;readonly source:R;readonly attributes:Readonly<A>;readonly transform:InstanceTransform}
 export type InstanceRow<A extends Attributes3={},S extends Attributes3={},R extends PointRow<{}>=PointRow<S>> = Readonly<Omit<A,'id'|'index'|'source'|'attributes'|'transform'> & InstanceData<A,S,R> & {index:number}>;
 export interface InstanceOnPointsOptions<S extends Attributes3,R extends PointRow<{}>=PointRow<S>> extends GeometryOptions {
   readonly scale?:Field<R,number|Vec3>;
-  readonly rotate?:Field<R,Vec3>;
+  readonly rotate?:Field<R,RotationInput>;
   /** World-space offset from each source point. */
   readonly offset?:Field<R,Vec3>;
 }
@@ -23,7 +24,7 @@ function transform(input:InstanceTransformInput):InstanceTransform {
   if(!input||typeof input!=='object'||Array.isArray(input))throw new Error('instance transform must be an object');
   const s=input.scale??1,scale=vector(typeof s==='number'?[s,s,s]:s);
   if(scale.some(v=>v===0))throw new Error('instance scale must be nonsingular');
-  return Object.freeze({translate:vector(input.translate??[0,0,0]),rotate:vector(input.rotate??[0,0,0]),scale});
+  return Object.freeze({translate:vector(input.translate??[0,0,0]),rotate:Array.isArray(input.rotate??[0,0,0])?vector((input.rotate??[0,0,0]) as Vec3):rotation3(input.rotate!),scale});
 }
 function ownAttributes<A extends Attributes3>(attributes:A):Readonly<A>{
   const out:Attributes3={};for(const [name,value] of Object.entries(attributes)){
@@ -53,7 +54,7 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
     return new Instances<P,E,F,Omit<A,Name>&Record<Name,Value>,S,R>(this.prototype,rows as unknown as InstanceData<Omit<A,Name>&Record<Name,Value>,S,R>[],this);
   }
   /** Replace supplied S/R/T components; omitted components retain their values.
-   * Rotation is XYZ Euler degrees about the prototype origin, before placement. */
+   * Rotation accepts XYZ Euler degrees or a rotation value about the prototype origin. */
   transform(field:Field<InstanceRow<A,S,R>,InstanceTransformInput>):Instances<P,E,F,A,S,R>{
     return new Instances<P,E,F,A,S,R>(this.prototype,this.rows.map(row=>({...row,transform:transform({...(row.transform as InstanceTransform),...evaluate(field,row)})})),this);
   }

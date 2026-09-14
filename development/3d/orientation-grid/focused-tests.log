@@ -1,0 +1,11 @@
+
+ RUN  v2.1.9 /home/kalmarv/containers/occlude-3d/packages/occlude
+
+ ✓ test/three-grid.test.ts (3 tests) 16ms
+ ✓ test/three-rotation.test.ts (8 tests) 60ms
+ ✓ test/three-instances-api.test.ts (7 tests) 286ms
+
+ Test Files  3 passed (3)
+      Tests  18 passed (18)
+   Start at  15:13:08
+   Duration  1.79s (transform 960ms, setup 0ms, collect 3.08s, tests 362ms, environment 1ms, prepare 221ms)

@@ -1,3 +1,4 @@
+import {rotateVector3,rotation3,type RotationInput} from '../rotation.js';
 import {sealTopology3,topology3} from './topology.js';
 import { groupRows } from '../../groupRows.js';
 import { add3,cross3,finite3,mul3,sub3,unit3,type Vec3 } from '../math.js';
@@ -67,11 +68,11 @@ export function extrudeFaces3(surface:Surface3,selection:FaceSelection3,distance
   return result;
 }
 
-/** Affine modeling edit, explicit world-space pivot and XYZ Euler degrees.
+/** Affine modeling edit with an explicit pivot and Euler or rotation values.
  * Negative determinant reverses polygon and triangle winding consistently. */
-export function transformSurface3(surface:Surface3,options:{translate?:Vec3;rotate?:Vec3;scale?:Vec3;origin?:Vec3}):Surface3 {
-  const translate=options.translate??[0,0,0],rotate=options.rotate??[0,0,0],scale=options.scale??[1,1,1],origin=options.origin??[0,0,0];[translate,rotate,scale,origin].forEach(finite3);if(scale.some(v=>v===0))throw new Error('surface scale must be nonsingular');
-  const points=surface.points.map(p=>{let v=sub3(p.position,origin).map((n,i)=>n*scale[i]) as unknown as Vec3;for(let axis=0;axis<3;axis++){const angle=rotate[axis]*Math.PI/180,c=Math.cos(angle),s=Math.sin(angle),a=(axis+1)%3,b=(axis+2)%3,next=[...v];next[a]=c*v[a]-s*v[b];next[b]=s*v[a]+c*v[b];v=next as unknown as Vec3;}return {...p,position:add3(add3(v,origin),translate)};});
+export function transformSurface3(surface:Surface3,options:{translate?:Vec3;rotate?:RotationInput;scale?:Vec3;origin?:Vec3}):Surface3 {
+  const translate=options.translate??[0,0,0],rotate=options.rotate??[0,0,0],scale=options.scale??[1,1,1],origin=options.origin??[0,0,0];[translate,scale,origin].forEach(finite3);rotation3(rotate);if(scale.some(v=>v===0))throw new Error('surface scale must be nonsingular');
+  const points=surface.points.map(p=>{const v=rotateVector3(sub3(p.position,origin).map((n,i)=>n*scale[i]) as unknown as Vec3,rotate);return {...p,position:add3(add3(v,origin),translate)};});
   const mirrored=scale[0]*scale[1]*scale[2]<0;
   return assembleSurface3(points,surface.faces.map(f=>({...f,vertices:mirrored?[...f.vertices].reverse():f.vertices})),surface.triangles.map(t=>({...t,vertices:mirrored?[t.vertices[0],t.vertices[2],t.vertices[1]]:t.vertices})),surface);
 }

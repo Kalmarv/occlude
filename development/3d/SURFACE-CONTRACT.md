@@ -92,3 +92,20 @@ literals widen to their value kind at the stepping boundary; vector dimensions
 remain fixed. Attribute writes validate a whole selected operation before
 publishing it, merge partial records and use last-write-wins per column. Corner
 fields/edits still await the generic corner domain; they are not delivered here.
+
+## Implemented orientation and point-grid slice
+
+`axisAngle(axis, degrees)` and `alignAxis(localAxis, direction, options)` return
+rotation values with `apply`, `then` and `inverse`. Geometry and instance fields
+consume them directly; JSON/worker data retains normalized xyzw quaternions.
+Legacy Euler arrays remain supported with their prior arithmetic. Up/localUp
+constrain roll; previous orientation instead transports a frame. Twist follows
+alignment about the resulting world axis. Singular/invalid references are
+reported. A fixed local fallback handles exact antipodal alignment; previous
+frames provide continuity through that stateless convention's singularity.
+
+The user identified the modulo-based 6x6 instance layout as missing a helper.
+`grid({cols, rows, layers?, spacing?, maxPoints?, key?})` now returns centered
+model-space point geometry with typed i/j/k metadata. This reuses the familiar
+cols/rows vocabulary and ordinary point editing/placement, while preserving
+`t.grid` as the existing drawable/paper-cell helper. It has no mesh domains.
