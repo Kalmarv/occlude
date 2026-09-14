@@ -7,7 +7,7 @@ Scope: every requirement in [spec.md](spec.md), unchanged from the original user
 | Requirement | Current evidence and remaining work |
 | --- | --- |
 | §4, §16 pinned Blender comparisons | Eight CPU and hardware-GPU/Line Art vector comparisons now pass against pinned Blender 5.2.1; see reference/README.md. Add Freestyle selection/style references. |
-| §6, §9, §16 abandoned work never adopts | Laboratory worker has lease/revision tests and hardware cancellation/restart evidence. Main Studio has cooperative camera cancellation. Audit late-completion/newer-failed-render adoption, all compute boundaries, worker restart and actual device loss in main Studio. |
+| §6, §9, §16 abandoned work never adopts | Laboratory worker has lease/revision tests and hardware cancellation/restart evidence. Main Studio now stages publication and passes real-GPU late-completion/newer-failed-render checks for ordinary renders and camera commits (STUDIO-ADOPTION.md). Audit all compute boundaries, hard worker restart/export recovery and actual device loss in main Studio. |
 | §12 GPU timing when supported | Wall time, transfer, refinement and resident-buffer baselines exist. GPU timestamp support is not yet enabled/recorded. |
 | §15 visibility laboratory demo | Existing lab and docs cover feature filtering, hidden styles and construction orbit. Package one named sketch/demo with cube, open plane, crossing objects and wire, cached clean/dashed/wobbled styles, stroke inspection and dispatch counters together. |
 | §15 procedural city/relief demo | Docs contain seeded extrusion, GPU deformation, query-driven edit, attribute hatch and sections. Package the complete named sketch and its exports; verify every required mechanism in that exact artifact. |

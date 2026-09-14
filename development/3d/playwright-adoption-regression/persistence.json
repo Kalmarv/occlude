@@ -1,0 +1,77 @@
+{
+  "passed": true,
+  "id": "20260914T012002Z-ghfn",
+  "captureRestored": true,
+  "previewCameraChanged": true,
+  "committedCamera": {
+    "kind": "orthographic",
+    "span": 5.5,
+    "eye": [
+      6.94517638420231,
+      1.0535457258548449,
+      7.884287968527898
+    ],
+    "target": [
+      0,
+      0,
+      0.4
+    ],
+    "near": 0.1,
+    "far": 30,
+    "up": [
+      0,
+      0,
+      1
+    ]
+  },
+  "planHash": "f9bbd41efb60d1baea0928acb1dee29b6bc3b667573f4cc2ece37e3a79debf89",
+  "planBytes": 62328,
+  "svgBytes": 39226,
+  "capturedScenes": 1,
+  "points": 85,
+  "generated": 1330,
+  "requests": [
+    "plan-load",
+    "plan-toolpath",
+    "plan-gcode",
+    "plan-svg"
+  ],
+  "adapterRequests": 0,
+  "changedPens": [
+    {
+      "name": "outline",
+      "width": 0.6,
+      "color": "#00FF00",
+      "feed": 1500,
+      "penDown": 0,
+      "penUp": 5,
+      "penDelay": 200
+    },
+    {
+      "name": "fine",
+      "width": 0.36,
+      "color": "#00FF00",
+      "feed": 1500,
+      "penDown": 0,
+      "penUp": 5,
+      "penDelay": 200
+    },
+    {
+      "name": "accent",
+      "width": 0.5,
+      "color": "#00FF00",
+      "feed": 1500,
+      "penDown": 0,
+      "penUp": 5,
+      "penDelay": 200
+    }
+  ],
+  "changedPapers": [
+    {
+      "name": "Changed paper",
+      "w": 80,
+      "h": 90,
+      "color": "#FF00FF"
+    }
+  ]
+}

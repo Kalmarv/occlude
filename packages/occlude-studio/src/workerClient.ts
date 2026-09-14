@@ -3,8 +3,9 @@
  * runtime, so a render request is just source + config — no scene ever
  * exists on this thread. Render requests coalesce: while one is in flight,
  * only the newest queued request survives — a typing burst never builds a
- * backlog, and superseded calls resolve to null. A render is atomic from
- * the worker's perspective; the watchdog is the only hard interruption.
+ * backlog, and superseded calls resolve to null. Completed results stay
+ * staged until this client accepts a current decoded reply; cancellation
+ * leaves the previous committed export state available.
  */
 
 import type { CapturedThree3 } from './three/capture.js';
@@ -64,6 +65,7 @@ interface Pending {
   resolve(value: unknown): void;
   reject(err: Error): void;
   isRender?: boolean;
+  obsolete?: boolean;
 }
 
 /** A render that takes this long is a runaway (a wedged sketch loop,
@@ -96,8 +98,10 @@ export class RenderClient {
     this.worker = new Worker(new URL('./render-worker.ts', import.meta.url), {
       type: 'module',
     });
-    this.worker.onmessage = (e) => this.onMessage(e.data);
+    const worker = this.worker;
+    worker.onmessage = (e) => { if (this.worker === worker) this.onMessage(e.data); else e.data.bitmap?.close(); };
     this.worker.onerror = (e) => {
+      if (this.worker !== worker) return;
       for (const p of this.pending.values()) p.reject(new Error(e.message));
       this.pending.clear();
       this.inFlightRender = false;
@@ -151,27 +155,31 @@ export class RenderClient {
     const p = this.pending.get(msg.id);
     if (!p) { (msg.bitmap as ImageBitmap | undefined)?.close(); return; }
     this.pending.delete(msg.id);
-    if (msg.type === 'render' || (msg.type === 'error' && p.isRender)) {
-      if (this.watchdog) {
-        clearTimeout(this.watchdog);
-        this.watchdog = null;
-      }
+    const renderFinished = msg.type === 'render' || (msg.type === 'error' && p.isRender);
+    if (renderFinished) {
+      if (this.watchdog) clearTimeout(this.watchdog);
+      this.watchdog = null;
       this.inFlightRender = false;
-      if (this.queuedRender) {
-        const { req, p: qp } = this.queuedRender;
-        this.queuedRender = null;
-        this.sendRender(req, qp);
-      }
     }
-    if (msg.type === 'error' && msg.cancelled === true && p.isRender) { p.resolve(null); return; }
-    if (msg.type === 'error') {
-      const err = new Error(String(msg.message)) as WorkerError;
-      if (typeof msg.stack === 'string') err.stack = msg.stack;
-      if (msg.sketch === true) err.sketch = true;
-      p.reject(err);
-      return;
+    try {
+      if (p.isRender && (p.obsolete || (msg.type === 'error' && msg.cancelled === true))) {
+        if (msg.type === 'render') this.worker.postMessage({ type: 'discard-render', id: msg.id });
+        p.resolve(null);
+      } else if (msg.type === 'error') {
+        const err = new Error(String(msg.message)) as WorkerError;
+        if (typeof msg.stack === 'string') err.stack = msg.stack;
+        if (msg.sketch === true) err.sketch = true;
+        p.reject(err);
+      } else p.resolve(msg);
+    } catch (error) {
+      if (msg.type === 'render') this.worker.postMessage({ type: 'discard-render', id: msg.id });
+      p.reject(error instanceof Error ? error : new Error(String(error)));
     }
-    p.resolve(msg);
+    if (renderFinished && this.queuedRender) {
+      const { req, p: next } = this.queuedRender;
+      this.queuedRender = null;
+      this.sendRender(req, next);
+    }
   }
 
   /** Abandon the render in flight (it is superseded, not failed): kill the
@@ -202,17 +210,24 @@ export class RenderClient {
     if (this.watchdog) clearTimeout(this.watchdog);
     this.watchdog = setTimeout(() => this.respawnStuckWorker(), RENDER_TIMEOUT_MS);
     this.worker.postMessage('cameraCommit' in req
-      ? { type: 'render-camera', id, ...req.cameraCommit }
-      : { type: 'render', id, js: req.js, cfg: req.cfg });
+      ? { type: 'render-camera', id, deferAdoption: true, ...req.cameraCommit }
+      : { type: 'render', id, deferAdoption: true, js: req.js, cfg: req.cfg });
   }
 
-  /** Stop an obsolete camera job while retaining the committed worker state. */
-  cancelCameraCommit(): void {
-    if (this.inFlightRender && this.cameraJob !== null) this.worker.postMessage({ type: 'cancel-camera', id: this.cameraJob });
+  /** Invalidate in-flight and queued work immediately, even before a debounced
+   * replacement can be compiled. Keep the previously accepted worker result. */
+  cancelRender(): void {
+    for (const [id, pending] of this.pending) if (pending.isRender && !pending.obsolete) {
+      pending.obsolete = true;
+      this.worker.postMessage({ type: 'cancel-render', id });
+    }
+    this.queuedRender?.p.resolve(null);
+    this.queuedRender = null;
   }
+  cancelCameraCommit(): void { if (this.cameraJob !== null) this.cancelRender(); }
 
   /** Run + render a sketch, or commit a retained camera. Null means cancelled. */
-  render(req: RenderRequest): Promise<RenderReply | null> {
+  render(req: RenderRequest, isCurrent: () => boolean = () => true): Promise<RenderReply | null> {
     return new Promise((resolve, reject) => {
       const p: Pending = {
         resolve: (msg) => {
@@ -221,6 +236,7 @@ export class RenderClient {
             return;
           }
           const m = msg as {
+            id: number;
             prims: Float64Array;
             frags: Float64Array;
             stats: Float64Array;
@@ -241,9 +257,10 @@ export class RenderClient {
             cameras3?: Record<string, Camera3>;
             inspections?: InspectionEntry[];
           };
+          if (!isCurrent()) { this.worker.postMessage({ type: 'discard-render', id: m.id }); resolve(null); return; }
           // decodeRender reads only pens/frame/paper from the scene half.
           const meta = { pens: m.pens, frame: m.frame, paper: m.paper } as EncodedScene;
-          resolve({
+          const reply: RenderReply = {
             result: decodeRender(meta, m), seedUsed: m.seedUsed, overrides: m.overrides ?? { hit: [], dropped: [] }, draws: m.draws, probes: m.probes ?? {},
             plan: { buffer: m.plan, settings: m.planSettings, planHash: m.planHash },
             draw: m.draw,
@@ -251,7 +268,10 @@ export class RenderClient {
             construction: m.construction ?? [],
             cameras3: m.cameras3 ?? {},
             inspections: m.inspections ?? [],
-          });
+          };
+          // The accept message precedes every export sent by the resolved consumer.
+          this.worker.postMessage({ type: 'accept-render', id: m.id });
+          resolve(reply);
         },
         reject,
       };
@@ -259,7 +279,7 @@ export class RenderClient {
         this.preempt();
       }
       if (this.inFlightRender) {
-        this.cancelCameraCommit();
+        this.cancelRender();
         this.queuedRender?.p.resolve(null);
         this.queuedRender = { req, p };
         return;

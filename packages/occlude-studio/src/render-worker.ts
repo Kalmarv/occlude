@@ -3,8 +3,9 @@
  * registry, scene encoding, the wasm module, and export state. The main
  * thread owns the editor/UI only and never executes sketch code (spec:
  * fills-fields-spec.md, project 1). A render is atomic from this worker's
- * perspective: requests coalesce on the main thread; the watchdog is the
- * only hard interruption. Keeps the last render's PLAN (merge → tour →
+ * perspective: requests coalesce on the main thread; GPU batches can be
+ * cancelled cooperatively and the watchdog handles hard interruption.
+ * Successful results are staged until the client accepts their revision. Keeps the last render's PLAN (merge → tour →
  * bridge, planned once, native primitives) so every export encodes a
  * range of that plan instead of planning again; each export request
  * names the plan hash it means, and a stale hash is refused.
@@ -29,6 +30,7 @@ interface RenderMsg {
   id: number;
   js: string;
   cfg: RunConfig;
+  deferAdoption?: boolean;
 }
 
 /** Every plan export names the plan it means; a stale hash is an error. */
@@ -96,9 +98,9 @@ interface InspectMsg {
 
 type ConstructionMsg = { type: 'construction'; id: number; executionId: number; scene: number; camera: Camera3; width: number; height: number; revision: number; pick?: { x: number; y: number } };
 
-type CameraCommitMsg = { type: 'render-camera'; id: number; executionId: number; planHash: string; scene: number; camera: Camera3 };
+type CameraCommitMsg = { deferAdoption?: boolean; type: 'render-camera'; id: number; executionId: number; planHash: string; scene: number; camera: Camera3 };
 
-type Msg = { type: 'cancel-camera'; id: number } | CameraCommitMsg | { type: 'plan-three'; id: number; planHash: string } | ConstructionMsg | RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg
+type Msg = { type: 'cancel-camera' | 'cancel-render' | 'accept-render' | 'discard-render'; id: number } | CameraCommitMsg | { type: 'plan-three'; id: number; planHash: string } | ConstructionMsg | RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg
   | { type: 'optimization-context'; id: number; planHash: string }
   | (PlanRange & { type: 'plan-png'; id: number; width: number; height: number; scale: number; background?: string });
 
@@ -124,7 +126,8 @@ let geometrySnapshot: GeometrySnapshot | null = null;
 let renderedPlanHash: string | null = null;
 let capturedThree: CapturedThree3 | undefined;
 let captureSource: { run: Execution; context: Parameters<typeof captureThree3>[1] } | undefined;
-const cameraJobs = new Map<number, AbortController>();
+const renderJobs = new Map<number, AbortController>();
+let candidate: { id: number; adopt: () => void } | undefined;
 const currentThree = () => {
   if (captureSource) { capturedThree = captureThree3(captureSource.run,captureSource.context); captureSource = undefined; }
   return capturedThree;
@@ -156,11 +159,17 @@ async function handleMessage(msg: Msg): Promise<void> {
   try {
     await ready;
     switch (msg.type) {
+      case 'accept-render': {
+        if (candidate?.id === msg.id) { candidate.adopt(); candidate = undefined; }
+        break;
+      }
+      case 'discard-render': { if (candidate?.id === msg.id) candidate = undefined; break; }
       case 'render-camera':
       case 'render': {
+        candidate = undefined;
         const source = msg.type === 'render' ? { js: msg.js, cfg: msg.cfg } : lastSource;
         if (!source) throw new Error('render the sketch before committing a camera');
-        const signal = msg.type === 'render-camera' ? cameraJobs.get(msg.id)?.signal : undefined;
+        const signal = renderJobs.get(msg.id)?.signal;
         signal?.throwIfAborted();
         let run: Execution;
         let scene: ReturnType<typeof encodeScene>;
@@ -173,7 +182,8 @@ async function handleMessage(msg: Msg): Promise<void> {
         } else {
           const assets = await preloadAssets(source.js);
           const fills = await preloadFills(source.js, source.cfg.draftFill);
-          const outcome = await runSketchAsync(source.js, source.cfg, source.cfg.seed ?? sessionSeed, assets, fills, undefined, compute3);
+          const outcome = await runSketchAsync(source.js, source.cfg, source.cfg.seed ?? sessionSeed, assets, fills, signal, compute3);
+          signal?.throwIfAborted();
           if (outcome.error || !outcome.scene) {
             const err = outcome.error;
             self.postMessage({ type: 'error', id: msg.id, message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined, sketch: true });
@@ -188,15 +198,21 @@ async function handleMessage(msg: Msg): Promise<void> {
         // everything downstream selects from it, as the sketch's t.draw says.
         const { buffer: planBuf, settings, planHash } = await planDrawing(drawing, scene.plan ?? {});
         signal?.throwIfAborted();
-        // Adopt only after encoding, rendering and plan hashing all succeed.
-        last = drawing; lastPlan = { buffer: planBuf, settings, planHash, pensJson: scene.pensJson };
-        lastRun = run; lastSource = source; lastExecutionId = msg.id;
-        constructionScenes = [...run.scenes3.keys()].map(source => ({ source, prepared: constructionScenes.find(entry => entry.source.objects === source.objects && entry.source.wires === source.wires)?.prepared }));
+        const nextConstruction = [...run.scenes3.keys()].map(source => ({ source, prepared: constructionScenes.find(entry => entry.source.objects === source.objects && entry.source.wires === source.wires)?.prepared }));
         const { prims: inputPrims, contours, shapesU32, shapesF64, mods, fieldData, fieldUses, domainList, clipList, clipsU32, pensJson, paperArr, seed, coarsen } = scene;
-        geometrySnapshot = { prims: inputPrims, contours, shapesU32, shapesF64, mods, fieldData, fieldUses, domainList, clipList, clipsU32, pensJson, paperArr, seed, coarsen };
-        renderedPlanHash = planHash;
-        capturedThree = undefined;
-        captureSource = { run, context: { engine: settings.engine ?? 'dev', scriptJs: source.js, seed: currentSeed(run), adapter: compute3.adapterInfo } };
+        const context = { engine: settings.engine ?? 'dev', scriptJs: source.js, seed: currentSeed(run), adapter: compute3.adapterInfo };
+        const adopt = () => {
+          last = drawing; lastPlan = { buffer: planBuf, settings, planHash, pensJson: scene.pensJson };
+          lastRun = run; lastSource = source; lastExecutionId = msg.id;
+          constructionScenes = nextConstruction;
+          geometrySnapshot = { prims: inputPrims, contours, shapesU32, shapesF64, mods, fieldData, fieldUses, domainList, clipList, clipsU32, pensJson, paperArr, seed, coarsen };
+          renderedPlanHash = planHash;
+          capturedThree = undefined;
+          captureSource = { run, context };
+        };
+        // Hold one candidate until the host accepts it. Exports continue to use
+        // the committed result while the render reply is in transit.
+        if (msg.deferAdoption) candidate = { id: msg.id, adopt }; else adopt();
         // Exports reuse the cached originals, so the preview gets COPIES —
         // and the copies are transferred, not structured-cloned a second
         // time. Decode metadata (pens/frame/paper) rides along so the main
@@ -211,7 +227,7 @@ async function handleMessage(msg: Msg): Promise<void> {
           {
             type: 'render',
             id: msg.id,
-            construction: constructionScenes.map(scene => ({ ...constructionInfo3(scene.source), camera: run.scenes3.get(scene.source)!.frame.camera })),
+            construction: nextConstruction.map(scene => ({ ...constructionInfo3(scene.source), camera: run.scenes3.get(scene.source)!.frame.camera })),
             cameras3: { ...run.cameras3, ...Object.fromEntries([...run.scenes3].map(([scene, view]) => [run.cameraKey3(scene), view.frame.camera])) },
             three: run.scenes3.size || run.modeling3.length ? { modeling: run.modeling3, adapter: compute3.adapterInfo, scenes: [...run.scenes3.values()].map(s => s.stats) } : undefined,
             prims,
@@ -327,12 +343,12 @@ async function handleMessage(msg: Msg): Promise<void> {
     self.postMessage({
       type: 'error',
       id: msg.id,
-      cancelled: cameraJobs.get(msg.id)?.signal.aborted === true,
+      cancelled: renderJobs.get(msg.id)?.signal.aborted === true,
       message: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,
     });
   } finally {
-    if (msg.type === 'render-camera') cameraJobs.delete(msg.id);
+    if (msg.type === 'render-camera' || msg.type === 'render') renderJobs.delete(msg.id);
   }
 };
 
@@ -341,7 +357,11 @@ async function handleMessage(msg: Msg): Promise<void> {
 let requests = Promise.resolve();
 self.onmessage = (event: MessageEvent<Msg>) => {
   const msg = event.data;
-  if (msg.type === 'cancel-camera') { cameraJobs.get(msg.id)?.abort(); return; }
-  if (msg.type === 'render-camera') cameraJobs.set(msg.id, new AbortController());
+  if (msg.type === 'cancel-camera' || msg.type === 'cancel-render') {
+    renderJobs.get(msg.id)?.abort();
+    if (candidate?.id === msg.id) candidate = undefined;
+    return;
+  }
+  if (msg.type === 'render-camera' || msg.type === 'render') renderJobs.set(msg.id, new AbortController());
   requests = requests.then(() => handleMessage(msg));
 };

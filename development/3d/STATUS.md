@@ -8,6 +8,8 @@ Recent correctness work: world-space crease angles and exact coplanarity remove 
 
 Remaining scope is tracked in [REQUIREMENTS-AUDIT.md](REQUIREMENTS-AUDIT.md). Pinned Blender 5.2.1 Line Art comparisons now pass on CPU and hardware GPU for eight visible/hidden feature cases; see [reference/README.md](reference/README.md).
 
+Main Studio now stages successful renders until the client accepts the current revision; late obsolete replies preserve the previous exportable plan. Source and served hardware race reproductions pass; see [STUDIO-ADOPTION.md](STUDIO-ADOPTION.md).
+
 ## Isolation
 
 - Starting commit: c705cdeb6a575eecc2759572e8d43dbb8e4316d2 (clean production checkout).

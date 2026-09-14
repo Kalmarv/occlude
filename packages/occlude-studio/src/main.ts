@@ -210,8 +210,12 @@ async function boot(): Promise<void> {
   async function runInner(cameraCommit?: CameraCommitRequest): Promise<void> {
     const source = editor.getValue();
     if (cameraCommit && (source !== renderedSource || ticker || frozenId)) throw new Error('Render the current sketch before committing a view.');
+    const myRun = ++runSeq;
+    client.cancelRender();
+    if (ticker) clearInterval(ticker);
+    ticker = null;
     const editCameraConfig = cameraCommit ? await cameraConfigEdit(source) : undefined;
-    if (cameraCommit && editor.getValue() !== source) throw new Error('The sketch changed while preparing its camera configuration.');
+    if (myRun !== runSeq || editor.getValue() !== source) return;
     saveSketch(source); // persist BEFORE executing — survives anything
     if (frozenId) {
       statusMsg.className = 'status-err';
@@ -224,6 +228,7 @@ async function boot(): Promise<void> {
       return;
     }
     const emitted = cameraCommit ? { js: '' } : await editor.emit();
+    if (myRun !== runSeq || editor.getValue() !== source) return;
     if (!cameraCommit && !emitted.js) {
       statusMsg.className = 'status-err';
       statusMsg.textContent = ('errors' in emitted ? emitted.errors[0] : undefined) ?? 'syntax error';
@@ -237,7 +242,6 @@ async function boot(): Promise<void> {
     // PREVIOUS result: say so, with the elapsed time, and dim it. One
     // ticker for the whole page, owned by the newest run: an older run
     // still in flight must neither write the status nor clear the ticker.
-    const myRun = ++runSeq;
     const started = performance.now();
     preview.setStale(lastResult !== null);
     if (ticker) clearInterval(ticker);
@@ -272,7 +276,7 @@ async function boot(): Promise<void> {
           seed,
           draws: true, // the run's draws, for Freeze
         },
-      });
+      }, () => myRun === runSeq && editor.getValue() === source);
     } catch (err) {
       if ((err as WorkerError).sketch) setRuntimeMarker(editor.model, err);
       if (!finish()) { if (cameraCommit) throw err; return; } // superseded: the newer run reports
@@ -289,6 +293,7 @@ async function boot(): Promise<void> {
       return;
     }
     const latest = finish();
+    if (!latest) return;
     if (latest) {
       preview.setStale(false);
       renderedSource = source;
@@ -302,8 +307,7 @@ async function boot(): Promise<void> {
       }
     }
     const result: RenderResult = reply.result;
-    // An older run landing behind a newer one still shows its drawing (the
-    // newer will replace it), but the status line belongs to the newer run.
+    // Only the accepted current result may update preview, plan and metadata.
     const say = (cls: string, text: string) => {
       if (!latest) return;
       statusMsg.className = cls;
@@ -366,7 +370,7 @@ async function boot(): Promise<void> {
   const uiPanel = new UiPanel($('bench'), editor);
   uiPanel.sync();
   editor.onChange(() => uiPanel.sync());
-  editor.onChange(() => { if (!applyingCameraConfig) { client.cancelCameraCommit(); scheduleRun(); } });
+  editor.onChange(() => { if (!applyingCameraConfig) { client.cancelRender(); scheduleRun(); } });
   // Debug/automation handle (used by headless driving; harmless otherwise).
   (window as unknown as Record<string, unknown>).__occlude = {
     editor,
