@@ -625,3 +625,84 @@ export default sketch({ seed: 42, pens: {
   });
 });
 ```
+
+
+## Constructing meshes from profiles
+
+`revolve(profile, options)` rotates an XZ meridian in x >= 0 around the Z axis.
+`segments` defaults to 32; `angle` defaults to 360 degrees and may be negative.
+Every angular step must be smaller than 180 degrees. A full turn shares its
+seam, and exact axis points become single shared vertices. Open profile ends
+remain open: a vessel can have an open mouth and a closed bottom by starting
+its profile on the axis. Axis-to-axis spans create no zero-area faces. An
+interior axis contact that would pinch two surface fans together is rejected.
+For a partial turn, `caps: true` closes the angular cuts of a **closed** profile.
+It does not seal the circular boundaries of an open profile. Profile ordering
+sets winding: tracing the outside from bottom to top produces outward faces.
+
+`sweep(profile, path, options)` carries an XY profile along an unbranched 3D
+path. Use a circle for a tube, an open polyline for a ribbon, or another closed
+curve for a shaped section. `normal` optionally specifies the world direction
+of the profile's initial +X; it is projected perpendicular to the first tangent.
+The default chooses the least-aligned coordinate axis deterministically.
+At corners, tangents bisect the incoming/outgoing unit directions. Subsequent
+frames use minimal rotations between tangents, and closed paths distribute
+frame-closure twist by arc length. Exact reversals have no unique frame and
+receive a diagnostic. The profile's counterclockwise order gives outward faces.
+
+Sweep `scale` is a positive scalar or a field on the **path point rows**, captured
+once. `twist` is a total angle in degrees distributed along path length; closed
+paths require whole turns. `caps: true` closes the two ends of an open path with
+a closed profile. Closed paths share their seam; an open profile stays a ribbon.
+
+Both operations return ordinary meshes. Subdivision, displacement, frozen
+steps, queries, face selection, hatching, instancing and the normal view all
+continue to work. Revolve copies profile point attributes and transfers profile
+edge attributes to side faces. Sweep combines path and profile point columns
+and transfers both edge domains to side faces; profile columns win name
+collisions. Angular/end caps have empty face attributes, so inherited face
+columns are optional. Derived point/face provenance records source IDs;
+generated edges start with empty attributes. No ambient counters are involved.
+
+Construction budgets default to 500,000 points and 250,000 faces; override with
+`maxPoints` and `maxFaces`. General cap triangulation has a separate
+`maxCapPoints` budget (default 2,048) because its cost is quadratic. Checks precede
+expanded topology allocation and sweep scale-field evaluation. Meridian/profile
+planarity accepts relative 1e-10 roundoff from prior transforms; coordinates are
+preserved, not snapped. Near-axis points are never merged into exact axis points.
+A swept quad can be nonplanar: its fixed pair of triangles defines the surface.
+Shape-preserving subdivision may refine such a face through that triangulation.
+These operations do not resolve global self-intersections or perform a boolean
+union; a large profile on a tight path can intersect itself.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { polyline, circle, curve, revolve, sweep, view, orthographic } from 'occlude/3d';
+
+export default sketch({ seed: 42, pens: {
+  ink: pen({ width: mm(0.3), color: '#18202A' }),
+  shade: pen({ width: mm(0.18), color: '#A84932' }),
+} }, () => {
+  const vessel = revolve(polyline([
+    [0, 0, -1.3], [0.8, 0, -1.3], [1, 0, -0.6],
+    [0.7, 0, 0.3], [0.45, 0, 0.7], [0.5, 0, 1.3],
+  ]), { segments: 40 }).translate([-1.7, 0, 0])
+    .faceAttribute('shade', f => f.normal[2] > 0);
+  const route = curve(t => [
+    0.7 * Math.cos(t * Math.PI * 4),
+    0.7 * Math.sin(t * Math.PI * 4),
+    (t - 0.5) * 3,
+  ], { segments: 64 }).attribute('radius', p => 0.8 + 0.2 * Math.cos(p.z * 2));
+  const tube = sweep(circle(0.16, { segments: 16 }), route, {
+    caps: true, scale: p => p.radius,
+  }).translate([1.4, 0, 0]);
+  const ribbon = sweep(polyline([[-0.25, 0, 0], [0.25, 0, 0]]),
+    curve(t => [t * 3 - 1.5, 1.6, 0.3 * Math.cos(t * Math.PI * 2)], { segments: 24 }),
+    { twist: 180 }).translate([0, 0, -1.5]);
+  return view([vessel, tube, ribbon], {
+    camera: orthographic({ eye: [7, 10, 7], target: [0, 0, 0], span: 9.5 }),
+    stroke: 'ink',
+    hatch: { spacing: mm(2), angle: 35, stroke: 'shade', select: f => f.shade === true },
+  });
+});
+```

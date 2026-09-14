@@ -63,7 +63,15 @@ the earlier API and does not imply this redesign is finished.
 - The fresh paper-composition underside report is captured in `paper-depth/`.
   Overlapping bottom faces are established; temporal flicker and the exact
   reported fragment remain unverified. It is not marked resolved.
-- Sweep/revolve, M5 demo migration and detailed GPU phase
+- Revolve and sweep now return the common mesh from curve profiles. Shared
+  seams/axis points, explicit caps, transported frames, sampled scale fields,
+  attributes/provenance and topology/cap budgets are implemented. Twelve tests
+  and source/served Studio checks pass, including four independent GPU
+  visibility oracles. All nine Docker gates and sixteen live examples pass;
+  see `profile-construction/`.
+- Surface sampling/scatter from the catalog is still unimplemented; instances
+  currently consume existing point collections.
+- M5 demo migration and detailed GPU phase
   accounting remain pending. Terrain and instanced forms are runnable live
   examples; the complete acceptance set is not yet verified.
 

@@ -1,0 +1,150 @@
+{
+  "passed": true,
+  "base": "http://127.0.0.1:5273",
+  "diagnostics": [],
+  "negative": [
+    {
+      "code": 2322,
+      "message": "Type 'number' is not assignable to type 'string'."
+    },
+    {
+      "code": 2322,
+      "message": "Type 'number' is not assignable to type 'string'."
+    }
+  ],
+  "modelsBeforeReopen": 1,
+  "modelsAfterReopen": 2,
+  "reopened": {
+    "hash": "6d1414d32deac2df4c8c3c97a28611381540afb2af3ab50d5ae93e278bfd32cd",
+    "camera": {
+      "eye": [
+        7,
+        10,
+        7
+      ],
+      "target": [
+        0,
+        0,
+        0
+      ],
+      "kind": "perspective",
+      "near": 0.1,
+      "far": 100,
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "fovDegrees": 37.306052287899426
+    }
+  },
+  "stats": {
+    "modeling": [],
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "",
+      "description": "",
+      "isFallbackAdapter": false
+    },
+    "scenes": [
+      {
+        "candidates": 58159,
+        "dispatches": 8,
+        "refinements": 48375,
+        "transferBytes": 6513936,
+        "wallMs": 1338.9000000357628,
+        "gpuMs": 0.07747199999999999,
+        "paperToleranceMm": 0.005,
+        "parameterTolerance": 0.00001
+      }
+    ]
+  },
+  "zeroLengthPaths": 0,
+  "sharedPrototypeCounts": [],
+  "queries": [],
+  "curveOracles": [],
+  "profileOracles": [
+    {
+      "operation": "revolve",
+      "projection": "orthographic",
+      "visible": [
+        [
+          0,
+          0.25
+        ],
+        [
+          0.75,
+          1
+        ]
+      ],
+      "hidden": [
+        [
+          0.25,
+          0.75
+        ]
+      ]
+    },
+    {
+      "operation": "revolve",
+      "projection": "perspective",
+      "visible": [
+        [
+          0,
+          0.062499999999999944
+        ],
+        [
+          0.9375000000000001,
+          1
+        ]
+      ],
+      "hidden": [
+        [
+          0.062499999999999944,
+          0.9375000000000001
+        ]
+      ]
+    },
+    {
+      "operation": "sweep",
+      "projection": "orthographic",
+      "visible": [
+        [
+          0,
+          0.25
+        ],
+        [
+          0.75,
+          1
+        ]
+      ],
+      "hidden": [
+        [
+          0.25,
+          0.75
+        ]
+      ]
+    },
+    {
+      "operation": "sweep",
+      "projection": "perspective",
+      "visible": [
+        [
+          0,
+          0.062499999999999944
+        ],
+        [
+          0.9375000000000001,
+          1
+        ]
+      ],
+      "hidden": [
+        [
+          0.062499999999999944,
+          0.9375000000000001
+        ]
+      ]
+    }
+  ],
+  "errors": []
+}

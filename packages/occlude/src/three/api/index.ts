@@ -16,3 +16,7 @@ export {force} from './force.js';
 export type {Force} from './force.js';
 export {polyline,curve,circle} from './curves.js';
 export type {PolylineOptions,CurveOptions} from './curves.js';
+export {revolve} from './revolve.js';
+export type {RevolveOptions} from './revolve.js';
+export {sweep} from './sweep.js';
+export type {SweepOptions} from './sweep.js';
