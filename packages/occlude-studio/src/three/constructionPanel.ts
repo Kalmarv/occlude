@@ -1,5 +1,5 @@
 import type { Camera3 } from 'occlude/src/three/camera.js';
-import type { RenderClient, RenderReply } from '../workerClient.js';
+import type { CameraCommitRequest, RenderClient, RenderReply } from '../workerClient.js';
 import { orbitCamera3, zoomCamera3 } from './orbit.js';
 
 /** One request in flight, one latest camera: drag bursts cannot build a queue.
@@ -9,13 +9,14 @@ export class ConstructionPanel3 {
   private readonly canvas = document.createElement('canvas');
   private readonly toggle = document.createElement('button');
   private readonly scenes = document.createElement('select');
+  private readonly commitButton = document.createElement('button');
   private readonly note = document.createElement('p');
   private reply?: RenderReply;
   private camera?: Camera3;
   private revision = 0;
   private busy = false;
   private dirty = false;
-  constructor(private client: RenderClient, bench: HTMLElement, hud: HTMLElement) {
+  constructor(private client: RenderClient, bench: HTMLElement, hud: HTMLElement, commit: (request: CameraCommitRequest) => Promise<void>) {
     this.panel.id = 'construction-pane'; this.panel.hidden = true;
     this.canvas.id = 'construction-canvas'; this.canvas.setAttribute('aria-label','3D construction view');
     this.toggle.textContent = '3D'; this.toggle.hidden = true; this.toggle.setAttribute('aria-pressed','false');
@@ -27,8 +28,20 @@ export class ConstructionPanel3 {
     const reset = document.createElement('button'); reset.textContent = 'Reset camera'; reset.onclick = () => this.scenes.onchange?.(new Event('change'));
     const copy = document.createElement('button'); copy.textContent = 'Copy camera'; copy.title = 'Copy this view’s camera values for your sketch';
     copy.onclick = () => { if(this.camera) void navigator.clipboard.writeText(JSON.stringify(this.camera,null,2)).then(()=>{this.note.textContent='Camera copied. Paste it into the sketch to change the drawing.';}).catch(error=>{this.note.textContent=String(error);}); };
-    toolbar.append(this.scenes,reset,copy);
-    const label = document.createElement('p'); label.className = 'construction-hint'; label.textContent = 'Construction preview · paper and exports use the sketch camera';
+    this.commitButton.textContent = 'Commit view';
+    this.commitButton.onclick = async () => {
+      if (!this.reply || !this.camera) return;
+      const request = { executionId: this.reply.executionId, planHash: this.reply.plan.planHash, scene: Number(this.scenes.value), camera: this.camera };
+      this.commitButton.disabled = true;
+      this.note.textContent = 'Committing vector drawing…';
+      try {
+        await commit(request);
+        this.note.textContent = 'View committed. Save result preserves this camera and drawing. Rendering the sketch restores its source camera.';
+      } catch (error) { this.note.textContent = String(error); }
+      finally { this.commitButton.disabled = false; }
+    };
+    toolbar.append(this.scenes,reset,copy,this.commitButton);
+    const label = document.createElement('p'); label.className = 'construction-hint'; label.textContent = 'Construction preview · Commit view updates paper and exports';
     this.note.className = 'construction-pick';
     this.panel.append(toolbar,this.canvas,label,this.note); bench.append(this.panel);
     new ResizeObserver(() => { if (!this.panel.hidden) this.schedule(); }).observe(this.canvas);
@@ -48,10 +61,12 @@ export class ConstructionPanel3 {
     this.canvas.onwheel = event => { event.preventDefault(); if(this.camera){this.camera=zoomCamera3(this.camera,Math.exp(Math.max(-1,Math.min(1,event.deltaY*.001))));this.schedule();} };
   }
   onRender(reply: RenderReply): void {
+    const selected = Math.min(Number(this.scenes.value) || 0, Math.max(0, reply.construction.length - 1));
     this.reply=reply; this.revision++; this.dirty=false;
     this.toggle.hidden=!reply.construction.length;
     this.scenes.replaceChildren(...reply.construction.map((scene,i)=>{const option=document.createElement('option');option.value=String(i);option.textContent=`Scene ${i+1} · ${scene.triangles} triangles`;return option;}));
-    this.camera=reply.construction[0]?.camera;
+    this.scenes.value=String(selected);
+    this.camera=reply.construction[selected]?.camera;
     if(!this.camera){this.panel.hidden=true;this.toggle.setAttribute('aria-pressed','false');}
     this.note.textContent='Drag to orbit · scroll to zoom · click a face to inspect';
     if(!this.panel.hidden)this.schedule();

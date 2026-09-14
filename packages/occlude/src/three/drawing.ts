@@ -59,7 +59,7 @@ export function retainDrawing3(exec: Execution, tree: Tree): RetainedDrawing3 {
 
 /** Replace a retained scene by identity. Fixed, already projected stroke edits
  * are snapshot-bound and cannot silently become a different camera's drawing. */
-export function cameraDrawing3(exec: Execution, scene: LineArtScene3, camera: Camera3): RetainedDrawing3 {
+export function cameraDrawing3(exec: Execution, scene: LineArtScene3, camera: Camera3): RetainedDrawing3 & { scene: LineArtScene3 } {
   const retained = exec.drawing3;
   if (!retained || !exec.scenes3.has(scene)) throw new Error('camera commit requires a scene in this retained drawing');
   if (exec.fixedStrokes3.has(exec.scenes3.get(scene)!)) throw new Error('camera commit cannot reproject fixed strokes; use drawing3(scene, view => ...) to retain their interpretation');
@@ -81,5 +81,5 @@ export function cameraDrawing3(exec: Execution, scene: LineArtScene3, camera: Ca
   }
   const tree = replace(copy(retained.tree));
   if (!found) throw new Error('camera commit requires a retained lineArt3 or drawing3 node');
-  return { tree, config: copy(retained.config) };
+  return { tree, config: copy(retained.config), scene: next };
 }

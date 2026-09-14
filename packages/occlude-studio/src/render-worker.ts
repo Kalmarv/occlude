@@ -15,7 +15,7 @@ import type { LineArtScene3 } from 'occlude/src/three/scene.js';
 import { ConstructionScene3, constructionInfo3 } from './three/construction.js';
 import { cameraFrame3, type Camera3 } from 'occlude/src/three/camera.js';
 import initCore, * as core from 'occlude-core';
-import { GpuSceneCompute3, bridgeGapFor, hashPlan, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
+import { GpuSceneCompute3, commitCamera3, encodeScene, bridgeGapFor, hashPlan, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
 import { currentDraws, currentOverrides, currentSeed, runSketchAsync, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
@@ -96,7 +96,9 @@ interface InspectMsg {
 
 type ConstructionMsg = { type: 'construction'; id: number; executionId: number; scene: number; camera: Camera3; width: number; height: number; revision: number; pick?: { x: number; y: number } };
 
-type Msg = { type: 'plan-three'; id: number; planHash: string } | ConstructionMsg | RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg
+type CameraCommitMsg = { type: 'render-camera'; id: number; executionId: number; planHash: string; scene: number; camera: Camera3 };
+
+type Msg = { type: 'cancel-camera'; id: number } | CameraCommitMsg | { type: 'plan-three'; id: number; planHash: string } | ConstructionMsg | RenderMsg | PlanGcodeMsg | PlanSvgMsg | PngMsg | PlanToolpathMsg | PlanLoadMsg | InspectMsg
   | { type: 'optimization-context'; id: number; planHash: string }
   | (PlanRange & { type: 'plan-png'; id: number; width: number; height: number; scale: number; background?: string });
 
@@ -111,6 +113,7 @@ let lastPlan: { buffer: Float64Array; settings: PlanSettings; planHash: string; 
 let lastExecutionId = -1;
 /** The run of the last successful render: the only place its state lives. */
 let lastRun: Execution | null = null;
+let lastSource: { js: string; cfg: RunConfig } | null = null;
 let constructionScenes: { source: LineArtScene3; prepared?: ConstructionScene3 }[] = [];
 /** URL-less 'url' seed: rolled ONCE per worker and reused, so re-renders
  * (debug toggles, keystrokes, settings) never reshuffle the drawing — only
@@ -121,26 +124,25 @@ let geometrySnapshot: GeometrySnapshot | null = null;
 let renderedPlanHash: string | null = null;
 let capturedThree: CapturedThree3 | undefined;
 let captureSource: { run: Execution; context: Parameters<typeof captureThree3>[1] } | undefined;
+const cameraJobs = new Map<number, AbortController>();
 const currentThree = () => {
   if (captureSource) { capturedThree = captureThree3(captureSource.run,captureSource.context); captureSource = undefined; }
   return capturedThree;
 };
 
 /** THE plan of the last render under the given options. */
-async function planLast(opts: PlanOptions): Promise<{ buffer: Float64Array; settings: PlanSettings; planHash: string }> {
-  if (!last) throw new Error('nothing rendered yet');
+async function planDrawing(drawing: NonNullable<typeof last>, opts: PlanOptions): Promise<{ buffer: Float64Array; settings: PlanSettings; planHash: string }> {
   const budget = tourBudget(opts.optimize);
   const gap = opts.bridge === false ? 0 : typeof opts.bridge === 'number' ? Math.max(0, opts.bridge) : -1;
-  const buffer = mod.wasm_plan(last.prims, last.frags, last.pensJson, budget, gap);
+  const buffer = mod.wasm_plan(drawing.prims, drawing.frags, drawing.pensJson, budget, gap);
   const settings: PlanSettings = {
     tourBudget: budget,
-    pens: last.pens.map((p) => ({ name: p.name, width: p.width })),
-    paper: { w: last.paper.w, h: last.paper.h },
-    bridgeGapMm: last.pens.map((p) => bridgeGapFor(p, opts.bridge)),
+    pens: drawing.pens.map((p) => ({ name: p.name, width: p.width })),
+    paper: { w: drawing.paper.w, h: drawing.paper.h },
+    bridgeGapMm: drawing.pens.map((p) => bridgeGapFor(p, opts.bridge)),
     engine: typeof __BUILD_STAMP__ === 'string' ? __BUILD_STAMP__ : 'dev',
   };
   const planHash = await hashPlan(buffer, settings);
-  lastPlan = { buffer, settings, planHash, pensJson: last.pensJson };
   return { buffer, settings, planHash };
 }
 
@@ -154,44 +156,47 @@ async function handleMessage(msg: Msg): Promise<void> {
   try {
     await ready;
     switch (msg.type) {
+      case 'render-camera':
       case 'render': {
-        // Assets referenced by literal name are fetched/decoded here in the
-        // worker (fetch + OffscreenCanvas are worker-native) before the
-        // synchronous sketch executes — into a table the run is given.
-        const assets = await preloadAssets(msg.js);
-        // Custom fills too: fetched from the fill library (or the editor's
-        // draft), captured before encode resolves fill('name').
-        const fills = await preloadFills(msg.js, msg.cfg.draftFill);
-        lastExecutionId = -1; // a failed run leaves no inspectable state
-        lastRun = null; constructionScenes = [];
-        const outcome = await runSketchAsync(msg.js, msg.cfg, msg.cfg.seed ?? sessionSeed, assets, fills, undefined, compute3);
-        if (outcome.error || !outcome.scene) {
-          const err = outcome.error;
-          self.postMessage({
-            type: 'error',
-            id: msg.id,
-            message: err instanceof Error ? err.message : String(err),
-            stack: err instanceof Error ? err.stack : undefined,
-            sketch: true, // execution failed — the editor sets a runtime marker
-          });
-          break;
+        const source = msg.type === 'render' ? { js: msg.js, cfg: msg.cfg } : lastSource;
+        if (!source) throw new Error('render the sketch before committing a camera');
+        const signal = msg.type === 'render-camera' ? cameraJobs.get(msg.id)?.signal : undefined;
+        signal?.throwIfAborted();
+        let run: Execution;
+        let scene: ReturnType<typeof encodeScene>;
+        if (msg.type === 'render-camera') {
+          if (!lastRun || msg.executionId !== lastExecutionId || msg.planHash !== lastPlan?.planHash) throw new Error('stale camera commit: the drawing changed');
+          const entry = constructionScenes[msg.scene];
+          if (!entry) throw new Error('camera commit scene not found');
+          run = await commitCamera3(lastRun, entry.source, msg.camera, { compute3, signal });
+          scene = encodeScene(run, { coarsen: source.cfg.coarsen, debugGhost: source.cfg.debugGhost });
+        } else {
+          const assets = await preloadAssets(source.js);
+          const fills = await preloadFills(source.js, source.cfg.draftFill);
+          const outcome = await runSketchAsync(source.js, source.cfg, source.cfg.seed ?? sessionSeed, assets, fills, undefined, compute3);
+          if (outcome.error || !outcome.scene) {
+            const err = outcome.error;
+            self.postMessage({ type: 'error', id: msg.id, message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined, sketch: true });
+            break;
+          }
+          run = outcome.run!; scene = outcome.scene;
         }
-        const scene = outcome.scene;
-        const run = outcome.run!;
-        lastExecutionId = msg.id;
-        lastRun = run;
-        constructionScenes = [...run.scenes3.keys()].map(source => ({ source }));
+        signal?.throwIfAborted();
         const raw = renderEncoded(mod, scene);
-        geometrySnapshot = null; renderedPlanHash = null;
-        last = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper };
+        const drawing = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper };
         // THE plan, once per render, under the sketch's own t.plan({...}):
         // everything downstream selects from it, as the sketch's t.draw says.
-        const { buffer: planBuf, settings, planHash } = await planLast(scene.plan ?? {});
+        const { buffer: planBuf, settings, planHash } = await planDrawing(drawing, scene.plan ?? {});
+        signal?.throwIfAborted();
+        // Adopt only after encoding, rendering and plan hashing all succeed.
+        last = drawing; lastPlan = { buffer: planBuf, settings, planHash, pensJson: scene.pensJson };
+        lastRun = run; lastSource = source; lastExecutionId = msg.id;
+        constructionScenes = [...run.scenes3.keys()].map(source => ({ source, prepared: constructionScenes.find(entry => entry.source.objects === source.objects && entry.source.wires === source.wires)?.prepared }));
         const { prims: inputPrims, contours, shapesU32, shapesF64, mods, fieldData, fieldUses, domainList, clipList, clipsU32, pensJson, paperArr, seed, coarsen } = scene;
         geometrySnapshot = { prims: inputPrims, contours, shapesU32, shapesF64, mods, fieldData, fieldUses, domainList, clipList, clipsU32, pensJson, paperArr, seed, coarsen };
         renderedPlanHash = planHash;
         capturedThree = undefined;
-        captureSource = { run, context: { engine: settings.engine ?? 'dev', scriptJs: msg.js, seed: currentSeed(run), adapter: compute3.adapterInfo } };
+        captureSource = { run, context: { engine: settings.engine ?? 'dev', scriptJs: source.js, seed: currentSeed(run), adapter: compute3.adapterInfo } };
         // Exports reuse the cached originals, so the preview gets COPIES —
         // and the copies are transferred, not structured-cloned a second
         // time. Decode metadata (pens/frame/paper) rides along so the main
@@ -218,10 +223,10 @@ async function handleMessage(msg: Msg): Promise<void> {
             paper: scene.paper,
             seedUsed: currentSeed(run),
             overrides: currentOverrides(run),
-            draws: msg.cfg.draws ? currentDraws(run) : undefined,
+            draws: source.cfg.draws ? currentDraws(run) : undefined,
             probes: run.getProbeStats(),
             executionId: msg.id,
-            inspections: msg.cfg.inspect ? run.getInspectionIndex() : [],
+            inspections: source.cfg.inspect ? run.getInspectionIndex() : [],
             plan,
             planSettings: settings,
             planHash,
@@ -269,7 +274,7 @@ async function handleMessage(msg: Msg): Promise<void> {
         const same = pens.length === msg.settings.pens.length && pens.every((p, i) => p.name === msg.settings.pens[i].name && p.width === msg.settings.pens[i].width);
         if (!same) throw new Error('saved plan: the pens given do not match the plan settings');
         lastPlan = { buffer: msg.buffer, settings: msg.settings, planHash, pensJson: msg.pensJson };
-        if (!msg.expectedPlanHash) { capturedThree = msg.three; captureSource = undefined; lastRun = null; lastExecutionId = -1; constructionScenes = []; }
+        if (!msg.expectedPlanHash) { capturedThree = msg.three; captureSource = undefined; lastRun = null; lastSource = null; lastExecutionId = -1; constructionScenes = []; }
         self.postMessage({ type: 'plan-load', id: msg.id, ok: true });
         break;
       }
@@ -321,9 +326,12 @@ async function handleMessage(msg: Msg): Promise<void> {
     self.postMessage({
       type: 'error',
       id: msg.id,
+      cancelled: cameraJobs.get(msg.id)?.signal.aborted === true,
       message: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,
     });
+  } finally {
+    if (msg.type === 'render-camera') cameraJobs.delete(msg.id);
   }
 };
 
@@ -332,5 +340,7 @@ async function handleMessage(msg: Msg): Promise<void> {
 let requests = Promise.resolve();
 self.onmessage = (event: MessageEvent<Msg>) => {
   const msg = event.data;
+  if (msg.type === 'cancel-camera') { cameraJobs.get(msg.id)?.abort(); return; }
+  if (msg.type === 'render-camera') cameraJobs.set(msg.id, new AbortController());
   requests = requests.then(() => handleMessage(msg));
 };

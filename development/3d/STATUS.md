@@ -2,7 +2,7 @@
 
 Original specification: [spec.md](spec.md). All M0–M5 requirements remain in scope.
 
-Latest camera work: retained composition and `commitCamera3` now support creating a new camera result without rerunning procedural modeling; see [CAMERA-COMPOSITION.md](CAMERA-COMPOSITION.md). Studio's Commit view control and its adoption/persistence verification remain pending.
+Latest camera work: retained composition and `commitCamera3` support creating a new camera result without rerunning procedural modeling; see [CAMERA-COMPOSITION.md](CAMERA-COMPOSITION.md). Studio now provides Commit view; see [CAMERA-STUDIO.md](CAMERA-STUDIO.md). Automatic camera configuration in saved/downloaded sketches and broader lifecycle hardening remain unfinished.
 
 ## Isolation
 

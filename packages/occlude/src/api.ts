@@ -1286,6 +1286,15 @@ export async function commitCamera3(
   next.planOptions = previous.planOptions && structuredClone(previous.planOptions);
   next.drawRequest = previous.drawRequest && structuredClone(previous.drawRequest);
   await compileSketchAsync(sketch(drawing.config, () => drawing.tree), next, options);
+  // Keep the scene menu and captured configuration in their original order.
+  const views = new Map(next.scenes3);
+  next.scenes3.clear();
+  for (const old of previous.scenes3.keys()) {
+    const source = old === scene ? drawing.scene : old;
+    const view = views.get(source);
+    if (view) { next.scenes3.set(source, view); views.delete(source); }
+  }
+  for (const [source, view] of views) next.scenes3.set(source, view);
   next.overrides = { ...previous.overrides };
   next.overrideHits = new Set(previous.overrideHits);
   next.drawLog = previous.drawLog.map(entry => ({ ...entry }));

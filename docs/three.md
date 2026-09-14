@@ -167,7 +167,7 @@ export default sketch({
 
 For headless or host integration, `await commitCamera3(run, scene, camera, { compute3?, signal? })` returns a new execution ready for `render(...)`. It never calls the original sketch function: world geometry is shared, the changed scene is classified again, and unaffected scenes reuse their classification. The new run captures the explicit camera, resolved paper and pens. The previous run remains exportable and unchanged. Use a scene from the new run's `scenes3` map for a subsequent commit.
 
-A returned `lineArt3` node is already retained. Eager `t.strokes3(...)` output is fixed projected data tied to its original view; camera commitment rejects such edits for the changed scene. Use `drawing3` when the interpretation should run again for a new view. Callbacks and their captured style functions must remain pure. Studio's orbit panel currently offers preview and Copy camera; its Commit view control is still being integrated.
+A returned `lineArt3` node is already retained. Eager `t.strokes3(...)` output is fixed projected data tied to its original view; camera commitment rejects such edits for the changed scene. Use `drawing3` when the interpretation should run again for a new view. Callbacks and their captured style functions must remain pure. Studio's **Commit view** control uses this retained composition path.
 
 
 ## Phase through hidden intervals
@@ -248,7 +248,7 @@ Rulings share one paper-origin lattice across every triangle of a modeled face. 
 Select `FeatureKind3.hatch`. Captured feature records retain `hatchFamily`, `hatchFace`, `hatchLine`, resolved `hatchSpacingMm`, family attributes and source face attributes. A generated feature's `curve` contains inspectable model-space endpoint positions, barycentric weights and supporting triangle indices before camera clipping. Hatch and sections can share the same immutable source: generate sections first, then pass `sections.surface` to `hatch3`. Trusted immutable snapshots are reused rather than copied again.
 
 ```ts live
-import { sketchAsync, grid3, FaceSelection3, extrudeFaces3, transformSurface3, section3, hatch3, lineArt3, FeatureKind3, constructStrokes3, clip, rect, mask, label, pen, mm } from 'occlude';
+import { sketchAsync, grid3, FaceSelection3, extrudeFaces3, transformSurface3, section3, hatch3, lineArt3, drawing3, FeatureKind3, constructStrokes3, clip, rect, mask, label, pen, mm } from 'occlude';
 
 export default sketchAsync({ seed: 42, pens: {
   outline: pen({ width: mm(0.3), color: '#18202A' }),
@@ -277,29 +277,31 @@ export default sketchAsync({ seed: 42, pens: {
       ...(face.normal[2] > 0.5 ? [{ id: 'cross', spacing: mm(spacing * 2), angle: -35 }] : []),
     ];
   });
-  const classified = await t.classify3(lineArt3({
+  const scene = lineArt3({
     objects: [{ id: 'relief', surface: hatch.surface, hatch, curves: sections }],
     camera: { kind: 'orthographic', span: 5.5, eye: [5, 7, 6], target: [0, 0, 0.4], near: 0.1, far: 30 }, lineSets: [],
-  }));
-  const strokes = constructStrokes3(classified, [
-    { id: 'edges', stroke: 'outline', select: f => (f.flags & (FeatureKind3.crease | FeatureKind3.silhouette | FeatureKind3.boundary)) !== 0 },
-    { id: 'hatch', stroke: 'fine', select: f => (f.flags & FeatureKind3.hatch) !== 0 },
-    { id: 'sections', stroke: 'accent', select: f => (f.flags & FeatureKind3.section) !== 0 },
-  ]);
-  return [
-    clip(rect(4, 4, 92, 84), t.strokes3(strokes)),
-    mask(rect(60, 75, 32, 13)),
-    label('HATCH / SECTIONS', 61, 78, 2.5, { stroke: 'outline' }),
-    label('PAPER SPACING', 61, 83, 2, { stroke: 'outline' }),
-    label('SURFACE STUDY', 8, 94, 4, { stroke: 'outline' }),
-  ];
+  });
+  return drawing3(scene, (classified, t) => {
+    const strokes = constructStrokes3(classified, [
+      { id: 'edges', stroke: 'outline', select: f => (f.flags & (FeatureKind3.crease | FeatureKind3.silhouette | FeatureKind3.boundary)) !== 0 },
+      { id: 'hatch', stroke: 'fine', select: f => (f.flags & FeatureKind3.hatch) !== 0 },
+      { id: 'sections', stroke: 'accent', select: f => (f.flags & FeatureKind3.section) !== 0 },
+    ]);
+    return [
+      clip(rect(4, 4, 92, 84), t.strokes3(strokes)),
+      mask(rect(60, 75, 32, 13)),
+      label('HATCH / SECTIONS', 61, 78, 2.5, { stroke: 'outline' }),
+      label('PAPER SPACING', 61, 83, 2, { stroke: 'outline' }),
+      label('SURFACE STUDY', 8, 94, 4, { stroke: 'outline' }),
+    ];
+  });
 });
 ```
 
 ## Construction view in Studio
 
-Open any live example above in Studio, then choose **3D** above the paper view. Drag to orbit, scroll to zoom, and click a mesh face to inspect its source ID and captured modeling attributes. The scene menu selects among the sketch's captured 3D scenes. **Reset camera** restores that scene's sketch camera; **Copy camera** copies explicit camera values for use in the sketch.
+Open any live example above in Studio, then choose **3D** above the paper view. Drag to orbit, scroll to zoom, and click a mesh face to inspect its source ID and captured modeling attributes. The scene menu selects among the sketch's captured 3D scenes. **Reset camera** restores that scene's committed camera; **Copy camera** copies explicit camera values for use in the sketch.
 
-Construction keeps normalized world-space mesh and wire buffers on the GPU. Orbit updates a camera uniform; depth testing and camera clipping happen in the construction shader. Orbiting does not rerun modeling, surface queries or vector visibility, and does not change the committed paper drawing or its exports. Returning to the paper view shows the same cached result. Applying the copied camera in source currently runs the sketch again; committing a camera against retained geometry is still being implemented. Saved results preserve the camera actually used by their plan.
+Construction keeps normalized world-space mesh and wire buffers on the GPU. Orbit updates a camera uniform; depth testing and camera clipping happen in the construction shader. Orbiting does not rerun modeling, surface queries or vector visibility, and does not change the committed paper drawing or its exports. Returning to the paper view shows the same cached result. **Commit view** classifies the explored camera against retained geometry and publishes a new vector drawing, preserving labels, clipping and styles. It does not rerun modeling. **Save result** captures this camera and its drawing. Rendering or reopening the sketch uses the camera in its source again; use **Copy camera** to put the view into the sketch itself. Saved results preserve the camera actually used by their plan.
 
 **Save result** preserves the selected plan and its exact SVG, resolved paper color, pens and timing settings. A 3D result also retains the committed camera frame, realized source meshes and attributes, generated curve attachments, compiled source, seed, engine and available GPU adapter details. Reopening that result uses its saved plan; it does not rerun deformation or read a new camera from the editor. Library changes do not replace the captured pens or paper. Construction preview cameras are exploratory and are not substituted for the committed camera in this record.

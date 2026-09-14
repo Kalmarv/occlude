@@ -13,9 +13,10 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const networkFailures = [];
   page.on('response', response => { if (response.status() >= 400) networkFailures.push({ url: response.url(), status: response.status() }); });
+  let modelGenerations = 0;
   const errors = []; page.on('pageerror', e => { errors.push(String(e)); console.error(String(e)); });
-  page.on('console', message => { if (message.type() === 'error') console.error(message.text()); });
-  await page.addInitScript(() => {
+  page.on('console', message => { if(message.text()==='camera-model-generation')modelGenerations++; if (message.type() === 'error') console.error(message.text()); });
+  await page.addInitScript(({cameraCheck}) => {
     window.sceneReports = [];
     window.workerRequests = [];
     window.adapterRequests = 0;
@@ -26,6 +27,9 @@ try {
     const OriginalWorker = window.Worker;
     window.Worker = class extends OriginalWorker {
       postMessage(message,...rest) {
+        if(cameraCheck && message.type==='render' && message.js.includes('hatched-towers')) {
+          message={...message,js:message.js.replace(/let surface\s*=/,'console.info("camera-model-generation"); let surface =')};
+        }
         if(typeof message.type==='string')window.workerRequests.push(message.type);
         if(message.type==='plan-load'||message.type==='render')window.planWorker=this;
         return super.postMessage(message,...rest);
@@ -37,7 +41,7 @@ try {
         });
       }
     };
-  });
+  }, {cameraCheck:process.env.OCCLUDE_CAMERA_CHECK==='1'});
   await page.goto(`${base}/docs.html#/three`);
   await page.locator('.live-example').first().waitFor().catch(async error => { await writeFile(resolve(output, 'failure.html'), await page.content()); await page.screenshot({ path: resolve(output, 'failure.png') }); throw error; });
   const examples = page.locator('.live-example');
@@ -137,6 +141,45 @@ try {
   await writeFile(resolve(output, 'studio.svg'), svg);
   await page.screenshot({ path: resolve(output, 'studio.png'), fullPage: true });
   assert.deepEqual(errors, []);
+  if (process.env.OCCLUDE_CAMERA_CHECK === '1') {
+    const before=await page.evaluate(()=>({hash:window.sceneReply.planHash,execution:window.sceneReply.executionId,camera:window.sceneReply.construction[0].camera,modeling:window.sceneReply.three.modeling,requests:window.workerRequests.filter(t=>t==='render').length}));
+    const generationCount=modelGenerations;
+    assert(generationCount>0,'the procedural model must be instrumented');
+    await page.evaluate(()=>{
+      window.cameraRpc=(message,cancel=false)=>new Promise((resolve,reject)=>{
+        const worker=window.sceneWorker,id=900001000+(window.cameraRpcId=(window.cameraRpcId||0)+1);
+        const listener=e=>{if(e.data.id!==id)return;clearTimeout(timer);worker.removeEventListener('message',listener);resolve(e.data);};
+        const timer=setTimeout(()=>{worker.removeEventListener('message',listener);reject(new Error('camera RPC timeout'));},15000);
+        worker.addEventListener('message',listener);worker.postMessage({...message,id});if(cancel)worker.postMessage({type:'cancel-camera',id});
+      });
+    });
+    const originalCapture=await page.evaluate(()=>window.cameraRpc({type:'plan-three',planHash:window.sceneReply.planHash}));
+    await page.getByRole('button',{name:'3D',exact:true}).click();
+    const canvas=page.locator('#construction-canvas'),bounds=await canvas.boundingBox();assert(bounds);
+    const revision=await canvas.getAttribute('data-revision');
+    await page.mouse.move(bounds.x+bounds.width*.5,bounds.y+bounds.height*.5);await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.5+100,bounds.y+bounds.height*.5+30,{steps:10});await page.mouse.up();
+    await page.waitForFunction(r=>document.querySelector('#construction-canvas')?.dataset.revision!==r,revision);
+    await page.getByRole('button',{name:'Commit view',exact:true}).click();
+    await page.waitForFunction(hash=>window.__occlude.drawing.plan?.planHash!==hash && document.querySelector('.construction-pick')?.textContent?.startsWith('View committed.'),before.hash,{timeout:60000});
+    const after=await page.evaluate(()=>({hash:window.sceneReply.planHash,execution:window.sceneReply.executionId,camera:window.sceneReply.construction[0].camera,modeling:window.sceneReply.three.modeling,requests:window.workerRequests.filter(t=>t==='render').length}));
+    assert.notEqual(after.hash,before.hash);assert.notEqual(after.execution,before.execution);assert.notDeepEqual(after.camera,before.camera);
+    assert.equal(after.requests,before.requests);assert.equal(modelGenerations,generationCount);assert.deepEqual(after.modeling,before.modeling);
+    const captured=await page.evaluate(()=>window.cameraRpc({type:'plan-three',planHash:window.sceneReply.planHash}));
+    assert.deepEqual(captured.three.scenes[0].objects,originalCapture.three.scenes[0].objects);
+    assert.deepEqual(captured.three.scenes[0].frame.camera,after.camera);
+    const invalid=await page.evaluate(()=>window.cameraRpc({type:'render-camera',executionId:window.sceneReply.executionId,planHash:window.sceneReply.planHash,scene:0,camera:{...window.sceneReply.construction[0].camera,near:-1}}));
+    assert.equal(invalid.type,'error');
+    const stale=await page.evaluate(before=>window.cameraRpc({type:'render-camera',executionId:before.execution,planHash:before.hash,scene:0,camera:before.camera}),before);
+    assert.equal(stale.type,'error');assert.match(stale.message,/stale camera/);
+    const cancelled=await page.evaluate(before=>window.cameraRpc({type:'render-camera',executionId:window.sceneReply.executionId,planHash:window.sceneReply.planHash,scene:0,camera:before.camera},true),before);
+    assert.equal(cancelled.type,'error');assert.equal(cancelled.cancelled,true);
+    const exported=await page.evaluate(()=>{const r=window.sceneReply;return window.cameraRpc({type:'plan-svg',planHash:r.planHash,from:0,to:r.plan[1],width:r.paper.w,height:r.paper.h,onlyPen:-1});});
+    assert.equal(exported.type,'plan-svg');assert(exported.svg.includes('<path'));assert.notEqual(exported.svg,svg);
+    await page.getByRole('button',{name:'3D',exact:true}).click();
+    await page.screenshot({path:resolve(output,'camera-commit.png'),fullPage:true});
+    await writeFile(resolve(output,'camera-commit.svg'),exported.svg);
+    await writeFile(resolve(output,'camera-commit.json'),JSON.stringify({passed:true,before,after,modelGenerations:generationCount,invalid:invalid.message,stale:stale.message,cancelled:cancelled.cancelled},null,2));
+  }
   if (process.env.OCCLUDE_PERSISTENCE_CHECK === '1') {
     const madePromise=page.waitForResponse(r=>r.url()===`${base}/api/results`&&r.request().method()==='POST');
     await page.getByRole('button',{name:'Save result',exact:true}).click();

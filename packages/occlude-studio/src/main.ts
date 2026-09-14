@@ -20,7 +20,7 @@ import { UiPanel } from './uiPanel.js';
 
 declare const __BUILD_STAMP__: string;
 import { parseSeed, encodeToolpath, scanUiControls, type EstimateOpts, type PenDef, type PenTiming } from 'occlude';
-import { type RenderDraws, RenderClient, type WorkerError } from './workerClient.js';
+import { type CameraCommitRequest, type RenderDraws, RenderClient, type WorkerError } from './workerClient.js';
 import { Drawing, machineTiming, machineTolerance, penTimingOf } from './drawing.js';
 import { loadResult } from './resultsApi.js';
 import type { RenderResult } from 'occlude';
@@ -88,7 +88,7 @@ async function boot(): Promise<void> {
     settings.activeProfile = profiles[0].name;
   }
   const client = new RenderClient();
-  const construction = new ConstructionPanel3(client, document.getElementById('bench')!, document.getElementById('bench-hud')!);
+  const construction = new ConstructionPanel3(client, document.getElementById('bench')!, document.getElementById('bench-hud')!, request => runInner(request));
   const editor = createEditor($('editor'), loadSketch());
   const preview = new Preview($('preview') as HTMLCanvasElement);
   preview.setPaperColor(settings.paperColor);
@@ -136,6 +136,7 @@ async function boot(): Promise<void> {
   let runSeq = 0;
   let ticker: ReturnType<typeof setInterval> | null = null;
   let pending: number | null = null;
+  let renderedSource: string | null = null;
   let sketchName = loadSketchName();
   /** One-shot note appended to the next 'ok' status (import summaries). */
   let note: string | null = null;
@@ -204,22 +205,24 @@ async function boot(): Promise<void> {
     }
   }
 
-  async function runInner(): Promise<void> {
-    saveSketch(editor.getValue()); // persist BEFORE executing — survives anything
+  async function runInner(cameraCommit?: CameraCommitRequest): Promise<void> {
+    const source = editor.getValue();
+    if (cameraCommit && (source !== renderedSource || ticker || frozenId)) throw new Error('Render the current sketch before committing a view.');
+    saveSketch(source); // persist BEFORE executing — survives anything
     if (frozenId) {
       statusMsg.className = 'status-err';
       statusMsg.textContent = `showing saved result ${frozenId} — the source is not executed here; open the studio without ?result to render`;
       return;
     }
-    if (!renderOn) {
+    if (!renderOn && !cameraCommit) {
       statusMsg.className = 'status-err';
       statusMsg.textContent = 'rendering paused — press ▶ render to run the sketch';
       return;
     }
-    const emitted = await editor.emit();
-    if (!emitted.js) {
+    const emitted = cameraCommit ? { js: '' } : await editor.emit();
+    if (!cameraCommit && !emitted.js) {
       statusMsg.className = 'status-err';
-      statusMsg.textContent = emitted.errors[0] ?? 'syntax error';
+      statusMsg.textContent = ('errors' in emitted ? emitted.errors[0] : undefined) ?? 'syntax error';
       return;
     }
 
@@ -251,8 +254,8 @@ async function boot(): Promise<void> {
     // self-heals.
     let reply;
     try {
-      reply = await client.render({
-        js: emitted.js,
+      reply = await client.render(cameraCommit ? { cameraCommit } : {
+        js: emitted.js!,
         cfg: {
           pens,
           papers,
@@ -268,16 +271,21 @@ async function boot(): Promise<void> {
       });
     } catch (err) {
       if ((err as WorkerError).sketch) setRuntimeMarker(editor.model, err);
-      if (!finish()) return; // superseded: the newer run reports
+      if (!finish()) { if (cameraCommit) throw err; return; } // superseded: the newer run reports
       statusMsg.className = 'status-err';
       statusMsg.textContent =
         (err instanceof Error ? err.message : String(err)) +
         (lastResult ? ' — showing previous result' : '');
+      if (cameraCommit) throw err;
       return;
     }
-    if (reply === null) return; // superseded by a newer run, which owns the status
+    if (reply === null) {
+      if (finish() && cameraCommit) statusMsg.textContent = 'Camera commit cancelled — showing previous result';
+      if (cameraCommit) throw new Error('Camera commit cancelled because the sketch changed.');
+      return;
+    }
     const latest = finish();
-    if (latest) preview.setStale(false);
+    if (latest) { preview.setStale(false); renderedSource = source; }
     const result: RenderResult = reply.result;
     // An older run landing behind a newer one still shows its drawing (the
     // newer will replace it), but the status line belongs to the newer run.
@@ -343,7 +351,7 @@ async function boot(): Promise<void> {
   const uiPanel = new UiPanel($('bench'), editor);
   uiPanel.sync();
   editor.onChange(() => uiPanel.sync());
-  editor.onChange(scheduleRun);
+  editor.onChange(() => { client.cancelCameraCommit(); scheduleRun(); });
   // Debug/automation handle (used by headless driving; harmless otherwise).
   (window as unknown as Record<string, unknown>).__occlude = {
     editor,

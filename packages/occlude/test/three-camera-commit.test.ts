@@ -52,6 +52,7 @@ it('reinterprets styles against the new snapshot and shares unaffected classific
   expect(calls).toBe(3); expect(models).toBe(1);
   expect(views).toHaveLength(2); expect(views[0]).not.toBe(views[1]);
   expect(committed.scenes3.get(b)).toBe(original.scenes3.get(b));
+  expect([...committed.scenes3.keys()][1]).toBe(b);
   expect(original.scenes3.get(a)).toBe(views[0]);
   expect([...committed.scenes3.keys()].find(s => s !== b)?.objects).toBe(a.objects);
 });

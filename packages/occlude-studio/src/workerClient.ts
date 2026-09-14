@@ -20,10 +20,8 @@ export interface RenderDraws {
   values: (number | boolean | null)[];
 }
 
-export interface RenderRequest {
-  js: string;
-  cfg: RunConfig;
-}
+export interface CameraCommitRequest { executionId: number; planHash: string; scene: number; camera: Camera3 }
+export type RenderRequest = { js: string; cfg: RunConfig } | { cameraCommit: CameraCommitRequest };
 
 /** A render carrying its worker-side seed (the main thread has no sketch
  * state to read it from anymore). */
@@ -85,6 +83,7 @@ export class RenderClient {
   private pending = new Map<number, Pending>();
   private inFlightRender = false;
   private inFlightSince = 0;
+  private cameraJob: number | null = null;
   private queuedRender: { req: RenderRequest; p: Pending } | null = null;
   private watchdog: ReturnType<typeof setTimeout> | null = null;
 
@@ -163,6 +162,7 @@ export class RenderClient {
         this.sendRender(req, qp);
       }
     }
+    if (msg.type === 'error' && msg.cancelled === true && p.isRender) { p.resolve(null); return; }
     if (msg.type === 'error') {
       const err = new Error(String(msg.message)) as WorkerError;
       if (typeof msg.stack === 'string') err.stack = msg.stack;
@@ -197,12 +197,20 @@ export class RenderClient {
     this.pending.set(id, p);
     this.inFlightRender = true;
     this.inFlightSince = performance.now();
+    this.cameraJob = 'cameraCommit' in req ? id : null;
     if (this.watchdog) clearTimeout(this.watchdog);
     this.watchdog = setTimeout(() => this.respawnStuckWorker(), RENDER_TIMEOUT_MS);
-    this.worker.postMessage({ type: 'render', id, js: req.js, cfg: req.cfg });
+    this.worker.postMessage('cameraCommit' in req
+      ? { type: 'render-camera', id, ...req.cameraCommit }
+      : { type: 'render', id, js: req.js, cfg: req.cfg });
   }
 
-  /** Run + render a sketch. Resolves null when superseded by a newer request. */
+  /** Stop an obsolete camera job while retaining the committed worker state. */
+  cancelCameraCommit(): void {
+    if (this.inFlightRender && this.cameraJob !== null) this.worker.postMessage({ type: 'cancel-camera', id: this.cameraJob });
+  }
+
+  /** Run + render a sketch, or commit a retained camera. Null means cancelled. */
   render(req: RenderRequest): Promise<RenderReply | null> {
     return new Promise((resolve, reject) => {
       const p: Pending = {
@@ -244,10 +252,11 @@ export class RenderClient {
         },
         reject,
       };
-      if (this.inFlightRender && performance.now() - this.inFlightSince > PREEMPT_AFTER_MS) {
+      if (this.inFlightRender && this.cameraJob === null && performance.now() - this.inFlightSince > PREEMPT_AFTER_MS) {
         this.preempt();
       }
       if (this.inFlightRender) {
+        this.cancelCameraCommit();
         this.queuedRender?.p.resolve(null);
         this.queuedRender = { req, p };
         return;
