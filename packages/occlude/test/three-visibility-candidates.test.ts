@@ -47,6 +47,8 @@ describe('visibility candidate pruning',()=>{
     const snapshot=featureSnapshot3([...run.scenes3.keys()][0].objects,[],classified.frame);
     let pruned=0;for(const _ of candidatePairs3(snapshot))pruned++;
     const unpruned=snapshot.features.reduce((n,f)=>n+[...snapshot.index.query([-1e9,-1e9,1e9,1e9])].filter(j=>!f.support.includes(snapshot.occluders[j].id)).length,0);
-    expect(pruned).toBeLessThan(unpruned);expect(pruned).toBe(classified.stats.candidates);
+    // The raster filter in the classifier proves some features hidden outright and
+    // walks cells for the rest, so it evaluates at most the index's pruned pairs.
+    expect(pruned).toBeLessThan(unpruned);expect(classified.stats.candidates).toBeLessThanOrEqual(pruned);expect(classified.stats.candidates).toBeGreaterThan(0);
   });
 });

@@ -530,6 +530,27 @@ its output supply behaviour references only, and the two deliberate
 crossing-box discrepancies the test pins by exact length are recorded beside
 the fixtures.
 
+### The certified raster filter
+
+Before the exact classifier decides a feature against its candidate
+triangles, a raster over the sheet answers what it can prove. Every triangle
+is drawn into a cover buffer at 2048 pixels along the long side: a pixel
+records the smallest far-depth of any triangle whose projection covers the
+whole pixel (all four corners strictly inside, shrunk by a tenth of a pixel).
+A feature whose nearest point lies farther than that cover at every pixel it
+crosses is behind a covering surface under every eye ray, so it is hidden;
+its own triangles never prove it, since equal depth is not "farther by a
+margin". Candidate triangles come from a coarse cell grid walked along the
+feature's projection rather than from bounds overlap, a tighter superset for
+diagonal lines. Anything the raster cannot see, a feature beyond the sheet or
+geometry at the eye, falls to the exact path unchanged. The filter never
+decides inside its own margin, so the intervals are byte-identical to the
+exact classifier's: the test `three-raster-filter.test.ts` and the seven
+benchmark workloads (zero mismatched intervals) are the oracle. Measured on
+the woven vessel: 2.26 M candidate pairs to 0.63 M, 58% of features proven
+hidden, visibility 9.6 s to 2.3 s; the other workloads 1.2x to 3.5x.
+`classifySceneCpuJob3(snapshot, { raster: false })` runs the exact path alone.
+
 ## Fields
 
 A Field is an augmented callable: a plain `(x, y) => value` carrying its

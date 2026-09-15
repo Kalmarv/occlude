@@ -578,3 +578,30 @@ sub-step timing bug recorded in the same notes is fixed, in
 `packages/occlude-studio/src/ebb.ts`. The sketch-library restores across three
 history rewrites are `git bundle` files kept outside this repository, with the
 restore procedure beside them.
+
+## Visibility: the certified raster filter (2026-09-15, built)
+
+Measured before building: on the woven vessel 85% of features are wholly
+hidden and 54% of the 2.26 M candidate pairs never overlap in projection.
+Built as a cover-depth raster plus a cell walk (docs/architecture.md, "The
+certified raster filter"), on by default, `{ raster: false }` for the exact
+path alone. Oracle: zero mismatched intervals on all seven benchmark
+workloads and the 36 docs examples. Visibility phase, CPU reference:
+
+| workload | exact ms | with filter | speedup | pairs before | after |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| woven-vessel | 9577 | 2332 | 4.1x | 2,255,812 | 633,422 |
+| hatch-density | 3716 | 1062 | 3.5x | 363,798 | 347,686 |
+| primitive-crosshatch | 1739 | 573 | 3.0x | 176,255 | 166,407 |
+| custom-curvature | 540 | 246 | 2.2x | 54,215 | 74,116 |
+| intersection-assembly | 571 | 285 | 2.0x | 233,407 | 105,325 |
+| mapped-plane | 283 | 154 | 1.8x | 38,991 | 54,611 |
+| repeated-prototypes | 108 | 91 | 1.2x | 13,924 | 15,487 |
+
+Next steps in the same direction, all ink-preserving: a two-deep visibility
+buffer (nearest two triangle ids per pixel) for per-pixel hidden runs and a
+visible proof that skips a feature's own triangles; cluster ids per cell so a
+cluster behind a cover is dropped once; workers by feature range. The
+raster could also skip tracing hatch lines on covered triangles, but that
+changes which lines are seeded and where dashes fall: a decision, not a
+filter. Nib-size LOD likewise changes ink and would be an explicit mode.
