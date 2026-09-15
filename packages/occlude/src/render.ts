@@ -638,6 +638,9 @@ export interface MachineProfileTS {
   travelFeed?: number;
   zMode?: boolean;
   arcSupport?: boolean;
+  /** Mirror Y on output (y' = bed height - y) for controllers whose Y grows
+   * upward from a bottom-left home; arcs follow the mirrored frame. */
+  flipY?: boolean;
 }
 
 export interface GcodeJob {
@@ -680,6 +683,7 @@ export function profileToJson(
     travelFeed: p.travelFeed ?? 6000,
     zMode: p.zMode ?? true,
     arcSupport: p.arcSupport ?? false,
+    flipY: p.flipY ?? false,
   });
 }
 

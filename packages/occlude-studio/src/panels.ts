@@ -1268,6 +1268,10 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
         m.arcSupport = v;
         persistProfile();
       }),
+      checkbox('Mirror Y (bottom-left home, Y up)', m.flipY ?? false, (v) => {
+        m.flipY = v;
+        persistProfile();
+      }),
     );
   }
   renderGcodeProfile();
@@ -1307,6 +1311,7 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
         zMode: prof().machine.zMode,
         arcSupport: prof().machine.arcSupport,
         resolution: prof().machine.resolution,
+        flipY: prof().machine.flipY ?? false,
       },
       r.paper,
     );

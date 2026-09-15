@@ -45,6 +45,8 @@ export interface MachineSettings {
   zMode: boolean;
   arcSupport: boolean;
   resolution: number;
+  /** Mirror Y in exported G-code (see MachineProfileTS.flipY). */
+  flipY?: boolean;
 }
 
 export interface EbbSettings {
@@ -161,6 +163,28 @@ export const DEFAULT_PROFILE: MachineProfile = {
     liftMarginPulses: 800,
     driftCheckEvery: 1000,
   },
+};
+
+/** The iDraw H A1 (DrawCore V2, GRBL G-code, real stepper Z): 594 x 841 mm
+ * bed, pen by Z moves, polylines only (no G2/G3 on this controller), and a
+ * coarser resolution because GRBL streams a few hundred lines a second.
+ * flipY stays off until the orientation plot says otherwise: the vendor
+ * says home is top-left after $H with Y possibly inverted. Travel feed is
+ * a conservative start; the machine is rated to 12000. The EBB block is
+ * unused by a gcode driver and kept only so every profile has one shape. */
+export const IDRAW_H_A1_PROFILE: MachineProfile = {
+  name: 'iDraw H A1',
+  driver: 'gcode',
+  machine: {
+    bedW: 594,
+    bedH: 841,
+    travelFeed: 10000,
+    zMode: true,
+    arcSupport: false,
+    resolution: 0.2,
+    flipY: false,
+  },
+  ebb: structuredClone(DEFAULT_PROFILE.ebb),
 };
 
 export const DEFAULT_SKETCH = `import { sketch, circle, paper, pen, inch, mm } from 'occlude';

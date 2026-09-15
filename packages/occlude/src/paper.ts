@@ -8,6 +8,9 @@ export interface Paper {
 }
 
 export const PAPERS: Record<string, Paper> = {
+  A0: { name: 'A0', w: 841, h: 1189 },
+  A1: { name: 'A1', w: 594, h: 841 },
+  A2: { name: 'A2', w: 420, h: 594 },
   A3: { name: 'A3', w: 297, h: 420 },
   A4: { name: 'A4', w: 210, h: 297 },
   A5: { name: 'A5', w: 148, h: 210 },

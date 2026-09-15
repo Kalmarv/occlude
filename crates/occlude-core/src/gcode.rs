@@ -30,6 +30,12 @@ pub struct MachineProfile {
     pub z_mode: bool,
     /// Emit G2/G3 for arcs instead of flattening them.
     pub arc_support: bool,
+    /// Mirror Y on output: y' = bed height - y. For controllers whose
+    /// home is the top-left corner with Y growing downward (the iDraw H
+    /// after $H), paper coordinates map straight through; for a standard
+    /// GRBL frame with Y growing upward from a bottom-left home, mirror.
+    /// Arc direction follows the coordinates actually written.
+    pub flip_y: bool,
 }
 
 impl Default for MachineProfile {
@@ -40,6 +46,7 @@ impl Default for MachineProfile {
             travel_feed: 6000.0,
             z_mode: true,
             arc_support: false,
+            flip_y: false,
         }
     }
 }
@@ -422,10 +429,15 @@ fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) 
     let mut ink = 0.0;
     let mut travel = 0.0;
     let mut pos = Vec2::ZERO;
+    // The coordinates written to the file: paper space, optionally mirrored in Y.
+    let out = |p: Vec2| -> Vec2 {
+        if profile.flip_y { crate::vec2::v(p.x, profile.bed.1 - p.y) } else { p }
+    };
     for chain in chains {
         let s = chain.start();
         travel += pos.dist(s);
-        let _ = writeln!(g, "G0 X{:.3} Y{:.3} F{:.0}", s.x, s.y, profile.travel_feed);
+        let so = out(s);
+        let _ = writeln!(g, "G0 X{:.3} Y{:.3} F{:.0}", so.x, so.y, profile.travel_feed);
         down(&mut g);
         if chain.dot {
             up(&mut g);
@@ -435,18 +447,24 @@ fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) 
         for prim in &chain.prims {
             match prim {
                 Primitive::Arc(a) if profile.arc_support => {
-                    let e = a.eval(1.0);
-                    // Paper space is y-down: positive sweep is screen-CW,
-                    // which grbl calls G2.
-                    let code = if a.sweep > 0.0 { "G2" } else { "G3" };
+                    // The arc's angle grows counter-clockwise in the numeric
+                    // XY frame the controller reads (theta = start + t*sweep,
+                    // point = c + r(cos, sin)), so a positive sweep is G3 in
+                    // the coordinates as written; mirroring Y reverses it.
+                    // (How a y-down screen shows the arc is irrelevant here.)
+                    let ccw = (a.sweep > 0.0) != profile.flip_y;
+                    let code = if ccw { "G3" } else { "G2" };
+                    let s0 = out(a.eval(0.0));
+                    let e = out(a.eval(1.0));
+                    let c = out(a.center);
                     let _ = writeln!(
                         g,
                         "{} X{:.3} Y{:.3} I{:.3} J{:.3} F{:.0}",
                         code,
                         e.x,
                         e.y,
-                        a.center.x - a.eval(0.0).x,
-                        a.center.y - a.eval(0.0).y,
+                        c.x - s0.x,
+                        c.y - s0.y,
                         pen.feed
                     );
                 }
@@ -454,7 +472,8 @@ fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) 
                     let mut pts = Vec::new();
                     prim.flatten(tol, &mut pts);
                     for p in pts.iter().skip(1) {
-                        let _ = writeln!(g, "G1 X{:.3} Y{:.3} F{:.0}", p.x, p.y, pen.feed);
+                        let po = out(*p);
+                        let _ = writeln!(g, "G1 X{:.3} Y{:.3} F{:.0}", po.x, po.y, pen.feed);
                     }
                 }
             }

@@ -17,7 +17,7 @@ import {
   downSweep, liftGrid, liftTraverse, registrationProbe, settleLift, type Diagnostic,
 } from './diagnostics.js';
 import { Ebb, type EbbOptions, type PlotProgress } from './ebb.js';
-import { download, saveProfiles, saveSettings, type MachineProfile, type Settings } from './store.js';
+import { download, saveProfiles, saveSettings, IDRAW_H_A1_PROFILE, type MachineProfile, type Settings } from './store.js';
 import { withIcon } from './icons.js';
 import { confirmDialog, promptDialog } from './wa.js';
 import { button, checkbox, el, hint, numberInput, row } from './widgets.js';
@@ -151,6 +151,23 @@ export function buildProfileSelect(
       m.switchProfile(name);
     });
     dup.title = 'Copy the active profile (e.g. a large-format regime of the same machine)';
+    // Presets: a known machine as a starting profile, then edit.
+    const presets = [IDRAW_H_A1_PROFILE];
+    const add = button('Add preset', async () => {
+      const preset = presets[0];
+      const name = (await promptDialog({
+        title: 'Add machine preset',
+        body: `Start a profile from the ${preset.name} preset (${preset.machine.bedW} x ${preset.machine.bedH} mm, ${preset.driver}).`,
+        placeholder: preset.name,
+        confirm: 'Add',
+        validate: (v) => (!v.trim() ? 'Name the profile.' : profiles.some((pp) => pp.name === v.trim()) ? 'A profile with that name exists.' : null),
+      }))?.trim();
+      if (!name) return;
+      profiles.push({ ...structuredClone(preset), name });
+      m.persist();
+      m.switchProfile(name);
+    });
+    add.title = `Presets: ${presets.map((p) => p.name).join(', ')}`;
     const del = button('Delete', async () => {
       if (profiles.length <= 1) return;
       if (!(await confirmDialog({ title: 'Delete profile', body: `Delete machine profile '${m.prof().name}'?`, confirm: 'Delete', danger: true }))) return;
@@ -160,7 +177,7 @@ export function buildProfileSelect(
       m.switchProfile(profiles[0].name);
     });
     del.className = 'danger-quiet';
-    wrap.append(dup, del);
+    wrap.append(dup, add, del);
   }
   return wrap;
 }

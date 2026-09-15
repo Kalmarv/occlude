@@ -718,3 +718,34 @@ fn hidden_source_reference_does_not_cover_an_unrelated_tap() {
     let result=render(&input(vec![shape,tap]));
     assert!(result.frags.iter().any(|f|f.shape==1&&f.dot),"unselected source geometry must not erase another mark");
 }
+
+/// The arc primitive's angle grows counter-clockwise in numeric XY, so a
+/// positive sweep must be G3 as written, and mirroring Y flips it. A
+/// review once caught this emitted as G2 (the y-down screen was mistaken
+/// for the controller's frame).
+#[test]
+fn gcode_arc_direction_follows_the_written_coordinates() {
+    use occlude_core::gcode::Chain;
+    // Quarter arc about (50,50), radius 10: (60,50) -> (50,60).
+    let chain = Chain {
+        prims: vec![Primitive::Arc(Arc::new(v(50., 50.), 10., 0.0, PI / 2.0))],
+        dot: false,
+        pen: 0,
+        ordered: false,
+    };
+    let pens = vec![Pen::default()];
+    let plain = MachineProfile { arc_support: true, bed: (100.0, 100.0), ..MachineProfile::default() };
+    let g = &export_gcode(std::slice::from_ref(&chain), &pens, &plain)[0].gcode;
+    assert!(g.contains("G3 X50.000 Y60.000 I-10.000 J0.000"), "{g}");
+    assert!(!g.contains("G2 "), "{g}");
+    // Mirrored in Y the same arc runs (60,50) -> (50,40) about (50,50): clockwise, G2.
+    let mirrored = MachineProfile { flip_y: true, ..plain.clone() };
+    let g = &export_gcode(std::slice::from_ref(&chain), &pens, &mirrored)[0].gcode;
+    assert!(g.contains("G0 X60.000 Y50.000"), "{g}");
+    assert!(g.contains("G2 X50.000 Y40.000 I-10.000 J0.000"), "{g}");
+    // Flattened output mirrors too.
+    let flat = MachineProfile { arc_support: false, flip_y: true, ..plain.clone() };
+    let g = &export_gcode(std::slice::from_ref(&chain), &pens, &flat)[0].gcode;
+    assert!(g.contains("G1 X50.000 Y40.000"), "{g}");
+    assert!(!g.contains("Y60.000"), "{g}");
+}
