@@ -61,6 +61,20 @@ describe('physical surface hatch',()=>{
     const concaveRuns=constructStrokes3(classify(hatch3(concave,[{id:'concave',spacing:mm(10),angle:0}])),[{id:'hatch',stroke:'ink',select}]);
     expect(concaveRuns).toHaveLength(2);expect(concaveRuns.map(r=>Math.round(r.length))).toEqual([10,10]);
   });
+  it('rules only the sheet band, so a face projecting far beyond the paper stays cheap',()=>{
+    // A huge quad right in front of a wide-angle camera projects kilometres of paper.
+    const wall=surface3([[-1e4,-1e4,-1],[1e4,-1e4,-1],[1e4,1e4,-1],[-1e4,1e4,-1]],[[0,1,2,3]]);
+    const near=cameraFrame3({...camera,kind:'perspective',fovDegrees:80,eye:[0,0,0],target:[0,0,-1],up:[0,1,0],near:.1,far:100},frame.paper);
+    const started=performance.now();
+    const hatch=hatch3(wall,[{id:'band',spacing:mm(2),angle:35}]);
+    const source=classifySceneCpu3(featureSnapshot3([{id:'wall',surface:hatch.surface,hatch}],[],near));
+    expect(performance.now()-started).toBeLessThan(5000);
+    const rows=new Set(source.features.filter(r=>select(r.feature)).map(r=>r.feature.attributes.hatchLine));
+    const diagonal=Math.hypot(frame.paper.width,frame.paper.height);
+    expect(rows.size).toBeGreaterThan(10);expect(rows.size).toBeLessThanOrEqual(Math.ceil((3*diagonal)/2)+2);
+    // Every kept piece lies within one diagonal of the sheet in both directions.
+    for(const {feature:f} of source.features.filter(r=>select(r.feature)))for(const point of [f.a,f.b]){const p=toPaper3(near,point);for(const [v,lo,size] of [[p[0],frame.paper.x,frame.paper.width],[p[1],frame.paper.y,frame.paper.height]]){expect(v).toBeGreaterThan(lo-diagonal-1e-6);expect(v).toBeLessThan(lo+size+diagonal+1e-6);}}
+  });
   it('captures callbacks once, composes sections, and retains face attributes and occlusion',()=>{
     const source=quad();source.faces[0].attributes.density=10;
     const sections=section3(source,[{id:'section',origin:[0,0,0],normal:[1,0,0]}]);let calls=0;

@@ -1,6 +1,6 @@
 import type {SurfaceLocation3} from '../geometry/location.js';
 import type {Surface3} from '../geometry/surface.js';
-import {surfaceLocation3} from '../geometry/location.js';
+import {surfaceLocation3,captureSurfacePlacement3} from '../geometry/location.js';
 import {estimateCurvature3,curvatureAt3,type CurvatureOptions3} from '../geometry/curvature.js';
 import {rotateVector3} from '../rotation.js';
 import {add3,sub3,mul3,dot3,cross3,type Vec3} from '../math.js';
@@ -33,7 +33,10 @@ export function light(options:Parameters<typeof lightRecipe3>[0]):ToneField {
   const recipe=lightRecipe3(options);
   return registerToneRecipe3((s:SurfaceLocation3)=>lightTone3(recipe.space==='model'?s.modelNormal:s.normal,recipe),recipe);
 }
-const gradients=new WeakMap<(s:SurfaceLocation3)=>number,WeakMap<Surface3,Map<string,Map<number,Vec3|null>>>>();
+// Keyed by the captured placement object, whose identity changes with its
+// transform revision (captureSurfacePlacement3), never by its string id: an
+// instance that turns keeps its id but not its gradients.
+const gradients=new WeakMap<(s:SurfaceLocation3)=>number,WeakMap<Surface3,WeakMap<object,Map<number,Vec3|null>>>>();
 /** Gradient of a scalar field, taken from its values at the three vertices of
  * the current triangle: exact for the linear interpolant, a per-triangle
  * estimate for anything else. Zero where the field is constant. */
@@ -41,8 +44,8 @@ export function gradient(scalar:(s:SurfaceLocation3)=>number):DirectionField {
   if(typeof scalar!=='function')throw new Error('gradient requires a scalar surface field');
   let bySurface=gradients.get(scalar);if(!bySurface){bySurface=new WeakMap();gradients.set(scalar,bySurface);}
   return s=>{
-    let byPlacement=bySurface!.get(s.source);if(!byPlacement){byPlacement=new Map();bySurface!.set(s.source,byPlacement);}
-    const key=s.placement?.id??'';let cache=byPlacement.get(key);if(!cache){cache=new Map();byPlacement.set(key,cache);}
+    let byPlacement=bySurface!.get(s.source);if(!byPlacement){byPlacement=new WeakMap();bySurface!.set(s.source,byPlacement);}
+    const key:object=captureSurfacePlacement3(s.placement)??s.source;let cache=byPlacement.get(key);if(!cache){cache=new Map();byPlacement.set(key,cache);}
     const found=cache.get(s.triangle);if(found!==undefined)return found;
     const corners=[[1,0,0],[0,1,0],[0,0,1]].map(w=>surfaceLocation3(s.source,s.triangle,w as unknown as Vec3,{placement:s.placement}));
     const values=corners.map(c=>{const v=scalar(c);if(!Number.isFinite(v))throw new Error('gradient scalar field must return finite numbers');return v;});

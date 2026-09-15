@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {box,intersections,instanceOnPoints,pointCloud,view,orthographic} from '../src/three/api/index.js';
+import {box,sphere,intersections,instanceOnPoints,pointCloud,view,orthographic} from '../src/three/api/index.js';
 import {compileSketch,compileSketchAsync,initOcclude,pen,mm,sketch,sketchAsync} from '../src/index.js';
 import {readFileSync} from 'node:fs';
 
@@ -16,6 +16,23 @@ describe('public three intersections API',()=>{
     expect(view(transverse,{camera:orthographic({eye:[5,5,5],span:5})})).toBeTruthy();
   });
 
+  it('takes a list and pairs every two different objects once',()=>{
+    const a=box(1),b=box(1).translate([.6,0,0]),c=box(1).translate([1.2,0,0]),far=box(1).translate([9,0,0]);
+    const list=intersections([a,b,c,far]),ab=intersections(a,b),bc=intersections(b,c);
+    expect(list.sources.length).toBe(4);
+    // a meets b and b meets c; a-c and everything with far are empty pairs.
+    expect(list.edges.length).toBe(ab.edges.length+bc.edges.length);
+    expect(()=>intersections([a])).toThrow('at least two');
+    expect(()=>intersections([a,b,c],{maxPairs:2})).toThrow('pair budget');
+    // Instances in a list: the set's own members never pair with each other.
+    const pins=instanceOnPoints(box(.4),pointCloud([[0,0,0],[.2,0,0]]).points);
+    expect(intersections([pins,far]).edges.length).toBe(0);
+    expect(intersections([pins,b]).edges.length).toBeGreaterThan(0);
+    // Unkeyed, coincident objects: identical inner ids across pairs must not collide.
+    const spokes=[0,1,2].map(axis=>{const o=[0,0,0] as number[];o[axis]=.4;return box(.6).translate(o as never);});
+    const hub=intersections([sphere(.5),sphere(.5),...spokes]);
+    expect(hub.sources.length).toBe(5);expect(hub.edges.length).toBeGreaterThan(0);
+  });
   it('enforces placement pair and aggregate graph budgets',()=>{
     const prototype=box(2),points=pointCloud([[0,0,0],[1,0,0]]),instances=instanceOnPoints(prototype,points.points);
     expect(()=>intersections(instances,prototype,{maxPairs:1})).toThrow('placement pair budget');

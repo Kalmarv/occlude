@@ -60,6 +60,44 @@ function rulingPlane(frame:CameraFrame3,nx:number,ny:number,offset:number,id:str
   return {id,normal:add3(base,mul3(frame.back,-(nx*cx+ny*cy-offset)/focal)),origin:frame.camera.eye,attributes};
 }
 
+/** Rulings cost the paper, not the face: a face seen from close by projects far
+ * beyond the sheet, and rulings out there (or the parts of a ruling out there)
+ * can never leave ink on it. The sheet is widened by one sheet diagonal on
+ * every side so styles that reach past the edge keep their anchors. */
+function sheetOverscan(frame:CameraFrame3):number{return Math.hypot(frame.paper.width,frame.paper.height);}
+/** The widened sheet's extent along a ruling normal. */
+function sheetBand(frame:CameraFrame3,nx:number,ny:number):readonly [number,number] {
+  const r=frame.paper,overscan=sheetOverscan(frame);
+  const d=[[r.x,r.y],[r.x+r.width,r.y],[r.x,r.y+r.height],[r.x+r.width,r.y+r.height]].map(([x,y])=>nx*x+ny*y);
+  return [Math.min(...d)-overscan,Math.max(...d)+overscan];
+}
+/** Parameters of the part of a world segment that projects inside the widened
+ * sheet: the four side constraints are linear in camera space under either
+ * projection, so this is Liang–Barsky. Near/far are left to the features. */
+function sheetRange(frame:CameraFrame3,a:Vec3,b:Vec3):readonly [number,number]|null {
+  const r=frame.paper,c=frame.camera,overscan=sheetOverscan(frame),aspect=r.width/r.height;
+  const ca=toCamera3(frame,a),cb=toCamera3(frame,b);
+  const x=[-1-2*overscan/r.width,1+2*overscan/r.width],y=[-1-2*overscan/r.height,1+2*overscan/r.height];
+  // f(p) >= 0 inside, for each side; perspective scales by depth d = -z.
+  const sides:((p:Vec3)=>number)[]=c.kind==='orthographic'
+    ?[p=>x[1]*c.span*aspect-2*p[0],p=>2*p[0]-x[0]*c.span*aspect,p=>y[1]*c.span-2*p[1],p=>2*p[1]-y[0]*c.span]
+    :(()=>{const k=1/Math.tan(c.fovDegrees*Math.PI/360);return [(p:Vec3)=>x[1]*aspect*-p[2]-k*p[0],(p:Vec3)=>k*p[0]-x[0]*aspect*-p[2],(p:Vec3)=>y[1]*-p[2]-k*p[1],(p:Vec3)=>k*p[1]-y[0]*-p[2]];})();
+  let lo=0,hi=1;
+  for(const side of sides){
+    const va=side(ca),vb=side(cb);
+    if(va<0&&vb<0)return null;
+    if(va<0)lo=Math.max(lo,va/(va-vb));
+    if(vb<0)hi=Math.min(hi,va/(va-vb));
+  }
+  return lo<hi?[lo,hi]:null;
+}
+/** A point part-way along a ruling piece, in the piece's own triangle. */
+function alongPiece(world:Surface3,piece:SurfaceCurveSegment3,t:number,id:string):SurfaceCurvePoint3 {
+  const tri=world.triangles[piece.triangles[0]].vertices;
+  const bary=(p:SurfaceCurvePoint3):Vec3=>{const w=[0,0,0];p.vertices.forEach((v,i)=>{const k=tri.indexOf(v);if(k<0)throw new Error('ruling piece vertex outside its triangle');w[k]+=p.weights[i];});return w as unknown as Vec3;};
+  const wa=bary(piece.a),wb=bary(piece.b),weights=wa.map((v,i)=>v+(wb[i]-v)*t) as unknown as Vec3;
+  return freezeCurves3({id,position:add3(piece.a.position,mul3(add3(piece.b.position,mul3(piece.a.position,-1)),t)),vertices:[tri[0],tri[1],tri[2]] as const,weights});
+}
 /** Realized curves retain MODEL coordinates and barycentric ownership, even
  * when an instance is transformed. Faces share a paper-origin ruling lattice
  * across their triangles; folded faces use piecewise triangle support. */
@@ -91,6 +129,11 @@ export function realizeHatch3(hatch:HatchSource3,world:Surface3,frame:CameraFram
       const angle=(family.angle%360)*Math.PI/180,nx=-Math.sin(angle),ny=Math.cos(angle);
       let min=Infinity,max=-Infinity;
       for(const points of projected.values())for(const p of points){const d=nx*p[0]+ny*p[1];min=Math.min(min,d);max=Math.max(max,d);}
+      // Rule only the band of the sheet (plus one sheet diagonal of overscan for
+      // styles that reach past the edge): a face seen from close by projects far
+      // beyond the paper, and rulings out there can never leave ink on it.
+      const band=sheetBand(frame,nx,ny);min=Math.max(min,band[0]);max=Math.min(max,band[1]);
+      if(!(min<=max))continue;
       // Strict bounds avoid laying hatch on the outer parallel face boundary.
       const first=Math.floor((min-phase)/spacing)+1,last=Math.ceil((max-phase)/spacing)-1;
       if(!Number.isSafeInteger(first)||!Number.isSafeInteger(last)||rowsVisited+Math.max(0,last-first+1)>hatch.maxSegments)throw new Error(`hatch ruling capacity exceeded (${hatch.maxSegments}); increase spacing or explicit maxSegments`);
@@ -106,9 +149,12 @@ export function realizeHatch3(hatch:HatchSource3,world:Surface3,frame:CameraFram
           if(!owned){const position=p.vertices.reduce((sum,v,i)=>add3(sum,mul3(surface.points[v].position,p.weights[i])),[0,0,0] as Vec3);owned=freezeCurves3({...p,position});points.set(p,owned);}
           return owned;
         };
-        for(const piece of pieces) {
-          const a=piece.a.vertices.filter((_,i)=>piece.a.weights[i]>0),b=piece.b.vertices.filter((_,i)=>piece.b.weights[i]>0);
+        for(const raw of pieces) {
+          const a=raw.a.vertices.filter((_,i)=>raw.a.weights[i]>0),b=raw.b.vertices.filter((_,i)=>raw.b.weights[i]>0);
           if(a.length===1&&b.length===1&&boundary.has(edgeKey(a[0],b[0])))continue;
+          const range=sheetRange(frame,raw.a.position,raw.b.position);
+          if(!range)continue;
+          const piece=range[0]===0&&range[1]===1?raw:{...raw,a:range[0]===0?raw.a:alongPiece(world,raw,range[0],JSON.stringify([raw.a.id,'sheet'])),b:range[1]===1?raw.b:alongPiece(world,raw,range[1],JSON.stringify([raw.b.id,'sheet']))};
           segments.push(freezeCurves3({...piece,a:modelPoint(piece.a),b:modelPoint(piece.b)}));
         }
       }

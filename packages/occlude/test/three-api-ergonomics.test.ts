@@ -67,6 +67,21 @@ describe('object origin and rotation',()=>{
     expect(near(c4,[0,5,0],1e-9)).toBe(true);
     expect(()=>b.rotate('z',Infinity)).toThrow('finite');
   });
+  it('the origin rides along with a rotation or scale about another pivot',()=>{
+    const b=box(1).translate([5,0,0]);
+    const turned=b.rotate('z',90,{about:'world'});
+    expect(near(turned.origin,[0,5,0],1e-9)).toBe(true);
+    // A later default rotation now turns in place at the carried origin.
+    expect(near(centroid(turned.rotate([0,0,45])),[0,5,0],1e-9)).toBe(true);
+    const value=b.rotate(axisAngle('z',180),[6,0,0]);
+    expect(near(value.origin,[7,0,0],1e-9)).toBe(true);
+    const grown=b.scale(2,{about:'world'});
+    expect(near(grown.origin,[10,0,0])).toBe(true);
+    expect(near(centroid(grown.scale(0.5)),[10,0,0],1e-9)).toBe(true);
+    const line=polyline([[5,0,0],[6,0,0]]).translate([1,0,0]).rotate('z',90,{about:'world'});
+    expect(near(line.origin,[0,1,0],1e-9)).toBe(true);
+    expect(near(pointCloud([[0,0,0]]).translate([2,0,0]).scale([3,1,1],[1,0,0]).origin,[4,0,0])).toBe(true);
+  });
   it('local rotation reads the axis in the accumulated orientation',()=>{
     const tilted=box(1).rotate('z',90);
     const localX=tilted.rotate('x',90,{local:true}),worldY=tilted.rotate('y',90);

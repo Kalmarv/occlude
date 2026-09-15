@@ -171,6 +171,19 @@ describe('seeded surface hatch',()=>{
     }));
     expect(run.modeling3[0].hatch?.surfaces).toBe(2);
   });
+  it('refuses a seed located on another mesh and forgets gradients when a placement turns',()=>{
+    const low=plane(2,2).subdivide(2),high=low.translate([0,0,10]);
+    const onHigh=surfaceLocation3(high.surface,3,[.2,.3,.5]);
+    expect(()=>trace(low,[onHigh],[1,0,0],{step:.2,maxLength:1})).toThrow('another mesh');
+    expect(()=>trace(low,[{sample:onHigh}],[1,0,0],{step:.2,maxLength:1})).toThrow('another mesh');
+    expect(trace(high,[onHigh],[1,0,0],{step:.2,maxLength:1}).edges.length).toBeGreaterThan(0);
+    // The same instance id with a different transform must not reuse the gradient.
+    const field=gradient(s=>s.position[2]),sheet=plane(2,2);
+    const flat=surfaceLocation3(sheet.surface,0,[1/3,1/3,1/3],{placement:{id:'i',transform:{}}});
+    const tilted=surfaceLocation3(sheet.surface,0,[1/3,1/3,1/3],{placement:{id:'i',transform:{rotate:[90,0,0]}}});
+    expect(field(flat)).toBeNull();
+    expect(field(tilted)).not.toBeNull();
+  });
   it('validates options, budgets and cancellation',async()=>{
     expect(()=>captureHatch(sheet(),{direction:[1,0,0]} as never)).toThrow('spacing');
     expect(()=>captureHatch(sheet(),{spacing:.1} as never)).toThrow('direction');

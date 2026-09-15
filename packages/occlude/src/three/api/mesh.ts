@@ -146,7 +146,10 @@ function isRotationInput(value:unknown):value is RotationInput {
   return Array.isArray(value)||(typeof value==='object'&&value!==null&&(value as RotationData).kind==='rotation');
 }
 /** `rotate(angles | rotation, pivot?)` or `rotate(axis, degrees, { about, local })`. */
-function rotationArguments(self:Placement,a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):{rotate:Rotation;origin:Vec3;orientation:Rotation} {
+/** The object's origin after turning about a pivot: it rides along like every
+ * other point, so a later default rotation still turns in place. */
+function movedOrigin(self:Placement,pivot:Vec3,move:(v:Vec3)=>Vec3):Vec3{return Object.freeze(add3(pivot,move(sub3(self.origin,pivot)))) as unknown as Vec3;}
+function rotationArguments(self:Placement,a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):{rotate:Rotation;origin:Vec3;orientation:Rotation;moved:Vec3} {
   let rotate:Rotation,options:RotateOptions={};
   if(typeof b==='number'){
     if(!Number.isFinite(b))throw new Error('rotate degrees must be finite');
@@ -156,14 +159,16 @@ function rotationArguments(self:Placement,a:RotationInput|Axis3,b?:number|Vec3|R
   }else{
     if(!isRotationInput(a))throw new Error('rotate takes Euler degrees, a rotation value, or an axis with degrees');
     rotate=rotation3(a);
-    if(Array.isArray(b))return {rotate,origin:b as Vec3,orientation:self.orientation.then(rotate)};
+    if(Array.isArray(b)){finite3(b as Vec3);return {rotate,origin:b as Vec3,orientation:self.orientation.then(rotate),moved:movedOrigin(self,b as Vec3,v=>rotate.apply(v))};}
     options=(b as RotateOptions|undefined)??{};
   }
-  return {rotate,origin:pivotOf(options.about,self.origin),orientation:self.orientation.then(rotate)};
+  const origin=pivotOf(options.about,self.origin);
+  return {rotate,origin,orientation:self.orientation.then(rotate),moved:movedOrigin(self,origin,v=>rotate.apply(v))};
 }
-function scaleArguments(self:Placement,scale:number|Vec3,b?:Vec3|ScaleOptions):{scale:Vec3;origin:Vec3} {
-  const factors:Vec3=typeof scale==='number'?[scale,scale,scale]:scale;
-  return {scale:factors,origin:Array.isArray(b)?b as Vec3:pivotOf((b as ScaleOptions|undefined)?.about,self.origin)};
+function scaleArguments(self:Placement,scale:number|Vec3,b?:Vec3|ScaleOptions):{scale:Vec3;origin:Vec3;moved:Vec3} {
+  const factors:Vec3=typeof scale==='number'?[scale,scale,scale]:scale;finite3(factors);
+  const origin=Array.isArray(b)?b as Vec3:pivotOf((b as ScaleOptions|undefined)?.about,self.origin);if(Array.isArray(b))finite3(origin);
+  return {scale:factors,origin,moved:movedOrigin(self,origin,v=>[v[0]*factors[0],v[1]*factors[1],v[2]*factors[2]])};
 }
 
 /** Point geometry has a point domain; it never claims editable mesh faces. */
@@ -184,8 +189,8 @@ export class PointGeometry<P extends Attributes3={}> {
   translate(offset:Vec3):PointGeometry<P>{finite3(offset);return new PointGeometry(transformSurface3(this.surface,{translate:offset}),{...this,history:[],origin:add3(this.origin,offset)});}
   rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):PointGeometry<P>;
   rotate(axis:Axis3,degrees:number,options?:RotateOptions):PointGeometry<P>;
-  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):PointGeometry<P>{const r=rotationArguments(this,a,b,c);return new PointGeometry(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):PointGeometry<P>{const r=scaleArguments(this,scale,pivot);return new PointGeometry(transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[]});}
+  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):PointGeometry<P>{const r=rotationArguments(this,a,b,c);return new PointGeometry(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved});}
+  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):PointGeometry<P>{const r=scaleArguments(this,scale,pivot);return new PointGeometry(transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
   withKey(key:string):PointGeometry<P>{return new PointGeometry(this.surface,{key,iteration:this.iteration,history:this.history});}
   steps(count:number,rule:PointRule<StepAttributes<P>>|StepShorthand<PointRow<StepAttributes<P>>,StepAttributes<P>>,...passesAndOptions:(PointRule<StepAttributes<P>>|StepsOptions)[]):PointGeometry<StepAttributes<P>>{
     return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history)=>new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history}));
@@ -269,8 +274,8 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
   translate(offset:Vec3):CurveGeometry<P,E>{finite3(offset);return this.changed(transformSurface3(this.surface,{translate:offset}),{origin:add3(this.origin,offset)});}
   rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):CurveGeometry<P,E>;
   rotate(axis:Axis3,degrees:number,options?:RotateOptions):CurveGeometry<P,E>;
-  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):CurveGeometry<P,E>{const r=rotationArguments(this,a,b,c);return this.changed(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{orientation:r.orientation});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):CurveGeometry<P,E>{const r=scaleArguments(this,scale,pivot);return this.changed(transformSurface3(this.surface,{scale:r.scale,origin:r.origin}));}
+  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):CurveGeometry<P,E>{const r=rotationArguments(this,a,b,c);return this.changed(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{orientation:r.orientation,origin:r.moved});}
+  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):CurveGeometry<P,E>{const r=scaleArguments(this,scale,pivot);return this.changed(transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{origin:r.moved});}
   withKey(key:string):CurveGeometry<P,E>{return new CurveGeometry(this.surface,this.surface.edges.map((_,i)=>i),{...this,key});}
   steps(count:number,rule:CurveRule<StepAttributes<P>,StepAttributes<E>>|StepShorthand<PointRow<StepAttributes<P>>,StepAttributes<P>>,...passesAndOptions:(CurveRule<StepAttributes<P>,StepAttributes<E>>|StepsOptions)[]):CurveGeometry<StepAttributes<P>,StepAttributes<E>>{
     if(stepRule<PointRow<StepAttributes<P>>,StepAttributes<P>>(rule))rule=pointShorthandRule(rule) as CurveRule<StepAttributes<P>,StepAttributes<E>>;
@@ -451,8 +456,8 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
    * `{ about, local }`. */
   rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):Mesh<P,E,F,C>;
   rotate(axis:Axis3,degrees:number,options?:RotateOptions):Mesh<P,E,F,C>;
-  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):Mesh<P,E,F,C>{const r=rotationArguments(this,a,b,c);return new Mesh(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):Mesh<P,E,F,C>{const r=scaleArguments(this,scale,pivot);return new Mesh(transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[]});}
+  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):Mesh<P,E,F,C>{const r=rotationArguments(this,a,b,c);return new Mesh(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved});}
+  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):Mesh<P,E,F,C>{const r=scaleArguments(this,scale,pivot);return new Mesh(transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
   withKey(key:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,key});}
   steps(count:number,rule:MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepShorthand<MeshPointRow<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>,StepAttributes<P>>,...passesAndOptions:(MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepsOptions)[]):Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>{
     if(!Number.isSafeInteger(count)||count<0)throw new Error('steps count must be a nonnegative integer');
