@@ -145,6 +145,13 @@ describe('instances on faces',()=>{
   });
 });
 
+describe('view inputs',()=>{
+  it('names a geometry value passed twice',()=>{
+    const ring=torus(1,.3,{segments:8,tubeSegments:6}),camera=orthographic({eye:[4,6,5],target:[0,0,0],up:[0,0,1],span:6});
+    expect(()=>compileSketch(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([box(1),ring,ring],{camera,stroke:'ink'})))).toThrow('appears twice');
+  });
+});
+
 describe('per-object crease threshold',()=>{
   it('an object with its own creaseAngle overrides the view default; instances follow the prototype',async()=>{
     const camera=orthographic({eye:[4,6,5],target:[0,0,0],up:[0,0,1],span:6});

@@ -60,8 +60,9 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
   }
   const meshes=Array.isArray(geometry)?geometry:[geometry];
   const objects:SurfaceObject3[]=[],supported:SurfaceCurveObject3[]=[];
-  const geometryKeys=new Set<string>();
+  const geometryKeys=new Set<string>(),seen=new Set<ViewGeometry>();
   meshes.forEach((value:ViewGeometry,index:number)=>{
+    if(seen.has(value))throw new Error(`the same geometry value appears twice in this view (position ${index}); a view draws each value once, so drop the repeat or place copies with instances`);seen.add(value);
     if(!(value instanceof Mesh)&&!(value instanceof Instances)&&!(value instanceof CurveGeometry)&&!(value instanceof SurfaceCurves))throw new Error('view requires mesh, curve or instance geometry');
     const id=value.key??`object:${index}`;
     if(geometryKeys.has(id))throw new Error('view geometry keys must be unique');geometryKeys.add(id);
