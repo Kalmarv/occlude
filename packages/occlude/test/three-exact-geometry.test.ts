@@ -1,10 +1,38 @@
 import {describe,it,expect} from 'vitest';
-import {point,pointNumber,canonicalPoint,ratioNumber,weightedPoint,integerWeights,triangleWeights,encodePoint,decodePoint,mixPoint,type H} from '../src/three/geometry/exact.js';
+import {point,pointNumber,canonicalPoint,ratioNumber,weightedPoint,integerWeights,triangleWeights,encodePoint,decodePoint,mixPoint,bitLength,filtered4,filteredDotSign,dot,type H} from '../src/three/geometry/exact.js';
 import {mesh} from 'occlude/3d';
 import {hiddenWorldInterval3,type WorldOcclusion3} from '../src/three/visibility/worldInterval.js';
 import type {SegmentBasis3} from '../src/three/visibility/interval.js';
 import {surfaceLocation3} from '../src/three/geometry/location.js';
 describe('shared exact surface constructions',()=>{
+
+ it('never certifies a dot sign the exact arithmetic contradicts',()=>{
+  // The filter may abstain (0) as often as it likes; the one thing it may
+  // never do is name a sign. Degenerate inputs are the point of the test, so
+  // half the trials are exactly orthogonal pairs and near misses of one unit.
+  let seed=0x9e3779b9;
+  const next=(bits:number)=>{let n=0n;for(let i=0;i<bits;i+=30){seed=(seed*1103515245+12345)&0x7fffffff;n=(n<<30n)|BigInt(seed&0x3fffffff);}return seed&1?-n:n;};
+  let certified=0;
+  for(let trial=0;trial<4000;trial++){
+    const bits=8+(trial%600);
+    let a:H=[next(bits),next(bits),next(bits),next(bits)];
+    let b:H=[next(bits),next(bits),next(bits),next(bits)];
+    if(trial%2){
+      // Total cancellation: a unit weight on the last axis lets the dot be
+      // driven to exactly zero, then off it by one unit in the last place.
+      a=[a[0],a[1],a[2],1n];
+      const rest=a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+      b=[b[0],b[1],b[2],-rest+BigInt(trial%6)-3n];
+    }
+    const exact=dot(a,b),truth=exact<0n?-1:exact>0n?1:0;
+    const filtered=filteredDotSign(filtered4(a),filtered4(b));
+    if(filtered!==0){certified++;expect(filtered).toBe(truth);}
+  }
+  expect(certified).toBeGreaterThan(1000);
+  expect(filteredDotSign(filtered4([0n,0n,0n,0n]),filtered4([1n,1n,1n,1n]))).toBe(0);
+  expect(bitLength(0n)).toBe(0);expect(bitLength(1n)).toBe(1);expect(bitLength(-255n)).toBe(8);
+  expect(bitLength(1n<<2000n)).toBe(2001);
+ });
  it('round trips finite binary64 values including subnormals and large integers',()=>{
   for(const x of [0,Number.MIN_VALUE,-Number.MIN_VALUE,1e-300,1e100,Number.MAX_VALUE,-Number.MAX_VALUE,2**53+2]){
     expect(pointNumber(point([x,x,x]))).toEqual([x,x,x]);

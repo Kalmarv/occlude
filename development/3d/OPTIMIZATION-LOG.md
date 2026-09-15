@@ -8,8 +8,8 @@ recorded here, kept or reverted. Numbers are from this box (shared; run under
 
 | workload | metric | baseline (bfbdf93) | current | delta |
 | --- | --- | --- | --- | --- |
-| woven-vessel | compile ms | 25040 | 24196 | −3.4% |
-| woven-vessel | visibility ms | 17513 | 16579 | −5.3% |
+| woven-vessel | compile ms | 25040 | 22112 | −11.7% |
+| woven-vessel | visibility ms | 17513 | 13659 | −22.0% |
 
 Baselines: `benchmark-surface/cpu-baseline.json`, `gpu-baseline.json`
 (recorded on `bfbdf93` before any change). The woven-vessel rows quoted above
@@ -36,7 +36,7 @@ The vessel takes the exact world path: `hiddenInterval3` delegates to
 `hiddenWorldInterval3` for every one of its 2.26 M candidate pairs, six
 homogeneous BigInt constraints each.
 
-## 1. Unroll the fixed-width BigInt vector ops    8af8e22
+## 1. Unroll the fixed-width BigInt vector ops    (commit 1 on this branch)
 
 Hypothesis: `dot`, `times`, `subtract` and `reduce` in `exact.ts` are written
 over `Array.prototype.reduce`/`map` with closures, but every operand is a
@@ -67,3 +67,47 @@ euler, 18.1 coincident mm); vessel SVG byte length identical.
 Verdict: kept. Small but free and it is a prerequisite for the rest — the
 remaining exact-arithmetic work is now visible in the profile rather than
 buried under closure overhead.
+
+## 2. A certified f64 filter for the exact halfspace signs    (commit 2 on this branch)
+
+Hypothesis: instrumenting `hiddenWorldInterval3` over the vessel gives
+2,255,812 calls and 7,580,746 constraint evaluations, of which 1,578,447 end
+in a rejection and only ~2.1 M ever take a root. A rejection (`va<0 && vb<0`)
+and a no-op (`va>=0 && vb>=0`, which moves neither bound) both depend on the
+*signs* of the two dot products alone, so ~72% of the exact BigInt work is
+computed and thrown away.
+
+Change: `three/geometry/exact.ts` gains `bitLength`, `filtered4` and
+`filteredDotSign` — an f64 image of an exact 4-vector divided by a positive
+power of two (so signs are preserved), plus a running error bound
+`2^-49*S + 8*(a.slack*b.max + b.slack*a.max)` that covers both the conversion
+rounding and the truncation of a right shift. The filter returns ±1 only when
+the f64 value exceeds its own bound, and 0 — "ask the exact arithmetic" —
+otherwise, including at zero. `three/visibility/worldInterval.ts` caches one
+filter image beside each shadow plane and each source point (the same
+WeakMaps that already cache the exact forms) and consults the filter first:
+both signs negative rejects, both positive continues, anything else falls
+through to the unchanged exact path. This is the `robust-predicates`
+technique the f64 reference path already uses, lifted to the homogeneous dot
+product; no tolerance is introduced, because the filter never decides a case
+it cannot prove.
+
+Before / after (woven-vessel, CPU reference, two passes in one process):
+
+| pass | compile ms | visibility ms | svg bytes |
+| --- | --- | --- | --- |
+| cold before | 24947 | 16839 | 1964750 |
+| cold after | 23272 | 14321 | 1964750 |
+| warm before | 24196 | 16579 | 1964750 |
+| warm after | 22112 | 13659 | 1964750 |
+
+Correctness: `vitest run` 1057 passed / 1 skipped; `docs:hashes --check`
+256/256 ink-identical; `plotstats church.ts --seed 42` unchanged; vessel SVG
+byte length identical. A new oracle in `test/three-exact-geometry.test.ts`
+asserts the filter never names a sign the exact `dot` contradicts over 4000
+trials up to 600-bit coefficients, half of them constructed to cancel to
+exactly zero or to within one unit in the last place; the test fails when the
+bound is set to zero and still fails when the bound is shrunk by 512x, so it
+constrains the constant rather than merely exercising the code.
+
+Verdict: kept.

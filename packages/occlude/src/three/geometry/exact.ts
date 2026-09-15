@@ -32,6 +32,46 @@ export function reduce(p:H):H {
   for(let i=1;i<4&&divisor!==1n;i++)divisor=gcd(divisor,p[i]);
   return divisor>1n?[p[0]/divisor,p[1]/divisor,p[2]/divisor,p[3]/divisor]:p;
 }
+/** Exact bit length of |n|. Base 16 is a power of two, so the digit count is
+ * the length, not an estimate. */
+export function bitLength(n:bigint):number {
+  const digits=abs(n).toString(16);
+  if(digits==='0')return 0;
+  return (digits.length-1)*4+(32-Math.clz32(Number.parseInt(digits[0],16)));
+}
+/** f64 image of an exact 4-vector, divided by a positive power of two so every
+ * sign is preserved, together with the error slack that division left behind:
+ * `slack` is 1 when coefficients were shifted (each entry is then off by less
+ * than one unit) and 0 when they were converted whole. `max` is the largest
+ * magnitude, which bounds the other vector's contribution to that slack. */
+export interface Filtered4 { readonly v:Float64Array; readonly max:number; readonly slack:number }
+const FILTER_BITS=400;
+export function filtered4(p:H):Filtered4 {
+  let magnitude=0n;
+  for(let i=0;i<4;i++){const a=abs(p[i]);if(a>magnitude)magnitude=a;}
+  const v=new Float64Array(4);
+  if(magnitude===0n)return {v,max:0,slack:0};
+  const excess=bitLength(magnitude)-FILTER_BITS,slack=excess>0?1:0;
+  if(slack){const shift=BigInt(excess);for(let i=0;i<4;i++)v[i]=Number(p[i]>>shift);}
+  else for(let i=0;i<4;i++)v[i]=Number(p[i]);
+  let max=0;
+  for(let i=0;i<4;i++){const a=Math.abs(v[i]);if(a>max)max=a;}
+  return {v,max,slack};
+}
+/** Sign of the exact dot product when f64 certifies it, else 0 meaning "this
+ * one needs the exact value". Each converted coefficient is within
+ * `slack + 2^-53|value|` of the truth and the four products are summed with
+ * three roundings, so `|error| <= 2^-49*S + 8*(a.slack*b.max + b.slack*a.max)`;
+ * a result beyond that bound cannot have the opposite sign, and a result
+ * inside it says nothing, including about being zero. */
+export function filteredDotSign(a:Filtered4,b:Filtered4):number {
+  const x=a.v,y=b.v,t0=x[0]*y[0],t1=x[1]*y[1],t2=x[2]*y[2],t3=x[3]*y[3];
+  const value=t0+t1+t2+t3;
+  const scale=Math.abs(t0)+Math.abs(t1)+Math.abs(t2)+Math.abs(t3);
+  const bound=scale*(8*Number.EPSILON)+8*(a.slack*b.max+b.slack*a.max);
+  if(!(bound<Infinity))return 0;
+  return value>bound?1:value<-bound?-1:0;
+}
 export const point=(v:Vec3):H=>homogeneous([...v.map(dyadic),[1n,0]]);
 export const dot=(a:H,b:H)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];
 export const dot3=(a:readonly bigint[],b:readonly bigint[])=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
