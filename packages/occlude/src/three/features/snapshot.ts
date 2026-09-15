@@ -14,7 +14,9 @@ export const FeatureKind3 = { boundary: 1, silhouette: 2, crease: 4, marked: 8, 
 export interface InstanceSource3 {readonly id:string;readonly pointId:string;readonly pointIndex:number;readonly prototypeKey?:string}
 export interface SurfaceObject3 { readonly binding?:SurfaceBinding3; readonly instance?:InstanceSource3; readonly id: string; readonly surface: Surface3; readonly curves?: SurfaceCurves3; readonly hatch?: HatchSource3; readonly transform?: Parameters<typeof transformSurface3>[1]; readonly lineSource?: boolean; readonly occluder?: boolean; readonly attributes?: Attributes3;
   /** The object's own crease threshold in degrees; the view's applies when unset. */
-  readonly creaseThreshold?: number }
+  readonly creaseThreshold?: number;
+  /** The object's own pen for the default drawing. */
+  readonly stroke?: string }
 export interface WireObject3 { readonly id: string; readonly points: readonly Vec3[]; readonly attributes?: Attributes3 }
 export interface Feature3 {
   /** Source placement identity, independent of per-view object naming. */
@@ -33,6 +35,8 @@ export interface Feature3 {
   readonly creaseAngle: number;
   /** The owning object's own crease threshold, when it set one. */
   readonly creaseThreshold?: number;
+  /** The owning object's own pen, when it set one. */
+  readonly stroke?: string;
   readonly a: Vec3;
   readonly b: Vec3;
   /** Original source parameter range, before near/far clipping. */
@@ -175,11 +179,11 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       const sourceId = original?.id ?? key('diagonal', surface.faces[surface.triangles[incident[0]].face].id, ...edge.vertices.map(v => surface.points[v].id));
       const flags = (original?.faces.length === 1 ? FeatureKind3.boundary : 0) | (silhouette ? FeatureKind3.silhouette : 0) | (original && angle > 0 ? FeatureKind3.crease : 0) | (original?.attributes.marked === true ? FeatureKind3.marked : 0);
       const support = [...new Set(incident.flatMap(i => { const f=surface.triangles[i].face; return planar[f] ? faceTriangles[f] : [i]; }))].map(i=>triangleIds[i]);
-      add({ ...(object.instance?{instance:Object.freeze({...object.instance})}:{}), ...(object.creaseThreshold!==undefined?{creaseThreshold:object.creaseThreshold}:{}), id: key(object.id, sourceId), objectId: object.id, sourceId, flags, creaseAngle: angle, a: positions[edge.vertices[0]], b: positions[edge.vertices[1]], basis:edgeBasis(edge.vertices), endpoints: edge.vertices.map(v => key(object.id, surface.points[v].id)) as [string, string], support, attributes: attributes({ ...object.attributes, ...original?.attributes }), faceAttributes: [...new Set(incident.map(i => surface.triangles[i].face))].map(i => faceAttrs[i]) });
+      add({ ...(object.instance?{instance:Object.freeze({...object.instance})}:{}), ...(object.creaseThreshold!==undefined?{creaseThreshold:object.creaseThreshold}:{}), ...(object.stroke!==undefined?{stroke:object.stroke}:{}), id: key(object.id, sourceId), objectId: object.id, sourceId, flags, creaseAngle: angle, a: positions[edge.vertices[0]], b: positions[edge.vertices[1]], basis:edgeBasis(edge.vertices), endpoints: edge.vertices.map(v => key(object.id, surface.points[v].id)) as [string, string], support, attributes: attributes({ ...object.attributes, ...original?.attributes }), faceAttributes: [...new Set(incident.map(i => surface.triangles[i].face))].map(i => faceAttrs[i]) });
     }
     for(const edge of surface.edges){
       if(edge.faces.length)continue;
-      add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),id:key(object.id,edge.id),objectId:object.id,sourceId:edge.id,flags:FeatureKind3.wire,creaseAngle:0,a:positions[edge.vertices[0]],b:positions[edge.vertices[1]],basis:edgeBasis(edge.vertices),endpoints:edge.vertices.map(v=>key(object.id,surface.points[v].id)) as [string,string],support:[],attributes:attributes({...object.attributes,...edge.attributes}),faceAttributes:[]});
+      add({...(object.instance?{instance:Object.freeze({...object.instance})}:{}),...(object.stroke!==undefined?{stroke:object.stroke}:{}),id:key(object.id,edge.id),objectId:object.id,sourceId:edge.id,flags:FeatureKind3.wire,creaseAngle:0,a:positions[edge.vertices[0]],b:positions[edge.vertices[1]],basis:edgeBasis(edge.vertices),endpoints:edge.vertices.map(v=>key(object.id,surface.points[v].id)) as [string,string],support:[],attributes:attributes({...object.attributes,...edge.attributes}),faceAttributes:[]});
     }
     const hatch=object.hatch?realizeHatch3(object.hatch,surface,frame,units):undefined;
     if(hatch)validateSurfaceCurves3(hatch,object.surface);

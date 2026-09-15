@@ -1,7 +1,10 @@
 import {describe,expect,it} from 'vitest';
 import {plane,box,sphere,cylinder,torus,mesh,polyline,pointCloud,instanceOnFaces,instanceOnPoints,isolines,v3,falloff,light,view,orthographic,axisAngle} from '../src/three/api/index.js';
 import {lightTone3,lightRecipe3} from '../src/three/surface/tone.js';
-import {sketch,sketchAsync,compileSketch,compileSketchAsync,material,pen,mm,strokes,isSketchAsync} from '../src/index.js';
+import {sketch,sketchAsync,compileSketch,compileSketchAsync,material,pen,mm,strokes,isSketchAsync,exportSvg,initOcclude} from '../src/index.js';
+import {readFileSync} from 'node:fs';
+import {beforeAll} from 'vitest';
+beforeAll(async()=>initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url))));
 import type {ProjectedLines} from '../src/three/api/projected.js';
 import type {Vec3} from '../src/three/math.js';
 
@@ -90,6 +93,23 @@ describe('object origin and rotation',()=>{
     expect([...localX.points].every((p,i)=>near([p.x,p.y,p.z],[wy[i].x,wy[i].y,wy[i].z],1e-9))).toBe(true);
     expect(near(localX.orientation.apply([1,0,0]),tilted.orientation.apply([1,0,0]),1e-9)).toBe(true);
   });
+  it('a zero scale makes nothing, and nothing flows through views and intersections',async()=>{
+    const gone=box(1).translate([2,0,0]).scale(0);
+    expect(gone.faces.length).toBe(0);expect(gone.points.length).toBe(0);expect(near(gone.origin,[2,0,0])).toBe(true);
+    expect(box(1).scale([1,0,1]).faces.length).toBe(0);
+    expect(polyline([[0,0,0],[1,0,0]]).scale(0).edges.length).toBe(0);
+    const dots=[...pointCloud([[1,0,0],[2,0,0]]).translate([1,0,0]).scale(0).points];
+    expect(dots.length).toBe(2);expect(dots.every(p=>near([p.x,p.y,p.z],[1,0,0]))).toBe(true);
+    const camera=orthographic({eye:[4,6,5],target:[0,0,0],up:[0,0,1],span:6});
+    let seen:ProjectedLines|undefined;
+    await compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},async t=>{
+      const cube=box(1),other=box(1).translate([.5,0,0]),seams=await t.intersections([gone,cube,other]);
+      expect(seams.sources.length).toBe(3);expect(seams.edges.length).toBeGreaterThan(0);
+      return view([gone,cube,other,seams],{camera,stroke:'ink'},lines=>{seen=lines;return [];});
+    }));
+    expect([...seen!.visible].some(c=>c.feature.objectId==='object:0')).toBe(false);
+    expect([...seen!.visible].some(c=>c.feature.objectId==='object:1')).toBe(true);
+  });
   it('scale pivots on the origin by default and accepts about',()=>{
     const b=box(1).translate([3,0,0]).scale(2);
     expect(Math.min(...b.points.map(p=>p.x))).toBeCloseTo(2);expect(Math.max(...b.points.map(p=>p.x))).toBeCloseTo(4);
@@ -149,6 +169,24 @@ describe('view inputs',()=>{
   it('names a geometry value passed twice',()=>{
     const ring=torus(1,.3,{segments:8,tubeSegments:6}),camera=orthographic({eye:[4,6,5],target:[0,0,0],up:[0,0,1],span:6});
     expect(()=>compileSketch(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([box(1),ring,ring],{camera,stroke:'ink'})))).toThrow('appears twice');
+  });
+});
+
+describe('per-object pen',()=>{
+  it('the default drawing uses an object stroke for its lines and hatch, view stroke elsewhere',async()=>{
+    const camera=orthographic({eye:[4,6,5],target:[0,0,0],up:[0,0,1],span:6});
+    const pens={ink:pen({width:mm(.2),color:'#111111'}),fine:pen({width:mm(.1),color:'#22aa22'}),red:pen({width:mm(.3),color:'#aa2222'})};
+    const svg=(geometry:Parameters<typeof view>[0],options:Partial<Parameters<typeof view>[1]>={})=>compileSketchAsync(sketch({seed:1,pens},()=>view(geometry as never,{camera,stroke:'ink',...options} as never))).then(run=>exportSvg(run));
+    const ball=sphere(.8,{segments:12,rings:6,stroke:'fine'}).faceAttribute('h',true),cube=box(1).translate([2,0,0]);
+    const plain=await svg([cube,ball]);
+    expect(plain).toContain('#111111');expect(plain).toContain('#22aa22');expect(plain).not.toContain('#aa2222');
+    const hatched=await svg([cube,ball],{hatch:[{spacing:mm(2),angle:0,select:(f:any)=>f.h===true},{spacing:mm(3),angle:90,stroke:'red',select:(f:any)=>f.h===true}]});
+    // Hatch without a pen follows the object; a recipe pen wins.
+    expect(hatched).toContain('#aa2222');
+    const viewOnly=await svg([cube,sphere(.8,{segments:12,rings:6})]);
+    expect(viewOnly).not.toContain('#22aa22');
+    expect(sphere(1).withStroke('fine').translate([1,0,0]).subdivide(1).stroke).toBe('fine');
+    expect(()=>sphere(1,{stroke:''})).toThrow('pen name');
   });
 });
 

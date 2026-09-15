@@ -78,8 +78,8 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
     }):undefined;
     const curves=planes.length?section3(mesh.surface,planes.map((p,i)=>({id:sectionKeys[i],origin:p.origin,normal:p.normal,attributes:p.attributes}))):undefined;
     if(value instanceof Instances){
-      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:mesh.surface,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{}),binding:instanceSurfaceBinding3(value,row),hatch,curves,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:row.source.id,pointIndex:row.source.index,prototypeKey:mesh.key}});
-    }else objects.push({id,surface:mesh.surface,hatch,curves,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{})});
+      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:mesh.surface,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{}),...(mesh.stroke!==undefined?{stroke:mesh.stroke}:{}),binding:instanceSurfaceBinding3(value,row),hatch,curves,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:row.source.id,pointIndex:row.source.index,prototypeKey:mesh.key}});
+    }else objects.push({id,surface:mesh.surface,hatch,curves,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{}),...(mesh.stroke!==undefined?{stroke:mesh.stroke}:{})});
   });
   if(new Set(objects.map(o=>o.id)).size!==objects.length)throw new Error('view geometry keys must be unique');
   const scene=lineArt3({id:settings.key,objects,curves:supported,camera:settings.camera,viewport:settings.viewport,lineSets:[]});
@@ -89,12 +89,15 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
     // Generated marks may name their own pen through a `stroke` attribute (hatch
     // families); everything else follows the view's stroke.
     const generated=(c:{kinds:ReadonlySet<string>})=>c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||c.kinds.has('intersection');
-    const named=lines.visible.filter(c=>typeof c.attributes.stroke==='string'&&generated(c));
-    const pens=[...new Set(named.map(c=>c.attributes.stroke as string))].sort();
+    // The pen of an ordinary line: the curve value's own (generated marks), else
+    // the object's own, else the view's.
+    const penOf=(c:{kinds:ReadonlySet<string>;attributes:Attributes3;feature:{stroke?:string}})=>typeof c.attributes.stroke==='string'&&generated(c)?c.attributes.stroke:c.feature.stroke??settings.stroke;
+    const ordinary=lines.visible.filter(c=>c.kinds.has('boundary')||c.kinds.has('silhouette')||c.kinds.has('wire')||c.kinds.has('intersection')||c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||(c.kinds.has('crease')&&c.feature.creaseAngle>=(c.feature.creaseThreshold??crease)));
+    // The view's pen leads, then the others by name: the order strokes are emitted is the order they are planned.
+    const pens=[settings.stroke,...[...new Set([...ordinary].map(penOf))].filter(p=>p!==settings.stroke).sort()];
     return [
-      projectedStrokes(lines.visible.filter(c=>!(typeof c.attributes.stroke==='string'&&generated(c))&&(c.kinds.has('boundary')||c.kinds.has('silhouette')||c.kinds.has('wire')||c.kinds.has('intersection')||c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||(c.kinds.has('crease')&&c.feature.creaseAngle>=(c.feature.creaseThreshold??crease)))),{stroke:settings.stroke}),
-      ...pens.map(pen=>projectedStrokes(named.filter(c=>c.attributes.stroke===pen),{stroke:pen})),
-      ...recipes.map((recipe,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('hatch')&&c.attributes.hatchFamily===hatchKeys[i]),{stroke:recipe.stroke??settings.stroke})),
+      ...pens.map(pen=>projectedStrokes(ordinary.filter(c=>penOf(c)===pen),{stroke:pen})),
+      ...recipes.flatMap((recipe,i)=>{const family=lines.visible.filter(c=>c.kinds.has('hatch')&&c.attributes.hatchFamily===hatchKeys[i]);const hatchPen=(c:{feature:{stroke?:string}})=>recipe.stroke??c.feature.stroke??settings.stroke;return [...new Set([...family].map(hatchPen))].sort().map(pen=>projectedStrokes(family.filter(c=>hatchPen(c)===pen),{stroke:pen}));}),
       ...planes.map((plane,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('section')&&c.attributes.sectionPlane===sectionKeys[i]),{stroke:plane.stroke??settings.stroke})),
     ];
   });

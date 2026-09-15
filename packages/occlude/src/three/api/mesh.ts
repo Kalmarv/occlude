@@ -32,6 +32,13 @@ export interface GeometryOptions {
    * when its angle reaches it. Unset objects use the view's `creaseAngle`
    * (30 by default); 180 never draws creases, the smooth-shaded look. */
   readonly creaseAngle?:number;
+  /** The pen the default drawing uses for this object's lines; the view's
+   * `stroke` applies when unset. A hatch recipe's own `stroke` still wins. */
+  readonly stroke?:string;
+}
+function checkedStroke(value:string|undefined):string|undefined {
+  if(value!==undefined&&(typeof value!=='string'||!value))throw new Error('stroke must be a nonempty pen name');
+  return value;
 }
 function checkedCreaseAngle(value:number|undefined):number|undefined {
   if(value!==undefined&&(!Number.isFinite(value)||value<0||value>180))throw new Error('creaseAngle must be between 0 and 180 degrees');
@@ -175,11 +182,19 @@ function rotationArguments(self:Placement,a:RotationInput|Axis3,b?:number|Vec3|R
   const origin=pivotOf(options.about,self.origin);
   return {rotate,origin,orientation:self.orientation.then(rotate),moved:movedOrigin(self,origin,v=>rotate.apply(v))};
 }
-function scaleArguments(self:Placement,scale:number|Vec3,b?:Vec3|ScaleOptions):{scale:Vec3;origin:Vec3;moved:Vec3} {
+/** A zero factor is allowed at this level: an object scaled to nothing is
+ * nothing (`empty`), drawing and occluding nothing, so loops that pass through
+ * zero carry on. The exact kernel below still refuses singular transforms. */
+function scaleArguments(self:Placement,scale:number|Vec3,b?:Vec3|ScaleOptions):{scale:Vec3;origin:Vec3;moved:Vec3;empty:boolean} {
   const factors:Vec3=typeof scale==='number'?[scale,scale,scale]:scale;finite3(factors);
   const origin=Array.isArray(b)?b as Vec3:pivotOf((b as ScaleOptions|undefined)?.about,self.origin);if(Array.isArray(b))finite3(origin);
-  return {scale:factors,origin,moved:movedOrigin(self,origin,v=>[v[0]*factors[0],v[1]*factors[1],v[2]*factors[2]])};
+  return {scale:factors,origin,moved:movedOrigin(self,origin,v=>[v[0]*factors[0],v[1]*factors[1],v[2]*factors[2]]),empty:factors.some(f=>f===0)};
 }
+/** Points collapsed by a scale with a zero factor: no faces or edges to break, so the points simply move. */
+function collapsedPoints(surface:Surface3,factors:Vec3,origin:Vec3):Surface3 {
+  return assembleSurface3(surface.points.map(p=>({...p,position:add3(origin,sub3(p.position,origin).map((v,i)=>v*factors[i]) as unknown as Vec3)})),[],[]);
+}
+const emptySurface=():Surface3=>assembleSurface3([],[],[]);
 
 /** Point geometry has a point domain; it never claims editable mesh faces. */
 export class PointGeometry<P extends Attributes3={}> {
@@ -200,7 +215,7 @@ export class PointGeometry<P extends Attributes3={}> {
   rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):PointGeometry<P>;
   rotate(axis:Axis3,degrees:number,options?:RotateOptions):PointGeometry<P>;
   rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):PointGeometry<P>{const r=rotationArguments(this,a,b,c);return new PointGeometry(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):PointGeometry<P>{const r=scaleArguments(this,scale,pivot);return new PointGeometry(transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
+  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):PointGeometry<P>{const r=scaleArguments(this,scale,pivot);return new PointGeometry(r.empty?collapsedPoints(this.surface,r.scale,r.origin):transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
   withKey(key:string):PointGeometry<P>{return new PointGeometry(this.surface,{key,iteration:this.iteration,history:this.history});}
   steps(count:number,rule:PointRule<StepAttributes<P>>|StepShorthand<PointRow<StepAttributes<P>>,StepAttributes<P>>,...passesAndOptions:(PointRule<StepAttributes<P>>|StepsOptions)[]):PointGeometry<StepAttributes<P>>{
     return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history)=>new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history}));
@@ -285,7 +300,7 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
   rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):CurveGeometry<P,E>;
   rotate(axis:Axis3,degrees:number,options?:RotateOptions):CurveGeometry<P,E>;
   rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):CurveGeometry<P,E>{const r=rotationArguments(this,a,b,c);return this.changed(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{orientation:r.orientation,origin:r.moved});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):CurveGeometry<P,E>{const r=scaleArguments(this,scale,pivot);return this.changed(transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{origin:r.moved});}
+  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):CurveGeometry<P,E>{const r=scaleArguments(this,scale,pivot);return this.changed(r.empty?emptySurface():transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{origin:r.moved});}
   withKey(key:string):CurveGeometry<P,E>{return new CurveGeometry(this.surface,this.surface.edges.map((_,i)=>i),{...this,key});}
   steps(count:number,rule:CurveRule<StepAttributes<P>,StepAttributes<E>>|StepShorthand<PointRow<StepAttributes<P>>,StepAttributes<P>>,...passesAndOptions:(CurveRule<StepAttributes<P>,StepAttributes<E>>|StepsOptions)[]):CurveGeometry<StepAttributes<P>,StepAttributes<E>>{
     if(stepRule<PointRow<StepAttributes<P>>,StepAttributes<P>>(rule))rule=pointShorthandRule(rule) as CurveRule<StepAttributes<P>,StepAttributes<E>>;
@@ -369,9 +384,11 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   readonly origin:Vec3;readonly orientation:Rotation;
   /** Own crease threshold in degrees, or undefined for the view's. */
   readonly creaseAngle?:number;
+  /** Own pen for the default drawing, or undefined for the view's. */
+  readonly stroke?:string;
   constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly MeshSnapshot<P,E,F,C>[];transfers?:PointTransfers;cornerTransfers?:PointTransfers}={}) {
     checkOptions(options);validateAttributes(surface);this.surface=snapshotSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
-    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;this.creaseAngle=checkedCreaseAngle(options.creaseAngle);
+    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;this.creaseAngle=checkedCreaseAngle(options.creaseAngle);this.stroke=checkedStroke(options.stroke);
     this.history=Object.freeze([...(options.history??[])]);this.transfers=Object.freeze({...options.transfers});this.cornerTransfers=Object.freeze({...options.cornerTransfers});Object.freeze(this);
   }
   get points():MeshPoints<P,E,F,C>{return meshPoints(this);}
@@ -469,10 +486,12 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):Mesh<P,E,F,C>;
   rotate(axis:Axis3,degrees:number,options?:RotateOptions):Mesh<P,E,F,C>;
   rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):Mesh<P,E,F,C>{const r=rotationArguments(this,a,b,c);return new Mesh(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):Mesh<P,E,F,C>{const r=scaleArguments(this,scale,pivot);return new Mesh(transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
+  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):Mesh<P,E,F,C>{const r=scaleArguments(this,scale,pivot);return new Mesh(r.empty?emptySurface():transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
   withKey(key:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,key});}
   /** The same mesh with its own crease threshold (see GeometryOptions.creaseAngle). */
   withCreaseAngle(degrees:number):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,creaseAngle:degrees});}
+  /** The same mesh drawn with its own pen by the default drawing. */
+  withStroke(stroke:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,stroke});}
   steps(count:number,rule:MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepShorthand<MeshPointRow<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>,StepAttributes<P>>,...passesAndOptions:(MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepsOptions)[]):Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>{
     if(!Number.isSafeInteger(count)||count<0)throw new Error('steps count must be a nonnegative integer');
     if(stepRule(rule)){
