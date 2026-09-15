@@ -26,7 +26,17 @@ type StepValue<V> = V extends number ? number : V extends string ? string : V ex
 export type StepAttributes<A> = {[K in keyof A]:StepValue<A[K]>};
 export interface AttributeOptions {readonly transfer?:PointTransfers}
 export type EdgeAttributes = Record<string,Attribute3|undefined>;
-export interface GeometryOptions {readonly key?:string}
+export interface GeometryOptions {
+  readonly key?:string;
+  /** The object's own crease threshold in degrees: a fold is drawn as a crease
+   * when its angle reaches it. Unset objects use the view's `creaseAngle`
+   * (30 by default); 180 never draws creases, the smooth-shaded look. */
+  readonly creaseAngle?:number;
+}
+function checkedCreaseAngle(value:number|undefined):number|undefined {
+  if(value!==undefined&&(!Number.isFinite(value)||value<0||value>180))throw new Error('creaseAngle must be between 0 and 180 degrees');
+  return value;
+}
 export type PointRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;x:number;y:number;z:number;attributes:Readonly<A>;provenance?:Provenance3}>;
 export type EdgeRow<A extends EdgeAttributes={},P extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly [number,number];a:PointRow<P>; b:PointRow<P>;length:number;attributes:Readonly<A>;provenance?:Provenance3}>;
 export type FaceRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly number[];normal:Vec3;center:Vec3;area:number;attributes:Readonly<A>;provenance?:Provenance3}>;
@@ -357,9 +367,11 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   /** The object's own pivot, carried along by `translate`; rotations and
    * scales turn about it unless told otherwise. */
   readonly origin:Vec3;readonly orientation:Rotation;
+  /** Own crease threshold in degrees, or undefined for the view's. */
+  readonly creaseAngle?:number;
   constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly MeshSnapshot<P,E,F,C>[];transfers?:PointTransfers;cornerTransfers?:PointTransfers}={}) {
     checkOptions(options);validateAttributes(surface);this.surface=snapshotSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
-    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;
+    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;this.creaseAngle=checkedCreaseAngle(options.creaseAngle);
     this.history=Object.freeze([...(options.history??[])]);this.transfers=Object.freeze({...options.transfers});this.cornerTransfers=Object.freeze({...options.cornerTransfers});Object.freeze(this);
   }
   get points():MeshPoints<P,E,F,C>{return meshPoints(this);}
@@ -459,6 +471,8 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):Mesh<P,E,F,C>{const r=rotationArguments(this,a,b,c);return new Mesh(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved});}
   scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):Mesh<P,E,F,C>{const r=scaleArguments(this,scale,pivot);return new Mesh(transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
   withKey(key:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,key});}
+  /** The same mesh with its own crease threshold (see GeometryOptions.creaseAngle). */
+  withCreaseAngle(degrees:number):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,creaseAngle:degrees});}
   steps(count:number,rule:MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepShorthand<MeshPointRow<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>,StepAttributes<P>>,...passesAndOptions:(MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepsOptions)[]):Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>{
     if(!Number.isSafeInteger(count)||count<0)throw new Error('steps count must be a nonnegative integer');
     if(stepRule(rule)){

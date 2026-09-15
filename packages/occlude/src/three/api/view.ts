@@ -36,6 +36,7 @@ export interface ViewSection {
 export interface ViewOptions<F extends Attributes3=Attributes3> {
   readonly camera:Camera3;readonly stroke?:string;readonly key?:string;readonly viewport?:PaperFrame3;
   /** Artistic threshold in degrees; default 30. Silhouettes remain visible. */
+  /** Default crease threshold in degrees (30) for objects without their own. */
   readonly creaseAngle?:number;
   readonly hatch?:ViewHatch<F>|readonly ViewHatch<F>[];
   readonly sections?:readonly ViewSection[];
@@ -76,8 +77,8 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
     }):undefined;
     const curves=planes.length?section3(mesh.surface,planes.map((p,i)=>({id:sectionKeys[i],origin:p.origin,normal:p.normal,attributes:p.attributes}))):undefined;
     if(value instanceof Instances){
-      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:mesh.surface,binding:instanceSurfaceBinding3(value,row),hatch,curves,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:row.source.id,pointIndex:row.source.index,prototypeKey:mesh.key}});
-    }else objects.push({id,surface:mesh.surface,hatch,curves});
+      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:mesh.surface,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{}),binding:instanceSurfaceBinding3(value,row),hatch,curves,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:row.source.id,pointIndex:row.source.index,prototypeKey:mesh.key}});
+    }else objects.push({id,surface:mesh.surface,hatch,curves,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{})});
   });
   if(new Set(objects.map(o=>o.id)).size!==objects.length)throw new Error('view geometry keys must be unique');
   const scene=lineArt3({id:settings.key,objects,curves:supported,camera:settings.camera,viewport:settings.viewport,lineSets:[]});
@@ -90,7 +91,7 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
     const named=lines.visible.filter(c=>typeof c.attributes.stroke==='string'&&generated(c));
     const pens=[...new Set(named.map(c=>c.attributes.stroke as string))].sort();
     return [
-      projectedStrokes(lines.visible.filter(c=>!(typeof c.attributes.stroke==='string'&&generated(c))&&(c.kinds.has('boundary')||c.kinds.has('silhouette')||c.kinds.has('wire')||c.kinds.has('intersection')||c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||(c.kinds.has('crease')&&c.feature.creaseAngle>=crease))),{stroke:settings.stroke}),
+      projectedStrokes(lines.visible.filter(c=>!(typeof c.attributes.stroke==='string'&&generated(c))&&(c.kinds.has('boundary')||c.kinds.has('silhouette')||c.kinds.has('wire')||c.kinds.has('intersection')||c.kinds.has('mapped')||c.kinds.has('trace')||c.kinds.has('isoline')||(c.kinds.has('crease')&&c.feature.creaseAngle>=(c.feature.creaseThreshold??crease)))),{stroke:settings.stroke}),
       ...pens.map(pen=>projectedStrokes(named.filter(c=>c.attributes.stroke===pen),{stroke:pen})),
       ...recipes.map((recipe,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('hatch')&&c.attributes.hatchFamily===hatchKeys[i]),{stroke:recipe.stroke??settings.stroke})),
       ...planes.map((plane,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('section')&&c.attributes.sectionPlane===sectionKeys[i]),{stroke:plane.stroke??settings.stroke})),

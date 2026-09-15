@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {plane,box,sphere,cylinder,mesh,polyline,pointCloud,instanceOnFaces,instanceOnPoints,isolines,v3,falloff,light,view,orthographic,axisAngle} from '../src/three/api/index.js';
+import {plane,box,sphere,cylinder,torus,mesh,polyline,pointCloud,instanceOnFaces,instanceOnPoints,isolines,v3,falloff,light,view,orthographic,axisAngle} from '../src/three/api/index.js';
 import {lightTone3,lightRecipe3} from '../src/three/surface/tone.js';
 import {sketch,sketchAsync,compileSketch,compileSketchAsync,material,pen,mm,strokes,isSketchAsync} from '../src/index.js';
 import type {ProjectedLines} from '../src/three/api/projected.js';
@@ -142,6 +142,31 @@ describe('instances on faces',()=>{
     expect(()=>instanceOnFaces(box(1),cube.points as never)).toThrow('face collection');
     const some=instanceOnFaces(box(.2),cube.faces.filter(f=>f.normal[2]>.5));
     expect(some.instances.length).toBe(1);
+  });
+});
+
+describe('per-object crease threshold',()=>{
+  it('an object with its own creaseAngle overrides the view default; instances follow the prototype',async()=>{
+    const camera=orthographic({eye:[4,6,5],target:[0,0,0],up:[0,0,1],span:6});
+    const count=async(ring:ReturnType<typeof torus>,viewAngle?:number)=>{
+      let seen:ProjectedLines|undefined;
+      const def=sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([box(1).translate([2.5,0,0]),ring],{camera,stroke:'ink',...(viewAngle===undefined?{}:{creaseAngle:viewAngle})},lines=>{seen=lines;return [];}));
+      await compileSketchAsync(def);
+      const creases=[...seen!.visible.kind('crease')];
+      return {ring:creases.filter(c=>c.feature.objectId==='object:1'&&c.feature.creaseAngle>=(c.feature.creaseThreshold??(viewAngle??30))).length,cube:creases.filter(c=>c.feature.objectId==='object:0'&&c.feature.creaseAngle>=(c.feature.creaseThreshold??(viewAngle??30))).length};
+    };
+    const plain=torus(1,.3,{segments:12,tubeSegments:8});
+    const byDefault=await count(plain),smooth=await count(plain.withCreaseAngle(180)),sharp=await count(torus(1,.3,{segments:12,tubeSegments:8,creaseAngle:0}));
+    expect(byDefault.ring).toBeGreaterThan(0);expect(smooth.ring).toBe(0);expect(sharp.ring).toBeGreaterThan(byDefault.ring);
+    expect(smooth.cube).toBe(byDefault.cube);expect(sharp.cube).toBe(byDefault.cube);
+    expect(smooth.cube).toBeGreaterThan(0);
+    // The threshold rides on the feature so the default drawing and callbacks agree.
+    expect(plain.withCreaseAngle(60).translate([1,0,0]).subdivide(1).creaseAngle).toBe(60);
+    expect(()=>plain.withCreaseAngle(200)).toThrow('creaseAngle');
+    const placed=instanceOnPoints(plain.withCreaseAngle(180),pointCloud([[0,0,0]]).points);
+    let seen:ProjectedLines|undefined;
+    await compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([placed],{camera,stroke:'ink'},lines=>{seen=lines;return [];})));
+    expect([...seen!.visible.kind('crease')].every(c=>c.feature.creaseThreshold===180)).toBe(true);
   });
 });
 
