@@ -52,7 +52,9 @@ export function* intersectionConstructionJob(captured:ReturnType<typeof captureI
  const graphBudget=budget.graph??{},contactsBudget=budget.contacts??{},arrangementBudget=budget.arrangement??{};
  let supportCount=0,graphBytes=0;
  for(const [ai,bi] of pairs){
-  const a=sources[ai],b=sources[bi],prefix=identity('intersection-pair',a.id,b.id);
+  // Prefix by source position: ids repeat across unkeyed meshes ('mesh') and
+  // across list members, and node identity must be unique per pair.
+  const a=sources[ai],b=sources[bi],prefix=identity('intersection-pair',`${ai}:${a.id}`,`${bi}:${b.id}`);
   const result=yield*intersectionsJob3(a.binding,b.binding,{
    contacts:{...contactsBudget,maxCandidates:(contactsBudget.maxCandidates??Infinity)-stats.candidates,maxContacts:(contactsBudget.maxContacts??Infinity)-stats.contacts,maxContactPoints:(contactsBudget.maxContactPoints??Infinity)-stats.contactPoints,maxExactBytes:(contactsBudget.maxExactBytes??Infinity)-stats.exactBytes},
    arrangement:{...arrangementBudget,maxCandidates:(arrangementBudget.maxCandidates??Infinity)-stats.arrangementCandidates,maxSupportCandidates:(arrangementBudget.maxSupportCandidates??Infinity)-stats.supportCandidates},
