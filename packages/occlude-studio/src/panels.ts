@@ -762,8 +762,8 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     hooks.onChanged(); // estimates follow the machine
     for (const fn of onProfileSwitch) fn();
   };
-  const { ebb } = m;
-  hooks.isPlotting = () => ebb.plotting;
+  const dr = () => m.driver();
+  hooks.isPlotting = () => dr().plotting;
   const prof = m.prof;
 
   // Pen to plot. No physical pen changer: a multi-pen sketch is plotted one
@@ -865,7 +865,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     const plan = encodeToolpath(flat);
     const bb = chainsBounds(executed);
     const bed = prof().machine;
-    const [ox, oy] = ebb.paperOffset;
+    const [ox, oy] = dr().paperOffset;
     if (ox + bb.x + bb.w > bed.bedW + 0.5 || oy + bb.y + bb.h > bed.bedH + 0.5) {
       showErr(
         `plan needs ${(ox + bb.x + bb.w).toFixed(0)}×${(oy + bb.y + bb.h).toFixed(0)}mm from the bed origin — ` +
@@ -957,7 +957,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
         sourceHash: hashSource(hooks.getSource()),
         seed: hooks.currentSeed(),
         penIndex: penIndex ?? null,
-        paperOffset: [...ebb.paperOffset] as [number, number],
+        paperOffset: [...dr().paperOffset] as [number, number],
         chain, chainTotal,
         sourceChain: executed[chain]?.index ?? null,
         planHash: hooks.drawing.plan?.planHash ?? null,
@@ -977,7 +977,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
     // the other pen's chains.
     hooks.livePlot.start(encodeToolpath(executed), r.pens);
     try {
-      await ebb.plot(
+      await dr().plot(
         plan, r.pens, m.opts(),
         (p) => {
           onProgress(p);
@@ -1001,7 +1001,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   };
 
   const plotBtn = iconButton('play', 'Plot', async () => {
-    if (!ebb.connected || ebb.plotting) return;
+    if (!dr().connected || dr().plotting) return;
     const r = hooks.lastResult();
     if (!r) return;
     try {
@@ -1016,14 +1016,14 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   plotBtn.classList.add('plot-go');
   plotBtn.title = 'Plot on the connected machine — pen and paper, for real';
   const pauseBtn = iconButton('pause', 'Pause', () => {
-    if (!ebb.plotting) return;
-    if (pauseBtn.title === 'Pause') ebb.pause();
-    else ebb.resume();
+    if (!dr().plotting) return;
+    if (pauseBtn.title === 'Pause') dr().pause();
+    else dr().resume();
   });
-  const stopBtn = iconButton('stop', 'Stop', () => void ebb.stop().catch(showErr));
+  const stopBtn = iconButton('stop', 'Stop', () => void dr().stop().catch(showErr));
   stopBtn.className = 'plot-stop';
   const frameBtn = iconButton('frame', 'Frame — trace the drawable outline pen-up', async () => {
-    if (!ebb.connected || ebb.plotting) return;
+    if (!dr().connected || dr().plotting) return;
     const r = hooks.lastResult();
     if (!r) return;
     try {
@@ -1032,11 +1032,11 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       const bb = chainsBounds(flat);
       // Pen-up perimeter of the selection's bounding box, at the paper
       // offset: the placement check no model can do.
-      const [ox, oy] = ebb.paperOffset;
+      const [ox, oy] = dr().paperOffset;
       const legs: [number, number][] = [
         [ox + bb.x, oy + bb.y], [bb.w, 0], [0, bb.h], [-bb.w, 0], [0, -bb.h], [-(ox + bb.x), -(oy + bb.y)],
       ];
-      for (const [dx, dy] of legs) await ebb.jog(dx, dy, m.opts());
+      for (const [dx, dy] of legs) await dr().jog(dx, dy, m.opts());
     } catch (e) {
       showErr(e);
     }
@@ -1047,7 +1047,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   // tape, swap, marks again — the brackets coincide iff the new pen sits
   // where the old one did, and the pair traces the sheet's bounds.
   const marksBtn = iconButton('marks', 'Marks — draw a right angle at the sheet’s top-left and bottom-right', async () => {
-    if (!ebb.connected || ebb.plotting) return;
+    if (!dr().connected || dr().plotting) return;
     const r = hooks.lastResult();
     if (!r) return;
     try {
@@ -1058,7 +1058,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       const chosen = raw >= 0 ? r.pens[raw] : r.pens[0];
       const pen = chosen ?? undefined;
       const d = registrationMarks(pen, bb);
-      await ebb.plot(d.plan, d.pens, m.opts(), onProgress);
+      await dr().plot(d.plan, d.pens, m.opts(), onProgress);
     } catch (e) {
       showErr(e);
     }
@@ -1066,7 +1066,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
   marksBtn.title = 'Marks — draw a right angle at the sheet’s top-left and bottom-right with the selected pen, the legs running inward so the pair traces the sheet’s bounds. Before a pen change: marks, tape over them, swap pens, marks again — line the brackets up and the pens are registered.';
 
   const resumeBtn = button('Resume', async () => {
-    if (!ebb.connected || ebb.plotting || !saved) return;
+    if (!dr().connected || dr().plotting || !saved) return;
     const r = hooks.lastResult();
     if (!r) return;
     try {
@@ -1113,7 +1113,7 @@ function buildPlotPanel(body: HTMLElement, hooks: PanelHooks): void {
       } else if (hooks.currentName() !== sv.sketch || hashSource(hooks.getSource()) !== sv.sourceHash || (hooks.currentSeed() ?? null) !== sv.seed) {
         throw new Error(`resume: load the saved sketch "${sv.sketch}" unchanged (seed ${sv.seed}) first — this record predates plan identities`);
       }
-      ebb.paperOffset = [...sv.paperOffset] as [number, number];
+      dr().paperOffset = [...sv.paperOffset] as [number, number];
       const penIndex = sv.penIndex === null ? undefined : sv.penIndex;
       await runPlot(penIndex, sv.chain);
     } catch (e) {

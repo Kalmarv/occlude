@@ -17,13 +17,23 @@ import {
   downSweep, liftGrid, liftTraverse, registrationProbe, settleLift, type Diagnostic,
 } from './diagnostics.js';
 import { Ebb, type EbbOptions, type PlotProgress } from './ebb.js';
+import { Grbl } from './grbl.js';
 import { download, saveProfiles, saveSettings, IDRAW_H_A1_PROFILE, type MachineProfile, type Settings } from './store.js';
 import { withIcon } from './icons.js';
 import { confirmDialog, promptDialog } from './wa.js';
 import { button, checkbox, el, hint, numberInput, row } from './widgets.js';
 
+/** The two drivers share the plot and manual-control surface; the profile's
+ * `driver` picks which one the session talks to. */
+export type Driver = Ebb | Grbl;
+
 export interface MachineSession {
+  /** The EBB driver, for EBB-only controls (servo, lift map, cards). */
   ebb: Ebb;
+  /** The GRBL driver (iDraw H and other G-code controllers). */
+  grbl: Grbl;
+  /** The driver the active profile names, with its settings applied. */
+  driver(): Driver;
   /** The active profile, live. */
   prof(): MachineProfile;
   opts(): EbbOptions;
@@ -47,11 +57,19 @@ export function createSession(
   showErr: (e: unknown) => void,
 ): MachineSession {
   const ebb = new Ebb();
+  const grbl = new Grbl();
   const prof = (): MachineProfile =>
     profiles.find((pp) => pp.name === settings.activeProfile) ?? profiles[0];
   const listeners: (() => void)[] = [];
   const session: MachineSession = {
     ebb,
+    grbl,
+    driver: () => {
+      if (prof().driver !== 'gcode') return ebb;
+      grbl.settings = prof().machine;
+      grbl.manualPen = pens()[0];
+      return grbl;
+    },
     prof,
     opts: () => ({
       stepsPerMm: prof().ebb.stepsPerMm,
@@ -93,14 +111,15 @@ export function buildConnect(m: MachineSession): { root: HTMLElement; status: HT
   const dot = el('span', 'conn-dot');
   const btn = button('Connect', async () => {
     try {
-      if (m.ebb.connected) {
-        await m.ebb.disconnect();
+      const d = m.driver();
+      if (d.connected) {
+        await d.disconnect();
         btn.textContent = 'Connect';
         status.textContent = 'not connected';
         dot.classList.remove('on');
         return;
       }
-      const v = await m.ebb.connect({ penUpPulse: m.prof().ebb.penUpPulse, penDownPulse: m.prof().ebb.penDownPulse });
+      const v = await d.connect({ penUpPulse: m.prof().ebb.penUpPulse, penDownPulse: m.prof().ebb.penDownPulse });
       btn.textContent = 'Disconnect';
       status.textContent = v || 'connected';
       dot.classList.add('on');
@@ -190,13 +209,15 @@ export function buildProfileSelect(
  */
 export function buildManualControls(m: MachineSession): HTMLElement {
   const { ebb } = m;
+  const dr = (): Driver => m.driver();
+  const isEbb = (): boolean => m.prof().driver !== 'gcode';
   const jogStep = numberInput(10, 1, () => undefined);
   jogStep.title = 'jog distance, mm';
   jogStep.className = 'jog-step';
   const jog = (dx: number, dy: number, glyph: string, title: string): HTMLButtonElement => {
     const b = button(glyph, async () => {
       const d = Math.abs(parseFloat(jogStep.value) || 10);
-      await ebb.jog(dx * d, dy * d, m.opts()).catch(m.showErr);
+      await dr().jog(dx * d, dy * d, m.opts()).catch(m.showErr);
     });
     b.title = title;
     return b;
@@ -207,8 +228,8 @@ export function buildManualControls(m: MachineSession): HTMLElement {
     el('span'), jog(0, 1, '↓', 'jog down'), el('span'),
   );
 
-  const penUp = withIcon(button('Pen up', () => void ebb.penUp().catch(m.showErr)), 'penUp');
-  const penDown = withIcon(button('Pen down', () => void ebb.penDown().catch(m.showErr)), 'penDown');
+  const penUp = withIcon(button('Pen up', () => void dr().penUp().catch(m.showErr)), 'penUp');
+  const penDown = withIcon(button('Pen down', () => void dr().penDown().catch(m.showErr)), 'penDown');
   // Seating: the servo as the shim. Step 1 parks the horn at the seat pulse
   // with the pen down so the slider sits off its stop; loosen, let the pen
   // fall to the paper, clamp. Step 2 restores the down pulse: the paper holds
@@ -243,29 +264,31 @@ export function buildManualControls(m: MachineSession): HTMLElement {
     }
   });
   seat.title = seatTitle;
+  seat.hidden = !isEbb();
   const penRow = el('div', 'row', penUp, penDown, seat);
 
   // Two origins: the BED corner (the lift map's frame — same physical corner
   // every time) and the PAPER corner (an offset, no zeroing).
   const paperStatus = el('span', 'origin-status');
   const showPaper = (): void => {
-    const [x, y] = ebb.paperOffset;
+    const [x, y] = dr().paperOffset;
     paperStatus.textContent = x === 0 && y === 0 ? 'paper at bed origin' : `paper at ${x}, ${y} mm`;
   };
   showPaper();
-  const setBed = button('Bed origin', () => void ebb.setOrigin().then(showPaper).catch(m.showErr));
+  const setBed = button('Bed origin', () => void dr().setOrigin().then(showPaper).catch(m.showErr));
   setBed.title = 'Zero the machine here: the BED corner the lift map was measured from. Use the same corner every time. Clears the paper origin.';
   const setPaper = button('Paper origin', () => {
-    if (!ebb.connected) return;
-    ebb.setPaperOrigin(m.opts());
+    if (!dr().connected) return;
+    dr().setPaperOrigin(m.opts());
     showPaper();
   });
   setPaper.title = 'Record the current position as the sheet’s corner, without zeroing. Plots draw from here; the lift map still reads bed coordinates.';
-  const goPaper = button('Go to paper', () => void ebb.goToPaperOrigin(m.opts()).catch(m.showErr));
-  const home = button('Home', () => void ebb.home().then(showPaper).catch(m.showErr));
+  const goPaper = button('Go to paper', () => void dr().goToPaperOrigin(m.opts()).catch(m.showErr));
+  const home = button('Home', () => void dr().home().then(showPaper).catch(m.showErr));
   home.title = 'Return to the bed origin';
   const release = button('Release', () => void ebb.cmd('EM,0,0').catch(m.showErr));
   release.title = 'De-energise the steppers so the carriage can be moved by hand';
+  release.hidden = !isEbb();
   const origins = el('div', 'origins',
     el('div', 'row', setBed, setPaper),
     el('div', 'row', goPaper, home),
@@ -678,7 +701,7 @@ export function buildBedLevel(
 export function buildLog(m: MachineSession): HTMLElement {
   const pre = el('pre', 'serial-log');
   const refresh = (): void => { pre.textContent = m.ebb.transcript() || '(no traffic yet)'; pre.scrollTop = pre.scrollHeight; };
-  const dl = button('Download serial log', () => download('ebb-log.txt', m.ebb.transcript() || '(no traffic yet)', 'text/plain'));
+  const dl = button('Download serial log', () => download('serial-log.txt', m.driver().transcript() || '(no traffic yet)', 'text/plain'));
   const rf = button('Refresh', refresh);
   refresh();
   return el('div', 'log', el('div', 'row', dl, rf), pre);

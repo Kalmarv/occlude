@@ -55,7 +55,7 @@ async function boot(): Promise<void> {
     progress.textContent = p.warning ? `${base} · ⚠ ${p.warning}` : base;
   };
   const stop = el('button', 'plot-stop', 'Stop');
-  stop.onclick = () => void m.ebb.stop().catch(showErr);
+  stop.onclick = () => void m.driver().stop().catch(showErr);
   const head = el('div', 'machine-head',
     el('div', 'machine-title', buildProfileSelect(m, profiles, true), connect.root),
     el('div', 'machine-run', stop, bar, progress),
