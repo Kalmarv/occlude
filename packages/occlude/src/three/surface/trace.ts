@@ -32,6 +32,9 @@ export interface TraceNode3 {
   readonly position:Vec3;readonly normal:Vec3;
   /** Arclength from the trace start, world units. */
   readonly distance:number;
+  /** A crossing node's coordinates on the triangle it left (the segment
+   * before it lies there), so a consumer has both representations. */
+  readonly left?:{readonly triangle:number;readonly weights:Vec3};
 }
 export interface Trace3 {
   readonly nodes:readonly TraceNode3[];
@@ -164,7 +167,7 @@ export function traceSurface3(env:TraceEnvironment3,start:{triangle:number;weigh
       triangle=neighbor;weights=normalize(w as unknown as Vec3);previous=transported;
       // Re-express the crossing node on the neighbour so the next segment's
       // support is the triangle it actually lies in.
-      nodes[nodes.length-1]={...node,triangle,weights};
+      nodes[nodes.length-1]={...node,triangle,weights,left:{triangle:node.triangle,weights:node.weights}};
     }else weights=next;
   }
   return {nodes,supports,stop,closed,length,steps};

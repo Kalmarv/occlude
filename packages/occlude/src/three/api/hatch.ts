@@ -286,6 +286,14 @@ export function* hatchAssembleJob(traced:HatchTraced,tone:HatchTone):Generator<v
           nodes.push({id,point:weightedPoint(bindingTriangle3(binding,node.triangle),integerWeights(node.weights))});
           ids[i]=id;return id;
         };
+        // The tracer's own barycentric weights on the segment's triangle, so
+        // the network verifies them instead of recomputing them exactly.
+        const weightsOn=(index:number,triangle:number):readonly bigint[]|undefined=>{
+          const i=trace.closed&&index===trace.nodes.length-1?0:index,node=trace.nodes[i];
+          if(node.triangle===triangle)return integerWeights(node.weights);
+          if(node.left?.triangle===triangle)return integerWeights(node.left.weights);
+          return undefined;
+        };
         const total=trace.length;
         for(let i=0;i+1<trace.nodes.length;i++){
           if(!accept(i)||!accept(i+1))continue;
@@ -293,7 +301,7 @@ export function* hatchAssembleJob(traced:HatchTraced,tone:HatchTone):Generator<v
           if(a.distance===b.distance)continue;
           if(++segmentCount>settings.maxSegments)throw new Error('hatch exceeds segment budget');
           const attributes:Attributes3={family:family.id,lane,threshold,seed,...(family.stroke?{stroke:family.stroke}:{})};
-          segments.push({id:identity('hatch-segment',chain,i),kind:'trace',a:nodeId(i),b:nodeId(i+1),chainId:chain,range:[a.distance/total,b.distance/total],supports:[{source:surface.binding,triangle:trace.supports[i]}],attributes});
+          segments.push({id:identity('hatch-segment',chain,i),kind:'trace',a:nodeId(i),b:nodeId(i+1),chainId:chain,range:[a.distance/total,b.distance/total],supports:[{source:surface.binding,triangle:trace.supports[i],a:weightsOn(i,trace.supports[i]),b:weightsOn(i+1,trace.supports[i])}],attributes});
         }
         offset+=trace.nodes.length;
         yield;

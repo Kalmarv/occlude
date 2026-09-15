@@ -1,7 +1,7 @@
 import {snapshotSurface3,transformSurface3,transformPosition3} from '../geometry/model.js';
 import {rebindTriangle3,captureSurfacePlacement3,type SurfacePlacement3} from '../geometry/location.js';
 import type {Surface3,Attributes3,Attribute3} from '../geometry/surface.js';
-import {point,encodePoint,decodePoint,pointNumber,canonicalPoint,triangleWeights,ratioNumber,integerWeights,weightedPoint,type H,type EncodedPoint3,type V} from '../geometry/exact.js';
+import {point,encodePoint,decodePoint,pointNumber,canonicalPoint,triangleWeights,verifiedTriangleWeights,ratioNumber,integerWeights,weightedPoint,type H,type EncodedPoint3,type V} from '../geometry/exact.js';
 import {sameAttachmentTopology3} from '../geometry/topology.js';
 import {finite3,type Vec3} from '../math.js';
 import {validateSurfaceCurves3,type SurfaceCurves3} from './surface.js';
@@ -85,7 +85,9 @@ export interface SurfaceCurveNetworkInput3 {
   readonly nodes:readonly {readonly id:string;readonly point:H;readonly supports?:readonly {readonly source:number;readonly triangle:number}[];readonly attributes?:Attributes3}[];
   readonly segments:readonly {
     readonly id:string;readonly kind:SurfaceCurveKind3;readonly a:string;readonly b:string;
-    readonly supports:readonly {readonly source:number;readonly triangle:number}[];
+    /** `a`/`b`: the endpoints' integer barycentric weights on this triangle when the
+     * producer built the points from them; verified, and spared the exact recomputation. */
+    readonly supports:readonly {readonly source:number;readonly triangle:number;readonly a?:readonly bigint[];readonly b?:readonly bigint[]}[];
     readonly chainId?:string;readonly range?:readonly [number,number];readonly attributes?:Attributes3;
   }[];
 }
@@ -162,11 +164,19 @@ export function* surfaceCurveNetworkJob3(input:SurfaceCurveNetworkInput3,budget:
     for(const s of segment.supports){
       const source=sources[s.source];if(!Number.isSafeInteger(s.source)||!source)throw new Error('curve support refers to a missing source');
       const key=`${s.source}:${s.triangle}`;if(seen.has(key))throw new Error('duplicate curve triangle support');seen.add(key);
-      const triangle=bindingTriangle3(source.binding,s.triangle),wa=triangleWeights(triangle,exact[a]),wb=triangleWeights(triangle,exact[b]);
-      if(!wa||!wb)throw new Error('curve segment is not incident to its declared supporting triangle');
-      const encodedA=encodeWeights(wa),encodedB=encodeWeights(wb);account(encodedA);account(encodedB);
-      nodeSupports[a].set(key,Object.freeze({...s,weights:encodedA}));nodeSupports[b].set(key,Object.freeze({...s,weights:encodedB}));
-      supportRows.push(Object.freeze({...s,a:encodedA,b:encodedB}));
+      const triangle=bindingTriangle3(source.binding,s.triangle);
+      // A node's weights on a triangle are one value: reuse them from the
+      // previous segment; take the producer's when given; compute exactly last.
+      const known=(node:number,given:readonly bigint[]|undefined):ExactWeights3|null=>{
+        const have=nodeSupports[node].get(key);if(have)return have.weights;
+        const w=(given&&verifiedTriangleWeights(triangle,given,exact[node]))||triangleWeights(triangle,exact[node]);
+        if(!w)return null;const encoded=encodeWeights(w);account(encoded);return encoded;
+      };
+      const encodedA=known(a,s.a),encodedB=known(b,s.b);
+      if(!encodedA||!encodedB)throw new Error('curve segment is not incident to its declared supporting triangle');
+      const {a:_a,b:_b,...support}=s;
+      nodeSupports[a].set(key,Object.freeze({...support,weights:encodedA}));nodeSupports[b].set(key,Object.freeze({...support,weights:encodedB}));
+      supportRows.push(Object.freeze({...support,a:encodedA,b:encodedB}));
       if((++work&127)===0)yield;
     }
     const supports=Object.freeze(supportRows);

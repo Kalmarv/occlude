@@ -28,9 +28,15 @@ export function gcd(a:bigint,b:bigint):bigint{a=abs(a);b=abs(b);while(b){const n
  * running divisor of one cannot shrink further, so the remaining gcds are the
  * same answer computed the slow way. */
 export function reduce(p:H):H {
-  let divisor=abs(p[0]);
-  for(let i=1;i<4&&divisor!==1n;i++)divisor=gcd(divisor,p[i]);
-  return divisor>1n?[p[0]/divisor,p[1]/divisor,p[2]/divisor,p[3]/divisor]:p;
+  // Coordinates built from binary64 inputs mostly share a power of two:
+  // shift it out first (cheap), then run Euclid on the smaller odd parts.
+  const bits=abs(p[0])|abs(p[1])|abs(p[2])|abs(p[3]);
+  if(bits===0n)return p;
+  const shift=BigInt(trailingZeros(bits));
+  const q:H=shift?[p[0]>>shift,p[1]>>shift,p[2]>>shift,p[3]>>shift]:p;
+  let divisor=abs(q[0]);
+  for(let i=1;i<4&&divisor!==1n;i++)divisor=gcd(divisor,q[i]);
+  return divisor>1n?[q[0]/divisor,q[1]/divisor,q[2]/divisor,q[3]/divisor]:q;
 }
 /** Exact bit length of |n|. Base 16 is a power of two, so the digit count is
  * the length, not an estimate. */
@@ -109,9 +115,29 @@ export const constant=(n:bigint):H=>[0n,0n,0n,n];
 export const sign=(n:bigint)=>n<0n?-1n:n>0n?1n:0n;
 
 /** Canonical finite projective point. Plane orientations use reduce instead. */
+/** Points canonicalPoint has produced: canonical by construction, so a second
+ * canonicalization (the network intake, encoding, a key) is a lookup, not a gcd. */
+const canonical=new WeakSet<H>();
 export function canonicalPoint(p:H):H {
+  if(canonical.has(p))return p;
   if(p[3]===0n)throw new Error('exact surface point is at infinity');
-  const q=reduce(p);return Object.freeze(q[3]<0n?times(q,-1n):q);
+  const q=reduce(p),out=Object.freeze(q[3]<0n?times(q,-1n):q);
+  canonical.add(out);return out;
+}
+/** Barycentric weights supplied by the producer of a point (a tracer or a
+ * mapper that built the point as a weighted vertex sum): reduced to the same
+ * canonical form triangleWeights would return, and verified against the
+ * point projectively, with multiplications only, no gcd of large numbers. */
+export function verifiedTriangleWeights(triangle:readonly [H,H,H],weights:readonly bigint[],p:H):V|null {
+  if(weights.length!==3||weights.some(w=>w<0n))return null;
+  const divisor=weights.reduce(gcd,0n);if(divisor===0n)return null;
+  const w=weights.map(n=>n/divisor);
+  const common=triangle.reduce((n,q)=>n*q[3],1n);
+  for(let k=0;k<3;k++){
+    const numerator=triangle.reduce((n,q,i)=>n+q[k]*w[i]*(common/q[3]),0n),denominator=common*(w[0]+w[1]+w[2]);
+    if(numerator*p[3]!==p[k]*denominator)return null;
+  }
+  return Object.freeze(w) as unknown as V;
 }
 /** Round an arbitrary signed rational to nearest binary64, ties to even. */
 export function ratioNumber([numerator,denominator]:Ratio):number {
@@ -134,10 +160,15 @@ export function pointNumber(p:H):Vec3 {
 }
 export type EncodedPoint3=readonly [string,string,string,string];
 /** Decimal integer strings survive JSON and structured clone without BigInt. */
-export function encodePoint(p:H):EncodedPoint3{return Object.freeze(canonicalPoint(p).map(n=>n.toString())) as unknown as EncodedPoint3;}
+/** Encodings this module produced are canonical by construction; decoding
+ * one back needs no gcd. Encodings from elsewhere are canonicalized. */
+const canonicalEncodings=new WeakSet<EncodedPoint3>();
+export function encodePoint(p:H):EncodedPoint3{const out=Object.freeze(canonicalPoint(p).map(n=>n.toString())) as unknown as EncodedPoint3;canonicalEncodings.add(out);return out;}
 export function decodePoint(value:EncodedPoint3):H {
   if(!Array.isArray(value)||value.length!==4||value.some(v=>typeof v!=='string'||v.length>10000||! /^-?(0|[1-9][0-9]*)$/.test(v)))throw new Error('invalid or over-budget exact point encoding');
-  return canonicalPoint(value.map(v=>BigInt(v)) as unknown as H);
+  const p=value.map(v=>BigInt(v)) as unknown as H;
+  if(canonicalEncodings.has(value)){const out=Object.freeze(p);canonical.add(out);return out;}
+  return canonicalPoint(p);
 }
 /** Convert dyadic coefficients to a common integer scale, without rounding. */
 export function integerWeights(values:readonly number[]):readonly bigint[] {
@@ -147,7 +178,9 @@ export function integerWeights(values:readonly number[]):readonly bigint[] {
 export function weightedPoint(points:readonly H[],weights:readonly bigint[]):H {
   if(!points.length||points.length!==weights.length||points.some(p=>p[3]<=0n))throw new Error('invalid exact affine point');
   const total=weights.reduce((a,b)=>a+b,0n);if(total<=0n)throw new Error('exact affine weights require a positive sum');
-  const common=points.reduce((n,p)=>n*p[3],1n);
+  // The least common denominator, not the product: the same point with far
+  // fewer bits to reduce afterwards (vertex denominators are powers of two).
+  const common=points.reduce((n,p)=>n/gcd(n,p[3])*p[3],1n);
   return canonicalPoint([0,1,2].map(k=>points.reduce((n,p,i)=>n+p[k]*weights[i]*(common/p[3]),0n)).concat([common*total]) as unknown as H);
 }
 export function mixPoint(a:H,b:H,t:Ratio):H {
