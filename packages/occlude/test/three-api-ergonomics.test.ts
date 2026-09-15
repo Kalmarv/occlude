@@ -183,6 +183,13 @@ describe('per-object pen',()=>{
     const hatched=await svg([cube,ball],{hatch:[{spacing:mm(2),angle:0,select:(f:any)=>f.h===true},{spacing:mm(3),angle:90,stroke:'red',select:(f:any)=>f.h===true}]});
     // Hatch without a pen follows the object; a recipe pen wins.
     expect(hatched).toContain('#aa2222');
+    // A recipe pen may be a field over the face: tagged faces in another pen, one recipe.
+    const tagged=await svg([cube.faceAttribute('ring',true),sphere(.8,{segments:12,rings:6}).faceAttribute('h',true)],{hatch:{spacing:mm(2),angle:0,stroke:(f:any)=>f.ring?'red':'fine',select:(f:any)=>f.ring===true||f.h===true}});
+    expect(tagged).toContain('#aa2222');expect(tagged).toContain('#22aa22');
+    // An object fillPen takes hatch recipes that name no pen; the outline keeps the view's pen.
+    const filled=await svg([cube,sphere(.8,{segments:12,rings:6,fillPen:'red'}).faceAttribute('h',true)],{hatch:{spacing:mm(2),angle:0,select:(f:any)=>f.h===true}});
+    expect(filled).toContain('#aa2222');expect(filled).toContain('#111111');expect(filled).not.toContain('#22aa22');
+    expect(sphere(1).withFillPen('red').translate([1,0,0]).fillPen).toBe('red');
     const viewOnly=await svg([cube,sphere(.8,{segments:12,rings:6})]);
     expect(viewOnly).not.toContain('#22aa22');
     expect(sphere(1).withStroke('fine').translate([1,0,0]).subdivide(1).stroke).toBe('fine');

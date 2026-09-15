@@ -25,7 +25,9 @@ export function perspective(options:CameraOptions&{readonly fovDegrees?:number})
 export interface ViewHatch<F extends Attributes3=Attributes3> {
   readonly key?:string;
   readonly spacing:Field<FaceRow<F>,L>;readonly angle?:Field<FaceRow<F>,number>;readonly offset?:Field<FaceRow<F>,L>;
-  readonly stroke?:string;readonly select?:(face:FaceRow<F>)=>boolean;
+  /** The pen for this recipe's lines: a name, or a field over the face row
+   * (`f => f.ring ? 'red' : 'fine'`). Unset: the object's pen, then the view's. */
+  readonly stroke?:Field<FaceRow<F>,string>;readonly select?:(face:FaceRow<F>)=>boolean;
 }
 /** Planes are in the mesh/prototype's model coordinates; instances transform
  * the resulting section with their geometry. They are not world cutting planes. */
@@ -74,12 +76,17 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
     // each transformed surface in the existing renderer.
     const hatch=recipes.length?hatch3(mesh.surface,face=>{
       const row=faces.at(face.index)!;
-      return recipes.flatMap((recipe,i)=>!recipe.select||recipe.select(row)?[{id:hatchKeys[i],spacing:evaluate(recipe.spacing,row),angle:evaluate(recipe.angle??45,row),offset:recipe.offset===undefined?undefined:evaluate(recipe.offset,row)}]:[]);
+      return recipes.flatMap((recipe,i)=>{
+        if(recipe.select&&!recipe.select(row))return [];
+        const stroke=recipe.stroke===undefined?undefined:evaluate(recipe.stroke,row);
+        if(stroke!==undefined&&(typeof stroke!=='string'||!stroke))throw new Error('hatch stroke must be a nonempty pen name');
+        return [{id:hatchKeys[i],spacing:evaluate(recipe.spacing,row),angle:evaluate(recipe.angle??45,row),offset:recipe.offset===undefined?undefined:evaluate(recipe.offset,row),...(stroke===undefined?{}:{attributes:{stroke}})}];
+      });
     }):undefined;
     const curves=planes.length?section3(mesh.surface,planes.map((p,i)=>({id:sectionKeys[i],origin:p.origin,normal:p.normal,attributes:p.attributes}))):undefined;
     if(value instanceof Instances){
-      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:mesh.surface,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{}),...(mesh.stroke!==undefined?{stroke:mesh.stroke}:{}),binding:instanceSurfaceBinding3(value,row),hatch,curves,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:row.source.id,pointIndex:row.source.index,prototypeKey:mesh.key}});
-    }else objects.push({id,surface:mesh.surface,hatch,curves,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{}),...(mesh.stroke!==undefined?{stroke:mesh.stroke}:{})});
+      for(const row of value.rows)objects.push({id:JSON.stringify([id,row.id]),surface:mesh.surface,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{}),...(mesh.stroke!==undefined?{stroke:mesh.stroke}:{}),...(mesh.fillPen!==undefined?{fillPen:mesh.fillPen}:{}),binding:instanceSurfaceBinding3(value,row),hatch,curves,transform:row.transform,attributes:row.attributes,instance:{id:row.id,pointId:row.source.id,pointIndex:row.source.index,prototypeKey:mesh.key}});
+    }else objects.push({id,surface:mesh.surface,hatch,curves,...(mesh.creaseAngle!==undefined?{creaseThreshold:mesh.creaseAngle}:{}),...(mesh.stroke!==undefined?{stroke:mesh.stroke}:{}),...(mesh.fillPen!==undefined?{fillPen:mesh.fillPen}:{})});
   });
   if(new Set(objects.map(o=>o.id)).size!==objects.length)throw new Error('view geometry keys must be unique');
   const scene=lineArt3({id:settings.key,objects,curves:supported,camera:settings.camera,viewport:settings.viewport,lineSets:[]});
@@ -97,7 +104,7 @@ export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewO
     const pens=[settings.stroke,...[...new Set([...ordinary].map(penOf))].filter(p=>p!==settings.stroke).sort()];
     return [
       ...pens.map(pen=>projectedStrokes(ordinary.filter(c=>penOf(c)===pen),{stroke:pen})),
-      ...recipes.flatMap((recipe,i)=>{const family=lines.visible.filter(c=>c.kinds.has('hatch')&&c.attributes.hatchFamily===hatchKeys[i]);const hatchPen=(c:{feature:{stroke?:string}})=>recipe.stroke??c.feature.stroke??settings.stroke;return [...new Set([...family].map(hatchPen))].sort().map(pen=>projectedStrokes(family.filter(c=>hatchPen(c)===pen),{stroke:pen}));}),
+      ...recipes.flatMap((recipe,i)=>{const family=lines.visible.filter(c=>c.kinds.has('hatch')&&c.attributes.hatchFamily===hatchKeys[i]);const hatchPen=(c:{attributes:Attributes3;feature:{stroke?:string;fillPen?:string}})=>typeof c.attributes.stroke==='string'?c.attributes.stroke:c.feature.fillPen??c.feature.stroke??settings.stroke;return [...new Set([...family].map(hatchPen))].sort().map(pen=>projectedStrokes(family.filter(c=>hatchPen(c)===pen),{stroke:pen}));}),
       ...planes.map((plane,i)=>projectedStrokes(lines.visible.filter(c=>c.kinds.has('section')&&c.attributes.sectionPlane===sectionKeys[i]),{stroke:plane.stroke??settings.stroke})),
     ];
   });

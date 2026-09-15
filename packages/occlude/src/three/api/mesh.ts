@@ -35,6 +35,8 @@ export interface GeometryOptions {
   /** The pen the default drawing uses for this object's lines; the view's
    * `stroke` applies when unset. A hatch recipe's own `stroke` still wins. */
   readonly stroke?:string;
+  /** The pen for this object's hatch when the recipe names none (2D `fillPen`). */
+  readonly fillPen?:string;
 }
 function checkedStroke(value:string|undefined):string|undefined {
   if(value!==undefined&&(typeof value!=='string'||!value))throw new Error('stroke must be a nonempty pen name');
@@ -386,9 +388,11 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   readonly creaseAngle?:number;
   /** Own pen for the default drawing, or undefined for the view's. */
   readonly stroke?:string;
+  /** Own pen for hatch recipes that name none. */
+  readonly fillPen?:string;
   constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly MeshSnapshot<P,E,F,C>[];transfers?:PointTransfers;cornerTransfers?:PointTransfers}={}) {
     checkOptions(options);validateAttributes(surface);this.surface=snapshotSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
-    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;this.creaseAngle=checkedCreaseAngle(options.creaseAngle);this.stroke=checkedStroke(options.stroke);
+    const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;this.creaseAngle=checkedCreaseAngle(options.creaseAngle);this.stroke=checkedStroke(options.stroke);this.fillPen=checkedStroke(options.fillPen);
     this.history=Object.freeze([...(options.history??[])]);this.transfers=Object.freeze({...options.transfers});this.cornerTransfers=Object.freeze({...options.cornerTransfers});Object.freeze(this);
   }
   get points():MeshPoints<P,E,F,C>{return meshPoints(this);}
@@ -492,6 +496,8 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   withCreaseAngle(degrees:number):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,creaseAngle:degrees});}
   /** The same mesh drawn with its own pen by the default drawing. */
   withStroke(stroke:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,stroke});}
+  /** The same mesh with its own pen for hatch recipes that name none. */
+  withFillPen(fillPen:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,fillPen});}
   steps(count:number,rule:MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepShorthand<MeshPointRow<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>,StepAttributes<P>>,...passesAndOptions:(MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepsOptions)[]):Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>{
     if(!Number.isSafeInteger(count)||count<0)throw new Error('steps count must be a nonnegative integer');
     if(stepRule(rule)){

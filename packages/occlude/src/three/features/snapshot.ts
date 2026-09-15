@@ -16,7 +16,9 @@ export interface SurfaceObject3 { readonly binding?:SurfaceBinding3; readonly in
   /** The object's own crease threshold in degrees; the view's applies when unset. */
   readonly creaseThreshold?: number;
   /** The object's own pen for the default drawing. */
-  readonly stroke?: string }
+  readonly stroke?: string;
+  /** The object's own pen for hatch recipes that name none. */
+  readonly fillPen?: string }
 export interface WireObject3 { readonly id: string; readonly points: readonly Vec3[]; readonly attributes?: Attributes3 }
 export interface Feature3 {
   /** Source placement identity, independent of per-view object naming. */
@@ -37,6 +39,8 @@ export interface Feature3 {
   readonly creaseThreshold?: number;
   /** The owning object's own pen, when it set one. */
   readonly stroke?: string;
+  /** The owning object's own hatch pen, when it set one. */
+  readonly fillPen?: string;
   readonly a: Vec3;
   readonly b: Vec3;
   /** Original source parameter range, before near/far clipping. */
@@ -111,7 +115,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       const support=[...new Set(segment.supports.map(s=>bindings[s.source].triangleIds[s.triangle]))];
       const faces=new Map<string,Readonly<Attributes3>>();
       for(const s of segment.supports){const face=network.sources[s.source].binding.source.triangles[s.triangle].face;faces.set(key(s.source,face),bindings[s.source].faceAttrs[face]);}
-      add({...(legacy?.object.instance?{instance:Object.freeze({...legacy.object.instance})}:{}),id:key(entry.id,segment.id),objectId:entry.id,sourceId:segment.id,flags:FeatureKind3[segment.kind],curve,supportedCurve:Object.freeze({graph,segment:index}),basis,creaseAngle:0,a:position('a'),b:position('b'),endpoints:[key(entry.id,'curve',a.id),key(entry.id,'curve',b.id)],support,attributes:attributes({...entry.attributes,...segment.attributes}),faceAttributes:[...faces.values()]},!selected.has(segment.id));
+      add({...(legacy?.object.instance?{instance:Object.freeze({...legacy.object.instance})}:{}),...(legacy?.object.stroke!==undefined?{stroke:legacy.object.stroke}:{}),...(legacy?.object.fillPen!==undefined?{fillPen:legacy.object.fillPen}:{}),id:key(entry.id,segment.id),objectId:entry.id,sourceId:segment.id,flags:FeatureKind3[segment.kind],curve,supportedCurve:Object.freeze({graph,segment:index}),basis,creaseAngle:0,a:position('a'),b:position('b'),endpoints:[key(entry.id,'curve',a.id),key(entry.id,'curve',b.id)],support,attributes:attributes({...entry.attributes,...segment.attributes}),faceAttributes:[...faces.values()]},!selected.has(segment.id));
     });
   };
   for (const object of objects) {
@@ -179,7 +183,7 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       const sourceId = original?.id ?? key('diagonal', surface.faces[surface.triangles[incident[0]].face].id, ...edge.vertices.map(v => surface.points[v].id));
       const flags = (original?.faces.length === 1 ? FeatureKind3.boundary : 0) | (silhouette ? FeatureKind3.silhouette : 0) | (original && angle > 0 ? FeatureKind3.crease : 0) | (original?.attributes.marked === true ? FeatureKind3.marked : 0);
       const support = [...new Set(incident.flatMap(i => { const f=surface.triangles[i].face; return planar[f] ? faceTriangles[f] : [i]; }))].map(i=>triangleIds[i]);
-      add({ ...(object.instance?{instance:Object.freeze({...object.instance})}:{}), ...(object.creaseThreshold!==undefined?{creaseThreshold:object.creaseThreshold}:{}), ...(object.stroke!==undefined?{stroke:object.stroke}:{}), id: key(object.id, sourceId), objectId: object.id, sourceId, flags, creaseAngle: angle, a: positions[edge.vertices[0]], b: positions[edge.vertices[1]], basis:edgeBasis(edge.vertices), endpoints: edge.vertices.map(v => key(object.id, surface.points[v].id)) as [string, string], support, attributes: attributes({ ...object.attributes, ...original?.attributes }), faceAttributes: [...new Set(incident.map(i => surface.triangles[i].face))].map(i => faceAttrs[i]) });
+      add({ ...(object.instance?{instance:Object.freeze({...object.instance})}:{}), ...(object.creaseThreshold!==undefined?{creaseThreshold:object.creaseThreshold}:{}), ...(object.stroke!==undefined?{stroke:object.stroke}:{}), ...(object.fillPen!==undefined?{fillPen:object.fillPen}:{}), id: key(object.id, sourceId), objectId: object.id, sourceId, flags, creaseAngle: angle, a: positions[edge.vertices[0]], b: positions[edge.vertices[1]], basis:edgeBasis(edge.vertices), endpoints: edge.vertices.map(v => key(object.id, surface.points[v].id)) as [string, string], support, attributes: attributes({ ...object.attributes, ...original?.attributes }), faceAttributes: [...new Set(incident.map(i => surface.triangles[i].face))].map(i => faceAttrs[i]) });
     }
     for(const edge of surface.edges){
       if(edge.faces.length)continue;

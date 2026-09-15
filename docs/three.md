@@ -479,8 +479,11 @@ export default sketch({ seed: 42, pens: {
 
 `view` accepts one `hatch` recipe or an array of recipes. Each recipe has a
 `spacing`, optional `angle` (45 degrees by default), `offset`, `stroke`, `select`
-and semantic `key`. Spacing, angle and offset can be constants or fields on the
-mesh's typed face rows. Eligibility and field values are captured once when the
+and semantic `key`. Spacing, angle, offset and stroke can be constants or fields
+on the mesh's typed face rows, so one recipe can rule tagged faces in another
+pen: `stroke: f => f.ring ? 'red' : 'fine'`. A recipe without a pen uses the
+object's `fillPen` (`torus(…, { fillPen: 'red' })` or `withFillPen`, as in
+2D), then the object's `stroke`, then the view's. Eligibility and field values are captured once when the
 view is created; camera commits regenerate the paper ruling without reevaluating
 those fields. An array supplies multiple families, including crosshatching.
 Each family's pen affects only its own ink. Spacing and offset use physical
