@@ -122,7 +122,15 @@ checkout at the same time, pick another project name and `PORT` in a copy of
 `compose.3d.yml`, and never `down` a project you did not start.
 
 Browser automation: Playwright with the system Chrome on an Xvfb display with
-the NVIDIA adapter (the machine has an RTX 2060). Reference: Xvfb `:93`
+the NVIDIA adapter (the machine has an RTX 2060). Playwright is not a
+workspace dependency: it is installed only in
+`/home/kalmarv/containers/occlude-3d/packages/occlude-studio/node_modules`.
+In a fresh checkout either `pnpm add -D playwright` in your own
+`packages/occlude-studio` (do not commit the lockfile change) or run the
+scripts from that directory with `node --input-type=module < script.mjs`,
+which is also why the runners are invoked with stdin rather than a path:
+`import 'playwright'` resolves from the current directory. The system Chrome
+is `/usr/bin/google-chrome`; the scripts pass `executablePath` explicitly. Reference: Xvfb `:93`
 (`xdpyinfo -display :93`; start one with `Xvfb :93 -screen 0 1920x1080x24 &`
 if absent). The launch flags that get a real WebGPU adapter are in
 `development/3d/benchmark-surface/gpu.mjs` (`--enable-unsafe-webgpu`,
