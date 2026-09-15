@@ -7,14 +7,14 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 2649,
-          "svgMs": 82,
+          "compileMs": 3075,
+          "svgMs": 96,
           "svgBytes": 105245,
           "modeling": [
             {
               "operation": "mapSurface",
               "backend": "cpu",
-              "wallMs": 1138,
+              "wallMs": 1283,
               "segments": 6080
             }
           ],
@@ -22,20 +22,20 @@
             {
               "features": 8192,
               "candidates": 38991,
-              "wallMs": 391
+              "wallMs": 578
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 2637,
-          "svgMs": 35,
+          "compileMs": 2892,
+          "svgMs": 36,
           "svgBytes": 105245,
           "modeling": [
             {
               "operation": "mapSurface",
               "backend": "cpu",
-              "wallMs": 1076,
+              "wallMs": 1299,
               "segments": 6080
             }
           ],
@@ -43,7 +43,7 @@
             {
               "features": 8192,
               "candidates": 38991,
-              "wallMs": 379
+              "wallMs": 490
             }
           ]
         }
@@ -54,14 +54,14 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 12069,
-          "svgMs": 127,
+          "compileMs": 13577,
+          "svgMs": 108,
           "svgBytes": 237672,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 3638,
+              "wallMs": 4131,
               "segments": 21401,
               "traces": 52,
               "toneLocations": 25004,
@@ -70,7 +70,7 @@
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 3307,
+              "wallMs": 3499,
               "segments": 17372,
               "traces": 575,
               "toneLocations": 31020,
@@ -81,20 +81,20 @@
             {
               "features": 40686,
               "candidates": 176255,
-              "wallMs": 2169
+              "wallMs": 2878
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 11668,
-          "svgMs": 86,
+          "compileMs": 12825,
+          "svgMs": 73,
           "svgBytes": 237672,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 3576,
+              "wallMs": 3725,
               "segments": 21401,
               "traces": 52,
               "toneLocations": 25004,
@@ -103,7 +103,7 @@
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 3029,
+              "wallMs": 3219,
               "segments": 17372,
               "traces": 575,
               "toneLocations": 31020,
@@ -114,7 +114,7 @@
             {
               "features": 40686,
               "candidates": 176255,
-              "wallMs": 2150
+              "wallMs": 2970
             }
           ]
         }
@@ -125,14 +125,14 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 4347,
-          "svgMs": 49,
+          "compileMs": 4216,
+          "svgMs": 39,
           "svgBytes": 205099,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 2035,
+              "wallMs": 2120,
               "segments": 10850,
               "traces": 927,
               "toneLocations": 22977,
@@ -143,20 +143,20 @@
             {
               "features": 13022,
               "candidates": 54215,
-              "wallMs": 666
+              "wallMs": 785
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 4313,
-          "svgMs": 62,
+          "compileMs": 5057,
+          "svgMs": 60,
           "svgBytes": 205099,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 2000,
+              "wallMs": 2184,
               "segments": 10850,
               "traces": 927,
               "toneLocations": 22977,
@@ -167,7 +167,7 @@
             {
               "features": 13022,
               "candidates": 54215,
-              "wallMs": 756
+              "wallMs": 847
             }
           ]
         }
@@ -178,32 +178,32 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 2690,
+          "compileMs": 3488,
           "svgMs": 3,
           "svgBytes": 9464,
           "modeling": [
             {
               "operation": "intersections",
               "backend": "cpu",
-              "wallMs": 131,
+              "wallMs": 183,
               "segments": 136
             },
             {
               "operation": "intersections",
               "backend": "cpu",
-              "wallMs": 134,
+              "wallMs": 142,
               "segments": 87
             },
             {
               "operation": "intersections",
               "backend": "cpu",
-              "wallMs": 421,
+              "wallMs": 444,
               "segments": 165
             },
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 803,
+              "wallMs": 877,
               "segments": 5442,
               "traces": 131,
               "toneLocations": 6957,
@@ -214,38 +214,38 @@
             {
               "features": 6926,
               "candidates": 233407,
-              "wallMs": 694
+              "wallMs": 1283
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 2653,
+          "compileMs": 3368,
           "svgMs": 3,
           "svgBytes": 9464,
           "modeling": [
             {
               "operation": "intersections",
               "backend": "cpu",
-              "wallMs": 117,
+              "wallMs": 122,
               "segments": 136
             },
             {
               "operation": "intersections",
               "backend": "cpu",
-              "wallMs": 119,
+              "wallMs": 124,
               "segments": 87
             },
             {
               "operation": "intersections",
               "backend": "cpu",
-              "wallMs": 419,
+              "wallMs": 434,
               "segments": 165
             },
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 822,
+              "wallMs": 856,
               "segments": 5442,
               "traces": 131,
               "toneLocations": 6957,
@@ -256,7 +256,7 @@
             {
               "features": 6926,
               "candidates": 233407,
-              "wallMs": 700
+              "wallMs": 1269
             }
           ]
         }
@@ -267,8 +267,8 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 477,
-          "svgMs": 19,
+          "compileMs": 599,
+          "svgMs": 17,
           "svgBytes": 63250,
           "modeling": [
             {
@@ -282,14 +282,14 @@
             {
               "features": 2178,
               "candidates": 13924,
-              "wallMs": 122
+              "wallMs": 184
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 479,
-          "svgMs": 15,
+          "compileMs": 581,
+          "svgMs": 16,
           "svgBytes": 63250,
           "modeling": [
             {
@@ -303,7 +303,7 @@
             {
               "features": 2178,
               "candidates": 13924,
-              "wallMs": 123
+              "wallMs": 181
             }
           ]
         }
@@ -314,14 +314,14 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 23245,
-          "svgMs": 119,
+          "compileMs": 24386,
+          "svgMs": 122,
           "svgBytes": 430768,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 12680,
+              "wallMs": 13350,
               "segments": 80978,
               "traces": 144,
               "toneLocations": 92513,
@@ -332,20 +332,20 @@
             {
               "features": 84002,
               "candidates": 363798,
-              "wallMs": 4884
+              "wallMs": 5488
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 22944,
-          "svgMs": 111,
+          "compileMs": 24349,
+          "svgMs": 118,
           "svgBytes": 430768,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 12622,
+              "wallMs": 13397,
               "segments": 80978,
               "traces": 144,
               "toneLocations": 92513,
@@ -356,7 +356,7 @@
             {
               "features": 84002,
               "candidates": 363798,
-              "wallMs": 4847
+              "wallMs": 5300
             }
           ]
         }
@@ -367,29 +367,29 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 19473,
-          "svgMs": 1192,
+          "compileMs": 28515,
+          "svgMs": 1671,
           "svgBytes": 1964750,
           "modeling": [],
           "scenes": [
             {
               "features": 35302,
               "candidates": 2255812,
-              "wallMs": 10004
+              "wallMs": 19258
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 18542,
-          "svgMs": 411,
+          "compileMs": 26994,
+          "svgMs": 428,
           "svgBytes": 1964750,
           "modeling": [],
           "scenes": [
             {
               "features": 35302,
               "candidates": 2255812,
-              "wallMs": 10321
+              "wallMs": 18702
             }
           ]
         }

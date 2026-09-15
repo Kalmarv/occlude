@@ -16,6 +16,82 @@ Baselines: `benchmark-surface/cpu-baseline.json`, `gpu-baseline.json`
 are from `development/3d/optimization/vessel.mts`, which reports the same
 scene stats for a single workload; the full-suite numbers are in the JSON.
 
+## Summary — both paths, all seven workloads
+
+Served Studio (GPU visibility, NVIDIA RTX 2060, `isFallbackAdapter: false`),
+end-to-end wall ms from source edit to render reply:
+
+| workload | pass | before | after |
+| --- | --- | --- | --- |
+| mapped-plane | cold / warm | 3738 / 3430 | 3319 / 3182 |
+| primitive-crosshatch | cold / warm | 16066 / 15777 | 14723 / 14855 |
+| custom-curvature | cold / warm | 5294 / 5226 | 5418 / 4767 |
+| intersection-assembly | cold / warm | 4939 / 5167 | 5095 / 4478 |
+| repeated-prototypes | cold / warm | 1096 / 1074 | 1116 / 954 |
+| hatch-density | cold / warm | 28862 / 30131 | 28170 / 28443 |
+| **woven-vessel** | cold / warm | **watchdog (no reply)** | **45881 / 43662** |
+
+The brief's concrete target is met: the woven-vessel never returned a render
+reply at the branch point — the Studio's 60 s `RENDER_TIMEOUT_MS` fired and
+the runner timed out at 120 s — and now renders in 43.7 s warm, comfortably
+inside the watchdog.
+
+CPU reference (`benchmark-surface/cpu.mts`), compile ms and the sum of scene
+visibility ms:
+
+| workload | pass | compile before → after | visibility before → after |
+| --- | --- | --- | --- |
+| mapped-plane | cold / warm | 3075 → 2649 / 2892 → 2637 | 578 → 391 / 490 → 379 |
+| primitive-crosshatch | cold / warm | 13577 → 12069 / 12825 → 11668 | 2878 → 2169 / 2970 → 2150 |
+| custom-curvature | cold / warm | 4216 → 4347 / 5057 → 4313 | 785 → 666 / 847 → 756 |
+| intersection-assembly | cold / warm | 3488 → 2690 / 3368 → 2653 | 1283 → 694 / 1269 → 700 |
+| repeated-prototypes | cold / warm | 599 → 477 / 581 → 479 | 184 → 122 / 181 → 123 |
+| hatch-density | cold / warm | 24386 → 23245 / 24349 → 22944 | 5488 → 4884 / 5300 → 4847 |
+| woven-vessel | cold / warm | 28515 → 19473 / 26994 → 18542 | 19258 → 10004 / 18702 → 10321 |
+
+Every workload's exported SVG is byte-length identical, and every scene's
+candidate and refinement counts are unchanged on both paths.
+
+### The GPU ink oracle
+
+`development/3d/optimization/ink-digest.mjs` captures, for one built image,
+the sha256 of the raw `prims` and `frags` buffers of every workload rendered
+through the served Studio on the real adapter — the same digest the
+`renderhash` oracle uses, and exactly what the preview, the export and the
+paper are made of.
+
+A cross-backend comparison inside the Studio is not available: with WebGPU
+disabled the render worker reports "WebGPU adapter unavailable" rather than
+falling back, so there is no CPU-classified Studio render to diff against.
+Reconstructing the Studio's inputs in Node is also not a sound oracle — the
+Studio renders on its own 203.2 x 203.2 mm paper with a 10.16 mm margin and
+its own single 0.2 mm `ink` pen, none of which the headless reference
+reproduces by default. So the oracle is the before/after capture on the same
+Studio with the same stored inputs (asserted equal in the JSON), which is
+what "no ink change" actually claims:
+
+| workload | branch point `bfbdf93-inkbase` | `ea22e2e-perf4` |
+| --- | --- | --- |
+| mapped-plane | 2de760138ddf580083172e92ad694b3c | identical |
+| primitive-crosshatch | 421402e08e4903f32d3b8cff473e00d9 | identical |
+| custom-curvature | 0b1dfa6745d8c396ff1a0671ab67c9f6 | identical |
+| intersection-assembly | d6ae27e156deb1b530a94013f527aabe | identical |
+| repeated-prototypes | 03e23e254b165cc2935252a82750818b | identical |
+| hatch-density | 531b086fc97473c63e5d792e6c72f7ae | identical |
+| woven-vessel | 7d99c7c70c23e6dcc88e43c24b867177 | identical |
+
+Captures are `optimization/ink-baseline.json` and `optimization/ink-perf.json`.
+The branch-point image needed one measurement-only edit to be capturable at
+all — `RENDER_TIMEOUT_MS` raised to 600 s so the vessel could finish and be
+digested. That edit was made in the working tree, never committed, and
+reverted immediately after the capture.
+
+Baselines: `benchmark-surface/cpu-baseline.json` and `gpu-baseline.json`,
+both recorded on `bfbdf93`. The committed `gpu.json`/`cpu.json` that the
+brief mentions were from the older `bae1191-surface-final` stamp, so
+`gpu-baseline.json` was re-recorded from an image built at the branch point;
+it has six rows, because the seventh never returns.
+
 ## Where the time is (measured)
 
 `node --cpu-prof` over the vessel on the baseline
