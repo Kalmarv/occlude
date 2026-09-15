@@ -1,5 +1,5 @@
 import {rotation3,alignAxis,type RotationInput} from '../rotation.js';
-import {Mesh,attributeName,attributeValue,evaluate,type EdgeAttributes,type Field,type GeometryOptions,type PointRow,type FaceRow} from './mesh.js';
+import {Mesh,attributeName,attributeValue,evaluate,type EdgeAttributes,type Field,type GeometryOptions,type PointRow,type FaceRow,type Style3} from './mesh.js';
 import {Collection} from './collection.js';
 import {identity} from './identity.js';
 import {assembleSurface3,type Attribute3,type Attributes3,type SurfacePoint3,type SurfaceFace3,type SurfaceEdge3,type SurfaceTriangle3} from '../geometry/surface.js';
@@ -63,6 +63,8 @@ export class Instances<P extends Attributes3={},E extends EdgeAttributes={},F ex
   get length():number{return this.rows.length;}
   get instances():Collection<InstanceRow<A,S,R>,Instances<P,E,F,A,S,R,C>>{return new Collection(this,'instance',this.rows,ids=>new Instances<P,E,F,A,S,R,C>(this.prototype,ids.map(i=>this.rows[i]),this));}
   withKey(value:string):Instances<P,E,F,A,S,R,C>{return new Instances<P,E,F,A,S,R,C>(this.prototype,this.rows,{key:value});}
+  /** Instances are drawn like their prototype: style it. */
+  style(style:Style3):Instances<P,E,F,A,S,R,C>{return new Instances<P,E,F,A,S,R,C>(this.prototype.style(style),this.rows,this);}
   attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<InstanceRow<A,S,R>,Value>):Instances<P,E,F,Omit<A,Name>&Record<Name,Value>,S,R,C>{
     attributeName(name);if(name==='transform')throw new Error('reserved instance attribute name: transform');
     const rows=this.rows.map(row=>retainPlacement(row,{...row,attributes:{...(row.attributes as Readonly<A>),[name]:attributeValue(evaluate(field,row))}}));

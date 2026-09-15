@@ -38,6 +38,9 @@ export interface GeometryOptions {
   /** The pen for this object's hatch when the recipe names none (2D `fillPen`). */
   readonly fillPen?:string;
 }
+/** How an object is drawn by the default drawing: its pen, its hatch pen, its
+ * crease threshold. `style` sets only the fields named and keeps the rest. */
+export interface Style3 {readonly stroke?:string;readonly fillPen?:string;readonly creaseAngle?:number}
 function checkedStroke(value:string|undefined):string|undefined {
   if(value!==undefined&&(typeof value!=='string'||!value))throw new Error('stroke must be a nonempty pen name');
   return value;
@@ -492,12 +495,9 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):Mesh<P,E,F,C>{const r=rotationArguments(this,a,b,c);return new Mesh(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved});}
   scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):Mesh<P,E,F,C>{const r=scaleArguments(this,scale,pivot);return new Mesh(r.empty?emptySurface():transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
   withKey(key:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,key});}
-  /** The same mesh with its own crease threshold (see GeometryOptions.creaseAngle). */
-  withCreaseAngle(degrees:number):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,creaseAngle:degrees});}
-  /** The same mesh drawn with its own pen by the default drawing. */
-  withStroke(stroke:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,stroke});}
-  /** The same mesh with its own pen for hatch recipes that name none. */
-  withFillPen(fillPen:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,fillPen});}
+  /** The same mesh drawn differently: `style({ stroke, fillPen, creaseAngle })`
+   * sets the fields named and keeps the others. */
+  style(style:Style3):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,...style});}
   steps(count:number,rule:MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepShorthand<MeshPointRow<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>,StepAttributes<P>>,...passesAndOptions:(MeshRule<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>|StepsOptions)[]):Mesh<StepAttributes<P>,StepAttributes<E>,StepAttributes<F>,StepAttributes<C>>{
     if(!Number.isSafeInteger(count)||count<0)throw new Error('steps count must be a nonnegative integer');
     if(stepRule(rule)){

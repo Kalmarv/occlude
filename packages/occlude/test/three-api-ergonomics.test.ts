@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {plane,box,sphere,cylinder,torus,mesh,polyline,pointCloud,instanceOnFaces,instanceOnPoints,isolines,v3,falloff,light,view,orthographic,perspective,axisAngle} from '../src/three/api/index.js';
+import {plane,box,sphere,cylinder,torus,mesh,polyline,pointCloud,style,instanceOnFaces,instanceOnPoints,isolines,v3,falloff,light,view,orthographic,perspective,axisAngle} from '../src/three/api/index.js';
 import {lightTone3,lightRecipe3} from '../src/three/surface/tone.js';
 import {sketch,sketchAsync,compileSketch,compileSketchAsync,material,pen,mm,strokes,isSketchAsync,exportSvg,initOcclude} from '../src/index.js';
 import {readFileSync} from 'node:fs';
@@ -26,7 +26,7 @@ describe('projected curve shorthands and pens',()=>{
   it('kind/except select feature kinds and stroke rides on derived curves into the default drawing',async()=>{
     const sheet=plane(2,2).subdivide(2).displace(p=>p.x*.3);
     const rings=isolines(sheet,p=>p.z,{count:3,stroke:'red'});
-    expect(rings.stroke).toBe('red');expect(rings.withStroke('blue').stroke).toBe('blue');
+    expect(rings.stroke).toBe('red');expect(rings.style({stroke:'blue'}).stroke).toBe('blue');
     let seen:ProjectedLines|undefined;
     const run=await compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)}),red:pen({width:mm(.3),color:'#f00'})}},()=>view([sheet,rings],{camera:orthographic({eye:[0,0,10],target:[0,0,0],up:[0,1,0],span:4}),stroke:'ink'},lines=>{seen=lines;return [strokes(lines.visible.kind('isoline'),{stroke:'red'}),strokes(lines.visible.except('isoline'),{stroke:'ink'})];})));
     expect(seen).toBeDefined();
@@ -183,6 +183,23 @@ describe('view inputs',()=>{
   });
 });
 
+describe('style',()=>{
+  it('sets the named fields, keeps the rest, and maps over lists of meshes, instances and curves',()=>{
+    const ring=torus(1,.3,{segments:8,tubeSegments:6,stroke:'ink'}).style({fillPen:'red'});
+    expect([ring.stroke,ring.fillPen,ring.creaseAngle]).toEqual(['ink','red',undefined]);
+    const rings=style([ring,ring.translate([3,0,0])],{creaseAngle:180,stroke:'heavy'});
+    expect(rings.map(r=>[r.stroke,r.fillPen,r.creaseAngle])).toEqual([['heavy','red',180],['heavy','red',180]]);
+    const nested=style([[ring],[box(1)]],{stroke:'blue'});
+    expect(nested.length).toBe(2);expect(nested.every(g=>g.stroke==='blue')).toBe(true);
+    const pins=style(instanceOnPoints(box(.2),pointCloud([[0,0,0]]).points),{fillPen:'red'});
+    expect(pins.prototype.fillPen).toBe('red');
+    const iso=style(isolines(plane(2,2).subdivide(1).displace(p=>p.x),p=>p.z,{count:2}),{stroke:'red'});
+    expect(iso.stroke).toBe('red');
+    expect(()=>style(iso,{fillPen:'x'})).toThrow('only a stroke');
+    expect(()=>style('nope' as never,{stroke:'x'})).toThrow('style takes');
+  });
+});
+
 describe('per-object pen',()=>{
   it('the default drawing uses an object stroke for its lines and hatch, view stroke elsewhere',async()=>{
     const camera=orthographic({eye:[4,6,5],target:[0,0,0],up:[0,0,1],span:6});
@@ -200,10 +217,10 @@ describe('per-object pen',()=>{
     // An object fillPen takes hatch recipes that name no pen; the outline keeps the view's pen.
     const filled=await svg([cube,sphere(.8,{segments:12,rings:6,fillPen:'red'}).faceAttribute('h',true)],{hatch:{spacing:mm(2),angle:0,select:(f:any)=>f.h===true}});
     expect(filled).toContain('#aa2222');expect(filled).toContain('#111111');expect(filled).not.toContain('#22aa22');
-    expect(sphere(1).withFillPen('red').translate([1,0,0]).fillPen).toBe('red');
+    expect(sphere(1).style({fillPen:'red'}).translate([1,0,0]).fillPen).toBe('red');
     const viewOnly=await svg([cube,sphere(.8,{segments:12,rings:6})]);
     expect(viewOnly).not.toContain('#22aa22');
-    expect(sphere(1).withStroke('fine').translate([1,0,0]).subdivide(1).stroke).toBe('fine');
+    expect(sphere(1).style({stroke:'fine'}).translate([1,0,0]).subdivide(1).stroke).toBe('fine');
     expect(()=>sphere(1,{stroke:''})).toThrow('pen name');
   });
 });
@@ -219,14 +236,14 @@ describe('per-object crease threshold',()=>{
       return {ring:creases.filter(c=>c.feature.objectId==='object:1'&&c.feature.creaseAngle>=(c.feature.creaseThreshold??(viewAngle??30))).length,cube:creases.filter(c=>c.feature.objectId==='object:0'&&c.feature.creaseAngle>=(c.feature.creaseThreshold??(viewAngle??30))).length};
     };
     const plain=torus(1,.3,{segments:12,tubeSegments:8});
-    const byDefault=await count(plain),smooth=await count(plain.withCreaseAngle(180)),sharp=await count(torus(1,.3,{segments:12,tubeSegments:8,creaseAngle:0}));
+    const byDefault=await count(plain),smooth=await count(plain.style({creaseAngle:180})),sharp=await count(torus(1,.3,{segments:12,tubeSegments:8,creaseAngle:0}));
     expect(byDefault.ring).toBeGreaterThan(0);expect(smooth.ring).toBe(0);expect(sharp.ring).toBeGreaterThan(byDefault.ring);
     expect(smooth.cube).toBe(byDefault.cube);expect(sharp.cube).toBe(byDefault.cube);
     expect(smooth.cube).toBeGreaterThan(0);
     // The threshold rides on the feature so the default drawing and callbacks agree.
-    expect(plain.withCreaseAngle(60).translate([1,0,0]).subdivide(1).creaseAngle).toBe(60);
-    expect(()=>plain.withCreaseAngle(200)).toThrow('creaseAngle');
-    const placed=instanceOnPoints(plain.withCreaseAngle(180),pointCloud([[0,0,0]]).points);
+    expect(plain.style({creaseAngle:60}).translate([1,0,0]).subdivide(1).creaseAngle).toBe(60);
+    expect(()=>plain.style({creaseAngle:200})).toThrow('creaseAngle');
+    const placed=instanceOnPoints(plain.style({creaseAngle:180}),pointCloud([[0,0,0]]).points);
     let seen:ProjectedLines|undefined;
     await compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([placed],{camera,stroke:'ink'},lines=>{seen=lines;return [];})));
     expect([...seen!.visible.kind('crease')].every(c=>c.feature.creaseThreshold===180)).toBe(true);

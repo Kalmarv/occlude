@@ -50,8 +50,8 @@ export class SurfaceCurves<A extends Attributes3={}> {
   return new SurfaceCurves<A>(rebindSurfaceCurveNetwork3(this.network,bindings),this);
  }
  withKey(key:string):SurfaceCurves<A>{return new SurfaceCurves<A>(this.network,{key,stroke:this.stroke});}
- /** The same marks drawn with a named pen by `view`. */
- withStroke(stroke:string):SurfaceCurves<A>{return new SurfaceCurves<A>(this.network,{key:this.key,stroke});}
+ /** The same marks drawn with a named pen by `view`; curves carry only `stroke`. */
+ style(style:{readonly stroke?:string}):SurfaceCurves<A>{return new SurfaceCurves<A>(this.network,{key:this.key,stroke:style.stroke??this.stroke});}
  /** Repeat prototype-attached marks at every placement of an instance set.
   * Attachments are re-evaluated on each placed triangle from their retained
   * affine weights; the prototype mesh is not realized. Segment attributes gain

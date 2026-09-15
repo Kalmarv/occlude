@@ -51,3 +51,5 @@ export type {SurfaceLocation3 as SurfaceLocation} from '../geometry/location.js'
 export {isolines} from './isolines.js';
 export type {IsolineOptions,IsolineLevels,IsolineAttributes,IsolineField} from './isolines.js';
 export type {ExtrudeRegion,ExtrudeOffset,ExtrudeOptions} from './mesh.js';
+export {style,type Styleable} from './style.js';
+export type {Style3} from './mesh.js';
