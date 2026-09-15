@@ -10,7 +10,7 @@ import { lerp3, type Vec3 } from '../src/three/math.js';
 type Point = readonly [number, number];
 type Segment = readonly [Point, Point];
 type Fixture = { id: string; camera: Camera3; features: (keyof typeof FeatureKind3)[]; visibility: ('visible'|'hidden')[]; objects: {id:string;positions:Vec3[];polygons:number[][];marked?:[number,number][]}[] };
-const directory = resolve(process.argv[2] ?? '../../development/3d/reference');
+const directory = resolve(process.argv[2] ?? 'test/fixtures/three-reference');
 const fixtures: Fixture[] = JSON.parse(readFileSync(resolve(directory,'fixtures.json'),'utf8'));
 const referenceName = process.argv[4] ?? 'blender';
 const prefix = referenceName === 'blender' ? '' : `${referenceName}-`;

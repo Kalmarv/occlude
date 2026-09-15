@@ -9,7 +9,7 @@
  *   trace(...)    → stroke(...)      (draw along a contour)
  *   t.loops(...)  → t.polylines(...) (a shape's outline as points)
  *
- * 2026-09-07 material-native geometry (working/conversion-review.md):
+ * 2026-09-07 material-native geometry:
  *   t.polylines(x) → t.material(x).curves().map((c) => c.pts)
  * `t.polylines` no longer exists; `t.material(x)` returns a Material, so
  * the rewrite keeps the array shape the caller expected by reading the
@@ -382,7 +382,8 @@ function rewriteLevelStatement(src) {
 }
 
 /**
- * 2026-09-13 execution context (working/execution-context.md): the
+ * 2026-09-13 execution context (docs/architecture.md, "Execution: no
+ * ambient state"): the
  * module-level forms that read the run — `within(field, shape)`,
  * `image('…')`, `asset('…')`, `noiseField(…)` — became toolkit members,
  * because a run's paper, frame and captured assets are no longer ambient:

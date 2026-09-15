@@ -79,9 +79,9 @@ export async function classifyForRun3(exec: Execution, scene: LineArtScene3, opt
     if (options.onStage && !options.signal?.aborted) options.onStage({ stage: 'source', scene: key, paper: { w: exec.paper.w, h: exec.paper.h }, ...draftSegments(snapshot.frame, snapshot.features.map(feature => ({ feature, ranges: [[0, 1]] as const }))) });
     // Visibility is classified on the CPU everywhere: the exact classifier
     // beats the GPU interval classifier 1.4-3.8x on every measured workload
-    // (development/3d/OPTIMIZATION-PROPOSALS.md), because the GPU path hands
-    // most pairs back for exact refinement anyway. `compute3` keeps the GPU
-    // for modeling (surface evaluation, tone) and the construction viewport.
+    // (docs/notes.md, "Why the CPU is the only classifier"), because the
+    // GPU path hands most pairs back for exact refinement anyway. `compute3`
+    // keeps the GPU for modeling (surface evaluation, tone) and the viewport.
     const job = await runGeometryJobAsync3(classifySceneCpuJob3(snapshot), options.signal);
     timing.merge(job.timings);
     const result = job.value;

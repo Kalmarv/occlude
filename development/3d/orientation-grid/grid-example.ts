@@ -1,8 +1,0 @@
-import {sketch,pen,mm} from 'occlude';
-import {grid,cone,instanceOnPoints,view,perspective} from 'occlude/3d';
-export default sketch({seed:42,pens:{ink:pen({width:mm(.25),color:'#18202A'})}},t=>{
-  const sites=grid({cols:6,rows:6,spacing:1.2})
-    .attribute('height',()=>t.rnd(.5,1.8));
-  const forms=instanceOnPoints(cone(.4,1),sites.points,{scale:p=>[1,1,p.height]});
-  return view(forms,{camera:perspective({eye:[8,10,8],target:[0,0,.5],fovDegrees:50}),stroke:'ink'});
-});

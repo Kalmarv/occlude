@@ -1,7 +1,7 @@
 /**
- * The acceptance criterion of the execution context (working/
- * execution-context.md): running a sketch depends only on its explicit
- * inputs. Two runs with different papers, pens and seeds, interleaved
+ * The acceptance criterion of the execution context (docs/architecture.md,
+ * "Execution: no ambient state"): running a sketch depends only on its
+ * explicit inputs. Two runs with different papers, pens and seeds, interleaved
  * phase by phase, produce byte for byte what each produces alone; a run
  * that throws — in the sketch body, in a fill job, in the wasm finish —
  * or one abandoned half way leaves nothing the next run can observe.

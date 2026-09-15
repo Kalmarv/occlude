@@ -124,5 +124,7 @@ rasters are implementation numbers. They are not tenants.
   channels-as-FieldFn, drawing images, branded algorithm names,
   mode-flag mega-functions, and the fills-redesign's obsoleted machinery
   (mailbox/SAB field sampling, COOP/COEP isolation, mid-pipeline wasm→JS
-  fill callback, presence-mask NaN rasters, bleed margins — see
-  working/fills-fields-spec.md).
+  fill callback, presence-mask NaN rasters, bleed margins — each obsoleted
+  by the worker-owned runtime and the two-pass pipeline, which get field
+  values in JS before the second wasm call; recorded with the rest of the
+  refusals in docs/notes.md).

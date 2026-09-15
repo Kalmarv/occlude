@@ -5,7 +5,7 @@ Production now uses bounded polygon union in TypeScript. This independently writ
 adapter uses CGAL 6.2.1 conic arrangements and CORE algebraic numbers only as a
 development reference. No CGAL code, binaries, or initialization enter occlude.
 
-`conic.cpp` (kept out of the repository, under working/bench/exact-reference with `verify.py`; only the fixtures it produced, `fixtures.json`, are committed) reads six round-trip decimal doubles per line: ax ay bx by ra rb.
+`conic.cpp` (kept out of the repository, with its `verify.py`; only the fixtures it produced, `fixtures.json`, are committed) reads six round-trip decimal doubles per line: ax ay bx by ra rb.
 It constructs rational polynomial supports for both tangent branches, inserts
 circles as four exact quadrants, and checks arrangement validity. It classifies
 open edge witnesses with the quadratic envelope equation and its directional

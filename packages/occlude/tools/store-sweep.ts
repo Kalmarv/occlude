@@ -11,8 +11,8 @@
  *
  * Reads the studio's local store (gitignored: your sketches, not the repo),
  * with the studio's own pen library, so a fresh clone has nothing to check.
- * `working/conversion-review.md` carries the per-sketch table of the result-
- * shape changes a text rewrite cannot do.
+ * A text rewrite cannot change a result's shape; those per-sketch changes
+ * were reviewed by hand when the conversion landed.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';

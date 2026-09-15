@@ -1,5 +1,0 @@
-{
-  "peakRssKiB": 164264,
-  "method": "/usr/bin/time -v",
-  "includes": "one warmup plus three native render/plan samples; no JS"
-}

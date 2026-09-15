@@ -8,7 +8,8 @@
     "check": "node check.mjs",
     "smoke": "pnpm --filter occlude smoke && pnpm --filter occlude-studio smoke",
     "docker:build": "OCCLUDE_BUILD_STAMP=$(git rev-parse --short HEAD) docker compose build",
-    "docker:up": "docker compose up -d studio"
+    "docker:up": "docker compose up -d studio",
+    "ship": "node ship.mjs"
   },
   "packageManager": "pnpm@10.30.1",
   "engines": {

@@ -1,7 +1,7 @@
 # Benchmark harnesses (consolidation, 7 September 2026)
 
-Reproducible workloads behind the numbers in working/con2-review.md and
-working/perf-loop.md. Run from `packages/occlude`:
+Reproducible workloads behind the measured numbers on the Working notes
+docs page (docs/notes.md). Run from `packages/occlude`:
 
     pnpm --filter occlude bench            every harness, with headers
     pnpm --filter occlude bench --quick    skip the slow ones
@@ -32,8 +32,9 @@ Without `--baseline`, `--verify` requires every fractional case to succeed and
 checks deterministic geometry and callbacks. The historical comparison against
 `adbe654` applies to the performance commit `fbc4113`; the subsequent correctness
 fix intentionally changes circle-root rounding and resolves the baseline error.
-See `working/bench/thicken-performance.md` (bench notes and result dumps live under working/bench, untracked) for compiled timings,
-profiling results, and the baseline failure's reproducer.
+See the thicken numbers on the Working notes docs page (docs/notes.md) for
+the kept timings; the raw profiling dumps and the baseline failure's
+reproducer were local scratch and are not in the repository.
 
 **These numbers are a regression check, not a comparison.** The log records
 what each row cost when it was last measured *on that box under that load*.

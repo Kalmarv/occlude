@@ -41,6 +41,7 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'workshop-11', title: '11. Make it work on paper', file: 'workshop-11-paper.md', live: true, group: 'workshop' },
   { slug: 'architecture', title: 'Architecture', file: 'architecture.md', live: false, group: 'developer' },
   { slug: 'device-notes', title: 'Device notes', file: 'device-notes.md', live: false, group: 'developer' },
+  { slug: 'notes', title: 'Working notes', file: 'notes.md', live: false, group: 'developer' },
   { slug: 'idraw-log', title: 'iDraw log (2026)', file: 'idraw-integration.md', live: false, group: 'developer' },
 ];
 

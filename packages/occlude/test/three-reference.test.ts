@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 it('matches pinned Blender Line Art coverage and detects a displaced reference segment', () => {
   const directory=mkdtempSync(join(tmpdir(),'occlude-reference-'));
   try{
-    for(const name of ['fixtures.json','blender.json'])copyFileSync(new URL(`../../../development/3d/reference/${name}`,import.meta.url),join(directory,name));
+    for(const name of ['fixtures.json','blender.json'])copyFileSync(new URL(`./fixtures/three-reference/${name}`,import.meta.url),join(directory,name));
     const run=()=>spawnSync(process.execPath,[createRequire(import.meta.url).resolve('tsx/cli'),fileURLToPath(new URL('../tools/compare-blender3.ts',import.meta.url)),directory],{encoding:'utf8'});
     const valid=run();expect(valid.status,valid.stdout+valid.stderr).toBe(0);
     const comparison=JSON.parse(readFileSync(join(directory,'comparison.json'),'utf8'));
@@ -25,7 +25,7 @@ it('matches pinned Blender Line Art coverage and detects a displaced reference s
 it('records Freestyle coverage differences while independent rays validate Occlude', () => {
   const directory=mkdtempSync(join(tmpdir(),'occlude-freestyle-'));
   try {
-    for(const name of ['fixtures.json','freestyle.json'])copyFileSync(new URL(`../../../development/3d/reference/${name}`,import.meta.url),join(directory,name));
+    for(const name of ['fixtures.json','freestyle.json'])copyFileSync(new URL(`./fixtures/three-reference/${name}`,import.meta.url),join(directory,name));
     const run=spawnSync(process.execPath,[createRequire(import.meta.url).resolve('tsx/cli'),fileURLToPath(new URL('../tools/compare-blender3.ts',import.meta.url)),directory,'-','freestyle'],{encoding:'utf8'});
     expect(run.status).toBe(1); // Strict comparator must not silently bless known mismatches.
     const comparison=JSON.parse(readFileSync(join(directory,'freestyle-comparison.json'),'utf8'));
@@ -48,7 +48,7 @@ it('records Freestyle coverage differences while independent rays validate Occlu
 it('matches Freestyle constant physical width and color with an actual Occlude SVG', async () => {
   const {initOcclude,sketch,pen,paper,mm,box3,lineArt3,compileSketchAsync,exportSvg}=await import('../src/index.js');
   await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm',import.meta.url)));
-  const reference=JSON.parse(readFileSync(new URL('../../../development/3d/reference/freestyle.json',import.meta.url),'utf8'));
+  const reference=JSON.parse(readFileSync(new URL('./fixtures/three-reference/freestyle.json',import.meta.url),'utf8'));
   let vertices=0;
   for(const c of reference.cases) {
     expect(c.strokes.length).toBeGreaterThan(0);

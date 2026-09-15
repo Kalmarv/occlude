@@ -1,8 +1,0 @@
-{
-  "passed": true,
-  "models": 1,
-  "renders": 1,
-  "explorationRetainedPerScene": true,
-  "resetBothModes": true,
-  "exportUnchanged": true
-}

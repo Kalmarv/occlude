@@ -1,8 +1,9 @@
 # occlude architecture
 
 This documents how the implementation actually fits together and where
-each responsibility lives. The original design notes and the fills/fields
-decision log live locally under `working/` (untracked).
+each responsibility lives. What is measured, still open, or deliberately
+parked lives beside it in [Working notes](#/notes); the design laws are in
+`CLAUDE.md` at the repository root.
 
 ## The one-sentence model
 
@@ -182,8 +183,8 @@ build. BuildKit cache mounts keep the cargo registry, the cargo target dir
 and the pnpm store across builds, so a source change rebuilds only what
 changed; `docker builder prune` returns to the cold path, which must still
 pass. Nothing a developer's machine produced enters the context
-(`.dockerignore`): no `pkg`, `node_modules`, `target`, `dist`, `.git` or
-`working/`.
+(`.dockerignore`): no `pkg`, `node_modules`, `target`, `dist`, `.git`, the
+studio's runtime stores, or the owner's local scratch directory.
 
 ## The render pipeline (two wasm calls, one runtime)
 
@@ -227,6 +228,307 @@ the watchdog (a wedged worker) is the only hard interruption. Pass 2 is
 sharded by shape with rayon on native builds; generated fill primitives
 carry provisional origins that a deterministic serial merge rebases, so
 parallel output is bit-identical to serial.
+
+## The 3D pipeline
+
+3D resolves *before* the pipeline above runs. `compileSketchAsync` awaits the
+sketch, classifies every captured scene, interprets each one as ordinary
+strokes, and only then calls `emit` (`api.ts`, `three/resolve.ts`), so the
+encoder sees 2D ink like any other. A synchronous `compileSketch` refuses a
+sketch whose function returns a promise and names
+`compileSketchAsync`/`renderAsync`: there is no way to await a scene inside
+it. `docs/three.md` is the reference for the vocabulary; this section is the
+machinery and the contracts.
+
+```
+packages/occlude/src/three/
+  api/*                 the public vocabulary: mesh and primitives, curves,
+                        view, hatch, isolines, mapping, intersections,
+                        instances, sampling, prepared queries
+  geometry/*            model, topology, corners, triangulation, curvature,
+                        extrude, deform, location — and exact.ts, the
+                        homogeneous BigInt kernel with its f64 sign filter
+  features/snapshot     the immutable render snapshot: camera frame, source
+                        segments with their phase, occluder triangles
+  visibility/*          index (projected BVH + depth cutoff), scene
+                        (candidate pairs, both classifiers, refinement
+                        targets), interval / worldInterval (the hiding
+                        test), precision (the paper-derived tolerance)
+  curves/*              hatch rulings, isolines, plane sections, chart
+                        clipping, the exact intersection network
+  surface/*             tone, tangent fields, the tracer, the CPU surface
+                        evaluator
+  strokes/*             construct (classified runs → chained strokes) and
+                        paper (strokes → recorded shapes)
+  scene, resolve, timing  the captured scene, the resolve walk, PhaseClock3
+  geometry/job          the task-yielding runner: 1024 checkpoints or ~8 ms
+                        per slice, cancellable between them
+
+packages/occlude/src/compute/webgpu/
+  scene, surfaceEvaluate  the optional GPU host: batched surface/tone
+  interval, intervalShader  evaluation, and the f32 interval classifier
+                            (reference only — see "Exact classification")
+```
+
+### The four values, and who owns them
+
+Editable geometry, an immutable render snapshot, a classified line drawing,
+and the physical plot plan. Model geometry is CPU-owned f64 data: polygon
+topology, stable semantic IDs, and point/edge/face/corner attributes;
+derived triangulation retains face parentage. A render session owns its
+camera, candidate index, GPU resources and classified intervals. **There is
+no global active scene, camera or GPU job** — the classified result is
+cached on the execution by scene (`exec.scenes3`), so line-set predicates
+and styles reading the same scene never cause a second visibility dispatch.
+Changing geometry, the camera or a candidate generator invalidates only the
+dependent stages.
+
+A mesh is an immutable owned revision. Rows carry a stable `id`, a local
+`index` and a frozen `attributes` map; built-in row names (`id`, `index`,
+`x`/`y`/`z`, `normal`, `center`, `area`, `a`, `b`, `length`, `points`,
+`edges`, `faces`, `corners`, …) are reserved and rejected as attribute names
+(`three/api/mesh.ts`). Selections retain their source revision and an editor
+refuses a selection from another revision even when the IDs match; explicit
+extraction is what makes an ownership change visible. Derived topology uses
+compact deterministic IDs and records immediate parent IDs as provenance, so
+allocation order, wall time and model RNG are irrelevant to identity.
+Frozen passes (`.steps(n, (current, next, k), { every })`) read a frozen
+input and accumulate edits exactly as 2D `Material.steps` does.
+
+**Budget before allocation.** Every count and byte budget is validated and
+throws before its first allocation, and **capacity options default to
+`Infinity`** — the owner's decision after the surface-drawing session, which
+removed every default cap. What keeps a finite default is a termination rule
+or a device limit, not a capacity: the exact coordinate-bit guard
+(`maxCoordinateBits` 32768 in `api/mapping.ts`), the scatter `maxAttempts`
+(100 000 in `api/sampling.ts`), the isoline segment and node budgets
+(250 000 in `curves/isolines.ts`), and the GPU memory and batch limits.
+
+### Coordinates and the numerical boundary
+
+World coordinates are right-handed with Z up. Camera space looks along
+negative Z; near and far are positive distances. Projection maps depth to
+WebGPU's [0, 1] range. Paper mapping uses an explicit drawable rectangle in
+millimetres and reverses vertical direction at that boundary. **World units
+never inherit paper units.**
+
+CPU clipping precedes perspective division and retains the original
+parameters and triangle parentage. Visibility classifies segment/triangle
+occlusion half-spaces, unions the hidden intervals and complements them. A
+conservative projected BVH with a camera-depth cutoff supplies bounded
+candidate batches (`visibility/index.ts`): an occluder whose nearest point
+is farther than a feature's farthest point cannot hide it under either
+projection, with a rounding envelope so exact-incidence cases survive. There
+is no large-scene all-pairs allocation.
+
+The interval tolerance is derived from the physical frame, never fixed. The
+execution supplies `paperToleranceMm = min(0.005 mm, narrowest resolved pen
+width / 20)` — every resolved pen, because a cached classification may be
+interpreted with another pen later in the same execution. Half of that
+budget is allocated to interval reconstruction and half reserved for f64
+projection arithmetic. `intervalTolerance3` divides it by the maximum
+projected speed over all clipped features: orthographic speed is
+`paperHeight / span * hypot(dx, dy)`; for perspective, with endpoint depths
+`d0, d1 > 0`, the rational projection derivative peaks at the closer
+endpoint, so the bound is the projected endpoint distance times
+`max(d0,d1)/min(d0,d1)` scaled by the focal term. The result is capped at
+the previous fixed `1e-5` so ordinary scenes cannot become coarser, and
+overflow tightens it to the smallest positive f64 (which reaches WGSL as
+zero, routing every uncertain cut to CPU refinement). `paperToleranceMm` and
+`parameterTolerance` are both reported in the scene stats. This is a tested
+working budget, not a numerical guarantee: the downstream 0.005 mm input
+snap (`snap.rs`) displaces geometry by up to ~0.0035 mm in 2D and is a
+separate, larger effect.
+
+Source incidence is topological, never a distance hack. Only the incident
+triangles on a mark's actual supporting placement are exempt from hiding it;
+every other triangle on either mesh remains an occluder. Stored chart
+coordinates stay attached through transforms and deformation, and a
+topology-preserving rebind uses the retained identities and affine
+coordinates rather than nearest-surface guessing. **No camera-space epsilon,
+coordinate shift or blanket short-line suppression may replace source
+incidence.**
+
+### Exact classification: the CPU is the only classifier
+
+`classifyForRun3` calls `classifySceneCpuJob3` unconditionally
+(`three/resolve.ts`). The exact CPU classifier beat the GPU interval
+classifier by 1.4× to 3.8× on every measured workload, because the GPU
+classifies each pair in f32 and hands every pair its certificate cannot
+settle back for exact refinement — 65 % of pairs on the heaviest workload —
+so it paid the streaming, packing, dispatch and readback *and then* most of
+the exact bill anyway. The numbers are in `docs/notes.md`.
+
+`compute3` is still supplied by the Studio and still does GPU modeling
+(surface and tone evaluation) and the construction viewport.
+`classifySceneGpu3`, `compute/webgpu/interval.ts` and `intervalShader.ts`
+remain in the tree as a reference backend: unexercised on the Studio path,
+and able to disagree with the exact answer, which is a liability recorded in
+`docs/notes.md` rather than resolved. `refinementTargets3`, the
+watertight-abutment seam closing and `intervalTolerance3` exist to repair
+f32 endpoints and therefore only do work inside that backend.
+
+The exact kernel (`geometry/exact.ts`) is homogeneous BigInt arithmetic
+guarded by a certified f64 sign filter: an f64 image of an exact 4-vector
+divided by a positive power of two, with a running error bound, answering
+±1 only when the f64 value provably exceeds its own bound and 0 — "ask the
+exact arithmetic" — otherwise, including at zero. It introduces no
+tolerance; it is Shewchuk's filter technique applied to the homogeneous dot
+product. `at`/`plane` fully reduce (callers that key or compare a plane need
+canonical values); `atScale`/`planeScale` strip only the common power of
+two, which is projectively equivalent and cheaper.
+
+### Surface tone and the GPU agreement contract
+
+Tone is `0 = light, 1 = dark`. Built-in recipes are data: light is
+`illumination = ambient + (1 - ambient) * ramp(max(0, n·L))` with a smooth
+ramp `c²(3 - 2c)` and the geometric normal, world space by default, and tone
+is its complement; image is prefiltered pixels, bilinear between pixel
+centres, bottom-left origin by default, clamp or repeat wrap, and a lum /
+dark / alpha channel with integer Rec. 709 luminance so white is exactly 1.
+
+`decideTone3` compares tone against a threshold: within
+`TONE_QUANTUM = 2**-10` (`three/surface/tone.ts`) the decision is *ambiguous*
+and is settled by the CPU reference. GPU output is f32 and agreement is
+required within that quantum — **byte identity across backends is never
+claimed.**
+
+### The GPU surface-evaluation buffers
+
+Documented here on the same footing as the wasm strides, because it is a
+protocol both sides must agree on (`compute/webgpu/surfaceEvaluate.ts`,
+`three/surface/evaluate.ts`):
+
+| buffer | layout | bytes |
+|---|---|---|
+| triangle (storage, once per target) | `a`, `b`, `c` vec4f normalized by the target origin/scale, `n` vec4f, corner UV as `a.xy b.zw` then `c.xy` + pad | 96 per triangle |
+| location (storage, per batch) | `tri` u32, `w0 w1 w2` f32 | 16 per location |
+| result (storage + staging, per batch) | position vec4f, normal vec4f, `(u, v, tone, 0)` | 48 per location |
+| params (uniform) | direction.xyz + ambient, image width/height, kind and flag words | 48 per call |
+| pixels (storage) | packed RGBA u32, prefiltered on the CPU | 4 per pixel |
+
+Batch cap is `min(batchSize ?? 16384, (budget − target bytes) / 112,
+maxStorageBufferBindingSize / 48, maxComputeWorkgroupsPerDimension * 64)`.
+Packed targets are held in a bounded LRU of four, sharing the byte budget
+with the query-target policy; an oversized target occupies the cache alone,
+and both are cleared on device recreation. Normals are computed on the CPU
+in f64 and uploaded, so light tone differs from the reference only by f32
+rounding of the dot product and the ramp; positions are normalized before
+upload and restored on readback (~1e-7 relative), and are never used for
+support or visibility. Non-finite packing, out-of-range coordinates,
+model-space light recipes and image recipes without a chart fall back to the
+CPU reference per location and count as `refinements`.
+
+### Hatch, isolines and extrusion
+
+**A ruling is one stroke across faces.** `curves/hatch.ts` rules the *sheet*,
+not the face: the band of the widened paper along the ruling normal is
+divided at the requested spacing, and each row is one plane intersected
+against every triangle of the group that spans it — "one plane, one chain,
+for the row across every face of the group". Rulings cost the paper, so the
+sheet is widened by one sheet diagonal on every side (styles that reach past
+the edge keep their anchors) and each piece is clipped to that widened sheet
+by Liang–Barsky in camera space. A ruling lying on the group's outer
+boundary is dropped as the face outline, already drawn; one on an interior
+edge between two grouped faces stays. Pieces that share a node — an edge
+crossing between two triangles, of one face or of neighbouring faces — are
+chained head to tail so the stroke constructor joins them into one pen-down
+stroke. `t.hatch` traces **one direction family per call**; a crosshatch is a
+second call with its own direction, tone and pen, and passing `families`
+throws with that instruction.
+
+**Junction runs pair by feature kind.** `strokes/construct.ts` groups run
+endpoints by source identity. Two runs meeting there simply link. Where more
+than two meet — a mesh vertex where a silhouette loop passes through the
+edges of a fan — runs are grouped by their feature flags and a group links
+only when it holds exactly *two* runs of that kind; every other end breaks
+as `junction`. Links are further refused when the curve sources differ, the
+sets are incompatible, the endpoints are farther apart than the tolerance,
+or the turn exceeds the corner angle (which breaks as `corner`). Chains
+start at deterministic source ends before loops are consumed.
+
+**Isolines** interpolate linearly inside each fixed triangle and construct
+the crossing point exactly on the represented edge, so incidence to both
+triangles sharing that edge is exact. The half-open rule counts a corner
+value equal to the level as above; a level through a vertex yields that
+vertex as the node, so neighbouring triangles meet there and no zero-length
+piece is emitted. Node identity is (level index, the unordered vertex pair
+or single vertex, the corner values along that edge, the exact point), so a
+seam — different corner values at one vertex, such as a cylinder's `u` seam
+— keeps separate nodes and therefore separate chains.
+
+**Extrusion** takes one vector per connected component
+(`geometry/extrude.ts`). `{ distance }` uses the area-weighted mean normal
+and is refused, naming the region, when that mean's length is below half the
+summed area (faces that cancel, such as a folded strip). The cap is the
+selected faces translated, retaining face IDs, corner IDs, corner attributes
+including UV, face attributes and the fixed triangulation; interior points
+move, boundary points are duplicated as `['extrude', key, 'point', pointId]`
+and the original stays with the unselected faces. Walls are one quad per
+region boundary edge, `['extrude', key, 'side', edgeId]`, including open
+sheet edges and hole loops. Self-intersection of recessed or crossing walls
+is not detected; only invalid topology is reported by assembly.
+
+**Curvature** is an estimate on the polygon mesh
+(`geometry/curvature.ts`): a Rusinkiewicz-style per-triangle tensor,
+accumulated at corners with angle weights inside the corner's smooth sector,
+where a sector ends at an edge whose dihedral exceeds `creaseDegrees`
+(default 60) and `smoothing` (default 1) averages only within a sector.
+`confidence` is `|kMax − kMin| / (|kMax| + |kMin| + eps)`, so umbilics and
+flat regions report near zero and a caller must fall back deterministically.
+Directions are unoriented lines: signs are aligned to corner 0 before the
+barycentric average, which is then projected onto the triangle plane and
+re-orthogonalised.
+
+### Stage drafts
+
+A host may watch a render without changing it. `compileSketchAsync(def,
+inputs, { onStage })` and `commitCamera3(..., { onStage })` call the listener
+from `classifyForRun3` with `StageEvent3 { stage: 'source' | 'classified',
+scene, paper, segments, total }`: projected source lines right after feature
+capture (hidden portions included), then the 3D-visible intervals after
+classification. Segments are paper millimetres, `[x0, y0, x1, y1, …]`,
+uniformly subsampled above 200 000 so a transfer stays bounded. Modeling
+progress rides the separate `onProgress` channel as `ModelingProgress3
+{ operation, done, total?, detail? }` from `t.hatch`, `t.mapSurface` and
+`t.intersections`.
+
+**Nothing is recorded from these events.** The result, the plan and the
+exports are identical whether a listener is attached or not, which
+`test/three-stage-events.test.ts` asserts by comparing a listened compile
+with a silent one. Drafts are disposable and keyed by render id; only the
+final reply updates retained or exportable state. Per-feature classified
+chunks, an author checkpoint before the sketch returns a view, incremental
+wasm finish and partial plans are all deliberately not implemented — see
+`docs/notes.md`.
+
+### Studio integration
+
+The 3D package exports must be recognized by three separate loaders, and a
+change to one is a change to all three: the Studio runner and the headless
+`requireFor` adapter (`tools/inputs.ts`) both resolve `occlude/3d` and
+`occlude/3d/advanced`; `liveExampleToJs` rewrites root and 3D namespace
+imports for docs fences (`docsExamples.ts`); and Monaco registers both entry
+declarations as extra libs and loads nested source modules by relative path
+(`packages/occlude-studio/src/editor.ts`). Test the actual compiled examples
+and the editor diagnostics, not only direct TypeScript imports in unit
+tests.
+
+One ergonomic decision worth not rediscovering: a bare callback is
+deliberately *not* a `steps` shorthand. TypeScript cannot discriminate a
+one-parameter point field from a `(current, next)` rule — both overload
+orders and the union form were tried, and either the rule or the field loses
+its parameter types.
+
+### Blender as a reference, never a source
+
+`packages/occlude/test/fixtures/three-reference/` holds Blender 5.2.1 Line
+Art and Freestyle captures with the pinned build, the capture scripts and
+the comparator method; `test/three-reference.test.ts` runs them in the `ts`
+gate. **No source engine was transplanted** — Blender's documentation and
+its output supply behaviour references only, and the two deliberate
+crossing-box discrepancies the test pins by exact length are recorded beside
+the fixtures.
 
 ## Fields
 
@@ -381,9 +683,10 @@ of `test/material.test.ts`.
   line/arc/cubic visibility kernel in the core and shares nothing with it.
 - **Answers.** `nearest` is the least `(distance, edge index)` pair with
   `distance ≤ within` (inclusive); `firstHit` the least `(along, edge
-  index)` pair; both are order-independent, so pruning changes nothing
-  (`working/perf-loop.md`, entry 1, is the proof by differential
-  harness). A miss is `null`. Ties go to the earlier source edge.
+  index) pair; both are order-independent, so pruning changes nothing —
+  a lexicographic minimum does not depend on the order candidates are
+  judged in, and the differential harness behind that claim (19 708
+  comparisons, 0 mismatches) is recorded in [Working notes](#/notes).
   Endpoint contact counts as a hit of kind `touch`; a collinear overlap
   reports the start of the overlapping interval as `overlap`; anything
   interior is `crossing`. A zero-length move is a contact query at
@@ -461,8 +764,10 @@ stride), pinned by the "pass-1 handle lifetime" block of
   `renderEncoded(mod, scene)` returns `RawRender` — the prims and frags
   buffers, stats, optional ghost, wall time. `decodeRender(scene, raw)`
   is the one half a host may run elsewhere. Order in the scene is 2D
-  painter order (`zIndex`, draw index breaks ties); a future 3D depth
-  coordinate is a different axis and does not reuse it.
+  painter order (`zIndex`, draw index breaks ties). 3D depth is a
+  different axis and never reuses it: a 3D scene is classified and
+  interpreted into strokes before the recording is emitted, so the
+  encoder only ever sees 2D ink.
 - **The render sequence** is `wasm_prepare` → `runFillJobs` →
   `wasm_finish`, one synchronous call frame. `wasm_finish` consumes the
   prepared handle on Ok and Err alike, so JS frees it by hand only when a

@@ -71,7 +71,7 @@ for (const m of only ? [] : readme.matchAll(/```ts\n([\s\S]*?)```/g)) {
 /** An example that reads the wall clock draws a different number every run,
  * so it has no stable ink to hash. Named rather than silently skipped: the
  * cure is an in-sketch cost readout, which the API does not have yet
- * (working/api-friction.md, friction 10). */
+ * (docs/notes.md, "Open API friction"). */
 const UNSTABLE = /\bDate\.now\(/;
 const UNSTABLE_HASH = 'UNSTABLE (draws Date.now())';
 

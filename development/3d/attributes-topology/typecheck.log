@@ -1,4 +1,0 @@
-
-> occlude@0.1.0 typecheck /home/kalmarv/containers/occlude-3d/packages/occlude
-> tsc -p tsconfig.check.json
-
