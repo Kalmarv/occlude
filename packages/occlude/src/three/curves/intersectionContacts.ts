@@ -1,4 +1,4 @@
-import {plane,pointNumber,type H} from '../geometry/exact.js';
+import {planeScale,pointNumber,type H} from '../geometry/exact.js';
 import {WorldIndex3,worldBounds3,type WorldBounds3} from '../geometry/bounds.js';
 import {triangulationJob3,type SurfaceTriangulation3} from '../geometry/triangulation.js';
 import {runGeometryJob3,runGeometryJobAsync3} from '../geometry/job.js';
@@ -24,7 +24,7 @@ function* prepare(binding:SurfaceBinding3):Generator<void,PreparedIntersectionSo
  const previous=cache.get(binding);if(previous)return previous;
  const topology=yield*triangulationJob3(binding.source),bounds:WorldBounds3[]=[],planes:H[]=[];
  for(let i=0;i<binding.source.triangles.length;i++){
-  const triangle=bindingTriangle3(binding,i);planes.push(canonicalPlane3(plane(...triangle)));
+  const triangle=bindingTriangle3(binding,i);planes.push(canonicalPlane3(planeScale(...triangle)));
   bounds.push(worldBounds3(triangle.map(pointNumber)));
   if((i&127)===127)yield;
  }

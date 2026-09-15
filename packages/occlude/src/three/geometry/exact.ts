@@ -144,7 +144,7 @@ export function ratioNumber([numerator,denominator]:Ratio):number {
   if(denominator===0n)throw new Error('exact ratio has a zero denominator');
   const polarity=Number(sign(numerator)*sign(denominator)),n=abs(numerator),d=abs(denominator);
   if(n===0n)return 0;
-  let exponent=n.toString(2).length-d.toString(2).length;
+  let exponent=bitLength(n)-bitLength(d);
   if(exponent>=0?n<(d<<BigInt(exponent)):(n<<BigInt(-exponent))<d)exponent--;
   if(exponent>1023)return polarity*Infinity;
   const shift=Math.min(1074,52-exponent),scaled=shift>=0?n<<BigInt(shift):n,divisor=shift>=0?d:d<<BigInt(-shift);
@@ -164,7 +164,14 @@ export type EncodedPoint3=readonly [string,string,string,string];
  * one back needs no gcd. Encodings from elsewhere are canonicalized. */
 const canonicalEncodings=new WeakSet<EncodedPoint3>();
 export function encodePoint(p:H):EncodedPoint3{const out=Object.freeze(canonicalPoint(p).map(n=>n.toString())) as unknown as EncodedPoint3;canonicalEncodings.add(out);return out;}
+// Stroke construction decodes the same node encodings for every reference
+// chain part; the decoded exact point is a pure function of the frozen row.
+const decoded=new WeakMap<EncodedPoint3,H>();
 export function decodePoint(value:EncodedPoint3):H {
+  const hit=decoded.get(value);if(hit)return hit;
+  const out=decodePointOf(value);if(Object.isFrozen(value))decoded.set(value,out);return out;
+}
+function decodePointOf(value:EncodedPoint3):H {
   if(!Array.isArray(value)||value.length!==4||value.some(v=>typeof v!=='string'||v.length>10000||! /^-?(0|[1-9][0-9]*)$/.test(v)))throw new Error('invalid or over-budget exact point encoding');
   const p=value.map(v=>BigInt(v)) as unknown as H;
   if(canonicalEncodings.has(value)){const out=Object.freeze(p);canonical.add(out);return out;}
@@ -178,6 +185,9 @@ export function integerWeights(values:readonly number[]):readonly bigint[] {
 export function weightedPoint(points:readonly H[],weights:readonly bigint[]):H {
   if(!points.length||points.length!==weights.length||points.some(p=>p[3]<=0n))throw new Error('invalid exact affine point');
   const total=weights.reduce((a,b)=>a+b,0n);if(total<=0n)throw new Error('exact affine weights require a positive sum');
+  // One point with a positive weight is that point: a decoded canonical
+  // node needs no reduction.
+  if(points.length===1)return canonicalPoint(points[0]);
   // The least common denominator, not the product: the same point with far
   // fewer bits to reduce afterwards (vertex denominators are powers of two).
   const common=points.reduce((n,p)=>n/gcd(n,p[3])*p[3],1n);

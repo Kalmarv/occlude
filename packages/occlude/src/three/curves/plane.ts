@@ -58,10 +58,12 @@ export function intersectPlane3(surface:Surface3,plane:Plane3,triangles:readonly
       const points=[...hits.values()];
       if(points.length===2)add(points[0],points[1],index);
     });
+    // One frozen record for every piece of this plane: the same values, shared.
+    const planeAttributes=freezeCurves3(structuredClone(plane.attributes??{}));
     for(const [id,piece] of [...pieces].sort((a,b)=>compare(a[0],b[0]))) {
       if(piece.coplanar>=2)continue;
       if(Math.hypot(...sub3(piece.a.position,piece.b.position))===0)continue;
-      segments.push(freezeCurves3({id:key(options.kind,plane.id,id),kind:options.kind,a:piece.a,b:piece.b,triangles:[...piece.triangles].sort((a,b)=>a-b),attributes:structuredClone(plane.attributes??{})}));
+      segments.push(freezeCurves3({id:key(options.kind,plane.id,id),kind:options.kind,a:piece.a,b:piece.b,triangles:[...piece.triangles].sort((a,b)=>a-b),attributes:planeAttributes}));
     }
   return Object.freeze(segments);
 }

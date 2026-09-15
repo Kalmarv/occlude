@@ -3,7 +3,7 @@ import {rotation3,axisAngle,rotateVector3,vector3,type Rotation,type RotationInp
 import {inheritTopology3} from '../geometry/topology.js';
 import {meshPoints,meshEdges,meshFaces,meshCorners,type MeshCorners,type MeshCornerRow,type MeshPoints,type MeshEdges,type MeshFaces,type MeshPointRow,type MeshEdgeRow,type MeshFaceRow} from './topology.js';
 import {assembleSurface3,surface3,box3,type Surface3,type SurfacePoint3,type Attributes3,type Attribute3,type Provenance3} from '../geometry/surface.js';
-import {snapshotSurface3,cloneSurface3,transformSurface3,measureFaces3} from '../geometry/model.js';
+import {captureSurface3,ownSurface3,cloneSurface3,editAttributes3,transformSurface3,measureFaces3} from '../geometry/model.js';
 import {add3,sub3,mul3,dot3,cross3,finite3,type Vec3} from '../math.js';
 import {Collection} from './collection.js';
 import {subdivideSurface,type SubdivisionOptions,type PointTransfers} from './subdivide.js';
@@ -77,11 +77,25 @@ function pointRows<P extends Attributes3>(surface:Surface3):readonly PointRow<P>
 }
 function checkOptions(options:GeometryOptions):void{if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('geometry options must be an object; plane subdivisions use .subdivide(levels)');}
 function checkedKey(key?:string):string|undefined {if(key!==undefined&&(typeof key!=='string'||!key))throw new Error('geometry key must be a nonempty string');return key;}
-function validateAttributes(surface:Surface3):void {for(const rows of [surface.points,surface.edges,surface.faces,surface.faces.flatMap(f=>f.corners??[])])for(const row of rows)for(const [name,value] of Object.entries(row.attributes)){attributeName(name);attributeValue(value);}}
-function pointsOnly(surface:Surface3,indices:readonly number[]):Surface3{return assembleSurface3(indices.map(i=>surface.points[i]),[],[]);}
+// Attribute records are frozen and shared between a surface and every surface
+// derived from it (transforms, subdivisions, further attribute edits), so a
+// record validated once is valid wherever it appears: the check runs per new
+// record, not per new mesh. (A torus with 40k faces edited three times used
+// to validate 120k unchanged records.)
+const validatedAttributes=new WeakSet<object>();
+function validateAttributes(surface:Surface3):void {
+  for(const rows of [surface.points,surface.edges,surface.faces,surface.faces.flatMap(f=>f.corners??[])])for(const row of rows){
+    const record=row.attributes;
+    if(validatedAttributes.has(record))continue;
+    for(const [name,value] of Object.entries(record)){attributeName(name);attributeValue(value);}
+    if(Object.isFrozen(record))validatedAttributes.add(record);
+  }
+}
+function pointsOnly(surface:Surface3,indices:readonly number[]):Surface3{return ownSurface3(assembleSurface3(indices.map(i=>surface.points[i]),[],[]));}
+const transformed=(surface:Surface3,options:Parameters<typeof transformSurface3>[1]):Surface3=>ownSurface3(transformSurface3(surface,options));
 function setPoints<R extends PointRow<any>>(surface:Surface3,name:string,field:Field<R,Attribute3>,rows:readonly R[]=pointRows(surface) as readonly R[]):Surface3 {
-  attributeName(name);const values=rows.map(row=>attributeValue(evaluate(field,row)));
-  return assembleSurface3(surface.points.map((p,i)=>({...p,attributes:{...p.attributes,[name]:values[i]}})),surface.faces,surface.triangles,surface);
+  attributeName(name);
+  return editAttributes3(surface,{points:rows.map(row=>({[name]:attributeValue(evaluate(field,row))}))});
 }
 /** All initializers observe the same incoming rows, never newly written columns. */
 export function captureAttributeFields<R,A extends Attributes3>(rows:readonly R[],fields:AttributeFields<R,A>):readonly Attributes3[] {
@@ -91,8 +105,7 @@ export function captureAttributeFields<R,A extends Attributes3>(rows:readonly R[
   return rows.map(row=>Object.fromEntries(entries.map(([name,field])=>[name,attributeValue(evaluate(field,row))])));
 }
 function setPointFields<R extends PointRow<any>,A extends Attributes3>(surface:Surface3,fields:AttributeFields<R,A>,rows:readonly R[]=pointRows(surface) as readonly R[]):Surface3 {
-  const values=captureAttributeFields(rows,fields);
-  return assembleSurface3(surface.points.map((p,i)=>({...p,attributes:{...p.attributes,...values[i]}})),surface.faces,surface.triangles,surface);
+  return editAttributes3(surface,{points:captureAttributeFields(rows,fields)});
 }
 function pointTransfers(previous:PointTransfers,fields:object,options:AttributeOptions):PointTransfers {
   const result={...previous};
@@ -134,7 +147,7 @@ function displaced<R extends PointRow<any>>(surface:Surface3,field:Field<R,Vec3|
     }else{delta=value;finite3(delta);}
     return {...surface.points[i],position:add3(surface.points[i].position,delta)};
   });
-  return assembleSurface3(points,surface.faces,surface.triangles,surface);
+  return ownSurface3(assembleSurface3(points,surface.faces,surface.triangles,surface));
 }
 
 export interface PointSnapshot<P extends Attributes3,G extends PointGeometry<P>=PointGeometry<P>> {readonly iteration:number;readonly geometry:G}
@@ -197,9 +210,9 @@ function scaleArguments(self:Placement,scale:number|Vec3,b?:Vec3|ScaleOptions):{
 }
 /** Points collapsed by a scale with a zero factor: no faces or edges to break, so the points simply move. */
 function collapsedPoints(surface:Surface3,factors:Vec3,origin:Vec3):Surface3 {
-  return assembleSurface3(surface.points.map(p=>({...p,position:add3(origin,sub3(p.position,origin).map((v,i)=>v*factors[i]) as unknown as Vec3)})),[],[]);
+  return ownSurface3(assembleSurface3(surface.points.map(p=>({...p,position:add3(origin,sub3(p.position,origin).map((v,i)=>v*factors[i]) as unknown as Vec3)})),[],[]));
 }
-const emptySurface=():Surface3=>assembleSurface3([],[],[]);
+const emptySurface=():Surface3=>ownSurface3(assembleSurface3([],[],[]));
 
 /** Point geometry has a point domain; it never claims editable mesh faces. */
 export class PointGeometry<P extends Attributes3={}> {
@@ -207,7 +220,7 @@ export class PointGeometry<P extends Attributes3={}> {
   /** The object's own pivot, carried along by `translate`. */
   readonly origin:Vec3;readonly orientation:Rotation;
   constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly PointSnapshot<P>[]}={}){
-    checkOptions(options);validateAttributes(surface);this.surface=snapshotSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
+    checkOptions(options);validateAttributes(surface);this.surface=captureSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
     const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;
     pointHistory.set(this,Object.freeze([...(options.history??[])]));Object.freeze(this);
   }
@@ -216,11 +229,11 @@ export class PointGeometry<P extends Attributes3={}> {
   attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<PointRow<P>,Value>):PointGeometry<Omit<P,Name>&Record<Name,Value>>{return new PointGeometry<Omit<P,Name>&Record<Name,Value>>(setPoints(this.surface,name,field),{...this,history:[]});}
   attributes<A extends Attributes3>(fields:AttributeFields<PointRow<P>,A>):PointGeometry<Omit<P,keyof A>&A>{return new PointGeometry<Omit<P,keyof A>&A>(setPointFields(this.surface,fields),{...this,history:[]});}
   displace(field:Field<PointRow<P>,Vec3|number>,options:DisplaceOptions={}):PointGeometry<P>{return new PointGeometry(displaced(this.surface,field,undefined,options),{...this,history:[]});}
-  translate(offset:Vec3):PointGeometry<P>{finite3(offset);return new PointGeometry(transformSurface3(this.surface,{translate:offset}),{...this,history:[],origin:add3(this.origin,offset)});}
+  translate(offset:Vec3):PointGeometry<P>{finite3(offset);return new PointGeometry(transformed(this.surface,{translate:offset}),{...this,history:[],origin:add3(this.origin,offset)});}
   rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):PointGeometry<P>;
   rotate(axis:Axis3,degrees:number,options?:RotateOptions):PointGeometry<P>;
-  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):PointGeometry<P>{const r=rotationArguments(this,a,b,c);return new PointGeometry(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):PointGeometry<P>{const r=scaleArguments(this,scale,pivot);return new PointGeometry(r.empty?collapsedPoints(this.surface,r.scale,r.origin):transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
+  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):PointGeometry<P>{const r=rotationArguments(this,a,b,c);return new PointGeometry(transformed(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved});}
+  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):PointGeometry<P>{const r=scaleArguments(this,scale,pivot);return new PointGeometry(r.empty?collapsedPoints(this.surface,r.scale,r.origin):transformed(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
   withKey(key:string):PointGeometry<P>{return new PointGeometry(this.surface,{key,iteration:this.iteration,history:this.history});}
   steps(count:number,rule:PointRule<StepAttributes<P>>|StepShorthand<PointRow<StepAttributes<P>>,StepAttributes<P>>,...passesAndOptions:(PointRule<StepAttributes<P>>|StepsOptions)[]):PointGeometry<StepAttributes<P>>{
     return pointSteps(this,count,rule,passesAndOptions,(surface,iteration,history)=>new PointGeometry<StepAttributes<P>>(surface,{key:this.key,iteration,history}));
@@ -278,7 +291,7 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
     const selected=[...new Set(indices)],used=[...new Set(selected.flatMap(i=>surface.edges[i].vertices))].sort((a,b)=>a-b);
     const mapping=new Map(used.map((v,i)=>[v,i]));
     const source:Surface3={points:used.map(i=>surface.points[i]),faces:[],triangles:[],edges:selected.map(i=>({...surface.edges[i],vertices:surface.edges[i].vertices.map(v=>mapping.get(v)!) as [number,number],faces:[]}))};
-    this.surface=snapshotSurface3(source);this.key=checkedKey(options.key);
+    this.surface=captureSurface3(source);this.key=checkedKey(options.key);
     this.iteration=options.iteration??0;this.history=Object.freeze([...(options.history??[])]);
     this.segments=this.surface.edges as unknown as typeof this.segments;Object.freeze(this);
   }
@@ -291,21 +304,20 @@ export class CurveGeometry<P extends Attributes3={},E extends EdgeAttributes={}>
   attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<PointRow<P>,Value>):CurveGeometry<Omit<P,Name>&Record<Name,Value>,E>{return new CurveGeometry<Omit<P,Name>&Record<Name,Value>,E>(setPoints(this.surface,name,field),this.surface.edges.map((_,i)=>i),{...this,history:[]});}
   attributes<A extends Attributes3>(fields:AttributeFields<PointRow<P>,A>):CurveGeometry<Omit<P,keyof A>&A,E>{return new CurveGeometry<Omit<P,keyof A>&A,E>(setPointFields(this.surface,fields),this.surface.edges.map((_,i)=>i),{...this,history:[]});}
   edgeAttributes<A extends Attributes3>(fields:AttributeFields<EdgeRow<E,P>,A>):CurveGeometry<P,Omit<E,keyof A>&A>{
-    const values=captureAttributeFields([...this.edges],fields),surface=cloneSurface3(this.surface);
-    surface.edges.forEach((edge,i)=>Object.assign(edge.attributes,values[i]));
+    const surface=editAttributes3(this.surface,{edges:captureAttributeFields([...this.edges],fields)});
     return new CurveGeometry<P,Omit<E,keyof A>&A>(surface,surface.edges.map((_,i)=>i),{...this,history:[]});
   }
   edgeAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<EdgeRow<E,P>,Value>):CurveGeometry<P,Omit<E,Name>&Record<Name,Value>>{
-    attributeName(name);const values=this.edges.map(row=>attributeValue(evaluate(field,row))),surface=cloneSurface3(this.surface);
-    surface.edges.forEach((e,i)=>e.attributes[name]=values[i]);return new CurveGeometry<P,Omit<E,Name>&Record<Name,Value>>(surface,surface.edges.map((_,i)=>i),{...this,history:[]});
+    attributeName(name);const surface=editAttributes3(this.surface,{edges:this.edges.map(row=>({[name]:attributeValue(evaluate(field,row))}))});
+    return new CurveGeometry<P,Omit<E,Name>&Record<Name,Value>>(surface,surface.edges.map((_,i)=>i),{...this,history:[]});
   }
   private changed(surface:Surface3,placed:PlacementOptions={}):CurveGeometry<P,E>{return new CurveGeometry(surface,surface.edges.map((_,i)=>i),{...this,history:[],...placed});}
   displace(field:Field<PointRow<P>,Vec3|number>,options:DisplaceOptions={}):CurveGeometry<P,E>{return this.changed(displaced(this.surface,field,undefined,options));}
-  translate(offset:Vec3):CurveGeometry<P,E>{finite3(offset);return this.changed(transformSurface3(this.surface,{translate:offset}),{origin:add3(this.origin,offset)});}
+  translate(offset:Vec3):CurveGeometry<P,E>{finite3(offset);return this.changed(transformed(this.surface,{translate:offset}),{origin:add3(this.origin,offset)});}
   rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):CurveGeometry<P,E>;
   rotate(axis:Axis3,degrees:number,options?:RotateOptions):CurveGeometry<P,E>;
-  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):CurveGeometry<P,E>{const r=rotationArguments(this,a,b,c);return this.changed(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{orientation:r.orientation,origin:r.moved});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):CurveGeometry<P,E>{const r=scaleArguments(this,scale,pivot);return this.changed(r.empty?emptySurface():transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{origin:r.moved});}
+  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):CurveGeometry<P,E>{const r=rotationArguments(this,a,b,c);return this.changed(transformed(this.surface,{rotate:r.rotate,origin:r.origin}),{orientation:r.orientation,origin:r.moved});}
+  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):CurveGeometry<P,E>{const r=scaleArguments(this,scale,pivot);return this.changed(r.empty?emptySurface():transformed(this.surface,{scale:r.scale,origin:r.origin}),{origin:r.moved});}
   withKey(key:string):CurveGeometry<P,E>{return new CurveGeometry(this.surface,this.surface.edges.map((_,i)=>i),{...this,key});}
   steps(count:number,rule:CurveRule<StepAttributes<P>,StepAttributes<E>>|StepShorthand<PointRow<StepAttributes<P>>,StepAttributes<P>>,...passesAndOptions:(CurveRule<StepAttributes<P>,StepAttributes<E>>|StepsOptions)[]):CurveGeometry<StepAttributes<P>,StepAttributes<E>>{
     if(stepRule<PointRow<StepAttributes<P>>,StepAttributes<P>>(rule))rule=pointShorthandRule(rule) as CurveRule<StepAttributes<P>,StepAttributes<E>>;
@@ -394,7 +406,7 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   /** Own pen for hatch recipes that name none. */
   readonly fillPen?:string;
   constructor(surface:Surface3,options:GeometryOptions&PlacementOptions&{iteration?:number;history?:readonly MeshSnapshot<P,E,F,C>[];transfers?:PointTransfers;cornerTransfers?:PointTransfers}={}) {
-    checkOptions(options);validateAttributes(surface);this.surface=snapshotSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
+    checkOptions(options);validateAttributes(surface);this.surface=captureSurface3(surface);this.key=checkedKey(options.key);this.iteration=options.iteration??0;
     const placed=placement(options);this.origin=placed.origin;this.orientation=placed.orientation;this.creaseAngle=checkedCreaseAngle(options.creaseAngle);this.stroke=checkedStroke(options.stroke);this.fillPen=checkedStroke(options.fillPen);
     this.history=Object.freeze([...(options.history??[])]);this.transfers=Object.freeze({...options.transfers});this.cornerTransfers=Object.freeze({...options.cornerTransfers});Object.freeze(this);
   }
@@ -423,36 +435,30 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
     return new Mesh<Omit<P,keyof A>&A,E,F,C>(setPointFields(this.surface,fields,[...this.points]),{...this,history:[],transfers});
   }
   edgeAttributes<A extends Attributes3>(fields:AttributeFields<MeshEdgeRow<E,P,F,C>,A>):Mesh<P,Omit<E,keyof A>&A,F,C>{
-    const values=captureAttributeFields([...this.edges],fields),surface=cloneSurface3(this.surface);
-    surface.edges.forEach((edge,i)=>Object.assign(edge.attributes,values[i]));
-    return new Mesh<P,Omit<E,keyof A>&A,F,C>(surface,{...this,history:[]});
+    return new Mesh<P,Omit<E,keyof A>&A,F,C>(editAttributes3(this.surface,{edges:captureAttributeFields([...this.edges],fields)}),{...this,history:[]});
   }
   attribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshPointRow<P,E,F,C>,Value>,options:{transfer?:'interpolate'|'nearest'}={}):Mesh<Omit<P,Name>&Record<Name,Value>,E,F,C>{
     return new Mesh<Omit<P,Name>&Record<Name,Value>,E,F,C>(setPoints(this.surface,name,field,[...this.points]),{...this,history:[],transfers:pointTransfers(this.transfers,{[name]:field},{transfer:{[name]:options.transfer??this.transfers[name]??'interpolate'}})});
   }
   edgeAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshEdgeRow<E,P,F,C>,Value>):Mesh<P,Omit<E,Name>&Record<Name,Value>,F,C>{
-    attributeName(name);const values=this.edges.map(row=>attributeValue(evaluate(field,row))),surface=cloneSurface3(this.surface);
-    surface.edges.forEach((e,i)=>e.attributes[name]=values[i]);return new Mesh<P,Omit<E,Name>&Record<Name,Value>,F,C>(surface,{...this,history:[]});
+    attributeName(name);return new Mesh<P,Omit<E,Name>&Record<Name,Value>,F,C>(editAttributes3(this.surface,{edges:this.edges.map(row=>({[name]:attributeValue(evaluate(field,row))}))}),{...this,history:[]});
   }
   faceAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshFaceRow<F,P,E,C>,Value>):Mesh<P,E,Omit<F,Name>&Record<Name,Value>,C>{
-    attributeName(name);const values=this.faces.map(row=>attributeValue(evaluate(field,row))),surface=cloneSurface3(this.surface);
-    surface.faces.forEach((f,i)=>f.attributes[name]=values[i]);return new Mesh<P,E,Omit<F,Name>&Record<Name,Value>,C>(surface,{...this,history:[]});
+    attributeName(name);return new Mesh<P,E,Omit<F,Name>&Record<Name,Value>,C>(editAttributes3(this.surface,{faces:this.faces.map(row=>({[name]:attributeValue(evaluate(field,row))}))}),{...this,history:[]});
   }
   faceAttributes<A extends Attributes3>(field:(row:MeshFaceRow<F,P,E,C>)=>A):Mesh<P,E,Omit<F,keyof A>&A,C>;
   faceAttributes<A extends Attributes3>(fields:AttributeFields<MeshFaceRow<F,P,E,C>,A>):Mesh<P,E,Omit<F,keyof A>&A,C>;
   faceAttributes<A extends Attributes3>(fields:AttributeFields<MeshFaceRow<F,P,E,C>,A>|((row:MeshFaceRow<F,P,E,C>)=>A)):Mesh<P,E,Omit<F,keyof A>&A,C>{
-    const rows=[...this.faces],values=typeof fields==='function'?rows.map(fields):captureAttributeFields(rows,fields),surface=cloneSurface3(this.surface);
-    values.forEach((attrs,i)=>{attributeRecord(attrs);for(const [name,value] of Object.entries(attrs)){attributeName(name);surface.faces[i].attributes[name]=attributeValue(value);}});
-    return new Mesh<P,E,Omit<F,keyof A>&A,C>(surface,{...this,history:[]});
+    const rows=[...this.faces],values=typeof fields==='function'?rows.map(fields):captureAttributeFields(rows,fields);
+    const faces=values.map(attrs=>{attributeRecord(attrs);return Object.fromEntries(Object.entries(attrs).map(([name,value])=>{attributeName(name);return [name,attributeValue(value)];}));});
+    return new Mesh<P,E,Omit<F,keyof A>&A,C>(editAttributes3(this.surface,{faces}),{...this,history:[]});
   }
   cornerAttributes<A extends Attributes3>(fields:AttributeFields<MeshCornerRow<C,P,E,F>,A>,options:AttributeOptions={}):Mesh<P,E,F,Omit<C,keyof A>&A>{
-    const values=captureAttributeFields([...this.corners],fields),surface=cloneSurface3(this.surface);let i=0;
-    for(const face of surface.faces)for(const corner of face.corners!)Object.assign(corner.attributes,values[i++]);
+    const surface=editAttributes3(this.surface,{corners:captureAttributeFields([...this.corners],fields)});
     return new Mesh<P,E,F,Omit<C,keyof A>&A>(surface,{...this,history:[],cornerTransfers:pointTransfers(this.cornerTransfers,fields,options)});
   }
   cornerAttribute<Name extends string,Value extends Attribute3>(name:Name,field:Field<MeshCornerRow<C,P,E,F>,Value>,options:{transfer?:'interpolate'|'nearest'}={}):Mesh<P,E,F,Omit<C,Name>&Record<Name,Value>>{
-    attributeName(name);const values=this.corners.map(c=>attributeValue(evaluate(field,c))),surface=cloneSurface3(this.surface);let i=0;
-    for(const face of surface.faces)for(const corner of face.corners!)corner.attributes[name]=values[i++];
+    attributeName(name);const surface=editAttributes3(this.surface,{corners:this.corners.map(c=>({[name]:attributeValue(evaluate(field,c))}))});
     return new Mesh<P,E,F,Omit<C,Name>&Record<Name,Value>>(surface,{...this,history:[],cornerTransfers:pointTransfers(this.cornerTransfers,{[name]:field},{transfer:{[name]:options.transfer??this.cornerTransfers[name]??'interpolate'}})});
   }
   /** Connected-region extrusion: one vector per connected component of the
@@ -486,14 +492,14 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
   subdivide(levels=1,options:SubdivisionOptions={}):Mesh<P,Partial<E>,F,C>{return new Mesh<P,Partial<E>,F,C>(subdivideSurface(this.surface,levels,options,this.transfers,this.cornerTransfers),{...this,history:[]});}
   /** Move every point by a vector, or by a scalar along its vertex normal (`along` chooses another direction). */
   displace(field:Field<MeshPointRow<P,E,F,C>,Vec3|number>,options:DisplaceOptions={}):Mesh<P,E,F,C>{return new Mesh(displaced(this.surface,field,[...this.points],options),{...this,history:[]});}
-  translate(offset:Vec3):Mesh<P,E,F,C>{finite3(offset);return new Mesh(transformSurface3(this.surface,{translate:offset}),{...this,history:[],origin:add3(this.origin,offset)});}
+  translate(offset:Vec3):Mesh<P,E,F,C>{finite3(offset);return new Mesh(transformed(this.surface,{translate:offset}),{...this,history:[],origin:add3(this.origin,offset)});}
   /** Turn about the object's origin: Euler degrees or a rotation value
    * (optionally with an explicit pivot), or an axis and degrees with
    * `{ about, local }`. */
   rotate(angles:RotationInput,pivot?:Vec3|RotateOptions):Mesh<P,E,F,C>;
   rotate(axis:Axis3,degrees:number,options?:RotateOptions):Mesh<P,E,F,C>;
-  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):Mesh<P,E,F,C>{const r=rotationArguments(this,a,b,c);return new Mesh(transformSurface3(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved});}
-  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):Mesh<P,E,F,C>{const r=scaleArguments(this,scale,pivot);return new Mesh(r.empty?emptySurface():transformSurface3(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
+  rotate(a:RotationInput|Axis3,b?:number|Vec3|RotateOptions,c?:RotateOptions):Mesh<P,E,F,C>{const r=rotationArguments(this,a,b,c);return new Mesh(transformed(this.surface,{rotate:r.rotate,origin:r.origin}),{...this,history:[],orientation:r.orientation,origin:r.moved});}
+  scale(scale:number|Vec3,pivot?:Vec3|ScaleOptions):Mesh<P,E,F,C>{const r=scaleArguments(this,scale,pivot);return new Mesh(r.empty?emptySurface():transformed(this.surface,{scale:r.scale,origin:r.origin}),{...this,history:[],origin:r.moved});}
   withKey(key:string):Mesh<P,E,F,C>{return new Mesh(this.surface,{...this,key});}
   /** The same mesh drawn differently: `style({ stroke, fillPen, creaseAngle })`
    * sets the fields named and keeps the others. */
@@ -577,7 +583,7 @@ export class MeshEdit<P extends Attributes3,E extends EdgeAttributes,F extends A
     const faces=this.input.surface.faces.map((face,i)=>({...face,corners:face.corners!.map(c=>({...c,attributes:this.cornerAttributes[corner++]})),attributes:this.faceAttributes[i]}));
     const previous={...this.input.surface,edges:this.input.surface.edges.map((edge,i)=>({...edge,attributes:this.edgeAttributes[i]}))};
     inheritTopology3(previous,this.input.surface);
-    return new Mesh(assembleSurface3(this.points,faces,this.input.surface.triangles,previous),{...this.input,iteration,history:[]});
+    return new Mesh(ownSurface3(assembleSurface3(this.points,faces,this.input.surface.triangles,previous)),{...this.input,iteration,history:[]});
   }
   close():void{this.active=false;}
 }
@@ -609,7 +615,7 @@ export function mesh(positions:readonly Vec3[],faces:readonly (readonly number[]
 export function mesh(source:Surface3|readonly Vec3[],facesOrOptions:readonly (readonly number[])[]|GeometryOptions={},options:GeometryOptions={}):Mesh<any,any,any,any>{
   if(Array.isArray(source)){
     if(!Array.isArray(facesOrOptions))throw new Error('mesh positions require polygon index arrays');
-    return new Mesh(surface3(source,facesOrOptions),options);
+    return new Mesh(ownSurface3(surface3(source,facesOrOptions)),options);
   }
   validateImportedSurface(source as Surface3);
   return new Mesh(source as Surface3,facesOrOptions as GeometryOptions);
@@ -619,11 +625,11 @@ export function plane(width=1,height=width,options:GeometryOptions={}):Mesh<{},{
   if(![width,height].every(n=>Number.isFinite(n)&&n>0))throw new Error('plane dimensions must be positive and finite');
   const source=surface3([[-width/2,-height/2,0],[width/2,-height/2,0],[width/2,height/2,0],[-width/2,height/2,0]],[[0,1,2,3]]);
   const uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
-  return new Mesh(chartSurface3(source,(_,c)=>({uv:uv[c],chart:'plane'})),options);
+  return new Mesh(ownSurface3(chartSurface3(source,(_,c)=>({uv:uv[c],chart:'plane'}))),options);
 }
 /** Each outward-wound face has its own unit-square chart; vertices stay shared. */
 export function box(size:number|Vec3=1,options:GeometryOptions={}):Mesh<{},{},{},SurfaceUV>{
   const source=box3(typeof size==='number'?[size,size,size]:size),uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
-  return new Mesh(chartSurface3(source,(f,c)=>({uv:uv[c],chart:source.faces[f].id})),options);
+  return new Mesh(ownSurface3(chartSurface3(source,(f,c)=>({uv:uv[c],chart:source.faces[f].id}))),options);
 }
-export function pointCloud(positions:readonly Vec3[],options:GeometryOptions={}):PointGeometry{return new PointGeometry(surface3(positions,[]),options);}
+export function pointCloud(positions:readonly Vec3[],options:GeometryOptions={}):PointGeometry{return new PointGeometry(ownSurface3(surface3(positions,[])),options);}

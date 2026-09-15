@@ -1,6 +1,7 @@
 import {abs,difference,mixPoint,orientPoint,pointNumber,sign,triangleWeights,type H} from '../geometry/exact.js';
 import {worldBounds3,WorldIndex3} from '../geometry/bounds.js';
 import {bindingTriangle3} from './network.js';
+import type {SurfaceBinding3} from './network.js';
 import {arrangementJob3,type ArrangementBudget3,type ArrangementSegment3,type ArrangementPoint3} from './arrangement.js';
 import {exactPointKey3,type ExactTriangle3} from './contact.js';
 import type {IntersectionContacts3} from './intersectionContacts.js';
@@ -34,6 +35,7 @@ const edgeKey=(a:number,b:number)=>a<b?`${a}:${b}`:`${b}:${a}`;
 /** Resolve triangle contacts into supported atomic seams. Area overlaps use
  * union occupancy per source, so repeated/overlapping patches do not produce
  * seams along triangulation diagonals or depend on polygon edge multiplicity. */
+const authorEdgeSets=new WeakMap<SurfaceBinding3,Set<string>>();
 export function* intersectionAtomsJob3(input:IntersectionContacts3,options:IntersectionAtomBudget3={}):Generator<void,{
  readonly segments:readonly IntersectionAtom3[];readonly points:readonly IntersectionPoint3[];
  readonly stats:{readonly arrangementCandidates:number;readonly supportCandidates:number;readonly supports:number;readonly atoms:number;readonly discardedInterior:number};
@@ -60,8 +62,12 @@ export function* intersectionAtomsJob3(input:IntersectionContacts3,options:Inter
  const arranged=yield*arrangementJob3(raw,points,options),segments:IntersectionAtom3[]=[],usedPoints=new Set<string>();
  const authorEdges: Set<string>[]=[];
  for(const source of input.sources){
-  const edges=new Set<string>();for(let i=0;i<source.binding.source.edges.length;i++){
-   const edge=source.binding.source.edges[i];edges.add(edgeKey(...edge.vertices));if((i&1023)===1023)yield;
+  // A binding meets every other object in a list intersection; its edge set is built once.
+  let edges=authorEdgeSets.get(source.binding);
+  if(!edges){
+   edges=new Set<string>();for(let i=0;i<source.binding.source.edges.length;i++){
+    const edge=source.binding.source.edges[i];edges.add(edgeKey(...edge.vertices));if((i&1023)===1023)yield;
+   }authorEdgeSets.set(source.binding,edges);
   }authorEdges.push(edges);
  }
  const pointKey=(partition:string,p:H)=>JSON.stringify([partition,exactPointKey3(p)]);

@@ -20,6 +20,15 @@ export interface Surface3 {
   readonly triangles: readonly SurfaceTriangle3[];
 }
 const edgeKey = (a: number, b: number) => a < b ? `${a}:${b}` : `${b}:${a}`;
+/** Attribute values are primitives or numeric arrays, and provenance is a
+ * string plus a string list: a shallow copy with fresh arrays is the same
+ * independent value structuredClone produces, without its serialization. */
+function copyAttributes(attributes:Attributes3):Attributes3 {
+  const out:Attributes3={};
+  for(const name in attributes){const value=attributes[name];out[name]=Array.isArray(value)?[...value]:value;}
+  return out;
+}
+const copyProvenance=(provenance:Provenance3):Provenance3=>({operation:provenance.operation,parents:[...provenance.parents]});
 
 /** Deterministic ear clipping of a simple planar polygon. No fan triangulation
  * of concave faces; robust orientation guards crossings and ear containment. */
@@ -104,13 +113,13 @@ export function assembleSurface3(points: readonly SurfacePoint3[], faces: readon
       if(typeof corner.id!=='string'||!corner.id||cornerIds.has(corner.id))throw new Error('surface corner IDs must be nonempty and unique');
       if(!corner.attributes||typeof corner.attributes!=='object'||Array.isArray(corner.attributes))throw new Error('corner attributes require a record');
       cornerIds.add(corner.id);
-      return {...corner,attributes:structuredClone(corner.attributes),...(corner.provenance?{provenance:structuredClone(corner.provenance)}:{})};
+      return {...corner,attributes:copyAttributes(corner.attributes),...(corner.provenance?{provenance:copyProvenance(corner.provenance)}:{})};
     }));
   });
   const prior=new Map(previous?.edges.map(e=>[JSON.stringify(e.vertices.map(v=>previous.points[v].id).sort()),e]));
-  const result:Surface3={ points: Object.freeze(points.map(p=>({...p,...(p.provenance?{provenance:structuredClone(p.provenance)}:{}),position:[...p.position] as Vec3,attributes:structuredClone(p.attributes)}))), faces: Object.freeze(faces.map((f,i)=>({...f,corners:cornerRows[i],...(f.provenance?{provenance:structuredClone(f.provenance)}:{}),vertices:Object.freeze([...f.vertices]),attributes:structuredClone(f.attributes)}))), triangles: Object.freeze(triangles.map(t=>Object.freeze({...t,vertices:Object.freeze([...t.vertices]) as readonly [number,number,number]}))), edges: Object.freeze([...edges.values()].map(e => {
+  const result:Surface3={ points: Object.freeze(points.map(p=>({...p,...(p.provenance?{provenance:copyProvenance(p.provenance)}:{}),position:[...p.position] as Vec3,attributes:copyAttributes(p.attributes)}))), faces: Object.freeze(faces.map((f,i)=>({...f,corners:cornerRows[i],...(f.provenance?{provenance:copyProvenance(f.provenance)}:{}),vertices:Object.freeze([...f.vertices]),attributes:copyAttributes(f.attributes)}))), triangles: Object.freeze(triangles.map(t=>Object.freeze({...t,vertices:Object.freeze([...t.vertices]) as readonly [number,number,number]}))), edges: Object.freeze([...edges.values()].map(e => {
     const old=prior.get(JSON.stringify(e.vertices.map(v=>points[v].id).sort()));
-    return { ...(old?.provenance?{provenance:structuredClone(old.provenance)}:{}), id: old?.id ?? `e:${points[e.vertices[0]].id}:${points[e.vertices[1]].id}`, vertices: Object.freeze(e.vertices), faces: Object.freeze(e.faces), attributes: structuredClone(old?.attributes??{}) };
+    return { ...(old?.provenance?{provenance:copyProvenance(old.provenance)}:{}), id: old?.id ?? `e:${points[e.vertices[0]].id}:${points[e.vertices[1]].id}`, vertices: Object.freeze(e.vertices), faces: Object.freeze(e.faces), attributes: copyAttributes(old?.attributes??{}) };
   })) };
   inheritTopology3(result,previous);return result;
 }

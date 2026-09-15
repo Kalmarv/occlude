@@ -32,7 +32,7 @@ describe('public three intersections API',()=>{
     const spokes=[0,1,2].map(axis=>{const o=[0,0,0] as number[];o[axis]=.4;return box(.6).translate(o as never);});
     const hub=intersections([sphere(.5),sphere(.5),...spokes]);
     expect(hub.sources.length).toBe(5);expect(hub.edges.length).toBeGreaterThan(0);
-  });
+  },20_000); // 3.7 s alone on this machine; the 5 s default trips under a loaded parallel run
   it('enforces placement pair and aggregate graph budgets',()=>{
     const prototype=box(2),points=pointCloud([[0,0,0],[1,0,0]]),instances=instanceOnPoints(prototype,points.points);
     expect(()=>intersections(instances,prototype,{maxPairs:1})).toThrow('placement pair budget');

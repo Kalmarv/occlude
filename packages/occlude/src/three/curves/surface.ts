@@ -20,8 +20,12 @@ export interface SurfaceCurves3 { readonly surface:Surface3; readonly segments:r
 export const freezeCurves3=<T>(value:T):T=>{if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const v of Object.values(value))freezeCurves3(v);Object.freeze(value);}return value;};
 
 /** Validate source ownership before any support IDs can bypass self-occlusion. */
+// Frozen curve sets are validated once per surface: the snapshot and the
+// network builder both check the same object.
+const validated=new WeakMap<SurfaceCurves3,Surface3>();
 export function validateSurfaceCurves3(curves:SurfaceCurves3,surface:Surface3):void {
   if(curves.surface!==surface)throw new Error('surface curves belong to a different captured surface; draw curves.surface or regenerate the curves');
+  if(validated.get(curves)===surface)return;
   const ids=new Set<string>(),points=new Map<string,string>();
   for(const segment of curves.segments) {
     if(!segment.id||ids.has(segment.id)||!['section','hatch'].includes(segment.kind))throw new Error('surface curves need unique segment IDs and a supported kind');
@@ -39,4 +43,5 @@ export function validateSurfaceCurves3(curves:SurfaceCurves3,surface:Surface3):v
       for(const index of segment.triangles)if(p.vertices.some((v,i)=>p.weights[i]>0&&!surface.triangles[index].vertices.includes(v)))throw new Error('surface curve point is outside its declared triangle support');
     }
   }
+  if(Object.isFrozen(curves)&&Object.isFrozen(curves.segments)&&curves.segments.every(seg=>Object.isFrozen(seg)&&Object.isFrozen(seg.a)&&Object.isFrozen(seg.b)&&Object.isFrozen(seg.triangles)))validated.set(curves,surface);
 }

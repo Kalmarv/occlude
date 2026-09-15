@@ -607,3 +607,32 @@ changes which lines are seeded and where dashes fall: a decision, not a
 filter. The ink-preserving version, parked 2026-09-15: keep tracing hidden
 lines (seeding and dash phase stay exact) but skip building their exact
 network nodes and segments, which is most of the remaining hatch cost. Nib-size LOD likewise changes ink and would be an explicit mode.
+
+## 3D compile: structural sharing and per-pair filters (2026-09-15, built)
+
+A user sketch (five 128x32 tori, sixty boxes, a sphere, a 65-object list
+intersection, four hatch recipes at 1-1.5 mm; 88,628 features) measured
+headless before and after, on the shared home server:
+
+| stage | before | after |
+| --- | ---: | ---: |
+| modeling (primitives, rotate, faceAttribute) | ~5 s | 2.6 s |
+| list intersections | 3.5 s | 1.8 s |
+| feature snapshot | 6.6 s | 5.6 s |
+| visibility classification | 10.1 s | 5.2 s |
+| strokes + 2D | ~7 s | ~4.5 s |
+| whole sketch | 48.3 s | 20.5 s |
+
+What changed, all ink-identical (256/256 docs examples): attribute edits
+share points, edges, triangles and the topology revision (`editAttributes3`)
+instead of re-assembling and re-freezing the whole surface; mesh rows build
+lazily per domain with face geometry cached by array identity; surfaces the
+API builds itself are frozen in place (`ownSurface3`) rather than cloned
+again at capture; the cell walk's candidates pass the enveloped
+bounding-box test the index path always had (4.0 M pairs to 1.1 M on this
+sketch); reference chains are memoized per scene across the per-pen stroke
+calls of the default drawing; hatch features carry the network's exact node
+points so the classifier decodes instead of rebuilding them; planes are
+canonicalized once; author edge sets, exact vertices, decoded points and
+kind sets are cached per binding, node and flag value. The remaining
+profile is flat: bigint gcd about 7%, GC about 10%, then a long tail.

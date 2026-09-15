@@ -1,8 +1,8 @@
 import {rotateVector3,rotation3,type RotationInput} from '../rotation.js';
-import {sealTopology3,topology3} from './topology.js';
+import {sealAssembledTopology3,shareTopology3,topology3} from './topology.js';
 import { groupRows } from '../../groupRows.js';
 import { add3,cross3,finite3,mul3,sub3,unit3,type Vec3 } from '../math.js';
-import { assembleSurface3,surface3,type Surface3,type SurfaceFace3,type SurfaceTriangle3,type Attributes3 } from './surface.js';
+import { assembleSurface3,surface3,type Surface3,type SurfaceFace3,type SurfacePoint3,type SurfaceTriangle3,type Attributes3 } from './surface.js';
 
 export function grid3(columns:number,rows:number,size:readonly[number,number]=[1,1]):Surface3 {
   if(!Number.isSafeInteger(columns)||!Number.isSafeInteger(rows)||columns<1||rows<1||columns*rows>1_000_000||size.some(n=>!Number.isFinite(n)||n<=0))throw new Error('grid needs positive cell counts and dimensions (at most one million faces)');
@@ -12,12 +12,25 @@ export function grid3(columns:number,rows:number,size:readonly[number,number]=[1
   return surface3(positions,faces);
 }
 export interface FaceMeasure3 { readonly source:Surface3;readonly index:number;readonly id:string;readonly normal:Vec3;readonly center:Vec3;readonly area:number;readonly attributes:Readonly<Attributes3>;readonly adjacent:readonly number[] }
+export interface FaceGeometry3 {readonly normals:readonly Vec3[];readonly centers:readonly Vec3[];readonly areas:readonly number[]}
+// Captured surfaces freeze their positions, so the identity of the points and
+// triangles arrays fixes the geometry; attribute edits share both arrays.
+const faceGeometries=new WeakMap<readonly SurfacePoint3[],WeakMap<readonly SurfaceTriangle3[],FaceGeometry3>>();
+/** Per-face normals, centers and areas, following the represented triangles
+ * (deformed polygons included). Cached for captured surfaces. */
+export function faceGeometry3(surface:Surface3):FaceGeometry3 {
+  const captured=capturedSurfaces3.has(surface);
+  if(captured){const hit=faceGeometries.get(surface.points)?.get(surface.triangles);if(hit)return hit;}
+  const normals=surface.faces.map(()=>[0,0,0] as Vec3),centers=surface.faces.map(()=>[0,0,0] as Vec3),areas=surface.faces.map(()=>0);
+  for(const t of surface.triangles){const [a,b,c]=t.vertices.map(v=>surface.points[v].position),n=cross3(sub3(b,a),sub3(c,a)),area=Math.hypot(...n)/2;normals[t.face]=add3(normals[t.face],n);areas[t.face]+=area;centers[t.face]=add3(centers[t.face],mul3(add3(add3(a,b),c),area/3));}
+  const result:FaceGeometry3=Object.freeze({normals:Object.freeze(normals.map(n=>Object.freeze(unit3(n)))),centers:Object.freeze(centers.map((c,i)=>Object.freeze(mul3(c,1/areas[i])))),areas:Object.freeze(areas)});
+  if(captured){let byTriangles=faceGeometries.get(surface.points);if(!byTriangles){byTriangles=new WeakMap();faceGeometries.set(surface.points,byTriangles);}byTriangles.set(surface.triangles,result);}
+  return result;
+}
 /** Measures follow the represented triangles, including deformed polygons. */
 export function measureFaces3(surface:Surface3):readonly FaceMeasure3[] {
-  const normals=surface.faces.map(()=>[0,0,0] as Vec3),centers=surface.faces.map(()=>[0,0,0] as Vec3),areas=surface.faces.map(()=>0);
-  const neighbors=topology3(surface).faceNeighbors;
-  for(const t of surface.triangles){const [a,b,c]=t.vertices.map(v=>surface.points[v].position),n=cross3(sub3(b,a),sub3(c,a)),area=Math.hypot(...n)/2;normals[t.face]=add3(normals[t.face],n);areas[t.face]+=area;centers[t.face]=add3(centers[t.face],mul3(add3(add3(a,b),c),area/3));}
-  return Object.freeze(surface.faces.map((f,i)=>Object.freeze({source:surface,index:i,id:f.id,normal:Object.freeze(unit3(normals[i])),center:Object.freeze(mul3(centers[i],1/areas[i])),area:areas[i],attributes:Object.freeze(structuredClone(f.attributes)),adjacent:neighbors[i]})));
+  const neighbors=topology3(surface).faceNeighbors,{normals,centers,areas}=faceGeometry3(surface);
+  return Object.freeze(surface.faces.map((f,i)=>Object.freeze({source:surface,index:i,id:f.id,normal:normals[i],center:centers[i],area:areas[i],attributes:Object.freeze(structuredClone(f.attributes)),adjacent:neighbors[i]})));
 }
 export class FaceSelection3 implements Iterable<FaceMeasure3> {
   private readonly measures:readonly FaceMeasure3[];
@@ -91,12 +104,56 @@ const capturedSurfaces3=new WeakSet<Surface3>();
  * Trusted immutable snapshots are reusable across dependent generators. */
 export function snapshotSurface3(surface:Surface3):Surface3 {
   if(capturedSurfaces3.has(surface))return surface;
-  const snapshot=cloneSurface3(surface);
+  return captureAssembled(cloneSurface3(surface));
+}
+/** Surfaces the API's own geometry paths build and hand straight to a
+ * constructor: nobody else holds them, so capture freezes them in place
+ * instead of cloning first. Advanced Surface3 inputs are always copied. */
+const ownedSurfaces3=new WeakSet<Surface3>();
+export function ownSurface3<S extends Surface3>(surface:S):S {ownedSurfaces3.add(surface);return surface;}
+export function captureSurface3(surface:Surface3):Surface3 {
+  if(capturedSurfaces3.has(surface))return surface;
+  return ownedSurfaces3.has(surface)?captureAssembled(surface):snapshotSurface3(surface);
+}
+function captureAssembled(snapshot:Surface3):Surface3 {
   const freeze=(value:unknown):void=>{if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const child of Object.values(value))freeze(child);Object.freeze(value);}};
   // Array containers are already frozen by assembly; recurse through rows.
   for(const p of snapshot.points){freeze(p.position);freeze(p.attributes);freeze(p);}for(const f of snapshot.faces){freeze(f.attributes);for(const c of f.corners??[]){freeze(c.attributes);freeze(c);}freeze(f);}for(const e of snapshot.edges){freeze(e.attributes);freeze(e);}
-  capturedSurfaces3.add(snapshot);sealTopology3(snapshot);
+  capturedSurfaces3.add(snapshot);sealAssembledTopology3(snapshot);
   return Object.freeze(snapshot);
+}
+/** Attribute patches per domain, one optional record per row; corners run in
+ * face order, then polygon winding order. A patch merges over the row's record. */
+export interface AttributePatches3 {
+  readonly points?:readonly (Attributes3|undefined)[];readonly edges?:readonly (Attributes3|undefined)[];
+  readonly faces?:readonly (Attributes3|undefined)[];readonly corners?:readonly (Attributes3|undefined)[];
+}
+const deepFreeze=(value:unknown):void=>{if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const child of Object.values(value))deepFreeze(child);Object.freeze(value);}};
+/** An attribute-only edit of a captured surface. Rows keep their identity,
+ * positions, incidence and triangulation by reference; only rows with a patch
+ * get a fresh frozen record. The result is captured too, sharing the source's
+ * topology revision, so nothing about the surface is re-read or re-verified. */
+export function editAttributes3(source:Surface3,patches:AttributePatches3):Surface3 {
+  const surface=snapshotSurface3(source);
+  for(const [domain,count] of [['points',surface.points.length],['edges',surface.edges.length],['faces',surface.faces.length],['corners',surface.faces.reduce((n,f)=>n+f.vertices.length,0)]] as const){
+    const rows=patches[domain];if(rows&&rows.length!==count)throw new Error(`${domain} attribute patch must cover every row`);
+  }
+  const merge=<R extends {attributes:Attributes3}>(row:R,patch:Attributes3|undefined):R=>{
+    if(!patch)return row;
+    const attributes=Object.freeze({...row.attributes,...patch});deepFreeze(attributes);
+    return Object.freeze({...row,attributes});
+  };
+  const points=patches.points?Object.freeze(surface.points.map((p,i)=>merge(p,patches.points![i]))):surface.points;
+  const edges=patches.edges?Object.freeze(surface.edges.map((e,i)=>merge(e,patches.edges![i]))):surface.edges;
+  let corner=0;
+  const faces=patches.faces||patches.corners?Object.freeze(surface.faces.map((f,i)=>{
+    const corners=patches.corners?Object.freeze(f.corners!.map(c=>merge(c,patches.corners![corner++]))):f.corners;
+    const row=merge(f,patches.faces?.[i]);
+    return corners===f.corners?row:Object.freeze({...row,corners});
+  })):surface.faces;
+  const result:Surface3=Object.freeze({points,faces,edges,triangles:surface.triangles});
+  capturedSurfaces3.add(result);shareTopology3(result,surface);
+  return result;
 }
 export function stepsSurface3(initial:Surface3,count:number,pass:(input:Surface3,iteration:number)=>Surface3,options:{history?:number}={}):{surface:Surface3;history:readonly Surface3[]} {
   const keep=options.history??0;

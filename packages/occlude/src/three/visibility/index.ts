@@ -1,6 +1,6 @@
 export type Bounds3 = readonly [number, number, number, number];
 interface Node { bounds: Bounds3; nearest: number; left?: Node; right?: Node; indices?: readonly number[] }
-const intersects = (a: Bounds3, b: Bounds3) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+export const intersects = (a: Bounds3, b: Bounds3) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
 /** Projected bounds with an outward f64 arithmetic envelope. Nonfinite
  * projection must be diagnosed before building an index, never silently culled. */
 export function projectedBounds3(points: readonly (readonly [number, number])[]): Bounds3 {

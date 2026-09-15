@@ -100,7 +100,7 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
     const include=(f:Feature3)=>!(included&&!included.has(f.id)||typeof set.select==='function'&&!set.select(f));
     const selectedChains=new Set<string>();
     for(const row of source.features){const curve=curveSource(source,row.feature);if(curve&&include(row.feature))selectedChains.add(curve.key);}
-    for(const f of source.referenceFeatures??source.features.map(r=>r.feature)){
+    for(const f of referenceMemo.get(source)?.has(referenceKey(set,options))?[]:source.referenceFeatures??source.features.map(r=>r.feature)){
       const curve=curveSource(source,f);
       if(curve?!selectedChains.has(curve.key):!include(f))continue;
       const ra=toPaper3(frame,f.a),rb=toPaper3(frame,f.b),rl=distance(ra,rb);
@@ -110,6 +110,7 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
       const f=record.feature;if(!include(f))continue;
       const requested=set.ranges?.(f)??[[0,1]];
       if(requested.some(r=>r.length!==2||!r.every(Number.isFinite)||r[0]<0||r[1]>1||r[0]>r[1]))throw new Error('line set ranges must be ordered within [0,1]');
+      if(requested.length===0)continue; // a per-pen set names few of the scene's features
       const key=JSON.stringify([f.id,visibility]), occupied=claimed.get(key)??[];
       const selected=intersect(record[visibility],requested),ranges=set.overdraw?selected:subtract(selected,occupied);
       if(!set.overdraw)claimed.set(key,unionIntervals3([...occupied,...ranges]));
@@ -122,15 +123,8 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
       }
     }
   }
-  const references=[
-    ...chainRuns(source,referenceRuns.filter(r=>!curveSource(source,r.part.feature)),{...options,minLength:0}),
-    ...chainRuns(source,referenceRuns.filter(r=>curveSource(source,r.part.feature)),{endpointTolerance:options.endpointTolerance,cornerDegrees:180,minLength:0,chain:true}),
-  ];
-  const lookup=new Map<string,{reference:StrokeReference3;a:Point;b:Point;index:number}>();
-  for(const r of references) {
-    const {reference,indices}=sourceReference(source,r);
-    r.parts.forEach((part,i)=>{const index=indices[i];lookup.set(JSON.stringify([r.set,part.feature.id]),{reference,a:reference.points[index],b:reference.points[index+1],index});});
-  }
+  const lookup=new Map<string,ReferenceEntry>();
+  for(const set of sets)for(const [key,entry] of referenceLookup(source,set,referenceRuns.filter(r=>r.set===set),options))lookup.set(key,entry);
   const key=(r:Run)=>JSON.stringify([r.set.id,r.part.feature.id]);
   const output=chainRuns(source,runs,options,(a,b)=>lookup.get(key(a))!.reference===lookup.get(key(b))!.reference);
   return Object.freeze(output.map(run=>{
@@ -146,10 +140,41 @@ export function constructStrokes3(source:ClassifiedScene3,sets:readonly LineSet3
 }
 
 type ConstructOptions={endpointTolerance?:number;cornerDegrees?:number;minLength?:number;chain?:boolean};
+interface ReferenceEntry {reference:StrokeReference3;a:Point;b:Point;index:number}
+/** Reference chains of one line set: the complete selected source chains,
+ * keyed by set ID and feature ID. A set without a selection covers every
+ * feature of the scene, so its chains depend only on the scene, the set ID,
+ * the visibility and the chaining options; the view's default drawing builds
+ * one such set per pen, and they all share this memo. */
+const referenceMemo=new WeakMap<ClassifiedScene3,Map<string,ReadonlyMap<string,ReferenceEntry>>>();
+const referenceKey=(set:LineSet3,options:ConstructOptions)=>set.select===undefined?JSON.stringify([set.id,set.visibility??'visible',options.endpointTolerance??1e-8,options.cornerDegrees??180,options.chain??true]):'';
+function referenceLookup(source:ClassifiedScene3,set:LineSet3,referenceRuns:Run[],options:ConstructOptions):ReadonlyMap<string,ReferenceEntry> {
+  const memoKey=referenceKey(set,options),shared=memoKey!=='';
+  if(shared){const hit=referenceMemo.get(source)?.get(memoKey);if(hit)return hit;}
+  const references=[
+    ...chainRuns(source,referenceRuns.filter(r=>!curveSource(source,r.part.feature)),{...options,minLength:0}),
+    ...chainRuns(source,referenceRuns.filter(r=>curveSource(source,r.part.feature)),{endpointTolerance:options.endpointTolerance,cornerDegrees:180,minLength:0,chain:true}),
+  ];
+  const lookup=new Map<string,ReferenceEntry>();
+  for(const r of references) {
+    const {reference,indices}=sourceReference(source,r);
+    r.parts.forEach((part,i)=>{const index=indices[i];lookup.set(JSON.stringify([r.set,part.feature.id]),{reference,a:reference.points[index],b:reference.points[index+1],index});});
+  }
+  if(shared){let byKey=referenceMemo.get(source);if(!byKey){byKey=new Map();referenceMemo.set(source,byKey);}byKey.set(memoKey,lookup);}
+  return lookup;
+}
 type BuiltStroke3=Omit<Stroke3,'reference'|'sourceRanges'>;
 /** Legacy section/hatch curves retain their historical interpretation. New
  * supported generators supply their own complete chain identity and order. */
+// Memoized per feature: the sort comparators and junction checks ask for the
+// same feature's source many times, and the key is a JSON encoding.
+const curveSources=new WeakMap<Feature3,ReturnType<typeof curveSourceOf>>();
 function curveSource(source:ClassifiedScene3,feature:Feature3) {
+  let value=curveSources.get(feature);
+  if(value===undefined&&!curveSources.has(feature)){value=curveSourceOf(source,feature);curveSources.set(feature,value);}
+  return value;
+}
+function curveSourceOf(source:ClassifiedScene3,feature:Feature3) {
   if(feature.curve||!feature.supportedCurve)return undefined;
   const {graph,segment}=feature.supportedCurve,entry=source.curveGraphs?.[graph],row=entry?.network.segments[segment];
   return entry&&row?{key:JSON.stringify([entry.id,row.chainId]),network:entry.network,segment:row}:undefined;

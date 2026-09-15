@@ -35,7 +35,7 @@ export function hatch3(input:Surface3,families:readonly HatchFamily3[]|((face:Fa
   const surface=snapshotSurface3(input),maxSegments=options.maxSegments??Infinity;
   if(!(maxSegments===Infinity||Number.isSafeInteger(maxSegments))||maxSegments<1)throw new Error('hatch maxSegments must be a positive integer or Infinity');
   const rows=measureFaces3(surface).map(face=>{
-    const values=typeof families==='function'?families(Object.freeze({...face,attributes:freezeCurves3(structuredClone(face.attributes))})):families;
+    const values=typeof families==='function'?families(Object.freeze({...face,attributes:freezeCurves3(face.attributes)})):families;
     validateFamilies3(values);
     return values.map(value=>freezeCurves3(structuredClone(value)));
   });

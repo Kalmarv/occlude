@@ -15,6 +15,9 @@ export interface SurfaceTopology3 {
 }
 const immutable=new WeakSet<Surface3>();
 export function sealTopology3(surface:Surface3):void{revision(surface);immutable.add(surface);}
+/** Seal a surface that assembly just built and nobody has touched since: the
+ * revision assembly recorded is current, so the signature is not re-read. */
+export function sealAssembledTopology3(surface:Surface3):void{if(!revisions.has(surface))revision(surface);immutable.add(surface);}
 const revisions=new WeakMap<Surface3,TopologyRevision>();
 const adjacency=new WeakMap<TopologyRevision,SurfaceTopology3>();
 function signature(surface:Surface3):string {
@@ -26,6 +29,14 @@ function revision(surface:Surface3):TopologyRevision {
   if(old&&immutable.has(surface))return old;
   const key=signature(surface),next=old?.signature===key?old:Object.freeze({signature:key});
   revisions.set(surface,next);return next;
+}
+/** An attribute-only edit keeps every ID, incidence row and triangle of a
+ * sealed surface by reference, so its topology revision is the same object:
+ * adjacency and everything keyed by the revision survive without re-reading
+ * the surface. Callers guarantee the sharing; nothing is recomputed here. */
+export function shareTopology3(surface:Surface3,previous:Surface3):void {
+  if(!immutable.has(previous))throw new Error('topology sharing requires a sealed source surface');
+  revisions.set(surface,revision(previous));immutable.add(surface);
 }
 export function inheritTopology3(surface:Surface3,previous?:Surface3):void {
   const key=signature(surface),old=previous?revision(previous):undefined;

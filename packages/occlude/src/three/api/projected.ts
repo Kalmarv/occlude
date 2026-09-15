@@ -9,9 +9,12 @@ import {sourceStrokeShapes3} from '../strokes/paper.js';
 import {toPaper3} from '../camera.js';
 import {lerp3} from '../math.js';
 export type FeatureKind=keyof typeof FeatureKind3;
+const kindSets=new Map<number,ReadonlySet<FeatureKind>>();
 function kinds(flags:number):ReadonlySet<FeatureKind>{
+  const cached=kindSets.get(flags);if(cached)return cached;
   const set=new Set((Object.keys(FeatureKind3) as FeatureKind[]).filter(k=>(flags&FeatureKind3[k])!==0));
   const result:ReadonlySet<FeatureKind>=Object.freeze({size:set.size,has:(k:FeatureKind)=>set.has(k),keys:()=>set.keys(),values:()=>set.values(),entries:()=>set.entries(),[Symbol.iterator]:()=>set[Symbol.iterator](),forEach:(callback:(value:FeatureKind,key:FeatureKind,set:ReadonlySet<FeatureKind>)=>void,thisArg?:unknown)=>set.forEach(v=>callback.call(thisArg,v,v,result))});
+  kindSets.set(flags,result);
   return result;
 }
 export interface ProjectedCurve {

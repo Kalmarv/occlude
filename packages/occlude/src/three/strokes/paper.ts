@@ -16,7 +16,10 @@ export function sourceStrokeShapes3(runs:readonly Stroke3[], point:(p:readonly [
     entry.ranges.push(...run.sourceRanges.map(r=>[...r] as [number,number]));
     pens.set(run.stroke,entry);groups.set(run.reference,pens);
   }
-  return [...groups.values()].flatMap(pens=>[...pens.values()].map(({run,ranges})=>stroke(run.reference.points.map(point),{stroke:run.stroke,preserveStroke:true,strokeSeed:hashSeed(JSON.stringify([run.reference.id,run.set,run.stroke,options.pass??'default'])),strokeRanges:unionSourceRanges3(ranges),modifiers:options.modifiers&&[...options.modifiers]})));
+  // Every pen drawing on a reference chain shares the same user-frame polyline.
+  const polylines=new Map<Stroke3['reference'],[L,L][]>();
+  const polyline=(reference:Stroke3['reference'])=>{let p=polylines.get(reference);if(!p){p=reference.points.map(point);polylines.set(reference,p);}return p;};
+  return [...groups.values()].flatMap(pens=>[...pens.values()].map(({run,ranges})=>stroke(polyline(run.reference),{stroke:run.stroke,preserveStroke:true,strokeSeed:hashSeed(JSON.stringify([run.reference.id,run.set,run.stroke,options.pass??'default'])),strokeRanges:unionSourceRanges3(ranges),modifiers:options.modifiers&&[...options.modifiers]})));
 }
 /** Explicit paper-mm adapter for hosts without an execution frame. */
 export function paperStrokes3(strokes: readonly Stroke3[]): ShapeValue[] {

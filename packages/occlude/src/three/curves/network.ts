@@ -1,5 +1,6 @@
 import {snapshotSurface3,transformSurface3,transformPosition3} from '../geometry/model.js';
 import {rebindTriangle3,captureSurfacePlacement3,type SurfacePlacement3} from '../geometry/location.js';
+import type {SurfaceCurvePoint3} from './surface.js';
 import type {Surface3,Attributes3,Attribute3} from '../geometry/surface.js';
 import {point,encodePoint,decodePoint,pointNumber,canonicalPoint,triangleWeights,verifiedTriangleWeights,ratioNumber,integerWeights,weightedPoint,type H,type EncodedPoint3,type V} from '../geometry/exact.js';
 import {sameAttachmentTopology3} from '../geometry/topology.js';
@@ -12,6 +13,7 @@ const bindings=new WeakSet<SurfaceBinding3>();
 const bindingCache=new WeakMap<Surface3,{plain?:SurfaceBinding3;placed:WeakMap<SurfacePlacement3,SurfaceBinding3>}>();
 const worlds=new WeakMap<SurfaceBinding3,Surface3>();
 const triangles=new WeakMap<SurfaceBinding3,Map<number,readonly [H,H,H]>>();
+const bindingVertices=new WeakMap<SurfaceBinding3,Map<number,H>>();
 export function surfaceBinding3(source:Surface3,placement?:SurfacePlacement3):SurfaceBinding3 {
   source=snapshotSurface3(source);placement=captureSurfacePlacement3(placement);
   let cache=bindingCache.get(source);if(!cache){cache={placed:new WeakMap()};bindingCache.set(source,cache);}
@@ -43,7 +45,10 @@ export function bindingTriangle3(binding:SurfaceBinding3,index:number):readonly 
   if(!Number.isSafeInteger(index)||!binding.source.triangles[index])throw new Error('curve support requires a valid source triangle');
   let cache=triangles.get(binding);if(!cache){cache=new Map();triangles.set(binding,cache);}
   const previous=cache.get(index);if(previous)return previous;
-  const value=Object.freeze(binding.source.triangles[index].vertices.map(v=>canonicalPoint(point(bindingPosition3(binding,v))))) as unknown as readonly [H,H,H];
+  // A vertex belongs to about six triangles; its exact point is built once.
+  let vertices=bindingVertices.get(binding);if(!vertices){vertices=new Map();bindingVertices.set(binding,vertices);}
+  const vertex=(v:number):H=>{let q=vertices!.get(v);if(!q){q=canonicalPoint(point(bindingPosition3(binding,v)));vertices!.set(v,q);}return q;};
+  const value=Object.freeze(binding.source.triangles[index].vertices.map(vertex)) as unknown as readonly [H,H,H];
   cache.set(index,value);return value;
 }
 export function bindingPoint3(binding:SurfaceBinding3,triangle:number,weights:Vec3):H {
@@ -103,7 +108,7 @@ function attrs(input:Attributes3={}):Readonly<Attributes3> {
     if(!name)throw new Error('curve attribute names must be nonempty');
     const valid=(v:Attribute3)=>typeof v==='string'||typeof v==='boolean'||typeof v==='number'&&Number.isFinite(v)||Array.isArray(v)&&v.every(Number.isFinite);
     if(!valid(value))throw new Error('curve attributes require finite numeric, string, boolean or vector values');
-    Object.defineProperty(out,name,{value:Array.isArray(value)?Object.freeze([...value]):value,enumerable:true});
+    out[name]=Array.isArray(value)?Object.freeze([...value]) as unknown as Attribute3:value;
   }return Object.freeze(out);
 }
 function identity(value:string,used:Set<string>,domain:string):void {
@@ -233,12 +238,24 @@ export function objectSurfaceBinding3(object:{readonly id:string;readonly surfac
 export function legacySurfaceCurveNetwork3(curves:SurfaceCurves3,binding:SurfaceBinding3):SurfaceCurveNetwork3 {
   validateSurfaceBinding3(binding);validateSurfaceCurves3(curves,binding.source);
   const nodes=new Map<string,SurfaceCurveNetworkInput3['nodes'][number]>();
+  // Exact vertex points once per vertex, not once per node that touches it.
+  const exactVertex=new Map<number,H>();
+  const vertexPoint=(v:number):H=>{let q=exactVertex.get(v);if(!q){q=point(bindingPosition3(binding,v));exactVertex.set(v,q);}return q;};
+  const integer=new Map<SurfaceCurvePoint3,readonly bigint[]>();
+  const integerOf=(p:SurfaceCurvePoint3):readonly bigint[]=>{let w=integer.get(p);if(!w){w=integerWeights(p.weights);integer.set(p,w);}return w;};
   for(const segment of curves.segments)for(const p of [segment.a,segment.b])if(!nodes.has(p.id)){
-    const vertices=p.vertices.map(v=>point(bindingPosition3(binding,v)));
-    nodes.set(p.id,{id:p.id,point:weightedPoint(vertices,integerWeights(p.weights))});
+    nodes.set(p.id,{id:p.id,point:weightedPoint(p.vertices.map(vertexPoint),integerOf(p))});
   }
+  // A piece's own weights re-expressed in its triangle's vertex order, so the
+  // intake verifies them instead of recomputing them exactly.
+  const weightsOn=(p:SurfaceCurvePoint3,triangle:number):readonly bigint[]|undefined=>{
+    const tri=binding.source.triangles[triangle]?.vertices;if(!tri)return undefined;
+    const w=integerOf(p),out=[0n,0n,0n];
+    for(let m=0;m<3;m++){if(w[m]===0n)continue;const k=tri.indexOf(p.vertices[m]);if(k<0)return undefined;out[k]+=w[m];}
+    return out;
+  };
   return surfaceCurveNetwork3({sources:[{id:'surface',binding}],nodes:[...nodes.values()],segments:curves.segments.map(s=>({
-    id:s.id,kind:s.kind,a:s.a.id,b:s.b.id,supports:s.triangles.map(triangle=>({source:0,triangle})),attributes:s.attributes,...(s.chainId!==undefined?{chainId:s.chainId}:{}),...(s.range!==undefined?{range:s.range}:{}),
+    id:s.id,kind:s.kind,a:s.a.id,b:s.b.id,supports:s.triangles.map(triangle=>({source:0,triangle,a:weightsOn(s.a,triangle),b:weightsOn(s.b,triangle)})),attributes:s.attributes,...(s.chainId!==undefined?{chainId:s.chainId}:{}),...(s.range!==undefined?{range:s.range}:{}),
   }))});
 }
 /** One named graph in a scene; its source bindings identify supporting objects. */

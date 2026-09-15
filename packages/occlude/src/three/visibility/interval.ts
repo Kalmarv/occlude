@@ -44,8 +44,12 @@ export function occlusionVolume3(triangle: Triangle3, perspective: boolean): Occ
 
 /** f64 reference. Exact support is excluded by provenance before this call;
  * coplanar distinct geometry does not obscure ink on the same plane. */
+// One feature's basis meets every candidate triangle; whether it carries
+// world terms is a property of the basis, remembered once.
+const worldBases=new WeakMap<SegmentBasis3,boolean>();
+function hasWorldTerms(basis:SegmentBasis3):boolean{let v=worldBases.get(basis);if(v===undefined){v=basis.every(terms=>terms.every(term=>term.world!==undefined));worldBases.set(basis,v);}return v;}
 export function hiddenInterval3(a: Vec3, b: Vec3, volume: OcclusionVolume3, basis?: SegmentBasis3): Interval3 | null {
-  if(volume.world&&basis?.every(terms=>terms.every(term=>term.world!==undefined)))return hiddenWorldInterval3(volume.world,basis);
+  if(volume.world&&basis&&hasWorldTerms(basis))return hiddenWorldInterval3(volume.world,basis);
   let lo = 0, hi = 1;
   for (let i = 0; i < volume.planes.length; i++) {
     const p = volume.planes[i];

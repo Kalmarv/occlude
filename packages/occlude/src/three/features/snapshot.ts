@@ -110,7 +110,10 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     network.segments.forEach((segment,index)=>{
       const a=network.nodes[segment.a],b=network.nodes[segment.b],curve=legacy?.segments[index];
       const position=(end:'a'|'b'):Vec3=>curve?curve[end].vertices.reduce((sum,v,i)=>sum.map((x,k)=>x+legacy!.positions[v][k]*curve[end].weights[i]) as unknown as Vec3,[0,0,0] as Vec3):toCamera3(frame,(end==='a'?a:b).position);
-      const basis=curve?Object.freeze([curve.a,curve.b].map(p=>Object.freeze(p.vertices.flatMap((v,i)=>p.weights[i]===0?[]:[Object.freeze({point:legacy!.positions[v],world:legacy!.worldPositions[v],weight:p.weights[i]})])))) as SegmentBasis3:
+      // The network already holds each endpoint as one exact world point (the
+      // same weighted vertex sum the legacy weights describe), so the exact
+      // classifier decodes it instead of rebuilding it from float weights.
+      const basis=curve?Object.freeze([[a,'a'],[b,'b']].map(([node,end])=>Object.freeze([Object.freeze({point:Object.freeze(position(end as 'a'|'b')),world:(node as typeof a).position,exactWorld:(node as typeof a).exact,weight:1})]))) as SegmentBasis3:
         Object.freeze([a,b].map(p=>Object.freeze([Object.freeze({point:Object.freeze(toCamera3(frame,p.position)),world:p.position,exactWorld:p.exact,weight:1})]))) as SegmentBasis3;
       const support=[...new Set(segment.supports.map(s=>bindings[s.source].triangleIds[s.triangle]))];
       const faces=new Map<string,Readonly<Attributes3>>();
