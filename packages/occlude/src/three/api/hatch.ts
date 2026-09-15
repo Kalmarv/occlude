@@ -315,7 +315,8 @@ export interface TraceOptions extends SurfaceCurveOptions {
   readonly step:number;readonly maxLength?:number;readonly maxSteps?:number;readonly creaseDegrees?:number;
   readonly uv?:string;readonly chartAttribute?:string;readonly budget?:SurfaceCurveBudget3;
 }
-export type TraceSeed={readonly sample:Pick<SurfaceLocation3,'triangle'|'barycentric'>}|Pick<SurfaceLocation3,'triangle'|'barycentric'>;
+type SeedLocation=Pick<SurfaceLocation3,'triangle'|'barycentric'>&Partial<Pick<SurfaceLocation3,'source'>>;
+export type TraceSeed={readonly sample:SeedLocation}|SeedLocation;
 export type TraceAttributes={trace:number};
 /** Pure tracing from explicit seeds: sampled points, scattered points or
  * surface locations. Both directions from each seed; no spacing control, no
@@ -331,6 +332,9 @@ export function trace(mesh:Mesh<any,any,any,any>,seeds:Iterable<TraceSeed>,direc
   for(const seed of seeds){
     const location='sample' in seed?seed.sample:seed;
     if(!location||!Number.isSafeInteger(location.triangle)||!mesh.surface.triangles[location.triangle]||location.barycentric.length!==3)throw new Error('trace seeds require a surface sample or location on this mesh');
+    // A location knows its surface; a seed sampled on another mesh would be
+    // read as a triangle index on this one and land somewhere else entirely.
+    if(location.source!==undefined&&location.source!==mesh.surface)throw new Error('trace seed belongs to another mesh: sample or locate it on this mesh (rebind a sampling after an edit)');
     const result=traceBoth3(env,{triangle:location.triangle,weights:location.barycentric},field,settings),chain=identity('trace-chain',options.key??mesh.key??'default',index);
     const ids:(string|undefined)[]=[],last=result.nodes.length-1;
     const nodeId=(index:number)=>{
