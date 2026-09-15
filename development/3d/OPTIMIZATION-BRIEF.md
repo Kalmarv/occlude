@@ -48,9 +48,11 @@ then keep going: every workload in `benchmark-surface` is fair game.
 4. **One optimization per commit**, with the before/after numbers in the
    commit message. Revert (do not stack a workaround on) anything that did
    not pay off, and record it in the log so it is not retried.
-5. **Work on your own branch** in your own checkout. Never touch
-   `/home/kalmarv/containers/occlude` (production) or its stores, never
-   deploy production, never merge to `master`, never operate a plotter.
+5. **Work in `/home/kalmarv/containers/occlude-3d` on a new branch** (see
+   "Where to work"). Never touch `/home/kalmarv/containers/occlude` (the
+   production checkout) or its stores or containers (`occlude-studio-1`,
+   `occlude-dev-1`), never deploy production, never merge to `master` or
+   `dev`, never operate a plotter.
 6. **The machine is shared** (it runs other services). Run benchmarks
    serially under `nice -n 10`, one browser at a time, and kill any orphaned
    `tsx`/`vitest`/Chrome processes you started (by PID; `pkill` patterns are
@@ -80,19 +82,30 @@ A summary table at the top (workload × before × after, both paths) is the
 deliverable the owner reads first. Proposals that need an API change go to
 `OPTIMIZATION-PROPOSALS.md`, not the log.
 
-## Setup you will need
+## Where to work
 
-Reference layout (verify every path before use; you may be in a different
-checkout):
-
-- Repository root: a checkout of `occlude`, branch off `dev`. Node 22+,
-  pnpm 9+, Rust toolchain from `rust-toolchain.toml`, Docker with Compose.
-- Build the WASM before `pnpm install` on a fresh checkout (see `README.md`,
-  `crates/occlude-core`). `pnpm check` runs the nine verification gates
-  (`check.mjs`): Rust tests, TS tests, library typecheck, Studio typecheck,
-  docs examples, ink oracle, root build, WASM md5 match, server smoke. It is
-  the definition of done; run it before every push.
-- Fast local loops:
+- Checkout: `/home/kalmarv/containers/occlude-3d`. It is the isolated 3D dev
+  checkout (its own Compose project, port and stores), not production. It
+  currently sits on `feat/3d-webgpu` at the tip of `origin/dev`, and `dev`
+  equals `master`. Create your branch there from `origin/dev`, for example
+  `git checkout -b perf/3d origin/dev`, and make every commit on it. Push it
+  as its own branch (`git push -u origin perf/3d`); never push to `dev` or
+  `master`. The owner merges.
+- Untracked files `development/3d/md` and `development/3d/api-3d.md` are the
+  owner's notes: never stage or delete them. `development/3d/benchmark-surface/cpu.json`
+  may already carry uncommitted changes from an earlier run; treat the
+  committed version as the historical baseline and do not revert it.
+- Node 22+, pnpm, the Rust toolchain from `rust-toolchain.toml` and Docker
+  are installed and the WASM is built (`crates/occlude-core/pkg`); nothing to
+  set up. Playwright is installed in this checkout's
+  `packages/occlude-studio/node_modules` (not a workspace dependency, so keep
+  it out of commits). Browser scripts are run from that directory with
+  `node --input-type=module < script.mjs` so `import 'playwright'` resolves.
+  The system Chrome is `/usr/bin/google-chrome`.
+- `pnpm check` runs the nine verification gates (`check.mjs`): Rust tests,
+  TS tests, library typecheck, Studio typecheck, docs examples, ink oracle,
+  root build, WASM md5 match, server smoke. It is the definition of done; run
+  it before every push. Fast loops while iterating:
   - `pnpm --filter occlude typecheck` and `pnpm --filter occlude-studio typecheck`
   - `pnpm --filter occlude exec vitest run test/three-*.test.ts` (3D tests)
   - `pnpm --filter occlude docs:check` (every docs example renders)
@@ -100,62 +113,81 @@ checkout):
 - The docs live examples must be plain JS-compatible TypeScript (the loader
   strips types naively); do not add type annotations inside ```ts live fences.
 
-### The isolated dev Studio (GPU path)
+### The served dev Studio (GPU path)
 
 The GPU visibility path (WebGPU interval classification) only runs in a
-browser. The established isolated dev service:
+browser, so the GPU numbers come from the served Studio. The service belongs
+to this checkout and you may rebuild and recreate it freely:
 
 ```sh
+cd /home/kalmarv/containers/occlude-3d
 export OCCLUDE_BUILD_STAMP="$(git rev-parse --short HEAD)-<label>"
-docker compose -p occlude-3d -f docker-compose.yml -f compose.3d.yml --profile dev config   # check mounts/ports
 docker compose -p occlude-3d -f docker-compose.yml -f compose.3d.yml --profile dev build dev
 docker compose -p occlude-3d -f docker-compose.yml -f compose.3d.yml --profile dev up -d dev
 ```
 
-It serves `packages/occlude-studio/server.mjs` on host port 5273 with its own
-stores under `packages/occlude-studio/dev-store/` (bind-mounted; never the
-production stores). The served build id is shown in the page footer
-(`#status-build`) and returned per request, so you can confirm you are
-measuring the code you built. The Compose project name `occlude-3d` and port
-5273 belong to the owner's existing dev checkout: if you run a separate
-checkout at the same time, pick another project name and `PORT` in a copy of
-`compose.3d.yml`, and never `down` a project you did not start.
+Facts that matter:
 
-Browser automation: Playwright with the system Chrome on an Xvfb display with
-the NVIDIA adapter (the machine has an RTX 2060). Playwright is not a
-workspace dependency: it is installed only in
-`/home/kalmarv/containers/occlude-3d/packages/occlude-studio/node_modules`.
-In a fresh checkout either `pnpm add -D playwright` in your own
-`packages/occlude-studio` (do not commit the lockfile change) or run the
-scripts from that directory with `node --input-type=module < script.mjs`,
-which is also why the runners are invoked with stdin rather than a path:
-`import 'playwright'` resolves from the current directory. The system Chrome
-is `/usr/bin/google-chrome`; the scripts pass `executablePath` explicitly. Reference: Xvfb `:93`
-(`xdpyinfo -display :93`; start one with `Xvfb :93 -screen 0 1920x1080x24 &`
-if absent). The launch flags that get a real WebGPU adapter are in
+- The container (`occlude-3d-dev-1`, host port 5273, host networking) runs
+  `server.mjs` from the image `occlude-3d-dev:latest`, serving the `dist`
+  that was built **inside the image**. The bind mounts cover only
+  `packages/occlude/src`, `packages/occlude-studio/src`, `docs` and the
+  stores under `packages/occlude-studio/dev-store/`; `dist` is not mounted.
+  So editing the working tree or running `pnpm build` on the host changes
+  nothing that is served: **every GPU measurement needs the Docker build and
+  `up -d` above.** (The note in `CLAUDE.md` that a rebuild needs no restart
+  refers to the native `pnpm --filter occlude-studio serve` path.)
+- The build is the verified build: it runs the nine gates and takes about
+  four minutes; if a gate fails there is no image, which is the point.
+- The stamp is baked into the bundle at build time and shown in the page
+  footer (`#status-build`). Use a distinct `<label>` per measured change and
+  pass the same string as `OCCLUDE_STAMP` to the GPU runner, which waits for
+  it, so you can never measure a stale image by accident.
+- The stores under `dev-store/` are this checkout's own (sketches, fills,
+  assets, results); the production stores are elsewhere and never mounted
+  here.
+
+Browser automation: Playwright with the system Chrome on the Xvfb display
+`:93` with the NVIDIA adapter (RTX 2060). Check it with
+`xdpyinfo -display :93`; start one with `Xvfb :93 -screen 0 1920x1080x24 &`
+if absent. The launch flags that get a real WebGPU adapter are in
 `development/3d/benchmark-surface/gpu.mjs` (`--enable-unsafe-webgpu`,
 Vulkan, `VK_DRIVER_FILES` pointing at the NVIDIA ICD, `headless:false` on
 Xvfb). Headless Chrome gives a software fallback adapter, which is not the
 measurement you want; the Studio reports the adapter in the render reply
-(`three.adapter`) so check it.
+(`three.adapter.isFallbackAdapter`), so assert on it.
 
-Note: the render worker's stats (`reply.three.scenes[*]`: candidates,
-dispatches, refinements, wallMs, gpuMs; `reply.three.modeling[*]`: per
-operation backend, dispatches, transferBytes, wallMs) are what the GPU runner
-records. Use them; add more counters to the stats objects if you need them
-(that is not an API change as long as existing fields stay).
+The render worker's stats (`reply.three.scenes[*]`: candidates, dispatches,
+refinements, wallMs, gpuMs; `reply.three.modeling[*]`: per operation backend,
+dispatches, transferBytes, wallMs) are what the GPU runner records. Use
+them; add more counters to the stats objects if you need them (that is not
+an API change as long as existing fields stay).
+
+### Iterate on the CPU first
+
+The CPU reference runner (`cpu.mts`, run with `tsx`) imports straight from
+`packages/occlude/src`, so it sees your working tree immediately. The
+practical loop is: change, typecheck, `three-*` tests, `docs:hashes --check`,
+CPU numbers; only when a change survives all of that, do the Docker build
+and the GPU run. Expect one GPU measurement per kept change, not per
+experiment.
 
 ### The benchmark runners
 
 - CPU reference, all workloads, cold then warm in one process:
   `cd packages/occlude && nice -n 10 npx tsx ../../development/3d/benchmark-surface/cpu.mts`
   writes `benchmark-surface/cpu.json`.
-- GPU (served Studio): `cd packages/occlude-studio && DISPLAY=:93 OCCLUDE_STAMP=<stamp> nice -n 10 node --input-type=module < ../../development/3d/benchmark-surface/gpu.mjs`
+- GPU (served Studio, after the Docker build and `up -d`):
+  `cd packages/occlude-studio && DISPLAY=:93 OCCLUDE_STAMP=<stamp> nice -n 10 node --input-type=module < ../../development/3d/benchmark-surface/gpu.mjs`
   writes `benchmark-surface/gpu.json` (it waits for the served stamp, edits
   the sketch source in the editor, and times source edit to render reply).
-- Copy both runners rather than editing them in place if you change what
-  they record; keep the original numbers as the baseline. Run each workload
-  at least twice and report cold and warm; note run-to-run noise.
+- The committed `cpu.json`/`gpu.json` are from an older stamp
+  (`bae1191-surface-final`, before depth-cutoff pruning and the API batch).
+  Before your first change, run both runners on the current tip and save the
+  results as `cpu-baseline.json` and `gpu-baseline.json`; those are the
+  numbers you compare against. Copy the runners rather than editing them in
+  place if you change what they record. Run each workload at least twice and
+  report cold and warm; note run-to-run noise.
 - Profiling: `node --cpu-prof` around the CPU runner, or Chrome's
   `page.tracing` / `CDP Profiler` from Playwright for the worker. Flame
   graphs of the vessel before you change anything.
@@ -230,12 +262,13 @@ raster-based coverage, reintroducing default caps, float nudging.
 
 ## Deliverables
 
-- Commits on your branch, one per kept optimization, each with numbers.
+- Commits on your `perf/...` branch in `occlude-3d`, pushed as that branch,
+  one per kept optimization, each with numbers.
 - `development/3d/OPTIMIZATION-LOG.md` (every attempt, kept or reverted, with
   the before/after table at the top).
 - `development/3d/OPTIMIZATION-PROPOSALS.md` (only if you found gains that
   need an API change; each with expected gain and what breaks).
 - Updated `development/3d/benchmark-surface/cpu.json` / `gpu.json` for the
-  final state, and the original ones preserved as `*-baseline.json`.
+  final state beside the `*-baseline.json` you recorded first.
 - A short final report: what got faster by how much on both paths, what did
   not work, and the top three remaining opportunities.
