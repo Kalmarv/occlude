@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { compileSketchAsync, constructStrokes3, FeatureSelection3, lineArt3, sketchAsync, initOcclude, pen, mm, wobble, dash, render, type Toolkit } from '../src/index.js';
-import { classifySceneCpu3 } from '../src/three/visibility/scene.js';
 const scene = () => lineArt3({ camera: { kind:'orthographic', span:4, eye:[0,0,5],target:[0,0,0],up:[0,1,0],near:.1,far:10 }, wires:[{id:'wire',points:[[-1,0,0],[0,0,0],[1,0,0]]}],lineSets:[] });
 beforeAll(async () => { await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))); });
 
@@ -20,7 +19,7 @@ describe('reusable classified line styles', () => {
       const marks = t.strokes3(chained,{modifiers:[dash(mm(2),mm(1)),wobble({amount:mm(.1),wavelength:mm(3)})]});
       expect(marks[0].opts.modifiers?.map(m=>m.kind)).toEqual(['dash','wobble']);
       return marks;
-    }),undefined,{compute3:{async classify(snapshot){calls++;await Promise.resolve();return classifySceneCpu3(snapshot);}}});
+    }),undefined,{onStage:event=>{if(event.stage==='classified')calls++;}});
     expect(calls).toBe(1); expect(run.scenes3.size).toBe(1); expect(run.pendingScenes3.size).toBe(0);
     expect(render(run).stats.fragments).toBeGreaterThan(2);
     expect(()=>toolkit.classify3(value)).toThrow('active async compilation');
@@ -40,7 +39,8 @@ describe('reusable classified line styles', () => {
       await expect(t.classify3(value)).rejects.toThrow('device lost');
       expect((await t.classify3(value)).features.length).toBe(2);
       return null;
-    }),undefined,{compute3:{async classify(snapshot){if(++calls===1)throw new Error('device lost');return classifySceneCpu3(snapshot);}}});
+    // A failure inside the classification job (here injected at its first stage) must release the pending request.
+    }),undefined,{onStage:event=>{if(event.stage==='source'&&++calls===1)throw new Error('device lost');}});
     expect(calls).toBe(2); expect(run.scenes3.size).toBe(1); expect(run.pendingScenes3.size).toBe(0);
   });
 });

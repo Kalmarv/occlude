@@ -1,3 +1,4 @@
+import { runGeometryJob3 } from '../geometry/job.js';
 import { PhaseClock3, type PhaseTimings3 } from '../timing.js';
 import { intervalTolerance3 } from './precision.js';
 import { toPaper3, type CameraFrame3 } from '../camera.js';
@@ -47,11 +48,21 @@ export function refinementTargets3(runs: readonly { interval: Interval3; occlude
   return { refine, closed };
 }
 const finish = (snapshot: FeatureSnapshot3, hidden: Interval3[][], stats: ClassifiedScene3['stats']): ClassifiedScene3 => Object.freeze({ frame: snapshot.frame, referenceFeatures:snapshot.referenceFeatures, curveGraphs:snapshot.curveGraphs, features: Object.freeze(snapshot.features.map((feature, i) => { const ranges = unionIntervals3(hidden[i]); return Object.freeze({ feature, hidden: Object.freeze(ranges.map(r=>Object.freeze(r))), visible: Object.freeze(visibleIntervals3(ranges).map(r=>Object.freeze(r))) }); })), stats: Object.freeze({...stats}) });
+/** The exact classifier as a task-yielding job (a checkpoint every 1024
+ * candidate pairs), so a worker can cancel it and keep its message loop alive;
+ * same result as `classifySceneCpu3`. */
+export function* classifySceneCpuJob3(snapshot: FeatureSnapshot3): Generator<void, ClassifiedScene3> {
+  const start = performance.now(), hidden: Interval3[][] = snapshot.features.map(() => []); let candidates = 0;
+  for (const { feature, pair } of candidatePairs3(snapshot)) {
+    candidates++; const interval = hiddenInterval3(pair.a, pair.b, pair.volume, pair.basis); if (interval) hidden[feature].push(interval);
+    if ((candidates & 1023) === 0) yield;
+  }
+  // Phase timings belong to the runner that drove the job.
+  return finish(snapshot, hidden, { candidates, dispatches: 0, refinements: 0, transferBytes: 0, wallMs: performance.now() - start });
+}
 export function classifySceneCpu3(snapshot: FeatureSnapshot3): ClassifiedScene3 {
-  const timing = new PhaseClock3(), start = performance.now(), hidden: Interval3[][] = snapshot.features.map(() => []); let candidates = 0;
-  timing.measure('cpuMs', () => { for (const { feature, pair } of candidatePairs3(snapshot)) { candidates++; const interval = hiddenInterval3(pair.a, pair.b, pair.volume, pair.basis); if (interval) hidden[feature].push(interval); } });
-  const result = timing.measure('finalizeMs', () => finish(snapshot, hidden, { candidates, dispatches: 0, refinements: 0, transferBytes: 0, wallMs: performance.now() - start }));
-  return Object.freeze({...result, stats:Object.freeze({...result.stats,timings:timing.finish()})});
+  const job = runGeometryJob3(classifySceneCpuJob3(snapshot));
+  return Object.freeze({...job.value, stats:Object.freeze({...job.value.stats,timings:job.timings})});
 }
 export async function classifySceneGpu3(snapshot: FeatureSnapshot3, gpu: GpuIntervals3, options: { signal?: AbortSignal; pairCapacity?: number; maxCandidates?: number; parameterTolerance?: number; paperToleranceMm?: number } = {}): Promise<ClassifiedScene3> {
   const capacity = options.pairCapacity ?? 8192, limit = options.maxCandidates ?? Infinity;

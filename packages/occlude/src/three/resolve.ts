@@ -1,7 +1,6 @@
 import {PhaseClock3} from './timing.js';
 import {isProjectedStrokes} from './api/projected.js';
 import type {ClassifiedScene3} from './visibility/scene.js';
-import { paperBudget3 } from './visibility/precision.js';
 import { sourceStrokeShapes3 } from './strokes/paper.js';
 import type { ModifierValue } from '../shapes.js';
 import { stroke, type Tree, type GroupValue, type ClipValue } from '../api.js';
@@ -10,7 +9,8 @@ import { paperToUser } from '../record.js';
 import { cameraFrame3, toPaper3 } from './camera.js';
 import type { Feature3 } from './features/snapshot.js';
 import { featureSnapshot3 } from './features/snapshot.js';
-import { classifySceneCpu3 } from './visibility/scene.js';
+import { classifySceneCpuJob3 } from './visibility/scene.js';
+import { runGeometryJobAsync3 } from './geometry/job.js';
 import { constructStrokes3, type Stroke3 } from './strokes/construct.js';
 import { isLineArt3, type LineArtScene3, type SceneCompute3 } from './scene.js';
 import { isDrawing3 } from './drawing.js';
@@ -77,7 +77,14 @@ export async function classifyForRun3(exec: Execution, scene: LineArtScene3, opt
     const camera = Object.hasOwn(exec.cameras3, key) ? exec.cameras3[key] : scene.camera;
     const snapshot = timing.measure('captureMs',()=>featureSnapshot3(scene.objects, scene.wires, cameraFrame3(camera, viewport),f.inner,scene.curves));
     if (options.onStage && !options.signal?.aborted) options.onStage({ stage: 'source', scene: key, paper: { w: exec.paper.w, h: exec.paper.h }, ...draftSegments(snapshot.frame, snapshot.features.map(feature => ({ feature, ranges: [[0, 1]] as const }))) });
-    const result = options.compute3 ? await options.compute3.classify(snapshot, { ...options, paperToleranceMm: paperBudget3([...exec.pens.values()].map(pen => pen.width)) }) : classifySceneCpu3(snapshot);
+    // Visibility is classified on the CPU everywhere: the exact classifier
+    // beats the GPU interval classifier 1.4-3.8x on every measured workload
+    // (development/3d/OPTIMIZATION-PROPOSALS.md), because the GPU path hands
+    // most pairs back for exact refinement anyway. `compute3` keeps the GPU
+    // for modeling (surface evaluation, tone) and the construction viewport.
+    const job = await runGeometryJobAsync3(classifySceneCpuJob3(snapshot), options.signal);
+    timing.merge(job.timings);
+    const result = job.value;
     if (options.onStage && !options.signal?.aborted) options.onStage({ stage: 'classified', scene: key, paper: { w: exec.paper.w, h: exec.paper.h }, ...draftSegments(result.frame, result.features.map(row => ({ feature: row.feature, ranges: row.visible }))) });
     timing.merge(result.stats.timings);
     const classified=Object.freeze({...result,stats:Object.freeze({...result.stats,timings:timing.finish()})});

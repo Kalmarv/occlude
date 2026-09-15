@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { pen, mm, clip, rect, compileSketch, compileSketchAsync, group, initOcclude, line, lineArt3, render, renderAsync, sketch, type Camera3, type SceneCompute3 } from '../src/index.js';
-import { classifySceneCpu3 } from '../src/three/visibility/scene.js';
 
 beforeAll(async () => { await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))); });
 const camera: Camera3 = { kind: 'orthographic', span: 2, eye: [0,0,5], target: [0,0,0], up: [0,1,0], near: .1, far: 10 };
@@ -21,10 +20,10 @@ describe('deferred 3D scene composition', () => {
   });
   it('applies group transforms after projection and reuses one captured visibility result', async () => {
     const value = scene(); let calls = 0;
-    const compute3: SceneCompute3 = { async classify(snapshot) { calls++; return classifySceneCpu3(snapshot); } };
+    const onStage = (event: { stage: string }) => { if (event.stage === 'classified') calls++; };
     const config = { pens, aspect: 'square' as const };
     const def = sketch(config, () => [value, group({ translate: [10, 0] }, value)]);
-    const run = await compileSketchAsync(def, undefined, { compute3 });
+    const run = await compileSketchAsync(def, undefined, { onStage });
     expect(calls).toBe(1); expect(run.scenes3.size).toBe(1);
     const expected = sketch(config, () => [line(25,25,75,25,{stroke:'black',preserveStroke:true}), line(35,25,85,25,{stroke:'black',preserveStroke:true})]);
     expect(render(run).raw.prims).toEqual(render(expected).raw.prims);
@@ -37,8 +36,8 @@ describe('deferred 3D scene composition', () => {
     expect(value.wires[0].points[0][0]).toBe(-.5);
     expect(Object.isFrozen(value.wires[0].points[0])).toBe(true);
     const abort = new AbortController();
-    const compute3: SceneCompute3 = { async classify(snapshot) { abort.abort(); return classifySceneCpu3(snapshot); } };
-    await expect(compileSketchAsync(sketch({ pens }, () => value), undefined, { compute3, signal: abort.signal })).rejects.toThrow();
+    const onStage = (event: { stage: string }) => { if (event.stage === 'source') abort.abort(); };
+    await expect(compileSketchAsync(sketch({ pens }, () => value), undefined, { onStage, signal: abort.signal })).rejects.toThrow();
   });
 });
 

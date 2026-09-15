@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, expect, it } from 'vitest';
 import { box3, clip, commitCamera3, compileSketchAsync, constructStrokes3, dash, drawing3, group, initOcclude, label, lineArt3, mask, mm, pen, rect, render, sketch, sketchAsync, type Camera3, type SceneCompute3 } from '../src/index.js';
-import { classifySceneCpu3 } from '../src/three/visibility/scene.js';
 
 beforeAll(async () => { await initOcclude(readFileSync(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))); });
 const camera: Camera3 = { kind: 'orthographic', span: 4, eye: [4,6,5], target: [0,0,0], near: .1, far: 30 };
@@ -39,16 +38,17 @@ it.each(['topLeft', 'center'] as const)('commits a camera without modeling again
 it('reinterprets styles against the new snapshot and shares unaffected classification', async () => {
   const a = scene(), b = scene(); let calls = 0, models = 0;
   const views: unknown[] = [];
-  const compute3: SceneCompute3 = { async classify(snapshot) { calls++; return classifySceneCpu3(snapshot); } };
+  // Every classification announces its 'classified' stage once.
+  const onStage = (event: { stage: string }) => { if (event.stage === 'classified') calls++; };
   const original = await compileSketchAsync(sketch(config, () => {
     models++;
     return [drawing3(a, (view, t) => {
       views.push(view);
       return t.strokes3(constructStrokes3(view, [{ id: 'hidden', stroke: 'ink', visibility: 'hidden' }]));
     }), b];
-  }), undefined, { compute3 });
+  }), undefined, { onStage });
   expect(calls).toBe(2);
-  const committed = await commitCamera3(original, a, other, { compute3 });
+  const committed = await commitCamera3(original, a, other, { onStage });
   expect(calls).toBe(3); expect(models).toBe(1);
   expect(views).toHaveLength(2); expect(views[0]).not.toBe(views[1]);
   expect(committed.scenes3.get(b)).toBe(original.scenes3.get(b));
@@ -72,8 +72,9 @@ it('does not adopt a canceled classification or corrupt the original result', as
   const original = await compileSketchAsync(sketch(config, () => source));
   const before = render(original).raw.prims;
   const abort = new AbortController();
-  const compute3: SceneCompute3 = { async classify(snapshot) { abort.abort(); return classifySceneCpu3(snapshot); } };
-  await expect(commitCamera3(original, source, other, { signal: abort.signal, compute3 })).rejects.toThrow();
+  // Cancel once the snapshot is taken, before classification runs.
+  const onStage = (event: { stage: string }) => { if (event.stage === 'source') abort.abort(); };
+  await expect(commitCamera3(original, source, other, { signal: abort.signal, onStage })).rejects.toThrow();
   expect(original.scenes3.size).toBe(1);
   expect(render(original).raw.prims).toEqual(before);
   const committed = await commitCamera3(original, source, other);
