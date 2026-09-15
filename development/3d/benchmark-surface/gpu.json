@@ -1,6 +1,6 @@
 {
   "base": "http://127.0.0.1:5273",
-  "stamp": "ea22e2e-perf4",
+  "stamp": "c87e7cb-merged",
   "adapter": {
     "vendor": "nvidia",
     "architecture": "turing",
@@ -15,7 +15,7 @@
       "runs": [
         {
           "pass": "cold",
-          "wallMs": 3319,
+          "wallMs": 5231,
           "renderMs": 4,
           "modeling": [
             {
@@ -23,7 +23,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 1247,
+              "wallMs": 1920,
               "mapping": {
                 "outputSegments": 6080
               }
@@ -34,22 +34,22 @@
               "candidates": 38991,
               "dispatches": 5,
               "refinements": 31014,
-              "wallMs": 790,
-              "gpuMs": 0.051232
+              "wallMs": 1294,
+              "gpuMs": 0.051328
             }
           ]
         },
         {
           "pass": "warm",
-          "wallMs": 3182,
-          "renderMs": 4,
+          "wallMs": 4779,
+          "renderMs": 5,
           "modeling": [
             {
               "operation": "mapSurface",
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 1250,
+              "wallMs": 1913,
               "mapping": {
                 "outputSegments": 6080
               }
@@ -60,8 +60,8 @@
               "candidates": 38991,
               "dispatches": 5,
               "refinements": 31014,
-              "wallMs": 755,
-              "gpuMs": 0.051168000000000005
+              "wallMs": 1204,
+              "gpuMs": 0.051392
             }
           ]
         }
@@ -72,15 +72,15 @@
       "runs": [
         {
           "pass": "cold",
-          "wallMs": 14723,
-          "renderMs": 35,
+          "wallMs": 16095,
+          "renderMs": 30,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 4541,
+              "wallMs": 5341,
               "hatch": {
                 "traces": 52,
                 "segments": 21401,
@@ -99,7 +99,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 3805,
+              "wallMs": 3903,
               "hatch": {
                 "traces": 576,
                 "segments": 17336,
@@ -119,22 +119,22 @@
               "candidates": 176015,
               "dispatches": 22,
               "refinements": 82265,
-              "wallMs": 3387,
-              "gpuMs": 0.22908799999999996
+              "wallMs": 3861,
+              "gpuMs": 0.22079999999999997
             }
           ]
         },
         {
           "pass": "warm",
-          "wallMs": 14855,
-          "renderMs": 13,
+          "wallMs": 15949,
+          "renderMs": 20,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 4425,
+              "wallMs": 4800,
               "hatch": {
                 "traces": 52,
                 "segments": 21401,
@@ -153,7 +153,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 3872,
+              "wallMs": 4168,
               "hatch": {
                 "traces": 576,
                 "segments": 17336,
@@ -173,8 +173,8 @@
               "candidates": 176015,
               "dispatches": 22,
               "refinements": 82265,
-              "wallMs": 3491,
-              "gpuMs": 0.219104
+              "wallMs": 3683,
+              "gpuMs": 0.21888000000000002
             }
           ]
         }
@@ -185,42 +185,7 @@
       "runs": [
         {
           "pass": "cold",
-          "wallMs": 5418,
-          "renderMs": 13,
-          "modeling": [
-            {
-              "operation": "hatch",
-              "backend": "gpu",
-              "dispatches": 2,
-              "transferBytes": 1667184,
-              "wallMs": 2506,
-              "hatch": {
-                "traces": 927,
-                "segments": 10850,
-                "tone": {
-                  "locations": 22977,
-                  "dispatches": 2,
-                  "transferBytes": 1667184,
-                  "refinements": 0,
-                  "ambiguous": 101,
-                  "backend": "gpu"
-                }
-              }
-            }
-          ],
-          "scenes": [
-            {
-              "candidates": 54215,
-              "dispatches": 7,
-              "refinements": 30005,
-              "wallMs": 1053,
-              "gpuMs": 0.061919999999999996
-            }
-          ]
-        },
-        {
-          "pass": "warm",
-          "wallMs": 4767,
+          "wallMs": 5430,
           "renderMs": 7,
           "modeling": [
             {
@@ -228,7 +193,7 @@
               "backend": "gpu",
               "dispatches": 2,
               "transferBytes": 1667184,
-              "wallMs": 2293,
+              "wallMs": 2649,
               "hatch": {
                 "traces": 927,
                 "segments": 10850,
@@ -248,8 +213,43 @@
               "candidates": 54215,
               "dispatches": 7,
               "refinements": 30005,
-              "wallMs": 1031,
-              "gpuMs": 0.071008
+              "wallMs": 1111,
+              "gpuMs": 0.071232
+            }
+          ]
+        },
+        {
+          "pass": "warm",
+          "wallMs": 5472,
+          "renderMs": 7,
+          "modeling": [
+            {
+              "operation": "hatch",
+              "backend": "gpu",
+              "dispatches": 2,
+              "transferBytes": 1667184,
+              "wallMs": 2550,
+              "hatch": {
+                "traces": 927,
+                "segments": 10850,
+                "tone": {
+                  "locations": 22977,
+                  "dispatches": 2,
+                  "transferBytes": 1667184,
+                  "refinements": 0,
+                  "ambiguous": 101,
+                  "backend": "gpu"
+                }
+              }
+            }
+          ],
+          "scenes": [
+            {
+              "candidates": 54215,
+              "dispatches": 7,
+              "refinements": 30005,
+              "wallMs": 1126,
+              "gpuMs": 0.070016
             }
           ]
         }
@@ -260,7 +260,7 @@
       "runs": [
         {
           "pass": "cold",
-          "wallMs": 5095,
+          "wallMs": 5075,
           "renderMs": 1,
           "modeling": [
             {
@@ -268,7 +268,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 150,
+              "wallMs": 161,
               "intersections": {
                 "outputSegments": 136
               }
@@ -278,7 +278,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 197,
+              "wallMs": 178,
               "intersections": {
                 "outputSegments": 87
               }
@@ -288,7 +288,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 634,
+              "wallMs": 625,
               "intersections": {
                 "outputSegments": 165
               }
@@ -298,7 +298,7 @@
               "backend": "gpu",
               "dispatches": 1,
               "transferBytes": 458416,
-              "wallMs": 1126,
+              "wallMs": 1129,
               "hatch": {
                 "traces": 136,
                 "segments": 5461,
@@ -318,14 +318,14 @@
               "candidates": 233908,
               "dispatches": 29,
               "refinements": 43997,
-              "wallMs": 2083,
-              "gpuMs": 0.29750400000000005
+              "wallMs": 2128,
+              "gpuMs": 0.29276800000000003
             }
           ]
         },
         {
           "pass": "warm",
-          "wallMs": 4478,
+          "wallMs": 4550,
           "renderMs": 1,
           "modeling": [
             {
@@ -333,7 +333,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 189,
+              "wallMs": 174,
               "intersections": {
                 "outputSegments": 136
               }
@@ -343,7 +343,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 170,
+              "wallMs": 174,
               "intersections": {
                 "outputSegments": 87
               }
@@ -353,7 +353,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 651,
+              "wallMs": 623,
               "intersections": {
                 "outputSegments": 165
               }
@@ -363,7 +363,7 @@
               "backend": "gpu",
               "dispatches": 1,
               "transferBytes": 458416,
-              "wallMs": 1067,
+              "wallMs": 1066,
               "hatch": {
                 "traces": 136,
                 "segments": 5461,
@@ -383,8 +383,8 @@
               "candidates": 233908,
               "dispatches": 29,
               "refinements": 43997,
-              "wallMs": 1603,
-              "gpuMs": 0.2883840000000001
+              "wallMs": 1705,
+              "gpuMs": 0.2900480000000001
             }
           ]
         }
@@ -395,33 +395,7 @@
       "runs": [
         {
           "pass": "cold",
-          "wallMs": 1116,
-          "renderMs": 1,
-          "modeling": [
-            {
-              "operation": "mapSurface",
-              "backend": "cpu",
-              "dispatches": 0,
-              "transferBytes": 0,
-              "wallMs": 19,
-              "mapping": {
-                "outputSegments": 23
-              }
-            }
-          ],
-          "scenes": [
-            {
-              "candidates": 13924,
-              "dispatches": 2,
-              "refinements": 9387,
-              "wallMs": 270,
-              "gpuMs": 0.015328
-            }
-          ]
-        },
-        {
-          "pass": "warm",
-          "wallMs": 954,
+          "wallMs": 1083,
           "renderMs": 2,
           "modeling": [
             {
@@ -429,7 +403,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 4,
+              "wallMs": 34,
               "mapping": {
                 "outputSegments": 23
               }
@@ -440,8 +414,34 @@
               "candidates": 13924,
               "dispatches": 2,
               "refinements": 9387,
-              "wallMs": 216,
-              "gpuMs": 0.016064000000000002
+              "wallMs": 238,
+              "gpuMs": 0.019104000000000003
+            }
+          ]
+        },
+        {
+          "pass": "warm",
+          "wallMs": 990,
+          "renderMs": 4,
+          "modeling": [
+            {
+              "operation": "mapSurface",
+              "backend": "cpu",
+              "dispatches": 0,
+              "transferBytes": 0,
+              "wallMs": 3,
+              "mapping": {
+                "outputSegments": 23
+              }
+            }
+          ],
+          "scenes": [
+            {
+              "candidates": 13924,
+              "dispatches": 2,
+              "refinements": 9387,
+              "wallMs": 230,
+              "gpuMs": 0.020128
             }
           ]
         }
@@ -452,15 +452,15 @@
       "runs": [
         {
           "pass": "cold",
-          "wallMs": 28170,
-          "renderMs": 34,
+          "wallMs": 29735,
+          "renderMs": 37,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 16044,
+              "wallMs": 16673,
               "hatch": {
                 "traces": 144,
                 "segments": 80978,
@@ -480,22 +480,22 @@
               "candidates": 363798,
               "dispatches": 45,
               "refinements": 140608,
-              "wallMs": 7186,
-              "gpuMs": 0.373408
+              "wallMs": 7401,
+              "gpuMs": 0.4482560000000001
             }
           ]
         },
         {
           "pass": "warm",
-          "wallMs": 28443,
-          "renderMs": 28,
+          "wallMs": 29818,
+          "renderMs": 29,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 15929,
+              "wallMs": 16825,
               "hatch": {
                 "traces": 144,
                 "segments": 80978,
@@ -515,8 +515,8 @@
               "candidates": 363798,
               "dispatches": 45,
               "refinements": 140608,
-              "wallMs": 7190,
-              "gpuMs": 0.42224
+              "wallMs": 7503,
+              "gpuMs": 0.4457280000000002
             }
           ]
         }
@@ -527,31 +527,31 @@
       "runs": [
         {
           "pass": "cold",
-          "wallMs": 45881,
-          "renderMs": 110,
+          "wallMs": 48827,
+          "renderMs": 138,
           "modeling": [],
           "scenes": [
             {
               "candidates": 2255812,
               "dispatches": 276,
               "refinements": 1458163,
-              "wallMs": 36699,
-              "gpuMs": 2.7501120000000037
+              "wallMs": 39183,
+              "gpuMs": 2.770496000000004
             }
           ]
         },
         {
           "pass": "warm",
-          "wallMs": 43662,
-          "renderMs": 71,
+          "wallMs": 45847,
+          "renderMs": 74,
           "modeling": [],
           "scenes": [
             {
               "candidates": 2255812,
               "dispatches": 276,
               "refinements": 1458163,
-              "wallMs": 35402,
-              "gpuMs": 2.7452160000000028
+              "wallMs": 36682,
+              "gpuMs": 2.771776000000004
             }
           ]
         }

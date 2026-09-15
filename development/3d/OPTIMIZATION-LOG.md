@@ -8,8 +8,10 @@ recorded here, kept or reverted. Numbers are from this box (shared; run under
 
 | workload | metric | baseline (bfbdf93) | current | delta |
 | --- | --- | --- | --- | --- |
-| woven-vessel | compile ms | 25040 | 18246 | −27.1% |
+| woven-vessel | compile ms | 25040 | 18272 | −26.9% |
 | woven-vessel | visibility ms | 17513 | 9826 | −43.9% |
+
+(Post-merge CPU reference; see entry 5 for the merge and for run-to-run noise.)
 
 Baselines: `benchmark-surface/cpu-baseline.json`, `gpu-baseline.json`
 (recorded on `bfbdf93` before any change). The woven-vessel rows quoted above
@@ -263,3 +265,59 @@ Correctness: `vitest run` 1058 passed / 1 skipped; `docs:hashes --check`
 byte length identical.
 
 Verdict: kept.
+
+## 5. Merge `origin/master` (dd7cbfb) into the branch    (merge commit on this branch)
+
+`origin/dev` and `origin/master` are the same commit and had moved four
+commits past the branch point: pivoted-transform origins / own trace seeds /
+revision-keyed gradients (`77b23b3`), list-form intersections (`96db1c8`),
+the intersection pair prefix (`2a1ac66`), and hatch ruled across the sheet
+rather than the face (`dd7cbfb`). The diff touches `three/api/hatch.ts`,
+`three/api/intersections.ts`, `three/api/mesh.ts`, `three/modeling.ts`,
+`three/curves/hatch.ts`, `three/surface/fields.ts`, `docs/three.md` and four
+test files — nothing under `three/visibility/`, `three/geometry/exact.ts` or
+`compute/webgpu/`. The merge was clean, no conflicts.
+
+Correctness: `pnpm check` all nine gates green on the merged tree. For the
+ink, the earlier captures are the wrong comparison — upstream may legitimately
+move ink — so the oracle is the merged branch against plain `origin/master`.
+An image was built at `dd7cbfb` (with the measurement-only `RENDER_TIMEOUT_MS`
+bump so the un-optimized vessel can finish and be digested; never committed)
+and one at the merge commit, and `ink-digest.mjs` was run against each:
+
+| workload | `dd7cbfb-master` | `c87e7cb-merged` |
+| --- | --- | --- |
+| mapped-plane | 2de760138ddf580083172e92ad694b3c | identical |
+| primitive-crosshatch | 421402e08e4903f32d3b8cff473e00d9 | identical |
+| custom-curvature | 0b1dfa6745d8c396ff1a0671ab67c9f6 | identical |
+| intersection-assembly | d6ae27e156deb1b530a94013f527aabe | identical |
+| repeated-prototypes | 03e23e254b165cc2935252a82750818b | identical |
+| hatch-density | 531b086fc97473c63e5d792e6c72f7ae | identical |
+| woven-vessel | 7d99c7c70c23e6dcc88e43c24b867177 | identical |
+
+All seven also equal the branch-point capture, so the four upstream commits
+do not move these workloads either; the sheet-wide rulings change nothing for
+them. The merged capture ran at the real 60 s watchdog and the vessel
+returned, so it is not relying on the raised timeout.
+
+`cpu.json` and `gpu.json` were re-recorded on the merged tree.
+
+### Run-to-run noise, stated plainly
+
+This box is shared. The merged GPU numbers were taken at load average 6–9 and
+are visibly worse than the pre-merge run taken on a quieter box, although the
+CPU reference barely moved (vessel warm 18542 → 18272 ms):
+
+| woven-vessel, Studio wall ms | cold | warm |
+| --- | --- | --- |
+| pre-merge, quiet box | 45881 | 43662 |
+| merged, load ~8 | 57546 | 46578 |
+| merged, load ~7 | 48827 | 45847 |
+
+So the honest statement about the brief's target is: the vessel returned a
+render reply on every one of the four measured passes, where at the branch
+point it returned none — but the worst cold pass under load was 57.5 s
+against a 60 s watchdog. The headroom is real but not large, and it is
+load-dependent. The CPU-classification proposal in
+`OPTIMIZATION-PROPOSALS.md` takes the same render to ~18 s, which is the
+margin that would make the target safe rather than met.

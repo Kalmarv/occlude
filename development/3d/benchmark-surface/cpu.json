@@ -7,14 +7,14 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 2649,
-          "svgMs": 82,
+          "compileMs": 2619,
+          "svgMs": 84,
           "svgBytes": 105245,
           "modeling": [
             {
               "operation": "mapSurface",
               "backend": "cpu",
-              "wallMs": 1138,
+              "wallMs": 1104,
               "segments": 6080
             }
           ],
@@ -22,20 +22,20 @@
             {
               "features": 8192,
               "candidates": 38991,
-              "wallMs": 391
+              "wallMs": 405
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 2637,
-          "svgMs": 35,
+          "compileMs": 2506,
+          "svgMs": 28,
           "svgBytes": 105245,
           "modeling": [
             {
               "operation": "mapSurface",
               "backend": "cpu",
-              "wallMs": 1076,
+              "wallMs": 1067,
               "segments": 6080
             }
           ],
@@ -43,7 +43,7 @@
             {
               "features": 8192,
               "candidates": 38991,
-              "wallMs": 379
+              "wallMs": 348
             }
           ]
         }
@@ -54,14 +54,14 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 12069,
-          "svgMs": 127,
+          "compileMs": 11774,
+          "svgMs": 128,
           "svgBytes": 237672,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 3638,
+              "wallMs": 3512,
               "segments": 21401,
               "traces": 52,
               "toneLocations": 25004,
@@ -70,7 +70,7 @@
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 3307,
+              "wallMs": 3389,
               "segments": 17372,
               "traces": 575,
               "toneLocations": 31020,
@@ -81,20 +81,20 @@
             {
               "features": 40686,
               "candidates": 176255,
-              "wallMs": 2169
+              "wallMs": 2128
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 11668,
-          "svgMs": 86,
+          "compileMs": 11838,
+          "svgMs": 91,
           "svgBytes": 237672,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 3576,
+              "wallMs": 3542,
               "segments": 21401,
               "traces": 52,
               "toneLocations": 25004,
@@ -103,7 +103,7 @@
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 3029,
+              "wallMs": 3134,
               "segments": 17372,
               "traces": 575,
               "toneLocations": 31020,
@@ -114,7 +114,7 @@
             {
               "features": 40686,
               "candidates": 176255,
-              "wallMs": 2150
+              "wallMs": 2133
             }
           ]
         }
@@ -125,14 +125,14 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 4347,
-          "svgMs": 49,
+          "compileMs": 4528,
+          "svgMs": 58,
           "svgBytes": 205099,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 2035,
+              "wallMs": 2049,
               "segments": 10850,
               "traces": 927,
               "toneLocations": 22977,
@@ -143,20 +143,20 @@
             {
               "features": 13022,
               "candidates": 54215,
-              "wallMs": 666
+              "wallMs": 749
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 4313,
-          "svgMs": 62,
+          "compileMs": 4240,
+          "svgMs": 54,
           "svgBytes": 205099,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 2000,
+              "wallMs": 1993,
               "segments": 10850,
               "traces": 927,
               "toneLocations": 22977,
@@ -167,7 +167,7 @@
             {
               "features": 13022,
               "candidates": 54215,
-              "wallMs": 756
+              "wallMs": 733
             }
           ]
         }
@@ -178,14 +178,14 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 2690,
-          "svgMs": 3,
+          "compileMs": 2730,
+          "svgMs": 4,
           "svgBytes": 9464,
           "modeling": [
             {
               "operation": "intersections",
               "backend": "cpu",
-              "wallMs": 131,
+              "wallMs": 136,
               "segments": 136
             },
             {
@@ -197,13 +197,13 @@
             {
               "operation": "intersections",
               "backend": "cpu",
-              "wallMs": 421,
+              "wallMs": 420,
               "segments": 165
             },
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 803,
+              "wallMs": 827,
               "segments": 5442,
               "traces": 131,
               "toneLocations": 6957,
@@ -214,13 +214,13 @@
             {
               "features": 6926,
               "candidates": 233407,
-              "wallMs": 694
+              "wallMs": 674
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 2653,
+          "compileMs": 2694,
           "svgMs": 3,
           "svgBytes": 9464,
           "modeling": [
@@ -233,7 +233,7 @@
             {
               "operation": "intersections",
               "backend": "cpu",
-              "wallMs": 119,
+              "wallMs": 120,
               "segments": 87
             },
             {
@@ -245,7 +245,7 @@
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 822,
+              "wallMs": 787,
               "segments": 5442,
               "traces": 131,
               "toneLocations": 6957,
@@ -256,7 +256,7 @@
             {
               "features": 6926,
               "candidates": 233407,
-              "wallMs": 700
+              "wallMs": 753
             }
           ]
         }
@@ -267,14 +267,14 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 477,
-          "svgMs": 19,
+          "compileMs": 533,
+          "svgMs": 18,
           "svgBytes": 63250,
           "modeling": [
             {
               "operation": "mapSurface",
               "backend": "cpu",
-              "wallMs": 5,
+              "wallMs": 6,
               "segments": 23
             }
           ],
@@ -282,13 +282,13 @@
             {
               "features": 2178,
               "candidates": 13924,
-              "wallMs": 122
+              "wallMs": 142
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 479,
+          "compileMs": 498,
           "svgMs": 15,
           "svgBytes": 63250,
           "modeling": [
@@ -303,7 +303,7 @@
             {
               "features": 2178,
               "candidates": 13924,
-              "wallMs": 123
+              "wallMs": 134
             }
           ]
         }
@@ -314,14 +314,14 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 23245,
-          "svgMs": 119,
+          "compileMs": 23556,
+          "svgMs": 126,
           "svgBytes": 430768,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 12680,
+              "wallMs": 12654,
               "segments": 80978,
               "traces": 144,
               "toneLocations": 92513,
@@ -332,20 +332,20 @@
             {
               "features": 84002,
               "candidates": 363798,
-              "wallMs": 4884
+              "wallMs": 5215
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 22944,
-          "svgMs": 111,
+          "compileMs": 23004,
+          "svgMs": 112,
           "svgBytes": 430768,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
-              "wallMs": 12622,
+              "wallMs": 12764,
               "segments": 80978,
               "traces": 144,
               "toneLocations": 92513,
@@ -356,7 +356,7 @@
             {
               "features": 84002,
               "candidates": 363798,
-              "wallMs": 4847
+              "wallMs": 4705
             }
           ]
         }
@@ -367,29 +367,29 @@
       "runs": [
         {
           "pass": "cold",
-          "compileMs": 19473,
-          "svgMs": 1192,
+          "compileMs": 19827,
+          "svgMs": 1054,
           "svgBytes": 1964750,
           "modeling": [],
           "scenes": [
             {
               "features": 35302,
               "candidates": 2255812,
-              "wallMs": 10004
+              "wallMs": 10093
             }
           ]
         },
         {
           "pass": "warm",
-          "compileMs": 18542,
-          "svgMs": 411,
+          "compileMs": 18272,
+          "svgMs": 417,
           "svgBytes": 1964750,
           "modeling": [],
           "scenes": [
             {
               "features": 35302,
               "candidates": 2255812,
-              "wallMs": 10321
+              "wallMs": 10045
             }
           ]
         }

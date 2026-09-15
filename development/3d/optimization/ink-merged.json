@@ -1,0 +1,137 @@
+{
+  "base": "http://127.0.0.1:5273",
+  "stamp": "c87e7cb-merged",
+  "adapter": {
+    "vendor": "nvidia",
+    "architecture": "turing",
+    "device": "",
+    "description": "",
+    "isFallbackAdapter": false
+  },
+  "realAdapter": true,
+  "inputs": {
+    "seed": "42",
+    "paper": {
+      "w": 203.2,
+      "h": 203.2
+    },
+    "frame": {
+      "inner": {
+        "innerW": 182.88,
+        "innerH": 182.88
+      },
+      "offsetX": 10.16,
+      "offsetY": 10.16,
+      "origin": "topLeft",
+      "yUp": false,
+      "rectMode": "corner",
+      "paperW": 203.2,
+      "paperH": 203.2
+    },
+    "pens": [
+      {
+        "color": "#111111",
+        "feed": 3000,
+        "penDown": 0,
+        "penUp": 5,
+        "penDelay": 100,
+        "width": 0.2,
+        "name": "ink"
+      }
+    ]
+  },
+  "rows": [
+    {
+      "name": "mapped-plane",
+      "digest": "2de760138ddf580083172e92ad694b3c",
+      "prims": 55008,
+      "frags": 54468,
+      "scenes": [
+        {
+          "candidates": 38991,
+          "dispatches": 5,
+          "refinements": 31014
+        }
+      ]
+    },
+    {
+      "name": "primitive-crosshatch",
+      "digest": "421402e08e4903f32d3b8cff473e00d9",
+      "prims": 232623,
+      "frags": 121221,
+      "scenes": [
+        {
+          "candidates": 176015,
+          "dispatches": 22,
+          "refinements": 82265
+        }
+      ]
+    },
+    {
+      "name": "custom-curvature",
+      "digest": "0b1dfa6745d8c396ff1a0671ab67c9f6",
+      "prims": 96993,
+      "frags": 91413,
+      "scenes": [
+        {
+          "candidates": 54215,
+          "dispatches": 7,
+          "refinements": 30005
+        }
+      ]
+    },
+    {
+      "name": "intersection-assembly",
+      "digest": "d6ae27e156deb1b530a94013f527aabe",
+      "prims": 10800,
+      "frags": 2655,
+      "scenes": [
+        {
+          "candidates": 233908,
+          "dispatches": 29,
+          "refinements": 43997
+        }
+      ]
+    },
+    {
+      "name": "repeated-prototypes",
+      "digest": "03e23e254b165cc2935252a82750818b",
+      "prims": 14310,
+      "frags": 14454,
+      "scenes": [
+        {
+          "candidates": 13924,
+          "dispatches": 2,
+          "refinements": 9387
+        }
+      ]
+    },
+    {
+      "name": "hatch-density",
+      "digest": "531b086fc97473c63e5d792e6c72f7ae",
+      "prims": 492750,
+      "frags": 239058,
+      "scenes": [
+        {
+          "candidates": 363798,
+          "dispatches": 45,
+          "refinements": 140608
+        }
+      ]
+    },
+    {
+      "name": "woven-vessel",
+      "digest": "7d99c7c70c23e6dcc88e43c24b867177",
+      "prims": 446796,
+      "frags": 426816,
+      "scenes": [
+        {
+          "candidates": 2255812,
+          "dispatches": 276,
+          "refinements": 1458163
+        }
+      ]
+    }
+  ],
+  "errors": []
+}
