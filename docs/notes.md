@@ -604,4 +604,6 @@ visible proof that skips a feature's own triangles; cluster ids per cell so a
 cluster behind a cover is dropped once; workers by feature range. The
 raster could also skip tracing hatch lines on covered triangles, but that
 changes which lines are seeded and where dashes fall: a decision, not a
-filter. Nib-size LOD likewise changes ink and would be an explicit mode.
+filter. The ink-preserving version, parked 2026-09-15: keep tracing hidden
+lines (seeding and dash phase stay exact) but skip building their exact
+network nodes and segments, which is most of the remaining hatch cost. Nib-size LOD likewise changes ink and would be an explicit mode.
