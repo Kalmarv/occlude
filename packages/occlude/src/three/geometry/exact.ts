@@ -24,17 +24,23 @@ export function homogeneous(values:readonly Dyadic[]):H {
 }
 export const abs=(n:bigint)=>n<0n?-n:n;
 export function gcd(a:bigint,b:bigint):bigint{a=abs(a);b=abs(b);while(b){const next=a%b;a=b;b=next;}return a;}
-/** Remove common factors once, keeping subsequent dot products compact. */
-export function reduce(p:H):H {const divisor=p.reduce(gcd,0n);return divisor>1n?p.map(n=>n/divisor) as unknown as H:p;}
+/** Remove common factors once, keeping subsequent dot products compact. A
+ * running divisor of one cannot shrink further, so the remaining gcds are the
+ * same answer computed the slow way. */
+export function reduce(p:H):H {
+  let divisor=abs(p[0]);
+  for(let i=1;i<4&&divisor!==1n;i++)divisor=gcd(divisor,p[i]);
+  return divisor>1n?[p[0]/divisor,p[1]/divisor,p[2]/divisor,p[3]/divisor]:p;
+}
 export const point=(v:Vec3):H=>homogeneous([...v.map(dyadic),[1n,0]]);
-export const dot=(a:H,b:H)=>a.reduce((s,n,i)=>s+n*b[i],0n);
+export const dot=(a:H,b:H)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];
 export const dot3=(a:readonly bigint[],b:readonly bigint[])=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 export const cross=(a:V,b:V):V=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
 export const difference=(a:H,b:H):V=>[a[0]*b[3]-b[0]*a[3],a[1]*b[3]-b[1]*a[3],a[2]*b[3]-b[2]*a[3]];
 export const at=(normal:V,p:H):H=>reduce([normal[0]*p[3],normal[1]*p[3],normal[2]*p[3],-dot3(normal,p)]);
 export const plane=(a:H,b:H,c:H):H=>at(cross(difference(b,a),difference(c,a)),a);
-export const times=(p:H,n:bigint):H=>p.map(v=>v*n) as unknown as H;
-export const subtract=(a:H,b:H):H=>a.map((v,i)=>v-b[i]) as unknown as H;
+export const times=(p:H,n:bigint):H=>[p[0]*n,p[1]*n,p[2]*n,p[3]*n];
+export const subtract=(a:H,b:H):H=>[a[0]-b[0],a[1]-b[1],a[2]-b[2],a[3]-b[3]];
 export const constant=(n:bigint):H=>[0n,0n,0n,n];
 export const sign=(n:bigint)=>n<0n?-1n:n>0n?1n:0n;
 
