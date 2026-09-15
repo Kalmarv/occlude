@@ -1,4 +1,4 @@
-import {dyadic,sum,product,homogeneous,abs,reduce,point,dot,dot3,cross,difference,at,plane,times,subtract,constant,sign,ratioNumber as toNumber,decodePoint,weightedPoint,integerWeights,filtered4,filteredDotSign,type Filtered4,type H,type Ratio} from '../geometry/exact.js';
+import {dyadic,sum,product,homogeneous,abs,point,dot,dot3,cross,difference,atScale,planeScale,reduceScale,times,subtract,constant,sign,ratioNumber as toNumber,decodePoint,weightedPoint,integerWeights,filtered4,filteredDotSign,type Filtered4,type H,type Ratio} from '../geometry/exact.js';
 import type {Triangle3,Vec3} from '../math.js';
 import type {AffinePoint3,SegmentBasis3,Interval3} from './interval.js';
 
@@ -37,14 +37,14 @@ const planeCache=new WeakMap<WorldOcclusion3,Shadow3|null>();
 function planes(volume:WorldOcclusion3):Shadow3|null {
   if(planeCache.has(volume))return planeCache.get(volume)!;
   const [a,b,c]=volume.triangle.map(point),vertices=[a,b,c],eye=point(volume.view.eye),target=point(volume.view.target),back=point(volume.view.back);
-  const direction=difference(eye,target),surface=plane(a,b,c);
+  const direction=difference(eye,target),surface=planeScale(a,b,c);
   const side=volume.view.perspective?dot(surface,eye):dot3(surface,direction);
   if(side===0n){planeCache.set(volume,null);return null;}
   const depth=times(surface,-sign(side)); // strictly behind the source surface
   const result:H[]=[];
   for(let i=0;i<3;i++){
     const u=vertices[i],v=vertices[(i+1)%3],other=vertices[(i+2)%3];
-    const p=volume.view.perspective?plane(eye,u,v):at(cross(difference(v,u),direction),u);
+    const p=volume.view.perspective?planeScale(eye,u,v):atScale(cross(difference(v,u),direction),u);
     const interior=sign(dot(p,other));if(interior===0n){planeCache.set(volume,null);return null;}
     result.push(times(p,interior));
   }
@@ -57,14 +57,14 @@ function planes(volume:WorldOcclusion3):Shadow3|null {
     const e=abs(dot(surface,eye)); // positive eye-side depth numerator / eye.W
     const denominator=times(depth,eye[3]).map((v,i)=>v+(i===3?e:0n)) as unknown as H;
     // hitDepth = E*L(p)/(E+depth(p)); E is positive.
-    result.push(reduce(subtract(times(linear,e*near[3]),times(denominator,near[0]*scale))));
-    result.push(reduce(subtract(times(denominator,far[0]*scale),times(linear,e*far[3]))));
+    result.push(reduceScale(subtract(times(linear,e*near[3]),times(denominator,near[0]*scale))));
+    result.push(reduceScale(subtract(times(denominator,far[0]*scale),times(linear,e*far[3]))));
   }else{
     const d=abs(dot3(surface,direction)),r=dot3(direction,back);
     // hitDepth = L(p) - depth(p)*(direction·back)/abs(N·direction).
     const hit=subtract(times(linear,back[3]*d),times(depth,r*scale)),denominator=scale*back[3]*d;
-    result.push(reduce(subtract(times(hit,near[3]),constant(near[0]*denominator))));
-    result.push(reduce(subtract(constant(far[0]*denominator),times(hit,far[3]))));
+    result.push(reduceScale(subtract(times(hit,near[3]),constant(near[0]*denominator))));
+    result.push(reduceScale(subtract(constant(far[0]*denominator),times(hit,far[3]))));
   }
   const shadow={constraints:result,filtered:result.map(filtered4)};
   planeCache.set(volume,shadow);return shadow;

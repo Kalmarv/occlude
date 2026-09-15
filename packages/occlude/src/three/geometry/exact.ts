@@ -72,13 +72,37 @@ export function filteredDotSign(a:Filtered4,b:Filtered4):number {
   if(!(bound<Infinity))return 0;
   return value>bound?1:value<-bound?-1:0;
 }
+/** Trailing zero count of a positive bigint, by 32-bit windows. */
+function trailingZeros(n:bigint):number {
+  let count=0;
+  while((n&0xffffffffn)===0n){n>>=32n;count+=32;}
+  const word=Number(n&0xffffffffn);
+  return count+31-Math.clz32(word&-word);
+}
+/** Divide out the common power of two only. Every coefficient is divisible by
+ * it, so the arithmetic shift is exact division. See `atScale`. */
+export function reduceScale(p:H):H {
+  const bits=abs(p[0])|abs(p[1])|abs(p[2])|abs(p[3]);
+  if(bits===0n)return p;
+  const shift=BigInt(trailingZeros(bits));
+  return shift?[p[0]>>shift,p[1]>>shift,p[2]>>shift,p[3]>>shift]:p;
+}
 export const point=(v:Vec3):H=>homogeneous([...v.map(dyadic),[1n,0]]);
 export const dot=(a:H,b:H)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];
 export const dot3=(a:readonly bigint[],b:readonly bigint[])=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 export const cross=(a:V,b:V):V=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
 export const difference=(a:H,b:H):V=>[a[0]*b[3]-b[0]*a[3],a[1]*b[3]-b[1]*a[3],a[2]*b[3]-b[2]*a[3]];
-export const at=(normal:V,p:H):H=>reduce([normal[0]*p[3],normal[1]*p[3],normal[2]*p[3],-dot3(normal,p)]);
+const supporting=(normal:V,p:H):H=>[normal[0]*p[3],normal[1]*p[3],normal[2]*p[3],-dot3(normal,p)];
+export const at=(normal:V,p:H):H=>reduce(supporting(normal,p));
 export const plane=(a:H,b:H,c:H):H=>at(cross(difference(b,a),difference(c,a)),a);
+/** `at` and `plane` for a consumer that only reads signs and interval roots.
+ * A homogeneous plane is projective: multiplying it by a positive constant
+ * moves no sign, no root and no rounded coordinate, so the scale is free to
+ * choose. Stripping the common power of two is a shift instead of a gcd and
+ * recovers most of the compactness; what it leaves is not canonical, so a
+ * plane that is compared or keyed wants `at`/`plane` instead. */
+export const atScale=(normal:V,p:H):H=>reduceScale(supporting(normal,p));
+export const planeScale=(a:H,b:H,c:H):H=>atScale(cross(difference(b,a),difference(c,a)),a);
 export const times=(p:H,n:bigint):H=>[p[0]*n,p[1]*n,p[2]*n,p[3]*n];
 export const subtract=(a:H,b:H):H=>[a[0]-b[0],a[1]-b[1],a[2]-b[2],a[3]-b[3]];
 export const constant=(n:bigint):H=>[0n,0n,0n,n];

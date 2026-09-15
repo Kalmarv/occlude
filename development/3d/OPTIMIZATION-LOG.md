@@ -8,8 +8,8 @@ recorded here, kept or reverted. Numbers are from this box (shared; run under
 
 | workload | metric | baseline (bfbdf93) | current | delta |
 | --- | --- | --- | --- | --- |
-| woven-vessel | compile ms | 25040 | 22112 | −11.7% |
-| woven-vessel | visibility ms | 17513 | 13659 | −22.0% |
+| woven-vessel | compile ms | 25040 | 18099 | −27.7% |
+| woven-vessel | visibility ms | 17513 | 10220 | −41.6% |
 
 Baselines: `benchmark-surface/cpu-baseline.json`, `gpu-baseline.json`
 (recorded on `bfbdf93` before any change). The woven-vessel rows quoted above
@@ -109,5 +109,47 @@ trials up to 600-bit coefficients, half of them constructed to cancel to
 exactly zero or to within one unit in the last place; the test fails when the
 bound is set to zero and still fails when the bound is shrunk by 512x, so it
 constrains the constant rather than merely exercising the code.
+
+Verdict: kept.
+
+## 3. Strip only the common power of two in the shadow construction    (commit 3 on this branch)
+
+Hypothesis: with the sign filter in, `gcd` was the largest remaining frame
+(3494 ms). Attributing it by call chain puts 3403 ms of that inside
+`planes()` and `sourcePoint()` — the once-per-occluder shadow build — through
+`reduce`, `at` and `plane`. Instrumenting `reduce` over the vessel gives
+555,270 calls, 145.6 bits in and 98.2 bits out on average (max 528), and the
+common factor it finds is a **pure power of two in 384,794 of them (69.3%)**,
+trivial in another 21.5%. A homogeneous plane is a projective quantity:
+scaling it by a positive constant moves no sign, no interval root and no
+rounded coordinate, so the gcd there buys operand compactness, not
+correctness — and a shift buys most of that compactness for free.
+
+Not a faster gcd: Euclid with BigInt `%` was measured against Stein's binary
+gcd on 20k representative operand pairs (100–190 bits, with a common power of
+two). Euclid 966 ms, Stein 1467 ms. V8's BigInt division is already the right
+primitive; the win has to come from calling it less.
+
+Change: `exact.ts` gains `reduceScale` (divide out the common power of two
+via a trailing-zero count; every coefficient is divisible by it, so the
+arithmetic shift is exact division) and the projective twins `atScale` /
+`planeScale`, documented as *not* canonical — a plane that is compared or
+keyed still wants `at` / `plane`, which are unchanged, as `canonicalPlane3`
+in `curves/contact.ts` and `canonicalPoint` require. `worldInterval.planes()`
+switches its surface plane, its three side planes and its four near/far
+planes to the scaled forms. The exact arithmetic downstream is untouched.
+
+Before / after (woven-vessel, CPU reference, two passes in one process):
+
+| pass | compile ms | visibility ms | svg bytes |
+| --- | --- | --- | --- |
+| cold before | 23272 | 14321 | 1964750 |
+| cold after | 19785 | 10899 | 1964750 |
+| warm before | 22112 | 13659 | 1964750 |
+| warm after | 18099 | 10220 | 1964750 |
+
+Correctness: `vitest run` 1058 passed / 1 skipped; `docs:hashes --check`
+256/256 ink-identical; `plotstats church.ts --seed 42` unchanged; vessel SVG
+byte length identical.
 
 Verdict: kept.
