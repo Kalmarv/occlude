@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {plane,box,sphere,cylinder,torus,mesh,polyline,pointCloud,instanceOnFaces,instanceOnPoints,isolines,v3,falloff,light,view,orthographic,axisAngle} from '../src/three/api/index.js';
+import {plane,box,sphere,cylinder,torus,mesh,polyline,pointCloud,instanceOnFaces,instanceOnPoints,isolines,v3,falloff,light,view,orthographic,perspective,axisAngle} from '../src/three/api/index.js';
 import {lightTone3,lightRecipe3} from '../src/three/surface/tone.js';
 import {sketch,sketchAsync,compileSketch,compileSketchAsync,material,pen,mm,strokes,isSketchAsync,exportSvg,initOcclude} from '../src/index.js';
 import {readFileSync} from 'node:fs';
@@ -162,6 +162,17 @@ describe('instances on faces',()=>{
     expect(()=>instanceOnFaces(box(1),cube.points as never)).toThrow('face collection');
     const some=instanceOnFaces(box(.2),cube.faces.filter(f=>f.normal[2]>.5));
     expect(some.instances.length).toBe(1);
+  });
+});
+
+describe('outline chaining',()=>{
+  it('a silhouette loop is one stroke through the mesh vertices it passes',async()=>{
+    const camera=perspective({eye:[3,-4,2.5],target:[0,0,0],fovDegrees:40});
+    const paths=async(geometry:any)=>{const run=await compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.25)})}},()=>view(geometry as never,{camera,stroke:'ink'})));return (exportSvg(run).match(/<path/g)??[]).length;};
+    expect(await paths(sphere(1,{segments:32,rings:16}))).toBe(1);
+    // A cube: the six-edge outline is one stroke, the three inner edges meet at a corner and stay apart.
+    expect(await paths(box(1))).toBe(4);
+    expect(await paths(torus(1.2,.35,{segments:64,tubeSegments:24,creaseAngle:180}))).toBeLessThan(20);
   });
 });
 

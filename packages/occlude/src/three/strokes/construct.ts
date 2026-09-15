@@ -185,17 +185,29 @@ function chainRuns(source:ClassifiedScene3,runs:Run[],options:ConstructOptions,c
   const junctions=new Map<string,{row:number;end:0|1}[]>();
   runs.forEach((r,row)=>r.ends.forEach((endpoint,end)=>{if(endpoint===null)return;const key=JSON.stringify([r.set.id,r.visibility,endpoint]);const entries=junctions.get(key)??[];entries.push({row,end:end as 0|1});junctions.set(key,entries);}));
   const links=new Map<string,{row:number;end:0|1}>();
-  for(const entries of options.chain===false?[]:junctions.values()) {
-    if(entries.length!==2){if(entries.length>2)for(const e of entries)runs[e.row].breaks[e.end]='junction';continue;}
-    const [x,y]=entries,a=runs[x.row],b=runs[y.row];
+  const link=(x:{row:number;end:0|1},y:{row:number;end:0|1})=>{
+    const a=runs[x.row],b=runs[y.row];
     const ca=curveSource(source,a.part.feature),cb=curveSource(source,b.part.feature);
-    if(ca?.key!==cb?.key||!compatible(a,b)){a.breaks[x.end]='junction';b.breaks[y.end]='junction';continue;}
+    if(ca?.key!==cb?.key||!compatible(a,b)){a.breaks[x.end]='junction';b.breaks[y.end]='junction';return;}
     const p=x.end?a.part.b:a.part.a,q=y.end?b.part.b:b.part.a;
-    if(distance(p,q)>tolerance)continue;
+    if(distance(p,q)>tolerance)return;
     const pa=x.end?a.part.a:a.part.b,pb=y.end?b.part.a:b.part.b;
     const cosine=((p[0]-pa[0])*(pb[0]-q[0])+(p[1]-pa[1])*(pb[1]-q[1]))/(a.part.length*b.part.length);
-    if(Math.acos(Math.max(-1,Math.min(1,cosine)))*180/Math.PI>corner){a.breaks[x.end]='corner';b.breaks[y.end]='corner';continue;}
+    if(Math.acos(Math.max(-1,Math.min(1,cosine)))*180/Math.PI>corner){a.breaks[x.end]='corner';b.breaks[y.end]='corner';return;}
     links.set(`${x.row}:${x.end}`,y);links.set(`${y.row}:${y.end}`,x);
+  };
+  for(const entries of options.chain===false?[]:junctions.values()) {
+    if(entries.length===2){link(entries[0],entries[1]);continue;}
+    if(entries.length<2)continue;
+    // More than two runs meet here: a mesh vertex, where a silhouette loop
+    // passes through among the other edges of the fan. Runs of the same kind
+    // pair off when they are the only two of that kind; the rest break.
+    const byKind=new Map<number,{row:number;end:0|1}[]>();
+    for(const e of entries){const flags=runs[e.row].part.feature.flags;const rows=byKind.get(flags)??[];rows.push(e);byKind.set(flags,rows);}
+    for(const group of byKind.values()){
+      if(group.length===2)link(group[0],group[1]);
+      else for(const e of group)runs[e.row].breaks[e.end]='junction';
+    }
   }
   const used=new Set<number>(),out:BuiltStroke3[]=[];
   const walk=(start:number,entry:0|1)=>{
