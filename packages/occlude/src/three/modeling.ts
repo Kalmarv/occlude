@@ -5,7 +5,7 @@ import type { Surface3 } from './geometry/surface.js';
 import { prepareSurfaceQueries3, type RayQuery3, type NearestQuery3, type SurfaceHit3 } from './queries/surface.js';
 import type { Vec3 } from './math.js';
 import type { SceneCompute3 } from './scene.js';
-import {captureIntersections,intersectionConstructionJob,type IntersectionInput,type IntersectionOptions} from './api/intersections.js';
+import {captureIntersections,intersectionConstructionJob,type IntersectionArguments} from './api/intersections.js';
 import {runGeometryJobAsync3} from './geometry/job.js';
 import {captureSurfaceMapping,surfaceMappingJob,type SurfaceMappingOptions,type SurfaceMappingStats} from './api/mapping.js';
 import type {Material} from '../material.js';
@@ -41,8 +41,8 @@ export function bindModeling3(exec: Execution, scope?: { signal?: AbortSignal; c
     scope.signal?.throwIfAborted();
   };
   return {
-    intersections(a:IntersectionInput,b:IntersectionInput,options:IntersectionOptions={}) {
-      check();const timing=new PhaseClock3(),captured=timing.measure('captureMs',()=>captureIntersections(a,b,options));
+    intersections(...args:IntersectionArguments) {
+      check();const timing=new PhaseClock3(),captured=timing.measure('captureMs',()=>captureIntersections(...args));
       return (async()=>{
         const result=await runIntersectionConstruction(captured,scope!.signal,scope!.onProgress);check();timing.merge(result.timings);
         exec.modeling3.push({operation:'intersections',backend:'cpu',dispatches:0,transferBytes:0,timings:timing.finish(),intersections:result.value.stats});

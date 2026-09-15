@@ -908,8 +908,11 @@ export default sketch({ seed: 42, pens: {
 ### Surface intersections
 
 `intersections(a, b)` returns construction curves where two meshes meet. Both
-inputs can also be instance sets. For substantial work, use
-`await t.intersections(a, b)` inside `sketchAsync`: it yields to the event loop
+inputs can also be instance sets. `intersections([a, b, c, ...])` takes a list
+and finds the seams between every two different objects in it, in one value
+with one source per object; instances of one set never meet each other in
+either form. For substantial work, use `await t.intersections(a, b)` or
+`await t.intersections(list)` in an async sketch: it yields to the event loop
 and observes sketch cancellation. Geometry, source attachments and contact
 classification are computed on the CPU before camera interpretation.
 
