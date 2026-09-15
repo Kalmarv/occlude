@@ -117,3 +117,23 @@ wrapping `GpuSceneCompute3` so that `classify` delegates to
 `classifySceneCpu3` from `occlude/3d/advanced`, with everything else — GPU
 modeling, GPU tone, `preview3` — untouched. It was never committed;
 `optimization/ink-cpuclass.json` is its capture.
+
+## 2. Cull occluders that cannot hide ink (not built; owner parked it 2026-09-15)
+
+Candidate pairs are the cost of exact classification (2.26 M on the vessel
+after the depth cutoff). Two exact reductions, neither built:
+
+- **Back faces of closed objects.** For a watertight manifold a back-facing
+  triangle never decides visibility: anything behind it is also behind the
+  front face of the same solid. Dropping them roughly halves the occluder
+  set on spheres, tori, boxes and capped sweeps. Condition: closed manifold,
+  decidable per object from topology; open sheets keep both sides.
+- **Outside the widened sheet.** Occluder triangles and features entirely
+  outside the sheet plus one sheet diagonal (the hatch overscan rule in
+  `three/curves/hatch.ts`) can neither hide nor leave ink. Scene-dependent;
+  large for scenes that surround the camera.
+
+Object-level occlusion culling (an object wholly behind another) was judged
+rare and hard to make exact; not recommended. Measure the back-face share on
+the seven workloads before building; the CPU-vs-GPU digest comparison is the
+oracle.
