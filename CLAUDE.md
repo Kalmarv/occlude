@@ -103,7 +103,10 @@ rasters are implementation numbers. They are not tenants.
   suite and the studio are not typechecked yet (`check.mjs` says so). The
   server serves dist per request, and reports its build id per request, so
   a REBUILD needs no restart; restart only for server.mjs / *-store.mjs
-  changes (kill by PID — pkill aborts the shell).
+  changes (kill by PID — pkill aborts the shell). Ship with `pnpm ship --push` (`ship.mjs`):
+  the Docker build runs those gates, restarts the studio, verifies the
+  served build stamp, then pushes master and dev; `pnpm ship dev` from the
+  isolated dev checkout does the same for the 5273 service.
 - **Docs are topic pages with live examples.** Every feature gets a
   `ts live` entry on its topic page under docs/ (getting-started, shapes,
   fills, fields, materials, images, plotting; the list is `DOC_PAGES` in
