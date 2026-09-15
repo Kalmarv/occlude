@@ -10,6 +10,10 @@ export interface SurfaceCurveSegment3 {
   readonly b:SurfaceCurvePoint3;
   readonly triangles:readonly number[];
   readonly attributes:Readonly<Attributes3>;
+  /** Segments of one chain join into one stroke where they share nodes; `range`
+   * is the segment's increasing parameter interval along that chain. */
+  readonly chainId?:string;
+  readonly range?:readonly [number,number];
 }
 /** Draw against this exact owned surface; a new model needs newly generated curves. */
 export interface SurfaceCurves3 { readonly surface:Surface3; readonly segments:readonly SurfaceCurveSegment3[] }

@@ -228,7 +228,7 @@ export function legacySurfaceCurveNetwork3(curves:SurfaceCurves3,binding:Surface
     nodes.set(p.id,{id:p.id,point:weightedPoint(vertices,integerWeights(p.weights))});
   }
   return surfaceCurveNetwork3({sources:[{id:'surface',binding}],nodes:[...nodes.values()],segments:curves.segments.map(s=>({
-    id:s.id,kind:s.kind,a:s.a.id,b:s.b.id,supports:s.triangles.map(triangle=>({source:0,triangle})),attributes:s.attributes,
+    id:s.id,kind:s.kind,a:s.a.id,b:s.b.id,supports:s.triangles.map(triangle=>({source:0,triangle})),attributes:s.attributes,...(s.chainId!==undefined?{chainId:s.chainId}:{}),...(s.range!==undefined?{range:s.range}:{}),
   }))});
 }
 /** One named graph in a scene; its source bindings identify supporting objects. */

@@ -75,6 +75,21 @@ describe('physical surface hatch',()=>{
     // Every kept piece lies within one diagonal of the sheet in both directions.
     for(const {feature:f} of source.features.filter(r=>select(r.feature)))for(const point of [f.a,f.b]){const p=toPaper3(near,point);for(const [v,lo,size] of [[p[0],frame.paper.x,frame.paper.width],[p[1],frame.paper.y,frame.paper.height]]){expect(v).toBeGreaterThan(lo-diagonal-1e-6);expect(v).toBeLessThan(lo+size+diagonal+1e-6);}}
   });
+  it('a ruling is one stroke across the faces it crosses',()=>{
+    // Sixteen faces in one lattice draw the same strokes as one face would.
+    const one=surface3([[-2,-2,0],[2,-2,0],[2,2,0],[-2,2,0]],[[0,1,2,3]]);
+    const cells=[] as number[][],pts=[] as [number,number,number][];
+    for(let j=0;j<=4;j++)for(let i=0;i<=4;i++)pts.push([-2+i,-2+j,0]);
+    for(let j=0;j<4;j++)for(let i=0;i<4;i++){const a=j*5+i;cells.push([a,a+1,a+6,a+5]);}
+    const many=surface3(pts,cells);
+    const runsOf=(shape:ReturnType<typeof surface3>)=>constructStrokes3(classify(hatch3(shape,[{id:'lattice',spacing:mm(7),angle:30}])),[{id:'hatch',stroke:'ink',select}]);
+    const a=runsOf(one),b=runsOf(many);
+    expect(b.length).toBe(a.length);
+    expect(b.map(r=>Math.round(r.length*100)).sort((x,y)=>x-y)).toEqual(a.map(r=>Math.round(r.length*100)).sort((x,y)=>x-y));
+    // Every piece still names the face it lies in.
+    const faces=new Set(classify(hatch3(many,[{id:'lattice',spacing:mm(7),angle:30}])).features.filter(r=>select(r.feature)).map(r=>r.feature.attributes.hatchFace));
+    expect(faces.size).toBeGreaterThan(1);
+  });
   it('captures callbacks once, composes sections, and retains face attributes and occlusion',()=>{
     const source=quad();source.faces[0].attributes.density=10;
     const sections=section3(source,[{id:'section',origin:[0,0,0],normal:[1,0,0]}]);let calls=0;

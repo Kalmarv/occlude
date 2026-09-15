@@ -1,4 +1,5 @@
 import { orient2d } from 'robust-predicates';
+const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
 import { resolveLen, type L, type UnitCtx } from '../../units.js';
 import { measureFaces3, snapshotSurface3, type FaceMeasure3 } from '../geometry/model.js';
 import type { Attributes3, Surface3 } from '../geometry/surface.js';
@@ -98,18 +99,58 @@ function alongPiece(world:Surface3,piece:SurfaceCurveSegment3,t:number,id:string
   const wa=bary(piece.a),wb=bary(piece.b),weights=wa.map((v,i)=>v+(wb[i]-v)*t) as unknown as Vec3;
   return freezeCurves3({id,position:add3(piece.a.position,mul3(add3(piece.b.position,mul3(piece.a.position,-1)),t)),vertices:[tri[0],tri[1],tri[2]] as const,weights});
 }
+/** Group ruling pieces of one plane into runs joined at shared nodes, oriented
+ * head to tail, with `chainId` and arclength `range`. A node touched by more
+ * than two pieces (a non-manifold seam) ends the runs there. */
+function chainPieces(pieces:readonly SurfaceCurveSegment3[]):SurfaceCurveSegment3[][] {
+  const byNode=new Map<string,number[]>();
+  pieces.forEach((piece,i)=>{for(const id of [piece.a.id,piece.b.id]){const rows=byNode.get(id)??[];rows.push(i);byNode.set(id,rows);}});
+  const used=new Set<number>(),chains:SurfaceCurveSegment3[][]=[];
+  const flip=(p:SurfaceCurveSegment3):SurfaceCurveSegment3=>({...p,a:p.b,b:p.a});
+  const next=(node:string,from:number)=>{const rows=byNode.get(node)!;return rows.length===2?rows.find(r=>r!==from&&!used.has(r)):undefined;};
+  // Walk backward from a piece to the run's tail, then forward collecting.
+  const walk=(start:number):SurfaceCurveSegment3[]=>{
+    let head=start,headNode=pieces[start].a.id,guard=0;
+    for(;;){const prev=next(headNode,head);if(prev===undefined||prev===start||++guard>pieces.length)break;head=prev;headNode=pieces[prev].a.id===headNode?pieces[prev].b.id:pieces[prev].a.id;}
+    const run:SurfaceCurveSegment3[]=[];let row:number|undefined=head,entry=headNode;
+    while(row!==undefined&&!used.has(row)){used.add(row);const p=pieces[row],oriented=p.a.id===entry?p:flip(p);run.push(oriented);entry=oriented.b.id;row=next(entry,row);}
+    return run;
+  };
+  // Deterministic order: runs start at the lowest piece id not yet used.
+  const order=pieces.map((_,i)=>i).sort((x,y)=>compare(pieces[x].id,pieces[y].id));
+  for(const i of order){if(used.has(i))continue;const run=walk(i);
+    const lengths=run.map(p=>Math.hypot(...p.b.position.map((v,k)=>v-p.a.position[k])));const total=lengths.reduce((a,b)=>a+b,0);
+    let at=0;const chainId=JSON.stringify(['hatch-run',run[0].id]);
+    chains.push(run.map((p,k)=>{const from=total>0?at/total:0;at+=lengths[k];const to=total>0?Math.min(1,at/total):1;return freezeCurves3({...p,chainId,range:[from,to] as const});}));
+  }
+  return chains;
+}
 /** Realized curves retain MODEL coordinates and barycentric ownership, even
- * when an instance is transformed. Faces share a paper-origin ruling lattice
- * across their triangles; folded faces use piecewise triangle support. */
+ * when an instance is transformed. Faces with the same family, spacing, angle
+ * and phase share one paper-origin lattice and are ruled together, so a
+ * ruling is one chain across every face it crosses (its pieces share nodes at
+ * the edges between faces); folded faces use piecewise triangle support. */
 export function realizeHatch3(hatch:HatchSource3,world:Surface3,frame:CameraFrame3,units:UnitCtx):SurfaceCurves3 {
   const surface=hatch.surface,byFace=surface.faces.map(()=>[] as number[]);
   world.triangles.forEach((t,i)=>byFace[t.face].push(i));
   const camera=world.points.map(p=>toCamera3(frame,p.position));
   const segments:SurfaceCurveSegment3[]=[];let rowsVisited=0;
-  for(let face=0;face<surface.faces.length;face++) {
-    if(!hatch.families[face].length)continue;
+  // Group faces by lattice: same family, spacing, phase and angle rule together.
+  interface Group {readonly key:string;readonly family:HatchFamily3;readonly spacing:number;readonly phase:number;readonly angle:number;readonly faces:number[]}
+  const groups=new Map<string,Group>();
+  for(let face=0;face<surface.faces.length;face++)for(const family of hatch.families[face]) {
+    const spacing=resolveLen(family.spacing,units),rawPhase=resolveLen(family.offset??0,units);
+    const remainder=rawPhase%spacing,phase=remainder<0?remainder+spacing:remainder;
+    if(!Number.isFinite(spacing)||spacing<=0||!Number.isFinite(phase)||!Number.isFinite(family.angle))throw new Error('hatch spacing must resolve to positive finite paper length, with finite angle and offset');
+    const angle=family.angle%360,key=JSON.stringify([family.id,spacing,phase,angle]);
+    let group=groups.get(key);if(!group){group={key,family,spacing,phase,angle,faces:[]};groups.set(key,group);}
+    group.faces.push(face);
+  }
+  for(const group of groups.values()) {
+    const {family,spacing,phase}=group;
+    // Projected, near/far-clipped, non-degenerate triangles of every face in the group.
     const projected=new Map<number,readonly (readonly [number,number])[]>();
-    for(const index of byFace[face]) {
+    for(const face of group.faces)for(const index of byFace[face]) {
       const tri=world.triangles[index].vertices.map(i=>camera[i]) as unknown as Triangle3;
       const points: (readonly [number,number])[]=[];
       for(const clipped of clipTriangle3(tri,frame.camera.near,frame.camera.far)) {
@@ -121,43 +162,60 @@ export function realizeHatch3(hatch:HatchSource3,world:Surface3,frame:CameraFram
       if(points.length)projected.set(index,points);
     }
     if(!projected.size)continue;
-    const boundary=new Set(surface.faces[face].vertices.map((v,i,vs)=>edgeKey(v,vs[(i+1)%vs.length])));
-    for(const family of hatch.families[face]) {
-      const spacing=resolveLen(family.spacing,units),rawPhase=resolveLen(family.offset??0,units);
-      const remainder=rawPhase%spacing,phase=remainder<0?remainder+spacing:remainder;
-      if(!Number.isFinite(spacing)||spacing<=0||!Number.isFinite(phase)||!Number.isFinite(family.angle))throw new Error('hatch spacing must resolve to positive finite paper length, with finite angle and offset');
-      const angle=(family.angle%360)*Math.PI/180,nx=-Math.sin(angle),ny=Math.cos(angle);
-      let min=Infinity,max=-Infinity;
-      for(const points of projected.values())for(const p of points){const d=nx*p[0]+ny*p[1];min=Math.min(min,d);max=Math.max(max,d);}
-      // Rule only the band of the sheet (plus one sheet diagonal of overscan for
-      // styles that reach past the edge): a face seen from close by projects far
-      // beyond the paper, and rulings out there can never leave ink on it.
-      const band=sheetBand(frame,nx,ny);min=Math.max(min,band[0]);max=Math.min(max,band[1]);
-      if(!(min<=max))continue;
-      // Strict bounds avoid laying hatch on the outer parallel face boundary.
-      const first=Math.floor((min-phase)/spacing)+1,last=Math.ceil((max-phase)/spacing)-1;
-      if(!Number.isSafeInteger(first)||!Number.isSafeInteger(last)||rowsVisited+Math.max(0,last-first+1)>hatch.maxSegments)throw new Error(`hatch ruling capacity exceeded (${hatch.maxSegments}); increase spacing or explicit maxSegments`);
-      rowsVisited+=Math.max(0,last-first+1);
-      for(let row=first;row<=last;row++) {
-        const id=JSON.stringify(['hatch',surface.faces[face].id,family.id,row]);
-        const attributes={...family.attributes,hatchFamily:family.id,hatchFace:surface.faces[face].id,hatchLine:row,hatchSpacingMm:spacing,hatchAngle:family.angle};
-        const plane=rulingPlane(frame,nx,ny,row*spacing+phase,id,attributes);
-        const pieces=intersectPlane3(world,plane,[...projected.keys()],{kind:'hatch',maxSegments:hatch.maxSegments-segments.length});
-        const points=new Map<SurfaceCurvePoint3,SurfaceCurvePoint3>();
-        const modelPoint=(p:SurfaceCurvePoint3):SurfaceCurvePoint3=>{
-          let owned=points.get(p);
-          if(!owned){const position=p.vertices.reduce((sum,v,i)=>add3(sum,mul3(surface.points[v].position,p.weights[i])),[0,0,0] as Vec3);owned=freezeCurves3({...p,position});points.set(p,owned);}
-          return owned;
-        };
-        for(const raw of pieces) {
-          const a=raw.a.vertices.filter((_,i)=>raw.a.weights[i]>0),b=raw.b.vertices.filter((_,i)=>raw.b.weights[i]>0);
-          if(a.length===1&&b.length===1&&boundary.has(edgeKey(a[0],b[0])))continue;
-          const range=sheetRange(frame,raw.a.position,raw.b.position);
-          if(!range)continue;
-          const piece=range[0]===0&&range[1]===1?raw:{...raw,a:range[0]===0?raw.a:alongPiece(world,raw,range[0],JSON.stringify([raw.a.id,'sheet'])),b:range[1]===1?raw.b:alongPiece(world,raw,range[1],JSON.stringify([raw.b.id,'sheet']))};
-          segments.push(freezeCurves3({...piece,a:modelPoint(piece.a),b:modelPoint(piece.b)}));
-        }
+    // The group's outer boundary: polygon edges belonging to exactly one of its
+    // faces. A ruling lying on it is the face outline, already drawn; one lying
+    // on an edge between two grouped faces is interior and stays.
+    const edgeCount=new Map<string,number>();
+    for(const face of group.faces)for(const [i,v] of surface.faces[face].vertices.entries()){const k=edgeKey(v,surface.faces[face].vertices[(i+1)%surface.faces[face].vertices.length]);edgeCount.set(k,(edgeCount.get(k)??0)+1);}
+    const boundary=new Set([...edgeCount].filter(([,n])=>n===1).map(([k])=>k));
+    const faceOf=(triangle:number)=>surface.faces[world.triangles[triangle].face].id;
+    const theta=group.angle*Math.PI/180,nx=-Math.sin(theta),ny=Math.cos(theta);
+    let min=Infinity,max=-Infinity;
+    for(const points of projected.values())for(const p of points){const d=nx*p[0]+ny*p[1];min=Math.min(min,d);max=Math.max(max,d);}
+    // Rule only the band of the sheet (plus one sheet diagonal of overscan for
+    // styles that reach past the edge): a face seen from close by projects far
+    // beyond the paper, and rulings out there can never leave ink on it.
+    const band=sheetBand(frame,nx,ny);min=Math.max(min,band[0]);max=Math.min(max,band[1]);
+    if(!(min<=max))continue;
+    // Strict bounds avoid laying hatch on the outer parallel boundary.
+    const first=Math.floor((min-phase)/spacing)+1,last=Math.ceil((max-phase)/spacing)-1;
+    if(!Number.isSafeInteger(first)||!Number.isSafeInteger(last)||rowsVisited+Math.max(0,last-first+1)>hatch.maxSegments)throw new Error(`hatch ruling capacity exceeded (${hatch.maxSegments}); increase spacing or explicit maxSegments`);
+    rowsVisited+=Math.max(0,last-first+1);
+    // Each triangle takes part only in the rows its projection spans, so the
+    // plane tests cost the same as ruling face by face did.
+    const rowTriangles=new Map<number,number[]>();
+    for(const [index,points] of projected){
+      let lo=Infinity,hi=-Infinity;for(const p of points){const d=nx*p[0]+ny*p[1];lo=Math.min(lo,d);hi=Math.max(hi,d);}
+      const from=Math.max(first,Math.ceil((lo-phase)/spacing)),to=Math.min(last,Math.floor((hi-phase)/spacing));
+      for(let row=from;row<=to;row++){const rows=rowTriangles.get(row);if(rows)rows.push(index);else rowTriangles.set(row,[index]);}
+    }
+    for(let row=first;row<=last;row++) {
+      const triangles=rowTriangles.get(row);if(!triangles)continue;
+      // One plane, one chain, for the row across every face of the group.
+      const id=JSON.stringify(['hatch',group.key,row]);
+      const attributes={...family.attributes,hatchFamily:family.id,hatchLine:row,hatchSpacingMm:spacing,hatchAngle:family.angle};
+      const plane=rulingPlane(frame,nx,ny,row*spacing+phase,id,attributes);
+      const pieces=intersectPlane3(world,plane,triangles,{kind:'hatch',maxSegments:hatch.maxSegments-segments.length});
+      const points=new Map<SurfaceCurvePoint3,SurfaceCurvePoint3>();
+      const modelPoint=(p:SurfaceCurvePoint3):SurfaceCurvePoint3=>{
+        let owned=points.get(p);
+        if(!owned){const position=p.vertices.reduce((sum,v,i)=>add3(sum,mul3(surface.points[v].position,p.weights[i])),[0,0,0] as Vec3);owned=freezeCurves3({...p,position});points.set(p,owned);}
+        return owned;
+      };
+      const kept:SurfaceCurveSegment3[]=[];
+      for(const raw of pieces) {
+        const a=raw.a.vertices.filter((_,i)=>raw.a.weights[i]>0),b=raw.b.vertices.filter((_,i)=>raw.b.weights[i]>0);
+        if(a.length===1&&b.length===1&&boundary.has(edgeKey(a[0],b[0])))continue;
+        const range=sheetRange(frame,raw.a.position,raw.b.position);
+        if(!range)continue;
+        const piece=range[0]===0&&range[1]===1?raw:{...raw,a:range[0]===0?raw.a:alongPiece(world,raw,range[0],JSON.stringify([raw.a.id,'sheet'])),b:range[1]===1?raw.b:alongPiece(world,raw,range[1],JSON.stringify([raw.b.id,'sheet']))};
+        kept.push({...piece,attributes:{...piece.attributes,hatchFace:faceOf(piece.triangles[0])},a:modelPoint(piece.a),b:modelPoint(piece.b)});
       }
+      // Pieces that share a node (an edge crossing between two triangles, of one
+      // face or of neighbouring faces) are one line on the surface. Walk each
+      // such run head to tail: one chain, ranges by arclength, so the stroke
+      // constructor joins it into one pen-down stroke.
+      for(const chain of chainPieces(kept))segments.push(...chain);
     }
   }
   return Object.freeze({surface,segments:Object.freeze(segments)});
