@@ -8,8 +8,8 @@ recorded here, kept or reverted. Numbers are from this box (shared; run under
 
 | workload | metric | baseline (bfbdf93) | current | delta |
 | --- | --- | --- | --- | --- |
-| woven-vessel | compile ms | 25040 | 18099 | −27.7% |
-| woven-vessel | visibility ms | 17513 | 10220 | −41.6% |
+| woven-vessel | compile ms | 25040 | 18246 | −27.1% |
+| woven-vessel | visibility ms | 17513 | 9826 | −43.9% |
 
 Baselines: `benchmark-surface/cpu-baseline.json`, `gpu-baseline.json`
 (recorded on `bfbdf93` before any change). The woven-vessel rows quoted above
@@ -147,6 +147,40 @@ Before / after (woven-vessel, CPU reference, two passes in one process):
 | cold after | 19785 | 10899 | 1964750 |
 | warm before | 22112 | 13659 | 1964750 |
 | warm after | 18099 | 10220 | 1964750 |
+
+Correctness: `vitest run` 1058 passed / 1 skipped; `docs:hashes --check`
+256/256 ink-identical; `plotstats church.ts --seed 42` unchanged; vessel SVG
+byte length identical.
+
+Verdict: kept.
+
+## 4. Build each exact view and vertex once, not once per triangle    (commit 4 on this branch)
+
+Hypothesis: `planes()` is memoised per occluder, but inside it every triangle
+rebuilds the exact eye, target, back, near and far points, the view direction
+and the camera-depth linear form — all functions of `volume.view`, which one
+snapshot shares across all of its occluders. It also calls `point()` on the
+three world vertices, and a mesh vertex belongs to about six triangles, so
+each exact vertex was built about six times. For the vessel's 33k occluders
+that is ~165k redundant `point()` calls, each a `homogeneous` and a gcd.
+
+Change: `three/visibility/worldInterval.ts` gains two WeakMaps beside the
+existing plane and source-point caches — `exactView(view)` for the view-only
+quantities and `exactVertex(position)` for the exact world vertices, keyed on
+the arrays the snapshot already hands out by identity. `planes()` reads both
+instead of recomputing. No arithmetic changed.
+
+Before / after (woven-vessel, CPU reference, two passes in one process):
+
+| pass | compile ms | visibility ms | svg bytes |
+| --- | --- | --- | --- |
+| cold before | 19785 | 10899 | 1964750 |
+| cold after | 18897 | 10078 | 1964750 |
+| warm before | 18099 | 10220 | 1964750 |
+| warm after | 18246 | 9826 | 1964750 |
+
+Compile is flat within this box's noise; the visibility phase is where the
+saving lands.
 
 Correctness: `vitest run` 1058 passed / 1 skipped; `docs:hashes --check`
 256/256 ink-identical; `plotstats church.ts --seed 42` unchanged; vessel SVG

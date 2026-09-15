@@ -1,4 +1,4 @@
-import {dyadic,sum,product,homogeneous,abs,point,dot,dot3,cross,difference,atScale,planeScale,reduceScale,times,subtract,constant,sign,ratioNumber as toNumber,decodePoint,weightedPoint,integerWeights,filtered4,filteredDotSign,type Filtered4,type H,type Ratio} from '../geometry/exact.js';
+import {dyadic,sum,product,homogeneous,abs,point,dot,dot3,cross,difference,atScale,planeScale,reduceScale,times,subtract,constant,sign,ratioNumber as toNumber,decodePoint,weightedPoint,integerWeights,filtered4,filteredDotSign,type Filtered4,type H,type V,type Ratio} from '../geometry/exact.js';
 import type {Triangle3,Vec3} from '../math.js';
 import type {AffinePoint3,SegmentBasis3,Interval3} from './interval.js';
 
@@ -30,14 +30,37 @@ function sourcePoint(terms:AffinePoint3):SourcePoint3 {
 }
 interface Shadow3 { readonly constraints:readonly H[]; readonly filtered:readonly Filtered4[] }
 const planeCache=new WeakMap<WorldOcclusion3,Shadow3|null>();
+/** Everything in the shadow construction that depends on the view and not on
+ * the triangle. One snapshot shares one view object across all of its
+ * occluders, so this is built once per camera rather than once per triangle. */
+interface ExactView3 { readonly eye:H; readonly back:H; readonly direction:V; readonly linear:H; readonly scale:bigint; readonly near:H; readonly far:H }
+const viewCache=new WeakMap<WorldOcclusion3['view'],ExactView3>();
+/** A mesh vertex belongs to about six triangles and every one of them wants
+ * the same exact point; the snapshot hands out the same world position array
+ * each time, so identity is enough to build it once. */
+const vertexCache=new WeakMap<Vec3,H>();
+function exactVertex(v:Vec3):H {
+  let p=vertexCache.get(v);if(p)return p;
+  p=point(v);vertexCache.set(v,p);return p;
+}
+function exactView(view:WorldOcclusion3['view']):ExactView3 {
+  const cached=viewCache.get(view);if(cached)return cached;
+  const eye=point(view.eye),target=point(view.target),back=point(view.back);
+  // L(p) = camera depth = -back·(p-eye) = linear(p)/scale.
+  const record:ExactView3={eye,back,direction:difference(eye,target),
+    linear:[-back[0]*eye[3],-back[1]*eye[3],-back[2]*eye[3],dot3(back,eye)],
+    scale:back[3]*eye[3],near:point([view.near,0,0]),far:point([view.far,0,0])};
+  viewCache.set(view,record);return record;
+}
 
 /** Intersect the original shadow with near/far at its surface hit. This is
  * the clipped polygon's shadow, independent of the triangulation used for
  * GPU packing/indexing. Every returned inequality is affine in source t. */
 function planes(volume:WorldOcclusion3):Shadow3|null {
   if(planeCache.has(volume))return planeCache.get(volume)!;
-  const [a,b,c]=volume.triangle.map(point),vertices=[a,b,c],eye=point(volume.view.eye),target=point(volume.view.target),back=point(volume.view.back);
-  const direction=difference(eye,target),surface=planeScale(a,b,c);
+  const [a,b,c]=volume.triangle.map(exactVertex),vertices=[a,b,c];
+  const {eye,back,direction,linear,scale,near,far}=exactView(volume.view);
+  const surface=planeScale(a,b,c);
   const side=volume.view.perspective?dot(surface,eye):dot3(surface,direction);
   if(side===0n){planeCache.set(volume,null);return null;}
   const depth=times(surface,-sign(side)); // strictly behind the source surface
@@ -49,10 +72,6 @@ function planes(volume:WorldOcclusion3):Shadow3|null {
     result.push(times(p,interior));
   }
   result.push(depth);
-  // L(p) = camera depth = -back·(p-eye) = linear(p)/scale.
-  const linear:H=[-back[0]*eye[3],-back[1]*eye[3],-back[2]*eye[3],dot3(back,eye)];
-  const scale=back[3]*eye[3];
-  const [near,far]=[volume.view.near,volume.view.far].map(v=>point([v,0,0]));
   if(volume.view.perspective){
     const e=abs(dot(surface,eye)); // positive eye-side depth numerator / eye.W
     const denominator=times(depth,eye[3]).map((v,i)=>v+(i===3?e:0n)) as unknown as H;
