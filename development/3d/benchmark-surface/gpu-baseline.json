@@ -1,21 +1,15 @@
 {
   "base": "http://127.0.0.1:5273",
-  "stamp": "c87e7cb-merged",
-  "adapter": {
-    "vendor": "nvidia",
-    "architecture": "turing",
-    "device": "",
-    "description": "",
-    "isFallbackAdapter": false
-  },
+  "stamp": "bfbdf93-branchpoint",
   "hardware": "NVIDIA GeForce RTX 2060, Chrome via Xvfb :93, WebGPU Vulkan",
+  "note": "True branch-point GPU baseline, recorded from the occlude-3d dev image built at bfbdf93. woven-vessel is absent because it never returns a render reply: the Studio 60s RENDER_TIMEOUT_MS fires and the runner times out after 120s. That is the condition the optimization brief asks to fix.",
   "rows": [
     {
       "name": "mapped-plane",
       "runs": [
         {
           "pass": "cold",
-          "wallMs": 5231,
+          "wallMs": 3738,
           "renderMs": 4,
           "modeling": [
             {
@@ -23,7 +17,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 1920,
+              "wallMs": 1406,
               "mapping": {
                 "outputSegments": 6080
               }
@@ -34,22 +28,22 @@
               "candidates": 38991,
               "dispatches": 5,
               "refinements": 31014,
-              "wallMs": 1294,
-              "gpuMs": 0.051328
+              "wallMs": 969,
+              "gpuMs": 0.051488
             }
           ]
         },
         {
           "pass": "warm",
-          "wallMs": 4779,
-          "renderMs": 5,
+          "wallMs": 3430,
+          "renderMs": 4,
           "modeling": [
             {
               "operation": "mapSurface",
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 1913,
+              "wallMs": 1315,
               "mapping": {
                 "outputSegments": 6080
               }
@@ -60,8 +54,8 @@
               "candidates": 38991,
               "dispatches": 5,
               "refinements": 31014,
-              "wallMs": 1204,
-              "gpuMs": 0.051392
+              "wallMs": 941,
+              "gpuMs": 0.05139200000000001
             }
           ]
         }
@@ -72,15 +66,15 @@
       "runs": [
         {
           "pass": "cold",
-          "wallMs": 16095,
-          "renderMs": 30,
+          "wallMs": 16066,
+          "renderMs": 26,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 5341,
+              "wallMs": 4620,
               "hatch": {
                 "traces": 52,
                 "segments": 21401,
@@ -99,7 +93,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 3903,
+              "wallMs": 3970,
               "hatch": {
                 "traces": 576,
                 "segments": 17336,
@@ -119,22 +113,22 @@
               "candidates": 176015,
               "dispatches": 22,
               "refinements": 82265,
-              "wallMs": 3861,
-              "gpuMs": 0.22079999999999997
+              "wallMs": 4606,
+              "gpuMs": 0.21974400000000002
             }
           ]
         },
         {
           "pass": "warm",
-          "wallMs": 15949,
-          "renderMs": 20,
+          "wallMs": 15777,
+          "renderMs": 13,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 4800,
+              "wallMs": 4438,
               "hatch": {
                 "traces": 52,
                 "segments": 21401,
@@ -153,7 +147,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 4168,
+              "wallMs": 3874,
               "hatch": {
                 "traces": 576,
                 "segments": 17336,
@@ -173,8 +167,8 @@
               "candidates": 176015,
               "dispatches": 22,
               "refinements": 82265,
-              "wallMs": 3683,
-              "gpuMs": 0.21888000000000002
+              "wallMs": 4716,
+              "gpuMs": 0.227424
             }
           ]
         }
@@ -185,15 +179,15 @@
       "runs": [
         {
           "pass": "cold",
-          "wallMs": 5430,
-          "renderMs": 7,
+          "wallMs": 5294,
+          "renderMs": 8,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "gpu",
               "dispatches": 2,
               "transferBytes": 1667184,
-              "wallMs": 2649,
+              "wallMs": 2608,
               "hatch": {
                 "traces": 927,
                 "segments": 10850,
@@ -213,14 +207,14 @@
               "candidates": 54215,
               "dispatches": 7,
               "refinements": 30005,
-              "wallMs": 1111,
-              "gpuMs": 0.071232
+              "wallMs": 1153,
+              "gpuMs": 0.07088
             }
           ]
         },
         {
           "pass": "warm",
-          "wallMs": 5472,
+          "wallMs": 5226,
           "renderMs": 7,
           "modeling": [
             {
@@ -228,7 +222,7 @@
               "backend": "gpu",
               "dispatches": 2,
               "transferBytes": 1667184,
-              "wallMs": 2550,
+              "wallMs": 2259,
               "hatch": {
                 "traces": 927,
                 "segments": 10850,
@@ -248,8 +242,8 @@
               "candidates": 54215,
               "dispatches": 7,
               "refinements": 30005,
-              "wallMs": 1126,
-              "gpuMs": 0.070016
+              "wallMs": 1488,
+              "gpuMs": 0.07049599999999999
             }
           ]
         }
@@ -260,7 +254,7 @@
       "runs": [
         {
           "pass": "cold",
-          "wallMs": 5075,
+          "wallMs": 4939,
           "renderMs": 1,
           "modeling": [
             {
@@ -268,7 +262,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 161,
+              "wallMs": 174,
               "intersections": {
                 "outputSegments": 136
               }
@@ -278,7 +272,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 178,
+              "wallMs": 174,
               "intersections": {
                 "outputSegments": 87
               }
@@ -288,7 +282,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 625,
+              "wallMs": 598,
               "intersections": {
                 "outputSegments": 165
               }
@@ -298,7 +292,7 @@
               "backend": "gpu",
               "dispatches": 1,
               "transferBytes": 458416,
-              "wallMs": 1129,
+              "wallMs": 1092,
               "hatch": {
                 "traces": 136,
                 "segments": 5461,
@@ -318,14 +312,14 @@
               "candidates": 233908,
               "dispatches": 29,
               "refinements": 43997,
-              "wallMs": 2128,
-              "gpuMs": 0.29276800000000003
+              "wallMs": 2098,
+              "gpuMs": 0.29017600000000005
             }
           ]
         },
         {
           "pass": "warm",
-          "wallMs": 4550,
+          "wallMs": 5167,
           "renderMs": 1,
           "modeling": [
             {
@@ -333,7 +327,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 174,
+              "wallMs": 142,
               "intersections": {
                 "outputSegments": 136
               }
@@ -343,7 +337,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 174,
+              "wallMs": 164,
               "intersections": {
                 "outputSegments": 87
               }
@@ -353,7 +347,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 623,
+              "wallMs": 659,
               "intersections": {
                 "outputSegments": 165
               }
@@ -363,7 +357,7 @@
               "backend": "gpu",
               "dispatches": 1,
               "transferBytes": 458416,
-              "wallMs": 1066,
+              "wallMs": 1107,
               "hatch": {
                 "traces": 136,
                 "segments": 5461,
@@ -383,8 +377,8 @@
               "candidates": 233908,
               "dispatches": 29,
               "refinements": 43997,
-              "wallMs": 1705,
-              "gpuMs": 0.2900480000000001
+              "wallMs": 2280,
+              "gpuMs": 0.287904
             }
           ]
         }
@@ -395,7 +389,7 @@
       "runs": [
         {
           "pass": "cold",
-          "wallMs": 1083,
+          "wallMs": 1096,
           "renderMs": 2,
           "modeling": [
             {
@@ -403,7 +397,7 @@
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 34,
+              "wallMs": 14,
               "mapping": {
                 "outputSegments": 23
               }
@@ -414,22 +408,22 @@
               "candidates": 13924,
               "dispatches": 2,
               "refinements": 9387,
-              "wallMs": 238,
-              "gpuMs": 0.019104000000000003
+              "wallMs": 294,
+              "gpuMs": 0.023552
             }
           ]
         },
         {
           "pass": "warm",
-          "wallMs": 990,
-          "renderMs": 4,
+          "wallMs": 1074,
+          "renderMs": 2,
           "modeling": [
             {
               "operation": "mapSurface",
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 3,
+              "wallMs": 4,
               "mapping": {
                 "outputSegments": 23
               }
@@ -440,8 +434,8 @@
               "candidates": 13924,
               "dispatches": 2,
               "refinements": 9387,
-              "wallMs": 230,
-              "gpuMs": 0.020128
+              "wallMs": 318,
+              "gpuMs": 0.019968
             }
           ]
         }
@@ -452,15 +446,15 @@
       "runs": [
         {
           "pass": "cold",
-          "wallMs": 29735,
-          "renderMs": 37,
+          "wallMs": 28862,
+          "renderMs": 42,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 16673,
+              "wallMs": 15591,
               "hatch": {
                 "traces": 144,
                 "segments": 80978,
@@ -480,22 +474,22 @@
               "candidates": 363798,
               "dispatches": 45,
               "refinements": 140608,
-              "wallMs": 7401,
-              "gpuMs": 0.4482560000000001
+              "wallMs": 8096,
+              "gpuMs": 0.45104000000000016
             }
           ]
         },
         {
           "pass": "warm",
-          "wallMs": 29818,
-          "renderMs": 29,
+          "wallMs": 30131,
+          "renderMs": 32,
           "modeling": [
             {
               "operation": "hatch",
               "backend": "cpu",
               "dispatches": 0,
               "transferBytes": 0,
-              "wallMs": 16825,
+              "wallMs": 15945,
               "hatch": {
                 "traces": 144,
                 "segments": 80978,
@@ -515,43 +509,8 @@
               "candidates": 363798,
               "dispatches": 45,
               "refinements": 140608,
-              "wallMs": 7503,
-              "gpuMs": 0.4457280000000002
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "woven-vessel",
-      "runs": [
-        {
-          "pass": "cold",
-          "wallMs": 48827,
-          "renderMs": 138,
-          "modeling": [],
-          "scenes": [
-            {
-              "candidates": 2255812,
-              "dispatches": 276,
-              "refinements": 1458163,
-              "wallMs": 39183,
-              "gpuMs": 2.770496000000004
-            }
-          ]
-        },
-        {
-          "pass": "warm",
-          "wallMs": 45847,
-          "renderMs": 74,
-          "modeling": [],
-          "scenes": [
-            {
-              "candidates": 2255812,
-              "dispatches": 276,
-              "refinements": 1458163,
-              "wallMs": 36682,
-              "gpuMs": 2.771776000000004
+              "wallMs": 8862,
+              "gpuMs": 0.43161599999999994
             }
           ]
         }

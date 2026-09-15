@@ -1,0 +1,323 @@
+# 3D optimization log
+
+Branch `perf/3d-visibility`, from `origin/dev` (`bfbdf93`). Every attempt is
+recorded here, kept or reverted. Numbers are from this box (shared; run under
+`nice -n 10`, serially). Run-to-run noise on the vessel is roughly ±3%.
+
+## Summary — CPU reference, warm pass
+
+| workload | metric | baseline (bfbdf93) | current | delta |
+| --- | --- | --- | --- | --- |
+| woven-vessel | compile ms | 25040 | 18272 | −26.9% |
+| woven-vessel | visibility ms | 17513 | 9826 | −43.9% |
+
+(Post-merge CPU reference; see entry 5 for the merge and for run-to-run noise.)
+
+Baselines: `benchmark-surface/cpu-baseline.json`, `gpu-baseline.json`
+(recorded on `bfbdf93` before any change). The woven-vessel rows quoted above
+are from `development/3d/optimization/vessel.mts`, which reports the same
+scene stats for a single workload; the full-suite numbers are in the JSON.
+
+## Summary — both paths, all seven workloads
+
+Served Studio (GPU visibility, NVIDIA RTX 2060, `isFallbackAdapter: false`),
+end-to-end wall ms from source edit to render reply:
+
+| workload | pass | before | after |
+| --- | --- | --- | --- |
+| mapped-plane | cold / warm | 3738 / 3430 | 3319 / 3182 |
+| primitive-crosshatch | cold / warm | 16066 / 15777 | 14723 / 14855 |
+| custom-curvature | cold / warm | 5294 / 5226 | 5418 / 4767 |
+| intersection-assembly | cold / warm | 4939 / 5167 | 5095 / 4478 |
+| repeated-prototypes | cold / warm | 1096 / 1074 | 1116 / 954 |
+| hatch-density | cold / warm | 28862 / 30131 | 28170 / 28443 |
+| **woven-vessel** | cold / warm | **watchdog (no reply)** | **45881 / 43662** |
+
+The brief's concrete target is met: the woven-vessel never returned a render
+reply at the branch point — the Studio's 60 s `RENDER_TIMEOUT_MS` fired and
+the runner timed out at 120 s — and now renders in 43.7 s warm, comfortably
+inside the watchdog.
+
+CPU reference (`benchmark-surface/cpu.mts`), compile ms and the sum of scene
+visibility ms:
+
+| workload | pass | compile before → after | visibility before → after |
+| --- | --- | --- | --- |
+| mapped-plane | cold / warm | 3075 → 2649 / 2892 → 2637 | 578 → 391 / 490 → 379 |
+| primitive-crosshatch | cold / warm | 13577 → 12069 / 12825 → 11668 | 2878 → 2169 / 2970 → 2150 |
+| custom-curvature | cold / warm | 4216 → 4347 / 5057 → 4313 | 785 → 666 / 847 → 756 |
+| intersection-assembly | cold / warm | 3488 → 2690 / 3368 → 2653 | 1283 → 694 / 1269 → 700 |
+| repeated-prototypes | cold / warm | 599 → 477 / 581 → 479 | 184 → 122 / 181 → 123 |
+| hatch-density | cold / warm | 24386 → 23245 / 24349 → 22944 | 5488 → 4884 / 5300 → 4847 |
+| woven-vessel | cold / warm | 28515 → 19473 / 26994 → 18542 | 19258 → 10004 / 18702 → 10321 |
+
+Every workload's exported SVG is byte-length identical, and every scene's
+candidate and refinement counts are unchanged on both paths.
+
+### The GPU ink oracle
+
+`development/3d/optimization/ink-digest.mjs` captures, for one built image,
+the sha256 of the raw `prims` and `frags` buffers of every workload rendered
+through the served Studio on the real adapter — the same digest the
+`renderhash` oracle uses, and exactly what the preview, the export and the
+paper are made of.
+
+A cross-backend comparison inside the Studio is not available: with WebGPU
+disabled the render worker reports "WebGPU adapter unavailable" rather than
+falling back, so there is no CPU-classified Studio render to diff against.
+Reconstructing the Studio's inputs in Node is also not a sound oracle — the
+Studio renders on its own 203.2 x 203.2 mm paper with a 10.16 mm margin and
+its own single 0.2 mm `ink` pen, none of which the headless reference
+reproduces by default. So the oracle is the before/after capture on the same
+Studio with the same stored inputs (asserted equal in the JSON), which is
+what "no ink change" actually claims:
+
+| workload | branch point `bfbdf93-inkbase` | `ea22e2e-perf4` |
+| --- | --- | --- |
+| mapped-plane | 2de760138ddf580083172e92ad694b3c | identical |
+| primitive-crosshatch | 421402e08e4903f32d3b8cff473e00d9 | identical |
+| custom-curvature | 0b1dfa6745d8c396ff1a0671ab67c9f6 | identical |
+| intersection-assembly | d6ae27e156deb1b530a94013f527aabe | identical |
+| repeated-prototypes | 03e23e254b165cc2935252a82750818b | identical |
+| hatch-density | 531b086fc97473c63e5d792e6c72f7ae | identical |
+| woven-vessel | 7d99c7c70c23e6dcc88e43c24b867177 | identical |
+
+Captures are `optimization/ink-baseline.json` and `optimization/ink-perf.json`.
+The branch-point image needed one measurement-only edit to be capturable at
+all — `RENDER_TIMEOUT_MS` raised to 600 s so the vessel could finish and be
+digested. That edit was made in the working tree, never committed, and
+reverted immediately after the capture.
+
+Baselines: `benchmark-surface/cpu-baseline.json` and `gpu-baseline.json`,
+both recorded on `bfbdf93`. The committed `gpu.json`/`cpu.json` that the
+brief mentions were from the older `bae1191-surface-final` stamp, so
+`gpu-baseline.json` was re-recorded from an image built at the branch point;
+it has six rows, because the seventh never returns.
+
+## Where the time is (measured)
+
+`node --cpu-prof` over the vessel on the baseline
+(`optimization/profiles/vessel-cpu.cpuprofile`, 28.2 s total, self time):
+
+| ms | frame |
+| --- | --- |
+| 3480 | anonymous, `three/geometry/exact.ts` |
+| 2514 | `hiddenWorldInterval3`, `three/visibility/worldInterval.ts` |
+| 2091 | garbage collector |
+| 1567 | `ratioNumber`, `exact.ts` |
+| 3624 | `gcd` (five call-tree nodes), `exact.ts` |
+| 1104 | `ProjectedIndex3.query`, `three/visibility/index.ts` |
+| 941 | `candidatePairs3`, `three/visibility/scene.ts` |
+| 909 | `hiddenInterval3`, `three/visibility/interval.ts` |
+
+The vessel takes the exact world path: `hiddenInterval3` delegates to
+`hiddenWorldInterval3` for every one of its 2.26 M candidate pairs, six
+homogeneous BigInt constraints each.
+
+## 1. Unroll the fixed-width BigInt vector ops    (commit 1 on this branch)
+
+Hypothesis: `dot`, `times`, `subtract` and `reduce` in `exact.ts` are written
+over `Array.prototype.reduce`/`map` with closures, but every operand is a
+fixed 4-vector. At ~13.5 M `dot` calls for the vessel that is ~54 M closure
+invocations plus a fresh array per `times`/`subtract`, which is the 3480 ms of
+anonymous `exact.ts` self time and part of the 2091 ms of GC.
+
+Change: `packages/occlude/src/three/geometry/exact.ts` — `dot`, `times` and
+`subtract` write their four terms out by index; `reduce` walks the four
+coefficients itself and stops as soon as the running divisor reaches 1, since
+no further gcd can shrink it. BigInt addition and multiplication are exact, so
+every value is bit-identical to what the closure form produced.
+
+Before / after (woven-vessel, CPU reference, two passes in one process):
+
+| pass | compile ms | visibility ms | svg bytes |
+| --- | --- | --- | --- |
+| cold before | 25040 (warm 25040) | 17513 | 1964750 |
+| cold after | 24947 | 16839 | 1964750 |
+| warm before | 25040 | 17513 | 1964750 |
+| warm after | 24196 | 16579 | 1964750 |
+
+Correctness: `vitest run` 1057 passed / 1 skipped (114 files);
+`docs:hashes --check` 256/256 ink-identical; `plotstats church.ts --seed 42`
+unchanged (15601 chains, 96037 draw mm, 16515 travel mm, 381.0 min, 15593
+euler, 18.1 coincident mm); vessel SVG byte length identical.
+
+Verdict: kept. Small but free and it is a prerequisite for the rest — the
+remaining exact-arithmetic work is now visible in the profile rather than
+buried under closure overhead.
+
+## 2. A certified f64 filter for the exact halfspace signs    (commit 2 on this branch)
+
+Hypothesis: instrumenting `hiddenWorldInterval3` over the vessel gives
+2,255,812 calls and 7,580,746 constraint evaluations, of which 1,578,447 end
+in a rejection and only ~2.1 M ever take a root. A rejection (`va<0 && vb<0`)
+and a no-op (`va>=0 && vb>=0`, which moves neither bound) both depend on the
+*signs* of the two dot products alone, so ~72% of the exact BigInt work is
+computed and thrown away.
+
+Change: `three/geometry/exact.ts` gains `bitLength`, `filtered4` and
+`filteredDotSign` — an f64 image of an exact 4-vector divided by a positive
+power of two (so signs are preserved), plus a running error bound
+`2^-49*S + 8*(a.slack*b.max + b.slack*a.max)` that covers both the conversion
+rounding and the truncation of a right shift. The filter returns ±1 only when
+the f64 value exceeds its own bound, and 0 — "ask the exact arithmetic" —
+otherwise, including at zero. `three/visibility/worldInterval.ts` caches one
+filter image beside each shadow plane and each source point (the same
+WeakMaps that already cache the exact forms) and consults the filter first:
+both signs negative rejects, both positive continues, anything else falls
+through to the unchanged exact path. This is the `robust-predicates`
+technique the f64 reference path already uses, lifted to the homogeneous dot
+product; no tolerance is introduced, because the filter never decides a case
+it cannot prove.
+
+Before / after (woven-vessel, CPU reference, two passes in one process):
+
+| pass | compile ms | visibility ms | svg bytes |
+| --- | --- | --- | --- |
+| cold before | 24947 | 16839 | 1964750 |
+| cold after | 23272 | 14321 | 1964750 |
+| warm before | 24196 | 16579 | 1964750 |
+| warm after | 22112 | 13659 | 1964750 |
+
+Correctness: `vitest run` 1057 passed / 1 skipped; `docs:hashes --check`
+256/256 ink-identical; `plotstats church.ts --seed 42` unchanged; vessel SVG
+byte length identical. A new oracle in `test/three-exact-geometry.test.ts`
+asserts the filter never names a sign the exact `dot` contradicts over 4000
+trials up to 600-bit coefficients, half of them constructed to cancel to
+exactly zero or to within one unit in the last place; the test fails when the
+bound is set to zero and still fails when the bound is shrunk by 512x, so it
+constrains the constant rather than merely exercising the code.
+
+Verdict: kept.
+
+## 3. Strip only the common power of two in the shadow construction    (commit 3 on this branch)
+
+Hypothesis: with the sign filter in, `gcd` was the largest remaining frame
+(3494 ms). Attributing it by call chain puts 3403 ms of that inside
+`planes()` and `sourcePoint()` — the once-per-occluder shadow build — through
+`reduce`, `at` and `plane`. Instrumenting `reduce` over the vessel gives
+555,270 calls, 145.6 bits in and 98.2 bits out on average (max 528), and the
+common factor it finds is a **pure power of two in 384,794 of them (69.3%)**,
+trivial in another 21.5%. A homogeneous plane is a projective quantity:
+scaling it by a positive constant moves no sign, no interval root and no
+rounded coordinate, so the gcd there buys operand compactness, not
+correctness — and a shift buys most of that compactness for free.
+
+Not a faster gcd: Euclid with BigInt `%` was measured against Stein's binary
+gcd on 20k representative operand pairs (100–190 bits, with a common power of
+two). Euclid 966 ms, Stein 1467 ms. V8's BigInt division is already the right
+primitive; the win has to come from calling it less.
+
+Change: `exact.ts` gains `reduceScale` (divide out the common power of two
+via a trailing-zero count; every coefficient is divisible by it, so the
+arithmetic shift is exact division) and the projective twins `atScale` /
+`planeScale`, documented as *not* canonical — a plane that is compared or
+keyed still wants `at` / `plane`, which are unchanged, as `canonicalPlane3`
+in `curves/contact.ts` and `canonicalPoint` require. `worldInterval.planes()`
+switches its surface plane, its three side planes and its four near/far
+planes to the scaled forms. The exact arithmetic downstream is untouched.
+
+Before / after (woven-vessel, CPU reference, two passes in one process):
+
+| pass | compile ms | visibility ms | svg bytes |
+| --- | --- | --- | --- |
+| cold before | 23272 | 14321 | 1964750 |
+| cold after | 19785 | 10899 | 1964750 |
+| warm before | 22112 | 13659 | 1964750 |
+| warm after | 18099 | 10220 | 1964750 |
+
+Correctness: `vitest run` 1058 passed / 1 skipped; `docs:hashes --check`
+256/256 ink-identical; `plotstats church.ts --seed 42` unchanged; vessel SVG
+byte length identical.
+
+Verdict: kept.
+
+## 4. Build each exact view and vertex once, not once per triangle    (commit 4 on this branch)
+
+Hypothesis: `planes()` is memoised per occluder, but inside it every triangle
+rebuilds the exact eye, target, back, near and far points, the view direction
+and the camera-depth linear form — all functions of `volume.view`, which one
+snapshot shares across all of its occluders. It also calls `point()` on the
+three world vertices, and a mesh vertex belongs to about six triangles, so
+each exact vertex was built about six times. For the vessel's 33k occluders
+that is ~165k redundant `point()` calls, each a `homogeneous` and a gcd.
+
+Change: `three/visibility/worldInterval.ts` gains two WeakMaps beside the
+existing plane and source-point caches — `exactView(view)` for the view-only
+quantities and `exactVertex(position)` for the exact world vertices, keyed on
+the arrays the snapshot already hands out by identity. `planes()` reads both
+instead of recomputing. No arithmetic changed.
+
+Before / after (woven-vessel, CPU reference, two passes in one process):
+
+| pass | compile ms | visibility ms | svg bytes |
+| --- | --- | --- | --- |
+| cold before | 19785 | 10899 | 1964750 |
+| cold after | 18897 | 10078 | 1964750 |
+| warm before | 18099 | 10220 | 1964750 |
+| warm after | 18246 | 9826 | 1964750 |
+
+Compile is flat within this box's noise; the visibility phase is where the
+saving lands.
+
+Correctness: `vitest run` 1058 passed / 1 skipped; `docs:hashes --check`
+256/256 ink-identical; `plotstats church.ts --seed 42` unchanged; vessel SVG
+byte length identical.
+
+Verdict: kept.
+
+## 5. Merge `origin/master` (dd7cbfb) into the branch    (merge commit on this branch)
+
+`origin/dev` and `origin/master` are the same commit and had moved four
+commits past the branch point: pivoted-transform origins / own trace seeds /
+revision-keyed gradients (`77b23b3`), list-form intersections (`96db1c8`),
+the intersection pair prefix (`2a1ac66`), and hatch ruled across the sheet
+rather than the face (`dd7cbfb`). The diff touches `three/api/hatch.ts`,
+`three/api/intersections.ts`, `three/api/mesh.ts`, `three/modeling.ts`,
+`three/curves/hatch.ts`, `three/surface/fields.ts`, `docs/three.md` and four
+test files — nothing under `three/visibility/`, `three/geometry/exact.ts` or
+`compute/webgpu/`. The merge was clean, no conflicts.
+
+Correctness: `pnpm check` all nine gates green on the merged tree. For the
+ink, the earlier captures are the wrong comparison — upstream may legitimately
+move ink — so the oracle is the merged branch against plain `origin/master`.
+An image was built at `dd7cbfb` (with the measurement-only `RENDER_TIMEOUT_MS`
+bump so the un-optimized vessel can finish and be digested; never committed)
+and one at the merge commit, and `ink-digest.mjs` was run against each:
+
+| workload | `dd7cbfb-master` | `c87e7cb-merged` |
+| --- | --- | --- |
+| mapped-plane | 2de760138ddf580083172e92ad694b3c | identical |
+| primitive-crosshatch | 421402e08e4903f32d3b8cff473e00d9 | identical |
+| custom-curvature | 0b1dfa6745d8c396ff1a0671ab67c9f6 | identical |
+| intersection-assembly | d6ae27e156deb1b530a94013f527aabe | identical |
+| repeated-prototypes | 03e23e254b165cc2935252a82750818b | identical |
+| hatch-density | 531b086fc97473c63e5d792e6c72f7ae | identical |
+| woven-vessel | 7d99c7c70c23e6dcc88e43c24b867177 | identical |
+
+All seven also equal the branch-point capture, so the four upstream commits
+do not move these workloads either; the sheet-wide rulings change nothing for
+them. The merged capture ran at the real 60 s watchdog and the vessel
+returned, so it is not relying on the raised timeout.
+
+`cpu.json` and `gpu.json` were re-recorded on the merged tree.
+
+### Run-to-run noise, stated plainly
+
+This box is shared. The merged GPU numbers were taken at load average 6–9 and
+are visibly worse than the pre-merge run taken on a quieter box, although the
+CPU reference barely moved (vessel warm 18542 → 18272 ms):
+
+| woven-vessel, Studio wall ms | cold | warm |
+| --- | --- | --- |
+| pre-merge, quiet box | 45881 | 43662 |
+| merged, load ~8 | 57546 | 46578 |
+| merged, load ~7 | 48827 | 45847 |
+
+So the honest statement about the brief's target is: the vessel returned a
+render reply on every one of the four measured passes, where at the branch
+point it returned none — but the worst cold pass under load was 57.5 s
+against a 60 s watchdog. The headroom is real but not large, and it is
+load-dependent. The CPU-classification proposal in
+`OPTIMIZATION-PROPOSALS.md` takes the same render to ~18 s, which is the
+margin that would make the target safe rather than met.
