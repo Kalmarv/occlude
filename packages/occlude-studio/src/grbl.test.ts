@@ -91,8 +91,7 @@ describe('GRBL driver', () => {
     expect(g.optFlags).toBe('VZHDL');
     expect(g.grblSettings.get(110)).toBe(15000);
     expect(g.grblSettings.get(11)).toBe(0.01);
-    expect(port.commands).toContain('$1=255'); // the Z motor holds at idle, for seating
-    expect(g.grblSettings.get(1)).toBe(255);
+    expect(port.commands.some((c) => c.startsWith('$1='))).toBe(false); // nothing is written to the board
     expect(port.commands).toContain('G21 G90 G17 G54');
     expect(port.realtime).toContain('\x18'); // reset: motors off, the spring lifts the pen…
     expect(port.commands.at(-1)).toBe('G10 L20 P1 Z0.000'); // …and that is declared as pen-up

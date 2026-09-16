@@ -298,7 +298,7 @@ export function buildManualControls(m: MachineSession): HTMLElement {
   release.hidden = !isEbb();
   const followDriver = (): void => {
     seat.hidden = false;
-    seat.title = isEbb() ? seatTitle : 'Park the carriage at the seat height (profile), motor holding: loosen the clamp, let the pen fall to the paper, clamp, press again to lift. Plots then press with the lift spring’s preload.';
+    seat.title = isEbb() ? seatTitle : 'Park the carriage at the seat height (profile): loosen the clamp, let the pen fall to the paper, clamp, press again to lift. Plots then press with the lift spring’s preload.';
     release.hidden = !isEbb();
     home.title = isEbb() ? 'Return to the bed origin' : 'Run the homing cycle: the switch corner becomes the bed origin';
   };
