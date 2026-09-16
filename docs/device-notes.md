@@ -91,27 +91,49 @@ re-fit against the plot log is only that one plot deep.
 
 ## The iDraw H A1
 
-A second, larger machine, and a different world from the EBB iDraw above: it
-runs a DrawCore V2 board speaking GRBL G-code, with a real stepper Z, so the
-studio drives it only by exporting a file. The studio ships it as a profile
-preset ("Add preset" on the profile row): **594 × 841 mm**, the `gcode`
-driver, pen by Z moves, 0.2 mm flattening resolution (GRBL streams only a few
-hundred lines a second), 10 000 mm/min travel — a conservative start, the
-machine is rated to 12 000 — **arcs off**, because this controller takes
-polylines only, and `flipY` off. `IDRAW_H_A1_PROFILE` in the studio's store is
-the preset's definition.
+A second, larger machine, and a different world from the EBB iDraw above: a
+DrawCore V2.23 board speaking GRBL 1.1h, driven by the studio's GRBL driver
+over Web Serial (grbl.ts) or by an exported file. The studio ships it as a
+profile preset ("Add preset" on the profile row; `IDRAW_H_A1_PROFILE` in the
+studio's store). Everything below was read off the board on 2026-09-16
+(working/plotter-report.md, four sessions, nothing written to the board but
+`$10=3` for buffer reporting).
 
-Field facts about the physical machine, none of which the firmware reports:
-
-- The vendor says it homes to the **top-left** after `$H`, with Y possibly
-  inverted — which is why `flipY` starts off and stays off until an
-  orientation plot decides. Exported coordinates are paper millimetres with Y
-  growing downward from the top-left corner; a controller that homed
-  bottom-left with Y up wants `flipY`, which mirrors Y across the bed and turns
-  the arcs with it. Verify with an asymmetric test plot before trusting any new
-  profile.
-- It arrived with a **shipping deviation**: it needed squaring before its plots
-  were true.
+- **Frame.** After homing (`$HY` then `$HX`; the board offers single-axis
+  homing, and there is no Z switch to hunt for) the head sits at the
+  **top-left** with machine 0,0 there, X positive to the right and **Y
+  negative down the sheet**: the work area is X 0..594, Y 0..−841. That is
+  the profile's `yAxis: 'negative'`; the driver and the export both write
+  y' = −y and turn the arcs with it. Soft and hard limits are off, so
+  nothing but the two home switches protects the ends of travel.
+- **Pen.** A Z axis: **Z0 fully up, Z10 fully down** (85.8 steps/mm, so
+  anything not a multiple of 5 mm rounds by up to 0.006). Z5 is mid-travel.
+  The pens' `penUp`/`penDown` are these heights; the Machine page can write
+  a range into every pen and the Z ladder card finds the depth that draws
+  at full weight. M3/M5 drive the laser channel only.
+- **Reset semantics.** Opening or closing the port does not reset the board,
+  a soft reset keeps the machine position, and closing the port does not
+  stop motion. A soft reset with the pen down **lifts the pen physically
+  while the firmware's Z count stays put**; the pen belt then skips if the
+  pen-up height is commanded. The profile's `resetLiftsPen` makes the
+  driver re-declare the height (`G92 Z`) after every stop and pause instead
+  of driving into the stop. Pause is hold → reset → re-declare, so the
+  machine is Idle while paused (jog, re-origin, pen up/down all work) and
+  resume continues the stroke from where the pen actually stopped.
+- **Motion limits.** `$110/$111` 15000/12000 mm/min, `$120/$121` 3000/2000
+  mm/s², `$11` 0.010 mm; the profile prices plots with 12000 / 2000 / 0.010
+  (the slower axis binds a diagonal), and the driver clamps feeds the way
+  the board would silently. Y carries 9 steps (0.090 mm) of backlash
+  compensation on reversal, visible in the reported position and not
+  accumulating. `$101` = 100 steps/mm measured true over 18 inches.
+- **Protocol.** Lines are at most 79 characters; the planner holds 15
+  blocks and the serial buffer 128 bytes; `ok` means buffered, not done;
+  `G2/G3` work in I/J form (incremental offsets only) and a full circle
+  needs an explicit endpoint; check mode (`$C`) still executes `G10`/`G92`
+  writes, so never dry-run a file through it. Override bytes sent back to
+  back coalesce; the driver does not use them.
+- It arrived with a **shipping deviation**: it needed squaring before its
+  plots were true.
 - The **pen-holder spring was removed.** The same rule as the EBB machine
   applies for a different reason — the pen must rest at a repeatable depth
   rather than be pressed by a spring whose force varies across a sagging bed.

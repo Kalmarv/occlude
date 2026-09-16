@@ -106,6 +106,26 @@ export function calHatch(base?: PenDef): Diagnostic {
   return { plan: encode(chains), pens: [pen('cal-hatch', 3000, base)] };
 }
 
+/** Pen height on a Z-pen controller: one stroke per Z from `from` (top) to
+ * `to` (bottom), 40 mm long, 6 mm apart, each with its own synthetic pen so
+ * the driver lands at that height. Read off the paper: the first stroke
+ * that is full weight is the pen-down Z; anything deeper only presses. */
+export function zLadder(base: PenDef | undefined, o: { from: number; to: number; steps?: number }): Diagnostic {
+  const n = Math.max(2, Math.round(o.steps ?? 6));
+  const pens: PenDef[] = [];
+  const chains: Chain[] = [];
+  for (let i = 0; i < n; i++) {
+    const z = o.from + ((o.to - o.from) * i) / (n - 1);
+    const p = pen(`z-${z.toFixed(2)}`, base?.feed ?? 3000, base);
+    pens.push({ ...p, penDown: Math.round(z * 100) / 100, penUp: base?.penUp ?? p.penUp });
+    const y = 6 + i * 6;
+    chains.push({ pen: i, pts: [[4, y], [44, y]] });
+    // A tick per rung so the rows can be counted from either end.
+    for (let t = 0; t <= i; t++) chains.push({ pen: i, pts: [[48 + t * 2, y - 1.5], [48 + t * 2, y + 1.5]] });
+  }
+  return { plan: encode(chains), pens };
+}
+
 /** "+" first, stress travels, "✕" last — centers coincide iff no steps were
  * lost. Footprint ~120×64mm from the origin. */
 export function registrationProbe(base?: PenDef): Diagnostic {

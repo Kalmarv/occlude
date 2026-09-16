@@ -2,7 +2,7 @@
 
 import { DEFAULT_PENS, type PenDef, DEFAULT_PAPERS, PAPERS, type PaperDef } from 'occlude';
 
-import type { LiftMap, SettlePoint } from 'occlude';
+import type { LiftMap, SettlePoint, YAxis } from 'occlude';
 
 const KEYS = {
   sketch: 'occlude.sketch',
@@ -45,8 +45,19 @@ export interface MachineSettings {
   zMode: boolean;
   arcSupport: boolean;
   resolution: number;
-  /** Mirror Y in exported G-code (see MachineProfileTS.flipY). */
-  flipY?: boolean;
+  /** The controller's Y against the paper's (see MachineProfileTS.yAxis):
+   * 'down' as paper, 'up' a bottom-left home with Y up, 'negative' a
+   * top-left home counting down the sheet. G-code drivers only. */
+  yAxis?: YAxis;
+  /** What the controller's own planner enforces (GRBL $120/$121 and $11):
+   * the one time model prices G-code plots with these. G-code drivers only. */
+  acceleration?: number;
+  travelAcceleration?: number;
+  junctionDeviation?: number;
+  /** The controller lifts the pen on a soft reset while its Z count stays
+   * (the DrawCore does): after a stop or pause the driver re-declares the
+   * pen-up height instead of driving the pen into its stop. */
+  resetLiftsPen?: boolean;
 }
 
 export interface EbbSettings {
@@ -165,24 +176,30 @@ export const DEFAULT_PROFILE: MachineProfile = {
   },
 };
 
-/** The iDraw H A1 (DrawCore V2, GRBL G-code, real stepper Z): 594 x 841 mm
- * bed, pen by Z moves, polylines only (no G2/G3 on this controller), and a
- * coarser resolution because GRBL streams a few hundred lines a second.
- * flipY stays off until the orientation plot says otherwise: the vendor
- * says home is top-left after $H with Y possibly inverted. Travel feed is
- * a conservative start; the machine is rated to 12000. The EBB block is
- * unused by a gcode driver and kept only so every profile has one shape. */
+/** The iDraw H A1 (DrawCore V2.23, GRBL 1.1h), read off the board
+ * 2026-09-16 (working/plotter-report.md): 594 x 841 mm of travel ($130/$131),
+ * homed to the TOP-LEFT with Y negative down the sheet, so 'negative';
+ * pen by Z moves, Z0 fully up and Z10 fully down; G2/G3 accepted in I/J
+ * form (arcs on); max rates 15000/12000 mm/min and accelerations 3000/2000
+ * mm/s² per axis, so the diagonal-safe 12000 and 2000 here; junction
+ * deviation $11 = 0.010. Resolution is coarse because GRBL streams a few
+ * hundred lines a second. The EBB block is unused by a gcode driver and
+ * kept only so every profile has one shape. */
 export const IDRAW_H_A1_PROFILE: MachineProfile = {
   name: 'iDraw H A1',
   driver: 'gcode',
   machine: {
     bedW: 594,
     bedH: 841,
-    travelFeed: 10000,
+    travelFeed: 12000,
     zMode: true,
-    arcSupport: false,
+    arcSupport: true,
     resolution: 0.2,
-    flipY: false,
+    yAxis: 'negative',
+    acceleration: 2000,
+    travelAcceleration: 2000,
+    junctionDeviation: 0.01,
+    resetLiftsPen: true,
   },
   ebb: structuredClone(DEFAULT_PROFILE.ebb),
 };
@@ -248,6 +265,19 @@ export function saveSketchName(name: string): void {
  * Pens live on the studio server (shared across devices); localStorage is
  * only the offline fallback.
  */
+/** Older profiles said `flipY` (a boolean) where the Y sense now has three
+ * values; true was the bottom-left, Y-up frame. */
+function migrateMachine(machine: MachineSettings & { flipY?: boolean }, name?: string, driver?: string): MachineSettings {
+  const { flipY, ...rest } = { ...DEFAULT_PROFILE.machine, ...machine };
+  // A profile made from the H A1 preset before the frame and motion fields
+  // existed takes them from the preset: they describe the board, not a choice.
+  if (name === IDRAW_H_A1_PROFILE.name && driver === 'gcode' && rest.yAxis === undefined && !flipY) {
+    return { ...IDRAW_H_A1_PROFILE.machine, ...rest, ...pick(IDRAW_H_A1_PROFILE.machine, ['yAxis', 'acceleration', 'travelAcceleration', 'junctionDeviation', 'resetLiftsPen']) };
+  }
+  if (flipY !== undefined && rest.yAxis === undefined) rest.yAxis = flipY ? 'up' : 'down';
+  return rest;
+}
+const pick = <T extends object, K extends keyof T>(o: T, keys: K[]): Pick<T, K> => Object.fromEntries(keys.filter((k) => o[k] !== undefined).map((k) => [k, o[k]])) as Pick<T, K>;
 export async function loadProfiles(): Promise<MachineProfile[]> {
   try {
     const res = await fetch('/api/profiles');
@@ -255,7 +285,7 @@ export async function loadProfiles(): Promise<MachineProfile[]> {
       const profiles = (await res.json()) as MachineProfile[];
       if (Array.isArray(profiles) && profiles.length > 0) {
         for (const pp of profiles) {
-          pp.machine = { ...DEFAULT_PROFILE.machine, ...pp.machine };
+          pp.machine = migrateMachine(pp.machine, pp.name, pp.driver);
           pp.ebb = migrateEbb(pp.ebb);
         }
         localStorage.setItem('occlude.profiles', JSON.stringify(profiles));
@@ -270,7 +300,7 @@ export async function loadProfiles(): Promise<MachineProfile[]> {
     if (raw) {
       const profiles = JSON.parse(raw) as MachineProfile[];
       if (Array.isArray(profiles) && profiles.length > 0) {
-        for (const pp of profiles) pp.ebb = migrateEbb(pp.ebb);
+        for (const pp of profiles) { pp.machine = migrateMachine(pp.machine, pp.name, pp.driver); pp.ebb = migrateEbb(pp.ebb); }
         return profiles;
       }
     }

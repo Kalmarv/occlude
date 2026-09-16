@@ -1,5 +1,26 @@
 /** Small DOM builders shared by the rail and the Machine page. */
 
+import type { YAxis } from 'occlude';
+
+/** The three ways a controller can count Y against the paper's. */
+export function yAxisSelect(value: YAxis, onchange: (v: YAxis) => void): HTMLSelectElement {
+  const sel = document.createElement('select');
+  const options: [YAxis, string][] = [
+    ['down', 'as paper: Y down from a top-left home'],
+    ['up', 'mirrored: Y up from a bottom-left home'],
+    ['negative', 'negative: Y counts down from a top-left home (iDraw H)'],
+  ];
+  for (const [v, label] of options) {
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = label;
+    o.selected = v === value;
+    sel.append(o);
+  }
+  sel.onchange = () => onchange(sel.value as YAxis);
+  return sel;
+}
+
 export function button(label: string, onclick: () => void | Promise<void>): HTMLButtonElement {
   const b = document.createElement('button');
   b.textContent = label;

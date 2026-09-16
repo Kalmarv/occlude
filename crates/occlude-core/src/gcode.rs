@@ -30,12 +30,32 @@ pub struct MachineProfile {
     pub z_mode: bool,
     /// Emit G2/G3 for arcs instead of flattening them.
     pub arc_support: bool,
-    /// Mirror Y on output: y' = bed height - y. For controllers whose
-    /// home is the top-left corner with Y growing downward (the iDraw H
-    /// after $H), paper coordinates map straight through; for a standard
-    /// GRBL frame with Y growing upward from a bottom-left home, mirror.
-    /// Arc direction follows the coordinates actually written.
-    pub flip_y: bool,
+    /// How the controller's Y relates to paper Y (which grows down the
+    /// sheet from the top-left corner). Arc direction follows the
+    /// coordinates actually written: both reflections reverse it.
+    pub y_axis: YAxis,
+}
+
+/// The controller's Y axis against the paper's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum YAxis {
+    /// Same as paper: Y grows down the sheet from a top-left home.
+    #[default]
+    Down,
+    /// Standard GRBL frame: Y grows upward from a bottom-left home,
+    /// y' = bed height - y.
+    Up,
+    /// A top-left home whose Y is negative down the sheet (the iDraw H
+    /// after homing: X 0..594, Y 0..-841), y' = -y.
+    Negative,
+}
+
+impl YAxis {
+    /// A reflection reverses the sense of every arc.
+    pub fn mirrors(self) -> bool {
+        self != YAxis::Down
+    }
 }
 
 impl Default for MachineProfile {
@@ -46,7 +66,7 @@ impl Default for MachineProfile {
             travel_feed: 6000.0,
             z_mode: true,
             arc_support: false,
-            flip_y: false,
+            y_axis: YAxis::Down,
         }
     }
 }
@@ -429,9 +449,13 @@ fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) 
     let mut ink = 0.0;
     let mut travel = 0.0;
     let mut pos = Vec2::ZERO;
-    // The coordinates written to the file: paper space, optionally mirrored in Y.
+    // The coordinates written to the file: paper space in the controller's Y sense.
     let out = |p: Vec2| -> Vec2 {
-        if profile.flip_y { crate::vec2::v(p.x, profile.bed.1 - p.y) } else { p }
+        match profile.y_axis {
+            YAxis::Down => p,
+            YAxis::Up => crate::vec2::v(p.x, profile.bed.1 - p.y),
+            YAxis::Negative => crate::vec2::v(p.x, -p.y),
+        }
     };
     for chain in chains {
         let s = chain.start();
@@ -452,7 +476,7 @@ fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) 
                     // point = c + r(cos, sin)), so a positive sweep is G3 in
                     // the coordinates as written; mirroring Y reverses it.
                     // (How a y-down screen shows the arc is irrelevant here.)
-                    let ccw = (a.sweep > 0.0) != profile.flip_y;
+                    let ccw = (a.sweep > 0.0) != profile.y_axis.mirrors();
                     let code = if ccw { "G3" } else { "G2" };
                     let s0 = out(a.eval(0.0));
                     let e = out(a.eval(1.0));

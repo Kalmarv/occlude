@@ -37,7 +37,7 @@ export const executionKey = (e: ExecutionSettings): string => canonicalJson(e);
 import type { RenderDraws, RenderClient } from './workerClient.js';
 import { iconButton, relabel, setIcon, withIcon } from './icons.js';
 import { confirmDialog, notify } from './wa.js';
-import { button, checkbox, el, hint, numberInput, pairInput, row, segmented, panel, subpanel as sub } from './widgets.js';
+import { button, checkbox, el, hint, numberInput, pairInput, row, segmented, panel, subpanel as sub, yAxisSelect } from './widgets.js';
 import { buildOptimizationPanel } from './optimizationPanel.js';
 
 export interface PanelHooks {
@@ -1268,10 +1268,10 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
         m.arcSupport = v;
         persistProfile();
       }),
-      checkbox('Mirror Y (bottom-left home, Y up)', m.flipY ?? false, (v) => {
-        m.flipY = v;
+      row('Y axis', yAxisSelect(m.yAxis ?? 'down', (v) => {
+        m.yAxis = v;
         persistProfile();
-      }),
+      }), 'How the controller counts Y against the paper (down the sheet from the top-left)'),
     );
   }
   renderGcodeProfile();
@@ -1311,7 +1311,7 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
         zMode: prof().machine.zMode,
         arcSupport: prof().machine.arcSupport,
         resolution: prof().machine.resolution,
-        flipY: prof().machine.flipY ?? false,
+        yAxis: prof().machine.yAxis ?? 'down',
       },
       r.paper,
     );

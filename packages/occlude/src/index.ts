@@ -98,7 +98,7 @@ export {
 } from './render.js';
 export type {
   Fragment, RenderResult, RenderOptions,
-  GcodeJob, ExportOptions, MachineProfileTS,
+  GcodeJob, ExportOptions, MachineProfileTS, YAxis,
   EncodedScene, RawRender, WasmModule,
 } from './render.js';
 export { initOcclude } from './init.js';

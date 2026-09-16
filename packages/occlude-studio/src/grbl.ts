@@ -1,31 +1,43 @@
 /**
  * GRBL driver over Web Serial — the iDraw H (DrawCore) family and any other
  * GRBL 1.1 controller. The studio's other driver is the EBB one (ebb.ts);
- * a machine profile's `driver` picks which one the session talks to.
+ * a machine profile's `driver` picks which one the session talks to. Both
+ * drivers share one plot and manual-control surface (plot, pause, resume,
+ * stop, jog, origins, re-ink pauses, the one time model for progress).
  *
- * Protocol facts this relies on (GRBL 1.1):
+ * Protocol facts this relies on (GRBL 1.1, read off the DrawCore V2.23
+ * board 2026-09-16, working/plotter-report.md):
  *  - one `ok` or `error:N` per line sent; `ALARM:N` aborts everything;
- *    `<…>` is a status report answering the real-time `?`; `[...]` are
- *    feedback lines (settings, `$I` version) that precede their `ok`.
- *  - the receive buffer is 128 bytes: the streamer keeps at most
- *    `RX_BUDGET` bytes of unacknowledged lines in flight (character
- *    counting), which is what keeps the planner fed through dense curves.
- *  - real-time bytes bypass the buffer: `!` feed hold, `~` resume, `?`
- *    status, 0x18 soft reset (keeps the position when motion is held).
- *  - `$J=` jogs (cancellable, no modal side effects), `$H` homes when the
- *    controller has homing enabled, `G10 L20 P1 X0 Y0` sets the work origin.
+ *    `<…>` is a status report answering the real-time `?` (no `ok`);
+ *    `[...]` and `$n=v` are feedback lines that precede their `ok`.
+ *  - a line is at most 79 characters; the receive buffer is 128 bytes, so
+ *    the streamer keeps at most `RX_BUDGET` bytes of unacknowledged lines
+ *    in flight (character counting), which keeps the planner fed. `ok`
+ *    means "buffered", not "executed": the planner holds up to 15 blocks.
+ *  - real-time bytes bypass the buffer: `!` feed hold (a controlled stop
+ *    with the pen still on the paper), `~` resume, `?` status, 0x18 soft
+ *    reset (discards the planner, keeps the machine position, and on the
+ *    DrawCore physically lifts the pen while its Z count stays put).
+ *  - `$J=` jogs (cancellable, no modal side effects) run only from Idle;
+ *    `$H` homes (with `$HX`/`$HY` per axis when `[OPT:` lists `H`, which
+ *    matters on a board with no Z switch); `G10 L20 P1 X0 Y0` sets the
+ *    persistent work origin; `G92 Z` re-declares the pen height.
+ *  - opening or closing the port does not reset the board and does not
+ *    stop motion: a stop is `!` then 0x18, never a disconnect.
  *
- * Coordinates: the plan is paper mm; the paper offset makes it bed mm; the
- * profile's `flipY` mirrors Y across the bed height for controllers whose Y
- * grows upward from a bottom-left home — the same mapping the G-code export
- * uses, so what plots here is what an exported file plots.
+ * Coordinates: the plan is paper mm; the paper offset makes it bed mm
+ * (y down the sheet from the top-left corner); the profile's `yAxis` says
+ * how the controller counts Y ('down' as is, 'up' mirrored across the bed
+ * height, 'negative' as -y) — the same mapping the G-code export uses, so
+ * what plots here is what an exported file plots.
  *
  * The pen is the pen definition's `penUp`/`penDown`: Z heights in `zMode`,
  * spindle S values through M3/M5 otherwise, with `penDelay` settling both
- * ways. Time estimates are coarse (feed-limited, no acceleration model)
- * until the machine is calibrated; they are labelled as such.
+ * ways. Pause is hold → reset → re-declare the pen height, so the machine
+ * is Idle while paused (jog, re-origin, pen up/down all work) and resume
+ * carries on from where the pen actually stopped.
  */
-import type { PenDef } from 'occlude';
+import { schedulePlan, type PenDef, type PlanEstimate, type PlanSchedule } from 'occlude';
 
 import type { EbbOptions, PlotProgress, ServoOverride } from './ebb.js';
 import type { MachineSettings } from './store.js';
@@ -42,10 +54,12 @@ interface SerialLike {
 
 /** Bytes of unacknowledged lines the controller may hold (its buffer is 128). */
 const RX_BUDGET = 120;
+/** GRBL's line buffer is 80 bytes including the terminator. */
+const MAX_LINE = 79;
 /** A line the controller has not acknowledged for this long is a stall. */
 const REPLY_TIMEOUT_MS = 20_000;
-/** Z feed assumed for pricing pen cycles when the pen is a Z move, mm/min. */
-const Z_FEED = 1000;
+/** How close the machine must sit to a stroke to resume it mid-stroke, mm. */
+const RESUME_TOLERANCE = 0.05;
 
 interface Pending {
   line: string;
@@ -58,26 +72,50 @@ interface Pending {
 
 export class GrblError extends Error {}
 
+/** A parsed `<…>` status report. */
+export interface GrblStatus {
+  state: string;
+  /** Work position (machine minus the work offset), in the controller's own frame. */
+  work: [number, number, number];
+  machine: [number, number, number];
+  pins: string;
+  raw: string;
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
 export class Grbl {
   private port: SerialPortLike | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private rxBuf = '';
   private pending: Pending[] = [];
   private inFlightBytes = 0;
-  private waiters: (() => void)[] = [];
+  /** Lines waiting for buffer room: retried on every ok, rejected by a flush. */
+  private waiters: { attempt: () => void; reject: (err: Error) => void }[] = [];
   private log: string[] = [];
   private t0 = Date.now();
   version = '';
+  /** `[OPT:…]` letters from `$I`: H = single-axis homing, Z = homing sets the origin. */
+  optFlags = '';
+  /** The controller's `$$` settings by number, read at connect and on demand. */
+  grblSettings = new Map<number, number>();
   /** The profile's machine settings; the session assigns them before use. */
-  settings: MachineSettings = { bedW: 300, bedH: 218, travelFeed: 6000, zMode: true, arcSupport: false, resolution: 0.2, flipY: false };
+  settings: MachineSettings = { bedW: 300, bedH: 218, travelFeed: 6000, zMode: true, arcSupport: false, resolution: 0.2 };
   /** The pen manual pen up/down uses when no plot is running. */
   manualPen: PenDef | undefined;
-  /** Work position in BED mm (before the Y mirror), tracked from what was sent. */
+  /** Work position in BED mm, from the last status report or what was sent. */
   private wpos: [number, number] = [0, 0];
-  private penIsUp = true;
+  /** Work coordinate offset in the controller's frame; reports carry it only every few polls. */
+  private wco: [number, number, number] = [0, 0, 0];
+  lastStatus: GrblStatus | null = null;
+  private penIsUp = false;
   plotting = false;
   private plotPause = false;
   private plotAbort = false;
+  /** Jogged or re-origined while paused: the frame moved under the stroke. */
+  private pauseAdjusted = false;
+  /** The hold → reset → resync in progress, so a resume waits for it. */
+  private flush: Promise<void> | null = null;
   paperOffset: [number, number] = [0, 0];
 
   private logLine(dir: '>' | '<', text: string): void {
@@ -100,30 +138,32 @@ export class Grbl {
     this.port = port;
     this.writer = port.writable!.getWriter();
     this.t0 = Date.now();
+    this.penIsUp = false; // unknown until a pen-up is sent
     void this.readLoop();
-    // Opening the port resets most boards; give the banner a moment, then
-    // wake the parser with an empty line so any stale partial line is closed.
-    await new Promise((r) => setTimeout(r, 1200));
+    // A board that resets on open prints its banner now (the DrawCore does
+    // not reset and prints nothing); then close any stale partial line.
+    await sleep(300);
     await this.raw('\r\n');
-    await new Promise((r) => setTimeout(r, 200));
+    await sleep(100);
     const info = await this.cmd('$I').catch(() => [] as string[]);
     this.version = info.find((l) => l.startsWith('[VER:'))?.slice(5).replace(/\]$/, '') || this.banner || 'grbl';
-    const status = await this.status().catch(() => '');
-    if (/^<Alarm/.test(status)) await this.cmd('$X').catch(() => undefined);
+    this.optFlags = info.find((l) => l.startsWith('[OPT:'))?.slice(5).split(',')[0] ?? '';
+    await this.readSettings().catch(() => undefined);
+    const status = await this.status().catch(() => null);
+    if (status?.state === 'Alarm') await this.cmd('$X').catch(() => undefined);
     await this.cmd('G21 G90 G17 G54');
-    this.adoptPosition(status);
     return this.version;
   }
 
   async disconnect(): Promise<void> {
     if (!this.port) return;
+    // Closing the port does not stop the machine: stop it first.
+    if (this.plotting) await this.stop().catch(() => undefined);
     try { await this.writer?.close(); } catch { /* port gone */ }
     try { await this.port.close(); } catch { /* port gone */ }
     this.writer = null;
     this.port = null;
-    for (const p of this.pending) { clearTimeout(p.timer); p.reject(new GrblError('disconnected')); }
-    this.pending = [];
-    this.inFlightBytes = 0;
+    this.abortPending('disconnected');
   }
 
   private banner = '';
@@ -157,11 +197,7 @@ export class Grbl {
     }
     if (line.startsWith('Grbl')) { this.banner = line; return; }
     if (line.startsWith('ALARM')) {
-      const err = new GrblError(`${line} — unlock with $X, then home or set the origin again`);
-      for (const p of this.pending) { clearTimeout(p.timer); p.reject(err); }
-      this.pending = [];
-      this.inFlightBytes = 0;
-      this.wake();
+      this.abortPending(`${line} — unlock with $X, then home or set the origin again`);
       return;
     }
     const head = this.pending[0];
@@ -178,10 +214,20 @@ export class Grbl {
     head.feedback.push(line);
   }
 
+  private abortPending(reason: string): void {
+    const err = new GrblError(reason);
+    for (const p of this.pending) { clearTimeout(p.timer); p.reject(err); }
+    this.pending = [];
+    this.inFlightBytes = 0;
+    const ws = this.waiters;
+    this.waiters = [];
+    for (const w of ws) w.reject(err);
+  }
+
   private wake(): void {
     const ws = this.waiters;
     this.waiters = [];
-    for (const w of ws) w();
+    for (const w of ws) w.attempt();
   }
 
   private async raw(text: string): Promise<void> {
@@ -200,10 +246,11 @@ export class Grbl {
    * several lines in flight the planner never starves. */
   send(line: string, timeoutMs = REPLY_TIMEOUT_MS): Promise<string[]> {
     return new Promise<string[]>((resolve, reject) => {
+      if (line.length > MAX_LINE) { reject(new GrblError(`line longer than ${MAX_LINE} characters: ${line}`)); return; }
       const bytes = line.length + 1;
       const attempt = (): void => {
         if (!this.writer) { reject(new GrblError('not connected')); return; }
-        if (this.inFlightBytes + bytes > RX_BUDGET && this.pending.length > 0) { this.waiters.push(attempt); return; }
+        if (this.inFlightBytes + bytes > RX_BUDGET && this.pending.length > 0) { this.waiters.push({ attempt, reject }); return; }
         const p: Pending = { line, bytes, feedback: [], resolve, reject };
         p.timer = setTimeout(() => {
           if (!this.pending.includes(p)) return;
@@ -227,55 +274,86 @@ export class Grbl {
   /** A single command: the same as `send`, kept for the controls and the log. */
   cmd(line: string, _expectOk = true, timeoutMs?: number): Promise<string[]> { return this.send(line, timeoutMs); }
 
-  /** Real-time status report `<State|WPos:x,y,z|…>`. */
-  status(timeoutMs = 2000): Promise<string> {
-    return new Promise<string>((resolve, reject) => {
+  /** `$$`: the controller's settings, cached on the driver for the profile
+   * form and the feed clamp. */
+  async readSettings(): Promise<Map<number, number>> {
+    const lines = await this.cmd('$$');
+    const next = new Map<number, number>();
+    for (const l of lines) {
+      const m = l.match(/^\$(\d+)=(-?[\d.]+)$/);
+      if (m) next.set(Number(m[1]), Number(m[2]));
+    }
+    if (next.size) this.grblSettings = next;
+    return this.grblSettings;
+  }
+
+  /** Real-time status report, parsed. */
+  status(timeoutMs = 2000): Promise<GrblStatus> {
+    return new Promise<GrblStatus>((resolve, reject) => {
       const timer = setTimeout(() => { this.statusWaiters = this.statusWaiters.filter((w) => w !== on); reject(new GrblError('no status report')); }, timeoutMs);
-      const on = (line: string): void => { clearTimeout(timer); resolve(line); };
+      const on = (line: string): void => { clearTimeout(timer); resolve(this.parseStatus(line)); };
       this.statusWaiters.push(on);
       this.raw('?').catch(reject);
     });
   }
 
-  private adoptPosition(status: string): void {
-    const w = status.match(/WPos:(-?[\d.]+),(-?[\d.]+)/);
-    let x: number, y: number;
-    if (w) { x = Number(w[1]); y = Number(w[2]); }
-    else {
-      const m = status.match(/MPos:(-?[\d.]+),(-?[\d.]+)/), o = status.match(/WCO:(-?[\d.]+),(-?[\d.]+)/);
-      if (!m) return;
-      x = Number(m[1]) - (o ? Number(o[1]) : 0); y = Number(m[2]) - (o ? Number(o[2]) : 0);
-    }
-    this.wpos = this.fromMachine([x, y]);
+  private parseStatus(line: string): GrblStatus {
+    const state = line.match(/^<([A-Za-z]+(?::\d+)?)/)?.[1] ?? '';
+    const triple = (key: string): [number, number, number] | null => {
+      const m = line.match(new RegExp(`${key}:(-?[\\d.]+),(-?[\\d.]+)(?:,(-?[\\d.]+))?`));
+      return m ? [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)] : null;
+    };
+    const wcoNow = triple('WCO');
+    if (wcoNow) this.wco = wcoNow;
+    const mpos = triple('MPos'), wposNow = triple('WPos');
+    const work: [number, number, number] = wposNow ?? (mpos ? [mpos[0] - this.wco[0], mpos[1] - this.wco[1], mpos[2] - this.wco[2]] : [0, 0, 0]);
+    const machine: [number, number, number] = mpos ?? [work[0] + this.wco[0], work[1] + this.wco[1], work[2] + this.wco[2]];
+    const status: GrblStatus = { state, work, machine, pins: line.match(/Pn:([A-Z]+)/)?.[1] ?? '', raw: line };
+    this.lastStatus = status;
+    if (mpos || wposNow) this.wpos = this.fromMachine([work[0], work[1]]);
+    return status;
   }
 
-  /** Wait until the controller reports Idle (motion finished). */
-  private async waitIdle(timeoutMs = 120_000): Promise<void> {
+  /** Wait until the controller reports one of these states. */
+  private async waitState(states: RegExp, timeoutMs: number): Promise<GrblStatus> {
     const end = Date.now() + timeoutMs;
     for (;;) {
-      const s = await this.status().catch(() => '');
-      if (/^<(Idle|Check|Door:0)/.test(s)) { this.adoptPosition(s); return; }
-      if (/^<Alarm/.test(s)) throw new GrblError('controller is in alarm');
+      const s = await this.status().catch(() => null);
+      if (s && states.test(s.state)) return s;
+      if (s?.state === 'Alarm') throw new GrblError('controller is in alarm');
       if (Date.now() > end) throw new GrblError('motion did not finish');
-      await new Promise((r) => setTimeout(r, 150));
+      await sleep(150);
     }
   }
+  /** Wait until motion has finished. */
+  private waitIdle(timeoutMs = 120_000): Promise<GrblStatus> { return this.waitState(/^(Idle|Check|Door:0)$/, timeoutMs); }
 
   // ---- coordinates ----------------------------------------------------------
 
-  /** Bed mm → the coordinates the controller reads. */
+  /** Bed mm → the coordinates the controller reads. Every mapping is its
+   * own inverse, so `fromMachine` is the same function. */
   private toMachine(p: readonly [number, number]): [number, number] {
-    return this.settings.flipY ? [p[0], this.settings.bedH - p[1]] : [p[0], p[1]];
+    switch (this.settings.yAxis ?? 'down') {
+      case 'up': return [p[0], this.settings.bedH - p[1]];
+      case 'negative': return [p[0], -p[1]];
+      default: return [p[0], p[1]];
+    }
   }
   private fromMachine(p: readonly [number, number]): [number, number] { return this.toMachine(p); }
   private fmt(v: number): string { return (Math.round(v * 1000) / 1000).toFixed(3); }
+  /** The controller clamps over-limit feeds silently; clamp here so the
+   * time model prices what actually happens. */
+  private clampFeed(feed: number): number {
+    const limits = [this.grblSettings.get(110), this.grblSettings.get(111)].filter((v): v is number => v !== undefined && v > 0);
+    return Math.max(1, Math.round(limits.length ? Math.min(feed, ...limits) : feed));
+  }
   private g0(bed: readonly [number, number]): string {
     const [x, y] = this.toMachine(bed);
     return `G0 X${this.fmt(x)} Y${this.fmt(y)}`;
   }
   private g1(bed: readonly [number, number], feed: number): string {
     const [x, y] = this.toMachine(bed);
-    return `G1 X${this.fmt(x)} Y${this.fmt(y)} F${Math.round(feed)}`;
+    return `G1 X${this.fmt(x)} Y${this.fmt(y)} F${this.clampFeed(feed)}`;
   }
 
   // ---- pen ----------------------------------------------------------------
@@ -288,7 +366,7 @@ export class Grbl {
   private penDownLines(pen: PenDef | undefined): string[] {
     const delay = pen && pen.penDelay > 0 ? [`G4 P${(pen.penDelay / 1000).toFixed(3)}`] : [];
     if (!this.settings.zMode) return [`M3 S${Math.max(1, Math.round(pen?.penDown ?? 1))}`, ...delay];
-    return [`G1 Z${this.fmt(pen?.penDown ?? 0)} F${Math.round(pen?.feed ?? 1000)}`, ...delay];
+    return [`G1 Z${this.fmt(pen?.penDown ?? 0)} F${this.clampFeed(pen?.feed ?? 1000)}`, ...delay];
   }
 
   async penUp(_settleMs = 300): Promise<void> {
@@ -296,8 +374,20 @@ export class Grbl {
     this.penIsUp = true;
   }
   async penDown(_settleMs = 300): Promise<void> {
+    if (this.plotting && !this.plotPause) throw new GrblError('the plot owns the pen; pause first');
     for (const l of this.penDownLines(this.manualPen)) await this.send(l);
     this.penIsUp = false;
+  }
+
+  /** After a soft reset the DrawCore's pen is physically up while its Z
+   * count still says where it was: driving to the pen-up height would run
+   * the belt into its stop. `resetLiftsPen` re-declares the current height
+   * as pen-up instead (G92, volatile); other controllers get a real lift. */
+  private async resyncPen(pen: PenDef | undefined): Promise<void> {
+    if (!this.settings.zMode) { await this.send('M5'); this.penIsUp = true; return; }
+    if (this.settings.resetLiftsPen) await this.send(`G92 Z${this.fmt(pen?.penUp ?? 5)}`);
+    else await this.send(`G0 Z${this.fmt(pen?.penUp ?? 5)}`);
+    this.penIsUp = true;
   }
 
   // ---- manual motion and origins -------------------------------------------
@@ -305,21 +395,26 @@ export class Grbl {
   bedPosition(_o?: EbbOptions): [number, number] { return [this.wpos[0], this.wpos[1]]; }
 
   async jog(dxMm: number, dyMm: number, o: EbbOptions): Promise<void> {
+    if (this.plotting && !this.plotPause) throw new GrblError('pause the plot before jogging');
     if (!this.penIsUp) await this.penUp();
     const [mx, my] = this.toMachine([dxMm, dyMm]), [zx, zy] = this.toMachine([0, 0]);
-    await this.send(`$J=G91 G21 X${this.fmt(mx - zx)} Y${this.fmt(my - zy)} F${Math.round(o.travelFeed || this.settings.travelFeed)}`);
+    await this.send(`$J=G91 G21 X${this.fmt(mx - zx)} Y${this.fmt(my - zy)} F${this.clampFeed(o.travelFeed || this.settings.travelFeed)}`);
     await this.waitIdle();
+    if (this.plotting) this.pauseAdjusted = true;
   }
 
   setPaperOrigin(_o?: EbbOptions): [number, number] {
     this.paperOffset = this.wpos.map((v) => Math.round(v * 100) / 100) as [number, number];
+    if (this.plotting) this.pauseAdjusted = true;
     return this.paperOffset;
   }
 
   async goToPaperOrigin(_o?: EbbOptions): Promise<void> {
+    if (this.plotting && !this.plotPause) throw new GrblError('pause the plot first');
     await this.penUp();
     await this.send(this.g0(this.paperOffset));
     await this.waitIdle();
+    if (this.plotting) this.pauseAdjusted = true;
   }
 
   /** "This is the bed origin": the work coordinate origin, persistent in
@@ -328,59 +423,74 @@ export class Grbl {
     await this.send('G10 L20 P1 X0 Y0');
     this.wpos = [0, 0];
     this.paperOffset = [0, 0];
+    if (this.plotting) this.pauseAdjusted = true;
+    await this.status().catch(() => null); // picks up the new offset
   }
 
-  /** Home with the switches when the controller has them; else return to
-   * the work origin. */
+  /** Run the homing cycle and make the switch corner the bed origin. With
+   * single-axis homing available (`[OPT:` H) the axes go one at a time,
+   * which keeps a Z with no switch out of the cycle; without homing
+   * (error:5) it is a return to the work origin. */
   async home(): Promise<void> {
+    if (this.plotting && !this.plotPause) throw new GrblError('pause the plot first');
     await this.penUp();
     try {
-      await this.send('$H', 90_000);
+      if (this.optFlags.includes('H')) { await this.send('$HY', 90_000); await this.send('$HX', 90_000); }
+      else await this.send('$H', 90_000);
+      await this.waitIdle();
+      await this.setOrigin();
     } catch (e) {
       if (!(e instanceof GrblError && /error:5/.test(e.message))) throw e;
       await this.send(this.g0([0, 0]));
+      await this.waitIdle();
     }
-    await this.waitIdle();
   }
 
-  /** Feed hold, then a soft reset (which keeps the position while held),
-   * unlock, pen up. The host pipeline is reset before the controller is. */
+  /** Bring the machine to Idle with nothing queued: feed hold, wait for the
+   * deceleration, soft reset (position kept), unlock, restore the modal
+   * state, re-declare the pen height. Every line in flight is rejected with
+   * `reason` so the plot loop knows why. */
+  private async flushMotion(reason: string, pen: PenDef | undefined): Promise<void> {
+    try {
+      await this.realtime('!');
+      await this.waitState(/^(Hold:0|Idle|Door:0|Alarm|Check)$/, 5000).catch(() => undefined);
+      await this.realtime('\x18');
+    } catch { /* port gone */ }
+    this.abortPending(reason);
+    await sleep(600);
+    const s = await this.status().catch(() => null);
+    if (s?.state === 'Alarm') await this.send('$X').catch(() => undefined);
+    await this.send('G21 G90 G17 G54').catch(() => undefined);
+    await this.resyncPen(pen).catch(() => undefined);
+    await this.status().catch(() => null);
+  }
+
   async stop(): Promise<void> {
     this.plotAbort = true;
     this.plotPause = false;
-    try {
-      await this.realtime('!');
-      await new Promise((r) => setTimeout(r, 400));
-      await this.realtime('\x18');
-    } catch { /* port gone */ }
-    for (const p of this.pending) { clearTimeout(p.timer); p.reject(new GrblError('stopped')); }
-    this.pending = [];
-    this.inFlightBytes = 0;
-    this.wake();
-    await new Promise((r) => setTimeout(r, 1200));
-    await this.send('$X').catch(() => undefined);
-    await this.send('G21 G90 G54').catch(() => undefined);
-    await this.penUp().catch(() => undefined);
-    const s = await this.status().catch(() => '');
-    this.adoptPosition(s);
+    this.flush = this.flushMotion('stopped', this.manualPen);
+    await this.flush;
   }
 
+  /** Hold, then flush: the machine is Idle while paused, so the pen and
+   * the origins can be adjusted; resume continues the interrupted stroke
+   * from where the pen actually stopped. */
   pause(): void {
     if (!this.plotting || this.plotPause) return;
     this.plotPause = true;
-    void this.realtime('!').catch(() => undefined);
+    this.pauseAdjusted = false;
+    this.flush = this.flushMotion('paused', this.manualPen).catch(() => undefined);
   }
   resume(): void {
     if (!this.plotting || !this.plotPause) return;
     this.plotPause = false;
-    void this.realtime('~').catch(() => undefined);
   }
 
   // ---- plotting --------------------------------------------------------------
 
   /** Same contract as Ebb.plot: a toolpath plan in paper mm, one pen per
-   * run by hand, progress callbacks, resume from a chain. Servo arguments
-   * are accepted for the shared call site and ignored. */
+   * run by hand, progress callbacks, re-ink pauses, resume from a chain.
+   * Servo arguments are accepted for the shared call site and ignored. */
   async plot(
     plan: Float64Array,
     pens: PenDef[],
@@ -405,84 +515,158 @@ export class Grbl {
     if (onlyPen !== undefined) chains = chains.filter((c) => c.pen === onlyPen);
     const first = Math.max(0, Math.min(startChain, chains.length));
     const penOf = (pi: number): PenDef | undefined => { const base = pens[pi]; return (base && livePen?.(base.name)) ?? base; };
-    const travelFeed = o.travelFeed || this.settings.travelFeed;
+    const travelFeed = this.clampFeed(o.travelFeed || this.settings.travelFeed);
 
-    // Coarse model: feed-limited draw and travel, pen cycles as Z travel plus settle.
-    const priceChain = (c: Chain, from: readonly [number, number]): { ms: number; draw: number; travel: number } => {
-      const pen = penOf(c.pen), feed = Math.max(1, pen?.feed ?? 1000);
-      let draw = 0;
-      for (let k = 2; k < c.pts.length; k += 2) draw += Math.hypot(c.pts[k] - c.pts[k - 2], c.pts[k + 1] - c.pts[k - 1]);
-      const travel = Math.hypot(c.pts[0] - from[0], c.pts[1] - from[1]);
-      const z = this.settings.zMode ? Math.abs((pen?.penUp ?? 5) - (pen?.penDown ?? 0)) : 0;
-      const cycle = 2 * ((z / Z_FEED) * 60_000 + (pen?.penDelay ?? 0));
-      return { ms: (draw / feed) * 60_000 + (travel / travelFeed) * 60_000 + cycle, draw, travel };
+    // Totals for progress: THE shared time model, priced with what this
+    // controller's own planner enforces (its accelerations and junction
+    // deviation, from the profile), full lifts at each pen's own settle.
+    const timing = {
+      travelFeed,
+      acceleration: this.settings.acceleration ?? 1000,
+      travelAcceleration: this.settings.travelAcceleration ?? this.settings.acceleration ?? 1000,
+      junctionDeviation: this.settings.junctionDeviation ?? 0.01,
+      minimumCruiseRatio: 0,
     };
-    let totalMs = 0, drawMm = 0, total = 0;
-    { let at: [number, number] = this.wpos;
-      for (const c of chains.slice(first)) { const p = priceChain(c, at); totalMs += p.ms; drawMm += p.draw; total += c.pts.length / 2 + 4; at = [c.pts[c.pts.length - 2], c.pts[c.pts.length - 1]]; } }
+    const penTiming = (pi: number): { feed: number; penDelay: number } | undefined => {
+      const pen = penOf(pi);
+      return pen ? { feed: this.clampFeed(pen.feed), penDelay: pen.penDelay } : undefined;
+    };
+    const remaining = chains.slice(first);
+    const schedule: PlanSchedule = schedulePlan(remaining, penTiming, timing);
+    const estimate: PlanEstimate = schedule.estimate;
+    const total = estimate.commands;
+    const totalMs = estimate.totalMs;
+    const chainEndMs = (ci: number): number => { const k = ci - first; return schedule.chainStartMs[k] + schedule.chainDurMs[k]; };
 
     this.plotAbort = false;
     this.plotPause = false;
+    this.pauseAdjusted = false;
     this.plotting = true;
-    const started = Date.now();
-    let pausedMs = 0, pauseStart = 0, sent = 0, elapsedMs = 0, drawnMm = 0, lastReport = 0;
-    const penName = (c: Chain): string => penOf(c.pen)?.name ?? `pen ${c.pen}`;
-    const report = (state: PlotProgress['state'], chain: number, force = false): void => {
+    const wallStart = Date.now();
+    let pausedWallMs = 0, sent = 0, elapsedMs = 0, drawnMm = 0, inkedMm = 0, lastReport = 0;
+    let warning: string | undefined, reinkInMm: number | undefined, curChain = first;
+    const penName = (c: Chain | undefined): string => (c ? penOf(c.pen)?.name ?? `pen ${c.pen}` : '');
+    const report = (state: PlotProgress['state'], force = false): void => {
       const now = Date.now();
-      if (!force && now - lastReport < 200) return;
+      if (!force && state === 'plotting' && now - lastReport < 200) return;
       lastReport = now;
-      const wall = now - started - pausedMs;
-      const frac = totalMs > 0 ? Math.min(1, elapsedMs / totalMs) : 0;
-      const measured = frac > 0.05 ? wall / frac - wall : totalMs - elapsedMs;
-      const etaMs = Math.max(0, frac > 0.05 ? measured * 0.7 + (totalMs - elapsedMs) * 0.3 : totalMs - elapsedMs);
-      onProgress({ sent, total, elapsedMs, totalMs, penName: chains[chain] ? penName(chains[chain]) : '', state, etaMs, drawnMm, drawMm, chain, chainTotal: chains.length, warning: 'GRBL timing is coarse until the machine is calibrated' });
+      // ETA: the model early, blended toward measured throughput once there is data.
+      const modelRemaining = Math.max(0, totalMs - elapsedMs);
+      let etaMs = modelRemaining;
+      const wall = now - wallStart - pausedWallMs;
+      if (totalMs > 0 && elapsedMs > 0 && wall > 5000) {
+        const rate = Math.min(3, Math.max(0.5, wall / elapsedMs));
+        const progress = elapsedMs / totalMs;
+        const w = Math.min(0.85, Math.max(0, (progress - 0.05) * 4));
+        etaMs = modelRemaining * (1 - w + w * rate);
+      }
+      onProgress({
+        sent, total, elapsedMs, totalMs, penName: penName(chains[curChain]), state, etaMs, warning,
+        drawnMm, drawMm: estimate.drawMm, reinkInMm, chain: curChain, chainTotal: chains.length,
+        ...(state === 'done' || state === 'stopped' ? { wallMs: Date.now() - wallStart - pausedWallMs, estimate } : {}),
+      });
     };
-    let lastPen: number | null = null, current = first;
+    /** Wait out a pause; true if the plot goes on. */
+    const waitResume = async (): Promise<boolean> => {
+      const pauseWall0 = Date.now();
+      report('paused', true);
+      while (this.plotPause && !this.plotAbort) await sleep(150);
+      await this.flush; // the machine is Idle and the pen re-declared before anything is sent
+      pausedWallMs += Date.now() - pauseWall0;
+      return !this.plotAbort;
+    };
+    /** Where to pick the chain up after a pause: the segment the pen
+     * stopped on (from the controller's own position), else the start. */
+    const resumeIndex = (c: Chain): number => {
+      const [x, y] = this.wpos;
+      for (let k = 2; k < c.pts.length; k += 2) {
+        const ax = c.pts[k - 2], ay = c.pts[k - 1], bx = c.pts[k], by = c.pts[k + 1];
+        const dx = bx - ax, dy = by - ay, d2 = dx * dx + dy * dy;
+        const t = d2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / d2)) : 0;
+        if (Math.hypot(ax + dx * t - x, ay + dy * t - y) <= RESUME_TOLERANCE) return k;
+      }
+      return 0;
+    };
+    const isPause = (e: unknown): boolean => e instanceof GrblError && e.message === 'paused' && this.plotPause;
+
     try {
       await this.send('G21 G90 G54');
-      let at: [number, number] = this.wpos;
-      for (let ci = first; ci < chains.length; ci++) {
+      // Raise before anything moves, whatever the tracker says.
+      for (const l of this.penUpLines(penOf(chains[first]?.pen ?? 0))) await this.send(l);
+      this.penIsUp = true;
+      let ci = first, from = 0; // `from`: resume mid-stroke at this point index
+      while (ci < chains.length) {
         const c = chains[ci];
-        current = ci;
-        while (this.plotPause && !this.plotAbort) {
-          if (!pauseStart) pauseStart = Date.now();
-          report('paused', ci, true);
-          await new Promise((r) => setTimeout(r, 200));
-        }
-        if (pauseStart) { pausedMs += Date.now() - pauseStart; pauseStart = 0; }
-        if (this.plotAbort) break;
+        curChain = ci;
         const pen = penOf(c.pen);
-        if (lastPen !== c.pen && lastPen !== null && !this.penIsUp) { for (const l of this.penUpLines(penOf(lastPen))) await this.send(l); this.penIsUp = true; }
-        lastPen = c.pen;
-        const price = priceChain(c, at);
-        const startPt: [number, number] = [c.pts[0], c.pts[1]];
-        await this.send(this.g0(startPt)); sent++;
-        for (const l of this.penDownLines(pen)) { await this.send(l); sent++; }
-        this.penIsUp = false;
-        if (!c.dot) {
-          const feed = Math.max(1, pen?.feed ?? 1000);
-          for (let k = 2; k < c.pts.length; k += 2) {
-            if (this.plotAbort) break;
-            await this.send(this.g1([c.pts[k], c.pts[k + 1]], feed)); sent++;
-            drawnMm += Math.hypot(c.pts[k] - c.pts[k - 2], c.pts[k + 1] - c.pts[k - 1]);
-            elapsedMs += (Math.hypot(c.pts[k] - c.pts[k - 2], c.pts[k + 1] - c.pts[k - 1]) / feed) * 60_000;
-            report('plotting', ci);
+        try {
+          if (this.plotPause && !(await waitResume())) break;
+          if (this.plotAbort) break;
+          if (from === 0) {
+            await this.send(this.g0([c.pts[0], c.pts[1]])); sent++;
           }
+          for (const l of this.penDownLines(pen)) { await this.send(l); sent++; }
+          this.penIsUp = false;
+          if (!c.dot) {
+            const n = c.pts.length / 2;
+            for (let k = Math.max(2, from); k < c.pts.length; k += 2) {
+              await this.send(this.g1([c.pts[k], c.pts[k + 1]], pen?.feed ?? 1000)); sent++;
+              const start = schedule.chainStartMs[ci - first], dur = schedule.chainDurMs[ci - first];
+              elapsedMs = start + dur * ((k / 2) / Math.max(1, n - 1));
+              report('plotting');
+            }
+          }
+          for (const l of this.penUpLines(pen)) { await this.send(l); sent++; }
+          this.penIsUp = true;
+          from = 0;
+        } catch (e) {
+          if (this.plotAbort) break;
+          if (!isPause(e)) throw e;
+          // The pause flushed the planner: the pen stopped somewhere on this
+          // chain (or on the travel into it). Wait, then carry on from there,
+          // unless the frame moved under it, in which case the rest of the
+          // stroke would be a stray line: skip to the next chain.
+          if (!(await waitResume())) break;
+          if (this.pauseAdjusted) { from = 0; ci += 1; continue; }
+          from = resumeIndex(c);
+          continue;
         }
-        for (const l of this.penUpLines(pen)) { await this.send(l); sent++; }
-        this.penIsUp = true;
-        at = [c.pts[c.pts.length - 2], c.pts[c.pts.length - 1]];
-        this.wpos = at;
-        elapsedMs += price.ms - (price.draw / Math.max(1, pen?.feed ?? 1000)) * 60_000;
-        report('plotting', ci);
+        // Ink accounting for progress and the re-ink budget (a dot lays a nib width).
+        let ink = c.dot ? (pen?.width ?? 0) : 0;
+        if (!c.dot) for (let k = 2; k < c.pts.length; k += 2) ink += Math.hypot(c.pts[k] - c.pts[k - 2], c.pts[k + 1] - c.pts[k - 1]);
+        inkedMm += ink; drawnMm += ink;
+        elapsedMs = chainEndMs(ci);
+        this.wpos = [c.pts[c.pts.length - 2], c.pts[c.pts.length - 1]];
+        const reinkAt = pen?.reinkMm ?? 0;
+        reinkInMm = reinkAt > 0 ? Math.max(0, reinkAt - inkedMm) : undefined;
+        if (reinkAt > 0 && inkedMm >= reinkAt && ci < chains.length - 1 && !this.plotAbort) {
+          // Park at the bed origin (off the sheet when the paper is offset)
+          // with nothing queued, so the pen can be pumped or refilled and
+          // the next chain's travel returns from there.
+          await this.send(this.g0([0, 0]));
+          await this.waitIdle();
+          this.wpos = [0, 0];
+          warning = `re-ink ${penName(c)}: ${Math.round(inkedMm)}mm since the last — parked at the bed origin; pump/refill, then Resume`;
+          this.plotPause = true;
+          this.pauseAdjusted = false;
+          const goOn = await waitResume();
+          warning = undefined;
+          inkedMm = 0;
+          reinkInMm = reinkAt;
+          if (!goOn) break;
+          if (!this.penIsUp) { for (const l of this.penUpLines(pen)) await this.send(l); this.penIsUp = true; }
+        }
+        report('plotting');
+        ci += 1;
       }
       if (!this.plotAbort) {
-        await this.send(this.g0(this.paperOffset));
+        await this.send(this.g0([0, 0]));
         await this.waitIdle();
-        this.wpos = [this.paperOffset[0], this.paperOffset[1]];
-        onProgress({ sent, total, elapsedMs: totalMs, totalMs, penName: '', state: 'done', etaMs: 0, drawnMm, drawMm, chain: chains.length, chainTotal: chains.length, wallMs: Date.now() - started - pausedMs });
+        this.wpos = [0, 0];
+        elapsedMs = totalMs;
+        report('done', true);
       } else {
-        onProgress({ sent, total, elapsedMs, totalMs, penName: '', state: 'stopped', etaMs: 0, drawnMm, drawMm, chain: current, chainTotal: chains.length });
+        report('stopped', true);
       }
     } finally {
       this.plotting = false;

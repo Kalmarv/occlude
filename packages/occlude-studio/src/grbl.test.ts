@@ -1,112 +1,262 @@
 import { describe, expect, it } from 'vitest';
 import { Grbl } from './grbl.js';
 import type { PenDef } from 'occlude';
+import type { MachineSettings } from './store.js';
 
-/** A GRBL 1.1 board: banner on open, feedback + ok for $I, status for ?, ok for everything else. */
+/** A GRBL 1.1 board as the DrawCore behaves (working/plotter-report.md):
+ * no banner on open, feedback + ok for $I and $$, a status report for ?,
+ * ok for everything else. Moves complete instantly, so the reported
+ * position is the last acknowledged target; `!` holds, 0x18 resets to Idle
+ * with the position kept and the pen physically up. */
 class FakeGrblPort {
   readonly commands: string[] = [];
   readonly realtime: string[] = [];
   private input!: ReadableStreamDefaultController<Uint8Array>;
   state = 'Idle';
+  pos = [0, 0, 0];
   /** Reply latency per line, so a plot takes real time and can be paused. */
   delayMs = 0;
-  readonly readable = new ReadableStream<Uint8Array>({
-    start: (controller) => { this.input = controller; controller.enqueue(new TextEncoder().encode("\r\nGrbl 1.1h ['$' for help]\r\n")); },
-  });
+  private timers: ReturnType<typeof setTimeout>[] = [];
+  readonly readable = new ReadableStream<Uint8Array>({ start: (controller) => { this.input = controller; } });
   readonly writable = new WritableStream<Uint8Array>({
     write: (chunk) => {
       const text = new TextDecoder().decode(chunk);
       for (const ch of text) if (ch === '?' || ch === '!' || ch === '~' || ch === '\x18') this.realtime.push(ch);
-      if (text === '?') { this.input.enqueue(new TextEncoder().encode(`<${this.state}|MPos:0.000,0.000,0.000|WCO:0.000,0.000,0.000>\r\n`)); return; }
-      if (text === '!' || text === '~') return;
-      if (text === '\x18') { this.input.enqueue(new TextEncoder().encode("\r\nGrbl 1.1h ['$' for help]\r\n")); return; }
+      if (text === '?') { this.reply(`<${this.state}|MPos:${this.pos.map((v) => v.toFixed(3)).join(',')}|FS:0,0|WCO:0.000,0.000,0.000>\r\n`, true); return; }
+      if (text === '!') { if (this.state === 'Run') this.state = 'Hold:0'; return; }
+      if (text === '~') { if (this.state.startsWith('Hold')) this.state = 'Idle'; return; }
+      if (text === '\x18') {
+        for (const t of this.timers) clearTimeout(t);
+        this.timers = [];
+        this.state = 'Idle';
+        this.reply("\r\nGrbl 1.1h DrawCore V2.23 ['$' for help]\r\n", true);
+        return;
+      }
       for (const line of text.split('\n')) {
         if (!line.trim()) continue;
-        this.commands.push(line.replace(/\r$/, ''));
-        const reply = line.startsWith('$I') ? '[VER:1.1h.20190825:][OPT:V,15,128]\r\nok\r\n'.replace('][', ']\r\n[') : 'ok\r\n';
-        if (this.delayMs) setTimeout(() => this.input.enqueue(new TextEncoder().encode(reply)), this.delayMs);
-        else this.input.enqueue(new TextEncoder().encode(reply));
+        const cmd = line.replace(/\r$/, '');
+        this.commands.push(cmd);
+        this.move(cmd);
+        let reply = 'ok\r\n';
+        if (cmd === '$I') reply = '[VER:1.1h DrawCore V2.23.20260721:]\r\n[OPT:VZHDL,15,128]\r\nok\r\n';
+        if (cmd === '$$') reply = '$10=3\r\n$110=15000.000\r\n$111=12000.000\r\n$120=3000.000\r\n$121=2000.000\r\n$11=0.010\r\n$130=594.000\r\n$131=841.000\r\nok\r\n';
+        this.reply(reply, false);
       }
     },
   });
+  private reply(text: string, now: boolean): void {
+    if (now || !this.delayMs) { this.input.enqueue(new TextEncoder().encode(text)); return; }
+    const t = setTimeout(() => {
+      this.input.enqueue(new TextEncoder().encode(text));
+      this.timers = this.timers.filter((x) => x !== t);
+      if (!this.timers.length && this.state === 'Run') this.state = 'Idle'; // the last queued move finished
+    }, this.delayMs);
+    this.timers.push(t);
+  }
+  private move(cmd: string): void {
+    const rel = cmd.startsWith('$J=') || cmd.includes('G91');
+    const axis = (name: string): number | undefined => { const m = cmd.match(new RegExp(`${name}(-?[\\d.]+)`)); return m ? Number(m[1]) : undefined; };
+    if (!/^(\$J=|G0|G1)/.test(cmd)) return;
+    if (cmd === '$J=' || !/[XYZ]-?[\d.]/.test(cmd)) return;
+    const x = axis('X'), y = axis('Y'), z = axis('Z');
+    if (x !== undefined) this.pos[0] = rel ? this.pos[0] + x : x;
+    if (y !== undefined) this.pos[1] = rel ? this.pos[1] + y : y;
+    if (z !== undefined) this.pos[2] = rel ? this.pos[2] + z : z;
+    if (this.delayMs && !cmd.startsWith('$J=')) this.state = 'Run';
+  }
   async open(): Promise<void> { /* opened */ }
   async close(): Promise<void> { /* closed */ }
 }
 
-const pen: PenDef = { name: 'fine', width: 0.3, color: '#000', feed: 3000, penDown: 0, penUp: 5, penDelay: 100 };
-const opts = { travelFeed: 8000 } as never;
+const pen: PenDef = { name: 'fine', width: 0.3, color: '#000', feed: 3000, penDown: 10, penUp: 0, penDelay: 100 };
+const opts = { travelFeed: 12000 } as never;
+const h1: MachineSettings = {
+  bedW: 594, bedH: 841, travelFeed: 12000, zMode: true, arcSupport: true, resolution: 0.2,
+  yAxis: 'negative', acceleration: 2000, travelAcceleration: 2000, junctionDeviation: 0.01, resetLiftsPen: true,
+};
 const plan = (chains: [number, boolean, number[]][]): Float64Array => Float64Array.from(chains.flatMap(([p, dot, pts]) => [p, dot ? 1 : 0, pts.length / 2, ...pts]));
+const after = (port: FakeGrblPort, marker: string): string[] => port.commands.slice(port.commands.lastIndexOf(marker) + 1);
+const tick = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 describe('GRBL driver', () => {
-  it('connects, reads the version, and streams a plan as Z-pen G-code in the mirrored frame', async () => {
+  it('connects without a banner, reads the version, the option flags and the settings', async () => {
     const port = new FakeGrblPort();
     const g = new Grbl();
-    g.settings = { bedW: 594, bedH: 100, travelFeed: 8000, zMode: true, arcSupport: false, resolution: 0.2, flipY: true };
-    expect(await g.connect(undefined, port as never)).toBe('1.1h.20190825:');
+    g.settings = h1;
+    expect(await g.connect(undefined, port as never)).toBe('1.1h DrawCore V2.23.20260721:');
+    expect(g.optFlags).toBe('VZHDL');
+    expect(g.grblSettings.get(110)).toBe(15000);
+    expect(g.grblSettings.get(11)).toBe(0.01);
     expect(port.commands).toContain('G21 G90 G17 G54');
-    const seen: string[] = [];
-    await g.plot(plan([[0, false, [10, 10, 20, 20]], [0, true, [30, 30]]]), [pen], opts, (p) => seen.push(p.state));
-    const sent = port.commands.slice(port.commands.indexOf('G21 G90 G54') + 1);
-    expect(sent).toEqual([
-      'G0 X10.000 Y90.000', 'G1 Z0.000 F3000', 'G4 P0.100',
-      'G1 X20.000 Y80.000 F3000',
-      'G0 Z5.000', 'G4 P0.100',
-      'G0 X30.000 Y70.000', 'G1 Z0.000 F3000', 'G4 P0.100', 'G0 Z5.000', 'G4 P0.100',
-      'G0 X0.000 Y100.000',
-    ]);
-    expect(seen.at(-1)).toBe('done');
     expect(port.realtime).toContain('?');
   });
 
-  it('uses M3/M5 when the pen is a spindle value and keeps the frame unmirrored', async () => {
+  it('streams a plan in the negative-Y frame with Z pen moves and the one time model', async () => {
     const port = new FakeGrblPort();
     const g = new Grbl();
-    g.settings = { bedW: 300, bedH: 218, travelFeed: 6000, zMode: false, arcSupport: false, resolution: 0.2, flipY: false };
+    g.settings = h1;
     await g.connect(undefined, port as never);
-    await g.plot(plan([[0, false, [1, 2, 3, 4]]]), [{ ...pen, penDown: 900, penDelay: 0 }], opts, () => undefined);
-    const sent = port.commands.slice(port.commands.indexOf('G21 G90 G54') + 1);
-    expect(sent).toEqual(['G0 X1.000 Y2.000', 'M3 S900', 'G1 X3.000 Y4.000 F3000', 'M5', 'G0 X0.000 Y0.000']);
+    const reports: { state: string; totalMs: number; estimate?: unknown }[] = [];
+    await g.plot(plan([[0, false, [10, 10, 20, 20]], [0, true, [30, 30]]]), [pen], opts, (p) => reports.push({ state: p.state, totalMs: p.totalMs, estimate: p.estimate }));
+    expect(after(port, 'G21 G90 G54')).toEqual([
+      'G0 Z0.000', 'G4 P0.100',
+      'G0 X10.000 Y-10.000', 'G1 Z10.000 F3000', 'G4 P0.100',
+      'G1 X20.000 Y-20.000 F3000',
+      'G0 Z0.000', 'G4 P0.100',
+      'G0 X30.000 Y-30.000', 'G1 Z10.000 F3000', 'G4 P0.100', 'G0 Z0.000', 'G4 P0.100',
+      'G0 X0.000 Y0.000',
+    ]);
+    const last = reports.at(-1)!;
+    expect(last.state).toBe('done');
+    expect(last.totalMs).toBeGreaterThan(0);
+    expect(last.estimate).toBeDefined();
   });
 
-  it('pause and resume are feed hold and cycle start; stop is hold, reset, unlock, pen up', async () => {
+  it('mirrors across the bed in the Y-up frame and uses M3/M5 for a spindle pen', async () => {
     const port = new FakeGrblPort();
-    port.delayMs = 3;
     const g = new Grbl();
-    g.settings = { bedW: 300, bedH: 218, travelFeed: 6000, zMode: true, arcSupport: false, resolution: 0.2, flipY: false };
+    g.settings = { ...h1, bedH: 100, yAxis: 'up', zMode: false };
+    await g.connect(undefined, port as never);
+    await g.plot(plan([[0, false, [1, 2, 3, 4]]]), [{ ...pen, penDown: 900, penDelay: 0 }], opts, () => undefined);
+    expect(after(port, 'G21 G90 G54')).toEqual(['M5', 'G0 X1.000 Y98.000', 'M3 S900', 'G1 X3.000 Y96.000 F3000', 'M5', 'G0 X0.000 Y100.000']);
+  });
+
+  it('clamps feeds to the controller limits and refuses over-long lines', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
+    await g.connect(undefined, port as never);
+    await g.plot(plan([[0, false, [0, 0, 5, 5]]]), [{ ...pen, feed: 30000, penDelay: 0 }], { travelFeed: 99999 } as never, () => undefined);
+    expect(port.commands).toContain('G1 X5.000 Y-5.000 F12000');
+    await expect(g.send('G1 ' + 'X1.000 '.repeat(20))).rejects.toThrow('79');
+  });
+
+  it('pauses by hold and reset, re-declares the pen height, resumes where the pen stopped', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
     g.manualPen = pen;
     await g.connect(undefined, port as never);
     port.delayMs = 3;
     const pts: number[] = [];
-    for (let i = 0; i < 40; i++) pts.push(i, i);
+    for (let i = 0; i < 60; i++) pts.push(i, 0);
     const states: string[] = [];
-    const run = g.plot(plan([[0, false, pts], [0, false, pts]]), [pen], opts, (p) => states.push(p.state));
-    await new Promise((r) => setTimeout(r, 20));
+    const run = g.plot(plan([[0, false, pts], [0, false, [0, 5, 10, 5]]]), [pen], opts, (p) => states.push(p.state));
+    await tick(40);
     g.pause();
-    await new Promise((r) => setTimeout(r, 250));
+    await tick(900);
     expect(g.paused).toBe(true);
+    expect(port.realtime).toContain('!');
+    expect(port.realtime).toContain('\x18');
+    expect(port.commands).toContain('G92 Z0.000'); // the reset lifted the pen; Z is declared up, never driven into the stop
+    const held = port.commands.length;
     g.resume();
     await run;
-    expect(port.realtime.filter((c) => c === '!')).toHaveLength(1);
-    expect(port.realtime.filter((c) => c === '~')).toHaveLength(1);
+    const resumed = port.commands.slice(held);
+    // Pen down again, then the stroke continues from the next point past where the pen stopped: no travel back to the start.
+    expect(resumed[0]).toBe('G1 Z10.000 F3000');
+    const firstMove = resumed.find((c) => c.startsWith('G1 X'))!;
+    expect(Number(firstMove.match(/X(-?[\d.]+)/)![1])).toBeGreaterThan(0);
     expect(states).toContain('paused');
-    const stopping = g.plot(plan([[0, false, pts]]), [pen], opts, (p) => states.push(p.state));
-    await new Promise((r) => setTimeout(r, 10));
-    await g.stop();
-    await stopping;
-    expect(port.realtime).toContain('\x18');
-    expect(port.commands.slice(-4)).toEqual(['$X', 'G21 G90 G54', 'G0 Z5.000', 'G4 P0.100']);
-    expect(states.at(-1)).toBe('stopped');
+    expect(states.at(-1)).toBe('done');
+    expect(port.realtime.filter((c) => c === '~')).toHaveLength(0);
   });
 
-  it('sets the work origin, records the paper origin, and jogs in the bed frame', async () => {
+  it('skips the rest of an interrupted stroke when the frame moved during the pause', async () => {
     const port = new FakeGrblPort();
     const g = new Grbl();
-    g.settings = { bedW: 594, bedH: 841, travelFeed: 10000, zMode: true, arcSupport: false, resolution: 0.2, flipY: true };
+    g.settings = h1;
     g.manualPen = pen;
     await g.connect(undefined, port as never);
-    await g.setOrigin();
-    expect(port.commands).toContain('G10 L20 P1 X0 Y0');
-    await g.jog(10, 20, { travelFeed: 10000 } as never);
-    expect(port.commands.at(-1)).toBe('$J=G91 G21 X10.000 Y-20.000 F10000');
+    port.delayMs = 3;
+    const pts: number[] = [];
+    for (let i = 0; i < 60; i++) pts.push(i, 0);
+    const run = g.plot(plan([[0, false, pts], [0, false, [0, 5, 10, 5]]]), [pen], opts, () => undefined);
+    await tick(40);
+    g.pause();
+    await tick(900);
+    await g.jog(1, 1, opts);
+    expect(port.commands.at(-1)).toBe('$J=G91 G21 X1.000 Y-1.000 F12000');
+    const held = port.commands.length;
+    g.resume();
+    await run;
+    const resumed = port.commands.slice(held);
+    expect(resumed[0]).toBe('G0 X0.000 Y-5.000'); // straight to the next chain
+  });
+
+  it('stops by hold, reset and pen re-declaration, and reports stopped', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
+    g.manualPen = pen;
+    await g.connect(undefined, port as never);
+    port.delayMs = 3;
+    const pts: number[] = [];
+    for (let i = 0; i < 60; i++) pts.push(i, i);
+    const states: string[] = [];
+    const run = g.plot(plan([[0, false, pts]]), [pen], opts, (p) => states.push(p.state));
+    await tick(30);
+    await g.stop();
+    await run;
+    expect(port.realtime).toContain('\x18');
+    expect(port.commands.slice(-2)).toEqual(['G21 G90 G17 G54', 'G92 Z0.000']);
+    expect(states.at(-1)).toBe('stopped');
+    expect(g.plotting).toBe(false);
+  });
+
+  it('drives the pen up after a reset on a controller that does not lift it', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = { ...h1, resetLiftsPen: false };
+    g.manualPen = pen;
+    await g.connect(undefined, port as never);
+    await g.stop();
+    expect(port.commands.at(-1)).toBe('G0 Z0.000');
+  });
+
+  it('homes one axis at a time when the board offers it and zeroes the work origin there', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
+    g.manualPen = pen;
+    await g.connect(undefined, port as never);
+    await g.home();
+    const cmds = after(port, 'G21 G90 G17 G54');
+    expect(cmds.slice(0, 2)).toEqual(['G0 Z0.000', 'G4 P0.100']);
+    expect(cmds).toContain('$HY');
+    expect(cmds).toContain('$HX');
+    expect(cmds.indexOf('$HY')).toBeLessThan(cmds.indexOf('$HX'));
+    expect(cmds.at(-1)).toBe('G10 L20 P1 X0 Y0');
+  });
+
+  it('records the paper origin and jogs in the bed frame', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
+    g.manualPen = pen;
+    await g.connect(undefined, port as never);
+    await g.jog(10, 20, opts);
+    expect(port.commands.at(-1)).toBe('$J=G91 G21 X10.000 Y-20.000 F12000');
+    expect(g.setPaperOrigin()).toEqual([10, 20]);
+    await g.goToPaperOrigin();
+    expect(port.commands.at(-1)).toBe('G0 X10.000 Y-20.000');
+  });
+
+  it('parks at the bed origin for a re-ink pause and carries on after resume', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
+    await g.connect(undefined, port as never);
+    const warnings: string[] = [];
+    const run = g.plot(
+      plan([[0, false, [0, 0, 30, 0]], [0, false, [0, 10, 30, 10]]]),
+      [{ ...pen, reinkMm: 20, penDelay: 0 }], opts,
+      (p) => { if (p.warning) warnings.push(p.warning); if (p.state === 'paused' && g.paused) setTimeout(() => g.resume(), 50); },
+    );
+    await run;
+    expect(warnings.some((w) => w.includes('re-ink'))).toBe(true);
+    const cmds = after(port, 'G1 X30.000 Y0.000 F3000');
+    expect(cmds.slice(0, 2)).toEqual(['G0 Z0.000', 'G0 X0.000 Y0.000']);
+    expect(cmds).toContain('G0 X0.000 Y-10.000');
   });
 });

@@ -96,7 +96,8 @@ async function boot(): Promise<void> {
     buildCalibration(m, onProgress, basePen),
   );
   const bed = buildBedLevel(m, onProgress, basePen);
-  const bedLevel = el('section', 'machine-tab',
+  const noLiftMap = hint('The lift map belongs to the EBB driver: a G-code controller travels at the pen’s own pen-up height everywhere.');
+  const bedLevel = el('section', 'machine-tab', noLiftMap,
     el('div', 'cal-side',
       el('h3', undefined, 'Position'),
       hint('Park at the bed corner and Set bed origin before testing a cell; the check draws from there.'),
@@ -113,6 +114,9 @@ async function boot(): Promise<void> {
   const show = (key: keyof typeof tabs): void => {
     for (const [k, t] of Object.entries(tabs)) t.hidden = k !== key;
     if (key === 'bedLevel') bed.refresh();
+    const gcode = m.prof().driver === 'gcode';
+    noLiftMap.hidden = !gcode;
+    for (const child of bedLevel.children) if (child !== noLiftMap) (child as HTMLElement).hidden = gcode;
     location.hash = key;
   };
   const initial = (location.hash.slice(1) || 'calibration') as keyof typeof tabs;

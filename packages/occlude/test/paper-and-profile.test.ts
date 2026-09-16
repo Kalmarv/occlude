@@ -13,8 +13,8 @@ describe('paper presets', () => {
 });
 
 describe('machine profile JSON', () => {
-  it('carries flipY, defaulting off, so the core mirrors only when asked', () => {
-    expect(JSON.parse(profileToJson({}, { w: 100, h: 200 }))).toMatchObject({ bed: [100, 200], flipY: false, zMode: true, arcSupport: false });
-    expect(JSON.parse(profileToJson({ flipY: true, resolution: 0.2, travelFeed: 10000 }, { w: 594, h: 841 }))).toMatchObject({ flipY: true, resolution: 0.2, travelFeed: 10000 });
+  it('carries the Y axis sense, defaulting to paper-down, so the core mirrors only when asked', () => {
+    expect(JSON.parse(profileToJson({}, { w: 100, h: 200 }))).toMatchObject({ bed: [100, 200], yAxis: 'down', zMode: true, arcSupport: false });
+    expect(JSON.parse(profileToJson({ yAxis: 'negative', resolution: 0.2, travelFeed: 12000 }, { w: 594, h: 841 }))).toMatchObject({ yAxis: 'negative', resolution: 0.2, travelFeed: 12000 });
   });
 });

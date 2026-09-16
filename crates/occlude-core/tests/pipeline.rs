@@ -1,7 +1,7 @@
 use occlude_core::bbox::BBox;
 use occlude_core::fill::{FillKind, SuppliedFill};
 use occlude_core::synth::{bbox_of, custom_lines, lattice_dots, render_with};
-use occlude_core::gcode::{export_gcode, merge_chains, MachineProfile};
+use occlude_core::gcode::{export_gcode, merge_chains, MachineProfile, YAxis};
 use occlude_core::pipeline::{render, ClipDef, Pen, RenderInput, ShapeRec};
 use occlude_core::primitive::{Arc, Line, Primitive};
 use occlude_core::region::{Region, WindingRule};
@@ -739,12 +739,17 @@ fn gcode_arc_direction_follows_the_written_coordinates() {
     assert!(g.contains("G3 X50.000 Y60.000 I-10.000 J0.000"), "{g}");
     assert!(!g.contains("G2 "), "{g}");
     // Mirrored in Y the same arc runs (60,50) -> (50,40) about (50,50): clockwise, G2.
-    let mirrored = MachineProfile { flip_y: true, ..plain.clone() };
+    let mirrored = MachineProfile { y_axis: YAxis::Up, ..plain.clone() };
     let g = &export_gcode(std::slice::from_ref(&chain), &pens, &mirrored)[0].gcode;
     assert!(g.contains("G0 X60.000 Y50.000"), "{g}");
     assert!(g.contains("G2 X50.000 Y40.000 I-10.000 J0.000"), "{g}");
+    // Negative Y (a top-left home counting down the sheet): (60,-50) -> (50,-60), also clockwise.
+    let negative = MachineProfile { y_axis: YAxis::Negative, ..plain.clone() };
+    let g = &export_gcode(std::slice::from_ref(&chain), &pens, &negative)[0].gcode;
+    assert!(g.contains("G0 X60.000 Y-50.000"), "{g}");
+    assert!(g.contains("G2 X50.000 Y-60.000 I-10.000 J0.000"), "{g}");
     // Flattened output mirrors too.
-    let flat = MachineProfile { arc_support: false, flip_y: true, ..plain.clone() };
+    let flat = MachineProfile { arc_support: false, y_axis: YAxis::Up, ..plain.clone() };
     let g = &export_gcode(std::slice::from_ref(&chain), &pens, &flat)[0].gcode;
     assert!(g.contains("G1 X50.000 Y40.000"), "{g}");
     assert!(!g.contains("Y60.000"), "{g}");

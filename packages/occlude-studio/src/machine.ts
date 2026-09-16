@@ -14,14 +14,14 @@ import { cellTestPulses, heatColour, liftCells, nudgeCell, RUNG, setCellThreshol
 
 import {
   backlashSquares, calDots, calHatch, calLines, calSegments, cornerRinging,
-  downSweep, liftGrid, liftTraverse, registrationProbe, settleLift, type Diagnostic,
+  downSweep, liftGrid, liftTraverse, registrationProbe, settleLift, zLadder, type Diagnostic,
 } from './diagnostics.js';
 import { Ebb, type EbbOptions, type PlotProgress } from './ebb.js';
 import { Grbl } from './grbl.js';
-import { download, saveProfiles, saveSettings, IDRAW_H_A1_PROFILE, type MachineProfile, type Settings } from './store.js';
+import { download, savePens, saveProfiles, saveSettings, IDRAW_H_A1_PROFILE, type MachineProfile, type Settings } from './store.js';
 import { withIcon } from './icons.js';
 import { confirmDialog, promptDialog } from './wa.js';
-import { button, checkbox, el, hint, numberInput, row } from './widgets.js';
+import { button, checkbox, el, hint, numberInput, row, yAxisSelect } from './widgets.js';
 
 /** The two drivers share the plot and manual-control surface; the profile's
  * `driver` picks which one the session talks to. */
@@ -289,6 +289,13 @@ export function buildManualControls(m: MachineSession): HTMLElement {
   const release = button('Release', () => void ebb.cmd('EM,0,0').catch(m.showErr));
   release.title = 'De-energise the steppers so the carriage can be moved by hand';
   release.hidden = !isEbb();
+  const followDriver = (): void => {
+    seat.hidden = !isEbb();
+    release.hidden = !isEbb();
+    home.title = isEbb() ? 'Return to the bed origin' : 'Run the homing cycle: the switch corner becomes the bed origin';
+  };
+  followDriver();
+  m.onProfileSwitch(followDriver);
   const origins = el('div', 'origins',
     el('div', 'row', setBed, setPaper),
     el('div', 'row', goPaper, home),
@@ -311,6 +318,7 @@ export function buildProfileForm(m: MachineSession): HTMLElement {
     const save = (): void => m.persist();
     const section = (title: string, note: string, ...rows: HTMLElement[]): HTMLElement =>
       el('section', 'form-section', el('h3', undefined, title), hint(note), ...rows);
+    if (p.driver === 'gcode') { root.replaceChildren(...gcodeProfileSections(m, section)); return; }
 
     const bed = section(
       'Bed',
@@ -377,6 +385,101 @@ export function buildProfileForm(m: MachineSession): HTMLElement {
   return root;
 }
 
+/** Bed, axes, pen, motion and the controller's own settings: what a
+ * G-code profile has instead of servo pulses and look-ahead limits. The
+ * motion numbers are what the controller's planner enforces; the one time
+ * model prices plots with them, so they should match the board. */
+function gcodeProfileSections(
+  m: MachineSession,
+  section: (title: string, note: string, ...rows: HTMLElement[]) => HTMLElement,
+): HTMLElement[] {
+  const mc = m.prof().machine;
+  const save = (): void => m.persist();
+  const bed = section(
+    'Bed',
+    'The travel from the bed origin ($130/$131 on a GRBL board). The fit check uses it.',
+    row('Width mm', numberInput(mc.bedW, 1, (v) => { mc.bedW = v; save(); })),
+    row('Height mm', numberInput(mc.bedH, 1, (v) => { mc.bedH = v; save(); })),
+    row('Travel mm/min', numberInput(mc.travelFeed, 100, (v) => { mc.travelFeed = Math.max(1, v); save(); }),
+      'Pen-up travel feed; the board clamps to its $110/$111 either way'),
+  );
+  const axes = section(
+    'Axes',
+    'How the controller counts Y against the paper, which grows down the sheet from the top-left corner. The same mapping the G-code export uses.',
+    row('Y axis', yAxisSelect(mc.yAxis ?? 'down', (v) => { mc.yAxis = v; save(); })),
+  );
+  // Pen heights are per pen (a brush sits higher than a fineliner); the
+  // machine says what its Z range is, and can write it into every pen.
+  let upZ = 0, downZ = 10;
+  const applyRange = button('Set every pen', () => {
+    const pens = m.pens();
+    for (const pen of pens) { pen.penUp = upZ; pen.penDown = downZ; }
+    savePens(pens);
+    m.onChanged?.();
+  });
+  applyRange.title = 'Write these two heights into every library pen’s Pen up / Pen down. Per-pen depth is then tuned on the Pens panel.';
+  const pen = section(
+    'Pen',
+    'Pen by Z moves or by M3/M5; the heights themselves belong to each pen (Pens panel). The Z ladder card finds the depth that draws at full weight.',
+    checkbox('Pen via Z axis (off = M3/M5)', mc.zMode, (v) => { mc.zMode = v; save(); }),
+    checkbox('Emit G2/G3 arcs', mc.arcSupport, (v) => { mc.arcSupport = v; save(); }),
+    checkbox('Reset lifts the pen (DrawCore)', mc.resetLiftsPen ?? false, (v) => { mc.resetLiftsPen = v; save(); }),
+    row('Resolution mm', numberInput(mc.resolution, 0.005, (v) => { mc.resolution = v; save(); }), 'Flattening error ceiling for streamed and exported toolpaths'),
+    row('Z range', el('div', 'row',
+      numberInput(upZ, 0.5, (v) => { upZ = v; }),
+      numberInput(downZ, 0.5, (v) => { downZ = v; }),
+      applyRange,
+    ), 'Pen-up Z, pen-down Z'),
+  );
+  const motion = section(
+    'Motion',
+    'What the controller’s planner enforces ($120/$121 accelerations, $11 junction deviation). Read them off the board below and adopt.',
+    row('Draw accel mm/s²', numberInput(mc.acceleration ?? 1000, 50, (v) => { mc.acceleration = Math.max(1, v); save(); })),
+    row('Travel accel mm/s²', numberInput(mc.travelAcceleration ?? mc.acceleration ?? 1000, 50, (v) => { mc.travelAcceleration = Math.max(1, v); save(); })),
+    row('Junction mm', numberInput(mc.junctionDeviation ?? 0.01, 0.005, (v) => { mc.junctionDeviation = Math.max(0, v); save(); }), 'Cornering tolerance'),
+  );
+  // The controller's own settings: read on connect, refreshed on demand.
+  const NAMED: [number, string][] = [
+    [100, 'X steps/mm'], [101, 'Y steps/mm'], [102, 'Z steps/mm'],
+    [110, 'X max mm/min'], [111, 'Y max mm/min'], [112, 'Z max mm/min'],
+    [120, 'X accel mm/s²'], [121, 'Y accel mm/s²'], [122, 'Z accel mm/s²'],
+    [11, 'junction mm'], [12, 'arc tolerance mm'], [130, 'X travel mm'], [131, 'Y travel mm'], [132, 'Z travel mm'],
+    [20, 'soft limits'], [21, 'hard limits'], [22, 'homing'], [23, 'homing dir mask'], [32, 'laser mode'],
+  ];
+  const table = el('pre', 'grbl-settings');
+  const showSettings = (): void => {
+    const gs = m.grbl.grblSettings;
+    if (!gs.size) { table.textContent = m.grbl.connected ? '(no settings read)' : '(connect to read the board)'; return; }
+    const rows = NAMED.filter(([n]) => gs.has(n)).map(([n, label]) => `$${String(n).padEnd(4)} ${String(gs.get(n)).padEnd(10)} ${label}`);
+    const rest = [...gs.keys()].filter((n) => !NAMED.some(([k]) => k === n)).sort((a, b) => a - b).map((n) => `$${String(n).padEnd(4)} ${gs.get(n)}`);
+    table.textContent = [`${m.grbl.version} [OPT:${m.grbl.optFlags}]`, ...rows, ...rest].join('\n');
+  };
+  const read = button('Read settings', async () => {
+    try { await m.grbl.readSettings(); showSettings(); } catch (e) { m.showErr(e); }
+  });
+  const adopt = button('Adopt motion limits', () => {
+    const gs = m.grbl.grblSettings;
+    const accel = [gs.get(120), gs.get(121)].filter((v): v is number => v !== undefined && v > 0);
+    if (!accel.length) { m.showErr(new Error('read the settings first')); return; }
+    // A diagonal move is bound by the slower axis: the model prices with the minimum.
+    mc.acceleration = Math.min(...accel);
+    mc.travelAcceleration = mc.acceleration;
+    const jd = gs.get(11);
+    if (jd !== undefined) mc.junctionDeviation = jd;
+    save();
+    m.onChanged?.();
+  });
+  adopt.title = 'Motion above becomes the board’s: the smaller of the X/Y accelerations for both draw and travel, and its junction deviation';
+  const controller = section(
+    'Controller',
+    'The board’s $$ settings, read at connect. Nothing here writes to the board.',
+    el('div', 'row', read, adopt),
+    table,
+  );
+  showSettings();
+  return [bed, axes, pen, motion, controller];
+}
+
 // ---- calibration (Machine page) --------------------------------------------
 
 /**
@@ -386,11 +489,11 @@ export function buildProfileForm(m: MachineSession): HTMLElement {
  */
 /** Plot one card on the connected machine; a no-op while disconnected or busy. */
 export function cardRunner(m: MachineSession, onProgress: (p: PlotProgress) => void): (d: Diagnostic) => Promise<void> {
-  const { ebb } = m;
   return async (d: Diagnostic): Promise<void> => {
-    if (!ebb.connected || ebb.plotting) return;
+    const driver = m.driver();
+    if (!driver.connected || driver.plotting) return;
     try {
-      await ebb.plot(
+      await driver.plot(
         d.plan, d.pens, m.opts(), onProgress, undefined, undefined, undefined,
         d.servo ? (i) => d.servo?.[i] : undefined,
       );
@@ -401,6 +504,56 @@ export function cardRunner(m: MachineSession, onProgress: (p: PlotProgress) => v
 }
 
 export function buildCalibration(
+  m: MachineSession,
+  onProgress: (p: PlotProgress) => void,
+  basePen: () => PenDef | undefined,
+): HTMLElement {
+  const ebb = buildEbbCalibration(m, onProgress, basePen);
+  const gcode = buildGcodeCalibration(m, onProgress, basePen);
+  const follow = (): void => { const g = m.prof().driver === 'gcode'; ebb.hidden = g; gcode.hidden = !g; };
+  follow();
+  m.onProfileSwitch(follow);
+  return el('div', 'calibration-by-driver', ebb, gcode);
+}
+
+/** The G-code machine's cards: no servo, no lift map — home, the pen's
+ * depth, then the same motion and timing cards the EBB gets. */
+function buildGcodeCalibration(
+  m: MachineSession,
+  onProgress: (p: PlotProgress) => void,
+  basePen: () => PenDef | undefined,
+): HTMLElement {
+  const run = cardRunner(m, onProgress);
+  const step = (n: number, title: string, what: string, ...body: HTMLElement[]): HTMLElement =>
+    el('li', 'cal-step', el('div', 'cal-head', el('span', 'cal-num', String(n)), el('h3', undefined, title)), hint(what), ...body);
+  let zFrom = 6, zTo = 10;
+  const fromIn = numberInput(zFrom, 0.5, (v) => { zFrom = v; });
+  fromIn.title = 'Shallowest Z on the ladder (top stroke)';
+  const toIn = numberInput(zTo, 0.5, (v) => { zTo = v; });
+  toIn.title = 'Deepest Z on the ladder (bottom stroke)';
+  const ladder = button('Run Z ladder', () => run(zLadder(basePen(), { from: zFrom, to: zTo })));
+  const motion = el('div', 'row',
+    button('Registration probe', () => run(registrationProbe(basePen()))),
+    button('Backlash squares', () => run(backlashSquares(basePen()))),
+    button('Corner ringing', () => run(cornerRinging(basePen()))),
+  );
+  const timing = el('div', 'row',
+    button('Dots ×120', () => run(calDots(basePen()))),
+    button('Long lines ×40', () => run(calLines(basePen()))),
+    button('Dense zigzags', () => run(calSegments(basePen()))),
+    button('Hatch square', () => run(calHatch(basePen()))),
+  );
+  const list = el('ol', 'cal-steps',
+    step(1, 'Home', 'Position → Home runs the switches and makes that corner the bed origin. Paper origin marks the sheet’s corner from there.'),
+    step(2, 'Pen depth', 'Six strokes from the shallow Z (top, one tick) to the deep Z (bottom, six ticks). The first full-weight stroke is the pen’s Pen down; set it on the Pens panel. Z0 is fully up on the iDraw H, Z10 fully down.',
+      row('Ladder Z', el('div', 'row', fromIn, toIn)), el('div', 'row', ladder)),
+    step(3, 'Motion', 'Step loss, backlash, cornering ceiling; and the four timing cards the estimator is fitted from.',
+      motion, timing),
+  );
+  return el('div', 'calibration', list);
+}
+
+function buildEbbCalibration(
   m: MachineSession,
   onProgress: (p: PlotProgress) => void,
   basePen: () => PenDef | undefined,
@@ -700,7 +853,7 @@ export function buildBedLevel(
 /** Serial transcript: the first artifact when the machine misbehaves. */
 export function buildLog(m: MachineSession): HTMLElement {
   const pre = el('pre', 'serial-log');
-  const refresh = (): void => { pre.textContent = m.ebb.transcript() || '(no traffic yet)'; pre.scrollTop = pre.scrollHeight; };
+  const refresh = (): void => { pre.textContent = m.driver().transcript() || '(no traffic yet)'; pre.scrollTop = pre.scrollHeight; };
   const dl = button('Download serial log', () => download('serial-log.txt', m.driver().transcript() || '(no traffic yet)', 'text/plain'));
   const rf = button('Refresh', refresh);
   refresh();

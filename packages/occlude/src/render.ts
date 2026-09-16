@@ -638,10 +638,14 @@ export interface MachineProfileTS {
   travelFeed?: number;
   zMode?: boolean;
   arcSupport?: boolean;
-  /** Mirror Y on output (y' = bed height - y) for controllers whose Y grows
-   * upward from a bottom-left home; arcs follow the mirrored frame. */
-  flipY?: boolean;
+  /** The controller's Y against the paper's (which grows down the sheet
+   * from the top-left corner): 'down' writes paper Y as is; 'up' is the
+   * standard GRBL frame, Y growing upward from a bottom-left home
+   * (y' = bed height - y); 'negative' is a top-left home counting down the
+   * sheet (y' = -y; the iDraw H after homing). Arcs follow the frame. */
+  yAxis?: YAxis;
 }
+export type YAxis = 'down' | 'up' | 'negative';
 
 export interface GcodeJob {
   pen: number;
@@ -683,7 +687,7 @@ export function profileToJson(
     travelFeed: p.travelFeed ?? 6000,
     zMode: p.zMode ?? true,
     arcSupport: p.arcSupport ?? false,
-    flipY: p.flipY ?? false,
+    yAxis: p.yAxis ?? 'down',
   });
 }
 
