@@ -404,11 +404,23 @@ export class Grbl {
   /** After a soft reset the DrawCore's pen is physically up while its Z
    * count still says where it was: driving to the pen-up height would run
    * the belt into its stop. `resetLiftsPen` re-declares the current height
-   * as pen-up instead (G92, volatile); other controllers get a real lift. */
+   * as pen-up instead, through the work offset (G10 L20, which this board
+   * honours; its G92 left Z untouched, serial log 2026-09-16), and reads
+   * the offset back to be sure. Other controllers get a real lift. */
   private async resyncPen(): Promise<void> {
     if (!this.settings.zMode) { await this.send('M5'); this.penIsUp = true; return; }
-    if (this.settings.resetLiftsPen) await this.send(`G92 Z${this.fmt(this.upHeight())}`);
-    else await this.send(`G0 Z${this.fmt(this.upHeight())}`);
+    const up = this.upHeight();
+    if (this.settings.resetLiftsPen) {
+      await this.send(`G10 L20 P1 Z${this.fmt(up)}`);
+      const s = await this.status().catch(() => null);
+      if (s && Math.abs(s.work[2] - up) > 0.01) {
+        await this.send(`G92 Z${this.fmt(up)}`);
+        const t = await this.status().catch(() => null);
+        if (t && Math.abs(t.work[2] - up) > 0.01) this.logLine('<', `(pen height declaration not honoured: work Z reads ${t.work[2]}, expected ${up})`);
+      }
+    } else {
+      await this.send(`G0 Z${this.fmt(up)}`);
+    }
     this.penIsUp = true;
   }
 

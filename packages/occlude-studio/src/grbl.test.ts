@@ -14,6 +14,7 @@ class FakeGrblPort {
   private input!: ReadableStreamDefaultController<Uint8Array>;
   state = 'Idle';
   pos = [0, 0, 0];
+  wco = [0, 0, 0];
   /** Reply latency per line, so a plot takes real time and can be paused. */
   delayMs = 0;
   private timers: ReturnType<typeof setTimeout>[] = [];
@@ -22,7 +23,7 @@ class FakeGrblPort {
     write: (chunk) => {
       const text = new TextDecoder().decode(chunk);
       for (const ch of text) if (ch === '?' || ch === '!' || ch === '~' || ch === '\x18') this.realtime.push(ch);
-      if (text === '?') { this.reply(`<${this.state}|MPos:${this.pos.map((v) => v.toFixed(3)).join(',')}|FS:0,0|WCO:0.000,0.000,0.000>\r\n`, true); return; }
+      if (text === '?') { this.reply(`<${this.state}|MPos:${this.pos.map((v) => v.toFixed(3)).join(',')}|FS:0,0|WCO:${this.wco.map((v) => v.toFixed(3)).join(',')}>\r\n`, true); return; }
       if (text === '!') { if (this.state === 'Run') this.state = 'Hold:0'; return; }
       if (text === '~') { if (this.state.startsWith('Hold')) this.state = 'Idle'; return; }
       if (text === '\x18') {
@@ -56,6 +57,8 @@ class FakeGrblPort {
   private move(cmd: string): void {
     const rel = cmd.startsWith('$J=') || cmd.includes('G91');
     const axis = (name: string): number | undefined => { const m = cmd.match(new RegExp(`${name}(-?[\\d.]+)`)); return m ? Number(m[1]) : undefined; };
+    const g10 = cmd.match(/^G10 L20 P1(.*)$/);
+    if (g10) { for (const [i, name] of ['X', 'Y', 'Z'].entries()) { const v = axis(name); if (v !== undefined) this.wco[i] = this.pos[i] - v; } return; }
     if (!/^(\$J=|G0|G1)/.test(cmd)) return;
     if (cmd === '$J=' || !/[XYZ]-?[\d.]/.test(cmd)) return;
     const x = axis('X'), y = axis('Y'), z = axis('Z');
@@ -90,7 +93,7 @@ describe('GRBL driver', () => {
     expect(g.grblSettings.get(11)).toBe(0.01);
     expect(port.commands).toContain('G21 G90 G17 G54');
     expect(port.realtime).toContain('\x18'); // reset: motors off, the spring lifts the pen…
-    expect(port.commands.at(-1)).toBe('G92 Z0.000'); // …and that is declared as pen-up
+    expect(port.commands.at(-1)).toBe('G10 L20 P1 Z0.000'); // …and that is declared as pen-up
     expect(port.realtime).toContain('?');
   });
 
@@ -152,7 +155,7 @@ describe('GRBL driver', () => {
     expect(g.paused).toBe(true);
     expect(port.realtime).toContain('!');
     expect(port.realtime).toContain('\x18');
-    expect(port.commands).toContain('G92 Z0.000'); // the reset lifted the pen; Z is declared up, never driven into the stop
+    expect(port.commands).toContain('G10 L20 P1 Z0.000'); // the reset lifted the pen; Z is declared up, never driven into the stop
     const held = port.commands.length;
     g.resume();
     await run;
@@ -203,7 +206,7 @@ describe('GRBL driver', () => {
     await g.stop();
     await run;
     expect(port.realtime).toContain('\x18');
-    expect(port.commands.slice(-2)).toEqual(['G21 G90 G17 G54', 'G92 Z0.000']);
+    expect(port.commands.slice(-2)).toEqual(['G21 G90 G17 G54', 'G10 L20 P1 Z0.000']);
     expect(states.at(-1)).toBe('stopped');
     expect(g.plotting).toBe(false);
   });
@@ -225,7 +228,7 @@ describe('GRBL driver', () => {
     g.manualPen = pen;
     await g.connect(undefined, port as never);
     await g.home();
-    const cmds = after(port, 'G92 Z0.000'); // everything after connect's pen declaration
+    const cmds = after(port, 'G10 L20 P1 Z0.000'); // everything after connect's pen declaration
     expect(cmds.slice(0, 2)).toEqual(['G0 Z0.000', 'G4 P0.100']);
     expect(cmds).toContain('$HY');
     expect(cmds).toContain('$HX');
