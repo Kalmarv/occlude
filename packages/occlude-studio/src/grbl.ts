@@ -170,9 +170,6 @@ export class Grbl {
     this.version = info.find((l) => l.startsWith('[VER:'))?.slice(5).replace(/\]$/, '') || this.banner || 'grbl';
     this.optFlags = info.find((l) => l.startsWith('[OPT:'))?.slice(5).split(',')[0] ?? '';
     await this.readSettings().catch(() => undefined);
-    // One-time restore (2026-09-16): an earlier build set $1=255; the board
-    // goes back to its stock idle delay. Remove once it has run.
-    if (this.grblSettings.get(1) === 255) { await this.cmd('$1=254').catch(() => undefined); this.grblSettings.set(1, 254); }
     await this.status().catch(() => null);
     // Start from a known pen: a soft reset drops the motors, the spring
     // lifts the pen to its rest, and the height is declared there. Whatever
