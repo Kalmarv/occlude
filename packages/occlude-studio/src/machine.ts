@@ -298,7 +298,11 @@ export function buildManualControls(m: MachineSession): HTMLElement {
   hop.title = 'Travel hop, mm above the surface between strokes; 0 = the full pen-up height every time. 1 for paper; more for a surface that flexes or ripples.';
   const hopLabel = el('span', 'unit', 'hop');
   const hopUnit = el('span', 'unit', 'mm');
-  const penRow = el('div', 'row', penUp, penDown, seat, seatOffset, seatUnit, hopLabel, hop, hopUnit);
+  const seatLabel = el('span', 'unit', 'seat');
+  const penRow = el('div', 'pen-rows',
+    el('div', 'row', penUp, penDown, seat),
+    el('div', 'row surface-row', seatLabel, seatOffset, seatUnit, hopLabel, hop, hopUnit),
+  );
 
   // Two origins: the BED corner (the lift map's frame — same physical corner
   // every time) and the PAPER corner (an offset, no zeroing).
@@ -324,11 +328,7 @@ export function buildManualControls(m: MachineSession): HTMLElement {
   release.hidden = !isEbb();
   const followDriver = (): void => {
     seat.hidden = false;
-    seatOffset.hidden = isEbb();
-    seatUnit.hidden = isEbb();
-    hopLabel.hidden = isEbb();
-    hop.hidden = isEbb();
-    hopUnit.hidden = isEbb();
+    for (const node of [seatLabel, seatOffset, seatUnit, hopLabel, hop, hopUnit]) node.hidden = isEbb();
     seat.title = isEbb() ? seatTitle : 'Park the carriage at the seat height (profile): loosen the clamp, let the pen fall to the paper, clamp, press again to lift. Plots then press with the lift spring’s preload.';
     release.hidden = !isEbb();
     home.title = isEbb() ? 'Return to the bed origin' : 'Run the homing cycle: the switch corner becomes the bed origin';
