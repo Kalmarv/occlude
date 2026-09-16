@@ -36,6 +36,8 @@ export interface MachineSession {
   driver(): Driver;
   /** The active profile, live. */
   prof(): MachineProfile;
+  /** Per-browser settings (the seat offset lives here). */
+  settings: Settings;
   opts(): EbbOptions;
   /** Save the profiles to the server (and the local cache). */
   persist(): void;
@@ -64,10 +66,12 @@ export function createSession(
   const session: MachineSession = {
     ebb,
     grbl,
+    settings,
     driver: () => {
       if (prof().driver !== 'gcode') return ebb;
       grbl.settings = prof().machine;
       grbl.manualPen = pens()[0];
+      grbl.seatOffsetMm = settings.seatOffsetMm ?? 2;
       return grbl;
     },
     prof,
@@ -272,7 +276,17 @@ export function buildManualControls(m: MachineSession): HTMLElement {
   });
   seat.title = seatTitle;
   seat.hidden = false;
-  const penRow = el('div', 'row', penUp, penDown, seat);
+  // The seat offset rides with the button: how much the pen-down loads the
+  // spring, chosen per plot, not a machine number.
+  const seatOffset = numberInput(m.settings.seatOffsetMm ?? 2, 0.5, (v) => {
+    m.settings.seatOffsetMm = Math.max(0, v);
+    saveSettings(m.settings);
+    m.grbl.seatOffsetMm = m.settings.seatOffsetMm;
+  });
+  seatOffset.className = 'seat-offset';
+  seatOffset.title = 'Seat offset, mm: the carriage sits this far above full pen-down while you clamp the pen, so every pen-down presses the nib with that much spring travel. Travel hops are measured from here.';
+  const seatUnit = el('span', 'unit', 'mm');
+  const penRow = el('div', 'row', penUp, penDown, seat, seatOffset, seatUnit);
 
   // Two origins: the BED corner (the lift map's frame — same physical corner
   // every time) and the PAPER corner (an offset, no zeroing).
@@ -298,6 +312,8 @@ export function buildManualControls(m: MachineSession): HTMLElement {
   release.hidden = !isEbb();
   const followDriver = (): void => {
     seat.hidden = false;
+    seatOffset.hidden = isEbb();
+    seatUnit.hidden = isEbb();
     seat.title = isEbb() ? seatTitle : 'Park the carriage at the seat height (profile): loosen the clamp, let the pen fall to the paper, clamp, press again to lift. Plots then press with the lift spring’s preload.';
     release.hidden = !isEbb();
     home.title = isEbb() ? 'Return to the bed origin' : 'Run the homing cycle: the switch corner becomes the bed origin';
@@ -425,8 +441,7 @@ function gcodeProfileSections(
     row('Resolution mm', numberInput(mc.resolution, 0.005, (v) => { mc.resolution = v; save(); }), 'Flattening error ceiling for streamed and exported toolpaths'),
     row('Pen up Z', numberInput(mc.penUp ?? 0, 0.5, (v) => { mc.penUp = v; save(); }), 'Where the pen travels (0 is the top of the iDraw H’s lift)'),
     row('Pen down Z', numberInput(mc.penDown ?? 10, 0.5, (v) => { mc.penDown = v; save(); }), 'Where the pen draws (10 is the bottom of the iDraw H’s lift)'),
-    row('Seat Z', numberInput(mc.seatZ ?? 8, 0.5, (v) => { mc.seatZ = v; save(); }), 'Where the carriage sits while a pen is clamped: pen-down minus the spring preload (2 mm). Also where the nib meets the paper.'),
-    row('Travel lift mm', numberInput(mc.travelLift ?? 0, 0.5, (v) => { mc.travelLift = Math.max(0, v); save(); }), 'Hop above the paper contact between strokes; 0 = full pen-up every time. Raise it if travels drag on a sagging bed.'),
+    row('Travel lift mm', numberInput(mc.travelLift ?? 0, 0.5, (v) => { mc.travelLift = Math.max(0, v); save(); }), 'Hop above the paper contact (pen-down less the seat offset on the control panel) between strokes; 0 = full pen-up every time. Raise it if travels drag on a sagging bed.'),
     row('Pen feed mm/min', numberInput(mc.penFeed ?? 5000, 500, (v) => { mc.penFeed = Math.max(1, v); save(); }), 'Feed for pen moves (vendor software: 5000)'),
     row('Pen settle ms', numberInput(mc.penSettleMs ?? 0, 50, (v) => { mc.penSettleMs = Math.max(0, v); save(); }), 'Dwell after a pen move. A stepper Z needs none.'),
   );
@@ -544,7 +559,7 @@ function buildGcodeCalibration(
   );
   const list = el('ol', 'cal-steps',
     step(1, 'Home', 'Position → Home runs the switches and makes that corner the bed origin. Paper origin marks the sheet’s corner from there.'),
-    step(2, 'Seat the pen', 'Position → Seat pen parks the carriage at the seat height; loosen the clamp, let the pen fall to the paper, clamp, press again. Every pen-down then presses with the spring’s preload instead of floating at the surface.'),
+    step(2, 'Seat the pen', 'Position → Seat pen parks the carriage the seat offset above full pen-down (the number beside the button); loosen the clamp, let the pen fall to the paper, clamp, press again. Every pen-down then presses with that much spring travel instead of floating at the surface.'),
     step(3, 'Pen depth', 'Six strokes from the shallow Z (top, one tick) to the deep Z (bottom, six ticks). The first full-weight stroke is the machine’s Pen down Z; set it on the Profile tab. Z0 is fully up on the iDraw H, Z10 fully down.',
       row('Ladder Z', el('div', 'row', fromIn, toIn)), el('div', 'row', ladder)),
     step(4, 'Motion', 'Step loss, backlash, cornering ceiling; and the four timing cards the estimator is fitted from.',

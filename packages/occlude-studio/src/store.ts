@@ -63,12 +63,9 @@ export interface MachineSettings {
    * no Z of their own in the studio. G-code drivers only. */
   penUp?: number;
   penDown?: number;
-  /** Where the carriage sits while a pen is clamped (Seat pen): above
-   * pen-down by the preload the lift spring should put on the nib. It is
-   * also where the nib meets the paper, which the travel hop is measured from. */
-  seatZ?: number;
   /** Lift for the travel between strokes, mm above the paper contact
-   * (seatZ); 0 or unset = the full pen-up height every time. */
+   * (pen-down less the seat offset chosen on the control panel); 0 or
+   * unset = the full pen-up height every time. */
   travelLift?: number;
   /** Feed for pen moves, mm/min (the vendor's software uses 5000). */
   penFeed?: number;
@@ -136,6 +133,10 @@ export interface Settings {
   /** The sheet's own colour — painted under the ink in the preview and in
    * both exports, because the preview is ink-truth. */
   paperColor: string;
+  /** Seat offset for a G-code pen, mm: how far above full pen-down the
+   * carriage sits while a pen is clamped, so pen-down loads the lift
+   * spring by that much. Chosen per plot on the control panel. */
+  seatOffsetMm?: number;
 }
 
 /** Stocks worth keeping in the picker; any other colour is set by hand. */
@@ -157,6 +158,7 @@ export const DEFAULT_SETTINGS: Settings = {
   landscape: false,
   defaultMarginPct: 5,
   paperColor: '#f6f2ea',
+  seatOffsetMm: 2,
 };
 
 /** The measured iDraw (EBB 2.8.1, 2026-08-26): 100 steps/mm at 1/16
@@ -220,7 +222,6 @@ export const IDRAW_H_A1_PROFILE: MachineProfile = {
     resetLiftsPen: true,
     penUp: 0.5, // a hair below the top stop, as the vendor's software lifts
     penDown: 10,
-    seatZ: 8, // 2 mm of spring preload at pen-down
     travelLift: 1,
     penFeed: 5000,
     penSettleMs: 0,
@@ -295,8 +296,8 @@ function migrateMachine(machine: MachineSettings & { flipY?: boolean }, name?: s
   const { flipY, ...rest } = { ...DEFAULT_PROFILE.machine, ...machine };
   // A profile made from the H A1 preset before the frame and motion fields
   // existed takes them from the preset: they describe the board, not a choice.
-  if (name === IDRAW_H_A1_PROFILE.name && driver === 'gcode' && (rest.yAxis === undefined || rest.penUp === undefined || rest.seatZ === undefined || rest.travelLift === undefined) && !flipY) {
-    return { ...IDRAW_H_A1_PROFILE.machine, ...rest, ...pick(IDRAW_H_A1_PROFILE.machine, ['yAxis', 'acceleration', 'travelAcceleration', 'junctionDeviation', 'resetLiftsPen', 'penUp', 'penDown', 'seatZ', 'travelLift', 'penFeed', 'penSettleMs']) };
+  if (name === IDRAW_H_A1_PROFILE.name && driver === 'gcode' && (rest.yAxis === undefined || rest.penUp === undefined || rest.travelLift === undefined) && !flipY) {
+    return { ...IDRAW_H_A1_PROFILE.machine, ...rest, ...pick(IDRAW_H_A1_PROFILE.machine, ['yAxis', 'acceleration', 'travelAcceleration', 'junctionDeviation', 'resetLiftsPen', 'penUp', 'penDown', 'travelLift', 'penFeed', 'penSettleMs']) };
   }
   if (flipY !== undefined && rest.yAxis === undefined) rest.yAxis = flipY ? 'up' : 'down';
   return rest;

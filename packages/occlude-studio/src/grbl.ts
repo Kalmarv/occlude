@@ -117,6 +117,10 @@ export class Grbl {
   settings: MachineSettings = { bedW: 300, bedH: 218, travelFeed: 6000, zMode: true, arcSupport: false, resolution: 0.2 };
   /** The pen manual pen up/down uses when no plot is running. */
   manualPen: PenDef | undefined;
+  /** Seat offset, mm above full pen-down: where the carriage sits while a
+   * pen is clamped, so the nib meets the paper there and pen-down loads
+   * the lift spring by this much. Chosen on the control panel per plot. */
+  seatOffsetMm = 2;
   /** Work position in BED mm, from the last status report or what was sent. */
   private wpos: [number, number] = [0, 0];
   /** Work coordinate offset in the controller's frame; reports carry it only every few polls. */
@@ -379,16 +383,20 @@ export class Grbl {
 
   private upHeight(override?: ServoOverride): number { return override?.up ?? this.settings.penUp ?? 5; }
   private downHeight(override?: ServoOverride): number { return override?.down ?? this.settings.penDown ?? 0; }
+  /** Where the nib meets the paper: the seat offset above full pen-down,
+   * toward pen-up whichever numeric direction that is on this machine. */
+  private contactHeight(): number {
+    const down = this.downHeight(), up = this.upHeight(), offset = Math.max(0, this.seatOffsetMm);
+    return down >= up ? Math.max(up, down - offset) : Math.min(up, down + offset);
+  }
   /** The travel lift between strokes: `travelLift` mm above the paper
-   * contact (the seat height), never below the full pen-up. The nib leaves
-   * the paper at the seat height, so the preload below it is unloaded
-   * first and does not count as clearance. */
+   * contact, never below the full pen-up. The nib leaves the paper at the
+   * seat height, so the preload below it is unloaded first and does not
+   * count as clearance. */
   private hopHeight(override?: ServoOverride): number {
     const full = this.upHeight(override), lift = this.settings.travelLift ?? 0;
     if (override?.up !== undefined || !(lift > 0)) return full;
-    const contact = this.settings.seatZ ?? this.downHeight();
-    const down = this.downHeight();
-    // "up" is toward penUp, whichever numeric direction that is on this machine.
+    const contact = this.contactHeight(), down = this.downHeight();
     return down >= full ? Math.max(full, contact - lift) : Math.min(full, contact + lift);
   }
   private settleMs(pen: PenDef | undefined): number { return this.settings.penSettleMs ?? pen?.penDelay ?? 0; }
@@ -419,7 +427,7 @@ export class Grbl {
   seat(): Promise<void> {
     if (this.plotting && !this.plotPause) return Promise.reject(new GrblError('the plot owns the pen; pause first'));
     return this.manual(async () => {
-      await this.send(`G1 Z${this.fmt(this.settings.seatZ ?? this.downHeight())} F${this.clampFeed(1500)}`);
+      await this.send(`G1 Z${this.fmt(this.contactHeight())} F${this.clampFeed(1500)}`);
       await this.waitIdle();
       this.penIsUp = false;
     });

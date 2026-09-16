@@ -284,11 +284,12 @@ describe('GRBL driver', () => {
   it('seats the pen at the seat height and lifts it again', async () => {
     const port = new FakeGrblPort();
     const g = new Grbl();
-    g.settings = { ...h1, seatZ: 7 };
+    g.settings = h1;
+    g.seatOffsetMm = 3;
     g.manualPen = pen;
     await g.connect(undefined, port as never);
     await g.seat();
-    expect(port.commands.at(-1)).toBe('G1 Z7.000 F1500');
+    expect(port.commands.at(-1)).toBe('G1 Z7.000 F1500'); // pen-down 10 less the 3 mm seat offset
     await g.penUp();
     expect(port.commands.slice(-2)).toEqual(['G0 Z0.000', 'G4 P0.100']);
   });
@@ -296,7 +297,8 @@ describe('GRBL driver', () => {
   it('hops above the paper contact between strokes and lifts fully at the end', async () => {
     const port = new FakeGrblPort();
     const g = new Grbl();
-    g.settings = { ...h1, penUp: 0.5, seatZ: 8, travelLift: 1, penFeed: 5000, penSettleMs: 0 };
+    g.settings = { ...h1, penUp: 0.5, travelLift: 1, penFeed: 5000, penSettleMs: 0 };
+    g.seatOffsetMm = 2; // contact at Z8; a 1 mm hop is Z7
     await g.connect(undefined, port as never);
     const reports: { penDelay?: number; totalMs: number }[] = [];
     await g.plot(plan([[0, false, [0, 0, 5, 0]], [0, false, [0, 5, 5, 5]]]), [pen], opts, (p) => reports.push({ totalMs: p.totalMs }));

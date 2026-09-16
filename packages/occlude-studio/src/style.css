@@ -2933,3 +2933,4 @@ button.armed {
 
 /* The controller's own settings on the Machine page (G-code profiles). */
 .grbl-settings { font-size: 12px; line-height: 1.4; max-height: 320px; overflow: auto; margin: 0; }
+.seat-offset { width: 4.5em; }
