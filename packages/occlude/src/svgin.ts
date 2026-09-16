@@ -4,13 +4,15 @@
  * drawn with library pens, occluded, modifiable (wrap with `modify([...])`
  * for wobble and friends), exported and plotted like anything else.
  *
- * Deliberately not a general SVG engine: polylines, lines, and
- * straight-segment paths (M/L/H/V/Z, absolute + relative), one layer per
- * top-level `<g>`. Affine `transform` attributes (translate, scale, rotate,
- * skew, matrix, nested through groups) are applied exactly — a straight
- * segment stays straight under any affine map — while curves are rejected
- * loudly rather than approximated. Regex-based so it parses identically in
- * browser and node.
+ * Deliberately not a general SVG engine: polylines, lines, and paths made
+ * of straight segments and Bézier curves (M/L/H/V/Z, C/S/Q/T, absolute +
+ * relative), one layer per top-level `<g>`. Affine `transform` attributes
+ * (translate, scale, rotate, skew, matrix, nested through groups) are
+ * applied exactly — lines stay lines and a Bézier's transformed control
+ * points describe the transformed curve — and cubics and quadratics enter
+ * the shape model as the curves they are. Elliptical arcs (A) have no exact
+ * form here and are rejected loudly rather than approximated. Regex-based
+ * so it parses identically in browser and node.
  */
 
 import { group, path, type GroupValue, type ShapeOpts } from './api.js';
@@ -28,11 +30,23 @@ export interface SvgShapesOptions extends ShapeOpts {
   layers?: string[];
 }
 
+/** One drawn piece of a chain, document units: a line to a point, or a
+ * Bézier with its control points. A chain is a start point plus segments. */
+type Seg =
+  | { op: 'line'; x: number; y: number }
+  | { op: 'quad'; cx: number; cy: number; x: number; y: number }
+  | { op: 'cubic'; c0x: number; c0y: number; c1x: number; c1y: number; x: number; y: number };
+interface Chain { x: number; y: number; segs: Seg[] }
 interface SvgLayer {
   name: string;
-  /** Flat [x0,y0,x1,y1,…] per chain, document units. */
-  chains: number[][];
+  chains: Chain[];
 }
+
+const polylineChain = (nums: number[]): Chain => {
+  const segs: Seg[] = [];
+  for (let k = 2; k < nums.length; k += 2) segs.push({ op: 'line', x: nums[k], y: nums[k + 1] });
+  return { x: nums[0], y: nums[1], segs };
+};
 
 function parsePoints(points: string): number[] {
   const nums = points
@@ -43,66 +57,89 @@ function parsePoints(points: string): number[] {
   return nums.length >= 4 && nums.length % 2 === 0 ? nums : [];
 }
 
-/** Straight-segment path data (M/L/H/V, absolute and relative, Z closes). */
-function parsePathData(d: string): number[][] {
-  const chains: number[][] = [];
-  let cur: number[] = [];
+/** Path data: M/L/H/V/Z lines, C/S cubics, Q/T quadratics, absolute and
+ * relative; Z closes with a line. Elliptical arcs (A) are rejected. */
+function parsePathData(d: string): Chain[] {
+  const chains: Chain[] = [];
+  let cur: Chain | null = null;
   let x = 0;
   let y = 0;
   let startX = 0;
   let startY = 0;
-  // Tokenize ALL letters so unsupported commands (curves, arcs) reach the
-  // rejection branch instead of being silently skipped.
+  // The control point a following S/T reflects, when the previous command
+  // was the matching Bézier kind; the current point otherwise.
+  let lastCubicCtrl: [number, number] | null = null;
+  let lastQuadCtrl: [number, number] | null = null;
+  // Tokenize ALL letters so unsupported commands reach the rejection branch
+  // instead of being silently skipped.
   const tokens = d.match(/[A-Za-z]|-?[\d.]+(?:e-?\d+)?/g) ?? [];
   let i = 0;
   let cmd = '';
   const flush = (): void => {
-    if (cur.length >= 4) chains.push(cur);
-    cur = [];
+    if (cur && cur.segs.length > 0) chains.push(cur);
+    cur = null;
   };
+  const num = (): number => {
+    const v = Number(tokens[i++]);
+    if (!Number.isFinite(v)) throw new Error(`svg(): malformed path data near '${tokens.slice(Math.max(0, i - 3), i + 1).join(' ')}'`);
+    return v;
+  };
+  const push = (seg: Seg): void => { if (!cur) cur = { x, y, segs: [] }; cur.segs.push(seg); };
   while (i < tokens.length) {
     if (/[A-Za-z]/.test(tokens[i])) {
       cmd = tokens[i++];
       if (cmd === 'Z' || cmd === 'z') {
-        if (cur.length >= 4) {
-          cur.push(startX, startY);
+        if (cur && cur.segs.length > 0) {
+          if (x !== startX || y !== startY) cur.segs.push({ op: 'line', x: startX, y: startY });
+          x = startX; y = startY;
           flush();
         } else {
-          cur = [];
+          cur = null;
         }
+        lastCubicCtrl = null; lastQuadCtrl = null;
         continue;
       }
     }
     if (cmd === '' || i >= tokens.length) break;
     const rel = cmd === cmd.toLowerCase();
     const c = cmd.toUpperCase();
+    const ax = (v: number): number => (rel ? x + v : v);
+    const ay = (v: number): number => (rel ? y + v : v);
     if (c === 'M' || c === 'L') {
-      const nx = Number(tokens[i++]);
-      const ny = Number(tokens[i++]);
-      if (!Number.isFinite(nx) || !Number.isFinite(ny)) break;
-      // Relative always adds; an initial 'm' is absolute per spec, which
-      // falls out naturally since x,y start at 0.
-      x = rel ? x + nx : nx;
-      y = rel ? y + ny : ny;
+      const nx = ax(num()), ny = ay(num());
       if (c === 'M') {
         flush();
-        startX = x;
-        startY = y;
-        cur = [x, y];
+        x = nx; y = ny; startX = x; startY = y;
+        cur = { x, y, segs: [] };
         cmd = rel ? 'l' : 'L'; // subsequent pairs are implicit LineTo
       } else {
-        cur.push(x, y);
+        x = nx; y = ny;
+        push({ op: 'line', x, y });
       }
+      lastCubicCtrl = null; lastQuadCtrl = null;
     } else if (c === 'H' || c === 'V') {
-      const nv = Number(tokens[i++]);
-      if (!Number.isFinite(nv)) break;
-      if (c === 'H') x = rel ? x + nv : nv;
-      else y = rel ? y + nv : nv;
-      cur.push(x, y);
+      const nv = num();
+      if (c === 'H') x = ax(nv); else y = ay(nv);
+      push({ op: 'line', x, y });
+      lastCubicCtrl = null; lastQuadCtrl = null;
+    } else if (c === 'C' || c === 'S') {
+      let c0x: number, c0y: number;
+      if (c === 'C') { c0x = ax(num()); c0y = ay(num()); }
+      else { c0x = lastCubicCtrl ? 2 * x - lastCubicCtrl[0] : x; c0y = lastCubicCtrl ? 2 * y - lastCubicCtrl[1] : y; }
+      const c1x = ax(num()), c1y = ay(num()), nx = ax(num()), ny = ay(num());
+      push({ op: 'cubic', c0x, c0y, c1x, c1y, x: nx, y: ny });
+      x = nx; y = ny; lastCubicCtrl = [c1x, c1y]; lastQuadCtrl = null;
+    } else if (c === 'Q' || c === 'T') {
+      let cx: number, cy: number;
+      if (c === 'Q') { cx = ax(num()); cy = ay(num()); }
+      else { cx = lastQuadCtrl ? 2 * x - lastQuadCtrl[0] : x; cy = lastQuadCtrl ? 2 * y - lastQuadCtrl[1] : y; }
+      const nx = ax(num()), ny = ay(num());
+      push({ op: 'quad', cx, cy, x: nx, y: ny });
+      x = nx; y = ny; lastQuadCtrl = [cx, cy]; lastCubicCtrl = null;
+    } else if (c === 'A') {
+      throw new Error("svg(): elliptical arcs (A) have no exact form here — convert them to Béziers before export");
     } else {
-      throw new Error(
-        `svg(): unsupported path command '${cmd}' — only straight segments (M/L/H/V/Z)`,
-      );
+      throw new Error(`svg(): unsupported path command '${cmd}'`);
     }
   }
   flush();
@@ -164,30 +201,37 @@ function parseTransform(value: string | undefined): Affine {
   return m;
 }
 
-const mapChain = (m: Affine, chain: number[]): number[] => {
+/** Map every point of a chain, control points included: an affine map of
+ * a Bézier's control points is the map of the curve. */
+const mapChain = (m: Affine, chain: Chain): Chain => {
   if (m === IDENTITY) return chain;
-  const out = new Array<number>(chain.length);
-  for (let k = 0; k < chain.length; k += 2) {
-    const x = chain[k], y = chain[k + 1];
-    out[k] = m[0] * x + m[2] * y + m[4];
-    out[k + 1] = m[1] * x + m[3] * y + m[5];
-  }
-  return out;
+  const px = (x: number, y: number): number => m[0] * x + m[2] * y + m[4];
+  const py = (x: number, y: number): number => m[1] * x + m[3] * y + m[5];
+  return {
+    x: px(chain.x, chain.y), y: py(chain.x, chain.y),
+    segs: chain.segs.map((s): Seg => {
+      switch (s.op) {
+        case 'line': return { op: 'line', x: px(s.x, s.y), y: py(s.x, s.y) };
+        case 'quad': return { op: 'quad', cx: px(s.cx, s.cy), cy: py(s.cx, s.cy), x: px(s.x, s.y), y: py(s.x, s.y) };
+        case 'cubic': return { op: 'cubic', c0x: px(s.c0x, s.c0y), c0y: py(s.c0x, s.c0y), c1x: px(s.c1x, s.c1y), c1y: py(s.c1x, s.c1y), x: px(s.x, s.y), y: py(s.x, s.y) };
+      }
+    }),
+  };
 };
 
 const attrOf = (attrs: string, name: string): string | undefined =>
   new RegExp(`(?:^|\\s)${name}="([^"]*)"`).exec(attrs)?.[1];
 
 /** The chains of one element (polyline, line or path) in its own coordinates. */
-function elementChains(tag: string, attrs: string): number[][] {
+function elementChains(tag: string, attrs: string): Chain[] {
   if (tag === 'polyline') {
     const pts = parsePoints(attrOf(attrs, 'points') ?? '');
-    return pts.length > 0 ? [pts] : [];
+    return pts.length > 0 ? [polylineChain(pts)] : [];
   }
   if (tag === 'line') {
     const n = (name: string): number => Number(attrOf(attrs, name) ?? NaN);
     const [x1, y1, x2, y2] = [n('x1'), n('y1'), n('x2'), n('y2')];
-    return [x1, y1, x2, y2].every(Number.isFinite) ? [[x1, y1, x2, y2]] : [];
+    return [x1, y1, x2, y2].every(Number.isFinite) ? [polylineChain([x1, y1, x2, y2])] : [];
   }
   const d = attrOf(attrs, 'd');
   return d ? parsePathData(d) : [];
@@ -209,7 +253,7 @@ function parseSvgText(text: string): { layers: SvgLayer[]; width: number; height
   // read. Top-level groups are the layers; elements outside any group make
   // the 'ungrouped' layer, last.
   const layers: SvgLayer[] = [];
-  const loose: number[][] = [];
+  const loose: Chain[] = [];
   const stack: Affine[] = [IDENTITY];
   let current: SvgLayer | null = null;
   let gi = 0;
@@ -253,10 +297,13 @@ export function svg(text: string, opts: SvgShapesOptions = {}): GroupValue {
     .filter((l) => !only || only.includes(l.name))
     .flatMap((l) =>
       l.chains.map((chain) => {
+        const X = (v: number): number => x + v * s, Y = (v: number): number => y + v * s;
         const p = path();
-        p.moveTo(x + chain[0] * s, y + chain[1] * s);
-        for (let k = 2; k < chain.length; k += 2) {
-          p.lineTo(x + chain[k] * s, y + chain[k + 1] * s);
+        p.moveTo(X(chain.x), Y(chain.y));
+        for (const seg of chain.segs) {
+          if (seg.op === 'line') p.lineTo(X(seg.x), Y(seg.y));
+          else if (seg.op === 'quad') p.quadTo(X(seg.cx), Y(seg.cy), X(seg.x), Y(seg.y));
+          else p.bezierTo(X(seg.c0x), Y(seg.c0y), X(seg.c1x), Y(seg.c1y), X(seg.x), Y(seg.y));
         }
         return p.build(shapeOpts);
       }),

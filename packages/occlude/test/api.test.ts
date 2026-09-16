@@ -1055,10 +1055,23 @@ describe('svg() shape source', () => {
     ).toThrow(/layer filter/);
   });
 
-  it('rejects curves loudly', () => {
-    const bad = '<svg viewBox="0 0 10 10"><path d="M0 0 C1 1 2 2 3 3"/></svg>';
+  it('keeps cubic and quadratic Béziers as curves, with S/T reflection and transforms on the control points', () => {
+    const cubic = '<svg viewBox="0 0 100 100"><path d="M10 10 C 20 0, 40 0, 50 10 S 80 20, 90 10"/></svg>';
+    const r = sq(sketch({ aspect: [1, 1] }, (t) => t.svg(cubic, { width: 100 })));
+    expect(r.frags.map((f) => f.geom.t)).toEqual(['cubic', 'cubic']);
+    const g = r.frags[1].geom;
+    // S reflects the previous second control point (40,0) about (50,10): (60,20), in paper mm on the 200 mm square.
+    if (g.t === 'cubic') { expect(g.c0x).toBeCloseTo(120, 6); expect(g.c0y).toBeCloseTo(40, 6); }
+    const quad = '<svg viewBox="0 0 100 100"><g transform="translate(0,50)"><path d="M0 0 Q 10 10 20 0 T 40 0"/></g></svg>';
+    const q = sq(sketch({ aspect: [1, 1] }, (t) => t.svg(quad, { width: 100 })));
+    expect(q.frags.length).toBe(2);
+    expect(q.frags.every((f) => f.geom.t !== 'line')).toBe(true);
+  });
+
+  it('rejects elliptical arcs loudly', () => {
+    const bad = '<svg viewBox="0 0 10 10"><path d="M0 0 A 5 5 0 0 1 10 0"/></svg>';
     const def = sketch({ aspect: [1, 1] }, (t) => t.svg(bad));
-    expect(() => sq(def)).toThrow(/unsupported path command/);
+    expect(() => sq(def)).toThrow(/elliptical arcs/);
   });
 
   // Document units equal sketch units here (viewBox 100 wide, width 100 on
