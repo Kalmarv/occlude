@@ -18,7 +18,7 @@ import {
 } from './diagnostics.js';
 import { Ebb, type EbbOptions, type PlotProgress } from './ebb.js';
 import { Grbl } from './grbl.js';
-import { download, savePens, saveProfiles, saveSettings, IDRAW_H_A1_PROFILE, type MachineProfile, type Settings } from './store.js';
+import { download, saveProfiles, saveSettings, IDRAW_H_A1_PROFILE, type MachineProfile, type Settings } from './store.js';
 import { withIcon } from './icons.js';
 import { confirmDialog, promptDialog } from './wa.js';
 import { button, checkbox, el, hint, numberInput, row, yAxisSelect } from './widgets.js';
@@ -408,28 +408,15 @@ function gcodeProfileSections(
     'How the controller counts Y against the paper, which grows down the sheet from the top-left corner. The same mapping the G-code export uses.',
     row('Y axis', yAxisSelect(mc.yAxis ?? 'down', (v) => { mc.yAxis = v; save(); })),
   );
-  // Pen heights are per pen (a brush sits higher than a fineliner); the
-  // machine says what its Z range is, and can write it into every pen.
-  let upZ = 0, downZ = 10;
-  const applyRange = button('Set every pen', () => {
-    const pens = m.pens();
-    for (const pen of pens) { pen.penUp = upZ; pen.penDown = downZ; }
-    savePens(pens);
-    m.onChanged?.();
-  });
-  applyRange.title = 'Write these two heights into every library pen’s Pen up / Pen down. Per-pen depth is then tuned on the Pens panel.';
   const pen = section(
     'Pen',
-    'Pen by Z moves or by M3/M5; the heights themselves belong to each pen (Pens panel). The Z ladder card finds the depth that draws at full weight.',
+    'Pen by Z moves or by M3/M5, and the machine’s own two heights: the physical range of its pen lift. The Z ladder card finds the depth that draws at full weight.',
     checkbox('Pen via Z axis (off = M3/M5)', mc.zMode, (v) => { mc.zMode = v; save(); }),
     checkbox('Emit G2/G3 arcs', mc.arcSupport, (v) => { mc.arcSupport = v; save(); }),
     checkbox('Reset lifts the pen (DrawCore)', mc.resetLiftsPen ?? false, (v) => { mc.resetLiftsPen = v; save(); }),
     row('Resolution mm', numberInput(mc.resolution, 0.005, (v) => { mc.resolution = v; save(); }), 'Flattening error ceiling for streamed and exported toolpaths'),
-    row('Z range', el('div', 'row',
-      numberInput(upZ, 0.5, (v) => { upZ = v; }),
-      numberInput(downZ, 0.5, (v) => { downZ = v; }),
-      applyRange,
-    ), 'Pen-up Z, pen-down Z'),
+    row('Pen up Z', numberInput(mc.penUp ?? 0, 0.5, (v) => { mc.penUp = v; save(); }), 'Where the pen travels (0 is the top of the iDraw H’s lift)'),
+    row('Pen down Z', numberInput(mc.penDown ?? 10, 0.5, (v) => { mc.penDown = v; save(); }), 'Where the pen draws (10 is the bottom of the iDraw H’s lift)'),
   );
   const motion = section(
     'Motion',
@@ -545,7 +532,7 @@ function buildGcodeCalibration(
   );
   const list = el('ol', 'cal-steps',
     step(1, 'Home', 'Position → Home runs the switches and makes that corner the bed origin. Paper origin marks the sheet’s corner from there.'),
-    step(2, 'Pen depth', 'Six strokes from the shallow Z (top, one tick) to the deep Z (bottom, six ticks). The first full-weight stroke is the pen’s Pen down; set it on the Pens panel. Z0 is fully up on the iDraw H, Z10 fully down.',
+    step(2, 'Pen depth', 'Six strokes from the shallow Z (top, one tick) to the deep Z (bottom, six ticks). The first full-weight stroke is the machine’s Pen down Z; set it on the Profile tab. Z0 is fully up on the iDraw H, Z10 fully down.',
       row('Ladder Z', el('div', 'row', fromIn, toIn)), el('div', 'row', ladder)),
     step(3, 'Motion', 'Step loss, backlash, cornering ceiling; and the four timing cards the estimator is fitted from.',
       motion, timing),

@@ -108,9 +108,11 @@ studio's store). Everything below was read off the board on 2026-09-16
   nothing but the two home switches protects the ends of travel.
 - **Pen.** A Z axis: **Z0 fully up, Z10 fully down** (85.8 steps/mm, so
   anything not a multiple of 5 mm rounds by up to 0.006). Z5 is mid-travel.
-  The pens' `penUp`/`penDown` are these heights; the Machine page can write
-  a range into every pen and the Z ladder card finds the depth that draws
-  at full weight. M3/M5 drive the laser channel only.
+  The heights are the machine's: the profile's `penUp`/`penDown`, which the
+  driver, the export and the cards all use (pens carry no Z in the
+  studio); the Z ladder card finds the depth that draws at full weight. The
+  lift is spring-returned, so a reset or power loss leaves the pen at the
+  top. M3/M5 drive the laser channel only.
 - **Reset semantics.** Opening or closing the port does not reset the board,
   a soft reset keeps the machine position, and closing the port does not
   stop motion. A soft reset with the pen down **lifts the pen physically

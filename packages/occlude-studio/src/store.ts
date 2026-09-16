@@ -58,6 +58,11 @@ export interface MachineSettings {
    * (the DrawCore does): after a stop or pause the driver re-declares the
    * pen-up height instead of driving the pen into its stop. */
   resetLiftsPen?: boolean;
+  /** The machine's pen heights (Z when zMode): the physical range of its
+   * pen lift. The driver, the export and the cards use these; pens carry
+   * no Z of their own in the studio. G-code drivers only. */
+  penUp?: number;
+  penDown?: number;
 }
 
 export interface EbbSettings {
@@ -179,7 +184,7 @@ export const DEFAULT_PROFILE: MachineProfile = {
 /** The iDraw H A1 (DrawCore V2.23, GRBL 1.1h), read off the board
  * 2026-09-16 (working/plotter-report.md): 594 x 841 mm of travel ($130/$131),
  * homed to the TOP-LEFT with Y negative down the sheet, so 'negative';
- * pen by Z moves, Z0 fully up and Z10 fully down; G2/G3 accepted in I/J
+ * pen by Z moves, Z0 fully up and Z10 fully down (the profile's penUp/penDown); G2/G3 accepted in I/J
  * form (arcs on); max rates 15000/12000 mm/min and accelerations 3000/2000
  * mm/s² per axis, so the diagonal-safe 12000 and 2000 here; junction
  * deviation $11 = 0.010. Resolution is coarse because GRBL streams a few
@@ -200,6 +205,8 @@ export const IDRAW_H_A1_PROFILE: MachineProfile = {
     travelAcceleration: 2000,
     junctionDeviation: 0.01,
     resetLiftsPen: true,
+    penUp: 0,
+    penDown: 10,
   },
   ebb: structuredClone(DEFAULT_PROFILE.ebb),
 };
@@ -271,8 +278,8 @@ function migrateMachine(machine: MachineSettings & { flipY?: boolean }, name?: s
   const { flipY, ...rest } = { ...DEFAULT_PROFILE.machine, ...machine };
   // A profile made from the H A1 preset before the frame and motion fields
   // existed takes them from the preset: they describe the board, not a choice.
-  if (name === IDRAW_H_A1_PROFILE.name && driver === 'gcode' && rest.yAxis === undefined && !flipY) {
-    return { ...IDRAW_H_A1_PROFILE.machine, ...rest, ...pick(IDRAW_H_A1_PROFILE.machine, ['yAxis', 'acceleration', 'travelAcceleration', 'junctionDeviation', 'resetLiftsPen']) };
+  if (name === IDRAW_H_A1_PROFILE.name && driver === 'gcode' && (rest.yAxis === undefined || rest.penUp === undefined) && !flipY) {
+    return { ...IDRAW_H_A1_PROFILE.machine, ...rest, ...pick(IDRAW_H_A1_PROFILE.machine, ['yAxis', 'acceleration', 'travelAcceleration', 'junctionDeviation', 'resetLiftsPen', 'penUp', 'penDown']) };
   }
   if (flipY !== undefined && rest.yAxis === undefined) rest.yAxis = flipY ? 'up' : 'down';
   return rest;

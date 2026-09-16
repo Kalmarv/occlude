@@ -68,11 +68,12 @@ class FakeGrblPort {
   async close(): Promise<void> { /* closed */ }
 }
 
-const pen: PenDef = { name: 'fine', width: 0.3, color: '#000', feed: 3000, penDown: 10, penUp: 0, penDelay: 100 };
+// The pen's own Z is the library default and must not matter: the machine's heights win.
+const pen: PenDef = { name: 'fine', width: 0.3, color: '#000', feed: 3000, penDown: 0, penUp: 5, penDelay: 100 };
 const opts = { travelFeed: 12000 } as never;
 const h1: MachineSettings = {
   bedW: 594, bedH: 841, travelFeed: 12000, zMode: true, arcSupport: true, resolution: 0.2,
-  yAxis: 'negative', acceleration: 2000, travelAcceleration: 2000, junctionDeviation: 0.01, resetLiftsPen: true,
+  yAxis: 'negative', acceleration: 2000, travelAcceleration: 2000, junctionDeviation: 0.01, resetLiftsPen: true, penUp: 0, penDown: 10,
 };
 const plan = (chains: [number, boolean, number[]][]): Float64Array => Float64Array.from(chains.flatMap(([p, dot, pts]) => [p, dot ? 1 : 0, pts.length / 2, ...pts]));
 const after = (port: FakeGrblPort, marker: string): string[] => port.commands.slice(port.commands.lastIndexOf(marker) + 1);
@@ -117,7 +118,8 @@ describe('GRBL driver', () => {
     const g = new Grbl();
     g.settings = { ...h1, bedH: 100, yAxis: 'up', zMode: false };
     await g.connect(undefined, port as never);
-    await g.plot(plan([[0, false, [1, 2, 3, 4]]]), [{ ...pen, penDown: 900, penDelay: 0 }], opts, () => undefined);
+    g.settings = { ...g.settings, penDown: 900 };
+    await g.plot(plan([[0, false, [1, 2, 3, 4]]]), [{ ...pen, penDelay: 0 }], opts, () => undefined);
     expect(after(port, 'G21 G90 G54')).toEqual(['M5', 'G0 X1.000 Y98.000', 'M3 S900', 'G1 X3.000 Y96.000 F3000', 'M5', 'G0 X0.000 Y100.000']);
   });
 
@@ -258,6 +260,17 @@ describe('GRBL driver', () => {
     expect(port.commands.slice(i + 1)).toEqual(['G0 Z0.000', 'G4 P0.100']);
     expect(port.realtime.filter((c) => c === '?').length).toBeGreaterThan(polls); // waited for Idle in between
     await expect(g.send('G4 P0.6').then(() => port.commands.at(-1))).resolves.toBe('G4 P0.6');
+  });
+
+  it('lets a card pin the pen-down height per pen index', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
+    await g.connect(undefined, port as never);
+    await g.plot(plan([[0, false, [0, 0, 5, 0]], [1, false, [0, 6, 5, 6]]]), [{ ...pen, penDelay: 0 }, { ...pen, name: 'b', penDelay: 0 }], opts, () => undefined,
+      undefined, undefined, undefined, (i) => [{ down: 6 }, { down: 8 }][i]);
+    expect(port.commands).toContain('G1 Z6.000 F3000');
+    expect(port.commands).toContain('G1 Z8.000 F3000');
   });
 
   it('parks at the bed origin for a re-ink pause and carries on after resume', async () => {

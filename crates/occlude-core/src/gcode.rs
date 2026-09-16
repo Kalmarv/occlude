@@ -34,6 +34,11 @@ pub struct MachineProfile {
     /// sheet from the top-left corner). Arc direction follows the
     /// coordinates actually written: both reflections reverse it.
     pub y_axis: YAxis,
+    /// The machine's pen heights (Z in z_mode): the physical range of its
+    /// pen lift, one number each for the whole machine. When set they
+    /// override every pen's own `pen_up`/`pen_down`.
+    pub pen_up: Option<f64>,
+    pub pen_down: Option<f64>,
 }
 
 /// The controller's Y axis against the paper's.
@@ -67,6 +72,8 @@ impl Default for MachineProfile {
             z_mode: true,
             arc_support: false,
             y_axis: YAxis::Down,
+            pen_up: None,
+            pen_down: None,
         }
     }
 }
@@ -423,16 +430,18 @@ fn comment_safe(s: &str) -> String {
 fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) -> GcodeJob {
     let tol = (profile.resolution).min(pen.width / 4.0).max(1e-4);
     let mut g = String::new();
+    let up_z = profile.pen_up.unwrap_or(pen.pen_up);
+    let down_z = profile.pen_down.unwrap_or(pen.pen_down);
     let up = |g: &mut String| {
         if profile.z_mode {
-            let _ = writeln!(g, "G0 Z{:.3}", pen.pen_up);
+            let _ = writeln!(g, "G0 Z{:.3}", up_z);
         } else {
             let _ = writeln!(g, "M5");
         }
     };
     let down = |g: &mut String| {
         if profile.z_mode {
-            let _ = writeln!(g, "G1 Z{:.3} F{:.0}", pen.pen_down, pen.feed);
+            let _ = writeln!(g, "G1 Z{:.3} F{:.0}", down_z, pen.feed);
         } else {
             let _ = writeln!(g, "M3 S{:.0}", pen.pen_down.max(1.0));
         }

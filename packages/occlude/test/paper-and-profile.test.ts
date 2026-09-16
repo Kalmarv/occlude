@@ -15,6 +15,7 @@ describe('paper presets', () => {
 describe('machine profile JSON', () => {
   it('carries the Y axis sense, defaulting to paper-down, so the core mirrors only when asked', () => {
     expect(JSON.parse(profileToJson({}, { w: 100, h: 200 }))).toMatchObject({ bed: [100, 200], yAxis: 'down', zMode: true, arcSupport: false });
-    expect(JSON.parse(profileToJson({ yAxis: 'negative', resolution: 0.2, travelFeed: 12000 }, { w: 594, h: 841 }))).toMatchObject({ yAxis: 'negative', resolution: 0.2, travelFeed: 12000 });
+    expect(JSON.parse(profileToJson({ yAxis: 'negative', resolution: 0.2, travelFeed: 12000, penUp: 0, penDown: 10 }, { w: 594, h: 841 }))).toMatchObject({ yAxis: 'negative', resolution: 0.2, travelFeed: 12000, penUp: 0, penDown: 10 });
+    expect('penUp' in JSON.parse(profileToJson({}, { w: 1, h: 1 }))).toBe(false);
   });
 });

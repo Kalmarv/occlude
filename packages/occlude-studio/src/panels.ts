@@ -325,8 +325,6 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
       ['Width mm', 'width', 'number'],
       ['Color', 'color', 'color'],
       ['Feed', 'feed', 'number'],
-      ['Pen down', 'penDown', 'number'],
-      ['Pen up', 'penUp', 'number'],
       ['Delay ms', 'penDelay', 'number'],
       ['Re-ink mm', 'reinkMm', 'number'],
     ];
@@ -1312,6 +1310,8 @@ function buildExportPanel(body: HTMLElement, hooks: PanelHooks): () => void {
         arcSupport: prof().machine.arcSupport,
         resolution: prof().machine.resolution,
         yAxis: prof().machine.yAxis ?? 'down',
+        ...(prof().machine.penUp !== undefined ? { penUp: prof().machine.penUp } : {}),
+        ...(prof().machine.penDown !== undefined ? { penDown: prof().machine.penDown } : {}),
       },
       r.paper,
     );

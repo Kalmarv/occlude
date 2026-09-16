@@ -31,9 +31,10 @@
  * height, 'negative' as -y) — the same mapping the G-code export uses, so
  * what plots here is what an exported file plots.
  *
- * The pen is the pen definition's `penUp`/`penDown`: Z heights in `zMode`,
- * spindle S values through M3/M5 otherwise, with `penDelay` settling both
- * ways. Pause is hold → reset → re-declare the pen height, so the machine
+ * The pen heights are the machine's (`penUp`/`penDown` on the profile: Z
+ * in `zMode`, the S value through M3/M5 otherwise), with each pen's
+ * `penDelay` settling both ways; a calibration card may override the
+ * heights per pen index through the shared `servoFor` hook. Pause is hold → reset → re-declare the pen height, so the machine
  * is Idle while paused (jog, re-origin, pen up/down all work) and resume
  * carries on from where the pen actually stopped.
  */
@@ -369,15 +370,17 @@ export class Grbl {
 
   // ---- pen ----------------------------------------------------------------
 
-  private penUpLines(pen: PenDef | undefined): string[] {
+  private upHeight(override?: ServoOverride): number { return override?.up ?? this.settings.penUp ?? 5; }
+  private downHeight(override?: ServoOverride): number { return override?.down ?? this.settings.penDown ?? 0; }
+  private penUpLines(pen: PenDef | undefined, override?: ServoOverride): string[] {
     const delay = pen && pen.penDelay > 0 ? [`G4 P${(pen.penDelay / 1000).toFixed(3)}`] : [];
     if (!this.settings.zMode) return ['M5', ...delay];
-    return [`G0 Z${this.fmt(pen?.penUp ?? 5)}`, ...delay];
+    return [`G0 Z${this.fmt(this.upHeight(override))}`, ...delay];
   }
-  private penDownLines(pen: PenDef | undefined): string[] {
+  private penDownLines(pen: PenDef | undefined, override?: ServoOverride): string[] {
     const delay = pen && pen.penDelay > 0 ? [`G4 P${(pen.penDelay / 1000).toFixed(3)}`] : [];
-    if (!this.settings.zMode) return [`M3 S${Math.max(1, Math.round(pen?.penDown ?? 1))}`, ...delay];
-    return [`G1 Z${this.fmt(pen?.penDown ?? 0)} F${this.clampFeed(pen?.feed ?? 1000)}`, ...delay];
+    if (!this.settings.zMode) return [`M3 S${Math.max(1, Math.round(this.downHeight(override)))}`, ...delay];
+    return [`G1 Z${this.fmt(this.downHeight(override))} F${this.clampFeed(pen?.feed ?? 1000)}`, ...delay];
   }
 
   penUp(_settleMs = 300): Promise<void> {
@@ -400,10 +403,10 @@ export class Grbl {
    * count still says where it was: driving to the pen-up height would run
    * the belt into its stop. `resetLiftsPen` re-declares the current height
    * as pen-up instead (G92, volatile); other controllers get a real lift. */
-  private async resyncPen(pen: PenDef | undefined): Promise<void> {
+  private async resyncPen(): Promise<void> {
     if (!this.settings.zMode) { await this.send('M5'); this.penIsUp = true; return; }
-    if (this.settings.resetLiftsPen) await this.send(`G92 Z${this.fmt(pen?.penUp ?? 5)}`);
-    else await this.send(`G0 Z${this.fmt(pen?.penUp ?? 5)}`);
+    if (this.settings.resetLiftsPen) await this.send(`G92 Z${this.fmt(this.upHeight())}`);
+    else await this.send(`G0 Z${this.fmt(this.upHeight())}`);
     this.penIsUp = true;
   }
 
@@ -487,7 +490,7 @@ export class Grbl {
    * deceleration, soft reset (position kept), unlock, restore the modal
    * state, re-declare the pen height. Every line in flight is rejected with
    * `reason` so the plot loop knows why. */
-  private async flushMotion(reason: string, pen: PenDef | undefined): Promise<void> {
+  private async flushMotion(reason: string): Promise<void> {
     try {
       await this.realtime('!');
       await this.waitState(/^(Hold:0|Idle|Door:0|Alarm|Check)$/, 5000).catch(() => undefined);
@@ -498,14 +501,14 @@ export class Grbl {
     const s = await this.status().catch(() => null);
     if (s?.state === 'Alarm') await this.send('$X').catch(() => undefined);
     await this.send('G21 G90 G17 G54').catch(() => undefined);
-    await this.resyncPen(pen).catch(() => undefined);
+    await this.resyncPen().catch(() => undefined);
     await this.status().catch(() => null);
   }
 
   async stop(): Promise<void> {
     this.plotAbort = true;
     this.plotPause = false;
-    this.flush = this.flushMotion('stopped', this.manualPen);
+    this.flush = this.flushMotion('stopped');
     await this.flush;
   }
 
@@ -516,7 +519,7 @@ export class Grbl {
     if (!this.plotting || this.plotPause) return;
     this.plotPause = true;
     this.pauseAdjusted = false;
-    this.flush = this.flushMotion('paused', this.manualPen).catch(() => undefined);
+    this.flush = this.flushMotion('paused').catch(() => undefined);
   }
   resume(): void {
     if (!this.plotting || !this.plotPause) return;
@@ -527,7 +530,8 @@ export class Grbl {
 
   /** Same contract as Ebb.plot: a toolpath plan in paper mm, one pen per
    * run by hand, progress callbacks, re-ink pauses, resume from a chain.
-   * Servo arguments are accepted for the shared call site and ignored. */
+   * `servoFor` gives a card its per-pen height overrides (Z here); the
+   * live servo hook is the EBB's and ignored. */
   async plot(
     plan: Float64Array,
     pens: PenDef[],
@@ -536,7 +540,7 @@ export class Grbl {
     livePen?: (name: string) => PenDef | undefined,
     _liveServo?: () => { penUpPulse: number; penDownPulse: number },
     onlyPen?: number,
-    _servoFor?: (penIndex: number) => ServoOverride | undefined,
+    servoFor?: (penIndex: number) => ServoOverride | undefined,
     startChain = 0,
   ): Promise<void> {
     interface Chain { pen: number; dot: boolean; pts: Float64Array }
@@ -642,7 +646,7 @@ export class Grbl {
           if (from === 0) {
             await this.send(this.g0([c.pts[0], c.pts[1]])); sent++;
           }
-          for (const l of this.penDownLines(pen)) { await this.send(l); sent++; }
+          for (const l of this.penDownLines(pen, servoFor?.(c.pen))) { await this.send(l); sent++; }
           this.penIsUp = false;
           if (!c.dot) {
             const n = c.pts.length / 2;
@@ -653,7 +657,7 @@ export class Grbl {
               report('plotting');
             }
           }
-          for (const l of this.penUpLines(pen)) { await this.send(l); sent++; }
+          for (const l of this.penUpLines(pen, servoFor?.(c.pen))) { await this.send(l); sent++; }
           this.penIsUp = true;
           from = 0;
         } catch (e) {

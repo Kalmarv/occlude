@@ -644,6 +644,10 @@ export interface MachineProfileTS {
    * (y' = bed height - y); 'negative' is a top-left home counting down the
    * sheet (y' = -y; the iDraw H after homing). Arcs follow the frame. */
   yAxis?: YAxis;
+  /** The machine's pen heights (Z when `zMode`), one pair for the whole
+   * machine; when set they override every pen's own `penUp`/`penDown`. */
+  penUp?: number;
+  penDown?: number;
 }
 export type YAxis = 'down' | 'up' | 'negative';
 
@@ -688,6 +692,8 @@ export function profileToJson(
     zMode: p.zMode ?? true,
     arcSupport: p.arcSupport ?? false,
     yAxis: p.yAxis ?? 'down',
+    ...(p.penUp !== undefined ? { penUp: p.penUp } : {}),
+    ...(p.penDown !== undefined ? { penDown: p.penDown } : {}),
   });
 }
 

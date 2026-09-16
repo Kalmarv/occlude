@@ -748,6 +748,11 @@ fn gcode_arc_direction_follows_the_written_coordinates() {
     let g = &export_gcode(std::slice::from_ref(&chain), &pens, &negative)[0].gcode;
     assert!(g.contains("G0 X60.000 Y-50.000"), "{g}");
     assert!(g.contains("G2 X50.000 Y-60.000 I-10.000 J0.000"), "{g}");
+    // The machine's own pen heights win over the pen's.
+    let heights = MachineProfile { pen_up: Some(0.0), pen_down: Some(10.0), ..plain.clone() };
+    let g = &export_gcode(std::slice::from_ref(&chain), &pens, &heights)[0].gcode;
+    assert!(g.contains("G0 Z0.000"), "{g}");
+    assert!(g.contains("G1 Z10.000 F"), "{g}");
     // Flattened output mirrors too.
     let flat = MachineProfile { arc_support: false, y_axis: YAxis::Up, ..plain.clone() };
     let g = &export_gcode(std::slice::from_ref(&chain), &pens, &flat)[0].gcode;
