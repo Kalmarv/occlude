@@ -450,12 +450,20 @@ export class Grbl {
     if (!this.settings.zMode) { await this.send('M5'); this.penIsUp = true; return; }
     const up = this.upHeight();
     if (this.settings.resetLiftsPen) {
-      await this.send(`G10 L20 P1 Z${this.fmt(up)}`);
-      const s = await this.status().catch(() => null);
-      if (s && Math.abs(s.work[2] - up) > 0.01) {
-        await this.send(`G92 Z${this.fmt(up)}`);
-        const t = await this.status().catch(() => null);
-        if (t && Math.abs(t.work[2] - up) > 0.01) this.logLine('<', `(pen height declaration not honoured: work Z reads ${t.work[2]}, expected ${up})`);
+      const declared = async (line: string): Promise<boolean> => {
+        await this.send(line);
+        const s = await this.status().catch(() => null);
+        return !!s && Math.abs(s.work[2] - up) <= 0.01;
+      };
+      const machineZ = (await this.status().catch(() => null))?.machine[2] ?? 0;
+      // Standard GRBL first (the work offset, then G92: "the current position
+      // is this"); the DrawCore ignores both for Z and instead stores the
+      // number given to G92 Z as the offset itself (serial log 2026-09-16),
+      // so the last form hands it the offset: machine Z less pen-up.
+      if (!(await declared(`G10 L20 P1 Z${this.fmt(up)}`))
+        && !(await declared(`G92 Z${this.fmt(up)}`))
+        && !(await declared(`G92 Z${this.fmt(machineZ - up)}`))) {
+        this.logLine('<', `(pen height declaration not honoured: expected work Z ${up})`);
       }
     } else {
       await this.send(`G0 Z${this.fmt(up)}`);

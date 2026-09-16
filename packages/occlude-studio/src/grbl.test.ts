@@ -15,6 +15,8 @@ class FakeGrblPort {
   state = 'Idle';
   pos = [0, 0, 0];
   wco = [0, 0, 0];
+  /** DrawCore Z quirk: G10 L20 ignores Z and G92 Z stores the value as the offset itself. */
+  quirkyZ = false;
   /** Reply latency per line, so a plot takes real time and can be paused. */
   delayMs = 0;
   private timers: ReturnType<typeof setTimeout>[] = [];
@@ -58,7 +60,9 @@ class FakeGrblPort {
     const rel = cmd.startsWith('$J=') || cmd.includes('G91');
     const axis = (name: string): number | undefined => { const m = cmd.match(new RegExp(`${name}(-?[\\d.]+)`)); return m ? Number(m[1]) : undefined; };
     const g10 = cmd.match(/^G10 L20 P1(.*)$/);
-    if (g10) { for (const [i, name] of ['X', 'Y', 'Z'].entries()) { const v = axis(name); if (v !== undefined) this.wco[i] = this.pos[i] - v; } return; }
+    if (g10) { for (const [i, name] of ['X', 'Y', 'Z'].entries()) { const v = axis(name); if (v !== undefined && !(this.quirkyZ && i === 2)) this.wco[i] = this.pos[i] - v; } return; }
+    const g92 = cmd.match(/^G92 (.*)$/);
+    if (g92) { for (const [i, name] of ['X', 'Y', 'Z'].entries()) { const v = axis(name); if (v !== undefined) this.wco[i] = this.quirkyZ && i === 2 ? v : this.pos[i] - v; } return; }
     if (!/^(\$J=|G0|G1)/.test(cmd)) return;
     if (cmd === '$J=' || !/[XYZ]-?[\d.]/.test(cmd)) return;
     const x = axis('X'), y = axis('Y'), z = axis('Z');
@@ -212,6 +216,19 @@ describe('GRBL driver', () => {
     expect(port.commands.at(-1)).toBe('$1=254'); // motors released after the stop
     expect(states.at(-1)).toBe('stopped');
     expect(g.plotting).toBe(false);
+  });
+
+  it('declares the pen height on a board that stores the G92 Z value as the offset', async () => {
+    const port = new FakeGrblPort();
+    port.quirkyZ = true;
+    port.pos = [0, 0, 10]; // the pen was down when the board last moved; the spring has lifted it
+    const g = new Grbl();
+    g.settings = { ...h1, penUp: 0.5 };
+    await g.connect(undefined, port as never);
+    const declarations = port.commands.filter((c) => /^(G10 L20 P1 Z|G92 Z)/.test(c));
+    expect(declarations).toEqual(['G10 L20 P1 Z0.500', 'G92 Z0.500', 'G92 Z9.500']);
+    expect(g.lastStatus?.work[2]).toBeCloseTo(0.5);
+    expect(g.transcript()).not.toContain('not honoured');
   });
 
   it('drives the pen up after a reset on a controller that does not lift it', async () => {
