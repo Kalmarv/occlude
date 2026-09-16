@@ -6,8 +6,11 @@
  *
  * Deliberately not a general SVG engine: polylines, lines, and
  * straight-segment paths (M/L/H/V/Z, absolute + relative), one layer per
- * top-level `<g>`. Transforms and curves are rejected loudly rather than
- * drawn wrong. Regex-based so it parses identically in browser and node.
+ * top-level `<g>`. Affine `transform` attributes (translate, scale, rotate,
+ * skew, matrix, nested through groups) are applied exactly — a straight
+ * segment stays straight under any affine map — while curves are rejected
+ * loudly rather than approximated. Regex-based so it parses identically in
+ * browser and node.
  */
 
 import { group, path, type GroupValue, type ShapeOpts } from './api.js';
@@ -106,28 +109,91 @@ function parsePathData(d: string): number[][] {
   return chains;
 }
 
-function elementChains(fragment: string): number[][] {
-  const chains: number[][] = [];
-  for (const m of fragment.matchAll(/<polyline\b[^>]*\bpoints="([^"]*)"/g)) {
-    const pts = parsePoints(m[1]);
-    if (pts.length > 0) chains.push(pts);
+/** An affine map [a, b, c, d, e, f]: x' = a·x + c·y + e, y' = b·x + d·y + f (the SVG matrix order). */
+type Affine = readonly [number, number, number, number, number, number];
+const IDENTITY: Affine = [1, 0, 0, 1, 0, 0];
+/** m ∘ n: apply n first, then m. */
+const compose = (m: Affine, n: Affine): Affine => [
+  m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1],
+  m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3],
+  m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5],
+];
+const translation = (tx: number, ty: number): Affine => [1, 0, 0, 1, tx, ty];
+
+/** A `transform` attribute: functions listed left to right compose so the
+ * rightmost applies first, as the SVG spec has it. */
+function parseTransform(value: string | undefined): Affine {
+  if (!value || !value.trim()) return IDENTITY;
+  let m = IDENTITY;
+  let matched = 0;
+  for (const [, fn, args] of value.matchAll(/([a-zA-Z]+)\s*\(([^)]*)\)/g)) {
+    matched += 1;
+    const a = args.trim().split(/[\s,]+/).filter(Boolean).map(Number);
+    if (a.some((n) => !Number.isFinite(n))) throw new Error(`svg(): malformed transform '${fn}(${args})'`);
+    const rad = (deg: number): number => (deg * Math.PI) / 180;
+    let t: Affine;
+    switch (fn) {
+      case 'matrix':
+        if (a.length !== 6) throw new Error(`svg(): matrix() needs six numbers, got ${a.length}`);
+        t = [a[0], a[1], a[2], a[3], a[4], a[5]];
+        break;
+      case 'translate':
+        t = translation(a[0] ?? 0, a[1] ?? 0);
+        break;
+      case 'scale':
+        t = [a[0] ?? 1, 0, 0, a[1] ?? a[0] ?? 1, 0, 0];
+        break;
+      case 'rotate': {
+        const cos = Math.cos(rad(a[0] ?? 0)), sin = Math.sin(rad(a[0] ?? 0));
+        const rot: Affine = [cos, sin, -sin, cos, 0, 0];
+        t = a.length >= 3 ? compose(translation(a[1], a[2]), compose(rot, translation(-a[1], -a[2]))) : rot;
+        break;
+      }
+      case 'skewX':
+        t = [1, 0, Math.tan(rad(a[0] ?? 0)), 1, 0, 0];
+        break;
+      case 'skewY':
+        t = [1, Math.tan(rad(a[0] ?? 0)), 0, 1, 0, 0];
+        break;
+      default:
+        throw new Error(`svg(): unsupported transform '${fn}'`);
+    }
+    m = compose(m, t);
   }
-  for (const m of fragment.matchAll(/<line\b[^>]*>/g)) {
-    const attr = (name: string): number =>
-      Number(new RegExp(`\\b${name}="([^"]*)"`).exec(m[0])?.[1] ?? NaN);
-    const [x1, y1, x2, y2] = [attr('x1'), attr('y1'), attr('x2'), attr('y2')];
-    if ([x1, y1, x2, y2].every(Number.isFinite)) chains.push([x1, y1, x2, y2]);
+  if (matched === 0) throw new Error(`svg(): malformed transform '${value}'`);
+  return m;
+}
+
+const mapChain = (m: Affine, chain: number[]): number[] => {
+  if (m === IDENTITY) return chain;
+  const out = new Array<number>(chain.length);
+  for (let k = 0; k < chain.length; k += 2) {
+    const x = chain[k], y = chain[k + 1];
+    out[k] = m[0] * x + m[2] * y + m[4];
+    out[k + 1] = m[1] * x + m[3] * y + m[5];
   }
-  for (const m of fragment.matchAll(/<path\b[^>]*\bd="([^"]*)"/g)) {
-    chains.push(...parsePathData(m[1]));
+  return out;
+};
+
+const attrOf = (attrs: string, name: string): string | undefined =>
+  new RegExp(`(?:^|\\s)${name}="([^"]*)"`).exec(attrs)?.[1];
+
+/** The chains of one element (polyline, line or path) in its own coordinates. */
+function elementChains(tag: string, attrs: string): number[][] {
+  if (tag === 'polyline') {
+    const pts = parsePoints(attrOf(attrs, 'points') ?? '');
+    return pts.length > 0 ? [pts] : [];
   }
-  return chains;
+  if (tag === 'line') {
+    const n = (name: string): number => Number(attrOf(attrs, name) ?? NaN);
+    const [x1, y1, x2, y2] = [n('x1'), n('y1'), n('x2'), n('y2')];
+    return [x1, y1, x2, y2].every(Number.isFinite) ? [[x1, y1, x2, y2]] : [];
+  }
+  const d = attrOf(attrs, 'd');
+  return d ? parsePathData(d) : [];
 }
 
 function parseSvgText(text: string): { layers: SvgLayer[]; width: number; height: number } {
-  if (/\btransform="/.test(text)) {
-    throw new Error('svg(): transform attributes are not supported — flatten transforms before export');
-  }
   const svgTag = /<svg\b[^>]*>/.exec(text)?.[0] ?? '';
   const viewBox = /\bviewBox="([^"]*)"/.exec(svgTag)?.[1].trim().split(/[\s,]+/).map(Number);
   const attr = (name: string): number =>
@@ -137,17 +203,35 @@ function parseSvgText(text: string): { layers: SvgLayer[]; width: number; height
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     throw new Error('svg(): no usable viewBox or width/height');
   }
+  // One pass over the tags in document order, carrying the current
+  // transform: each <g> composes its transform onto its parent's, each
+  // element composes its own on top, and the chains are mapped as they are
+  // read. Top-level groups are the layers; elements outside any group make
+  // the 'ungrouped' layer, last.
   const layers: SvgLayer[] = [];
-  let consumed = text;
+  const loose: number[][] = [];
+  const stack: Affine[] = [IDENTITY];
+  let current: SvgLayer | null = null;
   let gi = 0;
-  for (const m of text.matchAll(/<g\b([^>]*)>([\s\S]*?)<\/g>/g)) {
-    const name = /\bid="([^"]*)"/.exec(m[1])?.[1] ?? `layer-${gi}`;
-    const chains = elementChains(m[2]);
-    if (chains.length > 0) layers.push({ name, chains });
-    consumed = consumed.replace(m[0], '');
-    gi += 1;
+  for (const m of text.matchAll(/<(\/?)(g|polyline|line|path)\b([^>]*?)(\/?)>/g)) {
+    const [, closing, tag, attrs, selfClosing] = m;
+    if (tag === 'g') {
+      if (closing) {
+        if (stack.length > 1) stack.pop();
+        if (stack.length === 1 && current) { if (current.chains.length > 0) layers.push(current); current = null; }
+        continue;
+      }
+      if (selfClosing) continue;
+      stack.push(compose(stack[stack.length - 1], parseTransform(attrOf(attrs, 'transform'))));
+      if (stack.length === 2) { current = { name: attrOf(attrs, 'id') ?? `layer-${gi}`, chains: [] }; gi += 1; }
+      continue;
+    }
+    if (closing) continue;
+    const ctm = compose(stack[stack.length - 1], parseTransform(attrOf(attrs, 'transform')));
+    const into = current ? current.chains : loose;
+    for (const chain of elementChains(tag, attrs)) into.push(mapChain(ctm, chain));
   }
-  const loose = elementChains(consumed);
+  if (current && current.chains.length > 0) layers.push(current);
   if (loose.length > 0) layers.push({ name: 'ungrouped', chains: loose });
   if (layers.length === 0) {
     throw new Error('svg(): no polylines, lines, or straight paths found');

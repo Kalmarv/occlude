@@ -4,7 +4,7 @@ Line art from SVG files, image assets, and image tone and direction turned into 
 
 ## SVG line art
 
-`svg(text, { x?, y?, width?, layers?, ...shapeOpts })` turns machine-generated line art (polylines, `<line>` elements and straight-segment paths) into ordinary open-path shapes: occluded, clipped, masked, modified and pen-assigned like anything else. `width` scales the drawing and height follows the aspect; `layers` filters by top-level `<g>` id. Curves and transforms in the file are rejected with an error rather than approximated. Hatch-dense imports benefit from the `bridge` option.
+`svg(text, { x?, y?, width?, layers?, ...shapeOpts })` turns machine-generated line art (polylines, `<line>` elements and straight-segment paths) into ordinary open-path shapes: occluded, clipped, masked, modified and pen-assigned like anything else. `width` scales the drawing and height follows the aspect; `layers` filters by top-level `<g>` id. Affine `transform` attributes (translate, scale, rotate, skew, matrix, nested through groups) are applied exactly, since a straight segment stays straight under them; curves in the file are rejected with an error rather than approximated. Hatch-dense imports benefit from the `bridge` option.
 
 ```ts live
 import { sketch, svg, circle } from 'occlude';

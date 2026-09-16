@@ -1055,10 +1055,43 @@ describe('svg() shape source', () => {
     ).toThrow(/layer filter/);
   });
 
-  it('rejects transforms and curves loudly', () => {
-    const bad = '<svg viewBox="0 0 10 10"><g transform="scale(2)"><line x1="0" y1="0" x2="1" y2="1"/></g></svg>';
+  it('rejects curves loudly', () => {
+    const bad = '<svg viewBox="0 0 10 10"><path d="M0 0 C1 1 2 2 3 3"/></svg>';
     const def = sketch({ aspect: [1, 1] }, (t) => t.svg(bad));
-    expect(() => sq(def)).toThrow(/transform/);
+    expect(() => sq(def)).toThrow(/unsupported path command/);
+  });
+
+  // Document units equal sketch units here (viewBox 100 wide, width 100 on
+  // a square drawable); the fragments come back in paper mm on the 200 mm
+  // square, so they are divided by two to read as sketch units.
+  const endpoints = (src: string): [number, number, number, number][] => {
+    const r = sq(sketch({ aspect: [1, 1] }, (t) => t.svg(src, { width: 100 })));
+    const k = 100 / r.paper.w;
+    return r.frags.map((f) => { const g = f.geom; if (g.t !== 'line') throw new Error(g.t); return [g.x0 * k, g.y0 * k, g.x1 * k, g.y1 * k]; });
+  };
+  const near = (a: number[], b: number[]): void => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
+
+  it('applies group transforms exactly: rightmost first, nested groups composed', () => {
+    const src = '<svg viewBox="0 0 100 100"><g transform="translate(10,20) scale(2)"><g transform="rotate(90)"><line x1="1" y1="0" x2="2" y2="0"/></g></g></svg>';
+    // rotate(90) takes (1,0)->(0,1) and (2,0)->(0,2); scale(2) doubles; translate adds (10,20).
+    near(endpoints(src)[0], [10, 22, 10, 24]);
+  });
+
+  it('applies element transforms, rotate about a point, matrix and skew', () => {
+    near(endpoints('<svg viewBox="0 0 100 100"><line x1="10" y1="10" x2="20" y2="10" transform="rotate(90 10 10)"/></svg>')[0], [10, 10, 10, 20]);
+    near(endpoints('<svg viewBox="0 0 100 100"><path d="m 5 5 l 10 0" transform="matrix(1 0 0 -1 0 100)"/></svg>')[0], [5, 95, 15, 95]);
+    near(endpoints('<svg viewBox="0 0 100 100"><polyline points="0,10 0,20" transform="skewX(45)"/></svg>')[0], [10, 10, 20, 20]);
+  });
+
+  it('keeps layers by top-level group through nesting, and rejects unknown transform functions', () => {
+    const src = '<svg viewBox="0 0 100 100"><g id="a"><g transform="translate(1,1)"><line x1="0" y1="0" x2="1" y2="0"/></g><line x1="0" y1="0" x2="2" y2="0"/></g><line x1="0" y1="0" x2="3" y2="0"/></svg>';
+    const all = sq(sketch({ aspect: [1, 1] }, (t) => t.svg(src, { width: 100 })));
+    expect(all.stats.shapesIn).toBe(3);
+    const a = sq(sketch({ aspect: [1, 1] }, (t) => t.svg(src, { width: 100, layers: ['a'] })));
+    expect(a.stats.shapesIn).toBe(2);
+    const un = sq(sketch({ aspect: [1, 1] }, (t) => t.svg(src, { width: 100, layers: ['ungrouped'] })));
+    expect(un.stats.shapesIn).toBe(1);
+    expect(() => sq(sketch({ aspect: [1, 1] }, (t) => t.svg('<svg viewBox="0 0 10 10"><g transform="perspective(3)"><line x1="0" y1="0" x2="1" y2="1"/></g></svg>')))).toThrow(/unsupported transform/);
   });
 });
 
