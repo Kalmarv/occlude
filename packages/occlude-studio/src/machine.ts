@@ -853,6 +853,18 @@ export function buildLog(m: MachineSession): HTMLElement {
   const refresh = (): void => { pre.textContent = m.driver().transcript() || '(no traffic yet)'; pre.scrollTop = pre.scrollHeight; };
   const dl = button('Download serial log', () => download('serial-log.txt', m.driver().transcript() || '(no traffic yet)', 'text/plain'));
   const rf = button('Refresh', refresh);
+  // A raw line to the board ($$, $1=254, G0 Z0 …): what the transcript shows, typed by hand.
+  const line = document.createElement('input');
+  line.type = 'text';
+  line.placeholder = 'raw command to the board, e.g. $$';
+  line.className = 'serial-input';
+  const send = button('Send', async () => {
+    const text = line.value.trim();
+    if (!text || !m.driver().connected) return;
+    try { await m.driver().cmd(text); line.value = ''; } catch (e) { m.showErr(e); }
+    refresh();
+  });
+  line.onkeydown = (e) => { if (e.key === 'Enter') send.click(); };
   refresh();
-  return el('div', 'log', el('div', 'row', dl, rf), pre);
+  return el('div', 'log', el('div', 'row', dl, rf), el('div', 'row', line, send), pre);
 }
