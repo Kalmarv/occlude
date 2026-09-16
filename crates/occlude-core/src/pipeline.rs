@@ -30,6 +30,9 @@ pub struct Pen {
     pub width: f64,
     pub color: String,
     pub feed: f64,
+    /// Pen-up travel feed, mm/min; the profile's when absent.
+    #[serde(rename = "travelFeed", default)]
+    pub travel_feed: Option<f64>,
     #[serde(rename = "penDown")]
     pub pen_down: f64,
     #[serde(rename = "penUp")]
@@ -45,6 +48,7 @@ impl Default for Pen {
             width: 0.3,
             color: "#111111".into(),
             feed: 3000.0,
+            travel_feed: None,
             pen_down: 0.0,
             pen_up: 5.0,
             pen_delay_ms: 100.0,

@@ -370,9 +370,12 @@ export class Grbl {
     const limits = [this.grblSettings.get(110), this.grblSettings.get(111)].filter((v): v is number => v !== undefined && v > 0);
     return Math.max(1, Math.round(limits.length ? Math.min(feed, ...limits) : feed));
   }
-  private g0(bed: readonly [number, number]): string {
+  /** A pen-up travel. Always a G1: GRBL runs a G0 at the axis maximum
+   * whatever feed the profile names, and the A1 gantry lost steps at its
+   * maximum (2026-09-16). */
+  private travel(bed: readonly [number, number], feed: number): string {
     const [x, y] = this.toMachine(bed);
-    return `G0 X${this.fmt(x)} Y${this.fmt(y)}`;
+    return `G1 X${this.fmt(x)} Y${this.fmt(y)} F${this.clampFeed(feed)}`;
   }
   private g1(bed: readonly [number, number], feed: number): string {
     const [x, y] = this.toMachine(bed);
@@ -509,7 +512,7 @@ export class Grbl {
     if (this.plotting && !this.plotPause) return Promise.reject(new GrblError('pause the plot first'));
     return this.manual(async () => {
       await this.liftNow();
-      await this.send(this.g0(this.paperOffset));
+      await this.send(this.travel(this.paperOffset, this.settings.travelFeed));
       await this.waitIdle();
       if (this.plotting) this.pauseAdjusted = true;
     });
@@ -542,7 +545,7 @@ export class Grbl {
       await this.setOrigin();
     } catch (e) {
       if (!(e instanceof GrblError && /error:5/.test(e.message))) throw e;
-      await this.send(this.g0([0, 0]));
+      await this.send(this.travel([0, 0], this.settings.travelFeed));
       await this.waitIdle();
     }
   }
@@ -634,7 +637,7 @@ export class Grbl {
       const pen = penOf(pi);
       if (!pen) return undefined;
       const zMove = this.settings.zMode ? Math.abs(this.downHeight() - this.hopHeight()) / this.penFeedFor(pen) * 60_000 : 0;
-      return { feed: this.clampFeed(pen.feed), penDelay: zMove + this.settleMs(pen) };
+      return { feed: this.clampFeed(pen.feed), penDelay: zMove + this.settleMs(pen), ...(pen.travelFeed !== undefined ? { travelFeed: this.clampFeed(pen.travelFeed) } : {}) };
     };
     const remaining = chains.slice(first);
     const schedule: PlanSchedule = schedulePlan(remaining, penTiming, timing);
@@ -710,7 +713,7 @@ export class Grbl {
         try {
           if (this.plotPause && !(await waitResume())) break;
           if (this.plotAbort) break;
-          await this.send(this.g0([c.pts[0], c.pts[1]])); sent++;
+          await this.send(this.travel([c.pts[0], c.pts[1]], pen?.travelFeed ?? travelFeed)); sent++;
           for (const l of this.penDownLines(pen, override)) { await this.send(l); sent++; }
           this.penIsUp = false;
           if (!c.dot) {
@@ -747,7 +750,7 @@ export class Grbl {
           // Park at the bed origin (off the sheet when the paper is offset)
           // with nothing queued, so the pen can be pumped or refilled and
           // the next chain's travel returns from there.
-          await this.send(this.g0([0, 0]));
+          await this.send(this.travel([0, 0], pen?.travelFeed ?? travelFeed));
           await this.waitIdle();
           this.wpos = [0, 0];
           warning = `re-ink ${penName(c)}: ${Math.round(inkedMm)}mm since the last — parked at the bed origin; pump/refill, then Resume`;
@@ -764,17 +767,27 @@ export class Grbl {
         ci += 1;
       }
       if (!this.plotAbort) {
-        await this.send(this.g0([0, 0]));
+        // The idle delay is put back BEFORE the last travel: GRBL arms the
+        // release when a motion ends, so restoring it after the machine has
+        // already stopped would leave the motors locked until the next move.
+        await this.waitIdle();
+        if (lockMotors) await this.send(`$1=${idleDelay}`);
+        await this.send(this.travel([0, 0], travelFeed));
         await this.waitIdle();
         this.wpos = [0, 0];
         elapsedMs = totalMs;
         report('done', true);
       } else {
+        // A stop ends in a reset with nothing moving: restore the delay and
+        // make one tiny pen move so the release timer runs.
+        await this.flush?.catch(() => undefined);
+        if (lockMotors) {
+          await this.send(`$1=${idleDelay}`).catch(() => undefined);
+          if (this.settings.zMode) for (const l of ['G91 G0 Z0.050', 'G91 G0 Z-0.050', 'G90']) await this.send(l).catch(() => undefined);
+        }
         report('stopped', true);
       }
     } finally {
-      await this.flush?.catch(() => undefined); // a stop's flush finishes before the motors are released
-      if (lockMotors) await this.send(`$1=${idleDelay}`).catch(() => undefined);
       this.plotting = false;
       this.plotPause = false;
     }

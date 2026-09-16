@@ -741,12 +741,12 @@ fn gcode_arc_direction_follows_the_written_coordinates() {
     // Mirrored in Y the same arc runs (60,50) -> (50,40) about (50,50): clockwise, G2.
     let mirrored = MachineProfile { y_axis: YAxis::Up, ..plain.clone() };
     let g = &export_gcode(std::slice::from_ref(&chain), &pens, &mirrored)[0].gcode;
-    assert!(g.contains("G0 X60.000 Y50.000"), "{g}");
+    assert!(g.contains("G1 X60.000 Y50.000 F6000"), "{g}");
     assert!(g.contains("G2 X50.000 Y40.000 I-10.000 J0.000"), "{g}");
     // Negative Y (a top-left home counting down the sheet): (60,-50) -> (50,-60), also clockwise.
     let negative = MachineProfile { y_axis: YAxis::Negative, ..plain.clone() };
     let g = &export_gcode(std::slice::from_ref(&chain), &pens, &negative)[0].gcode;
-    assert!(g.contains("G0 X60.000 Y-50.000"), "{g}");
+    assert!(g.contains("G1 X60.000 Y-50.000 F6000"), "{g}");
     assert!(g.contains("G2 X50.000 Y-60.000 I-10.000 J0.000"), "{g}");
     // The machine's own pen heights win over the pen's.
     let heights = MachineProfile { pen_up: Some(0.0), pen_down: Some(10.0), ..plain.clone() };

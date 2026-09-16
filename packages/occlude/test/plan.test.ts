@@ -186,7 +186,8 @@ describe('engine: one plan, every consumer', () => {
     const svg = planSvg(p, sel, r.pens);
     expect(svg.match(/<path/g)?.length).toBe(p.chains.slice(5, 12).filter((c) => !c.dot).length);
     const jobs = planGcode(p, sel, r.pens);
-    expect(jobs.reduce((n, j) => n + (j.gcode.match(/G0 X/g)?.length ?? 0), 0)).toBe(sel.count + jobs.length); // one travel per chain + one home per job
+    // Travels are the G1 lines at the travel feed (draws run at the pen's 3000): one per chain + one home per job.
+    expect(jobs.reduce((n, j) => n + (j.gcode.match(/^G1 X.* F6000$/gm)?.length ?? 0), 0)).toBe(sel.count + jobs.length);
     const other = await makePlan(buffer, { ...settings, tourBudget: 7 });
     expect(() => planSvg(p, selectChains(other, { from: 0, to: 1 }), r.pens)).toThrow(/another plan/);
   });
@@ -205,7 +206,7 @@ describe('engine: one plan, every consumer', () => {
     expect(resolveDraw(await planOf(r), r.draw).final).toMatchObject({ fromChain: 0, toChain: 4 });
     // G-code follows the same range
     const jobs = exportGcode(half, { paper: 'Square20' });
-    expect(jobs[0].gcode.match(/G0 X/g)?.length).toBe(4 + 1);
+    expect(jobs[0].gcode.match(/^G1 X.* F6000$/gm)?.length).toBe(4 + 1);
     // path options are the plan's: a different tour budget or bridging is a different plan
     const tuned = sketch({ aspect: [1, 1], seed: 1 }, (t) => {
       t.plan({ optimize: false, bridge: false });

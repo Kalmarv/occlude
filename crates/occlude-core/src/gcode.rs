@@ -430,6 +430,7 @@ fn comment_safe(s: &str) -> String {
 fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) -> GcodeJob {
     let tol = (profile.resolution).min(pen.width / 4.0).max(1e-4);
     let mut g = String::new();
+    let travel_feed = pen.travel_feed.unwrap_or(profile.travel_feed);
     let up_z = profile.pen_up.unwrap_or(pen.pen_up);
     let down_z = profile.pen_down.unwrap_or(pen.pen_down);
     let up = |g: &mut String| {
@@ -470,7 +471,9 @@ fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) 
         let s = chain.start();
         travel += pos.dist(s);
         let so = out(s);
-        let _ = writeln!(g, "G0 X{:.3} Y{:.3} F{:.0}", so.x, so.y, profile.travel_feed);
+        // A travel is a G1: GRBL runs G0 at the axis maximum whatever F says,
+        // and the A1 gantry lost steps at its maximum (2026-09-16).
+        let _ = writeln!(g, "G1 X{:.3} Y{:.3} F{:.0}", so.x, so.y, travel_feed);
         down(&mut g);
         if chain.dot {
             up(&mut g);
@@ -517,7 +520,7 @@ fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) 
     }
     // The return-home move is real travel: count it in the stats.
     travel += pos.dist(Vec2::ZERO);
-    let _ = writeln!(g, "G0 X0 Y0 F{:.0}", profile.travel_feed);
+    let _ = writeln!(g, "G1 X0 Y0 F{:.0}", travel_feed);
     let _ = writeln!(g, "; end pen {}", pi);
 
     // No time estimate here: plot time has ONE model (estimatePlanMs, over
