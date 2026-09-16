@@ -89,6 +89,8 @@ describe('GRBL driver', () => {
     expect(g.grblSettings.get(110)).toBe(15000);
     expect(g.grblSettings.get(11)).toBe(0.01);
     expect(port.commands).toContain('G21 G90 G17 G54');
+    expect(port.realtime).toContain('\x18'); // reset: motors off, the spring lifts the pen…
+    expect(port.commands.at(-1)).toBe('G92 Z0.000'); // …and that is declared as pen-up
     expect(port.realtime).toContain('?');
   });
 
