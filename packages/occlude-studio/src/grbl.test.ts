@@ -242,6 +242,24 @@ describe('GRBL driver', () => {
     expect(port.commands.at(-1)).toBe('G0 X10.000 Y-20.000');
   });
 
+  it('queues a pen move behind a running jog instead of sending it into the Jog state', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = h1;
+    g.manualPen = pen;
+    await g.connect(undefined, port as never);
+    port.delayMs = 3;
+    const jog = g.jog(10, 0, opts);
+    const up = g.penUp();
+    const polls = port.realtime.filter((c) => c === '?').length;
+    await Promise.all([jog, up]);
+    const i = port.commands.indexOf('$J=G91 G21 X10.000 Y0.000 F12000');
+    expect(i).toBeGreaterThan(-1);
+    expect(port.commands.slice(i + 1)).toEqual(['G0 Z0.000', 'G4 P0.100']);
+    expect(port.realtime.filter((c) => c === '?').length).toBeGreaterThan(polls); // waited for Idle in between
+    await expect(g.send('G4 P0.6').then(() => port.commands.at(-1))).resolves.toBe('G4 P0.6');
+  });
+
   it('parks at the bed origin for a re-ink pause and carries on after resume', async () => {
     const port = new FakeGrblPort();
     const g = new Grbl();

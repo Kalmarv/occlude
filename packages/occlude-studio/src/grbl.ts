@@ -72,6 +72,17 @@ interface Pending {
 
 export class GrblError extends Error {}
 
+/** GRBL 1.1 error codes the studio is likely to meet, in words. */
+const ERROR_TEXT: Record<number, string> = {
+  1: 'expected a command letter', 2: 'bad number format', 3: 'invalid $ statement', 5: 'homing is not enabled on this board',
+  8: 'the board is not idle', 9: 'locked out: the board is in alarm or still jogging', 11: 'line too long',
+  15: 'jog target exceeds travel', 20: 'unsupported command', 22: 'no feed rate set', 33: 'invalid target', 35: 'arc needs I/J offsets',
+};
+const describeError = (line: string): string => {
+  const code = Number(line.match(/^error:(\d+)/)?.[1]);
+  return ERROR_TEXT[code] ? `${line} (${ERROR_TEXT[code]})` : line;
+};
+
 /** A parsed `<…>` status report. */
 export interface GrblStatus {
   state: string;
@@ -207,7 +218,7 @@ export class Grbl {
       this.inFlightBytes -= head.bytes;
       clearTimeout(head.timer);
       if (line === 'ok') head.resolve(head.feedback);
-      else head.reject(new GrblError(`${line} after ${head.line}`));
+      else head.reject(new GrblError(`${describeError(line)} after ${head.line}`));
       this.wake();
       return;
     }
@@ -369,14 +380,20 @@ export class Grbl {
     return [`G1 Z${this.fmt(pen?.penDown ?? 0)} F${this.clampFeed(pen?.feed ?? 1000)}`, ...delay];
   }
 
-  async penUp(_settleMs = 300): Promise<void> {
+  penUp(_settleMs = 300): Promise<void> {
+    if (this.plotting && !this.plotPause) return this.liftNow();
+    return this.manual(() => this.liftNow());
+  }
+  private async liftNow(): Promise<void> {
     for (const l of this.penUpLines(this.manualPen)) await this.send(l);
     this.penIsUp = true;
   }
-  async penDown(_settleMs = 300): Promise<void> {
-    if (this.plotting && !this.plotPause) throw new GrblError('the plot owns the pen; pause first');
-    for (const l of this.penDownLines(this.manualPen)) await this.send(l);
-    this.penIsUp = false;
+  penDown(_settleMs = 300): Promise<void> {
+    if (this.plotting && !this.plotPause) return Promise.reject(new GrblError('the plot owns the pen; pause first'));
+    return this.manual(async () => {
+      for (const l of this.penDownLines(this.manualPen)) await this.send(l);
+      this.penIsUp = false;
+    });
   }
 
   /** After a soft reset the DrawCore's pen is physically up while its Z
@@ -392,15 +409,30 @@ export class Grbl {
 
   // ---- manual motion and origins -------------------------------------------
 
+  /** Manual controls arrive from buttons faster than the machine moves: a
+   * pen move sent into a running jog is refused (error:9), so every manual
+   * operation waits for the previous one, and for Idle, before it sends. */
+  private manualQueue: Promise<unknown> = Promise.resolve();
+  private manual<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.manualQueue.catch(() => undefined).then(async () => {
+      if (this.lastStatus && /^(Jog|Run|Home)/.test(this.lastStatus.state)) await this.waitIdle().catch(() => undefined);
+      return fn();
+    });
+    this.manualQueue = run;
+    return run;
+  }
+
   bedPosition(_o?: EbbOptions): [number, number] { return [this.wpos[0], this.wpos[1]]; }
 
-  async jog(dxMm: number, dyMm: number, o: EbbOptions): Promise<void> {
-    if (this.plotting && !this.plotPause) throw new GrblError('pause the plot before jogging');
-    if (!this.penIsUp) await this.penUp();
-    const [mx, my] = this.toMachine([dxMm, dyMm]), [zx, zy] = this.toMachine([0, 0]);
-    await this.send(`$J=G91 G21 X${this.fmt(mx - zx)} Y${this.fmt(my - zy)} F${this.clampFeed(o.travelFeed || this.settings.travelFeed)}`);
-    await this.waitIdle();
-    if (this.plotting) this.pauseAdjusted = true;
+  jog(dxMm: number, dyMm: number, o: EbbOptions): Promise<void> {
+    if (this.plotting && !this.plotPause) return Promise.reject(new GrblError('pause the plot before jogging'));
+    return this.manual(async () => {
+      if (!this.penIsUp) await this.liftNow();
+      const [mx, my] = this.toMachine([dxMm, dyMm]), [zx, zy] = this.toMachine([0, 0]);
+      await this.send(`$J=G91 G21 X${this.fmt(mx - zx)} Y${this.fmt(my - zy)} F${this.clampFeed(o.travelFeed || this.settings.travelFeed)}`);
+      await this.waitIdle();
+      if (this.plotting) this.pauseAdjusted = true;
+    });
   }
 
   setPaperOrigin(_o?: EbbOptions): [number, number] {
@@ -409,12 +441,14 @@ export class Grbl {
     return this.paperOffset;
   }
 
-  async goToPaperOrigin(_o?: EbbOptions): Promise<void> {
-    if (this.plotting && !this.plotPause) throw new GrblError('pause the plot first');
-    await this.penUp();
-    await this.send(this.g0(this.paperOffset));
-    await this.waitIdle();
-    if (this.plotting) this.pauseAdjusted = true;
+  goToPaperOrigin(_o?: EbbOptions): Promise<void> {
+    if (this.plotting && !this.plotPause) return Promise.reject(new GrblError('pause the plot first'));
+    return this.manual(async () => {
+      await this.liftNow();
+      await this.send(this.g0(this.paperOffset));
+      await this.waitIdle();
+      if (this.plotting) this.pauseAdjusted = true;
+    });
   }
 
   /** "This is the bed origin": the work coordinate origin, persistent in
@@ -431,9 +465,12 @@ export class Grbl {
    * single-axis homing available (`[OPT:` H) the axes go one at a time,
    * which keeps a Z with no switch out of the cycle; without homing
    * (error:5) it is a return to the work origin. */
-  async home(): Promise<void> {
-    if (this.plotting && !this.plotPause) throw new GrblError('pause the plot first');
-    await this.penUp();
+  home(): Promise<void> {
+    if (this.plotting && !this.plotPause) return Promise.reject(new GrblError('pause the plot first'));
+    return this.manual(() => this.homeNow());
+  }
+  private async homeNow(): Promise<void> {
+    await this.liftNow();
     try {
       if (this.optFlags.includes('H')) { await this.send('$HY', 90_000); await this.send('$HX', 90_000); }
       else await this.send('$H', 90_000);
