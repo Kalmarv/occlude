@@ -325,7 +325,6 @@ function buildPensPanel(body: HTMLElement, hooks: PanelHooks): void {
       ['Width mm', 'width', 'number'],
       ['Color', 'color', 'color'],
       ['Feed', 'feed', 'number'],
-      ['Travel', 'travelFeed', 'number'],
       ['Delay ms', 'penDelay', 'number'],
       ['Re-ink mm', 'reinkMm', 'number'],
     ];

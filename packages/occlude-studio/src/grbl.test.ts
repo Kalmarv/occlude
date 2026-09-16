@@ -327,15 +327,6 @@ describe('GRBL driver', () => {
     expect(reports.at(-1)!.totalMs).toBeGreaterThan(0);
   });
 
-  it('travels at the pen’s own travel feed when it has one', async () => {
-    const port = new FakeGrblPort();
-    const g = new Grbl();
-    g.settings = h1;
-    await g.connect(undefined, port as never);
-    await g.plot(plan([[0, false, [1, 1, 2, 2]]]), [{ ...pen, travelFeed: 4000, penDelay: 0 }], opts, () => undefined);
-    expect(port.commands).toContain('G1 X1.000 Y-1.000 F4000');
-  });
-
   it('parks at the bed origin for a re-ink pause and carries on after resume', async () => {
     const port = new FakeGrblPort();
     const g = new Grbl();

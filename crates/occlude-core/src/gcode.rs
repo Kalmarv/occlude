@@ -430,7 +430,7 @@ fn comment_safe(s: &str) -> String {
 fn emit_pen_job(pi: u32, pen: &Pen, chains: &[Chain], profile: &MachineProfile) -> GcodeJob {
     let tol = (profile.resolution).min(pen.width / 4.0).max(1e-4);
     let mut g = String::new();
-    let travel_feed = pen.travel_feed.unwrap_or(profile.travel_feed);
+    let travel_feed = profile.travel_feed;
     let up_z = profile.pen_up.unwrap_or(pen.pen_up);
     let down_z = profile.pen_down.unwrap_or(pen.pen_down);
     let up = |g: &mut String| {

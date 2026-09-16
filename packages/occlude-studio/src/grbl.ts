@@ -637,7 +637,7 @@ export class Grbl {
       const pen = penOf(pi);
       if (!pen) return undefined;
       const zMove = this.settings.zMode ? Math.abs(this.downHeight() - this.hopHeight()) / this.penFeedFor(pen) * 60_000 : 0;
-      return { feed: this.clampFeed(pen.feed), penDelay: zMove + this.settleMs(pen), ...(pen.travelFeed !== undefined ? { travelFeed: this.clampFeed(pen.travelFeed) } : {}) };
+      return { feed: this.clampFeed(pen.feed), penDelay: zMove + this.settleMs(pen) };
     };
     const remaining = chains.slice(first);
     const schedule: PlanSchedule = schedulePlan(remaining, penTiming, timing);
@@ -713,7 +713,7 @@ export class Grbl {
         try {
           if (this.plotPause && !(await waitResume())) break;
           if (this.plotAbort) break;
-          await this.send(this.travel([c.pts[0], c.pts[1]], pen?.travelFeed ?? travelFeed)); sent++;
+          await this.send(this.travel([c.pts[0], c.pts[1]], travelFeed)); sent++;
           for (const l of this.penDownLines(pen, override)) { await this.send(l); sent++; }
           this.penIsUp = false;
           if (!c.dot) {
@@ -750,7 +750,7 @@ export class Grbl {
           // Park at the bed origin (off the sheet when the paper is offset)
           // with nothing queued, so the pen can be pumped or refilled and
           // the next chain's travel returns from there.
-          await this.send(this.travel([0, 0], pen?.travelFeed ?? travelFeed));
+          await this.send(this.travel([0, 0], travelFeed));
           await this.waitIdle();
           this.wpos = [0, 0];
           warning = `re-ink ${penName(c)}: ${Math.round(inkedMm)}mm since the last — parked at the bed origin; pump/refill, then Resume`;

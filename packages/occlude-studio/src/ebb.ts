@@ -1039,7 +1039,7 @@ export class Ebb {
         };
         if (this.plotAbort) break;
         // Travel (pen up), ramped.
-        await this.moveRun([[c.pts[0], c.pts[1]]], pen?.travelFeed ?? o.travelFeed, o, pauseUp, (ms) => {
+        await this.moveRun([[c.pts[0], c.pts[1]]], o.travelFeed, o, pauseUp, (ms) => {
           elapsedMs += ms;
         });
         sent += 1;

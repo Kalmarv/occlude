@@ -224,8 +224,6 @@ export interface EstimateOpts {
 export interface PenTiming {
   feed: number;
   penDelay: number;
-  /** This pen's travel feed, mm/min; the plan's when unset. */
-  travelFeed?: number;
 }
 
 export interface PlanEstimate {
@@ -310,9 +308,8 @@ export function schedulePlan(
     const pen = penOf(c.pen);
     const feed = pen?.feed ?? 3000;
     const travel: Point[] = [[px, py], [c.pts[0], c.pts[1]]];
-    const travelFeed = pen?.travelFeed ?? o.travelFeed;
     const travelMs = planDurationMs(
-      planPolyline(travel, limits(travelFeed / 60, travelAccel)),
+      planPolyline(travel, limits(o.travelFeed / 60, travelAccel)),
       travelAccel,
     );
     est.travelMs += travelMs;

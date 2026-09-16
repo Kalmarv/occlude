@@ -11,9 +11,6 @@ export interface PenDef {
   color: string;
   /** Draw feed, mm/min. */
   feed: number;
-  /** Pen-up travel feed for this pen, mm/min; the machine's travel feed
-   * when unset. A loaded brush or a wet marker may want a gentler ride. */
-  travelFeed?: number;
   /** Z height (z-mode) or spindle S value (M3 mode) for pen down. */
   penDown: number;
   penUp: number;

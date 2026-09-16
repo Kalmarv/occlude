@@ -159,7 +159,6 @@ export function pensToJson(pens: PenDef[]): string {
       width: p.width,
       color: p.color,
       feed: p.feed,
-      ...(p.travelFeed !== undefined ? { travelFeed: p.travelFeed } : {}),
       penDown: p.penDown,
       penUp: p.penUp,
       penDelay: p.penDelay,
