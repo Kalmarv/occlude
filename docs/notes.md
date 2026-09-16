@@ -636,3 +636,34 @@ points so the classifier decodes instead of rebuilding them; planes are
 canonicalized once; author edge sets, exact vertices, decoded points and
 kind sets are cached per binding, node and flag value. The remaining
 profile is flat: bigint gcd about 7%, GC about 10%, then a long tail.
+
+## Filed: image-to-line ideas from the DrawingBotV3 study (2026-09-16, not built)
+
+A reverse-engineering study of DrawingBotV3 Premium (ideas and format facts
+only, never code; the free core is GPLv3, the premium jar closed) produced
+working/drawingbot-digest.md, a ranked digest of what would be worth building
+here and how it composes from occlude's vocabulary, with a 65-item copy-risk
+register. Filed as future ideas by choice. The headline: DBV3 has no plot-time
+model (law 4 is safe) and our merge/tour/bridge already exceeds its shipped
+ordering; the one optimisation upgrade is α-nearness candidate sets feeding
+chained Lin–Kernighan.
+
+Engines: an edge-tangent-flow field constructor and an edge-distance field;
+a writable "ink debt" surface for erase-as-you-draw tracers; streamlines
+over any vector field. Station transforms: tone-modulated oscillation
+(sawtooth), orbiting scribbles capped by edge distance, dashes oriented by
+least transverse variation. Sampling: grid with darkest-point snapping and
+dithered acceptance, snap-to-extremum, structure-aware error-diffusion
+stippling, widening hysteresis for settle, per-cell orientation and
+inscribed circle on `faces().measure`. Lines between points: tour with a
+pluggable cost (continuous-line drawings), superpixel-partitioned tours,
+MST with the neighbour-endpoint cubic smoothing, quadtree mosaic.
+Composition: tiled recipes by weighted quota, colour-region masks, layered
+tonal passes, edge–contour–shading. Tone and colour: measured tone response
+inverted into a `shaper`, a CIEDE94 colour-distance field, the per-pen
+colour-match loop, CMYK and extended-gamut splits, clean-black pre-filter,
+a per-ink coverage multiplier on pens, luminance-weighted pen distribution
+after drawing. Export and machine: post-export bounds report against the
+bed, place and auto-rotate within the bed, per-pen start/end templates,
+reading `$130`–`$132` into a profile, and an animation export of the
+drawing being drawn.
