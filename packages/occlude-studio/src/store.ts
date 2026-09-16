@@ -211,7 +211,7 @@ export const IDRAW_H_A1_PROFILE: MachineProfile = {
   machine: {
     bedW: 594,
     bedH: 841,
-    travelFeed: 12000,
+    travelFeed: 8000, // the vendor's travel; the board's 12000 maximum lost steps on the A1 gantry (2026-09-16)
     zMode: true,
     arcSupport: true,
     resolution: 0.2,
