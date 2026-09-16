@@ -225,7 +225,7 @@ describe('GRBL driver', () => {
     g.manualPen = pen;
     await g.connect(undefined, port as never);
     await g.home();
-    const cmds = after(port, 'G21 G90 G17 G54');
+    const cmds = after(port, 'G92 Z0.000'); // everything after connect's pen declaration
     expect(cmds.slice(0, 2)).toEqual(['G0 Z0.000', 'G4 P0.100']);
     expect(cmds).toContain('$HY');
     expect(cmds).toContain('$HX');
