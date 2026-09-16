@@ -72,6 +72,7 @@ export function createSession(
       grbl.settings = prof().machine;
       grbl.manualPen = pens()[0];
       grbl.seatOffsetMm = settings.seatOffsetMm ?? 2;
+      grbl.travelLiftMm = settings.travelLiftMm ?? 1;
       return grbl;
     },
     prof,
@@ -286,7 +287,18 @@ export function buildManualControls(m: MachineSession): HTMLElement {
   seatOffset.className = 'seat-offset';
   seatOffset.title = 'Seat offset, mm: the carriage sits this far above full pen-down while you clamp the pen, so every pen-down presses the nib with that much spring travel. Travel hops are measured from here.';
   const seatUnit = el('span', 'unit', 'mm');
-  const penRow = el('div', 'row', penUp, penDown, seat, seatOffset, seatUnit);
+  // The travel hop rides here too: it describes the surface (paper lies
+  // flat, a canvas flexes), not the machine.
+  const hop = numberInput(m.settings.travelLiftMm ?? 1, 0.5, (v) => {
+    m.settings.travelLiftMm = Math.max(0, v);
+    saveSettings(m.settings);
+    m.grbl.travelLiftMm = m.settings.travelLiftMm;
+  });
+  hop.className = 'seat-offset';
+  hop.title = 'Travel hop, mm above the surface between strokes; 0 = the full pen-up height every time. 1 for paper; more for a surface that flexes or ripples.';
+  const hopLabel = el('span', 'unit', 'hop');
+  const hopUnit = el('span', 'unit', 'mm');
+  const penRow = el('div', 'row', penUp, penDown, seat, seatOffset, seatUnit, hopLabel, hop, hopUnit);
 
   // Two origins: the BED corner (the lift map's frame — same physical corner
   // every time) and the PAPER corner (an offset, no zeroing).
@@ -314,6 +326,9 @@ export function buildManualControls(m: MachineSession): HTMLElement {
     seat.hidden = false;
     seatOffset.hidden = isEbb();
     seatUnit.hidden = isEbb();
+    hopLabel.hidden = isEbb();
+    hop.hidden = isEbb();
+    hopUnit.hidden = isEbb();
     seat.title = isEbb() ? seatTitle : 'Park the carriage at the seat height (profile): loosen the clamp, let the pen fall to the paper, clamp, press again to lift. Plots then press with the lift spring’s preload.';
     release.hidden = !isEbb();
     home.title = isEbb() ? 'Return to the bed origin' : 'Run the homing cycle: the switch corner becomes the bed origin';
@@ -441,7 +456,6 @@ function gcodeProfileSections(
     row('Resolution mm', numberInput(mc.resolution, 0.005, (v) => { mc.resolution = v; save(); }), 'Flattening error ceiling for streamed and exported toolpaths'),
     row('Pen up Z', numberInput(mc.penUp ?? 0, 0.5, (v) => { mc.penUp = v; save(); }), 'Where the pen travels (0 is the top of the iDraw H’s lift)'),
     row('Pen down Z', numberInput(mc.penDown ?? 10, 0.5, (v) => { mc.penDown = v; save(); }), 'Where the pen draws (10 is the bottom of the iDraw H’s lift)'),
-    row('Travel lift mm', numberInput(mc.travelLift ?? 0, 0.5, (v) => { mc.travelLift = Math.max(0, v); save(); }), 'Hop above the paper contact (pen-down less the seat offset on the control panel) between strokes; 0 = full pen-up every time. Raise it if travels drag on a sagging bed.'),
     row('Pen feed mm/min', numberInput(mc.penFeed ?? 5000, 500, (v) => { mc.penFeed = Math.max(1, v); save(); }), 'Feed for pen moves (vendor software: 5000)'),
     row('Pen settle ms', numberInput(mc.penSettleMs ?? 0, 50, (v) => { mc.penSettleMs = Math.max(0, v); save(); }), 'Dwell after a pen move. A stepper Z needs none.'),
   );

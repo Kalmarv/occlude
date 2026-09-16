@@ -121,6 +121,9 @@ export class Grbl {
    * pen is clamped, so the nib meets the paper there and pen-down loads
    * the lift spring by this much. Chosen on the control panel per plot. */
   seatOffsetMm = 2;
+  /** Travel hop, mm above the surface between strokes; 0 = full pen-up.
+   * Per surface, chosen on the control panel with the seat offset. */
+  travelLiftMm = 1;
   /** Work position in BED mm, from the last status report or what was sent. */
   private wpos: [number, number] = [0, 0];
   /** Work coordinate offset in the controller's frame; reports carry it only every few polls. */
@@ -397,7 +400,7 @@ export class Grbl {
    * seat height, so the preload below it is unloaded first and does not
    * count as clearance. */
   private hopHeight(override?: ServoOverride): number {
-    const full = this.upHeight(override), lift = this.settings.travelLift ?? 0;
+    const full = this.upHeight(override), lift = this.travelLiftMm;
     if (override?.up !== undefined || !(lift > 0)) return full;
     const contact = this.contactHeight(), down = this.downHeight();
     return down >= full ? Math.max(full, contact - lift) : Math.min(full, contact + lift);

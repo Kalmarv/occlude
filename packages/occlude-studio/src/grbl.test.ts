@@ -106,6 +106,7 @@ describe('GRBL driver', () => {
     const port = new FakeGrblPort();
     const g = new Grbl();
     g.settings = h1;
+    g.travelLiftMm = 0; // full lifts, to read the whole cycle
     await g.connect(undefined, port as never);
     const reports: { state: string; totalMs: number; estimate?: unknown }[] = [];
     await g.plot(plan([[0, false, [10, 10, 20, 20]], [0, true, [30, 30]]]), [pen], opts, (p) => reports.push({ state: p.state, totalMs: p.totalMs, estimate: p.estimate }));
@@ -313,8 +314,9 @@ describe('GRBL driver', () => {
   it('hops above the paper contact between strokes and lifts fully at the end', async () => {
     const port = new FakeGrblPort();
     const g = new Grbl();
-    g.settings = { ...h1, penUp: 0.5, travelLift: 1, penFeed: 5000, penSettleMs: 0 };
-    g.seatOffsetMm = 2; // contact at Z8; a 1 mm hop is Z7
+    g.settings = { ...h1, penUp: 0.5, penFeed: 5000, penSettleMs: 0 };
+    g.seatOffsetMm = 2; // contact at Z8…
+    g.travelLiftMm = 1; // …and a 1 mm hop is Z7
     await g.connect(undefined, port as never);
     const reports: { penDelay?: number; totalMs: number }[] = [];
     await g.plot(plan([[0, false, [0, 0, 5, 0]], [0, false, [0, 5, 5, 5]]]), [pen], opts, (p) => reports.push({ totalMs: p.totalMs }));
@@ -331,6 +333,7 @@ describe('GRBL driver', () => {
     const port = new FakeGrblPort();
     const g = new Grbl();
     g.settings = h1;
+    g.travelLiftMm = 0; // full lifts, to read the whole cycle
     await g.connect(undefined, port as never);
     const warnings: string[] = [];
     const run = g.plot(
