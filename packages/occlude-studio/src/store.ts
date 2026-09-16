@@ -64,8 +64,18 @@ export interface MachineSettings {
   penUp?: number;
   penDown?: number;
   /** Where the carriage sits while a pen is clamped (Seat pen): above
-   * pen-down by the preload the lift spring should put on the nib. */
+   * pen-down by the preload the lift spring should put on the nib. It is
+   * also where the nib meets the paper, which the travel hop is measured from. */
   seatZ?: number;
+  /** Lift for the travel between strokes, mm above the paper contact
+   * (seatZ); 0 or unset = the full pen-up height every time. */
+  travelLift?: number;
+  /** Feed for pen moves, mm/min (the vendor's software uses 5000). */
+  penFeed?: number;
+  /** Dwell after a pen move, ms. A stepper Z is where it says it is when
+   * the move completes, so 0; a servo needs its settle (the pens' penDelay
+   * applies when this is unset). */
+  penSettleMs?: number;
 }
 
 export interface EbbSettings {
@@ -208,9 +218,12 @@ export const IDRAW_H_A1_PROFILE: MachineProfile = {
     travelAcceleration: 2000,
     junctionDeviation: 0.01,
     resetLiftsPen: true,
-    penUp: 0,
+    penUp: 0.5, // a hair below the top stop, as the vendor's software lifts
     penDown: 10,
-    seatZ: 7,
+    seatZ: 8, // 2 mm of spring preload at pen-down
+    travelLift: 1,
+    penFeed: 5000,
+    penSettleMs: 0,
   },
   ebb: structuredClone(DEFAULT_PROFILE.ebb),
 };
@@ -282,8 +295,8 @@ function migrateMachine(machine: MachineSettings & { flipY?: boolean }, name?: s
   const { flipY, ...rest } = { ...DEFAULT_PROFILE.machine, ...machine };
   // A profile made from the H A1 preset before the frame and motion fields
   // existed takes them from the preset: they describe the board, not a choice.
-  if (name === IDRAW_H_A1_PROFILE.name && driver === 'gcode' && (rest.yAxis === undefined || rest.penUp === undefined || rest.seatZ === undefined) && !flipY) {
-    return { ...IDRAW_H_A1_PROFILE.machine, ...rest, ...pick(IDRAW_H_A1_PROFILE.machine, ['yAxis', 'acceleration', 'travelAcceleration', 'junctionDeviation', 'resetLiftsPen', 'penUp', 'penDown', 'seatZ']) };
+  if (name === IDRAW_H_A1_PROFILE.name && driver === 'gcode' && (rest.yAxis === undefined || rest.penUp === undefined || rest.seatZ === undefined || rest.travelLift === undefined) && !flipY) {
+    return { ...IDRAW_H_A1_PROFILE.machine, ...rest, ...pick(IDRAW_H_A1_PROFILE.machine, ['yAxis', 'acceleration', 'travelAcceleration', 'junctionDeviation', 'resetLiftsPen', 'penUp', 'penDown', 'seatZ', 'travelLift', 'penFeed', 'penSettleMs']) };
   }
   if (flipY !== undefined && rest.yAxis === undefined) rest.yAxis = flipY ? 'up' : 'down';
   return rest;

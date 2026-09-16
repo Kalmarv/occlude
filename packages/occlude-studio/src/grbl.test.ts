@@ -106,12 +106,14 @@ describe('GRBL driver', () => {
     const reports: { state: string; totalMs: number; estimate?: unknown }[] = [];
     await g.plot(plan([[0, false, [10, 10, 20, 20]], [0, true, [30, 30]]]), [pen], opts, (p) => reports.push({ state: p.state, totalMs: p.totalMs, estimate: p.estimate }));
     expect(after(port, 'G21 G90 G54')).toEqual([
+      '$1=255',
       'G0 Z0.000', 'G4 P0.100',
       'G0 X10.000 Y-10.000', 'G1 Z10.000 F3000', 'G4 P0.100',
       'G1 X20.000 Y-20.000 F3000',
       'G0 Z0.000', 'G4 P0.100',
       'G0 X30.000 Y-30.000', 'G1 Z10.000 F3000', 'G4 P0.100', 'G0 Z0.000', 'G4 P0.100',
       'G0 X0.000 Y0.000',
+      '$1=254',
     ]);
     const last = reports.at(-1)!;
     expect(last.state).toBe('done');
@@ -126,7 +128,7 @@ describe('GRBL driver', () => {
     await g.connect(undefined, port as never);
     g.settings = { ...g.settings, penDown: 900 };
     await g.plot(plan([[0, false, [1, 2, 3, 4]]]), [{ ...pen, penDelay: 0 }], opts, () => undefined);
-    expect(after(port, 'G21 G90 G54')).toEqual(['M5', 'G0 X1.000 Y98.000', 'M3 S900', 'G1 X3.000 Y96.000 F3000', 'M5', 'G0 X0.000 Y100.000']);
+    expect(after(port, 'G21 G90 G54')).toEqual(['$1=255', 'M5', 'G0 X1.000 Y98.000', 'M3 S900', 'G1 X3.000 Y96.000 F3000', 'M5', 'G0 X0.000 Y100.000', '$1=254']);
   });
 
   it('clamps feeds to the controller limits and refuses over-long lines', async () => {
@@ -139,7 +141,7 @@ describe('GRBL driver', () => {
     await expect(g.send('G1 ' + 'X1.000 '.repeat(20))).rejects.toThrow('79');
   });
 
-  it('pauses by hold and reset, re-declares the pen height, resumes where the pen stopped', async () => {
+  it('pauses between points: queued moves finish, the pen lifts, resume lowers it and continues', async () => {
     const port = new FakeGrblPort();
     const g = new Grbl();
     g.settings = h1;
@@ -150,24 +152,24 @@ describe('GRBL driver', () => {
     for (let i = 0; i < 60; i++) pts.push(i, 0);
     const states: string[] = [];
     const run = g.plot(plan([[0, false, pts], [0, false, [0, 5, 10, 5]]]), [pen], opts, (p) => states.push(p.state));
+    const holdsBefore = port.realtime.filter((c) => c === '!').length;
     await tick(40);
     g.pause();
-    await tick(900);
+    await tick(600);
     expect(g.paused).toBe(true);
-    expect(port.realtime).toContain('!');
-    expect(port.realtime).toContain('\x18');
-    expect(port.commands).toContain('G10 L20 P1 Z0.000'); // the reset lifted the pen; Z is declared up, never driven into the stop
-    const held = port.commands.length;
+    expect(port.realtime.filter((c) => c === '!')).toHaveLength(holdsBefore); // no feed hold
+    expect(port.realtime.filter((c) => c === '\x18')).toHaveLength(1); // connect's only
+    const beforeResume = port.commands.length;
+    expect(port.commands.slice(-2)).toEqual(['G0 Z0.000', 'G4 P0.100']); // lifted while paused
     g.resume();
     await run;
-    const resumed = port.commands.slice(held);
-    // Pen down again, then the stroke continues from the next point past where the pen stopped: no travel back to the start.
-    expect(resumed[0]).toBe('G1 Z10.000 F3000');
-    const firstMove = resumed.find((c) => c.startsWith('G1 X'))!;
-    expect(Number(firstMove.match(/X(-?[\d.]+)/)![1])).toBeGreaterThan(0);
+    const resumed = port.commands.slice(beforeResume);
+    expect(resumed.slice(0, 2)).toEqual(['G1 Z10.000 F3000', 'G4 P0.100']); // lowered again…
+    expect(resumed[2]).toMatch(/^G1 X\d/); // …and the stroke goes on, no travel back to its start
     expect(states).toContain('paused');
     expect(states.at(-1)).toBe('done');
-    expect(port.realtime.filter((c) => c === '~')).toHaveLength(0);
+    expect(port.commands.indexOf('$1=255')).toBeGreaterThan(-1); // motors locked for the plot…
+    expect(port.commands.at(-1)).toBe('$1=254'); // …and released after
   });
 
   it('skips the rest of an interrupted stroke when the frame moved during the pause', async () => {
@@ -182,14 +184,13 @@ describe('GRBL driver', () => {
     const run = g.plot(plan([[0, false, pts], [0, false, [0, 5, 10, 5]]]), [pen], opts, () => undefined);
     await tick(40);
     g.pause();
-    await tick(900);
+    await tick(600);
     await g.jog(1, 1, opts);
     expect(port.commands.at(-1)).toBe('$J=G91 G21 X1.000 Y-1.000 F12000');
     const held = port.commands.length;
     g.resume();
     await run;
-    const resumed = port.commands.slice(held);
-    expect(resumed[0]).toBe('G0 X0.000 Y-5.000'); // straight to the next chain
+    expect(port.commands.slice(held)[0]).toBe('G0 X0.000 Y-5.000'); // straight to the next chain
   });
 
   it('stops by hold, reset and pen re-declaration, and reports stopped', async () => {
@@ -207,7 +208,8 @@ describe('GRBL driver', () => {
     await g.stop();
     await run;
     expect(port.realtime).toContain('\x18');
-    expect(port.commands.slice(-2)).toEqual(['G21 G90 G17 G54', 'G10 L20 P1 Z0.000']);
+    expect(port.commands.slice(-3, -1)).toEqual(['G21 G90 G17 G54', 'G10 L20 P1 Z0.000']);
+    expect(port.commands.at(-1)).toBe('$1=254'); // motors released after the stop
     expect(states.at(-1)).toBe('stopped');
     expect(g.plotting).toBe(false);
   });
@@ -289,6 +291,22 @@ describe('GRBL driver', () => {
     expect(port.commands.at(-1)).toBe('G1 Z7.000 F1500');
     await g.penUp();
     expect(port.commands.slice(-2)).toEqual(['G0 Z0.000', 'G4 P0.100']);
+  });
+
+  it('hops above the paper contact between strokes and lifts fully at the end', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = { ...h1, penUp: 0.5, seatZ: 8, travelLift: 1, penFeed: 5000, penSettleMs: 0 };
+    await g.connect(undefined, port as never);
+    const reports: { penDelay?: number; totalMs: number }[] = [];
+    await g.plot(plan([[0, false, [0, 0, 5, 0]], [0, false, [0, 5, 5, 5]]]), [pen], opts, (p) => reports.push({ totalMs: p.totalMs }));
+    expect(after(port, '$1=255')).toEqual([
+      'G0 Z0.500',
+      'G0 X0.000 Y0.000', 'G1 Z10.000 F5000', 'G1 X5.000 Y0.000 F3000', 'G0 Z7.000',
+      'G0 X0.000 Y-5.000', 'G1 Z10.000 F5000', 'G1 X5.000 Y-5.000 F3000', 'G0 Z0.500',
+      'G0 X0.000 Y0.000', '$1=254',
+    ]);
+    expect(reports.at(-1)!.totalMs).toBeGreaterThan(0);
   });
 
   it('parks at the bed origin for a re-ink pause and carries on after resume', async () => {

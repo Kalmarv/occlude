@@ -425,7 +425,10 @@ function gcodeProfileSections(
     row('Resolution mm', numberInput(mc.resolution, 0.005, (v) => { mc.resolution = v; save(); }), 'Flattening error ceiling for streamed and exported toolpaths'),
     row('Pen up Z', numberInput(mc.penUp ?? 0, 0.5, (v) => { mc.penUp = v; save(); }), 'Where the pen travels (0 is the top of the iDraw H’s lift)'),
     row('Pen down Z', numberInput(mc.penDown ?? 10, 0.5, (v) => { mc.penDown = v; save(); }), 'Where the pen draws (10 is the bottom of the iDraw H’s lift)'),
-    row('Seat Z', numberInput(mc.seatZ ?? 7, 0.5, (v) => { mc.seatZ = v; save(); }), 'Where the carriage sits while a pen is clamped: pen-down minus the spring preload (3 mm to start)'),
+    row('Seat Z', numberInput(mc.seatZ ?? 8, 0.5, (v) => { mc.seatZ = v; save(); }), 'Where the carriage sits while a pen is clamped: pen-down minus the spring preload (2 mm). Also where the nib meets the paper.'),
+    row('Travel lift mm', numberInput(mc.travelLift ?? 0, 0.5, (v) => { mc.travelLift = Math.max(0, v); save(); }), 'Hop above the paper contact between strokes; 0 = full pen-up every time. Raise it if travels drag on a sagging bed.'),
+    row('Pen feed mm/min', numberInput(mc.penFeed ?? 5000, 500, (v) => { mc.penFeed = Math.max(1, v); save(); }), 'Feed for pen moves (vendor software: 5000)'),
+    row('Pen settle ms', numberInput(mc.penSettleMs ?? 0, 50, (v) => { mc.penSettleMs = Math.max(0, v); save(); }), 'Dwell after a pen move. A stepper Z needs none.'),
   );
   const motion = section(
     'Motion',

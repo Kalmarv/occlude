@@ -34,9 +34,13 @@
  * The pen heights are the machine's (`penUp`/`penDown` on the profile: Z
  * in `zMode`, the S value through M3/M5 otherwise), with each pen's
  * `penDelay` settling both ways; a calibration card may override the
- * heights per pen index through the shared `servoFor` hook. Pause is hold → reset → re-declare the pen height, so the machine
- * is Idle while paused (jog, re-origin, pen up/down all work) and resume
- * carries on from where the pen actually stopped.
+ * heights per pen index through the shared `servoFor` hook. Pause stops
+ * feeding at the next point, lets the planner drain and lifts the pen, so
+ * the machine is Idle while paused (jog, re-origin, pen up/down all work);
+ * resume lowers the pen and carries on from that point. Stop is the hard
+ * stop (hold, reset, pen height re-declared). The motors are locked for
+ * the plot's duration ($1=255, as the vendor's software does) and the
+ * board's own idle delay is put back after.
  */
 import { schedulePlan, type PenDef, type PlanEstimate, type PlanSchedule } from 'occlude';
 
@@ -59,8 +63,6 @@ const RX_BUDGET = 120;
 const MAX_LINE = 79;
 /** A line the controller has not acknowledged for this long is a stall. */
 const REPLY_TIMEOUT_MS = 20_000;
-/** How close the machine must sit to a stroke to resume it mid-stroke, mm. */
-const RESUME_TOLERANCE = 0.05;
 
 interface Pending {
   line: string;
@@ -377,15 +379,29 @@ export class Grbl {
 
   private upHeight(override?: ServoOverride): number { return override?.up ?? this.settings.penUp ?? 5; }
   private downHeight(override?: ServoOverride): number { return override?.down ?? this.settings.penDown ?? 0; }
-  private penUpLines(pen: PenDef | undefined, override?: ServoOverride): string[] {
-    const delay = pen && pen.penDelay > 0 ? [`G4 P${(pen.penDelay / 1000).toFixed(3)}`] : [];
+  /** The travel lift between strokes: `travelLift` mm above the paper
+   * contact (the seat height), never below the full pen-up. The nib leaves
+   * the paper at the seat height, so the preload below it is unloaded
+   * first and does not count as clearance. */
+  private hopHeight(override?: ServoOverride): number {
+    const full = this.upHeight(override), lift = this.settings.travelLift ?? 0;
+    if (override?.up !== undefined || !(lift > 0)) return full;
+    const contact = this.settings.seatZ ?? this.downHeight();
+    const down = this.downHeight();
+    // "up" is toward penUp, whichever numeric direction that is on this machine.
+    return down >= full ? Math.max(full, contact - lift) : Math.min(full, contact + lift);
+  }
+  private settleMs(pen: PenDef | undefined): number { return this.settings.penSettleMs ?? pen?.penDelay ?? 0; }
+  private penFeedFor(pen: PenDef | undefined): number { return this.clampFeed(this.settings.penFeed ?? pen?.feed ?? 1000); }
+  private penUpLines(pen: PenDef | undefined, override?: ServoOverride, full = true): string[] {
+    const settle = this.settleMs(pen), delay = settle > 0 ? [`G4 P${(settle / 1000).toFixed(3)}`] : [];
     if (!this.settings.zMode) return ['M5', ...delay];
-    return [`G0 Z${this.fmt(this.upHeight(override))}`, ...delay];
+    return [`G0 Z${this.fmt(full ? this.upHeight(override) : this.hopHeight(override))}`, ...delay];
   }
   private penDownLines(pen: PenDef | undefined, override?: ServoOverride): string[] {
-    const delay = pen && pen.penDelay > 0 ? [`G4 P${(pen.penDelay / 1000).toFixed(3)}`] : [];
+    const settle = this.settleMs(pen), delay = settle > 0 ? [`G4 P${(settle / 1000).toFixed(3)}`] : [];
     if (!this.settings.zMode) return [`M3 S${Math.max(1, Math.round(this.downHeight(override)))}`, ...delay];
-    return [`G1 Z${this.fmt(this.downHeight(override))} F${this.clampFeed(pen?.feed ?? 1000)}`, ...delay];
+    return [`G1 Z${this.fmt(this.downHeight(override))} F${this.penFeedFor(pen)}`, ...delay];
   }
 
   penUp(_settleMs = 300): Promise<void> {
@@ -541,14 +557,13 @@ export class Grbl {
     await this.flush;
   }
 
-  /** Hold, then flush: the machine is Idle while paused, so the pen and
-   * the origins can be adjusted; resume continues the interrupted stroke
-   * from where the pen actually stopped. */
+  /** Pause the way the vendor's own software and the EBB driver do: the
+   * plot stops feeding at the next point, the planner drains, the pen
+   * lifts. No hold, no reset: resume lowers the pen and continues. */
   pause(): void {
     if (!this.plotting || this.plotPause) return;
     this.plotPause = true;
     this.pauseAdjusted = false;
-    this.flush = this.flushMotion('paused').catch(() => undefined);
   }
   resume(): void {
     if (!this.plotting || !this.plotPause) return;
@@ -597,9 +612,13 @@ export class Grbl {
       junctionDeviation: this.settings.junctionDeviation ?? 0.01,
       minimumCruiseRatio: 0,
     };
+    // A pen cycle in the model is two "settles": here each is one Z move
+    // between the travel lift and pen-down at the pen feed, plus any dwell.
     const penTiming = (pi: number): { feed: number; penDelay: number } | undefined => {
       const pen = penOf(pi);
-      return pen ? { feed: this.clampFeed(pen.feed), penDelay: pen.penDelay } : undefined;
+      if (!pen) return undefined;
+      const zMove = this.settings.zMode ? Math.abs(this.downHeight() - this.hopHeight()) / this.penFeedFor(pen) * 60_000 : 0;
+      return { feed: this.clampFeed(pen.feed), penDelay: zMove + this.settleMs(pen) };
     };
     const remaining = chains.slice(first);
     const schedule: PlanSchedule = schedulePlan(remaining, penTiming, timing);
@@ -641,65 +660,64 @@ export class Grbl {
       const pauseWall0 = Date.now();
       report('paused', true);
       while (this.plotPause && !this.plotAbort) await sleep(150);
-      await this.flush; // the machine is Idle and the pen re-declared before anything is sent
       pausedWallMs += Date.now() - pauseWall0;
       return !this.plotAbort;
     };
-    /** Where to pick the chain up after a pause: the segment the pen
-     * stopped on (from the controller's own position), else the start. */
-    const resumeIndex = (c: Chain): number => {
-      const [x, y] = this.wpos;
-      for (let k = 2; k < c.pts.length; k += 2) {
-        const ax = c.pts[k - 2], ay = c.pts[k - 1], bx = c.pts[k], by = c.pts[k + 1];
-        const dx = bx - ax, dy = by - ay, d2 = dx * dx + dy * dy;
-        const t = d2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / d2)) : 0;
-        if (Math.hypot(ax + dx * t - x, ay + dy * t - y) <= RESUME_TOLERANCE) return k;
-      }
-      return 0;
+    /** A pause requested while drawing: let the queued moves finish, lift,
+     * wait. True if the stroke goes on from here (pen lowered again);
+     * false if it must not (stopped, or the frame moved under it). */
+    const pauseHere = async (pen: PenDef | undefined, override: ServoOverride | undefined): Promise<boolean> => {
+      await this.waitIdle();
+      if (!this.penIsUp) { for (const l of this.penUpLines(pen, override)) await this.send(l); this.penIsUp = true; }
+      if (!(await waitResume())) return false;
+      if (this.pauseAdjusted) return false;
+      for (const l of this.penDownLines(pen, override)) await this.send(l);
+      this.penIsUp = false;
+      return true;
     };
-    const isPause = (e: unknown): boolean => e instanceof GrblError && e.message === 'paused' && this.plotPause;
+    // The plot owns the motors: locked for its duration (the vendor's own
+    // software does the same), back to the board's own idle delay after.
+    const idleDelay = this.grblSettings.get(1);
+    const lockMotors = idleDelay !== undefined && idleDelay !== 255;
 
     try {
       await this.send('G21 G90 G54');
+      if (lockMotors) await this.send('$1=255');
       // Raise before anything moves, whatever the tracker says.
       for (const l of this.penUpLines(penOf(chains[first]?.pen ?? 0))) await this.send(l);
       this.penIsUp = true;
-      let ci = first, from = 0; // `from`: resume mid-stroke at this point index
-      while (ci < chains.length) {
+      let ci = first;
+      chainLoop: while (ci < chains.length) {
         const c = chains[ci];
         curChain = ci;
-        const pen = penOf(c.pen);
+        const pen = penOf(c.pen), override = servoFor?.(c.pen);
         try {
           if (this.plotPause && !(await waitResume())) break;
           if (this.plotAbort) break;
-          if (from === 0) {
-            await this.send(this.g0([c.pts[0], c.pts[1]])); sent++;
-          }
-          for (const l of this.penDownLines(pen, servoFor?.(c.pen))) { await this.send(l); sent++; }
+          await this.send(this.g0([c.pts[0], c.pts[1]])); sent++;
+          for (const l of this.penDownLines(pen, override)) { await this.send(l); sent++; }
           this.penIsUp = false;
           if (!c.dot) {
             const n = c.pts.length / 2;
-            for (let k = Math.max(2, from); k < c.pts.length; k += 2) {
+            for (let k = 2; k < c.pts.length; k += 2) {
+              if (this.plotPause) {
+                // Between two points of the stroke: finish what is queued,
+                // lift, wait; carry on from this point, or skip the rest of
+                // the stroke when the frame moved (it would be a stray line).
+                if (!(await pauseHere(pen, override))) { if (this.plotAbort) break chainLoop; ci += 1; continue chainLoop; }
+              }
               await this.send(this.g1([c.pts[k], c.pts[k + 1]], pen?.feed ?? 1000)); sent++;
               const start = schedule.chainStartMs[ci - first], dur = schedule.chainDurMs[ci - first];
               elapsedMs = start + dur * ((k / 2) / Math.max(1, n - 1));
               report('plotting');
             }
           }
-          for (const l of this.penUpLines(pen, servoFor?.(c.pen))) { await this.send(l); sent++; }
+          // The lift for the travel out: a hop between strokes, full at the end.
+          for (const l of this.penUpLines(pen, override, ci === chains.length - 1)) { await this.send(l); sent++; }
           this.penIsUp = true;
-          from = 0;
         } catch (e) {
           if (this.plotAbort) break;
-          if (!isPause(e)) throw e;
-          // The pause flushed the planner: the pen stopped somewhere on this
-          // chain (or on the travel into it). Wait, then carry on from there,
-          // unless the frame moved under it, in which case the rest of the
-          // stroke would be a stray line: skip to the next chain.
-          if (!(await waitResume())) break;
-          if (this.pauseAdjusted) { from = 0; ci += 1; continue; }
-          from = resumeIndex(c);
-          continue;
+          throw e;
         }
         // Ink accounting for progress and the re-ink budget (a dot lays a nib width).
         let ink = c.dot ? (pen?.width ?? 0) : 0;
@@ -739,6 +757,8 @@ export class Grbl {
         report('stopped', true);
       }
     } finally {
+      await this.flush?.catch(() => undefined); // a stop's flush finishes before the motors are released
+      if (lockMotors) await this.send(`$1=${idleDelay}`).catch(() => undefined);
       this.plotting = false;
       this.plotPause = false;
     }
