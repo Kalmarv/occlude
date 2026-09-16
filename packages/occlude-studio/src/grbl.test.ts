@@ -40,7 +40,7 @@ class FakeGrblPort {
         this.move(cmd);
         let reply = 'ok\r\n';
         if (cmd === '$I') reply = '[VER:1.1h DrawCore V2.23.20260721:]\r\n[OPT:VZHDL,15,128]\r\nok\r\n';
-        if (cmd === '$$') reply = '$10=3\r\n$110=15000.000\r\n$111=12000.000\r\n$120=3000.000\r\n$121=2000.000\r\n$11=0.010\r\n$130=594.000\r\n$131=841.000\r\nok\r\n';
+        if (cmd === '$$') reply = '$1=254\r\n$10=3\r\n$110=15000.000\r\n$111=12000.000\r\n$120=3000.000\r\n$121=2000.000\r\n$11=0.010\r\n$130=594.000\r\n$131=841.000\r\nok\r\n';
         this.reply(reply, false);
       }
     },
@@ -91,6 +91,8 @@ describe('GRBL driver', () => {
     expect(g.optFlags).toBe('VZHDL');
     expect(g.grblSettings.get(110)).toBe(15000);
     expect(g.grblSettings.get(11)).toBe(0.01);
+    expect(port.commands).toContain('$1=255'); // the Z motor holds at idle, for seating
+    expect(g.grblSettings.get(1)).toBe(255);
     expect(port.commands).toContain('G21 G90 G17 G54');
     expect(port.realtime).toContain('\x18'); // reset: motors off, the spring lifts the pen…
     expect(port.commands.at(-1)).toBe('G10 L20 P1 Z0.000'); // …and that is declared as pen-up
@@ -276,6 +278,18 @@ describe('GRBL driver', () => {
       undefined, undefined, undefined, (i) => [{ down: 6 }, { down: 8 }][i]);
     expect(port.commands).toContain('G1 Z6.000 F3000');
     expect(port.commands).toContain('G1 Z8.000 F3000');
+  });
+
+  it('seats the pen at the seat height and lifts it again', async () => {
+    const port = new FakeGrblPort();
+    const g = new Grbl();
+    g.settings = { ...h1, seatZ: 7 };
+    g.manualPen = pen;
+    await g.connect(undefined, port as never);
+    await g.seat();
+    expect(port.commands.at(-1)).toBe('G1 Z7.000 F1500');
+    await g.penUp();
+    expect(port.commands.slice(-2)).toEqual(['G0 Z0.000', 'G4 P0.100']);
   });
 
   it('parks at the bed origin for a re-ink pause and carries on after resume', async () => {

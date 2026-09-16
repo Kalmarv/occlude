@@ -161,6 +161,10 @@ export class Grbl {
     this.version = info.find((l) => l.startsWith('[VER:'))?.slice(5).replace(/\]$/, '') || this.banner || 'grbl';
     this.optFlags = info.find((l) => l.startsWith('[OPT:'))?.slice(5).split(',')[0] ?? '';
     await this.readSettings().catch(() => undefined);
+    // Seating a pen needs the Z motor to hold at idle; with the stock idle
+    // delay the spring lifts the carriage a quarter second after it stops.
+    const idle = this.grblSettings.get(1);
+    if (idle !== undefined && idle < 255) { await this.cmd('$1=255').catch(() => undefined); this.grblSettings.set(1, 255); }
     await this.status().catch(() => null);
     // Start from a known pen: a soft reset drops the motors, the spring
     // lifts the pen to its rest, and the height is declared there. Whatever
@@ -392,6 +396,16 @@ export class Grbl {
   private async liftNow(): Promise<void> {
     for (const l of this.penUpLines(this.manualPen)) await this.send(l);
     this.penIsUp = true;
+  }
+  /** Park the carriage at the seat height so a pen can be clamped with
+   * the lift spring's preload above full pen-down; the motor holds it. */
+  seat(): Promise<void> {
+    if (this.plotting && !this.plotPause) return Promise.reject(new GrblError('the plot owns the pen; pause first'));
+    return this.manual(async () => {
+      await this.send(`G1 Z${this.fmt(this.settings.seatZ ?? this.downHeight())} F${this.clampFeed(1500)}`);
+      await this.waitIdle();
+      this.penIsUp = false;
+    });
   }
   penDown(_settleMs = 300): Promise<void> {
     if (this.plotting && !this.plotPause) return Promise.reject(new GrblError('the plot owns the pen; pause first'));

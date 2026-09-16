@@ -63,6 +63,9 @@ export interface MachineSettings {
    * no Z of their own in the studio. G-code drivers only. */
   penUp?: number;
   penDown?: number;
+  /** Where the carriage sits while a pen is clamped (Seat pen): above
+   * pen-down by the preload the lift spring should put on the nib. */
+  seatZ?: number;
 }
 
 export interface EbbSettings {
@@ -207,6 +210,7 @@ export const IDRAW_H_A1_PROFILE: MachineProfile = {
     resetLiftsPen: true,
     penUp: 0,
     penDown: 10,
+    seatZ: 7,
   },
   ebb: structuredClone(DEFAULT_PROFILE.ebb),
 };
@@ -278,8 +282,8 @@ function migrateMachine(machine: MachineSettings & { flipY?: boolean }, name?: s
   const { flipY, ...rest } = { ...DEFAULT_PROFILE.machine, ...machine };
   // A profile made from the H A1 preset before the frame and motion fields
   // existed takes them from the preset: they describe the board, not a choice.
-  if (name === IDRAW_H_A1_PROFILE.name && driver === 'gcode' && (rest.yAxis === undefined || rest.penUp === undefined) && !flipY) {
-    return { ...IDRAW_H_A1_PROFILE.machine, ...rest, ...pick(IDRAW_H_A1_PROFILE.machine, ['yAxis', 'acceleration', 'travelAcceleration', 'junctionDeviation', 'resetLiftsPen', 'penUp', 'penDown']) };
+  if (name === IDRAW_H_A1_PROFILE.name && driver === 'gcode' && (rest.yAxis === undefined || rest.penUp === undefined || rest.seatZ === undefined) && !flipY) {
+    return { ...IDRAW_H_A1_PROFILE.machine, ...rest, ...pick(IDRAW_H_A1_PROFILE.machine, ['yAxis', 'acceleration', 'travelAcceleration', 'junctionDeviation', 'resetLiftsPen', 'penUp', 'penDown', 'seatZ']) };
   }
   if (flipY !== undefined && rest.yAxis === undefined) rest.yAxis = flipY ? 'up' : 'down';
   return rest;

@@ -241,8 +241,15 @@ export function buildManualControls(m: MachineSession): HTMLElement {
   const seat = button('Seat pen', async () => {
     // Allowed mid-plot only at a pause: a re-ink pause parks at the bed
     // origin for exactly this, and the resume re-raises the pen.
-    if (!ebb.connected || (ebb.plotting && !ebb.paused)) return;
+    if (!dr().connected || (dr().plotting && !dr().paused)) return;
     try {
+      if (!isEbb()) {
+        // G-code: the carriage sits at the seat height, the motor holding it,
+        // until the second press lifts it.
+        if (!seating) { await m.grbl.seat(); seating = true; seat.textContent = 'Clamped, lift'; seat.classList.add('armed'); }
+        else { await m.grbl.penUp(); seating = false; seat.textContent = 'Seat pen'; seat.classList.remove('armed'); }
+        return;
+      }
       const e = m.prof().ebb;
       if (!seating) {
         await ebb.cmd(`SC,5,${Math.round(e.seatPulse)}`);
@@ -264,7 +271,7 @@ export function buildManualControls(m: MachineSession): HTMLElement {
     }
   });
   seat.title = seatTitle;
-  seat.hidden = !isEbb();
+  seat.hidden = false;
   const penRow = el('div', 'row', penUp, penDown, seat);
 
   // Two origins: the BED corner (the lift map's frame — same physical corner
@@ -290,7 +297,8 @@ export function buildManualControls(m: MachineSession): HTMLElement {
   release.title = 'De-energise the steppers so the carriage can be moved by hand';
   release.hidden = !isEbb();
   const followDriver = (): void => {
-    seat.hidden = !isEbb();
+    seat.hidden = false;
+    seat.title = isEbb() ? seatTitle : 'Park the carriage at the seat height (profile), motor holding: loosen the clamp, let the pen fall to the paper, clamp, press again to lift. Plots then press with the lift spring’s preload.';
     release.hidden = !isEbb();
     home.title = isEbb() ? 'Return to the bed origin' : 'Run the homing cycle: the switch corner becomes the bed origin';
   };
@@ -417,6 +425,7 @@ function gcodeProfileSections(
     row('Resolution mm', numberInput(mc.resolution, 0.005, (v) => { mc.resolution = v; save(); }), 'Flattening error ceiling for streamed and exported toolpaths'),
     row('Pen up Z', numberInput(mc.penUp ?? 0, 0.5, (v) => { mc.penUp = v; save(); }), 'Where the pen travels (0 is the top of the iDraw H’s lift)'),
     row('Pen down Z', numberInput(mc.penDown ?? 10, 0.5, (v) => { mc.penDown = v; save(); }), 'Where the pen draws (10 is the bottom of the iDraw H’s lift)'),
+    row('Seat Z', numberInput(mc.seatZ ?? 7, 0.5, (v) => { mc.seatZ = v; save(); }), 'Where the carriage sits while a pen is clamped: pen-down minus the spring preload (3 mm to start)'),
   );
   const motion = section(
     'Motion',
@@ -532,9 +541,10 @@ function buildGcodeCalibration(
   );
   const list = el('ol', 'cal-steps',
     step(1, 'Home', 'Position → Home runs the switches and makes that corner the bed origin. Paper origin marks the sheet’s corner from there.'),
-    step(2, 'Pen depth', 'Six strokes from the shallow Z (top, one tick) to the deep Z (bottom, six ticks). The first full-weight stroke is the machine’s Pen down Z; set it on the Profile tab. Z0 is fully up on the iDraw H, Z10 fully down.',
+    step(2, 'Seat the pen', 'Position → Seat pen parks the carriage at the seat height; loosen the clamp, let the pen fall to the paper, clamp, press again. Every pen-down then presses with the spring’s preload instead of floating at the surface.'),
+    step(3, 'Pen depth', 'Six strokes from the shallow Z (top, one tick) to the deep Z (bottom, six ticks). The first full-weight stroke is the machine’s Pen down Z; set it on the Profile tab. Z0 is fully up on the iDraw H, Z10 fully down.',
       row('Ladder Z', el('div', 'row', fromIn, toIn)), el('div', 'row', ladder)),
-    step(3, 'Motion', 'Step loss, backlash, cornering ceiling; and the four timing cards the estimator is fitted from.',
+    step(4, 'Motion', 'Step loss, backlash, cornering ceiling; and the four timing cards the estimator is fitted from.',
       motion, timing),
   );
   return el('div', 'calibration', list);
