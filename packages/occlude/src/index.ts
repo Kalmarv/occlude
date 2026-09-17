@@ -68,6 +68,8 @@ export type { EdgeTransfer } from './material.js';
 export { stationsMaterial, isStations } from './material.js';
 export { thicken } from './thicken.js';
 export type { ThickenOpts } from './thicken.js';
+export { snap } from './snap.js';
+export type { SnapOpts, SnapField } from './snap.js';
 export { oscillate } from './oscillate.js';
 export type { OscillateOpts, OscillateAmount } from './oscillate.js';
 export { PointSelection, EdgeSelection, components, meanBy } from './relation.js';

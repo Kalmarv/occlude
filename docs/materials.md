@@ -58,6 +58,157 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
 
 A cell is not a live construction: moving a site or a wall does not rebuild anything, and material edited or extracted from the result has no correspondence any more (asking gives an error that says so). Construct the cells again when the sites have moved.
 
+### snap
+
+`snap(m, field, { radius, samples? })` gives every point a look around: it
+moves to wherever `field` is greatest inside `radius` of where it stood, or
+stays put if that is already the best place it can see. A lattice is regular
+and a scatter is even, and neither knows anything about what is underneath;
+snapping puts the marks **on** the feature — the dark of an eye, the crest of
+a ridge, the edge of a shape — instead of beside it.
+
+Greatest, always. There is no option to seek the least, because there does not
+need to be one: a field is a function, and `snap(m, (x, y) => -f(x, y), …)` is
+the other direction. The same goes for anything else you want it to prefer —
+`snap` never learns a second mode, it reads whatever field it is handed.
+
+It is a pure import like `thicken` and `oscillate`: no seed, no paper,
+distances in the material's own coordinates. The look around is a fixed spiral
+of `samples` offsets over the disc (48 by default) plus the point's own
+position, so the same input always gives the same output. Non-finite samples
+are absent, so a field can decline to answer somewhere and no point will be
+moved there. Structure is untouched — edges, columns and row order all
+survive; this moves points, it does not add, remove or reconnect them.
+
+```ts live
+import { sketch, circle, line, strokes, snap, material } from 'occlude';
+
+// A lattice knows nothing about what it is sitting on. Give every point a look
+// 7 units around itself and let it move to the best place it can see, and the
+// lattice breaks: the points leave the flat ground and collect on the ridge.
+// Each tail shows where a point came from.
+export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
+  const ridge = (x, y) => t.noise(x / 58, y / 58);
+  const lattice = material(t.grid({ cols: 17, rows: 9 }).map((c) => [c.cx, c.cy]));
+  const moved = snap(lattice, ridge, { radius: 9 });
+  return [
+    strokes(t.isolines(ridge, [0.15, 0.45], { step: 0.8 }), { pen: 'stabilo-88-blue' }),
+    lattice.points.map((p) => line(p.x, p.y, moved.x[p.index], moved.y[p.index])),
+    moved.points.map((p) => circle(p.x, p.y, 1)),
+  ];
+});
+```
+
+The pattern is not in the scatter, which is even and knows nothing. It is
+entirely in where each point decides to go.
+
+```ts live
+import { sketch, strokes, connect, snap } from 'occlude';
+
+// Marbling. An even scatter has no pattern in it at all; the pattern is
+// entirely in where each point decides to go. This field's maxima are not
+// peaks but LINES — a cosine through a warped coordinate, so its crests are
+// wavy bands eight units apart — and given four units to look around, every
+// point slides off the flats and onto the nearest crest. The cloud
+// reorganises itself into filaments, which a nearest-neighbour join then
+// draws. Nothing traced a contour: the points found them.
+export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
+  const warp = (x, y) => t.noise(x / 44, y / 60) * 30 + t.noise(x / 13, y / 13) * 3;
+  const grain = (x, y) => Math.cos(((y + warp(x, y)) * Math.PI * 2) / 8);
+  const settled = snap(t.scatter({ spacing: 1.3 }), grain, { radius: 4, samples: 140 });
+  return strokes(connect.nearest(settled, { count: 2 }));
+});
+```
+
+Composed with the rest of the toolkit. Sites strung along a line give cells
+that fan out across it, and the shape columns then hatch each cell along its
+own axis — a ruling that follows a structure nobody drew.
+
+```ts live
+import { sketch, strokes, polygon, fill, mm, degrees, snap } from 'occlude';
+
+// Composed: the same crests, but the points are Voronoi sites now. Sites
+// strung along a line give cells that fan out ACROSS it — long, thin, and
+// splayed either side of the crest they grew from — and each cell is then
+// hatched along its own principal axis, so the ruling follows a structure
+// nobody drew. Snap made the sites, the sites made the shapes, and the shapes
+// chose the angle.
+export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
+  const warp = (x, y) => t.noise(x / 46, y / 62) * 30;
+  const grain = (x, y) => Math.cos(((y + warp(x, y)) * Math.PI * 2) / 19);
+  const sites = snap(t.scatter({ spacing: 3.1 }), grain, { radius: 9, samples: 200 });
+  const cells = t.voronoi(sites);
+  const measured = cells.faces().measure();
+  return [
+    measured.map((r) => polygon(r.face, {
+      fill: fill('hatch', { angle: degrees(r.orientation), spacing: mm(0.4 + r.inscribedRadius * 0.22) }),
+      stroke: false,
+    })),
+    strokes(cells, { pen: 'stabilo-88-blue' }),
+  ];
+});
+```
+
+Poked: `radius` is how far a point may look, so make it enormous. Let nearly
+every point on the sheet see the same few summits and an even scatter collapses
+into a handful of piles — the field's maxima, drawn by whatever fell into them.
+
+```ts live
+import { sketch, circle, line, snap, material, strokes } from 'occlude';
+
+// Poked: `radius` is how far a point may look, so make it enormous. At 4 units
+// every point tidies itself onto the nearest crest. At 45 nearly every point
+// on the sheet can see the same few summits, and an even scatter collapses
+// into a handful of piles — the field's maxima, drawn by the points that fell
+// into them. The tails are where they came from.
+export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
+  const land = (x, y) => t.noise(x / 42, y / 42);
+  const cloud = t.scatter({ spacing: 4.4 });
+  const gathered = snap(cloud, land, { radius: 45, samples: 700 });
+  return [
+    strokes(t.isolines(land, [0.2, 0.5], { step: 0.9 }), { pen: 'stabilo-88-blue' }),
+    cloud.points.map((p) => line(p.x, p.y, gathered.x[p.index], gathered.y[p.index])),
+    gathered.points.map((p) => circle(p.x, p.y, 0.8)),
+  ];
+});
+```
+
+And in three dimensions, where finding the top of something is the whole job.
+The contours are real plane sections through the mesh, not lines drawn on a
+picture of it, and the cairns stand on summits nobody located by hand: an even
+lattice was simply allowed to walk uphill until it could see nothing higher.
+
+```ts live
+import { sketch, pen, mm, material, snap } from 'occlude';
+import { plane, sphere, view, orthographic } from 'occlude/3d';
+
+// A survey. The land is a height field; the contours are real plane sections
+// through the mesh, not lines drawn on a picture of it; and the cairns stand
+// on the summits, which nobody located by hand — an even lattice of points was
+// simply allowed to walk uphill until it could see nothing higher.
+export default sketch({ seed: 12, pens: {
+  ink: pen({ width: mm(0.28), color: '#18202A' }),
+  contour: pen({ width: mm(0.16), color: '#56626A' }),
+} }, (t) => {
+  const height = (x, y) => t.noise(x / 2.4, y / 2.4) * 1.3;
+  const lattice = material(t.times(20, (i) => t.times(20, (j) => [-3.6 + i * 0.38, -3.6 + j * 0.38])).flat());
+  // Uphill until nothing higher is in sight; many points arrive at the same
+  // summit, so keep one cairn per place.
+  const found = snap(lattice, height, { radius: 1.5, samples: 260 }).points;
+  const summits = [];
+  for (const p of found) if (!summits.some(([sx, sy]) => Math.hypot(sx - p.x, sy - p.y) < 0.5)) summits.push([p.x, p.y]);
+  const land = plane(8, 8).subdivide(6).displace((p) => [0, 0, height(p.x, p.y)]);
+  return view([
+    land.style({ creaseAngle: 180 }),
+    ...summits.map(([x, y]) => sphere(0.11, { segments: 16, rings: 10 }).translate([x, y, height(x, y) + 0.11])),
+  ], {
+    camera: orthographic({ eye: [5, -7, 5.5], target: [0, 0, 0.2], span: 8.6 }),
+    stroke: 'ink',
+    sections: t.times(11, (k) => ({ origin: [0, 0, -1.2 + k * 0.24], normal: [0, 0, 1], stroke: 'contour' })),
+  });
+});
+```
+
 ### Density-driven stippling
 
 Scatter, settle toward a tone, then one custom relaxation pass written from the same ingredients the standard recipe uses: the cells of the current points, their density-weighted centres from `measure`, and a partial move toward them. The declared `side` column survives settling and picks the pen; the computed `demand` sizes the dots. With the material layer on in the debug menu, `seeds`, `settled` and `nudged` are all there to inspect.
