@@ -69,6 +69,7 @@ export { stationsMaterial, isStations } from './material.js';
 export { thicken } from './thicken.js';
 export type { ThickenOpts } from './thicken.js';
 export type { QuadtreeOpts } from './quadtree.js';
+export type { WalkersOpts, Walker, WalkerSeed } from './walkers.js';
 export type { TrailsOpts } from './trails.js';
 export { snap } from './snap.js';
 export type { SnapOpts, SnapField } from './snap.js';
