@@ -84,13 +84,17 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## subdivide()
 
-`mesh.subdivide(levels)` splits every face and keeps the surface it represents: a quad becomes four quads, a triangle four triangles. It does not round a box.
+`mesh.subdivide(levels)` splits every face and keeps the surface it represents: a quad becomes four quads, a triangle four triangles. Each level doubles the resolution. It does not round a box or smooth anything. Here the same wave moves three planes at levels 1, 2 and 3, and the view draws every fold, so the grids show.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { box, view, orthographic } from 'occlude/3d';
+import { plane, view, orthographic } from 'occlude/3d';
 
-export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => view([box(1.4).translate([-1, 0, 0]), box(1.4).subdivide(2).translate([1, 0, 0])], { camera: orthographic({ eye: [5, 7, 4], span: 5 }), stroke: 'ink', creaseAngle: 0 }));
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => {
+  const wave = (p) => [0, 0, 0.35 * Math.sin(p.x * 2) * Math.cos(p.y * 2)];
+  const sheets = t.times(3, (k) => plane(2.2, 2.2).subdivide(k + 1).displace(wave).translate([k * 2.6 - 2.6, 0, 0]));
+  return view(sheets, { camera: orthographic({ eye: [1, 6, 5], target: [0, 0, 0], span: 9 }), stroke: 'ink', creaseAngle: 0 });
+});
 ```
 
 ## displace()
