@@ -71,6 +71,8 @@ export type { ThickenOpts } from './thicken.js';
 export type { QuadtreeOpts } from './quadtree.js';
 export type { WalkersOpts, Walker, WalkerSeed } from './walkers.js';
 export type { TrailsOpts } from './trails.js';
+export { interlace } from './interlace.js';
+export type { InterlaceOpts, Crossing } from './interlace.js';
 export { snap } from './snap.js';
 export type { SnapOpts, SnapField } from './snap.js';
 export { oscillate } from './oscillate.js';

@@ -2316,6 +2316,184 @@ export default sketch({ seed: 9, pens: {
 });
 ```
 
+## Interlacing
+
+Occlusion in this project is *computed*: exact, from geometry, in draw order. A
+knot diagram is the opposite kind of object — a curve plus a decision at every
+crossing, authored rather than derived. No amount of exact geometry gives you
+that, because the two strands are in the same plane and neither is in front.
+Which one is on top is information the drawing **carries**, not information it
+contains.
+
+`interlace(m, { gap, over? })` adds that information. Every proper crossing of
+two non-adjacent edges is found, `over` is asked which strand is on top, and
+the one underneath loses `gap` of its length, centred on the crossing. What
+comes back is ordinary Material — shorter, in more pieces — which strokes,
+resamples and plots like anything else. Nothing about occlusion changed, and
+nothing here consults it.
+
+| Option | Meaning |
+|---|---|
+| `gap` | how much of the under strand is removed, in the material's own coordinates |
+| `over(c)` | `true` when strand A is on top. Default alternates along each chain |
+
+The crossing `c` carries `x`, `y`, which chains the two strands belong to
+(`chainA`, `chainB`), how far along each it happened (`alongA`, `alongB`) and
+how many crossings each had already met (`nthA`, `nthB`). The default —
+alternating — is what makes woven work look woven, and is what a Celtic knot or
+a three-strand braid is doing. `over: () => true` is a plain painter's order
+instead, and any rule you can write over those fields is available: the point
+is that the decision is data.
+
+A zero `gap` removes nothing and therefore splits nothing. Two adjacent
+segments of one chain meet at a vertex rather than crossing, and are never
+counted; a strand crossing *itself* elsewhere is.
+
+Like `thicken` and `oscillate` this is a pure import: no seed, no paper, and
+`gap` is a length in the material's own coordinates.
+
+```ts live
+import { sketch, strokes, curve, append, interlace, label, group } from 'occlude';
+
+// One crossing, three ways. The geometry is identical in all three — two
+// straight lines meeting at a point — and the only thing that differs is what
+// `over` returns. Nothing about occlusion is involved: both strands are in the
+// same plane, neither is in front, and which one is on top is information the
+// drawing carries rather than information it contains.
+export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
+  const pair = (cx) => append(
+    curve([[cx - 22, 34], [cx + 22, 66]]),
+    curve([[cx - 22, 66], [cx + 22, 34]]),
+  );
+  const shown = [
+    ['gap: 0', (m) => interlace(m, { gap: 0 })],
+    ['over: () => true', (m) => interlace(m, { gap: 7, over: () => true })],
+    ['over: () => false', (m) => interlace(m, { gap: 7, over: () => false })],
+  ];
+  return shown.map(([text, fn], i) => {
+    const cx = 36 + i * 64;
+    return [strokes(fn(pair(cx))), label(text, cx - 24, 78, 3.2, { pen: 'stabilo-88-blue' })];
+  });
+});
+```
+
+Eight rings, and a list of decisions.
+
+```ts live
+import { sketch, strokes, circle, append, interlace } from 'occlude';
+
+// A knot panel. Eight rings on a circle, each overlapping its neighbours, and
+// every crossing decided by the rule that a strand which went under last time
+// goes over this time — which is all that "woven" means. The whole figure is
+// one geometric arrangement plus a list of decisions; take the decisions away
+// and it is a pile of circles.
+export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
+  const N = 8;
+  const rings = t.times(N, (k) => {
+    const a = (k / N) * Math.PI * 2;
+    return t.sample(circle(100 + Math.cos(a) * 28, 50 + Math.sin(a) * 28, 17), { count: 260 });
+  }).reduce((p, q) => append(p, q));
+  return strokes(interlace(rings, { gap: 2.6 }));
+});
+```
+
+Composed with the rest of the toolkit: grown by `t.walkers` with no `avoid` at
+all, so the strands are allowed to run over one another, wobbled by
+`oscillate`, and only then told which of them is on top.
+
+```ts live
+import { sketch, strokes, curl, oscillate, interlace, circle } from 'occlude';
+
+// Composed: a tangle that was grown, not drawn. The strands come from
+// `t.walkers` steered by the curl of noise and with no `avoid` at all, so for
+// once they are allowed to run over one another; `oscillate` gives each a
+// wobble; and `interlace` then decides, at every one of the crossings that
+// made, which strand is on top. Three operations that know nothing about each
+// other, and a nest at the end of it.
+export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
+  const flow = curl((x, y) => t.noise(x / 40, y / 40));
+  const seeds = t.times(26, (k) => {
+    const a = (k / 26) * Math.PI * 2;
+    return { x: 100 + Math.cos(a) * 44, y: 50 + Math.sin(a) * 24, heading: a + Math.PI };
+  });
+  const grown = t.walkers(seeds, {
+    steps: 150, step: 1.1,
+    steer: (w) => {
+      const [dx, dy] = flow(w.x, w.y);
+      return w.heading * 0.75 + Math.atan2(dy, dx) * 0.25;
+    },
+  });
+  const wobbled = oscillate(grown, { wavelength: 13, amplitude: 1.6 });
+  return strokes(interlace(wobbled, { gap: 2.2 }));
+});
+```
+
+Poked: `over` does not have to alternate, and it does not have to be about the
+strands at all. Here it asks *where the crossing is*, so a shape appears in the
+cloth that no line follows and nothing shades.
+
+```ts live
+import { sketch, strokes, curve, append, interlace } from 'occlude';
+
+// Poked: the crossings carry the picture. This is a plain plaid, evenly
+// spaced, every strand identical — and `over` is not alternating but asks
+// where it is. All the warp is laid down first and all the weft after, so
+// `chainA < N` says which of the two strands at a crossing is the warp; inside
+// the disc the warp passes over, outside it the weft does. The disc is
+// therefore never drawn. No line follows it, nothing is shaded and nothing is
+// occluded: it exists only as a change in which strand is on top.
+export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
+  const N = 26;
+  const at = (k) => 3 + (k / (N - 1)) * 94;
+  const warp = t.times(N, (k) => curve([[1, at(k)], [99, at(k)]]));
+  const weft = t.times(N, (k) => curve([[at(k), 1], [at(k), 99]]));
+  const cloth = [...warp, ...weft].reduce((p, q) => append(p, q));
+  return strokes(interlace(cloth, {
+    gap: 1.7,
+    over: (c) => (c.chainA < N) === (Math.hypot(c.x - 50, c.y - 52) < 31),
+  }));
+});
+```
+
+And in three dimensions, which is the experiment worth doing at least once: the
+same trefoil, on the left as a flat curve that is **told** which strand is on
+top, and on the right as a real tube in space where the classifier is told
+nothing and works it out. The two diagrams agree, and only one of them needed a
+third dimension to exist.
+
+```ts live
+import { sketch, pen, mm, strokes, curve, interlace, label, group } from 'occlude';
+import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
+
+// The same knot, decided two ways. On the left it is flat: one closed curve
+// that crosses itself three times, and `interlace` is TOLD which strand is on
+// top at each crossing. On the right it is a real tube in space, tied into an
+// actual trefoil, seen from directly above — and nobody tells the classifier
+// anything, it works out what hides what. The two diagrams agree, which is the
+// whole point: authoring and computing are different representations of the
+// same drawing, and only one of them needs the third dimension to exist.
+export default sketch({ seed: 1, pens: {
+  ink: pen({ width: mm(0.4), color: '#18202A' }),
+} }, (t) => {
+  const P = 300;
+  const pt = (k) => {
+    const a = (k / P) * Math.PI * 2;
+    return [Math.sin(a) + 2 * Math.sin(2 * a), Math.cos(a) - 2 * Math.cos(2 * a), -Math.sin(3 * a)];
+  };
+  const flat = curve(t.times(P, (k) => { const [x, y] = pt(k); return [26 + x * 5.2, 46 + y * 5.2]; }), { closed: true });
+  return [
+    group({}, strokes(interlace(flat, { gap: 2.1 }), { pen: 'ink' }), label('AUTHORED', 13, 80, 3.4, { pen: 'ink' })),
+    group({ translate: [25, -4] },
+      view(sweep(circle(0.16, { segments: 14 }), polyline(t.times(P, pt), { closed: true })), {
+        camera: orthographic({ eye: [0, -1.1, 12], target: [0, 0, 0], span: 19 }),
+        stroke: 'ink',
+        creaseAngle: 180,
+      })),
+    label('COMPUTED', 61, 80, 3.4, { pen: 'ink' }),
+  ];
+});
+```
+
 ## Thickness
 
 **`thicken(source, opts)`** turns points and connections into filled ribbons, beaded outlines, and perforated networks. Start with native material from `t.scatter`, `t.sample`, `t.voronoi`, or `t.streamlines`, then choose a radius — the full width is twice that radius. Overlapping parts join into one area; isolated points become discs, and openings between connections can remain as holes.
