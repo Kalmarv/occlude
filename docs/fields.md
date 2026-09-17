@@ -452,7 +452,7 @@ import { sketch, strokes, circle, connect, components } from 'occlude';
 // so the ridge network IS a proximity graph: the terrain decides which points
 // are neighbours, and it decides by how wide the bumps are.
 //
-// In blue, the same points joined by `connect.neighbours`, which asks a purely
+// In blue, the same points joined by `connect.unimpeded`, which asks a purely
 // geometric question and never samples anything. They agree almost everywhere.
 export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
   const pts = t.relax(t.scatter(() => 1, { spacing: 17 }), { iterations: 6 });
@@ -473,7 +473,7 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
   for (const p of crests.points) run[c.label(p)]++;
 
   return [
-    strokes(connect.neighbours(pts, { room: 1.4 }), { pen: 'stabilo-88-blue' }),
+    strokes(connect.unimpeded(pts, { room: 1.4 }), { pen: 'stabilo-88-blue' }),
     strokes(crests.points.filter((p) => run[c.label(p)] > 10 && blur(p.x, p.y) > 0.4).inducedEdges().extract()),
     pts.points.map((p) => circle(p.x, p.y, 1.1)),
   ];

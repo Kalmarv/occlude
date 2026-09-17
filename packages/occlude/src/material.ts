@@ -1721,7 +1721,7 @@ export const connect = {
   },
 
   /**
-   * Join two rows when they are each other's neighbours — when the space
+   * Join two rows when the way between them is unimpeded — when the space
    * between them is empty enough that nothing else has a better claim.
    *
    * `room` says how much empty space a pair needs. The region tested is the
@@ -1747,13 +1747,13 @@ export const connect = {
    * Candidates are the Delaunay edges, which loses nothing: every edge of this
    * family is one, for any `room` at 1 or above.
    */
-  neighbours(m: PointsLike, opts: { room?: number | ((x: number, y: number) => number); edgeAttributes?: Record<string, number> } = {}): Material {
+  unimpeded(m: PointsLike, opts: { room?: number | ((x: number, y: number) => number); edgeAttributes?: Record<string, number> } = {}): Material {
     const mm = material(m);
     const asked = opts.room ?? 1;
-    if (typeof asked !== 'number' && typeof asked !== 'function') throw new Error('connect.neighbours: { room } must be a number, or a field of them read at the middle of each pair');
+    if (typeof asked !== 'number' && typeof asked !== 'function') throw new Error('connect.unimpeded: { room } must be a number, or a field of them read at the middle of each pair');
     const roomAt = (x: number, y: number): number => {
       const v = typeof asked === 'function' ? asked(x, y) : asked;
-      if (!(v >= 1)) throw new Error(`connect.neighbours: { room } is ${String(v)} at (${x}, ${y}) — it must be at least 1 everywhere, because below that the region between two rows is not a lune and the family is not defined`);
+      if (!(v >= 1)) throw new Error(`connect.unimpeded: { room } is ${String(v)} at (${x}, ${y}) — it must be at least 1 everywhere, because below that the region between two rows is not a lune and the family is not defined`);
       return v;
     };
     if (mm.n < 2) return mm.withEdges([], opts.edgeAttributes);

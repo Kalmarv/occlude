@@ -923,9 +923,9 @@ export default sketch({ seed: 2, pens: { ink: pen({ width: mm(0.3), color: '#182
 });
 ```
 
-### neighbours
+### unimpeded
 
-`connect.neighbours(m, { room })` joins two rows when they are each other's
+`connect.unimpeded(m, { room })` joins two rows when they are each other's
 neighbours — when the space between them is empty enough that nothing else has
 a better claim.
 
@@ -971,7 +971,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const pts = t.relax(t.scatter({ spacing: 8, within: dish }), { iterations: 2, within: dish });
   const shown = [['DELAUNAY', null], ['ROOM 1', 1], ['ROOM 2', 2], ['ROOM 4', 4]];
   return shown.map(([text, room], i) => group({ translate: [i * 49, 0] }, [
-    strokes(room === null ? connect.triangulate(pts) : connect.neighbours(pts, { room })),
+    strokes(room === null ? connect.triangulate(pts) : connect.unimpeded(pts, { room })),
     pts.points.map((p) => circle(p.x, p.y, 0.7, { pen: 'stabilo-88-blue' })),
     label(text, 5, 68, 3.2, { pen: 'stabilo-88-blue' }),
   ]));
@@ -992,7 +992,7 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const veil = circle(100, 50, 46);
   const pts = t.relax(t.scatter({ spacing: 3.4, within: veil }), { iterations: 3, within: veil });
   const room = (x, y) => 1 + Math.pow(Math.min(1, Math.hypot(x - 100, y - 50) / 46), 2.2) * 2.1;
-  return strokes(connect.neighbours(pts, { room }));
+  return strokes(connect.unimpeded(pts, { room }));
 });
 ```
 
@@ -1013,7 +1013,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const lens = circle(50, 50, 47);
   const density = (x, y) => 0.14 + dark(x, y) * 0.86;
   const pts = t.settle(t.scatter(density, { spacing: 2.4, within: lens }), { density, spacing: 2.4, iterations: 8, within: lens });
-  return strokes(connect.neighbours(pts, { room: (x, y) => 1 + Math.pow(1 - dark(x, y), 1.5) * 1.9 }));
+  return strokes(connect.unimpeded(pts, { room: (x, y) => 1 + Math.pow(1 - dark(x, y), 1.5) * 1.9 }));
 });
 ```
 
@@ -1033,7 +1033,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const dish = circle(24, 44, 21);
   const pts = t.relax(t.scatter({ spacing: 3.6, within: dish }), { iterations: 2, within: dish });
   return [1, 2, 3, 5].map((room, i) => group({ translate: [i * 49, 0] }, [
-    strokes(connect.neighbours(pts, { room }), { pen: 'pigma-005-black' }),
+    strokes(connect.unimpeded(pts, { room }), { pen: 'pigma-005-black' }),
     strokes(connect.tree(pts), { pen: 'stabilo-88-blue' }),
     label(`ROOM ${room}`, 5, 72, 3.2, { pen: 'stabilo-88-blue' }),
   ]));
@@ -1057,7 +1057,7 @@ import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
 export default sketch({ seed: 5, pens: { ink: pen({ width: mm(0.26), color: '#18202A' }) } }, (t) => {
   const plan = disc(50, 50, 42);
   const pts = t.relax(t.scatter({ spacing: 9, within: plan }), { iterations: 3, within: plan });
-  const frame = connect.trails(connect.neighbours(pts, { room: 1.45 }));
+  const frame = connect.trails(connect.unimpeded(pts, { room: 1.45 }));
   const dome = (x, y) => 2.6 * Math.cos(Math.min(1, Math.hypot(x - 50, y - 50) / 44) * Math.PI / 2);
   const world = (x, y) => [(x - 50) / 9, (y - 50) / 9, dome(x, y)];
   return view(frame.curves().filter((c) => c.pts.length > 1).map((c) =>
