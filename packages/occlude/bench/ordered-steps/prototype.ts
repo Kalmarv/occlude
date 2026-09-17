@@ -290,6 +290,9 @@ export class OrderedEditor {
         check();
         return Object.freeze({ ...e.attrs });
       },
+      get faces(): never {
+        throw new Error('ordered-steps prototype: faces are not modelled');
+      },
     });
     // Always expose live endpoints, even when connect received frozen prev views.
     a = this.ps[ai].view;
