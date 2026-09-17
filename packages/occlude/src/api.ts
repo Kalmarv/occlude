@@ -58,6 +58,7 @@ import {
 import { PointSelection } from './relation.js';
 import { Faces, FaceSelection, type Face } from './faces.js';
 import { voronoi } from './voronoi.js';
+import { quadtree, type QuadtreeOpts } from './quadtree.js';
 import { distanceTo } from './distance.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
@@ -957,6 +958,15 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * the cells instead: `within(t.voronoi(sites), area)`. `cells.cellOf(site)`
    * and `cells.siteOf(face)` relate the result to its sites; a material or a
    * point selection of one stays the sites, bare points become one. */
+  /** The subdivision of the drawable that puts detail where the points are:
+   * a cell holding more than `capacity` points splits into four, down to
+   * `depth` splits. Returns the lattice as material — planarize it and its
+   * faces are the cells. */
+  function quadtreeTk(points: PointsLike, opts: QuadtreeOpts = {}): Material {
+    const b = exec.bounds();
+    return quadtree(points, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h }, opts);
+  }
+
   function voronoiTk(sites: PointsLike, opts: { bounds?: PointBounds; within?: Boundary | ShapeValue } = {}): Material {
     const b = exec.bounds();
     if (opts.within === undefined) return voronoi(sites, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h });
@@ -1220,7 +1230,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /** A shape's boundary as material with the boundary's OWN vertices,
      * curves flattened. `sample` redistributes instead. */
     material: materialFromShape,
-    sample, probe, inspect, plan: planWith, draw, distanceTo, relax, settle, voronoi: voronoiTk,
+    sample, probe, inspect, plan: planWith, draw, distanceTo, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk,
     within,
     rotate: rotateField,
     /** Translate a field by lengths of this run (`mm(…)`, `w(…)` resolve). */

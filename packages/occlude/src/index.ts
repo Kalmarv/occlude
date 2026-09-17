@@ -68,6 +68,7 @@ export type { EdgeTransfer } from './material.js';
 export { stationsMaterial, isStations } from './material.js';
 export { thicken } from './thicken.js';
 export type { ThickenOpts } from './thicken.js';
+export type { QuadtreeOpts } from './quadtree.js';
 export { snap } from './snap.js';
 export type { SnapOpts, SnapField } from './snap.js';
 export { oscillate } from './oscillate.js';

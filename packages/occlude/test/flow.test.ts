@@ -20,6 +20,40 @@ const apart = (a: number, b: number) => {
   return Math.min(d, Math.PI - d);
 };
 
+describe('image channels', () => {
+  it('every channel stays inside the 0 to 1 it promises', () => {
+    // Bilinear weights and summed-area subtraction are exact in principle and
+    // a rounding out either way in practice. A sketch that writes
+    // `Math.pow(1 - dark, 1.4)` gets NaN from a `dark` of 1.0000000000000004,
+    // which is how this was found.
+    const img = image(picture(37, 23, (px, py) => ((px * 7 + py * 13) % 256)), 't.png', { x: 3, y: 5, width: 61 });
+    for (const channel of ['lum', 'dark', 'a', 'edge'] as const) {
+      const f = img.field(channel, { area: 1.3 });
+      const g = img.field(channel);
+      for (let y = 5; y < 5 + 40; y += 0.7) {
+        for (let x = 3; x < 3 + 61; x += 0.9) {
+          expect(f(x, y)).toBeGreaterThanOrEqual(0);
+          expect(f(x, y)).toBeLessThanOrEqual(1);
+          expect(g(x, y)).toBeGreaterThanOrEqual(0);
+          expect(g(x, y)).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+    // The failure mode is the upper end: `1 - dark` must never be negative,
+    // whatever rounding the sampling leaves behind, or a fractional power of
+    // it is NaN. A solid black image is the sharp case.
+    const black = image(picture(16, 16, () => 0), 't.png', { x: 0, y: 0, width: 20 });
+    for (const area of [undefined, 0.4, 2]) {
+      const d = black.field('dark', { area })(10, 10);
+      expect(d).toBeLessThanOrEqual(1);
+      expect(Number.isFinite(Math.pow(1 - d, 1.4))).toBe(true);
+    }
+    const white = image(picture(16, 16, () => 255), 't.png', { x: 0, y: 0, width: 20 });
+    expect(white.field('dark', { area: 2 })(10, 10)).toBeCloseTo(0, 12);
+    expect(white.field('lum')(10, 10)).toBeLessThanOrEqual(1);
+  });
+});
+
 describe('image flow', () => {
   it('runs along an edge, not across it, and is unit length inside the picture', () => {
     // A hard vertical edge: the gradient points along x, so the structure

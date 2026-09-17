@@ -243,7 +243,13 @@ export function image(assets: AssetTable | undefined, name: string, place: Image
     const uy = y - oy;
     if (ux < 0 || uy < 0 || ux > width || uy > height) return 0;
     const raw = area && area > 0 ? boxAvg(code, ux, uy, area) : bilinear(code, ux, uy);
-    return raw / 255;
+    // Every channel is documented as 0 to 1, and a sketch is entitled to
+    // believe it: `Math.pow(1 - dark, 1.4)` is NaN if `dark` comes back as
+    // 1.0000000000000004. Bilinear weights and summed-area subtraction are
+    // exact in principle and a rounding out either way in practice, so the
+    // range is enforced here rather than left for every caller to guard.
+    const v = raw / 255;
+    return v < 0 ? 0 : v > 1 ? 1 : v;
   };
 
   const edge = (x: number, y: number, area?: number): number => {

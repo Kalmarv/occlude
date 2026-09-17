@@ -209,6 +209,152 @@ export default sketch({ seed: 12, pens: {
 });
 ```
 
+### quadtree
+
+`t.quadtree(points, { capacity?, depth?, bounds? })` puts detail where the
+points are. A cell holding more than `capacity` of them (1 by default) splits
+into four, and its children do the same, until every cell is within its
+allowance or the subdivision has gone `depth` splits deep (12). A scatter
+driven by a picture therefore gives a lattice that is fine on the picture's
+detail and coarse on its flats, with nobody deciding where the detail is.
+
+Both limits are termination rules rather than budgets: coincident points can
+never be separated, so without a depth the splitting would not stop.
+
+What comes back is the subdivision as ordinary Material — the outer rectangle,
+plus the cross that split each cell that split. Not four walls per cell:
+adjacent cells of different sizes would then lay one long edge over two short
+ones, and a collinear overlap is the one thing `planarize` cannot resolve.
+Crosses meet their neighbours end-on or at a T, which planarize turns into a
+shared vertex, so `planarize().faces()` gives the cells and `strokes()` draws
+the lattice. Points outside `bounds` take no part in it.
+
+```ts live
+import { sketch, strokes, circle } from 'occlude';
+
+// The lattice puts its detail where the points are. A cell holding more than
+// three of them splits into four, and its children do the same, so the cloud
+// decides the resolution — nobody chose where the fine squares go.
+export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
+  const pts = t.scatter((x, y) => Math.max(0.02, 1 - Math.hypot(x - 78, y - 50) / 52), { spacing: 3.2 });
+  return [
+    strokes(t.quadtree(pts, { capacity: 3 })),
+    pts.points.map((p) => circle(p.x, p.y, 0.55, { pen: 'stabilo-88-blue' })),
+  ];
+});
+```
+
+An adaptive mosaic, from two readings of one photograph doing different jobs.
+
+```ts live
+import { sketch, polygon, fill, mm } from 'occlude';
+
+// An adaptive mosaic. The points are scattered where the photograph has
+// detail, so the tiles come out small on an eye and large on a flat coat;
+// then every tile is filled at a spacing taken from its own tone. Two
+// readings of one picture doing different jobs — one decides how big a tile
+// is, the other how dark it is — and no lattice is drawn at all: the tiling
+// is visible only because neighbouring tiles rule at different densities.
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
+  const img = t.image('ivy.png', { x: 4, y: 4, width: 92 });
+  const dark = img.field('dark', { area: 1.1 });
+  const edge = img.field('edge', { area: 0.5 });
+  const detail = t.scatter((x, y) => 0.04 + Math.pow(Math.min(1, edge(x, y) * 9), 2.2) * 0.96, { spacing: 1.2 });
+  return t.quadtree(detail, { capacity: 2, bounds: { x: 4, y: 4, w: 92, h: 92 } })
+    .planarize().faces().measure()
+    .map((r) => {
+      const tone = dark(r.inscribedCentre[0], r.inscribedCentre[1]);
+      return tone < 0.2 ? null : polygon(r.face, {
+        fill: fill('hatch', { angle: 45, spacing: mm(0.45 + Math.pow(1 - tone, 0.7) * 5.5) }),
+        stroke: false,
+      });
+    });
+});
+```
+
+Composed with the rest of the toolkit: the lattice is Material, so it can be
+cut to a shape and swung like anything else.
+
+```ts live
+import { sketch, strokes, circle, oscillate } from 'occlude';
+
+// Composed: the lattice is Material like anything else, so it can be cut and
+// it can be shaken. `t.within` trims it to a disc — the cells at the rim come
+// back as the partial walls they are — and `oscillate` then swings every
+// remaining wall, at a wavelength short enough that a small cell still gets a
+// few waves and an amplitude that keeps the wobble inside its own cell. An
+// adaptive mosaic with the ruler put away.
+export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
+  const swarm = (x, y) => Math.max(0, t.noise(x / 24, y / 24)) + Math.max(0, t.noise(x / 8, y / 8)) * 0.5;
+  const pts = t.scatter((x, y) => 0.03 + swarm(x, y) * 0.97, { spacing: 3 });
+  const lens = circle(100, 50, 46);
+  const lattice = t.within(t.quadtree(pts, { capacity: 3 }), lens);
+  return [
+    strokes(oscillate(lattice, { wavelength: 2.2, amplitude: 0.45 })),
+    strokes(oscillate(t.material(lens), { wavelength: 2.6, amplitude: 0.5 }), { pen: 'stabilo-88-blue' }),
+  ];
+});
+```
+
+Poked: nothing says the points have to be a cloud. Hand the lattice the
+vertices of a **drawing** and it subdivides around the ink — so the quadtree
+stops being a way to index a scatter and becomes a way to measure where a
+drawing keeps its detail.
+
+```ts live
+import { sketch, strokes, circle, material } from 'occlude';
+
+// Poked: nothing says the points have to be points. Hand the lattice the
+// VERTICES OF A DRAWING and it subdivides around the ink — fine where the
+// curve turns and coarse in the empty middle — so the quadtree stops being a
+// way to index a cloud and becomes a way to measure where a drawing keeps its
+// detail. The curve is drawn over its own lattice.
+export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
+  const spiral = t.times(900, (k, u) => {
+    const a = u * Math.PI * 9;
+    const r = 6 + u * 38 + Math.sin(a * 3) * 3;
+    return [100 + Math.cos(a) * r * 1.7, 50 + Math.sin(a) * r];
+  });
+  const ink = material(spiral);
+  return [
+    strokes(t.quadtree(ink, { capacity: 1, depth: 7 }), { pen: 'stabilo-88-blue' }),
+    ink.points.map((p) => circle(p.x, p.y, 0.25)),
+  ];
+});
+```
+
+And in three dimensions. The subdivision decides the plan and the picture
+decides the elevation; what the drawing is made of is the skyline, because the
+blocks hide one another and only the lines that survive are drawn.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { box, view, orthographic } from 'occlude/3d';
+
+// A city of tone. The lattice is fine where the photograph has detail and
+// coarse where it is flat, and every cell is then raised into a block as tall
+// as that patch is dark — so the subdivision decides the plan and the picture
+// decides the elevation. What the drawing is actually made of is the skyline:
+// the blocks hide one another, and only the lines that survive are drawn.
+export default sketch({ seed: 3, pens: { ink: pen({ width: mm(0.24), color: '#18202A' }) } }, (t) => {
+  const img = t.image('ivy.png', { x: 0, y: 0, width: 100 });
+  const dark = img.field('dark', { area: 1.4 });
+  const edge = img.field('edge', { area: 0.6 });
+  const detail = t.scatter((x, y) => 0.03 + Math.pow(Math.min(1, edge(x, y) * 9), 1.1) * 0.97, { spacing: 1.7 });
+  const cells = t.quadtree(detail, { capacity: 2, bounds: { x: 0, y: 0, w: 100, h: 100 } }).planarize().faces();
+  return view(cells.measure().results.map((r) => {
+    const b = r.face.bounds;
+    const tone = dark(r.inscribedCentre[0], r.inscribedCentre[1]);
+    const h = 0.15 + tone * tone * 3.4;
+    return box([(b.w / 100) * 9, (b.h / 100) * 9, h])
+      .translate([((b.x + b.w / 2) / 100 - 0.5) * 9, ((b.y + b.h / 2) / 100 - 0.5) * 9, h / 2]);
+  }), {
+    camera: orthographic({ eye: [7, -9, 6.5], target: [0, 0, 0.6], span: 12.5 }),
+    stroke: 'ink',
+  });
+});
+```
+
 ### Density-driven stippling
 
 Scatter, settle toward a tone, then one custom relaxation pass written from the same ingredients the standard recipe uses: the cells of the current points, their density-weighted centres from `measure`, and a partial move toward them. The declared `side` column survives settling and picks the pen; the computed `demand` sizes the dots. With the material layer on in the debug menu, `seeds`, `settled` and `nudged` are all there to inspect.
