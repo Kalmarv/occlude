@@ -100,6 +100,19 @@ Every primitive stores `uv` coordinates and a `chart` name on its face corners. 
 
 A sampled point remembers its triangle and its weights inside it. `samples.rebind(editedMesh)` places the same samples onto an edited revision of the mesh that kept its topology. The marks move with the surface, with no new sampling and no projection.
 
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { plane, sphere, instanceOnPoints, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], seed: 3, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => {
+  const flat = plane(4, 4).subdivide(3);
+  const pts = t.sample(flat, { count: 70 });
+  const bent = flat.displace((p) => [0, 0, 0.6 * Math.sin(p.x * 1.4) * Math.cos(p.y * 1.1)]);
+  const moved = pts.rebind(bent);
+  return view([bent, instanceOnPoints(sphere(0.07, { segments: 8, rings: 4 }), moved.points)], { camera: orthographic({ eye: [5, 7, 5], span: 6 }), stroke: 'ink', creaseAngle: 0 });
+});
+```
+
 ## t.sample() on curves
 
 `t.sample(curves, { spacing })` or `{ count }` places points along each chain of a supported curve, in world units. Open chains keep both ends. Closed chains omit the seam. The points keep their surface attachment, so they go into `instanceOnPoints` and stay on the surface.

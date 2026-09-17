@@ -1,0 +1,23 @@
+---
+title: Portrait in dots and hair
+description: A photograph as settled dots, with hair lines that follow its grain.
+---
+
+The sketch places the image once and reads it as fields. `t.scatter` seeds dots where the picture is dark. `t.settle` moves, adds and removes them until their count matches the tone. Each dot's size is its `demand`. `img.flow` is the direction that the picture's structure runs, smoothed. `t.streamlines` follows it, with a spacing that opens where the picture is light. The alpha channel masks the subject, so the paper around it stays clean.
+
+Uses: `t.image`, `img.field`, `t.scatter`, `t.settle`, `img.flow`, `t.streamlines` with a spacing field, `t.within`.
+
+```ts live
+import { sketch, circle, strokes, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
+  const dark = (x, y) => img.a(x, y) > 0.5 ? Math.pow(1 - img.lum(x, y, 0.8), 1.4) : 0;
+  const dots = t.settle(t.scatter(dark, { spacing: 2.2 }), { density: dark, spacing: 1.6, iterations: 8 });
+  const hair = t.streamlines(img.flow({ radius: 2.5 }), { spacing: (x, y) => mm(0.9 + 4 * img.lum(x, y, 1)) });
+  return [
+    dots.points.map((p) => circle(p.x, p.y, 0.25 + 0.5 * Math.min(1.5, p.demand))),
+    strokes(hair.points.filter((p) => img.a(p.x, p.y) > 0.5 && img.lum(p.x, p.y, 1) < 0.75).inducedEdges(), { pen: 'stabilo-88-blue' }),
+  ];
+});
+```

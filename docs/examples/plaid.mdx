@@ -1,0 +1,21 @@
+---
+title: Plaid
+description: An even weave where the crossings carry the picture.
+---
+
+A plain plaid: evenly spaced strands, every one the same. `interlace` decides the strand on top at each crossing. Here `over` does not alternate. It asks where the crossing is: inside a disc the warp passes over, outside it the weft does. All the warp goes down first and all the weft after. At a crossing, `chainA < N` is true when the strand is warp. The disc is never drawn. No line follows it, and it has no shading. It exists only as a change of the strand on top.
+
+Uses: `curve`, `append`, `interlace` with an `over` rule.
+
+```ts live
+import { sketch, strokes, curve, append, interlace } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
+  const N = 26;
+  const at = (k) => 3 + (k / (N - 1)) * 94;
+  const warp = t.times(N, (k) => curve([[1, at(k)], [99, at(k)]]));
+  const weft = t.times(N, (k) => curve([[at(k), 1], [at(k), 99]]));
+  const cloth = append(...warp, ...weft);
+  return strokes(interlace(cloth, { gap: 1.7, over: (c) => (c.chainA < N) === (Math.hypot(c.x - 50, c.y - 52) < 31) }));
+});
+```
