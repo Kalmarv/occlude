@@ -36,6 +36,8 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'studio', title: 'The studio', file: 'studio.md', live: false, group: 'topics' },
   { slug: 'gallery', title: 'Gallery', file: 'gallery.md', live: true, group: 'topics' },
   { slug: 'reference-shapes', title: 'Reference: Shapes', file: 'reference/shapes.mdx', live: true, group: 'topics' },
+  { slug: 'reference-fields', title: 'Reference: Fields', file: 'reference/fields.mdx', live: true, group: 'topics' },
+  { slug: 'reference-points', title: 'Reference: Points', file: 'reference/points.mdx', live: true, group: 'topics' },
   { slug: 'reference-material', title: 'Reference: Material', file: 'reference/material.mdx', live: true, group: 'topics' },
   { slug: 'reference-selections', title: 'Reference: Selections', file: 'reference/selections.mdx', live: true, group: 'topics' },
   { slug: 'reference-steps', title: 'Reference: Steps and forces', file: 'reference/steps.mdx', live: true, group: 'topics' },

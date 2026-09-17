@@ -1,0 +1,177 @@
+---
+title: Fields
+description: Seeded randomness, noise, and functions of position that shapes, fills and materials read.
+---
+
+A field is a function of position. A scalar field is `(x, y) => number`. A vector field is `(x, y) => [dx, dy]`. Fields are called in drawable units. Fills, modifiers, `scatter`, `isolines` and `streamlines` read them, so one function can decide tone, spacing and direction in the same drawing.
+
+## t.rnd() · t.pick() · t.chance()
+
+<include>/_sig/Toolkit.rnd.mdx</include>
+<include>/_sig/Toolkit.pick.mdx</include>
+<include>/_sig/Toolkit.chance.mdx</include>
+
+All randomness comes from the sketch's seed. The same source and seed give the same drawing. `rnd()` gives 0 to 1, `rnd(n)` 0 to n, `rnd(a, b)` a to b. `pick` returns one element of a list. `chance(p)` is true with probability `p`.
+
+```ts live
+import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => t.times(40, () => circle(t.rnd(10, 90), t.rnd(10, 90), t.rnd(1, 6), { pen: t.chance(0.3) ? 'stabilo-88-blue' : undefined })));
+```
+
+## t.noise()
+
+<include>/_sig/Toolkit.noise.1.mdx</include>
+
+Seeded smooth noise from −1 to 1. Sample it at large steps for terrain and at small steps for texture. Within a seed, the same coordinates always give the same value.
+
+```ts live
+import { sketch, stroke } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => t.times(14, (k, u) => stroke(t.times(60, (i, v) => [8 + v * 84, 10 + u * 80 + t.noise(v * 4, u * 3) * 5]))));
+```
+
+## t.stream()
+
+<include>/_sig/Toolkit.stream.mdx</include>
+
+A random stream of its own, keyed off the seed, with `rnd`, `pick`, `chance` and `noise`. Two parts of a drawing that read separate streams do not disturb each other when one of them changes.
+
+```ts live
+import { sketch, circle, line } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const dots = t.stream('dots'), bars = t.stream('bars');
+  return [t.times(24, () => circle(dots.rnd(10, 90), dots.rnd(10, 90), 1.5)), t.times(6, () => { const y = bars.rnd(15, 85); return line(10, y, 90, y, { pen: 'stabilo-88-blue' }); })];
+});
+```
+
+## map() · norm() · ease
+
+<include>/_sig/map.mdx</include>
+<include>/_sig/norm.mdx</include>
+<include>/_sig/ease.cubicIn.mdx</include>
+
+`map` moves a value from one range to another. `norm` moves it to 0 to 1. `ease` holds the standard easing curves, `ease.cubicIn`, `ease.sinInOut`, `ease.bounceOut` and the rest, each a function from 0 to 1. When an eased value sets spacing, the slope of the curve is the local density.
+
+```ts live
+import { sketch, line, ease, map } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => t.times(30, (k, u) => { const x = map(ease.cubicIn(u), 0, 1, 8, 92); return line(x, 10, x, 90); }));
+```
+
+## shaper()
+
+<include>/_sig/shaper.mdx</include>
+
+A tone curve as a function: give knots, and the result maps an input through the curve that passes through them. `[[0, 0], [1, 1]]` is a straight line. Lift the middle knot and midtones rise. In the studio, the knot literal gets a curve editor.
+
+```ts live
+import { sketch, circle, shaper } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const tone = shaper([[0, 0.5], [0.5, 7], [1, 9]]);
+  return t.times(8, (k, u) => circle(12 + u * 76, 50, tone(u)));
+});
+```
+
+## curl() · grad() · vectorField()
+
+<include>/_sig/curl.mdx</include>
+<include>/_sig/grad.mdx</include>
+<include>/_sig/vectorField.mdx</include>
+
+`grad(f)` is the gradient of a scalar field: it points uphill. `curl(f)` is the gradient turned 90°, so it runs along the contours of `f`. `vectorField(fn)` marks your own vector function, so that `rotate` turns its arrows too.
+
+```ts live
+import { sketch, line, curl, grad } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const hill = (x, y) => t.noise(x / 30, y / 30);
+  const arrows = (vf, pen) => t.grid({ cols: 12, rows: 12 }).map((c) => { const [dx, dy] = vf(c.cx, c.cy); const k = 3 / Math.hypot(dx, dy); return line(c.cx, c.cy, c.cx + dx * k, c.cy + dy * k, { pen }); });
+  return [arrows(grad(hill), undefined), arrows(curl(hill), 'stabilo-88-blue')];
+});
+```
+
+## within() · translate() · rotate() · scale()
+
+<include>/_sig/Toolkit.within.1.mdx</include>
+<include>/_sig/translate.mdx</include>
+<include>/_sig/rotate.mdx</include>
+<include>/_sig/scale.mdx</include>
+
+Transforms of a field's sampling. `t.within(f, shape)` limits the field to the shape: outside it the field is absent, so generators make nothing there and contours stop at the edge. `translate`, `rotate` and `scale` move, turn and scale the sampling. The result is a plain function again.
+
+```ts live
+import { sketch, circle, rect, strokes, rotate } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const stripes = (x, y) => Math.sin(x / 3);
+  const turned = rotate(stripes, 30);
+  return [strokes(t.isolines(t.within(turned, circle(50, 50, 40)), 0)), circle(50, 50, 40, { pen: 'stabilo-88-blue' })];
+});
+```
+
+## t.isolines()
+
+<include>/_sig/Toolkit.isolines.mdx</include>
+
+<AutoTypeTable path="../occlude/src/isolines.ts" name="IsoOpts" />
+
+The contours where the field is at a value, as one material: each contour a chain, a ring when it closes, and every edge carrying its `level`. Give one value or a list of them. `strokes(m)` draws them, `polygon(m)` fills a level set with its holes, and `m.edges.groupBy((e) => e.attrs.level)` splits the levels.
+
+```ts live
+import { sketch, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
+  const ground = (x, y) => t.noise(x / 28, y / 28);
+  return t.isolines(ground, [-0.4, -0.2, 0, 0.2, 0.4]).edges.groupBy((e) => e.attrs.level).map((sel) => strokes(sel, { pen: sel.key > 0 ? 'stabilo-88-blue' : undefined }));
+});
+```
+
+## distanceTo()
+
+<include>/_sig/distanceTo.mdx</include>
+
+A signed distance field from a boundary: positive inside, zero on it, negative outside. `t.isolines(d, 2)` is a ring 2 units inside the boundary, and `t.isolines(d, -2)` a halo 2 units outside. There is no separate offset function. The boundary is loops, contour records, a face, or a chain material.
+
+```ts live
+import { sketch, strokes, ngon, distanceTo } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const d = distanceTo(t.material(ngon(50, 50, 5, 34)));
+  return strokes(t.isolines(d, [-6, -3, 0, 3, 6, 9, 12]));
+});
+```
+
+## t.streamlines()
+
+<include>/_sig/Toolkit.streamlines.mdx</include>
+
+<AutoTypeTable path="../occlude/src/streamlines.ts" name="StreamOpts" />
+
+Evenly spaced flow lines of a vector field, as one material of open chains. A line stops at the edge of the drawable, at a `within` bound, and half a spacing from ink already laid, so lines never cross or bunch. `spacing` is a length or a field of lengths, which turns density into tone. No seed is involved.
+
+```ts live
+import { sketch, strokes, curl, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => strokes(t.streamlines(curl((x, y) => t.noise(x / 35, y / 35)), { spacing: mm(2.5) })));
+```
+
+## t.ridges()
+
+<include>/_sig/Toolkit.ridges.mdx</include>
+
+<AutoTypeTable path="../occlude/src/ridges.ts" name="RidgeOpts" />
+
+The crest lines of a scalar field: where the field is at a maximum across the line. Contours say where the field is at a height; ridges say where it runs along a top. Each crest is a chain, and each vertex carries `strength`, how sharply the ground falls to either side, and `height`. Nothing is thresholded: filter by `strength` to keep the crests that earn ink. Valleys are the ridges of the negated field.
+
+```ts live
+import { sketch, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
+  const ground = (x, y) => t.noise(x / 22, y / 22);
+  const crests = t.ridges(ground);
+  return [strokes(t.isolines(ground, [-0.3, 0, 0.3]), { pen: 'stabilo-88-blue' }), strokes(crests.points.filter((p) => p.strength > 0.004).inducedEdges())];
+});
+```
