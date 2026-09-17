@@ -60,7 +60,6 @@ import { PointSelection } from './relation.js';
 import { Faces, FaceSelection, type Face } from './faces.js';
 import { voronoi } from './voronoi.js';
 import { quadtree, type QuadtreeOpts } from './quadtree.js';
-import { walkers, type WalkersOpts, type WalkerSeed } from './walkers.js';
 import { distanceTo } from './distance.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
@@ -964,14 +963,6 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * a cell holding more than `capacity` points splits into four, down to
    * `depth` splits. Returns the lattice as material — planarize it and its
    * faces are the cells. */
-  /** A population that draws and stops when it meets what it drew: hyphae,
-   * fractures, substrate and line-tracing are one machine with different
-   * `steer` functions. Returns the paths as one material. */
-  function walkersTk(seeds: readonly WalkerSeed[], o: WalkersOpts): Material {
-    const b = exec.bounds();
-    return walkers(seeds, { x: 0, y: 0, w: b.w, h: b.h }, o);
-  }
-
   function quadtreeTk(points: PointsLike, opts: QuadtreeOpts = {}): Material {
     const b = exec.bounds();
     return quadtree(points, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h }, opts);
@@ -1302,7 +1293,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /** A shape's boundary as material with the boundary's OWN vertices,
      * curves flattened. `sample` redistributes instead. */
     material: materialFromShape,
-    sample, probe, inspect, plan: planWith, draw, distanceTo, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk, walkers: walkersTk,
+    sample, probe, inspect, plan: planWith, draw, distanceTo, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk,
     within,
     rotate: rotateField,
     /** Translate a field by lengths of this run (`mm(…)`, `w(…)` resolve). */
