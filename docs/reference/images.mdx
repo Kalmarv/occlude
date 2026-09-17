@@ -35,7 +35,7 @@ export default sketch({ aspect: [1, 1] }, (t) => svg(t.asset('church.svg'), { x:
 
 <include>/_sig/Toolkit.image.mdx</include>
 
-Places an image in drawable coordinates and returns a sampler. The sampler takes a position and an optional `area`, a half-size to average over. `lum` is luminance 0 to 1, `a` is alpha, `bands(x, y, n)` is tone in `n` levels with 0 the darkest, `edge` is the gradient magnitude and `dir` its angle. Average over the mark's own footprint when a mark covers more paper than a pixel.
+Places an image in drawable coordinates and returns a sampler. The sampler takes a position and an optional `area`, a half-size to average over. `lum` is luminance, 0 to 1. `a` is alpha. `bands(x, y, n)` is tone in `n` levels, with 0 the darkest. `edge` is the gradient magnitude and `dir` is its angle. Average over the mark's own footprint when a mark covers more paper than a pixel.
 
 ```ts live
 import { sketch, circle } from 'occlude';
@@ -48,7 +48,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## img.field()
 
-`img.field(channel?, { area? })` is a channel as a scalar field: `'lum'` (the default), `'dark'` for 1 − lum, `'a'`, or `'edge'`. A field is what the rest of the toolkit reads, so the image goes behind `t.isolines`, `t.scatter`, `t.streamlines` or a modifier amount with no wrapper. Outside the placed rectangle the field is 0.
+`img.field(channel?, { area? })` is a channel as a scalar field: `'lum'` (the default), `'dark'` for 1 − lum, `'a'`, or `'edge'`. The rest of the toolkit reads fields. The image goes behind `t.isolines`, `t.scatter`, `t.streamlines` or a modifier amount with no wrapper. Outside the placed rectangle the field is 0.
 
 ```ts live
 import { sketch, circle, mm } from 'occlude';
@@ -61,7 +61,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 ## img.flow()
 
-`img.flow({ radius?, iterations? })` is the direction the picture's structure runs, as a vector field: along an edge, not across it, and smoothed over `radius` so that noise does not turn it. Feed it to `t.streamlines` for hatching that follows the subject.
+`img.flow({ radius?, iterations? })` is the direction that the picture's structure runs, as a vector field. It runs along an edge, not across it. It is smooth over `radius`, so noise does not turn it. Feed it to `t.streamlines` for hatching that follows the subject.
 
 ```ts live
 import { sketch, strokes, mm } from 'occlude';

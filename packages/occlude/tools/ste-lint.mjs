@@ -19,6 +19,7 @@ const BAD = /\b(however|therefore|thus|hence|whereas|nevertheless|in order to|so
 const prose = (md) => md
   .replace(/```[\s\S]*?```/g, '')
   .replace(/^---[\s\S]*?---/, '')
+  .replace(/^\s*<include>.*<\/include>\s*$/gm, '')
   .replace(/<[^>]+>/g, '')
   .replace(/^\|.*$/gm, '')
   .replace(/^#.*$/gm, '')
