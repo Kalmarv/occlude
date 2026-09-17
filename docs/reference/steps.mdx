@@ -1,0 +1,190 @@
+---
+title: Steps and forces
+description: Change a material by a rule, one batch of edits at a time.
+---
+
+`steps` runs a rule against a material and returns the material after `n` iterations. The rule reads a frozen state and asks for edits on a copy. The edits are applied together, then the next iteration starts. Nothing changes while the rule reads.
+
+## steps()
+
+<include>/_sig/Material.steps.mdx</include>
+
+The rule is `(prev, next, k) => …`: `prev` is the current state, `next` collects the edits, `k` is the iteration. The shorthand `{ move, set }` applies one move or one column write to every point. Several rules become passes: each pass reads the state the pass before it produced. `{ every: m }` keeps the initial state, every m-th state and the last one on the result's `history`.
+
+:::warning
+Two edits that contradict each other in one batch fail the step: a point that is removed and also connected, or an edge that is split and also disconnected. Moves add up, and the last write of a column wins.
+:::
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 30), { count: 60 });
+  const grown = ring.steps(8, { move: (p) => [(p.x - 50) * 0.06, (p.y - 50) * 0.06 * (1 + 0.5 * Math.sin(p.index))] }, { every: 2 });
+  return grown.history.map((h) => strokes(h.material));
+});
+```
+
+## next.move()
+
+<include>/_sig/Next.move.mdx</include>
+
+Moves the selected points by a vector, or by a vector per point from a callback. Several moves on one point add up.
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 32), { count: 48 });
+  const wavy = ring.steps(1, (cur, next) => next.move(cur.points, (p) => [0, Math.sin(p.x / 4) * 8]));
+  return [strokes(ring, { pen: 'pigma-005-black' }), strokes(wavy, { pen: 'stabilo-88-blue' })];
+});
+```
+
+## next.set() · next.setEdges()
+
+<include>/_sig/Next.set.mdx</include>
+<include>/_sig/Next.setEdges.mdx</include>
+
+Writes columns on the selected points or edges. Give an object, or a callback that returns one per row. A column must exist already: declare it with `attribute` first.
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 34), { count: 30 }).attribute('age', 0);
+  const aged = ring.steps(5, (cur, next) => next.set(cur.points.filter((p) => p.x > 50), (p) => ({ age: p.age + 1 })));
+  return [strokes(aged), aged.points.map((p) => circle(p.x, p.y, 0.5 + p.age * 0.5, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## next.extrude()
+
+<include>/_sig/Next.extrude.mdx</include>
+
+Adds children to the selected points and joins each child to its parent. The callback returns a child `{ position, attributes }`, a list of them, or `[]` for none. A child can also be `{ to }`, which joins the parent to an existing point instead. With `inherit: true`, a child starts from its parent's columns. A new point must give every declared column.
+
+```ts live
+import { sketch, strokes, material, add, mul, fromAngle } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const seed = material([[50, 92]], { heading: -Math.PI / 2, tip: 1 });
+  const tree = seed.steps(26, (cur, next, k) => {
+    const tips = cur.points.filter((p) => p.tip === 1 && p.y > 10 && p.x > 10 && p.x < 90);
+    next.extrude(tips, (p) => {
+      const fork = k % 5 === 0 ? [p.heading - 0.5, p.heading + 0.5] : [p.heading + t.noise(p.x / 20, p.y / 20) * 0.4];
+      return fork.map((h) => ({ position: add(p, mul(fromAngle(h), 3.2)), attributes: { heading: h, tip: 1 } }));
+    });
+    next.set(tips, { tip: 0 });
+  });
+  return strokes(tree);
+});
+```
+
+## next.split() · next.splitEdges()
+
+<include>/_sig/Next.split.mdx</include>
+<include>/_sig/Next.splitEdges.mdx</include>
+
+Replaces an edge with two edges through a new vertex, at the fraction `at` along it (0.5 by default). The new vertex gets its columns by each column's transfer rule, and `point` overrides them. `splitEdges` does it for a selection. `split` returns a reference to the new vertex for use in the same batch.
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 34), { count: 8 });
+  const finer = ring.steps(3, (cur, next) => next.splitEdges(cur.edges.filter((e) => e.length > 12)));
+  return [strokes(finer), finer.points.map((p) => circle(p.x, p.y, 1, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## next.connect() · next.disconnect()
+
+<include>/_sig/Next.connect.mdx</include>
+<include>/_sig/Next.disconnect.mdx</include>
+
+`connect` adds one edge between two references: rows, vertex views, or handles from this batch. A pair that is already joined stays as it is. `disconnect` removes edges and keeps their points.
+
+```ts live
+import { sketch, circle, strokes, distance } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cloud = t.scatter({ spacing: 12 });
+  const joined = cloud.steps(1, (cur, next) => {
+    for (const p of cur.points) for (const q of cur.points) if (q.index > p.index && distance(p, q) < 16) next.connect(p, q);
+  });
+  const trimmed = joined.steps(1, (cur, next) => next.disconnect(cur.edges.filter((e) => e.a.x < 50 && e.b.x < 50)));
+  return [strokes(trimmed), cloud.points.map((p) => circle(p.x, p.y, 0.8))];
+});
+```
+
+## next.remove() · next.addPoint()
+
+<include>/_sig/Next.remove.mdx</include>
+<include>/_sig/Next.addPoint.mdx</include>
+
+`remove` deletes points and the edges that touch them. The neighbours of a removed point are not joined. `addPoint` adds a loose point and returns a handle that `connect` accepts in the same batch.
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 34), { count: 36 });
+  const gapped = ring.steps(1, (cur, next) => {
+    next.remove(cur.points.filter((p) => p.index % 9 === 0));
+    const h = next.addPoint([50, 50], {});
+    for (const p of cur.points.filter((p) => p.index % 9 === 4)) next.connect(p, h);
+  });
+  return strokes(gapped);
+});
+```
+
+## Forces
+
+<include>/_sig/force.tension.mdx</include>
+<include>/_sig/force.separation.mdx</include>
+<include>/_sig/force.attract.mdx</include>
+<include>/_sig/force.drift.mdx</include>
+<include>/_sig/force.boundary.mdx</include>
+<include>/_sig/force.vortex.mdx</include>
+<include>/_sig/force.field.mdx</include>
+<include>/_sig/force.relax.mdx</include>
+<include>/_sig/force.sum.mdx</include>
+
+A force is prepared once, with its sources, and then gives a vector at a point. Nothing moves until a rule calls `next.move` with it. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`. `attract` pulls toward sources. `drift` reads a direction from a noise function and turns slowly with the iteration, so it takes `(p, k)`. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. `sum` adds forces.
+
+```ts live
+import { sketch, circle, strokes, force, mul } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 18), { count: 48 });
+  const frame = [[6, 6], [94, 6], [94, 94], [6, 94]];
+  const grown = ring.steps(70, (cur, next, k) => {
+    const push = force.sum(force.separation(cur, { radius: 6, excludeConnected: true }), force.tension(cur, { rest: 3 }), force.drift(t.noise, { amount: 1, frequency: 0.08 }), force.boundary(frame, { radius: 6 }));
+    next.move(cur.points, (p) => mul(push(p, k), 0.4));
+    next.splitEdges(cur.edges.filter((e) => e.length > 5));
+  });
+  return [strokes(grown), strokes(t.material(circle(50, 50, 18)), { pen: 'pigma-005-black' })];
+});
+```
+
+## force.nearby()
+
+<include>/_sig/force.nearby.mdx</include>
+<include>/_sig/force.adjacent.mdx</include>
+
+Your own interaction. `nearby` finds every source within `radius` of a point, from an index built once for the state, and sums what `contribution(p, q)` returns for each. A vertex never interacts with itself. `skip: force.adjacent(m)` leaves out the vertices that `p` is joined to.
+
+```ts live
+import { sketch, circle, strokes, force, sub, unit, mul, distance } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cloud = t.scatter({ spacing: 9 });
+  const spread = cloud.steps(12, (cur, next) => {
+    const repel = force.nearby(cur, { radius: 14 }, (p, q) => mul(unit(sub(p, q)), 14 - distance(p, q)));
+    const keep = force.boundary([[6, 6], [94, 6], [94, 94], [6, 94]], { radius: 12, strength: 3 });
+    next.move(cur.points, (p) => mul(force.sum(repel, keep)(p), 0.05));
+  });
+  return [cloud.points.map((p) => circle(p.x, p.y, 0.6)), spread.points.map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-blue' }))];
+});
+```

@@ -1,0 +1,194 @@
+---
+title: Selections
+description: Rows of a material, chosen and combined, and what they know about each other.
+---
+
+`m.points` and `m.edges` are collections of rows. `filter` picks rows from one and returns a selection: the same kind of collection, bound to the same state, holding only the rows that passed. A selection filters, iterates, maps and groups again like the whole. Nothing is copied. Two selections combine only when they come from the same state.
+
+:::note
+A row number belongs to one state. When a step adds or removes vertices, the rows are numbered again, so a selection from a step before is not valid in the step after. Select again from the current state.
+:::
+
+## p
+
+<include>/_sig/Vertex.index.mdx</include>
+<include>/_sig/Vertex.x.mdx</include>
+<include>/_sig/Vertex.y.mdx</include>
+
+One vertex, as a view of its row: `index`, `x`, `y`, and every column by name. A view reads the state it came from. To carry a view into a later state, hold its data, not the view.
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 38), { count: 20 }).attribute('k', (p) => p.index % 4);
+  return [strokes(ring), ring.points.map((p) => circle(p.x, p.y, 1 + p.k, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## edge
+
+<include>/_sig/Edge.a.mdx</include>
+<include>/_sig/Edge.b.mdx</include>
+<include>/_sig/Edge.length.mdx</include>
+<include>/_sig/Edge.index.mdx</include>
+<include>/_sig/Edge.attrs.mdx</include>
+
+One edge, as a view: its two vertex views `a` and `b` in stored order, its `length`, its row, and its columns under `attrs`.
+
+```ts live
+import { sketch, curve, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const path = curve(t.times(9, (k) => [10 + k * 10, 50 + Math.sin(k * 1.3) * 32]), { closed: false });
+  const long = path.edges.filter((e) => e.length > 20);
+  return [strokes(path), strokes(long, { pen: 'pigma-05-black' })];
+});
+```
+
+## filter()
+
+<include>/_sig/PointSelection.filter.mdx</include>
+<include>/_sig/EdgeSelection.filter.mdx</include>
+
+The rows that pass the test, as a selection in source order. A selection has `length`, `at(i)`, `map`, `find`, `some`, `every`, `has(view)` and `indices`. Filter a selection again to narrow it.
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cloud = t.scatter({ spacing: 7 });
+  const right = cloud.points.filter((p) => p.x > 50);
+  const top = right.filter((p) => p.y < 50);
+  return [cloud.points.map((p) => circle(p.x, p.y, 0.8)), top.map((p) => circle(p.x, p.y, 2, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## groupBy()
+
+<include>/_sig/PointSelection.groupBy.mdx</include>
+<include>/_sig/EdgeSelection.groupBy.mdx</include>
+
+Splits a collection into selections, one per key, in the order the keys first appear. Each selection carries its `key`. The key is not a column: a later state does not know it.
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cloud = t.scatter({ spacing: 8 }).points.filter((p) => p.x > 4 && p.x < 96 && p.y > 4 && p.y < 96).extract();
+  const bands = cloud.points.groupBy((p) => Math.floor(p.y / 25));
+  return bands.map((sel) => sel.map((p) => circle(p.x, p.y, 0.6 + sel.key * 0.6, { pen: sel.key % 2 ? 'stabilo-88-blue' : undefined })));
+});
+```
+
+## union() · intersect() · subtract() · complement()
+
+<include>/_sig/PointSelection.union.mdx</include>
+<include>/_sig/PointSelection.intersect.mdx</include>
+<include>/_sig/PointSelection.subtract.mdx</include>
+<include>/_sig/PointSelection.complement.mdx</include>
+
+Set operations on selections of the same state. `complement()` is every row that is not selected. Edge selections have the same four.
+
+```ts live
+import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cloud = t.scatter({ spacing: 6 });
+  const left = cloud.points.filter((p) => p.x < 55);
+  const low = cloud.points.filter((p) => p.y > 45);
+  const both = left.intersect(low);
+  return [cloud.points.map((p) => circle(p.x, p.y, 0.7)), left.subtract(low).map((p) => circle(p.x, p.y, 1.8)), both.map((p) => circle(p.x, p.y, 1.8, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## extract()
+
+<include>/_sig/PointSelection.extract.mdx</include>
+<include>/_sig/EdgeSelection.extract.mdx</include>
+
+A new material made from the selection: the selected points with every column and no edges, or the selected edges with their endpoints and both sets of columns. Rows are compacted in source order, and the new material starts its own history. This is the one way to get independent material out of a selection.
+
+```ts live
+import { sketch, circle, strokes, force, mul } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 38), { count: 40 });
+  const arc = ring.edges.filter((e) => e.a.y < 50).extract();
+  const relaxed = arc.steps(6, (cur, next) => next.move(cur.points, (p) => mul(force.relax(cur)(p), 0.5)));
+  return [strokes(ring, { pen: 'pigma-005-black' }), strokes(relaxed, { pen: 'stabilo-88-blue' })];
+});
+```
+
+## inducedEdges() · edges.points · edges.curves()
+
+<include>/_sig/PointSelection.inducedEdges.mdx</include>
+<include>/_sig/EdgeSelection.points.mdx</include>
+<include>/_sig/EdgeSelection.curves.mdx</include>
+
+`inducedEdges()` is the source edges with both ends in the point selection. `edges.points` is the endpoints of an edge selection, each once. `edges.curves()` walks the selected edges into chains, each edge once, with ends and junctions those of the selection alone. `strokes(edges)` draws those chains.
+
+```ts live
+import { sketch, circle, strokes, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const web = connect.triangulate(t.scatter({ spacing: 12 }));
+  const inner = web.points.filter((p) => Math.hypot(p.x - 50, p.y - 50) < 30);
+  return [strokes(web, { pen: 'pigma-005-black' }), strokes(inner.inducedEdges(), { pen: 'pigma-05-black' })];
+});
+```
+
+## connectedPoints() · degree() · isConnected()
+
+<include>/_sig/Material.connectedPoints.mdx</include>
+<include>/_sig/Material.degree.mdx</include>
+<include>/_sig/Material.isConnected.mdx</include>
+
+What the edges say about one vertex: the vertices it is joined to, how many, and whether it is joined to a given one. A vertex with one edge is an end; with three or more, a junction.
+
+:::note
+These words change in the relations redesign: adjacency becomes a selection on the vertex, `p.adjacent`, so that it combines with other selections.
+:::
+
+```ts live
+import { sketch, circle, strokes, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const tree = connect.tree(t.scatter({ spacing: 11 }).points.filter((p) => p.x > 4 && p.x < 96 && p.y > 4 && p.y < 96).extract());
+  const mark = (p, pen) => circle(p.x, p.y, 1.4, { pen });
+  return [strokes(tree), tree.points.filter((p) => tree.degree(p) === 1).map((p) => mark(p, 'stabilo-88-blue')), tree.points.filter((p) => tree.degree(p) > 2).map((p) => mark(p, undefined))];
+});
+```
+
+## components()
+
+<include>/_sig/components.mdx</include>
+
+The connected pieces of a material, in one pass: `count`, a `labels` column and `label(vertex)`. A loose vertex is a piece of its own.
+
+```ts live
+import { sketch, strokes, components, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const lattice = connect.unimpeded(t.scatter({ spacing: 9 }), { room: 3.5 });
+  const pieces = components(lattice);
+  return lattice.edges.groupBy((e) => pieces.label(e.a)).map((sel) => strokes(sel, { pen: sel.key % 2 ? 'stabilo-88-blue' : 'pigma-005-black' }));
+});
+```
+
+## query.edges()
+
+<include>/_sig/query.edges.mdx</include>
+
+A spatial index over the edges of one state, built once. `nearest(position, { within, excludeIncident? })` gives the closest edge within a distance, with the closest point on it. `firstHit(from, to, { excludeIncident? })` gives the first edge that a straight move would cross. Both answer from the state they were built on and never edit it. Build the query outside the callback that uses it.
+
+```ts live
+import { sketch, circle, strokes, query, line, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const web = connect.triangulate(t.scatter({ spacing: 14 }));
+  const q = query.edges(web);
+  const probes = t.scatter({ spacing: 15 });
+  return [strokes(web, { pen: 'pigma-005-black' }), probes.points.map((p) => { const hit = q.nearest(p, { within: 10 }); return hit ? line(p.x, p.y, hit.position[0], hit.position[1], { pen: 'stabilo-88-blue' }) : circle(p.x, p.y, 1); })];
+});
+```

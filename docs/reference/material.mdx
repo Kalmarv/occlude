@@ -18,14 +18,14 @@ A row index belongs to one state. After a step that adds or removes vertices, th
 <include>/_sig/Material.attrs.mdx</include>
 <include>/_sig/Material.closed.mdx</include>
 
-The value. `points` and `edges` are collections of rows: iterate them, or use `length`, `at(i)`, `map` and `filter`. `pts` is the positions as pairs. `x`, `y` and `attrs.name` are the raw columns. `closed` is true for one ring. `strokes(m)` draws every chain once.
+The value. `points` and `edges` are collections of rows: iterate them, or use `length`, `at(i)`, `map` and `filter`. `pts` is the positions as pairs. `x`, `y` and `attrs.name` are the raw columns. `closed` is true for one ring. `strokes(m)` draws every chain once. Here a rectangle becomes four vertices and four edges.
 
 ```ts live
-import { sketch, circle, strokes, curve } from 'occlude';
+import { sketch, rect, circle, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const m = curve([[10, 80], [30, 20], [55, 65], [90, 15]], { closed: false });
-  return [strokes(m), m.points.map((p) => circle(p.x, p.y, 1.5, { pen: 'stabilo-88-blue' }))];
+  const m = t.material(rect(15, 20, 70, 60));
+  return [strokes(m), m.points.map((p) => circle(p.x, p.y, 1.5, { pen: 'stabilo-88-blue' })), m.edges.map((e) => circle((e.a.x + e.b.x) / 2, (e.a.y + e.b.y) / 2, 0.8))];
 });
 ```
 
