@@ -101,7 +101,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/label.mdx</include>
 <include>/_sig/labelWidth.mdx</include>
 
-Single-stroke text with cap height `h`: capitals, digits and basic punctuation. Lower case is drawn as capitals. The point `(x, y)` is the top left of the text. `align: 'center'` or `'right'` moves the anchor; the default is `'left'`. `labelWidth(text, h)` is the width the same call will use.
+Single-stroke text with cap height `h`: capitals, digits and basic punctuation. The font has capitals only, so lower case comes out as capitals. The point `(x, y)` is the top left of the text. `align: 'center'` or `'right'` moves the anchor. The default is `'left'`. `labelWidth(text, h)` is the width the same call will use.
 
 ```ts live
 import { sketch, label, labelWidth, rect } from 'occlude';

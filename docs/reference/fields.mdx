@@ -29,7 +29,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Toolkit.within.1.mdx</include>
 <include>/_sig/Toolkit.within.2.mdx</include>
 
-Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. A material is cut at the boundary. A point selection and a face collection are filtered. `area` is a shape, a loop of pairs, a face, or a contour material.
+Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. It filters a point selection or a face collection. `area` is a shape, a loop of pairs, a face, or a contour material.
 
 ```ts live
 import { sketch, circle, rect, strokes } from 'occlude';
