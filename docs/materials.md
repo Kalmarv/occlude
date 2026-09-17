@@ -2336,31 +2336,34 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 });
 ```
 
-Composed with the rest of the toolkit: grown by `t.walkers` with no `avoid` at
-all, so the strands are allowed to run over one another, wobbled by
-`oscillate`, and only then told which of them is on top.
+Composed with the rest of the toolkit: grown by a rule rather than drawn, with
+nothing keeping the strands apart, so they are allowed to run over one another;
+wobbled by `oscillate`; and only then told which of them is on top.
 
 ```ts live
-import { sketch, strokes, curl, oscillate, interlace, circle } from 'occlude';
+import { sketch, strokes, material, curl, oscillate, interlace, add, mul, fromAngle } from 'occlude';
 
-// Composed: a tangle that was grown, not drawn. The strands come from
-// `t.walkers` steered by the curl of noise and with no `avoid` at all, so for
-// once they are allowed to run over one another; `oscillate` gives each a
-// wobble; and `interlace` then decides, at every one of the crossings that
-// made, which strand is on top. Three operations that know nothing about each
+// Composed: a tangle that was grown, not drawn. Each strand is a tip with a
+// heading, extruded one step at a time and steered toward the curl of a noise
+// field — the rule is four lines of `steps`, and nothing in it keeps a strand
+// off another, so for once they run over one another. `oscillate` gives each
+// a wobble; `interlace` then decides, at every one of the crossings that made,
+// which strand is on top. Three operations that know nothing about each
 // other, and a nest at the end of it.
 export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
   const flow = curl((x, y) => t.noise(x / 40, y / 40));
-  const seeds = t.times(26, (k) => {
-    const a = (k / 26) * Math.PI * 2;
-    return { x: 100 + Math.cos(a) * 44, y: 50 + Math.sin(a) * 24, heading: a + Math.PI };
-  });
-  const grown = t.walkers(seeds, {
-    steps: 150, step: 1.1,
-    steer: (w) => {
-      const [dx, dy] = flow(w.x, w.y);
-      return w.heading * 0.75 + Math.atan2(dy, dx) * 0.25;
-    },
+  const seeds = material(
+    t.times(26, (k) => { const a = (k / 26) * Math.PI * 2; return [100 + Math.cos(a) * 44, 50 + Math.sin(a) * 24]; }),
+    { heading: t.times(26, (k) => (k / 26) * Math.PI * 2 + Math.PI), tip: 1 },
+  );
+  const grown = seeds.steps(150, (cur, next) => {
+    const tips = cur.points.filter((p) => p.tip === 1);
+    next.extrude(tips, (p) => {
+      const [dx, dy] = flow(p.x, p.y);
+      const heading = p.heading * 0.75 + Math.atan2(dy, dx) * 0.25;
+      return { position: add(p, mul(fromAngle(heading), 1.1)), attributes: { heading, tip: 1 } };
+    });
+    next.set(tips, { tip: 0 });
   });
   const wobbled = oscillate(grown, { wavelength: 13, amplitude: 1.6 });
   return strokes(interlace(wobbled, { gap: 2.2 }));
