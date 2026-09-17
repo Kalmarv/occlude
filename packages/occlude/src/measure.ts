@@ -15,6 +15,10 @@
  * measurement over Voronoi cells with the settle's bounds and resolution
  * reproduces its per-cell demand integrals.
  *
+ * `mean` is the average of the samples inside the face, so it always lies
+ * within the field's own range; `integral` is the raster's ∫field dA over
+ * the face. A face that caught no sample has no mean.
+ *
  * A density-weighted centre needs a nonnegative field with positive total
  * over the face; with any negative sample, or zero total, it is null.
  * Signed fields still have an integral and a mean.
@@ -391,7 +395,13 @@ export function measureFaces(source: Faces, members: readonly Face[], field: ((x
       }
     }
     r.integral = integral * cellArea;
-    r.mean = f.area > 0 ? r.integral / f.area : NaN;
+    // The mean is the average of the samples that fell inside, not the
+    // integral over the geometric area: a face smaller than a raster cell
+    // divides a whole cell's worth of integral by almost nothing and reports
+    // a mean far outside the field's own range. Averaging the samples stays
+    // inside that range, converges to the same value as the raster refines,
+    // and makes a face that caught no sample NaN — absent — rather than 0.
+    r.mean = samples > 0 ? integral / samples : NaN;
     r.weightedCentroid = !negative && integral > 0 ? [wx / integral, wy / integral] : null;
     r.samples = samples;
   }

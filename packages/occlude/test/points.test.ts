@@ -305,6 +305,28 @@ describe('face measurements', () => {
     expect(annulus.filter(() => false).measure(() => 1).length).toBe(0);
   });
 
+  it('mean stays inside the field\'s range, and a face the raster misses has none', () => {
+    const rect = (x0: number, y0: number, w: number, h: number) => curve([[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]], { closed: true });
+    const bounds = { x: 0, y: 0, w: 100, h: 100 };
+    const unit = (x: number) => 0.25 + (x / 100) * 0.5; // 0.25 … 0.75 everywhere
+    // A sliver far thinner than a raster cell still reports a mean the field
+    // could actually produce; dividing the integral by its geometric area
+    // would not (that is what reported 7.4 for a 0…1 field).
+    const sliver = rect(20, 50, 60, 0.02).faces().measure(unit, { bounds, resolution: 64 }).results[0];
+    if (sliver.samples > 0) {
+      expect(sliver.mean).toBeGreaterThanOrEqual(0.25);
+      expect(sliver.mean).toBeLessThanOrEqual(0.75);
+    }
+    // A face too small to contain any raster centre has no mean at all.
+    const speck = rect(50.2, 50.2, 0.01, 0.01).faces().measure(unit, { bounds, resolution: 32 }).results[0];
+    expect(speck.samples).toBe(0);
+    expect(Number.isNaN(speck.mean)).toBe(true);
+    // A well-covered face is unaffected: a constant field means itself.
+    const big = rect(10, 10, 80, 80).faces().measure(() => 0.4, { bounds, resolution: 300 }).results[0];
+    expect(big.mean).toBeCloseTo(0.4, 6);
+    expect(big.integral).toBeCloseTo(0.4 * 80 * 80, -1);
+  });
+
   it('shape columns: principal axis, elongation and the inscribed circle, all without a field', () => {
     const rect = (x0: number, y0: number, w: number, h: number) => curve([[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]], { closed: true });
     // A square has no principal axis: elongation 0, and orientation reports 0
