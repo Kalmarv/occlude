@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { A4, SQ, toolkit } from './helpers/run.js';
 import {
+  liveExampleToJs,
   compileSketch,
   fill,
   circle, ellipse, exportGcode, exportPng, exportSvg, initOcclude,
@@ -1328,5 +1329,16 @@ describe('scatter covers every island of a field', () => {
       expect(left).toBeGreaterThan(40);
       expect(right).toBeGreaterThan(40);
     }
+  });
+});
+
+describe('docs example transform', () => {
+  it('rewrites imports, including a renamed one', () => {
+    expect(liveExampleToJs("import { sketch, circle } from 'occlude';\nexport default sketch({}, () => circle(0, 0, 1));"))
+      .toBe("const { sketch, circle } = require('occlude');\nmodule.exports.default = sketch({}, () => circle(0, 0, 1));");
+    // `circle as disc` is ordinary ESM; in a destructuring binding the rename
+    // is a colon, and emitting `as` there is invalid JavaScript.
+    expect(liveExampleToJs("import { circle as disc } from 'occlude';")).toBe("const { circle: disc } = require('occlude');");
+    expect(liveExampleToJs("import { sphere, circle as ring } from 'occlude/3d';")).toBe("const { sphere, circle: ring } = require('occlude/3d');");
   });
 });

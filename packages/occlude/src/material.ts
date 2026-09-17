@@ -1391,6 +1391,145 @@ export const connect = {
     }
     return mm.withEdges(pairs, opts.edgeAttributes);
   },
+  /**
+   * One route through every row, visiting each once: a chain, or a ring with
+   * `closed`. The rows are not reordered — the route is in the edges, so
+   * every column stays where it was.
+   *
+   * `cost(a, b)` is what the route tries to spend less of, read from two
+   * vertex views, and it is the whole point: the default is the distance
+   * between them, and anything else makes a different drawing out of the
+   * same points. `cost: (a, b) => 1 - img.lum((a.x + b.x) / 2, (a.y + b.y) / 2)`
+   * prefers to travel over the dark parts of a picture, so the joining line
+   * is itself drawing rather than just getting there.
+   *
+   * The starting route is nearest-neighbour by plain distance — a start, not
+   * an answer — and `cost` then drives the improvement: 2-opt, first
+   * improvement, repeated until no exchange helps. Exchanges are tried
+   * between each row and its `candidates` nearest neighbours rather than
+   * every pair, which is what keeps it linear in the neighbourhood rather
+   * than quadratic in the cloud. Those neighbours are chosen by DISTANCE,
+   * whatever `cost` says — right for a cost that is mostly about travel, and
+   * a real limit on one that is not: a cost over a column alone is improved
+   * only among geometric neighbours, so it sorts partly rather than wholly.
+   * Reversing a run leaves an undirected cost alone, so `cost` is taken to be
+   * symmetric; an asymmetric one still runs, it just is not what is being
+   * minimised.
+   *
+   * Deterministic: the same rows and the same cost give the same route.
+   */
+  tour(m: PointsLike, opts: { cost?: (a: Vertex, b: Vertex) => number; closed?: boolean; candidates?: number; edgeAttributes?: Record<string, number> } = {}): Material {
+    const mm = material(m);
+    const n = mm.n;
+    const k = opts.candidates ?? 12;
+    if (!Number.isInteger(k) || k < 2) throw new Error(`connect.tour: candidates must be a whole number of neighbours, at least 2 (got ${String(opts.candidates)})`);
+    if (opts.cost !== undefined && typeof opts.cost !== 'function') throw new Error('connect.tour: cost must be a function of two vertex views');
+    if (n < 2) return mm.withEdges([], opts.edgeAttributes);
+    const views = Array.from({ length: n }, (_, i) => mm.vertex(i));
+    const raw = opts.cost;
+    const cache = new Map<number, number>();
+    const cost = (i: number, j: number): number => {
+      if (!raw) return Math.hypot(mm.x[i] - mm.x[j], mm.y[i] - mm.y[j]);
+      const key = i < j ? i * n + j : j * n + i;
+      let v = cache.get(key);
+      if (v === undefined) {
+        v = raw(views[i], views[j]);
+        if (typeof v !== 'number' || Number.isNaN(v)) throw new Error(`connect.tour: cost(${i}, ${j}) is ${String(v)} — it must be a number`);
+        cache.set(key, v);
+      }
+      return v;
+    };
+    // Nearest-neighbour start, by distance, from row 0.
+    const grid = pointGrid(mm.x, mm.y, Math.max(2, Math.ceil(Math.sqrt(n / 2))));
+    const used = new Uint8Array(n);
+    const order: number[] = [0];
+    used[0] = 1;
+    for (let step = 1; step < n; step++) {
+      const from = order[order.length - 1];
+      const cx = grid.col(mm.x[from]);
+      const cy = grid.row(mm.y[from]);
+      let best = -1;
+      let bestD = Infinity;
+      for (let r = 0; ; r++) {
+        for (const j of grid.ring(cx, cy, r)) {
+          if (used[j]) continue;
+          const d = Math.hypot(mm.x[j] - mm.x[from], mm.y[j] - mm.y[from]);
+          if (d < bestD || (d === bestD && j < best)) {
+            bestD = d;
+            best = j;
+          }
+        }
+        const reach = r * grid.cell;
+        if ((best >= 0 && bestD <= reach) || r > grid.maxRing) break;
+      }
+      order.push(best);
+      used[best] = 1;
+    }
+    // Candidate neighbours, by distance, for the exchange search.
+    const near: number[][] = Array.from({ length: n }, (_, i) => {
+      const cand: [number, number][] = [];
+      const cx = grid.col(mm.x[i]);
+      const cy = grid.row(mm.y[i]);
+      for (let r = 0; ; r++) {
+        for (const j of grid.ring(cx, cy, r)) {
+          if (j !== i) cand.push([Math.hypot(mm.x[j] - mm.x[i], mm.y[j] - mm.y[i]), j]);
+        }
+        cand.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+        const reach = r * grid.cell;
+        if ((cand.length >= k && cand[k - 1][0] <= reach) || r > grid.maxRing) break;
+      }
+      return cand.slice(0, k).map(([, j]) => j);
+    });
+    // 2-opt to a local optimum. A closed route may exchange anywhere; an open
+    // one keeps its two ends, so the cuts stop short of them.
+    const pos = new Int32Array(n);
+    const closed = opts.closed ?? false;
+    for (let i = 0; i < n; i++) pos[order[i]] = i;
+    const last = closed ? n - 1 : n - 2;
+    // A pass scans every position and takes the first improvement it finds at
+    // each, then moves on; it does not start again from the beginning. A cost
+    // unrelated to distance can want very many exchanges, and restarting the
+    // scan after each one turns that into quadratic work over an already
+    // quadratic search. Only the reversed run is reindexed, for the same
+    // reason. Each exchange strictly lowers the total, so the passes end.
+    for (let improved = true; improved;) {
+      improved = false;
+      for (let i = 0; i <= last; i++) {
+        const a = order[i];
+        const b = order[(i + 1) % n];
+        const ab = cost(a, b);
+        for (const c of near[a]) {
+          const j = pos[c];
+          // The two edges must be distinct and NOT adjacent. With j === i + 1
+          // they share the vertex c === b, the four terms cancel in exact
+          // arithmetic, and the reversal of a single element changes nothing —
+          // but evaluated left to right the cancellation leaves a rounding
+          // residue that reads as a positive gain, and the same non-move is
+          // accepted forever. Excluding the degenerate exchange is the honest
+          // fix; an epsilon on the gain would only hide it.
+          if (j <= i + 1 || j > last) continue;
+          const d = order[(j + 1) % n];
+          if (d === a) continue;
+          const gain = ab + cost(c, d) - cost(a, c) - cost(b, d);
+          if (gain > 0) {
+            for (let p = i + 1, q = j; p < q; p++, q--) {
+              const t = order[p];
+              order[p] = order[q];
+              order[q] = t;
+            }
+            for (let p = i + 1; p <= j; p++) pos[order[p]] = p;
+            improved = true;
+            break;
+          }
+        }
+      }
+    }
+    const pairs: [number, number][] = [];
+    for (let i = 0; i + 1 < n; i++) pairs.push([order[i], order[i + 1]]);
+    if (closed && n > 2) pairs.push([order[n - 1], order[0]]);
+    return mm.withEdges(pairs, opts.edgeAttributes);
+  },
+
   /** Row i of `a` joined to row i of `b`, in one material (a's rows first).
    * Lengths must match; coincident points stay distinct. */
   pairs(a: PointsLike, b: PointsLike, edgeAttributes?: Record<string, number>): Material {

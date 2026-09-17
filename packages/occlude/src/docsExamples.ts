@@ -10,7 +10,9 @@ export function liveExampleToJs(src: string): string {
   return src
     .replace(
       /import\s*\{([^}]*)\}\s*from\s*['"](occlude(?:\/3d(?:\/advanced)?)?)['"];?/g,
-      (_, names: string, module: string) => `const {${names}} = require('${module}');`,
+      // `circle as disc` is ordinary ESM, not a type annotation, but in a
+      // destructuring binding the rename is spelled with a colon.
+      (_, names: string, module: string) => `const {${names.replace(/\s+as\s+/g, ': ')}} = require('${module}');`,
     )
     .replace(/export\s+default\s+/, 'module.exports.default = ');
 }

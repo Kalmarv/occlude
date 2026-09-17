@@ -150,6 +150,131 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
 });
 ```
 
+### tour
+
+`connect.tour(m, { cost?, closed?, candidates? })` finds one route through every row, visiting each once, and returns it as a chain — or a ring with `closed`. The rows are not reordered: the route is in the edges, so every column stays where it was.
+
+`cost(a, b)` is what the route tries to spend less of, read from two vertex views. It defaults to the distance between them, and **anything else makes a different drawing out of the same points**: `cost: (a, b) => Math.hypot(a.x - b.x, a.y - b.y) * (1 + 5 * (1 - img.lum(…)))` makes crossing pale paper expensive, so the line that merely joins the dots prefers to run through the picture and the travel becomes the ink.
+
+The starting route is nearest-neighbour by plain distance — a start, not an answer — and `cost` then drives the improvement: 2-opt, first improvement, repeated until no exchange helps. Two details are worth knowing. Exchanges are tried between each row and its `candidates` nearest neighbours (12 by default) rather than every pair, and those neighbours are chosen by **distance** whatever `cost` says: right for a cost that is mostly about travel, and a real limit on one that is not, which is improved only among geometric neighbours. And reversing a run leaves an undirected cost alone, so `cost` is taken to be symmetric; an asymmetric one still runs, it just is not what is being minimised. The result is deterministic: the same rows and the same cost give the same route.
+
+The same forty points, twice — joined in the order they were made, and joined by a tour.
+
+```ts live
+import { sketch, strokes, connect, circle, group } from 'occlude';
+
+// The same forty points, twice. Left: joined in the order they were made.
+// Right: joined by a tour. The rows did not move — only the edges did.
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const pts = t.scatter({ spacing: 13, within: circle(48, 50, 42) });
+  const dots = (m) => m.points.map((p) => circle(p.x, p.y, 0.9));
+  return [
+    strokes(connect.chain(pts), { pen: 'stabilo-88-blue' }), dots(pts),
+    group({ translate: [104, 0] }, strokes(connect.tour(pts)), dots(pts)),
+  ];
+});
+```
+
+A fish in one unbroken line. The silhouette is nothing but a density, and the tour threads every point of it onto a single route; the pen goes down once and does not lift until the drawing is finished. The one long chord across the tail root is the honest cost of that promise — there is no second way through.
+
+```ts live
+import { sketch, strokes, connect } from 'occlude';
+
+// A fish in one unbroken line. The silhouette is only a density: points go
+// where there is fish and nowhere else, packed tighter toward the head and
+// kept out of the eye altogether, and one tour then visits every one of them.
+// The pen goes down once and does not lift until the drawing is finished.
+export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
+  // A lens of two circles, pointed at the mouth and at the tail root.
+  const body = (x, y) => Math.hypot(x - 88, y - 31.5) < 40.5 && Math.hypot(x - 88, y - 68.5) < 40.5;
+  const tail = (x, y) => x >= 120 && x <= 160 && Math.abs(y - 50) <= (x - 120) * 0.6;
+  const dorsal = (x, y) => x >= 84 && x <= 118 && y <= 34 && 34 - y <= (118 - x) * 0.55;
+  const ventral = (x, y) => x >= 80 && x <= 110 && y >= 66 && y - 66 <= (110 - x) * 0.6;
+  const eye = (x, y) => Math.hypot(x - 68, y - 43) < 5;
+  const density = (x, y) =>
+    (body(x, y) || tail(x, y) || dorsal(x, y) || ventral(x, y)) && !eye(x, y)
+      ? 0.38 + 0.62 * Math.max(0, 1 - (x - 50) / 78)
+      : 0;
+  return strokes(connect.tour(t.scatter(density, { spacing: 1.8 })));
+});
+```
+
+Composed with the rest of the toolkit: the cost is the drawing. Points settle where the photograph is dark, and the tour is told that crossing pale paper is expensive, so the leaves come out as the negative space the line declines to enter.
+
+```ts live
+import { sketch, strokes, connect } from 'occlude';
+
+// The cost is the drawing. Points settle where the photograph is dark, and
+// the tour is then told that crossing pale paper is expensive — so the line
+// that merely joins the dots prefers to run through the picture, and the
+// travel becomes the ink. One pen-down for the whole plate.
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const img = t.image('ivy.png', { x: 6, y: 4, width: 88 });
+  const dark = img.field('dark', { area: 1.2 });
+  const density = (x, y) => { const d = dark(x, y); return d < 0.42 ? 0 : 0.25 + 0.75 * ((d - 0.42) / 0.58); };
+  const pts = t.settle(t.scatter(density, { spacing: 2.1 }), { density, spacing: 2.1, iterations: 8 });
+  const route = connect.tour(pts, {
+    cost: (a, b) => Math.hypot(a.x - b.x, a.y - b.y) * (1 + 5 * (1 - dark((a.x + b.x) / 2, (a.y + b.y) / 2))),
+  });
+  return strokes(route);
+});
+```
+
+Poked: a cost with nothing to do with where the points are. Each point carries a `shade`, and the route is asked only to keep consecutive shades close — so the tour stops being a route and becomes a **sort**, and the line you see is the sorted order made visible. It is a sequencer that happens to be usually asked about distance.
+
+```ts live
+import { sketch, strokes, connect, circle, material } from 'occlude';
+
+// Poked: a cost with nothing to do with where the points are. Each point
+// carries a `shade`, and the route is asked only to keep consecutive shades
+// close — so the tour stops being a route and becomes a SORT, and the line
+// you see is the sorted order made visible. The dots are drawn at their
+// shade, so you can read the sort off the page.
+export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
+  const pts = material(t.times(150, () => {
+    const x = t.rnd(10, 190);
+    const y = t.rnd(10, 90);
+    return { x, y, shade: t.noise(x / 40, y / 40) * 0.5 + 0.5 };
+  }));
+  const sorted = connect.tour(pts, { cost: (a, b) => Math.abs(a.shade - b.shade) });
+  return [
+    strokes(sorted, { pen: 'stabilo-88-blue' }),
+    pts.points.map((p) => circle(p.x, p.y, 0.5 + p.shade * 2.4)),
+  ];
+});
+```
+
+And in three dimensions, where the point is simply that a route is a path. The shortest way round a hundred scattered points becomes the spine of a solid: swept into a tube it is one closed rope that must pass over and under itself, and every crossing is the drawing telling you the order it was threaded in.
+
+```ts live
+import { sketch, pen, mm, connect, circle as disc } from 'occlude';
+import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
+
+// A tour is a route, and a route is a path — so the shortest way round a
+// hundred scattered points becomes the spine of a solid. Swept into a tube it
+// is a single closed rope that has to pass over and under itself, and the
+// classifier decides which: everything crossing here is the drawing telling
+// you the order it was threaded in.
+export default sketch({ seed: 21, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
+  const route = connect.tour(t.scatter({ spacing: 8.5, within: disc(100, 50, 46) }), { closed: true });
+  let pts = route.curves()[0].pts.map(([x, y]) => [x, y]);
+  // A tour turns hard; a rope does not. Two Laplacian passes round it off.
+  for (let pass = 0; pass < 2; pass++) {
+    pts = pts.map(([x, y], k) => {
+      const [px, py] = pts[(k + pts.length - 1) % pts.length];
+      const [nx, ny] = pts[(k + 1) % pts.length];
+      return [(px + 2 * x + nx) / 4, (py + 2 * y + ny) / 4];
+    });
+  }
+  const path = polyline(pts.map(([x, y]) => [(x - 100) / 17, (y - 50) / 17, t.noise(x / 34, y / 34) * 2.1]), { closed: true });
+  return view(sweep(circle(0.1, { segments: 16 }), path), {
+    camera: orthographic({ eye: [3.5, 6, 3.4], target: [0, 0, 0], span: 6.4 }),
+    stroke: 'ink',
+    creaseAngle: 180,
+  });
+});
+```
+
 ### Vectors
 
 Vectors are tuples `[x, y]`. Every operation accepts `[x, y]` or `{ x, y }` (so a vertex view goes straight in), returns a fresh tuple and mutates nothing. `unit([0, 0])` is `[0, 0]`, so coincident points contribute no direction and no NaN. `mul` is scalar multiplication; `limit(v, max)` caps a length; `sumBy(items, fn)` totals a vector function over a collection. `dot(a, b)` and `cross(a, b)` are the two products, the cross a signed number: positive when `b` lies on the side `perp(a)` points to, negative on the other, zero when parallel or when either is the zero vector, so `Math.sign(cross(heading, toward))` is the side test a steering rule needs. `fromAngle(radians)` is the unit vector `[cos, sin]` and `angleOf(v)` its inverse through `atan2`, both in radians from +x toward +y; `angleOf([0, 0])` is 0.
