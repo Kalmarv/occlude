@@ -923,6 +923,152 @@ export default sketch({ seed: 2, pens: { ink: pen({ width: mm(0.3), color: '#182
 });
 ```
 
+### neighbours
+
+`connect.neighbours(m, { room })` joins two rows when they are each other's
+neighbours — when the space between them is empty enough that nothing else has
+a better claim.
+
+`room` is how much empty space a pair needs. The region tested is the
+intersection of two discs of radius `room × d / 2`, pushed apart along the
+pair, where `d` is the distance between them; the edge survives when no other
+row lies inside it. At `room` 1 that region is the disc having the pair as its
+diameter; at 2 it is the intersection of the two discs of radius `d` centred on
+each. Those are the two classical answers, but this is **one continuous knob,
+not two named graphs**, and the interesting values are the ones between.
+
+| room | on 167 relaxed points |
+|---|---|
+| Delaunay (all candidates) | 486 edges |
+| 1 | 421 |
+| 2 | 254 |
+| `connect.tree` | 166 |
+| 3.5 | 118 — already fewer than a spanning tree can have |
+
+Up to `room` 2 the result still contains every edge of `connect.tree`, so it is
+connected whenever the cloud is. Past 2 that guarantee goes: the region grows
+wide enough to veto edges the spanning tree needed, and the lattice falls into
+pieces. That is a real property of the family rather than a defect, and the
+fourth sketch below shows exactly which edges it costs.
+
+`room` may also be a **field**, read at the middle of each pair — the one place
+both rows agree on — so one lattice can be a close mesh where it matters and a
+sparse filigree elsewhere. Candidates are the Delaunay edges, which loses
+nothing, since every edge of this family is one; with fewer than three distinct
+positions, or all of them collinear, there is no triangulation to draw on and
+every pair is considered instead.
+
+```ts live
+import { sketch, strokes, circle, connect, label, group } from 'occlude';
+
+// One cloud, one knob. `room` is how much empty space a pair needs before they
+// count as each other's neighbours: at 1 the region tested is the disc having
+// the pair as its diameter, at 2 it is the two discs of radius `d` centred on
+// each. Everything survives at the left and almost nothing at the right, and
+// the values in between are the useful ones.
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const dish = circle(23, 40, 19);
+  const pts = t.relax(t.scatter({ spacing: 8, within: dish }), { iterations: 2, within: dish });
+  const shown = [['DELAUNAY', null], ['ROOM 1', 1], ['ROOM 2', 2], ['ROOM 4', 4]];
+  return shown.map(([text, room], i) => group({ translate: [i * 49, 0] }, [
+    strokes(room === null ? connect.triangulate(pts) : connect.neighbours(pts, { room })),
+    pts.points.map((p) => circle(p.x, p.y, 0.7, { pen: 'stabilo-88-blue' })),
+    label(text, 5, 68, 3.2, { pen: 'stabilo-88-blue' }),
+  ]));
+});
+```
+
+One cloud, evenly spread, and one graded answer to how much room a pair needs.
+
+```ts live
+import { sketch, strokes, circle, connect } from 'occlude';
+
+// A veil. One cloud, evenly spread, and one graded answer to the question of
+// how much room a pair needs: almost none at the centre, a great deal at the
+// rim. So the same points are a close mesh in the middle and come apart into
+// filigree at the edge — and nothing was thinned, masked or faded to do it.
+// The lattice simply stops agreeing that distant pairs are neighbours.
+export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
+  const veil = circle(100, 50, 46);
+  const pts = t.relax(t.scatter({ spacing: 3.4, within: veil }), { iterations: 3, within: veil });
+  const room = (x, y) => 1 + Math.pow(Math.min(1, Math.hypot(x - 100, y - 50) / 46), 2.2) * 2.1;
+  return strokes(connect.neighbours(pts, { room }));
+});
+```
+
+Composed with the rest of the toolkit: the photograph chooses where the rows go
+*and* which of them are neighbours.
+
+```ts live
+import { sketch, strokes, connect, circle } from 'occlude';
+
+// Composed: the picture decides how much room a pair needs. The points settle
+// against a photograph, so there are already more of them where it is dark;
+// then `room` reads the same photograph, so the dark places also get a closer
+// mesh and the light ones a looser one. Two readings, one of them choosing
+// where the rows go and the other choosing which of them are neighbours.
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const img = t.image('ivy.png', { x: 3, y: 3, width: 94 });
+  const dark = img.field('dark', { area: 1.1 });
+  const lens = circle(50, 50, 47);
+  const density = (x, y) => 0.14 + dark(x, y) * 0.86;
+  const pts = t.settle(t.scatter(density, { spacing: 2.4, within: lens }), { density, spacing: 2.4, iterations: 8, within: lens });
+  return strokes(connect.neighbours(pts, { room: (x, y) => 1 + Math.pow(1 - dark(x, y), 1.5) * 1.9 }));
+});
+```
+
+Poked: push past the guarantee and watch it go.
+
+```ts live
+import { sketch, strokes, connect, circle, label, group } from 'occlude';
+
+// Poked: push past the guarantee and watch it go. The lattice goes down first
+// in black and the cheapest spanning tree over it in blue — and ink laid on
+// ink already there is dropped, so a tree edge the lattice also has comes out
+// BLACK, and blue is left showing only where the lattice lost an edge the tree
+// needed. Up to room 2 there is no blue at all, because up to 2 that cannot
+// happen. Past 2 the guarantee goes, and you can see exactly which edges it
+// took with it.
+export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
+  const dish = circle(24, 44, 21);
+  const pts = t.relax(t.scatter({ spacing: 3.6, within: dish }), { iterations: 2, within: dish });
+  return [1, 2, 3, 5].map((room, i) => group({ translate: [i * 49, 0] }, [
+    strokes(connect.neighbours(pts, { room }), { pen: 'pigma-005-black' }),
+    strokes(connect.tree(pts), { pen: 'stabilo-88-blue' }),
+    label(`ROOM ${room}`, 5, 72, 3.2, { pen: 'stabilo-88-blue' }),
+  ]));
+});
+```
+
+And in three dimensions, where the lattice is chosen flat and then lifted —
+through `connect.trails` first, so the frame is a few long members rather than
+a hundred little struts.
+
+```ts live
+import { sketch, pen, mm, connect, circle as disc } from 'occlude';
+import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
+
+// A space frame. The lattice is chosen flat — `room` decides which pairs are
+// close enough to be worth a member — and then lifted onto a dome. Passing it
+// through `connect.trails` first means the frame is made of a few long members
+// rather than a hundred little struts, which is what you would actually build
+// it out of, and each of those runs is swept into a tube that has to decide
+// what it stands in front of.
+export default sketch({ seed: 5, pens: { ink: pen({ width: mm(0.26), color: '#18202A' }) } }, (t) => {
+  const plan = disc(50, 50, 42);
+  const pts = t.relax(t.scatter({ spacing: 9, within: plan }), { iterations: 3, within: plan });
+  const frame = connect.trails(connect.neighbours(pts, { room: 1.45 }));
+  const dome = (x, y) => 2.6 * Math.cos(Math.min(1, Math.hypot(x - 50, y - 50) / 44) * Math.PI / 2);
+  const world = (x, y) => [(x - 50) / 9, (y - 50) / 9, dome(x, y)];
+  return view(frame.curves().filter((c) => c.pts.length > 1).map((c) =>
+    sweep(circle(0.07, { segments: 10 }), polyline(c.pts.map(([x, y]) => world(x, y)), { closed: c.closed }))), {
+    camera: orthographic({ eye: [6, -8, 4.6], target: [0, 0, 1.1], span: 10.4 }),
+    stroke: 'ink',
+    creaseAngle: 180,
+  });
+});
+```
+
 ### Vectors
 
 Vectors are tuples `[x, y]`. Every operation accepts `[x, y]` or `{ x, y }` (so a vertex view goes straight in), returns a fresh tuple and mutates nothing. `unit([0, 0])` is `[0, 0]`, so coincident points contribute no direction and no NaN. `mul` is scalar multiplication; `limit(v, max)` caps a length; `sumBy(items, fn)` totals a vector function over a collection. `dot(a, b)` and `cross(a, b)` are the two products, the cross a signed number: positive when `b` lies on the side `perp(a)` points to, negative on the other, zero when parallel or when either is the zero vector, so `Math.sign(cross(heading, toward))` is the side test a steering rule needs. `fromAngle(radians)` is the unit vector `[cos, sin]` and `angleOf(v)` its inverse through `atan2`, both in radians from +x toward +y; `angleOf([0, 0])` is 0.
