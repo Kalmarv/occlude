@@ -1,0 +1,245 @@
+---
+title: Material
+description: Points with columns and an edge list. The editable form of geometry.
+---
+
+A material is a set of vertices and an edge list. Each vertex has `x`, `y` and any number of named columns. A ring, an open chain, a tree and a cloud of loose points are all materials. Every operation returns a new material and changes nothing, so you can keep any state and come back to it.
+
+:::note
+A row index belongs to one state. After a step that adds or removes vertices, the rows are numbered again. Hold a value, not an index.
+:::
+
+## material
+
+<include>/_sig/Material.n.mdx</include>
+<include>/_sig/Material.points.mdx</include>
+<include>/_sig/Material.edges.mdx</include>
+<include>/_sig/Material.pts.mdx</include>
+<include>/_sig/Material.attrs.mdx</include>
+<include>/_sig/Material.closed.mdx</include>
+
+The value. `points` and `edges` are collections of rows: iterate them, or use `length`, `at(i)`, `map` and `filter`. `pts` is the positions as pairs. `x`, `y` and `attrs.name` are the raw columns. `closed` is true for one ring. `strokes(m)` draws every chain once.
+
+```ts live
+import { sketch, circle, strokes, curve } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const m = curve([[10, 80], [30, 20], [55, 65], [90, 15]], { closed: false });
+  return [strokes(m), m.points.map((p) => circle(p.x, p.y, 1.5, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## material()
+
+<include>/_sig/material.mdx</include>
+
+Builds a material from positions. Give pairs or `{ x, y }` objects. The points have no edges unless you give `edges`, as pairs of row numbers. Every other option is a column: a number sets the value on every row, and an array sets one value per row. A point that carries a `w` becomes a column too.
+
+```ts live
+import { sketch, circle, strokes, material } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const m = material([[12, 30], [50, 12], [88, 30], [50, 88]], { edges: [[0, 1], [1, 2], [0, 3], [2, 3]], weight: [1.5, 3, 1.5, 4] });
+  return [strokes(m), m.points.map((p) => circle(p.x, p.y, p.weight, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## curve()
+
+<include>/_sig/curve.mdx</include>
+
+Builds one chain from positions, in the order given. `closed: true` makes a ring. The other options are columns, as in `material()`.
+
+```ts live
+import { sketch, strokes, curve } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const zig = t.times(9, (k) => [10 + k * 10, k % 2 ? 20 : 45]);
+  return [strokes(curve(zig, { closed: false })), strokes(curve([[15, 65], [85, 65], [50, 92]], { closed: true }))];
+});
+```
+
+## t.material()
+
+<include>/_sig/Toolkit.material.mdx</include>
+
+Reads shapes as material and keeps their own vertices: the four corners of a rectangle, the points of a path. A curved part is flattened at `tolerance` (0.05 mm by default). A closed outline becomes a ring, an open one a chain. Several shapes become several outlines in one material, and nothing is welded.
+
+```ts live
+import { sketch, rect, ngon, strokes, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const m = t.material(rect(8, 30, 38, 40), ngon(72, 50, 6, 24));
+  return [strokes(m), m.points.map((p) => circle(p.x, p.y, 1.2, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## t.sample()
+
+<include>/_sig/Toolkit.sample.3.mdx</include>
+
+Reads a shape as material with new vertices, spaced evenly along the outline by arc length. Give `count` or `spacing`. The samples do not land on the shape's own corners. Use `t.material()` to keep the corners, and `t.sample()` to get even spacing.
+
+```ts live
+import { sketch, rect, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const m = t.sample(rect(12, 20, 76, 60), { count: 28 });
+  return [rect(12, 20, 76, 60), m.points.map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## append()
+
+<include>/_sig/append.mdx</include>
+
+Puts several materials in one, in the order given. The rows of each one come after the rows of the one before, and the edges are renumbered. All of them must have the same columns. If one has a column that another does not, `fill` gives the value that the other gets.
+
+```ts live
+import { sketch, strokes, curve, append } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const parts = t.times(4, (k) => curve([[12 + k * 22, 12], [24 + k * 22, 88]], { closed: false }));
+  return strokes(append(...parts));
+});
+```
+
+## attribute() · attributes()
+
+<include>/_sig/Material.attribute.mdx</include>
+<include>/_sig/Material.attributes.mdx</include>
+
+Adds a column to every vertex and returns the new material. The value is a number, or a function of the vertex. `attributes` adds several columns at once. Each function reads the material as it was, so a new column never sees another new column. `transfer` says what a column does when a vertex is split or resampled: `'interpolate'` (the default) blends it, `'nearest'` copies the nearer value.
+
+```ts live
+import { sketch, strokes, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 40), { count: 36 }).attribute('lift', (p) => (p.y < 50 ? 1 : 0));
+  return [strokes(ring), ring.points.filter((p) => p.lift === 1).map((p) => circle(p.x, p.y, 1.5, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## edgeAttribute() · edgeAttributes()
+
+<include>/_sig/Material.edgeAttribute.mdx</include>
+<include>/_sig/Material.edgeAttributes.mdx</include>
+
+The same for edges: one value per edge, read from the edge view. `transfer` for an edge column is `'copy'` (the default) or `'distribute'`, which shares a quantity over the parts when an edge is split.
+
+```ts live
+import { sketch, strokes, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 40), { count: 40 }).edgeAttribute('long', (e) => (e.a.x > 50 ? 1 : 0));
+  return [strokes(ring.edges.filter((e) => e.attrs.long === 1), { pen: 'pigma-05-black' }), strokes(ring.edges.filter((e) => e.attrs.long === 0))];
+});
+```
+
+## withEdges()
+
+<include>/_sig/Material.withEdges.mdx</include>
+
+Replaces the edge list. Give pairs of row numbers. The vertices and their columns stay as they are.
+
+```ts live
+import { sketch, strokes, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 42), { count: 12 });
+  const star = ring.withEdges(t.times(12, (k) => [k, (k + 5) % 12]));
+  return strokes(star);
+});
+```
+
+## resample()
+
+<include>/_sig/Material.resample.mdx</include>
+
+Puts new vertices along each chain at even spacing by arc length. Give `spacing` or `count`, in material units. An open chain keeps both ends. A closed chain keeps its seam. The corners between two new vertices are cut. Chains only: a junction is an error.
+
+```ts live
+import { sketch, strokes, circle, curve } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const rough = curve([[8, 75], [28, 22], [50, 68], [72, 20], [92, 60]], { closed: false });
+  const even = rough.resample({ spacing: 6 });
+  return [strokes(rough, { pen: 'pigma-005-black' }), even.points.map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## along()
+
+<include>/_sig/Material.along.mdx</include>
+
+Reads stations along each chain and changes nothing. A station is plain data: `x`, `y`, the unit `tangent` and `normal` of the chain under it, the `heading` in radians, the arc length `s`, its fraction `u`, and the point columns in `attrs`. With no option, there is one station at each vertex. Use `resample()` when the material must be even. Use `along()` to put things on it.
+
+```ts live
+import { sketch, strokes, circle, line } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.material(circle(50, 50, 34));
+  const ticks = ring.along({ spacing: 9 }).map((s) => line(s.x, s.y, s.x + s.normal[0] * 8, s.y + s.normal[1] * 8));
+  return [strokes(ring), ticks];
+});
+```
+
+## station.place()
+
+<include>/_sig/Station.place.mdx</include>
+
+Puts a drawable on a station, turned to the station's heading. `offset: [alongTangent, alongNormal]` moves it in the station's own frame. `rotate` adds degrees to the heading. `scale` is applied before the rotation, and a negative value mirrors.
+
+```ts live
+import { sketch, strokes, circle, rect } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.material(circle(50, 50, 34));
+  return [strokes(ring), ring.along({ count: 14 }).map((s) => s.place(rect(-4, -2, 8, 4), { offset: [0, 7] }))];
+});
+```
+
+## curves()
+
+<include>/_sig/Material.curves.mdx</include>
+
+The chains of the material, each one once, as records that `stroke` and `polygon` accept. A chain runs from an end or a junction to the next one. `strokes(m)` is the same walk with the drawing done for you.
+
+```ts live
+import { sketch, stroke, material } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const y = material([[10, 12], [50, 50], [90, 12], [50, 92]], { edges: [[0, 1], [1, 2], [1, 3]] });
+  return y.curves().map((c, i) => stroke(c, { pen: i === 1 ? 'stabilo-88-blue' : undefined }));
+});
+```
+
+## Vectors
+
+<include>/_sig/add.mdx</include>
+<include>/_sig/sub.mdx</include>
+<include>/_sig/mul.mdx</include>
+<include>/_sig/unit.mdx</include>
+<include>/_sig/perp.mdx</include>
+<include>/_sig/length.mdx</include>
+<include>/_sig/distance.mdx</include>
+<include>/_sig/limit.mdx</include>
+<include>/_sig/dot.mdx</include>
+<include>/_sig/cross.mdx</include>
+<include>/_sig/fromAngle.mdx</include>
+<include>/_sig/angleOf.mdx</include>
+<include>/_sig/sum.mdx</include>
+<include>/_sig/sumBy.mdx</include>
+
+Vector arithmetic on pairs. Each function takes `[x, y]` or `{ x, y }`, so a vertex goes straight in, and returns a new pair. Nothing is changed in place. `unit([0, 0])` is `[0, 0]`. Angles are in radians, from +x toward +y.
+
+```ts live
+import { sketch, line, circle, add, sub, unit, mul, perp } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const a = [12, 72], b = [88, 32];
+  const n = mul(unit(perp(sub(b, a))), 22);
+  const mid = mul(add(a, b), 0.5);
+  return [line(a[0], a[1], b[0], b[1]), line(mid[0], mid[1], mid[0] + n[0], mid[1] + n[1], { pen: 'stabilo-88-blue' }), circle(mid[0], mid[1], 1.2)];
+});
+```

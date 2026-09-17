@@ -114,5 +114,7 @@ mkdirSync(out, { recursive: true });
 for (const [key, sigs] of lines) {
   const body = sigs.map((s) => `<code>${link(s)}</code>`).join('<br />');
   writeFileSync(join(out, `${key}.mdx`), `<p class="sig">${body}</p>\n`);
+  // Overloads one by one too (`Toolkit.sample.2.mdx`), for a page that documents one form.
+  if (sigs.length > 1) sigs.forEach((s, i) => writeFileSync(join(out, `${key}.${i + 1}.mdx`), `<p class="sig"><code>${link(s)}</code></p>\n`));
 }
 console.log(`${lines.size} signatures → ${out} (${readdirSync(out).length} files)`);

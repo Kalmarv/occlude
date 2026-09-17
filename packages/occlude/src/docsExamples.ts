@@ -35,6 +35,7 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'plotting', title: 'Plotting & saving', file: 'plotting.md', live: true, group: 'topics' },
   { slug: 'studio', title: 'The studio', file: 'studio.md', live: false, group: 'topics' },
   { slug: 'gallery', title: 'Gallery', file: 'gallery.md', live: true, group: 'topics' },
+  { slug: 'reference-material', title: 'Reference: Material', file: 'reference/material.mdx', live: true, group: 'topics' },
   { slug: 'reference-faces', title: 'Reference: Faces', file: 'reference/faces.mdx', live: true, group: 'topics' },
   { slug: 'examples-tangle', title: 'Example: Tangle', file: 'examples/tangle.mdx', live: true, group: 'topics' },
   { slug: 'workshop-01', title: '1. Put marks on paper', file: 'workshop-01-marks.md', live: true, group: 'workshop' },

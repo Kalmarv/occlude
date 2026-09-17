@@ -36,6 +36,8 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Material.planarize.mdx</include>
 
+<AutoTypeTable path="../occlude/src/faces.ts" name="PlanarizeOpts" />
+
 Makes a shared vertex at every crossing and at every place where an endpoint touches an edge. The result is planar, so `faces()` can read it. Edges that do not touch stay apart. Columns carry over, and a new vertex gets interpolated values.
 
 ```ts live
@@ -141,6 +143,8 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 ## measure
 
 <include>/_sig/Faces.measure.mdx</include>
+
+<AutoTypeTable path="../occlude/src/measure.ts" name="MeasureOpts" />
 
 Measures each face: centroid, orientation, elongation, and the largest inscribed circle as `inscribedCentre` and `inscribedRadius`. If you give a field, you also get its integral, its mean and its weighted centre for each face. Read one face with `forFace(f)`, or iterate the results.
 
