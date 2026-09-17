@@ -316,6 +316,26 @@ describe('review of 3df7b04', () => {
     expect(pt.degree(4)).toBe(5);
   });
 
+  it('2b. edges that very nearly meet at one point say so, instead of asking for a planarize that has already run', () => {
+    // Two segments cross; a polyline's bend is placed exactly on their
+    // intersection AS A ROUNDED DOUBLE, which is what you get when you
+    // compute a crossing yourself and build geometry from it. The bend then
+    // lies a rounding off both segments, so it makes no contact event, and
+    // the two crossings it does make cannot be proven concurrent. planarize
+    // leaves them a few ulp apart and faces() finds the leftover crossing.
+    const A = seg([10.777407605201006, 17.579702530056238], [162.35881367698312, 47.36570309847593]);
+    const B = seg([73.20410337299109, 72.78040776029229], [132.96105215325952, 10.908244401216507]);
+    const C = curve([[88.05579760993993, 23.695069348886015], [108.05579760993993, 36.695069348886015], [125.05579760993993, 15.695069348886015]]);
+    const planar = append(append(A, B), C).planarize();
+    // The message names the real cause and the separation, and does NOT send
+    // the reader back to planarize.
+    expect(() => planar.faces()).toThrow(/very nearly meet at one point/);
+    expect(() => planar.faces()).toThrow(/apart but distinct/);
+    expect(() => planar.faces()).not.toThrow(/run planarize\(\) first/);
+    // An ordinary un-planarized crossing still gets the ordinary advice.
+    expect(() => append(seg([0, 0], [10, 10]), seg([0, 10], [10, 0])).faces()).toThrow(/run planarize\(\) first/);
+  });
+
   it('3. faces are translation invariant at large coordinate offsets', () => {
     for (const off of [0, 1e6, 1e8]) {
       const sq = square(off, off, 1);

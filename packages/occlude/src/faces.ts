@@ -580,6 +580,28 @@ function checkPlanar(m: Material): void {
     else classify(s, u, events);
     if (events.length) {
       const ev = events[0];
+      // A crossing whose two edges own distinct vertices a rounding apart is
+      // not a missing planarize: it is input whose edges very nearly meet at
+      // one point, which consolidation cannot prove concurrent and rounding
+      // cannot tell apart. Saying "run planarize() first" there sends the
+      // reader back to a step they have already taken, so name the real cause.
+      if (ev.kind === 'cross') {
+        let gap = Infinity;
+        let pair: [number, number] = [-1, -1];
+        for (const a of [segs[ev.i].a, segs[ev.i].b]) {
+          for (const b of [segs[ev.j].a, segs[ev.j].b]) {
+            if (a === b) continue;
+            const d = Math.hypot(m.x[a] - m.x[b], m.y[a] - m.y[b]);
+            if (d < gap) {
+              gap = d;
+              pair = [a, b];
+            }
+          }
+        }
+        if (gap <= EVENT_TOL) {
+          throw new Error(`faces: edges ${ev.i} and ${ev.j} cross at (${ev.x}, ${ev.y}), where vertices ${pair[0]} and ${pair[1]} are ${gap.toExponential(2)} apart but distinct — these edges very nearly meet at one point, which planarize can neither prove to be one point nor separate, so running it again will not help; move one edge, or give them a shared endpoint exactly`);
+        }
+      }
       const where = ev.kind === 'cross' ? `edges ${ev.i} and ${ev.j} cross` : `vertex ${ev.vertex} lies on edge ${ev.edge}`;
       throw new Error(`faces: ${where} without a shared vertex — run planarize() first`);
     }
