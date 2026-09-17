@@ -1,0 +1,101 @@
+---
+title: Primitives
+description: "The 3D shapes: plane, box, sphere, cylinder, cone, torus, and how to move them."
+---
+
+The 3D words come from `occlude/3d`. You build geometry in world units. Every example here ends with `view`, which projects the geometry into the drawable. See [View](/docs/reference/3d/view).
+
+## plane()
+
+<include>/_sig/3d.plane.mdx</include>
+
+A flat quad in XY, centred at the origin, with one face. `.subdivide(levels)` splits it into a grid of quads.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { plane, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => view(plane(4, 3).subdivide(2), { camera: orthographic({ eye: [4, 6, 5], span: 6 }), stroke: 'ink', creaseAngle: 0 }));
+```
+
+## box()
+
+<include>/_sig/3d.box.mdx</include>
+
+A box of one size, or of a `[x, y, z]` size, centred at the origin.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { box, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => view([box(1.6), box([0.8, 0.8, 2.6]).translate([1.6, 0.6, 0.5])], { camera: orthographic({ eye: [5, 7, 4], target: [0.6, 0.3, 0.4], span: 5 }), stroke: 'ink' }));
+```
+
+## sphere()
+
+<include>/_sig/3d.sphere.mdx</include>
+
+A sphere of `segments` around and `rings` from pole to pole. `creaseAngle: 180` on the view draws no fold between its faces, so only the silhouette and the boundaries show.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { sphere, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => view([sphere(1.2, { segments: 32, rings: 16 }), sphere(0.5, { segments: 16, rings: 8 }).translate([1.6, 0.8, -0.4])], { camera: orthographic({ eye: [5, 6, 4], span: 4.6 }), stroke: 'ink', creaseAngle: 180 }));
+```
+
+## cylinder() · cone()
+
+<include>/_sig/3d.cylinder.mdx</include>
+<include>/_sig/3d.cone.mdx</include>
+
+Both stand on the Z axis, from `-height / 2` to `+height / 2`. The cone's apex is at the top. `caps: false` leaves the rims open.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { cylinder, cone, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => view([cylinder(0.7, 2, { segments: 24 }).translate([-1, 0, 0]), cone(0.8, 2, { segments: 24 }).translate([1.2, 0, 0])], { camera: orthographic({ eye: [5, 7, 4], span: 5.5 }), stroke: 'ink', creaseAngle: 180 }));
+```
+
+## torus()
+
+<include>/_sig/3d.torus.mdx</include>
+
+A ring in XY. `radius` is the centreline and `tubeRadius` the thickness, so the outer radius is their sum.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { torus, view, perspective } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => view(torus(1.2, 0.4, { segments: 36, tubeSegments: 14 }), { camera: perspective({ eye: [3, 4, 2.4], fovDegrees: 40 }), stroke: 'ink', creaseAngle: 180 }));
+```
+
+## translate() · rotate() · scale()
+
+A mesh is born at the world origin. `.translate(triple)`, `.rotate(degreesTriple)` and `.scale(scalarOrTriple)` return new values. They pivot on the object's own origin, and `translate` moves that origin with the object. A `rotate('z', degrees)` form turns about one axis.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { box, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => view(t.times(6, (k) => box([1.6, 0.5, 0.3]).rotate([0, 0, k * 30]).translate([0, 0, k * 0.4])), { camera: orthographic({ eye: [5, 6, 5], target: [0, 0, 1], span: 5 }), stroke: 'ink' }));
+```
+
+## alignAxis() · axisAngle()
+
+<include>/_sig/3d.alignAxis.mdx</include>
+<include>/_sig/3d.axisAngle.mdx</include>
+
+Rotation values. `axisAngle(axis, degrees)` turns around `'x'`, `'y'`, `'z'` or a direction. `alignAxis(localAxis, direction)` is the rotation that turns one local axis onto a direction. That is how a prototype stands on a surface normal. Both go into `.rotate` and into an instance's `rotate` field. `a.then(b)` composes two, and `.inverse()` undoes one.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { cone, alignAxis, axisAngle, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
+  const arrows = t.times(8, (k) => { const a = (k / 8) * Math.PI * 2; const dir = [Math.cos(a), Math.sin(a), 0.6]; return cone(0.25, 1, { segments: 10 }).rotate(alignAxis('z', dir)).translate([Math.cos(a) * 1.5, Math.sin(a) * 1.5, 0]); });
+  const tilted = cone(0.4, 1.4, { segments: 12 }).rotate(axisAngle('x', 40));
+  return view([...arrows, tilted], { camera: orthographic({ eye: [4, 6, 5], span: 6 }), stroke: 'ink', creaseAngle: 180 });
+});
+```

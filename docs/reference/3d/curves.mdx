@@ -1,0 +1,56 @@
+---
+title: Curves and profiles
+description: "Polylines, sampled curves and circles, and the meshes that revolve and sweep make from them."
+---
+
+Curves are polygonal paths in 3D. On their own they are wires in a view. As profiles, `revolve` and `sweep` turn them into meshes.
+
+## polyline() · curve() · circle()
+
+<include>/_sig/3d.polyline.mdx</include>
+<include>/_sig/3d.curve.mdx</include>
+<include>/_sig/3d.circle.mdx</include>
+
+Curves are polygonal paths in 3D. `polyline` takes points, `curve` samples a function of `t` from 0 to 1, and `circle` is a closed profile in XY. A curve in a view is a wire: meshes hide it, and it hides nothing.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { curve, box, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
+  const helix = curve((u) => [Math.cos(u * 12) * 1.4, Math.sin(u * 12) * 1.4, u * 3 - 1.5], { segments: 160 });
+  return view([helix, box([1.2, 1.2, 3])], { camera: orthographic({ eye: [5, 6, 3], span: 5 }), stroke: 'ink' });
+});
+```
+
+## revolve()
+
+<include>/_sig/3d.revolve.mdx</include>
+
+Turns a profile in the XZ plane around the Z axis. A profile that starts on the axis gives a closed bottom. An open end stays open.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { polyline, revolve, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
+  const vase = revolve(polyline([[0, 0, 0], [0.9, 0, 0], [1.1, 0, 0.8], [0.6, 0, 1.6], [0.8, 0, 2.2]]), { segments: 28 });
+  return view(vase, { camera: orthographic({ eye: [5, 6, 3], target: [0, 0, 1], span: 4 }), stroke: 'ink', creaseAngle: 180 });
+});
+```
+
+## sweep()
+
+<include>/_sig/3d.sweep.mdx</include>
+
+Carries an XY profile along a path: a circle for a tube, an open polyline for a ribbon. `scale` and `twist` change the profile along the way.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { circle, curve, sweep, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
+  const path = curve((u) => [Math.cos(u * Math.PI * 2) * 1.2, Math.sin(u * Math.PI * 2) * 1.2, u * 2.4 - 1.2], { segments: 48 });
+  return view(sweep(circle(0.22, { segments: 10 }), path), { camera: orthographic({ eye: [5, 6, 3], span: 4.5 }), stroke: 'ink', creaseAngle: 180 });
+});
+```

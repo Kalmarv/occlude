@@ -92,11 +92,36 @@ export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width:
 });
 ```
 
+## Charts and corner attributes
+
+Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. `mapSurface`, `mesh.cornerAttribute(name, field)` and the sampled point's `.sample.uv` all read them. `planarUV(mesh, { origin, u, v })` and `cylindricalUV(mesh, …)` store a projection of your own instead.
+
+## rebind()
+
+A sampled point remembers its triangle and its weights inside it. `samples.rebind(editedMesh)` places the same samples onto an edited revision of the mesh that kept its topology. The marks move with the surface, with no new sampling and no projection.
+
+## t.sample() on curves
+
+`t.sample(curves, { spacing })` or `{ count }` places points along each chain of a supported curve, in world units. Open chains keep both ends. Closed chains omit the seam. The points keep their surface attachment, so they go into `instanceOnPoints` and stay on the surface.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { sphere, isolines, instanceOnPoints, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], seed: 2, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => {
+  const ball = sphere(1.3, { segments: 40, rings: 20 });
+  const rings = isolines(ball, (p) => p.z, { count: 5 });
+  const pts = t.sample(rings, { spacing: 0.35 });
+  const beads = instanceOnPoints(sphere(0.07, { segments: 8, rings: 4 }), pts.points);
+  return view([ball, beads], { camera: orthographic({ eye: [5, 6, 4], span: 4 }), stroke: 'ink', creaseAngle: 180 });
+});
+```
+
 ## query()
 
 <include>/_sig/3d.query.mdx</include>
 
-A prepared spatial index over a mesh. `.nearest(position, { within })`, `.ray(origin, direction)` and `.segment(from, to)` return hits with a position, a normal and the face. A query reads the mesh revision that made it. Inside a `steps` rule, `force.project(query)` pulls points onto that surface.
+A prepared spatial index over a mesh. `.nearest(position, { within })`, `.ray(origin, direction)` and `.segment(from, to)` return hits with a position, a normal and the face. `.batch()` asks many at once: `.nearest(points, …)`, `.rays(points, { direction })`, `.segments(points, { to })`, and in `sketchAsync` the batch can run on the GPU. A query reads the mesh revision that made it. Inside a `steps` rule, `force.project(query)` pulls points onto that surface.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
