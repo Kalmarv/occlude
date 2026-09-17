@@ -129,7 +129,7 @@ export interface Station {
 export interface PlaceOpts {
   offset?: [number, number];
   rotate?: number;
-  scale?: number | [number, number];
+  scale?: number | readonly [number, number];
 }
 
 /** Stations share one prototype, so `place` costs each station no property

@@ -117,14 +117,14 @@ export interface ShapeOpts {
    * protected through planning. Not compatible with pre-stage modifiers. */
   strokeRanges?: readonly (readonly [number, number])[];
   /** Per-shape transform — identical to wrapping the shape in a group. */
-  translate?: [L, L];
+  translate?: readonly [L, L];
   /** Degrees; pivots around `origin` (the user origin by default). */
   rotate?: number;
-  scale?: number | [number, number];
+  scale?: number | readonly [number, number];
   /** Pivot for `rotate` and `scale`: `[x, y]` in user coordinates, or
    * `'center'` for the centre of the drawable. Scaling about the middle of
    * the sheet is `{ scale: s, origin: 'center' }`. */
-  origin?: [L, L] | 'center';
+  origin?: readonly [L, L] | 'center';
   /** Ordered modifier stack, applied first-to-last. Stacks compose in
    * function-application order: this list runs first, then `modify()`
    * ancestors inside-out; the `decimate`/`wobble` shorthand opts run last,
@@ -148,13 +148,13 @@ export interface GroupOpts {
   /** Modifier stack for the subtree; nesting concatenates in
    * function-application order — inner stacks run before outer ones. */
   modifiers?: ModifierValue[];
-  translate?: [L, L];
+  translate?: readonly [L, L];
   /** Degrees; pivots around `origin`. */
   rotate?: number;
-  scale?: number | [number, number];
+  scale?: number | readonly [number, number];
   /** Pivot for `rotate` and `scale`: `[x, y]` in user coordinates, or
    * `'center'` for the centre of the drawable. */
-  origin?: [L, L] | 'center';
+  origin?: readonly [L, L] | 'center';
   /** Default pen for children that don't set one. */
   pen?: string;
   /** Default z for children that don't set one. */
