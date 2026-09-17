@@ -1054,10 +1054,24 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * need not land on a corner. Coordinates are sketch units, before any
    * drawing transform around the shape.
    */
-  function materialFromShape(shape: ShapeValue, opts: { tolerance?: L } = {}): Material {
+  /**
+   * Shapes as material, keeping their own vertices: one or more shapes, each
+   * outline a ring or chain of the one returned material, in the order
+   * given, welding nothing — `t.material(...circles).planarize()` is the
+   * pile whose `faces()` are the pieces the overlaps cut. The options are the
+   * trailing plain object. Points go through the pure `material(points)`.
+   */
+  function materialFromShape(...args: [ShapeValue, ...ShapeValue[]] | [ShapeValue, ...ShapeValue[], { tolerance?: L }]): Material {
+    const last: unknown = args[args.length - 1];
+    // Only a trailing plain object is options; anything else (an array of
+    // points included) is judged as a shape, so the error names what it saw.
+    const trailingOpts = last !== null && typeof last === 'object' && Object.getPrototypeOf(last) === Object.prototype && !('__occludeShape' in last);
+    const opts: { tolerance?: L } = trailingOpts ? (last as { tolerance?: L }) : {};
+    const shapes = (trailingOpts ? args.slice(0, -1) : args) as unknown[];
+    if (shapes.length === 0) throw new Error('t.material: give at least one shape (circle, rect, path, polygon, …); for points use the pure material(points)');
     const pts: [number, number][] = [];
     const edges: [number, number][] = [];
-    for (const c of shapeContours(exec, shape, opts.tolerance)) {
+    for (const shape of shapes) for (const c of shapeContours(exec, shape as ShapeValue, opts.tolerance)) {
       let poly = c.pts;
       // A closed outline comes back with its start repeated at the end: the
       // ring closes with an edge, not a coincident vertex.

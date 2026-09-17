@@ -22,6 +22,19 @@ const env: IsoEnv = { bounds: { x: 0, y: 0, w: 100, h: 100 }, len: (l) => (typeo
 const ink = (def: SketchDef) => render(def, { paper: 'Square20' }).frags.map((f) => JSON.stringify(f.geom)).join('|');
 
 describe('t.material: a shape boundary with its own vertices', () => {
+  it('takes several shapes as several outlines of one material, options last', () => {
+    let pile: Material | null = null;
+    let coarse: Material | null = null;
+    run((t) => {
+      pile = t.material(rect(0, 0, 10, 10), rect(20, 0, 10, 10), rect(40, 0, 10, 10));
+      coarse = t.material(circle(50, 50, 20), circle(80, 50, 20), { tolerance: mm(2) });
+    });
+    expect(pile!.n).toBe(12);
+    expect(pile!.edgeCount).toBe(12);
+    expect(pile!.planarize().faces().length).toBe(3);
+    expect(coarse!.curves().length).toBe(2);
+    expect(() => run((t) => t.material({ tolerance: mm(1) } as never))).toThrow(/at least one shape/);
+  });
   it('keeps a rectangle\'s four corners and a regular polygon\'s vertices, as rings', () => {
     let r: Material | null = null;
     let n: Material | null = null;
