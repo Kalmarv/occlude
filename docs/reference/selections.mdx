@@ -144,7 +144,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Material.degree.mdx</include>
 <include>/_sig/Material.isConnected.mdx</include>
 
-What the edges say about one vertex: the vertices joined to it, how many there are, and if a given vertex is one of them. A vertex with one edge is an end. A vertex with three or more edges is a junction.
+What the edges say about one vertex: the vertices joined to it, and how many there are. `isConnected` tells you if a given vertex is one of them. A vertex with one edge is an end. A vertex with three or more edges is a junction.
 
 :::note
 These words change in the relations redesign. Adjacency becomes a selection on the vertex, `p.adjacent`. Then it combines with other selections.
