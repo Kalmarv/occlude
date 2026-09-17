@@ -104,7 +104,7 @@ for (let sym of checker.getExportsOfModule(moduleSymbol)) {
     for (const m of checker.getPropertiesOfType(t)) member(name, m, t);
     continue;
   }
-  if (sym.flags & ts.SymbolFlags.Function && decl) {
+  if (sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable) && decl) {
     callable(checker.getTypeOfSymbolAtLocation(sym, decl), name, name, decl);
   }
 }

@@ -1,0 +1,130 @@
+---
+title: Connect
+description: The ways to put edges between points.
+---
+
+Every builder takes points, a material or a selection of one, and returns a material with the same rows and new edges. The rows keep their order and their columns; only the edge list is decided. `edgeAttributes` gives every new edge the same columns.
+
+## connect.chain() · connect.ring()
+
+<include>/_sig/connect.chain.mdx</include>
+<include>/_sig/connect.ring.mdx</include>
+
+Join the rows in the order given. `ring` also joins the last row to the first.
+
+```ts live
+import { sketch, strokes, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const pts = t.times(12, (k) => { const a = (k / 12) * Math.PI * 2; return [50 + Math.cos(a) * (k % 2 ? 20 : 40), 50 + Math.sin(a) * (k % 2 ? 20 : 40)]; });
+  return [strokes(connect.ring(pts)), strokes(connect.chain(pts.slice(0, 7)), { pen: 'stabilo-88-blue' })];
+});
+```
+
+## connect.nearest()
+
+<include>/_sig/connect.nearest.mdx</include>
+
+Joins each row to its `count` nearest rows. Edges are undirected and never doubled.
+
+```ts live
+import { sketch, strokes, circle, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const pts = t.scatter({ spacing: 12 });
+  return [strokes(connect.nearest(pts, { count: 2 })), pts.points.map((p) => circle(p.x, p.y, 0.9))];
+});
+```
+
+## connect.pairs()
+
+<include>/_sig/connect.pairs.mdx</include>
+
+Joins row `i` of `a` to row `i` of `b`, in one material that holds both. The two must have the same number of rows.
+
+```ts live
+import { sketch, strokes, circle, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const inner = t.sample(circle(50, 50, 16), { count: 24 });
+  const outer = t.sample(circle(50, 50, 42), { count: 24 });
+  return strokes(connect.pairs(inner, outer));
+});
+```
+
+## connect.triangulate()
+
+<include>/_sig/connect.triangulate.mdx</include>
+
+The Delaunay edges of the rows. `faces()` of the result are the triangles.
+
+```ts live
+import { sketch, strokes, polygon, fill, mm, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const mesh = connect.triangulate(t.scatter({ spacing: 15 }));
+  return [strokes(mesh), mesh.faces().filter((f) => f.area > 120).map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) }))];
+});
+```
+
+## connect.tour()
+
+<include>/_sig/connect.tour.mdx</include>
+
+One route through every row, each visited once, as a chain, or a ring with `closed`. `cost(a, b)` is what the route spends less of; the default is distance. The route starts nearest-neighbour and improves by 2-opt until no exchange helps. The same rows and the same cost always give the same route.
+
+```ts live
+import { sketch, strokes, circle, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
+  const pts = t.scatter({ spacing: 11 });
+  return [strokes(connect.tour(pts, { closed: true })), pts.points.map((p) => circle(p.x, p.y, 0.8))];
+});
+```
+
+## connect.tree()
+
+<include>/_sig/connect.tree.mdx</include>
+
+The cheapest set of edges that reaches every row: a minimum spanning tree under `cost`, distance by default.
+
+```ts live
+import { sketch, strokes, circle, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const pts = t.scatter({ spacing: 9 });
+  return [strokes(connect.tree(pts)), pts.points.map((p) => circle(p.x, p.y, 0.7))];
+});
+```
+
+## connect.trails()
+
+<include>/_sig/connect.trails.mdx</include>
+
+The same drawing, wired so the pen lifts as few times as possible. A junction is split into pass-through vertices, one per pair of edges, so a chain walk runs straight through it. The ink does not change. The result is a drawing, not a structure: `faces()` refuses it, so keep the original for questions.
+
+```ts live
+import { sketch, strokes, material, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const grid = material(t.grid({ cols: 5, rows: 5 }).map((c) => [c.cx, c.cy]));
+  const web = connect.triangulate(grid);
+  const routed = connect.trails(web);
+  return strokes(routed, { pen: 'stabilo-88-blue' });
+});
+```
+
+## connect.unimpeded()
+
+<include>/_sig/connect.unimpeded.mdx</include>
+
+Joins two rows when nothing else is in the space between them. `room` is how much space that is: the region tested is the lens between the two rows, and at `room: 1` it is the disc that has the pair as its diameter. Larger values need more empty space, so the lattice thins out. `room` may be a field, read at the middle of each pair.
+
+```ts live
+import { sketch, strokes, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const pts = t.scatter({ spacing: 8 });
+  return [strokes(connect.unimpeded(pts, { room: 1 }), { pen: 'pigma-005-black' }), strokes(connect.unimpeded(pts, { room: 2.4 }), { pen: 'stabilo-88-blue' })];
+});
+```

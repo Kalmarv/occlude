@@ -1,0 +1,109 @@
+---
+title: Transforms
+description: Operations that take a material and return a changed material.
+---
+
+Each of these is a pure import. It reads a material, in the material's own coordinates, and returns a new material with the same columns. No seed and no paper are involved, so the same input always gives the same output.
+
+## warp()
+
+<include>/_sig/warp.mdx</include>
+
+<AutoTypeTable path="../occlude/src/warp.ts" name="WarpOpts" />
+
+Moves every point by a cage. `from` and `to` are two loops with the same number of corners. Each point is written once as a blend of the corners of `from`, and read back against the corners of `to`. Only positions move; structure, columns and row order stay. A straight edge with two vertices stays straight, so resample first when a line must bend.
+
+```ts live
+import { sketch, strokes, line, append, warp } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const across = t.times(9, (k, u) => t.sample(line(15, 15 + u * 70, 85, 15 + u * 70), { count: 30 }));
+  const down = t.times(9, (k, u) => t.sample(line(15 + u * 70, 15, 15 + u * 70, 85), { count: 30 }));
+  const lattice = append(...across, ...down);
+  const from = [[15, 15], [85, 15], [85, 85], [15, 85]];
+  const to = [[15, 15], [85, 15], [93, 62], [7, 90]];
+  return strokes(warp(lattice, { from, to }));
+});
+```
+
+## oscillate()
+
+<include>/_sig/oscillate.mdx</include>
+
+<AutoTypeTable path="../occlude/src/oscillate.ts" name="OscillateOpts" />
+
+Swings each chain from side to side as it goes. `wavelength` is the distance along the chain for one cycle and `amplitude` how far it swings. Both are numbers or fields, so tone can drive them. The result keeps the source's columns.
+
+```ts live
+import { sketch, strokes, line, oscillate } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => t.times(7, (k, u) => strokes(oscillate(t.sample(line(8, 12 + u * 76, 92, 12 + u * 76), { count: 80 }), { wavelength: 6 + u * 14, amplitude: 1 + u * 3 }))));
+```
+
+## interlace()
+
+<include>/_sig/interlace.mdx</include>
+
+<AutoTypeTable path="../occlude/src/interlace.ts" name="InterlaceOpts" />
+
+Decides, at every crossing of two edges that do not share a vertex, which strand is on top, and removes `gap` of the other strand around the crossing. `over` is called with the crossing and returns true when strand A is on top; the default alternates. The result is ordinary material.
+
+```ts live
+import { sketch, strokes, circle, append, interlace } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const rings = append(...t.times(5, (k) => t.sample(circle(50 + Math.cos(k * 1.26) * 18, 50 + Math.sin(k * 1.26) * 18, 26), { count: 120 })));
+  return strokes(interlace(rings, { gap: 3 }));
+});
+```
+
+## envelope()
+
+<include>/_sig/envelope.mdx</include>
+
+The curve that a family of chains is tangent to: where each chain crosses the next one, in stored order. A denser family gives a closer curve. Two chains that share an endpoint meet without crossing and add nothing.
+
+```ts live
+import { sketch, strokes, line, append, envelope } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const chords = append(...t.times(28, (k, u) => t.sample(line(10 + u * 80, 90, 10, 90 - u * 80), { count: 2 })));
+  return [strokes(chords, { pen: 'pigma-005-black' }), strokes(envelope(chords), { pen: 'pigma-05-black' })];
+});
+```
+
+## thicken()
+
+<include>/_sig/thicken.mdx</include>
+
+<AutoTypeTable path="../occlude/src/thicken.ts" name="ThickenOpts" />
+
+Turns points and edges into an area: each edge becomes a ribbon of width twice `radius`, each loose point a disc, and overlapping parts join. The result is a boundary material. Fill it with `polygon(body, { fill })`, which keeps its holes, or trace it with `strokes`.
+
+```ts live
+import { sketch, strokes, polygon, fill, mm, thicken, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
+  const tree = connect.tree(t.scatter({ spacing: 16 }));
+  const body = thicken(tree, { radius: 2.5 });
+  return polygon(body, { fill: fill('hatch', { angle: 60, spacing: mm(1.2) }) });
+});
+```
+
+## segmentRuns() · banding() · extent()
+
+<include>/_sig/segmentRuns.mdx</include>
+<include>/_sig/banding.mdx</include>
+<include>/_sig/extent.mdx</include>
+
+`segmentRuns(m, key)` classifies every edge by its two vertices and gathers consecutive equal keys into runs, chain by chain; together the runs draw every edge once. `banding({ min, max, count })` maps a value to one of `count` bands. `extent(column)` is `[min, max]`.
+
+```ts live
+import { sketch, stroke, circle, segmentRuns, banding } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 38), { count: 60 }).attribute('h', (p) => p.y);
+  const band = banding({ min: 12, max: 88, count: 3 });
+  return segmentRuns(ring, (a, b) => band((a.h + b.h) / 2)).map((run) => stroke(run, { pen: run.key === 1 ? 'stabilo-88-blue' : undefined }));
+});
+```

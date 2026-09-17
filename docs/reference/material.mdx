@@ -213,33 +213,3 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   return y.curves().map((c, i) => stroke(c, { pen: i === 1 ? 'stabilo-88-blue' : undefined }));
 });
 ```
-
-## Vectors
-
-<include>/_sig/add.mdx</include>
-<include>/_sig/sub.mdx</include>
-<include>/_sig/mul.mdx</include>
-<include>/_sig/unit.mdx</include>
-<include>/_sig/perp.mdx</include>
-<include>/_sig/length.mdx</include>
-<include>/_sig/distance.mdx</include>
-<include>/_sig/limit.mdx</include>
-<include>/_sig/dot.mdx</include>
-<include>/_sig/cross.mdx</include>
-<include>/_sig/fromAngle.mdx</include>
-<include>/_sig/angleOf.mdx</include>
-<include>/_sig/sum.mdx</include>
-<include>/_sig/sumBy.mdx</include>
-
-Vector arithmetic on pairs. Each function takes `[x, y]` or `{ x, y }`, so a vertex goes straight in, and returns a new pair. Nothing is changed in place. `unit([0, 0])` is `[0, 0]`. Angles are in radians, from +x toward +y.
-
-```ts live
-import { sketch, line, circle, add, sub, unit, mul, perp } from 'occlude';
-
-export default sketch({ aspect: [1, 1] }, (t) => {
-  const a = [12, 72], b = [88, 32];
-  const n = mul(unit(perp(sub(b, a))), 22);
-  const mid = mul(add(a, b), 0.5);
-  return [line(a[0], a[1], b[0], b[1]), line(mid[0], mid[1], mid[0] + n[0], mid[1] + n[1], { pen: 'stabilo-88-blue' }), circle(mid[0], mid[1], 1.2)];
-});
-```
