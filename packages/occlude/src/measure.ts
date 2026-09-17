@@ -18,12 +18,26 @@
  * A density-weighted centre needs a nonnegative field with positive total
  * over the face; with any negative sample, or zero total, it is null.
  * Signed fields still have an integral and a mean.
+ *
+ * Shape columns — `orientation`, `elongation`, `inscribedCentre` and
+ * `inscribedRadius` — are exact from the contours and need no field, so a
+ * measurement with no field still carries them. Orientation is the
+ * principal axis of the face's area second moments, in radians like every
+ * other computed angle; elongation says how much to trust it (0 for a disc
+ * or a square, approaching 1 for a sliver). The inscribed circle is the
+ * largest circle that fits inside the face, holes respected, found by
+ * branch and bound on the exact distance to the contours: a cell can only
+ * beat the best circle so far if its centre's distance plus its half
+ * diagonal does, so whole regions are discarded rather than sampled. It is
+ * refined until the remaining uncertainty is `precision` (default: the
+ * face's diagonal over 4096).
  */
 
 import type { Face, Faces } from './faces.js';
 import type { Bounds } from './points.js';
 import { ownedBy, viewKind } from './material.js';
 import type { IsoContour } from './isolines.js';
+import { distanceTo } from './distance.js';
 
 /** One face's measurement. Records and their coordinate tuples are frozen. */
 export interface FaceMeasure {
@@ -40,20 +54,47 @@ export interface FaceMeasure {
   readonly weightedCentroid: readonly [number, number] | null;
   /** How many raster samples fell inside the face (0 for none). */
   readonly samples: number;
+  /** Principal axis of the face's area, in radians; 0 when the area is 0. */
+  readonly orientation: number;
+  /** 1 − minor/major of the equivalent ellipse: 0 is isotropic, 1 a sliver. */
+  readonly elongation: number;
+  /** Centre of the largest circle inside the face, holes respected. */
+  readonly inscribedCentre: readonly [number, number];
+  /** Its radius; 0 for a face with no interior. */
+  readonly inscribedRadius: number;
 }
 
 /** A finished record: the tuples and the record itself frozen. */
-function freezeMeasure(r: { face: Face; area: number; centroid: [number, number]; integral: number; mean: number; weightedCentroid: [number, number] | null; samples: number }): FaceMeasure {
+function freezeMeasure(r: Draft): FaceMeasure {
   Object.freeze(r.centroid);
+  Object.freeze(r.inscribedCentre);
   if (r.weightedCentroid) Object.freeze(r.weightedCentroid);
   return Object.freeze(r);
 }
+
+/** A measurement under construction: the same fields, still writable. */
+type Draft = {
+  face: Face;
+  area: number;
+  centroid: [number, number];
+  integral: number;
+  mean: number;
+  weightedCentroid: [number, number] | null;
+  samples: number;
+  orientation: number;
+  elongation: number;
+  inscribedCentre: [number, number];
+  inscribedRadius: number;
+};
 
 export interface MeasureOpts {
   /** Raster cells along the long side of `bounds` (default 256). */
   resolution?: number;
   /** Raster extent and origin (default: the measured faces' bounding box). */
   bounds?: Bounds;
+  /** How close the inscribed circle's radius is driven to the true maximum
+   * (default: the face's bounding-box diagonal / 4096). */
+  precision?: number;
 }
 
 /** Signed shoelace area and centroid of one closed contour. */
@@ -72,6 +113,143 @@ function contourMoment(c: IsoContour): { a: number; cx: number; cy: number } {
   }
   if (a2 === 0) return { a: 0, cx: 0, cy: 0 };
   return { a: a2 / 2, cx: cx / (3 * a2), cy: cy / (3 * a2) };
+}
+
+/** Raw area moments of one closed contour about the origin, signed by the
+ * contour's winding, so summing over a face's contours subtracts its holes:
+ * `a` = ∫dA, `mx`/`my` = ∫x dA and ∫y dA, `xx`/`yy`/`xy` the second moments.
+ * The standard shoelace forms — each term is the exact integral over the
+ * triangle the edge makes with the origin. */
+function contourAreaMoments(c: IsoContour): { a: number; mx: number; my: number; xx: number; yy: number; xy: number } {
+  const pts = c.pts;
+  let a2 = 0;
+  let mx = 0;
+  let my = 0;
+  let xx = 0;
+  let yy = 0;
+  let xy = 0;
+  for (let k = 0; k < pts.length; k++) {
+    const [x0, y0] = pts[k];
+    const [x1, y1] = pts[(k + 1) % pts.length];
+    const cross = x0 * y1 - x1 * y0;
+    a2 += cross;
+    mx += (x0 + x1) * cross;
+    my += (y0 + y1) * cross;
+    xx += (x0 * x0 + x0 * x1 + x1 * x1) * cross;
+    yy += (y0 * y0 + y0 * y1 + y1 * y1) * cross;
+    xy += (x0 * y1 + 2 * x0 * y0 + 2 * x1 * y1 + x1 * y0) * cross;
+  }
+  return { a: a2 / 2, mx: mx / 6, my: my / 6, xx: xx / 12, yy: yy / 12, xy: xy / 24 };
+}
+
+/** The principal axis of a face's area and how eccentric that area is.
+ * Central second moments give the equivalent ellipse; its major axis is the
+ * orientation and `1 − minor/major` the elongation. A face whose moments are
+ * isotropic has no principal axis, and reports orientation 0 with
+ * elongation 0 rather than an arbitrary angle. */
+function principalAxis(face: Face): { orientation: number; elongation: number } {
+  let a = 0;
+  let mx = 0;
+  let my = 0;
+  let xx = 0;
+  let yy = 0;
+  let xy = 0;
+  for (const c of face.contours) {
+    const m = contourAreaMoments(c);
+    a += m.a;
+    mx += m.mx;
+    my += m.my;
+    xx += m.xx;
+    yy += m.yy;
+    xy += m.xy;
+  }
+  if (a === 0) return { orientation: 0, elongation: 0 };
+  const cx = mx / a;
+  const cy = my / a;
+  // Central moments: the parallel-axis shift onto the centroid.
+  const uxx = xx / a - cx * cx;
+  const uyy = yy / a - cy * cy;
+  const uxy = xy / a - cx * cy;
+  const half = (uxx + uyy) / 2;
+  const disc = Math.hypot((uxx - uyy) / 2, uxy);
+  const major = half + disc;
+  const minor = half - disc;
+  if (!(major > 0)) return { orientation: 0, elongation: 0 };
+  const orientation = disc === 0 ? 0 : 0.5 * Math.atan2(2 * uxy, uxx - uyy);
+  // The ellipse's semi-axes are the square roots of the eigenvalues.
+  const elongation = 1 - Math.sqrt(Math.max(0, minor) / major);
+  return { orientation, elongation };
+}
+
+/** The largest circle that fits inside the face, holes respected.
+ *
+ * Branch and bound over square cells: a cell can only contain a better
+ * centre than the best found so far if the distance at its own centre plus
+ * its half diagonal exceeds that best, because the distance function is
+ * 1-Lipschitz. Cells that cannot are discarded whole; the rest are
+ * quartered, best-first, until the remaining slack is under `precision`.
+ * Exact input, deterministic, and no seed involved. */
+function inscribedCircle(face: Face, precision: number): { centre: [number, number]; radius: number } {
+  const b = face.bounds;
+  if (!(b.w > 0) || !(b.h > 0)) return { centre: [b.x, b.y], radius: 0 };
+  let best: [number, number] = [b.x + b.w / 2, b.y + b.h / 2];
+  const dist = distanceTo(face.contours);
+  let bestR = -Infinity;
+  // Cells as a centre and a half-side, in a max-heap on their upper bound,
+  // so the most promising region is always split next and the search
+  // converges on the true maximum from above.
+  const heap: { x: number; y: number; h: number; bound: number }[] = [];
+  const up = (i: number): void => {
+    let k = i;
+    while (k > 0) {
+      const parent = (k - 1) >> 1;
+      if (heap[parent].bound >= heap[k].bound) break;
+      [heap[parent], heap[k]] = [heap[k], heap[parent]];
+      k = parent;
+    }
+  };
+  const down = (): void => {
+    let k = 0;
+    for (;;) {
+      const l = 2 * k + 1;
+      const r = l + 1;
+      let big = k;
+      if (l < heap.length && heap[l].bound > heap[big].bound) big = l;
+      if (r < heap.length && heap[r].bound > heap[big].bound) big = r;
+      if (big === k) break;
+      [heap[big], heap[k]] = [heap[k], heap[big]];
+      k = big;
+    }
+  };
+  const push = (x: number, y: number, h: number): void => {
+    const d = dist(x, y);
+    if (d > bestR) {
+      bestR = d;
+      best = [x, y];
+    }
+    const bound = d + h * Math.SQRT2;
+    if (bound > bestR + precision) {
+      heap.push({ x, y, h, bound });
+      up(heap.length - 1);
+    }
+  };
+  push(b.x + b.w / 2, b.y + b.h / 2, Math.max(b.w, b.h) / 2);
+  while (heap.length) {
+    const c = heap[0];
+    const last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last;
+      down();
+    }
+    // The heap's own top can no longer beat the best found since it was added.
+    if (c.bound <= bestR + precision) break;
+    const h = c.h / 2;
+    push(c.x - h, c.y - h, h);
+    push(c.x + h, c.y - h, h);
+    push(c.x - h, c.y + h, h);
+    push(c.x + h, c.y + h, h);
+  }
+  return { centre: best, radius: Math.max(0, bestR) };
 }
 
 /** Even-odd containment over a face's contours. */
@@ -131,7 +309,6 @@ export class FaceMeasurements implements Iterable<FaceMeasure> {
 
 export function measureFaces(source: Faces, members: readonly Face[], field: ((x: number, y: number) => number) | undefined, opts: MeasureOpts = {}): FaceMeasurements {
   // Geometry first: exact from the contours.
-  type Draft = { face: Face; area: number; centroid: [number, number]; integral: number; mean: number; weightedCentroid: [number, number] | null; samples: number };
   const results: Draft[] = members.map((face) => {
     let a = 0;
     let mx = 0;
@@ -143,7 +320,10 @@ export function measureFaces(source: Faces, members: readonly Face[], field: ((x
       my += m.a * m.cy;
     }
     const centroid: [number, number] = a !== 0 ? [mx / a, my / a] : [NaN, NaN];
-    return { face, area: face.area, centroid, integral: NaN, mean: NaN, weightedCentroid: null, samples: 0 };
+    const axis = principalAxis(face);
+    const slack = opts.precision ?? Math.hypot(face.bounds.w, face.bounds.h) / 4096;
+    const circle = inscribedCircle(face, slack);
+    return { face, area: face.area, centroid, integral: NaN, mean: NaN, weightedCentroid: null, samples: 0, orientation: axis.orientation, elongation: axis.elongation, inscribedCentre: circle.centre, inscribedRadius: circle.radius };
   });
   if (!field || members.length === 0) return new FaceMeasurements(source, results.map(freezeMeasure));
   // The raster.

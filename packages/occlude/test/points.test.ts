@@ -304,6 +304,53 @@ describe('face measurements', () => {
     // Empty selection measures to nothing.
     expect(annulus.filter(() => false).measure(() => 1).length).toBe(0);
   });
+
+  it('shape columns: principal axis, elongation and the inscribed circle, all without a field', () => {
+    const rect = (x0: number, y0: number, w: number, h: number) => curve([[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]], { closed: true });
+    // A square has no principal axis: elongation 0, and orientation reports 0
+    // rather than an arbitrary angle. Its inscribed circle is the incircle.
+    const sq = square(0, 0, 20).faces().measure().results[0];
+    expect(sq.elongation).toBeCloseTo(0, 9);
+    expect(sq.orientation).toBe(0);
+    expect(sq.inscribedRadius).toBeCloseTo(10, 2);
+    expect(sq.inscribedCentre[0]).toBeCloseTo(10, 2);
+    expect(sq.inscribedCentre[1]).toBeCloseTo(10, 2);
+    // A 40x10 rectangle lies along x. Its equivalent ellipse has semi-axes in
+    // the ratio 10/40, so elongation is 1 - 1/4.
+    const wide = rect(0, 0, 40, 10).faces().measure().results[0];
+    expect(wide.orientation).toBeCloseTo(0, 9);
+    expect(wide.elongation).toBeCloseTo(0.75, 9);
+    expect(wide.inscribedRadius).toBeCloseTo(5, 2);
+    // The same rectangle turned 30 degrees turns its orientation with it.
+    const a = Math.PI / 6;
+    const turn = (x: number, y: number): [number, number] => [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a)];
+    const tilted = curve([turn(-20, -5), turn(20, -5), turn(20, 5), turn(-20, 5)], { closed: true }).faces().measure().results[0];
+    expect(tilted.orientation).toBeCloseTo(a, 6);
+    expect(tilted.elongation).toBeCloseTo(0.75, 6);
+    // Holes are subtracted, so the largest circle sits in the band and never in
+    // the hole. The optimum is a corner circle tangent to two outer walls and
+    // to the hole's nearest corner, r = 10(2 - sqrt 2), wider than the band.
+    const ring = append(square(0, 0, 30), square(10, 10, 10)).planarize().faces().filter((f) => f.contours.length === 2).measure().results[0];
+    expect(ring.inscribedRadius).toBeCloseTo(10 * (2 - Math.SQRT2), 2);
+    const [cx, cy] = ring.inscribedCentre;
+    expect(cx < 10 || cx > 20 || cy < 10 || cy > 20).toBe(true);
+    expect(Math.min(cx, 30 - cx)).toBeCloseTo(ring.inscribedRadius, 2);
+    expect(Math.min(cy, 30 - cy)).toBeCloseTo(ring.inscribedRadius, 2);
+    // Exact input, exact output: measuring twice gives the same numbers, and a
+    // tighter precision only moves the radius closer to the true maximum.
+    const again = append(square(0, 0, 30), square(10, 10, 10)).planarize().faces().filter((f) => f.contours.length === 2).measure().results[0];
+    expect(again.inscribedCentre).toEqual(ring.inscribedCentre);
+    expect(again.inscribedRadius).toBe(ring.inscribedRadius);
+    const coarse = square(0, 0, 20).faces().measure(undefined, { precision: 4 }).results[0];
+    expect(coarse.inscribedRadius).toBeLessThanOrEqual(sq.inscribedRadius + 1e-9);
+    expect(coarse.inscribedRadius).toBeGreaterThan(10 - 4 * Math.SQRT2);
+    // A sliver is nearly all major axis and holds almost no circle.
+    const sliver = rect(0, 0, 60, 0.4).faces().measure().results[0];
+    expect(sliver.elongation).toBeGreaterThan(0.99);
+    expect(sliver.inscribedRadius).toBeCloseTo(0.2, 2);
+    // The columns are frozen data like the rest of a measurement.
+    expect(Object.isFrozen(sq.inscribedCentre)).toBe(true);
+  });
 });
 
 describe('review of fe26c3f', () => {

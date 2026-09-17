@@ -649,7 +649,7 @@ The regions a network encloses are data too. `m.planarize()` makes every crossin
 | `cells.facesOf(edge)` | the faces on the two sides of a source edge: two for a wall between cells, one for an outer wall or a spur, none for an edge no face touches; the reverse of `face.edges` |
 | `cells.boundaryEdges`, `sel.boundaryEdges` | edges between the selected union and its exterior: walls between two selected faces are excluded, a hole's boundary stays |
 | `sel.boundaries()` | closed contours around the union of the selected faces: a drawing view of the same boundary |
-| `cells.measure(field?, { resolution?, bounds? })` | per-face geometric `area` and `centroid` (holes respected) and, given a field, its `integral`, `mean` and density-weighted `weightedCentroid`; `forFace(face)` looks one up |
+| `cells.measure(field?, { resolution?, bounds?, precision? })` | per-face geometric `area`, `centroid`, `orientation`, `elongation`, `inscribedCentre` and `inscribedRadius` (holes respected) and, given a field, its `integral`, `mean` and density-weighted `weightedCentroid`; `forFace(face)` looks one up |
 
 A detached segment floating inside a face belongs to no face: its walk encloses nothing, so `edges` leaves it out and `boundaryEdges` never sees it.
 
@@ -704,6 +704,145 @@ export default sketch({ aspect: [2, 1] }, (t) => {
       polygon(chosen.boundaries(), { fill: hatch, stroke: false }),
       strokes(chosen.boundaries(), { pen: 'stabilo-88-blue' }),
     ),
+  ];
+});
+```
+
+### The shape of a face
+
+Four of a measurement's columns are exact from the contours and need no field, so `cells.measure()` with nothing in it still answers *what shape is this region*.
+
+| Column | Meaning |
+|---|---|
+| `orientation` | the principal axis of the face's area, in radians like every other computed angle (`degrees(r.orientation)` for a `rotate` or a hatch `angle`) |
+| `elongation` | `1 −` minor/major of the equivalent ellipse: 0 for a disc or a square, approaching 1 for a sliver — the column that says how much to trust `orientation` |
+| `inscribedCentre` | the centre of the largest circle that fits inside the face, holes respected |
+| `inscribedRadius` | that circle's radius, 0 for a face with no interior |
+
+Orientation and elongation come from the face's area second moments, summed over its contours with their winding, so a hole subtracts its own moments rather than being patched around. A face whose moments are isotropic has no principal axis and reports `orientation` 0 with `elongation` 0, instead of an arbitrary angle you might have believed.
+
+The inscribed circle is found by branch and bound on the exact distance to the contours. Distance to a boundary is 1-Lipschitz, so a square cell can only hold a better centre than the best one found so far if the distance at its own centre plus its half diagonal beats it; cells that cannot are discarded whole and the rest are quartered, best first. That makes it exact input to exact output, with no seed and no raster: the same face always gives the same circle. `precision` (default the face's bounding-box diagonal over 4096) is the slack left on the radius.
+
+Two things worth knowing before you use it. The inscribed centre is **not** the centroid — in a crescent the centroid can lie outside the region entirely, while the inscribed centre is by construction the point furthest from any wall, which is where a label or a mark wants to go. And the largest circle is not the widest band: in a square ring it sits in a corner, tangent to two outer walls and the hole's nearest corner.
+
+Three overlapping circles make nine regions of five different shapes, which is the smallest picture that shows all of this at once. Watch where the crescents' circles land.
+
+```ts live
+import { sketch, strokes, circle, line, append } from 'occlude';
+
+// Three overlapping circles make nine regions of five different shapes.
+// The inscribed circle finds the roomy part of a crescent, which is
+// nowhere near its centroid, and the axis says which way the crescent runs.
+export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
+  const net = [circle(72, 58, 34), circle(128, 58, 34), circle(100, 34, 34)]
+    .map((c) => t.sample(c, { count: 160 }))
+    .reduce((a, b) => append(a, b));
+  return [
+    strokes(net),
+    net.planarize().faces().measure().map((r) => {
+      const [x, y] = r.inscribedCentre;
+      const reach = r.inscribedRadius * 0.8;
+      return [
+        circle(x, y, r.inscribedRadius, { pen: 'stabilo-88-blue' }),
+        line(x - Math.cos(r.orientation) * reach, y - Math.sin(r.orientation) * reach,
+             x + Math.cos(r.orientation) * reach, y + Math.sin(r.orientation) * reach, { pen: 'stabilo-88-blue' }),
+      ];
+    }),
+  ];
+});
+```
+
+A drawing from these four columns and nothing else. The venation is authored — a midrib, secondaries sweeping to the margin, tertiaries linking them — and every areole it encloses then answers for itself: hatched along its own principal axis, so the grain follows the veins rather than the page, and at a spacing set by the circle it can hold, so the crowded areoles near the tip come out dark and the roomy ones by the midrib stay open. The blisters are inscribed circles drawn opaque, which is why the hatch stops cleanly at them instead of being eroded.
+
+```ts live
+import { sketch, strokes, polygon, curve, append, fill, mm, degrees, circle } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const B = [22, 86], T = [184, 18];
+  const mid = (u) => [B[0] + (T[0] - B[0]) * u, B[1] + (T[1] - B[1]) * u + 7 * Math.sin(Math.PI * u)];
+  const nrm = (u) => { const a = mid(Math.min(1, u + 0.01)), b = mid(Math.max(0, u - 0.01)); const d = Math.hypot(a[0] - b[0], a[1] - b[1]); return [-(a[1] - b[1]) / d, (a[0] - b[0]) / d]; };
+  const wid = (u) => 27 * Math.pow(Math.sin(Math.PI * Math.pow(u, 0.82)), 0.8);
+  const off = (u, s) => { const m = mid(u), n = nrm(u); return [m[0] + n[0] * s, m[1] + n[1] * s]; };
+  const N = 9, J = 6;
+  // One secondary vein: leaves the midrib at u and sweeps out to the margin.
+  // The last point is snapped onto an outline vertex, so the vein meets the
+  // margin at a shared point instead of crossing it and leaving a spike.
+  const rim = (i, s) => off(i / 69, wid(i / 69) * s);
+  const sec = (k, j, s) => {
+    const u = k / (N + 1) + (j / J) * 0.085;
+    return j === J ? rim(Math.round(u * 69), s) : off(u, wid(u) * (j / J) * s);
+  };
+
+  const parts = [
+    curve([...t.times(70, (k) => rim(k, 1)), ...t.times(68, (k) => rim(68 - k, -1))], { closed: true }),
+    curve(t.times(60, (k) => mid(k / 59))),
+  ];
+  for (let k = 1; k <= N; k++) {
+    for (const s of [1, -1]) {
+      parts.push(curve(t.times(J + 1, (j) => sec(k, j, s))));
+      // Tertiaries JOIN their neighbours at shared vertices, bowing outward.
+      if (k < N) {
+        const a = sec(k, 4, s), b = sec(k + 1, 3, s);
+        parts.push(curve([a, ...t.times(3, (i, f) => {
+          const g = 0.25 + f * 0.5;
+          return [a[0] + (b[0] - a[0]) * g + (a[1] - b[1]) * 0.13 * s, a[1] + (b[1] - a[1]) * g - (a[0] - b[0]) * 0.13 * s];
+        }), b]));
+      }
+    }
+  }
+  const net = parts.reduce((a, b) => append(a, b)).planarize();
+  const measured = net.faces().measure();
+  return [
+    measured.map((r) => polygon(r.face, { fill: fill('hatch', { angle: degrees(r.orientation), spacing: mm(0.26 + r.inscribedRadius * 0.17) }), stroke: false })),
+    strokes(net, { pen: 'pigma-005-black' }),
+    measured.results.filter((r) => r.inscribedRadius > 3.6).map((r) => circle(r.inscribedCentre[0], r.inscribedCentre[1], r.inscribedRadius * 0.55, { opaque: true, pen: 'stabilo-88-blue' })),
+  ];
+});
+```
+
+Composed with the rest of the toolkit: a photograph, `scatter` and `relax` for the cells, `t.within` to trim them to a disc, and these columns for the marks. Each mark is bounded by its own cell's inscribed circle, so — however dark the picture gets — **no two marks can ever touch**. That is a guarantee no amount of tuning a dot size will give you, and it comes from the region, not from the mark.
+
+```ts live
+import { sketch, circle, group, degrees } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const img = t.image('ivy.png', { x: 6, y: 4, width: 88 });
+  const dark = img.field('dark', { area: 1.1 });
+  const disc = circle(50, 50, 44);
+  const cells = t.within(t.voronoi(t.relax(t.scatter({ spacing: 3.2, within: disc }), { iterations: 2, within: disc })), disc);
+  return cells.faces().measure().results.map((r) => {
+    const [x, y] = r.inscribedCentre;
+    const d = dark(x, y);
+    const size = r.inscribedRadius * Math.min(1, d * 1.3);
+    if (size < 0.2) return null;
+    // Tone twice over: the mark grows to fill its cell, and darker cells
+    // carry more rings inside that same bound. Nothing can ever collide.
+    const rings = d > 0.7 ? 2 : 1;
+    return group({ rotate: degrees(r.orientation), scale: [1, 1 - r.elongation], origin: [x, y] },
+      t.times(rings, (k) => circle(x, y, (size * (k + 1)) / rings, { pen: 'pigma-005-black' })));
+  });
+});
+```
+
+Poked: a measurement is a table, and its columns are ordinary values, so they can be fed back into the verb that produced them. Lift one generation's inscribed centres with `material(points)` and they are the sites for the next generation's cells — a relaxation that moves each site to its cell's *incentre* rather than its centroid. It is not a named algorithm anywhere and it is three lines here, and it converges on something Lloyd does not: a near circle packing. The pale cells are where it started and the dark ones where it settled.
+
+```ts live
+import { sketch, strokes, circle, material } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
+  let sites = t.scatter({ spacing: 15 });
+  const generations = [];
+  for (let g = 0; g < 4; g++) {
+    const cells = t.voronoi(sites);
+    generations.push(cells);
+    // The incentres of this generation are the sites of the next one.
+    sites = material(cells.faces().measure().map((r) => [...r.inscribedCentre]));
+  }
+  const last = generations[generations.length - 1];
+  return [
+    strokes(generations[0], { pen: 'stabilo-88-blue' }),
+    strokes(last, { pen: 'pigma-005-black' }),
+    last.faces().measure().map((r) => circle(r.inscribedCentre[0], r.inscribedCentre[1], r.inscribedRadius, { pen: 'pigma-005-black' })),
   ];
 });
 ```
