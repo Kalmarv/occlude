@@ -2724,3 +2724,347 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
 One distinction worth keeping straight: thickening an already thickened **boundary** is a new band around those boundary edges, not a dilation of the previously filled interior — the boundary has no memory of the fill. Radii are the source's own units; `tolerance` (default `0.05`) is a total approximation budget in material units. It includes polygonal curve approximation and integer-grid rounding. The grid becomes finer for small radii, so an isolated disc is retained even when the requested tolerance exceeds its radius. Invalid sources, options, radii and callback records name the offending row or key with a `thicken:` error, and same values give the same arrays and callback order on a given build.
 
 Thickening samples the endpoint discs, takes their convex hulls, and unions those polygons with Clipper in TypeScript. Curve approximation uses at most one quarter of `tolerance`; the power-of-two grid is no larger than `min(tolerance / 64, smallest positive radius / 1024)`. Gaps, overlaps and holes near the approximation scale may change connectivity or disappear: exact sub-tolerance topology is not promised. No renderer or WASM initialization is needed. `point` callbacks receive deterministic source attribution within the approximation budget; intersection positions and candidate sets can differ from the former analytical implementation. Construction, coordinate-range and provenance budgets produce explicit errors instead of partial output.
+
+## Cages
+
+`deform(field)` moves every point on its own. That is the right tool for grain
+and drift and the wrong one for "pull this corner out": a field never sees more
+than one point at a time, so it cannot know that a stroke should turn as it
+stretches, or that a hatch should stay evenly spaced.
+
+A cage can. `warp(m, { from, to })` writes every point of the material once as
+a fixed weighted blend of the cage's corners — mean value coordinates, a closed
+form with no solve, defined everywhere in the plane — and then re-evaluates the
+blend against the moved corners. Move a corner and the whole drawing follows
+it: strokes turn, spacing opens and closes, and a circle comes out as a
+believable squashed circle rather than a sheared one.
+
+| Option | Meaning |
+|---|---|
+| `from` | the cage as it was: one loop of corners, or a material to read one from |
+| `to` | the same cage, moved — the same number of corners, in the same order |
+
+There is no cage *type*. A cage is two loops, the way an area here is an input
+rather than a type, and either loop can be a plain array of `[x, y]` or any
+material a chain can be read from. Structure is untouched: edges, columns, row
+order and chain membership all survive, because this moves points and nothing
+else.
+
+Two things follow from that, and both matter in practice. **`warp` moves
+vertices**, so a straight line with two of them comes out straight however
+violently the cage is pulled; `resample` first and the line bends. And **mean
+value coordinates reproduce affine maps exactly**, so a cage whose corners only
+move in x leaves every horizontal line horizontal — if you want a hatch to tip,
+the cage has to tip.
+
+Points outside the cage are carried too, and honestly: the coordinates are
+defined out there, so a drawing does not have to be contained. They are only
+*well behaved* near the cage, and a point far outside a badly moved cage can be
+sent somewhere surprising. That is a property of the coordinates, not a missing
+check. A cage that folds over itself is likewise not refused, and not
+recommended.
+
+Like `thicken`, `oscillate` and `interlace` this is a pure import: no seed, no
+paper, no units.
+
+The same lattice twice, with one corner of the cage dragged:
+
+```ts live
+import { sketch, strokes, curve, append, warp, connect, material, group, label } from 'occlude';
+
+// The blue quadrilateral is the cage: four corners, and on the right the
+// bottom-right one has been dragged. Every point of the lattice was written
+// once as a weighted blend of those four corners, so moving one of them is the
+// whole edit — nothing was re-laid out, and the lines bow rather than shear,
+// because each point follows all four corners at once and no two points are
+// the same blend.
+//
+// The lattice is resampled first. `warp` moves vertices and nothing else, so a
+// line with only two of them can only ever come out straight: give it points
+// where you want it to bend.
+export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
+  const rest = [[4, 14], [86, 14], [86, 86], [4, 86]];
+  const pulled = [[4, 14], [86, 14], [62, 94], [4, 86]];
+  const lattice = [
+    ...t.times(9, (k) => curve([[8, 18 + k * 8], [82, 18 + k * 8]])),
+    ...t.times(9, (k) => curve([[8 + k * 9.2, 18], [8 + k * 9.2, 82]])),
+  ].reduce((p, q) => append(p, q)).resample({ spacing: 1.2 });
+  const panel = (cage, x, text) => group({ translate: [x, 0] }, [
+    strokes(warp(lattice, { from: rest, to: cage })),
+    strokes(connect.ring(material(cage)), { pen: 'stabilo-88-blue' }),
+    label(text, 4, 8, 3.2, { pen: 'stabilo-88-blue' }),
+  ]);
+  return [panel(rest, 2, 'THE CAGE'), panel(pulled, 104, 'ONE CORNER MOVED')];
+});
+```
+
+### Thrown, not sheared
+
+Four vessels, one drawing. The hatch is made once, flat, and each pot is that
+drawing read through a different cage.
+
+```ts live paper=200x100
+import { sketch, rect, curve, append, warp, strokes, group } from 'occlude';
+
+// The hatch is the throwing rings, so it crowds at the foot and the neck where
+// the wall pulls in, opens across the belly, and tips where the axis leans.
+// Generating the hatch after the warp would have given four sets of straight
+// parallel lines; generating it once and moving it is what makes these look
+// turned on a wheel rather than sheared.
+//
+// The rest cage is a rectangle read as (side, height); the destination lays
+// those coordinates on a curved spine, so a cross-section at height v sits
+// ACROSS the axis rather than level. That part matters: mean value coordinates
+// reproduce affine maps exactly, so a cage that only moves x would leave every
+// ring horizontal. The rings bend because the axis bends.
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const N = 30;
+  const rest = [];
+  for (let i = 0; i <= N; i++) rest.push([40, (i / N) * 80]);
+  for (let i = 1; i <= N; i++) rest.push([40 - (i / N) * 40, 80]);
+  for (let i = 1; i <= N; i++) rest.push([0, 80 - (i / N) * 80]);
+  for (let i = 1; i < N; i++) rest.push([(i / N) * 40, 0]);
+
+  const hatch = t
+    .times(30, (k) => curve([[0.4, 1.5 + k * 2.65], [39.6, 1.5 + k * 2.65]]))
+    .reduce((p, q) => append(p, q))
+    .resample({ spacing: 1.1 });
+  const wall = t.sample(rect(0, 0, 40, 80), { spacing: 1.1 });
+
+  // half-width and lateral sway of the axis, by height (0 at the foot, 1 at the lip)
+  const forms = [
+    { r: (v) => 4 + 13 * Math.sin(Math.PI * (0.14 + 0.74 * v)), sway: (v) => 1.5 * Math.sin(Math.PI * v) },
+    { r: (v) => 5 + 11 * Math.sin(Math.PI * v ** 0.6) - 3 * v ** 6, sway: (v) => -3 * Math.sin(Math.PI * v) },
+    { r: (v) => 13 - 8 * v + 4.5 * Math.sin(Math.PI * 2.1 * v), sway: (v) => 3 * Math.sin(Math.PI * 1.5 * v) },
+    { r: (v) => 4 + 12 * (1 - (1 - v) ** 2.1) * (1 - 0.68 * v ** 4) + 5 * v ** 9, sway: (v) => 2.5 * v ** 1.6 },
+  ];
+
+  return forms.map((f, i) => {
+    const spine = (v) => [20 + f.sway(v), 72 * v];
+    const cage = rest.map(([x, y]) => {
+      const v = y / 80;
+      const [ax, ay] = spine(Math.min(1, v + 0.004));
+      const [bx, by] = spine(Math.max(0, v - 0.004));
+      const len = Math.hypot(ax - bx, ay - by);
+      const [nx, ny] = [(ay - by) / len, -(ax - bx) / len];
+      const [cx, cy] = spine(v);
+      const u = x / 20 - 1;
+      return [cx + nx * f.r(v) * 1.1 * u, cy + ny * f.r(v) * 1.1 * u];
+    });
+    return group({ translate: [22 + i * 48, 14] }, [
+      strokes(warp(hatch, { from: rest, to: cage })),
+      strokes(warp(wall, { from: rest, to: cage }), { pen: 'stabilo-88-blue' }),
+    ]);
+  });
+});
+```
+
+### Nine petals from one panel
+
+Cells, settling, `within`, an opaque mask and a cage, in a drawing where the
+structure is authored once and placed nine times.
+
+```ts live paper=140x140
+import { sketch, rect, circle, polygon, warp, strokes, group } from 'occlude';
+
+// There is exactly ONE panel of cell structure here: points scattered and
+// settled against a field that wants them crowded at the base, their Voronoi
+// cells clipped to a rectangle. Every petal is that panel read through a
+// different cage, so the cells stretch along the petal, fan out across it and
+// lean with the twist — a whole vein system for the price of one.
+//
+// Each petal also lays down an opaque mask of its own silhouette before its
+// cells, so the petal in front hides the one behind it rather than tangling
+// with it. That is the composition: the cage supplies the shape, the occluder
+// supplies the depth, and the cells never knew about either.
+export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
+  const PW = 40;
+  const PH = 100;
+  const panel = { x: 0, y: 0, w: PW, h: PH };
+  const toward = (x, y) => 0.12 + 0.88 * (1 - y / PH) ** 1.6;
+  const sites = t.within(
+    t.settle(t.scatter(toward, { spacing: 7 }), { density: toward, spacing: 7, iterations: 14, bounds: panel }),
+    rect(0, 0, PW, PH),
+  );
+  const veins = t.voronoi(sites, { bounds: panel });
+  const edge = t.sample(rect(0, 0, PW, PH), { spacing: 1.2 });
+
+  const N = 34;
+  const rest = [];
+  for (let i = 0; i <= N; i++) rest.push([PW, (i / N) * PH]);
+  for (let i = 1; i <= N; i++) rest.push([PW - (i / N) * PW, PH]);
+  for (let i = 1; i <= N; i++) rest.push([0, PH - (i / N) * PH]);
+  for (let i = 1; i < N; i++) rest.push([(i / N) * PW, 0]);
+
+  const L = t.height * 0.4;
+  const r0 = t.height * 0.06;
+
+  const petal = (k) => {
+    const twist = 0.5 + 0.22 * Math.sin(k * 1.7);
+    const fat = 0.85 + 0.2 * Math.sin(k * 2.3);
+    const cage = rest.map(([x, y]) => {
+      const v = y / PH;
+      const r = r0 + v * L * (0.9 + 0.2 * Math.sin(k * 1.1));
+      const hw = t.height * 0.1 * fat * (0.25 * (1 - v) ** 1.5 + 0.8 * Math.sin(Math.PI * v ** 0.8) ** 0.75);
+      const lean = twist * v * v * t.height * 0.09;
+      return [t.cx + (x / (PW / 2) - 1) * hw + lean, t.cy - r];
+    });
+    const outline = warp(edge, { from: rest, to: cage });
+    return group({ rotate: k * 40, origin: [t.cx, t.cy] }, [
+      polygon(outline, { opaque: true, stroke: false }),
+      strokes(warp(veins, { from: rest, to: cage })),
+      strokes(outline, { pen: 'stabilo-88-blue' }),
+    ]);
+  };
+
+  return [
+    t.times(9, (k) => petal(k)),
+    circle(t.cx, t.cy, r0 * 1.05, { opaque: true }),
+    t.within(t.scatter(() => 1, { spacing: 2.6 }), circle(t.cx, t.cy, r0 * 0.92)).points.map((p) => circle(p.x, p.y, 0.55)),
+  ];
+});
+```
+
+### The cage that does not move
+
+A cage is two loops and nothing more — so the loops are free to be the *same*
+loop, read differently.
+
+```ts live paper=200x40
+import { sketch, circle, curve, append, rect, warp, strokes, group } from 'occlude';
+
+// `from` and `to` here are the SAME square, corner for corner, except that
+// `to` has been rolled by a few places. Nothing has been stretched or dragged
+// anywhere new: every corner still lands on a corner of the same square. But
+// corner 0 now answers to what corner 3 used to answer to, so the interior is
+// wrung around the ring while the boundary stays exactly where it was. Five
+// panels, rolled by 0, 1, 2, 3 and 5 places out of forty; the blue square is
+// the cage itself, the same in all five, which is the whole point.
+export default sketch({ aspect: [5, 1], seed: 2 }, (t) => {
+  const S = 68;
+  const N = 40;
+  const ring = [];
+  for (let i = 0; i < N; i++) {
+    const u = (i / N) * 4;
+    const side = Math.floor(u);
+    const f = u - side;
+    if (side === 0) ring.push([f * S, 0]);
+    else if (side === 1) ring.push([S, f * S]);
+    else if (side === 2) ring.push([S - f * S, S]);
+    else ring.push([0, S - f * S]);
+  }
+
+  const lines = t
+    .times(9, (k) => append(
+      curve([[4, 4 + k * 7.5], [S - 4, 4 + k * 7.5]]),
+      curve([[4 + k * 7.5, 4], [4 + k * 7.5, S - 4]]),
+    ))
+    .reduce((p, q) => append(p, q))
+    .resample({ spacing: 1 });
+  const content = append(lines, t.sample(circle(S / 2, S / 2, 13), { spacing: 1 }));
+  const cage = t.sample(rect(0, 0, S, S), { spacing: 1 });
+
+  return [0, 1, 2, 3, 5].map((roll, i) => {
+    const rolled = ring.map((_, j) => ring[(j + roll) % N]);
+    return group({ translate: [16 + i * 100, 16] }, [
+      strokes(warp(content, { from: ring, to: rolled })),
+      strokes(cage, { pen: 'stabilo-88-blue' }),
+    ]);
+  });
+});
+```
+
+### Three pots, one decoration, three cages
+
+A surface chart is an ordinary 2D plane, so a cage works on it exactly as it
+works on paper — and `mapSurface` then puts the result on the pot.
+
+```ts live paper=150x120
+import { sketch, curve, rect, append, warp, pen, mm } from 'occlude';
+import { polyline, revolve, mapSurface, view, perspective, style } from 'occlude/3d';
+
+// The ornament — a diaper lattice with a dot in every diamond — is drawn once,
+// flat, on a plain rectangle. A revolve stores its surface as a chart of
+// (turn, height), and a cage turns that rectangle into a shield, an ogee leaf
+// or a wavy banner. `mapSurface` lays whichever panel it is onto the pot, where
+// the wall curls it away from us and the geometry hides what has turned past
+// the silhouette.
+//
+// Nothing about the ornament knows it is going onto a pot, and nothing about
+// the pot knows what is being painted on it. The cage is the whole of the
+// design step, and it happens in flat chart coordinates where it is easy to
+// think about.
+export default sketch({ aspect: [5, 4], seed: 5, pens: {
+  ink: pen({ width: mm(0.3), color: '#18202A' }),
+  paint: pen({ width: mm(0.2), color: '#1B4FA0' }),
+} }, (t) => {
+  const R = (s) => 0.3 + 0.7 * Math.sin(Math.PI * (0.12 + 0.8 * s)) ** 1.25 - 0.28 * s ** 5;
+  const Z = (s) => -1.3 + 2.5 * s;
+  const M = 120;
+  const meridian = [[0, 0, Z(0)]];
+  for (let i = 0; i <= M; i++) meridian.push([R(i / M), 0, Z(i / M)]);
+
+  const V0 = 0.3;
+  const V1 = 0.8;
+  const U0 = 0.38;
+  const U1 = 0.62;
+  const cols = 4;
+  const rows = 5;
+  const parts = [];
+  for (let k = -rows; k <= cols + rows; k++) {
+    parts.push(curve([[U0 + ((U1 - U0) * k) / cols, V0], [U0 + ((U1 - U0) * (k + rows)) / cols, V1]]));
+    parts.push(curve([[U0 + ((U1 - U0) * k) / cols, V0], [U0 + ((U1 - U0) * (k - rows)) / cols, V1]]));
+  }
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c <= cols; c++) {
+      const u = U0 + ((U1 - U0) * (c + (r % 2 ? 0.5 : 0))) / cols;
+      const v = V0 + ((V1 - V0) * (r + 0.5)) / rows;
+      parts.push(curve(t.times(11, (j) => [
+        u + 0.006 * Math.cos((j / 10) * Math.PI * 2),
+        v + 0.012 * Math.sin((j / 10) * Math.PI * 2),
+      ])));
+    }
+  }
+  // the lattice is generated past the panel on purpose, then cut to it: the
+  // cage is only well behaved on what it encloses
+  const flatAll = t
+    .within(parts.reduce((p, q) => append(p, q)), rect(U0, V0, U1 - U0, V1 - V0))
+    .resample({ spacing: 0.004 });
+  const flatEdge = t.sample(rect(U0, V0, U1 - U0, V1 - V0), { spacing: 0.004 });
+
+  const N = 30;
+  const rest = [];
+  for (let i = 0; i <= N; i++) rest.push([U1, V0 + ((V1 - V0) * i) / N]);
+  for (let i = 1; i <= N; i++) rest.push([U1 - ((U1 - U0) * i) / N, V1]);
+  for (let i = 1; i <= N; i++) rest.push([U0, V1 - ((V1 - V0) * i) / N]);
+  for (let i = 1; i < N; i++) rest.push([U0 + ((U1 - U0) * i) / N, V0]);
+
+  const uc = (U0 + U1) / 2;
+  const cages = [
+    // a shield: broad at the shoulder, drawn in towards the foot
+    (a, b) => [uc + (a - 0.5) * (U1 - U0) * (0.42 + 0.72 * b ** 0.6), V0 + (V1 - V0) * b],
+    // an ogee leaf, leaning with the turn of the wheel
+    (a, b) => [
+      uc + (a - 0.5) * (U1 - U0) * (0.34 + 0.8 * Math.sin(Math.PI * b ** 0.85) ** 0.7) + 0.055 * (b - 0.5),
+      V0 + (V1 - V0) * b,
+    ],
+    // a banner: full width, but the rows ride a wave around the pot
+    (a, b) => [
+      uc + (a - 0.5) * (U1 - U0),
+      V0 + (V1 - V0) * (0.12 + 0.76 * b) + 0.075 * Math.sin(Math.PI * 2 * a),
+    ],
+  ];
+
+  const pot = (k, x, y, s, turn) => {
+    const to = rest.map(([u, v]) => cages[k]((u - U0) / (U1 - U0), (v - V0) / (V1 - V0)));
+    const panel = append(warp(flatAll, { from: rest, to }), warp(flatEdge, { from: rest, to }));
+    const body = revolve(polyline(meridian), { segments: 72 }).scale(s).rotate([0, 0, turn]).translate([x, y, 0]);
+    return [body, style(mapSurface(body, panel), { stroke: 'paint' })];
+  };
+
+  return view(
+    [...pot(0, -1.8, 0.7, 1, 104), ...pot(1, 0.7, -1.0, 0.84, 78), ...pot(2, 2.5, 1.7, 0.7, 96)],
+    { camera: perspective({ eye: [2.2, -9.2, 2.6], target: [0.2, 0, 0], fovDegrees: 30 }), stroke: 'ink' },
+  );
+});
+```
