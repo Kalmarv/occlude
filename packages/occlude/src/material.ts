@@ -1749,7 +1749,9 @@ export interface AppendOpts {
   fill?: Record<string, number>;
   edgeFill?: Record<string, number>;
 }
-export function append(...args: [Material, ...Material[]] | [Material, ...Material[], AppendOpts]): Material {
+export function append(...materials: Material[]): Material;
+export function append(...args: [...Material[], AppendOpts]): Material;
+export function append(...args: (Material | AppendOpts)[]): Material {
   const last: unknown = args[args.length - 1];
   const trailingOpts = last !== null && typeof last === 'object' && Object.getPrototypeOf(last) === Object.prototype;
   const opts: AppendOpts = trailingOpts ? (last as AppendOpts) : {};

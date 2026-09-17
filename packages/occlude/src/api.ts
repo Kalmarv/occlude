@@ -1061,7 +1061,9 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * pile whose `faces()` are the pieces the overlaps cut. The options are the
    * trailing plain object. Points go through the pure `material(points)`.
    */
-  function materialFromShape(...args: [ShapeValue, ...ShapeValue[]] | [ShapeValue, ...ShapeValue[], { tolerance?: L }]): Material {
+  function materialFromShape(...shapes: ShapeValue[]): Material;
+  function materialFromShape(...args: [...ShapeValue[], { tolerance?: L }]): Material;
+  function materialFromShape(...args: (ShapeValue | { tolerance?: L })[]): Material {
     const last: unknown = args[args.length - 1];
     // Only a trailing plain object is options; anything else (an array of
     // points included) is judged as a shape, so the error names what it saw.
