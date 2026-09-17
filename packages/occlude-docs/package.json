@@ -4,10 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm --filter occlude docs:signatures && blume dev",
-    "build": "pnpm --filter occlude docs:signatures && blume build",
+    "build": "pnpm --filter occlude docs:signatures && blume build && rm -rf ../occlude-studio/dist/docs && cp -r dist ../occlude-studio/dist/docs",
     "preview": "blume preview"
   },
   "devDependencies": {
-    "blume": "^1.7.0"
+    "blume": "^1.7.0",
+    "occlude-studio": "workspace:*"
   }
 }

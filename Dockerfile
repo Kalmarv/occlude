@@ -73,8 +73,7 @@ ENV OCCLUDE_BUILD_STAMP=${OCCLUDE_BUILD_STAMP}
 # server resolving every module and the wasm asset it serves.
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,sharing=locked \
-    pnpm check \
- && pnpm --filter occlude-docs build
+    pnpm check
 
 # --------------------------------------------------------------------- studio
 # The serving image: the verified dist plus the plain-Node server and its
@@ -85,7 +84,6 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=verified /src/packages/occlude-studio/dist ./dist
-COPY --from=verified /src/packages/occlude-docs/dist ./dist/docs
 COPY --from=verified /src/packages/occlude-studio/package.json \
                      /src/packages/occlude-studio/server.mjs \
                      /src/packages/occlude-studio/sketch-store.mjs \

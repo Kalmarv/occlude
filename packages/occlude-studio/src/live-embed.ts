@@ -59,24 +59,53 @@ export async function mountLive(el: HTMLElement, live: LiveSource): Promise<void
     const cssScale = cssW / w;
     const dpr = window.devicePixelRatio || 1;
     const px = Math.min(16, cssScale * dpr);
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(w * px);
-    canvas.height = Math.round(h * px);
+    // The same drawing at any size: the whole drawable, paper-coloured.
+    const paint = (pixelsPerUnit: number): HTMLCanvasElement => {
+      const c = document.createElement('canvas');
+      c.width = Math.round(w * pixelsPerUnit);
+      c.height = Math.round(h * pixelsPerUnit);
+      const ctx = c.getContext('2d')!;
+      ctx.fillStyle = '#f6f2ea';
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.scale(pixelsPerUnit, pixelsPerUnit);
+      ctx.translate(-f.offsetX, -f.offsetY);
+      drawFragments(ctx, result.frags, result.pens);
+      return c;
+    };
+    const canvas = paint(px);
     canvas.style.width = `${Math.round(w * cssScale)}px`;
     canvas.style.maxWidth = '100%';
     canvas.style.display = 'block';
     canvas.style.borderRadius = '6px';
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = '#f6f2ea';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.scale(px, px);
-    ctx.translate(-f.offsetX, -f.offsetY);
-    drawFragments(ctx, result.frags, result.pens);
+    // A bigger look: the drawing as large as the window allows, over the page.
+    const preview = document.createElement('button');
+    preview.type = 'button';
+    preview.textContent = 'preview';
+    preview.title = 'Show this drawing as large as the window allows';
+    preview.onclick = () => {
+      const vw = window.innerWidth * 0.92;
+      const vh = window.innerHeight * 0.92;
+      const fit = Math.min(vw / w, vh / h);
+      const big = paint(Math.min(24, fit * dpr));
+      big.style.width = `${Math.round(w * fit)}px`;
+      big.style.height = `${Math.round(h * fit)}px`;
+      big.style.borderRadius = '8px';
+      big.style.boxShadow = '0 24px 80px rgba(0,0,0,.45)';
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.72);cursor:zoom-out';
+      overlay.append(big);
+      const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+      const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') close(); };
+      overlay.onclick = close;
+      document.addEventListener('keydown', onKey);
+      document.body.append(overlay);
+    };
     // Open this source in the studio on the same sheet, with the docs pens for the session.
     const open = document.createElement('button');
     open.type = 'button';
     open.textContent = 'open in studio';
     open.style.cssText = 'font:12px inherit;padding:3px 10px;border:1px solid currentColor;border-radius:999px;background:transparent;color:inherit;opacity:.8;cursor:pointer';
+    preview.style.cssText = open.style.cssText;
     open.onclick = () => {
       localStorage.setItem('occlude.sketch', live.src);
       localStorage.setItem('occlude.sketchName', '');
@@ -90,8 +119,8 @@ export async function mountLive(el: HTMLElement, live: LiveSource): Promise<void
       location.href = '/';
     };
     const bar = document.createElement('div');
-    bar.style.cssText = 'display:flex;justify-content:flex-end;margin:6px 0 20px';
-    bar.append(open);
+    bar.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin:6px 0 20px';
+    bar.append(preview, open);
     el.replaceChildren(canvas, bar);
   } catch (e) {
     el.textContent = `example failed: ${e instanceof Error ? e.message : String(e)}`;
@@ -126,13 +155,6 @@ export async function mountPage(root: ParentNode = document): Promise<void> {
     out.className = 'occlude-live';
     out.dataset.liveIndex = String(i);
     out.style.cssText = 'min-height:120px;margin:12px 0 4px';
-    // An examples page is a finished drawing: on a wide screen it spills into
-    // the empty column to the right, where a reference page keeps its outline.
-    if (/\/examples\//.test(location.pathname) && window.matchMedia('(min-width: 1280px)').matches) {
-      out.style.width = 'calc(100% + 18rem)';
-      out.style.position = 'relative';
-      out.style.zIndex = '1';
-    }
     out.textContent = 'rendering…';
     // Blume wraps the <pre> in a figure with a header; the drawing goes right after it, code first.
     const host = pre.closest('figure') ?? pre;
