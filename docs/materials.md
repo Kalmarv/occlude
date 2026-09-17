@@ -2930,47 +2930,62 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
 A cage is two loops and nothing more — so the loops are free to be the *same*
 loop, read differently.
 
-```ts live paper=200x40
-import { sketch, circle, curve, append, rect, warp, strokes, group } from 'occlude';
+```ts live paper=140x140
+import { sketch, strokes, curve, append, warp, material, connect } from 'occlude';
 
-// `from` and `to` here are the SAME square, corner for corner, except that
-// `to` has been rolled by a few places. Nothing has been stretched or dragged
-// anywhere new: every corner still lands on a corner of the same square. But
-// corner 0 now answers to what corner 3 used to answer to, so the interior is
-// wrung around the ring while the boundary stays exactly where it was. Five
-// panels, rolled by 0, 1, 2, 3 and 5 places out of forty; the blue square is
-// the cage itself, the same in all five, which is the whole point.
-export default sketch({ aspect: [5, 1], seed: 2 }, (t) => {
-  const S = 68;
-  const N = 40;
-  const ring = [];
-  for (let i = 0; i < N; i++) {
-    const u = (i / N) * 4;
-    const side = Math.floor(u);
-    const f = u - side;
-    if (side === 0) ring.push([f * S, 0]);
-    else if (side === 1) ring.push([S, f * S]);
-    else if (side === 2) ring.push([S - f * S, S]);
-    else ring.push([0, S - f * S]);
-  }
+// The cage does not move. Only the correspondence does.
+//
+// `from` and `to` are the SAME square here, corner for corner — nothing is
+// stretched anywhere new, and every corner still lands on a corner of the same
+// square. But `to` is rolled by a few places, so corner 0 answers to what
+// corner 3 used to answer to, and the interior is wrung around the ring while
+// the boundary stays exactly where it was.
+//
+// Six square bands of one lattice, each rolled one place further than the band
+// outside it: the frame is rigid, the cloth inside it is being twisted, and
+// every band's own border is still exactly the square it was cut from.
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
+  const N = 48;
+  const ringOf = (s) => {
+    const half = s / 2;
+    const pts = [];
+    for (let i = 0; i < N; i++) {
+      const u = (i / N) * 4;
+      const side = Math.floor(u);
+      const f = u - side;
+      if (side === 0) pts.push([t.cx - half + f * s, t.cy - half]);
+      else if (side === 1) pts.push([t.cx + half, t.cy - half + f * s]);
+      else if (side === 2) pts.push([t.cx + half - f * s, t.cy + half]);
+      else pts.push([t.cx - half, t.cy + half - f * s]);
+    }
+    return pts;
+  };
+  const square = (s) => [
+    [t.cx - s / 2, t.cy - s / 2],
+    [t.cx + s / 2, t.cy - s / 2],
+    [t.cx + s / 2, t.cy + s / 2],
+    [t.cx - s / 2, t.cy + s / 2],
+  ];
 
-  const lines = t
-    .times(9, (k) => append(
-      curve([[4, 4 + k * 7.5], [S - 4, 4 + k * 7.5]]),
-      curve([[4 + k * 7.5, 4], [4 + k * 7.5, S - 4]]),
-    ))
-    .reduce((p, q) => append(p, q))
-    .resample({ spacing: 1 });
-  const content = append(lines, t.sample(circle(S / 2, S / 2, 13), { spacing: 1 }));
-  const cage = t.sample(rect(0, 0, S, S), { spacing: 1 });
+  const lattice = t
+    .times(41, (k) => {
+      const u = 4 + k * 2.3;
+      return append(curve([[4, u], [96, u]]), curve([[u, 4], [u, 96]]));
+    })
+    .reduce((a, b) => append(a, b))
+    .resample({ spacing: 0.8 });
 
-  return [0, 1, 2, 3, 5].map((roll, i) => {
-    const rolled = ring.map((_, j) => ring[(j + roll) % N]);
-    return group({ translate: [16 + i * 100, 16] }, [
-      strokes(warp(content, { from: ring, to: rolled })),
-      strokes(cage, { pen: 'stabilo-88-blue' }),
-    ]);
-  });
+  const sides = [92, 78, 64, 50, 36, 22, 8];
+  return [
+    sides.slice(0, -1).map((s, i) => {
+      const cage = ringOf(s);
+      const rolled = cage.map((_, j) => cage[(j + i) % N]);
+      // the band between this square and the next one in, cut as one area
+      const band = t.within(lattice, [square(s), square(sides[i + 1])]);
+      return strokes(warp(band, { from: cage, to: rolled }));
+    }),
+    sides.map((s) => strokes(connect.ring(material(square(s).map(([x, y]) => ({ x, y })))), { pen: 'stabilo-88-blue' })),
+  ];
 });
 ```
 
