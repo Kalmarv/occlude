@@ -1146,6 +1146,121 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
+## Oscillation
+
+`oscillate(m, { wavelength, amplitude, shape?, phase?, steps? })` swings a chain from side to side as it goes. It is a pure import like `thicken`: no seed, no paper, and `wavelength` and `amplitude` are numbers in the material's own coordinates — or **fields** read at each sample, which is the whole point, because then tone drives them. The result is ordinary Material with the source's own columns, so it strokes, resamples, planarizes, thickens and is occluded like anything else.
+
+| Option | Meaning |
+|---|---|
+| `wavelength` | distance along the chain for one whole cycle; a number or a field, positive wherever a chain goes |
+| `amplitude` | how far it swings to either side; a number or a field. 0 leaves the chain alone, negative mirrors the waveform |
+| `shape` | the waveform: phase in `[0, 1)` to `−1…1`. Default `sin(2πu)` |
+| `phase` | where in the cycle every chain starts, in cycles. Default 0 |
+| `steps` | samples per wavelength, at least 4. Default 16 |
+
+Why this earns its place on a plotter: a hatch that darkens by *wiggling* is one continuous pen-down stroke, where a hatch that darkens by crowding is many strokes with a pen lift between each. Ink for ink, the wiggle is far cheaper to draw.
+
+Two details are load-bearing. Phase is **integrated** along the chain, `φ(s) = ∫ ds/λ`, not computed as `s/λ` — with a wavelength that varies those differ, and only the integral keeps the swings continuous instead of jumping wherever λ changes. And a **closed chain rounds its total to a whole number of cycles** (never below one), so a ring's wave meets its own seam rather than showing a step; an open chain keeps exactly the wavelength it asked for.
+
+`shape` is a plain function, so the waveforms are recipes rather than options: `(u) => u < 0.5 ? 4 * u - 1 : 3 - 4 * u` is a triangle, `(u) => u < 0.5 ? 1 : -1` a square, `(u) => 2 * u - 1` a sawtooth. A junction is an error, as it is for `along` and `resample`: a branch has no single side to swing to.
+
+One chain each — a plain swing, a wavelength that stretches, an amplitude that grows, and a ring that comes back to meet itself.
+
+```ts live
+import { sketch, strokes, oscillate, curve, circle } from 'occlude';
+
+// One chain each: a plain swing, a wavelength that stretches, an amplitude
+// that grows, and a ring — whose wave comes back to meet its own seam.
+export default sketch({ aspect: [2, 1], seed: 1 }, (t) => [
+  strokes(oscillate(curve([[12, 16], [188, 16]]), { wavelength: 9, amplitude: 4 })),
+  strokes(oscillate(curve([[12, 38], [188, 38]]), { wavelength: (x) => 2.5 + (x / 200) * 16, amplitude: 4 })),
+  strokes(oscillate(curve([[12, 60], [188, 60]]), { wavelength: 9, amplitude: (x) => 0.3 + (x / 200) * 7 })),
+  strokes(oscillate(t.sample(circle(100, 81, 12), { count: 200 }), { wavelength: 6, amplitude: 2.6 })),
+]);
+```
+
+Distance, drawn as texture. Every ridge is the same construction; what changes is how hard it wiggles and how tightly, so the far ones read as haze and the near ones as scrub. The amplitude is a field, which is why the scrub clumps into bushes instead of running at one height, and each ridge carries an opaque mask with no texture at all, so it simply hides the country behind it. Every mark on the page is one continuous pen-down stroke.
+
+```ts live
+import { sketch, strokes, polygon, oscillate, curve } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
+  const K = 8;
+  const out = [];
+  for (let k = 0; k < K; k++) {
+    const u = k / (K - 1);
+    const base = 31 + k * 7.6;
+    const spine = curve(t.times(120, (j, f) => {
+      const x = -6 + f * 212;
+      return [x, base - t.noise(x * (0.012 + u * 0.01) + k * 4.1, k * 2.3) * (4 + u * 13)];
+    }));
+    // Near ground is scrub: short wavelength, wide swing. Distance smooths
+    // and stretches it until the far ridges are almost a clean line.
+    // Amplitude is a field, so the scrub clumps along the ridge instead of
+    // running at one height: bushes here, bare ground there.
+    const reach = 0.1 + u * u * 4.6;
+    const scrub = oscillate(spine, {
+      wavelength: 13 - u * 10.8,
+      amplitude: (x) => reach * (0.18 + Math.max(0, t.noise(x * 0.055 + k * 7, k * 3)) * 1.5),
+      phase: k * 0.31,
+    });
+    const pts = scrub.curves()[0].pts;
+    out.push(
+      // An opaque mask with no texture: the ridge hides what stands behind it.
+      polygon([...pts, [206, 101], [-6, 101]], { opaque: true, stroke: false }),
+      strokes(scrub),
+    );
+  }
+  return out;
+});
+```
+
+Composed with the rest of the toolkit. One distance field does two jobs at once: its `curl` gives the streamlines their direction, and its value gives the oscillation its wavelength and amplitude — so the water's texture and its path cannot disagree, being the same function read twice.
+
+```ts live
+import { sketch, strokes, polygon, circle, rect, append, curl, distanceTo, oscillate } from 'occlude';
+
+// Two stones in a stream. The streamlines come from the curl of the stones'
+// shared distance field, so they take the shape of both and merge between
+// them; the oscillation reads that same field, so the water is turbulent
+// close in and glassy far off; and the stones go down opaque last, which is
+// why the flow stops dead at them instead of eroding.
+export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
+  const stones = [rect(68, 50, 30, 17, { rotate: 24, mode: 'center' }), circle(130, 56, 11)];
+  const d = distanceTo(append(t.material(stones[0]), t.material(stones[1])));
+  const out = (x, y) => Math.max(0, -d(x, y));
+  const lines = t.streamlines(t.within(curl(d), circle(100, 50, 105)), { spacing: 1.6 });
+  return [
+    strokes(oscillate(lines, {
+      wavelength: (x, y) => 1.7 + out(x, y) * 0.55,
+      amplitude: (x, y) => 1.05 * Math.exp(-Math.pow(out(x, y) / 13, 2)),
+    })),
+    stones.map((s) => polygon(t.material(s), { opaque: true })),
+  ];
+});
+```
+
+Poked: an amplitude far larger than the ring it swings on. The wave turns the ring inside out and crosses itself, so the output stops being a line and becomes a network — planarize it and it has faces, and the shape columns above then hatch each petal along its own axis. Neither operation knows about the other.
+
+```ts live
+import { sketch, strokes, polygon, circle, oscillate, fill, mm, degrees } from 'occlude';
+
+// Poked: an amplitude far larger than the ring it swings on. The wave turns
+// the ring inside out and crosses itself, so the output stops being a line
+// and becomes a network — planarize it and it has faces, which can be read
+// and filled by the room each one holds.
+export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
+  const ring = t.sample(circle(100, 50, 21), { count: 900 });
+  const knot = oscillate(ring, { wavelength: 11, amplitude: 27 }).planarize();
+  const measured = knot.faces().measure();
+  return [
+    measured.results.filter((r) => r.inscribedRadius > 1.2).map((r) =>
+      polygon(r.face, { fill: fill('hatch', { angle: degrees(r.orientation), spacing: mm(0.3 + r.inscribedRadius * 0.2) }), stroke: false })),
+    strokes(knot, { pen: 'stabilo-88-blue' }),
+  ];
+});
+```
+
 ## Thickness
 
 **`thicken(source, opts)`** turns points and connections into filled ribbons, beaded outlines, and perforated networks. Start with native material from `t.scatter`, `t.sample`, `t.voronoi`, or `t.streamlines`, then choose a radius — the full width is twice that radius. Overlapping parts join into one area; isolated points become discs, and openings between connections can remain as holes.
