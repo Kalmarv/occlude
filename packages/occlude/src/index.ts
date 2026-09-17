@@ -74,6 +74,7 @@ export type { TrailsOpts } from './trails.js';
 export { warp } from './warp.js';
 export type { WarpOpts, Corner } from './warp.js';
 export type { RidgeOpts, RidgeContour } from './ridges.js';
+export { envelope } from './envelope.js';
 export { interlace } from './interlace.js';
 export type { InterlaceOpts, Crossing } from './interlace.js';
 export { snap } from './snap.js';

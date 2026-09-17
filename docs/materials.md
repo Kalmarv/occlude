@@ -3068,3 +3068,328 @@ export default sketch({ aspect: [5, 4], seed: 5, pens: {
   );
 });
 ```
+
+
+## Envelopes
+
+Curve stitching, string art, the mod-n chord pile, guilloché, a ruled surface
+seen flat, the caustic in a coffee cup — all of them are one idea. You never
+compute the curve you want. You draw a *family* of straight lines, and the
+shape appears in the gaps as the curve every one of them is tangent to. Draw
+the chord from `(t, 0)` to `(0, k − t)` for every `t` and a parabola is there;
+place `n` points on a circle and join `k` to `m·k mod n` and an epicycloid is
+there.
+
+What has never been available is that curve **itself**, as geometry: to draw it
+heavier than the family, to cut with it, to hang something else off it.
+`envelope(m)` returns it.
+
+The textbook definition wants calculus — solve `F(x, y, t) = 0` and
+`∂F/∂t = 0` together — and calculus is not what a drawing has. A drawing has a
+family in an order, so the definition used here is the discrete one that needs
+nothing else: **the envelope of a family is where neighbouring members cross.**
+Two consecutive chords of a parabola meet on the parabola; make the family
+denser and the meeting points close onto the true curve. The family's own
+resolution is the accuracy, which is honest, and is also exactly what the
+plotted drawing shows.
+
+The family is the chains of `m`, **in the order they are stored**, which is the
+order `append` put them in. Neighbouring means neighbouring in that order, so a
+family assembled out of order has a different envelope and is not wrong to. A
+family member is one chain: reduce a level set to its largest contour before it
+joins a family, or the offshore rocks are interleaved with the members and
+"neighbouring" stops meaning anything.
+
+A pair of neighbours may cross more than once, and then the envelope has that
+many branches — both are real. Branches are carried from one pair to the next
+**by order** along the earlier member, never by distance: ordering is a property
+the family already has, where a "nearest" rule would need a tolerance, and a
+tolerance here would be a number invented to paper over the fact that nobody
+said what the family was. Where a pair crosses fewer times than the pair before
+it the extra branches end, and where it crosses more they begin.
+
+This works when the family is **regular** — neighbours crossing a few times,
+near where they touch. Rays off a smooth wall are regular. A wandering
+coastline sampled through time is not: consecutive contours cross each other
+forty times and the result, while it is exactly what was asked for, is not a
+tideline. That question is about a hull, not an envelope.
+
+Every vertex carries `member`: the index of the earlier of the two family
+members that crossed there. Fading a family by `member`, or cutting each member
+at the point where it touched, is then an ordinary column read — the last
+sketch below draws nothing else.
+
+Two members that share an endpoint **meet** without crossing, and are not
+reported: a pencil of lines through one hub has no envelope, and its hub is the
+one place it is provably tangent to nothing.
+
+Like `thicken`, `oscillate`, `interlace` and `warp` this is a pure import: no
+seed, no paper, no units.
+
+```ts live paper=140x140
+import { sketch, strokes, curve, append, envelope, group } from 'occlude';
+
+// Curve stitching, four times over. Every black line is straight and none of
+// them touches the curve at the corner — but the curve is the only thing the
+// eye sees, because every one of them is tangent to it. The blue is that
+// curve as GEOMETRY: `envelope` reads the family and returns where
+// neighbouring members cross, which for a family of chords is what they are
+// all tangent to. Nothing solved for √x + √y = √k; the family was drawn, and
+// the curve was found in it.
+export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
+  const corner = (ox, oy, sx, sy) => {
+    const fam = t
+      .times(33, (i) => {
+        const u = i / 32;
+        return curve([[ox + sx * 44 * u, oy], [ox, oy + sy * 44 * (1 - u)]]);
+      })
+      .reduce((a, b) => append(a, b));
+    return [strokes(fam), strokes(envelope(fam), { pen: 'stabilo-88-blue' })];
+  };
+  return [
+    corner(6, 6, 1, 1),
+    corner(94, 6, -1, 1),
+    corner(94, 94, -1, -1),
+    corner(6, 94, 1, -1),
+  ];
+});
+```
+
+### A rose window
+
+```ts live paper=140x140
+import { sketch, strokes, envelope, append, material, connect, circle, polygon, group } from 'occlude';
+
+// A rose window. Every black line is straight, and every curve in the tracery
+// is one nobody drew: place n points on a circle, join k to m·k, and the pile
+// of chords is tangent to an epicycloid with m−1 cusps. The stone is the
+// envelope; the leading is the family.
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const pile = (cx, cy, R, n, m) =>
+    t
+      .times(n, (k) => {
+        const a = (k / n) * Math.PI * 2 - Math.PI / 2;
+        const b = ((m * k) % n / n) * Math.PI * 2 - Math.PI / 2;
+        return connect.chain(
+          material([
+            { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) },
+            { x: cx + R * Math.cos(b), y: cy + R * Math.sin(b) },
+          ]),
+        );
+      })
+      .reduce((p, q) => append(p, q));
+
+  const band = (R, n, m) => {
+    const fam = pile(t.cx, t.cy, R, n, m);
+    return [strokes(fam), strokes(envelope(fam), { pen: 'stabilo-88-blue' })];
+  };
+
+  // Each band is laid down, then the next ring in is made opaque over it, so
+  // the leading of one band never tangles with the tracery of the next.
+  return [
+    band(46, 126, 7),
+    circle(t.cx, t.cy, 30.5, { opaque: true }),
+    band(29, 84, 5),
+    circle(t.cx, t.cy, 15.8, { opaque: true }),
+    band(15, 54, 3),
+    circle(t.cx, t.cy, 46),
+  ];
+});
+```
+
+### The light in a dented bowl
+
+```ts live paper=180x120
+import { sketch, strokes, envelope, append, material, connect, components, polygon } from 'occlude';
+
+// The light in a dented bowl.
+//
+// The mirror is not a circle: it is a level set of noise, so its curvature
+// changes all the way round. A parallel beam comes in from the left, each ray
+// bounces once off the wall, and the caustic — the bright curve the light
+// piles up on — is `envelope` of the reflected rays. A round bowl gives the
+// tidy two-cusped nephroid in every optics book. A dented one gives this: a
+// cusp wherever the wall's curvature turns, which is a fact about the bowl
+// that nothing else in the drawing states.
+//
+// The family has to be regular for an envelope to mean anything — neighbours
+// crossing once, near where they touch. Rays off a smooth wall are exactly
+// that, which is why they are the family here and the wobbling wall is not.
+export default sketch({ aspect: [3, 2], seed: 14 }, (t) => {
+  const field = (x, y) =>
+    t.noise(x / 46, y / 46) + 0.42 -
+    1.3 * Math.hypot((x - t.cx) / (t.width * 0.4), (y - t.cy) / (t.height * 0.46)) ** 2;
+  const all = t.isolines(field, 0, { close: true, step: 0.6 });
+  const c = components(all);
+  const size = new Int32Array(c.count);
+  for (const p of all.points) size[c.label(p)]++;
+  let best = 0;
+  for (let k = 1; k < c.count; k++) if (size[k] > size[best]) best = k;
+  const bowl = all.points.filter((p) => c.label(p) === best).inducedEdges().extract().resample({ spacing: 0.7 });
+
+  const wall = bowl.curves()[0].pts;
+  const n = wall.length;
+  const rays = wall
+    .map(([px, py], i) => {
+      const [ax, ay] = wall[(i + n - 1) % n];
+      const [bx, by] = wall[(i + 1) % n];
+      // the wall's own tangent, and the normal pointing out of the bowl
+      const tl = Math.hypot(bx - ax, by - ay);
+      const nx = (by - ay) / tl;
+      const ny = -(bx - ax) / tl;
+      const out = field(px + nx, py + ny) < field(px - nx, py - ny) ? 1 : -1;
+      const [ox, oy] = [nx * out, ny * out];
+      const dot = ox; // the beam is (1, 0)
+      if (dot <= 0.02) return null;
+      const rx = 1 - 2 * dot * ox;
+      const ry = -2 * dot * oy;
+      return connect.chain(material([{ x: px, y: py }, { x: px + rx * 78, y: py + ry * 78 }]));
+    })
+    .filter(Boolean)
+    .reduce((a, b) => append(a, b));
+
+  return [
+    strokes(t.within(rays, bowl)),
+    // the caustic is cut to the bowl too: where two neighbouring rays run
+    // nearly parallel their crossing runs off to infinity, which is true and
+    // is not part of the picture
+    strokes(t.within(envelope(rays), bowl), { pen: 'stabilo-88-blue' }),
+    strokes(bowl),
+  ];
+});
+```
+
+### The curve that is not drawn
+
+```ts live paper=140x140
+import { sketch, strokes, envelope, append, material, connect, circle } from 'occlude';
+
+// The curve is not drawn.
+//
+// Two hundred chords of a circle, k joined to 2k, whose envelope is a
+// cardioid. Instead of drawing that cardioid, every chord is CUT at the point
+// where it touches it — the envelope's `member` column says which chord each
+// tangency belongs to, so each line knows exactly where to stop. What is left
+// is a family that ends in mid-air along a curve with no ink on it at all, and
+// the eye draws the cardioid anyway.
+//
+// This is the poke: the envelope came back as ordinary material with ordinary
+// columns, so it can be used to decide something about the drawing instead of
+// being drawn.
+export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
+  const N = 220;
+  const R = 44;
+  const at = (k) => {
+    const a = ((k % N) / N) * Math.PI * 2 - Math.PI / 2;
+    return [t.cx + R * Math.cos(a), t.cy + R * Math.sin(a)];
+  };
+  const chords = t
+    .times(N, (k) => {
+      const [ax, ay] = at(k);
+      const [bx, by] = at(2 * k);
+      return connect.chain(material([{ x: ax, y: ay }, { x: bx, y: by }]));
+    })
+    .reduce((p, q) => append(p, q));
+
+  // where each chord touches the curve nobody is drawing
+  const touch = new Map();
+  for (const p of envelope(chords).points) touch.set(p.member, [p.x, p.y]);
+
+  const cut = t
+    .times(N, (k) => {
+      const stop = touch.get(k);
+      if (!stop) return null;
+      const [ax, ay] = at(k);
+      return connect.chain(material([{ x: ax, y: ay }, { x: stop[0], y: stop[1] }]));
+    })
+    .filter(Boolean)
+    .reduce((p, q) => append(p, q));
+
+  return [strokes(cut), circle(t.cx, t.cy, R, { pen: 'stabilo-88-blue' })];
+});
+```
+
+### Straight steel, curved tower
+
+```ts live paper=180x120
+import { sketch, envelope, append, material, connect, warp, pen, mm } from 'occlude';
+import { polyline, circle as ring3, plane, revolve, mapSurface, view, perspective, style } from 'occlude/3d';
+
+// A cooling tower, and the drawing it was made from, lying on the floor under
+// it.
+//
+// Every strut is STRAIGHT. The waist is not a strut and never was: it is the
+// curve all of them are tangent to, which is what makes a hyperboloid
+// buildable out of straight steel. The same fact drawn twice — once as the
+// object, once as the construction on the floor, where the family is the
+// struts' shadow and the blue curve is `envelope` of it.
+//
+// The tower is a skin ruled by those same straight lines, so the struts on the
+// far side are hidden and the floor drawing is cut where the tower stands on
+// it. The skin's waist is the envelope, again: r0 = R·cos(skew/2), and it sits
+// a whisker inside the struts so that the steel reads as steel on a surface
+// rather than fighting it for the same pixels.
+export default sketch({ aspect: [3, 2], seed: 8, pens: {
+  ink: pen({ width: mm(0.28), color: '#18202A' }),
+  found: pen({ width: mm(0.32), color: '#1B4FA0' }),
+} }, (t) => {
+  const N = 34;
+  const R = 1.15;
+  const H = 1.5;
+  const skew = Math.PI * 0.62;
+
+  // the object: N straight struts between two rings, each turned by `skew`
+  const struts = t.times(N, (k) => {
+    const a = (k / N) * Math.PI * 2;
+    const b = a + skew;
+    return polyline([
+      [R * Math.cos(a), R * Math.sin(a), -H],
+      [R * Math.cos(b), R * Math.sin(b), H],
+    ]);
+  });
+  const rims = [ring3(R).translate([0, 0, -H]), ring3(R).translate([0, 0, H])];
+
+  // the surface those straight struts rule. Its waist is r0 = R·cos(skew/2) —
+  // the same circle the floor drawing found as an envelope — and it is here to
+  // do the hiding: without it the far struts would show through, because a
+  // curve occludes nothing.
+  const r0 = R * Math.cos(skew / 2);
+  const skin = revolve(
+    polyline(t.times(41, (k) => {
+      const z = -H + (2 * H * k) / 40;
+      return [Math.sqrt(r0 * r0 + (z / H) ** 2 * (R * R - r0 * r0)), 0, z];
+    })),
+    { segments: 72 },
+  ).scale(0.994).style({ creaseAngle: 180 });
+
+  // the construction, in the floor's chart: the same family seen from above,
+  // which is a set of chords of a circle
+  const chords = t
+    .times(N * 2, (k) => {
+      const a = (k / (N * 2)) * Math.PI * 2;
+      const b = a + skew;
+      return connect.chain(
+        material([
+          { x: 0.17 + 0.215 * Math.cos(a), y: 0.63 + 0.215 * Math.sin(a) },
+          { x: 0.17 + 0.215 * Math.cos(b), y: 0.63 + 0.215 * Math.sin(b) },
+        ]),
+      );
+    })
+    .reduce((a, b) => append(a, b));
+  const waist = envelope(chords);
+
+  const floor = plane(5.4).translate([0, 0, -H]);
+
+  return view(
+    [
+      floor,
+      style(mapSurface(floor, chords), { stroke: 'ink' }),
+      style(mapSurface(floor, waist), { stroke: 'found' }),
+      skin,
+      ...struts,
+      ...rims,
+    ],
+    { camera: perspective({ eye: [3.1, -4.4, 1.9], target: [0, 0, -0.2], fovDegrees: 40 }), stroke: 'ink' },
+  );
+});
+```
