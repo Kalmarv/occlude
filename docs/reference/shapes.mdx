@@ -1,0 +1,219 @@
+---
+title: Shapes
+description: "The drawables: shapes, paths, groups, clips, masks and the modifiers that change a line."
+---
+
+A shape is exact geometry with drawing options. Coordinates are drawable units: 1 unit is 1 % of the short side of the drawable, so a square drawable runs from 0 to 100 both ways. Wrap a value in `mm()` to give it in millimetres. Every shape takes a trailing options object; see [Shape options](#shape-options).
+
+## circle
+
+<include>/_sig/circle.mdx</include>
+
+A circle with its centre at `(x, y)` and radius `r`.
+
+```ts live
+import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => t.times(5, (k) => circle(50, 50, 8 + k * 8)));
+```
+
+## rect
+
+<include>/_sig/rect.mdx</include>
+
+A rectangle with its corner at `(x, y)`. `mode: 'center'` puts the centre there instead. `radius` rounds the corners.
+
+```ts live
+import { sketch, rect } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => [rect(10, 10, 50, 36), rect(60, 60, 30, 30, 6, { mode: 'center' }), rect(65, 12, 25, 25, { mode: 'corner', pen: 'stabilo-88-blue' })]);
+```
+
+## line
+
+<include>/_sig/line.mdx</include>
+
+An open stroke from `(x1, y1)` to `(x2, y2)`.
+
+```ts live
+import { sketch, line } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => t.times(12, (k, u) => line(10, 10 + u * 80, 90, 90 - u * 80)));
+```
+
+## ellipse
+
+<include>/_sig/ellipse.mdx</include>
+
+An ellipse with radii `rx` and `ry`, turned by `rotation` degrees about its centre.
+
+```ts live
+import { sketch, ellipse } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => t.times(6, (k) => ellipse(50, 50, 40, 12, k * 30)));
+```
+
+## ngon
+
+<include>/_sig/ngon.mdx</include>
+
+A regular polygon: `sides` vertices on a circle of radius `r`, the first at `rotation` degrees.
+
+```ts live
+import { sketch, ngon } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => t.times(4, (k) => ngon(16 + k * 22.5, 50, 3 + k, 11, k * 15)));
+```
+
+## path
+
+<include>/_sig/path.mdx</include>
+
+A builder for one path. Call `moveTo`, `lineTo`, `quadTo`, `bezierTo`, `arcTo` and `close`, then `build(opts?)` to get a shape. The builder stays usable after `build`, so one path can become several shapes.
+
+```ts live
+import { sketch, path } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const p = path().moveTo(10, 70).bezierTo(30, 10, 70, 90, 90, 30);
+  return [p.build(), p.lineTo(90, 90).lineTo(10, 90).close().build({ pen: 'stabilo-88-blue', stroke: 'stabilo-88-blue' })];
+});
+```
+
+## polygon
+
+<include>/_sig/polygon.mdx</include>
+
+One area from its boundary. Give a loop of pairs, several loops, contour records, a face, a chain material, or a shape. A loop that is not closed gets a closing chord. `winding` decides the fill rule where loops nest or cross: `'evenodd'` (the default) makes every enclosed loop a hole, `'nonzero'` fills through.
+
+```ts live
+import { sketch, polygon, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const star = t.times(10, (k) => { const r = k % 2 ? 16 : 40; const a = (k / 10) * Math.PI * 2; return [50 + Math.cos(a) * r, 50 + Math.sin(a) * r]; });
+  return polygon(star, { fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) });
+});
+```
+
+## label
+
+<include>/_sig/label.mdx</include>
+<include>/_sig/labelWidth.mdx</include>
+
+Single-stroke text with cap height `h`: capitals, digits and basic punctuation. `align` anchors `x` at the `'center'` or the `'right'`. `labelWidth` measures a string.
+
+```ts live
+import { sketch, label, line } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => [label('OCCLUDE', 50, 38, 16, { align: 'center' }), line(10, 58, 90, 58), label('PEN 0.3 MM', 50, 76, 9, { align: 'center', pen: 'stabilo-88-blue' })]);
+```
+
+## group
+
+<include>/_sig/group.mdx</include>
+
+Applies a transform, a default pen, a default `z` and default modifiers to its children. `rotate` and `scale` pivot on `origin`: a pair, or `'center'` for the middle of the drawable. Without `origin` they pivot on the user origin, the corner of the drawable.
+
+:::warning
+`origin: 'center'` is the middle of the drawable, not the middle of the group. To pivot on a shape's own middle, give that point: `origin: [cx, cy]`.
+:::
+
+```ts live
+import { sketch, group, rect } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => t.times(8, (k) => group({ rotate: k * 12, origin: 'center', pen: k % 2 ? 'stabilo-88-blue' : undefined }, rect(20, 35, 60, 30))));
+```
+
+## clip · invert
+
+<include>/_sig/clip.mdx</include>
+<include>/_sig/invert.mdx</include>
+
+`clip` keeps only the ink of its children that lies inside the shape. The shape itself is not drawn and hides nothing. Nested clips intersect. `invert(shape)` turns the region inside out, so `clip(invert(shape), …)` keeps the ink outside.
+
+```ts live
+import { sketch, clip, invert, circle, line } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const across = t.times(24, (k, u) => line(0, u * 100, 100, u * 100));
+  const down = t.times(24, (k, u) => line(u * 100, 0, u * 100, 100, { pen: 'stabilo-88-blue' }));
+  return [clip(circle(50, 50, 30), ...across), clip(invert(circle(50, 50, 38)), ...down)];
+});
+```
+
+## mask
+
+<include>/_sig/mask.mdx</include>
+
+A shape that hides what is beneath it and draws nothing. This is the hidden-line tool.
+
+```ts live
+import { sketch, mask, circle, line } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => [...t.times(20, (k, u) => line(5, 10 + u * 80, 95, 10 + u * 80)), mask(circle(50, 50, 28)), circle(50, 50, 28, { pen: 'stabilo-88-blue' })]);
+```
+
+## modify
+
+<include>/_sig/modify.mdx</include>
+
+Applies a stack of modifiers to its children, in order. Nested stacks compose: the inner one runs first. Each modifier also exists as a shape option of the same name.
+
+```ts live
+import { sketch, modify, smooth, wobble, mm, ngon } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => [ngon(27, 50, 5, 24), modify([smooth(2), wobble(mm(0.8))], ngon(73, 50, 5, 24))]);
+```
+
+## wobble · decimate · dash
+
+<include>/_sig/wobble.1.mdx</include>
+<include>/_sig/decimate.1.mdx</include>
+<include>/_sig/dash.1.mdx</include>
+
+Modifiers that run after occlusion, on the ink that survives. `wobble` displaces the strokes with seeded smooth noise, like a hand tremor; `amount` is a length, and `wavelength` sets the scale. `decimate` drops a fraction of the strokes; `{ stroke, fill }` targets outline and fill separately. `dash` cuts the strokes into dashes of physical length; the pattern continues through hidden-line cuts.
+
+```ts live
+import { sketch, circle, wobble, decimate, dash, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => [circle(50, 50, 44, { wobble: mm(1.2) }), circle(50, 50, 32, { decimate: 0.5 }), circle(50, 50, 20, { modifiers: [dash(mm(3), mm(2))] })]);
+```
+
+## smooth · roughen · deform
+
+<include>/_sig/smooth.1.mdx</include>
+<include>/_sig/roughen.1.mdx</include>
+<include>/_sig/deform.1.mdx</include>
+
+Modifiers that run before occlusion, on the outline itself, so the changed silhouette is what hides and what a fill follows. `smooth` relaxes corners toward curves. `roughen` breaks a clean edge into jitter, resampled every `detail`. `deform` moves the outline by a vector field `(x, y) => [dx, dy]`.
+
+```ts live
+import { sketch, rect, smooth, roughen, deform, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => [rect(6, 20, 26, 60, { modifiers: [smooth(3)] }), rect(37, 20, 26, 60, { modifiers: [roughen(mm(1.2))] }), rect(68, 20, 26, 60, { modifiers: [deform((x, y) => [Math.sin(y / 6) * 4, 0])] })]);
+```
+
+## stroke · strokes
+
+<include>/_sig/stroke.mdx</include>
+<include>/_sig/strokes.2.mdx</include>
+
+Draw geometry as ink. `stroke` draws one contour or one list of pairs. `strokes` draws every chain of a material, a selection or a list of contours, once each, all with the same options. A material never draws itself; these are the words that make ink.
+
+```ts live
+import { sketch, stroke, strokes, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => [stroke(t.times(40, (k, u) => [10 + u * 80, 50 + Math.sin(u * 12) * 20])), strokes(t.material(circle(50, 50, 40)), { pen: 'stabilo-88-blue' })]);
+```
+
+## Shape options
+
+<AutoTypeTable path="../occlude/src/api.ts" name="ShapeOpts" />
+
+Every shape accepts these. `fill` makes the shape opaque and gives it a texture; `opaque: true` hides with no texture; `stroke: false` draws no outline. `translate`, `rotate`, `scale` and `origin` are the same transform a `group` applies. `bridge` joins stroke ends across gaps up to a length after occlusion, so hatch rows become one stroke.
+
+```ts live
+import { sketch, circle, rect, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => [rect(10, 20, 50, 50, { fill: fill('hatch', { angle: 30, spacing: mm(1.5) }), stroke: false }), circle(60, 55, 24, { opaque: true, pen: 'stabilo-88-blue' }), circle(78, 28, 14, { rotate: 20, scale: [1.6, 1], origin: [78, 28] })]);
+```
