@@ -173,7 +173,7 @@ describe('faces', () => {
     expect(total).toBe(2500);
     expect(three.faces().length).toBe(euler(three));
     // the union outline of everything is the outer square alone
-    expect(three.faces().boundaries()).toHaveLength(1);
+    expect(three.faces().contours()).toHaveLength(1);
   });
 
   it('dangling branches and bridges add no area, no face, no retraced contour', () => {
@@ -196,7 +196,7 @@ describe('faces', () => {
     const ann = ic.faces.find((f) => f.area === 800)!;
     expect(ann.contours).toHaveLength(2);
     expect(ann.perimeter).toBe(160);
-    expect(ic.boundaries()).toHaveLength(1);
+    expect(ic.contours()).toHaveLength(1);
   });
 
   it('a tree with non-collinear branches has no face: its walk area is exactly zero, not a rounding residue', () => {
@@ -218,7 +218,7 @@ describe('faces', () => {
     const p = touching.planarize();
     expect(p.n).toBe(7);
     expect(areas(p)).toEqual([100, 100]);
-    const both = p.faces().boundaries();
+    const both = p.faces().contours();
     expect(both).toHaveLength(2);
     for (const c of both) expect(c.pts).toHaveLength(4);
   });
@@ -237,7 +237,7 @@ describe('faces', () => {
     expect(() => big.has(grid.edge(0) as never)).toThrow(/edge view/);
     expect(() => cells.has({ index: 0, area: 1 } as never)).toThrow(/face view/);
     const none = cells.filter(() => false);
-    expect(none.boundaries()).toEqual([]);
+    expect(none.contours()).toEqual([]);
     expect(big.subtract(none).indices).toEqual([0, 1, 2, 3]);
     expect(big.intersect(cells.filter((f) => f.index < 2)).indices).toEqual([0, 1]);
     expect(() => big.union(connect.triangulate(material([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5]])).faces().filter(() => true))).toThrow(/different face collections/);
@@ -249,20 +249,20 @@ describe('faces', () => {
   it('union boundaries: shared walls vanish, holes stay when the inner face is unselected', () => {
     const diag = square().steps(1, (_, next) => next.connect(0, 2));
     const cells = diag.faces();
-    expect(cells.boundaries()).toHaveLength(1);
-    expect(cells.boundaries()[0].pts).toHaveLength(4);
+    expect(cells.contours()).toHaveLength(1);
+    expect(cells.contours()[0].pts).toHaveLength(4);
     const one = cells.filter((f) => f.index === 0);
-    expect(one.boundaries()[0].pts).toHaveLength(3);
+    expect(one.contours()[0].pts).toHaveLength(3);
     const nested = append(square(0, 0, 30), square(10, 10, 10)).faces();
     const outerOnly = nested.filter((f) => f.area > 500);
-    expect(outerOnly.boundaries()).toHaveLength(2); // the hole is kept
-    expect(nested.boundaries()).toHaveLength(1); // both selected: the inner wall goes
+    expect(outerOnly.contours()).toHaveLength(2); // the hole is kept
+    expect(nested.contours()).toHaveLength(1); // both selected: the inner wall goes
     const innerOnly = nested.filter((f) => f.area < 500);
-    expect(innerOnly.boundaries()).toHaveLength(1);
-    expect(innerOnly.boundaries()[0].pts).toHaveLength(4);
+    expect(innerOnly.contours()).toHaveLength(1);
+    expect(innerOnly.contours()[0].pts).toHaveLength(4);
     // contours feed polygon and stroke directly
     expect(() => polygon(nested.faces[0].contours, { winding: 'evenodd' })).not.toThrow();
-    expect(() => polygon(nested.boundaries())).not.toThrow();
+    expect(() => polygon(nested.contours())).not.toThrow();
   });
 
   it('every intersection of a planarized network is a shared endpoint (cross-check on a random net)', () => {
@@ -358,7 +358,7 @@ describe('review of 3df7b04', () => {
     expect(outer.contours).toHaveLength(3);
     for (const c of outer.contours) expect(c.pts).toHaveLength(4);
     const sel = cells.filter((f) => f.area === 1400);
-    const b = sel.boundaries();
+    const b = sel.contours();
     expect(b).toHaveLength(3);
     for (const c of b) expect(c.pts).toHaveLength(4);
   });
@@ -401,5 +401,50 @@ describe('faces: the planarity check reads positions and pairs exactly', () => {
     const wide = material(pts, { edges: eds });
     expect(wide.n).toBe(40000);
     expect(faces(wide).faces).toHaveLength(0);
+  });
+});
+
+describe('faces: centroid, adjacency and an edge\'s faces', () => {
+  const sq = (x: number, y: number, s: number) => curve([[x, y], [x + s, y], [x + s, y + s], [x, y + s]]);
+  // three unit cells in a row sharing walls, as one material with explicit edges
+  const row3 = () => material([[0, 0], [10, 0], [20, 0], [30, 0], [0, 10], [10, 10], [20, 10], [30, 10]], {
+    edges: [[0, 1], [1, 2], [2, 3], [4, 5], [5, 6], [6, 7], [0, 4], [1, 5], [2, 6], [3, 7]],
+  });
+  it('a face knows its centroid, holes respected', () => {
+    const plain = sq(0, 0, 10).faces().at(0);
+    expect(plain.centroid.map((v) => +v.toFixed(9))).toEqual([5, 5]);
+    const ring = append(sq(0, 0, 10), sq(6, 6, 2)).planarize().faces().filter((f) => f.contours.length === 2).at(0);
+    expect(ring.centroid[0]).toBeLessThan(5); // the hole in the top-right corner pulls the centroid away
+    expect(ring.centroid[1]).toBeLessThan(5);
+  });
+  it('adjacent faces share a wall, one hop out, never the faces asked about', () => {
+    const cells = row3().faces();
+    const byX = [...cells].sort((a, b) => a.centroid[0] - b.centroid[0]);
+    expect(byX[0].adjacent.length).toBe(1);
+    expect(byX[1].adjacent.length).toBe(2);
+    expect(byX[0].adjacent.has(byX[1])).toBe(true);
+    expect(byX[0].adjacent.has(byX[2])).toBe(false);
+    const ends = cells.filter((f) => f.centroid[0] < 10 || f.centroid[0] > 20);
+    expect(ends.adjacent().length).toBe(1);
+    expect(ends.adjacent().has(byX[1])).toBe(true);
+    const pair = cells.filter((f) => f.centroid[0] < 20);           // two selected neighbours
+    expect(pair.adjacent().length).toBe(3);                            // one hop collects the selected one too
+    expect(pair.adjacent().subtract(pair).length).toBe(1);             // the ring outside
+    expect(cells.adjacent().length).toBe(3);
+    // a corner touch is not adjacency
+    const corner = append(sq(0, 0, 10), sq(10, 10, 10)).planarize().faces();
+    expect(corner.length).toBe(2);
+    expect(corner.at(0).adjacent.length).toBe(0);
+  });
+  it('an edge knows the faces on its sides', () => {
+    const m = row3();
+    const cells = m.faces();
+    const wall = m.edges.find((e) => e.a.x === 10 && e.b.x === 10)!;
+    expect(wall.faces.length).toBe(2);
+    expect(cells.has(wall.faces[0])).toBe(true);
+    const outer = m.edges.find((e) => e.a.y === 0 && e.b.y === 0 && e.b.x === 10)!;
+    expect(outer.faces.length).toBe(1);
+    const crossed = sq(0, 0, 10).steps(1, (_, next) => { next.connect(0, 2); next.connect(1, 3); });
+    expect(() => crossed.edges.at(0).faces).toThrow(/planar/);
   });
 });

@@ -71,6 +71,11 @@ export interface Edge {
   index: number;
   /** This edge's attribute row: `edge.attrs.rest`. */
   attrs: Record<string, number>;
+  /** The faces on this edge's two sides, from the material's `faces()`:
+   * two for a wall between cells, one for an outer wall or a spur inside a
+   * face, none for an edge no face touches. Reading it on a material that
+   * is not planar throws the same error as `faces()`. */
+  readonly faces: Face[];
 }
 
 /** A chain of a material for drawing: stampable as-is (`stroke(curve)`), with
@@ -270,7 +275,12 @@ export class Material {
     this.adjBox = { rows: null };
     this.facesBox = { faces: null };
     this.vertexProto = viewProto(this, 'vertex');
-    this.edgeProto = viewProto(this, 'edge');
+    // An edge knows the faces on its two sides once the material's faces
+    // have been read (cached on the state): the reverse of `face.edges`.
+    const owner = this;
+    const edgeProto = Object.create(viewProto(this, 'edge')) as object;
+    Object.defineProperty(edgeProto, 'faces', { get(this: Edge) { return owner.faces().facesOf(this); }, enumerable: false });
+    this.edgeProto = Object.freeze(edgeProto);
     Object.freeze(this.attrs);
     Object.freeze(this.edgeAttrs);
     Object.freeze(this.transfers);

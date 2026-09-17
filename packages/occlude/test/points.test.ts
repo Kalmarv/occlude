@@ -135,7 +135,7 @@ describe('voronoi as material', () => {
       const r = (faces as unknown as { faceOf: Int32Array }).faceOf[2 * e + 1];
       expect(l >= 0 || r >= 0).toBe(true);
     }
-    expect(faces.boundaryEdges.length).toBeGreaterThanOrEqual(4);
+    expect(faces.boundaryEdges().length).toBeGreaterThanOrEqual(4);
     expect(cells.maxDegree()).toBeLessThanOrEqual(4);
     // Each site owns exactly the cell containing it, in both directions.
     for (const s of sites.points) {
@@ -222,41 +222,41 @@ describe('face navigation', () => {
     const cells = net.faces();
     // Three faces: left annulus, the hole square, the right square.
     expect(cells.length).toBe(3);
-    const all = cells.edges;
+    const all = cells.edges();
     // The spur is part of the right face's walk (both its sides are that face);
     // the detached segment is its own zero-area walk and belongs to no face.
     expect(all.length).toBe(cells.source.edgeCount - 1);
-    expect(cells.points.length).toBe(cells.source.n - 2);
-    const outer = cells.boundaryEdges;
+    expect(cells.points().length).toBe(cells.source.n - 2);
+    const outer = cells.boundaryEdges();
     // The outside boundary of the union: the two squares' outer walls minus the shared wall.
     expect(outer.length).toBeGreaterThanOrEqual(6);
     const left = cells.filter((f) => f.contours.length === 2); // the annulus has a hole
     expect(left.length).toBe(1);
-    const leftWalls = left.edges;
+    const leftWalls = left.edges();
     expect(leftWalls.length).toBeGreaterThan(4); // its outer square plus the hole's walls
     // The shared wall is a boundary edge of the left selection alone but not of both squares together.
     const both = cells.filter((f) => f.contours.length === 2 || f.area > 50);
-    expect(both.boundaryEdges.length).toBeLessThan(left.boundaryEdges.length + cells.filter((f) => f.area > 50 && f.contours.length === 1).boundaryEdges.length);
+    expect(both.boundaryEdges().length).toBeLessThan(left.boundaryEdges().length + cells.filter((f) => f.area > 50 && f.contours.length === 1).boundaryEdges().length);
     // The hole's walls are boundary edges of the annulus (its inner face is not selected) …
-    expect(left.boundaryEdges.length).toBe(8); // its three outer walls, the shared wall, and the hole's four
+    expect(left.boundaryEdges().length).toBe(8); // its three outer walls, the shared wall, and the hole's four
     // … and vanish when the hole face is selected too.
     const withHole = left.union(cells.filter((f) => f.area === 4));
-    expect(withHole.boundaryEdges.length).toBe(left.boundaryEdges.length - 4);
+    expect(withHole.boundaryEdges().length).toBe(left.boundaryEdges().length - 4);
     // The spur inside the right square is in `edges` and not in `boundaryEdges`;
     // the detached segment is in neither.
     const right = cells.filter((f) => f.area > 50 && f.contours.length === 1);
-    const spur = right.edges.filter((e) => e.a.x === 20 && e.a.y === 0 && e.b.x === 17);
+    const spur = right.edges().filter((e) => e.a.x === 20 && e.a.y === 0 && e.b.x === 17);
     expect(spur.length).toBe(1);
-    expect(right.boundaryEdges.filter((e) => e.b.x === 17).length).toBe(0);
-    expect(right.edges.filter((e) => e.a.x === 12 && e.a.y === 7).length).toBe(0);
+    expect(right.boundaryEdges().filter((e) => e.b.x === 17).length).toBe(0);
+    expect(right.edges().filter((e) => e.a.x === 12 && e.a.y === 7).length).toBe(0);
     // Empty selection, empty navigation.
     const none = cells.filter(() => false);
-    expect(none.edges.length).toBe(0);
-    expect(none.points.length).toBe(0);
-    expect(none.boundaryEdges.length).toBe(0);
+    expect(none.edges().length).toBe(0);
+    expect(none.points().length).toBe(0);
+    expect(none.boundaryEdges().length).toBe(0);
     // Rows in source order, no copies.
     expect([...all.indices]).toEqual([...all.indices].sort((a, b) => a - b));
-    expect(strokes(left.boundaryEdges).length).toBeGreaterThan(0);
+    expect(strokes(left.boundaryEdges()).length).toBeGreaterThan(0);
   });
 });
 
@@ -474,7 +474,7 @@ describe('review of fe26c3f', () => {
     expect(left.edges.length).toBe(4);
     // the same views through a selection, and the collection's own union stays the union
     expect(cells.filter(() => true).at(1).edges.length).toBe(right.edges.length);
-    expect(cells.edges.length).toBe(8);
+    expect(cells.edges().length).toBe(8);
   });
 
   it('facesOf: the faces on the two sides of an edge, ownership-checked', () => {

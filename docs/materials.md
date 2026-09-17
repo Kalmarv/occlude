@@ -389,7 +389,7 @@ A material is a set of vertices, each with `x`, `y` and any named attribute colu
 | vectors | `add sub mul length distance unit limit perp dot cross fromAngle angleOf sum sumBy`: tuples in either spelling, tuples out, nothing mutated; angles in radians |
 | rules | `.steps(n, (current, next, k) => …)` with the collection edits, or the shorthand `.steps(n, { move: p => [dx, dy], set })` over every point; forces prepared once and evaluated at a point |
 | collections | `.points`, `.edges`, `.faces()`: iterate, `length`, `at`, `map`, `filter` (a selection), `groupBy` (selections by key); `.extract()` for independent material; `connectedPoints`, `components`, `meanBy` |
-| areas | `.planarize()` shares crossings on purpose; `.faces()` reads the enclosed regions; `boundaries()` outlines a union |
+| areas | `.planarize()` shares crossings on purpose; `.faces()` reads the enclosed regions; `boundaryEdges()` and `contours()` outline a union as walls or as loops |
 | drawing | `.curves()`, `.along()` for stations to place things at, `strokes()`, `segmentRuns`, `extent`, `banding`, then `stroke`, `polygon`, `circle` |
 
 All are pure imports except `t.sample`, which reads the paper. Shapes stay exact through the engine; sampling is the one explicit lossy step into this vocabulary.
@@ -760,7 +760,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 `m.points`, `m.edges` and `m.faces()` are geometry collections: iterate them, read `length`, take `at(i)`, `map` to an ordinary array, `find`, `filter` and `groupBy`. `filter` returns a selection: the same kind of collection, bound to the same state, holding the rows the predicate picked in source order, so it filters, iterates, maps and groups again like the whole. Nothing is copied or changed; views are the source's own, with their ownership. `groupBy(classifier)` splits a collection into an array of selections by key, in first-occurrence order, each carrying its `key`; the key is the classification that made the group, not a column, and a later state knows nothing of it. Independent material is made on purpose with `extract()`.
 
-A selection is consumed where its domain makes sense: `strokes(edges)` draws the selected chains, and `polygon`, `distanceTo` and `force.boundary` take an edge selection as a boundary of its own topology, so a ring picked out of a network is an area even though the network is not. A point selection contributes only the edges that already join its members. Faces are areas already: draw them one by one with `cells.map((f) => polygon(f))` or outline their union with `boundaries()`. A face collection is not one area, so it must say which. The same goes for a shape: `polygon(circle(50, 50, 20))` reads the circle's boundary as an area, so a clip needs no separately named value.
+A selection is consumed where its domain makes sense: `strokes(edges)` draws the selected chains, and `polygon`, `distanceTo` and `force.boundary` take an edge selection as a boundary of its own topology, so a ring picked out of a network is an area even though the network is not. A point selection contributes only the edges that already join its members. Faces are areas already: draw them one by one with `cells.map((f) => polygon(f))` or outline their union with `contours()`. A face collection is not one area, so it must say which. The same goes for a shape: `polygon(circle(50, 50, 20))` reads the circle's boundary as an area, so a clip needs no separately named value.
 
 | Value | Meaning |
 |---|---|
@@ -1226,21 +1226,22 @@ The regions a network encloses are data too. `m.planarize()` makes every crossin
 | `m.planarize({ point?, edges? })` | independent material with crossings and contacts shared and edges split in order; overlaps, duplicate edges and zero-length edges are errors naming the rows |
 | `point: (event) => attrs` | resolves competing point attributes at an event; needed only where the candidates disagree |
 | `edges: (parent, child) => attrs` | child edge attributes over the parent's |
-| `m.faces()` | the bounded faces as a collection: iterate, `length`, `at`, `map`, `filter`, `groupBy`, `boundaries()`; crossings without a shared vertex are an error that says to planarize |
-| `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds`, `contours` (closed records, for consumers that want them one by one — `polygon` and `distanceTo` take the face itself); and its own `edges`, `points`, `boundaryEdges`: the collection's navigation restricted to one face (`for (const e of f.edges)`) |
+| `m.faces()` | the bounded faces as a collection: iterate, `length`, `at`, `map`, `filter`, `groupBy`; crossings without a shared vertex are an error that says to planarize. Rows are properties, collections are methods: `face.edges` but `cells.edges()` |
+| `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds`, `centroid` (holes respected; field-weighted centres come from `measure()`), `contours` (closed records, for consumers that want them one by one — `polygon` and `distanceTo` take the face itself); its own `edges`, `points`, `boundaryEdges`: the collection's navigation restricted to one face (`strokes(f.boundaryEdges)` is its outline); and `adjacent`, the faces across its walls as a selection |
 | `cells.filter(f => bool)` | a fixed-membership face selection with `union`, `intersect`, `subtract` |
-| `cells.edges`, `sel.edges` | every source edge incident to the (selected) faces, once, as an edge selection: shared walls included, and a spur inside a face counts as that face's edge |
-| `cells.points`, `sel.points` | the endpoints of those edges, once |
-| `cells.facesOf(edge)` | the faces on the two sides of a source edge: two for a wall between cells, one for an outer wall or a spur, none for an edge no face touches; the reverse of `face.edges` |
-| `cells.boundaryEdges`, `sel.boundaryEdges` | edges between the selected union and its exterior: walls between two selected faces are excluded, a hole's boundary stays |
-| `sel.boundaries()` | closed contours around the union of the selected faces: a drawing view of the same boundary |
+| `cells.edges()`, `sel.edges()` | every source edge incident to the (selected) faces, once, as an edge selection: shared walls included, and a spur inside a face counts as that face's edge |
+| `cells.points()`, `sel.points()` | the endpoints of those edges, once |
+| `edge.faces` | the faces on the two sides of a source edge, once the material's faces have been read: two for a wall between cells, one for an outer wall or a spur, none for an edge no face touches; the reverse of `face.edges` |
+| `cells.adjacent()`, `sel.adjacent()`, `face.adjacent` | the faces across the walls of the (selected) faces, one hop: neighbours share a wall, not merely a corner, and a selected neighbour is collected too, so `sel.adjacent().subtract(sel)` is the ring outside |
+| `cells.boundaryEdges()`, `sel.boundaryEdges()` | edges between the selected union and its exterior: walls between two selected faces are excluded, a hole's boundary stays |
+| `cells.contours()`, `sel.contours()` | closed contours around the same union boundary, as loops: what `polygon` reads for the union |
 | `cells.measure(field?, { resolution?, bounds?, precision? })` | per-face geometric `area`, `centroid`, `orientation`, `elongation`, `inscribedCentre` and `inscribedRadius` (holes respected) and, given a field, its `integral`, `mean` and density-weighted `weightedCentroid`; `forFace(face)` looks one up |
 
-A detached segment floating inside a face belongs to no face: its walk encloses nothing, so `edges` leaves it out and `boundaryEdges` never sees it.
+A detached segment floating inside a face belongs to no face: its walk encloses nothing, so `edges()` leaves it out and `boundaryEdges()` never sees it.
 
 Measurements are midpoint sums on a square raster (cells of the long side of `bounds` over `resolution`, default 256; bounds default to the measured faces' box), each raster centre inside a face contributing its sample times the cell area, non-finite samples absent. The error scales with the cell size. `integral` is that sum; `mean` is the average of the samples that fell inside, which keeps it within the field's own range however small the face is, and is `NaN` for a face that caught no sample at all — a region too small for the raster reports no measurement rather than a zero. A density-weighted centre needs a nonnegative field with positive total; with a negative sample or zero total it is null, while a signed field still has an integral and a mean. A measurement is a frozen result about its exact faces, not geometry, and does not follow later edits.
 
-Orientation is decided exactly (Shewchuk's `orient2d`), so crossing, touching and collinear never depend on an epsilon. Endpoints merge only when exactly coincident; a gap stays a gap. Contours come out with the outer boundary at positive area and holes negative, so the default `'evenodd'` handles them either way. Drawing every face's contours repeats every shared wall; fill the cells with `stroke: false` and stroke the network once, or stroke only a selection's `boundaries()`.
+Orientation is decided exactly (Shewchuk's `orient2d`), so crossing, touching and collinear never depend on an epsilon. Endpoints merge only when exactly coincident; a gap stays a gap. Contours come out with the outer boundary at positive area and holes negative, so the default `'evenodd'` handles them either way. Drawing every face's contours repeats every shared wall; fill the cells with `stroke: false` and stroke the network once, or stroke only a selection's `contours()`.
 
 ```ts live
 import { sketch, strokes, circle, polygon, fill, mm, group, rect, line, append } from 'occlude';
@@ -1270,7 +1271,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
-Holes and removed walls. A frame split by a wall, with a smaller ring inside: three faces. Left, the chosen faces drawn one by one, so shared walls repeat and the inner square is a hole in each half. Right, `chosen.boundaries()`: the wall between the two chosen halves is gone and the hole kept, until `inner` selects the disk too.
+Holes and removed walls. A frame split by a wall, with a smaller ring inside: three faces. Left, the chosen faces drawn one by one, so shared walls repeat and the inner square is a hole in each half. Right, `chosen.contours()`: the wall between the two chosen halves is gone and the hole kept, until `inner` selects the disk too.
 
 ```ts live
 import { sketch, strokes, polygon, fill, mm, group, append, curve, ui } from 'occlude';
@@ -1286,8 +1287,8 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   return [
     chosen.map((f) => polygon(f, { fill: hatch })),
     group({ translate: [100, 0] },
-      polygon(chosen.boundaries(), { fill: hatch, stroke: false }),
-      strokes(chosen.boundaries(), { pen: 'stabilo-88-blue' }),
+      polygon(chosen.contours(), { fill: hatch, stroke: false }),
+      strokes(chosen.contours(), { pen: 'stabilo-88-blue' }),
     ),
   ];
 });
@@ -1487,14 +1488,14 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 14 }), { iterations: 2 });
   const cells = t.voronoi(sites);
   const rooms = cells.faces().filter((f) => f.area > 260);
-  const internal = rooms.edges.filter((e) => !rooms.boundaryEdges.has(e));
+  const internal = rooms.edges().filter((e) => !rooms.boundaryEdges().has(e));
   const rows = new Set(internal.indices);
   const opened = cells.steps(1, (cur, next) => next.disconnect(cur.edges.filter((e) => rows.has(e.index))));
   // The boundary goes down first: ink laid on ink already there is dropped,
   // so the black walls yield to the blue boundary where they coincide.
   return [
     rooms.map((f) => polygon(f, { fill: fill('hatch', { angle: 30, spacing: mm(1.6) }), stroke: false })),
-    strokes(rooms.boundaryEdges, { pen: 'stabilo-88-blue' }),
+    strokes(rooms.boundaryEdges(), { pen: 'stabilo-88-blue' }),
     strokes(opened, { pen: 'pigma-005-black' }),
   ];
 });
@@ -1532,7 +1533,7 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
   const lit = enclosed.filter((f) => f.area > 25 && measured.forFace(f).mean > 0.5);
   return [
     lit.map((f) => polygon(f, { fill: fill('hatch', { angle: 60, spacing: mm(1.2) }), stroke: false })),
-    strokes(lit.boundaryEdges, { pen: 'stabilo-88-blue' }),
+    strokes(lit.boundaryEdges(), { pen: 'stabilo-88-blue' }),
     strokes(planar, { pen: 'pigma-005-black' }),
   ];
 });

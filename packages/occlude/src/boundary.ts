@@ -36,7 +36,7 @@ interface PointSource {
 /** A face collection or selection: several areas, so the union boundary is
  * the only single boundary it has. */
 interface FaceSource {
-  boundaries(): IsoContour[];
+  contours(): IsoContour[];
   map(fn: (f: { contours: IsoContour[] }) => unknown): unknown[];
 }
 
@@ -78,7 +78,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 const isChainSource = (v: unknown): v is ChainSource =>
   isObj(v) && typeof v.curves === 'function' && typeof v.maxDegree === 'function';
 const isPointSource = (v: unknown): v is PointSource => isObj(v) && typeof v.inducedEdges === 'function';
-const isFaceSource = (v: unknown): v is FaceSource => isObj(v) && typeof v.boundaries === 'function' && typeof v.curves !== 'function';
+const isFaceSource = (v: unknown): v is FaceSource => isObj(v) && typeof v.contours === 'function' && typeof v.curves !== 'function';
 /** One face: already an area, with its holes as further contours. */
 const isFace = (v: unknown): v is FaceLike =>
   isObj(v) && Array.isArray(v.contours) && typeof v.area === 'number';
@@ -102,7 +102,7 @@ export function boundaryLoops(input: Boundary, who: string): LoopPoints[] {
   if (isFaceSource(input)) {
     throw new Error(
       `${who}: a face collection is several areas — draw each one, \`cells.map((f) => polygon(f, …))\`, ` +
-        'or take their union outline with cells.boundaries()',
+        'or take their union outline with cells.contours()',
     );
   }
   // A point selection has no connectivity of its own: its existing edges decide.

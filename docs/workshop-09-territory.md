@@ -14,7 +14,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density });
   const diagram = t.voronoi(sites);
   const cells = diagram.faces();
-  const beside = (e) => cells.facesOf(e);
+  const beside = (e) => e.faces;
   const contrast = (e) => { const [a, b] = beside(e); return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
   const marked = diagram.edgeAttributes({
     open: (e) => { const [a, b] = beside(e); return b !== undefined && a.area > field && b.area > field ? 1 : 0; },
@@ -75,7 +75,7 @@ The correspondence belongs to this diagram, frozen as it was built. Edit the dia
 
 ## Ask what is on either side
 
-A wall separates two cells, and `cells.facesOf(wall)` says which two. A wall along the sheet's edge has one cell beside it, and `facesOf` returns one face. Choose a wall by its row with the control; its two cells are hatched, and the label says how many it has.
+A wall separates two cells, and `wall.faces` says which two. A wall along the sheet's edge has one cell beside it, and `faces` holds one face. Choose a wall by its row with the control; its two cells are hatched, and the label says how many it has.
 
 ```ts live focus=6-7
 import { sketch, strokes, circle, polygon, fill, mm, label, material, ui } from 'occlude';
@@ -86,7 +86,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const diagram = t.voronoi(sites);
   const cells = diagram.faces();
   const chosen = diagram.edge(Math.min(wall, diagram.edgeCount - 1));
-  const beside = cells.facesOf(chosen);
+  const beside = chosen.faces;
   return [
     beside.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: mm(1.4) }), stroke: false })),
     strokes(diagram, { pen: 'pigma-005-black' }),
@@ -112,7 +112,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const diagram = t.voronoi(sites, { bounds: { x: 0, y: 0, w: 100, h: 100 } });
   const cells = diagram.faces();
   const kind = (face) => diagram.siteOf(face).kind;
-  const marked = diagram.edgeAttribute('same', (e) => { const [a, b] = cells.facesOf(e); return b !== undefined && kind(a) === kind(b) ? 1 : 0; });
+  const marked = diagram.edgeAttribute('same', (e) => { const [a, b] = e.faces; return b !== undefined && kind(a) === kind(b) ? 1 : 0; });
   const merged = marked.steps(1, (current, next) => next.disconnect(current.edges.filter((e) => e.attrs.same === 1)));
   const regions = merged.faces();
   return [
@@ -160,7 +160,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
 
 Slide `edge sharpness` down to 1 and the town fades into the country with no edge anywhere; up to 12 and it ends at a line. Neither is the map yet, but the next decision depends on it, and it is worth knowing which you want before drawing any borders.
 
-**Which borders matter.** Every wall is drawn the same above, so the town's edge is only a change of texture. A border is a wall the drawing chooses to emphasise, and the choice here is not a category but a fact about the two cells beside the wall: where a small cell meets a large one, the town meets the country. `facesOf` gives both cells; the ratio of their areas is the test, and `ratio` is the control. The chosen walls go in the heavy pen, drawn before the fine walls, because a stroke on a line that already has ink is dropped: heavy first, or the border comes out fine.
+**Which borders matter.** Every wall is drawn the same above, so the town's edge is only a change of texture. A border is a wall the drawing chooses to emphasise, and the choice here is not a category but a fact about the two cells beside the wall: where a small cell meets a large one, the town meets the country. `e.faces` gives both cells; the ratio of their areas is the test, and `ratio` is the control. The chosen walls go in the heavy pen, drawn before the fine walls, because a stroke on a line that already has ink is dropped: heavy first, or the border comes out fine.
 
 ```ts live focus=9-12
 import { sketch, strokes, distance, ui } from 'occlude';
@@ -172,9 +172,9 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density });
   const diagram = t.voronoi(sites);
   const cells = diagram.faces();
-  const contrast = (e) => { const [a, b] = cells.facesOf(e); return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
-  const border = cells.edges.filter((e) => contrast(e) > ratio);
-  return [strokes(border, { pen: 'pigma-05-black' }), strokes(cells.edges, { pen: 'pigma-005-black' })];
+  const contrast = (e) => { const [a, b] = e.faces; return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
+  const border = cells.edges().filter((e) => contrast(e) > ratio);
+  return [strokes(border, { pen: 'pigma-05-black' }), strokes(cells.edges(), { pen: 'pigma-005-black' })];
 });
 ```
 
@@ -194,7 +194,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density });
   const diagram = t.voronoi(sites);
   const cells = diagram.faces();
-  const open = diagram.edgeAttribute('open', (e) => { const [a, b] = cells.facesOf(e); return b !== undefined && a.area > field && b.area > field ? 1 : 0; });
+  const open = diagram.edgeAttribute('open', (e) => { const [a, b] = e.faces; return b !== undefined && a.area > field && b.area > field ? 1 : 0; });
   const cleared = open.steps(1, (current, next) => next.disconnect(current.edges.filter((e) => e.attrs.open === 1)));
   return strokes(cleared);
 });
@@ -202,7 +202,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
 
 Drag `countryside above area` down and the clearing eats into the town; up past the largest cell and every fence returns. In between, the country is one open region, the town keeps every wall, and the edge between them is the last ring of small cells against the open ground: the edge the border found above, drawn now by absence instead of by a heavy pen. Clearing by a rule about *both* cells is what keeps the ring: a wall with a small cell on either side is never cleared.
 
-**Keep the cells or change them, and say why.** Two drawings can look the same and be different materials, and the choice between them is not about what can be drawn. A selection of cells has `boundaries()`, the closed contours around its union, and `polygon` fills those, so the country can be hatched as one area without removing a single wall: select the union when several cells should be drawn as one area. Removing the walls makes a different material, whose open country is one face with no sites, and that matters only when later operations need it to be one face: measuring it in chapter 10, planarizing it against other lines, growing from its outline. Remove walls when subsequent geometry should treat the cells as one; select a union when only the drawing should. Below, both, from the same sites: left the cells kept, the country hatched through `boundaries()` and the town's cells hatched by distance from the centre, which needs `siteOf` and so needs the cells; right the cleared network, with the country as a face of its own.
+**Keep the cells or change them, and say why.** Two drawings can look the same and be different materials, and the choice between them is not about what can be drawn. A selection of cells has `contours()`, the closed contours around its union, and `polygon` fills those, so the country can be hatched as one area without removing a single wall: select the union when several cells should be drawn as one area. Removing the walls makes a different material, whose open country is one face with no sites, and that matters only when later operations need it to be one face: measuring it in chapter 10, planarizing it against other lines, growing from its outline. Remove walls when subsequent geometry should treat the cells as one; select a union when only the drawing should. Below, both, from the same sites: left the cells kept, the country hatched through `contours()` and the town's cells hatched by distance from the centre, which needs `siteOf` and so needs the cells; right the cleared network, with the country as a face of its own.
 
 ```ts live focus=13-17
 import { sketch, strokes, polygon, fill, mm, distance, group, rect } from 'occlude';
@@ -220,12 +220,12 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const hatch = fill('hatch', { angle: 20, spacing: mm(4.2) });
   const country = left.cells.filter((f) => f.area > 90);
   const town = left.cells.filter((f) => f.area <= 90);
-  const open = right.diagram.edgeAttribute('open', (e) => { const [a, b] = right.cells.facesOf(e); return b !== undefined && a.area > 90 && b.area > 90 ? 1 : 0; });
+  const open = right.diagram.edgeAttribute('open', (e) => { const [a, b] = e.faces; return b !== undefined && a.area > 90 && b.area > 90 ? 1 : 0; });
   const cleared = open.steps(1, (current, next) => next.disconnect(current.edges.filter((e) => e.attrs.open === 1)));
   return [
-    polygon(country.boundaries(), { fill: hatch, stroke: false }),
+    polygon(country.contours(), { fill: hatch, stroke: false }),
     town.map((f) => polygon(f, { fill: fill('hatch', { angle: 110, spacing: mm(0.7 + 0.04 * distance(left.diagram.siteOf(f), left.centre)) }), stroke: false })),
-    strokes(left.cells.edges, { pen: 'pigma-005-black' }),
+    strokes(left.cells.edges(), { pen: 'pigma-005-black' }),
     cleared.faces().filter((f) => f.area > 90).map((f) => polygon(f, { fill: hatch, stroke: false })),
     strokes(cleared, { pen: 'pigma-005-black' }),
   ];
@@ -234,7 +234,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
 
 The two hatched countries are the same shape. The left still knows its sites, so the town's hatch can read each cell's distance from the centre; the right has one face where the left has forty, and no sites at all.
 
-**The map.** The decisions in order: a town placed and given an edge, that edge found by the contrast of small cells against large, the fences cleared from the countryside so it is one open area, that area hatched lightly, the town's walls left fine and its edge heavy. Clearing is the choice here, not a necessity; the same drawing can be made from the kept cells with `boundaries()`, and the reason to clear is only that nothing on this page needs the sites afterwards. This is the drawing from the top of the page. Every control is one of those decisions; the seed is not one of them, and a different seed gives a different town of the same kind.
+**The map.** The decisions in order: a town placed and given an edge, that edge found by the contrast of small cells against large, the fences cleared from the countryside so it is one open area, that area hatched lightly, the town's walls left fine and its edge heavy. Clearing is the choice here, not a necessity; the same drawing can be made from the kept cells with `contours()`, and the reason to clear is only that nothing on this page needs the sites afterwards. This is the drawing from the top of the page. Every control is one of those decisions; the seed is not one of them, and a different seed gives a different town of the same kind.
 
 ```ts live focus=8-16
 import { sketch, strokes, polygon, fill, mm, distance, ui } from 'occlude';
@@ -248,7 +248,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density });
   const diagram = t.voronoi(sites);
   const cells = diagram.faces();
-  const beside = (e) => cells.facesOf(e);
+  const beside = (e) => e.faces;
   const contrast = (e) => { const [a, b] = beside(e); return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
   const marked = diagram.edgeAttributes({
     open: (e) => { const [a, b] = beside(e); return b !== undefined && a.area > field && b.area > field ? 1 : 0; },
@@ -279,4 +279,4 @@ Two densities add: `Math.max` of two hills is two towns. For the road, a wall ha
 
 ## Where to look things up
 
-`t.voronoi`, `cellOf` and `siteOf` are under *Point distributions* on [Materials](#/materials); `facesOf`, face selections and `boundaryEdges` under *Faces and boundaries*; `edgeAttribute` and `disconnect` under *Making a material* and *Movement and growth*. Next, chapter 10 lets the cells measure the light on them and move toward it.
+`t.voronoi`, `cellOf` and `siteOf` are under *Point distributions* on [Materials](#/materials); `edge.faces`, face selections and `boundaryEdges()` under *Faces and boundaries*; `edgeAttribute` and `disconnect` under *Making a material* and *Movement and growth*. Next, chapter 10 lets the cells measure the light on them and move toward it.

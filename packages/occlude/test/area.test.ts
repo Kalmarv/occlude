@@ -46,7 +46,7 @@ describe('an area input: a face and a shape are already areas', () => {
     // refusal is the contract. `as never` states that this call is meant to
     // fail its own type.
     expect(() => ink(sketch({}, (t) => [polygon(t.voronoi(material([[20, 20], [70, 30], [45, 70]])).faces() as never, { opaque: true })])))
-      .toThrow(/face collection is several areas .*boundaries\(\)/);
+      .toThrow(/face collection is several areas .*contours\(\)/);
   });
 
   it('accepts a length in either point spelling, and refuses it where it computes', () => {

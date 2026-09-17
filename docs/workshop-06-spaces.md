@@ -21,8 +21,8 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
     chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
-    strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
-    strokes(cells.edges, { pen: 'pigma-005-black' }),
+    strokes(chosen.boundaryEdges(), { pen: 'pigma-05-black' }),
+    strokes(cells.edges(), { pen: 'pigma-005-black' }),
   ];
 });
 ```
@@ -107,7 +107,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const hatch = fill('hatch', { angle: 45, spacing: mm(1.2) });
   return [
     chosen.map((f) => polygon(f, { fill: hatch, stroke: false })),
-    strokes(cells.edges, { pen: 'pigma-005-black' }),
+    strokes(cells.edges(), { pen: 'pigma-005-black' }),
   ];
 });
 ```
@@ -127,14 +127,14 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
     chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
-    strokes(cells.edges, { pen: 'pigma-005-black' }),
+    strokes(cells.edges(), { pen: 'pigma-005-black' }),
   ];
 });
 ```
 
 ## Outline the selection as a whole
 
-A selection of faces has two sets of connections. `chosen.edges` is every connection any chosen face touches, the walls between two chosen cells included. `chosen.boundaryEdges` is the connections between the chosen union and everything else: walls between two chosen cells are left out, so it outlines the union as one shape. The same nine-cell grid, the same selection, all cells but the middle one; left `edges`, right `boundaryEdges`.
+A selection of faces has two sets of connections. `chosen.edges()` is every connection any chosen face touches, the walls between two chosen cells included. `chosen.boundaryEdges()` is the connections between the chosen union and everything else: walls between two chosen cells are left out, so it outlines the union as one shape. The same nine-cell grid, the same selection, all cells but the middle one; left `edges`, right `boundaryEdges`.
 
 ```ts live focus=8-10
 import { sketch, strokes, polygon, fill, mm, line, rect, append, group } from 'occlude';
@@ -147,19 +147,19 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const hatch = fill('hatch', { angle: 45, spacing: mm(1.4) });
   const shade = ring.map((f) => polygon(f, { fill: hatch, stroke: false }));
   return [
-    shade, strokes(ring.edges, { pen: 'stabilo-88-blue' }),
-    group({ translate: [100, 0] }, shade, strokes(ring.boundaryEdges, { pen: 'stabilo-88-blue' })),
+    shade, strokes(ring.edges(), { pen: 'stabilo-88-blue' }),
+    group({ translate: [100, 0] }, shade, strokes(ring.boundaryEdges(), { pen: 'stabilo-88-blue' })),
   ];
 });
 ```
 
-The boundary on the right is two loops: the frame, and the middle cell's outline, which is a hole in the union. An outline is not a hull; it is every place the chosen and the unchosen meet, and a hole is such a place. `ring.boundaries()` gives the same loops as closed contours, for when the union should be filled as one area rather than outlined.
+The boundary on the right is two loops: the frame, and the middle cell's outline, which is a hole in the union. An outline is not a hull; it is every place the chosen and the unchosen meet, and a hole is such a place. `ring.contours()` gives the same loops as closed contours, for when the union should be filled as one area rather than outlined.
 
 ## Make a cellular print
 
-The finished drawing. The frame is a rectangle's four corners. A chord is made by `through(x, y, angle)`: a line through a point at an angle, sampled to two points far beyond the frame, so that after planarizing it is cut wherever it crosses the frame or another chord. Two thirds of the chords pass through a patch around one point, `focus`; the rest are anywhere. The size of the patch decides whether the cluster is a burst of thin wedges or a cluster of small polygons; try `t.rnd(-6, 6)` in both and see the difference. The chords also cross each other outside the frame and enclose slivers there, so `t.within(cells, frame)` keeps only the faces that belong to it — a cell whose wall lies along the frame's edge is in, and one the frame cuts through is kept whole (`{ faces: 'centroid' }` asks for that last reading instead); the parts of the chords that border no kept cell are left out by `cells.edges`, which is why nothing has to be clipped.
+The finished drawing. The frame is a rectangle's four corners. A chord is made by `through(x, y, angle)`: a line through a point at an angle, sampled to two points far beyond the frame, so that after planarizing it is cut wherever it crosses the frame or another chord. Two thirds of the chords pass through a patch around one point, `focus`; the rest are anywhere. The size of the patch decides whether the cluster is a burst of thin wedges or a cluster of small polygons; try `t.rnd(-6, 6)` in both and see the difference. The chords also cross each other outside the frame and enclose slivers there, so `t.within(cells, frame)` keeps only the faces that belong to it — a cell whose wall lies along the frame's edge is in, and one the frame cuts through is kept whole (`{ faces: 'centroid' }` asks for that last reading instead); the parts of the chords that border no kept cell are left out by `cells.edges()`, which is why nothing has to be clipped.
 
-The composition has three controls, and each is a different kind of decision: `chords` changes the construction, `area below` changes the selection, `hatch` changes only the drawing. The heavy pen on `chosen.boundaryEdges` is what makes the cluster read as one thing, and it goes down before the fine walls: the boundary walls are also walls, and a stroke laid where ink already is does not draw, so drawn second the heavy pen would be dropped and the outline would come out fine. Order is a rule of the page, from chapter 1, and here it decides which pen a shared line gets.
+The composition has three controls, and each is a different kind of decision: `chords` changes the construction, `area below` changes the selection, `hatch` changes only the drawing. The heavy pen on `chosen.boundaryEdges()` is what makes the cluster read as one thing, and it goes down before the fine walls: the boundary walls are also walls, and a stroke laid where ink already is does not draw, so drawn second the heavy pen would be dropped and the outline would come out fine. Order is a rule of the page, from chapter 1, and here it decides which pen a shared line gets.
 
 ```ts live focus=8-15,18-21
 import { sketch, strokes, polygon, fill, mm, line, rect, append, ui } from 'occlude';
@@ -180,8 +180,8 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [
     chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
-    strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
-    strokes(cells.edges, { pen: 'pigma-005-black' }),
+    strokes(chosen.boundaryEdges(), { pen: 'pigma-05-black' }),
+    strokes(cells.edges(), { pen: 'pigma-005-black' }),
   ];
 });
 ```
@@ -204,9 +204,9 @@ export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
   const spacing = (f) => mm(1.1 * (0.4 + 0.6 * Math.sqrt(f.area / 60)));
   const shade = chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false }));
   return [
-    strokes(cells.edges),
-    group({ translate: [100, 0] }, strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' })),
-    group({ translate: [200, 0] }, shade, strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }), strokes(cells.edges, { pen: 'pigma-005-black' })),
+    strokes(cells.edges()),
+    group({ translate: [100, 0] }, strokes(chosen.boundaryEdges(), { pen: 'pigma-05-black' })),
+    group({ translate: [200, 0] }, shade, strokes(chosen.boundaryEdges(), { pen: 'pigma-05-black' }), strokes(cells.edges(), { pen: 'pigma-005-black' })),
   ];
 });
 ```
@@ -218,10 +218,10 @@ Make a bright passage through a dense drawing: raise the chord count until the c
 <details>
 <summary>A hint, not the answer</summary>
 
-A face has a `bounds` and `contours`, so it has a position; a filter can ask where a cell is as well as how big it is. Distance from a line you choose, `Math.abs(…)` of something, keeps a band of cells blank. Then look at `chosen.boundaryEdges` for the passage: if the outline of the hatched cells has two separate loops, the passage is connected; if it is one loop, somewhere a hatched cell bridges it, and the band is too narrow there.
+A face has a `bounds` and `contours`, so it has a position; a filter can ask where a cell is as well as how big it is. Distance from a line you choose, `Math.abs(…)` of something, keeps a band of cells blank. Then look at `chosen.boundaryEdges()` for the passage: if the outline of the hatched cells has two separate loops, the passage is connected; if it is one loop, somewhere a hatched cell bridges it, and the band is too narrow there.
 
 </details>
 
 ## Where to look things up
 
-`planarize`, `faces`, face selections, `edges`, `boundaryEdges` and `boundaries()` are under *Faces and boundaries* on [Materials](#/materials); `append` under *Making a material*. Next, chapter 7 starts from something with no lines at all: a function that gives a number at every point.
+`planarize`, `faces`, face selections, `edges()`, `boundaryEdges()`, `adjacent()` and `contours()` are under *Faces and boundaries* on [Materials](#/materials); `append` under *Making a material*. Next, chapter 7 starts from something with no lines at all: a function that gives a number at every point.

@@ -18,8 +18,8 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const spacing = (f) => mm(1.1 * (0.4 + 0.6 * Math.sqrt(f.area / 90)));
   return [
     chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
-    strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
-    strokes(cells.edges, { pen: 'pigma-005-black' }),
+    strokes(chosen.boundaryEdges(), { pen: 'pigma-05-black' }),
+    strokes(cells.edges(), { pen: 'pigma-005-black' }),
   ];
 });
 ```
@@ -50,8 +50,8 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
     const spacing = (f) => mm(gap * ((revised ? 0.6 : 0.4) + 0.6 * Math.sqrt(f.area / 60)));
     return [
       chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
-      strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
-      strokes(cells.edges, { pen: 'pigma-005-black' }),
+      strokes(chosen.boundaryEdges(), { pen: 'pigma-05-black' }),
+      strokes(cells.edges(), { pen: 'pigma-005-black' }),
     ];
   };
   return [draw(make(0), false), draw(make(100), true)];
@@ -90,8 +90,8 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const spacing = (f) => mm(1.1 * (0.6 + 0.6 * Math.sqrt(f.area / 90)));
   return [
     chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
-    strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
-    strokes(cells.edges, { pen: 'pigma-005-black' }),
+    strokes(chosen.boundaryEdges(), { pen: 'pigma-05-black' }),
+    strokes(cells.edges(), { pen: 'pigma-005-black' }),
   ];
 });
 ```
@@ -109,8 +109,8 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const spacing = (f) => mm(1.1 * (0.6 + 0.6 * Math.sqrt(f.area / 90)));
   return [
     chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
-    strokes(chosen.boundaryEdges, { pen: 'pigma-05-black' }),
-    strokes(cells.edges, { pen: 'pigma-005-black' }),
+    strokes(chosen.boundaryEdges(), { pen: 'pigma-05-black' }),
+    strokes(cells.edges(), { pen: 'pigma-005-black' }),
   ];
 });
 ```

@@ -36,7 +36,7 @@
 import { orient2d } from 'robust-predicates';
 import { Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Edge } from './material.js';
 import { groupRows, EdgeSelection, PointSelection } from './relation.js';
-import { measureFaces, type FaceMeasurements, type MeasureOpts } from './measure.js';
+import { contourMoment, measureFaces, type FaceMeasurements, type MeasureOpts } from './measure.js';
 import type { IsoContour } from './isolines.js';
 
 const EVENT_TOL = 1e-9;
@@ -512,6 +512,9 @@ export interface Face {
   /** Outer and hole boundaries; retraced bridges and branches excluded. */
   perimeter: number;
   bounds: { x: number; y: number; w: number; h: number };
+  /** Geometric centroid of the filled area, holes respected; `[NaN, NaN]`
+   * for a degenerate face. Field-weighted centres come from `measure()`. */
+  centroid: readonly [number, number];
   /** This face's edges in the source material, once: its walls and any
    * dangling edge inside it. */
   readonly edges: EdgeSelection;
@@ -520,6 +523,9 @@ export interface Face {
   /** Edges between this face and anything else (another face or the
    * outside): the walls; edges inside the face are not boundary. */
   readonly boundaryEdges: EdgeSelection;
+  /** The faces across this face's walls, as a selection of the same
+   * collection: neighbours share an edge, not merely a vertex. */
+  readonly adjacent: FaceSelection;
   /** Closed contours: the outer boundary with positive signed area
    * (counter-clockwise in a y-up reading), holes negative. Bridges and
    * branches inside the face are not part of them. */
@@ -790,6 +796,7 @@ export class Faces {
       edges: { get(this: Face) { return new EdgeSelection(m, collection.edgeRowsWhere((l, r) => l === this.index || r === this.index)); } },
       points: { get(this: Face) { return this.edges.points; } },
       boundaryEdges: { get(this: Face) { return new EdgeSelection(m, collection.edgeRowsWhere((l, r) => (l === this.index) !== (r === this.index))); } },
+      adjacent: { get(this: Face) { return new FaceSelection(collection, collection.adjacentRows(new Set([this.index]))); } },
     });
     Object.freeze(faceProto);
     for (let f = 0; f < faceWalk.length; f++) {
@@ -812,7 +819,17 @@ export class Faces {
         if (x > x1) x1 = x;
         if (y > y1) y1 = y;
       }
-      const view = Object.assign(Object.create(faceProto) as Face, { index: f, area, perimeter, bounds: Object.freeze({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }), contours: Object.freeze(contours) as unknown as IsoContour[] });
+      let ma = 0;
+      let mx = 0;
+      let my = 0;
+      for (const c of contours) {
+        const mo = contourMoment(c);
+        ma += mo.a;
+        mx += mo.cx * mo.a;
+        my += mo.cy * mo.a;
+      }
+      const centroid: [number, number] = ma !== 0 ? [mx / ma, my / ma] : [NaN, NaN];
+      const view = Object.assign(Object.create(faceProto) as Face, { index: f, area, perimeter, bounds: Object.freeze({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }), centroid: Object.freeze(centroid) as unknown as [number, number], contours: Object.freeze(contours) as unknown as IsoContour[] });
       Object.freeze(view);
       views.push(view);
     }
@@ -860,6 +877,7 @@ export class Faces {
    * cells, one for a wall on the outside or a spur inside a face, none
    * for an edge no face touches. The edge must be a view of the source
    * state. */
+  /** @internal Use `edge.faces`. */
   facesOf(edge: Edge): Face[] {
     if (viewKind(edge) !== 'edge') throw new Error('faces.facesOf: expected an edge view');
     if (!ownedBy(edge, this.source)) throw new Error('faces.facesOf: that edge belongs to another state — take it from the material these faces were read from');
@@ -877,6 +895,22 @@ export class Faces {
     return ownedBy(face, this);
   }
 
+  /** @internal Rows of the faces across a wall from any of `selected`:
+   * the other side of every wall with a selected face on one side, when
+   * that side is a face. One hop, like the 3D `adjacent()`: a selected
+   * neighbour is collected too; subtract the selection for outside only. */
+  adjacentRows(selected: Set<number>): number[] {
+    const out = new Set<number>();
+    for (let e = 0; e < this.faceOf.length / 2; e++) {
+      const l = this.faceOf[2 * e];
+      const r = this.faceOf[2 * e + 1];
+      if (l === r) continue;
+      if (selected.has(l) && r >= 0) out.add(r);
+      if (selected.has(r) && l >= 0) out.add(l);
+    }
+    return [...out].sort((p, q) => p - q);
+  }
+
   /** @internal Edge rows chosen by the faces on their two sides
    * (`faceOf` of each half-edge, -1 outside). */
   edgeRowsWhere(pick: (left: number, right: number) => boolean): number[] {
@@ -887,19 +921,24 @@ export class Faces {
 
   /** Every source edge incident to a bounded face, once: the walls, and
    * any dangling edge lying inside a face (both its sides are that face). */
-  get edges(): EdgeSelection {
+  edges(): EdgeSelection {
     return new EdgeSelection(this.source, this.edgeRowsWhere((l, r) => l >= 0 || r >= 0));
   }
 
-  /** Endpoints of `edges`, once, in row order. */
-  get points(): PointSelection {
-    return this.edges.points;
+  /** Endpoints of `edges()`, once, in row order. */
+  points(): PointSelection {
+    return this.edges().points;
   }
 
   /** Edges separating the union of all bounded faces from the outside:
    * walls between two faces and edges inside a face are not boundary. */
-  get boundaryEdges(): EdgeSelection {
+  boundaryEdges(): EdgeSelection {
     return new EdgeSelection(this.source, this.edgeRowsWhere((l, r) => (l >= 0) !== (r >= 0)));
+  }
+
+  /** Faces across a wall from any face: every face that has a neighbour. */
+  adjacent(): FaceSelection {
+    return this.filter(() => true).adjacent();
   }
 
   /** Measure every face: geometric area and centroid, and with `field` its
@@ -920,10 +959,11 @@ export class Faces {
     return groupRows(this.faces, (f) => f.index, classify).map(({ key, rows }) => new FaceSelection(this, rows, key));
   }
 
-  /** Outline of the union of every bounded face: inner walls gone, holes
-   * against the outside kept. */
-  boundaries(): IsoContour[] {
-    return this.filter(() => true).boundaries();
+  /** Closed contours around the union of every bounded face: inner walls
+   * gone, holes against the outside kept. The same boundary as
+   * `boundaryEdges()`, as loops a consumer of areas reads directly. */
+  contours(): IsoContour[] {
+    return this.filter(() => true).contours();
   }
 
   /** @internal Closed contours around the union of the given faces. A
@@ -1030,20 +1070,27 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
   /** Every source edge incident to a selected face, once, including
    * internal walls between two selected faces and dangling edges inside
    * a selected face. */
-  get edges(): EdgeSelection {
+  edges(): EdgeSelection {
     const sel = this.set;
     return new EdgeSelection(this.source.source, this.source.edgeRowsWhere((l, r) => sel.has(l) || sel.has(r)));
   }
 
-  /** Endpoints of `edges`, once, in row order. */
-  get points(): PointSelection {
-    return this.edges.points;
+  /** Endpoints of `edges()`, once, in row order. */
+  points(): PointSelection {
+    return this.edges().points;
+  }
+
+  /** The faces across the walls of any selected face, one hop: a selected
+   * neighbour is collected too, so subtract the selection when only the
+   * outside neighbours are wanted (the 3D rule). */
+  adjacent(): FaceSelection {
+    return new FaceSelection(this.source, this.source.adjacentRows(this.set));
   }
 
   /** Edges between the selected union and its exterior: a wall with a
    * selected face on exactly one side. Walls between two selected faces
    * and edges inside a face are excluded; a hole's boundary stays. */
-  get boundaryEdges(): EdgeSelection {
+  boundaryEdges(): EdgeSelection {
     const sel = this.set;
     return new EdgeSelection(this.source.source, this.source.edgeRowsWhere((l, r) => sel.has(l) !== sel.has(r)));
   }
@@ -1083,8 +1130,9 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
 
   /** Closed contours around the union of the selected faces: walls between
    * two selected faces vanish, walls against an unselected face or the
-   * outside stay, holes stay holes. Empty selection, no contours. */
-  boundaries(): IsoContour[] {
+   * outside stay, holes stay holes. Empty selection, no contours. The same
+   * boundary as `boundaryEdges()`, as loops. */
+  contours(): IsoContour[] {
     if (this.length === 0) return [];
     return this.source.boundaryContours(this.set);
   }

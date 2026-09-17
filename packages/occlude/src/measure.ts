@@ -102,7 +102,7 @@ export interface MeasureOpts {
 }
 
 /** Signed shoelace area and centroid of one closed contour. */
-function contourMoment(c: IsoContour): { a: number; cx: number; cy: number } {
+export function contourMoment(c: IsoContour): { a: number; cx: number; cy: number } {
   const pts = c.pts;
   let a2 = 0;
   let cx = 0;
