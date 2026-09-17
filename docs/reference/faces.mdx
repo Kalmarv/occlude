@@ -111,7 +111,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Faces.boundaryEdges.mdx</include>
 <include>/_sig/Faces.contours.mdx</include>
 
-The same readings for a collection or a selection of faces. `edges()` is every edge that touches a selected face, once. `boundaryEdges()` is the outline of the selected faces as one region: a wall between two selected faces is not part of it, and the boundary of a hole is. `contours()` is that outline as closed loops. `polygon` reads it to fill the region.
+The same readings for a collection or a selection of faces. `edges()` is every edge that touches a selected face, once. `boundaryEdges()` is the outline of the selected faces as one region. A wall between two selected faces is not part of it. The boundary of a hole is part of it. `contours()` is that outline as closed loops. `polygon` reads it to fill the region.
 
 ```ts live
 import { sketch, circle, polygon, fill, mm, strokes } from 'occlude';

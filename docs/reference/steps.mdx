@@ -3,7 +3,7 @@ title: Steps and forces
 description: Change a material by a rule, one batch of edits at a time.
 ---
 
-`steps` runs a rule against a material and returns the material after `n` iterations. The rule reads a frozen state and asks for edits on a copy. The edits are applied together, then the next iteration starts. Nothing changes while the rule reads.
+`steps` runs a rule against a material and returns the material after `n` iterations. The rule reads a frozen state and asks for edits on a copy. The step applies the edits together. Then the next iteration starts. Nothing changes while the rule reads.
 
 ## steps()
 
@@ -12,7 +12,7 @@ description: Change a material by a rule, one batch of edits at a time.
 The rule is `(prev, next, k) => …`: `prev` is the current state, `next` collects the edits, `k` is the iteration. The shorthand `{ move, set }` applies one move or one column write to every point. Several rules become passes: each pass reads the state the pass before it produced. `{ every: m }` keeps the initial state, every m-th state and the last one on the result's `history`.
 
 :::warning
-Two edits that contradict each other in one batch fail the step: a point that is removed and also connected, or an edge that is split and also disconnected. Moves add up, and the last write of a column wins.
+Two edits that contradict each other in one batch fail the step. Examples: remove a point and also connect it, or split an edge and also disconnect it. Moves add up, and the last write of a column wins.
 :::
 
 ```ts live
@@ -29,7 +29,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Next.move.mdx</include>
 
-Moves the selected points by a vector, or by a vector per point from a callback. Several moves on one point add up.
+Moves the selected points by a vector, or by one vector for each point from a callback. Several moves on one point add up.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -46,7 +46,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Next.set.mdx</include>
 <include>/_sig/Next.setEdges.mdx</include>
 
-Writes columns on the selected points or edges. Give an object, or a callback that returns one per row. A column must exist already: declare it with `attribute` first.
+Writes columns on the selected points or edges. Give an object, or a callback that returns one object for each row. A column must exist already: declare it with `attribute` first.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -62,7 +62,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Next.extrude.mdx</include>
 
-Adds children to the selected points and joins each child to its parent. The callback returns a child `{ position, attributes }`, a list of them, or `[]` for none. A child can also be `{ to }`, which joins the parent to an existing point instead. With `inherit: true`, a child starts from its parent's columns. A new point must give every declared column.
+Adds children to the selected points and joins each child to its parent. The callback returns a child `{ position, attributes }`, a list of them, or `[]` for none. A child can also be `{ to }`. That joins the parent to an existing point instead. With `inherit: true`, a child starts from its parent's columns. A new point must give every declared column.
 
 ```ts live
 import { sketch, strokes, material, add, mul, fromAngle } from 'occlude';
@@ -151,7 +151,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/force.relax.mdx</include>
 <include>/_sig/force.sum.mdx</include>
 
-A force is prepared once, with its sources, and then gives a vector at a point. Nothing moves until a rule calls `next.move` with it. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`. `attract` pulls toward sources. `drift` reads a direction from a noise function and turns slowly with the iteration, so it takes `(p, k)`. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. `sum` adds forces.
+You prepare a force once, with its sources. Then it gives a vector at a point. Nothing moves until a rule calls `next.move` with it. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`. `attract` pulls toward sources. `drift` reads a direction from a noise function and turns slowly with the iteration, so it takes `(p, k)`. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. `sum` adds forces.
 
 ```ts live
 import { sketch, circle, strokes, force, mul } from 'occlude';
@@ -173,7 +173,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/force.nearby.mdx</include>
 <include>/_sig/force.adjacent.mdx</include>
 
-Your own interaction. `nearby` finds every source within `radius` of a point, from an index built once for the state, and sums what `contribution(p, q)` returns for each. A vertex never interacts with itself. `skip: force.adjacent(m)` leaves out the vertices that `p` is joined to.
+Your own interaction. `nearby` finds every source within `radius` of a point, from an index built once for the state. It sums what `contribution(p, q)` returns for each source. A vertex never interacts with itself. `skip: force.adjacent(m)` leaves out the vertices joined to `p`.
 
 ```ts live
 import { sketch, circle, strokes, force, sub, unit, mul, distance } from 'occlude';

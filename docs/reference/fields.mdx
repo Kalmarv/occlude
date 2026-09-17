@@ -3,7 +3,7 @@ title: Fields
 description: Seeded randomness, noise, and functions of position that shapes, fills and materials read.
 ---
 
-A field is a function of position. A scalar field is `(x, y) => number`. A vector field is `(x, y) => [dx, dy]`. Fields are called in drawable units. Fills, modifiers, `scatter`, `isolines` and `streamlines` read them, so one function can decide tone, spacing and direction in the same drawing.
+A field is a function of position. A scalar field is `(x, y) => number`. A vector field is `(x, y) => [dx, dy]`. A field receives drawable units. Fills, modifiers, `scatter`, `isolines` and `streamlines` read them, so one function can decide tone, spacing and direction in the same drawing.
 
 ## curl() · grad() · vectorField()
 
@@ -11,7 +11,7 @@ A field is a function of position. A scalar field is `(x, y) => number`. A vecto
 <include>/_sig/grad.mdx</include>
 <include>/_sig/vectorField.mdx</include>
 
-`grad(f)` is the gradient of a scalar field: it points uphill. `curl(f)` is the gradient turned 90°, so it runs along the contours of `f`. `vectorField(fn)` marks your own vector function, so that `rotate` turns its arrows too.
+`grad(f)` is the gradient of a scalar field: it points uphill. `curl(f)` is the gradient turned 90°, so it runs along the contours of `f`. `vectorField(fn)` marks your own vector function. Then `rotate` turns its arrows too.
 
 ```ts live
 import { sketch, line, curl, grad } from 'occlude';
@@ -30,7 +30,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/rotate.mdx</include>
 <include>/_sig/scale.mdx</include>
 
-Transforms of a field's sampling. `t.within(f, shape)` limits the field to the shape: outside it the field is absent, so generators make nothing there and contours stop at the edge. `translate`, `rotate` and `scale` move, turn and scale the sampling. The result is a plain function again.
+Transforms of a field's sampling. `t.within(f, shape)` limits the field to the shape. Outside the shape the field is absent: generators make nothing there, and contours stop at the edge. `translate`, `rotate` and `scale` move, turn and scale the sampling. The result is a plain function again.
 
 ```ts live
 import { sketch, circle, rect, strokes, rotate } from 'occlude';
@@ -48,7 +48,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <AutoTypeTable path="../occlude/src/isolines.ts" name="IsoOpts" />
 
-The contours where the field is at a value, as one material: each contour a chain, a ring when it closes, and every edge carrying its `level`. Give one value or a list of them. `strokes(m)` draws them, `polygon(m)` fills a level set with its holes, and `m.edges.groupBy((e) => e.attrs.level)` splits the levels.
+The contours where the field is at a value, as one material. Each contour is a chain, or a ring when it closes. Every edge carries its `level`. Give one value or a list of them. `strokes(m)` draws them, `polygon(m)` fills a level set with its holes, and `m.edges.groupBy((e) => e.attrs.level)` splits the levels.
 
 ```ts live
 import { sketch, strokes } from 'occlude';
@@ -80,7 +80,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <AutoTypeTable path="../occlude/src/streamlines.ts" name="StreamOpts" />
 
-Evenly spaced flow lines of a vector field, as one material of open chains. A line stops at the edge of the drawable, at a `within` bound, and half a spacing from ink already laid, so lines never cross or bunch. `spacing` is a length or a field of lengths, which turns density into tone. No seed is involved.
+Evenly spaced flow lines of a vector field, as one material of open chains. A line stops at the edge of the drawable, at a `within` bound, and half a spacing from other lines. Lines never cross or bunch. `spacing` is a length or a field of lengths. A field of lengths turns density into tone. The result does not read the seed.
 
 ```ts live
 import { sketch, strokes, curl, mm } from 'occlude';
@@ -94,7 +94,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => strokes(t.streamlines(
 
 <AutoTypeTable path="../occlude/src/ridges.ts" name="RidgeOpts" />
 
-The crest lines of a scalar field: where the field is at a maximum across the line. Contours say where the field is at a height; ridges say where it runs along a top. Each crest is a chain, and each vertex carries `strength`, how sharply the ground falls to either side, and `height`. Nothing is thresholded: filter by `strength` to keep the crests that earn ink. Valleys are the ridges of the negated field.
+The crest lines of a scalar field: where the field is at a maximum across the line. Contours show where the field is at a height. Ridges show where it runs along a top. Each crest is a chain, and each vertex carries `strength`, how sharply the ground falls to either side, and `height`. The result has no threshold. Filter by `strength` to keep the crests that earn ink. Valleys are the ridges of the negated field.
 
 ```ts live
 import { sketch, strokes } from 'occlude';

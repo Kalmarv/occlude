@@ -3,7 +3,7 @@ title: Transforms
 description: Operations that take a material and return a changed material.
 ---
 
-Each of these is a pure import. It reads a material, in the material's own coordinates, and returns a new material with the same columns. No seed and no paper are involved, so the same input always gives the same output.
+Each of these is a pure import. It reads a material, in the material's own coordinates, and returns a new material with the same columns. They read no seed and no paper, so the same input always gives the same output.
 
 ## warp()
 
@@ -11,7 +11,7 @@ Each of these is a pure import. It reads a material, in the material's own coord
 
 <AutoTypeTable path="../occlude/src/warp.ts" name="WarpOpts" />
 
-Moves every point by a cage. `from` and `to` are two loops with the same number of corners. Each point is written once as a blend of the corners of `from`, and read back against the corners of `to`. Only positions move; structure, columns and row order stay. A straight edge with two vertices stays straight, so resample first when a line must bend.
+Moves every point by a cage. `from` and `to` are two loops with the same number of corners. It writes each point once as a blend of the corners of `from`. Then it reads the point back against the corners of `to`. Only positions move. Structure, columns and row order stay. A straight edge with two vertices stays straight, so resample first when a line must bend.
 
 ```ts live
 import { sketch, strokes, line, append, warp } from 'occlude';
@@ -46,7 +46,7 @@ export default sketch({ aspect: [1, 1] }, (t) => t.times(7, (k, u) => strokes(os
 
 <AutoTypeTable path="../occlude/src/interlace.ts" name="InterlaceOpts" />
 
-Decides, at every crossing of two edges that do not share a vertex, which strand is on top, and removes `gap` of the other strand around the crossing. `over` is called with the crossing and returns true when strand A is on top; the default alternates. The result is ordinary material.
+At every crossing of two edges that do not share a vertex, it decides the strand on top. Then it removes `gap` of the other strand around the crossing. `over` receives the crossing and returns true when strand A is on top. The default alternates. The result is ordinary material.
 
 ```ts live
 import { sketch, strokes, circle, append, interlace } from 'occlude';
@@ -78,7 +78,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <AutoTypeTable path="../occlude/src/thicken.ts" name="ThickenOpts" />
 
-Turns points and edges into an area: each edge becomes a ribbon of width twice `radius`, each loose point a disc, and overlapping parts join. The result is a boundary material. Fill it with `polygon(body, { fill })`, which keeps its holes, or trace it with `strokes`.
+Turns points and edges into an area. Each edge becomes a ribbon of width twice `radius`. Each loose point becomes a disc. Parts that overlap join. The result is a boundary material. Fill it with `polygon(body, { fill })`, and the holes stay holes. Or trace it with `strokes`.
 
 ```ts live
 import { sketch, strokes, polygon, fill, mm, thicken, connect } from 'occlude';
@@ -96,7 +96,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 <include>/_sig/banding.mdx</include>
 <include>/_sig/extent.mdx</include>
 
-`segmentRuns(m, key)` classifies every edge by its two vertices and gathers consecutive equal keys into runs, chain by chain; together the runs draw every edge once. `banding({ min, max, count })` maps a value to one of `count` bands. `extent(column)` is `[min, max]`.
+`segmentRuns(m, key)` classifies every edge by its two vertices. It gathers consecutive equal keys into runs, chain by chain. Together the runs draw every edge once. `banding({ min, max, count })` maps a value to one of `count` bands. `extent(column)` is `[min, max]`.
 
 ```ts live
 import { sketch, stroke, circle, segmentRuns, banding } from 'occlude';

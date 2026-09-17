@@ -3,13 +3,13 @@ title: Fills
 description: Texture inside a closed shape, and how to write a texture of your own.
 ---
 
-A fill is texture inside a closed shape: parallel lines, crossed lines, dots, nested contours, or solid ink. Pass it through the shape's `fill` option. A filled shape is opaque: it hides what lies beneath it. The outline uses the shape's `pen`; the fill uses the same pen unless `fillPen` names another one.
+A fill is texture inside a closed shape: parallel lines, crossed lines, dots, nested contours, or solid ink. Pass it through the shape's `fill` option. A filled shape is opaque: it hides what lies beneath it. The outline uses the shape's `pen`. The fill uses the same pen unless `fillPen` names another one.
 
 ## fill()
 
 <include>/_sig/fill.3.mdx</include>
 
-A built-in pattern by name, with its parameters in one object. Spacing is a length: bare numbers are drawable units, and `mm()` is the usual choice, because the gap between lines is what reads as tone. Angle is in degrees from the x axis.
+A built-in pattern by name, with its parameters in one object. Spacing is a length. A bare number is drawable units. `mm()` is the usual choice, because the gap between lines is what reads as tone. Angle is in degrees from the x axis.
 
 | Pattern | Parameters | Marks |
 |---|---|---|
@@ -32,7 +32,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [
 
 ## align
 
-`align: 'paper'` (the default) anchors a hatch to the page: one ruling covers the sheet, and every shape samples it where it sits, so neighbours tile into one texture. `align: 'shape'` anchors the ruling to the shape's own centre and axes, so every shape carries the same marks and the ruling turns with the shape.
+`align: 'paper'` (the default) anchors a hatch to the page. One ruling covers the sheet, and every shape samples it where it sits. Neighbours tile into one texture. `align: 'shape'` anchors the ruling to the shape's own centre and axes. Every shape carries the same marks, and the ruling turns with the shape.
 
 ```ts live
 import { sketch, rect, fill, mm } from 'occlude';

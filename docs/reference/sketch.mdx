@@ -3,13 +3,13 @@ title: Sketch
 description: "The sketch function, its config, units, controls and the layout helpers."
 ---
 
-A sketch is a function that returns shapes. `sketch(config, (t) => tree)` describes it; nothing is drawn until it renders. The tree can nest arrays to any depth. It is flattened and drawn in order, and a falsy entry is skipped, so `condition && shape` includes a shape only when the condition holds.
+A sketch is a function that returns shapes. `sketch(config, (t) => tree)` describes it. The engine draws nothing until the sketch renders. The tree can nest arrays to any depth. The engine flattens the tree and draws it in order. It skips a falsy entry, so `condition && shape` includes a shape only when the condition holds.
 
 ## sketch()
 
 <include>/_sig/sketch.mdx</include>
 
-The config sets the drawable and the seed. `aspect: [w, h]` fixes the shape of the drawable, and it is letterboxed onto whatever paper renders it. `paper` names the sheet instead. `margin` is an inset from the paper edge. `seed` is a number, a string, or `'url'` to read the studio's `?seed=`. `pens` declares the sketch's pens by name.
+The config sets the drawable and the seed. `aspect: [w, h]` fixes the shape of the drawable. The drawable then sits centred on whatever paper renders it. `paper` names the sheet instead. `margin` is an inset from the paper edge. `seed` is a number, a string, or `'url'` to read the studio's `?seed=`. `pens` declares the sketch's pens by name.
 
 ```ts live
 import { sketch, circle, line } from 'occlude';
@@ -25,7 +25,7 @@ export default sketch({ aspect: [1, 1], seed: 12 }, (t) => [
 <include>/_sig/mm.mdx</include>
 <include>/_sig/inch.mdx</include>
 
-A bare number is a percentage of the short side of the drawable: on a square drawable both axes run 0 to 100, on a 2:1 drawable the long one runs to 200. `mm(v)` and `inch(v)` are physical sizes, the same on any paper. Use bare units to compose and physical units for what must stay the same size on paper: hatch spacing, dot sizes, a wobble. `t.len(v)` converts a physical size to drawable units for arithmetic.
+A bare number is a percentage of the short side of the drawable. On a square drawable both axes run 0 to 100. On a 2:1 drawable the long axis runs to 200. `mm(v)` and `inch(v)` are physical sizes, the same on any paper. Use bare units to compose. Use physical units for what must keep its size on paper: hatch spacing, dot sizes, a wobble. `t.len(v)` converts a physical size to drawable units for arithmetic.
 
 ```ts live
 import { sketch, circle, mm } from 'occlude';
@@ -54,7 +54,7 @@ export default sketch({ paper: paper({ width: inch(5), height: inch(3) }), pens:
 <include>/_sig/ui.mdx</include>
 <include>/_sig/Toolkit.probe.mdx</include>
 
-`ui(value, { min, max, step, label })` marks a literal as tweakable. In the studio it gets a slider, and dragging the slider rewrites the literal in the code, so the tuned sketch saves as seen. Anywhere else it returns its value. `t.probe(label, value)` returns the value and records it; the studio shows the count, the range and a histogram, which is the quick way to learn what a field gives before you map it.
+`ui(value, { min, max, step, label })` marks a literal as tweakable. In the studio it gets a slider. The slider rewrites the literal in the code, so the tuned sketch saves as seen. Anywhere else it returns its value. `t.probe(label, value)` returns the value and records it. The studio shows the count, the range and a histogram. Use it to learn what a field gives before you map it.
 
 ```ts live
 import { sketch, circle, ui } from 'occlude';
@@ -87,7 +87,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Toolkit.times.mdx</include>
 <include>/_sig/Toolkit.range.mdx</include>
 
-`times(n, fn)` calls `fn(k, u)` n times, with the index `k` and `u` running from 0 to 1 across the run, and returns the results. `range(n)` and `range(a, b, step?)` give integer sequences. Both refuse a runaway count.
+`times(n, fn)` calls `fn(k, u)` n times and returns the results. `k` is the index and `u` runs from 0 to 1 across the run. `range(n)` and `range(a, b, step?)` give integer sequences. Both refuse a runaway count.
 
 ```ts live
 import { sketch, line } from 'occlude';

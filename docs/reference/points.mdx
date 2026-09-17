@@ -12,7 +12,7 @@ A distribution is a material of loose points. `scatter` makes one from a density
 
 <AutoTypeTable path="../occlude/src/points.ts" name="ScatterOpts" />
 
-Poisson-disk points over the drawable, at `spacing` where the field is 1 and further apart where it is lower. Where the field is 0 nothing is placed. Each point carries a `density` column with the field's value. With no field, the points are even.
+Poisson-disk points over the drawable, at `spacing` where the field is 1 and further apart where it is lower. Where the field is 0, there are no points. Each point carries a `density` column with the field's value. With no field, the points are even.
 
 ```ts live
 import { sketch, circle } from 'occlude';
@@ -29,7 +29,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/points.ts" name="RelaxOpts" />
 
-Lloyd relaxation: each point moves to the centroid of its Voronoi cell, weighted by `density` if you give one. The count, the edges and every column stay. Nothing is written.
+Lloyd relaxation: each point moves to the centroid of its Voronoi cell, weighted by `density` if you give one. The count, the edges and every column stay. It writes no column.
 
 ```ts live
 import { sketch, circle } from 'occlude';
@@ -47,7 +47,7 @@ export default sketch({ aspect: [1, 1], seed: 9 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/points.ts" name="SettleOpts" />
 
-Weighted Linde-Buzo-Gray settling: relaxation with population control. A point whose cell holds more demand than one point's capacity at `spacing` splits. A starved point dies. The count converges to what the density can support. Survivors keep their columns, and `demand` is written for each point.
+Weighted Linde-Buzo-Gray settling: relaxation with population control. A point whose cell holds more demand than one point's capacity at `spacing` splits. A starved point dies. The count converges to what the density can support. Survivors keep their columns. Each point gets a `demand` column.
 
 ```ts live
 import { sketch, circle } from 'occlude';
@@ -65,7 +65,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/snap.ts" name="SnapOpts" />
 
-Moves each point to where the field is greatest within `radius` of it, or leaves it where it is if that is already the best place it can see. Edges, columns and row order stay. To seek the least, negate the field.
+Moves each point to the place within `radius` where the field is greatest. A point that is already at that place stays. Edges, columns and row order stay. To seek the least, negate the field.
 
 ```ts live
 import { sketch, circle, snap } from 'occlude';
@@ -99,7 +99,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 <include>/_sig/Toolkit.voronoi.mdx</include>
 
-The Voronoi cells of a set of points, as material: the vertices are the cell corners, the edges the walls, and `faces()` reads the cells. The result knows its sites: `cells.cellOf(site)` is a site's face and `cells.siteOf(face)` a face's site. Move a site and the cells do not follow; build them again.
+The Voronoi cells of a set of points, as material. The vertices are the cell corners and the edges are the walls. `faces()` reads the cells. The result knows its sites: `cells.cellOf(site)` is a site's face and `cells.siteOf(face)` a face's site. The cells do not follow a site that moves. Build them again.
 
 ```ts live
 import { sketch, circle, strokes, polygon, fill, mm } from 'occlude';

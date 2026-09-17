@@ -3,10 +3,10 @@ title: Selections
 description: Rows of a material, chosen and combined, and what they know about each other.
 ---
 
-`m.points` and `m.edges` are collections of rows. `filter` picks rows from one and returns a selection: the same kind of collection, bound to the same state, holding only the rows that passed. A selection filters, iterates, maps and groups again like the whole. Nothing is copied. Two selections combine only when they come from the same state.
+`m.points` and `m.edges` are collections of rows. `filter` picks rows from one and returns a selection. A selection is the same kind of collection, bound to the same state, with only the rows that passed. A selection filters, iterates, maps and groups again like the whole. It copies no data. Two selections combine only when they come from the same state.
 
 :::note
-A row number belongs to one state. When a step adds or removes vertices, the rows are numbered again, so a selection from a step before is not valid in the step after. Select again from the current state.
+A row number belongs to one state. When a step adds or removes vertices, the rows get new numbers. A selection from the step before is not valid in the step after. Select again from the current state.
 :::
 
 ## p
@@ -34,7 +34,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Edge.index.mdx</include>
 <include>/_sig/Edge.attrs.mdx</include>
 
-One edge, as a view: its two vertex views `a` and `b` in stored order, its `length`, its row, and its columns under `attrs`.
+One edge, as a view. It has its two vertex views `a` and `b` in stored order, its `length`, its row `index`, and its columns under `attrs`.
 
 ```ts live
 import { sketch, curve, strokes } from 'occlude';
@@ -69,7 +69,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/PointSelection.groupBy.mdx</include>
 <include>/_sig/EdgeSelection.groupBy.mdx</include>
 
-Splits a collection into selections, one per key, in the order the keys first appear. Each selection carries its `key`. The key is not a column: a later state does not know it.
+Splits a collection into one selection for each key, in the order the keys first appear. Each selection carries its `key`. The key is not a column: a later state does not know it.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
@@ -107,7 +107,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/PointSelection.extract.mdx</include>
 <include>/_sig/EdgeSelection.extract.mdx</include>
 
-A new material made from the selection: the selected points with every column and no edges, or the selected edges with their endpoints and both sets of columns. Rows are compacted in source order, and the new material starts its own history. This is the one way to get independent material out of a selection.
+A new material from the selection. From points: the selected points with every column and no edges. From edges: the selected edges, their endpoints, and both sets of columns. The rows keep their source order, with no gaps. The new material starts its own history. This is the one way to get independent material out of a selection.
 
 ```ts live
 import { sketch, circle, strokes, force, mul } from 'occlude';
@@ -144,10 +144,10 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Material.degree.mdx</include>
 <include>/_sig/Material.isConnected.mdx</include>
 
-What the edges say about one vertex: the vertices it is joined to, how many, and whether it is joined to a given one. A vertex with one edge is an end; with three or more, a junction.
+What the edges say about one vertex: the vertices joined to it, how many there are, and if a given vertex is one of them. A vertex with one edge is an end. A vertex with three or more edges is a junction.
 
 :::note
-These words change in the relations redesign: adjacency becomes a selection on the vertex, `p.adjacent`, so that it combines with other selections.
+These words change in the relations redesign. Adjacency becomes a selection on the vertex, `p.adjacent`. Then it combines with other selections.
 :::
 
 ```ts live
@@ -180,7 +180,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/query.edges.mdx</include>
 
-A spatial index over the edges of one state, built once. `nearest(position, { within, excludeIncident? })` gives the closest edge within a distance, with the closest point on it. `firstHit(from, to, { excludeIncident? })` gives the first edge that a straight move would cross. Both answer from the state they were built on and never edit it. Build the query outside the callback that uses it.
+A spatial index over the edges of one state, built once. `nearest(position, { within, excludeIncident? })` gives the closest edge within a distance, with the closest point on it. `firstHit(from, to, { excludeIncident? })` gives the first edge that a straight move would cross. Both read the state that made the query, and neither edits it. Build the query outside the callback that uses it.
 
 ```ts live
 import { sketch, circle, strokes, query, line, connect } from 'occlude';

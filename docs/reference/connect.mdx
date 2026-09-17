@@ -3,7 +3,7 @@ title: Connect
 description: The ways to put edges between points.
 ---
 
-Every builder takes points, a material or a selection of one, and returns a material with the same rows and new edges. The rows keep their order and their columns; only the edge list is decided. `edgeAttributes` gives every new edge the same columns.
+Every builder takes points, a material or a selection of one, and returns a material with the same rows and new edges. The rows keep their order and their columns. Only the edge list changes. `edgeAttributes` gives every new edge the same columns.
 
 ## connect.chain() · connect.ring()
 
@@ -25,7 +25,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/connect.nearest.mdx</include>
 
-Joins each row to its `count` nearest rows. Edges are undirected and never doubled.
+Joins each row to its `count` nearest rows. An edge has no direction, and no pair gets two edges.
 
 ```ts live
 import { sketch, strokes, circle, connect } from 'occlude';
@@ -71,7 +71,7 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
 
 <include>/_sig/connect.tour.mdx</include>
 
-One route through every row, each visited once, as a chain, or a ring with `closed`. `cost(a, b)` is what the route spends less of; the default is distance. The route starts nearest-neighbour and improves by 2-opt until no exchange helps. The same rows and the same cost always give the same route.
+One route through every row, each visited once, as a chain, or a ring with `closed`. `cost(a, b)` is the quantity that the route makes small. The default is distance. The route starts nearest-neighbour and improves by 2-opt until no exchange helps. The same rows and the same cost always give the same route.
 
 ```ts live
 import { sketch, strokes, circle, connect } from 'occlude';
@@ -101,7 +101,7 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
 
 <include>/_sig/connect.trails.mdx</include>
 
-The same drawing, wired so the pen lifts as few times as possible. A junction is split into pass-through vertices, one per pair of edges, so a chain walk runs straight through it. The ink does not change. The result is a drawing, not a structure: `faces()` refuses it, so keep the original for questions.
+The same drawing, wired so the pen lifts as few times as possible. At a junction, each pair of edges gets its own pass-through vertex. A chain walk then runs straight through the junction. The ink does not change. The result is a drawing, not a structure: `faces()` refuses it, so keep the original for questions.
 
 ```ts live
 import { sketch, strokes, material, connect } from 'occlude';
@@ -118,7 +118,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/connect.unimpeded.mdx</include>
 
-Joins two rows when nothing else is in the space between them. `room` is how much space that is: the region tested is the lens between the two rows, and at `room: 1` it is the disc that has the pair as its diameter. Larger values need more empty space, so the lattice thins out. `room` may be a field, read at the middle of each pair.
+Joins two rows when nothing else is in the space between them. `room` sets how much space. The test region is the lens between the two rows. At `room: 1` the lens is the disc with the pair as its diameter. Larger values need more empty space, so the lattice thins out. `room` may be a field, read at the middle of each pair.
 
 ```ts live
 import { sketch, strokes, connect } from 'occlude';

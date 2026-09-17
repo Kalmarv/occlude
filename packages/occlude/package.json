@@ -27,6 +27,7 @@
     "renderhash": "tsx tools/renderhash.ts",
     "docs:hashes": "tsx tools/docs-hashes.ts",
     "docs:signatures": "tsx tools/signatures.ts",
+    "docs:ste": "node tools/ste-lint.mjs",
     "typecheck": "tsc -p tsconfig.check.json",
     "store-sweep": "tsx tools/store-sweep.ts",
     "smoke": "tsx tools/smoke.ts"

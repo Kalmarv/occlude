@@ -6,7 +6,7 @@ description: Points with columns and an edge list. The editable form of geometry
 A material is a set of vertices and an edge list. Each vertex has `x`, `y` and any number of named columns. A ring, an open chain, a tree and a cloud of loose points are all materials. Every operation returns a new material and changes nothing, so you can keep any state and come back to it.
 
 :::note
-A row index belongs to one state. After a step that adds or removes vertices, the rows are numbered again. Hold a value, not an index.
+A row index belongs to one state. After a step adds or removes vertices, the rows get new numbers. Hold a value, not an index.
 :::
 
 ## material
@@ -33,7 +33,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/material.mdx</include>
 
-Builds a material from positions. Give pairs or `{ x, y }` objects. The points have no edges unless you give `edges`, as pairs of row numbers. Every other option is a column: a number sets the value on every row, and an array sets one value per row. A point that carries a `w` becomes a column too.
+Builds a material from positions. Give pairs or `{ x, y }` objects. The points have no edges unless you give `edges`, as pairs of row numbers. Every other option is a column. A number sets the value on every row. An array sets one value for each row. A point that carries a `w` becomes a column too.
 
 ```ts live
 import { sketch, circle, strokes, material } from 'occlude';
@@ -63,7 +63,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Toolkit.material.mdx</include>
 
-Reads shapes as material and keeps their own vertices: the four corners of a rectangle, the points of a path. A curved part is flattened at `tolerance` (0.05 mm by default). A closed outline becomes a ring, an open one a chain. Several shapes become several outlines in one material, and nothing is welded.
+Reads shapes as material and keeps their own vertices: the four corners of a rectangle, the points of a path. A curved part becomes segments, with `tolerance` (0.05 mm by default) as the largest error. A closed outline becomes a ring, an open one a chain. Several shapes become several outlines in one material. Nothing joins them.
 
 ```ts live
 import { sketch, rect, ngon, strokes, circle } from 'occlude';
@@ -93,7 +93,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/append.mdx</include>
 
-Puts several materials in one, in the order given. The rows of each one come after the rows of the one before, and the edges are renumbered. All of them must have the same columns. If one has a column that another does not, `fill` gives the value that the other gets.
+Puts several materials in one, in the order given. The rows of each one come after the rows of the one before. The edges get new row numbers. All of them must have the same columns. If one has a column that another does not, `fill` gives the value that the other gets.
 
 ```ts live
 import { sketch, strokes, curve, append } from 'occlude';
@@ -109,7 +109,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Material.attribute.mdx</include>
 <include>/_sig/Material.attributes.mdx</include>
 
-Adds a column to every vertex and returns the new material. The value is a number, or a function of the vertex. `attributes` adds several columns at once. Each function reads the material as it was, so a new column never sees another new column. `transfer` says what a column does when a vertex is split or resampled: `'interpolate'` (the default) blends it, `'nearest'` copies the nearer value.
+Adds a column to every vertex and returns the new material. The value is a number, or a function of the vertex. `attributes` adds several columns at once. Each function reads the material as it was, so a new column never sees another new column. `transfer` says what a column does at a new vertex, after a split or a resample. `'interpolate'` (the default) blends the two values. `'nearest'` copies the nearer one.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
@@ -125,7 +125,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Material.edgeAttribute.mdx</include>
 <include>/_sig/Material.edgeAttributes.mdx</include>
 
-The same for edges: one value per edge, read from the edge view. `transfer` for an edge column is `'copy'` (the default) or `'distribute'`, which shares a quantity over the parts when an edge is split.
+The same for edges: one value for each edge, read from the edge view. `transfer` for an edge column is `'copy'` (the default) or `'distribute'`. `'distribute'` shares a quantity over the parts of a split edge.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
@@ -156,7 +156,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Material.resample.mdx</include>
 
-Puts new vertices along each chain at even spacing by arc length. Give `spacing` or `count`, in material units. An open chain keeps both ends. A closed chain keeps its seam. The corners between two new vertices are cut. Chains only: a junction is an error.
+Puts new vertices along each chain at even spacing by arc length. Give `spacing` or `count`, in material units. An open chain keeps both ends. A closed chain keeps its seam. A corner between two new vertices does not survive. Chains only: a junction is an error.
 
 ```ts live
 import { sketch, strokes, circle, curve } from 'occlude';
@@ -172,7 +172,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Material.along.mdx</include>
 
-Reads stations along each chain and changes nothing. A station is plain data: `x`, `y`, the unit `tangent` and `normal` of the chain under it, the `heading` in radians, the arc length `s`, its fraction `u`, and the point columns in `attrs`. With no option, there is one station at each vertex. Use `resample()` when the material must be even. Use `along()` to put things on it.
+Reads stations along each chain and changes nothing. A station is plain data. It has `x` and `y`, the unit `tangent` and `normal` of the chain under it, and the `heading` in radians. It has the arc length `s`, its fraction `u`, and the point columns in `attrs`. With no option, there is one station at each vertex. Use `resample()` when the material must be even. Use `along()` to put things on it.
 
 ```ts live
 import { sketch, strokes, circle, line } from 'occlude';
@@ -188,7 +188,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Station.place.mdx</include>
 
-Puts a drawable on a station, turned to the station's heading. `offset: [alongTangent, alongNormal]` moves it in the station's own frame. `rotate` adds degrees to the heading. `scale` is applied before the rotation, and a negative value mirrors.
+Puts a drawable on a station, turned to the station's heading. `offset: [alongTangent, alongNormal]` moves it in the station's own frame. `rotate` adds degrees to the heading. `scale` comes before the rotation. A negative value mirrors.
 
 ```ts live
 import { sketch, strokes, circle, rect } from 'occlude';

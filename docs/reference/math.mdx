@@ -36,7 +36,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## Vectors
 
-A vector is a pair `[x, y]`. Every function below takes `[x, y]` or `{ x, y }`, so a vertex goes straight in, and returns a new pair. Nothing is changed in place. Angles are in radians, from +x toward +y.
+A vector is a pair `[x, y]`. Every function below takes `[x, y]` or `{ x, y }`, so a vertex goes straight in, and returns a new pair. No function changes its input. Angles are in radians, from +x toward +y.
 
 ### add() · sub() · mul()
 
@@ -55,7 +55,7 @@ A vector is a pair `[x, y]`. Every function below takes `[x, y]` or `{ x, y }`, 
 <include>/_sig/sum.mdx</include>
 <include>/_sig/sumBy.mdx</include>
 
-`add`, `sub` and `mul` are the arithmetic; `mul` scales by a number. `unit` is the direction with length 1, and `unit([0, 0])` is `[0, 0]`. `perp` turns a vector a quarter turn. `length` and `distance` measure. `limit` caps a length. `dot` and `cross` are the two products; the sign of `cross(a, b)` says which side of `a` the vector `b` lies on. `fromAngle` and `angleOf` convert between an angle and a unit vector. `sum` and `sumBy` add vectors up.
+`add`, `sub` and `mul` are the arithmetic; `mul` scales by a number. `unit` is the direction with length 1, and `unit([0, 0])` is `[0, 0]`. `perp` turns a vector a quarter turn. `length` and `distance` measure. `limit` caps a length. `dot` and `cross` are the two products. The sign of `cross(a, b)` tells you the side of `a` that `b` lies on. `fromAngle` and `angleOf` convert between an angle and a unit vector. `sum` and `sumBy` add vectors up.
 
 ```ts live
 import { sketch, line, circle, add, sub, unit, mul, perp } from 'occlude';
