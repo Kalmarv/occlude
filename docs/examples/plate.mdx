@@ -1,0 +1,29 @@
+---
+title: Soap plate
+description: Sixteen overlapping bubbles, planarized into one network and drawn in one pen-down.
+---
+
+Sixteen closed curves overlap and become one network with `planarize`. Every crossing of two closed curves is a vertex with four edges. The network has no vertex with an odd number of edges. A network like that is one closed trail. `connect.trails` finds it, and the whole plate is one pen-down. A plain chain walk would lift the pen about two hundred times.
+
+Uses: `curve`, `append`, `planarize`, `connect.trails`.
+
+```ts live
+import { sketch, strokes, curve, connect, append } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
+  const bubbles = t.times(16, (k) => {
+    const a = k * 2.39996;
+    const r = 8 + Math.sqrt(k / 16) * 30;
+    const cx = 100 + Math.cos(a) * r * 1.5;
+    const cy = 50 + Math.sin(a) * r * 0.9;
+    const rad = 13 + t.noise(k * 3.1, 0) * 9;
+    return curve(t.times(120, (j) => {
+      const th = (j / 120) * Math.PI * 2;
+      const wob = 1 + t.noise(Math.cos(th) * 1.6 + k * 7, Math.sin(th) * 1.6) * 0.16;
+      return [cx + Math.cos(th) * rad * wob, cy + Math.sin(th) * rad * wob];
+    }), { closed: true });
+  });
+  const net = append(...bubbles).planarize();
+  return strokes(connect.trails(net));
+});
+```

@@ -1,0 +1,36 @@
+---
+title: Island
+description: A coast, the crests of its ranges, and the water between them. No contours, no shading.
+---
+
+Every stroke is a place where the terrain does something. The coast is one contour of a shore field. The land rises with distance from the coast, plus noise. `t.ridges` finds the crests at two scales: a coarse step for the main ranges, a fine step for the spurs. The ridges of the negated height are the watercourses. `components` judges each crest as a whole, on its best stretch and its length. That is the difference between a range and a field of scratches.
+
+Uses: `t.isolines`, `distanceTo`, `t.ridges`, `t.within`, `components`, `inducedEdges`, `extract`.
+
+```ts live paper=180x120
+import { sketch, strokes, distanceTo, components } from 'occlude';
+
+export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
+  const shore = (x, y) => t.noise(x / 40, y / 40) + 0.78 - 1.45 * Math.hypot((x - t.cx) / (t.width * 0.46), (y - t.cy) / (t.height * 0.44)) ** 2;
+  const coast = t.isolines(shore, 0, { close: true, step: 1 });
+  const inland = distanceTo(coast);
+  const height = (x, y) => Math.max(0, inland(x, y)) * 0.55 + 15 * t.noise(x / 21, y / 21) + 3.5 * t.noise(x / 8, y / 8);
+  const keep = (m, minStrength, minRun) => {
+    const c = components(m);
+    const peak = new Float64Array(c.count);
+    const run = new Int32Array(c.count);
+    for (const p of m.points) { const k = c.label(p); peak[k] = Math.max(peak[k], p.strength); run[k]++; }
+    const top = Math.max(...peak);
+    return m.points.filter((p) => peak[c.label(p)] > top * minStrength && run[c.label(p)] >= minRun).inducedEdges().extract();
+  };
+  const range = t.within(t.ridges(height, { step: 2.6 }), coast);
+  const spurs = t.within(t.ridges(height, { step: 0.9 }), coast);
+  const water = t.within(t.ridges((x, y) => -height(x, y), { step: 1.2 }), coast);
+  return [
+    strokes(coast, { pen: 'stabilo-88-blue' }),
+    strokes(keep(spurs, 0.13, 9)),
+    strokes(keep(range, 0.1, 6)),
+    strokes(keep(water, 0.22, 14), { pen: 'stabilo-88-blue' }),
+  ];
+});
+```

@@ -1,0 +1,43 @@
+---
+title: Raked stones
+description: One distance field does three jobs, around a handful of stones.
+---
+
+A few stones in a raked bed. One signed distance field from the stones does three jobs. Its level sets outside are the ripples raked around them. Its crests inside each stone are the stone's spine. The crests of its negation outside are the channels between the stones, the lines a stream would take. The stones are opaque, so the ripples stop at them. A crest earns ink only if it runs: `components` judges each one as a whole.
+
+Uses: `t.scatter`, `t.relax`, `connect.ring`, `distanceTo`, `t.isolines`, `t.ridges`, `components`, `opaque`.
+
+```ts live paper=180x120
+import { sketch, strokes, polygon, material, connect, append, distanceTo, components } from 'occlude';
+
+export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
+  const seeds = t.relax(t.scatter(() => 1, { spacing: 46 }), { iterations: 5 });
+  const stones = append(...seeds.points.map((p, i) => {
+    const size = 11 + t.rnd(5);
+    return connect.ring(material(t.times(64, (k) => {
+      const a = (k / 64) * Math.PI * 2;
+      const r = size * (1 + 0.2 * t.noise(Math.cos(a) * 0.55 + i * 9, Math.sin(a) * 0.55));
+      return { x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r * 0.82 };
+    })));
+  }));
+  const d = distanceTo(stones);
+  const ripples = t.isolines(d, [-2.2, -4.4, -6.6, -8.8, -11], { step: 0.5 });
+  const spines = t.ridges(d, { step: 2.4 });
+  const channels = t.ridges((x, y) => -d(x, y), { step: 1.1 });
+  const longRuns = (m, least) => {
+    const c = components(m);
+    const run = new Int32Array(c.count);
+    for (const p of m.points) run[c.label(p)]++;
+    return (p) => run[c.label(p)] > least;
+  };
+  const longChannel = longRuns(channels, 40);
+  const longSpine = longRuns(spines, 6);
+  return [
+    strokes(ripples),
+    strokes(channels.points.filter((p) => longChannel(p) && -d(p.x, p.y) > 4).inducedEdges().extract(), { pen: 'stabilo-88-blue' }),
+    polygon(stones, { opaque: true, stroke: false }),
+    strokes(stones),
+    strokes(spines.points.filter((p) => longSpine(p) && d(p.x, p.y) > 2).inducedEdges().extract(), { pen: 'stabilo-88-blue' }),
+  ];
+});
+```

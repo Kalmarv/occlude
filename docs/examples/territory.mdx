@@ -1,0 +1,23 @@
+---
+title: Territory
+description: A town of small cells in open country, with the border found by the cells themselves.
+---
+
+Sites crowd near a centre and thin out with distance. The Voronoi cells are small in the town and large in the country. The fine pen draws every wall the same, so the edge of the town is only a change of texture. A border is a wall that the drawing chooses to emphasise. The choice is a fact about the two cells beside the wall. Where a small cell meets a large one, the town meets the country. `edge.faces` gives both cells, and the ratio of their areas is the test.
+
+Uses: `t.scatter` with a density, `t.relax`, `t.voronoi`, `faces`, `edge.faces`, `ui`.
+
+```ts live
+import { sketch, strokes, distance, ui } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
+  const ratio = ui(2.6, { min: 1.2, max: 5, step: 0.1, label: 'area ratio' });
+  const centre = [74, 52];
+  const density = (x, y) => 0.08 + 0.92 * Math.max(0, 1 - Math.pow(distance([x, y], centre) / 34, 6));
+  const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density });
+  const cells = t.voronoi(sites).faces();
+  const contrast = (e) => { const [a, b] = e.faces; return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
+  const border = cells.edges().filter((e) => contrast(e) > ratio);
+  return [strokes(border, { pen: 'pigma-05-black' }), strokes(cells.edges(), { pen: 'pigma-005-black' })];
+});
+```

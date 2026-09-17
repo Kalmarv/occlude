@@ -1,0 +1,32 @@
+---
+title: Cellular print
+description: Chords through a frame, the cells they cut, and the small ones hatched.
+---
+
+A frame and a handful of chords make a network. `planarize` cuts every chord where it crosses the frame or another chord, and `faces` reads the cells. Two thirds of the chords pass through one patch, so the cells crowd there. The small cells get a hatch, with a spacing that follows their area. The heavy pen draws the outline of the chosen cells first. The fine pen draws every wall after it. The shared lines keep the heavy ink.
+
+Uses: `t.sample`, `append`, `planarize`, `faces`, `t.within`, `boundaryEdges`, `polygon` with a fill.
+
+```ts live
+import { sketch, strokes, polygon, fill, mm, line, rect, append, ui } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
+  const chords = ui(18, { min: 4, max: 40, step: 1 });
+  const limit = ui(90, { min: 10, max: 600, step: 10, label: 'area below' });
+  const gap = ui(1.1, { min: 0.4, max: 3, step: 0.1, label: 'hatch (mm)' });
+  const frame = t.material(rect(6, 6, 188, 88));
+  const through = (x, y, angle) => t.sample(line(x - Math.cos(angle) * 300, y - Math.sin(angle) * 300, x + Math.cos(angle) * 300, y + Math.sin(angle) * 300), { count: 2 });
+  const focus = [138, 58];
+  const lines = t.times(chords, (k) => (k % 3 === 0
+    ? through(t.rnd(6, 194), t.rnd(6, 94), t.rnd(Math.PI))
+    : through(focus[0] + t.rnd(-26, 26), focus[1] + t.rnd(-18, 18), t.rnd(Math.PI))));
+  const cells = t.within(append(frame, ...lines).planarize().faces(), rect(6, 6, 188, 88));
+  const chosen = cells.filter((f) => f.area < limit);
+  const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
+  return [
+    chosen.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: spacing(f) }), stroke: false })),
+    strokes(chosen.boundaryEdges(), { pen: 'pigma-05-black' }),
+    strokes(cells.edges(), { pen: 'pigma-005-black' }),
+  ];
+});
+```

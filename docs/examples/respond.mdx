@@ -1,0 +1,32 @@
+---
+title: Sites that respond
+description: Voronoi sites move toward the light and stop when their cell is bright enough.
+---
+
+A relaxed cloud of sites, each with a cell. Each round, the sketch measures the light over every cell and moves the site toward the bright side of it. A site whose cell is bright enough stops, and the round it stopped in is a column. On the left, the cells at the end. On the right, the sites, with the stopped ones ringed by the round they stopped in.
+
+Uses: `t.scatter`, `t.relax`, `steps`, `t.voronoi`, `faces().measure(field)`, `cellOf`, `ui`.
+
+```ts live
+import { sketch, strokes, circle, distance, sub, mul, group, rect, ui } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const iterations = ui(16, { min: 0, max: 24, step: 1 });
+  const bright = ui(0.12, { min: 0.02, max: 0.9, step: 0.02, label: 'bright enough to stop' });
+  const half = { x: 0, y: 0, w: 100, h: 100 };
+  const glow = (x, y) => Math.min(1, Math.max(0, 1 - distance([x, y], [30, 42]) / 30) + Math.max(0, 1 - distance([x, y], [72, 64]) / 22) * 0.9);
+  const light = (x, y) => 0.005 + Math.pow(glow(x, y), 3);
+  const sites = t.relax(t.scatter(t.within(() => 1, rect(0, 0, 100, 100)), { spacing: 7 }), { iterations: 2, bounds: half }).attribute('mobility', 1).attribute('stopped', -1);
+  const settled = sites.steps(iterations, (current, next, k) => {
+    const diagram = t.voronoi(current, { bounds: half });
+    const measured = diagram.faces().measure(light, { resolution: 128 });
+    next.move(current.points, (p) => { const cell = diagram.cellOf(p); const target = cell ? measured.forFace(cell).weightedCentroid : null; return target ? mul(sub(target, p), 0.8 * p.mobility) : [0, 0]; });
+    next.set(current.points.filter((p) => { const cell = diagram.cellOf(p); return p.mobility === 1 && cell !== undefined && measured.forFace(cell).mean > bright; }), () => ({ mobility: 0, stopped: k }));
+  });
+  const still = settled.points.filter((p) => p.stopped >= 0);
+  return [
+    strokes(t.voronoi(settled, { bounds: half })),
+    group({ translate: [100, 0] }, settled.points.map((p) => circle(p.x, p.y, 0.5)), still.map((p) => circle(p.x, p.y, 1 + 0.25 * p.stopped, { pen: 'stabilo-88-blue' }))),
+  ];
+});
+```

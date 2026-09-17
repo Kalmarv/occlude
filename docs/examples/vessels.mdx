@@ -1,0 +1,46 @@
+---
+title: Thrown vessels
+description: Four pots from one hatched panel, each moved by a cage.
+---
+
+One flat panel of hatch lines and one rectangle for the wall. Each pot is a cage. The rest cage is the rectangle. The destination lays its coordinates along a curved spine, with a profile for the half-width. `warp` moves every point of the panel by that cage. The hatch lines become throwing rings. They crowd at the foot and the neck, open across the belly, and tip where the axis leans. A hatch made after the warp would be straight lines. A hatch made once and moved is what makes the pots look turned on a wheel.
+
+Uses: `curve`, `append`, `resample`, `t.sample`, `warp`, `group`.
+
+```ts live paper=200x100
+import { sketch, rect, curve, append, warp, strokes, group } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const N = 30;
+  const rest = [];
+  for (let i = 0; i <= N; i++) rest.push([40, (i / N) * 80]);
+  for (let i = 1; i <= N; i++) rest.push([40 - (i / N) * 40, 80]);
+  for (let i = 1; i <= N; i++) rest.push([0, 80 - (i / N) * 80]);
+  for (let i = 1; i < N; i++) rest.push([(i / N) * 40, 0]);
+  const hatch = append(...t.times(30, (k) => curve([[0.4, 1.5 + k * 2.65], [39.6, 1.5 + k * 2.65]]))).resample({ spacing: 1.1 });
+  const wall = t.sample(rect(0, 0, 40, 80), { spacing: 1.1 });
+  const forms = [
+    { r: (v) => 4 + 13 * Math.sin(Math.PI * (0.14 + 0.74 * v)), sway: (v) => 1.5 * Math.sin(Math.PI * v) },
+    { r: (v) => 5 + 11 * Math.sin(Math.PI * v ** 0.6) - 3 * v ** 6, sway: (v) => -3 * Math.sin(Math.PI * v) },
+    { r: (v) => 13 - 8 * v + 4.5 * Math.sin(Math.PI * 2.1 * v), sway: (v) => 3 * Math.sin(Math.PI * 1.5 * v) },
+    { r: (v) => 4 + 12 * (1 - (1 - v) ** 2.1) * (1 - 0.68 * v ** 4) + 5 * v ** 9, sway: (v) => 2.5 * v ** 1.6 },
+  ];
+  return forms.map((f, i) => {
+    const spine = (v) => [20 + f.sway(v), 72 * v];
+    const cage = rest.map(([x, y]) => {
+      const v = y / 80;
+      const [ax, ay] = spine(Math.min(1, v + 0.004));
+      const [bx, by] = spine(Math.max(0, v - 0.004));
+      const len = Math.hypot(ax - bx, ay - by);
+      const [nx, ny] = [(ay - by) / len, -(ax - bx) / len];
+      const [cx, cy] = spine(v);
+      const u = x / 20 - 1;
+      return [cx + nx * f.r(v) * 1.1 * u, cy + ny * f.r(v) * 1.1 * u];
+    });
+    return group({ translate: [22 + i * 48, 14] }, [
+      strokes(warp(hatch, { from: rest, to: cage })),
+      strokes(warp(wall, { from: rest, to: cage }), { pen: 'stabilo-88-blue' }),
+    ]);
+  });
+});
+```
