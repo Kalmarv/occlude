@@ -7,13 +7,18 @@
  */
 
 export function liveExampleToJs(src: string): string {
+  // Every module specifier is rewritten, not only 'occlude': a sketch may
+  // import '@user/pens' or '@user/papers', and the runner's `require`
+  // is what decides which names exist (and says so when one does not).
   return src
     .replace(
-      /import\s*\{([^}]*)\}\s*from\s*['"](occlude(?:\/3d(?:\/advanced)?)?)['"];?/g,
+      /import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"];?/g,
       // `circle as disc` is ordinary ESM, not a type annotation, but in a
       // destructuring binding the rename is spelled with a colon.
       (_, names: string, module: string) => `const {${names.replace(/\s+as\s+/g, ': ')}} = require('${module}');`,
     )
+    .replace(/import\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*['"]([^'"]+)['"];?/g, (_, name: string, module: string) => `const ${name} = require('${module}');`)
+    .replace(/import\s+([A-Za-z_$][\w$]*)\s*from\s*['"]([^'"]+)['"];?/g, (_, name: string, module: string) => `const ${name} = require('${module}').default;`)
     .replace(/export\s+default\s+/, 'module.exports.default = ');
 }
 

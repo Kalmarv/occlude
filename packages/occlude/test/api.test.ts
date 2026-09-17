@@ -1341,4 +1341,11 @@ describe('docs example transform', () => {
     expect(liveExampleToJs("import { circle as disc } from 'occlude';")).toBe("const { circle: disc } = require('occlude');");
     expect(liveExampleToJs("import { sphere, circle as ring } from 'occlude/3d';")).toBe("const { sphere, circle: ring } = require('occlude/3d');");
   });
+  it('rewrites every module specifier, so a sketch importing its pens runs on the Evolve page', () => {
+    expect(liveExampleToJs("import { sketch } from 'occlude';\nimport { tooli } from '@user/pens';\nimport { sheet } from '@user/papers';"))
+      .toBe("const { sketch } = require('occlude');\nconst { tooli } = require('@user/pens');\nconst { sheet } = require('@user/papers');");
+    expect(liveExampleToJs("import * as three from 'occlude/3d';")).toBe("const three = require('occlude/3d');");
+    expect(liveExampleToJs("import pens from '@user/pens';")).toBe("const pens = require('@user/pens').default;");
+    expect(liveExampleToJs("import { sketch } from 'occlude';\nexport default sketch({}, () => [])")).not.toMatch(/\bimport\b/);
+  });
 });
