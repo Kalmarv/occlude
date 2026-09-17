@@ -7,6 +7,8 @@ A mesh is an immutable value. Every edit returns a new mesh and keeps the old on
 
 ## subdivide()
 
+<include>/_sig/3d.Mesh.subdivide.mdx</include>
+
 `mesh.subdivide(levels)` splits every face and keeps the surface it represents: a quad becomes four quads, a triangle four triangles. Each level doubles the resolution. It does not round a box or smooth anything. Here the same wave moves three planes at levels 1, 2 and 3. The view draws every fold, so the grids show.
 
 ```ts live
@@ -22,6 +24,8 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 ## displace()
 
+<include>/_sig/3d.Mesh.displace.mdx</include>
+
 `mesh.displace(field)` moves each point by a triple from the field, or by a number along the point's normal. One pass, one new mesh.
 
 ```ts live
@@ -32,6 +36,8 @@ export default sketch({ aspect: [1, 1], seed: 4, pens: { ink: pen({ width: mm(0.
 ```
 
 ## steps()
+
+<include>/_sig/3d.Mesh.steps.mdx</include>
 
 `mesh.steps(count, rule)` is the frozen edit loop, the same as a material's. The rule reads `current` and writes `next`. The shorthand `{ move, set }` applies to every point, and a numeric `move` follows the vertex normal. Here one rule lifts the middle of a sheet a little on each step. The three sheets are the rule applied 0, 4 and 10 times.
 
@@ -48,6 +54,9 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 ```
 
 ## attribute() · faceAttribute()
+
+<include>/_sig/3d.Mesh.attribute.mdx</include>
+<include>/_sig/3d.Mesh.faceAttribute.mdx</include>
 
 `mesh.attribute(name, field)` adds a typed point column, and `faceAttribute` a face column. 
 ```ts live
@@ -81,6 +90,8 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 ```
 
 ## extrude()
+
+<include>/_sig/3d.Mesh.extrude.mdx</include>
 
 `mesh.extrude(faces, offset)` raises a connected face selection as one region. Each connected part of the selection becomes a translated cap, and every boundary edge of the region grows a wall. `offset` is a model vector, or `{ distance }` along the region's mean normal.
 

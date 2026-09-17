@@ -11,16 +11,17 @@ A field is a function of position. A scalar field is `(x, y) => number`. A vecto
 <include>/_sig/grad.mdx</include>
 <include>/_sig/vectorField.mdx</include>
 
-`grad(f)` is the gradient of a scalar field: it points uphill. `curl(f)` is the gradient turned 90°, so it runs along the contours of `f`. `vectorField(fn)` marks your own vector function. Then `rotate` turns its arrows too.
+`grad(f)` is the gradient of a scalar field: it points uphill. `curl(f)` is the gradient turned 90°, so it runs along the contours of `f`. `vectorField(fn)` marks your own vector function. Then `rotate` turns its arrows too. At the bottom left, the same east-pointing function is turned 45° twice: plain in green, still east, and marked in blue, turned.
 
 ```ts live
 import { sketch, line, circle, strokes, curl, grad, vectorField, rotate } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const hill = (x, y) => t.noise(x / 30, y / 30);
-  const arrows = (vf, pen) => t.grid({ cols: 10, rows: 10 }).map((c) => { const [dx, dy] = vf(c.cx, c.cy); const k = 3.5 / Math.hypot(dx, dy); const ex = c.cx + dx * k, ey = c.cy + dy * k; return [line(c.cx, c.cy, ex, ey, { pen }), circle(ex, ey, 0.6, { pen })]; });
-  const east = rotate(vectorField((x, y) => [1, 0]), 30);
-  return [strokes(t.isolines(hill, [-0.4, -0.2, 0, 0.2, 0.4]), { pen: 'pigma-005-black' }), arrows(grad(hill), undefined), arrows(curl(hill), 'stabilo-88-blue'), t.times(4, (k) => { const [dx, dy] = east(0, 0); return line(6, 90 + k * 2, 6 + dx * 8, 90 + k * 2 + dy * 8, { pen: 'stabilo-88-green' }); })];
+  const arrow = (x, y, [dx, dy], len, pen) => { const k = len / Math.hypot(dx, dy); return [line(x, y, x + dx * k, y + dy * k, { pen }), circle(x + dx * k, y + dy * k, 0.6, { pen })]; };
+  const arrows = (vf, pen) => t.grid({ cols: 10, rows: 10 }).map((c) => arrow(c.cx, c.cy, vf(c.cx, c.cy), 3.5, pen));
+  const plain = rotate((x, y) => [1, 0], 45), marked = rotate(vectorField((x, y) => [1, 0]), 45);
+  return [strokes(t.isolines(hill, [-0.4, -0.2, 0, 0.2, 0.4]), { pen: 'pigma-005-black' }), arrows(grad(hill), undefined), arrows(curl(hill), 'stabilo-88-blue'), arrow(8, 92, plain(0, 0), 8, 'stabilo-88-green'), arrow(8, 92, marked(0, 0), 8, 'stabilo-88-blue')];
 });
 ```
 
@@ -28,8 +29,10 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Toolkit.within.1.mdx</include>
 <include>/_sig/Toolkit.within.2.mdx</include>
+<include>/_sig/Toolkit.within.3.mdx</include>
+<include>/_sig/Toolkit.within.4.mdx</include>
 
-Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. It filters a point selection or a face collection. `area` is a shape, a loop of pairs, a face, or a contour material.
+Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. It filters a point selection or a face collection. For faces, `{ faces: 'contained' }` (the default) keeps a face whose whole area is inside. `'centroid'` keeps a face whose centroid is inside. `area` is a shape, a loop of pairs, a face, or a contour material.
 
 ```ts live
 import { sketch, circle, rect, strokes } from 'occlude';
@@ -51,12 +54,12 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 Transforms of a field's sampling. `translate` moves it, `rotate` turns it about the origin, and `scale` scales it, with `[sx, sy]` for each axis. The result is a plain function again. A vector field marked with `vectorField` turns its arrows too.
 
 ```ts live
-import { sketch, circle, strokes, rotate, scale } from 'occlude';
+import { sketch, circle, strokes, translate, rotate, scale } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const stripes = (x, y) => Math.sin(x / 2.5);
-  const disc = (cx, f, pen) => [strokes(t.isolines(t.within(f, circle(cx, 50, 15)), 0), { pen }), circle(cx, 50, 15, { pen: 'pigma-005-black' })];
-  return [disc(18, stripes), disc(50, rotate(stripes, 30), 'stabilo-88-blue'), disc(82, scale(stripes, 2), 'stabilo-88-green')];
+  const disc = (cx, cy, f, pen) => [strokes(t.isolines(t.within(f, circle(cx, cy, 15)), 0), { pen }), circle(cx, cy, 15, { pen: 'pigma-005-black' })];
+  return [disc(28, 30, stripes), disc(72, 30, translate(stripes, 4, 0), 'stabilo-88-green'), disc(28, 70, rotate(stripes, 30), 'stabilo-88-blue'), disc(72, 70, scale(stripes, 2), 'stabilo-88-green')];
 });
 ```
 
@@ -66,7 +69,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <AutoTypeTable path="../occlude/src/isolines.ts" name="IsoOpts" />
 
-The contours where the field is at a value, as one material. Each contour is a chain, or a ring when it closes. Every edge carries its `level`. Give one value or a list of them. `strokes(m)` draws them, `polygon(m)` fills a level set with its holes, and `m.edges.groupBy((e) => e.attrs.level)` splits the levels.
+The contours where the field is at a value, as one material. Each contour is a chain, or a ring when it closes. Every edge carries its `level`. Give one value or a list of them. `strokes(m)` draws them, `polygon(m)` fills a level set with its holes, and `m.edges.groupBy((e) => e.attrs.level)` splits the levels (see [Selections](/docs/reference/selections)).
 
 ```ts live
 import { sketch, strokes } from 'occlude';
@@ -112,7 +115,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => strokes(t.streamlines(
 
 <AutoTypeTable path="../occlude/src/ridges.ts" name="RidgeOpts" />
 
-The crest lines of a scalar field: where the field is at a maximum across the line. Contours show where the field is at a height. Ridges show where it runs along a top. Each crest is a chain, and each vertex carries `strength`, how sharply the ground falls to either side, and `height`. The result has no threshold. Filter by `strength` to keep the crests that earn ink. Valleys are the ridges of the negated field.
+The crest lines of a scalar field: where the field is at a maximum across the line. Contours show where the field is at a height. Ridges show where it runs along a top. Each crest is a chain, and each vertex carries `strength`, how sharply the ground falls to either side, and `height`. The result has no threshold. Filter by `strength` (see [Selections](/docs/reference/selections)) to keep the crests that earn ink. Valleys are the ridges of the negated field.
 
 ```ts live
 import { sketch, strokes } from 'occlude';

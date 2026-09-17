@@ -144,7 +144,7 @@ export default sketch({ aspect: [1, 1], seed: 2, pens: { ink: pen({ width: mm(0.
 
 <include>/_sig/3d.query.mdx</include>
 
-A prepared spatial index over a mesh. `.nearest(position, { within })`, `.ray(origin, direction)` and `.segment(from, to)` return hits with a position, a normal and the face. `.batch()` asks many at once: `.nearest(points, …)`, `.rays(points, { direction })`, `.segments(points, { to })`, and in `sketchAsync` the batch can run on the GPU. A query reads the mesh revision that made it. Inside a `steps` rule, `force.project(query)` pulls points onto that surface.
+A prepared spatial index over a mesh. `.nearest(position, { within })`, `.ray(origin, direction)` and `.segment(from, to)` return hits with a position, a normal and the face. `pointCloud(positions)` makes a point set from the hits, for `instanceOnPoints`. `.batch()` asks many at once: `.nearest(points, …)`, `.rays(points, { direction })`, `.segments(points, { to })`, and in `sketchAsync` the batch can run on the GPU. A query reads the mesh revision that made it. Inside a `steps` rule, `force.project(query)` pulls points onto that surface.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

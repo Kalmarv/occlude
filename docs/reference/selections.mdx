@@ -181,7 +181,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/query.edges.mdx</include>
 
-A spatial index over the edges of one state, built once. `nearest(position, { within })` gives the closest edge within a distance. `firstHit(from, to)` gives the first edge that a straight move would cross. Both return a hit or `null`. A hit has `edge`, `position` (the closest point, as a pair), `distance`, and `t`, the fraction along the edge. `excludeIncident: p` ignores the edges that touch the vertex `p`. Both read the state that made the query, and neither edits it. Build the query outside the callback that uses it.
+A spatial index over the edges of one state, built once. `nearest(position, { within })` gives the closest edge within a distance. `firstHit(from, to)` gives the first edge that a straight move would cross. Both return a hit or `null`. A hit from `nearest` has `edge`, `position` (the closest point, as a pair), `distance`, and `t`, the fraction along the edge. A hit from `firstHit` has the same fields, with `position` the crossing point and `distance` the length travelled from `from`. `excludeIncident: p` ignores the edges that touch the vertex `p`. Both read the state that made the query, and neither edits it. Build the query outside the callback that uses it.
 
 ```ts live
 import { sketch, circle, strokes, query, line, connect } from 'occlude';

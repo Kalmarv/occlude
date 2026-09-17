@@ -84,7 +84,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## The view callback
 
-`view(geometry, options, (lines) => tree)` replaces the default ink. `lines.visible` and `lines.hidden` are the classified line intervals. Each has `.kinds` (boundary, silhouette, crease, hatch, section) and its source attributes. `strokes` accepts them directly. Keep the callback pure, because it can run again when the camera changes.
+`view(geometry, options, (lines) => tree)` replaces the default ink. `lines.visible` and `lines.hidden` are the classified line intervals. Each has `.kinds`, a set from `boundary`, `silhouette`, `crease`, `wire`, `marked`, `hatch`, `section`, `intersection`, `isoline`, `trace` and `mapped`, and its source attributes. `strokes` accepts them directly. Keep the callback pure, because it can run again when the camera changes.
 
 ```ts live
 import { sketch, pen, mm, strokes } from 'occlude';

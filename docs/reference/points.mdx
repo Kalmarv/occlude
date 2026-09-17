@@ -65,7 +65,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/snap.ts" name="SnapOpts" />
 
-Moves each point to the place within `radius` where the field is greatest. A point that is already at that place stays. Edges, columns and row order stay. To seek the least, negate the field.
+Moves each point to the best of `samples` places tried inside the disc of `radius` around it, judged by the field. A point that is already at that place stays. Edges, columns and row order stay. To seek the least, negate the field.
 
 ```ts live
 import { sketch, circle, snap } from 'occlude';
@@ -83,15 +83,16 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/quadtree.ts" name="QuadtreeOpts" />
 
-Divides the drawable into cells that split where the points are dense, until no cell holds more than `capacity` points. The result is a material of cell walls, so `faces()` reads the cells.
+Divides the drawable into cells that split where the points are dense, until no cell holds more than `capacity` points. The result is a material of cell walls. A wall meets a bigger cell's wall at a T, so run `planarize()` before `faces()` reads the cells.
 
 ```ts live
-import { sketch, circle, strokes } from 'occlude';
+import { sketch, circle, strokes, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const tone = (x, y) => Math.max(0, 1 - Math.hypot(x - 35, y - 60) / 40);
   const pts = t.scatter(tone, { spacing: 4 });
-  return [strokes(t.quadtree(pts, { capacity: 4 })), pts.points.map((p) => circle(p.x, p.y, 0.5, { pen: 'stabilo-88-blue' }))];
+  const cells = t.quadtree(pts, { capacity: 4 }).planarize().faces();
+  return [strokes(cells.edges()), cells.filter((f) => f.area < 20).map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) })), pts.points.map((p) => circle(p.x, p.y, 0.5, { pen: 'stabilo-88-blue' }))];
 });
 ```
 

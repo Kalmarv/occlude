@@ -3,7 +3,7 @@ title: Transforms
 description: Operations that take a material and return a changed material.
 ---
 
-Each of these is a pure import. It reads a material, in the material's own coordinates, and returns a new material with the same columns. They read no seed and no paper, so the same input always gives the same output.
+Each of these is a pure import. It reads a material, in the material's own coordinates, and returns a new material. Most keep the columns. `thicken` returns a new boundary, and `envelope` adds one column. They read no seed and no paper, so the same input always gives the same output.
 
 ## warp()
 
@@ -11,7 +11,7 @@ Each of these is a pure import. It reads a material, in the material's own coord
 
 <AutoTypeTable path="../occlude/src/warp.ts" name="WarpOpts" />
 
-Moves every point by a cage. `from` and `to` are two loops with the same number of corners. It writes each point once as a blend of the corners of `from`. Then it reads the point back against the corners of `to`. Only positions move. Structure, columns and row order stay. A straight edge with two vertices stays straight, so resample first when a line must bend.
+Moves every point by a cage. `from` and `to` are two loops with the same number of corners. Each point becomes a weighted blend of the `from` corners. The same weights then rebuild it from the `to` corners. Only positions move. Structure, columns and row order stay. A straight edge with two vertices stays straight, so resample first when a line must bend.
 
 ```ts live
 import { sketch, strokes, line, append, warp } from 'occlude';
@@ -61,7 +61,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/envelope.mdx</include>
 
-The curve that a family of chains is tangent to: where each chain crosses the next one, in stored order. A denser family gives a closer curve. Two chains that share an endpoint meet without crossing and add nothing.
+The curve that a family of chains is tangent to: where each chain crosses the next one, in stored order. A denser family gives a closer curve. Each vertex carries a `member` column, the index of the family member that crossed there. Two chains that share an endpoint meet without crossing and add nothing.
 
 ```ts live
 import { sketch, strokes, line, append, envelope } from 'occlude';

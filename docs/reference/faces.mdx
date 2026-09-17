@@ -163,14 +163,13 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Edge.faces.mdx</include>
 
-The faces on the two sides of an edge. A wall between two cells has two. An outer wall or a loose edge inside a face has one. An edge that no face touches has none. Read `faces()` on the material first. If the material is not planar, `edge.faces` fails with the same message as `faces()`.
+The faces on the two sides of an edge. A wall between two cells has two. An outer wall or a loose edge inside a face has one. An edge that no face touches has none. The material must be planar. `edge.faces` builds the face map itself. If the material is not planar, it fails with the same message as `faces()`.
 
 ```ts live
 import { sketch, circle, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const m = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize();
-  m.faces(); // builds the map that edge.faces reads
   const walls = m.edges.filter((e) => e.faces.length === 2);
   return [strokes(m, { pen: 'pigma-005-black' }), strokes(walls, { pen: 'pigma-05-black' })];
 });

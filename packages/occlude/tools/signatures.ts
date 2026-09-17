@@ -31,7 +31,7 @@ const entry3d = join(pkg, 'src/three/api/index.ts');
 /** Receiver spelling per owner: what a sketch calls the value. */
 const RECEIVER: Record<string, string> = {
   Material: 'm', Faces: 'cells', FaceSelection: 'sel', Face: 'face', Edge: 'edge', Vertex: 'p',
-  PointSelection: 'points', EdgeSelection: 'edges', Station: 'station', Next: 'next', Toolkit: 't',
+  PointSelection: 'points', EdgeSelection: 'edges', Station: 'station', Next: 'next', Toolkit: 't', '3d.Mesh': 'mesh',
   connect: 'connect', force: 'force', query: 'query', ease: 'ease',
 };
 /** Reference page per type name; a link is emitted only when the page exists. */
@@ -101,6 +101,10 @@ if (mod3) {
     if (sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
     const decl = sym.valueDeclaration ?? sym.declarations?.[0];
     if (sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable) && decl) callable(checker.getTypeOfSymbolAtLocation(sym, decl), name, `3d.${name}`, decl);
+    if (name === 'Mesh') {
+      const t = checker.getDeclaredTypeOfSymbol(sym);
+      for (const m of checker.getPropertiesOfType(t)) member('3d.Mesh', m, t);
+    }
   }
 }
 for (let sym of checker.getExportsOfModule(moduleSymbol)) {

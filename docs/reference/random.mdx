@@ -39,14 +39,15 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => t.times(14, (k, u) => 
 
 <include>/_sig/Toolkit.stream.mdx</include>
 
-A random stream of its own, keyed off the seed, with `rnd`, `pick`, `chance` and `noise`. Two parts of a drawing that read separate streams do not disturb each other when one of them changes.
+A random stream of its own, keyed off the seed, with `rnd`, `pick`, `chance` and `noise`. Two parts of a drawing that read separate streams do not disturb each other when one of them changes. Drag the dot count: the bars stay where they are.
 
 ```ts live
-import { sketch, circle, line } from 'occlude';
+import { sketch, circle, line, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const count = ui(24, { min: 4, max: 80, step: 1, label: 'dots' });
   const dots = t.stream('dots'), bars = t.stream('bars');
-  return [t.times(24, () => circle(dots.rnd(10, 90), dots.rnd(10, 90), 1.5)), t.times(6, () => { const y = bars.rnd(15, 85); return line(10, y, 90, y, { pen: 'stabilo-88-blue' }); })];
+  return [t.times(count, () => circle(dots.rnd(10, 90), dots.rnd(10, 90), 1.5)), t.times(6, () => { const y = bars.rnd(15, 85); return line(10, y, 90, y, { pen: 'stabilo-88-blue' }); })];
 });
 ```
 

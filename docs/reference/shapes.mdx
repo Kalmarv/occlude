@@ -84,7 +84,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/polygon.mdx</include>
 
-One area from its boundary. Give a loop of pairs, several loops, contour records, a face, a chain material, or a shape. A loop that is not closed gets a closing chord. `winding` decides the fill rule where loops nest or cross: `'evenodd'` (the default) makes every enclosed loop a hole, `'nonzero'` fills through.
+One area from its boundary. Give a loop of pairs, several loops, contour records, a [face](/docs/reference/faces), a chain [material](/docs/reference/material), or a shape. A loop that is not closed gets a closing chord. `winding` decides the fill rule where loops nest or cross: `'evenodd'` (the default) makes every enclosed loop a hole, `'nonzero'` fills through.
 
 ```ts live
 import { sketch, polygon, fill, mm } from 'occlude';
@@ -108,7 +108,7 @@ import { sketch, label, labelWidth, rect } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const w = labelWidth('OCCLUDE', 14);
-  return [rect(50 - w / 2 - 3, 40 - 3, w + 6, 14 + 6, { pen: 'stabilo-88-blue' }), label('OCCLUDE', 50, 40, 14, { align: 'center' }), label('pen 0.3 mm', 50, 70, 7, { align: 'center' })];
+  return [rect(50 - w / 2 - 3, 40 - 3, w + 6, 14 + 6, { pen: 'stabilo-88-blue' }), label('OCCLUDE', 50, 40, 14, { align: 'center' }), label('CAP HEIGHT 7', 50, 70, 7, { align: 'center' })];
 });
 ```
 
@@ -215,7 +215,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [
 <include>/_sig/stroke.mdx</include>
 <include>/_sig/strokes.2.mdx</include>
 
-Draw geometry as ink. `stroke` draws one contour or one list of pairs. `strokes` draws every chain of a material, a selection or a list of contours, once each, all with the same options. A material never draws itself. These are the words that make ink.
+Draw geometry as ink. `stroke` draws one contour or one list of pairs. `strokes` draws every chain of a [material](/docs/reference/material), a [selection](/docs/reference/selections) or a list of contours, once each, all with the same options. A material never draws itself. These are the words that make ink.
 
 ```ts live
 import { sketch, stroke, strokes, circle } from 'occlude';

@@ -20,19 +20,34 @@ export default sketch({ aspect: [1, 1], seed: 12 }, (t) => [
 ]);
 ```
 
+## sketchAsync()
+
+<include>/_sig/sketchAsync.mdx</include>
+
+The same as `sketch`, for a sketch function that uses `await`. Some 3D words, such as `t.hatch`, run a job in the background and return a promise. A sketch that calls them must be a `sketchAsync`.
+
+```ts live
+import { sketchAsync, circle } from 'occlude';
+
+export default sketchAsync({ aspect: [1, 1] }, async (t) => {
+  const radius = await Promise.resolve(30);
+  return circle(50, 50, radius);
+});
+```
+
 ## Units
 
 <include>/_sig/mm.mdx</include>
 <include>/_sig/inch.mdx</include>
 
-A bare number is a percentage of the short side of the drawable. On a square drawable both axes run 0 to 100. On a 2:1 drawable the long axis runs to 200. `mm(v)` and `inch(v)` are physical sizes, the same on any paper. Use bare units to compose. Use physical units for what must keep its size on paper: hatch spacing, dot sizes, a wobble. `t.len(v)` converts a physical size to drawable units for arithmetic. Change the paper, and the top row keeps its count while the bottom row keeps its size. This page draws on a 180 mm drawable.
+A bare number is a percentage of the short side of the drawable. On a square drawable both axes run 0 to 100. On a 2:1 drawable the long axis runs to 200. `mm(v)` and `inch(v)` are physical sizes, the same on any paper. Use bare units to compose. Use physical units for what must keep its size on paper: hatch spacing, dot sizes, a wobble. `t.len(v)` converts a physical size to drawable units for arithmetic. Change the paper, and the top row keeps its proportion of the drawable while the bottom row keeps its spacing in millimetres. This page draws on a 180 mm drawable.
 
 ```ts live
 import { sketch, circle, label, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => [
   label('10 UNITS', 8, 22, 4), t.times(9, (k) => circle(10 + k * 10, 36, 2)),
-  label('10 MM', 8, 58, 4), t.times(9, (k) => circle(10 + k * t.len(mm(10)), 72, 2, { pen: 'stabilo-88-blue' })),
+  label('10 MM', 8, 58, 4), t.times(9, (k) => circle(10 + k * t.len(mm(10)), 72, mm(4), { pen: 'stabilo-88-blue' })),
 ]);
 ```
 
@@ -41,7 +56,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [
 <include>/_sig/paper.mdx</include>
 <include>/_sig/pen.mdx</include>
 
-`paper` declares the sheet for the config: a width and a height in physical units, and a colour. `pen` declares a pen from its nib width and colour, for the config's `pens`. The studio's pen library also supplies names, and a sketch can use a library name with no declaration. The examples on this site use four of them: `pigma-005-black` (0.2 mm), `pigma-05-black` (0.5 mm), `stabilo-88-blue` and `stabilo-88-green`.
+`paper` declares the sheet for the config: a width and a height in physical units, and a colour. `pen` declares a pen from its nib width and colour, for the config's `pens`. The studio's pen library also supplies names, and a sketch can use a library name with no declaration. The first entry of `pens` is the pen for a shape that names none. Without `pens`, that pen is the library's first pen. The examples on this site use four of them: `pigma-005-black` (0.2 mm), `pigma-05-black` (0.45 mm), `stabilo-88-blue` and `stabilo-88-green`.
 
 ```ts live
 import { sketch, paper, pen, mm, inch, circle } from 'occlude';

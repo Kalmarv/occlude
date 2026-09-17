@@ -3,7 +3,7 @@ title: Connect
 description: The ways to put edges between points.
 ---
 
-Every builder takes points, a material or a selection of one, and returns a material with the same rows and new edges. The rows keep their order and their columns. Only the edge list changes. `edgeAttributes` gives every new edge the same columns.
+Every builder takes points, a material or a selection of one, and returns a material with new edges. Most builders keep the rows, their order and their columns, and change only the edge list. `connect.pairs` joins the rows of two materials, and `connect.trails` adds a pass-through vertex at each junction. `edgeAttributes` gives every new edge the same columns.
 
 ## connect.chain() · connect.ring()
 
@@ -112,7 +112,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const routed = connect.trails(web);
   return [
     strokes(web), label(`${web.curves().length} STROKES`, 25, 62, 4, { align: 'center' }),
-    group({ translate: [50, 0] }, strokes(routed, { pen: 'stabilo-88-blue' }), label(`${routed.curves().length} TRAIL`, 25, 62, 4, { align: 'center', pen: 'stabilo-88-blue' })),
+    group({ translate: [50, 0] }, strokes(routed, { pen: 'stabilo-88-blue' }), label(`${routed.curves().length} TRAILS`, 25, 62, 4, { align: 'center', pen: 'stabilo-88-blue' })),
   ];
 });
 ```
@@ -121,7 +121,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/connect.unimpeded.mdx</include>
 
-Joins two rows when nothing else is in the space between them. `room` sets how much space. The test region is the lens between the two rows. At `room: 1` the lens is the disc with the pair as its diameter. Larger values need more empty space, so the lattice thins out. `room` may be a field, read at the middle of each pair.
+Joins two rows when nothing else is in the space between them. `room` sets how much space. The test region is the lens between the two rows. At `room: 1` the lens is the disc with the pair as its diameter. Larger values need more empty space, so the lattice thins out. `room` is 1 or more, and it may be a field, read at the middle of each pair.
 
 ```ts live
 import { sketch, strokes, connect } from 'occlude';

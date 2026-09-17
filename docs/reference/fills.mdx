@@ -52,8 +52,6 @@ export default sketch({ aspect: [1, 1] }, (t) => [ngon(32, 50, 6, 26, { fill: fi
 
 ## A custom fill
 
-<include>/_sig/customFill.mdx</include>
-
 <AutoTypeTable path="../occlude/src/fillModule.ts" name="FillRegion" />
 
 A fill is a function of the region: `(region, ctx) => strokes`. `region.bbox` is the bounding box in millimetres, `region.contains(x, y)` the point test, and `ctx.rnd()` the seeded random stream. It runs during the render, for that one shape, and returns strokes in paper millimetres as records: `{ type: 'line', x1, y1, x2, y2 }`, `{ type: 'arc', cx, cy, r, start, sweep }`, `{ type: 'cubic', … }` or `{ type: 'polyline', pts }`. The engine clips them to the region and occludes them like every other mark. Use `ctx.rnd()`, not `Math.random()`, so the fill follows the seed.
