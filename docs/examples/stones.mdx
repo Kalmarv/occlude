@@ -11,7 +11,7 @@ Uses: `t.scatter`, `t.relax`, `connect.ring`, `distanceTo`, `t.isolines`, `t.rid
 import { sketch, strokes, polygon, material, connect, append, distanceTo, components } from 'occlude';
 
 export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
-  const seeds = t.relax(t.scatter(() => 1, { spacing: 46 }), { iterations: 5 });
+  const seeds = t.relax(t.scatter({ spacing: 46 }), { iterations: 5 });
   const stones = append(...seeds.points.map((p, i) => {
     const size = 11 + t.rnd(5);
     return connect.ring(material(t.times(64, (k) => {

@@ -46,7 +46,7 @@ export default sketch({ aspect: [1, 1] }, (t) => t.times(7, (k, u) => strokes(os
 
 <AutoTypeTable path="../occlude/src/interlace.ts" name="InterlaceOpts" />
 
-At every crossing of two edges that do not share a vertex, it decides the strand on top. Then it removes `gap` of the other strand around the crossing. `over` receives the crossing and returns true when strand A is on top. The default alternates. The result is ordinary material.
+At every crossing of two edges that do not share a vertex, it decides the strand on top. Then it removes `gap` of the other strand around the crossing. `over(c)` reads one crossing. `c.x` and `c.y` are where it happens, and `c.chainA` and `c.chainB` are the two chain numbers. Return true to put chain A on top. The default alternates. The result is ordinary material.
 
 ```ts live
 import { sketch, strokes, circle, append, interlace } from 'occlude';
@@ -99,11 +99,12 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 `segmentRuns(m, key)` classifies every edge by its two vertices. It gathers consecutive equal keys into runs, chain by chain. Together the runs draw every edge once. `banding({ min, max, count })` maps a value to one of `count` bands. `extent(column)` is `[min, max]`.
 
 ```ts live
-import { sketch, stroke, circle, segmentRuns, banding } from 'occlude';
+import { sketch, stroke, circle, segmentRuns, banding, extent } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 38), { count: 60 }).attribute('h', (p) => p.y);
-  const band = banding({ min: 12, max: 88, count: 3 });
+  const [lo, hi] = extent(ring.attrs.h);
+  const band = banding({ min: lo, max: hi, count: 3 });
   return segmentRuns(ring, (a, b) => band((a.h + b.h) / 2)).map((run) => stroke(run, { pen: run.key === 1 ? 'stabilo-88-blue' : undefined }));
 });
 ```

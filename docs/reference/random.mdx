@@ -11,12 +11,16 @@ All randomness comes from the sketch's seed: `seed` in the config, or `?seed=` i
 <include>/_sig/Toolkit.pick.mdx</include>
 <include>/_sig/Toolkit.chance.mdx</include>
 
-All randomness comes from the sketch's seed. The same source and seed give the same drawing. `rnd()` gives 0 to 1, `rnd(n)` 0 to n, `rnd(a, b)` a to b. `pick` returns one element of a list. `chance(p)` is true with probability `p`.
+`rnd()` gives 0 to 1, `rnd(n)` 0 to n, `rnd(a, b)` a to b. `pick` returns one element of a list. `chance(p)` is true with probability `p`.
 
 ```ts live
-import { sketch, circle } from 'occlude';
+import { sketch, circle, rect } from 'occlude';
 
-export default sketch({ aspect: [1, 1], seed: 3 }, (t) => t.times(40, () => circle(t.rnd(10, 90), t.rnd(10, 90), t.rnd(1, 6), { pen: t.chance(0.3) ? 'stabilo-88-blue' : undefined })));
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => t.times(40, () => {
+  const x = t.rnd(10, 90), y = t.rnd(10, 90), r = t.rnd(1, 6);
+  const pen = t.pick(['pigma-005-black', 'stabilo-88-blue', 'stabilo-88-green']);
+  return t.chance(0.3) ? rect(x - r, y - r, r * 2, r * 2, { pen }) : circle(x, y, r, { pen });
+}));
 ```
 
 ## t.noise()

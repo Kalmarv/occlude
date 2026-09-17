@@ -149,22 +149,40 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/force.vortex.mdx</include>
 <include>/_sig/force.field.mdx</include>
 <include>/_sig/force.relax.mdx</include>
-<include>/_sig/force.sum.mdx</include>
 
-You prepare a force once, with its sources. Then it gives a vector at a point. Nothing moves until a rule calls `next.move` with it. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`. `attract` pulls toward sources. `drift` reads a direction from a noise function and turns slowly with the iteration, so it takes `(p, k)`. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. `sum` adds forces.
+A force is prepared once, with its sources, and then gives a vector at a point. Nothing moves until a rule calls `next.move` with it. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`. `attract` pulls toward sources. `drift` reads a direction from a noise function and turns slowly with the iteration, so it takes `(p, k)`. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. Here one force alone: the ring on the left is untouched, and the ring on the right has moved under `separation` for ten steps.
 
 ```ts live
 import { sketch, circle, strokes, force, mul } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const ring = t.sample(circle(50, 50, 18), { count: 48 });
-  const frame = [[6, 6], [94, 6], [94, 94], [6, 94]];
-  const grown = ring.steps(70, (cur, next, k) => {
-    const push = force.sum(force.separation(cur, { radius: 6, excludeConnected: true }), force.tension(cur, { rest: 3 }), force.drift(t.noise, { amount: 1, frequency: 0.08 }), force.boundary(frame, { radius: 6 }));
-    next.move(cur.points, (p) => mul(push(p, k), 0.4));
-    next.splitEdges(cur.edges.filter((e) => e.length > 5));
+  const ring = t.sample(circle(50, 50, 20), { count: 40 }).attribute('lump', (p) => (p.index % 8 < 3 ? 1 : 0));
+  const spread = ring.steps(10, (cur, next) => {
+    const apart = force.separation(cur.points.filter((p) => p.lump === 1), { radius: 14 });
+    next.move(cur.points, (p) => mul(apart(p), 0.35));
   });
-  return [strokes(grown), strokes(t.material(circle(50, 50, 18)), { pen: 'pigma-005-black' })];
+  return [strokes(ring, { pen: 'pigma-005-black' }), strokes(spread, { pen: 'stabilo-88-blue' })];
+});
+```
+
+## force.sum()
+
+<include>/_sig/force.sum.mdx</include>
+
+Adds forces. The same rule with `separation` alone, with `boundary` alone, and with their sum, in three pens.
+
+```ts live
+import { sketch, circle, strokes, force, mul } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const box = [[10, 10], [90, 10], [90, 90], [10, 90]];
+  const run = (make, pen) => strokes(t.sample(circle(50, 50, 26), { count: 40 }).steps(14, (cur, next) => next.move(cur.points, (p) => mul(make(cur)(p), 0.5))), { pen });
+  return [
+    run((cur) => force.separation(cur, { radius: 9, excludeConnected: true }), 'pigma-005-black'),
+    run((cur) => force.boundary(box, { radius: 30 }), 'stabilo-88-blue'),
+    run((cur) => force.sum(force.separation(cur, { radius: 9, excludeConnected: true }), force.boundary(box, { radius: 30 })), 'stabilo-88-green'),
+    strokes(t.material(circle(50, 50, 26)), { pen: 'pigma-005-black' }),
+  ];
 });
 ```
 

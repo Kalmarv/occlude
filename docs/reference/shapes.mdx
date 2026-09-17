@@ -76,7 +76,7 @@ import { sketch, path } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const p = path().moveTo(10, 70).bezierTo(30, 10, 70, 90, 90, 30);
-  return [p.build(), p.lineTo(90, 90).lineTo(10, 90).close().build({ pen: 'stabilo-88-blue', stroke: 'stabilo-88-blue' })];
+  return [p.build(), p.lineTo(90, 90).lineTo(10, 90).close().build({ stroke: 'stabilo-88-blue' })];
 });
 ```
 
@@ -90,8 +90,9 @@ One area from its boundary. Give a loop of pairs, several loops, contour records
 import { sketch, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const star = t.times(10, (k) => { const r = k % 2 ? 16 : 40; const a = (k / 10) * Math.PI * 2; return [50 + Math.cos(a) * r, 50 + Math.sin(a) * r]; });
-  return polygon(star, { fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) });
+  const ring = (cx, r) => t.times(24, (k) => { const a = (k / 24) * Math.PI * 2; return [cx + Math.cos(a) * r, 50 + Math.sin(a) * r]; });
+  const hatch = fill('hatch', { angle: 45, spacing: mm(1.2) });
+  return [polygon([ring(27, 22), ring(27, 10)], { fill: hatch }), polygon([ring(73, 22), ring(73, 10)], { winding: 'nonzero', fill: hatch })];
 });
 ```
 
@@ -100,12 +101,15 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/label.mdx</include>
 <include>/_sig/labelWidth.mdx</include>
 
-Single-stroke text with cap height `h`: capitals, digits and basic punctuation. `align` anchors `x` at the `'center'` or the `'right'`. `labelWidth` measures a string.
+Single-stroke text with cap height `h`: capitals, digits and basic punctuation. Lower case is drawn as capitals. The point `(x, y)` is the top left of the text. `align: 'center'` or `'right'` moves the anchor; the default is `'left'`. `labelWidth(text, h)` is the width the same call will use.
 
 ```ts live
-import { sketch, label, line } from 'occlude';
+import { sketch, label, labelWidth, rect } from 'occlude';
 
-export default sketch({ aspect: [1, 1] }, (t) => [label('OCCLUDE', 50, 38, 16, { align: 'center' }), line(10, 58, 90, 58), label('PEN 0.3 MM', 50, 76, 9, { align: 'center', pen: 'stabilo-88-blue' })]);
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const w = labelWidth('OCCLUDE', 14);
+  return [rect(50 - w / 2 - 3, 40 - 3, w + 6, 14 + 6, { pen: 'stabilo-88-blue' }), label('OCCLUDE', 50, 40, 14, { align: 'center' }), label('pen 0.3 mm', 50, 70, 7, { align: 'center' })];
+});
 ```
 
 ## group
@@ -121,7 +125,10 @@ Applies a transform, a default pen, a default `z` and default modifiers to its c
 ```ts live
 import { sketch, group, rect } from 'occlude';
 
-export default sketch({ aspect: [1, 1] }, (t) => t.times(8, (k) => group({ rotate: k * 12, origin: 'center', pen: k % 2 ? 'stabilo-88-blue' : undefined }, rect(20, 35, 60, 30))));
+export default sketch({ aspect: [1, 1] }, (t) => [
+  t.times(6, (k) => group({ rotate: k * 15, origin: 'center' }, rect(58, 12, 30, 12))),
+  t.times(6, (k) => group({ rotate: k * 15, origin: [73, 18], pen: 'stabilo-88-blue' }, rect(58, 12, 30, 12))),
+]);
 ```
 
 ## clip · invert
@@ -171,12 +178,17 @@ export default sketch({ aspect: [1, 1] }, (t) => [ngon(27, 50, 5, 24), modify([s
 <include>/_sig/decimate.1.mdx</include>
 <include>/_sig/dash.1.mdx</include>
 
-Modifiers that run after occlusion, on the ink that survives. `wobble` moves the strokes with seeded smooth noise, like a hand tremor. `amount` is a length, and `wavelength` sets the scale. `decimate` drops a fraction of the strokes. `{ stroke, fill }` sets the fraction for the outline and the fill separately. `dash` cuts the strokes into dashes of physical length. The pattern continues through hidden-line cuts.
+Modifiers that run after occlusion, on the ink that survives. `wobble` moves the strokes with seeded smooth noise, like a hand tremor. `amount` is a length, and `wavelength` sets the scale. After occlusion the ink is a list of separate strokes. `decimate` drops a fraction of them, at random from the seed. `{ stroke, fill }` sets the fraction for the outline and the fill separately. `dash` cuts the strokes into dashes of physical length. The pattern continues through hidden-line cuts.
 
 ```ts live
-import { sketch, circle, wobble, decimate, dash, mm } from 'occlude';
+import { sketch, circle, modify, wobble, decimate, dash, mm } from 'occlude';
 
-export default sketch({ aspect: [1, 1] }, (t) => [circle(50, 50, 44, { wobble: mm(1.2) }), circle(50, 50, 32, { decimate: 0.5 }), circle(50, 50, 20, { modifiers: [dash(mm(3), mm(2))] })]);
+export default sketch({ aspect: [1, 1] }, (t) => [
+  modify([wobble(mm(1.2))], circle(27, 30, 20)),
+  modify([decimate(0.5)], circle(73, 30, 20)),
+  modify([dash(mm(3), mm(2))], circle(27, 74, 20)),
+  modify([wobble(mm(0.8)), dash(mm(3), mm(2))], circle(73, 74, 20)),
+]);
 ```
 
 ## smooth · roughen · deform
@@ -188,9 +200,14 @@ export default sketch({ aspect: [1, 1] }, (t) => [circle(50, 50, 44, { wobble: m
 Modifiers that run before occlusion, on the outline itself. The changed silhouette is what hides, and what a fill follows. `smooth` relaxes corners toward curves. `roughen` breaks a clean edge into jitter, resampled every `detail`. `deform` moves the outline by a vector field `(x, y) => [dx, dy]`.
 
 ```ts live
-import { sketch, rect, smooth, roughen, deform, mm } from 'occlude';
+import { sketch, rect, line, smooth, roughen, deform, mm } from 'occlude';
 
-export default sketch({ aspect: [1, 1] }, (t) => [rect(6, 20, 26, 60, { modifiers: [smooth(3)] }), rect(37, 20, 26, 60, { modifiers: [roughen(mm(1.2))] }), rect(68, 20, 26, 60, { modifiers: [deform((x, y) => [Math.sin(y / 6) * 4, 0])] })]);
+export default sketch({ aspect: [1, 1] }, (t) => [
+  t.times(30, (k, u) => line(0, 5 + u * 90, 100, 5 + u * 90, { pen: 'pigma-005-black' })),
+  rect(6, 20, 26, 60, { opaque: true, modifiers: [smooth(3)] }),
+  rect(37, 20, 26, 60, { opaque: true, modifiers: [roughen(mm(1.4))] }),
+  rect(68, 20, 26, 60, { opaque: true, modifiers: [deform((x, y) => [Math.sin(y / 6) * 4, 0])] }),
+]);
 ```
 
 ## stroke · strokes
@@ -210,7 +227,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [stroke(t.times(40, (k, u) => [
 
 <AutoTypeTable path="../occlude/src/api.ts" name="ShapeOpts" />
 
-Every shape accepts these. `fill` makes the shape opaque and gives it a texture. `opaque: true` hides with no texture. `stroke: false` draws no outline. `translate`, `rotate`, `scale` and `origin` are the same transform a `group` applies. `bridge` joins stroke ends across gaps up to a length after occlusion, so hatch rows become one stroke.
+Every shape accepts these. `fill` makes the shape opaque and gives it a texture. `opaque: true` hides with no texture. `stroke: false` draws no outline, and a pen name in `stroke` draws the outline in that pen while `fillPen` keeps the texture's. `translate`, `rotate`, `scale` and `origin` are the same transform a `group` applies. `bridge` joins stroke ends across gaps up to a length after occlusion, so hatch rows become one stroke.
 
 ```ts live
 import { sketch, circle, rect, fill, mm } from 'occlude';

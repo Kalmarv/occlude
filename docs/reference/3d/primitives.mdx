@@ -3,7 +3,7 @@ title: Primitives
 description: "The 3D shapes: plane, box, sphere, cylinder, cone, torus, and how to move them."
 ---
 
-The 3D words come from `occlude/3d`. You build geometry in world units. Every example here ends with `view`, which projects the geometry into the drawable. See [View](/docs/reference/3d/view).
+The 3D words come from `occlude/3d`. You build geometry in world units. Every example here ends with `view`. `view` projects the geometry into the drawable. See [View](/docs/reference/3d/view).
 
 ## plane()
 
@@ -73,13 +73,21 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## translate() · rotate() · scale()
 
-A mesh is born at the world origin. `.translate(triple)`, `.rotate(degreesTriple)` and `.scale(scalarOrTriple)` return new values. They pivot on the object's own origin, and `translate` moves that origin with the object. A `rotate('z', degrees)` form turns about one axis.
+A mesh is born at the world origin. `.translate(triple)`, `.rotate(degreesTriple)` and `.scale(scalarOrTriple)` return new values. They pivot on the object's own origin, and `translate` moves that origin with the object. So translate-then-rotate turns the bar where it stands, and rotate-then-translate turns it first: the blue bar and the bar below it land in different places. A `rotate('z', degrees)` form turns about one axis.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
 import { box, view, orthographic } from 'occlude/3d';
 
-export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => view(t.times(6, (k) => box([1.6, 0.5, 0.3]).rotate([0, 0, k * 30]).translate([0, 0, k * 0.4])), { camera: orthographic({ eye: [5, 6, 5], target: [0, 0, 1], span: 5 }), stroke: 'ink' }));
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), blue: pen({ width: mm(0.3), color: '#2457D6' }) } }, (t) => {
+  const bar = box([1.8, 0.5, 0.5]);
+  return view([
+    bar.translate([0, 0, 0]),
+    bar.translate([0, 1.6, 0]).rotate([0, 0, 40]).style({ stroke: 'blue' }),
+    bar.rotate([0, 0, 40]).translate([0, -1.6, 0]),
+    bar.scale([1, 1, 3]).translate([2.8, 0, 0.6]),
+  ], { camera: orthographic({ eye: [4, 7, 5], target: [0.6, 0, 0.4], span: 7 }), stroke: 'ink' });
+});
 ```
 
 ## alignAxis() · axisAngle()

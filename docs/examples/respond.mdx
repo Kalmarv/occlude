@@ -16,7 +16,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const half = { x: 0, y: 0, w: 100, h: 100 };
   const glow = (x, y) => Math.min(1, Math.max(0, 1 - distance([x, y], [30, 42]) / 30) + Math.max(0, 1 - distance([x, y], [72, 64]) / 22) * 0.9);
   const light = (x, y) => 0.005 + Math.pow(glow(x, y), 3);
-  const sites = t.relax(t.scatter(t.within(() => 1, rect(0, 0, 100, 100)), { spacing: 7 }), { iterations: 2, bounds: half }).attribute('mobility', 1).attribute('stopped', -1);
+  const sites = t.relax(t.scatter({ spacing: 7, within: rect(0, 0, 100, 100) }), { iterations: 2, bounds: half }).attribute('mobility', 1).attribute('stopped', -1);
   const settled = sites.steps(iterations, (current, next, k) => {
     const diagram = t.voronoi(current, { bounds: half });
     const measured = diagram.faces().measure(light, { resolution: 128 });

@@ -47,7 +47,7 @@ export default sketch({ aspect: [1, 1], seed: 9 }, (t) => {
 
 <AutoTypeTable path="../occlude/src/points.ts" name="SettleOpts" />
 
-Weighted Linde-Buzo-Gray settling: relaxation with population control. A point whose cell holds more demand than one point's capacity at `spacing` splits. A starved point dies. The count converges to what the density can support. Survivors keep their columns. Each point gets a `demand` column.
+Weighted Linde-Buzo-Gray settling: relaxation with population control. `density` is the demand at a place, 0 to 1. `spacing` is the distance at which one point serves a full-demand area. A point whose cell holds more than one point's share splits in two. A point whose cell holds almost nothing is removed. The count converges to what the density can support. Survivors keep their columns, and each one gets a `demand` column, where 1 is a full share.
 
 ```ts live
 import { sketch, circle } from 'occlude';
@@ -99,7 +99,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 <include>/_sig/Toolkit.voronoi.mdx</include>
 
-The Voronoi cells of a set of points, as material. The vertices are the cell corners and the edges are the walls. `faces()` reads the cells. The result knows its sites: `cells.cellOf(site)` is a site's face and `cells.siteOf(face)` a face's site. The cells do not follow a site that moves. Build them again.
+The Voronoi cells of a set of points, as material. The vertices are the cell corners and the edges are the walls. `faces()` reads the cells. The result knows its sites: `cells.cellOf(site)` is a site's face and `cells.siteOf(face)` a face's site. The cells stop at the drawable; `bounds: { x, y, w, h }` stops them at a box instead, and for any other area, cut the result with `t.within`. The cells do not follow a site that moves. Build them again.
 
 ```ts live
 import { sketch, circle, strokes, polygon, fill, mm } from 'occlude';

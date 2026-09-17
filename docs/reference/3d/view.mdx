@@ -9,7 +9,7 @@ description: "The camera, the drawing boundary, hatch, the view callback and sty
 
 <include>/_sig/3d.view.1.mdx</include>
 
-The drawing boundary. It takes one object or a list, a camera, and the drawing options. The default ink is the visible boundaries, the silhouettes, and the creases sharper than `creaseAngle` (30°). `stroke` names the pen.
+Projects geometry through a camera and returns the visible lines as ink. It takes one object or a list, a camera, and the drawing options. The default ink is the visible boundaries, the silhouettes, and the creases sharper than `creaseAngle` (30°). `stroke` names the pen.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -73,7 +73,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## sections
 
-`sections: [{ origin, normal, stroke? }]` on the view cuts the mesh with planes in model space and draws the cut lines. Each section can name its own pen. A section is a mesh and plane intersection, not a boolean.
+`sections: [{ origin, normal, stroke? }]` on the view cuts the mesh with planes in model space and draws the cut lines. Each section can name its own pen. A section is the line where a plane cuts the mesh. It does not change the mesh.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

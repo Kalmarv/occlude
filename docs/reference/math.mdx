@@ -14,9 +14,9 @@ Small pure functions. They read no seed and no paper.
 `map` moves a value from one range to another. `norm` moves it to 0 to 1. `ease` holds the standard easing curves, `ease.cubicIn`, `ease.sinInOut`, `ease.bounceOut` and the rest, each a function from 0 to 1. When an eased value sets spacing, the slope of the curve is the local density.
 
 ```ts live
-import { sketch, line, ease, map } from 'occlude';
+import { sketch, line, ease, map, norm } from 'occlude';
 
-export default sketch({ aspect: [1, 1] }, (t) => t.times(30, (k, u) => { const x = map(ease.cubicIn(u), 0, 1, 8, 92); return line(x, 10, x, 90); }));
+export default sketch({ aspect: [1, 1] }, (t) => t.times(30, (k) => { const u = norm(k, 0, 29); const x = map(ease.cubicIn(u), 0, 1, 8, 92); return line(x, 10, x, 90); }));
 ```
 
 ## shaper()
@@ -29,8 +29,9 @@ A tone curve as a function: give knots, and the result maps an input through the
 import { sketch, circle, shaper } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const tone = shaper([[0, 0.5], [0.5, 7], [1, 9]]);
-  return t.times(8, (k, u) => circle(12 + u * 76, 50, tone(u)));
+  const straight = shaper([[0, 0], [1, 1]]);
+  const lifted = shaper([[0, 0], [0.5, 0.8], [1, 1]]);
+  return [t.times(12, (k, u) => circle(8 + u * 84, 32, 0.4 + 4 * straight(u))), t.times(12, (k, u) => circle(8 + u * 84, 68, 0.4 + 4 * lifted(u), { pen: 'stabilo-88-blue' }))];
 });
 ```
 

@@ -77,7 +77,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 <include>/_sig/Toolkit.hatch.mdx</include>
 
-Hatch that follows the surface. It walks from triangle to triangle in a `direction`. The direction is a vector or a field of the surface location. The lines stay `spacing` apart in world units. `tone` is 0 to 1, a constant or a field, and sets how many lanes get ink. It reads the seed, so it lives on the toolkit and needs `sketchAsync` with `await`. One call is one family. A second call with another direction is a crosshatch.
+Hatch that follows the surface. It walks from triangle to triangle in a `direction`. The direction is a vector or a field of the surface location. The lines stay `spacing` apart in world units. `tone` is 0 to 1, a constant or a field, and sets how many lanes get ink. It reads the seed, so it lives on the toolkit. It traces the lanes in a background job, so the sketch must be a `sketchAsync` and the call needs `await`. One call is one family. A second call with another direction is a crosshatch.
 
 ```ts live
 import { sketchAsync, pen, mm } from 'occlude';
@@ -95,6 +95,16 @@ export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width:
 ## Charts and corner attributes
 
 Every primitive stores `uv` coordinates and a `chart` name on its face corners. A plane is one unit square. A box is one square for each face. A sphere is angle and latitude. A seam or a pole keeps different coordinates on each incident corner. `mapSurface`, `mesh.cornerAttribute(name, field)` and the sampled point's `.sample.uv` all read them. `planarUV(mesh, { origin, u, v })` and `cylindricalUV(mesh, …)` store a projection of your own instead.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { cylinder, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#A84932' }) } }, (t) => {
+  const can = cylinder(1, 2.2, { segments: 28 }).cornerAttribute('band', (c) => (c.chart === 'side' && Math.floor(c.uv[1] * 4) % 2 === 0 ? 1 : 0));
+  return view(can, { camera: orthographic({ eye: [5, 6, 3], span: 4 }), stroke: 'ink', creaseAngle: 180, hatch: { spacing: mm(1.2), angle: 0, stroke: 'shade', select: (f) => f.chart === 'top' } });
+});
+```
 
 ## rebind()
 

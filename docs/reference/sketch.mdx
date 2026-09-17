@@ -25,12 +25,15 @@ export default sketch({ aspect: [1, 1], seed: 12 }, (t) => [
 <include>/_sig/mm.mdx</include>
 <include>/_sig/inch.mdx</include>
 
-A bare number is a percentage of the short side of the drawable. On a square drawable both axes run 0 to 100. On a 2:1 drawable the long axis runs to 200. `mm(v)` and `inch(v)` are physical sizes, the same on any paper. Use bare units to compose. Use physical units for what must keep its size on paper: hatch spacing, dot sizes, a wobble. `t.len(v)` converts a physical size to drawable units for arithmetic.
+A bare number is a percentage of the short side of the drawable. On a square drawable both axes run 0 to 100. On a 2:1 drawable the long axis runs to 200. `mm(v)` and `inch(v)` are physical sizes, the same on any paper. Use bare units to compose. Use physical units for what must keep its size on paper: hatch spacing, dot sizes, a wobble. `t.len(v)` converts a physical size to drawable units for arithmetic. Change the paper, and the top row keeps its count while the bottom row keeps its size. This page draws on a 180 mm drawable.
 
 ```ts live
-import { sketch, circle, mm } from 'occlude';
+import { sketch, circle, label, mm } from 'occlude';
 
-export default sketch({ aspect: [1, 1] }, (t) => [circle(30, 50, 20), circle(70, 50, mm(20)), circle(70, 50, t.len(mm(20)) / 2, { pen: 'stabilo-88-blue' })]);
+export default sketch({ aspect: [1, 1] }, (t) => [
+  label('10 UNITS', 8, 22, 4), t.times(9, (k) => circle(10 + k * 10, 36, 2)),
+  label('10 MM', 8, 58, 4), t.times(9, (k) => circle(10 + k * t.len(mm(10)), 72, 2, { pen: 'stabilo-88-blue' })),
+]);
 ```
 
 ## paper() · pen()
@@ -38,7 +41,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [circle(30, 50, 20), circle(70,
 <include>/_sig/paper.mdx</include>
 <include>/_sig/pen.mdx</include>
 
-`paper` declares the sheet for the config: a width and a height in physical units, and a colour. `pen` declares a pen from its nib width and colour, for the config's `pens`. A pen from the studio's library can be spread into it and changed.
+`paper` declares the sheet for the config: a width and a height in physical units, and a colour. `pen` declares a pen from its nib width and colour, for the config's `pens`. The studio's pen library also supplies names, and a sketch can use a library name with no declaration. The examples on this site use four of them: `pigma-005-black` (0.2 mm), `pigma-05-black` (0.5 mm), `stabilo-88-blue` and `stabilo-88-green`.
 
 ```ts live
 import { sketch, paper, pen, mm, inch, circle } from 'occlude';
@@ -49,12 +52,11 @@ export default sketch({ paper: paper({ width: inch(5), height: inch(3) }), pens:
 });
 ```
 
-## ui() · t.probe()
+## ui()
 
 <include>/_sig/ui.mdx</include>
-<include>/_sig/Toolkit.probe.mdx</include>
 
-`ui(value, { min, max, step, label })` marks a literal as tweakable. In the studio it gets a slider. The slider rewrites the literal in the code, so the tuned sketch saves as seen. Anywhere else it returns its value. `t.probe(label, value)` returns the value and records it. The studio shows the count, the range and a histogram. Use it to learn what a field gives before you map it.
+Marks a literal as tweakable. In the studio it gets a slider, and the slider rewrites the literal in the code, so the tuned sketch saves as seen. Anywhere else it returns its value.
 
 ```ts live
 import { sketch, circle, ui } from 'occlude';
@@ -62,8 +64,20 @@ import { sketch, circle, ui } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
   const count = ui(24, { min: 3, max: 80, step: 1 });
   const size = ui(4, { min: 1, max: 12 });
-  return t.times(count, () => circle(t.rnd(10, 90), t.rnd(10, 90), t.probe('r', size * t.rnd(0.4, 1))));
+  return t.times(count, () => circle(t.rnd(10, 90), t.rnd(10, 90), size * t.rnd(0.4, 1)));
 });
+```
+
+## t.probe()
+
+<include>/_sig/Toolkit.probe.mdx</include>
+
+Returns the value and records it under a label. After a render, the studio's controls panel shows the count, the minimum, the mean, the maximum and a histogram for each label. Use it to learn what a field gives before you map it. It changes nothing, and it is free to leave in.
+
+```ts live
+import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => t.grid({ cols: 14, rows: 14 }).map((c) => circle(c.cx, c.cy, 0.5 + 2.5 * t.probe('noise', (t.noise(c.cx / 18, c.cy / 18) + 1) / 2))));
 ```
 
 ## t.bounds() · t.grid()
@@ -71,7 +85,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 <include>/_sig/Toolkit.bounds.mdx</include>
 <include>/_sig/Toolkit.grid.mdx</include>
 
-`bounds()` is the drawable in the sketch's units: `w`, `h`, `cx`, `cy`. Read it when a drawing must fill whatever drawable it lands on. `grid({ cols, rows, gap? })` covers the drawable with cells, each `{ x, y, w, h, cx, cy, i, j }`.
+`bounds()` is the drawable in the sketch's units: `w`, `h`, `cx`, `cy`. `t.width`, `t.height`, `t.cx` and `t.cy` are the same four numbers, read directly. Read them when a drawing must fill whatever drawable it lands on. `grid({ cols, rows, gap? })` covers the drawable with cells, each `{ x, y, w, h, cx, cy, i, j }`.
 
 ```ts live
 import { sketch, rect, circle } from 'occlude';

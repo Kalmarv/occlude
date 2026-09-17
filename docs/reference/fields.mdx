@@ -14,31 +14,49 @@ A field is a function of position. A scalar field is `(x, y) => number`. A vecto
 `grad(f)` is the gradient of a scalar field: it points uphill. `curl(f)` is the gradient turned 90°, so it runs along the contours of `f`. `vectorField(fn)` marks your own vector function. Then `rotate` turns its arrows too.
 
 ```ts live
-import { sketch, line, curl, grad } from 'occlude';
+import { sketch, line, circle, strokes, curl, grad, vectorField, rotate } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const hill = (x, y) => t.noise(x / 30, y / 30);
-  const arrows = (vf, pen) => t.grid({ cols: 12, rows: 12 }).map((c) => { const [dx, dy] = vf(c.cx, c.cy); const k = 3 / Math.hypot(dx, dy); return line(c.cx, c.cy, c.cx + dx * k, c.cy + dy * k, { pen }); });
-  return [arrows(grad(hill), undefined), arrows(curl(hill), 'stabilo-88-blue')];
+  const arrows = (vf, pen) => t.grid({ cols: 10, rows: 10 }).map((c) => { const [dx, dy] = vf(c.cx, c.cy); const k = 3.5 / Math.hypot(dx, dy); const ex = c.cx + dx * k, ey = c.cy + dy * k; return [line(c.cx, c.cy, ex, ey, { pen }), circle(ex, ey, 0.6, { pen })]; });
+  const east = rotate(vectorField((x, y) => [1, 0]), 30);
+  return [strokes(t.isolines(hill, [-0.4, -0.2, 0, 0.2, 0.4]), { pen: 'pigma-005-black' }), arrows(grad(hill), undefined), arrows(curl(hill), 'stabilo-88-blue'), t.times(4, (k) => { const [dx, dy] = east(0, 0); return line(6, 90 + k * 2, 6 + dx * 8, 90 + k * 2 + dy * 8, { pen: 'stabilo-88-green' }); })];
 });
 ```
 
-## within() · translate() · rotate() · scale()
+## t.within()
 
 <include>/_sig/Toolkit.within.1.mdx</include>
+<include>/_sig/Toolkit.within.2.mdx</include>
+
+Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. A material is cut at the boundary. A point selection and a face collection are filtered. `area` is a shape, a loop of pairs, a face, or a contour material.
+
+```ts live
+import { sketch, circle, rect, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
+  const stripes = (x, y) => Math.sin(x / 3);
+  const disc = circle(30, 50, 24);
+  const web = t.streamlines((x, y) => [1, 0.4 * Math.sin(y / 8)], { spacing: 4 });
+  return [strokes(t.isolines(t.within(stripes, disc), 0)), circle(30, 50, 24, { pen: 'stabilo-88-blue' }), strokes(t.within(web, rect(62, 20, 34, 60))), rect(62, 20, 34, 60, { pen: 'stabilo-88-blue' })];
+});
+```
+
+## translate() · rotate() · scale()
+
 <include>/_sig/translate.mdx</include>
 <include>/_sig/rotate.mdx</include>
 <include>/_sig/scale.mdx</include>
 
-Transforms of a field's sampling. `t.within(f, shape)` limits the field to the shape. Outside the shape the field is absent: generators make nothing there, and contours stop at the edge. `translate`, `rotate` and `scale` move, turn and scale the sampling. The result is a plain function again.
+Transforms of a field's sampling. `translate` moves it, `rotate` turns it about the origin, and `scale` scales it, with `[sx, sy]` for each axis. The result is a plain function again. A vector field marked with `vectorField` turns its arrows too.
 
 ```ts live
-import { sketch, circle, rect, strokes, rotate } from 'occlude';
+import { sketch, circle, strokes, rotate, scale } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const stripes = (x, y) => Math.sin(x / 3);
-  const turned = rotate(stripes, 30);
-  return [strokes(t.isolines(t.within(turned, circle(50, 50, 40)), 0)), circle(50, 50, 40, { pen: 'stabilo-88-blue' })];
+  const stripes = (x, y) => Math.sin(x / 2.5);
+  const disc = (cx, f, pen) => [strokes(t.isolines(t.within(f, circle(cx, 50, 15)), 0), { pen }), circle(cx, 50, 15, { pen: 'pigma-005-black' })];
+  return [disc(18, stripes), disc(50, rotate(stripes, 30), 'stabilo-88-blue'), disc(82, scale(stripes, 2), 'stabilo-88-green')];
 });
 ```
 

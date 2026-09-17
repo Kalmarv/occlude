@@ -49,15 +49,17 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 ## attribute() · faceAttribute()
 
-`mesh.attribute(name, field)` adds a typed point column, and `faceAttribute` a face column. A hatch recipe's `select` reads face columns, so a column decides what gets hatched.
-
+`mesh.attribute(name, field)` adds a typed point column, and `faceAttribute` a face column. 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { box, view, orthographic } from 'occlude/3d';
+import { plane, view, orthographic } from 'occlude/3d';
 
-export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#A84932' }) } }, (t) => {
-  const tagged = box(2).faceAttribute('top', (f) => f.normal[2] > 0.5);
-  return view(tagged, { camera: orthographic({ eye: [5, 7, 5], span: 4.5 }), stroke: 'ink', hatch: { spacing: mm(1.5), angle: 45, stroke: 'shade', select: (f) => f.top === true } });
+export default sketch({ aspect: [1, 1], seed: 3, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#A84932' }) } }, (t) => {
+  const sheet = plane(4, 4).subdivide(3)
+    .attribute('h', (p) => 0.5 + 0.5 * t.noise(p.x, p.y))
+    .displace((p) => [0, 0, p.h])
+    .faceAttribute('high', (f) => f.center[2] > 0.75);
+  return view(sheet, { camera: orthographic({ eye: [5, 7, 5], span: 6 }), stroke: 'ink', creaseAngle: 0, hatch: { spacing: mm(1.4), angle: 45, stroke: 'shade', select: (f) => f.high === true } });
 });
 ```
 
@@ -96,24 +98,25 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), colo
 
 ## Topology
 
-A row knows its neighbours: `point.edges`, `point.adjacent`, `face.points`, `face.edges`, `face.adjacent` and `edge.faces`. A selection has `.adjacent()` for one hop out, `.connected()` for everything it reaches, and `.components()` for its pieces. A face selection also has `.boundaryEdges()`. Faces are neighbours through a shared edge, not a shared corner.
+A row knows its neighbours: `point.edges`, `point.adjacent`, `face.points`, `face.edges`, `face.adjacent` and `edge.faces`. A selection has `.adjacent()` for one hop out, `.connected()` for everything it reaches, and `.components()` for its pieces. A face selection also has `.boundaryEdges()`. Faces are neighbours through a shared edge, not a shared corner. Here the cap is one selection, and the ring is its one-hop neighbours with the cap removed.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { sphere, view, orthographic } from 'occlude/3d';
+import { sphere, box, view, orthographic } from 'occlude/3d';
 
-export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#A84932' }) } }, (t) => {
-  const ball = sphere(1.4, { segments: 24, rings: 12 });
-  const seed = ball.faces.filter((f) => f.normal[2] > 0.95);
-  const ring = seed.adjacent().subtract(seed).adjacent().subtract(seed);
-  const tagged = ball.faceAttribute('ring', (f) => ring.has(f));
-  return view(tagged, { camera: orthographic({ eye: [3, 4, 6], span: 4 }), stroke: 'ink', creaseAngle: 180, hatch: { spacing: mm(1.2), angle: 45, stroke: 'shade', select: (f) => f.ring === true } });
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#A84932' }), blue: pen({ width: mm(0.15), color: '#2457D6' }) } }, (t) => {
+  const ball = sphere(1.3, { segments: 24, rings: 12 });
+  const cap = ball.faces.filter((f) => f.normal[2] > 0.9);
+  const ring = cap.adjacent().subtract(cap);
+  const tagged = ball.faceAttribute('zone', (f) => (cap.has(f) ? 2 : ring.has(f) ? 1 : 0));
+  const pieces = box(0.6).translate([2.2, 0, 0]);
+  return view([tagged, pieces], { camera: orthographic({ eye: [3, 4, 6], target: [0.6, 0, 0], span: 5 }), stroke: 'ink', creaseAngle: 180, hatch: [{ spacing: mm(1.2), angle: 45, stroke: 'shade', select: (f) => f.zone === 2 }, { spacing: mm(1.2), angle: 135, stroke: 'blue', select: (f) => f.zone === 1 }] });
 });
 ```
 
 ## Forces
 
-Inside a `steps` rule, a force is a field of the point that returns a displacement. `force.attract(target, { strength })` pulls toward a world point. `force.plane({ origin, normal, side })` pushes a point back to one side of a plane. `force.project(query)` pulls onto a surface. `force.sum` adds them.
+These are the 3D forces, from `occlude/3d`. They are not the material forces of [Steps](/docs/reference/steps): a 3D force takes world geometry, not rows. Inside a `steps` rule, a force is a field of the point that returns a displacement. `force.attract(target, { strength })` pulls toward a world point. `force.plane({ origin, normal, side })` pushes a point back to one side of a plane; `side` is `'above'` or `'below'`. `force.project(query)` pulls onto a surface. `force.sum` adds them.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

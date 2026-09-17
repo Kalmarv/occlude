@@ -15,11 +15,13 @@ Curves are polygonal paths in 3D. `polyline` takes points, `curve` samples a fun
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
-import { curve, box, view, orthographic } from 'occlude/3d';
+import { polyline, curve, circle, view, orthographic } from 'occlude/3d';
 
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
-  const helix = curve((u) => [Math.cos(u * 12) * 1.4, Math.sin(u * 12) * 1.4, u * 3 - 1.5], { segments: 160 });
-  return view([helix, box([1.2, 1.2, 3])], { camera: orthographic({ eye: [5, 6, 3], span: 5 }), stroke: 'ink' });
+  const zig = polyline([[-2.4, -1, 0], [-1.6, -1, 1.2], [-0.8, -1, 0], [0, -1, 1.2]]);
+  const helix = curve((u) => [Math.cos(u * 12) * 0.7, Math.sin(u * 12) * 0.7, u * 2.4 - 1.2], { segments: 160 });
+  const ring = circle(0.9, { segments: 24 }).translate([2.2, 0, 0]);
+  return view([zig, helix, ring], { camera: orthographic({ eye: [3, 6, 4], span: 6.5 }), stroke: 'ink' });
 });
 ```
 

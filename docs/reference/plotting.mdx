@@ -10,7 +10,7 @@ Rendering makes the visible ink. Planning puts it in order: fragments merge into
 <include>/_sig/Toolkit.plan.mdx</include>
 <include>/_sig/Toolkit.draw.mdx</include>
 
-`plan` sets the path settings. `optimize` is the tour budget. `bridge` is the gap the pen closes without a lift, or `false`. `draw` chooses the part of the ordered drawing to plot. `progress` is a fraction of the chains. `chains` is a range of them. `minutes` is an interval of the estimated time, and `budget` keeps the longest prefix that fits. A range never re-plans or reorders. Ink that a later shape hid stays hidden.
+`plan` sets the path settings for this run. Call it once in the sketch body, before the return; it returns nothing. `optimize` is the tour budget. `bridge` is the gap the pen closes without a lift, or `false`. `draw` chooses the part of the ordered drawing to plot, in the same way: once, before the return. `progress` is a fraction of the chains. `chains` is a range of them. `minutes` is an interval of the estimated time, and `budget` keeps the longest prefix that fits. A range never re-plans or reorders. Ink that a later shape hid stays hidden.
 
 ```ts live
 import { sketch, circle, ui } from 'occlude';
@@ -30,8 +30,10 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
 Headless export, after `initOcclude()` once. `exportSvg` writes one path for each chain in plot order, with arcs and cubics kept exact. `exportPng` rasterises at `scale` pixels for each millimetre. `exportGcode` writes one job for each pen. `profile` describes the machine: `bed`, `resolution`, `travelFeed`, `zMode`, `arcSupport` and `yAxis`. All three honour `t.draw`. The studio's Export panel does the same for the current selection.
 
 ```ts
-import { initOcclude, render, exportSvg, exportGcode, exportPng } from 'occlude';
+import { initOcclude, sketch, circle, render, exportSvg, exportGcode, exportPng } from 'occlude';
 
+const def = sketch({ aspect: [1, 1] }, (t) => circle(50, 50, 40));
+const profile = { bed: [300, 218], resolution: 0.2, travelFeed: 8000, zMode: true, arcSupport: false, yAxis: 'down' };
 await initOcclude();
 const out = render(def, { paper: 'A4' });
 const svg = exportSvg(def, { paper: 'A4', background: '#f6f2ea' });
@@ -41,7 +43,7 @@ const png = exportPng(def, { paper: 'A4', scale: 11.81 });
 
 ## Machines
 
-The studio's Machine page holds the machine profiles: an EBB board over Web Serial, or a G-code controller such as GRBL. A profile is the bed, the axes, the pen heights and feeds, and the motion limits. Plot, pause and resume, homing, the pen ladder and the motion tests are on that page. The device notes cover each controller's quirks.
+This is a pointer, not an entry. The studio's Machine page holds the machine profiles: an EBB board over Web Serial, or a G-code controller such as GRBL. A profile is the bed, the axes, the pen heights and feeds, and the motion limits. Plot, pause and resume, homing, the pen ladder and the motion tests are on that page. The device notes cover each controller's quirks.
 
 ## estimatePlanMs()
 

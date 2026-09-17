@@ -32,7 +32,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [
 
 ## align
 
-`align: 'paper'` (the default) anchors a hatch to the page. One ruling covers the sheet, and every shape samples it where it sits. Neighbours tile into one texture. `align: 'shape'` anchors the ruling to the shape's own centre and axes. Every shape carries the same marks, and the ruling turns with the shape.
+`align: 'paper'` (the default) anchors a hatch to the page. One ruling covers the sheet, and every shape samples it where it sits. Two shapes side by side share one ruling, so the marks line up across the join. `align: 'shape'` anchors the ruling to the shape's own centre and axes. Every shape carries the same marks, and the ruling turns with the shape.
 
 ```ts live
 import { sketch, rect, fill, mm } from 'occlude';
@@ -92,4 +92,15 @@ export default sketch({ aspect: [1, 1] }, (t) => rect(15, 15, 70, 70, {
 
 <include>/_sig/fillAsset.mdx</include>
 
-A fill as a file: declared parameters plus a generator that imports nothing but occlude. That is what the studio's Fills page stores and shares, and `fill(asset, params)` uses one by value. See the studio's Fills page for the editor.
+A fill as a value: declared parameters, with their defaults, plus a generator. `fill(asset, params)` uses it, with `params` over the defaults. The studio's Fills page stores fill files in the same shape, and a fill file imports nothing but occlude.
+
+```ts live
+import { sketch, circle, fill, fillAsset, rulings } from 'occlude';
+
+const combs = fillAsset({
+  params: { spacing: 2, angle: 15 },
+  generate: (region, params, ctx) => rulings(region, { spacing: params.spacing, angle: params.angle }),
+});
+
+export default sketch({ aspect: [1, 1] }, (t) => [circle(30, 50, 24, { fill: fill(combs) }), circle(70, 50, 24, { fill: fill(combs, { spacing: 1, angle: 105 }) })]);
+```

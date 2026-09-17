@@ -21,7 +21,8 @@ export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
     const peak = (g) => Math.max(...g.map((p) => p.strength));
     const top = Math.max(...crests.map(peak));
     const kept = crests.filter((g) => g.length >= minRun && peak(g) > top * minStrength);
-    return kept.reduce((all, g) => all.union(g), m.points.filter(() => false)).inducedEdges().extract();
+    if (kept.length === 0) return m.points.filter(() => false).inducedEdges().extract();
+    return kept.reduce((all, g) => all.union(g)).inducedEdges().extract();
   };
   const range = t.within(t.ridges(height, { step: 2.6 }), coast);
   const spurs = t.within(t.ridges(height, { step: 0.9 }), coast);

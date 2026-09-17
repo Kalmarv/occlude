@@ -9,7 +9,7 @@ description: Rows of a material, chosen and combined, and what they know about e
 A row number belongs to one state. When a step adds or removes vertices, the rows get new numbers. A selection from the step before is not valid in the step after. Select again from the current state.
 :::
 
-## p
+## vertex
 
 <include>/_sig/Vertex.index.mdx</include>
 <include>/_sig/Vertex.x.mdx</include>
@@ -110,13 +110,12 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 A new material from the selection. From points: the selected points with every column and no edges. From edges: the selected edges, their endpoints, and both sets of columns. The rows keep their source order, with no gaps. The new material starts its own history. This is the one way to get independent material out of a selection.
 
 ```ts live
-import { sketch, circle, strokes, force, mul } from 'occlude';
+import { sketch, circle, strokes, group } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const ring = t.sample(circle(50, 50, 38), { count: 40 });
-  const arc = ring.edges.filter((e) => e.a.y < 50).extract();
-  const relaxed = arc.steps(6, (cur, next) => next.move(cur.points, (p) => mul(force.relax(cur)(p), 0.5)));
-  return [strokes(ring, { pen: 'pigma-005-black' }), strokes(relaxed, { pen: 'stabilo-88-blue' })];
+  const ring = t.sample(circle(50, 60, 34), { count: 40 });
+  const arc = ring.edges.filter((e) => e.a.y < 60 && e.b.y < 60).extract();
+  return [strokes(ring, { pen: 'pigma-005-black' }), group({ translate: [0, -22] }, strokes(arc, { pen: 'stabilo-88-blue' }), arc.points.filter((p) => p.index === 0).map((p) => circle(p.x, p.y, 2, { pen: 'stabilo-88-blue' })))];
 });
 ```
 
@@ -146,17 +145,19 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 What the edges say about one vertex: the vertices joined to it, and how many there are. `isConnected` tells you if a given vertex is one of them. A vertex with one edge is an end. A vertex with three or more edges is a junction.
 
-:::note
-These words change in the relations redesign. Adjacency becomes a selection on the vertex, `p.adjacent`. Then it combines with other selections.
-:::
-
 ```ts live
-import { sketch, circle, strokes, connect } from 'occlude';
+import { sketch, circle, strokes, line, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const tree = connect.tree(t.scatter({ spacing: 11 }).points.filter((p) => p.x > 4 && p.x < 96 && p.y > 4 && p.y < 96).extract());
-  const mark = (p, pen) => circle(p.x, p.y, 1.4, { pen });
-  return [strokes(tree), tree.points.filter((p) => tree.degree(p) === 1).map((p) => mark(p, 'stabilo-88-blue')), tree.points.filter((p) => tree.degree(p) > 2).map((p) => mark(p, undefined))];
+  const hub = [...tree.points].reduce((a, b) => (tree.degree(b) > tree.degree(a) ? b : a));
+  const around = tree.connectedPoints(hub);
+  return [
+    strokes(tree),
+    tree.points.filter((p) => tree.degree(p) === 1).map((p) => circle(p.x, p.y, 1.2)),
+    circle(hub.x, hub.y, 2.4, { pen: 'stabilo-88-blue' }),
+    around.map((q) => tree.isConnected(hub, q) && line(hub.x, hub.y, q.x, q.y, { pen: 'stabilo-88-blue' })),
+  ];
 });
 ```
 
@@ -180,7 +181,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/query.edges.mdx</include>
 
-A spatial index over the edges of one state, built once. `nearest(position, { within, excludeIncident? })` gives the closest edge within a distance, with the closest point on it. `firstHit(from, to, { excludeIncident? })` gives the first edge that a straight move would cross. Both read the state that made the query, and neither edits it. Build the query outside the callback that uses it.
+A spatial index over the edges of one state, built once. `nearest(position, { within })` gives the closest edge within a distance. `firstHit(from, to)` gives the first edge that a straight move would cross. Both return a hit or `null`. A hit has `edge`, `position` (the closest point, as a pair), `distance`, and `t`, the fraction along the edge. `excludeIncident: p` ignores the edges that touch the vertex `p`. Both read the state that made the query, and neither edits it. Build the query outside the callback that uses it.
 
 ```ts live
 import { sketch, circle, strokes, query, line, connect } from 'occlude';

@@ -18,7 +18,7 @@ A row index belongs to one state. After a step adds or removes vertices, the row
 <include>/_sig/Material.attrs.mdx</include>
 <include>/_sig/Material.closed.mdx</include>
 
-The value. `points` and `edges` are collections of rows: iterate them, or use `length`, `at(i)`, `map` and `filter`. `pts` is the positions as pairs. `x`, `y` and `attrs.name` are the raw columns. `closed` is true for one ring. `strokes(m)` draws every chain once. Here a rectangle becomes four vertices and four edges.
+The value. `n` is the number of vertices. `points` and `edges` are collections of rows: iterate them, or use `length`, `at(i)`, `map` and `filter`. `pts` is the positions as pairs. `x`, `y` and `attrs.name` are the raw columns. `closed` is true for one ring. `strokes(m)` draws every chain once. Here a rectangle becomes four vertices and four edges.
 
 ```ts live
 import { sketch, rect, circle, strokes } from 'occlude';
@@ -78,7 +78,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/Toolkit.sample.3.mdx</include>
 
-Reads a shape as material with new vertices, spaced evenly along the outline by arc length. Give `count` or `spacing`. The samples do not land on the shape's own corners. Use `t.material()` to keep the corners, and `t.sample()` to get even spacing.
+Reads a shape as material with new vertices, spaced evenly along the outline by arc length. Give `count` or `spacing`. The samples need not land on the shape's corners. Use `t.material()` to keep the corners, and `t.sample()` to get even spacing.
 
 ```ts live
 import { sketch, rect, circle } from 'occlude';
@@ -96,11 +96,12 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 Puts several materials in one, in the order given. The rows of each one come after the rows of the one before. The edges get new row numbers. All of them must have the same columns. If one has a column that another does not, `fill` gives the value that the other gets.
 
 ```ts live
-import { sketch, strokes, curve, append } from 'occlude';
+import { sketch, strokes, curve, append, connect, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const parts = t.times(4, (k) => curve([[12 + k * 22, 12], [24 + k * 22, 88]], { closed: false }));
-  return strokes(append(...parts));
+  const one = append(...parts);
+  return [strokes(one), strokes(connect.nearest(one, { count: 1 }), { pen: 'stabilo-88-blue' }), one.points.map((p) => circle(p.x, p.y, 1.2))];
 });
 ```
 

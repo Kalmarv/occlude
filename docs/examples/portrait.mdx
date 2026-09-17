@@ -5,7 +5,7 @@ description: A photograph as settled dots, with hair lines that follow its grain
 
 The sketch places the image once and reads it as fields. `t.scatter` seeds dots where the picture is dark. `t.settle` moves, adds and removes them until their count matches the tone. Each dot's size is its `demand`. `img.flow` is the direction that the picture's structure runs, smoothed. `t.streamlines` follows it, with a spacing that opens where the picture is light. The alpha channel masks the subject, so the paper around it stays clean.
 
-Uses: `t.image`, `img.field`, `t.scatter`, `t.settle`, `img.flow`, `t.streamlines` with a spacing field, `t.within`.
+Uses: `t.image`, `img.lum`, `img.a`, `t.scatter`, `t.settle`, `img.flow`, `t.streamlines` with a spacing field, `inducedEdges`.
 
 ```ts live
 import { sketch, circle, strokes, mm } from 'occlude';

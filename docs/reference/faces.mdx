@@ -6,7 +6,7 @@ description: The regions that a planar material encloses, and what you can read 
 A planar material is one whose edges meet only at shared vertices. Its edges divide the page into regions. `faces()` reads those regions. Each face knows its area, its centroid, its walls and its neighbours. A face is an area: `polygon(f)` fills it and `distanceTo(f)` measures from its walls.
 
 :::note
-Rows are properties and collections are methods. Write `face.edges` for one face and `cells.edges()` for a collection.
+A reading on one face is a property: `face.edges`. The same reading on a collection of faces is a method: `cells.edges()`.
 :::
 
 ## face
@@ -146,14 +146,16 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <AutoTypeTable path="../occlude/src/measure.ts" name="MeasureOpts" />
 
-Measures each face: centroid, orientation, elongation, and the largest inscribed circle as `inscribedCentre` and `inscribedRadius`. If you give a field, you also get its integral, its mean and its weighted centre for each face. Read one face with `forFace(f)`, or iterate the results.
+Measures each face: `centroid`, `orientation`, `elongation`, and the largest inscribed circle as `inscribedCentre` and `inscribedRadius`. With a field you also get `integral`, `mean` and `weightedCentroid` for each face. Read one face with `forFace(f)`, or iterate the results.
 
 ```ts live
-import { sketch, circle, strokes } from 'occlude';
+import { sketch, circle, strokes, line } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
-  return [strokes(cells.edges()), [...cells.measure()].map((r) => circle(r.inscribedCentre[0], r.inscribedCentre[1], r.inscribedRadius * 0.6))];
+  const light = (x, y) => Math.max(0, 1 - Math.hypot(x - 20, y - 20) / 70);
+  const m = cells.measure(light, { resolution: 120 });
+  return [strokes(cells.edges()), [...m].map((r) => [circle(r.centroid[0], r.centroid[1], 1.2), circle(r.weightedCentroid[0], r.weightedCentroid[1], 1.2, { pen: 'stabilo-88-blue' }), line(r.centroid[0], r.centroid[1], r.weightedCentroid[0], r.weightedCentroid[1], { pen: 'stabilo-88-blue' })])];
 });
 ```
 
@@ -168,7 +170,7 @@ import { sketch, circle, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const m = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize();
-  m.faces();
+  m.faces(); // builds the map that edge.faces reads
   const walls = m.edges.filter((e) => e.faces.length === 2);
   return [strokes(m, { pen: 'pigma-005-black' }), strokes(walls, { pen: 'pigma-05-black' })];
 });

@@ -104,13 +104,16 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
 The same drawing, wired so the pen lifts as few times as possible. At a junction, each pair of edges gets its own pass-through vertex. A chain walk then runs straight through the junction. The ink does not change. The result is a drawing, not a structure: `faces()` refuses it, so keep the original for questions.
 
 ```ts live
-import { sketch, strokes, material, connect } from 'occlude';
+import { sketch, strokes, material, connect, label, group } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const grid = material(t.grid({ cols: 5, rows: 5 }).map((c) => [c.cx, c.cy]));
+  const grid = material(t.grid({ cols: 5, rows: 5 }).map((c) => [c.cx * 0.46 + 2, c.cy * 0.46 + 10]));
   const web = connect.triangulate(grid);
   const routed = connect.trails(web);
-  return strokes(routed, { pen: 'stabilo-88-blue' });
+  return [
+    strokes(web), label(`${web.curves().length} STROKES`, 25, 62, 4, { align: 'center' }),
+    group({ translate: [50, 0] }, strokes(routed, { pen: 'stabilo-88-blue' }), label(`${routed.curves().length} TRAIL`, 25, 62, 4, { align: 'center', pen: 'stabilo-88-blue' })),
+  ];
 });
 ```
 
