@@ -1,0 +1,48 @@
+---
+title: Random
+description: The seed, and everything that reads it.
+---
+
+All randomness comes from the sketch's seed: `seed` in the config, or `?seed=` in the studio's URL. The same source and the same seed give the same drawing. Nothing here uses `Math.random`.
+
+## t.rnd() · t.pick() · t.chance()
+
+<include>/_sig/Toolkit.rnd.mdx</include>
+<include>/_sig/Toolkit.pick.mdx</include>
+<include>/_sig/Toolkit.chance.mdx</include>
+
+All randomness comes from the sketch's seed. The same source and seed give the same drawing. `rnd()` gives 0 to 1, `rnd(n)` 0 to n, `rnd(a, b)` a to b. `pick` returns one element of a list. `chance(p)` is true with probability `p`.
+
+```ts live
+import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => t.times(40, () => circle(t.rnd(10, 90), t.rnd(10, 90), t.rnd(1, 6), { pen: t.chance(0.3) ? 'stabilo-88-blue' : undefined })));
+```
+
+## t.noise()
+
+<include>/_sig/Toolkit.noise.1.mdx</include>
+
+Seeded smooth noise from −1 to 1. Sample it at large steps for terrain and at small steps for texture. Within a seed, the same coordinates always give the same value.
+
+```ts live
+import { sketch, stroke } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => t.times(14, (k, u) => stroke(t.times(60, (i, v) => [8 + v * 84, 10 + u * 80 + t.noise(v * 4, u * 3) * 5]))));
+```
+
+## t.stream()
+
+<include>/_sig/Toolkit.stream.mdx</include>
+
+A random stream of its own, keyed off the seed, with `rnd`, `pick`, `chance` and `noise`. Two parts of a drawing that read separate streams do not disturb each other when one of them changes.
+
+```ts live
+import { sketch, circle, line } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const dots = t.stream('dots'), bars = t.stream('bars');
+  return [t.times(24, () => circle(dots.rnd(10, 90), dots.rnd(10, 90), 1.5)), t.times(6, () => { const y = bars.rnd(15, 85); return line(10, y, 90, y, { pen: 'stabilo-88-blue' }); })];
+});
+```
+

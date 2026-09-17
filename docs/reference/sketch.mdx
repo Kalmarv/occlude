@@ -1,0 +1,96 @@
+---
+title: Sketch
+description: "The sketch function, its config, units, controls and the layout helpers."
+---
+
+A sketch is a function that returns shapes. `sketch(config, (t) => tree)` describes it; nothing is drawn until it renders. The tree can nest arrays to any depth. It is flattened and drawn in order, and a falsy entry is skipped, so `condition && shape` includes a shape only when the condition holds.
+
+## sketch()
+
+<include>/_sig/sketch.mdx</include>
+
+The config sets the drawable and the seed. `aspect: [w, h]` fixes the shape of the drawable, and it is letterboxed onto whatever paper renders it. `paper` names the sheet instead. `margin` is an inset from the paper edge. `seed` is a number, a string, or `'url'` to read the studio's `?seed=`. `pens` declares the sketch's pens by name.
+
+```ts live
+import { sketch, circle, line } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 12 }, (t) => [
+  circle(50, 50, 30),
+  t.times(6, (k) => k % 2 === 0 && line(10, 20 + k * 12, 90, 20 + k * 12)),
+]);
+```
+
+## Units
+
+<include>/_sig/mm.mdx</include>
+<include>/_sig/inch.mdx</include>
+
+A bare number is a percentage of the short side of the drawable: on a square drawable both axes run 0 to 100, on a 2:1 drawable the long one runs to 200. `mm(v)` and `inch(v)` are physical sizes, the same on any paper. Use bare units to compose and physical units for what must stay the same size on paper: hatch spacing, dot sizes, a wobble. `t.len(v)` converts a physical size to drawable units for arithmetic.
+
+```ts live
+import { sketch, circle, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => [circle(30, 50, 20), circle(70, 50, mm(20)), circle(70, 50, t.len(mm(20)) / 2, { pen: 'stabilo-88-blue' })]);
+```
+
+## paper() · pen()
+
+<include>/_sig/paper.mdx</include>
+<include>/_sig/pen.mdx</include>
+
+`paper` declares the sheet for the config: a width and a height in physical units, and a colour. `pen` declares a pen from its nib width and colour, for the config's `pens`. A pen from the studio's library can be spread into it and changed.
+
+```ts live
+import { sketch, paper, pen, mm, inch, circle } from 'occlude';
+
+export default sketch({ paper: paper({ width: inch(5), height: inch(3) }), pens: { main: pen({ width: mm(0.5), color: '#2457D6' }) }, margin: 8 }, (t) => {
+  const b = t.bounds();
+  return t.times(9, (k, u) => circle(8 + u * (b.w - 16), b.h / 2, 6, { pen: 'main' }));
+});
+```
+
+## ui() · t.probe()
+
+<include>/_sig/ui.mdx</include>
+<include>/_sig/Toolkit.probe.mdx</include>
+
+`ui(value, { min, max, step, label })` marks a literal as tweakable. In the studio it gets a slider, and dragging the slider rewrites the literal in the code, so the tuned sketch saves as seen. Anywhere else it returns its value. `t.probe(label, value)` returns the value and records it; the studio shows the count, the range and a histogram, which is the quick way to learn what a field gives before you map it.
+
+```ts live
+import { sketch, circle, ui } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
+  const count = ui(24, { min: 3, max: 80, step: 1 });
+  const size = ui(4, { min: 1, max: 12 });
+  return t.times(count, () => circle(t.rnd(10, 90), t.rnd(10, 90), t.probe('r', size * t.rnd(0.4, 1))));
+});
+```
+
+## t.bounds() · t.grid()
+
+<include>/_sig/Toolkit.bounds.mdx</include>
+<include>/_sig/Toolkit.grid.mdx</include>
+
+`bounds()` is the drawable in the sketch's units: `w`, `h`, `cx`, `cy`. Read it when a drawing must fill whatever drawable it lands on. `grid({ cols, rows, gap? })` covers the drawable with cells, each `{ x, y, w, h, cx, cy, i, j }`.
+
+```ts live
+import { sketch, rect, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const b = t.bounds();
+  return [rect(2, 2, b.w - 4, b.h - 4), t.grid({ cols: 6, rows: 6, gap: 3 }).map((c) => circle(c.cx, c.cy, Math.min(c.w, c.h) / 2))];
+});
+```
+
+## t.times() · t.range()
+
+<include>/_sig/Toolkit.times.mdx</include>
+<include>/_sig/Toolkit.range.mdx</include>
+
+`times(n, fn)` calls `fn(k, u)` n times, with the index `k` and `u` running from 0 to 1 across the run, and returns the results. `range(n)` and `range(a, b, step?)` give integer sequences. Both refuse a runaway count.
+
+```ts live
+import { sketch, line } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => [t.times(16, (k, u) => line(10, 10 + u * 80, 90, 50)), t.range(0, 100, 10).map((x) => line(x, 92, x, 96, { pen: 'stabilo-88-blue' }))]);
+```

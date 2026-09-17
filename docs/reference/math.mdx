@@ -1,0 +1,69 @@
+---
+title: Math
+description: Remapping and easing numbers, tone curves, and vector arithmetic on pairs.
+---
+
+Small pure functions. They read no seed and no paper.
+
+## map() · norm() · ease
+
+<include>/_sig/map.mdx</include>
+<include>/_sig/norm.mdx</include>
+<include>/_sig/ease.cubicIn.mdx</include>
+
+`map` moves a value from one range to another. `norm` moves it to 0 to 1. `ease` holds the standard easing curves, `ease.cubicIn`, `ease.sinInOut`, `ease.bounceOut` and the rest, each a function from 0 to 1. When an eased value sets spacing, the slope of the curve is the local density.
+
+```ts live
+import { sketch, line, ease, map } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => t.times(30, (k, u) => { const x = map(ease.cubicIn(u), 0, 1, 8, 92); return line(x, 10, x, 90); }));
+```
+
+## shaper()
+
+<include>/_sig/shaper.mdx</include>
+
+A tone curve as a function: give knots, and the result maps an input through the curve that passes through them. `[[0, 0], [1, 1]]` is a straight line. Lift the middle knot and midtones rise. In the studio, the knot literal gets a curve editor.
+
+```ts live
+import { sketch, circle, shaper } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const tone = shaper([[0, 0.5], [0.5, 7], [1, 9]]);
+  return t.times(8, (k, u) => circle(12 + u * 76, 50, tone(u)));
+});
+```
+
+## Vectors
+
+A vector is a pair `[x, y]`. Every function below takes `[x, y]` or `{ x, y }`, so a vertex goes straight in, and returns a new pair. Nothing is changed in place. Angles are in radians, from +x toward +y.
+
+### add() · sub() · mul()
+
+<include>/_sig/add.mdx</include>
+<include>/_sig/sub.mdx</include>
+<include>/_sig/mul.mdx</include>
+<include>/_sig/unit.mdx</include>
+<include>/_sig/perp.mdx</include>
+<include>/_sig/length.mdx</include>
+<include>/_sig/distance.mdx</include>
+<include>/_sig/limit.mdx</include>
+<include>/_sig/dot.mdx</include>
+<include>/_sig/cross.mdx</include>
+<include>/_sig/fromAngle.mdx</include>
+<include>/_sig/angleOf.mdx</include>
+<include>/_sig/sum.mdx</include>
+<include>/_sig/sumBy.mdx</include>
+
+`add`, `sub` and `mul` are the arithmetic; `mul` scales by a number. `unit` is the direction with length 1, and `unit([0, 0])` is `[0, 0]`. `perp` turns a vector a quarter turn. `length` and `distance` measure. `limit` caps a length. `dot` and `cross` are the two products; the sign of `cross(a, b)` says which side of `a` the vector `b` lies on. `fromAngle` and `angleOf` convert between an angle and a unit vector. `sum` and `sumBy` add vectors up.
+
+```ts live
+import { sketch, line, circle, add, sub, unit, mul, perp } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const a = [12, 72], b = [88, 32];
+  const n = mul(unit(perp(sub(b, a))), 22);
+  const mid = mul(add(a, b), 0.5);
+  return [line(a[0], a[1], b[0], b[1]), line(mid[0], mid[1], mid[0] + n[0], mid[1] + n[1], { pen: 'stabilo-88-blue' }), circle(mid[0], mid[1], 1.2)];
+});
+```
