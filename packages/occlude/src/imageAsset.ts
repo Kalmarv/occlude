@@ -134,6 +134,35 @@ export interface ImageSampler {
   edge(x: number, y: number, area?: number): number;
   /** Gradient direction of luminance, radians (perpendicular = contour). */
   dir(x: number, y: number, area?: number): number;
+  /** The direction the picture's structure RUNS, as a vector field over the
+   * sheet: along hair, drapery, bark, the edge of a leaf — not across it.
+   *
+   * `img.dir` is the raw gradient angle at one point, which stumbles wherever
+   * the picture is noisy or flat. This is that gradient turned a quarter
+   * turn and then made to agree with its neighbours: each cell is replaced by
+   * the sum of the cells around it, every one flipped into the same
+   * half-plane first (a direction has no sign here), weighted by a kernel
+   * that falls off with distance, by how much stronger that neighbour's edge
+   * is, and by how much its direction already agrees. Repeat, and flat
+   * regions take their direction from the nearest strong edge instead of from
+   * noise, so a streamline keeps running ALONG a boundary rather than
+   * wandering across it.
+   *
+   * `radius` is how far that agreement reaches, in sketch units (default the
+   * image's width / 64), and `iterations` how many times it is applied (3).
+   * There is no separate resolution: the working grid is derived from
+   * `radius`, fine enough to resolve it and no finer, because the two are not
+   * independent — a finer grid needs a proportionally wider neighbourhood to
+   * reach the same distance, so asking for both makes the cost grow with the
+   * fourth power of one number. As it stands, halving `radius` quadruples the
+   * work; a radius so small that the grid would exceed four million cells is
+   * refused rather than attempted. Vectors are unit length, and `[0, 0]`
+   * outside the placed rect, so `t.streamlines` stops at the edge of the
+   * picture.
+   *
+   * It is a plain vector field, so `rotate`, `scale`, `within` and
+   * `t.streamlines` take it like any other. */
+  flow(opts?: { radius?: number; iterations?: number }): (x: number, y: number) => [number, number];
   /** A channel as a scalar field over the sheet, `(x, y) => number`, so an
    * image drives anything a field drives: `t.isolines(img.field('lum'), …)`,
    * `t.scatter(img.field('dark'), …)`, `t.streamlines(curl(img.field('lum')))`,
@@ -237,6 +266,203 @@ export function image(assets: AssetTable | undefined, name: string, place: Image
       const gx = sample(LUM, x + eps, y, area) - sample(LUM, x - eps, y, area);
       const gy = sample(LUM, x, y + eps, area) - sample(LUM, x, y - eps, area);
       return Math.atan2(gy, gx);
+    },
+    flow(opts = {}) {
+      const iterations = opts.iterations ?? 3;
+      if (!Number.isInteger(iterations) || iterations < 0) throw new Error(`image.flow: iterations must be a non-negative whole number, got ${String(opts.iterations)}`);
+      const reach = opts.radius ?? width / 64;
+      if (!(reach > 0)) throw new Error(`image.flow: radius must be a positive length in sketch units, got ${String(opts.radius)}`);
+      // The working grid comes from the radius: CELLS_PER_RADIUS cells across
+      // it, so the neighbourhood is the same handful of cells whatever the
+      // radius, and the cost grows with the grid alone rather than with the
+      // grid times the neighbourhood. Each cell is the average over its own
+      // footprint, so the grid is pre-smoothed by construction and there is
+      // no separate denoising pass to tune.
+      const CELLS_PER_RADIUS = 4;
+      const cell = reach / CELLS_PER_RADIUS;
+      const cols = Math.max(3, Math.round(width / cell));
+      const rows = Math.max(3, Math.round(height / cell));
+      if (cols * rows > 4e6) throw new Error(`image.flow: radius ${reach} over a ${width}×${height} picture needs a ${cols}×${rows} grid, more than four million cells — ask for a larger radius (the grid is ${CELLS_PER_RADIUS} cells across it, so halving the radius quadruples the work)`);
+      const cw = width / cols;
+      const ch = height / rows;
+      const lum = new Float64Array(cols * rows);
+      for (let j = 0; j < rows; j++) {
+        for (let i = 0; i < cols; i++) lum[j * cols + i] = sample(LUM, ox + (i + 0.5) * cw, oy + (j + 0.5) * ch, Math.max(cw, ch) / 2);
+      }
+      const at = (i: number, j: number): number => lum[Math.min(rows - 1, Math.max(0, j)) * cols + Math.min(cols - 1, Math.max(0, i))];
+      // Sobel, then the quarter turn: the gradient points across an edge, its
+      // perpendicular runs along it.
+      let vx = new Float64Array(cols * rows);
+      let vy = new Float64Array(cols * rows);
+      const mag = new Float64Array(cols * rows);
+      let peak = 0;
+      for (let j = 0; j < rows; j++) {
+        for (let i = 0; i < cols; i++) {
+          const aa = at(i - 1, j - 1);
+          const ba = at(i, j - 1);
+          const ca = at(i + 1, j - 1);
+          const ab = at(i - 1, j);
+          const cb = at(i + 1, j);
+          const ac = at(i - 1, j + 1);
+          const bc = at(i, j + 1);
+          const cc = at(i + 1, j + 1);
+          const gx = ca + 2 * cb + cc - aa - 2 * ab - ac;
+          const gy = ac + 2 * bc + cc - aa - 2 * ba - ca;
+          const k = j * cols + i;
+          const m = Math.hypot(gx, gy);
+          // Over a flat patch the eight terms cancel, but they cancel in
+          // floating point, leaving a residue of the order of the values'
+          // own rounding. Dividing by that residue would turn pure noise into
+          // a confident unit direction — and because the residue is the same
+          // shape everywhere on the patch, into a confident WRONG one, a
+          // clean diagonal across the whole region. A response smaller than
+          // the rounding error of its own inputs is not a gradient.
+          const noise = 8 * Number.EPSILON * Math.max(Math.abs(aa), Math.abs(ba), Math.abs(ca), Math.abs(ab), Math.abs(cb), Math.abs(ac), Math.abs(bc), Math.abs(cc));
+          const real = m > noise;
+          mag[k] = real ? m : 0;
+          if (real && m > peak) peak = m;
+          // A cell with no gradient has no opinion yet, and says so with a
+          // zero rather than an arbitrary direction — an arbitrary one would
+          // be voted for by its neighbours and come out as a grid.
+          vx[k] = real ? -gy / m : 0;
+          vy[k] = real ? gx / m : 0;
+        }
+      }
+      if (peak > 0) for (let k = 0; k < mag.length; k++) mag[k] /= peak;
+      const ri = Math.max(1, Math.round(reach / cw));
+      const rj = Math.max(1, Math.round(reach / ch));
+      // Jacobi: every neighbour in a pass is read from the previous state, so
+      // the result does not depend on the order the cells are visited.
+      for (let pass = 0; pass < iterations; pass++) {
+        const nx = new Float64Array(cols * rows);
+        const ny = new Float64Array(cols * rows);
+        for (let j = 0; j < rows; j++) {
+          for (let i = 0; i < cols; i++) {
+            const k = j * cols + i;
+            // Everything in the neighbourhood is flipped into ONE half-plane
+            // before it is summed, because a direction here has no head or
+            // tail. The reference is this cell's own direction, or — if it
+            // has none yet — the strongest edge in reach, which is how a flat
+            // region takes its direction from the boundary beside it.
+            let rx = vx[k];
+            let ry = vy[k];
+            if (rx === 0 && ry === 0) {
+              let strongest = -1;
+              for (let dj = -rj; dj <= rj; dj++) {
+                const jj = j + dj;
+                if (jj < 0 || jj >= rows) continue;
+                for (let di = -ri; di <= ri; di++) {
+                  const ii = i + di;
+                  if (ii < 0 || ii >= cols) continue;
+                  const n = jj * cols + ii;
+                  if ((vx[n] !== 0 || vy[n] !== 0) && mag[n] > strongest) {
+                    strongest = mag[n];
+                    rx = vx[n];
+                    ry = vy[n];
+                  }
+                }
+              }
+            }
+            let ax = 0;
+            let ay = 0;
+            if (rx !== 0 || ry !== 0) {
+              for (let dj = -rj; dj <= rj; dj++) {
+                const jj = j + dj;
+                if (jj < 0 || jj >= rows) continue;
+                for (let di = -ri; di <= ri; di++) {
+                  const ii = i + di;
+                  if (ii < 0 || ii >= cols) continue;
+                  const d = Math.hypot((di * cw) / reach, (dj * ch) / reach);
+                  if (d > 1) continue;
+                  const n = jj * cols + ii;
+                  if (vx[n] === 0 && vy[n] === 0) continue;
+                  const dot = rx * vx[n] + ry * vy[n];
+                  // A decaying kernel; the neighbour's own edge strength, so a
+                  // real boundary outvotes a flat patch; a smooth
+                  // magnitude-contrast term; and agreement.
+                  const w = (1 - d) * mag[n] * ((1 + Math.tanh(mag[n] - mag[k])) / 2) * Math.abs(dot);
+                  const phi = dot < 0 ? -1 : 1;
+                  ax += phi * w * vx[n];
+                  ay += phi * w * vy[n];
+                }
+              }
+            }
+            const len = Math.hypot(ax, ay);
+            if (len > 0) {
+              nx[k] = ax / len;
+              ny[k] = ay / len;
+            } else {
+              nx[k] = vx[k];
+              ny[k] = vy[k];
+            }
+          }
+        }
+        vx = nx;
+        vy = ny;
+      }
+      // A direction with no head or tail is a LINE field, and an integrator
+      // walking one needs a sign or it turns round and weaves back through
+      // itself. So orient the raster once: breadth-first from the strongest
+      // cell of each connected patch, flipping every cell to agree with the
+      // neighbour that reached it. That is consistent everywhere except at
+      // true singularities, which no orientation can fix and which are
+      // exactly where a flow genuinely forks.
+      {
+        const seen = new Uint8Array(cols * rows);
+        const order = Array.from({ length: cols * rows }, (_, k) => k)
+          .filter((k) => vx[k] !== 0 || vy[k] !== 0)
+          .sort((a, b) => mag[b] - mag[a]);
+        const queue = new Int32Array(cols * rows);
+        for (const start of order) {
+          if (seen[start]) continue;
+          seen[start] = 1;
+          queue[0] = start;
+          for (let head = 0, tail = 1; head < tail; head++) {
+            const k = queue[head];
+            const i = k % cols;
+            const j = (k - i) / cols;
+            for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+              const ii = i + di;
+              const jj = j + dj;
+              if (ii < 0 || ii >= cols || jj < 0 || jj >= rows) continue;
+              const n = jj * cols + ii;
+              if (seen[n] || (vx[n] === 0 && vy[n] === 0)) continue;
+              seen[n] = 1;
+              if (vx[k] * vx[n] + vy[k] * vy[n] < 0) {
+                vx[n] = -vx[n];
+                vy[n] = -vy[n];
+              }
+              queue[tail++] = n;
+            }
+          }
+        }
+      }
+      return (x: number, y: number): [number, number] => {
+        const ux = x - ox;
+        const uy = y - oy;
+        if (ux < 0 || uy < 0 || ux > width || uy > height) return [0, 0];
+        const fx = Math.min(cols - 1, Math.max(0, ux / cw - 0.5));
+        const fy = Math.min(rows - 1, Math.max(0, uy / ch - 0.5));
+        const i0 = Math.floor(fx);
+        const j0 = Math.floor(fy);
+        const i1 = Math.min(cols - 1, i0 + 1);
+        const j1 = Math.min(rows - 1, j0 + 1);
+        const tx = fx - i0;
+        const ty = fy - j0;
+        // Interpolate in the same half-plane as the first sample, or two
+        // opposite directions would average to nothing at a ridge.
+        const base = j0 * cols + i0;
+        let ax = 0;
+        let ay = 0;
+        for (const [ii, jj, w] of [[i0, j0, (1 - tx) * (1 - ty)], [i1, j0, tx * (1 - ty)], [i0, j1, (1 - tx) * ty], [i1, j1, tx * ty]] as [number, number, number][]) {
+          const n = jj * cols + ii;
+          const s = vx[base] * vx[n] + vy[base] * vy[n] < 0 ? -1 : 1;
+          ax += w * s * vx[n];
+          ay += w * s * vy[n];
+        }
+        const len = Math.hypot(ax, ay);
+        return len > 0 ? [ax / len, ay / len] : [vx[base], vy[base]];
+      };
     },
     surface(opts = {}) {
       const channel = opts.channel ?? 'lum', origin = opts.origin ?? 'bottom-left', wrap = opts.wrap ?? 'clamp', area = opts.area ?? 0, uv = opts.uv ?? 'uv';

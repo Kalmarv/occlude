@@ -94,6 +94,166 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## The direction the picture runs
+
+`img.dir(x, y)` is the gradient angle at one point: it says which way the
+picture changes *across* an edge, and it is honest about every speck of noise,
+so marks laid out along it stumble wherever the picture is busy or flat.
+
+`img.flow({ radius?, iterations? })` is a vector field of the direction the
+picture's structure **runs** — along hair, drapery, bark, the edge of a leaf,
+not across it. It is the gradient turned a quarter turn and then made to agree
+with itself: each cell is replaced by the sum of the cells around it, every
+one flipped into the same half-plane first (a direction here has no head or
+tail), weighted by a kernel that falls off with distance, by how strong that
+neighbour's edge is, and by how much its direction already agrees. Repeat, and
+a flat region takes its direction from the nearest real boundary instead of
+from noise.
+
+| Option | Meaning |
+|---|---|
+| `radius` | how far that agreement reaches, in sketch units. Default the image's width / 64 |
+| `iterations` | how many times it is applied. Default 3; 0 is the bare turned gradient |
+
+There is no resolution option, because it would not be independent of
+`radius`: a finer grid needs a proportionally wider neighbourhood to reach the
+same distance, so the two together would make the cost grow with the fourth
+power of one number. The working grid is derived from `radius` instead — four
+cells across it — so halving the radius quadruples the work, and a radius so
+small that the grid would pass four million cells is refused by name rather
+than attempted.
+
+Vectors are unit length inside the picture and `[0, 0]` outside it, so
+`t.streamlines` stops at the edge of the placed rect. A patch with no
+structure within reach also reports `[0, 0]`: no structure, no direction, and
+a stroke ends rather than being invented. It is an ordinary vector field, so
+`t.within`, `t.streamlines` and arithmetic on its result all apply.
+
+```ts live
+import { sketch, strokes, group } from 'occlude';
+
+// The same picture read two ways. Left: `img.dir` turned a quarter turn, the
+// raw gradient, which traces every contour and stumbles wherever the picture
+// is noisy. Right: `img.flow`, the same direction after the neighbourhood has
+// been made to agree with itself — long strokes that keep running along a
+// boundary instead of wandering across it.
+export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
+  const img = t.image('ivy.png', { x: 2, y: 2, width: 96 });
+  const raw = (x, y) => { const a = img.dir(x, y, 0.6) + Math.PI / 2; return [Math.cos(a), Math.sin(a)]; };
+  return [
+    strokes(t.streamlines(raw, { spacing: 1.4 })),
+    group({ translate: [100, 0] }, strokes(t.streamlines(img.flow(), { spacing: 1.4 }))),
+  ];
+});
+```
+
+A drawing made only of direction and tone. Every stroke runs along the
+structure it sits on, so the fur, the ears and the edge of the face are
+described by the way the ink lies rather than by any outline, and the spacing
+carries the tone.
+
+```ts live
+import { sketch, strokes, circle } from 'occlude';
+
+// The picture drawn as its own grain: every stroke runs along the structure
+// it sits on, so the fur, the ears and the edge of the face are described by
+// the direction of the ink and not by any outline. Spacing carries the tone,
+// so the strokes crowd where the picture is dark and open out where it is not.
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const img = t.image('ivy.png', { x: 2, y: 2, width: 96 });
+  const dark = img.field('dark', { area: 0.7 });
+  const flow = t.within(img.flow({ radius: 1.5 }), circle(50, 50, 47));
+  return strokes(t.streamlines(flow, { spacing: (x, y) => 0.42 + Math.pow(1 - dark(x, y), 2) * 3.2 }));
+});
+```
+
+Composed with the rest of the toolkit: the flow says which way each stroke
+runs, the tone says how close together they run, and the same tone tells every
+stroke how hard to bristle. Three readings of one photograph, which therefore
+cannot disagree.
+
+```ts live
+import { sketch, strokes, circle, oscillate } from 'occlude';
+
+// Composed: the flow says which way each stroke runs, the tone says how close
+// together they run, and the same tone then tells every stroke how hard to
+// bristle. The fur stands up where the picture is dark and lies flat where it
+// is light, and none of the three readings can disagree — they are the same
+// photograph asked three questions.
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const img = t.image('ivy.png', { x: 2, y: 2, width: 96 });
+  const dark = img.field('dark', { area: 0.7 });
+  const flow = t.within(img.flow({ radius: 1.6 }), circle(50, 50, 46));
+  const lines = t.streamlines(flow, { spacing: (x, y) => 0.7 + Math.pow(1 - dark(x, y), 2) * 3.4 });
+  return strokes(oscillate(lines, {
+    wavelength: (x, y) => 1.2 + (1 - dark(x, y)) * 4,
+    amplitude: (x, y) => Math.max(0, dark(x, y) - 0.25) * 0.5,
+  }));
+});
+```
+
+Poked: the flow is a function returning a pair, so you can do arithmetic on
+what it says. Turn each vector a quarter turn where it is read and the strokes
+run straight across every edge instead — combing the fur the wrong way. Two
+lines undo the whole point of the construction, which is the proof that it is
+data and not a mode.
+
+```ts live
+import { sketch, strokes, circle, group } from 'occlude';
+
+// Poked: the flow is a function returning a pair, so you can do arithmetic on
+// what it says. Left, the strokes run ALONG the picture's structure, which is
+// the whole point of building it. Right, each vector is turned a quarter turn
+// where it is read, and they run straight across every edge instead — combing
+// the fur the wrong way. Two lines undo the feature, which is the proof that
+// it is data and not a mode.
+export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
+  const img = t.image('ivy.png', { x: 1, y: 2, width: 96 });
+  const dark = img.field('dark', { area: 0.8 });
+  const spacing = (x, y) => 0.5 + Math.pow(1 - dark(x, y), 2) * 3;
+  const flow = img.flow({ radius: 1.6 });
+  const across = (x, y) => { const [dx, dy] = flow(x, y); return [-dy, dx]; };
+  const lens = circle(49, 50, 46);
+  return [
+    strokes(t.streamlines(t.within(flow, lens), { spacing })),
+    group({ translate: [100, 0] }, strokes(t.streamlines(t.within(across, lens), { spacing }))),
+  ];
+});
+```
+
+And in three dimensions. Nothing here is a picture: every blade is the same
+box on a plain lattice, and only which way it faces and how tall it stands are
+read from the photograph. The likeness is a thousand blades agreeing, which is
+only possible because the flow is coherent from one blade to the next — the
+raw gradient would give a thousand arguments.
+
+```ts live
+import { sketch, pen, mm, degrees } from 'occlude';
+import { grid, box, instanceOnPoints, view, perspective } from 'occlude/3d';
+
+// A field of blades, combed by a photograph. Nothing here is a picture: every
+// blade is the same box, standing on a plain lattice. Only which way it faces
+// and how tall it stands are read from the image, and the likeness is made by
+// a thousand of them agreeing — which is only possible because the flow is
+// coherent from one blade to the next.
+export default sketch({ seed: 4, pens: { ink: pen({ width: mm(0.22), color: '#18202A' }) } }, (t) => {
+  const img = t.image('ivy.png', { x: 0, y: 0, width: 100 });
+  const dark = img.field('dark', { area: 1.6 });
+  const flow = img.flow({ radius: 2.4 });
+  const SPAN = 9;
+  const toImage = (p) => [((p.x + SPAN / 2) / SPAN) * 100, ((p.y + SPAN / 2) / SPAN) * 100];
+  const lawn = grid({ cols: 30, rows: 30, spacing: SPAN / 30 });
+  const blades = instanceOnPoints(box([0.05, 0.23, 0.34]), lawn.points, {
+    rotate: (p) => { const [dx, dy] = flow(...toImage(p)); return [0, 0, degrees(Math.atan2(dy, dx))]; },
+    scale: (p) => [1, 1, 0.2 + dark(...toImage(p)) * 1.9],
+  });
+  return view(blades, {
+    camera: perspective({ eye: [0.5, -9.5, 11], target: [0, 0.2, 0.2], fovDegrees: 40 }),
+    stroke: 'ink',
+  });
+});
+```
+
 ## Direction as marks
 
 Strokes drawn perpendicular to the gradient follow the image's contours, so tone becomes flow.
