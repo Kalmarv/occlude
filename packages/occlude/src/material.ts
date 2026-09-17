@@ -1416,6 +1416,15 @@ export const connect = {
    * symmetric; an asymmetric one still runs, it just is not what is being
    * minimised.
    *
+   * Because those candidates are chosen by distance, two edges can cross while
+   * their endpoints are nowhere near each other's lists — which a cost
+   * unrelated to distance encourages, by making long reaches worth taking. So
+   * crossings are looked for directly afterwards and undone wherever the
+   * exchange pays for itself. Under the default cost that leaves no
+   * self-crossing at all, the familiar property of a 2-opt tour; under a cost
+   * that rewards travelling over something, a crossing that is genuinely the
+   * cheaper route is kept, because it is.
+   *
    * Deterministic: the same rows and the same cost give the same route.
    */
   tour(m: PointsLike, opts: { cost?: (a: Vertex, b: Vertex) => number; closed?: boolean; candidates?: number; edgeAttributes?: Record<string, number> } = {}): Material {
@@ -1522,6 +1531,84 @@ export const connect = {
             break;
           }
         }
+      }
+    }
+    // Candidate neighbours are chosen by distance, so two edges can cross while
+    // their endpoints are nowhere near each other's candidate lists — which a
+    // cost unrelated to distance positively encourages, because it makes long
+    // reaches worth taking. Those crossings are never examined above. So look
+    // for them directly: a crossing whose exchange pays for itself is undone,
+    // and one that does not is left alone, because under a cost that rewards
+    // travelling over something a crossing can genuinely be the cheaper route.
+    // Segments are bucketed by their boxes, so this is near linear rather than
+    // every pair against every other.
+    const segAt = (i: number): [number, number, number, number] => {
+      const a = order[i];
+      const b = order[(i + 1) % n];
+      return [mm.x[a], mm.y[a], mm.x[b], mm.y[b]];
+    };
+    const properCross = (i: number, j: number): boolean => {
+      const [ax, ay, bx, by] = segAt(i);
+      const [cx, cy, dx, dy] = segAt(j);
+      const s1 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      const s2 = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax);
+      const s3 = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx);
+      const s4 = (dx - cx) * (by - cy) - (dy - cy) * (bx - cx);
+      return s1 > 0 !== s2 > 0 && s3 > 0 !== s4 > 0;
+    };
+    for (let searching = true; searching;) {
+      searching = false;
+      const cellSize = Math.max(grid.cell, 1e-9);
+      const buckets = new Map<string, number[]>();
+      // A segment whose box covers more cells than it is worth enumerating is
+      // held aside and compared against everything instead. Bucketing it by
+      // its two ends would be cheaper and WRONG: anything crossing its middle
+      // would never be compared with it, which is precisely the crossing a
+      // long reach leaves behind.
+      const sprawling: number[] = [];
+      for (let i = 0; i <= last; i++) {
+        const [ax, ay, bx, by] = segAt(i);
+        const c0 = Math.floor(Math.min(ax, bx) / cellSize);
+        const c1 = Math.floor(Math.max(ax, bx) / cellSize);
+        const r0 = Math.floor(Math.min(ay, by) / cellSize);
+        const r1 = Math.floor(Math.max(ay, by) / cellSize);
+        if ((c1 - c0 + 1) * (r1 - r0 + 1) > 64) {
+          sprawling.push(i);
+          continue;
+        }
+        for (let c = c0; c <= c1; c++) {
+          for (let r = r0; r <= r1; r++) {
+            const k = `${c},${r}`;
+            const at = buckets.get(k);
+            if (at) at.push(i);
+            else buckets.set(k, [i]);
+          }
+        }
+      }
+      for (const i of sprawling) buckets.set(`sprawl:${i}`, [i, ...Array.from({ length: last + 1 }, (_, j) => j).filter((j) => j !== i)]);
+      for (const list of buckets.values()) {
+        for (let p = 0; p < list.length && !searching; p++) {
+          for (let q = p + 1; q < list.length && !searching; q++) {
+            const i = Math.min(list[p], list[q]);
+            const j = Math.max(list[p], list[q]);
+            if (j <= i + 1 || j > last) continue;
+            const a = order[i];
+            const b = order[i + 1];
+            const c = order[j];
+            const d = order[(j + 1) % n];
+            if (d === a) continue;
+            if (!properCross(i, j)) continue;
+            if (cost(a, b) + cost(c, d) - cost(a, c) - cost(b, d) <= 0) continue;
+            for (let u = i + 1, v = j; u < v; u++, v--) {
+              const t2 = order[u];
+              order[u] = order[v];
+              order[v] = t2;
+            }
+            for (let u = i + 1; u <= j; u++) pos[order[u]] = u;
+            searching = true;
+          }
+        }
+        if (searching) break;
       }
     }
     const pairs: [number, number][] = [];

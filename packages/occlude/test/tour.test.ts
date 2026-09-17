@@ -110,6 +110,59 @@ describe('connect.tour', () => {
     expect(step(sorted)).toBeLessThan(step(connect.chain(material(rows))) / 4);
   });
 
+  it('leaves no crossing a 2-opt exchange would remove', () => {
+    // Under plain distance the triangle inequality makes every self-crossing
+    // removable, so a finished tour has none. The candidate neighbours are
+    // chosen by distance and cannot be relied on to contain the far endpoint
+    // of a crossing pair, so crossings are looked for directly; this is the
+    // test that says so.
+    const order = (m: Material) => {
+      const nbr: number[][] = Array.from({ length: m.n }, () => []);
+      for (let e = 0; e < m.edgeCount; e++) { nbr[m.edgeList[2 * e]].push(m.edgeList[2 * e + 1]); nbr[m.edgeList[2 * e + 1]].push(m.edgeList[2 * e]); }
+      let start = 0;
+      for (let i = 0; i < m.n; i++) if (nbr[i].length === 1) { start = i; break; }
+      const out = [start];
+      const seen = new Uint8Array(m.n);
+      seen[start] = 1;
+      for (;;) { const nx = nbr[out[out.length - 1]].find((w) => !seen[w]); if (nx === undefined) break; seen[nx] = 1; out.push(nx); }
+      return out;
+    };
+    const crossings = (m: Material, weight?: (ax: number, ay: number, bx: number, by: number) => number) => {
+      const o = order(m);
+      const X = (k: number) => m.x[o[k]];
+      const Y = (k: number) => m.y[o[k]];
+      const side = (ax: number, ay: number, bx: number, by: number, px: number, py: number) => (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+      let all = 0;
+      let improving = 0;
+      for (let i = 0; i + 2 < o.length - 1; i++) {
+        for (let j = i + 2; j + 1 < o.length; j++) {
+          const s1 = side(X(i), Y(i), X(i + 1), Y(i + 1), X(j), Y(j));
+          const s2 = side(X(i), Y(i), X(i + 1), Y(i + 1), X(j + 1), Y(j + 1));
+          const s3 = side(X(j), Y(j), X(j + 1), Y(j + 1), X(i), Y(i));
+          const s4 = side(X(j), Y(j), X(j + 1), Y(j + 1), X(i + 1), Y(i + 1));
+          if (!(s1 > 0 !== s2 > 0 && s3 > 0 !== s4 > 0)) continue;
+          all++;
+          const w = weight ?? ((ax, ay, bx, by) => Math.hypot(ax - bx, ay - by));
+          const gain = w(X(i), Y(i), X(i + 1), Y(i + 1)) + w(X(j), Y(j), X(j + 1), Y(j + 1))
+            - w(X(i), Y(i), X(j), Y(j)) - w(X(i + 1), Y(i + 1), X(j + 1), Y(j + 1));
+          if (gain > 1e-9) improving++;
+        }
+      }
+      return { all, improving };
+    };
+    for (const n of [120, 400, 900]) {
+      for (const seed of [1, 2]) {
+        expect(crossings(connect.tour(cloud(n, seed))).all).toBe(0);
+      }
+    }
+    // Under a cost that rewards travelling over the left half, a crossing can
+    // genuinely be the cheaper route and is kept — but never one that an
+    // exchange would improve.
+    const w = (ax: number, ay: number, bx: number, by: number) => Math.hypot(ax - bx, ay - by) * (1 + ((ax + bx) / 2 > 100 ? 5 : 0));
+    const biased = connect.tour(cloud(500, 8), { cost: (a, b) => w(a.x, a.y, b.x, b.y) });
+    expect(crossings(biased, w).improving).toBe(0);
+  });
+
   it('is deterministic, and refuses what it cannot use', () => {
     const pts = cloud(60, 3);
     expect(Array.from(connect.tour(pts).edgeList)).toEqual(Array.from(connect.tour(pts).edgeList));
