@@ -35,6 +35,7 @@ import { distanceTo } from './distance.js';
 import { numericLoops, type Boundary } from './boundary.js';
 import { Delaunay } from 'd3-delaunay';
 import { orient2d } from 'robust-predicates';
+import { trails as makeTrails } from './trails.js';
 import { distance, perp, isArr, vx, vy, type XY } from './vec.js';
 import { ownerOf, ownedBy, ownerOfView, pairKey, viewKind, viewProto } from './views.js';
 import { checkAttrs, stepOnce, isStepShorthand, stepRuleOf, type StepKit, type StepRule, type StepShorthand, type StepsOptions } from './steps.js';
@@ -1683,6 +1684,27 @@ export const connect = {
       if (pairs.length === n - 1) break;
     }
     return mm.withEdges(pairs, opts.edgeAttributes);
+  },
+
+  /**
+   * The same drawing, re-wired so the pen lifts as few times as it can.
+   *
+   * `strokes` breaks a chain at every junction, so a grid comes off the
+   * plotter as one stroke per edge pair even though a pen could run straight
+   * through. A *trail* uses no edge twice, and the fewest trails covering a
+   * connected network is `max(1, odd / 2)` — every trail has two ends, and
+   * only an odd-degree vertex can be one. This reaches that minimum.
+   *
+   * It is a re-wiring, not a drawing mode: a junction is split into one
+   * degree-2 vertex per passing pair, which leaves the ink exactly where it
+   * was and lets the ordinary chain walk sail through. No edge is drawn twice.
+   *
+   * The split vertices sit on top of one another, which is what they are — one
+   * place the pen passes through twice — so the result is a DRAWING and
+   * `faces()` will rightly refuse it. Keep the original to ask questions of.
+   */
+  trails(m: PointsLike, opts: { edgeAttributes?: Record<string, number> } = {}): Material {
+    return makeTrails(material(m), opts);
   },
 
   /** Row i of `a` joined to row i of `b`, in one material (a's rows first).

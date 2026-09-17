@@ -735,6 +735,194 @@ export default sketch({ seed: 6, pens: { ink: pen({ width: mm(0.26), color: '#18
 });
 ```
 
+### trails
+
+`strokes` breaks a chain at every junction, because a vertex where three or
+four edges meet has no single way onward. That is correct and it is expensive:
+a plain grid comes off the plotter as one stroke per edge pair, and a Voronoi
+web as one per wall, even though a pen could run straight through most of
+them.
+
+`connect.trails(m)` re-wires the same drawing so it lifts as few times as it
+can. A *trail* is a walk that uses no edge twice, and the fewest trails
+covering a connected network is `max(1, odd / 2)`, where `odd` counts its
+odd-degree vertices — every trail has two ends, and only an odd vertex can be
+one. This reaches that floor exactly.
+
+| network | chains | trails |
+|---|---|---|
+| 9 × 6 grid | 89 | 11 |
+| Voronoi of 100 sites | 153 | 51 |
+| Delaunay of 40 points | 102 | 8 |
+
+It is a re-wiring, not a drawing mode: a junction is split into one degree-2
+vertex per passing pair, which leaves the ink exactly where it was and lets the
+ordinary chain walk sail through. **No edge is ever drawn twice** — this
+reaches the minimum without retracing, which the routing default forbids.
+Pairing odd vertices along shortest paths and duplicating those edges would buy
+a single closed circuit at the cost of ink, and belongs behind an explicit
+request rather than here.
+
+A network with no odd vertex at all — every crossing of two closed curves is a
+degree-4 vertex, so an arrangement of closed curves qualifies — comes back as
+**one closed loop**.
+
+The split vertices sit on top of one another, which is exactly what they are:
+one place the pen passes through twice. That makes the result a *drawing*
+rather than a structure, and `faces()` will rightly refuse it. Keep the
+original to ask questions of, and trail the copy to plot it.
+
+Each faint line below is the pen travelling with its nib up.
+
+```ts live
+import { sketch, strokes, line, label, circle, connect, append } from 'occlude';
+
+// The same ink, routed two ways. Each faint line is the pen travelling with
+// its nib UP, from where one stroke ended to where the next begins. Left: the
+// ordinary chain walk, which must break at every junction. Right: the same
+// network re-wired into trails, which pass straight through one.
+export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
+  const web = (cx) => {
+    const rings = t.times(5, (k) => {
+      const a = (k / 5) * Math.PI * 2;
+      return t.sample(circle(cx + Math.cos(a) * 14, 50 + Math.sin(a) * 14, 22), { count: 90 });
+    });
+    return rings.reduce((p, q) => append(p, q)).planarize();
+  };
+  const travel = (m) => {
+    const cs = m.curves();
+    return t.times(Math.max(0, cs.length - 1), (k) => {
+      const a = cs[k].pts[cs[k].pts.length - 1];
+      const b = cs[k + 1].pts[0];
+      return line(a[0], a[1], b[0], b[1], { pen: 'stabilo-88-blue' });
+    });
+  };
+  const plain = web(50);
+  const trailed = connect.trails(web(150));
+  return [
+    strokes(plain), travel(plain), label(`CHAINS ${plain.curves().length}`, 12, 94, 4),
+    strokes(trailed), travel(trailed), label(`TRAILS ${trailed.curves().length}`, 112, 94, 4),
+  ];
+});
+```
+
+Sixteen closed curves, overlapping. Every crossing is degree four, so the whole
+arrangement has no odd vertex anywhere — and the entire plate is one pen-down.
+
+```ts live
+import { sketch, strokes, curve, connect, append } from 'occlude';
+
+// Soap. Sixteen closed curves, overlapping, planarized into one network — and
+// because every crossing of two closed curves is a vertex of degree four, the
+// whole arrangement has no odd vertex anywhere in it. A network with no odd
+// vertex is a single closed trail, so this entire plate is ONE pen-down: the
+// nib goes down at the top left and does not come up until the drawing is
+// finished. The chain walk would have lifted it about two hundred times.
+export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
+  const bubbles = t.times(16, (k) => {
+    const a = k * 2.39996;                      // the golden angle, so they never line up
+    const r = 8 + Math.sqrt(k / 16) * 30;
+    const cx = 100 + Math.cos(a) * r * 1.5;
+    const cy = 50 + Math.sin(a) * r * 0.9;
+    const rad = 13 + t.noise(k * 3.1, 0) * 9;
+    return curve(t.times(120, (j) => {
+      const th = (j / 120) * Math.PI * 2;
+      const wob = 1 + t.noise(Math.cos(th) * 1.6 + k * 7, Math.sin(th) * 1.6) * 0.16;
+      return [cx + Math.cos(th) * rad * wob, cy + Math.sin(th) * rad * wob];
+    }), { closed: true });
+  });
+  const net = bubbles.reduce((p, q) => append(p, q)).planarize();
+  const one = connect.trails(net);
+  console.error(`chains=${net.curves().length} trails=${one.curves().length} closed=${one.curves().filter((c) => c.closed).length}`);
+  return strokes(one);
+});
+```
+
+Composed with the rest of the toolkit: the fill layer and the stroke layer are
+routed separately, and only the strokes care.
+
+```ts live
+import { sketch, strokes, polygon, fill, mm, degrees, connect } from 'occlude';
+
+// Composed: the fill layer and the stroke layer are routed separately, and
+// only the strokes care. The cells are settled against a photograph and
+// hatched at their own axis; their walls are one network, which the chain walk
+// would lift the pen a hundred and sixty times to draw and which comes out
+// here in a few dozen unbroken runs. Identical ink, a fraction of the lifting.
+export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
+  const img = t.image('ivy.png', { x: 4, y: 4, width: 92 });
+  const dark = img.field('dark', { area: 1.1 });
+  const density = (x, y) => 0.12 + dark(x, y) * 0.88;
+  const sites = t.settle(t.scatter(density, { spacing: 5.4 }), { density, spacing: 5.4, iterations: 10 });
+  const cells = t.voronoi(sites);
+  const measured = cells.faces().measure();
+  const walls = connect.trails(cells);
+  console.error(`walls: chains=${cells.curves().length} trails=${walls.curves().length}`);
+  return [
+    measured.map((r) => polygon(r.face, {
+      fill: fill('hatch', { angle: degrees(r.orientation), spacing: mm(0.58 + Math.pow(1 - dark(...r.inscribedCentre), 0.8) * 3) }),
+      stroke: false,
+    })),
+    strokes(walls, { pen: 'pigma-005-black' }),
+  ];
+});
+```
+
+Poked: swing the trails and the routing becomes visible in the ink. Because a
+junction is now two rows, its two passes wobble independently and come apart,
+so the network unravels into the runs the pen actually draws.
+
+```ts live
+import { sketch, strokes, circle, connect, oscillate, append } from 'occlude';
+
+// Poked: swing the trails, and the routing becomes visible in the ink. At a
+// crossing the pen passes through twice, and after the re-wiring those two
+// passes are two separate rows — so each wobbles on its own and they come
+// apart. The drawing is now a picture of its own stroke order: everywhere the
+// line doubles, that is one place the nib went through and came back.
+export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
+  const rings = t.times(4, (k) => {
+    const a = (k / 4) * Math.PI * 2;
+    return t.sample(circle(100 + Math.cos(a) * 17, 50 + Math.sin(a) * 17, 26), { count: 140 });
+  });
+  const net = rings.reduce((p, q) => append(p, q)).planarize();
+  return strokes(oscillate(connect.trails(net), { wavelength: 30, amplitude: 4.5 }));
+});
+```
+
+And in three dimensions, where a pen-down run becomes a length of glass. One
+trail, so one tube: bent once, never cut, and the classifier decides which
+length is in front where it passes through itself.
+
+```ts live
+import { sketch, pen, mm, circle as disc, connect, append } from 'occlude';
+import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
+
+// A trail is a pen-down run, and a pen-down run is a path — so each one can be
+// bent into glass. Six overlapping rings planarize into a network with no odd
+// vertex anywhere, which is a single closed trail, so this whole sign is ONE
+// tube: bent once, never cut. Where it passes through itself the classifier
+// decides which length of glass is in front.
+export default sketch({ seed: 2, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
+  const rings = t.times(6, (k) => {
+    const a = (k / 6) * Math.PI * 2;
+    return t.sample(disc(50 + Math.cos(a) * 15, 50 + Math.sin(a) * 15, 24), { count: 150 });
+  });
+  const net = rings.reduce((p, q) => append(p, q)).planarize();
+  const runs = connect.trails(net).curves();
+  // The tube leans in and out of the sheet as it goes, so the crossings have
+  // something to decide.
+  const lift = (x, y) => t.noise(x / 26, y / 26) * 0.9;
+  return view(runs.filter((c) => c.pts.length > 2).map((c) =>
+    sweep(circle(0.11, { segments: 14 }),
+      polyline(c.pts.map(([x, y]) => [(x - 50) / 11, (y - 50) / 11, lift(x, y)]), { closed: c.closed }))), {
+    camera: orthographic({ eye: [3.2, -7.2, 5.4], target: [0, 0, 0], span: 8.8 }),
+    stroke: 'ink',
+    creaseAngle: 180,
+  });
+});
+```
+
 ### Vectors
 
 Vectors are tuples `[x, y]`. Every operation accepts `[x, y]` or `{ x, y }` (so a vertex view goes straight in), returns a fresh tuple and mutates nothing. `unit([0, 0])` is `[0, 0]`, so coincident points contribute no direction and no NaN. `mul` is scalar multiplication; `limit(v, max)` caps a length; `sumBy(items, fn)` totals a vector function over a collection. `dot(a, b)` and `cross(a, b)` are the two products, the cross a signed number: positive when `b` lies on the side `perp(a)` points to, negative on the other, zero when parallel or when either is the zero vector, so `Math.sign(cross(heading, toward))` is the side test a steering rule needs. `fromAngle(radians)` is the unit vector `[cos, sin]` and `angleOf(v)` its inverse through `atan2`, both in radians from +x toward +y; `angleOf([0, 0])` is 0.
