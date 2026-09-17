@@ -1,0 +1,19 @@
+---
+title: Cellular lace
+description: A Voronoi web thickened into one hatched body, thicker toward the bottom.
+---
+
+Relaxed sites make a Voronoi web. `thicken` turns every wall into a ribbon and every corner into a joint, and the ribbons join into one area. The radius is a field of the point, so the lace is thin at the top and heavy at the bottom. One `polygon` fills the whole body and keeps its holes.
+
+Uses: `t.scatter`, `t.relax`, `t.voronoi`, `thicken` with a radius field, `polygon` with a fill.
+
+```ts live
+import { sketch, thicken, polygon, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 19 }, (t) => {
+  const sites = t.relax(t.scatter({ spacing: 14 }), { iterations: 3 });
+  const lace = t.voronoi(sites, { bounds: { x: 7, y: 7, w: 86, h: 86 } });
+  const body = thicken(lace, { radius: (p) => 0.45 + 1.5 * p.y / 100 });
+  return polygon(body, { fill: fill('hatch', { angle: 35, spacing: mm(0.6) }), pen: 'stabilo-88-blue' });
+});
+```

@@ -1,0 +1,29 @@
+---
+title: Circle packing
+description: Circles that grow until they touch a neighbour or the edge.
+---
+
+Each circle starts small at a random free place and grows until it touches another circle or the edge of the drawable. Three hundred tries fill the page from large to small. After the [Generative Artistry tutorial](https://generativeartistry.com/tutorials/circle-packing/) (MIT).
+
+Uses: `t.rnd`, `circle`.
+
+```ts live
+import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const size = 100, minR = 0.6, maxR = 30, total = 300, attempts = 300, grow = 0.3;
+  const circles = [];
+  const collides = (c) => c.x + c.r >= size || c.x - c.r <= 0 || c.y + c.r >= size || c.y - c.r <= 0 || circles.some((o) => Math.hypot(c.x - o.x, c.y - o.y) < c.r + o.r);
+  for (let i = 0; i < total; i++) {
+    let c = null;
+    for (let tries = 0; tries < attempts && !c; tries++) {
+      const cand = { x: t.rnd(size), y: t.rnd(size), r: minR };
+      if (!collides(cand)) c = cand;
+    }
+    if (!c) continue;
+    while (c.r < maxR) { c.r += grow; if (collides(c)) { c.r -= grow; break; } }
+    circles.push(c);
+  }
+  return circles.map((c) => circle(c.x, c.y, c.r));
+});
+```

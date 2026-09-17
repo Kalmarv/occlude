@@ -1,0 +1,39 @@
+---
+title: Growing network
+description: Tips that grow upward, sense the lines ahead, steer, and join what they hit.
+---
+
+Nine tips start at the bottom with a heading. Each step, a tip looks ahead with `query.edges`. If a line is near, it steers away from it, or toward it when `steer` is negative. If its next move would cross a line, it splits that edge and joins it, and the tip stops. Now and then a tip forks. A rock in the middle is a ring of points that the tips treat like any other line.
+
+Uses: `material` with columns, `append` with `fill`, `steps` with `extrude` and `split`, `query.edges`, `cross`, `ui`.
+
+```ts live
+import { sketch, circle, strokes, material, append, query, add, mul, fromAngle, cross, ui } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
+  const steps = ui(34, { min: 0, max: 60, step: 1 });
+  const branch = ui(0.06, { min: 0, max: 0.3, step: 0.01, label: 'branch chance' });
+  const sense = ui(6, { min: 0, max: 14, step: 0.5, label: 'sensing distance' });
+  const steer = ui(0.5, { min: -1, max: 1, step: 0.05, label: 'steer (+ away, − toward)' });
+  const rock = t.sample(circle(100, 46, 16), { count: 40 });
+  const seeds = material(t.times(9, (i, u) => [14 + u * 172, 96]), { active: 1, heading: -Math.PI / 2 });
+  const side = (heading, toward) => Math.sign(cross(fromAngle(heading), toward)) || 1;
+  const paths = append(rock, seeds, { fill: { active: 0, heading: 0 } }).steps(steps, (current, next, k) => {
+    const lines = query.edges(current);
+    const tips = current.points.filter((p) => p.active === 1 && p.y > 4 && p.x > 3 && p.x < 197);
+    next.extrude(tips, (p) => {
+      let h = p.heading + t.noise(p.x / 10, p.y / 10, k) * 0.35;
+      const ahead = add(p, mul(fromAngle(h), sense));
+      const near = lines.nearest(ahead, { within: sense, excludeIncident: p });
+      if (near) h -= side(h, [near.position[0] - p.x, near.position[1] - p.y]) * steer * (1 - near.distance / sense);
+      const target = add(p, mul(fromAngle(h), 2.2));
+      const hit = lines.firstHit(p, target, { excludeIncident: p });
+      if (hit) return { to: next.split(hit.edge, { at: hit.t, point: { active: 0, heading: h } }) };
+      const headings = t.chance(branch) ? [h - 0.5, h + 0.5] : [h];
+      return headings.map((hh) => ({ position: add(p, mul(fromAngle(hh), 2.2)), attributes: { heading: hh } }));
+    }, { inherit: true });
+    next.set(tips, { active: 0 });
+  });
+  return [strokes(paths), paths.points.filter((p) => p.active === 1).map((p) => circle(p.x, p.y, 0.8))];
+});
+```

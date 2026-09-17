@@ -71,6 +71,17 @@ import { sphere, view, orthographic } from 'occlude/3d';
 export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#56626A' }) } }, (t) => view(sphere(1.4, { segments: 32, rings: 16 }), { camera: orthographic({ eye: [5, 6, 4], span: 4 }), stroke: 'ink', creaseAngle: 180, hatch: [{ spacing: mm(1.4), angle: 30, stroke: 'shade', select: (f) => f.normal[2] < 0.2 }, { spacing: mm(1.4), angle: 120, stroke: 'shade', select: (f) => f.normal[2] < -0.3 }] }));
 ```
 
+## sections
+
+`sections: [{ origin, normal, stroke? }]` on the view cuts the mesh with planes in model space and draws the cut lines. Each section can name its own pen. A section is a mesh and plane intersection, not a boolean.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { sphere, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), section: pen({ width: mm(0.2), color: '#A84932' }) } }, (t) => view(sphere(1.5, { segments: 36, rings: 18 }), { camera: orthographic({ eye: [5, 6, 4], span: 4.4 }), stroke: 'ink', creaseAngle: 180, sections: [-1, -0.5, 0, 0.5, 1].map((z) => ({ origin: [0, 0, z], normal: [0, 0, 1], stroke: 'section' })) }));
+```
+
 ## The view callback
 
 `view(geometry, options, (lines) => tree)` replaces the default ink. `lines.visible` and `lines.hidden` are the classified line intervals. Each has `.kinds` (boundary, silhouette, crease, hatch, section) and its source attributes. `strokes` accepts them directly. Keep the callback pure, because it can run again when the camera changes.

@@ -1,0 +1,24 @@
+---
+title: Flow around a stone
+description: Streamlines of a noise field, pushed around an opaque stone, denser near a focus.
+---
+
+A height field of noise. `curl` turns its gradient a quarter turn, so the flow runs along the contours. A stone pushes the flow away with a field that falls off with distance, and the two vector fields add. The spacing is a field too, so the lines crowd near a focus and spread with the land. The stone is opaque, so the lines under it are gone.
+
+Uses: `curl`, vector arithmetic, `t.streamlines` with a spacing field, `opaque`, `ui`.
+
+```ts live
+import { sketch, strokes, circle, curl, distance, sub, mul, add, unit, ui } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
+  const land = (x, y) => 0.5 + 0.5 * t.noise(x / 50, y / 50);
+  const along = curl(land);
+  const focus = [ui(74, { min: 10, max: 190, step: 1, label: 'focus x' }), ui(46, { min: 10, max: 90, step: 1, label: 'focus y' })];
+  const stone = [ui(96, { min: 10, max: 190, step: 1, label: 'stone x' }), 54];
+  const size = ui(9, { min: 0, max: 20, step: 0.5, label: 'stone size' });
+  const away = (x, y) => mul(unit(sub([x, y], stone)), Math.min(1, Math.pow(size / distance([x, y], stone), 2)));
+  const around = (x, y) => add(unit(along(x, y)), away(x, y));
+  const spacing = (x, y) => (0.7 + distance([x, y], focus) / 40) * (0.5 + 2.5 * land(x, y));
+  return [strokes(t.streamlines(around, { spacing })), size > 0 ? circle(stone[0], stone[1], size, { opaque: true, stroke: false }) : []];
+});
+```

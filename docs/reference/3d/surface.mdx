@@ -81,12 +81,14 @@ Hatch that follows the surface. It walks from triangle to triangle in a `directi
 
 ```ts live
 import { sketchAsync, pen, mm } from 'occlude';
-import { torus, view, orthographic } from 'occlude/3d';
+import { sphere, view, orthographic } from 'occlude/3d';
 
-export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.2), color: '#18202A' }) } }, async (t) => {
-  const model = torus(1.4, 0.45, { segments: 36, tubeSegments: 14 });
-  const marks = await t.hatch(model, { direction: (s) => s.tangentU, spacing: 0.1, tone: (s) => 0.3 + 0.7 * (1 - Math.max(0, s.normal[2])) });
-  return view([model, marks], { camera: orthographic({ eye: [5, 7, 5], span: 5 }), stroke: 'ink', creaseAngle: 180 });
+export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#56626A' }) } }, async (t) => {
+  const ball = sphere(1.5, { segments: 40, rings: 20 });
+  const light = (s) => Math.max(0, s.normal[0] * 0.6 + s.normal[1] * 0.3 + s.normal[2] * 0.75);
+  const along = await t.hatch(ball, { direction: (s) => s.tangentU, spacing: 0.14, tone: (s) => 1 - light(s), stroke: 'shade' });
+  const across = await t.hatch(ball, { direction: (s) => s.tangentV, spacing: 0.14, tone: (s) => Math.max(0, 0.55 - light(s)) * 1.8, stroke: 'shade' });
+  return view([ball, along, across], { camera: orthographic({ eye: [5, 6, 4], span: 4.2 }), stroke: 'ink', creaseAngle: 180 });
 });
 ```
 

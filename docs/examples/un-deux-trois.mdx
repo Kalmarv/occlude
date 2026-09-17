@@ -1,0 +1,24 @@
+---
+title: Un deux trois
+description: "After Vera Molnár: one, two, then three lines in each cell, each cell turned by chance."
+---
+
+A grid of cells. The top third has one line in each cell, the middle third two, the bottom third three. Each cell turns by a random angle. After [Vera Molnár](https://generativeartistry.com/tutorials/un-deux-trois/), through the Generative Artistry tutorial (MIT).
+
+Uses: `group` with `rotate`, `line`, `t.rnd`.
+
+```ts live
+import { sketch, line, group } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const size = 100, step = size / 16;
+  const cells = [];
+  for (let y = 0; y < size; y += step) {
+    for (let x = 0; x < size; x += step) {
+      const positions = y < size / 3 ? [0.5] : y < (size * 2) / 3 ? [0.2, 0.8] : [0.1, 0.5, 0.9];
+      cells.push(group({ translate: [x + step / 2, y + step / 2], rotate: (t.rnd(5) * 180) / Math.PI }, positions.map((p) => line(p * step - step / 2, -step / 2, p * step - step / 2, step / 2))));
+    }
+  }
+  return cells;
+});
+```
