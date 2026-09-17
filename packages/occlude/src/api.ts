@@ -48,6 +48,7 @@ import {
   type RelaxOpts, type SettleOpts, type Bounds as PointBounds, type FieldFn2, type ScatterOpts,
 } from './points.js';
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
+import { ridgesOf, type RidgeOpts } from './ridges.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { unitMm } from './record.js';
 import { boundaryLoops, numericLoops, type Boundary, type LoopPoints } from './boundary.js';
@@ -59,6 +60,7 @@ import { PointSelection } from './relation.js';
 import { Faces, FaceSelection, type Face } from './faces.js';
 import { voronoi } from './voronoi.js';
 import { quadtree, type QuadtreeOpts } from './quadtree.js';
+import { walkers, type WalkersOpts, type WalkerSeed } from './walkers.js';
 import { distanceTo } from './distance.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
@@ -962,6 +964,14 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * a cell holding more than `capacity` points splits into four, down to
    * `depth` splits. Returns the lattice as material — planarize it and its
    * faces are the cells. */
+  /** A population that draws and stops when it meets what it drew: hyphae,
+   * fractures, substrate and line-tracing are one machine with different
+   * `steer` functions. Returns the paths as one material. */
+  function walkersTk(seeds: readonly WalkerSeed[], o: WalkersOpts): Material {
+    const b = exec.bounds();
+    return walkers(seeds, { x: 0, y: 0, w: b.w, h: b.h }, o);
+  }
+
   function quadtreeTk(points: PointsLike, opts: QuadtreeOpts = {}): Material {
     const b = exec.bounds();
     return quadtree(points, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h }, opts);
@@ -1030,6 +1040,52 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const levels = Array.isArray(at) ? at : [at];
     const perLevel = isolinesOf(env, field, levels, opts);
     return contourMaterial(levels.map((level, k) => ({ contours: perLevel[k], level })), true);
+  }
+
+  /** The crest lines of a scalar field over the drawable, as one material:
+   * each ridge a chain (a ring when it closes, as a crater rim does),
+   * separate ridges separate, every vertex carrying `strength` — how sharply
+   * the ground falls away to either side — and `height`, the field's own
+   * value there. `t.isolines` says where the field is a given height; this
+   * says where it runs along a top. Valleys are the ridges of the negated
+   * field, so there is no option for them. Nothing is thresholded: pick with
+   * `m.points.filter((p) => p.strength > x).inducedEdges().extract()`.
+   * Deterministic, no seed. */
+  function ridges(field: FieldFn2, opts: RidgeOpts = {}): Material {
+    const b = exec.bounds();
+    const env = { bounds: { x: 0, y: 0, w: b.w, h: b.h }, len: (l: L) => exec.len(l) };
+    const found = ridgesOf(env, field, opts);
+    let n = 0;
+    let e = 0;
+    for (const c of found) {
+      n += c.pts.length;
+      e += c.closed && c.pts.length > 2 ? c.pts.length : Math.max(0, c.pts.length - 1);
+    }
+    const x = new Float64Array(n);
+    const y = new Float64Array(n);
+    const strength = new Float64Array(n);
+    const height = new Float64Array(n);
+    const edges = new Uint32Array(2 * e);
+    let vi = 0;
+    let ei = 0;
+    for (const c of found) {
+      const first = vi;
+      const m = c.pts.length;
+      for (let k = 0; k < m; k++) {
+        x[vi] = c.pts[k][0];
+        y[vi] = c.pts[k][1];
+        strength[vi] = c.strength[k];
+        height[vi] = c.height[k];
+        vi++;
+      }
+      const segs = c.closed && m > 2 ? m : Math.max(0, m - 1);
+      for (let k = 0; k < segs; k++) {
+        edges[2 * ei] = first + k;
+        edges[2 * ei + 1] = first + ((k + 1) % m);
+        ei++;
+      }
+    }
+    return new Material(x, y, { strength, height }, edges, 0, [], {}, { strength: 'interpolate', height: 'interpolate' }, {});
   }
 
   /** Evenly spaced streamlines of a vector field over the drawable (Jobard &
@@ -1242,11 +1298,11 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     grid: (opts: GridOptions): GridCell[] => gridCells(exec.bounds(), opts),
     noisyLine: (x1: L, y1: L, x2: L, y2: L, o?: Parameters<typeof noisyLineValue>[5], shapeOpts?: ShapeOpts): ShapeValue => noisyLineValue(noise, x1, y1, x2, y2, o, shapeOpts),
     svg: svgValue,
-    scatter, isolines, streamlines,
+    scatter, isolines, ridges, streamlines,
     /** A shape's boundary as material with the boundary's OWN vertices,
      * curves flattened. `sample` redistributes instead. */
     material: materialFromShape,
-    sample, probe, inspect, plan: planWith, draw, distanceTo, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk,
+    sample, probe, inspect, plan: planWith, draw, distanceTo, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk, walkers: walkersTk,
     within,
     rotate: rotateField,
     /** Translate a field by lengths of this run (`mm(…)`, `w(…)` resolve). */
