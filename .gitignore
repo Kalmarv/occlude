@@ -16,3 +16,5 @@ packages/occlude/bench/*-results*
 packages/occlude/bench/results/
 packages/occlude/bench/*.png
 packages/occlude/bench/three/results/
+
+docs/_sig/

@@ -9,40 +9,14 @@ A planar material is one whose edges meet only at shared vertices. Its edges div
 Rows are properties and collections are methods. Write `face.edges` for one face and `cells.edges()` for a collection.
 :::
 
-## planarize
-
-`m.planarize(opts?): Material`
-
-Makes a shared vertex at every crossing and at every place where an endpoint touches an edge. The result is planar, so `faces()` can read it. Edges that do not touch stay apart. Columns carry over, and a new vertex gets interpolated values.
-
-```ts live
-import { sketch, circle, strokes } from 'occlude';
-
-export default sketch({ aspect: [1, 1] }, (t) => {
-  const two = t.material(circle(38, 50, 30), circle(62, 50, 30));
-  const planar = two.planarize();
-  return [strokes(planar), planar.points.map((p) => circle(p.x, p.y, 1.2, { pen: 'stabilo-88-blue' }))];
-});
-```
-
-## faces
-
-`m.faces(): Faces`
-
-The bounded regions of a planar material, as a collection. Iterate it, or use `length`, `at(i)`, `map`, `filter` and `groupBy`. Each call returns the same collection, so a face from any call is valid everywhere. If the material has a crossing without a vertex, the call fails and the message tells you to planarize.
-
-```ts live
-import { sketch, circle, polygon, fill, mm } from 'occlude';
-
-export default sketch({ aspect: [1, 1] }, (t) => {
-  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
-  return cells.map((f, i) => polygon(f, { stroke: false, fill: fill('hatch', { angle: i * 60, spacing: mm(1.2) }) }));
-});
-```
-
 ## face
 
-`face.index · area · perimeter · bounds · centroid · contours`
+<include>/_sig/Face.index.mdx</include>
+<include>/_sig/Face.area.mdx</include>
+<include>/_sig/Face.perimeter.mdx</include>
+<include>/_sig/Face.bounds.mdx</include>
+<include>/_sig/Face.centroid.mdx</include>
+<include>/_sig/Face.contours.mdx</include>
 
 One region. `area` is the outer area minus the holes. `centroid` is the centroid of that filled area. `contours` holds the outer loop and the holes as closed records. A face is an area, so you can give it to `polygon`, `distanceTo`, `force.boundary` and `t.within` as it is.
 
@@ -58,9 +32,42 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## planarize
+
+<include>/_sig/Material.planarize.mdx</include>
+
+Makes a shared vertex at every crossing and at every place where an endpoint touches an edge. The result is planar, so `faces()` can read it. Edges that do not touch stay apart. Columns carry over, and a new vertex gets interpolated values.
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const two = t.material(circle(38, 50, 30), circle(62, 50, 30));
+  const planar = two.planarize();
+  return [strokes(planar), planar.points.map((p) => circle(p.x, p.y, 1.2, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## faces
+
+<include>/_sig/Material.faces.mdx</include>
+
+The bounded regions of a planar material, as a collection. Iterate it, or use `length`, `at(i)`, `map`, `filter` and `groupBy`. Each call returns the same collection, so a face from any call is valid everywhere. If the material has a crossing without a vertex, the call fails and the message tells you to planarize.
+
+```ts live
+import { sketch, circle, polygon, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
+  return cells.map((f, i) => polygon(f, { stroke: false, fill: fill('hatch', { angle: i * 60, spacing: mm(1.2) }) }));
+});
+```
+
 ## face.edges · face.points · face.boundaryEdges
 
-`face.edges: EdgeSelection · face.points: PointSelection · face.boundaryEdges: EdgeSelection`
+<include>/_sig/Face.edges.mdx</include>
+<include>/_sig/Face.points.mdx</include>
+<include>/_sig/Face.boundaryEdges.mdx</include>
 
 `face.edges` is every edge that belongs to this face: its walls, and any loose edge that lies inside it. `face.boundaryEdges` is the walls only. A wall is an edge between this face and another face, or between this face and the outside. `face.points` holds the endpoints of `face.edges`.
 
@@ -80,7 +87,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## face.adjacent
 
-`face.adjacent: FaceSelection`
+<include>/_sig/Face.adjacent.mdx</include>
 
 The faces on the other side of this face's walls. Two faces are neighbours when they share an edge. A shared corner is not enough.
 
@@ -97,7 +104,10 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## cells.edges() · points() · boundaryEdges() · contours()
 
-`cells.edges(): EdgeSelection · cells.points(): PointSelection · cells.boundaryEdges(): EdgeSelection · cells.contours(): IsoContour[]`
+<include>/_sig/Faces.edges.mdx</include>
+<include>/_sig/Faces.points.mdx</include>
+<include>/_sig/Faces.boundaryEdges.mdx</include>
+<include>/_sig/Faces.contours.mdx</include>
 
 The same readings for a collection or a selection of faces. `edges()` is every edge that touches a selected face, once. `boundaryEdges()` is the outline of the selected faces as one region: a wall between two selected faces is not part of it, and the boundary of a hole is. `contours()` is that outline as closed loops. `polygon` reads it to fill the region.
 
@@ -113,7 +123,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## cells.adjacent()
 
-`sel.adjacent(): FaceSelection`
+<include>/_sig/FaceSelection.adjacent.mdx</include>
 
 The faces on the other side of the walls of the selected faces, one step out. A selected face can be in the result too, when it is the neighbour of another selected face. Use `sel.adjacent().subtract(sel)` to get only the faces outside the selection.
 
@@ -130,7 +140,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## measure
 
-`cells.measure(field?, opts?): FaceMeasurements`
+<include>/_sig/Faces.measure.mdx</include>
 
 Measures each face: centroid, orientation, elongation, and the largest inscribed circle as `inscribedCentre` and `inscribedRadius`. If you give a field, you also get its integral, its mean and its weighted centre for each face. Read one face with `forFace(f)`, or iterate the results.
 
@@ -145,7 +155,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## edge.faces
 
-`edge.faces: Face[]`
+<include>/_sig/Edge.faces.mdx</include>
 
 The faces on the two sides of an edge. A wall between two cells has two. An outer wall or a loose edge inside a face has one. An edge that no face touches has none. Read `faces()` on the material first. If the material is not planar, `edge.faces` fails with the same message as `faces()`.
 

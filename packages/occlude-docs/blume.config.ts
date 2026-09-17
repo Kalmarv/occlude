@@ -6,7 +6,7 @@ export default defineConfig({
   description: "Plotter-native creative coding: the pen is the medium.",
   content: {
     root: "../../docs",
-    include: ["index.md", "reference/**/*.md", "examples/**/*.md"],
+    include: ["index.mdx", "reference/**/*.mdx", "examples/**/*.mdx"],
   },
   deployment: { base: "/docs" },
   integrations: [occludeLive()],

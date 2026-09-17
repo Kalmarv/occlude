@@ -20,7 +20,7 @@ import {
 import { RenderClient, type RenderReply } from './workerClient.js';
 
 // Every page's markdown, by file, at build time.
-const RAW = import.meta.glob('../../../docs/**/*.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+const RAW = import.meta.glob('../../../docs/**/*.{md,mdx}', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 const mdOf = (file: string): string => {
   const key = Object.keys(RAW).find((k) => k.endsWith(`/docs/${file}`));
   return key ? RAW[key] : `# ${file}\n\nmissing`;

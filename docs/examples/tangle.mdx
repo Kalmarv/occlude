@@ -3,9 +3,9 @@ title: Tangle
 description: A nest of strands grown by a rule, wobbled, and told which one is on top.
 ---
 
-Three operations that know nothing about each other. Each strand is a tip with a heading, extruded one step at a time and steered toward the curl of a noise field; nothing in the rule keeps a strand off another, so they run over one another; a tip that reaches the edge of the frame simply stops. `oscillate` gives each a wobble. `interlace` then decides, at every crossing that made, which strand is on top and breaks the other.
+Three operations, and none of them knows about the others. Each strand is a tip with a heading. A rule extrudes the tip one step at a time and turns it toward the curl of a noise field. The rule does not keep a strand away from the others, so the strands cross. A tip that reaches the edge of the frame stops. `oscillate` adds a wobble to each strand. `interlace` looks at every crossing, decides which strand is on top, and breaks the other one.
 
-Leans on: [steps](/docs/reference/faces) with `extrude`, `curl`, `oscillate`, `interlace`.
+Uses: `steps` with `extrude`, `curl`, `oscillate`, `interlace`.
 
 ```ts live
 import { sketch, strokes, material, curl, oscillate, interlace, add, mul, fromAngle } from 'occlude';

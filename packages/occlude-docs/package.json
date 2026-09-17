@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "blume dev",
-    "build": "blume build",
+    "dev": "pnpm --filter occlude docs:signatures && blume dev",
+    "build": "pnpm --filter occlude docs:signatures && blume build",
     "preview": "blume preview"
   },
   "devDependencies": {

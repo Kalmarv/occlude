@@ -37,14 +37,14 @@ function enqueue(job: () => Promise<void>): void {
   })();
 }
 
-/** Render one example into `el`: a canvas showing the whole drawable. `src` is
- * the source to run now — the fence's, or the editor's after an edit. */
-export async function mountLive(el: HTMLElement, live: LiveSource, src: string = live.src, onEdit?: () => void): Promise<void> {
+/** Render one example into `el`: a canvas showing the whole drawable, and a
+ * button that opens the source in the studio on the same sheet. */
+export async function mountLive(el: HTMLElement, live: LiveSource): Promise<void> {
   client ??= new RenderClient();
   const sheet = docsPaper(live.meta);
   try {
     const req = {
-      js: liveExampleToJs(src),
+      js: liveExampleToJs(live.src),
       cfg: { pens: structuredClone(DEFAULT_PENS), paper: sheet.paper, landscape: sheet.landscape ?? false, defaultMarginPct: live.meta.margin ?? 5, coarsen: 1 },
     };
     // The client answers null when a request was superseded; ask once more.
@@ -72,17 +72,13 @@ export async function mountLive(el: HTMLElement, live: LiveSource, src: string =
     ctx.scale(px, px);
     ctx.translate(-f.offsetX, -f.offsetY);
     drawFragments(ctx, result.frags, result.pens);
-    const label = document.createElement('span');
-    label.style.cssText = 'font-size:12px;opacity:.65';
-    const paperName = typeof sheet.paper === 'string' ? sheet.paper : `${sheet.paper.w}×${sheet.paper.h} mm`;
-    label.textContent = `drawable ${w.toFixed(0)} × ${h.toFixed(0)} mm on ${paperName}${sheet.landscape ? ' landscape' : ''}`;
     // Open this source in the studio on the same sheet, with the docs pens for the session.
     const open = document.createElement('button');
     open.type = 'button';
     open.textContent = 'open in studio';
     open.style.cssText = 'font:12px inherit;padding:3px 10px;border:1px solid currentColor;border-radius:999px;background:transparent;color:inherit;opacity:.8;cursor:pointer';
     open.onclick = () => {
-      localStorage.setItem('occlude.sketch', src);
+      localStorage.setItem('occlude.sketch', live.src);
       localStorage.setItem('occlude.sketchName', '');
       localStorage.setItem('occlude.openSettings', JSON.stringify({
         paper: typeof sheet.paper === 'string' ? sheet.paper : 'Custom',
@@ -94,20 +90,8 @@ export async function mountLive(el: HTMLElement, live: LiveSource, src: string =
       location.href = '/';
     };
     const bar = document.createElement('div');
-    bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0 20px';
-    const buttons = document.createElement('span');
-    buttons.style.cssText = 'display:flex;gap:8px';
-    if (onEdit) {
-      const edit = document.createElement('button');
-      edit.type = 'button';
-      edit.textContent = 'edit';
-      edit.title = 'Edit this example in place; it re-renders as you type (nothing is saved)';
-      edit.style.cssText = open.style.cssText;
-      edit.onclick = () => { edit.remove(); onEdit(); };
-      buttons.append(edit);
-    }
-    buttons.append(open);
-    bar.append(label, buttons);
+    bar.style.cssText = 'display:flex;justify-content:flex-end;margin:6px 0 20px';
+    bar.append(open);
     el.replaceChildren(canvas, bar);
   } catch (e) {
     el.textContent = `example failed: ${e instanceof Error ? e.message : String(e)}`;
@@ -132,28 +116,7 @@ export async function mountPage(root: ParentNode = document): Promise<void> {
       observer.unobserve(en.target);
       const i = Number((en.target as HTMLElement).dataset.liveIndex);
       const live = sources[i];
-      const out = en.target as HTMLElement;
-      if (!live) continue;
-      const figure = blocks[i].closest('figure') ?? blocks[i];
-      // Editing: the studio's editor (loaded on demand) replaces the code
-      // block, and every change re-renders the drawing after a short pause.
-      const startEditing = async () => {
-        const { createEditor } = await import('./editor.js');
-        const host = document.createElement('div');
-        host.style.cssText = 'height:320px;border:1px solid rgba(128,128,128,.35);border-radius:8px;overflow:hidden;margin:12px 0';
-        figure.replaceWith(host);
-        const editor = createEditor(host, live.src, { uri: `file:///docs/live-${location.pathname.replace(/\W/g, '_')}-${i}.ts`, inline: true });
-        // A handle for tests and the console: `__occludeDocs.editors[i].setValue(...)`.
-        ((window as unknown as { __occludeDocs: { editors: Record<number, unknown> } }).__occludeDocs ??= { editors: {} }).editors[i] = editor;
-        let timer: number | undefined;
-        editor.onChange(() => {
-          window.clearTimeout(timer);
-          timer = window.setTimeout(() => enqueue(() => mountLive(out, live, editor.getValue())), 400);
-        });
-        // Re-render once so the bar reads the editor from now on; no edit button twice.
-        enqueue(() => mountLive(out, live, editor.getValue()));
-      };
-      enqueue(() => mountLive(out, live, live.src, startEditing));
+      if (live) enqueue(() => mountLive(en.target as HTMLElement, live));
     }
   }, { rootMargin: '600px 0px' });
   blocks.forEach((pre, i) => {
@@ -163,6 +126,13 @@ export async function mountPage(root: ParentNode = document): Promise<void> {
     out.className = 'occlude-live';
     out.dataset.liveIndex = String(i);
     out.style.cssText = 'min-height:120px;margin:12px 0 4px';
+    // An examples page is a finished drawing: on a wide screen it spills into
+    // the empty column to the right, where a reference page keeps its outline.
+    if (/\/examples\//.test(location.pathname) && window.matchMedia('(min-width: 1280px)').matches) {
+      out.style.width = 'calc(100% + 18rem)';
+      out.style.position = 'relative';
+      out.style.zIndex = '1';
+    }
     out.textContent = 'rendering…';
     // Blume wraps the <pre> in a figure with a header; the drawing goes right after it, code first.
     const host = pre.closest('figure') ?? pre;
