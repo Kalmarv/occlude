@@ -1732,22 +1732,34 @@ export const connect = {
  * have the same columns, or `fill` must give the value a column takes on
  * the side that lacks it — nothing is dropped silently. */
 /**
- * One material from two: `b`'s rows after `a`'s, edges renumbered. Both
- * sides must have the same point and edge columns, or the caller says what
- * a side that lacks a column gets: `fill: { active: 0 }` writes 0 into
- * `active` on the side that has no `active`, and only there; values a side
- * already has are never touched, and a missing column with no fill is an
- * error naming it, never a silent zero. A column both sides declare must
- * agree on its transfer policy (a column nobody declared interpolates); a
- * column only one side declares keeps that side's policy, filled rows
- * included. `edgeFill` does the same for edge columns, whose default
- * policy is `'copy'`.
+ * One material from several: each one's rows after the last, edges
+ * renumbered, in the order given. Every side must have the same point and
+ * edge columns, or the trailing options say what a side that lacks a column
+ * gets: `fill: { active: 0 }` writes 0 into `active` on the sides that have
+ * no `active`, and only there; values a side already has are never touched,
+ * and a missing column with no fill is an error naming it, never a silent
+ * zero. A column two sides declare must agree on its transfer policy (a
+ * column nobody declared interpolates); a column only one side declares
+ * keeps that side's policy, filled rows included. `edgeFill` does the same
+ * for edge columns, whose default policy is `'copy'`. The options are the
+ * last argument when it is a plain object; a material there is one more
+ * side. `append(pile, ...children.map((c) => t.material(c)))` piles a list.
  */
-export function append(
-  a: Material,
-  b: Material,
-  opts: { fill?: Record<string, number>; edgeFill?: Record<string, number> } = {},
-): Material {
+export interface AppendOpts {
+  fill?: Record<string, number>;
+  edgeFill?: Record<string, number>;
+}
+export function append(...args: [Material, ...Material[]] | [Material, ...Material[], AppendOpts]): Material {
+  const last: unknown = args[args.length - 1];
+  const trailingOpts = last !== null && typeof last === 'object' && Object.getPrototypeOf(last) === Object.prototype;
+  const opts: AppendOpts = trailingOpts ? (last as AppendOpts) : {};
+  const sides = (trailingOpts ? args.slice(0, -1) : args) as Material[];
+  if (sides.length === 0) throw new Error('append: give at least one material');
+  for (const m of sides) if (!(m instanceof Material)) throw new Error('append: every side must be a material — convert a shape with t.material(shape) first');
+  return sides.reduce((acc, m) => appendTwo(acc, m, opts));
+}
+
+function appendTwo(a: Material, b: Material, opts: AppendOpts): Material {
   const fill = opts.fill ?? {};
   const edgeFill = opts.edgeFill ?? {};
   const names = Array.from(new Set([...a.attrNames, ...b.attrNames]));

@@ -433,7 +433,7 @@ export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
 
 ### Connections
 
-`connect.chain(m)` and `connect.ring(m)` join consecutive rows in the given order. `connect.nearest(m, { count })` joins each vertex to its `count` nearest others, undirected and without duplicates. `connect.pairs(a, b)` joins row i of `a` to row i of `b` in one material. `connect.triangulate(m)` adds the Delaunay edges. `append(a, b, { fill?, edgeFill? })` puts two materials in one: both need the same columns, or `fill: { active: 0 }` says what the side without `active` gets, and only that side; a missing column with no fill is an error, never a silent zero. A column both sides declare must agree on its transfer policy; a column one side declares keeps that side's policy for the filled rows too.
+`connect.chain(m)` and `connect.ring(m)` join consecutive rows in the given order. `connect.nearest(m, { count })` joins each vertex to its `count` nearest others, undirected and without duplicates. `connect.pairs(a, b)` joins row i of `a` to row i of `b` in one material. `connect.triangulate(m)` adds the Delaunay edges. `append(a, b, …, { fill?, edgeFill? })` puts several materials in one, in the order given (`append(pile, ...circles.map((c) => t.material(c)))` piles a list): all need the same columns, or `fill: { active: 0 }` says what a side without `active` gets, and only that side; a missing column with no fill is an error, never a silent zero. A column both sides declare must agree on its transfer policy; a column one side declares keeps that side's policy for the filled rows too.
 
 ```ts live
 import { sketch, stroke, material, connect } from 'occlude';
