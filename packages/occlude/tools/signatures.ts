@@ -25,6 +25,8 @@ const pkg = resolve(here, '..');
 const docs = resolve(pkg, '../../docs');
 const out = join(docs, '_sig');
 const entry = join(pkg, 'src/index.ts');
+/** The 3D vocabulary is its own module, `occlude/3d`; its words are keyed `3d.<name>`. */
+const entry3d = join(pkg, 'src/three/api/index.ts');
 
 /** Receiver spelling per owner: what a sketch calls the value. */
 const RECEIVER: Record<string, string> = {
@@ -42,7 +44,7 @@ const PAGE: Record<string, string> = {
   FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', Boundary: 'material', L: 'shapes', Toolkit: 'shapes',
 };
 
-const program = ts.createProgram([entry], {
+const program = ts.createProgram([entry, entry3d], {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
   strict: true, skipLibCheck: true, noEmit: true,
 });
@@ -90,6 +92,17 @@ function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
 
 const OWNERS = ['Material', 'Faces', 'FaceSelection', 'Face', 'Edge', 'Vertex', 'PointSelection', 'EdgeSelection', 'Station', 'Next', 'Toolkit'];
 const NAMESPACES = ['connect', 'force', 'query', 'ease'];
+// occlude/3d: every exported function, keyed `3d.<name>`, spelled bare (it is imported by name).
+const sf3 = program.getSourceFile(entry3d);
+const mod3 = sf3 && checker.getSymbolAtLocation(sf3);
+if (mod3) {
+  for (let sym of checker.getExportsOfModule(mod3)) {
+    const name = sym.getName();
+    if (sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    const decl = sym.valueDeclaration ?? sym.declarations?.[0];
+    if (sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable) && decl) callable(checker.getTypeOfSymbolAtLocation(sym, decl), name, `3d.${name}`, decl);
+  }
+}
 for (let sym of checker.getExportsOfModule(moduleSymbol)) {
   const name = sym.getName();
   if (sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);

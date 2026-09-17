@@ -1,0 +1,45 @@
+---
+title: View
+description: "The camera, the drawing boundary, the view callback and styles."
+---
+
+`view` projects geometry through a camera into the drawable and computes the visible lines. From there the result is ordinary ink: strokes, clips, masks and pens apply.
+
+## view() · orthographic() · perspective()
+
+<include>/_sig/3d.view.1.mdx</include>
+<include>/_sig/3d.orthographic.mdx</include>
+<include>/_sig/3d.perspective.mdx</include>
+
+`view` is the drawing boundary. It takes one object or a list, a camera, and the drawing options. The default ink is the visible boundaries, the silhouettes and the creases sharper than `creaseAngle` (30°). `stroke` names the pen. `hatch` adds a family of hatch lines on the faces, with a `spacing` in paper units and an `angle`. `orthographic` takes an `eye`, a `target` and a `span`. `perspective` takes an `eye`, a `target` and `fovDegrees`.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { torus, view, perspective } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), shade: pen({ width: mm(0.18), color: '#A84932' }) } }, (t) => view(
+  torus(1.2, 0.4, { segments: 36, tubeSegments: 14 }),
+  { camera: perspective({ eye: [3, 4, 2.4], target: [0, 0, 0], fovDegrees: 40 }), stroke: 'ink', creaseAngle: 180, hatch: { spacing: mm(1.6), angle: 30, stroke: 'shade' } },
+));
+```
+
+## The view callback
+
+`view(geometry, options, (lines) => tree)` replaces the default ink. `lines.visible` and `lines.hidden` are the classified line intervals, each with `.kinds` (boundary, silhouette, crease, hatch, section) and its source attributes. `strokes` accepts them directly. Keep the callback pure: it can run again when the camera changes.
+
+```ts live
+import { sketch, pen, mm, strokes } from 'occlude';
+import { box, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), ghost: pen({ width: mm(0.15), color: '#8A94A6' }) } }, (t) => view(
+  [box(1.5), box(1).translate([1.3, 1, 0.9])],
+  { camera: orthographic({ eye: [5, 7, 4], target: [0.5, 0.4, 0.4], span: 5 }) },
+  (lines) => [strokes(lines.visible, { stroke: 'ink' }), strokes(lines.hidden, { stroke: 'ghost', modifiers: [] })],
+));
+```
+
+## style()
+
+<include>/_sig/3d.style.mdx</include>
+
+Sets the drawing of a value: `stroke`, `fillPen` and `creaseAngle`. It returns the styled value, or a styled list, and keeps the fields it does not name.

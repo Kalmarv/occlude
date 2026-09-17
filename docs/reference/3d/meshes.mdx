@@ -1,0 +1,99 @@
+---
+title: Meshes
+description: "The 3D primitives, curves and profiles, edits, instances and surface sampling."
+---
+
+The 3D words come from `occlude/3d`. You build geometry in world units and edit it as immutable values. Every edit returns a new value and keeps the old one.
+
+## plane() · box() · sphere() · cylinder() · cone() · torus()
+
+<include>/_sig/3d.plane.mdx</include>
+<include>/_sig/3d.box.mdx</include>
+<include>/_sig/3d.sphere.mdx</include>
+<include>/_sig/3d.cylinder.mdx</include>
+<include>/_sig/3d.cone.mdx</include>
+<include>/_sig/3d.torus.mdx</include>
+
+The primitives. Each returns an immutable mesh with `.points`, `.edges` and `.faces` collections. A mesh is born at the world origin. `.translate(triple)`, `.rotate(degreesTriple)` and `.scale(scalarOrTriple)` return new values and pivot on the object's own origin.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { box, sphere, cylinder, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => view([
+  box(1.4).translate([-1.2, 0, 0.7]),
+  sphere(0.9, { segments: 24, rings: 12 }).translate([1.2, 0.4, 0.9]),
+  cylinder(0.5, 1.6, { segments: 20 }).translate([0.2, -1.4, 0.8]),
+], { camera: orthographic({ eye: [6, 8, 5], target: [0, 0, 0.6], span: 6 }), stroke: 'ink' }));
+```
+
+## subdivide() · displace() · steps() · attribute()
+
+`mesh.subdivide(levels)` splits every face and keeps the surface it represents. `mesh.displace(field)` moves each point by a triple, or by a number along its normal. `mesh.steps(count, rule)` is the frozen edit loop, the same as a material's: read `current`, write `next`, with the shorthand `{ move, set }`. `mesh.attribute(name, field)` adds a typed point column. `faceAttribute` and `edgeAttribute` do the same for faces and edges.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { plane, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], seed: 4, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.15), color: '#647767' }) } }, (t) => {
+  const ground = plane(5, 5).subdivide(4).displace((p) => [0, 0, 0.7 * t.noise(p.x * 0.6, p.y * 0.6)]);
+  const settled = ground.steps(3, { move: (p) => [0, 0, -0.03 * p.z] });
+  return view(settled, { camera: orthographic({ eye: [6, 8, 5], target: [0, 0, 0], span: 8 }), stroke: 'ink', hatch: { spacing: mm(2.2), angle: 40, stroke: 'shade' } });
+});
+```
+
+## polyline() · curve() · circle() · revolve() · sweep()
+
+<include>/_sig/3d.polyline.mdx</include>
+<include>/_sig/3d.curve.mdx</include>
+<include>/_sig/3d.circle.mdx</include>
+<include>/_sig/3d.revolve.mdx</include>
+<include>/_sig/3d.sweep.mdx</include>
+
+Curves are polygonal paths in 3D. `revolve` turns an XZ profile around the Z axis into a mesh. `sweep` carries an XY profile along a path: a circle for a tube, an open polyline for a ribbon. Both return ordinary meshes.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { polyline, circle, curve, revolve, sweep, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
+  const vase = revolve(polyline([[0, 0, 0], [0.9, 0, 0], [1.1, 0, 0.8], [0.6, 0, 1.6], [0.8, 0, 2.2]]), { segments: 28 });
+  const path = curve((u) => [2.4 + Math.cos(u * Math.PI * 2) * 0.9, Math.sin(u * Math.PI * 2) * 0.9, 0.3 + u * 1.6], { segments: 48 });
+  const tube = sweep(circle(0.18, { segments: 10 }), path);
+  return view([vase, tube], { camera: orthographic({ eye: [6, 7, 4], target: [1, 0, 1], span: 6 }), stroke: 'ink', creaseAngle: 180 });
+});
+```
+
+## instanceOnPoints()
+
+<include>/_sig/3d.instanceOnPoints.mdx</include>
+
+Places one prototype mesh at every point of a point set. `scale`, `rotate` and `offset` are constants or fields on the source point rows. `alignAxis('z', normal)` gives the rotation that stands the prototype on a surface. The result goes into `view` like a mesh. `.realize()` makes one ordinary mesh from all the copies, for the mesh operations.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { plane, cone, alignAxis, instanceOnPoints, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.3), color: '#18202A' }) } }, (t) => {
+  const ground = plane(5).subdivide(3).displace((p) => [0, 0, 0.5 * t.noise(p.x * 0.5, p.y * 0.5)]);
+  const sites = t.scatter(ground, { spacing: 0.55, maxPoints: 50, maxAttempts: 3000 });
+  const trees = instanceOnPoints(cone(0.14, 0.7, { segments: 8 }).translate([0, 0, 0.35]), sites.points, { rotate: (p) => alignAxis('z', p.sample.normal) });
+  return view([ground, trees], { camera: orthographic({ eye: [6, 8, 6], target: [0, 0, 0.2], span: 8 }), stroke: 'ink' });
+});
+```
+
+## t.sample() · t.scatter() on a mesh
+
+Both take a mesh and return points on its surface. Each row has a `.sample`: the position, the triangle `normal`, the `face` and the barycentric weights. `t.sample(mesh, { count })` places `count` points weighted by area. `t.scatter(mesh, { spacing })` keeps points at least `spacing` apart in world units. `weight: (face) => number` biases both.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { sphere, instanceOnPoints, alignAxis, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], seed: 7, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }) } }, (t) => {
+  const ball = sphere(1.2, { segments: 32, rings: 16 });
+  const pts = t.scatter(ball, { spacing: 0.32, maxPoints: 120, maxAttempts: 4000, weight: (f) => (f.normal[2] > 0 ? 1 : 0) });
+  const studs = instanceOnPoints(sphere(0.07, { segments: 8, rings: 4 }), pts.points);
+  return view([ball, studs], { camera: orthographic({ eye: [4, 5, 5], target: [0, 0, 0], span: 3.6 }), stroke: 'ink', creaseAngle: 180 });
+});
+```

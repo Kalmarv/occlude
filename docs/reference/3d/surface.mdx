@@ -1,0 +1,34 @@
+---
+title: Surface curves
+description: "Curves that live on a surface, and queries against it."
+---
+
+These words derive curves from a mesh, or ask it questions. The mesh hides a curve on its surface in the same way as its own lines.
+
+## intersections() · isolines() · trace() · mapSurface()
+
+<include>/_sig/3d.intersections.1.mdx</include>
+<include>/_sig/3d.isolines.mdx</include>
+<include>/_sig/3d.trace.mdx</include>
+<include>/_sig/3d.mapSurface.mdx</include>
+
+Curves that live on a surface. `intersections(a, b)` is the curve where two meshes cross. `isolines(mesh, field, { count })` is the level lines of a field over the surface. The field reads a point row. `trace(mesh, seeds, direction)` follows a direction field across the surface from each seed. `mapSurface(mesh, material)` lays a 2D material onto the surface through its stored chart coordinates. All four return supported curves that the mesh occludes like its own lines.
+
+```ts live
+import { sketch, pen, mm } from 'occlude';
+import { box, sphere, intersections, isolines, style, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color: '#18202A' }), line: pen({ width: mm(0.18), color: '#2457D6' }) } }, (t) => {
+  const ball = sphere(1.3, { segments: 40, rings: 20 });
+  const block = box([1.2, 1.2, 2.8]).translate([0.9, 0.5, 0.4]);
+  const rings = isolines(ball, (p) => p.z, { count: 7 });
+  const seams = intersections(ball, block);
+  return view([ball, block, ...style([rings, seams], { stroke: 'line' })], { camera: orthographic({ eye: [5, 6, 4], target: [0.3, 0.2, 0.3], span: 4.6 }), stroke: 'ink', creaseAngle: 180 });
+});
+```
+
+## query()
+
+<include>/_sig/3d.query.mdx</include>
+
+A prepared spatial index over a mesh: `.nearest(position, { within })`, `.ray(origin, direction)` and `.segment(from, to)` return hits with a position, a normal and the face. A query reads the mesh revision that made it. Inside a `steps` rule, `force.project(query)` pulls points onto that surface.
