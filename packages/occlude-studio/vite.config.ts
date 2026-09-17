@@ -74,6 +74,12 @@ export default defineConfig({
         machine: resolve(__dirname, 'machine.html'),
         results: resolve(__dirname, 'results.html'),
         evolve: resolve(__dirname, 'evolve.html'),
+        // The docs site's live-example script: a stable name, since the
+        // (separately built) docs pages load it by URL.
+        live: resolve(__dirname, 'src/live-embed.ts'),
+      },
+      output: {
+        entryFileNames: (chunk) => (chunk.name === 'live' ? 'live-embed.js' : 'assets/[name]-[hash].js'),
       },
     },
   },

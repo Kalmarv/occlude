@@ -99,9 +99,8 @@ const server = http.createServer((req, res) => {
   }
   let pathname = decodeURIComponent(url.pathname);
   if (pathname === '/') pathname = '/index.html';
-  if (pathname === '/docs' || pathname === '/docs/') pathname = '/docs.html';
   // Path-traversal guard: resolve inside dist only.
-  const file = normalize(join(dist, pathname));
+  let file = normalize(join(dist, pathname));
   if (!file.startsWith(dist)) {
     res.statusCode = 403;
     return res.end('forbidden');
@@ -109,6 +108,11 @@ const server = http.createServer((req, res) => {
   let stat;
   try {
     stat = statSync(file);
+    // The docs site (dist/docs) is a folder of pages: a directory serves its index.
+    if (stat.isDirectory()) {
+      file = join(file, 'index.html');
+      stat = statSync(file);
+    }
   } catch {
     res.statusCode = 404;
     return res.end('not found');

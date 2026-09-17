@@ -1,0 +1,161 @@
+---
+title: Faces
+description: The regions that a planar material encloses, and what you can read from them.
+---
+
+A planar material is one whose edges meet only at shared vertices. Its edges divide the page into regions. `faces()` reads those regions. Each face knows its area, its centroid, its walls and its neighbours. A face is an area: `polygon(f)` fills it and `distanceTo(f)` measures from its walls.
+
+:::note
+Rows are properties and collections are methods. Write `face.edges` for one face and `cells.edges()` for a collection.
+:::
+
+## planarize
+
+`m.planarize(opts?): Material`
+
+Makes a shared vertex at every crossing and at every place where an endpoint touches an edge. The result is planar, so `faces()` can read it. Edges that do not touch stay apart. Columns carry over, and a new vertex gets interpolated values.
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const two = t.material(circle(38, 50, 30), circle(62, 50, 30));
+  const planar = two.planarize();
+  return [strokes(planar), planar.points.map((p) => circle(p.x, p.y, 1.2, { pen: 'stabilo-88-blue' }))];
+});
+```
+
+## faces
+
+`m.faces(): Faces`
+
+The bounded regions of a planar material, as a collection. Iterate it, or use `length`, `at(i)`, `map`, `filter` and `groupBy`. Each call returns the same collection, so a face from any call is valid everywhere. If the material has a crossing without a vertex, the call fails and the message tells you to planarize.
+
+```ts live
+import { sketch, circle, polygon, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
+  return cells.map((f, i) => polygon(f, { stroke: false, fill: fill('hatch', { angle: i * 60, spacing: mm(1.2) }) }));
+});
+```
+
+## face
+
+`face.index · area · perimeter · bounds · centroid · contours`
+
+One region. `area` is the outer area minus the holes. `centroid` is the centroid of that filled area. `contours` holds the outer loop and the holes as closed records. A face is an area, so you can give it to `polygon`, `distanceTo`, `force.boundary` and `t.within` as it is.
+
+```ts live
+import { sketch, circle, strokes, distanceTo } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
+  return cells.map((f) => [
+    strokes(t.isolines(distanceTo(f), 3)),
+    circle(f.centroid[0], f.centroid[1], 1.5, { pen: 'stabilo-88-blue' }),
+  ]);
+});
+```
+
+## face.edges · face.points · face.boundaryEdges
+
+`face.edges: EdgeSelection · face.points: PointSelection · face.boundaryEdges: EdgeSelection`
+
+`face.edges` is every edge that belongs to this face: its walls, and any loose edge that lies inside it. `face.boundaryEdges` is the walls only. A wall is an edge between this face and another face, or between this face and the outside. `face.points` holds the endpoints of `face.edges`.
+
+:::warning
+For a plain pile of shapes, `edges` and `boundaryEdges` are the same selection. They differ only when a loose line lies inside a region. Use `boundaryEdges` when you want an outline.
+:::
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
+  const lens = cells.filter((f) => Math.abs(f.centroid[0] - 50) < 1).at(0);
+  return [strokes(cells.edges(), { pen: 'pigma-005-black' }), strokes(lens.boundaryEdges, { pen: 'pigma-05-black' })];
+});
+```
+
+## face.adjacent
+
+`face.adjacent: FaceSelection`
+
+The faces on the other side of this face's walls. Two faces are neighbours when they share an edge. A shared corner is not enough.
+
+```ts live
+import { sketch, circle, polygon, fill, mm, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30), circle(50, 26, 18)).planarize().faces();
+  const most = Math.max(...cells.map((f) => f.adjacent.length));
+  const middle = cells.filter((f) => f.adjacent.length === most).at(0);
+  return [strokes(cells.edges()), middle.adjacent.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) }))];
+});
+```
+
+## cells.edges() · points() · boundaryEdges() · contours()
+
+`cells.edges(): EdgeSelection · cells.points(): PointSelection · cells.boundaryEdges(): EdgeSelection · cells.contours(): IsoContour[]`
+
+The same readings for a collection or a selection of faces. `edges()` is every edge that touches a selected face, once. `boundaryEdges()` is the outline of the selected faces as one region: a wall between two selected faces is not part of it, and the boundary of a hole is. `contours()` is that outline as closed loops. `polygon` reads it to fill the region.
+
+```ts live
+import { sketch, circle, polygon, fill, mm, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
+  const crescents = cells.filter((f) => Math.abs(f.centroid[0] - 50) > 1);
+  return [polygon(crescents.contours(), { stroke: false, fill: fill('hatch', { angle: 0, spacing: mm(1.5) }) }), strokes(crescents.boundaryEdges(), { pen: 'pigma-05-black' })];
+});
+```
+
+## cells.adjacent()
+
+`sel.adjacent(): FaceSelection`
+
+The faces on the other side of the walls of the selected faces, one step out. A selected face can be in the result too, when it is the neighbour of another selected face. Use `sel.adjacent().subtract(sel)` to get only the faces outside the selection.
+
+```ts live
+import { sketch, polygon, fill, mm, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cells = t.voronoi(t.scatter({ spacing: 14 })).faces();
+  const seed = cells.filter((f) => f.centroid[0] > 40 && f.centroid[0] < 60 && f.centroid[1] > 40 && f.centroid[1] < 60);
+  const ring = seed.adjacent().subtract(seed);
+  return [strokes(cells.edges()), ring.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) }))];
+});
+```
+
+## measure
+
+`cells.measure(field?, opts?): FaceMeasurements`
+
+Measures each face: centroid, orientation, elongation, and the largest inscribed circle as `inscribedCentre` and `inscribedRadius`. If you give a field, you also get its integral, its mean and its weighted centre for each face. Read one face with `forFace(f)`, or iterate the results.
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
+  return [strokes(cells.edges()), [...cells.measure()].map((r) => circle(r.inscribedCentre[0], r.inscribedCentre[1], r.inscribedRadius * 0.6))];
+});
+```
+
+## edge.faces
+
+`edge.faces: Face[]`
+
+The faces on the two sides of an edge. A wall between two cells has two. An outer wall or a loose edge inside a face has one. An edge that no face touches has none. Read `faces()` on the material first. If the material is not planar, `edge.faces` fails with the same message as `faces()`.
+
+```ts live
+import { sketch, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const m = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize();
+  m.faces();
+  const walls = m.edges.filter((e) => e.faces.length === 2);
+  return [strokes(m, { pen: 'pigma-005-black' }), strokes(walls, { pen: 'pigma-05-black' })];
+});
+```

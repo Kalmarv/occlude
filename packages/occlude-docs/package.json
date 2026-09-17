@@ -1,0 +1,13 @@
+{
+  "name": "occlude-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "blume dev",
+    "build": "blume build",
+    "preview": "blume preview"
+  },
+  "devDependencies": {
+    "blume": "^1.7.0"
+  }
+}

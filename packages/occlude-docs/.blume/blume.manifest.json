@@ -1,0 +1,72 @@
+{
+  "blumeVersion": "1.7.0",
+  "contentRoot": "/home/kalmarv/containers/occlude/docs",
+  "output": "static",
+  "projectRoot": "/home/kalmarv/containers/occlude/packages/occlude-docs",
+  "routes": [
+    {
+      "alternates": [],
+      "collection": "docs",
+      "contentType": "doc",
+      "description": "Plotter-native creative coding. The pen is the medium.",
+      "draft": false,
+      "entryId": "index.md",
+      "hidden": false,
+      "id": "filesystem:index.md",
+      "indexable": true,
+      "locale": "",
+      "path": "/",
+      "source": {
+        "name": "filesystem",
+        "ref": "index.md"
+      },
+      "sourcePath": "/home/kalmarv/containers/occlude/docs/index.md",
+      "title": "occlude",
+      "version": "",
+      "versionAlternates": []
+    },
+    {
+      "alternates": [],
+      "collection": "docs",
+      "contentType": "doc",
+      "description": "A nest of strands grown by a rule, wobbled, and told which one is on top.",
+      "draft": false,
+      "entryId": "examples/tangle.md",
+      "hidden": false,
+      "id": "filesystem:examples/tangle.md",
+      "indexable": true,
+      "locale": "",
+      "path": "/examples/tangle",
+      "source": {
+        "name": "filesystem",
+        "ref": "examples/tangle.md"
+      },
+      "sourcePath": "/home/kalmarv/containers/occlude/docs/examples/tangle.md",
+      "title": "Tangle",
+      "version": "",
+      "versionAlternates": []
+    },
+    {
+      "alternates": [],
+      "collection": "docs",
+      "contentType": "doc",
+      "description": "The regions that a planar material encloses, and what you can read from them.",
+      "draft": false,
+      "entryId": "reference/faces.md",
+      "hidden": false,
+      "id": "filesystem:reference/faces.md",
+      "indexable": true,
+      "locale": "",
+      "path": "/reference/faces",
+      "source": {
+        "name": "filesystem",
+        "ref": "reference/faces.md"
+      },
+      "sourcePath": "/home/kalmarv/containers/occlude/docs/reference/faces.md",
+      "title": "Faces",
+      "version": "",
+      "versionAlternates": []
+    }
+  ],
+  "version": 1
+}
