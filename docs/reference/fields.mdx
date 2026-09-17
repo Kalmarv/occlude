@@ -11,7 +11,7 @@ A field is a function of position. A scalar field is `(x, y) => number`. A vecto
 <include>/_sig/grad.mdx</include>
 <include>/_sig/vectorField.mdx</include>
 
-`grad(f)` is the gradient of a scalar field: it points uphill. `curl(f)` is the gradient turned 90°, so it runs along the contours of `f`. `vectorField(fn)` marks your own vector function. Then `rotate` turns its arrows too. At the bottom left, the same east-pointing function is turned 45° twice: plain in green, still east, and marked in blue, turned.
+`grad(f)` is the gradient of a scalar field: it points uphill. `curl(f)` is the gradient turned 90°, so it runs along the contours of `f`. `vectorField(fn)` marks your own vector function. Then `rotate` turns its arrows too. At the bottom left, `rotate` turns the same east-pointing function 45° twice. The plain one, in green, still points east. The marked one, in blue, has turned.
 
 ```ts live
 import { sketch, line, circle, strokes, curl, grad, vectorField, rotate } from 'occlude';

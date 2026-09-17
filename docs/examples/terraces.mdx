@@ -1,0 +1,21 @@
+---
+title: Terraces
+description: One noise field cut at four heights, each level an opaque hatched area over the one below.
+---
+
+One noise field, cut at four heights with `t.isolines`. Each level set is one area. `polygon` reads the contours of that level. The fill is a hatch, and its angle and spacing change with the height. The area is opaque. A higher terrace hides the hatch of the one below where they overlap. The contour lines are the terrace edges, drawn once in the fine pen.
+
+Uses: `t.isolines` with several levels, `edges.groupBy` on the level column, `polygon` of an edge selection, `opaque`, `fill`.
+
+```ts live
+import { sketch, polygon, strokes, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 21 }, (t) => {
+  const ground = (x, y) => t.noise(x / 34, y / 34) + 0.3 * t.noise(x / 11, y / 11);
+  const levels = [-0.25, 0.05, 0.35, 0.65];
+  const contours = t.isolines(ground, levels, { close: true });
+  const terraces = contours.edges.groupBy((e) => e.attrs.level).map((sel, i) =>
+    polygon(sel, { opaque: true, stroke: false, fill: fill('hatch', { angle: 15 + i * 40, spacing: mm(2.2 - i * 0.4) }) }));
+  return [terraces, strokes(contours, { pen: 'pigma-005-black' })];
+});
+```
