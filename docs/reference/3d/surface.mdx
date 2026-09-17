@@ -73,6 +73,23 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 });
 ```
 
+## t.hatch()
+
+<include>/_sig/Toolkit.hatch.mdx</include>
+
+Hatch that follows the surface. It walks from triangle to triangle in a `direction`. The direction is a vector or a field of the surface location. The lines stay `spacing` apart in world units. `tone` is 0 to 1, a constant or a field, and sets how many lanes get ink. It reads the seed, so it lives on the toolkit and needs `sketchAsync` with `await`. One call is one family. A second call with another direction is a crosshatch.
+
+```ts live
+import { sketchAsync, pen, mm } from 'occlude';
+import { torus, view, orthographic } from 'occlude/3d';
+
+export default sketchAsync({ aspect: [1, 1], seed: 42, pens: { ink: pen({ width: mm(0.2), color: '#18202A' }) } }, async (t) => {
+  const model = torus(1.4, 0.45, { segments: 36, tubeSegments: 14 });
+  const marks = await t.hatch(model, { direction: (s) => s.tangentU, spacing: 0.1, tone: (s) => 0.3 + 0.7 * (1 - Math.max(0, s.normal[2])) });
+  return view([model, marks], { camera: orthographic({ eye: [5, 7, 5], span: 5 }), stroke: 'ink', creaseAngle: 180 });
+});
+```
+
 ## query()
 
 <include>/_sig/3d.query.mdx</include>

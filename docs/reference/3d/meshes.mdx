@@ -84,7 +84,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## subdivide()
 
-`mesh.subdivide(levels)` splits every face and keeps the surface it represents: a quad becomes four quads, a triangle four triangles. Each level doubles the resolution. It does not round a box or smooth anything. Here the same wave moves three planes at levels 1, 2 and 3, and the view draws every fold, so the grids show.
+`mesh.subdivide(levels)` splits every face and keeps the surface it represents: a quad becomes four quads, a triangle four triangles. Each level doubles the resolution. It does not round a box or smooth anything. Here the same wave moves three planes at levels 1, 2 and 3. The view draws every fold, so the grids show.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
@@ -110,7 +110,7 @@ export default sketch({ aspect: [1, 1], seed: 4, pens: { ink: pen({ width: mm(0.
 
 ## steps()
 
-`mesh.steps(count, rule)` is the frozen edit loop, the same as a material's. The rule reads `current` and writes `next`. The shorthand `{ move, set }` applies to every point, and a numeric `move` follows the vertex normal. Here one rule lifts the middle of a sheet a little on each step; the three sheets are the rule applied 0, 4 and 10 times.
+`mesh.steps(count, rule)` is the frozen edit loop, the same as a material's. The rule reads `current` and writes `next`. The shorthand `{ move, set }` applies to every point, and a numeric `move` follows the vertex normal. Here one rule lifts the middle of a sheet a little on each step. The three sheets are the rule applied 0, 4 and 10 times.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
