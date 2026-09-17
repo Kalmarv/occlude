@@ -149,6 +149,5 @@ facts, and papers — never code**:
 | [robust-predicates](https://github.com/mourner/robust-predicates) (Vladimir Agafonkin, after Shewchuk) | Bundled dependency: exact `orient2d`/`orient3d` predicates for 2D crossing/contact and 3D triangulation/visibility refinement. | Unlicense (public domain) |
 | [commons-math-interpolation](https://github.com/chdh/commons-math-interpolation) (Christian d'Heureuse) | Bundled dependency: the Akima / cubic / linear interpolators behind `shaper()`. | MIT |
 | [plotterbench](https://github.com/plotterbench) | Inverse-kinematics golden-test idea (backlog). Ideas only — PolyForm forbids code reuse. | PolyForm Shield |
-| [Anders Hoff / inconvergent](https://inconvergent.net) ([cl-veq](https://github.com/inconvergent/cl-veq), [cl-grph](https://github.com/inconvergent/cl-grph), [weir](https://github.com/inconvergent/weir)) | The gallery's Hoff section restates rules from his essays (vertices stepping along a chain's normal, self-editing graphs, lattice traces, mirrored walks). Ideas only; no code. | essays / MIT |
 | Robert Penner / [easings.net](https://easings.net) | The `ease.*` curve catalog (standard formulas). | formulas |
 | [p5.js](https://p5js.org), [vpype](https://github.com/abey79/vpype) | API ergonomics and plotter-workflow inspiration, respectively. | — |
