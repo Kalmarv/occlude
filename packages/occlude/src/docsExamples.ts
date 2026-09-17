@@ -48,6 +48,8 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'reference-selections', title: 'Reference: Selections', file: 'reference/selections.mdx', live: true, group: 'topics' },
   { slug: 'reference-steps', title: 'Reference: Steps and forces', file: 'reference/steps.mdx', live: true, group: 'topics' },
   { slug: 'reference-faces', title: 'Reference: Faces', file: 'reference/faces.mdx', live: true, group: 'topics' },
+  { slug: 'reference-images', title: 'Reference: Images', file: 'reference/images.mdx', live: true, group: 'topics' },
+  { slug: 'reference-plotting', title: 'Reference: Plotting', file: 'reference/plotting.mdx', live: true, group: 'topics' },
   { slug: 'examples-tangle', title: 'Example: Tangle', file: 'examples/tangle.mdx', live: true, group: 'topics' },
   { slug: 'workshop-01', title: '1. Put marks on paper', file: 'workshop-01-marks.md', live: true, group: 'workshop' },
   { slug: 'workshop-02', title: '2. Turn a shape into something editable', file: 'workshop-02-material.md', live: true, group: 'workshop' },

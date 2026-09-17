@@ -1,0 +1,50 @@
+---
+title: Plotting
+description: From the visible ink to a plan, a file and a machine.
+---
+
+Rendering makes the visible ink. Planning puts it in order: fragments merge into chains, the chains get a route, and gaps smaller than the nib close. Every export and the machine read the same plan, so the SVG, the G-code and the plot agree.
+
+## t.plan() · t.draw()
+
+<include>/_sig/Toolkit.plan.mdx</include>
+<include>/_sig/Toolkit.draw.mdx</include>
+
+`plan` sets the path settings. `optimize` is the tour budget. `bridge` is the gap the pen closes without a lift, or `false`. `draw` chooses the part of the ordered drawing to plot. `progress` is a fraction of the chains. `chains` is a range of them. `minutes` is an interval of the estimated time, and `budget` keeps the longest prefix that fits. A range never re-plans or reorders. Ink that a later shape hid stays hidden.
+
+```ts live
+import { sketch, circle, ui } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  t.draw({ progress: [0, ui(0.6, { min: 0, max: 1 })] });
+  return t.grid({ cols: 8, rows: 8 }).map((c) => circle(c.cx, c.cy, c.w * 0.4));
+});
+```
+
+## Export
+
+<include>/_sig/exportSvg.mdx</include>
+<include>/_sig/exportPng.mdx</include>
+<include>/_sig/exportGcode.mdx</include>
+
+Headless export, after `initOcclude()` once. `exportSvg` writes one path for each chain in plot order, with arcs and cubics kept exact. `exportPng` rasterises at `scale` pixels for each millimetre. `exportGcode` writes one job for each pen. `profile` describes the machine: `bed`, `resolution`, `travelFeed`, `zMode`, `arcSupport` and `yAxis`. All three honour `t.draw`. The studio's Export panel does the same for the current selection.
+
+```ts
+import { initOcclude, render, exportSvg, exportGcode, exportPng } from 'occlude';
+
+await initOcclude();
+const out = render(def, { paper: 'A4' });
+const svg = exportSvg(def, { paper: 'A4', background: '#f6f2ea' });
+const jobs = exportGcode(def, { paper: 'A4', profile });
+const png = exportPng(def, { paper: 'A4', scale: 11.81 });
+```
+
+## Machines
+
+The studio's Machine page holds the machine profiles: an EBB board over Web Serial, or a G-code controller such as GRBL. A profile is the bed, the axes, the pen heights and feeds, and the motion limits. Plot, pause and resume, homing, the pen ladder and the motion tests are on that page. The device notes cover each controller's quirks.
+
+## estimatePlanMs()
+
+<include>/_sig/estimatePlanMs.mdx</include>
+
+The one time model. It reads the plan's chains, the pens' feeds and the machine's acceleration. It returns the estimate that the Drawing panel, `t.draw({ minutes })` and the machine share.

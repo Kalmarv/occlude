@@ -1,0 +1,74 @@
+---
+title: Images
+description: Line art from SVG files, and image tone and direction as fields that drive marks.
+---
+
+Files come from the studio's Assets page. A sketch names a file by string literal, so the studio can load it before the sketch runs. An image never draws itself: it gives values, and the sketch decides the marks.
+
+## svg()
+
+<include>/_sig/svg.mdx</include>
+
+Turns SVG line art into ordinary open shapes: polylines, lines, and paths of straight segments and Bézier curves. The engine occludes, clips, masks and modifies them like any shape. `width` scales the drawing, and the height follows the aspect. `layers` keeps only the top-level groups named. Transforms in the file apply exactly. Elliptical arcs have no exact form here, so the import rejects them and names the path.
+
+```ts live
+import { sketch, svg, circle, mm } from 'occlude';
+
+const ART = `<svg viewBox="0 0 100 60"><g id="ink"><path d="M10 50 C 30 10, 50 10, 70 50 Q 80 65 90 50" fill="none" stroke="black"/><line x1="10" y1="55" x2="90" y2="55"/></g></svg>`;
+
+export default sketch({ aspect: [1, 1] }, (t) => [svg(ART, { x: 5, y: 20, width: 90, bridge: mm(0.7) }), circle(50, 46, 12, { opaque: true, pen: 'stabilo-88-blue' })]);
+```
+
+## t.asset()
+
+<include>/_sig/Toolkit.asset.mdx</include>
+
+The text of an uploaded file, for `svg()`. The name must be a string literal in the sketch.
+
+```ts live
+import { sketch, svg } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => svg(t.asset('church.svg'), { x: 5, y: 5, width: 90 }));
+```
+
+## t.image()
+
+<include>/_sig/Toolkit.image.mdx</include>
+
+Places an image in drawable coordinates and returns a sampler. The sampler takes a position and an optional `area`, a half-size to average over. `lum` is luminance 0 to 1, `a` is alpha, `bands(x, y, n)` is tone in `n` levels with 0 the darkest, `edge` is the gradient magnitude and `dir` its angle. Average over the mark's own footprint when a mark covers more paper than a pixel.
+
+```ts live
+import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
+  return t.grid({ cols: 30, rows: 30 }).map((c) => { const dark = 1 - img.lum(c.cx, c.cy, c.w / 2); return img.a(c.cx, c.cy) > 0.5 && circle(c.cx, c.cy, dark * c.w * 0.45); });
+});
+```
+
+## img.field()
+
+`img.field(channel?, { area? })` is a channel as a scalar field: `'lum'` (the default), `'dark'` for 1 − lum, `'a'`, or `'edge'`. A field is what the rest of the toolkit reads, so the image goes behind `t.isolines`, `t.scatter`, `t.streamlines` or a modifier amount with no wrapper. Outside the placed rectangle the field is 0.
+
+```ts live
+import { sketch, circle, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
+  return t.scatter(img.field('dark', { area: 1 }), { spacing: mm(1.6) }).points.map((p) => circle(p.x, p.y, 0.5));
+});
+```
+
+## img.flow()
+
+`img.flow({ radius?, iterations? })` is the direction the picture's structure runs, as a vector field: along an edge, not across it, and smoothed over `radius` so that noise does not turn it. Feed it to `t.streamlines` for hatching that follows the subject.
+
+```ts live
+import { sketch, strokes, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const img = t.image('ivy.png', { x: 8, y: 2, width: 84 });
+  const lines = t.streamlines(img.flow({ radius: 3 }), { spacing: (x, y) => mm(0.8 + img.lum(x, y, 1) * 3) });
+  return strokes(lines);
+});
+```
