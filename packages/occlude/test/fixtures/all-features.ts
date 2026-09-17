@@ -213,10 +213,10 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const measured = faceSet.measure(land, { resolution: 40 });
   const faceOne = chosen.length > 0 ? measured.forFace(chosen.at(0)) : null;
   const facePerim = chosen.length > 0 ? chosen.at(0).perimeter : 0;
-  const faceEdges = chosen.edges.length;
+  const faceEdges = chosen.edges().length;
   scene.push(strokes(planar));
-  scene.push(strokes(chosen.boundaryEdges));
-  scene.push(strokes(chosen.boundaries()));
+  scene.push(strokes(chosen.boundaryEdges()));
+  scene.push(strokes(chosen.contours()));
   scene.push(chosen.map((f) => (f.contours[0] ? stroke(f.contours[0]) : null)));
 
   // ---- stations along a spine, and resampling ----------------------------

@@ -168,15 +168,16 @@ export function loadFillModule(name: string, js: string): AnyFill {
   if (/\bimport\s*\(/.test(js)) {
     throw new Error(`fill '${name}' may not use dynamic import()`);
   }
-  const cjs = liveExampleToJs(js);
-  // Only the named-import form is rewritten; a surviving ESM statement
-  // (namespace or default import) would fail inside Function() with a
-  // message pointing nowhere.
-  if (/^\s*import\b/m.test(cjs)) {
+  // Fill files use the named-import form only: a namespace or default
+  // import is refused on the source itself, before the rewrite (which
+  // would happily turn either into a require), so an exported fill
+  // reads the same way everywhere.
+  if (/^\s*import\s*(\*|[A-Za-z_$])/m.test(js)) {
     throw new Error(
       `fill '${name}' must import as \`import { … } from 'occlude'\` (namespace/default imports are not supported)`,
     );
   }
+  const cjs = liveExampleToJs(js);
   const module = { exports: {} as Record<string, unknown> };
   const require = (spec: string): unknown => {
     if (spec === 'occlude') return occludeModule();
