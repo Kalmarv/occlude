@@ -847,6 +847,50 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
 });
 ```
 
+And in three dimensions. The cells are measured flat, in the chart the surface
+carries, and one scale is drawn inside each cell's inscribed circle — so no two
+scales can overlap, and `mapSurface` carries that guarantee onto the form,
+where the pod occludes the far side of its own skin. The form is described by
+its silhouette and its scales alone: `creaseAngle: 180` asks for no folds.
+
+```ts live
+import { sketch, pen, mm, curve, rect } from 'occlude';
+import { sphere, mapSurface, style, view, orthographic } from 'occlude/3d';
+
+export default sketch({ seed: 11, pens: {
+  ink: pen({ width: mm(0.35), color: '#18202A' }),
+  scale: pen({ width: mm(0.22), color: '#A84932' }),
+} }, (t) => {
+  const CHART = { x: 0, y: 0, width: 100, height: 100 };
+  const field = rect(0, 0, 100, 100);
+  const cells = t.within(t.voronoi(t.relax(t.scatter({ spacing: 4.4, within: field }), { iterations: 2, within: field }), { bounds: { x: 0, y: 0, w: 100, h: 100 } }), field);
+  // One scale per cell, bounded by the circle that cell can hold and turned
+  // onto its own axis. Each sits inside its own cell, so no two can overlap —
+  // and the chart carries that guarantee onto the form.
+  const scales = cells.faces().measure().results.filter((r) => r.inscribedRadius > 0.7).map((r) => {
+    const [cx, cy] = r.inscribedCentre;
+    const a = r.orientation;
+    const rx = r.inscribedRadius * 0.94;
+    const ry = rx * (1 - r.elongation * 0.8);
+    return curve(t.times(24, (k, u) => {
+      const th = u * Math.PI * 2;
+      const px = Math.cos(th) * rx;
+      const py = Math.sin(th) * ry;
+      return [cx + px * Math.cos(a) - py * Math.sin(a), cy + px * Math.sin(a) + py * Math.cos(a)];
+    }), { closed: true });
+  });
+  const pod = sphere(1.6, { segments: 72, rings: 36 })
+    .displace((p) => 0.06 * t.noise(p.x * 1.4, p.y * 1.4, p.z * 1.4));
+  // creaseAngle 180 draws no folds, so the form is its silhouette and the
+  // scales wrapping it; the marks carry their own pen.
+  return view([pod, style(mapSurface(pod, scales, { frame: CHART }), { stroke: 'scale' })], {
+    camera: orthographic({ eye: [5, 3.4, 1.1], target: [0, 0, 0], span: 4 }),
+    stroke: 'ink',
+    creaseAngle: 180,
+  });
+});
+```
+
 ### Editable cellular drawing
 
 Voronoi cells as ordinary material. The large cells are selected; their internal walls are the edges the selection has that are not on its boundary, and one structural edit disconnects them, so the rooms open into each other. The edited material draws like any other; it is no longer anyone's Voronoi cell, and asking it for a site is an error by design.
@@ -1258,6 +1302,36 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
       polygon(r.face, { fill: fill('hatch', { angle: degrees(r.orientation), spacing: mm(0.3 + r.inscribedRadius * 0.2) }), stroke: false })),
     strokes(knot, { pen: 'stabilo-88-blue' }),
   ];
+});
+```
+
+And in three dimensions. The bands are ordinary 2D chains, oscillated flat
+against a roughness field and then mapped onto a globe, so the latitude lines
+buckle over the rough ground and run smooth over the calm — a relief map made
+of nothing but a wavelength and an amplitude that read the page. The globe
+hides its own far side.
+
+```ts live
+import { sketch, pen, mm, curve, oscillate } from 'occlude';
+import { sphere, mapSurface, style, view, orthographic } from 'occlude/3d';
+
+export default sketch({ seed: 9, pens: {
+  ink: pen({ width: mm(0.32), color: '#18202A' }),
+  relief: pen({ width: mm(0.2), color: '#2F5D7C' }),
+} }, (t) => {
+  const CHART = { x: 0, y: 0, width: 100, height: 100 };
+  // Where the ground is rough the latitude lines buckle, and buckle tightly.
+  const rough = (x, y) => Math.max(0, t.noise(x / 17, y / 17) * 1.15 - 0.08);
+  const bands = t.times(38, (k, u) => oscillate(
+    curve(t.times(300, (j, f) => [f * 100, 7 + u * 86])),
+    { wavelength: (x, y) => 2.2 + (1 - rough(x, y)) * 7, amplitude: (x, y) => rough(x, y) * 1.5 },
+  ));
+  const globe = sphere(1.6, { segments: 96, rings: 48 });
+  return view([globe, style(mapSurface(globe, bands, { frame: CHART }), { stroke: 'relief' })], {
+    camera: orthographic({ eye: [5, 2.6, 1.6], target: [0, 0, 0], span: 3.9 }),
+    stroke: 'ink',
+    creaseAngle: 180,
+  });
 });
 ```
 

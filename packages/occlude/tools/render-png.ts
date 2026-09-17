@@ -15,7 +15,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as occlude from '../src/index.js';
 import {
-  exportPng, exportSvg, initOcclude, isSketch, paperSize, type SketchDef,
+  compileSketchAsync, exportPng, exportSvg, initOcclude, isSketch, isSketchAsync,
+  paperSize, type AsyncSketchDef, type SketchDef,
 } from '../src/index.js';
 import { inputsFor, seedArg, requireFor, penLibrary, paperLibrary } from './inputs.js';
 
@@ -59,18 +60,23 @@ const module = { exports: {} as Record<string, unknown> };
 const requireShim = requireFor(penLibrary(opt('pens') === 'docs' ? 'docs' : 'studio'), paperLibrary());
 new Function('require', 'exports', 'module', js)(requireShim, module.exports, module);
 const exp = module.exports;
-const def = (isSketch(exp.default)
+const isDefinition = (v: unknown): v is SketchDef | AsyncSketchDef => isSketch(v) || isSketchAsync(v);
+const def = (isDefinition(exp.default)
   ? exp.default
-  : Object.values(exp).find(isSketch)) as SketchDef | undefined;
+  : Object.values(exp).find(isDefinition)) as SketchDef | AsyncSketchDef | undefined;
 if (!def) {
   console.error('no sketch exported — write `export default sketch({ … }, (toolkit) => tree)`');
   process.exit(1);
 }
 // the docs' own pens with --pens docs, as the docs pages and their checker use them
 const inputs = inputsFor(js, { paper: { paper: paper as never, landscape }, seed: seedArg(seed), pens: opt('pens') === 'docs' ? 'docs' : 'studio' });
-writeFileSync(out, exportPng(def, { ...inputs, scale, background: '#f6f2ea' }));
+// A sketch that reaches into 3D has to be compiled asynchronously, whether or
+// not it was declared with `sketchAsync` — the line-art classifier says so. The
+// compiled Execution is what both exporters take, so one compile serves both.
+const compiled = await compileSketchAsync(def, inputs);
+writeFileSync(out, exportPng(compiled, { scale, background: '#f6f2ea' }));
 console.log(`wrote ${out} (${size.w}×${size.h}mm at ${scale}px/mm)`);
 if (svgOut) {
-  writeFileSync(svgOut, exportSvg(def, { ...inputs, background: '#f6f2ea' }));
+  writeFileSync(svgOut, exportSvg(compiled, { background: '#f6f2ea' }));
   console.log(`wrote ${svgOut}`);
 }
