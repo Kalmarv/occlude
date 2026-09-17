@@ -1530,6 +1530,74 @@ export const connect = {
     return mm.withEdges(pairs, opts.edgeAttributes);
   },
 
+  /**
+   * The cheapest tree that reaches every row: no cycles, no choices, one path
+   * between any two points. Where `tour` visits everything in a line, this
+   * branches — which is what a root, a river, a nervous system and a lightning
+   * strike all look like, because all of them are cheapest-connection problems.
+   *
+   * `cost(a, b)` is the same idea as `tour`'s and defaults to the distance
+   * between the two rows. The candidate edges are the Delaunay ones, which is
+   * exactly right for distance — the Euclidean minimum spanning tree is a
+   * subgraph of the Delaunay triangulation, so nothing is lost — and a
+   * restriction for any other cost, which is then minimised over those
+   * candidates rather than over every pair. Rows at the same position take
+   * part: Delaunay keeps only the first at a position, so the rest are joined
+   * to it, and the tree still reaches every row.
+   *
+   * Rows are not reordered and the result is a chain-free tree: `strokes`
+   * walks each arm, `faces()` finds nothing because a tree encloses nothing,
+   * and `m.degree(p)` tells a tip from a fork.
+   */
+  tree(m: PointsLike, opts: { cost?: (a: Vertex, b: Vertex) => number; edgeAttributes?: Record<string, number> } = {}): Material {
+    const mm = material(m);
+    const n = mm.n;
+    if (opts.cost !== undefined && typeof opts.cost !== 'function') throw new Error('connect.tree: cost must be a function of two vertex views');
+    if (n < 2) return mm.withEdges([], opts.edgeAttributes);
+    const views = Array.from({ length: n }, (_, i) => mm.vertex(i));
+    const raw = opts.cost;
+    const cost = (i: number, j: number): number => {
+      if (!raw) return Math.hypot(mm.x[i] - mm.x[j], mm.y[i] - mm.y[j]);
+      const v = raw(views[i], views[j]);
+      if (typeof v !== 'number' || Number.isNaN(v)) throw new Error(`connect.tree: cost(${i}, ${j}) is ${String(v)} — it must be a number`);
+      return v;
+    };
+    // Candidates: the Delaunay edges, plus a zero-length link from every row
+    // sharing a position to the first row there, which Delaunay left out.
+    const candidates: [number, number][] = [];
+    const delaunay = connect.triangulate(mm).edgeList;
+    for (let e = 0; e < delaunay.length; e += 2) candidates.push([delaunay[e], delaunay[e + 1]]);
+    const firstAt = new Map<string, number>();
+    for (let i = 0; i < n; i++) {
+      const key = `${mm.x[i]},${mm.y[i]}`;
+      const first = firstAt.get(key);
+      if (first === undefined) firstAt.set(key, i);
+      else candidates.push([first, i]);
+    }
+    // Fewer than three distinct positions, or all of them collinear, and
+    // there is no triangulation to draw candidates from: every pair is one.
+    if (delaunay.length === 0) {
+      candidates.length = 0;
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) candidates.push([i, j]);
+    }
+    // Kruskal: cheapest candidate first, taken when it joins two components.
+    const weighted = candidates.map(([a, b], k) => [cost(a, b), k, a, b] as [number, number, number, number]);
+    weighted.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+    const parent = new Int32Array(n);
+    for (let i = 0; i < n; i++) parent[i] = i;
+    const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    const pairs: [number, number][] = [];
+    for (const [, , a, b] of weighted) {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra === rb) continue;
+      parent[Math.max(ra, rb)] = Math.min(ra, rb);
+      pairs.push([a, b]);
+      if (pairs.length === n - 1) break;
+    }
+    return mm.withEdges(pairs, opts.edgeAttributes);
+  },
+
   /** Row i of `a` joined to row i of `b`, in one material (a's rows first).
    * Lengths must match; coincident points stay distinct. */
   pairs(a: PointsLike, b: PointsLike, edgeAttributes?: Record<string, number>): Material {

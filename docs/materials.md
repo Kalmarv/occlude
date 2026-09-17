@@ -426,6 +426,169 @@ export default sketch({ seed: 21, pens: { ink: pen({ width: mm(0.3), color: '#18
 });
 ```
 
+### tree
+
+`connect.tree(m, { cost? })` is the cheapest network that reaches every row:
+no cycles, no choices, exactly one path between any two points. Where `tour`
+visits everything in a line, this **branches** — which is what a root, a
+river, a nervous system and a lightning strike all look like, because all of
+them are cheapest-connection problems.
+
+`cost(a, b)` is `tour`'s idea again and defaults to the distance. The
+candidate edges are the Delaunay ones, which is exactly right for distance —
+the Euclidean minimum spanning tree is always a subgraph of the Delaunay
+triangulation, so nothing is lost — and a restriction for any other cost,
+which is then minimised over those candidates rather than over every pair.
+Rows at the same position take part: Delaunay keeps only the first at a
+position, so the rest are joined to it and the tree still reaches every row.
+With fewer than three distinct positions, or all of them collinear, there is
+no triangulation to draw on and every pair becomes a candidate.
+
+The result is a tree, so `faces()` finds nothing in it, `strokes` walks each
+arm, and `m.degree(p)` tells a tip from a fork.
+
+```ts live
+import { sketch, strokes, circle, connect } from 'occlude';
+
+// The tree and the triangulation it was chosen from. The tree goes down
+// first in black and the triangulation over it in blue, so every edge the two
+// share stays black — ink laid on ink already there is dropped — and what is
+// left in blue is exactly the edges the tree did not take. The cheapest tree
+// that reaches everything is always a subgraph of the Delaunay edges, which
+// is why those are the only candidates it has to consider.
+export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
+  const pts = t.relax(t.scatter({ spacing: 15 }), { iterations: 2 });
+  const tree = connect.tree(pts);
+  return [
+    strokes(tree),
+    strokes(connect.triangulate(pts), { pen: 'stabilo-88-blue' }),
+    tree.points.map((p) => circle(p.x, p.y, tree.degree(p) > 2 ? 1.4 : 1)),
+  ];
+});
+```
+
+A drainage, from a height field and a cost that makes high ground expensive.
+
+```ts live
+import { sketch, strokes, connect } from 'occlude';
+
+// A drainage. The land is a height field; the points are scattered thickly in
+// the low ground and thinly on the tops; and the cost of joining two of them
+// is their distance made dearer by how high they sit. The cheapest tree that
+// still reaches every point therefore runs along the valleys and crosses a
+// ridge only when it has no other way of reaching what is beyond it — which
+// is what a river system is. The contours are the same field, drawn faintly.
+export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
+  const land = (x, y) => t.noise(x / 46, y / 46) * 0.5 + 0.5;
+  const pts = t.scatter((x, y) => { const h = land(x, y); return h > 0.54 ? 0 : 0.25 + Math.pow((0.54 - h) / 0.54, 1.1) * 0.75; }, { spacing: 2.6 });
+  const rivers = connect.tree(pts, {
+    cost: (a, b) => Math.hypot(a.x - b.x, a.y - b.y) * (1 + Math.pow((land(a.x, a.y) + land(b.x, b.y)) / 2, 2) * 7),
+  });
+  return [
+    strokes(t.isolines(land, [0.56, 0.68, 0.8], { step: 0.9 }), { pen: 'stabilo-88-blue' }),
+    strokes(rivers),
+  ];
+});
+```
+
+Composed with the rest of the toolkit. A tree has exactly one path between any
+two points, so every point knows how much of the tree lies beyond it — walk
+out from the mouth once and count. That count is a radius, and `thicken` turns
+the network into an area whose trunk is broad because everything upstream
+drains through it.
+
+```ts live
+import { sketch, polygon, strokes, connect, thicken, fill, mm } from 'occlude';
+
+// Composed: the same drainage, given width. A tree has exactly one path
+// between any two points, so every point knows how much of the tree lies
+// beyond it — walk out from the mouth once and count. That count is a radius,
+// `thicken` turns the network into an area, and the trunk comes out broad
+// because everything upstream drains through it. The tree was never told
+// which end was the sea; the traversal decided.
+export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
+  const land = (x, y) => t.noise(x / 46, y / 46) * 0.5 + 0.5;
+  const pts = t.scatter((x, y) => { const h = land(x, y); return h > 0.54 ? 0 : 0.25 + Math.pow((0.54 - h) / 0.54, 1.1) * 0.75; }, { spacing: 3.2 });
+  const rivers = connect.tree(pts, {
+    cost: (a, b) => Math.hypot(a.x - b.x, a.y - b.y) * (1 + Math.pow((land(a.x, a.y) + land(b.x, b.y)) / 2, 2) * 7),
+  });
+  // The mouth is the lowest point; walk out from it and count what is behind.
+  let mouth = 0;
+  for (let i = 1; i < rivers.n; i++) if (land(rivers.x[i], rivers.y[i]) < land(rivers.x[mouth], rivers.y[mouth])) mouth = i;
+  const parent = new Int32Array(rivers.n).fill(-1);
+  const seen = new Uint8Array(rivers.n);
+  const order = [mouth];
+  seen[mouth] = 1;
+  for (let k = 0; k < order.length; k++) for (const w of rivers.connected(order[k])) if (!seen[w]) { seen[w] = 1; parent[w] = order[k]; order.push(w); }
+  const drains = new Float64Array(rivers.n).fill(1);
+  for (let k = order.length - 1; k > 0; k--) drains[parent[order[k]]] += drains[order[k]];
+  return [
+    polygon(thicken(rivers, { radius: (p) => 0.14 + Math.pow(drains[p.index], 0.42) * 0.3 }), {
+      fill: fill('hatch', { angle: 30, spacing: mm(0.5) }),
+    }),
+    strokes(t.isolines(land, [0.56, 0.72], { step: 0.9 }), { pen: 'stabilo-88-blue' }),
+  ];
+});
+```
+
+Poked: ask for the cheapest tree under a cost that is cheapest when the edge is
+longest. The result still has to be a tree, so it cannot simply join everything
+to everything — it reaches across the sheet for every single edge instead.
+
+```ts live
+import { sketch, strokes, connect, group, rect } from 'occlude';
+
+// Poked: the cost is asked for the cheapest tree, so hand it a cost that is
+// cheapest when the edge is longest. Left, the minimum: short hops, a plausible
+// root. Right, the same points and the same verb under a negated distance —
+// the MOST expensive tree that still reaches everything, which has to stay a
+// tree and so cannot simply connect everything to everything. It reaches
+// across the sheet for every single edge.
+export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
+  const pts = t.relax(t.scatter({ spacing: 11 }), { iterations: 2 });
+  const shrunk = t.within(pts, rect(2, 2, 92, 96));
+  return [
+    strokes(connect.tree(shrunk)),
+    group({ translate: [102, 0] }, strokes(connect.tree(shrunk, { cost: (a, b) => -Math.hypot(a.x - b.x, a.y - b.y) }), { pen: 'stabilo-88-blue' })),
+  ];
+});
+```
+
+And in three dimensions. The cost is the distance *through* a mound rather
+than across the page, so the cheapest network has to climb it; each arm is a
+chain, a chain is a path, and every one of them is swept into a tube that has
+to decide what is in front of what.
+
+```ts live
+import { sketch, pen, mm, connect, circle as disc } from 'occlude';
+import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
+
+// A tree is a tree. The points sit on a mound — high in the middle, low at the
+// rim — and the cost of joining two of them is their distance THROUGH that
+// mound, not across the page, so the cheapest network that reaches all of them
+// has to climb. Each arm of the result is a chain, and a chain is a path, so
+// every one of them is swept into a tube: a thicket that has to decide what is
+// in front of what.
+export default sketch({ seed: 6, pens: { ink: pen({ width: mm(0.26), color: '#18202A' }) } }, (t) => {
+  const mound = (x, y) => 3.4 * Math.exp(-Math.pow(Math.hypot(x - 50, y - 50) / 26, 2));
+  const world = (x, y) => [(x - 50) / 12, (y - 50) / 12, mound(x, y)];
+  const pts = t.relax(t.scatter({ spacing: 5, within: disc(50, 50, 45) }), { iterations: 2, within: disc(50, 50, 44) });
+  const thicket = connect.tree(pts, {
+    cost: (a, b) => {
+      const [ax, ay, az] = world(a.x, a.y);
+      const [bx, by, bz] = world(b.x, b.y);
+      return Math.hypot(ax - bx, ay - by, az - bz);
+    },
+  });
+  return view(thicket.curves().filter((c) => c.pts.length > 1).map((c) =>
+    sweep(circle(0.085, { segments: 12 }), polyline(c.pts.map(([x, y]) => world(x, y))))), {
+    camera: orthographic({ eye: [5, -7.5, 3.1], target: [0, 0, 1.4], span: 8.2 }),
+    stroke: 'ink',
+    creaseAngle: 180,
+  });
+});
+```
+
 ### Vectors
 
 Vectors are tuples `[x, y]`. Every operation accepts `[x, y]` or `{ x, y }` (so a vertex view goes straight in), returns a fresh tuple and mutates nothing. `unit([0, 0])` is `[0, 0]`, so coincident points contribute no direction and no NaN. `mul` is scalar multiplication; `limit(v, max)` caps a length; `sumBy(items, fn)` totals a vector function over a collection. `dot(a, b)` and `cross(a, b)` are the two products, the cross a signed number: positive when `b` lies on the side `perp(a)` points to, negative on the other, zero when parallel or when either is the zero vector, so `Math.sign(cross(heading, toward))` is the side test a steering rule needs. `fromAngle(radians)` is the unit vector `[cos, sin]` and `angleOf(v)` its inverse through `atan2`, both in radians from +x toward +y; `angleOf([0, 0])` is 0.
