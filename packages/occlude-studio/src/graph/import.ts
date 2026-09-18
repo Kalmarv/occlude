@@ -32,7 +32,7 @@ import { estimateBox, layoutGraph } from './layout.js';
 import {
   accepts, wordInputs,
   type Catalogue, type CatalogueInput, type CatalogueParam, type CatalogueWord,
-  type Graph, type GraphInput, type GraphNode, type Takes, type ValueType, type ZoneKind,
+  ZONES, type Graph, type GraphInput, type GraphNode, type Takes, type ValueType, type ZoneKind,
 } from './model.js';
 
 /** What the output node takes: what a sketch may return (`model.ts`). */
@@ -772,46 +772,48 @@ class Reader {
    * can take it apart into nodes from there.
    */
   private zoneNode(expr: ts.CallExpression, id: string): GraphNode | undefined {
-    // Neither `t.times` nor `.map` is a catalogue word, and neither can be:
-    // the parameter that matters is a function, and no socket carries one.
-    // That is exactly why they are zones, so the zone recognises the calls.
-    const callee = expr.expression;
-    if (!ts.isPropertyAccessExpression(callee)) return undefined;
-    const isTimes = callee.name.text === 'times'
-      && ts.isIdentifier(callee.expression) && callee.expression.text === 't' && !this.bindings.has('t');
-    const isMap = callee.name.text === 'map' || callee.name.text === 'filter';
-    const isSteps = callee.name.text === 'steps';
-    if (!isTimes && !isMap && !isSteps) return undefined;
-    const kind: ZoneKind = isTimes ? 'times' : isSteps ? 'steps' : callee.name.text === 'filter' ? 'filter' : 'map';
-    const named = isTimes ? 't.times' : isSteps ? '.steps' : `.${callee.name.text}`;
-    const [first, second] = expr.arguments;
-    // `t.times(count, body)` takes the count first; `rows.map(body)` and
-    // `m.steps(count, body)` take their collection as the receiver.
-    const over = isTimes ? first : callee.expression;
-    const callback = isTimes ? second : isSteps ? second : first;
-    if (!over || !callback || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) {
+    const shape = zoneShapeOf(expr, (name) => this.bindings.has(name));
+    if (!shape) return undefined;
+    const { kind, named, over, callback, count: countArg, options } = shape;
+    if (!(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) {
       this.refuse(id, named, 'the body is not written out where the zone can hold it');
       return undefined;
     }
-    if (isMap && expr.arguments.length !== 1) return undefined; // `.map(fn, thisArg)` is not this
-    if (isSteps && (expr.arguments.length < 2 || expr.arguments.length > 3)) return undefined;
+    const recipe = ZONES[kind];
     const mark = this.nodes.length;
-    const counted = this.argument(over, false);
-    if (counted === undefined || (!isTimes && !counted.from)) {
-      this.rollback(mark);
-      this.refuse(id, named, isTimes ? 'the count is not a literal or an earlier node' : 'the collection is not a value the graph holds');
-      return undefined;
-    }
-    // `steps` runs its rule a given number of times, beside its receiver.
-    let counts: GraphInput | undefined;
-    if (isSteps) {
-      counts = this.argument(first!, false);
-      if (counts === undefined) {
+    const give = (name: string, arg: ts.Expression, wired: boolean, why: string): GraphInput | undefined => {
+      const input = this.argument(arg, false);
+      if (input === undefined || (wired && !input.from)) {
         this.rollback(mark);
-        this.refuse(id, named, 'the number of steps is not a literal or an earlier node');
+        this.refuse(id, named, why);
         return undefined;
       }
+      return input;
+    };
+
+    // The thing the zone runs over, under the name its recipe gives it.
+    const overName = recipe.takes[0]!.name;
+    const overInput = give(overName, over, kind !== 'times', `${overName} is not a value the graph holds`);
+    if (!overInput) return undefined;
+    const inputs: Record<string, GraphInput> = { [overName]: overInput };
+
+    // A count beside it, where the recipe asks for one.
+    if (countArg) {
+      const counted = give('count', countArg, false, 'the number of steps is not a literal or an earlier node');
+      if (!counted) return undefined;
+      inputs['count'] = counted;
     }
+
+    // The rule's own options, as source text the compiler writes back.
+    if (options) {
+      if (reads(options).some((r) => this.bindings.has(r.text))) {
+        this.rollback(mark);
+        this.refuse(id, named, 'the options read a value the graph holds');
+        return undefined;
+      }
+      inputs['opts'] = { value: { __raw: this.code(options) } };
+    }
+
     const binds: string[] = [];
     for (const parameter of callback.parameters) {
       if (!ts.isIdentifier(parameter.name)) {
@@ -821,47 +823,36 @@ class Reader {
       }
       binds.push(parameter.name.text);
     }
-    // What the body reads from outside: each becomes a boundary output, and
-    // the zone node takes it under the same name.
-    const body = callback.body;
-    const captured = this.inputsOf([body]);
-    const over_ = isTimes ? 'count' : isSteps ? 'material' : 'rows';
-    const inputs: Record<string, GraphInput> = { [over_]: counted };
-    if (counts) inputs['count'] = counts;
-    // `m.steps(n, rule, { every: 40 })`: the rule's own options ride on the
-    // node as source text, and the compiler writes them back after the body.
-    const trailing = isSteps ? expr.arguments[2] : undefined;
-    if (trailing) {
-      if (reads(trailing).some((r) => this.bindings.has(r.text))) {
+
+    // What the body reads from outside crosses the boundary under its own
+    // name — unless the recipe already uses that name for one of its own
+    // inputs, and then the two would be one socket carrying two things.
+    const reserved = new Set(recipe.takes.map((t) => t.name));
+    const boundary: Record<string, ValueType> = {};
+    for (const name of binds) boundary[name] = kind === 'times' ? 'Number' : 'Geometry';
+    for (const [name, input] of Object.entries(this.inputsOf([callback.body]))) {
+      if (binds.includes(name)) continue;
+      if (reserved.has(name)) {
         this.rollback(mark);
-        this.refuse(id, named, 'the options read a value the graph holds');
+        this.refuse(id, named, `the body reads ${name}, which is what this zone calls its own input`);
         return undefined;
       }
-      inputs['opts'] = { value: { __raw: this.code(trailing) } };
-    }
-    const boundary: Record<string, ValueType> = {};
-    // `times` hands the body two numbers; `map` hands it a row and `steps`
-    // the two states, whose kinds the graph does not name — what they hold is
-    // read inside the body, the way the sketch reads it.
-    for (const name of binds) boundary[name] = isTimes ? 'Number' : 'Geometry';
-    for (const [name, input] of Object.entries(captured)) {
-      if (binds.includes(name)) continue;
       inputs[name] = input;
       boundary[name] = input.type ?? 'Geometry';
     }
-    const inner: GraphNode = {
-      id: 'body', kind: 'code', x: 0, y: 0,
-      inputs: Object.fromEntries(Object.keys(boundary).map((name) => [name, { type: boundary[name]!, from: ['each', name] as [string, string] }])),
-      outputs: { out: 'Geometry' },
-      body: this.bodyOf(body, !isSteps),
-    };
+
     const inside: Graph = {
       version: 1, name: '', config: {},
       nodes: [
         { id: 'each', kind: 'input', x: 0, y: 0, inputs: {}, outputs: boundary },
-        inner,
-        // A rule answers with nothing, so its result reads nothing.
-        { id: 'result', kind: 'output', x: 0, y: 0, inputs: isSteps ? {} : { in: { from: ['body', 'out'] } } },
+        {
+          id: 'body', kind: 'code', x: 0, y: 0,
+          inputs: Object.fromEntries(Object.keys(boundary).map((name) => [name, { type: boundary[name]!, from: ['each', name] as [string, string] }])),
+          outputs: { out: 'Geometry' },
+          body: this.bodyOf(callback.body, recipe.answers !== false),
+        },
+        // A run that answers with nothing has a result that reads nothing.
+        { id: 'result', kind: 'output', x: 0, y: 0, inputs: recipe.answers === false ? {} : { in: { from: ['body', 'out'] } } },
       ],
     };
     return { id, kind: 'zone', zone: kind, x: 0, y: 0, inputs, outputs: { out: 'Geometry' }, binds, graph: inside };
@@ -1130,6 +1121,50 @@ class Reader {
   private line(node: ts.Node): number {
     return this.file.getLineAndCharacterOfPosition(node.getStart(this.file)).line + 1;
   }
+}
+
+/**
+ * The calls that are zones, and where each keeps its pieces.
+ *
+ * None of these can be a catalogue word: the parameter that matters is a
+ * function, and no socket carries one. That is exactly why they are zones, so
+ * the zone recognises the calls itself. A method is matched by name alone —
+ * `.map` on an array and on a point selection compile the same way.
+ */
+interface ZoneShape {
+  kind: ZoneKind;
+  /** How the call reads, for a message. */
+  named: string;
+  /** What the body runs over: a count, or a collection. */
+  over: ts.Expression;
+  callback: ts.Expression;
+  /** A count beside the collection, where the word takes one. */
+  count?: ts.Expression;
+  /** The word's own trailing options. */
+  options?: ts.Expression;
+}
+
+function zoneShapeOf(expr: ts.CallExpression, bound: (name: string) => boolean): ZoneShape | undefined {
+  const callee = expr.expression;
+  if (!ts.isPropertyAccessExpression(callee)) return undefined;
+  const method = callee.name.text;
+  const args = expr.arguments;
+  // `t.times(count, body)` is the toolkit's own, and takes the count first.
+  if (method === 'times' && ts.isIdentifier(callee.expression) && callee.expression.text === 't' && !bound('t')) {
+    return args.length === 2 && args[0] && args[1]
+      ? { kind: 'times', named: 't.times', over: args[0], callback: args[1] }
+      : undefined;
+  }
+  // `rows.map(body)` and `rows.filter(body)` take the collection as the
+  // receiver. A second argument is `thisArg`, which is not this.
+  if ((method === 'map' || method === 'filter') && args.length === 1 && args[0]) {
+    return { kind: method, named: `.${method}`, over: callee.expression, callback: args[0] };
+  }
+  // `m.steps(count, rule, opts?)` takes its material as the receiver.
+  if (method === 'steps' && args.length >= 2 && args.length <= 3 && args[0] && args[1]) {
+    return { kind: 'steps', named: '.steps', over: callee.expression, callback: args[1], count: args[0], options: args[2] };
+  }
+  return undefined;
 }
 
 /** Lay the nodes out left to right in topological depth: a node sits at the

@@ -117,6 +117,34 @@ function takesText(takes: Takes): string {
 
 /** The expression an input reads: a literal, or the upstream node's output. */
 /**
+ * A code node that is one expression and reads nothing.
+ *
+ * `const b = ((…) => { return { out: t.bounds() }; })(…)` is a function call
+ * to say `t.bounds()`, and the compiled sketch is what the artist reads. Such
+ * a node is written as its expression, and what reads it reads the `const`
+ * rather than a field of it.
+ *
+ * Only a node with no inputs: with inputs, whether the body's names still
+ * mean the same thing outside it depends on what its own sources compiled
+ * to, and one decision made in two places is how they disagree. A node with
+ * inputs keeps its wrapper, and a zone's own peephole covers the case that
+ * matters.
+ */
+const ONE_EXPRESSION = /^return \{ out: ([\s\S]*) \};$/;
+
+function flatOf(node: GraphNode): string | undefined {
+  if (node.kind !== 'code' || node.body === undefined) return undefined;
+  if (Object.keys(node.inputs).length > 0) return undefined;
+  const outputs = Object.keys(node.outputs ?? {});
+  if (outputs.length !== 1 || outputs[0] !== 'out') return undefined;
+  const found = ONE_EXPRESSION.exec(node.body.trim());
+  // A `return` inside the expression means the body is doing more than
+  // answering: an inner function, a statement dressed as one.
+  if (!found || /\breturn\b/.test(found[1]!)) return undefined;
+  return found[1];
+}
+
+/**
  * How a wire reads as an expression.
  *
  * `boundary` is a zone's answer for its own `input` node: inside a zone, a
@@ -140,7 +168,9 @@ function inputExpression(node: GraphNode, key: string, graph: Graph, catalogue: 
       ? `graph: node ${node.id} input ${key} reads the output node, which has no outputs`
       : `graph: ${fromId} has no output ${out}`);
   }
-  const expression = source.kind === 'code' ? `${fromId}.${out}` : fromId;
+  // A code node written as its own expression is read as the `const`, not as
+  // a field of it.
+  const expression = source.kind === 'code' && flatOf(source) === undefined ? `${fromId}.${out}` : fromId;
   // A variadic word takes one socket; the wire says whether the collection
   // on it is the arguments or one of them.
   return input.spread ? `...${expression}` : expression;
@@ -268,6 +298,8 @@ function builtinArgs(word: CatalogueWord, node: GraphNode, graph: Graph, catalog
  * line, unless it holds a line comment — that would comment out the call's
  * closing tokens. */
 function codeSource(node: GraphNode, graph: Graph, catalogue: Catalogue, boundary?: (output: string) => string): string {
+  const one = flatOf(node);
+  if (one !== undefined) return `const ${node.id} = ${one};`;
   const keys = Object.keys(node.inputs);
   const body = node.body!.trim();
   const lines = body.split('\n');
