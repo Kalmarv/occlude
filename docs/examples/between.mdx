@@ -1,0 +1,41 @@
+---
+title: Between
+description: A disc becomes a cross, because a distance field is a number you can average.
+---
+
+A shape here is a function that gives a number at every point. Two shapes then have a shape halfway between them, and an ordinary weighted sum finds it: `disc(x, y) * (1 - k) + bar(x, y) * k`. Nothing matches one vertex to another. The two shapes need not even hold the same number of points. Neither holds any points until `t.isolines` takes the contour.
+
+Each cell takes `k` a step further along. The corners of the cross grow out of a circle and the circle flattens into them. An intermediate shape is not a blend of two outlines. It is the real boundary of a real field, and a fill and occlusion treat it like any other area.
+
+The hatch turns with `k` as well. The plate then reads as one motion, not as nine separate drawings.
+
+Uses: `field.circle`, `field.box`, `field.union`, a weighted sum of two fields, `t.grid`, `t.isolines`, `polygon` with a `fill`.
+
+:::note
+A weighted sum of two exact distance fields is not itself exact. It is close enough near the boundary to contour, and that is what the drawing needs. Read a level far from zero and it drifts.
+:::
+
+```ts live
+import { sketch, polygon, strokes, field, fill, pen, mm } from 'occlude';
+
+export default sketch({
+  aspect: [1, 1], seed: 4, margin: 6,
+  pens: { ink: pen({ width: mm(0.28), color: '#16181d' }), fine: pen({ width: mm(0.13), color: '#16181d' }) },
+}, (t) => {
+  const cells = t.grid({ cols: 3, rows: 3 });
+  return cells.map((c, i) => {
+    const k = i / (cells.length - 1);
+    const r = Math.min(c.w, c.h) * 0.36;
+    const disc = field.circle(c.cx, c.cy, r);
+    const bar = field.union(
+      field.box(c.cx, c.cy, r * 2.1, r * 0.66),
+      field.box(c.cx, c.cy, r * 0.66, r * 2.1),
+    );
+    const between = (x, y) => disc(x, y) * (1 - k) + bar(x, y) * k;
+    return [
+      polygon(t.isolines(between, 0), { fill: fill('hatch', { angle: 30 + k * 60, spacing: mm(1.1) }), pen: 'fine' }),
+      strokes(t.isolines(between, 0), { pen: 'ink' }),
+    ];
+  });
+});
+```
