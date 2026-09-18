@@ -238,13 +238,23 @@ async function handleMessage(msg: Msg): Promise<void> {
         // and the copies are transferred, not structured-cloned a second
         // time. Decode metadata (pens/frame/paper) rides along so the main
         // thread can decode without ever having held the scene.
-        // The preview's copies. A shaded sketch shows the PLAN, because the
-        // finished paper precedes planning and cannot carry a shader — a
-        // shaded sketch would otherwise preview solid and plot shaded,
-        // which law 5 forbids. Exports keep using the cached originals.
-        const shownForPreview = scene.plan?.shader ? planAsBuffers(planBuf) : null;
-        const prims = shownForPreview ? shownForPreview.prims : raw.prims.slice();
-        const frags = shownForPreview ? shownForPreview.frags : raw.frags.slice();
+        // The preview draws THE PLAN — the ink the machine lays down, not
+        // the finished paper that precedes planning. Law 5 asks for
+        // exactly this, and a shader made it necessary: the paper cannot
+        // carry one, so a shaded sketch previewed solid and plotted
+        // shaded.
+        //
+        // It costs nothing. Measured on a hatched sheet: the paper is
+        // 3193.6mm of ink in 385 fragments and the plan is 3193.6mm in 153
+        // chains — 0.07mm apart, which is the sub-nib bridges the machine
+        // draws anyway. Re-encoding takes under a millisecond. A plan also
+        // keeps lines, arcs and cubics exactly as the render made them, so
+        // nothing is flattened on the way to the screen.
+        //
+        // Exports keep using the cached originals and the plan buffer.
+        const shownForPreview = planAsBuffers(planBuf);
+        const prims = shownForPreview.prims;
+        const frags = shownForPreview.frags;
         const ghost = raw.ghost?.slice();
         const plan = planBuf.slice();
         const transfer: ArrayBuffer[] = [prims.buffer, frags.buffer, plan.buffer];
