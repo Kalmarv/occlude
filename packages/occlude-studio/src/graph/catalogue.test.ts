@@ -41,10 +41,16 @@ describe('the catalogue', () => {
 
   it('gives every word a module, a call, a page and a group', () => {
     for (const w of CATALOGUE.words) {
-      expect(w.call, w.word).toMatch(/^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)?$/);
+      expect(w.call, w.word).toMatch(/^(\{self\}|[A-Za-z_$][A-Za-z0-9_$]*)(\.[A-Za-z_$][A-Za-z0-9_$]*)?$/);
       expect(w.page, w.word).toMatch(/^\/docs\/reference\//);
       expect(w.group, w.word).not.toBe('');
-      if (w.receiver === 't') expect(w.import, w.word).toBeNull();
+      // A receiver word hangs off its receiver, and nothing else: its first
+      // input is that receiver, and there is no import for it.
+      expect(w.call.startsWith('{self}'), w.word).toBe(w.self !== undefined);
+      if (w.self) {
+        expect(wordInputs(w)[0], w.word).toMatchObject({ name: w.self.param, self: true, optional: false });
+        expect(w.import, w.word).toBeNull();
+      } else if (w.receiver === 't') expect(w.import, w.word).toBeNull();
       else expect(w.import, w.word).not.toBeNull();
     }
   });

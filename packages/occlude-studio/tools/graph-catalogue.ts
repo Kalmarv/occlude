@@ -342,6 +342,7 @@ interface Word {
   receiver: string | null;
   import: string | null;
   call: string;
+  self?: { param: string; takes: { socket: SocketClass; kinds: GeometryKind[] } };
   params: Param[];
   returns: ValueType;
   page: string;
@@ -481,10 +482,11 @@ function walk(symbols: ts.Symbol[], module: 'occlude' | 'occlude/3d'): void {
       }
       continue;
     }
-    if (!(sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable))) continue;
-    const type = checker.getTypeOfSymbolAtLocation(sym, decl);
+    if (!(sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable | ts.SymbolFlags.Class))) continue;
+    const type = sym.flags & ts.SymbolFlags.Class ? checker.getDeclaredTypeOfSymbol(sym) : checker.getTypeOfSymbolAtLocation(sym, decl);
     // An object a sketch may reach into (`v3.add`, the 3D `force`) is
-    // importable too, and so is any other exported value.
+    // importable too, and so is any other exported value, a class included
+    // (`FaceSelection3`, a type a sketch may name).
     const clash = module === 'occlude/3d' && twoDNames.has(name);
     importable[module].set(clash ? `${name}3` : name, clash ? `${name} as ${name}3` : name);
     if (type.getCallSignatures().length === 0) continue;
@@ -495,6 +497,61 @@ function walk(symbols: ts.Symbol[], module: 'occlude' | 'occlude/3d'): void {
       continue;
     }
     addWord(key, module, null, clash ? `${name} as ${name}3` : name, clash ? `${name}3` : name, plan, decl);
+  }
+}
+
+/** The value classes a node may hang a method off, with the socket the
+ * receiver travels on. A row view (`Edge`, `Vertex`, `Station`, `Next`) is
+ * reached by indexing a material, not by a wire, so it has no kind and no
+ * node. */
+const OWNERS: Record<string, { kind: GeometryKind; param: string }> = {
+  Material: { kind: 'material', param: 'material' },
+  PointSelection: { kind: 'points', param: 'points' },
+  Faces: { kind: 'faces', param: 'faces' },
+  FaceSelection: { kind: 'faces', param: 'faces' },
+  '3d.Mesh': { kind: 'mesh', param: 'mesh' },
+};
+
+/** Every method and value a receiver class offers, as a word that takes the
+ * receiver on a socket: `Material.steps` → `{self}.steps(...)`. */
+function walkOwners(moduleSymbol: ts.Symbol): void {
+  for (let sym of checker.getExportsOfModule(moduleSymbol)) {
+    const name = sym.getName();
+    const owner = OWNERS[name];
+    if (!owner) continue;
+    if (sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    const type = checker.getDeclaredTypeOfSymbol(sym);
+    for (const prop of checker.getPropertiesOfType(type)) {
+      const member = prop.getName();
+      if (member.startsWith('_') || member === 'constructor') continue;
+      const decl = prop.valueDeclaration ?? prop.declarations?.[0];
+      if (!decl) continue;
+      if (ts.getCombinedModifierFlags(decl as ts.Declaration) & ts.ModifierFlags.Private) continue;
+      if (ts.getJSDocTags(decl).some((t) => t.tagName.text === 'internal')) continue;
+      const word = `${name}.${member}`;
+      const page = pageOfWord.get(word);
+      if (!page) {
+        skipped.push({ word, reason: 'no reference page documents it' });
+        continue;
+      }
+      const propType = checker.getTypeOfSymbolAtLocation(prop, decl);
+      let plan: { params: Param[]; returns: ValueType } | { problem: string };
+      if (propType.getCallSignatures().length > 0) {
+        plan = planOf(propType, decl, word);
+      } else {
+        const returns = valueOf(propType);
+        plan = returns ? { params: [], returns } : { problem: `holds ${checker.typeToString(propType, decl, ts.TypeFormatFlags.NoTruncation)}` };
+      }
+      if ('problem' in plan) {
+        skipped.push({ word, reason: plan.problem });
+        continue;
+      }
+      words.push({
+        word, module: name.startsWith('3d.') ? 'occlude/3d' : 'occlude', receiver: null, import: null,
+        call: `{self}.${member}`, self: { param: owner.param, takes: { socket: 'Geometry', kinds: [owner.kind] } },
+        params: plan.params, returns: plan.returns, page: `/docs/reference/${page.slug}`, group: page.group,
+      });
+    }
   }
 }
 
@@ -543,6 +600,8 @@ for (let sym of checker.getExportsOfModule(mod)) {
 }
 walk(checker.getExportsOfModule(mod), 'occlude');
 walk(checker.getExportsOfModule(mod3), 'occlude/3d');
+walkOwners(mod);
+walkOwners(mod3);
 walkToolkit();
 
 /** `--debug <word>` prints why one word maps, or does not: every overload,
@@ -648,6 +707,7 @@ for (const w of words) {
   lines.push('    {');
   lines.push(`      word: ${q(w.word)}, module: ${q(w.module)}, receiver: ${w.receiver ? q(w.receiver) : 'null'},`);
   lines.push(`      import: ${w.import ? q(w.import) : 'null'}, call: ${q(w.call)}, returns: ${q(w.returns)},`);
+  if (w.self) lines.push(`      self: { param: ${q(w.self.param)}, takes: { socket: ${q(w.self.takes.socket)}, kinds: [${w.self.takes.kinds.map(q).join(', ')}] } },`);
   lines.push(`      page: ${q(w.page)}, group: ${q(w.group)},`);
   lines.push('      params: [');
   for (const p of w.params) {

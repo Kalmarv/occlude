@@ -80,7 +80,8 @@ export interface CatalogueParam {
   options?: CatalogueOption[];
 }
 
-/** One input of a built-in word: a plain parameter, or one option. */
+/** One input of a built-in word: a plain parameter, one option, or the
+ * receiver a method hangs off. */
 export interface CatalogueInput {
   /** The key inside a node's `inputs`. */
   name: string;
@@ -92,6 +93,8 @@ export interface CatalogueInput {
   control?: ControlKind;
   choices?: string[];
   optional: boolean;
+  /** True for the receiver of a value method: `m.steps` takes a material. */
+  self?: boolean;
 }
 
 /** One exported word, as the catalogue carries it. */
@@ -108,8 +111,12 @@ export interface CatalogueWord {
    * the name. Null for a toolkit word, which is a member of `t`. */
   import: string | null;
   /** How a compiled sketch calls it: `circle`, `t.sample` (a host that
-   * already has its own `circle` imports the 3D one as `circle3`). */
+   * already has its own `circle` imports the 3D one as `circle3`). A value
+   * method carries `{self}` where its receiver goes: `{self}.steps`. */
   call: string;
+  /** The receiver a value method hangs off (`m.steps` takes a material).
+   * It is the node's first input, and it is not a call argument. */
+  self?: { param: string; takes: Takes };
   params: CatalogueParam[];
   returns: ValueType;
   /** The reference page it links to, `/docs/reference/<page>`. */
@@ -144,6 +151,10 @@ export function wordOf(catalogue: Catalogue, word: string): CatalogueWord | unde
 export function wordInputs(word: CatalogueWord): CatalogueInput[] {
   const out: CatalogueInput[] = [];
   const seen = new Set<string>();
+  if (word.self) {
+    seen.add(word.self.param);
+    out.push({ name: word.self.param, param: word.self.param, takes: word.self.takes, optional: false, self: true });
+  }
   for (const p of word.params) {
     if (!p.options) {
       seen.add(p.name);
