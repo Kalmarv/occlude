@@ -23,7 +23,7 @@ const PAGES: { key: PageKey; label: string; href: string }[] = [
   { key: 'assets', label: 'Assets', href: '/assets.html' },
   { key: 'machine', label: 'Machine', href: '/machine.html' },
   { key: 'results', label: 'Results', href: '/results.html' },
-  { key: 'docs', label: 'Docs', href: '/docs.html' },
+  { key: 'docs', label: 'Docs', href: '/docs' },
 ];
 
 export function icon(key: PageKey): SVGSVGElement {
