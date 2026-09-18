@@ -1,9 +1,9 @@
-import {objectSurfaceBinding3,legacySurfaceCurveNetwork3,validateSurfaceCurveNetwork3,type SurfaceBinding3,type SurfaceCurveObject3} from '../curves/network.js';
+import {objectSurfaceBinding3,legacySurfaceCurveNetwork3,validateSurfaceCurveNetwork3,type SurfaceBinding3,type SurfaceCurveObject3,type SurfaceCurveGraph3} from '../curves/network.js';
 import { realizeHatch3, validateHatch3, type HatchSource3 } from '../curves/hatch.js';
 import type { UnitCtx } from '../../units.js';
 import { validateSurfaceCurves3, type SurfaceCurves3, type SurfaceCurveSegment3 } from '../curves/surface.js';
 import { orient3d } from 'robust-predicates';
-import { clipSegment3, clipTriangle3, toCamera3, toPaper3, type CameraFrame3 } from '../camera.js';
+import { clipSegment3, clipTriangle3, outsideView3, toCamera3, toPaper3, type CameraFrame3, type PaperFrame3 } from '../camera.js';
 import { cross3, dot3, lerp3, mul3, sub3, unit3, type Triangle3, type Vec3 } from '../math.js';
 import { transformSurface3 } from '../geometry/model.js';
 import type { Attributes3, Surface3 } from '../geometry/surface.js';
@@ -60,7 +60,7 @@ export interface FeatureSnapshot3 {
   /** Includes unselected source segments for continuous stroke phase. */
   readonly referenceFeatures?:readonly Feature3[];
   /** Each generated graph occurs once, including isolated point contacts. */
-  readonly curveGraphs?:readonly SurfaceCurveObject3[];
+  readonly curveGraphs?:readonly SurfaceCurveGraph3[];
   readonly triangles: readonly Triangle3[];
   readonly occluders: readonly Occluder3[];
   readonly index: ProjectedIndex3;
@@ -73,8 +73,8 @@ const edgeKey = (a: number, b: number) => a < b ? `${a}:${b}` : `${b}:${a}`;
  * are retained so downstream thresholds/marks can select without re-dispatch.
  * Planar triangulation diagonals are not candidates. A folded face's actual
  * triangle-facing transition is a silhouette and retains face parentage. */
-export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: readonly WireObject3[], frame: CameraFrame3, units:UnitCtx={innerW:frame.paper.width,innerH:frame.paper.height}, curves:readonly SurfaceCurveObject3[]=[]): FeatureSnapshot3 {
-  const features: Feature3[] = [], referenceFeatures:Feature3[]=[], curveGraphs:SurfaceCurveObject3[]=[], triangles: Triangle3[] = [], occluders: Occluder3[] = [];
+export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: readonly WireObject3[], frame: CameraFrame3, units:UnitCtx={innerW:frame.paper.width,innerH:frame.paper.height}, curves:readonly SurfaceCurveObject3[]=[], sheet?:PaperFrame3): FeatureSnapshot3 {
+  const features: Feature3[] = [], referenceFeatures:Feature3[]=[], curveGraphs:SurfaceCurveGraph3[]=[], triangles: Triangle3[] = [], occluders: Occluder3[] = [];
   const worldView=Object.freeze({perspective:frame.camera.kind==='perspective',eye:frame.camera.eye,target:frame.camera.target,back:frame.back,near:frame.camera.near,far:frame.camera.far});
   const ids = [...objects, ...wires, ...curves].map(v => v.id);
   if (new Set(ids).size !== ids.length || ids.some(id => !id)) throw new Error('scene object IDs must be nonempty and unique');
@@ -104,9 +104,9 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
   };
   type BindingCapture={object:SurfaceObject3;triangleIds:readonly string[];faceAttrs:readonly Readonly<Attributes3>[]};
   const captures=new Map<SurfaceBinding3,BindingCapture[]>();
-  const emitNetwork=(entry:SurfaceCurveObject3,bindings:readonly BindingCapture[],legacy?:{object:SurfaceObject3;segments:readonly SurfaceCurveSegment3[];positions:readonly Vec3[];worldPositions:readonly Vec3[]})=>{
+  const emitNetwork=(entry:SurfaceCurveGraph3,bindings:readonly BindingCapture[],legacy?:{object:SurfaceObject3;segments:readonly SurfaceCurveSegment3[];positions:readonly Vec3[];worldPositions:readonly Vec3[]})=>{
     const network=entry.network.reference??entry.network,selected=new Set(entry.network.segments.map(s=>s.id));
-    const graph=curveGraphs.length;curveGraphs.push(Object.freeze({...entry,network,attributes:attributes(entry.attributes)}));
+    const graph=curveGraphs.length;curveGraphs.push(Object.freeze({id:entry.id,network,attributes:attributes(entry.attributes)}));
     network.segments.forEach((segment,index)=>{
       const a=network.nodes[segment.a],b=network.nodes[segment.b],curve=legacy?.segments[index];
       const position=(end:'a'|'b'):Vec3=>curve?curve[end].vertices.reduce((sum,v,i)=>sum.map((x,k)=>x+legacy!.positions[v][k]*curve[end].weights[i]) as unknown as Vec3,[0,0,0] as Vec3):toCamera3(frame,(end==='a'?a:b).position);
@@ -121,12 +121,19 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
       add({...(legacy?.object.instance?{instance:Object.freeze({...legacy.object.instance})}:{}),...(legacy?.object.stroke!==undefined?{stroke:legacy.object.stroke}:{}),...(legacy?.object.fillPen!==undefined?{fillPen:legacy.object.fillPen}:{}),id:key(entry.id,segment.id),objectId:entry.id,sourceId:segment.id,flags:FeatureKind3[segment.kind],curve,supportedCurve:Object.freeze({graph,segment:index}),basis,creaseAngle:0,a:position('a'),b:position('b'),endpoints:[key(entry.id,'curve',a.id),key(entry.id,'curve',b.id)],support,attributes:attributes({...entry.attributes,...segment.attributes}),faceAttributes:[...faces.values()]},!selected.has(segment.id));
     });
   };
+  // Curves already computed name the objects they lie on; those objects
+  // stay even when the view cannot see them, so their seams keep a placement.
+  const needed=new Set<SurfaceBinding3>();
+  for(const entry of curves)if(entry.network)for(const source of entry.network.sources)needed.add(source.binding);
   for (const object of objects) {
     if(object.curves)validateSurfaceCurves3(object.curves,object.surface);
     if(object.hatch)validateHatch3(object.hatch,object.surface);
     const surface = object.transform ? transformSurface3(object.surface, object.transform) : object.surface;
     const worldPositions=surface.points.map(p=>Object.freeze([...p.position]) as Vec3);
     const positions=worldPositions.map(p=>Object.freeze(toCamera3(frame,p)));
+    // An object wholly outside the view draws nothing and hides nothing: it
+    // is skipped before it costs a feature, an occluder or a seam.
+    if(outsideView3(frame,positions,sheet)&&!needed.has(objectSurfaceBinding3(object)))continue;
     const edgeBasis=(vertices:readonly [number,number]):SegmentBasis3=>Object.freeze(vertices.map(v=>Object.freeze([Object.freeze({point:positions[v],world:worldPositions[v],weight:1})]))) as SegmentBasis3;
     const faceAttrs = surface.faces.map(f => attributes(f.attributes));
     const faceTriangles: number[][] = surface.faces.map(() => []);
@@ -200,13 +207,15 @@ export function featureSnapshot3(objects: readonly SurfaceObject3[], wires: read
     }
   }
   for(const entry of curves){
-    validateSurfaceCurveNetwork3(entry.network);
-    const bindings=entry.network.sources.map(source=>{
+    // A description resolves now, among the objects this view kept.
+    const network=entry.network??entry.recipe.resolve(binding=>captures.has(binding));
+    validateSurfaceCurveNetwork3(network);
+    const bindings=network.sources.map(source=>{
       const matches=captures.get(source.binding)??[];
       if(matches.length!==1)throw new Error(matches.length?'surface curve placement is ambiguous; provide distinct placement bindings':'surface curve source placement is missing from this scene');
       return matches[0];
     });
-    emitNetwork(entry,bindings);
+    emitNetwork({id:entry.id,network,attributes:entry.attributes},bindings);
   }
   for (const wire of wires) for (let i = 0; i + 1 < wire.points.length; i++) {
     const world=[wire.points[i],wire.points[i+1]].map(p=>Object.freeze([...p]) as Vec3);

@@ -85,3 +85,32 @@ export function clipTriangle3(triangle: Triangle3, near: number, far: number): T
   for (let i = 1; i + 1 < polygon.length; i++) result.push([polygon[0], polygon[i], polygon[i + 1]]);
   return result;
 }
+
+/** True when every point lies beyond the near or far plane, or, when the
+ * physical `sheet` is given, beyond one edge of it. Nothing inside the convex
+ * hull of such points can be plotted, and nothing outside the view can stand
+ * between the eye and a visible point, so the object can be skipped without
+ * changing a stroke. Strokes are not clipped to the paper frame, only to the
+ * sheet by the plotter, so the frame itself is never a cull. A perspective
+ * object with a point behind the eye is kept. */
+export function outsideView3(frame: CameraFrame3, points: readonly Vec3[], sheet?: PaperFrame3): boolean {
+  if (!points.length) return true;
+  const c = frame.camera, r = frame.paper, aspect = r.width / r.height;
+  const scale = c.kind === 'perspective' ? 1 / Math.tan(c.fovDegrees * Math.PI / 360) : 0;
+  let nearAll = true, farAll = true, left = true, right = true, below = true, above = true, behind = false;
+  for (const p of points) {
+    const d = -p[2];
+    if (d >= c.near) nearAll = false;
+    if (d <= c.far) farAll = false;
+    if (!sheet) continue;
+    let nx: number, ny: number;
+    if (c.kind === 'perspective') { if (!(d > 0)) { behind = true; continue; } nx = scale * p[0] / (d * aspect); ny = scale * p[1] / d; }
+    else { nx = 2 * p[0] / (c.span * aspect); ny = 2 * p[1] / c.span; }
+    const x = r.x + (nx + 1) * r.width / 2, y = r.y + (1 - ny) * r.height / 2;
+    if (x >= sheet.x) left = false; if (x <= sheet.x + sheet.width) right = false;
+    if (y >= sheet.y) above = false; if (y <= sheet.y + sheet.height) below = false;
+  }
+  if (nearAll || farAll) return true;
+  if (!sheet || behind) return false;
+  return left || right || below || above;
+}

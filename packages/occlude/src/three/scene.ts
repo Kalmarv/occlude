@@ -56,7 +56,7 @@ export function lineArt3(options: LineArtOptions3): LineArtScene3 {
     if(object.hatch)validateHatch3(object.hatch,object.surface);
     if(object.binding)objectSurfaceBinding3(object);
   }
-  for(const entry of options.curves??[])validateSurfaceCurveNetwork3(entry.network);
+  for(const entry of options.curves??[])if(entry.network)validateSurfaceCurveNetwork3(entry.network);
   return Object.freeze({
     __occludeLineArt3: true,
     id: options.id,

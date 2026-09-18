@@ -9,7 +9,7 @@ export function worldBounds3(points:readonly Vec3[]):WorldBounds3 {
  for(const p of points)for(let k=0;k<3;k++){if(!Number.isFinite(p[k]))throw new Error('world bounds require finite coordinates');b[k]=Math.min(b[k],p[k]);b[k+3]=Math.max(b[k+3],p[k]);}
  return Object.freeze(b) as unknown as WorldBounds3;
 }
-const overlaps=(a:WorldBounds3,b:WorldBounds3)=>a[0]<=b[3]&&a[3]>=b[0]&&a[1]<=b[4]&&a[4]>=b[1]&&a[2]<=b[5]&&a[5]>=b[2];
+export const overlaps3=(a:WorldBounds3,b:WorldBounds3)=>a[0]<=b[3]&&a[3]>=b[0]&&a[1]<=b[4]&&a[4]>=b[1]&&a[2]<=b[5]&&a[5]>=b[2];
 /** Closed bounds over represented vertices need no coordinate expansion.
  * A rational point inside such bounds also rounds inside their representable
  * endpoints; consumers requiring arithmetic envelopes must supply those bounds. */
@@ -37,8 +37,8 @@ export class WorldIndex3 {
  }
  *query(bounds:WorldBounds3):Generator<number>{
   const stack=this.root?[this.root]:[];
-  while(stack.length){const node=stack.pop()!;if(!overlaps(bounds,node.bounds))continue;
-   if(node.indices){for(const i of node.indices)if(overlaps(bounds,this.bounds[i]))yield i;}
+  while(stack.length){const node=stack.pop()!;if(!overlaps3(bounds,node.bounds))continue;
+   if(node.indices){for(const i of node.indices)if(overlaps3(bounds,this.bounds[i]))yield i;}
    else stack.push(node.right!,node.left!);
   }
  }

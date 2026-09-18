@@ -9,7 +9,9 @@ These words derive curves from a mesh, or ask it questions. The mesh hides a cur
 
 <include>/_sig/3d.intersections.1.mdx</include>
 
-The curve where two meshes cross. Both meshes must be in the view with it.
+The curve where two meshes cross. Give two meshes, or a list. In a list, every pair that can meet gives its curve. Both meshes must be in the view with it. The curves take the view's pen. `style` gives them a pen of their own, as the example does.
+
+The call returns a description, not the computed curves. The view first drops every object outside the camera. Then it computes only the pairs that can meet. A big list of far-apart objects costs little. A direct read of the curves, such as `.edges`, computes every pair.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';

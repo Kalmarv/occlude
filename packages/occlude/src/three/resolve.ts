@@ -75,7 +75,7 @@ export async function classifyForRun3(exec: Execution, scene: LineArtScene3, opt
     const viewport = scene.viewport ?? { x: f.offsetX, y: f.offsetY, width: f.inner.innerW, height: f.inner.innerH };
     const key = exec.cameraKey3(scene);
     const camera = Object.hasOwn(exec.cameras3, key) ? exec.cameras3[key] : scene.camera;
-    const snapshot = timing.measure('captureMs',()=>featureSnapshot3(scene.objects, scene.wires, cameraFrame3(camera, viewport),f.inner,scene.curves));
+    const snapshot = timing.measure('captureMs',()=>featureSnapshot3(scene.objects, scene.wires, cameraFrame3(camera, viewport),f.inner,scene.curves,{x:0,y:0,width:exec.paper.w,height:exec.paper.h}));
     if (options.onStage && !options.signal?.aborted) options.onStage({ stage: 'source', scene: key, paper: { w: exec.paper.w, h: exec.paper.h }, ...draftSegments(snapshot.frame, snapshot.features.map(feature => ({ feature, ranges: [[0, 1]] as const }))) });
     // Visibility is classified on the CPU everywhere: the exact classifier
     // beats the GPU interval classifier 1.4-3.8x on every measured workload

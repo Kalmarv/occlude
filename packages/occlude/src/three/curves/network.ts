@@ -259,7 +259,12 @@ export function legacySurfaceCurveNetwork3(curves:SurfaceCurves3,binding:Surface
   }))});
 }
 /** One named graph in a scene; its source bindings identify supporting objects. */
-export interface SurfaceCurveObject3 {readonly id:string;readonly network:SurfaceCurveNetwork3;readonly attributes?:Attributes3}
+/** Curves described, not yet computed: a view resolves them once it knows
+ * which of `bindings` it draws, so seams among culled objects are never made. */
+export interface SurfaceCurveRecipe3 {readonly bindings:readonly SurfaceBinding3[];resolve(keep?:(binding:SurfaceBinding3)=>boolean):SurfaceCurveNetwork3}
+/** Curves with their network in hand, as the snapshot holds them. */
+export interface SurfaceCurveGraph3 {readonly id:string;readonly network:SurfaceCurveNetwork3;readonly attributes?:Attributes3}
+export type SurfaceCurveObject3 = {readonly id:string;readonly attributes?:Attributes3}&({readonly network:SurfaceCurveNetwork3;readonly recipe?:undefined}|{readonly recipe:SurfaceCurveRecipe3;readonly network?:undefined});
 
 /** Explicitly reevaluate retained affine attachments. Every support at a shared
  * node must still agree exactly; moving an intersection's inputs independently

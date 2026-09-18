@@ -75,7 +75,12 @@ export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:Pr
     if(!(value instanceof Mesh)&&!(value instanceof Instances)&&!(value instanceof CurveGeometry)&&!(value instanceof SurfaceCurves))throw new Error('view requires mesh, curve or instance geometry');
     const id=value.key??`object:${index}`;
     if(geometryKeys.has(id))throw new Error('view geometry keys must be unique');geometryKeys.add(id);
-    if(value instanceof SurfaceCurves){supported.push({id,network:value.network,...(value.stroke?{attributes:{stroke:value.stroke}}:{})});return;}
+    if(value instanceof SurfaceCurves){
+      // Described curves stay a description here: the drawing resolves them
+      // among the objects it keeps, so seams of culled objects are never made.
+      const attributes=value.stroke?{attributes:{stroke:value.stroke}}:{};
+      supported.push(value.recipe?{id,recipe:value.recipe,...attributes}:{id,network:value.network,...attributes});return;
+    }
     if(value instanceof CurveGeometry){objects.push({id,surface:value.surface,occluder:false});return;}
     const mesh=value instanceof Instances?value.prototype:value;
     const faces=mesh.faces;

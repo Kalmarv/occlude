@@ -5,7 +5,8 @@ import type { Surface3 } from './geometry/surface.js';
 import { prepareSurfaceQueries3, type RayQuery3, type NearestQuery3, type SurfaceHit3 } from './queries/surface.js';
 import type { Vec3 } from './math.js';
 import type { SceneCompute3 } from './scene.js';
-import {captureIntersections,intersectionConstructionJob,type IntersectionArguments} from './api/intersections.js';
+import {captureIntersections,intersectionConstructionJob,type IntersectionArguments,type IntersectionAttributes} from './api/intersections.js';
+import {SurfaceCurves} from './api/supported.js';
 import {runGeometryJobAsync3} from './geometry/job.js';
 import {captureSurfaceMapping,surfaceMappingJob,type SurfaceMappingOptions,type SurfaceMappingStats} from './api/mapping.js';
 import type {Material} from '../material.js';
@@ -46,7 +47,7 @@ export function bindModeling3(exec: Execution, scope?: { signal?: AbortSignal; c
       return (async()=>{
         const result=await runIntersectionConstruction(captured,scope!.signal,scope!.onProgress);check();timing.merge(result.timings);
         exec.modeling3.push({operation:'intersections',backend:'cpu',dispatches:0,transferBytes:0,timings:timing.finish(),intersections:result.value.stats});
-        return result.value.curves;
+        return new SurfaceCurves<IntersectionAttributes>(result.value.network,{key:captured.settings.key,stroke:captured.settings.stroke});
       })();
     },
     mapSurface(mesh:Mesh<any,any,any,any>,pattern:Material|readonly Material[],options:SurfaceMappingOptions={}) {
