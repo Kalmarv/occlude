@@ -776,7 +776,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'Material.edges', module: 'occlude', receiver: null,
+      word: 'Material.edges', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.edges', returns: 'material',
       self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
       page: '/docs/reference/material', group: 'Material',
@@ -784,7 +784,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'Material.n', module: 'occlude', receiver: null,
+      word: 'Material.n', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.n', returns: 'Number',
       self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
       page: '/docs/reference/material', group: 'Material',
@@ -792,7 +792,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'Material.points', module: 'occlude', receiver: null,
+      word: 'Material.points', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.points', returns: 'points',
       self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
       page: '/docs/reference/material', group: 'Material',
@@ -1891,7 +1891,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'Faces.faces', module: 'occlude', receiver: null,
+      word: 'Faces.faces', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.faces', returns: 'faces',
       self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
       page: '', group: 'Faces',
@@ -1899,7 +1899,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'Faces.iteration', module: 'occlude', receiver: null,
+      word: 'Faces.iteration', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.iteration', returns: 'Number',
       self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
       page: '', group: 'Faces',
@@ -1907,7 +1907,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'Faces.length', module: 'occlude', receiver: null,
+      word: 'Faces.length', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.length', returns: 'Number',
       self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
       page: '', group: 'Faces',
@@ -1915,7 +1915,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'Faces.source', module: 'occlude', receiver: null,
+      word: 'Faces.source', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.source', returns: 'material',
       self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
       page: '', group: 'Faces',
@@ -1965,7 +1965,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'FaceSelection.iteration', module: 'occlude', receiver: null,
+      word: 'FaceSelection.iteration', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.iteration', returns: 'Number',
       self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
       page: '', group: 'FaceSelection',
@@ -1973,7 +1973,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'FaceSelection.length', module: 'occlude', receiver: null,
+      word: 'FaceSelection.length', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.length', returns: 'Number',
       self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
       page: '', group: 'FaceSelection',
@@ -1989,7 +1989,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'FaceSelection.source', module: 'occlude', receiver: null,
+      word: 'FaceSelection.source', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.source', returns: 'faces',
       self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
       page: '', group: 'FaceSelection',
@@ -2110,7 +2110,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'Material.edgeCount', module: 'occlude', receiver: null,
+      word: 'Material.edgeCount', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.edgeCount', returns: 'Number',
       self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
       page: '', group: 'Material',
@@ -2118,7 +2118,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'Material.iteration', module: 'occlude', receiver: null,
+      word: 'Material.iteration', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.iteration', returns: 'Number',
       self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
       page: '', group: 'Material',
@@ -2386,7 +2386,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'PointSelection.length', module: 'occlude', receiver: null,
+      word: 'PointSelection.length', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.length', returns: 'Number',
       self: { param: 'points', takes: { socket: 'Geometry', kinds: ['points'] } },
       page: '', group: 'PointSelection',
@@ -2394,7 +2394,7 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
-      word: 'PointSelection.source', module: 'occlude', receiver: null,
+      word: 'PointSelection.source', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.source', returns: 'material',
       self: { param: 'points', takes: { socket: 'Geometry', kinds: ['points'] } },
       page: '', group: 'PointSelection',

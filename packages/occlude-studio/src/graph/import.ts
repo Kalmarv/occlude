@@ -427,6 +427,13 @@ class Reader {
         // A literal is a value the graph holds, not a body that computes
         // one: `const boxSpread = 30;` was a code node whose whole text was
         // `return { out: 30 }` — a function call to say thirty.
+        // `const wave = (x, y) => …` is a field, and a field is a zone.
+        const asField = this.zoneNode(expr, id);
+        if (asField) {
+          this.add(asField);
+          this.bindings.set(name, { node: asField, output: 'out', type: 'Field' });
+          return;
+        }
         const value = this.valueNode(expr, id);
         if (value) {
           this.add(value.node);
@@ -656,7 +663,10 @@ class Reader {
       return undefined;
     }
     const method = callee.name.text;
-    const owners = this.catalogue.words.filter((w) => w.self && w.call === `{self}.${method}`);
+    // A call, so a word that is read rather than called is not a candidate:
+    // `rooms.edges()` is the method, `m.edges` the getter, and writing one
+    // for the other does not run.
+    const owners = this.catalogue.words.filter((w) => w.self && !w.value && w.call === `{self}.${method}`);
     if (owners.length === 0) {
       this.refuse(id, undefined, `${this.text(callee)} is not a catalogue word`);
       return undefined;
@@ -667,6 +677,13 @@ class Reader {
       return undefined;
     }
     const type = this.outputTypeOf(self.from[0], self.from[1]);
+    // An unknown receiver fits every geometry socket, so with more than one
+    // owner of the name there is nothing to tell them apart and the call
+    // stays code rather than become the wrong word.
+    if (type === 'Geometry' && owners.length > 1) {
+      this.refuse(id, owners[0]!.word, `.${method} is a word of ${owners.map((w) => w.word.split('.')[0]).join(' and ')}, and the graph does not know which this is`);
+      return undefined;
+    }
     const word = type === undefined ? undefined : owners.find((w) => accepts(type, w.self!.takes));
     if (!word) {
       this.refuse(id, owners[0]!.word, type === undefined
@@ -806,6 +823,7 @@ class Reader {
     return word?.value ? word : undefined;
   }
 
+
   /**
    * A word whose parameter is a body that runs many times: `t.times(n, (i, u)
    * => …)` is a zone, not a code node. The count is a wire, the callback's
@@ -816,8 +834,10 @@ class Reader {
    * the compiler writes that back as the callback, unwrapped — and the artist
    * can take it apart into nodes from there.
    */
-  private zoneNode(expr: ts.CallExpression, id: string): GraphNode | undefined {
-    const shape = zoneShapeOf(expr, (name) => this.bindings.has(name));
+  private zoneNode(expr: ts.Expression, id: string): GraphNode | undefined {
+    const shape = ts.isCallExpression(expr)
+      ? zoneShapeOf(expr, (name) => this.bindings.has(name))
+      : fieldShapeOf(expr);
     if (!shape) return undefined;
     const { kind, named, over, callback, count: countArg, options } = shape;
     if (!(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) {
@@ -836,11 +856,15 @@ class Reader {
       return input;
     };
 
-    // The thing the zone runs over, under the name its recipe gives it.
-    const overName = recipe.takes[0]!.name;
-    const overInput = give(overName, over, kind !== 'times', `${overName} is not a value the graph holds`);
-    if (!overInput) return undefined;
-    const inputs: Record<string, GraphInput> = { [overName]: overInput };
+    // The thing the zone runs over, under the name its recipe gives it. A
+    // field runs over nothing.
+    const inputs: Record<string, GraphInput> = {};
+    const overName = recipe.takes[0]?.name;
+    if (overName !== undefined && over !== undefined) {
+      const overInput = give(overName, over, kind !== 'times', `${overName} is not a value the graph holds`);
+      if (!overInput) return undefined;
+      inputs[overName] = overInput;
+    }
 
     // A count beside it, where the recipe asks for one.
     if (countArg) {
@@ -874,7 +898,9 @@ class Reader {
     // inputs, and then the two would be one socket carrying two things.
     const reserved = new Set(recipe.takes.map((t) => t.name));
     const boundary: Record<string, ValueType> = {};
-    for (const name of binds) boundary[name] = kind === 'times' ? 'Number' : 'Geometry';
+    binds.forEach((name, i) => {
+      boundary[name] = recipe.binds[i]?.type ?? 'Geometry';
+    });
     for (const [name, input] of Object.entries(this.inputsOf([callback.body]))) {
       if (binds.includes(name)) continue;
       if (reserved.has(name)) {
@@ -886,21 +912,35 @@ class Reader {
       boundary[name] = input.type ?? 'Geometry';
     }
 
+    // The inside's own node names must not be names the body already reads:
+    // a sketch with `const body = (x, y) => …` crossing the boundary would
+    // have shadowed the node holding the body, and the `const` would have
+    // been read before it was written.
+    const taken = new Set(Object.keys(boundary));
+    const free = (wanted: string): string => {
+      let name = wanted;
+      for (let n = 2; taken.has(name); n++) name = `${wanted}${n}`;
+      taken.add(name);
+      return name;
+    };
+    const edge = free('each');
+    const held = free('body');
+    const answer = free('result');
     const inside: Graph = {
       version: 1, name: '', config: {},
       nodes: [
-        { id: 'each', kind: 'input', x: 0, y: 0, inputs: {}, outputs: boundary },
+        { id: edge, kind: 'input', x: 0, y: 0, inputs: {}, outputs: boundary },
         {
-          id: 'body', kind: 'code', x: 0, y: 0,
-          inputs: Object.fromEntries(Object.keys(boundary).map((name) => [name, { type: boundary[name]!, from: ['each', name] as [string, string] }])),
+          id: held, kind: 'code', x: 0, y: 0,
+          inputs: Object.fromEntries(Object.keys(boundary).map((name) => [name, { type: boundary[name]!, from: [edge, name] as [string, string] }])),
           outputs: { out: 'Geometry' },
           body: this.bodyOf(callback.body, recipe.answers !== false),
         },
         // A run that answers with nothing has a result that reads nothing.
-        { id: 'result', kind: 'output', x: 0, y: 0, inputs: recipe.answers === false ? {} : { in: { from: ['body', 'out'] } } },
+        { id: answer, kind: 'output', x: 0, y: 0, inputs: recipe.answers === false ? {} : { in: { from: [held, 'out'] } } },
       ],
     };
-    return { id, kind: 'zone', zone: kind, x: 0, y: 0, inputs, outputs: { out: 'Geometry' }, binds, graph: inside };
+    return { id, kind: 'zone', zone: kind, x: 0, y: 0, inputs, outputs: { out: recipe.returns ?? 'Geometry' }, binds, graph: inside };
   }
 
   /**
@@ -1027,6 +1067,15 @@ class Reader {
     if (ts.isCallExpression(arg)) {
       const lifted = this.liftCall(arg);
       if (lifted) return { from: [lifted.id, 'out'] };
+    }
+    // A field written where it is used: it becomes its own node, wired in.
+    if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) {
+      const mark = this.nodes.length;
+      const fieldId = this.uniqueId('field');
+      const zone = this.zoneNode(arg, fieldId);
+      if (zone) return { from: [this.add(zone).id, 'out'] };
+      this.rollback(mark);
+      this.taken.delete(fieldId);
     }
     const asValue = this.valueWordOf(arg);
     if (asValue) {
@@ -1248,13 +1297,26 @@ interface ZoneShape {
   kind: ZoneKind;
   /** How the call reads, for a message. */
   named: string;
-  /** What the body runs over: a count, or a collection. */
-  over: ts.Expression;
+  /** What the body runs over: a count, or a collection. A field runs over
+   * nothing. */
+  over?: ts.Expression;
   callback: ts.Expression;
   /** A count beside the collection, where the word takes one. */
   count?: ts.Expression;
   /** The word's own trailing options. */
   options?: ts.Expression;
+}
+
+/**
+ * A field written out: `(x, y) => …`. It is a zone with nothing to run over,
+ * because a field *is* the answer — what runs it is whatever reads the field.
+ * Two parameters and no more, or it is some other function entirely.
+ */
+function fieldShapeOf(expr: ts.Expression): ZoneShape | undefined {
+  if (!ts.isArrowFunction(expr) && !ts.isFunctionExpression(expr)) return undefined;
+  if (expr.parameters.length !== 2) return undefined;
+  if (!expr.parameters.every((p) => ts.isIdentifier(p.name))) return undefined;
+  return { kind: 'field', named: 'a field', over: undefined, callback: expr };
 }
 
 function zoneShapeOf(expr: ts.CallExpression, bound: (name: string) => boolean): ZoneShape | undefined {

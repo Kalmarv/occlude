@@ -672,7 +672,11 @@ function walkOwners(moduleSymbol: ts.Symbol): void {
       if (!page) undocumented.push(word);
       const propType = checker.getTypeOfSymbolAtLocation(prop, decl);
       let plan: { params: Param[]; returns: ValueType } | { problem: string };
-      if (propType.getCallSignatures().length > 0) {
+      // A getter is read, not called. `m.points` is a property of a material,
+      // and writing `m.points()` would have thrown — a node for one of them
+      // could not run at all.
+      const isValue = propType.getCallSignatures().length === 0;
+      if (!isValue) {
         plan = planOf(propType, decl, word);
       } else {
         const returns = valueOf(propType);
@@ -684,6 +688,7 @@ function walkOwners(moduleSymbol: ts.Symbol): void {
       }
       words.push({
         word, module: name.startsWith('3d.') ? 'occlude/3d' : 'occlude', receiver: null, import: null,
+        ...(isValue ? { value: true } : {}),
         call: `{self}.${member}`, self: { param: owner.param, takes: { socket: 'Geometry', kinds: [owner.kind] } },
         params: plan.params, returns: plan.returns,
         page: page ? `/docs/reference/${page.slug}` : '',

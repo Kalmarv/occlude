@@ -255,7 +255,7 @@ export const PAPER_OUTPUTS: Record<string, string> = {
  * named algorithms. `times` is the only one that needs nothing settled: its
  * bindings are two numbers.
  */
-export const ZONE_KINDS = ['times', 'map', 'filter', 'steps'] as const;
+export const ZONE_KINDS = ['times', 'map', 'filter', 'steps', 'field'] as const;
 export type ZoneKind = (typeof ZONE_KINDS)[number];
 
 /** The zone's own inputs, and the names its `input` node offers each run. */
@@ -268,6 +268,8 @@ export const ZONES: Record<ZoneKind, {
   /** Whether each run answers with a value. A step rule does not: it moves
    * the next state, and the zone's own answer is what the word returns. */
   answers?: false;
+  /** What the zone itself is, when it is not a drawing. A field is a field. */
+  returns?: ValueType;
   /** The call the compiler writes, given the inputs and the body. */
   call(args: Record<string, string>, params: string, body: string): string;
 }> = {
@@ -287,6 +289,18 @@ ${body}
     call: (args, params, body) => `${args['rows'] ?? '[]'}.map((${params}) => {
 ${body}
 })`,
+  },
+  // A field: a body handed a point, answering a number. It runs over nothing
+  // — it *is* the answer, and what runs it is whatever reads the field. The
+  // graph's own arithmetic is what a field is made of, which is why this
+  // zone is the one that makes fields buildable rather than written.
+  field: {
+    takes: [],
+    binds: [{ name: 'x', type: 'Number' }, { name: 'y', type: 'Number' }],
+    returns: 'Field',
+    call: (_args, params, body) => `(${params}) => {
+${body}
+}`,
   },
   // A body per row that answers yes or no, and keeps the rows it said yes
   // to. The same machine as `map`; only what each run answers is different.
