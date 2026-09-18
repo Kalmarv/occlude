@@ -84,3 +84,21 @@ export function switchProjection3(camera: Camera3, kind: Camera3['kind']): Camer
   cameraFrame3(result,{x:0,y:0,width:1,height:1});
   return result;
 }
+
+/** The same camera, field for field: kind, eye, target, up and span or field of view. */
+export function sameCamera3(a: Camera3 | undefined, b: Camera3 | undefined): boolean {
+  if (!a || !b || a.kind !== b.kind) return false;
+  const same3 = (p: Vec3 | undefined, q: Vec3 | undefined) => p === q || (!!p && !!q && p.every((v, i) => v === q[i]));
+  if (!same3(a.eye, b.eye) || !same3(a.target, b.target) || !same3(a.up ?? [0,0,1], b.up ?? [0,0,1])) return false;
+  return a.kind === 'orthographic' ? a.span === (b as typeof a).span : a.fovDegrees === (b as typeof a).fovDegrees;
+}
+/** The explored (orbited, uncommitted) camera of each scene survives a
+ * rerender while the sketch's own camera for that scene is unchanged, so
+ * parameters can be explored from one viewpoint. A scene whose sketch camera
+ * changed (a commit, a hand edit) adopts the new one; a scene that vanished
+ * is dropped. */
+export function carryExploration3(explored: ReadonlyMap<number, Camera3>, before: readonly (Camera3 | undefined)[], after: readonly (Camera3 | undefined)[]): Map<number, Camera3> {
+  const kept = new Map<number, Camera3>();
+  for (const [scene, camera] of explored) if (sameCamera3(before[scene], after[scene])) kept.set(scene, camera);
+  return kept;
+}

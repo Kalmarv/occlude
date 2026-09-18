@@ -2,7 +2,7 @@ import type { Camera3 } from 'occlude/src/three/camera.js';
 import type { CameraCommitRequest, RenderClient, RenderReply } from '../workerClient.js';
 import type { Preview } from '../preview.js';
 import { icon } from '../icons.js';
-import { orbitCamera3, zoomCamera3, panCamera3, presetCamera3, fitCamera3, switchProjection3, type ViewPreset3 } from './orbit.js';
+import { orbitCamera3, zoomCamera3, panCamera3, presetCamera3, fitCamera3, switchProjection3, carryExploration3, type ViewPreset3 } from './orbit.js';
 
 /** The construction view lives in exactly the sheet's box: a canvas over the
  * paper preview, the model drawn into the scene's own viewport rectangle at
@@ -94,12 +94,16 @@ export class ConstructionPanel3 {
   private hint(): void { this.note.textContent = 'Drag orbits · shift+drag pans · ctrl+drag or wheel zooms · numpad 1/3/7 views, 5 projection, Home frames · click a face to inspect'; }
   onRender(reply: RenderReply): void {
     const selected = Math.min(Number(this.scenes.value) || 0, Math.max(0, reply.construction.length - 1));
+    // The viewpoint being explored outlives the result it was found in, as
+    // long as the sketch's camera for that scene did not change.
+    if(this.camera)this.exploration.set(this.selectedScene,this.camera);
+    const kept=carryExploration3(this.exploration,this.reply?.construction.map(s=>s.camera)??[],reply.construction.map(s=>s.camera));
     this.reply=reply; this.revision++; this.dirty=false;
     this.switch_.hidden=!reply.construction.length;
     this.scenes.replaceChildren(...reply.construction.map((scene,i)=>{const option=document.createElement('option');option.value=String(i);option.textContent=`Scene ${i+1} · ${scene.triangles} triangles`;return option;}));
     this.scenes.value=String(selected);
-    this.selectedScene=selected;this.exploration.clear();
-    this.camera=reply.construction[selected]?.camera; this.syncControls();
+    this.selectedScene=selected;this.exploration.clear();for(const [scene,camera] of kept)this.exploration.set(scene,camera);
+    this.camera=this.exploration.get(selected)??reply.construction[selected]?.camera; this.syncControls();
     if(!this.camera)this.show(false); else { this.sketchButton.setAttribute('aria-pressed',String(this.canvas.hidden)); this.cameraButton.setAttribute('aria-pressed',String(!this.canvas.hidden)); }
     this.hint();
     if(!this.canvas.hidden)this.schedule();

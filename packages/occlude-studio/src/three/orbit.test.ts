@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { cameraFrame3, toCamera3, type Camera3 } from 'occlude/src/three/camera.js';
-import { orbitCamera3, panCamera3, presetCamera3, fitCamera3, viewHalfHeight3, switchProjection3 } from './orbit.js';
+import { orbitCamera3, panCamera3, presetCamera3, fitCamera3, viewHalfHeight3, switchProjection3, sameCamera3, carryExploration3 } from './orbit.js';
 const ortho: Camera3 = { kind: 'orthographic', span: 4, eye: [3, -6, 4], target: [0, 0, 1], near: .1, far: 50 };
 const persp: Camera3 = { kind: 'perspective', fovDegrees: 40, eye: [3, -6, 4], target: [0, 0, 1], near: .1, far: 50 };
 const close = (a: readonly number[], b: readonly number[], digits = 9) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], digits));
@@ -46,4 +46,16 @@ it('keeps orbit and projection switches composable with the new operations', () 
   const stepped = orbitCamera3(presetCamera3(ortho, 'front'), Math.PI / 12, 0);
   expect(Math.hypot(...stepped.eye.map((v, i) => v - stepped.target[i]))).toBeCloseTo(Math.hypot(3, -6, 3), 9);
   expect(switchProjection3(panCamera3(persp, .1, .1), 'orthographic').kind).toBe('orthographic');
+});
+
+it('carries an explored camera across rerenders only while the sketch camera is unchanged', () => {
+  const explored = new Map([[0, orbitCamera3(persp, .4, .2)], [1, panCamera3(ortho, .1, 0)], [2, persp]]);
+  const moved = { ...persp, eye: [persp.eye[0] + 1, persp.eye[1], persp.eye[2]] as const } as typeof persp;
+  const kept = carryExploration3(explored, [persp, ortho, persp], [{ ...persp, eye: [...persp.eye] as unknown as typeof persp.eye }, moved]);
+  expect(kept.get(0)).toBe(explored.get(0)); // same sketch camera (by value): the exploration stays
+  expect(kept.has(1)).toBe(false);            // the sketch camera changed: adopt the new one
+  expect(kept.has(2)).toBe(false);            // the scene is gone
+  expect(sameCamera3(persp, { ...persp, fovDegrees: persp.fovDegrees + 1 })).toBe(false);
+  expect(sameCamera3(ortho, { ...ortho, up: [0, 0, 1] })).toBe(sameCamera3(ortho, ortho));
+  expect(sameCamera3(persp, undefined)).toBe(false);
 });
