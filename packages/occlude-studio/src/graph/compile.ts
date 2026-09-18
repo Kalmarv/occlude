@@ -320,6 +320,18 @@ function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Gra
     // A word that is a value and not a call takes no parentheses: `t.cx` is
     // the middle of the drawable, not a function that returns it.
     if (word.value) return `const ${node.id} = ${call};`;
+    // A word that writes an expression rather than a call: the graph's own
+    // arithmetic, because a wire cannot carry `+`.
+    if (word.template) {
+      let text = word.template;
+      for (const input of wordInputs(word)) {
+        const value = node.inputs[input.name] === undefined
+          ? '0'
+          : inputExpression(node, input.name, graph, catalogue, boundary);
+        text = text.split(`{${input.name}}`).join(value);
+      }
+      return `const ${node.id} = ${text};`;
+    }
     const args = builtinArgs(word, node, graph, catalogue, boundary).map((arg) => arg ?? 'undefined');
     return `const ${node.id} = ${call}(${args.join(', ')});`;
   }

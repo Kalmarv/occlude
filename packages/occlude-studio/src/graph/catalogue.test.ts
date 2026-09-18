@@ -55,6 +55,9 @@ describe('the catalogue', () => {
         expect(wordInputs(w)[0], w.word).toMatchObject({ name: w.self.param, self: true, optional: false });
         expect(w.import, w.word).toBeNull();
       } else if (w.receiver === 't') expect(w.import, w.word).toBeNull();
+      // The graph's own arithmetic writes an expression, or is a constant;
+      // there is nothing to import, because the library exports none of it.
+      else if (w.template !== undefined || w.value === true) expect(w.import, w.word).toBeNull();
       else expect(w.import, w.word).not.toBeNull();
     }
   });

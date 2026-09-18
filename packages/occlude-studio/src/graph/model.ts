@@ -128,6 +128,11 @@ export interface CatalogueWord {
   /** The word is a value, not a call: `t.cx` is the middle of the drawable,
    * and the compiled sketch writes it with no parentheses. */
   value?: boolean;
+  /** The expression the word writes, with `{name}` for each input. A wire
+   * cannot carry `+`, so the graph has arithmetic of its own, and `math.add`
+   * writes `(a + b)` rather than a call to something the library does not
+   * export. */
+  template?: string;
   /** As the reference writes it: `circle`, `t.sample`, `connect.dots`,
    * `3d.box`. Unique across the catalogue. */
   word: string;

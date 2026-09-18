@@ -44,6 +44,17 @@ const ARITHMETIC: ts.SyntaxKind[] = [
   ts.SyntaxKind.SlashToken, ts.SyntaxKind.PercentToken, ts.SyntaxKind.AsteriskAsteriskToken,
 ];
 
+/** The graph's own arithmetic word for an operator, and for a `Math` member.
+ * A wire cannot carry `+`, so `a * b` is a node like any other. */
+const MATH_OPERATOR = new Map<ts.SyntaxKind, string>([
+  [ts.SyntaxKind.PlusToken, 'math.add'],
+  [ts.SyntaxKind.MinusToken, 'math.subtract'],
+  [ts.SyntaxKind.AsteriskToken, 'math.multiply'],
+  [ts.SyntaxKind.SlashToken, 'math.divide'],
+  [ts.SyntaxKind.PercentToken, 'math.remainder'],
+  [ts.SyntaxKind.AsteriskAsteriskToken, 'math.power'],
+]);
+
 /** The namespaces a sketch imports as an object (`connect.chain`). */
 const NAMESPACES = ['connect', 'force', 'query', 'ease', 'sdf'];
 
@@ -400,6 +411,14 @@ class Reader {
           this.bindings.set(name, { node: value.node, output: 'out', type: value.type });
           return;
         }
+        if (ts.isBinaryExpression(expr) && MATH_OPERATOR.has(expr.operatorToken.kind)) {
+          const math = this.mathNode(expr, id);
+          if (math) {
+            this.add(math);
+            this.bindings.set(name, { node: math, output: 'out', type: 'Number' });
+            return;
+          }
+        }
         if (ts.isArrayLiteralExpression(expr)) {
           const list = this.listNode(expr, id);
           if (list) {
@@ -603,6 +622,10 @@ class Reader {
   private resolve(expr: ts.CallExpression, id: string): { word: CatalogueWord; self?: GraphInput } | undefined {
     const direct = this.wordFor(expr.expression);
     if (direct) return { word: direct };
+    // `Math.round(x)` is `math.round`: JavaScript's own arithmetic, which the
+    // graph carries because a wire cannot carry an operator.
+    const asMath = this.mathWordOf(expr.expression);
+    if (asMath) return { word: asMath };
     const callee = expr.expression;
     if (!ts.isPropertyAccessExpression(callee)) {
       this.refuse(id, undefined, ts.isIdentifier(callee)
@@ -893,6 +916,52 @@ class Reader {
     }
     const text = statements.map((st) => this.code(st)).join('\n');
     return `return { out: (() => {\n${text.split('\n').map((line) => (line === '' ? '' : `  ${line}`)).join('\n')}\n})() };`;
+  }
+
+  /** `Math.round` and friends, as the graph's own arithmetic words. */
+  private mathWordOf(callee: ts.Expression): CatalogueWord | undefined {
+    if (!ts.isPropertyAccessExpression(callee)) return undefined;
+    if (!ts.isIdentifier(callee.expression) || callee.expression.text !== 'Math' || this.bindings.has('Math')) return undefined;
+    return this.byWord.get(`math.${callee.name.text}`);
+  }
+
+  /**
+   * `a * b` as a node. The graph's arithmetic is one word per operation, so
+   * the operator picks the word and the two sides are its inputs. A side that
+   * is itself arithmetic becomes its own node, exactly as a nested call does.
+   */
+  private mathNode(expr: ts.BinaryExpression, id: string): GraphNode | undefined {
+    const word = MATH_OPERATOR.get(expr.operatorToken.kind);
+    const entry = word ? this.byWord.get(word) : undefined;
+    if (!entry) return undefined;
+    const mark = this.nodes.length;
+    const inputs: Record<string, GraphInput> = {};
+    for (const [name, side] of [['a', expr.left], ['b', expr.right]] as const) {
+      const input = this.side(side);
+      if (input === undefined) {
+        this.rollback(mark);
+        this.refuse(id, word, `${name} is not a value the graph holds`);
+        return undefined;
+      }
+      inputs[name] = input;
+    }
+    return { id, kind: 'builtin', word: entry.word, x: 0, y: 0, inputs };
+  }
+
+  /** One side of an arithmetic expression: a value, an earlier node, a call,
+   * or arithmetic of its own. */
+  private side(expr: ts.Expression): GraphInput | undefined {
+    if (ts.isParenthesizedExpression(expr)) return this.side(expr.expression);
+    if (ts.isBinaryExpression(expr) && MATH_OPERATOR.has(expr.operatorToken.kind)) {
+      const mark = this.nodes.length;
+      const nested = this.mathNode(expr, this.uniqueId(MATH_OPERATOR.get(expr.operatorToken.kind)!.slice(5)));
+      if (!nested) {
+        this.rollback(mark);
+        return undefined;
+      }
+      return { from: [this.add(nested).id, 'out'] };
+    }
+    return this.argument(expr, false);
   }
 
   /** Several expressions as one list node. Used where a word is variadic. */

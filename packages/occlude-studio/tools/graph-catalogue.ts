@@ -357,6 +357,8 @@ interface Param extends Partial<Takes>, Partial<Control> {
 interface Word {
   /** A value, not a call: written with no parentheses. */
   value?: boolean;
+  /** An expression rather than a call, with `{name}` per input. */
+  template?: string;
   word: string;
   module: 'occlude' | 'occlude/3d';
   receiver: string | null;
@@ -718,6 +720,58 @@ function walkToolkit(): void {
   }
 }
 
+/**
+ * The graph's own arithmetic.
+ *
+ * A wire cannot carry `+`, and the library exports no arithmetic for numbers
+ * on purpose: a sketch is code, and code has operators. A graph is not code,
+ * so it needs the words — one per operation, because that is what the project
+ * asks for ("if signatures diverge, split the function"), rather than one node
+ * with a menu whose second input is meaningless in half its settings.
+ *
+ * These are the only words in the catalogue the library does not export. They
+ * are named under `math.` so none of them can collide with a library word
+ * (`add` is the vector one), and each writes its expression rather than a
+ * call to something that does not exist.
+ */
+const MATH: { word: string; inputs: string[]; template: string; hint: string }[] = [
+  { word: 'math.add', inputs: ['a', 'b'], template: '({a} + {b})', hint: 'a plus b' },
+  { word: 'math.subtract', inputs: ['a', 'b'], template: '({a} - {b})', hint: 'a less b' },
+  { word: 'math.multiply', inputs: ['a', 'b'], template: '({a} * {b})', hint: 'a times b' },
+  { word: 'math.divide', inputs: ['a', 'b'], template: '({a} / {b})', hint: 'a over b' },
+  { word: 'math.remainder', inputs: ['a', 'b'], template: '({a} % {b})', hint: 'what is left of a after b' },
+  { word: 'math.power', inputs: ['a', 'b'], template: '({a} ** {b})', hint: 'a to the power b' },
+  { word: 'math.min', inputs: ['a', 'b'], template: 'Math.min({a}, {b})', hint: 'the smaller of the two' },
+  { word: 'math.max', inputs: ['a', 'b'], template: 'Math.max({a}, {b})', hint: 'the larger of the two' },
+  { word: 'math.hypot', inputs: ['a', 'b'], template: 'Math.hypot({a}, {b})', hint: 'the distance from the origin' },
+  { word: 'math.atan2', inputs: ['y', 'x'], template: 'Math.atan2({y}, {x})', hint: 'the angle to a point, in radians' },
+  { word: 'math.abs', inputs: ['a'], template: 'Math.abs({a})', hint: 'without its sign' },
+  { word: 'math.round', inputs: ['a'], template: 'Math.round({a})', hint: 'to the nearest whole number' },
+  { word: 'math.floor', inputs: ['a'], template: 'Math.floor({a})', hint: 'down to a whole number' },
+  { word: 'math.ceil', inputs: ['a'], template: 'Math.ceil({a})', hint: 'up to a whole number' },
+  { word: 'math.sqrt', inputs: ['a'], template: 'Math.sqrt({a})', hint: 'the square root' },
+  { word: 'math.sign', inputs: ['a'], template: 'Math.sign({a})', hint: 'which way it points' },
+  { word: 'math.sin', inputs: ['a'], template: 'Math.sin({a})', hint: 'the sine, in radians' },
+  { word: 'math.cos', inputs: ['a'], template: 'Math.cos({a})', hint: 'the cosine, in radians' },
+  { word: 'math.tan', inputs: ['a'], template: 'Math.tan({a})', hint: 'the tangent, in radians' },
+  { word: 'math.log', inputs: ['a'], template: 'Math.log({a})', hint: 'the natural logarithm' },
+];
+
+function addMath(): void {
+  for (const one of MATH) {
+    words.push({
+      word: one.word, module: 'occlude', receiver: null, import: null, call: one.word,
+      template: one.template, returns: 'Number', page: '', group: 'Math',
+      params: one.inputs.map((name) => ({ name, socket: 'Number' as SocketClass, optional: false })),
+    });
+  }
+  // `math.pi` is a value, not a call.
+  words.push({
+    word: 'math.pi', module: 'occlude', receiver: null, import: null, call: 'Math.PI',
+    value: true, returns: 'Number', page: '', group: 'Math', params: [],
+  });
+}
+
 const sf = program.getSourceFile(entry);
 const sf3 = program.getSourceFile(entry3d);
 const mod = sf && checker.getSymbolAtLocation(sf);
@@ -733,6 +787,7 @@ walk(checker.getExportsOfModule(mod3), 'occlude/3d');
 walkOwners(mod);
 walkOwners(mod3);
 walkToolkit();
+addMath();
 
 /** `--debug <word>` prints why one word maps, or does not: every overload,
  * its return socket, and every parameter's socket. */
@@ -836,7 +891,7 @@ lines.push('export const CATALOGUE: Catalogue = {');
 lines.push('  words: [');
 for (const w of words) {
   lines.push('    {');
-  lines.push(`      word: ${q(w.word)}, module: ${q(w.module)}, receiver: ${w.receiver ? q(w.receiver) : 'null'},${w.value ? ' value: true,' : ''}`);
+  lines.push(`      word: ${q(w.word)}, module: ${q(w.module)}, receiver: ${w.receiver ? q(w.receiver) : 'null'},${w.value ? ' value: true,' : ''}${w.template ? ` template: ${q(w.template)},` : ''}`);
   lines.push(`      import: ${w.import ? q(w.import) : 'null'}, call: ${q(w.call)}, returns: ${q(w.returns)},`);
   if (w.self) lines.push(`      self: { param: ${q(w.self.param)}, takes: { socket: ${q(w.self.takes.socket)}, kinds: [${w.self.takes.kinds.map(q).join(', ')}] } },`);
   lines.push(`      page: ${q(w.page)}, group: ${q(w.group)},`);

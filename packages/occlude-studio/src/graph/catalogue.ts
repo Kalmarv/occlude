@@ -2098,6 +2098,183 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'math.abs', module: 'occlude', receiver: null, template: 'Math.abs({a})',
+      import: null, call: 'math.abs', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.add', module: 'occlude', receiver: null, template: '({a} + {b})',
+      import: null, call: 'math.add', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.atan2', module: 'occlude', receiver: null, template: 'Math.atan2({y}, {x})',
+      import: null, call: 'math.atan2', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'y', takes: { socket: 'Number' }, optional: false },
+        { name: 'x', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.ceil', module: 'occlude', receiver: null, template: 'Math.ceil({a})',
+      import: null, call: 'math.ceil', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.cos', module: 'occlude', receiver: null, template: 'Math.cos({a})',
+      import: null, call: 'math.cos', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.divide', module: 'occlude', receiver: null, template: '({a} / {b})',
+      import: null, call: 'math.divide', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.floor', module: 'occlude', receiver: null, template: 'Math.floor({a})',
+      import: null, call: 'math.floor', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.hypot', module: 'occlude', receiver: null, template: 'Math.hypot({a}, {b})',
+      import: null, call: 'math.hypot', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.log', module: 'occlude', receiver: null, template: 'Math.log({a})',
+      import: null, call: 'math.log', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.max', module: 'occlude', receiver: null, template: 'Math.max({a}, {b})',
+      import: null, call: 'math.max', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.min', module: 'occlude', receiver: null, template: 'Math.min({a}, {b})',
+      import: null, call: 'math.min', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.multiply', module: 'occlude', receiver: null, template: '({a} * {b})',
+      import: null, call: 'math.multiply', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.pi', module: 'occlude', receiver: null, value: true,
+      import: null, call: 'Math.PI', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+      ],
+    },
+    {
+      word: 'math.power', module: 'occlude', receiver: null, template: '({a} ** {b})',
+      import: null, call: 'math.power', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.remainder', module: 'occlude', receiver: null, template: '({a} % {b})',
+      import: null, call: 'math.remainder', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.round', module: 'occlude', receiver: null, template: 'Math.round({a})',
+      import: null, call: 'math.round', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.sign', module: 'occlude', receiver: null, template: 'Math.sign({a})',
+      import: null, call: 'math.sign', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.sin', module: 'occlude', receiver: null, template: 'Math.sin({a})',
+      import: null, call: 'math.sin', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.sqrt', module: 'occlude', receiver: null, template: 'Math.sqrt({a})',
+      import: null, call: 'math.sqrt', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.subtract', module: 'occlude', receiver: null, template: '({a} - {b})',
+      import: null, call: 'math.subtract', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+        { name: 'b', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'math.tan', module: 'occlude', receiver: null, template: 'Math.tan({a})',
+      import: null, call: 'math.tan', returns: 'Number',
+      page: '', group: 'Math',
+      params: [
+        { name: 'a', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
       word: 'measureFaces3', module: 'occlude', receiver: null,
       import: 'measureFaces3', call: 'measureFaces3', returns: 'faces',
       page: '', group: 'Other',
