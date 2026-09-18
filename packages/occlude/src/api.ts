@@ -31,7 +31,7 @@ import { isDrawing3, retainDrawing3, cameraDrawing3, type Drawing3 } from './thr
 import type { Camera3 } from './three/camera.js';
 import { bindModeling3 } from './three/modeling.js';
 import { resolveTree3, classifyForRun3, strokesForRun3 } from './three/resolve.js';
-import { checkDrawRequest, type DrawRequest, type PlanOptions } from './plan.js';
+import { checkDrawRequest, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours } from './record.js';
 import { fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
@@ -70,6 +70,7 @@ import { ui } from './ui.js';
 import { asset as assetOf, image as imageOf, type ImagePlacement } from './imageAsset.js';
 import { h, long, mm, s, w, resolveLen, Len, type L } from './units.js';
 import { synth as synthPure, type SynthOpts } from './synth.js';
+import { isShader } from './shader.js';
 
 // ---- values ----
 
@@ -1231,8 +1232,9 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   /** Path optimization for THIS sketch's plan (tour budget, bridging) — in
    * the program, so the same source plans the same way everywhere. */
   function planWith(opts: PlanOptions): void {
-    if (typeof opts !== 'object' || opts === null) throw new Error('plan: expected { optimize?, bridge? }');
-    for (const k of Object.keys(opts)) if (!['optimize', 'bridge'].includes(k)) throw new Error(`plan: unknown option '${k}' (the sketch sets optimize and bridge; engine identity is the host's)`);
+    if (typeof opts !== 'object' || opts === null) throw new Error('plan: expected { optimize?, bridge?, shader? }');
+    for (const k of Object.keys(opts)) if (!['optimize', 'bridge', 'shader'].includes(k)) throw new Error(`plan: unknown option '${k}' (the sketch sets optimize, bridge and shader; engine identity is the host's)`);
+    if (opts.shader !== undefined && !isShader(opts.shader)) throw new Error('plan: shader must be a shader(program) value');
     if (opts.optimize !== undefined && typeof opts.optimize !== 'boolean' && !(typeof opts.optimize === 'number' && Number.isFinite(opts.optimize) && opts.optimize >= 0)) throw new Error('plan: optimize must be a boolean or a non-negative number');
     if (opts.bridge !== undefined && typeof opts.bridge !== 'boolean' && !(typeof opts.bridge === 'number' && Number.isFinite(opts.bridge) && opts.bridge >= 0)) throw new Error('plan: bridge must be a boolean or a non-negative gap in mm');
     exec.planOptions = { ...opts };
@@ -1426,7 +1428,7 @@ export async function commitCamera3(
   for (const [source, view] of previous.scenes3) if (source !== scene) next.scenes3.set(source, view);
   for (const view of previous.fixedStrokes3) next.fixedStrokes3.add(view);
   next.modeling3.push(...previous.modeling3);
-  next.planOptions = previous.planOptions && structuredClone(previous.planOptions);
+  next.planOptions = previous.planOptions && clonePlanOptions(previous.planOptions);
   next.drawRequest = previous.drawRequest && structuredClone(previous.drawRequest);
   await compileSketchAsync(sketch(drawing.config, () => drawing.tree), next, options);
   // Keep the scene menu and captured configuration in their original order.

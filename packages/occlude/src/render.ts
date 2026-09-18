@@ -11,16 +11,17 @@ import type { SceneCompute3 } from './three/scene.js';
  * host runs elsewhere (the studio's main thread decodes posted buffers).
  */
 
-import { makePlan, parseToolpath, planValue, resolveDraw, selectAll, type DrawRequest, type DrawTiming, type DrawingPlan, type FlatChain, type PlanOptions, type PlanSelection, type PlanSettings } from './plan.js';
+import { decodePlanBuffer, encodePlanBuffer, makePlan, parseToolpath, planValue, resolveDraw, selectAll, type DrawRequest, type DrawTiming, type DrawingPlan, type FlatChain, type PlanOptions, type PlanSelection, type PlanSettings } from './plan.js';
 import type { EstimateOpts, PenTiming } from './motion.js';
 import { resolveFill, fillParamsUsable, isNativeFill, type FillSpec } from './fills.js';
 import { paperSize, type PaperChoice } from './paper.js';
 import type { PenDef } from './pens.js';
-import { flattenPrim, subPrim, type Prim } from './prims.js';
+import { flattenPrim, subPrim, SNAP_GRID, type Prim } from './prims.js';
 import { PRIM_STRIDE, FRAG_STRIDE, PrimSink, encodePrim, decodePrim } from './sceneBuffers.js';
 import { buildFieldGrids, type FieldKind, type FieldUse } from './fieldGrid.js';
 import type { FillJob } from './fillJobs.js';
 import { renderEncoded, requireWasm, type RawRender, type WasmModule } from './wasmRender.js';
+import { shadeChains } from './shader.js';
 
 // The render pipeline this module was one file with, re-exported so its
 // importers (tools, tests, the studio worker) keep one door: the wasm
@@ -37,7 +38,7 @@ import { apply, invert, mul, scale as mscale, type Mat } from './matrix.js';
 import type { FieldAlign, FieldFn, LengthFn, VectorFieldFn } from './shapes.js';
 import { Execution, type ExecutionInputs, type PaperSpec } from './execution.js';
 import { compileSketch, compileSketchAsync, isSketch, isSketchAsync, type SketchDef, type AsyncSketchDef } from './api.js';
-import { mm, resolveLen } from './units.js';
+import { mm, resolveLen, type L } from './units.js';
 
 export interface Fragment {
   origin: number;
@@ -764,7 +765,17 @@ export function bridgeGapFor(pen: PenDef, bridge: PlanOptions['bridge']): number
 export function planBuffer(result: RenderResult, opts: PlanOptions = result.plan ?? {}, engine?: string): { buffer: Float64Array; settings: PlanSettings } {
   const budget = tourBudget(opts.optimize);
   const gap = opts.bridge === false ? 0 : typeof opts.bridge === 'number' ? Math.max(0, opts.bridge) : -1;
-  const buffer = requireWasm().wasm_plan(result.raw.prims, result.raw.frags, pensToJson(result.pens), budget, gap);
+  let buffer = requireWasm().wasm_plan(result.raw.prims, result.raw.frags, pensToJson(result.pens), budget, gap);
+  // The shader is the last word on ink: the tour is already decided, so a
+  // program can repeat, cut, drop or re-pen a stroke without reordering
+  // the drawing. A program that returns `{}` leaves these bytes alone.
+  if (opts.shader) {
+    const frame = {
+      nibOf: (pen: number): number => Math.max(result.pens[pen]?.width ?? 0, SNAP_GRID),
+      resolve: (v: L): number => resolveLen(v, result.frame.inner),
+    };
+    buffer = encodePlanBuffer(shadeChains(decodePlanBuffer(buffer), opts.shader.program, frame));
+  }
   const settings: PlanSettings = {
     tourBudget: budget,
     pens: result.pens.map((p) => ({ name: p.name, width: p.width })),

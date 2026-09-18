@@ -129,7 +129,9 @@ export type { Paper, PaperChoice, PaperDef } from './paper.js';
 export { DEFAULT_PENS } from './pens.js';
 export type { PenDef } from './pens.js';
 export type { Prim } from './prims.js';
-export { subPrim, evalPrim } from './prims.js';
+export { subPrim, evalPrim, primLength } from './prims.js';
+export { shader } from './shader.js';
+export type { ShaderValue, StrokeCtx, StrokeInk, StrokeProgram } from './shader.js';
 
 // Point-distribution duals: pure, so they take arbitrary point arrays.
 export type { ScatterOpts, ThrowOpts, RelaxOpts, SettleOpts, SettleParent, Bounds } from './points.js';

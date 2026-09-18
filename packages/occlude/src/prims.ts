@@ -183,6 +183,24 @@ export function flattenPrim(p: Prim, tol = 0.05): [number, number][] {
   }
 }
 
+/** Arc length in mm. Exact for a line and an arc; a cubic is flattened at
+ * `tol` and summed, so it is a lower bound that tightens as `tol` falls.
+ * The default is the snap grid: shorter than a nib can resolve. */
+export function primLength(p: Prim, tol = SNAP_GRID): number {
+  switch (p.t) {
+    case 'line':
+      return Math.hypot(p.x1 - p.x0, p.y1 - p.y0);
+    case 'arc':
+      return Math.abs(p.r * p.sweep);
+    case 'cubic': {
+      const pts = flattenPrim(p, tol);
+      let total = 0;
+      for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      return total;
+    }
+  }
+}
+
 export function primBBox(p: Prim): { x0: number; y0: number; x1: number; y1: number } {
   // Conservative control-hull bbox — fine for the uses on the TS side
   // (custom-fill region info); the core computes exact boxes.

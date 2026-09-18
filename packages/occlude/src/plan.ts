@@ -18,6 +18,7 @@
 
 import { schedulePlan, type EstimateOpts, type PenTiming, type PlanEstimate, type PlanSchedule } from './motion.js';
 import type { Prim } from './prims.js';
+import type { ShaderValue } from './shader.js';
 
 export const PLAN_SCHEMA = 1;
 
@@ -30,6 +31,10 @@ export const PLAN_SCHEMA = 1;
 export interface PlanOptions {
   optimize?: boolean | number;
   bridge?: boolean | number;
+  /** A stroke shader: a program that runs along every stroke the plan
+   * holds and decides what the pen does there. It runs after the tour, so
+   * it never changes the drawing order — only the ink. */
+  shader?: ShaderValue;
 }
 
 /** What part of the ordered plan a sketch asks to be drawn — code, so
@@ -45,6 +50,16 @@ export interface DrawRequest {
   minutes?: [number, number];
   budget?: number;
 }
+
+/** A plan's options across an execution fork (a 3D camera change rebuilds
+ * the run): the data is copied, the shader is shared. A shader is a pure
+ * program with no state of its own, and a function cannot be
+ * structured-cloned. */
+export const clonePlanOptions = (o: PlanOptions): PlanOptions => {
+  const { shader, ...data } = o;
+  const copy = structuredClone(data) as PlanOptions;
+  return shader ? { ...copy, shader } : copy;
+};
 
 const pair = (v: unknown, what: string): [number, number] => {
   if (!Array.isArray(v) || v.length !== 2 || !v.every((x) => typeof x === 'number' && Number.isFinite(x))) throw new Error(`draw: ${what} must be [from, to] finite numbers`);
