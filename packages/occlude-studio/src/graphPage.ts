@@ -143,6 +143,31 @@ const statusLine = el('div', 'graph-status', 'ready');
 const statsLine = el('div', 'graph-stats');
 paperPanel.append(paperHead, paperBox, statusLine, statsLine);
 
+/** A wheel over the rail belongs to the rail: Rete's zoom must not answer a
+ * scroll the artist aimed at a panel. Inside the palette's own list the
+ * wheel keeps its native scrolling. */
+function holdWheel(panel: HTMLElement, scrollsInside?: HTMLElement): void {
+  panel.addEventListener('wheel', (event) => {
+    if (scrollsInside && event.target instanceof Node && scrollsInside.contains(event.target)) {
+      event.stopPropagation();
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  }, { passive: false });
+}
+
+/** The rail is the same rule as a node body: content stops the event, the
+ * empty canvas answers it. */
+function holdPanel(panel: HTMLElement, scrollsInside?: HTMLElement): void {
+  holdWheel(panel, scrollsInside);
+  for (const type of ['dblclick', 'pointerdown', 'contextmenu'] as const) {
+    panel.addEventListener(type, (event) => event.stopPropagation());
+  }
+}
+
+holdPanel(paperPanel);
+holdPanel(palette, paletteList);
 rail.append(palette, paperPanel);
 body.append(canvasHost, rail);
 main.append(head, body);
@@ -155,7 +180,7 @@ let papers: PaperDef[] = [];
 let settings = loadSettings();
 let dirty = false;
 let loading = true;
-let selected: string | null = null;
+let selection = new Set<string>();
 let generation = 0;
 let pending: number | null = null;
 /** The sheet the main preview is fitted to: a new one re-fits, an ordinary
@@ -200,7 +225,7 @@ const canvas: GraphCanvas = createCanvas(canvasHost, {
     const node = nodeById(id);
     return node ? { x: node.x, y: node.y } : null;
   },
-  pick: (id) => select(id),
+  pick: (id, shift) => select(id, shift),
   allowWire: (from, to) => {
     const forward = from.side === 'output' && to.side === 'input';
     const backward = from.side === 'input' && to.side === 'output';
@@ -313,6 +338,13 @@ const paintHooks: NodePaintHooks = {
   },
   viewerWrap,
   frames: (node) => viewerFrames.get(node.id) ?? 0,
+  zoom: () => canvas.area.area.transform.k,
+  setSize: (node, width, height) => {
+    node.width = width;
+    node.height = height;
+    canvas.area.resize(node.id, width, height);
+    dirty = true;
+  },
   remove: (node) => void removeNode(node.id),
   select: (node) => select(node.id),
 };
@@ -356,8 +388,31 @@ canvas.editor.addPipe((context: Root<GraphScheme>) => {
   return context;
 });
 
+/** The drag in progress: the picked node's own track, and where the rest of
+ * the selection started, so the whole selection moves as one. */
+let group: { id: string; from: { x: number; y: number }; others: { id: string; from: { x: number; y: number } }[] } | null = null;
+
 canvas.area.addPipe((context: AreaExtra | Root<GraphScheme>) => {
+  if (context.type === 'nodepicked') {
+    const id = context.data.id;
+    const at = (other: string): { x: number; y: number } => {
+      const view = canvas.area.nodeViews.get(other);
+      return view ? { x: view.position.x, y: view.position.y } : { x: 0, y: 0 };
+    };
+    group = selection.has(id) && selection.size > 1
+      ? { id, from: at(id), others: [...selection].filter((other) => other !== id).map((other) => ({ id: other, from: at(other) })) }
+      : null;
+  }
+  if (context.type === 'nodetranslated' && group && context.data.id === group.id) {
+    const dx = context.data.position.x - group.from.x;
+    const dy = context.data.position.y - group.from.y;
+    for (const other of group.others) {
+      void canvas.area.translate(other.id, { x: other.from.x + dx, y: other.from.y + dy });
+    }
+  }
   if (context.type === 'nodedragged') {
+    const moved = group;
+    group = null;
     const node = nodeById(context.data.id);
     const view = canvas.area.nodeViews.get(context.data.id);
     if (node && view) {
@@ -365,8 +420,23 @@ canvas.area.addPipe((context: AreaExtra | Root<GraphScheme>) => {
       node.y = Math.round(view.position.y);
       dirty = true;
     }
+    // The rest followed; their new places are the document's too.
+    for (const other of moved?.others ?? []) {
+      const rest = nodeById(other.id);
+      const otherView = canvas.area.nodeViews.get(other.id);
+      if (rest && otherView) {
+        rest.x = Math.round(otherView.position.x);
+        rest.y = Math.round(otherView.position.y);
+      }
+    }
   }
   return context;
+});
+
+// A press on the empty canvas clears the selection.
+canvasHost.addEventListener('pointerdown', (event) => {
+  const target = event.target as HTMLElement | null;
+  if (target && !target.closest('.graph-node')) clearSelection();
 });
 
 function applyWire(wire: GraphWire): void {
@@ -438,13 +508,30 @@ function freshId(): string {
   for (let i = 1; ; i++) if (!nodeById(`n${i}`)) return `n${i}`;
 }
 
-function select(id: string): void {
-  if (selected === id) return;
-  for (const other of [selected, id]) {
-    const element = other ? canvas.area.nodeViews.get(other)?.element : undefined;
-    element?.classList.toggle('graph-sel', other === id);
+function paintSelection(): void {
+  for (const id of canvas.area.nodeViews.keys()) {
+    canvas.area.nodeViews.get(id)?.element.classList.toggle('graph-sel', selection.has(id));
   }
-  selected = id;
+}
+
+/** Shift adds to the selection, a plain pick replaces it. Rete ships
+ * `selectableNodes`, but it repaints a node through `area.update` on every
+ * pick — which on this page rebuilds a code node's Monaco editor — so the
+ * selection is kept here, where it is only a class and a set. */
+function select(id: string, add = false): void {
+  if (add) {
+    if (selection.has(id)) selection.delete(id);
+    else selection.add(id);
+  } else if (!(selection.size === 1 && selection.has(id))) {
+    selection = new Set([id]);
+  }
+  paintSelection();
+}
+
+function clearSelection(): void {
+  if (selection.size === 0) return;
+  selection = new Set();
+  paintSelection();
 }
 
 async function place(node: GraphNode): Promise<void> {
@@ -490,7 +577,8 @@ async function removeNode(id: string): Promise<void> {
   view?.preview?.dispose();
   views.delete(id);
   viewerResults.delete(id);
-  if (selected === id) selected = null;
+  selection.delete(id);
+  paintSelection();
   graph.nodes = graph.nodes.filter((n) => n.id !== id);
   for (const other of graph.nodes) {
     for (const input of Object.values(other.inputs)) if (input.from?.[0] === id) delete input.from;
@@ -542,9 +630,31 @@ function setBad(id: string, bad: boolean): void {
   canvas.area.nodeViews.get(id)?.element.classList.toggle('graph-bad', bad);
 }
 
-function markErrors(message: string | null): void {
+/** Every mark a refused graph carries: the node, and the wire. Cleared
+ * together on the next compile that gets through. */
+function clearErrors(): void {
   for (const id of canvas.area.nodeViews.keys()) canvas.area.nodeViews.get(id)?.element.classList.remove('graph-node-err');
+  for (const host of canvasHost.querySelectorAll('.graph-wire-host')) host.classList.remove('graph-wire-bad');
+}
+
+function markWire(from: string, out: string, to: string, key: string): void {
+  const host = canvasHost.querySelector<HTMLElement>(`[data-wire="${from}:${out}->${to}:${key}"]`);
+  host?.classList.add('graph-wire-bad');
+}
+
+function markErrors(message: string | null): void {
+  clearErrors();
   if (!message) return;
+  // `graph: n2.count takes Number; n1.out is shape` names both ends of the
+  // wire that cannot be made.
+  const mismatch = /graph: ([A-Za-z_$][\w$]*)\.([\w$.]+) takes .*; ([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*) is /.exec(message);
+  if (mismatch) {
+    const [, target, key, source, out] = mismatch;
+    canvas.area.nodeViews.get(target)?.element.classList.add('graph-node-err');
+    canvas.area.nodeViews.get(source)?.element.classList.add('graph-node-err');
+    markWire(source, out, target, key);
+    return;
+  }
   const id = culprit(message);
   if (id) canvas.area.nodeViews.get(id)?.element.classList.add('graph-node-err');
 }
@@ -621,7 +731,16 @@ async function renderMain(compiled: CompiledSketch, mine: number): Promise<void>
     const message = error instanceof Error ? error.message : String(error);
     status(message, 'err');
     const ids = new Set(compiled.nodes.filter((n) => n.kind === 'code').map((n) => n.id));
-    markErrors(culprit(message) ?? nodeFromStack(error instanceof Error ? error.stack : undefined, liveExampleToJs(compiled.source), ids) ?? message);
+    const thrown = culprit(message) ?? nodeFromStack(error instanceof Error ? error.stack : undefined, liveExampleToJs(compiled.source), ids);
+    markErrors(thrown ?? message);
+    // A body that threw: its own drives are suspect too, so they go red with
+    // it — the stack usually names the node and nothing else.
+    if (thrown) {
+      canvas.area.nodeViews.get(thrown)?.element.classList.add('graph-node-err');
+      for (const wire of canvas.editor.getConnections()) {
+        if (wire.target === thrown) markWire(wire.source, String(wire.sourceOutput), wire.target, String(wire.targetInput));
+      }
+    }
     preview.setStale(true);
   }
 }
@@ -948,11 +1067,11 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (event.key === 'Delete' || event.key === 'Backspace') {
-    if (!selected) return;
+    if (selection.size === 0) return;
     event.preventDefault();
-    void removeNode(selected);
+    for (const id of [...selection]) void removeNode(id);
   }
-  if (event.key === 'Escape') select('');
+  if (event.key === 'Escape') clearSelection();
 });
 
 window.addEventListener('resize', () => {

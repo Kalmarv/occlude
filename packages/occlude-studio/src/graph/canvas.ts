@@ -49,8 +49,8 @@ export interface CanvasHooks {
   paint(id: string, body: HTMLElement): void;
   /** Where the node sits, in area coordinates. */
   position(id: string): Position | null;
-  /** The node was picked: the page selects it. */
-  pick(id: string): void;
+  /** The node was picked: the page selects it, adding when shift is held. */
+  pick(id: string, shift: boolean): void;
   /** May this wire exist? `from` is the socket the drag started at. */
   allowWire(from: SocketData, to: SocketData): boolean;
 }
@@ -124,6 +124,9 @@ class DomRender extends Scope<never, [AreaExtra]> {
     if (data.type === 'connection') {
       const payload = data.payload as GraphWire;
       element.classList.add('graph-wire-host');
+      // The wire can be named by what it carries: a compile refusal marks
+      // the edge, not only the two nodes.
+      element.dataset.wire = `${payload.source}:${payload.sourceOutput}->${payload.target}:${payload.targetInput}`;
       let svg = element.querySelector(':scope > svg');
       if (!svg) {
         svg = document.createElementNS(SVG_NS, 'svg');
@@ -143,7 +146,7 @@ class DomRender extends Scope<never, [AreaExtra]> {
   private picked = (event: PointerEvent): void => {
     const node = (event.target as HTMLElement | null)?.closest<HTMLElement>('.graph-node');
     const id = node?.dataset.nodeId;
-    if (id) this.hooks.pick(id);
+    if (id) this.hooks.pick(id, event.shiftKey);
   };
 
   /** Announce a socket: the connection plugin caches the element, the

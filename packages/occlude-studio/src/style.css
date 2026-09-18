@@ -3515,3 +3515,40 @@ button.armed {
   border: 0;
   background: transparent;
 }
+
+/* The size corner: on the body's chrome, never on a socket or a control. */
+.graph-size {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 46%, var(--edge-strong) 46%, var(--edge-strong) 62%, transparent 62%);
+}
+
+.graph-node-body {
+  position: relative;
+}
+
+/* A node sized by hand: the editor and the picture take the room. */
+.graph-node-body[style*='height'] .graph-code {
+  flex: 1 1 auto;
+  min-height: 48px;
+}
+
+.graph-node-body[style*='height'] .graph-viewer {
+  flex: 1 1 auto;
+  min-height: 60px;
+}
+
+/* A graph that cannot compile: the node, and the wire that carries the bad
+   value, say so on the canvas — the status line is not the only place. */
+.graph-node.graph-node-err .graph-node-body {
+  border-color: var(--danger);
+}
+
+.graph-wire-host.graph-wire-bad .graph-wire-path {
+  stroke: var(--danger);
+  stroke-width: 2.5;
+}

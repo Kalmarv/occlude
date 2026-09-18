@@ -85,6 +85,10 @@ export interface NodePaintHooks {
   viewerWrap(node: GraphNode): boolean;
   /** How many kept states the viewer's material has, 0 when unknown. */
   frames(node: GraphNode): number;
+  /** The canvas zoom, so a drag in screen pixels becomes area units. */
+  zoom(): number;
+  /** Remember a node's size in the document. */
+  setSize(node: GraphNode, width: number, height: number): void;
   remove(node: GraphNode): void;
   select(node: GraphNode): void;
 }
@@ -99,10 +103,42 @@ export interface NodePaint {
   dispose(): void;
 }
 
-/** The canvas chrome in a node: what a body may not do is drag the node. */
+/**
+ * An element that handles its own input keeps it: pressing a picture to look
+ * at it, or typing in the code, must not drag the node, and a wheel over the
+ * body must not zoom the canvas behind it.
+ */
 function noDrag(element: HTMLElement): void {
   element.addEventListener('pointerdown', (event) => event.stopPropagation());
-  element.addEventListener('wheel', (event) => event.stopPropagation(), { passive: true });
+  element.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  }, { passive: false });
+}
+
+/**
+ * A node body owns every input that lands inside it: the canvas pans and
+ * zooms only where it is empty. What a body legitimately needs the canvas for
+ * it takes from its own chrome — the title row — so the rule is one
+ * boundary, registered once per painted body, and a new node kind cannot
+ * forget it.
+ *
+ * `pointermove` and `pointerup` are deliberately not swallowed: the area
+ * tracks a connection being drawn through its own container listeners, and a
+ * wire dragged across a node would freeze if the node stopped the move.
+ */
+function ownInputs(host: HTMLElement): void {
+  host.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  }, { passive: false });
+  for (const type of ['dblclick', 'pointerdown', 'contextmenu'] as const) {
+    host.addEventListener(type, (event) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.graph-node-head')) return;
+      event.stopPropagation();
+    });
+  }
 }
 
 /** A row of a node body. `data-row` names the input it edits, so a wire
@@ -260,6 +296,7 @@ function builtinRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks):
     const wired = options.some((option) => node.inputs[option.name]?.from);
     if (wired) details.open = true;
     const summary = document.createElement('summary');
+    noDrag(summary);
     summary.title = `${param.name}: ${options.length} option${options.length === 1 ? '' : 's'} this node carries`;
     summary.append(el('span', 'graph-row-name', param.name), el('span', 'graph-opts-count', `${set}/${options.length}`));
     details.append(summary);
@@ -489,6 +526,7 @@ function viewerRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): 
   }
   const canvas = document.createElement('canvas');
   canvas.className = 'graph-viewer';
+  noDrag(canvas);
   host.append(canvas);
   if (hooks.viewerWrap(node)) {
     const tag = el('div', 'graph-viewer-tag', 'strokes');
@@ -516,6 +554,7 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
   host.dataset.node = node.id;
   host.dataset.kind = node.kind;
   host.replaceChildren();
+  ownInputs(host);
 
   const head = el('div', 'graph-node-head');
   head.append(el('span', 'graph-node-title', nodeTitle(node)));
@@ -533,6 +572,40 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
     cleanups.push(() => code.editor.dispose());
   } else if (node.kind === 'viewer') paint.canvas = viewerRows(host, node, hooks);
   else outputRows(host, node, hooks);
+
+  // A remembered size is the node's own; without one it sizes to its
+  // content, as every node did before.
+  if (node.width !== undefined) host.style.width = `${node.width}px`;
+  if (node.height !== undefined) host.style.height = `${node.height}px`;
+
+  const corner = el('div', 'graph-size');
+  corner.title = 'Drag to size this node';
+  noDrag(corner);
+  let grab: { x: number; y: number; w: number; h: number } | null = null;
+  corner.onpointerdown = (event: PointerEvent) => {
+    const rect = host.getBoundingClientRect();
+    const zoom = hooks.zoom();
+    grab = { x: event.clientX, y: event.clientY, w: rect.width / zoom, h: rect.height / zoom };
+    corner.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  corner.onpointermove = (event: PointerEvent) => {
+    if (!grab) return;
+    const zoom = hooks.zoom();
+    const width = Math.max(140, Math.round(grab.w + (event.clientX - grab.x) / zoom));
+    const height = Math.max(52, Math.round(grab.h + (event.clientY - grab.y) / zoom));
+    host.style.width = `${width}px`;
+    host.style.height = `${height}px`;
+  };
+  corner.onpointerup = () => {
+    if (!grab) return;
+    grab = null;
+    const rect = host.getBoundingClientRect();
+    const zoom = hooks.zoom();
+    hooks.setSize(node, Math.round(rect.width / zoom), Math.round(rect.height / zoom));
+  };
+  host.append(corner);
 
   markWired(host, hooks.wired(node));
   return paint;
