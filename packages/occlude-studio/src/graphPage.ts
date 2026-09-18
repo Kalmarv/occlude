@@ -554,6 +554,55 @@ canvas.editor.addPipe((context: Root<GraphScheme>) => {
  * the selection started, so the whole selection moves as one. */
 let group: { id: string; from: { x: number; y: number }; others: { id: string; from: { x: number; y: number } }[] } | null = null;
 
+/**
+ * While a wire is being dragged, every socket it could land on is lit and
+ * everything else steps back. Wiring a graph you do not know by heart is
+ * guessing until the canvas answers, and this is the answer.
+ */
+function showReach(from: { nodeId: string; side: string; key: string | number } | null): void {
+  canvasHost.classList.toggle('graph-wiring', from !== null);
+  for (const dot of canvasHost.querySelectorAll<HTMLElement>('[data-socket]')) {
+    dot.classList.remove('graph-sock-fits');
+    if (!from) continue;
+    const body = dot.closest<HTMLElement>('.graph-node-body');
+    const id = body?.dataset.node;
+    const socket = dot.dataset.socket?.split(':') ?? [];
+    if (!id || socket.length !== 2) continue;
+    const [side, key] = socket as [string, string];
+    // The same question the wire itself asks, asked of every socket at once.
+    const forward = from.side === 'output' ? { from, to: { nodeId: id, side, key } } : { from: { nodeId: id, side, key }, to: from };
+    if (wouldWire(forward.from, forward.to)) dot.classList.add('graph-sock-fits');
+  }
+}
+
+/** Whether a wire from one socket to another would be allowed, without
+ * saying anything about it: `allowWire` is the same rule, and it talks. */
+function wouldWire(from: { nodeId: string; side: string; key: string | number }, to: { nodeId: string; side: string; key: string | number }): boolean {
+  if (from.side !== 'output' || to.side !== 'input') return false;
+  if (from.nodeId === to.nodeId) return false;
+  const out = typeOfOutput(from.nodeId, String(from.key));
+  const target = nodeById(to.nodeId);
+  if (!out || !target) return false;
+  if (target.kind === 'viewer') return true;
+  const takes = inputTakes(target, catalogue)[String(to.key)];
+  return takes !== undefined && accepts(out, takes);
+}
+
+// A wire being dragged: light what it can reach, and let go when it lands.
+// These signals are the connection plugin's own, so this is where they are.
+canvas.connection.addPipe((context) => {
+  const signal = context as { type: string; data?: { socket?: { nodeId: string; side: string; key: string | number } } };
+  if (signal.type === 'connectionpick' && signal.data?.socket) showReach(signal.data.socket);
+  if (signal.type === 'connectiondrop') showReach(null);
+  return context;
+});
+
+canvas.editor.addPipe((context: Root<GraphScheme>) => {
+  // A wire that landed: the drag is over either way.
+  if (context.type === 'connectioncreated' || context.type === 'connectionremoved') showReach(null);
+  return context;
+});
+
 canvas.area.addPipe((context: AreaExtra | Root<GraphScheme>) => {
   if (context.type === 'nodepicked') {
     const id = context.data.id;

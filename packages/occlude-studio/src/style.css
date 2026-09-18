@@ -3500,6 +3500,17 @@ wa-dialog.wa-dialog-wide {
   border-radius: var(--r-sm);
 }
 
+/* A wire is being dragged: what it can land on is lit, and the rest steps
+   back, so wiring a graph you do not know by heart is not guessing. */
+.graph-canvas.graph-wiring .graph-sock {
+  opacity: 0.25;
+}
+
+.graph-canvas.graph-wiring .graph-sock.graph-sock-fits {
+  opacity: 1;
+  box-shadow: 0 0 0 3px var(--accent-edge);
+}
+
 /* Work that is not saved says so, on the name it would be saved under. */
 .graph-name.graph-dirty {
   border-color: var(--warn);
