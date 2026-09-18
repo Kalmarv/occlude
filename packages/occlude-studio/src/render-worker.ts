@@ -16,7 +16,7 @@ import type { LineArtScene3 } from 'occlude/src/three/scene.js';
 import { ConstructionScene3, constructionInfo3 } from './three/construction.js';
 import { cameraFrame3, type Camera3 } from 'occlude/src/three/camera.js';
 import initCore, * as core from 'occlude-core';
-import { GpuSceneCompute3, applyShader, commitCamera3, encodeScene, bridgeGapFor, hashPlan, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
+import { GpuSceneCompute3, applyShader, bridgeArg, commitCamera3, encodeScene, hashPlan, planSettings, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
 import { currentDraws, currentOverrides, currentSeed, runSketchAsync, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
@@ -135,21 +135,15 @@ const currentThree = () => {
 
 /** THE plan of the last render under the given options. */
 async function planDrawing(drawing: NonNullable<typeof last>, opts: PlanOptions): Promise<{ buffer: Float64Array; settings: PlanSettings; planHash: string }> {
-  const budget = tourBudget(opts.optimize);
-  const gap = opts.bridge === false ? 0 : typeof opts.bridge === 'number' ? Math.max(0, opts.bridge) : -1;
-  let buffer = mod.wasm_plan(drawing.prims, drawing.frags, drawing.pensJson, budget, gap);
+  let buffer = mod.wasm_plan(drawing.prims, drawing.frags, drawing.pensJson, tourBudget(opts.optimize), bridgeArg(opts.bridge));
   // The sketch's shader runs HERE too, through the library's one shading
   // call. Without it the preview, the saved SVG and the machine would all
   // draw the unshaded plan while a headless export drew the shaded one —
   // two renderers, two answers, which law 5 forbids.
   if (opts.shader) buffer = applyShader(buffer, opts.shader, drawing.pens, drawing.inner);
-  const settings: PlanSettings = {
-    tourBudget: budget,
-    pens: drawing.pens.map((p) => ({ name: p.name, width: p.width })),
-    paper: { w: drawing.paper.w, h: drawing.paper.h },
-    bridgeGapMm: drawing.pens.map((p) => bridgeGapFor(p, opts.bridge)),
-    engine: typeof __BUILD_STAMP__ === 'string' ? __BUILD_STAMP__ : 'dev',
-  };
+  // The settings go into the plan's hash, so they come from the library's
+  // own function. A field added there must not have to be added here too.
+  const settings: PlanSettings = planSettings(drawing.pens, drawing.paper, opts, typeof __BUILD_STAMP__ === 'string' ? __BUILD_STAMP__ : 'dev');
   const planHash = await hashPlan(buffer, settings);
   return { buffer, settings, planHash };
 }

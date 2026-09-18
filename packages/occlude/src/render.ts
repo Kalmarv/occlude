@@ -788,19 +788,41 @@ export function applyShader(buffer: Float64Array, shader: ShaderValue, pens: Pen
 /** Plan a rendered result ONCE (merge → tour → bridge per pen, pen order):
  * the exact plan bytes and the settings that identify them. Feed
  * `makePlan` for the hashed value, then the `plan*` exporters. */
-export function planBuffer(result: RenderResult, opts: PlanOptions = result.plan ?? {}, engine?: string): { buffer: Float64Array; settings: PlanSettings } {
-  const budget = tourBudget(opts.optimize);
-  const gap = opts.bridge === false ? 0 : typeof opts.bridge === 'number' ? Math.max(0, opts.bridge) : -1;
-  let buffer = requireWasm().wasm_plan(result.raw.prims, result.raw.frags, pensToJson(result.pens), budget, gap);
-  if (opts.shader) buffer = applyShader(buffer, opts.shader, result.pens, result.frame.inner);
-  const settings: PlanSettings = {
-    tourBudget: budget,
-    pens: result.pens.map((p) => ({ name: p.name, width: p.width })),
-    paper: { w: result.paper.w, h: result.paper.h },
-    bridgeGapMm: result.pens.map((p) => bridgeGapFor(p, opts.bridge)),
+/**
+ * The gap the engine is told to bridge: `false` never, a number for every
+ * pen, and -1 for "each pen's own half nib".
+ */
+export const bridgeArg = (bridge: PlanOptions['bridge']): number =>
+  bridge === false ? 0 : typeof bridge === 'number' ? Math.max(0, bridge) : -1;
+
+/**
+ * THE plan settings — what identifies a plan besides its bytes.
+ *
+ * Both planners build this: `planBuffer` here, and the studio's worker,
+ * which plans on its own thread from a flattened snapshot. They must agree
+ * exactly, because the settings go into the plan's hash, and a hash that
+ * differs by a rounding is a plan the studio calls stale. One function, so
+ * the next field added lands in both.
+ */
+export function planSettings(
+  pens: readonly PenDef[],
+  paper: { w: number; h: number },
+  opts: PlanOptions,
+  engine?: string,
+): PlanSettings {
+  return {
+    tourBudget: tourBudget(opts.optimize),
+    pens: pens.map((p) => ({ name: p.name, width: p.width })),
+    paper: { w: paper.w, h: paper.h },
+    bridgeGapMm: pens.map((p) => bridgeGapFor(p, opts.bridge)),
     ...(engine ? { engine } : {}),
   };
-  return { buffer, settings };
+}
+
+export function planBuffer(result: RenderResult, opts: PlanOptions = result.plan ?? {}, engine?: string): { buffer: Float64Array; settings: PlanSettings } {
+  let buffer = requireWasm().wasm_plan(result.raw.prims, result.raw.frags, pensToJson(result.pens), tourBudget(opts.optimize), bridgeArg(opts.bridge));
+  if (opts.shader) buffer = applyShader(buffer, opts.shader, result.pens, result.frame.inner);
+  return { buffer, settings: planSettings(result.pens, result.paper, opts, engine) };
 }
 
 /** THE entry: plan a rendered result once and get the plan as a value —
