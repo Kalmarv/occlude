@@ -33,7 +33,19 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 A rule is a pattern and a replacement. The pattern picks the points, edges or faces that match, and the action says what happens to every one of them. A rule builds a `steps` rule, so `m.steps(n, rule.point(…).move(…))` is the whole story. There is no separate verb.
 
-The actions on points are `move`, `set`, `extrude`, `connect` and `remove`. On edges they are `split`, `set`, `remove` and `replace`. On faces they are `set` and `move`.
+The actions on points are `move`, `set`, `extrude`, `connect` and `remove`. On edges they are `split`, `set`, `remove` and `replace`. On faces they are `set` and `move`. Every pattern and every action callback also sees the step number.
+
+<include>/_sig/PointRule.move.mdx</include>
+<include>/_sig/PointRule.set.mdx</include>
+<include>/_sig/PointRule.extrude.mdx</include>
+<include>/_sig/PointRule.connect.mdx</include>
+<include>/_sig/PointRule.remove.mdx</include>
+<include>/_sig/EdgeRule.split.mdx</include>
+<include>/_sig/EdgeRule.set.mdx</include>
+<include>/_sig/EdgeRule.remove.mdx</include>
+<include>/_sig/EdgeRule.replace.mdx</include>
+<include>/_sig/FaceRule.set.mdx</include>
+<include>/_sig/FaceRule.move.mdx</include>
 
 ```ts live
 import { sketch, strokes, material, rule } from 'occlude';

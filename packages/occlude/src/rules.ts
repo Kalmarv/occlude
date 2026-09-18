@@ -65,18 +65,18 @@ export interface RuleBatch {
 export type Rewrite = <S extends RuleState, B extends RuleBatch>(cur: S, next: B, k: number) => void;
 
 /** Tested against every point of the frozen state, with the state itself. */
-export type PointMatch = (p: Vertex, cur: Material) => boolean;
+export type PointMatch = (p: Vertex, cur: Material, k: number) => boolean;
 /** Tested against every edge of the frozen state, with the state itself. */
-export type EdgeMatch = (e: Edge, cur: Material) => boolean;
+export type EdgeMatch = (e: Edge, cur: Material, k: number) => boolean;
 
 /** A motif's chain, mapped onto an edge: the first point of the motif goes
  * to the edge's `a`, the last to its `b`, and the rest ride the similarity
  * between them. Anything the motif draws off that line is kept in
  * proportion, so a bump stays a bump whatever the edge's length or angle. */
 export interface ReplaceOpts {
-  /** Mirror the motif across the edge. Alternate it and a Koch curve grows
-   * inward and outward by turns. */
-  flip?: boolean | ((e: Edge, cur: Material) => boolean);
+  /** Mirror the motif across the edge. The callback sees the step, so
+   * alternating on `k` grows a Koch curve inward and outward by turns. */
+  flip?: boolean | ((e: Edge, cur: Material, k: number) => boolean);
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -86,25 +86,25 @@ const crossWorld = (body: (cur: Material, next: Next, k: number) => void): Rewri
 const crossWorldEdges = (body: (cur: Material, next: { setEdges(sel: unknown, field: unknown): void }, k: number) => void): Rewrite => body as any;
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-const asMatch = <T>(m: ((v: T, cur: Material) => boolean) | undefined): ((v: T, cur: Material) => boolean) | undefined => {
+const asMatch = <T>(m: ((v: T, cur: Material, k: number) => boolean) | undefined): ((v: T, cur: Material, k: number) => boolean) | undefined => {
   if (m === undefined) return undefined;
   if (typeof m !== 'function') throw new Error('rule: a pattern is a function of the point or edge');
   return m;
 };
 
 /** Points that match, and what to do with every one of them. */
-class PointRule {
+export class PointRule {
   constructor(private readonly match: PointMatch | undefined) {}
 
-  private select(cur: Material): PointSelection {
-    return this.match === undefined ? cur.points : cur.points.filter((p) => this.match!(p, cur));
+  private select(cur: Material, k: number): PointSelection {
+    return this.match === undefined ? cur.points : cur.points.filter((p) => this.match!(p, cur, k));
   }
 
   /** Displace every match. Runs in the flat world and on a mesh alike:
    * `by` is whatever that world calls a displacement. */
   move(by: XY | ((p: Vertex, cur: Material) => XY)): Rewrite {
-    return crossWorld((cur, next) => {
-      const sel = this.select(cur);
+    return crossWorld((cur, next, k) => {
+      const sel = this.select(cur, k);
       if (sel.length === 0) return;
       next.move(sel, typeof by === 'function' ? (p) => (by as (p: Vertex, cur: Material) => XY)(p, cur) : by);
     });
@@ -112,8 +112,8 @@ class PointRule {
 
   /** Write attributes on every match. Runs in either world. */
   set(attrs: Record<string, number> | ((p: Vertex, cur: Material) => Record<string, number>)): Rewrite {
-    return crossWorld((cur, next) => {
-      const sel = this.select(cur);
+    return crossWorld((cur, next, k) => {
+      const sel = this.select(cur, k);
       if (sel.length === 0) return;
       next.set(sel, typeof attrs === 'function' ? (p) => (attrs as (p: Vertex, cur: Material) => Record<string, number>)(p, cur) : attrs);
     });
@@ -121,8 +121,8 @@ class PointRule {
 
   /** Grow a child from every match. */
   extrude(spec: (p: Vertex, cur: Material) => ChildSpec | ChildSpec[], opts?: { inherit?: boolean }): StepRule {
-    return (cur, next) => {
-      const sel = this.select(cur);
+    return (cur, next, k) => {
+      const sel = this.select(cur, k);
       if (sel.length === 0) return;
       next.extrude(sel, (p) => spec(p, cur), opts);
     };
@@ -131,8 +131,8 @@ class PointRule {
   /** Join every match to the point the callback names. A callback that
    * returns nothing joins nothing, so a rule can skip a match. */
   connect(to: (p: Vertex, cur: Material) => Ref | undefined): StepRule {
-    return (cur, next) => {
-      for (const p of this.select(cur)) {
+    return (cur, next, k) => {
+      for (const p of this.select(cur, k)) {
         const other = to(p, cur);
         if (other !== undefined) next.connect(p, other);
       }
@@ -141,8 +141,8 @@ class PointRule {
 
   /** Delete every match, and the edges that touch it. */
   remove(): StepRule {
-    return (cur, next) => {
-      const sel = this.select(cur);
+    return (cur, next, k) => {
+      const sel = this.select(cur, k);
       if (sel.length === 0) return;
       next.remove(sel);
     };
@@ -150,17 +150,17 @@ class PointRule {
 }
 
 /** Edges that match, and what to do with every one of them. */
-class EdgeRule {
+export class EdgeRule {
   constructor(private readonly match: EdgeMatch | undefined) {}
 
-  private select(cur: Material): EdgeSelection {
-    return this.match === undefined ? cur.edges : cur.edges.filter((e) => this.match!(e, cur));
+  private select(cur: Material, k: number): EdgeSelection {
+    return this.match === undefined ? cur.edges : cur.edges.filter((e) => this.match!(e, cur, k));
   }
 
   /** Put a point in the middle of every match, or at `at` along it. */
   split(opts?: SplitOpts): StepRule {
-    return (cur, next) => {
-      const sel = this.select(cur);
+    return (cur, next, k) => {
+      const sel = this.select(cur, k);
       if (sel.length === 0) return;
       next.splitEdges(sel, opts);
     };
@@ -168,8 +168,8 @@ class EdgeRule {
 
   /** Write attributes on every match. Runs in either world. */
   set(attrs: Record<string, number> | ((e: Edge, cur: Material) => Record<string, number>)): Rewrite {
-    return crossWorldEdges((cur, next) => {
-      const sel = this.select(cur);
+    return crossWorldEdges((cur, next, k) => {
+      const sel = this.select(cur, k);
       if (sel.length === 0) return;
       next.setEdges(sel, typeof attrs === 'function' ? (e: Edge) => (attrs as (e: Edge, cur: Material) => Record<string, number>)(e, cur) : attrs);
     });
@@ -177,8 +177,8 @@ class EdgeRule {
 
   /** Cut every match, keeping its two points. */
   remove(): StepRule {
-    return (cur, next) => {
-      const sel = this.select(cur);
+    return (cur, next, k) => {
+      const sel = this.select(cur, k);
       if (sel.length === 0) return;
       next.disconnect(sel);
     };
@@ -216,8 +216,8 @@ class EdgeRule {
       return [(ux * dx + uy * dy) / span, (ux * -dy + uy * dx) / span] as [number, number];
     });
     const flip = opts.flip;
-    return (cur, next) => {
-      const sel = this.select(cur);
+    return (cur, next, k) => {
+      const sel = this.select(cur, k);
       if (sel.length === 0) return;
       const names = cur.attrNames;
       const edgeNames = cur.edgeAttrNames;
@@ -225,7 +225,7 @@ class EdgeRule {
       for (const e of sel) {
         const ex = e.b.x - e.a.x;
         const ey = e.b.y - e.a.y;
-        const across = (typeof flip === 'function' ? flip(e, cur) : flip === true) ? -1 : 1;
+        const across = (typeof flip === 'function' ? flip(e, cur, k) : flip === true) ? -1 : 1;
         // A motif point stands between the edge's ends, so it inherits from
         // them the way a split point does: the declared transfer policy,
         // interpolating by default. Every declared column must be given,
@@ -264,10 +264,10 @@ class EdgeRule {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type FaceRow = any;
 /** Tested against every face of the frozen state, with the state itself. */
-export type FaceMatch = (f: FaceRow, cur: FaceRow) => boolean;
+export type FaceMatch = (f: FaceRow, cur: FaceRow, k: number) => boolean;
 
 /** Faces that match, and what to do with every one of them. */
-class FaceRule {
+export class FaceRule {
   constructor(private readonly match: FaceMatch | undefined) {}
 
   /**
@@ -281,13 +281,13 @@ class FaceRule {
    */
   set(attrs: Record<string, number> | ((f: FaceRow, cur: FaceRow) => Record<string, number>)): Rewrite {
     const match = this.match;
-    return ((cur: any, next: any) => {
+    return ((cur: any, next: any, k: number) => {
       if (typeof next.setFaces !== 'function') {
         throw new Error('rule.face().set: this state has no face attributes to write. A face of a material is computed from its points and edges, so it owns no columns — write the face\'s points, or run the rule on a mesh.');
       }
       const all = cur.faces;
       const faces = typeof all === 'function' ? all.call(cur) : all;
-      const sel = match === undefined ? faces : faces.filter((f: any) => match(f, cur));
+      const sel = match === undefined ? faces : faces.filter((f: any) => match(f, cur, k));
       if (sel.length === 0) return;
       next.setFaces(sel, typeof attrs === 'function' ? (f: any) => attrs(f, cur) : attrs);
     }) as any;
@@ -297,10 +297,10 @@ class FaceRule {
    * so this works in both. */
   move(by: (f: FaceRow, cur: FaceRow) => unknown): Rewrite {
     const match = this.match;
-    return ((cur: any, next: any) => {
+    return ((cur: any, next: any, k: number) => {
       const all = cur.faces;
       const faces = typeof all === 'function' ? all.call(cur) : all;
-      for (const f of match === undefined ? faces : faces.filter((g: any) => match(g, cur))) {
+      for (const f of match === undefined ? faces : faces.filter((g: any) => match(g, cur, k))) {
         next.move(f.points, () => by(f, cur));
       }
     }) as any;

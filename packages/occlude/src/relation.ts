@@ -143,10 +143,16 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
   /** True when `view` is a vertex of the source and was selected. A vertex
    * of another state is never a member; an edge view is the wrong domain. */
   /**
-   * The points of this selection within `radius` of `p`, never `p` itself.
+   * The points of this selection CLOSER THAN `radius` to `p` — the bound
+   * is strict, so a point sitting exactly at `radius` is not one of them.
+   *
    * Proximity, not topology: `p.adjacent` is the points an edge joins it
-   * to. The index is built once per radius and cached on the state, so a
-   * whole pass of queries at one radius pays for one grid.
+   * to. A vertex of THIS state is never its own neighbour; a point from
+   * anywhere else — a midpoint, a bare pair, a vertex of an earlier state
+   * — is just a position, and a vertex sitting under it is returned.
+   *
+   * One radius, one grid, kept on the state. A radius that changes from
+   * point to point builds a grid for each value, so round it first.
    */
   near(p: XY, opts: { radius: number }): PointSelection {
     const radius = opts.radius;
@@ -155,6 +161,9 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     let index = box.byRadius.get(radius);
     if (index === undefined) {
       index = neighbours(this.source, { radius });
+      // Bounded: a per-point radius would otherwise build one grid per
+      // distinct float and hold every one of them for the state's life.
+      if (box.byRadius.size >= 8) box.byRadius.delete(box.byRadius.keys().next().value as number);
       box.byRadius.set(radius, index);
     }
     const rows = index(p);

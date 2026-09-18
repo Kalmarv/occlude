@@ -81,6 +81,19 @@ describe('rewrite rules', () => {
     expect(Math.max(...ys)).toBeCloseTo(h, 2);
   });
 
+  it('gives every callback the step, so a motif can alternate by turns', () => {
+    const h = Math.sqrt(3) / 6;
+    const motif = chain([[0, 0], [1 / 3, 0], [0.5, h], [2 / 3, 0], [1, 0]]);
+    const steps: number[] = [];
+    line(2).steps(3, rule.edge((_e, _cur, k) => { steps.push(k); return true; }).split());
+    expect(new Set(steps)).toEqual(new Set([0, 1, 2]));
+    // Alternating on k grows the curve outward, then inward, then out.
+    const turns = line(2).steps(2, rule.edge().replace(motif, { flip: (_e, _cur, k) => k % 2 === 1 }));
+    const ys = [...turns.points].map((p: Vertex) => p.y);
+    expect(Math.max(...ys)).toBeGreaterThan(0);
+    expect(Math.min(...ys)).toBeLessThan(0);
+  });
+
   it('flips a motif, so the bumps alternate', () => {
     const h = Math.sqrt(3) / 6;
     const motif = chain([[0, 0], [1 / 3, 0], [0.5, h], [2 / 3, 0], [1, 0]]);
