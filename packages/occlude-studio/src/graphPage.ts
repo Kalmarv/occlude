@@ -288,6 +288,90 @@ function showDirty(): void {
  * next visit, and the name it was drafted under is what says whether it is
  * still the graph you were looking at.
  */
+/**
+ * Undo and redo.
+ *
+ * The document is a plain value, so a step back is the document as it was.
+ * The whole thing is kept rather than a description of the change: a graph is
+ * small beside a drawing, and a history of *what happened* is a second model
+ * of the page that has to agree with the first one.
+ *
+ * Typing in a body is coalesced — a step per keystroke is not a step — and a
+ * step is only kept when the document actually differs, so a drag that ends
+ * where it began costs nothing.
+ */
+const HISTORY = 40;
+const past: string[] = [];
+const ahead: string[] = [];
+/** The document as the last step saw it. */
+let settled = '';
+let stepAt: number | null = null;
+
+/** Remember where the document was, once the edits stop arriving. */
+function step(): void {
+  if (stepAt !== null) clearTimeout(stepAt);
+  stepAt = window.setTimeout(() => {
+    stepAt = null;
+    const now = graphToJson(graph);
+    if (now === settled) return;
+    past.push(settled);
+    if (past.length > HISTORY) past.shift();
+    ahead.length = 0;
+    settled = now;
+  }, 450);
+}
+
+/** A graph just opened: its history starts here, and nothing before it
+ * belongs to it. */
+function startHistory(): void {
+  if (stepAt !== null) clearTimeout(stepAt);
+  stepAt = null;
+  past.length = 0;
+  ahead.length = 0;
+  settled = graphToJson(graph);
+}
+
+/** Take the document back, or forward, and rebuild the canvas on it. */
+async function walk(back: boolean): Promise<void> {
+  if (stepAt !== null) {
+    // An edit that has not settled is itself a step, or it would be skipped.
+    clearTimeout(stepAt);
+    stepAt = null;
+    const now = graphToJson(graph);
+    if (now !== settled) {
+      past.push(settled);
+      settled = now;
+    }
+  }
+  const from = back ? past : ahead;
+  const to = back ? ahead : past;
+  const text = from.pop();
+  if (text === undefined || text === '') {
+    status(back ? 'nothing to undo' : 'nothing to redo');
+    return;
+  }
+  to.push(settled);
+  settled = text;
+  generation += 1;
+  try {
+    graph = parseGraph(JSON.parse(text));
+  } catch (error) {
+    status(`undo: ${error instanceof Error ? error.message : String(error)}`, 'err');
+    return;
+  }
+  mainSource = null;
+  viewerResults.clear();
+  viewerFrames.clear();
+  const keep = canvas.viewport();
+  await buildCanvas();
+  canvas.lookAt(keep);
+  dirty = true;
+  showDirty();
+  saveDraft();
+  await renderAll();
+  status(back ? 'undone' : 'redone');
+}
+
 const DRAFT = 'occlude.graph.draft';
 /** Where each graph was last looked at from, by name. Coming back to a graph
  * and finding it where you left it is the difference between a document and
@@ -1066,6 +1150,7 @@ function touch(): void {
   dirty = true;
   showDirty();
   saveDraft();
+  step();
   schedule();
 }
 
@@ -1445,6 +1530,7 @@ async function open(name: string): Promise<boolean> {
     viewerFrames.clear();
     await buildCanvas();
     seedInput.value = typeof next.config.seed === 'number' ? String(next.config.seed) : '';
+  startHistory();
     history.replaceState(null, '', graphHref(next.name));
     dirty = false;
     showDirty();
@@ -1504,6 +1590,7 @@ async function readSketch(source: string, name: string): Promise<boolean> {
   history.replaceState(null, '', '/graph.html');
   dirty = true;
   showDirty(); // the imported graph has no name in the store yet
+  startHistory();
   clearSelection();
   await renderAll();
   return true;
@@ -1542,6 +1629,7 @@ async function newGraph(): Promise<void> {
   fitted = null;
   viewerResults.clear();
   await buildCanvas();
+  startHistory();
   history.replaceState(null, '', '/graph.html');
   dirty = false;
   showDirty();
@@ -1567,6 +1655,7 @@ async function remove(): Promise<void> {
     viewerResults.clear();
     viewerFrames.clear();
     await buildCanvas();
+    startHistory();
     clearSelection();
     await renderAll();
   } catch (error) {
@@ -1609,6 +1698,16 @@ document.addEventListener('keydown', (event) => {
   // pressed with nothing focused would have thrown before it was read.
   const target = event.target instanceof Element ? event.target : null;
   if (target?.closest('input, textarea, select, .monaco-editor')) return;
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+    event.preventDefault();
+    void walk(!event.shiftKey);
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
+    event.preventDefault();
+    void walk(false);
+    return;
+  }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
     event.preventDefault();
     void save();
@@ -1752,6 +1851,7 @@ async function boot(): Promise<void> {
         nameInput.value = draft.name;
         seedInput.value = typeof graph.config.seed === 'number' ? String(graph.config.seed) : '';
         await buildCanvas();
+        startHistory();
         await refreshList();
         dirty = true;
         showDirty();
@@ -1766,6 +1866,7 @@ async function boot(): Promise<void> {
   graph = template();
   seedInput.value = String(graph.config.seed ?? '');
   await buildCanvas();
+  startHistory();
   await refreshList();
   dirty = false;
   showDirty();
