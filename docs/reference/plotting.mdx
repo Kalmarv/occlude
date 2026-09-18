@@ -53,8 +53,8 @@ The example hides ink twice, and the two holes do not look alike. The opaque cir
 The program runs once for each nib step of every stroke, so keep it cheap. A dense hatch at a 0.14mm nib is about 240 000 calls and 34 milliseconds of planning, against 4 without a shader. A drawing with no shader pays none of it.
 :::
 
-:::warning
-**The studio preview does not show a shader.** The preview draws the finished paper. A shader runs after that, on the plan. A shaded sketch previews solid and plots shaded. Export an SVG or a PNG to see what the machine will draw. This breaks the rule that the preview matches the plot, and it is the feature's one open flaw.
+:::note
+A shaded sketch previews the PLAN. Every other sketch previews the finished paper. The paper comes before planning, so it cannot carry a shader. The plan keeps lines, arcs and cubics exactly as the render made them, so the preview is no coarser. It also shows the merges and the bridges, because the machine draws those too.
 :::
 
 :::warning

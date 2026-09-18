@@ -785,6 +785,32 @@ export function applyShader(buffer: Float64Array, shader: ShaderValue, pens: Pen
   return encodePlanBuffer(shadeChains(decodePlanBuffer(buffer), shader.program, frame));
 }
 
+/**
+ * A plan, re-encoded as the primitive and fragment buffers a preview
+ * draws. One fragment per primitive, whole, carrying its chain's pen.
+ *
+ * This is how the studio can show what the machine will actually draw. The
+ * finished PAPER render precedes planning, so it cannot show a shader; the
+ * plan is the ink itself. Nothing is flattened on the way — a plan keeps
+ * lines, arcs and cubics exactly as the render made them, so a preview of
+ * the plan is no coarser than a preview of the paper.
+ */
+export function planAsBuffers(buffer: Float64Array): { prims: Float64Array; frags: Float64Array } {
+  const chains = decodePlanBuffer(buffer);
+  const sink = new PrimSink();
+  const frags: number[] = [];
+  let index = 0;
+  for (const chain of chains) {
+    for (const prim of chain.prims) {
+      encodePrim(prim, sink);
+      // [origin, t0, t1, pen, shape, flags, run id, run start, run end]
+      frags.push(index, 0, 1, chain.pen, 0, chain.dot ? 1 : 0, 0, 0, 0);
+      index++;
+    }
+  }
+  return { prims: sink.view().slice(), frags: Float64Array.from(frags) };
+}
+
 /** Plan a rendered result ONCE (merge → tour → bridge per pen, pen order):
  * the exact plan bytes and the settings that identify them. Feed
  * `makePlan` for the hashed value, then the `plan*` exporters. */

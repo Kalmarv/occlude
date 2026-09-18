@@ -16,7 +16,7 @@ import type { LineArtScene3 } from 'occlude/src/three/scene.js';
 import { ConstructionScene3, constructionInfo3 } from './three/construction.js';
 import { cameraFrame3, type Camera3 } from 'occlude/src/three/camera.js';
 import initCore, * as core from 'occlude-core';
-import { GpuSceneCompute3, applyShader, bridgeArg, commitCamera3, encodeScene, hashPlan, planSettings, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
+import { GpuSceneCompute3, applyShader, bridgeArg, commitCamera3, encodeScene, hashPlan, planAsBuffers, planSettings, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
 import { currentDraws, currentOverrides, currentSeed, runSketchAsync, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
@@ -208,11 +208,16 @@ async function handleMessage(msg: Msg): Promise<void> {
         draft('render');
         const raw = renderEncoded(mod, scene);
         const drawing = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper, inner: scene.frame.inner };
-        // The finished paper drawing precedes planning; copies travel, originals stay.
-        { const prims = raw.prims.slice(), frags = raw.frags.slice(); draft('finished', { prims, frags, stats: raw.stats, renderMs: raw.renderMs, pens: scene.pens, frame: scene.frame, paper: scene.paper }, [prims.buffer, frags.buffer]); }
         // THE plan, once per render, under the sketch's own t.plan({...}):
         // everything downstream selects from it, as the sketch's t.draw says.
         const { buffer: planBuf, settings, planHash } = await planDrawing(drawing, scene.plan ?? {});
+        // What the preview shows. The finished PAPER render precedes
+        // planning, so it cannot show a shader — a shaded sketch would
+        // preview solid and plot shaded, which is the one thing law 5
+        // forbids. When a sketch shades, the preview draws the PLAN, which
+        // is the ink the machine lays down, and no coarser: a plan keeps
+        // lines, arcs and cubics exactly as the render made them.
+        { const prims = raw.prims.slice(), frags = raw.frags.slice(); draft('finished', { prims, frags, stats: raw.stats, renderMs: raw.renderMs, pens: scene.pens, frame: scene.frame, paper: scene.paper }, [prims.buffer, frags.buffer]); }
         signal?.throwIfAborted();
         const nextConstruction = [...run.scenes3.keys()].map(source => ({ source, prepared: constructionScenes.find(entry => entry.source.objects === source.objects && entry.source.wires === source.wires)?.prepared }));
         const { prims: inputPrims, contours, shapesU32, shapesF64, mods, fieldData, fieldUses, domainList, clipList, clipsU32, pensJson, paperArr, seed, coarsen } = scene;
@@ -233,8 +238,13 @@ async function handleMessage(msg: Msg): Promise<void> {
         // and the copies are transferred, not structured-cloned a second
         // time. Decode metadata (pens/frame/paper) rides along so the main
         // thread can decode without ever having held the scene.
-        const prims = raw.prims.slice();
-        const frags = raw.frags.slice();
+        // The preview's copies. A shaded sketch shows the PLAN, because the
+        // finished paper precedes planning and cannot carry a shader — a
+        // shaded sketch would otherwise preview solid and plot shaded,
+        // which law 5 forbids. Exports keep using the cached originals.
+        const shownForPreview = scene.plan?.shader ? planAsBuffers(planBuf) : null;
+        const prims = shownForPreview ? shownForPreview.prims : raw.prims.slice();
+        const frags = shownForPreview ? shownForPreview.frags : raw.frags.slice();
         const ghost = raw.ghost?.slice();
         const plan = planBuf.slice();
         const transfer: ArrayBuffer[] = [prims.buffer, frags.buffer, plan.buffer];

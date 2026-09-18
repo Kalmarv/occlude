@@ -131,7 +131,7 @@ export type { PenDef } from './pens.js';
 export type { Prim } from './prims.js';
 export { subPrim, evalPrim, primLength } from './prims.js';
 export { shader } from './shader.js';
-export { applyShader, planSettings, bridgeArg } from './render.js';
+export { applyShader, planAsBuffers, planSettings, bridgeArg } from './render.js';
 export type { ShaderValue, StrokeCtx, StrokeInk, StrokeProgram } from './shader.js';
 
 // Point-distribution duals: pure, so they take arbitrary point arrays.
