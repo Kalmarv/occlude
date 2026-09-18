@@ -17,8 +17,9 @@
  */
 
 import { Delaunay } from 'd3-delaunay';
-import { Material, withinMaterial } from './material.js';
+import { Material, material as makeMaterial, withinMaterial } from './material.js';
 import { numericLoops, type Boundary } from './boundary.js';
+import { distanceTo } from './distance.js';
 // Type-only (erased): a shape area is recognised and refused here, never
 // lowered — the toolkit does that, where the sketch frame is known.
 import type { ShapeValue } from './api.js';
@@ -366,6 +367,52 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
  * spacing = `spacing / sqrt(field)`, so demand-1 areas pack at `spacing`
  * and empty areas stay empty. Returns point-only material with a `density`
  * column: the field's value at each point, clamped to 0…1. */
+export interface ThrowOpts {
+  /** How many points to throw. */
+  count: number;
+  /** Keep only what lands inside this area (default: the whole drawable). */
+  within?: Boundary | ShapeValue;
+  /** Tries per point before the throw gives up and returns the points it
+   * has (default 1000): the termination rule for a field that is nearly
+   * zero everywhere. */
+  attempts?: number;
+}
+
+/**
+ * Independent uniform random points: `count` of them, rejection-sampled
+ * against the field (its value at the point, clamped to 0…1, is the chance
+ * the point stays) and against the `within` area. The random counterpart of
+ * `scatter`: no spacing, points may land anywhere, including on top of each
+ * other. No column is written. A count that is not positive is no points.
+ */
+export function throwPoints(env: PointsEnv, field: FieldFn2 | undefined, opts: ThrowOpts): Material {
+  const count = Math.floor(opts.count);
+  if (!(count > 0)) return makeMaterial([]);
+  const attempts = opts.attempts ?? 1000;
+  const region = opts.within === undefined ? null : withinRegion(opts.within, 'throw', undefined);
+  const { bounds } = region ?? env;
+  const inside = region?.loops ? distanceTo(region.loops) : null;
+  const xs: number[] = [];
+  const ys: number[] = [];
+  while (xs.length < count) {
+    let landed = false;
+    for (let tries = 0; tries < attempts && !landed; tries++) {
+      const x = bounds.x + env.rnd() * bounds.w;
+      const y = bounds.y + env.rnd() * bounds.h;
+      if (inside && !(inside(x, y) > 0)) continue;
+      if (field) {
+        const v = field(x, y);
+        if (!(env.rnd() < Math.min(1, v))) continue;
+      }
+      xs.push(x);
+      ys.push(y);
+      landed = true;
+    }
+    if (!landed) break;
+  }
+  return makeMaterial(xs.map((x, i) => [x, ys[i]] as [number, number]));
+}
+
 export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts: ScatterOpts): Material {
   const f: FieldFn2 = field ?? (() => 1);
   const spacingU = env.len(opts.spacing);

@@ -132,7 +132,7 @@ export type { Prim } from './prims.js';
 export { subPrim, evalPrim } from './prims.js';
 
 // Point-distribution duals: pure, so they take arbitrary point arrays.
-export type { ScatterOpts, RelaxOpts, SettleOpts, SettleParent, Bounds } from './points.js';
+export type { ScatterOpts, ThrowOpts, RelaxOpts, SettleOpts, SettleParent, Bounds } from './points.js';
 // Voronoi cells as material, with the cell ↔ site correspondence on the result.
 export { voronoi, type Sites } from './voronoi.js';
 export type { VoronoiLinks } from './material.js';

@@ -23,6 +23,28 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 });
 ```
 
+## t.throw()
+
+<include>/_sig/Toolkit.throw.mdx</include>
+
+<AutoTypeTable path="../occlude/src/points.ts" name="ThrowOpts" />
+
+Independent random points, `count` of them. Give an area and the points land inside it. Give a field and each point stays with the chance the field gives at that place. A field of 0 has no points. This is the random counterpart of `t.scatter`. Nothing keeps the points apart, and two can land on one spot. It writes no column.
+
+```ts live
+import { sketch, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const dish = circle(50, 50, 42);
+  const shade = (x) => Math.pow(x / 100, 2);
+  return [dish, t.throw(shade, { count: 900, within: dish }).points.map((p) => circle(p.x, p.y, 0.7))];
+});
+```
+
+:::note
+`attempts` is the termination rule. A field that is nearly 0 everywhere makes most throws miss. After that many misses for one point, the throw returns the points it has.
+:::
+
 ## t.relax()
 
 <include>/_sig/Toolkit.relax.mdx</include>

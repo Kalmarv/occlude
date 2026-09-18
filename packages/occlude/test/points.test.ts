@@ -520,3 +520,21 @@ describe('review of fe26c3f', () => {
     expect(left).toBeDefined();
   });
 });
+
+describe('throw: independent random points', () => {
+  it('lands the count inside the area, follows a field, and is seeded', () => {
+    let disc!: Material, again!: Material, half!: Material, whole!: Material, none!: Material;
+    run((t) => { disc = t.throw(circle(50, 50, 20), { count: 300 }); }, 3);
+    run((t) => { again = t.throw(circle(50, 50, 20), { count: 300 }); }, 3);
+    run((t) => { half = t.throw((x) => (x < 50 ? 0 : 1), { count: 200 }); }, 3);
+    run((t) => { whole = t.throw({ count: 50 }); }, 3);
+    run((t) => { none = t.throw(() => 0, { count: 10, attempts: 5 }); }, 3);
+    expect(disc.n).toBe(300);
+    expect([...disc.points].every((p) => Math.hypot(p.x - 50, p.y - 50) < 20)).toBe(true);
+    expect([...again.points].map((p) => [p.x, p.y])).toEqual([...disc.points].map((p) => [p.x, p.y]));
+    expect(half.n).toBe(200);
+    expect([...half.points].every((p) => p.x >= 50)).toBe(true);
+    expect(whole.n).toBe(50);
+    expect(none.n).toBe(0); // the attempt limit is the termination rule
+  });
+});

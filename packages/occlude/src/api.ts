@@ -44,8 +44,8 @@ import { Execution, type ExecutionInputs, type PaperSpec, type SketchOptions, ty
 import type { PenDef } from './pens.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
-  scatterPoints, relaxMaterial, settleMaterial, withinRegion,
-  type RelaxOpts, type SettleOpts, type Bounds as PointBounds, type FieldFn2, type ScatterOpts,
+  scatterPoints, throwPoints, relaxMaterial, settleMaterial, withinRegion,
+  type RelaxOpts, type SettleOpts, type Bounds as PointBounds, type FieldFn2, type ScatterOpts, type ThrowOpts,
 } from './points.js';
 import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { ridgesOf, type RidgeOpts } from './ridges.js';
@@ -909,9 +909,9 @@ export interface NoiseOptions {
 export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; compute3?: SceneCompute3; isOpen?: () => boolean; onProgress?: import('./three/modeling.js').ProgressListener3 }) {
   /** Environment handed to the points module: seeded stream, drawable
    * bounds, and sketch-time length resolution (mm via the paper). */
-  function pointsEnv(): import('./points.js').PointsEnv {
+  function pointsEnv(stream = '__points'): import('./points.js').PointsEnv {
     const b = exec.bounds();
-    const st = exec.stream('__points');
+    const st = exec.stream(stream);
     return {
       rnd: () => st.rnd(),
       bounds: { x: 0, y: 0, w: b.w, h: b.h },
@@ -935,6 +935,23 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     if (!raw?.spacing) throw new Error('scatter: { spacing } is required');
     const opts: ScatterOpts = raw.within === undefined ? raw : { ...raw, within: numericAreaLoops(exec, raw.within, 'scatter') };
     return scatterPoints(pointsEnv(), field, opts);
+  }
+
+  /** Independent uniform random points, `count` of them: `t.throw({ count })`
+   * over the drawable, `t.throw(area, { count })` inside an area, and
+   * `t.throw(field, { count, within? })` kept with the chance the field
+   * gives at the point. The random counterpart of `scatter`. */
+  function throwTk(field: FieldFn2 | undefined, opts: ThrowOpts): Material;
+  function throwTk(area: Boundary | ShapeValue, opts: Omit<ThrowOpts, 'within'>): Material;
+  function throwTk(opts: ThrowOpts): Material;
+  function throwTk(a: FieldFn2 | Boundary | ShapeValue | ThrowOpts | undefined, b?: ThrowOpts | Omit<ThrowOpts, 'within'>): Material {
+    const field = typeof a === 'function' ? a : undefined;
+    const area = b !== undefined && typeof a !== 'function' && a !== undefined ? (a as Boundary | ShapeValue) : undefined;
+    const raw = (b ?? a) as ThrowOpts;
+    if (!raw || typeof raw !== 'object' || raw.count === undefined) throw new Error('throw: { count } is required');
+    const within = area ?? raw.within;
+    const opts: ThrowOpts = within === undefined ? raw : { ...raw, within: numericAreaLoops(exec, within, 'throw') };
+    return throwPoints(pointsEnv('__throw'), field, opts);
   }
 
   /** Lloyd relaxation: each point to the density-weighted centroid of its
@@ -1289,7 +1306,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     grid: (opts: GridOptions): GridCell[] => gridCells(exec.bounds(), opts),
     noisyLine: (x1: L, y1: L, x2: L, y2: L, o?: Parameters<typeof noisyLineValue>[5], shapeOpts?: ShapeOpts): ShapeValue => noisyLineValue(noise, x1, y1, x2, y2, o, shapeOpts),
     svg: svgValue,
-    scatter, isolines, ridges, streamlines,
+    scatter, throw: throwTk, isolines, ridges, streamlines,
     /** A shape's boundary as material with the boundary's OWN vertices,
      * curves flattened. `sample` redistributes instead. */
     material: materialFromShape,
