@@ -174,7 +174,7 @@ export function wordInputs(word: CatalogueWord): CatalogueInput[] {
 
 // ---- the document ----
 
-export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output';
+export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output' | 'group' | 'input';
 
 /** An input: a literal, an edge, or (for code nodes) the edge's type. */
 export interface GraphInput {
@@ -189,8 +189,12 @@ export interface GraphNode {
   kind: NodeKind;
   x: number;
   y: number;
+  /** The size the artist dragged the node to, in area units. Absent means
+   * the body sizes itself to its content, as every node did before. */
+  width?: number;
+  height?: number;
   inputs: Record<string, GraphInput>;
-  /** Built-in nodes: the catalogue word. */
+  /** Built-in nodes: the catalogue word. A group node: the group's name. */
   word?: string;
   /** Code nodes: declared outputs, and the body. */
   outputs?: Record<string, ValueType>;
@@ -206,7 +210,7 @@ export interface Graph {
 }
 
 const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-const KINDS: readonly NodeKind[] = ['builtin', 'code', 'viewer', 'output'];
+const KINDS: readonly NodeKind[] = ['builtin', 'code', 'viewer', 'output', 'group', 'input'];
 /** Words a compiled sketch cannot bind: a node id becomes a `const`, and a
  * code node's keys become parameters. */
 const RESERVED = new Set([
@@ -260,9 +264,26 @@ function parseNode(raw: unknown): GraphNode {
   const inputs: Record<string, GraphInput> = {};
   for (const [key, value] of Object.entries(rawInputs)) inputs[key] = parseInput(id, key, value);
   const node: GraphNode = { id, kind, x, y, inputs };
+  if (typeof r.width === 'number' && Number.isFinite(r.width) && r.width > 0) node.width = r.width;
+  if (typeof r.height === 'number' && Number.isFinite(r.height) && r.height > 0) node.height = r.height;
   if (kind === 'builtin') {
     if (typeof r.word !== 'string' || r.word === '') throw new Error(`graph: node ${id} is a built-in with no word`);
     node.word = r.word;
+  }
+  if (kind === 'group') {
+    if (typeof r.word !== 'string' || r.word === '') throw new Error(`graph: node ${id} is a group with no name`);
+    node.word = r.word;
+  }
+  // A group node's boundary and a group's own `input` node declare outputs
+  // without a body, the way a code node does.
+  if ((kind === 'group' || kind === 'input') && r.outputs !== undefined) {
+    const rawOutputs = expectObject(r.outputs, `${kind === 'group' ? 'group' : 'input'} node ${id} outputs`);
+    const outputs: Record<string, ValueType> = {};
+    for (const [key, value] of Object.entries(rawOutputs)) {
+      if (!isUsableName(key)) throw new Error(`graph: node ${id} output name ${JSON.stringify(key)} is not a usable identifier`);
+      outputs[key] = parseValueType(value, `node ${id} output ${key}`);
+    }
+    node.outputs = outputs;
   }
   if (kind === 'code') {
     if (typeof r.body !== 'string') throw new Error(`graph: code node ${id} has no body`);
@@ -319,6 +340,8 @@ export function graphToJson(graph: Graph): string {
         if (n.word !== undefined) out.word = n.word;
         out.x = n.x;
         out.y = n.y;
+        if (n.width !== undefined) out.width = n.width;
+        if (n.height !== undefined) out.height = n.height;
         out.inputs = n.inputs;
         if (n.outputs !== undefined) out.outputs = n.outputs;
         if (n.body !== undefined) out.body = n.body;
@@ -340,8 +363,9 @@ export function topoOrder(graph: Graph): string[] {
   for (const node of graph.nodes) {
     for (const input of Object.values(node.inputs)) {
       if (!input.from) continue;
+      if (!consumers.has(input.from[0])) throw new Error(`graph: node ${node.id} reads missing node ${input.from[0]}`);
       indegree.set(node.id, (indegree.get(node.id) ?? 0) + 1);
-      consumers.get(input.from[0])?.push(node.id);
+      consumers.get(input.from[0])!.push(node.id);
     }
   }
   const ready = graph.nodes.filter((n) => indegree.get(n.id) === 0).map((n) => n.id);

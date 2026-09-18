@@ -135,6 +135,8 @@ function inputExpression(node: GraphNode, key: string, graph: Graph, catalogue: 
 function validate(graph: Graph, catalogue: Catalogue): Map<string, CatalogueWord> {
   const words = new Map<string, CatalogueWord>();
   for (const node of graph.nodes) {
+    if (node.kind === 'group') throw new Error(`graph: node ${node.id} is a group; expand it before compiling`);
+    if (node.kind === 'input') throw new Error(`graph: node ${node.id} is a group input; it belongs inside a group`);
     if (node.kind !== 'builtin') continue;
     const word = wordOf(catalogue, node.word!);
     if (!word) throw new Error(`graph: node ${node.id} names unknown word ${node.word}`);
