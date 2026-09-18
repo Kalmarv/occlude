@@ -16,7 +16,7 @@ import type { LineArtScene3 } from 'occlude/src/three/scene.js';
 import { ConstructionScene3, constructionInfo3 } from './three/construction.js';
 import { cameraFrame3, type Camera3 } from 'occlude/src/three/camera.js';
 import initCore, * as core from 'occlude-core';
-import { GpuSceneCompute3, commitCamera3, encodeScene, bridgeGapFor, hashPlan, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
+import { GpuSceneCompute3, applyShader, commitCamera3, encodeScene, bridgeGapFor, hashPlan, renderEncoded, tourBudget, type Execution, type PlanOptions, type PlanSettings, type WasmModule } from 'occlude';
 
 import { currentDraws, currentOverrides, currentSeed, runSketchAsync, type RunConfig } from './runner.js';
 import { preloadAssets } from './assetLoader.js';
@@ -109,7 +109,7 @@ const compute3 = new GpuSceneCompute3(navigator.gpu);
 
 const mod = core as unknown as WasmModule;
 
-let last: { prims: Float64Array; frags: Float64Array; pensJson: string; pens: { name: string; width: number; color: string; feed: number; penDown: number; penUp: number; penDelay: number }[]; paper: { w: number; h: number } } | null = null;
+let last: { prims: Float64Array; frags: Float64Array; pensJson: string; pens: { name: string; width: number; color: string; feed: number; penDown: number; penUp: number; penDelay: number }[]; paper: { w: number; h: number }; inner: { innerW: number; innerH: number } } | null = null;
 let lastPlan: { buffer: Float64Array; settings: PlanSettings; planHash: string; pensJson: string } | null = null;
 /** The render whose run (and inspection registry) is current. */
 let lastExecutionId = -1;
@@ -137,7 +137,12 @@ const currentThree = () => {
 async function planDrawing(drawing: NonNullable<typeof last>, opts: PlanOptions): Promise<{ buffer: Float64Array; settings: PlanSettings; planHash: string }> {
   const budget = tourBudget(opts.optimize);
   const gap = opts.bridge === false ? 0 : typeof opts.bridge === 'number' ? Math.max(0, opts.bridge) : -1;
-  const buffer = mod.wasm_plan(drawing.prims, drawing.frags, drawing.pensJson, budget, gap);
+  let buffer = mod.wasm_plan(drawing.prims, drawing.frags, drawing.pensJson, budget, gap);
+  // The sketch's shader runs HERE too, through the library's one shading
+  // call. Without it the preview, the saved SVG and the machine would all
+  // draw the unshaded plan while a headless export drew the shaded one —
+  // two renderers, two answers, which law 5 forbids.
+  if (opts.shader) buffer = applyShader(buffer, opts.shader, drawing.pens, drawing.inner);
   const settings: PlanSettings = {
     tourBudget: budget,
     pens: drawing.pens.map((p) => ({ name: p.name, width: p.width })),
@@ -208,7 +213,7 @@ async function handleMessage(msg: Msg): Promise<void> {
         signal?.throwIfAborted();
         draft('render');
         const raw = renderEncoded(mod, scene);
-        const drawing = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper };
+        const drawing = { prims: raw.prims, frags: raw.frags, pensJson: scene.pensJson, pens: scene.pens, paper: scene.paper, inner: scene.frame.inner };
         // The finished paper drawing precedes planning; copies travel, originals stay.
         { const prims = raw.prims.slice(), frags = raw.frags.slice(); draft('finished', { prims, frags, stats: raw.stats, renderMs: raw.renderMs, pens: scene.pens, frame: scene.frame, paper: scene.paper }, [prims.buffer, frags.buffer]); }
         // THE plan, once per render, under the sketch's own t.plan({...}):

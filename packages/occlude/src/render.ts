@@ -21,7 +21,7 @@ import { PRIM_STRIDE, FRAG_STRIDE, PrimSink, encodePrim, decodePrim } from './sc
 import { buildFieldGrids, type FieldKind, type FieldUse } from './fieldGrid.js';
 import type { FillJob } from './fillJobs.js';
 import { renderEncoded, requireWasm, type RawRender, type WasmModule } from './wasmRender.js';
-import { shadeChains } from './shader.js';
+import { shadeChains, type ShaderValue } from './shader.js';
 
 // The render pipeline this module was one file with, re-exported so its
 // importers (tools, tests, the studio worker) keep one door: the wasm
@@ -759,6 +759,32 @@ export function bridgeGapFor(pen: PenDef, bridge: PlanOptions['bridge']): number
   return Math.max(pen.width, 0.05) * 0.5;
 }
 
+/**
+ * Run a shader over plan bytes and give the shaded bytes back.
+ *
+ * THE one shading call. The studio plans in its worker and the headless
+ * exporters plan here, and law 5 says the preview, the export and the
+ * machine agree — so both go through this, and neither grows a second
+ * copy of the sampling, the cutting or the pen lookup.
+ *
+ * The tour is already decided when this runs: a program repeats, cuts,
+ * drops or re-pens a stroke, and never reorders the drawing. A program
+ * that returns `{}` leaves the bytes untouched.
+ */
+export function applyShader(buffer: Float64Array, shader: ShaderValue, pens: PenDef[], inner: { innerW: number; innerH: number }): Float64Array {
+  const frame = {
+    nibOf: (pen: number): number => Math.max(pens[pen]?.width ?? 0, SNAP_GRID),
+    resolve: (v: L): number => resolveLen(v, inner),
+    penCount: (): number => pens.length,
+    penOf: (name: string): number => {
+      const i = pens.findIndex((p) => p.name === name);
+      if (i < 0) throw new Error(`shader: this drawing does not use the pen '${name}' (it uses ${pens.map((p) => `'${p.name}'`).join(', ')}). A shader chooses among the pens the drawing draws with.`);
+      return i;
+    },
+  };
+  return encodePlanBuffer(shadeChains(decodePlanBuffer(buffer), shader.program, frame));
+}
+
 /** Plan a rendered result ONCE (merge → tour → bridge per pen, pen order):
  * the exact plan bytes and the settings that identify them. Feed
  * `makePlan` for the hashed value, then the `plan*` exporters. */
@@ -766,22 +792,7 @@ export function planBuffer(result: RenderResult, opts: PlanOptions = result.plan
   const budget = tourBudget(opts.optimize);
   const gap = opts.bridge === false ? 0 : typeof opts.bridge === 'number' ? Math.max(0, opts.bridge) : -1;
   let buffer = requireWasm().wasm_plan(result.raw.prims, result.raw.frags, pensToJson(result.pens), budget, gap);
-  // The shader is the last word on ink: the tour is already decided, so a
-  // program can repeat, cut, drop or re-pen a stroke without reordering
-  // the drawing. A program that returns `{}` leaves these bytes alone.
-  if (opts.shader) {
-    const frame = {
-      nibOf: (pen: number): number => Math.max(result.pens[pen]?.width ?? 0, SNAP_GRID),
-      resolve: (v: L): number => resolveLen(v, result.frame.inner),
-      penCount: (): number => result.pens.length,
-      penOf: (name: string): number => {
-        const i = result.pens.findIndex((p) => p.name === name);
-        if (i < 0) throw new Error(`shader: this drawing does not use the pen '${name}' (it uses ${result.pens.map((p) => `'${p.name}'`).join(', ')}). A shader chooses among the pens the drawing draws with.`);
-        return i;
-      },
-    };
-    buffer = encodePlanBuffer(shadeChains(decodePlanBuffer(buffer), opts.shader.program, frame));
-  }
+  if (opts.shader) buffer = applyShader(buffer, opts.shader, result.pens, result.frame.inner);
   const settings: PlanSettings = {
     tourBudget: budget,
     pens: result.pens.map((p) => ({ name: p.name, width: p.width })),
