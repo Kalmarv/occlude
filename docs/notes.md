@@ -667,3 +667,119 @@ after drawing. Export and machine: post-export bounds report against the
 bed, place and auto-rotate within the bed, per-pen start/end templates,
 reading `$130`–`$132` into a profile, and an animation export of the
 drawing being drawn.
+
+## Shaders, implicit geometry and rewrite rules (2026-09-18, built on `explore`)
+
+Three features in one night, with the decisions that shaped them. Each of
+these was a choice with a live alternative; the alternative is written down
+so nobody re-argues it from scratch.
+
+### What a shader shades
+
+A stroke shader runs on the PLAN, not on the fragment table. The fragment
+table looked like the free seam — `wasm_plan` is its only consumer — but a
+fragment is a sub-range of one primitive, and a stroked circle is already
+twenty-odd primitives. The thing an artist calls a stroke does not exist
+there; the plan's merge makes it. `Frag.run` carries no general identity
+either: `run_id` was 0 on every fragment of an ordinary outline. So `s` in
+millimetres, dash phase and `ctx.length` all need the chain.
+
+The cost of that choice is that a shader cannot see what only the fragment
+knows: `ctx.kind` (is this a hatch?) and `ctx.depth` (how far back is this
+3D line?). Both need a per-chain source label in the plan protocol, which is
+a both-sides commit. Until then `ctx.pen` is the way a program tells one
+kind of stroke from another, and `docs/examples/shoal.mdx` uses it that way.
+
+`passes` is retrace — the identical path, drawn again. The routing default
+forbids duplicate edges for Eulerizing a tour, not for an artist asking.
+An offset would put ink outside what occlusion cleared.
+
+**The preview draws the plan because of this feature.** The finished paper
+precedes planning, so it cannot carry a shader: a shaded sketch previewed
+solid and plotted shaded, which law 5 forbids. Measured before changing it —
+a hatched sheet is 3193.6mm of ink either way, 385 fragments against 153
+chains, 0.07mm apart, and that difference is the sub-nib bridges the machine
+draws anyway. The plan keeps lines, arcs and cubics exactly as the render
+made them, so nothing is flattened on the way to the screen.
+
+### Words the field algebra does NOT have
+
+`field` is the distance-field algebra. It is `field` and not `distance`
+because `distance(a, b)` is already the distance between two points, and
+`sdf` is not a word this project speaks.
+
+Three words the first sketch of the feature asked for are absent, each
+because the answer already existed:
+
+- **No `contour()`.** The boundary of a field is `t.isolines(f, 0)`.
+- **No `offset()`.** `distanceTo`'s own docstring already ruled that inset
+  and offset rings ARE isolines at a level. A field is a function, so a
+  shape grown by four is `(x, y) => f(x, y) + 4`, written where it is
+  needed; the "inset band of constant width" is `subtract(body, inner)`
+  with `inner` inline, and needs no API at all.
+- **No `field.rect`.** It is `field.box`, and centred. `rect(x, y, w, h)`
+  anchors by the sketch's own rect mode, and a pure field function cannot
+  read the sketch, so one name with two anchors would be a trap.
+
+The algebra takes plain numbers and not `L`. A length in the sketch's units
+needs the resolved paper, and these are module imports — the frame rule, not
+an oversight.
+
+**Union is a MAXIMUM**, because this codebase signs a distance field
+positive inside. Written here because it is the one thing every reader
+disbelieves.
+
+**The blend formula was wrong once, and the way it was wrong is worth
+keeping.** The obvious polynomial smooth maximum adds its bump wherever the
+two fields are within `k` of EACH OTHER — and on the locus equidistant from
+both, that is true out to infinity. Measured: a constant +2.25 bias at y=50
+and at y=100000 for k=9, so the whole shape grew by `k/4` and never stopped,
+while the page claimed "exact away from it". It is a rounded union now,
+measured at 0.00000000 past the joint. Note that the rounded form is not
+idempotent either: `blend(a, a, 8)` contours at radius 14.34 against a disc
+of 12. A fillet adds material, and the docs say so rather than claiming
+otherwise.
+
+### Why there is no `rules()` verb
+
+A rule is a pattern and a replacement, and `steps` already had both halves:
+a `StepRule` receives the frozen state and an edit batch, and an edit over a
+selection already applies to every match at once. So `rule.point(p).move(f)`
+BUILDS a `StepRule`. A new verb would have been a second spelling.
+
+The one distinction worth a word is batching, and existing syntax carries
+it: a shorthand is an object and a rule is a function, so an ARRAY is
+unambiguous. `steps(n, [a, b])` is one batch; `steps(n, a, b)` stays two
+passes.
+
+**"Order inside the array changes nothing" is FALSE**, and the docs said it
+for a day. Matching is order-free. Editing is not: two `set` rules give 2
+then 1 when swapped, two extrudes swap their row order, and only `move`
+commutes.
+
+Randomness is not a rule option. The first sketch wanted
+`split({ chance: 0.3 })`; a seeded stream lives on the toolkit and these
+factories are pure, so a chance goes in the pattern, where it runs once per
+row.
+
+A rule that only moves or writes runs on a MESH too — `Rewrite` is generic
+and assignable to both worlds. The topology actions keep the flat world's
+type, because a mesh edit batch has no per-step topology; a type error is
+better than a run-time one.
+
+`rule.face()` writes a mesh's face columns and refuses a material's. 2D
+faces are DERIVED — `new Faces(m)` recomputes the planar embedding every
+time, and `Faces` has no attribute columns — so there is nowhere to write.
+Reading is already at parity (`Face` has `adjacent`, `edges`, `points`,
+`boundaryEdges`, `area`, `centroid`, `contours`). Writing needs face columns
+on `Material`, whose constructor is already nine positional parameters, and
+lazy validation on read — recomputing the embedding every step would put a
+full face computation inside a 240-step loop.
+
+### Open, and waiting on a ruling
+
+- `p.adjacent` is a FOURTH spelling of "what is joined to this vertex",
+  beside `m.connected`, `m.connectedPoints` and `m.degree`. The removals
+  `working/relations-design.md` approves would fix it.
+- 2D face attributes, above.
+- `ctx.kind` / `ctx.depth`, above.
