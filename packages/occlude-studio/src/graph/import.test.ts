@@ -250,7 +250,10 @@ export default sketch({}, (t) => {
     expect(graph.nodes.map((n) => [n.id, n.kind])).toEqual([['ridge', 'code'], ['ink', 'code'], ['output', 'output']]);
     const ink = graph.nodes[1]!;
     expect(ink.body).toBe('for (let x = 0; x <= 200; x += 5) ridge.lineTo(x, 100 - x / 4);\nridge.lineTo(200, 100).close();\nreturn { out: strokes(ridge.build()) };');
-    expect(ink.inputs).toEqual({ ridge: { type: 'drawing', from: ['ridge', 'out'] } });
+    // `Geometry` is the honest type for a value the importer cannot name:
+    // `path()` is not a catalogue word, so the graph knows only that it is
+    // geometry of some kind.
+    expect(ink.inputs).toEqual({ ridge: { type: 'Geometry', from: ['ridge', 'out'] } });
   });
 
   it('gives a name a new value through a node of its own', () => {

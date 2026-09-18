@@ -83,7 +83,7 @@ export const CATALOGUE: Catalogue = {
       params: [
         { name: 'len', takes: { socket: 'Number' }, optional: false },
         { name: 'gap', takes: { socket: 'Number' }, optional: false },
-        { name: 'offset', takes: { socket: 'Number' }, optional: false },
+        { name: 'offset', takes: { socket: 'Number' }, optional: true },
         { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
       ],
     },
@@ -430,7 +430,7 @@ export const CATALOGUE: Catalogue = {
       import: null, call: 't.within', returns: 'faces',
       page: '/docs/reference/fields', group: 'Fields',
       params: [
-        { name: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] }, optional: false },
+        { name: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] }, optional: true },
         { name: 'area', takes: { socket: 'Geometry', kinds: ['shape', 'faces', 'material', 'points'] }, optional: false },
         { name: 'opts', optional: true, options: [
           { name: 'faces', control: 'menu', choices: ['contained', 'centroid'], optional: true },
@@ -452,8 +452,8 @@ export const CATALOGUE: Catalogue = {
       import: null, call: 't.rnd', returns: 'Number',
       page: '/docs/reference/random', group: 'Random',
       params: [
-        { name: 'a', takes: { socket: 'Number' }, optional: false },
-        { name: 'b', takes: { socket: 'Number' }, optional: false },
+        { name: 'a', takes: { socket: 'Number' }, optional: true },
+        { name: 'b', takes: { socket: 'Number' }, optional: true },
       ],
     },
     {
@@ -688,7 +688,7 @@ export const CATALOGUE: Catalogue = {
       import: null, call: 't.sample', returns: 'material',
       page: '/docs/reference/material', group: 'Material',
       params: [
-        { name: 'shape', takes: { socket: 'Geometry', kinds: ['shape'] }, optional: false },
+        { name: 'shape', takes: { socket: 'Geometry', kinds: ['shape'] }, optional: true },
         { name: 'options', optional: false, options: [
           { name: 'count', takes: { socket: 'Number' }, optional: true },
           { name: 'spacing', takes: { socket: 'Number' }, optional: true },
@@ -740,7 +740,7 @@ export const CATALOGUE: Catalogue = {
       import: null, call: 't.scatter', returns: 'material',
       page: '/docs/reference/points', group: 'Points',
       params: [
-        { name: 'field', takes: { socket: 'Field' }, optional: false },
+        { name: 'field', takes: { socket: 'Field' }, optional: true },
         { name: 'opts', optional: false, options: [
           { name: 'spacing', takes: { socket: 'Number' }, optional: false },
           { name: 'within', takes: { socket: 'Geometry', kinds: ['shape', 'faces', 'material', 'points'] }, optional: true },
@@ -767,7 +767,7 @@ export const CATALOGUE: Catalogue = {
       import: null, call: 't.throw', returns: 'material',
       page: '/docs/reference/points', group: 'Points',
       params: [
-        { name: 'area', takes: { socket: 'Geometry', kinds: ['shape', 'faces', 'material', 'points'] }, optional: false },
+        { name: 'area', takes: { socket: 'Geometry', kinds: ['shape', 'faces', 'material', 'points'] }, optional: true },
         { name: 'opts', optional: false, options: [
           { name: 'count', takes: { socket: 'Number' }, optional: false },
           { name: 'attempts', takes: { socket: 'Number' }, optional: true },
@@ -1195,8 +1195,8 @@ export const CATALOGUE: Catalogue = {
       import: 'intersections', call: 'intersections', returns: 'curves',
       page: '/docs/reference/3d/surface', group: 'Surface curves',
       params: [
-        { name: 'a', takes: { socket: 'Geometry', kinds: ['mesh'] }, optional: false },
-        { name: 'b', takes: { socket: 'Geometry', kinds: ['mesh'] }, optional: false },
+        { name: 'a', takes: { socket: 'Geometry', kinds: ['mesh'] }, optional: true },
+        { name: 'b', takes: { socket: 'Geometry', kinds: ['mesh'] }, optional: true },
         { name: 'options', optional: true, options: [
           { name: 'maxPairs', takes: { socket: 'Number' }, optional: true },
           { name: 'stroke', control: 'text', optional: true },

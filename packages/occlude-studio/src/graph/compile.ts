@@ -127,7 +127,10 @@ function inputExpression(node: GraphNode, key: string, graph: Graph, catalogue: 
       ? `graph: node ${node.id} input ${key} reads the output node, which has no outputs`
       : `graph: ${fromId} has no output ${out}`);
   }
-  return source.kind === 'code' ? `${fromId}.${out}` : fromId;
+  const expression = source.kind === 'code' ? `${fromId}.${out}` : fromId;
+  // A variadic word takes one socket; the wire says whether the collection
+  // on it is the arguments or one of them.
+  return input.spread ? `...${expression}` : expression;
 }
 
 /** Every built-in node checked against the catalogue, and every edge against

@@ -55,6 +55,12 @@ export function accepts(output: ValueType, takes: Takes): boolean {
   if (takes.socket === 'Field') return output === 'Field' || output === 'Number';
   if (socketOf(output) !== takes.socket) return false;
   if (takes.socket !== 'Geometry' || !takes.kinds) return true;
+  // `Geometry` with no kind is geometry whose kind the graph does not know —
+  // what a code node's output is when the importer could not tell. It fits
+  // any geometry socket, and the library judges it at render, which is the
+  // best-effort rule the rest of the engine follows. A named kind is still
+  // checked against the socket.
+  if (output === 'Geometry') return true;
   const kind = kindOf(output);
   return kind !== undefined && takes.kinds.includes(kind);
 }
@@ -189,6 +195,12 @@ export interface GraphInput {
   from?: [string, string];
   /** Code nodes declare the value type of each input. */
   type?: ValueType;
+  /** The wire carries the call's arguments, not one of them:
+   * `t.material(...shapes)`. A variadic word takes one socket, and this is
+   * what says whether the collection on it is the arguments or a single
+   * value — `t.material(shape)` and `t.material(...shapes)` are different
+   * calls, and the library judges a bare array as one shape. */
+  spread?: boolean;
 }
 
 export interface GraphNode {
@@ -255,6 +267,10 @@ function parseInput(node: string, key: string, raw: unknown): GraphInput {
     out.from = [from[0], from[1]];
   }
   if (r.type !== undefined) out.type = parseValueType(r.type, `node ${node} input ${key}`);
+  if (r.spread === true) {
+    if (out.from === undefined) throw new Error(`graph: node ${node} input ${key} spreads a value that is not an edge`);
+    out.spread = true;
+  }
   if (out.value === undefined && out.from === undefined) throw new Error(`graph: node ${node} input ${key} is neither a value nor an edge`);
   return out;
 }

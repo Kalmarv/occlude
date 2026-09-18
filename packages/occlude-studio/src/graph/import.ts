@@ -283,7 +283,10 @@ class Reader {
     const owner = expr.expression;
     if (!ts.isIdentifier(owner) || this.bindings.has(owner.text)) return undefined;
     const ns = this.namespaces.get(owner.text);
-    return this.byCall.get(ns ? `${ns}.${expr.name.text}` : this.text(expr));
+    // The call's own text, with the source's line breaks taken out: a chain
+    // written down the page (`t\n  .material(...)`) names the same word as
+    // one written along it.
+    return this.byCall.get(ns ? `${ns}.${expr.name.text}` : `${owner.text}.${expr.name.text}`);
   }
 
   // ---- the config ----
@@ -521,13 +524,18 @@ class Reader {
    * that order, so the seeded stream draws in the order it drew before.
    */
   private liftCall(call: ts.CallExpression): GraphNode | undefined {
-    const word = this.wordFor(call.expression);
-    if (!word) return undefined;
     const mark = this.nodes.length;
+    // Resolving can itself lift — the receiver of a method is a node too —
+    // so the mark is taken first and covers everything the attempt made.
+    const resolved = this.resolve(call, '(lifted)');
+    if (!resolved) {
+      this.rollback(mark);
+      return undefined;
+    }
     // The node is named for the word it calls, not for anything in the
     // source: the source gave this value no name at all.
-    const id = this.uniqueId(word.word.split('.').pop() ?? 'value');
-    const built = this.builtinOf(call, id);
+    const id = this.uniqueId(resolved.word.word.split('.').pop() ?? 'value');
+    const built = this.buildFrom(call, id, resolved.word, resolved.self);
     if (!built) {
       this.rollback(mark);
       this.taken.delete(id);
@@ -536,14 +544,56 @@ class Reader {
     return this.add(built.node);
   }
 
-  private builtinOf(expr: ts.CallExpression, id: string): { node: GraphNode; word: CatalogueWord } | undefined {
-    const word = this.wordFor(expr.expression);
-    if (!word) {
-      this.refuse(id, undefined, ts.isIdentifier(expr.expression) || ts.isPropertyAccessExpression(expr.expression)
-        ? `${this.text(expr.expression)} is not a catalogue word`
-        : 'the callee is not a name');
+  /**
+   * The word a call names, and — for a method on a value — the receiver it
+   * is called on, as an input.
+   *
+   * `t.material(art).planarize().faces()` is three words the palette already
+   * carries, written as a chain. The catalogue keys a method by its owner
+   * (`Material.planarize`, call `{self}.planarize`) and puts the receiver on
+   * a socket, so a chain is a chain of nodes — the receiver of each is the
+   * one before it. Two owners can share a method name (`Material.edges` and
+   * `Faces.edges`); the receiver's own type is what tells them apart, and a
+   * receiver whose type the graph does not know leaves the call as code
+   * rather than guess.
+   */
+  private resolve(expr: ts.CallExpression, id: string): { word: CatalogueWord; self?: GraphInput } | undefined {
+    const direct = this.wordFor(expr.expression);
+    if (direct) return { word: direct };
+    const callee = expr.expression;
+    if (!ts.isPropertyAccessExpression(callee)) {
+      this.refuse(id, undefined, 'the callee is not a name');
       return undefined;
     }
+    const method = callee.name.text;
+    const owners = this.catalogue.words.filter((w) => w.self && w.call === `{self}.${method}`);
+    if (owners.length === 0) {
+      this.refuse(id, undefined, `${this.text(callee)} is not a catalogue word`);
+      return undefined;
+    }
+    const self = this.argument(callee.expression, false);
+    if (!self?.from) {
+      this.refuse(id, undefined, `.${method} is called on ${ts.isCallExpression(callee.expression) ? 'a call the graph cannot hold' : 'a value the graph does not have'}`);
+      return undefined;
+    }
+    const type = this.outputTypeOf(self.from[0], self.from[1]);
+    const word = type === undefined ? undefined : owners.find((w) => accepts(type, w.self!.takes));
+    if (!word) {
+      this.refuse(id, owners[0]!.word, type === undefined
+        ? `.${method} is called on a value whose type the graph does not know`
+        : `.${method} is not a word of ${type}`);
+      return undefined;
+    }
+    return { word, self };
+  }
+
+  private builtinOf(expr: ts.CallExpression, id: string): { node: GraphNode; word: CatalogueWord } | undefined {
+    const resolved = this.resolve(expr, id);
+    if (!resolved) return undefined;
+    return this.buildFrom(expr, id, resolved.word, resolved.self);
+  }
+
+  private buildFrom(expr: ts.CallExpression, id: string, word: CatalogueWord, self?: GraphInput): { node: GraphNode; word: CatalogueWord } | undefined {
     const no = (reason: string): undefined => {
       this.refuse(id, word.word, reason);
       return undefined;
@@ -552,6 +602,9 @@ class Reader {
     if (args.length > word.params.length) return no('more arguments than the word has parameters');
     const flat = wordInputs(word);
     const inputs: Record<string, GraphInput> = {};
+    // The receiver is the word's first input, and the compiler writes it
+    // back into `{self}`.
+    if (word.self && self) inputs[word.self.param] = self;
     for (let i = 0; i < args.length; i++) {
       const param = word.params[i]!;
       const arg = args[i]!;
@@ -599,6 +652,14 @@ class Reader {
     if (ts.isCallExpression(arg)) {
       const lifted = this.liftCall(arg);
       if (lifted) return { from: [lifted.id, 'out'] };
+    }
+    // `t.material(...shapes)`: the collection IS the arguments. The rest
+    // parameter takes one socket, and the wire remembers it was spread —
+    // the library judges a bare array as one shape, so the two calls are
+    // not the same call.
+    if (restLike && ts.isSpreadElement(arg)) {
+      const inner = this.argument(arg.expression, false);
+      return inner?.from ? { from: inner.from, spread: true } : undefined;
     }
     // A rest parameter takes one socket. The catalogue flattens `...args`
     // into one parameter named `args`, and an array of more than one entry
@@ -691,7 +752,11 @@ class Reader {
     if (ts.isNumericLiteral(expr)) return 'Number';
     if (ts.isPrefixUnaryExpression(expr) && ts.isNumericLiteral(expr.operand)) return 'Number';
     if (ts.isBinaryExpression(expr) && ARITHMETIC.includes(expr.operatorToken.kind)) return 'Number';
-    return 'drawing';
+    // Not `drawing`: the graph does not know what this is, and saying
+    // "drawing" is a claim it cannot back — it turned a body that runs into
+    // a red node, and refused a wire the library would have taken.
+    // `Geometry` is the honest answer, and it fits any geometry socket.
+    return 'Geometry';
   }
 
   private outputTypeOf(id: string, output: string): ValueType | undefined {

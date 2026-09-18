@@ -30,13 +30,7 @@ const TS_TYPE: Record<string, { type: string; module?: 'occlude' | 'occlude/3d';
   material: { type: 'Material', module: 'occlude', name: 'Material' },
   points: { type: 'PointSelection', module: 'occlude', name: 'PointSelection' },
   faces: { type: 'Faces', module: 'occlude', name: 'Faces' },
-  // `drawing` is the importer's fallback as well as a real kind: it means
-  // "anything a sketch may draw", and often it means "the graph could not
-  // tell". Annotating the parameter `Tree` asserts more than the graph
-  // knows, and a red squiggle the graph invented — `Property 'map' does not
-  // exist on type 'Tree'` on a body that runs — is worse than no check at
-  // all. Real inference through the checker would earn back the claim.
-  drawing: { type: 'any' },
+  drawing: { type: 'Tree', module: 'occlude', name: 'Tree' },
   mesh: { type: 'Mesh', module: 'occlude/3d', name: 'Mesh' },
   curves: { type: 'SurfaceCurves', module: 'occlude/3d', name: 'SurfaceCurves' },
   Number: { type: 'number' },
@@ -44,7 +38,10 @@ const TS_TYPE: Record<string, { type: string; module?: 'occlude' | 'occlude/3d';
   Field: { type: 'FieldFn', module: 'occlude', name: 'FieldFn' },
   Fill: { type: 'FillSpec', module: 'occlude', name: 'FillSpec' },
   Camera: { type: 'Camera3', module: 'occlude', name: 'Camera3' },
-  Geometry: { type: 'unknown' },
+  // Geometry with no kind is "the graph does not know": `any`, not
+  // `unknown`, because a squiggle the graph invented on a body that runs is
+  // worse than no check. A node whose type the artist declares is checked.
+  Geometry: { type: 'any' },
 };
 
 /** How tall a code node's editor may grow before it scrolls. */

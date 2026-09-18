@@ -423,6 +423,11 @@ function paramsOf(sig: ts.Signature, at: ts.Node, word: string): { params: Param
 function planOf(type: ts.Type, at: ts.Node, word: string): { params: Param[]; returns: ValueType } | { problem: string } {
   let firstProblem = '';
   let best: { params: Param[]; returns: ValueType } | undefined;
+  /** The parameter names each usable overload takes. A parameter one
+   * overload leaves out is optional, whatever the widest one says:
+   * `rnd()`, `rnd(n)` and `rnd(a, b)` are one word, and a node built from
+   * the widest signature alone would call `t.rnd(2)` an error. */
+  const perSignature: Set<string>[] = [];
   for (const sig of type.getCallSignatures()) {
     const returns = valueOf(checker.getReturnTypeOfSignature(sig));
     if (!returns) {
@@ -435,7 +440,13 @@ function planOf(type: ts.Type, at: ts.Node, word: string): { params: Param[]; re
       continue;
     }
     dropped.push(...left);
+    perSignature.push(new Set(sig.getParameters().map((p) => p.getName())));
     if (!best || params.length >= best.params.length) best = { params, returns };
+  }
+  if (best && perSignature.length > 1) {
+    for (const param of best.params) {
+      if (perSignature.some((names) => !names.has(param.name))) param.optional = true;
+    }
   }
   return best ?? { problem: firstProblem || 'no call signature' };
 }
