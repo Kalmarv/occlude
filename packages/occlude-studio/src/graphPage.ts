@@ -170,8 +170,56 @@ function holdPanel(panel: HTMLElement, scrollsInside?: HTMLElement): void {
 
 holdPanel(paperPanel);
 holdPanel(palette, paletteList);
-rail.append(palette, paperPanel);
-body.append(canvasHost, rail);
+
+/**
+ * A splitter. The rail's width and the preview's height are the artist's,
+ * and they survive a reload: a preview big enough to judge ink is worth
+ * keeping, and so is a palette wide enough to read.
+ */
+function splitter(
+  axis: 'x' | 'y',
+  property: '--graph-rail-w' | '--graph-preview-h',
+  key: string,
+  bounds: [number, number],
+  sign: 1 | -1,
+): HTMLElement {
+  const handle = el('div', `graph-split graph-split-${axis}`);
+  handle.title = axis === 'x' ? 'Drag to size the panels' : 'Drag to size the preview';
+  const saved = Number(localStorage.getItem(key));
+  const apply = (value: number): void => {
+    main.style.setProperty(property, `${Math.round(value)}px`);
+  };
+  let size = Number.isFinite(saved) && saved >= bounds[0] && saved <= bounds[1] ? saved : Number.NaN;
+  if (Number.isFinite(size)) apply(size);
+  handle.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    handle.setPointerCapture(event.pointerId);
+    const from = axis === 'x' ? event.clientX : event.clientY;
+    const start = Number.isFinite(size)
+      ? size
+      : (axis === 'x' ? rail.getBoundingClientRect().width : paperPanel.getBoundingClientRect().height);
+    const move = (moved: PointerEvent): void => {
+      const travel = (axis === 'x' ? moved.clientX : moved.clientY) - from;
+      size = Math.min(bounds[1], Math.max(bounds[0], start + sign * travel));
+      apply(size);
+      preview.fit();
+      for (const view of views.values()) view.preview?.fit();
+    };
+    const up = (): void => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (Number.isFinite(size)) localStorage.setItem(key, String(Math.round(size)));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
+  return handle;
+}
+
+const railSplit = splitter('x', '--graph-rail-w', 'occlude.graph.railWidth', [240, 760], -1);
+const previewSplit = splitter('y', '--graph-preview-h', 'occlude.graph.previewHeight', [180, 1000], -1);
+rail.append(palette, previewSplit, paperPanel);
+body.append(canvasHost, railSplit, rail);
 main.append(head, body);
 
 // ---- state ----
@@ -472,6 +520,58 @@ canvasHost.addEventListener('pointerdown', (event) => {
   if (target && !target.closest('.graph-node')) clearSelection();
 });
 
+/**
+ * Shift and drag on the empty canvas draws a box, and every node it touches
+ * joins the selection. The capture phase, and the area never sees the press:
+ * a box and a pan are the same gesture, and shift is what tells them apart.
+ */
+const marquee = el('div', 'graph-marquee');
+marquee.hidden = true;
+canvasHost.append(marquee);
+
+canvasHost.addEventListener('pointerdown', (event) => {
+  if (!event.shiftKey || event.button !== 0) return;
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('.graph-node')) return;
+  event.stopPropagation();
+  event.preventDefault();
+  const host = canvasHost.getBoundingClientRect();
+  const from = { x: event.clientX, y: event.clientY };
+  // Shift adds, so what was already picked stays picked.
+  const held = new Set(selection);
+  const box = (to: { x: number; y: number }): DOMRect => new DOMRect(
+    Math.min(from.x, to.x), Math.min(from.y, to.y),
+    Math.abs(to.x - from.x), Math.abs(to.y - from.y),
+  );
+  const paint = (rect: DOMRect): void => {
+    marquee.hidden = false;
+    marquee.style.left = `${rect.x - host.left}px`;
+    marquee.style.top = `${rect.y - host.top}px`;
+    marquee.style.width = `${rect.width}px`;
+    marquee.style.height = `${rect.height}px`;
+  };
+  const inside = (rect: DOMRect): string[] => graph.nodes
+    .filter((node) => {
+      const body = views.get(node.id)?.body?.getBoundingClientRect();
+      if (!body) return false;
+      return body.left < rect.right && body.right > rect.left && body.top < rect.bottom && body.bottom > rect.top;
+    })
+    .map((node) => node.id);
+  const move = (moved: PointerEvent): void => {
+    const rect = box({ x: moved.clientX, y: moved.clientY });
+    paint(rect);
+    selection = new Set([...held, ...inside(rect)]);
+    paintSelection();
+  };
+  const up = (): void => {
+    marquee.hidden = true;
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}, true);
+
 function applyWire(wire: GraphWire): void {
   // While the canvas is being rebuilt the document is already the truth:
   // and the teardown of the graph being replaced must never touch the new
@@ -567,34 +667,60 @@ function clearSelection(): void {
   paintSelection();
 }
 
-async function place(node: GraphNode): Promise<void> {
-  const at = canvas.centre();
-  node.x = Math.round(at.x - 104);
-  node.y = Math.round(at.y - 40);
+/** A place near `at` that no node already covers. A new node that lands
+ * under an existing one looks like nothing happened. */
+function freeSpot(at: { x: number; y: number }): { x: number; y: number } {
+  const taken = graph.nodes.map((node) => {
+    const body = views.get(node.id)?.body;
+    const zoom = canvas.area.area.transform.k || 1;
+    const rect = body?.getBoundingClientRect();
+    return {
+      x: node.x,
+      y: node.y,
+      w: rect && rect.width > 0 ? rect.width / zoom : (node.width ?? 208),
+      h: rect && rect.height > 0 ? rect.height / zoom : (node.height ?? 120),
+    };
+  });
+  const clear = (x: number, y: number): boolean =>
+    !taken.some((other) => x < other.x + other.w && x + 208 > other.x && y < other.y + other.h && y + 80 > other.y);
+  let spot = { x: Math.round(at.x - 104), y: Math.round(at.y - 40) };
+  for (let step = 0; step < 40 && !clear(spot.x, spot.y); step++) {
+    spot = { x: spot.x + 28, y: spot.y + 24 };
+  }
+  return spot;
+}
+
+async function place(node: GraphNode, at = canvas.centre()): Promise<void> {
+  const spot = freeSpot(at);
+  node.x = spot.x;
+  node.y = spot.y;
   graph.nodes.push(node);
   await canvas.editor.addNode(reteNode(node));
+  // In front and picked: the node the artist just made is the node they are
+  // working on.
+  canvas.raise(node.id);
   select(node.id);
   touch();
 }
 
 /** A word from the palette: its required numbers start at zero, so the node
  * is a node and not a hole. */
-function addBuiltin(word: CatalogueWord): void {
+function addBuiltin(word: CatalogueWord, at?: { x: number; y: number }): void {
   const node: GraphNode = { id: freshId(), kind: 'builtin', word: word.word, x: 0, y: 0, inputs: {} };
   for (const input of wordInputs(word)) {
     // A required number starts at zero so the node is a node and not a hole;
     // every option stays unset, so the library's own default applies.
     if (input.takes && !input.optional && input.takes.socket === 'Number') node.inputs[input.name] = { value: 0 };
   }
-  void place(node);
+  void place(node, at);
 }
 
-function addNode(kind: 'code' | 'viewer' | 'output'): void {
+function addNode(kind: 'code' | 'viewer' | 'output', at?: { x: number; y: number }): void {
   const id = freshId();
   const node: GraphNode = kind === 'code'
     ? { id, kind, x: 0, y: 0, inputs: {}, outputs: { out: 'Number' }, body: 'return { out: 1 };' }
     : { id, kind, x: 0, y: 0, inputs: {} };
-  void place(node);
+  void place(node, at);
 }
 
 async function removeNode(id: string): Promise<void> {
@@ -884,23 +1010,55 @@ async function renderViewer(node: GraphNode, mine: number): Promise<void> {
 
 // ---- the palette ----
 
-function paletteItem(word: string, returns: string, run: () => void, hint: string): HTMLButtonElement {
+/** The word being dragged out of the palette, and how to add it. */
+let dragging: ((at?: { x: number; y: number }) => void) | null = null;
+
+function paletteItem(word: string, returns: string, add: (at?: { x: number; y: number }) => void, hint: string): HTMLButtonElement {
   const item = el('button', 'graph-palette-item');
-  item.title = hint;
+  item.title = `${hint} — click to add at the middle, or drag one onto the canvas`;
   const dot = el('span', 'graph-palette-dot');
   dot.style.setProperty('--graph-sock', SOCKET_COLORS[takesOf(returns).socket] ?? 'var(--muted)');
   item.append(dot, el('span', 'graph-palette-word', word), el('span', 'graph-palette-ret', returns));
-  item.onclick = run;
+  item.onclick = () => add();
+  // A word is dragged onto the place it should stand. The palette is the
+  // source, the canvas is the target, and the word itself rides in a closure
+  // rather than in the drag's own data, which only carries text.
+  item.draggable = true;
+  item.addEventListener('dragstart', (event) => {
+    dragging = add;
+    canvasHost.classList.add('graph-dropping');
+    event.dataTransfer?.setData('text/plain', word);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy';
+  });
+  item.addEventListener('dragend', () => {
+    dragging = null;
+    canvasHost.classList.remove('graph-dropping');
+  });
   return item;
 }
+
+canvasHost.addEventListener('dragover', (event) => {
+  if (!dragging) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+});
+
+canvasHost.addEventListener('drop', (event) => {
+  if (!dragging) return;
+  event.preventDefault();
+  const add = dragging;
+  dragging = null;
+  canvasHost.classList.remove('graph-dropping');
+  add(canvas.at(event.clientX, event.clientY));
+});
 
 function buildPalette(): void {
   paletteList.replaceChildren();
   const nodes = el('div', 'graph-palette-group');
   nodes.append(el('div', 'graph-palette-title', 'Nodes'));
-  nodes.append(paletteItem('code', 'body', () => addNode('code'), 'A function body with declared inputs and outputs'));
-  nodes.append(paletteItem('viewer', 'picture', () => addNode('viewer'), 'Draw what this point of the graph holds'));
-  nodes.append(paletteItem('output', 'return', () => addNode('output'), 'What the sketch returns'));
+  nodes.append(paletteItem('code', 'body', (at) => addNode('code', at), 'A function body with declared inputs and outputs'));
+  nodes.append(paletteItem('viewer', 'picture', (at) => addNode('viewer', at), 'Draw what this point of the graph holds'));
+  nodes.append(paletteItem('output', 'return', (at) => addNode('output', at), 'What the sketch returns'));
   paletteList.append(nodes);
 
   const groups = new Map<string, HTMLElement>();
@@ -912,7 +1070,7 @@ function buildPalette(): void {
       groups.set(word.group, group);
       paletteList.append(group);
     }
-    group.append(paletteItem(word.word, word.returns, () => addBuiltin(word), `${word.word} → ${word.returns} · ${word.page}`));
+    group.append(paletteItem(word.word, word.returns, (at) => addBuiltin(word, at), `${word.word} → ${word.returns} · ${word.page}`));
   }
   const count = paletteHead.querySelector('.graph-palette-count');
   if (count) count.textContent = `${catalogue.words.length}`;

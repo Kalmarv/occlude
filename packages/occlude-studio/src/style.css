@@ -2971,9 +2971,50 @@ button.armed {
 
 .graph-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 318px;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 8px var(--graph-rail-w, 318px);
+  gap: 6px;
   min-height: 0;
+}
+
+/* The two splitters: a wider palette, a bigger preview. Both are the
+   artist's, and both survive a reload. */
+.graph-split {
+  border-radius: 999px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.graph-split:hover,
+.graph-split:active {
+  background: var(--accent-edge);
+}
+
+.graph-split-x {
+  width: 8px;
+  cursor: col-resize;
+}
+
+.graph-split-y {
+  height: 8px;
+  margin: -3px 0;
+  cursor: row-resize;
+}
+
+/* The box a shift-drag draws, and every node it touches joins the
+   selection. */
+.graph-marquee {
+  position: absolute;
+  z-index: 40;
+  pointer-events: none;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* A word is being dragged out of the palette: the canvas says it will take
+   it. */
+.graph-canvas.graph-dropping {
+  border-color: var(--accent);
 }
 
 /* The area: a faint dot grid on the ground, so panning reads as movement. */
@@ -3009,7 +3050,8 @@ button.armed {
 }
 
 .graph-paper-panel {
-  flex: none;
+  flex: 0 0 var(--graph-preview-h, 360px);
+  min-height: 0;
 }
 
 .graph-panel-head {
@@ -3129,7 +3171,8 @@ button.armed {
 }
 
 .graph-paper {
-  height: 236px;
+  flex: 1 1 auto;
+  min-height: 120px;
   background: var(--paper);
 }
 

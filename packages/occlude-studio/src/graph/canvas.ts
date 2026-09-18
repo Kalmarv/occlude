@@ -67,6 +67,8 @@ export interface GraphCanvas {
   refresh(id: string): void;
   /** Bring every node into view. */
   fit(): void;
+  /** Put one node in front of the others. */
+  raise(id: string): void;
 }
 
 /** The DOM render plugin. One element per node, socket and connection. */
@@ -156,9 +158,16 @@ class DomRender extends Scope<never, [AreaExtra]> {
     const node = (event.target as HTMLElement | null)?.closest<HTMLElement>('.graph-node');
     const id = node?.dataset.nodeId;
     if (!id || !node) return;
-    node.style.zIndex = String(++this.raised);
+    this.raise(id);
     this.hooks.pick(id, event.shiftKey);
   };
+
+  /** Put a node in front. A node the artist just made, or just pressed, must
+   * not be under one that happens to sit where it landed. */
+  raise(id: string): void {
+    const view = this.area.nodeViews.get(id);
+    if (view) view.element.style.zIndex = String(++this.raised);
+  }
 
   /** Announce a socket: the connection plugin caches the element, the
    * socket-position watcher measures it. */
@@ -245,6 +254,7 @@ export function createCanvas(container: HTMLElement, hooks: CanvasHooks): GraphC
     at,
     centre: () => at(container.clientWidth / 2, container.clientHeight / 2),
     refresh: (id) => void area.update('node', id),
+    raise: (id) => render.raise(id),
     fit: () => void AreaExtensions.zoomAt(area, editor.getNodes(), { scale: 0.92 }),
   };
 }
