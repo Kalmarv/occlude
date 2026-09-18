@@ -237,7 +237,7 @@ export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output' | 'group' | 'inp
  * named algorithms. `times` is the only one that needs nothing settled: its
  * bindings are two numbers.
  */
-export const ZONE_KINDS = ['times'] as const;
+export const ZONE_KINDS = ['times', 'map'] as const;
 export type ZoneKind = (typeof ZONE_KINDS)[number];
 
 /** The zone's own inputs, and the names its `input` node offers each run. */
@@ -253,6 +253,16 @@ export const ZONES: Record<ZoneKind, {
     takes: [{ name: 'count', takes: { socket: 'Number' } }],
     binds: [{ name: 'i', type: 'Number' }, { name: 'u', type: 'Number' }],
     call: (args, params, body) => `t.times(${args['count'] ?? '0'}, (${params}) => {
+${body}
+})`,
+  },
+  // A body per row of a collection. The row arrives whole: what a row holds
+  // — a face's area, a point's position — is read inside the body, the way
+  // the sketch reads it.
+  map: {
+    takes: [{ name: 'rows', takes: { socket: 'Geometry', any: true } }],
+    binds: [{ name: 'row', type: 'Geometry' }],
+    call: (args, params, body) => `${args['rows'] ?? '[]'}.map((${params}) => {
 ${body}
 })`,
   },

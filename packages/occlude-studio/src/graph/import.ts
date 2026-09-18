@@ -32,7 +32,7 @@ import { estimateBox, layoutGraph } from './layout.js';
 import {
   accepts, wordInputs,
   type Catalogue, type CatalogueInput, type CatalogueParam, type CatalogueWord,
-  type Graph, type GraphInput, type GraphNode, type Takes, type ValueType,
+  type Graph, type GraphInput, type GraphNode, type Takes, type ValueType, type ZoneKind,
 } from './model.js';
 
 /** What the output node takes: what a sketch may return (`model.ts`). */
@@ -772,29 +772,39 @@ class Reader {
    * can take it apart into nodes from there.
    */
   private zoneNode(expr: ts.CallExpression, id: string): GraphNode | undefined {
-    // `t.times` is not a catalogue word and cannot be: its second parameter
-    // is a function, and no socket carries one. That is exactly why it is a
-    // zone, so the zone recognises the call itself.
+    // Neither `t.times` nor `.map` is a catalogue word, and neither can be:
+    // the parameter that matters is a function, and no socket carries one.
+    // That is exactly why they are zones, so the zone recognises the calls.
     const callee = expr.expression;
-    if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== 'times') return undefined;
-    if (!ts.isIdentifier(callee.expression) || callee.expression.text !== 't' || this.bindings.has('t')) return undefined;
-    const [count, callback] = expr.arguments;
-    if (!count || !callback || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) {
-      this.refuse(id, 't.times', 'the body is not written out where the zone can hold it');
+    if (!ts.isPropertyAccessExpression(callee)) return undefined;
+    const isTimes = callee.name.text === 'times'
+      && ts.isIdentifier(callee.expression) && callee.expression.text === 't' && !this.bindings.has('t');
+    const isMap = callee.name.text === 'map';
+    if (!isTimes && !isMap) return undefined;
+    const kind: ZoneKind = isTimes ? 'times' : 'map';
+    const named = isTimes ? 't.times' : '.map';
+    const [first, second] = expr.arguments;
+    // `t.times(count, body)` takes the count first; `rows.map(body)` takes
+    // the collection as its receiver.
+    const over = isTimes ? first : callee.expression;
+    const callback = isTimes ? second : first;
+    if (!over || !callback || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) {
+      this.refuse(id, named, 'the body is not written out where the zone can hold it');
       return undefined;
     }
+    if (isMap && expr.arguments.length !== 1) return undefined; // `.map(fn, thisArg)` is not this
     const mark = this.nodes.length;
-    const counted = this.argument(count, false);
-    if (counted === undefined) {
+    const counted = this.argument(over, false);
+    if (counted === undefined || (isMap && !counted.from)) {
       this.rollback(mark);
-      this.refuse(id, 't.times', 'the count is not a literal or an earlier node');
+      this.refuse(id, named, isTimes ? 'the count is not a literal or an earlier node' : 'the collection is not a value the graph holds');
       return undefined;
     }
     const binds: string[] = [];
     for (const parameter of callback.parameters) {
       if (!ts.isIdentifier(parameter.name)) {
         this.rollback(mark);
-        this.refuse(id, 't.times', 'the body takes a pattern, not a name');
+        this.refuse(id, named, 'the body takes a pattern, not a name');
         return undefined;
       }
       binds.push(parameter.name.text);
@@ -803,9 +813,12 @@ class Reader {
     // the zone node takes it under the same name.
     const body = callback.body;
     const captured = this.inputsOf([body]);
-    const inputs: Record<string, GraphInput> = { count: counted };
+    const over_ = isTimes ? 'count' : 'rows';
+    const inputs: Record<string, GraphInput> = { [over_]: counted };
     const boundary: Record<string, ValueType> = {};
-    for (const name of binds) boundary[name] = 'Number';
+    // `times` hands the body two numbers; `map` hands it a row, whose kind
+    // the graph does not name — what a row holds is read inside the body.
+    for (const name of binds) boundary[name] = isTimes ? 'Number' : 'Geometry';
     for (const [name, input] of Object.entries(captured)) {
       if (binds.includes(name)) continue;
       inputs[name] = input;
@@ -825,7 +838,7 @@ class Reader {
         { id: 'result', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['body', 'out'] } } },
       ],
     };
-    return { id, kind: 'zone', zone: 'times', x: 0, y: 0, inputs, outputs: { out: 'Geometry' }, binds, graph: inside };
+    return { id, kind: 'zone', zone: kind, x: 0, y: 0, inputs, outputs: { out: 'Geometry' }, binds, graph: inside };
   }
 
   /**
