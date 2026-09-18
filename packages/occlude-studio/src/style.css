@@ -3249,14 +3249,25 @@ button.armed {
   padding-bottom: 14px;
 }
 
+/* A node that cannot compile, or whose body will not typecheck, wears the
+   danger colour on its border. Selection is a ring, not a border, so a node
+   can be both — the error rule came after the selection rule and quietly won,
+   which made a red node look unselectable to a box drag that had in fact
+   selected it. */
+.graph-node.graph-node-err .graph-node-body,
+.graph-node.graph-bad .graph-node-body {
+  border-color: var(--danger);
+}
+
 .graph-node.graph-sel .graph-node-body {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent-edge), var(--shadow-2);
 }
 
-.graph-node.graph-node-err .graph-node-body,
-.graph-node.graph-bad .graph-node-body {
+.graph-node.graph-sel.graph-node-err .graph-node-body,
+.graph-node.graph-sel.graph-bad .graph-node-body {
   border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--accent), var(--shadow-2);
 }
 
 .graph-node-head {

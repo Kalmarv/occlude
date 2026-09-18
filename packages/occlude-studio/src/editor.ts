@@ -288,3 +288,48 @@ export function setRuntimeMarker(model: monaco.editor.ITextModel, err: unknown):
 export function clearRuntimeMarkers(model: monaco.editor.ITextModel): void {
   monaco.editor.setModelMarkers(model, 'runtime', []);
 }
+
+/**
+ * TypeScript to the CommonJS the render worker evaluates, for a source that
+ * has no editor of its own — the graph page compiles a sketch and renders it
+ * without ever showing it.
+ *
+ * The compiler options are the ones set above (`module: CommonJS`), so this
+ * is the same emit the studio's own editor makes. The alternative,
+ * rewriting the imports by hand, only works on source with no type
+ * annotations at all: a code node's body is ordinary TypeScript, and
+ * `(n: number) => …` inside one reaches the worker as `Unexpected token ':'`.
+ *
+ * One model, reused: a render is debounced but frequent, and a model per
+ * render would churn the worker.
+ */
+let scratch: monaco.editor.ITextModel | null = null;
+
+export async function transpileToCjs(source: string): Promise<{ js: string | null; errors: string[] }> {
+  const uri = monaco.Uri.parse('file:///graph-emit.ts');
+  scratch ??= monaco.editor.createModel(source, 'typescript', uri);
+  if (scratch.getValue() !== source) scratch.setValue(source);
+  const getWorker = await (async () => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await monaco.languages.typescript.getTypeScriptWorker();
+      } catch (error) {
+        if (attempt > 100) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+  })();
+  const client = await getWorker(uri);
+  const [syntactic, out] = await Promise.all([
+    client.getSyntacticDiagnostics(uri.toString()),
+    client.getEmitOutput(uri.toString()),
+  ]);
+  const errors = syntactic.map((d) => {
+    const at = d.start !== undefined ? scratch!.getPositionAt(d.start) : null;
+    const message = typeof d.messageText === 'string' ? d.messageText : d.messageText.messageText;
+    return at ? `line ${at.lineNumber}: ${message}` : message;
+  });
+  if (errors.length > 0) return { js: null, errors };
+  const file = out.outputFiles.find((f) => f.name.endsWith('.js'));
+  return { js: file?.text ?? null, errors: [] };
+}

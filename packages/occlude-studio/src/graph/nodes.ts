@@ -30,7 +30,13 @@ const TS_TYPE: Record<string, { type: string; module?: 'occlude' | 'occlude/3d';
   material: { type: 'Material', module: 'occlude', name: 'Material' },
   points: { type: 'PointSelection', module: 'occlude', name: 'PointSelection' },
   faces: { type: 'Faces', module: 'occlude', name: 'Faces' },
-  drawing: { type: 'Tree', module: 'occlude', name: 'Tree' },
+  // `drawing` is the importer's fallback as well as a real kind: it means
+  // "anything a sketch may draw", and often it means "the graph could not
+  // tell". Annotating the parameter `Tree` asserts more than the graph
+  // knows, and a red squiggle the graph invented — `Property 'map' does not
+  // exist on type 'Tree'` on a body that runs — is worse than no check at
+  // all. Real inference through the checker would earn back the claim.
+  drawing: { type: 'any' },
   mesh: { type: 'Mesh', module: 'occlude/3d', name: 'Mesh' },
   curves: { type: 'SurfaceCurves', module: 'occlude/3d', name: 'SurfaceCurves' },
   Number: { type: 'number' },

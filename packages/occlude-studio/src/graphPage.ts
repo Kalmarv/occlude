@@ -14,12 +14,13 @@
  */
 
 import './style.css';
-import { liveExampleToJs, moduleName, type PaperDef, type PenDef, type RenderResult } from 'occlude';
+import { moduleName, type PaperDef, type PenDef, type RenderResult } from 'occlude';
 import { ClassicPreset, type Root } from 'rete';
 
 import './wa.js';
 import { iconButton, withIcon } from './icons.js';
 import { confirmDialog, notify, promptDialog, showPanel } from './wa.js';
+import { transpileToCjs } from './editor.js';
 import { Preview } from './preview.js';
 import { RenderClient } from './workerClient.js';
 import type { RunConfig } from './runner.js';
@@ -905,10 +906,24 @@ async function renderAll(): Promise<void> {
   }
 }
 
+/**
+ * The JavaScript the worker runs. A compiled graph is TypeScript: a code
+ * node's body is ordinary TypeScript, and `(n: number) => …` inside one is a
+ * type annotation the worker cannot evaluate. The studio's own editor emits
+ * through the TypeScript worker and this does the same — a hand rewrite of
+ * the import lines only works on source with no annotations at all, which is
+ * true of a docs fence and of nothing else.
+ */
+async function jsOf(source: string): Promise<string> {
+  const emitted = await transpileToCjs(source);
+  if (emitted.js === null) throw new Error(emitted.errors[0] ?? 'the compiled sketch would not emit');
+  return emitted.js;
+}
+
 async function renderMain(compiled: CompiledSketch, mine: number): Promise<void> {
   status('rendering…');
   try {
-    const reply = await client.render({ js: liveExampleToJs(compiled.source), cfg: runConfig() }, () => mine === generation);
+    const reply = await client.render({ js: await jsOf(compiled.source), cfg: runConfig() }, () => mine === generation);
     if (!reply || mine !== generation) return;
     mainSource = compiled.source;
     preview.setPaperColor(reply.result.paper.color ?? settings.paperColor);
@@ -928,7 +943,7 @@ async function renderMain(compiled: CompiledSketch, mine: number): Promise<void>
     const message = error instanceof Error ? error.message : String(error);
     status(message, 'err');
     const ids = new Set(compiled.nodes.filter((n) => n.kind === 'code').map((n) => n.id));
-    const thrown = culprit(message) ?? nodeFromStack(error instanceof Error ? error.stack : undefined, liveExampleToJs(compiled.source), ids);
+    const thrown = culprit(message) ?? nodeFromStack(error instanceof Error ? error.stack : undefined, (await transpileToCjs(compiled.source)).js ?? '', ids);
     markErrors(thrown ?? message);
     // A body that threw: its own drives are suspect too, so they go red with
     // it — the stack usually names the node and nothing else.
@@ -981,7 +996,7 @@ async function renderViewer(node: GraphNode, mine: number): Promise<void> {
     return;
   }
   try {
-    const reply = await client.render({ js: liveExampleToJs(compiled.source), cfg: runConfig() }, () => mine === generation);
+    const reply = await client.render({ js: await jsOf(compiled.source), cfg: runConfig() }, () => mine === generation);
     if (!reply || mine !== generation) return;
     viewerResults.set(node.id, { hash, result: reply.result });
     setBad(node.id, false);
