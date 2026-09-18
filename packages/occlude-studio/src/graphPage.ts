@@ -162,6 +162,8 @@ const views = new Map<string, NodeView>();
 /** A viewer's last picture, keyed by its compiled sub-graph: a change
  * upstream of nothing must not re-render it. */
 const viewerResults = new Map<string, { hash: string; result: RenderResult }>();
+/** How many kept states each viewer's material has, from its own render. */
+const viewerFrames = new Map<string, number>();
 
 const client = new RenderClient();
 const preview = new Preview(paperCanvas);
@@ -239,6 +241,16 @@ function viewerWrap(node: GraphNode): boolean {
   return kind !== undefined && WRAPPED_KINDS.includes(kind);
 }
 
+/** The history frame a viewer shows: `inputs.frame`, -1 for the material
+ * itself. It belongs to the document, so it survives a save and a reopen. */
+function viewerFrame(node: GraphNode): number {
+  // It rides on the viewer's own `in` input: the compiler refuses an input
+  // key a node's word does not have, and the document keeps `value`
+  // alongside `from`, so the frame survives a save without a second key.
+  const value = node.inputs['in']?.value;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value) : -1;
+}
+
 /** The body Rete is positioning: the page paints it, from the document. */
 function paint(id: string, host: HTMLElement): void {
   const node = nodeById(id);
@@ -290,6 +302,7 @@ const paintHooks: NodePaintHooks = {
     touch();
   },
   viewerWrap,
+  frames: (node) => viewerFrames.get(node.id) ?? 0,
   remove: (node) => void removeNode(node.id),
   select: (node) => select(node.id),
 };
@@ -584,18 +597,29 @@ async function renderViewer(node: GraphNode, mine: number): Promise<void> {
     return;
   }
   const wrap = viewerWrap(node);
+  const frame = viewerFrame(node);
   let compiled: CompiledSketch;
   try {
     // A viewer shows a material, points or faces as ink: the wrapper is the
-    // compiler's, so the import and the return are right by construction. It
-    // is part of the hash: the same nodes with a different wrapper are a
-    // different picture.
-    compiled = compileFor(graph, CATALOGUE, node.id, 'in', wrap ? 'strokes' : undefined);
+    // compiler's, so the import and the return are right by construction. A
+    // chosen frame shows that kept state instead — the ternary keeps a
+    // material with no history from throwing, which is the library's own
+    // best-effort rule.
+    // The frame count is not in the document — the material is only in the
+    // worker — so the sketch probes it and the reply carries it back.
+    compiled = compileFor(graph, CATALOGUE, node.id, 'in', {
+      wrap: wrap
+        ? (expression: string) => `strokes(${frame >= 0 ? `(${expression}).history.length > ${frame} ? (${expression}).history[${frame}].material : ${expression}` : expression})`
+        : undefined,
+      prelude: wrap ? (expression: string) => [`t.probe('frames', ${expression}.history.length);`] : undefined,
+    });
   } catch (error) {
     status(error instanceof Error ? error.message : String(error), 'err');
     return;
   }
-  const hash = `${compiled.nodes.map((n) => n.hash).join('|')}${wrap ? '|strokes' : ''}`;
+  // The frame is part of the picture: the same nodes at another frame are
+  // another render.
+  const hash = `${compiled.nodes.map((n) => n.hash).join('|')}${wrap ? '|strokes' : ''}|f${frame}`;
   const cached = viewerResults.get(node.id);
   if (cached?.hash === hash) {
     view?.preview?.setStale(false);
@@ -607,6 +631,14 @@ async function renderViewer(node: GraphNode, mine: number): Promise<void> {
     if (!reply || mine !== generation) return;
     viewerResults.set(node.id, { hash, result: reply.result });
     setBad(node.id, false);
+    // A material's kept states, from the probe: the scrubber's extent. The
+    // node is repainted only when that number changes, and the repaint takes
+    // the picture it already has.
+    const frames = Math.max(0, Math.round(reply.probes.frames?.max ?? 0));
+    if (frames !== (viewerFrames.get(node.id) ?? -1)) {
+      viewerFrames.set(node.id, frames);
+      canvas.refresh(node.id);
+    }
     const live = views.get(node.id)?.preview;
     if (live) {
       live.setPaperColor(reply.result.paper.color ?? settings.paperColor);
@@ -709,6 +741,7 @@ async function open(name: string): Promise<void> {
     mainSource = null;
     fitted = null;
     viewerResults.clear();
+    viewerFrames.clear();
     await buildCanvas();
     seedInput.value = typeof next.config.seed === 'number' ? String(next.config.seed) : '';
     history.replaceState(null, '', graphHref(next.name));
@@ -769,6 +802,7 @@ async function remove(): Promise<void> {
     mainSource = null;
     fitted = null;
     viewerResults.clear();
+    viewerFrames.clear();
     await buildCanvas();
     generation += 1;
     await renderAll();

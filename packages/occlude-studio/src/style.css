@@ -3453,3 +3453,65 @@ button.armed {
 .graph-code-note.on {
   display: block;
 }
+
+/* A code node's ui() literals: the literal is the value, so these edit the
+   body — the studio panel's own contract, on the node. */
+.graph-ui {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 10px 6px;
+  border-top: 1px solid var(--edge);
+}
+
+.graph-ui[hidden] {
+  display: none;
+}
+
+.graph-ui-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-ui-name {
+  flex: none;
+  width: 56px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.graph-ui-row input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.graph-ui-num {
+  flex: none;
+  width: 52px;
+  padding: 1px 4px;
+  font-size: 11px;
+  text-align: right;
+}
+
+.graph-ui-row input[type='checkbox'] {
+  margin: 0;
+}
+
+/* A viewer's history scrubber: one kept state of a material. */
+.graph-frame {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}

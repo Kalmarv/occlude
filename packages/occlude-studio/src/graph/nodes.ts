@@ -14,8 +14,10 @@
  */
 
 import * as monaco from 'monaco-editor';
+import { scanUiControls, type UiControl } from 'occlude';
 
 import { createEditor, type Editor } from '../editor.js';
+import { sliderSpec } from '../uiPanel.js';
 import { iconButton } from '../icons.js';
 import { el } from '../widgets.js';
 import { isRaw, usedImports } from './compile.js';
@@ -83,6 +85,8 @@ export interface NodePaintHooks {
   /** A viewer wraps a material, points or faces in `strokes(...)` for its
    * own picture — the graph's ink does not change. */
   viewerWrap(node: GraphNode): boolean;
+  /** How many kept states the viewer's material has, 0 when unknown. */
+  frames(node: GraphNode): number;
   remove(node: GraphNode): void;
   select(node: GraphNode): void;
 }
@@ -299,9 +303,129 @@ function codeRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): { 
   editor.onChange(() => {
     size();
     hooks.setBody(node, editor.getValue());
+    syncUi();
   });
   const note = el('div', 'graph-code-note');
   host.append(note);
+  const ui = el('div', 'graph-ui');
+  ui.hidden = true;
+  host.append(ui);
+  // The ui() literals in the body, as controls. The literal IS the value:
+  // dragging one edits the body through Monaco, exactly as the studio's
+  // panel does, and the compiler, the diagnostics and the render follow from
+  // the edit as they follow any other.
+  interface UiRow { control: UiControl; root: HTMLElement; slider?: HTMLInputElement; num?: HTMLInputElement; box?: HTMLInputElement }
+  let rows: UiRow[] = [];
+  let signature = '';
+  let selfEdit = false;
+
+  const write = (row: UiRow, value: number | boolean): void => {
+    const control = row.control;
+    const text = String(value);
+    const model = editor.model;
+    const start = model.getPositionAt(control.valueStart);
+    const end = model.getPositionAt(control.valueEnd);
+    selfEdit = true;
+    try {
+      editor.editor.executeEdits('graph-ui', [{
+        range: {
+          startLineNumber: start.lineNumber,
+          startColumn: start.column,
+          endLineNumber: end.lineNumber,
+          endColumn: end.column,
+        },
+        text,
+      }]);
+    } finally {
+      selfEdit = false;
+    }
+    const delta = text.length - (control.valueEnd - control.valueStart);
+    control.valueEnd += delta;
+    control.value = value;
+    for (const other of rows) {
+      if (other.control.valueStart > control.valueStart) {
+        other.control.valueStart += delta;
+        other.control.valueEnd += delta;
+      }
+    }
+  };
+
+  const syncUi = (): void => {
+    if (selfEdit) return; // our own literal edit: offsets were shifted by hand
+    // A shaper's knots are a curve, not a slider: they stay in the body.
+    const controls = scanUiControls(editor.getValue()).filter((c) => c.kind !== 'points');
+    ui.hidden = controls.length === 0;
+    const next = controls
+      .map((c) => `${c.label}|${c.kind}|${c.opts.min}|${c.opts.max}|${c.opts.step}`)
+      .join(';');
+    if (next === signature) {
+      controls.forEach((c, k) => {
+        const row = rows[k];
+        if (!row) return;
+        row.control = c;
+        const shown = String(c.value);
+        if (row.box) row.box.checked = c.value === true;
+        if (row.slider && document.activeElement !== row.slider) row.slider.value = shown;
+        if (row.num && document.activeElement !== row.num) row.num.value = shown;
+      });
+      return;
+    }
+    signature = next;
+    rows = [];
+    ui.replaceChildren();
+    for (const control of controls) {
+      const row = el('div', 'graph-ui-row');
+      const entry: UiRow = { control, root: row };
+      row.append(el('span', 'graph-ui-name', control.label));
+      if (control.kind === 'boolean') {
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = control.value === true;
+        box.title = `${control.label}: ${control.value ? 'true' : 'false'} in the body`;
+        noDrag(box);
+        box.onchange = () => write(entry, box.checked);
+        row.append(box);
+        entry.box = box;
+      } else {
+        const value = Number(control.value);
+        const spec = sliderSpec(value, control.opts);
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = String(spec.min);
+        slider.max = String(spec.max);
+        slider.step = String(spec.step);
+        slider.value = String(value);
+        slider.title = `${control.label}: ${spec.min} … ${spec.max}, step ${spec.step}`;
+        const num = document.createElement('input');
+        num.type = 'number';
+        num.className = 'graph-ui-num';
+        num.step = String(spec.step);
+        num.value = String(value);
+        noDrag(slider);
+        noDrag(num);
+        // One undo stop per drag, not one per pixel of thumb travel.
+        slider.onpointerdown = () => editor.editor.pushUndoStop();
+        slider.oninput = () => {
+          num.value = slider.value;
+          write(entry, Number(slider.value));
+        };
+        slider.onpointerup = () => editor.editor.pushUndoStop();
+        num.onchange = () => {
+          const typed = Number(num.value);
+          if (!Number.isFinite(typed)) return;
+          slider.value = num.value;
+          write(entry, typed);
+        };
+        row.append(slider, num);
+        entry.slider = slider;
+        entry.num = num;
+      }
+      ui.append(row);
+      rows.push(entry);
+    }
+  };
+  syncUi();
+
   for (const [key, type] of Object.entries(node.outputs ?? {})) {
     const line = nodeRow('graph-row graph-row-out');
     line.dataset.row = key;
@@ -321,6 +445,50 @@ function viewerRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): 
   line.append(socketDot('input', 'in', 'Geometry', hooks));
   line.append(el('span', 'graph-row-name', 'in'));
   host.append(line);
+  if (hooks.viewerWrap(node)) {
+    // A material carries its kept states: pick one to look at. Empty shows
+    // the material itself, which is what a material with no history has.
+    const frame = el('div', 'graph-row graph-row-in');
+    frame.dataset.row = 'frame';
+    frame.append(el('span', 'graph-row-name', 'frame'));
+    const chosen = node.inputs['in']?.value;
+    const value = typeof chosen === 'number' && chosen >= 0 ? Math.round(chosen) : -1;
+    const count = hooks.frames(node);
+    const box = document.createElement('input');
+    box.type = 'number';
+    box.className = 'graph-lit';
+    box.step = '1';
+    box.min = '0';
+    box.value = value >= 0 ? String(value) : '';
+    box.placeholder = '—';
+    box.title = count > 0
+      ? `Which kept state to show: 0 to ${count - 1}. Empty shows the material itself.`
+      : 'Which kept state to show: 0 is the first. Empty shows the material itself.';
+    noDrag(box);
+    // Never `unset`: the frame lives beside the wire on `in`, and removing
+    // the input would remove the picture.
+    const write = (next: number): void => hooks.setValue(node, 'in', next);
+    box.oninput = () => write(box.value.trim() === '' ? -1 : Number(box.value));
+    if (count > 0) {
+      const range = document.createElement('input');
+      range.type = 'range';
+      range.className = 'graph-frame';
+      range.min = '0';
+      range.max = String(count - 1);
+      range.step = '1';
+      range.value = String(Math.max(0, value));
+      range.title = `Kept state ${Math.max(0, value)} of ${count}`;
+      noDrag(range);
+      range.oninput = () => {
+        box.value = range.value;
+        write(Number(range.value));
+      };
+      frame.append(range, box);
+    } else {
+      frame.append(box);
+    }
+    host.append(frame);
+  }
   const canvas = document.createElement('canvas');
   canvas.className = 'graph-viewer';
   host.append(canvas);
