@@ -3383,10 +3383,14 @@ button.armed {
 
 /* A viewer's picture, opened big: the dialog gives it the room, the canvas
    takes all of it. */
+wa-dialog.wa-dialog-wide {
+  --width: min(88vw, 1240px);
+}
+
 .graph-shown {
   display: block;
-  width: min(78vw, 1100px);
-  height: min(72vh, 820px);
+  width: 100%;
+  height: min(74vh, 840px);
 }
 
 .graph-shown canvas {

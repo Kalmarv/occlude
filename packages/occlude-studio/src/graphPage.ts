@@ -14,7 +14,7 @@
  */
 
 import './style.css';
-import { liveExampleToJs, type PaperDef, type PenDef, type RenderResult } from 'occlude';
+import { liveExampleToJs, moduleName, type PaperDef, type PenDef, type RenderResult } from 'occlude';
 import { ClassicPreset, type Root } from 'rete';
 
 import './wa.js';
@@ -1164,8 +1164,11 @@ async function boot(): Promise<void> {
     ...CATALOGUE,
     importable: [
       ...CATALOGUE.importable,
-      { module: '@user/pens', names: pens.map((pen) => ({ name: pen.name, spec: pen.name })) },
-      { module: '@user/papers', names: papers.map((paper) => ({ name: paper.name, spec: paper.name })) },
+      // A library entry is imported under the identifier the module exports,
+      // not under its own name: `pigma-005-black` is `pigma_005_black` in a
+      // sketch, and a catalogue keyed by the display name matches nothing.
+      { module: '@user/pens', names: pens.map((pen) => ({ name: moduleName(pen.name), spec: moduleName(pen.name) })) },
+      { module: '@user/papers', names: papers.map((paper) => ({ name: moduleName(paper.name), spec: moduleName(paper.name) })) },
     ],
   };
   preview.setPaperColor(settings.paperColor);
