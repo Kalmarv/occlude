@@ -795,7 +795,7 @@ export function applyShader(buffer: Float64Array, shader: ShaderValue, pens: Pen
  * lines, arcs and cubics exactly as the render made them, so a preview of
  * the plan is no coarser than a preview of the paper.
  */
-export function planAsBuffers(buffer: Float64Array): { prims: Float64Array; frags: Float64Array } {
+export function planAsBuffers(buffer: Float64Array): { prims: Float64Array<ArrayBuffer>; frags: Float64Array<ArrayBuffer> } {
   const chains = decodePlanBuffer(buffer);
   const sink = new PrimSink();
   const frags: number[] = [];
@@ -808,7 +808,10 @@ export function planAsBuffers(buffer: Float64Array): { prims: Float64Array; frag
       index++;
     }
   }
-  return { prims: sink.view().slice(), frags: Float64Array.from(frags) };
+  // `slice` and `from` both allocate a plain ArrayBuffer, and the type
+  // says so: the studio transfers these buffers to the main thread, and a
+  // transfer list will not take an ArrayBufferLike.
+  return { prims: sink.view().slice() as Float64Array<ArrayBuffer>, frags: Float64Array.from(frags) as Float64Array<ArrayBuffer> };
 }
 
 /** Plan a rendered result ONCE (merge → tour → bridge per pen, pen order):
