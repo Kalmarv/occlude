@@ -776,6 +776,27 @@ on `Material`, whose constructor is already nine positional parameters, and
 lazy validation on read — recomputing the embedding every step would put a
 full face computation inside a 240-step loop.
 
+### Using the oracle across checkouts
+
+`pnpm --filter occlude plotstats <sketch> --seed 42` reads the STUDIO's pen
+and paper libraries from `packages/occlude-studio/sketches/*.json`, which is
+gitignored user data. A checkout that has one and a checkout that does not
+are measuring different pens, so the numbers are not comparable.
+
+This looked like a regression for ten minutes. A worktree at the branch
+point reported 399 chains and 6664mm against the branch's 360 and 6395 on
+an unchanged fixture — all of it the pen library, because the working
+checkout had a 1.25mm 'azure' pen saved and the worktree fell back to the
+defaults. Different nibs change bridging and merging; different feeds moved
+the estimate from 5.3 minutes to 12.2.
+
+**Pass `--pens docs` on both sides.** With it pinned, this branch's three
+features are byte-identical to `a996915` on `all-features.ts`: 399 chains,
+6664 draw mm, 1630 travel mm, 5.3 est min, 0 bridge, 383 euler, 0.4
+coincident mm, before and after. That is the real claim — an existing
+sketch's toolpath is untouched — and it is measured rather than argued from
+the shape of the diff.
+
 ### Open, and waiting on a ruling
 
 - `p.adjacent` is a FOURTH spelling of "what is joined to this vertex",
