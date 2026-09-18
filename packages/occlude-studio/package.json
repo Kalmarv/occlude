@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "serve": "node server.mjs",
     "test": "../occlude/node_modules/.bin/vitest run",
+    "graph:catalogue": "../occlude/node_modules/.bin/tsx tools/graph-catalogue.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && node --check server.mjs",
     "smoke": "node tools/smoke-server.mjs"
   },
@@ -18,7 +19,11 @@
     "monaco-editor": "^0.52.0",
     "occlude": "workspace:*",
     "occlude-core": "link:../../crates/occlude-core/pkg",
-    "prettier": "^3.9.6"
+    "prettier": "^3.9.6",
+    "rete": "2.0.6",
+    "rete-area-plugin": "2.3.2",
+    "rete-connection-plugin": "2.0.5",
+    "rete-render-utils": "2.0.3"
   },
   "devDependencies": {
     "playwright": "1.58.2",

@@ -1,0 +1,362 @@
+/**
+ * The graph document: its socket vocabulary, its file shape, its
+ * topological order. Pure data and pure functions — no DOM, no Rete.
+ *
+ * Sockets follow a geometry node's model rather than the library's class
+ * list. One `Geometry` socket carries every geometric value, so the artist
+ * wires one kind of dot and the node says what it makes of it. The
+ * concrete kinds stay on the *inputs* (`takes`), which is where a wire can
+ * be wrong, and on the file, where a code node declares what it returns.
+ *
+ * A graph is JSON saved beside sketches. A node is a built-in word, a code
+ * node, a viewer or the output. Every input is a literal (`{ value }`), an
+ * edge (`{ from: [nodeId, output] }`), or a control the node edits.
+ */
+
+/** The concrete kinds of geometry, in the library's own words. */
+export const GEOMETRY_KINDS = ['shape', 'material', 'points', 'faces', 'mesh', 'curves', 'drawing'] as const;
+export type GeometryKind = (typeof GEOMETRY_KINDS)[number];
+
+/** The socket classes: what a connection carries, at the granularity the
+ * artist wires. */
+export const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera'] as const;
+export type SocketClass = (typeof SOCKET_CLASSES)[number];
+
+/** A value a code node declares, an input takes or a word returns. */
+export type ValueType = GeometryKind | SocketClass;
+
+export const isGeometryKind = (v: string): v is GeometryKind => (GEOMETRY_KINDS as readonly string[]).includes(v);
+export const isSocketClass = (v: string): v is SocketClass => (SOCKET_CLASSES as readonly string[]).includes(v);
+export const isValueType = (v: string): v is ValueType => isGeometryKind(v) || isSocketClass(v);
+
+/** The socket a value travels on. */
+export function socketOf(type: ValueType): SocketClass {
+  return isGeometryKind(type) ? 'Geometry' : type;
+}
+
+/** The kind a value has, when it is geometry. */
+export function kindOf(type: ValueType): GeometryKind | undefined {
+  return isGeometryKind(type) ? type : undefined;
+}
+
+/** What an input takes: a socket class, and for geometry the kinds it
+ * makes something of. `kinds` absent means any geometry. */
+export interface Takes {
+  socket: SocketClass;
+  kinds?: GeometryKind[];
+}
+
+/** A literal-only input: the node edits it, and nothing wires into it. */
+export type ControlKind = 'number' | 'text' | 'check' | 'menu';
+
+/** Whether an output may feed an input. A Field takes a Number as a
+ * constant field. A geometry input takes the kinds it names. */
+export function accepts(output: ValueType, takes: Takes): boolean {
+  if (takes.socket === 'Field') return output === 'Field' || output === 'Number';
+  if (socketOf(output) !== takes.socket) return false;
+  if (takes.socket !== 'Geometry' || !takes.kinds) return true;
+  const kind = kindOf(output);
+  return kind !== undefined && takes.kinds.includes(kind);
+}
+
+/** One option of an options record. */
+export interface CatalogueOption {
+  name: string;
+  takes?: Takes;
+  control?: ControlKind;
+  /** A menu's choices, in the order the type writes them. */
+  choices?: string[];
+  optional: boolean;
+  default?: number | boolean | string;
+}
+
+/** A parameter of a built-in word, in call order. A plain parameter
+ * carries one input; an options record carries one input per option. */
+export interface CatalogueParam {
+  name: string;
+  takes?: Takes;
+  control?: ControlKind;
+  choices?: string[];
+  optional: boolean;
+  options?: CatalogueOption[];
+}
+
+/** One input of a built-in word: a plain parameter, or one option. */
+export interface CatalogueInput {
+  /** The key inside a node's `inputs`. */
+  name: string;
+  /** The parameter it belongs to. */
+  param: string;
+  /** The option name, when it is an option of an options record. */
+  option?: string;
+  takes?: Takes;
+  control?: ControlKind;
+  choices?: string[];
+  optional: boolean;
+  default?: number | boolean | string;
+}
+
+/** One exported word, as the catalogue carries it. */
+export interface CatalogueWord {
+  /** As the reference writes it: `circle`, `t.sample`, `connect.dots`,
+   * `3d.box`. Unique across the catalogue. */
+  word: string;
+  module: 'occlude' | 'occlude/3d';
+  /** null imports the word by name; `t` is the toolkit; else a namespace
+   * object imported by name (`connect`, `force`, `query`, `ease`, `sdf`). */
+  receiver: string | null;
+  /** The import specifier, exactly as it goes between the braces:
+   * `circle`, `connect`, or `circle as circle3` when both modules export
+   * the name. Null for a toolkit word, which is a member of `t`. */
+  import: string | null;
+  /** How a compiled sketch calls it: `circle`, `t.sample` (a host that
+   * already has its own `circle` imports the 3D one as `circle3`). */
+  call: string;
+  params: CatalogueParam[];
+  returns: ValueType;
+  /** The reference page it links to, `/docs/reference/<page>`. */
+  page: string;
+  /** The page's title, for the palette grouping. */
+  group: string;
+}
+
+export interface Catalogue {
+  words: CatalogueWord[];
+}
+
+const lookups = new WeakMap<Catalogue, Map<string, CatalogueWord>>();
+
+/** The catalogue's entry for a word, or undefined. */
+export function wordOf(catalogue: Catalogue, word: string): CatalogueWord | undefined {
+  let byWord = lookups.get(catalogue);
+  if (!byWord) {
+    byWord = new Map(catalogue.words.map((w) => [w.word, w]));
+    lookups.set(catalogue, byWord);
+  }
+  return byWord.get(word);
+}
+
+/** A word's inputs in the order its call takes them. An option whose name
+ * is already taken is qualified with its record, so a key is unique. */
+export function wordInputs(word: CatalogueWord): CatalogueInput[] {
+  const out: CatalogueInput[] = [];
+  const seen = new Set<string>();
+  for (const p of word.params) {
+    if (!p.options) {
+      seen.add(p.name);
+      out.push({ name: p.name, param: p.name, takes: p.takes, control: p.control, choices: p.choices, optional: p.optional });
+      continue;
+    }
+    for (const o of p.options) {
+      const name = seen.has(o.name) ? `${p.name}.${o.name}` : o.name;
+      seen.add(name);
+      out.push({ name, param: p.name, option: o.name, takes: o.takes, control: o.control, choices: o.choices, optional: o.optional, default: o.default });
+    }
+  }
+  return out;
+}
+
+// ---- the document ----
+
+export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output';
+
+/** An input: a literal, an edge, or (for code nodes) the edge's type. */
+export interface GraphInput {
+  value?: unknown;
+  from?: [string, string];
+  /** Code nodes declare the value type of each input. */
+  type?: ValueType;
+}
+
+export interface GraphNode {
+  id: string;
+  kind: NodeKind;
+  x: number;
+  y: number;
+  inputs: Record<string, GraphInput>;
+  /** Built-in nodes: the catalogue word. */
+  word?: string;
+  /** Code nodes: declared outputs, and the body. */
+  outputs?: Record<string, ValueType>;
+  body?: string;
+}
+
+export interface Graph {
+  version: 1;
+  name: string;
+  /** The sketch config object, verbatim. */
+  config: Record<string, unknown>;
+  nodes: GraphNode[];
+}
+
+const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const KINDS: readonly NodeKind[] = ['builtin', 'code', 'viewer', 'output'];
+
+/** The JSON boundary. `what` names the field for the message. */
+function expectObject(raw: unknown, what: string): Record<string, unknown> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error(`graph: ${what} is not an object`);
+  return raw as Record<string, unknown>;
+}
+
+function parseValueType(raw: unknown, what: string): ValueType {
+  if (typeof raw !== 'string' || !isValueType(raw)) throw new Error(`graph: ${what} has unknown type ${JSON.stringify(raw)}`);
+  return raw;
+}
+
+function parseInput(node: string, key: string, raw: unknown): GraphInput {
+  const r = expectObject(raw, `node ${node} input ${key}`);
+  const out: GraphInput = {};
+  if (r.value !== undefined) out.value = r.value;
+  if (r.from !== undefined) {
+    const from = r.from;
+    if (!Array.isArray(from) || from.length !== 2 || typeof from[0] !== 'string' || typeof from[1] !== 'string') {
+      throw new Error(`graph: node ${node} input ${key} has a bad edge (expected ["nodeId", "output"])`);
+    }
+    out.from = [from[0], from[1]];
+  }
+  if (r.type !== undefined) out.type = parseValueType(r.type, `node ${node} input ${key}`);
+  if (out.value === undefined && out.from === undefined) throw new Error(`graph: node ${node} input ${key} is neither a value nor an edge`);
+  return out;
+}
+
+function parseNode(raw: unknown): GraphNode {
+  const r = expectObject(raw, 'a node');
+  const id = r.id;
+  if (typeof id !== 'string' || !IDENT.test(id)) throw new Error(`graph: bad node id ${JSON.stringify(id)} (letters, digits, _ and $ only)`);
+  if (!KINDS.includes(r.kind as NodeKind)) throw new Error(`graph: node ${id} has unknown kind ${String(r.kind)}`);
+  const kind = r.kind as NodeKind;
+  const x = typeof r.x === 'number' && Number.isFinite(r.x) ? r.x : 0;
+  const y = typeof r.y === 'number' && Number.isFinite(r.y) ? r.y : 0;
+  const rawInputs = expectObject(r.inputs ?? {}, `node ${id} inputs`);
+  const inputs: Record<string, GraphInput> = {};
+  for (const [key, value] of Object.entries(rawInputs)) inputs[key] = parseInput(id, key, value);
+  const node: GraphNode = { id, kind, x, y, inputs };
+  if (kind === 'builtin') {
+    if (typeof r.word !== 'string' || r.word === '') throw new Error(`graph: node ${id} is a built-in with no word`);
+    node.word = r.word;
+  }
+  if (kind === 'code') {
+    if (typeof r.body !== 'string') throw new Error(`graph: code node ${id} has no body`);
+    node.body = r.body;
+    const rawOutputs = expectObject(r.outputs ?? {}, `code node ${id} outputs`);
+    const outputs: Record<string, ValueType> = {};
+    for (const [key, value] of Object.entries(rawOutputs)) {
+      if (!IDENT.test(key)) throw new Error(`graph: code node ${id} output name ${JSON.stringify(key)} is not an identifier`);
+      outputs[key] = parseValueType(value, `code node ${id} output ${key}`);
+    }
+    if (Object.keys(outputs).length === 0) throw new Error(`graph: code node ${id} declares no outputs`);
+    node.outputs = outputs;
+  }
+  return node;
+}
+
+/** Validate a parsed JSON document as a graph. Throws a message that names
+ * the offending node or field. */
+export function parseGraph(raw: unknown): Graph {
+  const doc = expectObject(raw, 'the document');
+  if (doc.version !== 1) throw new Error(`graph: unsupported version ${String(doc.version)} (this build reads version 1)`);
+  if (!Array.isArray(doc.nodes)) throw new Error('graph: nodes is not an array');
+  const nodes = doc.nodes.map(parseNode);
+  const ids = new Set<string>();
+  for (const n of nodes) {
+    if (ids.has(n.id)) throw new Error(`graph: duplicate node id ${n.id}`);
+    ids.add(n.id);
+  }
+  for (const n of nodes) {
+    for (const [key, input] of Object.entries(n.inputs)) {
+      if (input.from && !ids.has(input.from[0])) throw new Error(`graph: node ${n.id} input ${key} reads missing node ${input.from[0]}`);
+    }
+  }
+  return {
+    version: 1,
+    name: typeof doc.name === 'string' && doc.name !== '' ? doc.name : 'untitled',
+    config: doc.config === undefined ? {} : expectObject(doc.config, 'config'),
+    nodes,
+  };
+}
+
+/** The graph as the file holds it: stable key order, two-space indent. */
+export function graphToJson(graph: Graph): string {
+  return JSON.stringify(
+    {
+      version: 1,
+      name: graph.name,
+      config: graph.config,
+      nodes: graph.nodes.map((n) => {
+        const out: Record<string, unknown> = { id: n.id, kind: n.kind };
+        if (n.word !== undefined) out.word = n.word;
+        out.x = n.x;
+        out.y = n.y;
+        out.inputs = n.inputs;
+        if (n.outputs !== undefined) out.outputs = n.outputs;
+        if (n.body !== undefined) out.body = n.body;
+        return out;
+      }),
+    },
+    null,
+    2,
+  ) + '\n';
+}
+
+/** The graph in topological order: a node comes after everything it reads.
+ * Nodes keep their file order among equals, so the order is stable. A cycle
+ * throws with the nodes it found. */
+export function topoOrder(graph: Graph): string[] {
+  const index = new Map(graph.nodes.map((n, i) => [n.id, i]));
+  const indegree = new Map(graph.nodes.map((n) => [n.id, 0]));
+  const consumers = new Map<string, string[]>(graph.nodes.map((n) => [n.id, []]));
+  for (const node of graph.nodes) {
+    for (const input of Object.values(node.inputs)) {
+      if (!input.from) continue;
+      indegree.set(node.id, (indegree.get(node.id) ?? 0) + 1);
+      consumers.get(input.from[0])?.push(node.id);
+    }
+  }
+  const ready = graph.nodes.filter((n) => indegree.get(n.id) === 0).map((n) => n.id);
+  const order: string[] = [];
+  while (ready.length > 0) {
+    ready.sort((a, b) => (index.get(a) ?? 0) - (index.get(b) ?? 0));
+    const id = ready.shift()!;
+    order.push(id);
+    for (const next of consumers.get(id) ?? []) {
+      const left = (indegree.get(next) ?? 0) - 1;
+      indegree.set(next, left);
+      if (left === 0) ready.push(next);
+    }
+  }
+  if (order.length !== graph.nodes.length) {
+    const stuck = graph.nodes.filter((n) => !order.includes(n.id)).map((n) => n.id);
+    throw new Error(`graph: cycle between ${stuck.join(', ')}`);
+  }
+  return order;
+}
+
+/** What each input of a node takes. Built-in nodes read the catalogue; code
+ * nodes declare their own; a viewer takes anything. */
+export function inputTakes(node: GraphNode, catalogue: Catalogue): Record<string, Takes | undefined> {
+  if (node.kind === 'builtin') {
+    const word = wordOf(catalogue, node.word!);
+    if (!word) return {};
+    return Object.fromEntries(wordInputs(word).map((i) => [i.name, i.takes]));
+  }
+  if (node.kind === 'code') {
+    return Object.fromEntries(Object.entries(node.inputs).map(([key, input]) => {
+      const type = input.type ?? 'drawing';
+      return [key, { socket: socketOf(type), kinds: kindOf(type) ? [kindOf(type)!] : undefined }];
+    }));
+  }
+  // The output node takes what a sketch may return: shapes and drawings.
+  if (node.kind === 'output') return { in: { socket: 'Geometry', kinds: ['shape', 'drawing'] } };
+  return {};
+}
+
+/** The value type of one output of a node, or undefined when the node has
+ * no such output. */
+export function outputType(node: GraphNode, name: string, catalogue: Catalogue): ValueType | undefined {
+  if (node.kind === 'builtin') {
+    const word = wordOf(catalogue, node.word!);
+    return name === 'out' ? word?.returns : undefined;
+  }
+  if (node.kind === 'code') return node.outputs?.[name];
+  return undefined;
+}
