@@ -383,7 +383,7 @@ class Reader {
       let builtin: { node: GraphNode; word: CatalogueWord } | undefined;
       if (before.length > 0) this.refuse(id, undefined, 'a statement before it joined this node');
       else if (!ts.isCallExpression(expr)) this.refuse(id, undefined, `the value is ${describe(expr)}, not a call`);
-      else builtin = this.builtinOf(expr, id);
+      else builtin = this.tryBuiltin(expr, id);
       if (builtin) {
         this.add(builtin.node);
         this.bindings.set(name, { node: builtin.node, output: 'out', type: builtin.word.returns });
@@ -488,6 +488,54 @@ class Reader {
    * parameter with more than one value, an argument that is not a literal
    * and not an earlier node, or an edge that does not fit its socket leaves
    * the call to a code node — the same call, the same ink. */
+  /**
+   * A call as a built-in node, and every node lifted out of its arguments.
+   * The attempt either stands whole or leaves nothing behind: an argument
+   * that will not fit makes the *outer* call a code node, and the nodes its
+   * earlier arguments produced must go with it.
+   */
+  private tryBuiltin(expr: ts.CallExpression, id: string): { node: GraphNode; word: CatalogueWord } | undefined {
+    const mark = this.nodes.length;
+    const built = this.builtinOf(expr, id);
+    if (!built) this.rollback(mark);
+    return built;
+  }
+
+  /** Undo every node added since a mark, and release the names they took. */
+  private rollback(mark: number): void {
+    for (const node of this.nodes.splice(mark)) {
+      this.byId.delete(node.id);
+      this.taken.delete(node.id);
+    }
+  }
+
+  /**
+   * An argument that is itself a call of a catalogue word becomes its own
+   * node, wired into the one that reads it.
+   *
+   * The importer takes one node per top-level `const`, which left
+   * `t.within(t.ridges(height, { step: 2.6 }), coast)` a code node although
+   * both of its words are nodes — the largest single reason a statement was
+   * code rather than a node. Hoisting the inner call to its own `const` is
+   * the same program: arguments are read left to right, and the lift keeps
+   * that order, so the seeded stream draws in the order it drew before.
+   */
+  private liftCall(call: ts.CallExpression): GraphNode | undefined {
+    const word = this.wordFor(call.expression);
+    if (!word) return undefined;
+    const mark = this.nodes.length;
+    // The node is named for the word it calls, not for anything in the
+    // source: the source gave this value no name at all.
+    const id = this.uniqueId(word.word.split('.').pop() ?? 'value');
+    const built = this.builtinOf(call, id);
+    if (!built) {
+      this.rollback(mark);
+      this.taken.delete(id);
+      return undefined;
+    }
+    return this.add(built.node);
+  }
+
   private builtinOf(expr: ts.CallExpression, id: string): { node: GraphNode; word: CatalogueWord } | undefined {
     const word = this.wordFor(expr.expression);
     if (!word) {
@@ -548,6 +596,10 @@ class Reader {
       const binding = this.bindings.get(arg.text);
       if (binding) return { from: [binding.node.id, binding.output] };
     }
+    if (ts.isCallExpression(arg)) {
+      const lifted = this.liftCall(arg);
+      if (lifted) return { from: [lifted.id, 'out'] };
+    }
     // A rest parameter takes one socket. The catalogue flattens `...args`
     // into one parameter named `args`, and an array of more than one entry
     // is more values than that socket has room for.
@@ -576,6 +628,13 @@ class Reader {
         const binding = this.bindings.get(prop.initializer.text);
         if (binding) {
           inputs[input.name] = { from: [binding.node.id, binding.output] };
+          continue;
+        }
+      }
+      if (ts.isCallExpression(prop.initializer)) {
+        const lifted = this.liftCall(prop.initializer);
+        if (lifted) {
+          inputs[input.name] = { from: [lifted.id, 'out'] };
           continue;
         }
       }
