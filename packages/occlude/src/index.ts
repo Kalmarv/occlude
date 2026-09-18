@@ -144,7 +144,7 @@ export type { FaceMeasure, MeasureOpts } from './measure.js';
 export type { IsoContour, IsoOpts } from './isolines.js';
 // Loops → signed distance field (positive inside): pure, composes with
 // isolines (offsetting is a recipe), scatter, decimate, deform.
-export { distanceTo, field } from './distance.js';
+export { distanceTo, sdf } from './distance.js';
 export { rule } from './rules.js';
 export type { PointMatch, EdgeMatch, FaceMatch, FaceRow, ReplaceOpts, Rewrite, PointRule, EdgeRule, FaceRule } from './rules.js';
 export type { DistanceField } from './distance.js';

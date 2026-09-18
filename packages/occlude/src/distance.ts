@@ -217,7 +217,7 @@ export function distanceTo(boundary: Boundary): DistanceField {
  */
 
 const asField = (f: DistanceField, what: string): DistanceField => {
-  if (typeof f !== 'function') throw new Error(`field.${what}: expected a distance field, a function of (x, y)`);
+  if (typeof f !== 'function') throw new Error(`sdf.${what}: expected a distance field, a function of (x, y)`);
   return f;
 };
 
@@ -346,12 +346,12 @@ const blendField = (a: DistanceField, b: DistanceField, radius: number): Distanc
  * no paper, so it is a module import. `distanceTo(shape)` brings ordinary
  * geometry into the same algebra.
  *
- * The name is `field` and not `distance`, because `distance(a, b)` is
- * already the distance between two points. The algebra is only meaningful
- * for a field that measures distance: `union` of two noise fields is a
- * maximum of noise, and nobody wants that.
+ * The name says what the algebra takes. A signed distance field is what
+ * every word here reads and returns, and `union` of two NOISE fields would
+ * be a maximum of noise — meaningless. `distance` was not available
+ * anyway: `distance(a, b)` is already the distance between two points.
  */
-export const field = {
+export const sdf = {
   circle: circleField,
   box: boxField,
   segment: segmentField,

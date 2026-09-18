@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, field, initOcclude, material, mm, polygon, primLength, rect, render, rule, shader, sketch,
+  circle, sdf, initOcclude, material, mm, polygon, primLength, rect, render, rule, shader, sketch,
   type SketchDef, type StrokeInk,
 } from '../src/index.js';
 import { decodePlanBuffer } from '../src/plan.js';
@@ -71,13 +71,13 @@ describe('field algebra invariants, over many random shapes', () => {
   it('holds union, intersect and subtract at every sample', () => {
     const next = rng(4242);
     for (let trial = 0; trial < 40; trial++) {
-      const a = field.circle(20 + next() * 60, 20 + next() * 60, 5 + next() * 20);
+      const a = sdf.circle(20 + next() * 60, 20 + next() * 60, 5 + next() * 20);
       const b = next() < 0.5
-        ? field.box(20 + next() * 60, 20 + next() * 60, 8 + next() * 30, 8 + next() * 30)
-        : field.segment(10 + next() * 40, 10 + next() * 40, 50 + next() * 40, 50 + next() * 40, 3 + next() * 10);
-      const u = field.union(a, b);
-      const i = field.intersect(a, b);
-      const d = field.subtract(a, b);
+        ? sdf.box(20 + next() * 60, 20 + next() * 60, 8 + next() * 30, 8 + next() * 30)
+        : sdf.segment(10 + next() * 40, 10 + next() * 40, 50 + next() * 40, 50 + next() * 40, 3 + next() * 10);
+      const u = sdf.union(a, b);
+      const i = sdf.intersect(a, b);
+      const d = sdf.subtract(a, b);
       for (let k = 0; k < 40; k++) {
         const x = next() * 100;
         const y = next() * 100;
@@ -91,7 +91,7 @@ describe('field algebra invariants, over many random shapes', () => {
         expect(i(x, y) > 0).toBe(av > 0 && bv > 0);
       }
       // A blend never erodes the union: it only ever adds material.
-      const blended = field.blend(a, b, 4);
+      const blended = sdf.blend(a, b, 4);
       for (let k = 0; k < 20; k++) {
         const x = next() * 100;
         const y = next() * 100;
@@ -139,16 +139,16 @@ describe('degenerate input draws nothing, and the sketch keeps rendering', () =>
 
   it('takes a field with no size, and one made of non-numbers', () => {
     // Law: a degenerate input draws nothing for that piece or clamps.
-    expect(zero(field.circle(50, 50, 0))).toEqual([]);
-    expect(zero(field.box(50, 50, 0, 0))).toEqual([]);
-    expect(zero(field.circle(50, 50, -5))).toEqual([]);
-    expect(zero(field.segment(50, 50, 50, 50, 0))).toEqual([]);
+    expect(zero(sdf.circle(50, 50, 0))).toEqual([]);
+    expect(zero(sdf.box(50, 50, 0, 0))).toEqual([]);
+    expect(zero(sdf.circle(50, 50, -5))).toEqual([]);
+    expect(zero(sdf.segment(50, 50, 50, 50, 0))).toEqual([]);
     // A zero-length segment with a radius is a disc, and it draws.
-    expect(zero(field.segment(50, 50, 50, 50, 10)).length).toBeGreaterThan(0);
+    expect(zero(sdf.segment(50, 50, 50, 50, 10)).length).toBeGreaterThan(0);
     // Non-finite coordinates produce no contour rather than an exception.
-    expect(() => zero(field.circle(NaN, 50, 10))).not.toThrow();
-    expect(() => zero(field.circle(Infinity, 50, 10))).not.toThrow();
-    expect(() => zero(field.union(field.circle(NaN, NaN, NaN), field.circle(50, 50, 10)))).not.toThrow();
+    expect(() => zero(sdf.circle(NaN, 50, 10))).not.toThrow();
+    expect(() => zero(sdf.circle(Infinity, 50, 10))).not.toThrow();
+    expect(() => zero(sdf.union(sdf.circle(NaN, NaN, NaN), sdf.circle(50, 50, 10)))).not.toThrow();
   });
 
   it('takes a shader program that returns rubbish', () => {

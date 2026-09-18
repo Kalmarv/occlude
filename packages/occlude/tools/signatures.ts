@@ -32,7 +32,7 @@ const entry3d = join(pkg, 'src/three/api/index.ts');
 const RECEIVER: Record<string, string> = {
   Material: 'm', Faces: 'cells', FaceSelection: 'sel', Face: 'face', Edge: 'edge', Vertex: 'p',
   PointSelection: 'points', EdgeSelection: 'edges', Station: 'station', Next: 'next', Toolkit: 't', '3d.Mesh': 'mesh',
-  connect: 'connect', force: 'force', query: 'query', ease: 'ease', field: 'field', rule: 'rule',
+  connect: 'connect', force: 'force', query: 'query', ease: 'ease', sdf: 'sdf', rule: 'rule',
   PointRule: 'rule.point(…)', EdgeRule: 'rule.edge(…)', FaceRule: 'rule.face(…)',
 };
 /** Reference page per type name; a link is emitted only when the page exists. */
@@ -125,7 +125,7 @@ function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
 }
 
 const OWNERS = ['Material', 'Faces', 'FaceSelection', 'Face', 'Edge', 'Vertex', 'PointSelection', 'EdgeSelection', 'Station', 'Next', 'Toolkit', 'PointRule', 'EdgeRule', 'FaceRule'];
-const NAMESPACES = ['connect', 'force', 'query', 'ease', 'field', 'rule'];
+const NAMESPACES = ['connect', 'force', 'query', 'ease', 'sdf', 'rule'];
 // occlude/3d: every exported function, keyed `3d.<name>`, spelled bare (it is imported by name).
 const sf3 = program.getSourceFile(entry3d);
 const mod3 = sf3 && checker.getSymbolAtLocation(sf3);

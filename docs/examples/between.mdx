@@ -9,14 +9,14 @@ Each cell takes `k` a step further along. The corners of the cross grow out of a
 
 The hatch turns with `k` as well. The plate then reads as one motion, not as nine separate drawings.
 
-Uses: `field.circle`, `field.box`, `field.union`, a weighted sum of two fields, `t.grid`, `t.isolines`, `polygon` with a `fill`.
+Uses: `sdf.circle`, `sdf.box`, `sdf.union`, a weighted sum of two fields, `t.grid`, `t.isolines`, `polygon` with a `fill`.
 
 :::note
 A weighted sum of two exact distance fields is not itself exact. It is close enough near the boundary to contour, and that is what the drawing needs. Read a level far from zero and it drifts.
 :::
 
 ```ts live
-import { sketch, polygon, strokes, field, fill, pen, mm } from 'occlude';
+import { sketch, polygon, strokes, sdf, fill, pen, mm } from 'occlude';
 
 export default sketch({
   aspect: [1, 1], seed: 4, margin: 6,
@@ -26,10 +26,10 @@ export default sketch({
   return cells.map((c, i) => {
     const k = i / (cells.length - 1);
     const r = Math.min(c.w, c.h) * 0.36;
-    const disc = field.circle(c.cx, c.cy, r);
-    const bar = field.union(
-      field.box(c.cx, c.cy, r * 2.1, r * 0.66),
-      field.box(c.cx, c.cy, r * 0.66, r * 2.1),
+    const disc = sdf.circle(c.cx, c.cy, r);
+    const bar = sdf.union(
+      sdf.box(c.cx, c.cy, r * 2.1, r * 0.66),
+      sdf.box(c.cx, c.cy, r * 0.66, r * 2.1),
     );
     const between = (x, y) => disc(x, y) * (1 - k) + bar(x, y) * k;
     return [

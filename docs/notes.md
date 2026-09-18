@@ -704,9 +704,15 @@ made them, so nothing is flattened on the way to the screen.
 
 ### Words the field algebra does NOT have
 
-`field` is the distance-field algebra. It is `field` and not `distance`
-because `distance(a, b)` is already the distance between two points, and
-`sdf` is not a word this project speaks.
+`sdf` is the distance-field algebra. The name says what every word in it
+reads and returns, and the algebra is meaningless for anything else —
+`union` of two NOISE fields is a maximum of noise. `distance` was not
+available: `distance(a, b)` is already the distance between two points.
+
+It was called `field` for a day. That was wrong for the reason above: the
+name was broader than what the words accept, so nothing in it warned a
+reader that a noise field is not a valid argument. Caleb asked for `sdf`
+and `sdf` is right.
 
 Three words the first sketch of the feature asked for are absent, each
 because the answer already existed:
@@ -717,7 +723,7 @@ because the answer already existed:
   shape grown by four is `(x, y) => f(x, y) + 4`, written where it is
   needed; the "inset band of constant width" is `subtract(body, inner)`
   with `inner` inline, and needs no API at all.
-- **No `field.rect`.** It is `field.box`, and centred. `rect(x, y, w, h)`
+- **No `field.rect`.** It is `sdf.box`, and centred. `rect(x, y, w, h)`
   anchors by the sketch's own rect mode, and a pure field function cannot
   read the sketch, so one name with two anchors would be a trap.
 
