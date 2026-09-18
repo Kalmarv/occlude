@@ -39,10 +39,12 @@ describe('the catalogue', () => {
     expect(word('polygon').returns).toBe('shape');
   });
 
-  it('gives every word a module, a call, a page and a group', () => {
+  it('gives every word a module, a call and a group', () => {
     for (const w of CATALOGUE.words) {
       expect(w.call, w.word).toMatch(/^(\{self\}|[A-Za-z_$][A-Za-z0-9_$]*)(\.[A-Za-z_$][A-Za-z0-9_$]*)?$/);
-      expect(w.page, w.word).toMatch(/^\/docs\/reference\//);
+      // A page is a link, not a licence: a word the reference does not
+      // document is still a node, and it carries no link.
+      if (w.page !== '') expect(w.page, w.word).toMatch(/^\/docs\/reference\//);
       expect(w.group, w.word).not.toBe('');
       // A receiver word hangs off its receiver, and nothing else: its first
       // input is that receiver, and there is no import for it.

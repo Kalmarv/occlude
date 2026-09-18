@@ -1143,7 +1143,7 @@ function buildPalette(): void {
       groups.set(word.group, group);
       paletteList.append(group);
     }
-    group.append(paletteItem(word.word, word.returns, (at) => addBuiltin(word, at), `${word.word} → ${word.returns} · ${word.page}`));
+    group.append(paletteItem(word.word, word.returns, (at) => addBuiltin(word, at), `${word.word} → ${word.returns}${word.page ? ` · ${word.page}` : ''}`));
   }
   const count = paletteHead.querySelector('.graph-palette-count');
   if (count) count.textContent = `${catalogue.words.length}`;

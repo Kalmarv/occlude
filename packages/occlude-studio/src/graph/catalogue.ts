@@ -1228,6 +1228,642 @@ export const CATALOGUE: Catalogue = {
         ] },
       ],
     },
+    {
+      word: 'boundaryLoops', module: 'occlude', receiver: null,
+      import: 'boundaryLoops', call: 'boundaryLoops', returns: 'shape',
+      page: '', group: 'Other',
+      params: [
+        { name: 'input', takes: { socket: 'Geometry', kinds: ['shape'] }, optional: false },
+        { name: 'who', control: 'text', optional: false },
+      ],
+    },
+    {
+      word: 'bridgeArg', module: 'occlude', receiver: null,
+      import: 'bridgeArg', call: 'bridgeArg', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'bridge', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'cylindricalUV', module: 'occlude/3d', receiver: null,
+      import: 'cylindricalUV', call: 'cylindricalUV', returns: 'mesh',
+      page: '', group: 'Other',
+      params: [
+        { name: 'mesh', takes: { socket: 'Geometry', kinds: ['mesh'] }, optional: false },
+      ],
+    },
+    {
+      word: 'degrees', module: 'occlude', receiver: null,
+      import: 'degrees', call: 'degrees', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'radians', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.backIn', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.backIn', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.backInOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.backInOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.backOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.backOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.bounceIn', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.bounceIn', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.bounceInOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.bounceInOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.bounceOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.bounceOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.circIn', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.circIn', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.circInOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.circInOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.circOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.circOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.cubicInOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.cubicInOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.cubicOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.cubicOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.elasticIn', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.elasticIn', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.elasticInOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.elasticInOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.elasticOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.elasticOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.expoIn', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.expoIn', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.expoInOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.expoInOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.expoOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.expoOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.linear', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.linear', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.powIn', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.powIn', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+        { name: 'p', takes: { socket: 'Number' }, optional: true },
+      ],
+    },
+    {
+      word: 'ease.powInOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.powInOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+        { name: 'p', takes: { socket: 'Number' }, optional: true },
+      ],
+    },
+    {
+      word: 'ease.powOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.powOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+        { name: 'p', takes: { socket: 'Number' }, optional: true },
+      ],
+    },
+    {
+      word: 'ease.quadIn', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.quadIn', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.quadInOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.quadInOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.quadOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.quadOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.quartIn', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.quartIn', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.quartInOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.quartInOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.quartOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.quartOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.quintIn', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.quintIn', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.quintInOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.quintInOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.quintOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.quintOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.sinIn', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.sinIn', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.sinInOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.sinInOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.sinOut', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.sinOut', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.smooth', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.smooth', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ease.smoother', module: 'occlude', receiver: 'ease',
+      import: 'ease', call: 'ease.smoother', returns: 'Number',
+      page: '', group: 'ease',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'faces', module: 'occlude', receiver: null,
+      import: 'faces', call: 'faces', returns: 'faces',
+      page: '', group: 'Other',
+      params: [
+        { name: 'm', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
+      ],
+    },
+    {
+      word: 'Faces.adjacent', module: 'occlude', receiver: null,
+      import: null, call: '{self}.adjacent', returns: 'faces',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'Faces',
+      params: [
+      ],
+    },
+    {
+      word: 'Faces.at', module: 'occlude', receiver: null,
+      import: null, call: '{self}.at', returns: 'faces',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'Faces',
+      params: [
+        { name: 'i', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'Faces.faces', module: 'occlude', receiver: null,
+      import: null, call: '{self}.faces', returns: 'faces',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'Faces',
+      params: [
+      ],
+    },
+    {
+      word: 'Faces.iteration', module: 'occlude', receiver: null,
+      import: null, call: '{self}.iteration', returns: 'Number',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'Faces',
+      params: [
+      ],
+    },
+    {
+      word: 'Faces.length', module: 'occlude', receiver: null,
+      import: null, call: '{self}.length', returns: 'Number',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'Faces',
+      params: [
+      ],
+    },
+    {
+      word: 'Faces.source', module: 'occlude', receiver: null,
+      import: null, call: '{self}.source', returns: 'material',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'Faces',
+      params: [
+      ],
+    },
+    {
+      word: 'FaceSelection.at', module: 'occlude', receiver: null,
+      import: null, call: '{self}.at', returns: 'faces',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'FaceSelection',
+      params: [
+        { name: 'i', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'FaceSelection.boundaryEdges', module: 'occlude', receiver: null,
+      import: null, call: '{self}.boundaryEdges', returns: 'material',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'FaceSelection',
+      params: [
+      ],
+    },
+    {
+      word: 'FaceSelection.contours', module: 'occlude', receiver: null,
+      import: null, call: '{self}.contours', returns: 'shape',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'FaceSelection',
+      params: [
+      ],
+    },
+    {
+      word: 'FaceSelection.edges', module: 'occlude', receiver: null,
+      import: null, call: '{self}.edges', returns: 'material',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'FaceSelection',
+      params: [
+      ],
+    },
+    {
+      word: 'FaceSelection.intersect', module: 'occlude', receiver: null,
+      import: null, call: '{self}.intersect', returns: 'faces',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'FaceSelection',
+      params: [
+        { name: 'other', takes: { socket: 'Geometry', kinds: ['faces'] }, optional: false },
+      ],
+    },
+    {
+      word: 'FaceSelection.iteration', module: 'occlude', receiver: null,
+      import: null, call: '{self}.iteration', returns: 'Number',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'FaceSelection',
+      params: [
+      ],
+    },
+    {
+      word: 'FaceSelection.length', module: 'occlude', receiver: null,
+      import: null, call: '{self}.length', returns: 'Number',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'FaceSelection',
+      params: [
+      ],
+    },
+    {
+      word: 'FaceSelection.points', module: 'occlude', receiver: null,
+      import: null, call: '{self}.points', returns: 'points',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'FaceSelection',
+      params: [
+      ],
+    },
+    {
+      word: 'FaceSelection.source', module: 'occlude', receiver: null,
+      import: null, call: '{self}.source', returns: 'faces',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'FaceSelection',
+      params: [
+      ],
+    },
+    {
+      word: 'FaceSelection.subtract', module: 'occlude', receiver: null,
+      import: null, call: '{self}.subtract', returns: 'faces',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'FaceSelection',
+      params: [
+        { name: 'other', takes: { socket: 'Geometry', kinds: ['faces'] }, optional: false },
+      ],
+    },
+    {
+      word: 'FaceSelection.union', module: 'occlude', receiver: null,
+      import: null, call: '{self}.union', returns: 'faces',
+      self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
+      page: '', group: 'FaceSelection',
+      params: [
+        { name: 'other', takes: { socket: 'Geometry', kinds: ['faces'] }, optional: false },
+      ],
+    },
+    {
+      word: 'falloff', module: 'occlude/3d', receiver: null,
+      import: 'falloff', call: 'falloff', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'point', takes: { socket: 'Vector' }, optional: false },
+        { name: 'options', optional: false, options: [
+          { name: 'center', takes: { socket: 'Vector' }, optional: true },
+          { name: 'radius', takes: { socket: 'Number' }, optional: false },
+        ] },
+      ],
+    },
+    {
+      word: 'h', module: 'occlude', receiver: null,
+      import: 'h', call: 'h', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'n', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'invertRange', module: 'occlude', receiver: null,
+      import: 'invertRange', call: 'invertRange', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'v', takes: { socket: 'Number' }, optional: false },
+        { name: 'max', takes: { socket: 'Number' }, optional: false },
+        { name: 'min', takes: { socket: 'Number' }, optional: true },
+      ],
+    },
+    {
+      word: 'laneThreshold', module: 'occlude/3d', receiver: null,
+      import: 'laneThreshold', call: 'laneThreshold', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'lane', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'long', module: 'occlude', receiver: null,
+      import: 'long', call: 'long', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'n', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'Material.edgeCount', module: 'occlude', receiver: null,
+      import: null, call: '{self}.edgeCount', returns: 'Number',
+      self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
+      page: '', group: 'Material',
+      params: [
+      ],
+    },
+    {
+      word: 'Material.iteration', module: 'occlude', receiver: null,
+      import: null, call: '{self}.iteration', returns: 'Number',
+      self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
+      page: '', group: 'Material',
+      params: [
+      ],
+    },
+    {
+      word: 'Material.maxDegree', module: 'occlude', receiver: null,
+      import: null, call: '{self}.maxDegree', returns: 'Number',
+      self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
+      page: '', group: 'Material',
+      params: [
+      ],
+    },
+    {
+      word: 'Material.next', module: 'occlude', receiver: null,
+      import: null, call: '{self}.next', returns: 'Number',
+      self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
+      page: '', group: 'Material',
+      params: [
+        { name: 'v', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'Material.prev', module: 'occlude', receiver: null,
+      import: null, call: '{self}.prev', returns: 'Number',
+      self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
+      page: '', group: 'Material',
+      params: [
+        { name: 'v', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'planarize', module: 'occlude', receiver: null,
+      import: 'planarize', call: 'planarize', returns: 'material',
+      page: '', group: 'Other',
+      params: [
+        { name: 'm', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
+      ],
+    },
+    {
+      word: 'planarUV', module: 'occlude/3d', receiver: null,
+      import: 'planarUV', call: 'planarUV', returns: 'mesh',
+      page: '', group: 'Other',
+      params: [
+        { name: 'mesh', takes: { socket: 'Geometry', kinds: ['mesh'] }, optional: false },
+      ],
+    },
+    {
+      word: 'PointSelection.length', module: 'occlude', receiver: null,
+      import: null, call: '{self}.length', returns: 'Number',
+      self: { param: 'points', takes: { socket: 'Geometry', kinds: ['points'] } },
+      page: '', group: 'PointSelection',
+      params: [
+      ],
+    },
+    {
+      word: 'PointSelection.source', module: 'occlude', receiver: null,
+      import: null, call: '{self}.source', returns: 'material',
+      self: { param: 'points', takes: { socket: 'Geometry', kinds: ['points'] } },
+      page: '', group: 'PointSelection',
+      params: [
+      ],
+    },
+    {
+      word: 'radians', module: 'occlude', receiver: null,
+      import: 'radians', call: 'radians', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'degrees', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 's', module: 'occlude', receiver: null,
+      import: 's', call: 's', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'n', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.len', module: 'occlude', receiver: 't',
+      import: null, call: 't.len', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'l', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.noisyLine', module: 'occlude', receiver: 't',
+      import: null, call: 't.noisyLine', returns: 'shape',
+      page: '', group: 'Other',
+      params: [
+        { name: 'x1', takes: { socket: 'Number' }, optional: false },
+        { name: 'y1', takes: { socket: 'Number' }, optional: false },
+        { name: 'x2', takes: { socket: 'Number' }, optional: false },
+        { name: 'y2', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'tourBudget', module: 'occlude', receiver: null,
+      import: 'tourBudget', call: 'tourBudget', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'optimize', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'w', module: 'occlude', receiver: null,
+      import: 'w', call: 'w', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'n', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
   ],
   importable: [
     { module: 'occlude', names: [

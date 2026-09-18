@@ -453,17 +453,41 @@ function planOf(type: ts.Type, at: ts.Node, word: string): { params: Param[]; re
 
 const words: Word[] = [];
 
+/**
+ * A word the toolkit binds that a module already exports under the same name
+ * — `t.circle` beside `circle`. Both spellings work, and the law is that a
+ * pure factory is a module import, so the palette carries the module's one
+ * and not a second entry for the same idea.
+ */
+function isToolkitAlias(word: string, receiver: string | null): boolean {
+  return receiver === 't' && words.some((w) => w.receiver === null && w.word === word.slice(2));
+}
+
+/**
+ * A word joins the palette when its types map, whether or not a reference
+ * page documents it. The page is a link, not a licence: 144 words that map
+ * cleanly — every easing, the unit words, a material's own accessors — were
+ * left out because the reference has no entry for them, which is a gap in
+ * the docs and not a reason the artist cannot have the node. An undocumented
+ * word is grouped by its owner (or `Other`) and carries no page link.
+ */
 function addWord(word: string, module: 'occlude' | 'occlude/3d', receiver: string | null, importSpec: string | null, call: string, plan: { params: Param[]; returns: ValueType }, at: ts.Node): void {
   const page = pageOfWord.get(word);
-  if (!page) {
-    skipped.push({ word, reason: 'no reference page documents it' });
+  if (!page && isToolkitAlias(word, receiver)) {
+    skipped.push({ word, reason: 'the module exports the same word; the toolkit spelling is a second door' });
     return;
   }
+  if (!page) undocumented.push(word);
+  const owner = word.includes('.') ? word.slice(0, word.indexOf('.')) : '';
   words.push({
     word, module, receiver, import: importSpec, call, params: plan.params, returns: plan.returns,
-    page: `/docs/reference/${page.slug}`, group: page.group,
+    page: page ? `/docs/reference/${page.slug}` : '',
+    group: page ? page.group : owner === '' || owner === 't' ? 'Other' : owner,
   });
 }
+
+/** Every word the palette carries that the reference does not document. */
+const undocumented: string[] = [];
 
 /** The 3D module's own names, so a name it shares with `occlude` (both have
  * a `circle`) is imported under a distinct name. */
@@ -545,11 +569,10 @@ function walkOwners(moduleSymbol: ts.Symbol): void {
       if (ts.getCombinedModifierFlags(decl as ts.Declaration) & ts.ModifierFlags.Private) continue;
       if (ts.getJSDocTags(decl).some((t) => t.tagName.text === 'internal')) continue;
       const word = `${name}.${member}`;
+      // A method the reference does not document is still a method: the page
+      // is a link, not a licence. It is grouped by its owner.
       const page = pageOfWord.get(word);
-      if (!page) {
-        skipped.push({ word, reason: 'no reference page documents it' });
-        continue;
-      }
+      if (!page) undocumented.push(word);
       const propType = checker.getTypeOfSymbolAtLocation(prop, decl);
       let plan: { params: Param[]; returns: ValueType } | { problem: string };
       if (propType.getCallSignatures().length > 0) {
@@ -565,7 +588,9 @@ function walkOwners(moduleSymbol: ts.Symbol): void {
       words.push({
         word, module: name.startsWith('3d.') ? 'occlude/3d' : 'occlude', receiver: null, import: null,
         call: `{self}.${member}`, self: { param: owner.param, takes: { socket: 'Geometry', kinds: [owner.kind] } },
-        params: plan.params, returns: plan.returns, page: `/docs/reference/${page.slug}`, group: page.group,
+        params: plan.params, returns: plan.returns,
+        page: page ? `/docs/reference/${page.slug}` : '',
+        group: page ? page.group : name,
       });
     }
   }
@@ -762,6 +787,11 @@ lines.push('');
 writeFileSync(out, lines.join('\n'));
 
 // ---- report ----
+
+if (undocumented.length > 0) {
+  console.log(`\n${undocumented.length} words in the palette that no reference page documents (they carry no page link):`);
+  console.log(`  ${undocumented.join(', ')}\n`);
+}
 
 console.log(`${words.length} words → ${out}`);
 const byGroup = new Map<string, number>();
