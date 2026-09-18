@@ -252,7 +252,7 @@ function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Gra
  * module exports is imported when the text uses it as something other than a
  * property key or a parameter — an unused import is harmless, a missing one
  * would not run. */
-function usedImports(body: string, catalogue: Catalogue): { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] {
+export function usedImports(body: string, catalogue: Catalogue): { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] {
   const out: { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] = [];
   const count = (pattern: string): number => body.match(new RegExp(pattern, 'g'))?.length ?? 0;
   for (const { module, names } of catalogue.importable) {
