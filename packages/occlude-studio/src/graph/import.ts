@@ -81,6 +81,14 @@ class Reader {
   private readonly imported = new Map<string, CatalogueWord>();
   /** The namespace object a local name stands for (`import { connect }`). */
   private readonly namespaces = new Map<string, string>();
+  /** The name the catalogue binds an imported word to, where the sketch
+   * spells it differently: `disc` (imported as `circle`) → `circle`, a 3D
+   * `circle` → `circle3`. A body keeps the sketch's words; the compiled
+   * sketch imports the library's. */
+  private readonly aliases = new Map<string, string>();
+  /** Every name the sketch function declares anywhere: a name that is both an
+   * alias and a local is the local, and is left alone. */
+  private readonly shadowed = new Set<string>();
   /** The word a call text names: `t.sample`, `connect.chain`, `box`. */
   private readonly byCall = new Map<string, CatalogueWord>();
   private readonly byWord = new Map<string, CatalogueWord>();
@@ -96,6 +104,7 @@ class Reader {
     this.readImports();
     const call = this.sketchCall();
     const [config, fn] = this.argumentsOf(call);
+    bindNames(fn, this.shadowed);
     const body = fn.body;
     const returned = ts.isBlock(body) ? this.returnOf(body) : body;
     const statements = ts.isBlock(body) ? [...body.statements] : [];
@@ -113,8 +122,8 @@ class Reader {
     // return.
     const needed = statements.map((_, i) => {
       const names = new Set<string>();
-      for (const later of statements.slice(i + 1)) for (const id of freeIdentifiers(later)) names.add(id.text);
-      for (const id of freeIdentifiers(returned)) names.add(id.text);
+      for (const later of statements.slice(i + 1)) for (const id of reads(later)) names.add(id.text);
+      for (const id of reads(returned)) names.add(id.text);
       return names;
     });
     // A statement that only *does* something — a `for` that grows an array,
@@ -204,6 +213,11 @@ class Reader {
         const word = this.catalogue.words.find(
           (w) => w.receiver === null && w.import !== null && w.module === module && w.import.split(' as ')[0] === exported,
         );
+        // The name the catalogue binds the word to: `circle3` for the 3D
+        // circle, whose own word the catalogue does not carry.
+        const catalogue = word?.call
+          ?? this.catalogue.importable.find((i) => i.module === module)?.names.find((n) => n.spec.split(' as ')[0] === exported)?.name;
+        if (catalogue && catalogue !== local) this.aliases.set(local, catalogue);
         if (word) {
           this.imported.set(local, word);
           continue;
@@ -235,12 +249,12 @@ class Reader {
     const out: Record<string, unknown> = {};
     for (const prop of obj.properties) {
       if (ts.isShorthandPropertyAssignment(prop)) {
-        out[prop.name.text] = { __raw: prop.name.text };
+        out[prop.name.text] = { __raw: this.code(prop.name) };
         continue;
       }
-      if (!ts.isPropertyAssignment(prop)) return { __raw: this.text(obj) };
+      if (!ts.isPropertyAssignment(prop)) return { __raw: this.code(obj) };
       const key = this.propertyName(prop.name);
-      if (key === undefined) return { __raw: this.text(obj) };
+      if (key === undefined) return { __raw: this.code(obj) };
       out[key] = this.value(prop.initializer);
     }
     return out;
@@ -260,15 +274,15 @@ class Reader {
     if (ts.isObjectLiteralExpression(expr)) {
       const out: Record<string, unknown> = {};
       for (const prop of expr.properties) {
-        if (!ts.isPropertyAssignment(prop)) return { __raw: this.text(expr) };
+        if (!ts.isPropertyAssignment(prop)) return { __raw: this.code(expr) };
         const key = this.propertyName(prop.name);
-        if (key === undefined) return { __raw: this.text(expr) };
+        if (key === undefined) return { __raw: this.code(expr) };
         out[key] = this.value(prop.initializer);
       }
       return out;
     }
     const literal = this.literal(expr);
-    return literal === undefined ? { __raw: this.text(expr) } : literal;
+    return literal === undefined ? { __raw: this.code(expr) } : literal;
   }
 
   /** A JSON literal, or undefined when the expression is anything else. No
@@ -334,7 +348,7 @@ class Reader {
         y: 0,
         inputs: this.inputsOf([...before, expr]),
         outputs: { out: type },
-        body: `${codeBefore(before, this.file)}return { out: ${this.text(expr)} };`,
+        body: `${this.codeBefore(before)}return { out: ${this.code(expr)} };`,
       });
       this.bindings.set(name, { node, output: 'out', type });
       return;
@@ -351,7 +365,7 @@ class Reader {
       y: 0,
       inputs: this.inputsOf([...before, expr]),
       outputs,
-      body: `${codeBefore(before, this.file)}const ${this.text(decl.name)} = ${this.text(expr)};\nreturn { ${names.map((n) => `${n}: ${n}`).join(', ')} };`,
+      body: `${this.codeBefore(before)}const ${this.text(decl.name)} = ${this.code(expr)};\nreturn { ${names.map((n) => `${n}: ${n}`).join(', ')} };`,
     });
     for (const name of names) this.bindings.set(name, { node, output: name, type: 'drawing' });
   }
@@ -373,7 +387,7 @@ class Reader {
       y: 0,
       inputs: this.inputsOf([...before, st]),
       outputs: keys.length > 0 ? outputs : { out: 'drawing' },
-      body: `${codeBefore([...before, st], this.file)}return { ${keys.length > 0 ? keys.map((k) => `${k}: ${k}`).join(', ') : 'out: undefined'} };`,
+      body: `${this.codeBefore(before)}${this.code(st)}\nreturn { ${keys.length > 0 ? keys.map((k) => `${k}: ${k}`).join(', ') : 'out: undefined'} };`,
     });
     for (const key of keys) this.bindings.set(key, { node, output: key, type: outputs[key]! });
   }
@@ -396,7 +410,7 @@ class Reader {
       y: 0,
       inputs: this.inputsOf([...before, expr]),
       outputs: { out: accepts(type, OUTPUT_TAKES) ? type : 'drawing' },
-      body: `${codeBefore(before, this.file)}return { out: ${this.text(expr)} };`,
+      body: `${this.codeBefore(before)}return { out: ${this.code(expr)} };`,
     });
     this.add({ id, kind: 'output', x: 0, y: 0, inputs: { in: { from: [ink.id, 'out'] } } });
   }
@@ -499,7 +513,7 @@ class Reader {
       // body names: a node's value is not the node's own `const`. An option
       // that reaches one makes the whole word a code node, whose body gets
       // those names as parameters.
-      if (freeIdentifiers(prop.initializer).some((id) => this.bindings.has(id.text))) return false;
+      if (reads(prop.initializer).some((id) => this.bindings.has(id.text))) return false;
       inputs[input.name] = { value: this.value(prop.initializer) };
     }
     return true;
@@ -527,7 +541,7 @@ class Reader {
   private inputsOf(nodes: ts.Node[]): Record<string, GraphInput> {
     const inputs: Record<string, GraphInput> = {};
     for (const node of nodes) {
-      for (const id of freeIdentifiers(node)) {
+      for (const id of reads(node)) {
         if (id.text in inputs) continue;
         const binding = this.bindings.get(id.text);
         if (!binding) continue;
@@ -577,6 +591,32 @@ class Reader {
 
   private text(node: ts.Node): string {
     return node.getText(this.file);
+  }
+
+  /** The source text of a node with every imported name spelled the way the
+   * catalogue spells it: `disc` (imported as `circle`) reads `circle`, and a
+   * `circle` imported from `occlude/3d` reads `circle3`. The body keeps the
+   * sketch's words; the compiled sketch imports the library's. The rewrite is
+   * by position, right to left, and only where the name is read: a string, a
+   * property name, a declaration and a name the sketch declares itself are
+   * left as they are. */
+  private code(node: ts.Node): string {
+    if (this.aliases.size === 0) return this.text(node);
+    const start = node.getStart(this.file);
+    let text = this.text(node);
+    const edits = reads(node)
+      .filter((id) => !this.shadowed.has(id.text) && this.aliases.has(id.text))
+      .sort((a, b) => b.getStart(this.file) - a.getStart(this.file));
+    for (const id of edits) {
+      const at = id.getStart(this.file) - start;
+      text = `${text.slice(0, at)}${this.aliases.get(id.text)!}${text.slice(id.getEnd() - start)}`;
+    }
+    return text;
+  }
+
+  /** The text of the statements that ran before a node's own code, as lines. */
+  private codeBefore(before: ts.Statement[]): string {
+    return before.map((st) => `${this.code(st)}\n`).join('');
   }
 
   private line(node: ts.Node): number {
@@ -644,26 +684,16 @@ function assignedNames(node: ts.Node): Set<string> {
   return out;
 }
 
-/** The text of the statements that ran before a node's own code, as lines. */
-function codeBefore(before: ts.Statement[], file: ts.SourceFile): string {
-  return before.map((st) => `${st.getText(file)}\n`).join('');
-}
-
 /** Every name a node reads and does not bind itself, in the order it first
  * appears. A declaration inside the node — a parameter, a local `const` — is
  * left out: the body keeps it, and it shadows an outer name. */
-function freeIdentifiers(node: ts.Node): ts.Identifier[] {
+function reads(node: ts.Node): ts.Identifier[] {
   const bound = new Set<string>();
   bindNames(node, bound);
   const out: ts.Identifier[] = [];
-  const seen = new Set<string>();
   const visit = (child: ts.Node): void => {
     if (ts.isIdentifier(child)) {
-      const name = child.text;
-      if (!bound.has(name) && !seen.has(name) && isRead(child)) {
-        seen.add(name);
-        out.push(child);
-      }
+      if (!bound.has(child.text) && isRead(child)) out.push(child);
       return;
     }
     if (ts.isTypeNode(child) || ts.isTypeAliasDeclaration(child) || ts.isInterfaceDeclaration(child)) return;
@@ -719,6 +749,8 @@ function isRead(id: ts.Identifier): boolean {
   if (ts.isPropertyAccessExpression(parent) && parent.name === id) return false;
   if (ts.isQualifiedName(parent) && parent.right === id) return false;
   if (ts.isPropertyAssignment(parent) && parent.name === id) return false;
+  // `const { circle: r } = …`: the key is a property name, not a read.
+  if (ts.isBindingElement(parent) && parent.propertyName === id) return false;
   if (ts.isMethodDeclaration(parent) || ts.isPropertyDeclaration(parent) || ts.isPropertySignature(parent) || ts.isEnumMember(parent)) return false;
   if (ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent) || ts.isImportClause(parent) || ts.isNamespaceImport(parent)) return false;
   if (ts.isLabeledStatement(parent) && parent.label === id) return false;

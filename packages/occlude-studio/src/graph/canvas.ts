@@ -67,7 +67,6 @@ export interface GraphCanvas {
   refresh(id: string): void;
   /** Bring every node into view. */
   fit(): void;
-  destroy(): void;
 }
 
 /** The DOM render plugin. One element per node, socket and connection. */
@@ -233,9 +232,5 @@ export function createCanvas(container: HTMLElement, hooks: CanvasHooks): GraphC
     centre: () => at(container.clientWidth / 2, container.clientHeight / 2),
     refresh: (id) => void area.update('node', id),
     fit: () => void AreaExtensions.zoomAt(area, editor.getNodes(), { scale: 0.92 }),
-    destroy: () => {
-      area.destroy();
-      editor.clear();
-    },
   };
 }

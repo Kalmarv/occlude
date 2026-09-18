@@ -81,15 +81,23 @@ export class Preview {
   /** The region repair's blobs, drawn over the ink in paper mm. */
   regionBlobs: { x: number; y: number; r: number }[] | null = null;
 
+  private observer: ResizeObserver;
+
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
     this.bindInput();
-    const ro = new ResizeObserver(() => {
+    this.observer = new ResizeObserver(() => {
       this.resize();
       this.draw();
     });
-    ro.observe(canvas);
+    this.observer.observe(canvas);
     this.resize();
+  }
+
+  /** Stop observing the canvas. A page that replaces a canvas — the graph
+   * page repaints a node's body — must release the Preview it replaces. */
+  dispose(): void {
+    this.observer.disconnect();
   }
 
   private resize(): void {

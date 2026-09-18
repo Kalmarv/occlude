@@ -70,8 +70,6 @@ export function takesLabel(takes: Takes): string {
 export interface NodePaintHooks {
   /** The catalogue entry of a built-in node. */
   word(node: GraphNode): CatalogueWord | undefined;
-  /** What one input takes, when it is a socket rather than a control. */
-  takes(node: GraphNode, key: string): Takes | undefined;
   /** The input keys a wire feeds. */
   wired(node: GraphNode): Set<string>;
   /** The colour of a socket class. */
@@ -261,7 +259,7 @@ function builtinRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks):
     const set = options.filter((option) => node.inputs[option.name] !== undefined).length;
     const wired = options.some((option) => node.inputs[option.name]?.from);
     if (wired) details.open = true;
-    const summary = el('summary', 'graph-opts-head');
+    const summary = document.createElement('summary');
     summary.title = `${param.name}: ${options.length} option${options.length === 1 ? '' : 's'} this node carries`;
     summary.append(el('span', 'graph-row-name', param.name), el('span', 'graph-opts-count', `${set}/${options.length}`));
     details.append(summary);

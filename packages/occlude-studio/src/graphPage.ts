@@ -19,7 +19,7 @@ import { ClassicPreset, type Root } from 'rete';
 
 import './wa.js';
 import { iconButton, withIcon } from './icons.js';
-import { confirmDialog, notify } from './wa.js';
+import { confirmDialog, notify, promptDialog } from './wa.js';
 import { Preview } from './preview.js';
 import { RenderClient } from './workerClient.js';
 import type { RunConfig } from './runner.js';
@@ -30,13 +30,24 @@ import { CATALOGUE } from './graph/catalogue.js';
 import { createCanvas, type AreaExtra, type GraphCanvas, type GraphScheme, type GraphWire, type ReteNode } from './graph/canvas.js';
 import { bridgeDiagnostics, markWired, paintNode, takesLabel, takesOf, type NodePaint, type NodePaintHooks } from './graph/nodes.js';
 import { compileFor, compileGraph, type CompiledSketch } from './graph/compile.js';
+import { importSketch } from './graph/import.js';
+import { loadSketchByName } from './sketchApi.js';
 import {
   accepts, graphToJson, inputTakes, kindOf, outputType, parseGraph, wordInputs, wordOf,
-  type CatalogueWord, type Graph, type GraphNode, type Takes, type ValueType,
+  type Catalogue, type CatalogueWord, type Graph, type GraphNode, type ValueType,
 } from './graph/model.js';
 import { deleteGraph, graphHref, listGraphs, loadGraphText, saveGraphText } from './graph/store.js';
 
 mountShell('graph');
+
+/**
+ * What the page compiles with: the generated catalogue, plus the libraries
+ * the studio already loaded. A sketch's body names pens and papers as plain
+ * identifiers, and the compiler imports whatever module the catalogue names
+ * for them — so an imported sketch that used `azure` compiles to an
+ * `import { azure } from '@user/pens'`, which the render worker resolves.
+ */
+let catalogue: Catalogue = CATALOGUE;
 
 /** One colour per socket class, from the studio's tokens. */
 const SOCKET_COLORS: Record<string, string> = {
@@ -95,8 +106,11 @@ const newBtn = iconButton('new', 'New graph — the small template', () => void 
 const saveBtn = iconButton('save', 'Save (Ctrl+S)', () => void save());
 const deleteBtn = iconButton('trash', 'Delete this graph', () => void remove());
 const sketchBtn = withIcon(button('Open as sketch', () => openAsSketch()), 'export');
+sketchBtn.classList.add('graph-sketch');
 sketchBtn.title = 'Write the compiled source into the studio and open it there';
-actions.append(nameInput, openSelect, refreshBtn, newBtn, saveBtn, deleteBtn, sketchBtn);
+const importBtn = withIcon(button('Import', () => void importFrom()), 'import');
+importBtn.title = 'Read a sketch from the library into a graph';
+actions.append(nameInput, openSelect, refreshBtn, newBtn, importBtn, saveBtn, deleteBtn, sketchBtn);
 head.append(heading, actions);
 
 const body = el('div', 'graph-body');
@@ -198,7 +212,7 @@ const canvas: GraphCanvas = createCanvas(canvasHost, {
     const target = forward ? to : from;
     const out = typeOfOutput(source.nodeId, String(source.key));
     const targetNode = nodeById(target.nodeId);
-    const takes = targetNode ? typeOfInput(targetNode, String(target.key)) : undefined;
+    const takes = targetNode ? inputTakes(targetNode, catalogue)[String(target.key)] : undefined;
     if (!out || !targetNode) {
       refuse(`${socketName(source)} → ${socketName(target)}: that socket takes no wire`);
       return false;
@@ -224,11 +238,7 @@ function refuse(reason: string): void {
 
 function typeOfOutput(id: string, key: string): ValueType | undefined {
   const node = nodeById(id);
-  return node ? outputType(node, key, CATALOGUE) : undefined;
-}
-
-function typeOfInput(node: GraphNode, key: string): Takes | undefined {
-  return inputTakes(node, CATALOGUE)[key];
+  return node ? outputType(node, key, catalogue) : undefined;
 }
 
 /** A viewer shows a material, points or faces as ink: its own sketch wraps
@@ -259,11 +269,12 @@ function paint(id: string, host: HTMLElement): void {
   if (previous) {
     previous.paint.dispose();
     previous.off?.();
+    previous.preview?.dispose();
   }
   const paint = paintNode(host, node, paintHooks);
   const view: NodeView = { paint, body: host };
   if (node.kind === 'code' && paint.editor) {
-    view.off = bridgeDiagnostics(paint.editor, node, CATALOGUE, (message) => {
+    view.off = bridgeDiagnostics(paint.editor, node, catalogue, (message) => {
       setBad(id, message !== null);
       if (view.paint.note) {
         view.paint.note.textContent = message ?? '';
@@ -285,8 +296,7 @@ function paint(id: string, host: HTMLElement): void {
 }
 
 const paintHooks: NodePaintHooks = {
-  word: (node) => (node.word ? wordOf(CATALOGUE, node.word) : undefined),
-  takes: (node, key) => inputTakes(node, CATALOGUE)[key],
+  word: (node) => (node.word ? wordOf(catalogue, node.word) : undefined),
   wired: wiredOf,
   socketColor: (socketClass) => SOCKET_COLORS[socketClass] ?? 'var(--muted)',
   setValue: (node, key, value) => {
@@ -322,7 +332,7 @@ function reteNode(node: GraphNode): ReteNode {
   rete.label = node.id;
   const port = (socketClass: string): ClassicPreset.Socket => new ClassicPreset.Socket(socketClass);
   if (node.kind === 'builtin') {
-    const word = node.word ? wordOf(CATALOGUE, node.word) : undefined;
+    const word = node.word ? wordOf(catalogue, node.word) : undefined;
     for (const input of word ? wordInputs(word) : []) {
       if (input.takes) rete.addInput(input.name, new ClassicPreset.Input(port(input.takes.socket), input.name));
     }
@@ -394,7 +404,15 @@ async function buildCanvas(): Promise<void> {
   loading = true;
   for (const wire of canvas.editor.getConnections()) await canvas.editor.removeConnection(wire.id);
   for (const node of canvas.editor.getNodes()) await canvas.editor.removeNode(node.id);
-  for (const view of views.values()) view.paint.dispose();
+  for (const view of views.values()) {
+    // The paint's disposer releases the editor; the bridge's releases its
+    // second model — a model whose uri is the node id, which the next graph
+    // reuses. Leaving it alive makes the next paint throw inside a
+    // fire-and-forget signal: the node lands without sockets and at the
+    // origin.
+    view.paint.dispose();
+    view.off?.();
+  }
   views.clear();
   for (const node of graph.nodes) await canvas.editor.addNode(reteNode(node));
   for (const node of graph.nodes) {
@@ -469,6 +487,7 @@ async function removeNode(id: string): Promise<void> {
   const view = views.get(id);
   view?.paint.dispose();
   view?.off?.();
+  view?.preview?.dispose();
   views.delete(id);
   viewerResults.delete(id);
   if (selected === id) selected = null;
@@ -485,7 +504,7 @@ async function removeNode(id: string): Promise<void> {
 function compileNow(): CompiledSketch | null {
   markErrors(null);
   try {
-    return compileGraph(graph, CATALOGUE);
+    return compileGraph(graph, catalogue);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     status(message, 'err');
@@ -499,6 +518,20 @@ function culprit(message: string): string | null {
   for (const pattern of [/\bnode ([A-Za-z_$][\w$]*)/, /graph: ([A-Za-z_$][\w$]*)[.\s]/]) {
     const found = pattern.exec(message);
     if (found) return found[1];
+  }
+  return null;
+}
+
+/** The node a runtime error came from: the worker's stack names a line of the
+ * JavaScript it ran, so the nearest `const <id> =` above it is the node that
+ * threw. The same reading the studio's own runtime marker does. */
+function nodeFromStack(stack: string | undefined, js: string, ids: Set<string>): string | null {
+  const at = stack ? /<anonymous>:(\d+):\d+/.exec(stack) : null;
+  if (!at) return null;
+  const lines = js.split('\n');
+  for (let i = Math.min(Number(at[1]), lines.length) - 1; i >= 0; i--) {
+    const found = /^\s*const ([A-Za-z_$][\w$]*) = /.exec(lines[i]);
+    if (found && ids.has(found[1])) return found[1];
   }
   return null;
 }
@@ -548,6 +581,9 @@ async function renderAll(): Promise<void> {
   const compiled = compileNow();
   if (!compiled) {
     preview.setStale(true);
+    // The viewers hold pictures of a graph that no longer compiles: they are
+    // as stale as the preview, and must look it.
+    for (const view of views.values()) view.preview?.setStale(true);
     return;
   }
   // The graph's own source decides the main preview: a change that does not
@@ -584,7 +620,8 @@ async function renderMain(compiled: CompiledSketch, mine: number): Promise<void>
     if (mine !== generation) return;
     const message = error instanceof Error ? error.message : String(error);
     status(message, 'err');
-    markErrors(message);
+    const ids = new Set(compiled.nodes.filter((n) => n.kind === 'code').map((n) => n.id));
+    markErrors(culprit(message) ?? nodeFromStack(error instanceof Error ? error.stack : undefined, liveExampleToJs(compiled.source), ids) ?? message);
     preview.setStale(true);
   }
 }
@@ -594,6 +631,7 @@ async function renderViewer(node: GraphNode, mine: number): Promise<void> {
   if (!node.inputs['in']?.from) {
     viewerResults.delete(node.id);
     view?.preview?.setStale(true);
+    setBad(node.id, false);
     return;
   }
   const wrap = viewerWrap(node);
@@ -607,7 +645,7 @@ async function renderViewer(node: GraphNode, mine: number): Promise<void> {
     // best-effort rule.
     // The frame count is not in the document — the material is only in the
     // worker — so the sketch probes it and the reply carries it back.
-    compiled = compileFor(graph, CATALOGUE, node.id, 'in', {
+    compiled = compileFor(graph, catalogue, node.id, 'in', {
       wrap: wrap
         ? (expression: string) => `strokes(${frame >= 0 ? `(${expression}).history.length > ${frame} ? (${expression}).history[${frame}].material : ${expression}` : expression})`
         : undefined,
@@ -676,7 +714,7 @@ function buildPalette(): void {
   paletteList.append(nodes);
 
   const groups = new Map<string, HTMLElement>();
-  for (const word of CATALOGUE.words) {
+  for (const word of catalogue.words) {
     let group = groups.get(word.group);
     if (!group) {
       group = el('div', 'graph-palette-group');
@@ -687,7 +725,7 @@ function buildPalette(): void {
     group.append(paletteItem(word.word, word.returns, () => addBuiltin(word), `${word.word} → ${word.returns} · ${word.page}`));
   }
   const count = paletteHead.querySelector('.graph-palette-count');
-  if (count) count.textContent = `${CATALOGUE.words.length}`;
+  if (count) count.textContent = `${catalogue.words.length}`;
 }
 
 paletteSearch.oninput = () => {
@@ -729,10 +767,18 @@ async function refreshList(): Promise<void> {
 
 openSelect.onchange = () => {
   const wanted = openSelect.value;
-  if (wanted) void open(wanted);
+  if (!wanted) return;
+  void open(wanted).then((opened) => {
+    // A cancelled open leaves the list on the graph that is still open.
+    if (!opened) openSelect.value = graph.name && nameInput.value === graph.name ? graph.name : '';
+  });
 };
 
-async function open(name: string): Promise<void> {
+async function open(name: string): Promise<boolean> {
+  if (dirty && !(await confirmDialog({ title: `Open '${name}'?`, body: 'The open graph has unsaved changes.', confirm: 'Open' }))) return false;
+  // The document is about to change: a reply in flight belongs to the graph
+  // being left behind, and must not be applied to the new one.
+  generation += 1;
   try {
     const text = await loadGraphText(name);
     const next = parseGraph(JSON.parse(text));
@@ -747,10 +793,11 @@ async function open(name: string): Promise<void> {
     history.replaceState(null, '', graphHref(next.name));
     dirty = false;
     select('');
-    generation += 1;
     await renderAll();
+    return true;
   } catch (error) {
     notify(`open '${name}': ${error instanceof Error ? error.message : String(error)}`, 'danger');
+    return false;
   }
 }
 
@@ -772,8 +819,58 @@ async function save(): Promise<void> {
   }
 }
 
+/**
+ * Read a sketch into a graph. The sketch is not touched; the graph is the
+ * imported document, and from here it behaves like any other — it paints,
+ * it renders, it saves under a name, its viewers show its steps.
+ */
+async function importFrom(): Promise<void> {
+  const asked = await promptDialog({
+    title: 'Import a sketch',
+    body: 'The sketch is read into a graph. The sketch itself is not changed.',
+    placeholder: 'sketch name',
+    confirm: 'Import',
+    validate: (v) => (v.trim() === '' ? 'Name a sketch from the library.' : null),
+  });
+  if (asked === null) return;
+  if (dirty && !(await confirmDialog({ title: 'Import over this graph?', body: 'The open graph has unsaved changes.', confirm: 'Import' }))) return;
+  const name = asked.trim();
+  let source: string;
+  try {
+    source = await loadSketchByName(name);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    status(`import: ${message}`, 'err');
+    notify(`import '${name}': ${message}`, 'danger');
+    return;
+  }
+  generation += 1;
+  try {
+    graph = importSketch(source, catalogue);
+  } catch (error) {
+    // A sketch that cannot be read is an answer, not a crash: the importer
+    // names the statement it stopped at.
+    const message = error instanceof Error ? error.message : String(error);
+    status(`import '${name}': ${message}`, 'err');
+    notify(`import '${name}': ${message}`, 'danger');
+    return;
+  }
+  nameInput.value = '';
+  mainSource = null;
+  fitted = null;
+  viewerResults.clear();
+  viewerFrames.clear();
+  await buildCanvas();
+  history.replaceState(null, '', '/graph.html');
+  dirty = true; // the imported graph has no name in the store yet
+  select('');
+  await renderAll();
+  notify(`imported '${name}' as a graph — Save gives it a name`, 'success');
+}
+
 async function newGraph(): Promise<void> {
   if (dirty && !(await confirmDialog({ title: 'New graph', body: 'The current graph has unsaved changes. Start from the template?', confirm: 'New graph' }))) return;
+  generation += 1;
   graph = template();
   nameInput.value = '';
   seedInput.value = String(graph.config.seed ?? '');
@@ -784,7 +881,6 @@ async function newGraph(): Promise<void> {
   history.replaceState(null, '', '/graph.html');
   dirty = false;
   select('');
-  generation += 1;
   await renderAll();
 }
 
@@ -796,15 +892,17 @@ async function remove(): Promise<void> {
     await deleteGraph(name);
     await refreshList();
     notify(`deleted '${name}'`, 'success');
+    generation += 1;
     graph = template();
     nameInput.value = '';
+    seedInput.value = String(graph.config.seed ?? '');
     history.replaceState(null, '', '/graph.html');
     mainSource = null;
     fitted = null;
     viewerResults.clear();
     viewerFrames.clear();
     await buildCanvas();
-    generation += 1;
+    select('');
     await renderAll();
   } catch (error) {
     notify(`delete: ${error instanceof Error ? error.message : String(error)}`, 'danger');
@@ -816,7 +914,7 @@ async function remove(): Promise<void> {
 function openAsSketch(): void {
   let compiled: CompiledSketch;
   try {
-    compiled = compileGraph(graph, CATALOGUE);
+    compiled = compileGraph(graph, catalogue);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     status(message, 'err');
@@ -868,12 +966,23 @@ async function boot(): Promise<void> {
   pens = await loadPens();
   papers = await loadPapers();
   settings = loadSettings();
+  catalogue = {
+    ...CATALOGUE,
+    importable: [
+      ...CATALOGUE.importable,
+      { module: '@user/pens', names: pens.map((pen) => ({ name: pen.name, spec: pen.name })) },
+      { module: '@user/papers', names: papers.map((paper) => ({ name: paper.name, spec: paper.name })) },
+    ],
+  };
   preview.setPaperColor(settings.paperColor);
   const wanted = new URLSearchParams(location.search).get('graph');
   if (wanted) {
-    await open(wanted);
+    const opened = await open(wanted);
     await refreshList();
-    return;
+    // A link that cannot open falls back to the template: the document must
+    // never be left half-loaded with the canvas still in build mode.
+    if (opened) return;
+    history.replaceState(null, '', '/graph.html');
   }
   graph = template();
   seedInput.value = String(graph.config.seed ?? '');
