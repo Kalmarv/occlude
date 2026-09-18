@@ -2937,3 +2937,519 @@ button.armed {
 .pen-rows { display: flex; flex-direction: column; gap: 6px; }
 .surface-row { align-items: center; gap: 6px; }
 .surface-row .unit { opacity: 0.7; }
+
+/* ---- graph page ---- */
+
+/* The page is the canvas: the head is one row, the canvas and the rail
+   fill the rest of the viewport, and nothing scrolls the body. */
+#graph-main.graph-page {
+  height: 100vh;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 16px 18px 14px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+}
+
+#graph-main.graph-page .page-head {
+  margin: 0;
+}
+
+.graph-name {
+  width: 168px;
+  font-family: var(--mono);
+}
+
+.graph-open {
+  max-width: 148px;
+}
+
+.graph-sketch {
+  padding: 6px 12px;
+}
+
+.graph-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 318px;
+  gap: 12px;
+  min-height: 0;
+}
+
+/* The area: a faint dot grid on the ground, so panning reads as movement. */
+.graph-canvas {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md);
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--edge-strong) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.graph-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.graph-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md);
+}
+
+.graph-palette {
+  flex: 1 1 auto;
+}
+
+.graph-paper-panel {
+  flex: none;
+}
+
+.graph-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--edge);
+}
+
+.graph-panel-title {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.graph-palette-count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.graph-search {
+  margin: 8px 10px 2px;
+}
+
+.graph-palette-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 6px 10px;
+}
+
+.graph-palette-group[hidden],
+.graph-palette-item[hidden] {
+  display: none;
+}
+
+.graph-palette-title {
+  padding: 8px 6px 3px;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.graph-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+
+.graph-palette-item:hover {
+  background: var(--control);
+  border-color: transparent;
+}
+
+.graph-palette-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--graph-sock, var(--muted));
+}
+
+.graph-palette-word {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.graph-palette-ret {
+  margin-left: auto;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.graph-seed-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.graph-seed {
+  width: 62px;
+  padding: 1px 5px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.graph-fit {
+  width: 22px;
+  height: 22px;
+}
+
+.graph-fit svg {
+  width: 14px;
+  height: 14px;
+}
+
+.graph-paper {
+  height: 236px;
+  background: var(--paper);
+}
+
+.graph-paper canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.graph-status {
+  padding: 6px 10px;
+  border-top: 1px solid var(--edge);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.graph-status-err {
+  color: var(--danger);
+}
+
+.graph-stats {
+  padding: 0 10px 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+/* ---- the nodes ---- */
+
+.graph-node-body {
+  display: flex;
+  flex-direction: column;
+  width: 208px;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  font-family: var(--sans);
+  color: var(--ink);
+}
+
+.graph-node-body[data-kind='code'] {
+  width: 260px;
+}
+
+.graph-node-body[data-kind='viewer'] {
+  width: 232px;
+}
+
+.graph-node.graph-sel .graph-node-body {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-edge), var(--shadow-2);
+}
+
+.graph-node.graph-node-err .graph-node-body,
+.graph-node.graph-bad .graph-node-body {
+  border-color: var(--danger);
+}
+
+.graph-node-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 10px;
+  background: var(--raised);
+  border-bottom: 1px solid var(--edge);
+}
+
+.graph-node-title {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.graph-node-id {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--faint);
+}
+
+.graph-node-head .icon-btn {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+}
+
+.graph-node-head .icon-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.graph-node-body .graph-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  padding: 2px 10px;
+}
+
+/* An options record: the whole surface, folded behind its own name. */
+.graph-opts {
+  border-top: 1px solid var(--edge);
+}
+
+.graph-opts > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.graph-opts > summary::-webkit-details-marker {
+  display: none;
+}
+
+.graph-opts > summary:hover {
+  color: var(--ink);
+}
+
+.graph-opts[open] > summary {
+  color: var(--ink);
+  border-bottom: 1px solid var(--edge);
+}
+
+.graph-opts-count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--faint);
+}
+
+.graph-opts > .graph-row {
+  padding-left: 18px;
+}
+
+.graph-node-body .graph-row + .graph-row {
+  border-top: 1px solid var(--edge);
+}
+
+.graph-row-out {
+  justify-content: flex-end;
+}
+
+.graph-row-name {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.graph-row-type {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.graph-row-in .graph-row-type {
+  margin-left: auto;
+}
+
+.graph-note {
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--warn);
+}
+
+.graph-sock {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  background: var(--graph-sock, var(--muted));
+  box-shadow: 0 0 0 1px var(--edge-strong);
+  cursor: crosshair;
+}
+
+.graph-sock-input {
+  margin-left: -13px;
+}
+
+.graph-sock-output {
+  margin-right: -13px;
+}
+
+.graph-sock:hover {
+  box-shadow: 0 0 0 2px var(--accent-edge);
+}
+
+.graph-node-body input,
+.graph-node-body select {
+  min-width: 0;
+  padding: 1px 5px;
+  font-family: var(--mono);
+  font-size: 11px;
+  border-radius: var(--r-sm);
+}
+
+.graph-lit {
+  width: 58px;
+  margin-left: auto;
+  text-align: right;
+}
+
+.graph-text,
+.graph-menu {
+  flex: 1 1 auto;
+  margin-left: auto;
+}
+
+.graph-menu {
+  font-family: var(--sans);
+}
+
+.graph-check {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  padding: 0;
+}
+
+.graph-row-wired .graph-lit,
+.graph-row-wired .graph-text {
+  opacity: 0.4;
+}
+
+.graph-code {
+  /* The page sizes this to the body; 72px is the floor before Monaco's
+     first measurement. */
+  height: 72px;
+  border-top: 1px solid var(--edge);
+}
+
+.graph-viewer {
+  display: block;
+  width: calc(100% - 20px);
+  height: 132px;
+  margin: 8px 10px 6px;
+  background: var(--paper);
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--r-sm);
+}
+
+.graph-viewer-tag {
+  align-self: flex-end;
+  margin: 0 10px 8px;
+  padding: 1px 7px;
+  border: 1px solid var(--edge-strong);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* ---- the wires ---- */
+
+.graph-wire-host {
+  z-index: 1;
+}
+
+.graph-node {
+  z-index: 2;
+}
+
+.graph-wire {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.graph-wire-path {
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 2;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.graph-wire:hover .graph-wire-path {
+  stroke: var(--accent);
+}
+
+.graph-wire-pseudo .graph-wire-path {
+  stroke: var(--accent-edge);
+  stroke-dasharray: 5 4;
+}
+
+/* A raw value: source text the sketch will carry verbatim. */
+.graph-raw {
+  border-style: dashed;
+  color: var(--ink);
+}
+
+/* A code node's first type error, under its body. */
+.graph-code-note {
+  display: none;
+  padding: 3px 10px 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--danger);
+  border-top: 1px solid var(--edge);
+}
+
+.graph-code-note.on {
+  display: block;
+}

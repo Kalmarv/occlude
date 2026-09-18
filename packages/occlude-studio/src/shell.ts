@@ -3,10 +3,11 @@
  * open lit, and a footer line. The studio itself (the editor and preview)
  * keeps its sparse top bar; every page-type screen mounts this.
  */
-export type PageKey = 'studio' | 'sketches' | 'fills' | 'assets' | 'machine' | 'results' | 'docs' | 'evolve';
+export type PageKey = 'studio' | 'graph' | 'sketches' | 'fills' | 'assets' | 'machine' | 'results' | 'docs' | 'evolve';
 
 const ICONS: Record<PageKey, string> = {
   studio: '<path d="M4 5h16v14H4z"/><path d="M8 19v-4M16 19v-4"/>',
+  graph: '<rect x="3" y="4" width="6" height="5" rx="1.5"/><rect x="15" y="4" width="6" height="5" rx="1.5"/><rect x="9" y="15" width="6" height="5" rx="1.5"/><path d="M6 9v3h12V9M12 12v3"/>',
   sketches: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 10h18"/>',
   fills: '<path d="M4 20l16-16M4 12l8 8M12 4l8 8"/>',
   assets: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 16l-5-5-8 8"/>',
@@ -18,6 +19,7 @@ const ICONS: Record<PageKey, string> = {
 
 const PAGES: { key: PageKey; label: string; href: string }[] = [
   { key: 'studio', label: 'Studio', href: '/' },
+  { key: 'graph', label: 'Graph', href: '/graph.html' },
   { key: 'sketches', label: 'Sketches', href: '/sketches.html' },
   { key: 'fills', label: 'Fills', href: '/fills.html' },
   { key: 'assets', label: 'Assets', href: '/assets.html' },

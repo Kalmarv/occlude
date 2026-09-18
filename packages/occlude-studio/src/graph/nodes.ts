@@ -18,7 +18,7 @@ import * as monaco from 'monaco-editor';
 import { createEditor, type Editor } from '../editor.js';
 import { iconButton } from '../icons.js';
 import { el } from '../widgets.js';
-import { isRaw } from './compile.js';
+import { isRaw, usedImports } from './compile.js';
 import { wordInputs, type Catalogue, type CatalogueInput, type CatalogueWord, type GraphNode, type Takes } from './model.js';
 
 /** How a value type reads in TypeScript: what a code node's declared input
@@ -38,6 +38,9 @@ const TS_TYPE: Record<string, { type: string; module?: 'occlude' | 'occlude/3d';
   Camera: { type: 'Camera3', module: 'occlude', name: 'Camera3' },
   Geometry: { type: 'unknown' },
 };
+
+/** How tall a code node's editor may grow before it scrolls. */
+const CODE_MAX_H = 460;
 
 const SOCKET_CLASS_LABEL: Record<string, string> = {
   Geometry: 'geometry',
@@ -89,6 +92,8 @@ export interface NodePaint {
   canvas?: HTMLCanvasElement;
   /** The code node's editor, when the node has one. */
   editor?: Editor;
+  /** Where a code node's first type error reads: a squiggle alone is thin. */
+  note?: HTMLElement;
   dispose(): void;
 }
 
@@ -268,7 +273,7 @@ function builtinRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks):
 }
 
 /** A code node: declared inputs, the body, declared outputs. */
-function codeRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): Editor {
+function codeRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): { editor: Editor; note: HTMLElement } {
   for (const [key, input] of Object.entries(node.inputs)) {
     const type = input.type ?? 'drawing';
     const line = nodeRow();
@@ -283,7 +288,20 @@ function codeRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): Ed
   host.append(code);
   noDrag(code);
   const editor = createEditor(code, node.body ?? '', { uri: `file:///graph-${node.id}.ts`, inline: true });
-  editor.onChange(() => hooks.setBody(node, editor.getValue()));
+  // A body the artist cannot read is a body they cannot edit: the editor is
+  // as tall as its text, up to the point where scrolling is the honest
+  // answer.
+  const size = (): void => {
+    code.style.height = `${Math.min(CODE_MAX_H, Math.max(48, editor.contentHeight() + 4))}px`;
+  };
+  size();
+  requestAnimationFrame(size);
+  editor.onChange(() => {
+    size();
+    hooks.setBody(node, editor.getValue());
+  });
+  const note = el('div', 'graph-code-note');
+  host.append(note);
   for (const [key, type] of Object.entries(node.outputs ?? {})) {
     const line = nodeRow('graph-row graph-row-out');
     line.dataset.row = key;
@@ -292,7 +310,7 @@ function codeRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): Ed
     line.append(socketDot('output', key, takesOf(type).socket, hooks));
     host.append(line);
   }
-  return editor;
+  return { editor, note };
 }
 
 /** A viewer: the input, its own picture, and the word `strokes` when the
@@ -343,9 +361,10 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
 
   if (node.kind === 'builtin') builtinRows(host, node, hooks);
   else if (node.kind === 'code') {
-    const editor = codeRows(host, node, hooks);
-    paint.editor = editor;
-    cleanups.push(() => editor.dispose());
+    const code = codeRows(host, node, hooks);
+    paint.editor = code.editor;
+    paint.note = code.note;
+    cleanups.push(() => code.editor.dispose());
   } else if (node.kind === 'viewer') paint.canvas = viewerRows(host, node, hooks);
   else outputRows(host, node, hooks);
 
@@ -362,7 +381,7 @@ export function markWired(host: HTMLElement, wired: Set<string>): void {
     for (const box of line.querySelectorAll<HTMLInputElement>('input.graph-lit, input.graph-text')) box.disabled = on;
     // A wired socket must be visible: the record it lives in opens.
     if (on) {
-      const record = line.closest('details.graph-opts');
+      const record = line.closest<HTMLDetailsElement>('details.graph-opts');
       if (record) record.open = true;
     }
   }
@@ -396,29 +415,24 @@ export function bridgeDiagnostics(
     if (mapped?.name && mapped.module && !typeNames.some((n) => n.name === mapped.name)) typeNames.push({ module: mapped.module, name: mapped.name });
     params.push(`${key}: ${mapped?.type ?? 'unknown'}`);
   }
-  // The names the body reaches for: the same rule the compiler imports by
-  // (a mention that is not a property key, a parameter or the body's own
-  // declaration). An unused import is harmless here.
-  const valueNames: { module: 'occlude' | 'occlude/3d'; name: string }[] = [];
-  for (const { module, names: importable } of catalogue.importable) {
-    for (const name of importable) {
-      if (typeNames.some((n) => n.name === name) || valueNames.some((n) => n.name === name)) continue;
-      const text = body();
-      if ((text.match(new RegExp(`(?<![\\w$.])${name}(?![\\w$])`, 'g'))?.length ?? 0) === 0) continue;
-      if (new RegExp(`(?:const|let|var|function|class)\\s+${name}\\b`).test(text)) continue;
-      valueNames.push({ module, name });
-    }
-  }
   const typesOf = (module: 'occlude' | 'occlude/3d'): string[] =>
     typeNames.filter((n) => n.module === module).map((n) => n.name).sort();
-  const valuesOf = (module: 'occlude' | 'occlude/3d'): string[] =>
-    valueNames.filter((n) => n.module === module).map((n) => n.name).sort();
-  const lines = [`import type { ${['Toolkit', ...typesOf('occlude')].join(', ')} } from 'occlude';`];
-  if (typesOf('occlude/3d').length > 0) lines.push(`import type { ${typesOf('occlude/3d').join(', ')} } from 'occlude/3d';`);
-  lines.push(`import { ${['sketch', ...valuesOf('occlude')].join(', ')} } from 'occlude';`);
-  if (valuesOf('occlude/3d').length > 0) lines.push(`import { ${valuesOf('occlude/3d').join(', ')} } from 'occlude/3d';`);
-  lines.push(`export default (t: Toolkit${params.length > 0 ? `, ${params.join(', ')}` : ''}) => {`);
-  const head = lines.length;
+
+  /** The prologue the body is checked inside: the same wrapper the compiler
+   * emits, with the real library types, and the very names the compiler
+   * imports for this body — a red marker that is wrong is worse than no
+   * marker. Its length is the line shift back to the visible model. */
+  const prologue = (text: string): string[] => {
+    const used = usedImports(text, catalogue);
+    const specs = (module: 'occlude' | 'occlude/3d'): string[] =>
+      [...new Set(used.filter((u) => u.module === module).map((u) => u.spec))].sort();
+    const lines = [`import type { ${['Toolkit', ...typesOf('occlude')].join(', ')} } from 'occlude';`];
+    if (typesOf('occlude/3d').length > 0) lines.push(`import type { ${typesOf('occlude/3d').join(', ')} } from 'occlude/3d';`);
+    lines.push(`import { ${['sketch', ...specs('occlude')].join(', ')} } from 'occlude';`);
+    if (specs('occlude/3d').length > 0) lines.push(`import { ${specs('occlude/3d').join(', ')} } from 'occlude/3d';`);
+    lines.push(`export default (t: Toolkit${params.length > 0 ? `, ${params.join(', ')}` : ''}) => {`);
+    return lines;
+  };
 
   const check = monaco.editor.createModel('', 'typescript', monaco.Uri.parse(`file:///graph-check-${node.id}.ts`));
   let timer: number | null = null;
@@ -426,6 +440,8 @@ export function bridgeDiagnostics(
   const update = async (): Promise<void> => {
     const mine = ++generation;
     const text = body();
+    const lines = prologue(text);
+    const head = lines.length;
     check.setValue(`${lines.join('\n')}\n${text}\n};\n`);
     const lastBodyLine = head + text.split('\n').length;
     try {
