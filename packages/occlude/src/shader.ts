@@ -28,7 +28,15 @@ export interface ShadeFrame {
   /** The drawing's pen table, by name. A shader reaches a pen the drawing
    * uses; an unknown name is a loud error, the same as anywhere else. */
   penOf(name: string): number;
+  /** How many pens the drawing uses. A slot outside the table is refused
+   * here, because a plan that names a pen the exporters cannot find loses
+   * its ink in silence. */
+  penCount(): number;
 }
+
+/** More passes than this is not weight, it is a mistake. A pen laying the
+ * same line down sixteen times has already made the darkest mark it can. */
+export const MAX_PASSES = 16;
 
 /** What the engine knows about the stroke at the point being shaded. */
 export interface StrokeCtx {
@@ -151,17 +159,37 @@ interface Span {
   dash: readonly [number, number] | undefined;
 }
 
-const normalize = (ink: StrokeInk, pen: number, frame: ShadeFrame): Span => {
-  const passes = ink.passes === undefined ? 1 : Math.floor(ink.passes);
-  const keep = ink.keep !== false && passes >= 1;
+const normalize = (ink: StrokeInk, pen: number, frame: ShadeFrame, nib: number): Span => {
+  if (ink.passes !== undefined && !Number.isFinite(ink.passes)) {
+    throw new Error(`shader: passes must be a finite number, not ${ink.passes}`);
+  }
+  const asked = ink.passes === undefined ? 1 : Math.floor(ink.passes);
+  // Above the cap is a mistake, and an uncapped count is an out-of-memory
+  // with no diagnostic: a million passes is a million chains.
+  const passes = Math.min(asked, MAX_PASSES);
+  const keep = ink.keep !== false && asked >= 1;
   let dash: readonly [number, number] | undefined;
   if (ink.dash !== undefined) {
     const [on, off] = [frame.resolve(ink.dash[0]), frame.resolve(ink.dash[1])];
-    // A dash needs a positive mark and a positive gap to be a dash at all;
-    // anything else is a solid line, not an error that stops the drawing.
-    if (Number.isFinite(on) && Number.isFinite(off) && on > 0 && off > 0) dash = [on, off];
+    // A dash needs a positive mark and a positive gap to be a dash at all,
+    // and a period the pen can resolve. Finer than the nib is not a dash:
+    // it is a solid line on paper and a hundred thousand pen lifts in the
+    // plan. Anything else draws solid, and the sketch keeps rendering.
+    if (Number.isFinite(on) && Number.isFinite(off) && on > 0 && off > 0 && on + off >= nib) dash = [on, off];
   }
-  const want = ink.pen === undefined ? pen : typeof ink.pen === 'string' ? frame.penOf(ink.pen) : Math.max(0, Math.floor(ink.pen));
+  let want = pen;
+  if (ink.pen !== undefined) {
+    if (typeof ink.pen === 'string') want = frame.penOf(ink.pen);
+    else {
+      want = Math.floor(ink.pen);
+      // A slot the pen table does not hold is refused here. The exporters
+      // find no pen for it and drop the chain, so the ink would vanish
+      // with no error anywhere — the one failure a plotter must not have.
+      if (!Number.isFinite(want) || want < 0 || want >= frame.penCount()) {
+        throw new Error(`shader: no pen ${String(ink.pen)} in this drawing (it uses ${frame.penCount()} pen${frame.penCount() === 1 ? '' : 's'}, numbered from 0). Name the pen instead.`);
+      }
+    }
+  }
   return { keep, passes: Math.max(1, passes), pen: want, dash };
 };
 
@@ -179,7 +207,7 @@ function shadeChain(chain: PlanChain, program: StrokeProgram, frame: ShadeFrame)
 
   // A tap has no length to walk: it is shaded once, at its own point.
   if (chain.dot || r.total <= 0) {
-    const span = normalize(program(0, pointAt(chain.prims, r, 0), { ...ctxBase, at: 0 }), chain.pen, frame);
+    const span = normalize(program(0, pointAt(chain.prims, r, 0), { ...ctxBase, at: 0 }), chain.pen, frame, frame.nibOf(chain.pen));
     if (!span.keep) return [];
     const out: Omit<PlanChain, 'index'>[] = [];
     for (let k = 0; k < span.passes; k++) out.push({ pen: span.pen, dot: chain.dot, prims: chain.prims });
@@ -194,7 +222,7 @@ function shadeChain(chain: PlanChain, program: StrokeProgram, frame: ShadeFrame)
   const cuts: { from: number; span: Span }[] = [];
   for (let i = 0; i < steps; i++) {
     const s = (r.total * i) / steps;
-    const span = normalize(program(s, pointAt(chain.prims, r, s), { ...ctxBase, at: s / r.total }), chain.pen, frame);
+    const span = normalize(program(s, pointAt(chain.prims, r, s), { ...ctxBase, at: s / r.total }), chain.pen, frame, nib);
     if (cuts.length === 0 || !same(cuts[cuts.length - 1].span, span)) cuts.push({ from: s, span });
   }
 

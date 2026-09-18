@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { add, circle, force, initOcclude, material, mul, render, rule, sketch, sub, unit, type Material, type Vertex } from '../src/index.js';
+import { add, circle, force, initOcclude, material, mul, render, rule, sketch, sub, unit, type Edge, type Material, type Vertex } from '../src/index.js';
 
 beforeAll(async () => {
   await initOcclude(readFileSync(fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url))));
@@ -123,14 +123,22 @@ describe('rewrite rules', () => {
           force.relax(cur, { amount: 0.6 }),
           force.boundary(dish, { radius: 8 }),
         );
+        // Bloom's real room test: an edge splits only when nothing but its
+        // own ends AND THEIR NEIGHBOURS lies near its middle. The weaker
+        // test (ends only) never fires at this rest length, so it would
+        // compare two runs that never split.
+        const hasRoom = (e: Edge, cur: Material): boolean => {
+          const own = new Set([e.a.index, e.b.index, ...[...e.a.adjacent].map((q: Vertex) => q.index), ...[...e.b.adjacent].map((q: Vertex) => q.index)]);
+          return cur.points.near(mul(add(e.a, e.b), 0.5), { radius: 2.5 }).every((q: Vertex) => own.has(q.index));
+        };
         out = asRules
           ? ring.steps(30, [
               rule.point().move((p, cur) => mul(push(cur)(p), 0.2)),
-              rule.edge((e, cur) => cur.points.near(mul(add(e.a, e.b), 0.5), { radius: 2.5 }).every((q: Vertex) => q.index === e.a.index || q.index === e.b.index)).split(),
+              rule.edge(hasRoom).split(),
             ])
           : ring.steps(30, (cur, next) => {
               next.move(cur.points, (p) => mul(push(cur)(p), 0.2));
-              next.splitEdges(cur.edges.filter((e) => cur.points.near(mul(add(e.a, e.b), 0.5), { radius: 2.5 }).every((q: Vertex) => q.index === e.a.index || q.index === e.b.index)));
+              next.splitEdges(cur.edges.filter((e) => hasRoom(e, cur)));
             });
         return [];
       });
@@ -139,6 +147,8 @@ describe('rewrite rules', () => {
     };
     const asRules = run(true);
     const asLoop = run(false);
+    // The run must actually SPLIT, or this compares two runs that only move.
+    expect(asLoop.points.length).toBeGreaterThan(40);
     expect(asRules.points.length).toBe(asLoop.points.length);
     for (let i = 0; i < asLoop.points.length; i++) {
       expect(asRules.points.at(i).x).toBeCloseTo(asLoop.points.at(i).x, 10);
@@ -146,10 +156,34 @@ describe('rewrite rules', () => {
     }
   });
 
+  it('carries point columns through a replace, interpolating like a split', () => {
+    const m = material(
+      [{ x: 0, y: 0, heat: 0 }, { x: 3, y: 0, heat: 6 }],
+      { edges: [[0, 1]] as [number, number][] },
+    );
+    const motif = chain([[0, 0], [1 / 3, 0], [0.5, 0.2], [2 / 3, 0], [1, 0]]);
+    const grown = m.steps(1, rule.edge().replace(motif));
+    expect(grown.points.length).toBe(5);
+    // The inserted points sit at 1/3, 1/2 and 2/3 along, so heat follows.
+    const heats = [...grown.points].map((p: Vertex) => p.heat).sort((a, b) => a - b);
+    expect(heats[0]).toBeCloseTo(0, 6);
+    expect(heats[4]).toBeCloseTo(6, 6);
+    expect(heats[1]).toBeCloseTo(2, 6);
+    expect(heats[2]).toBeCloseTo(3, 6);
+    expect(heats[3]).toBeCloseTo(4, 6);
+  });
+
   it('refuses a pattern that is not a function, and a bad motif', () => {
     expect(() => rule.point(3 as never)).toThrow(/a pattern is a function/);
-    expect(() => rule.edge().replace(material([[0, 0]] as [number, number][]))).toThrow(/at least two points/);
+    expect(() => rule.edge().replace(material([[0, 0]] as [number, number][]))).toThrow(/one open chain/);
+    // A motif whose rows are not its chain order used to thread the rows
+    // and draw something else entirely. Now the chain is what counts.
+    const zig = material([[0, 0], [1, 0], [0.5, 0.3]] as [number, number][], { edges: [[0, 2], [2, 1]] as [number, number][] });
+    const woven = line(2).steps(1, rule.edge().replace(zig));
+    const ys = [...woven.points].map((p: Vertex) => p.y);
+    expect(Math.max(...ys.map(Math.abs))).toBeLessThan(0.5);
     expect(() => rule.edge().replace(chain([[0, 0], [0, 0]]))).toThrow(/different points/);
+    expect(() => rule.edge().replace(chain([[0, 0], [1, 0], [0, 0]]))).toThrow(/closed|different points/);
   });
 });
 

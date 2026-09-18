@@ -111,8 +111,29 @@ describe('shapes as distance fields', () => {
     expect(out.stats.culledContained + out.stats.fragments).not.toBe(plain.stats.fragments);
   });
 
-  it('refuses a field that is not a function, and an empty list', () => {
-    expect(() => field.union()).toThrow(/at least one field/);
+  it('refuses a field that is not a function, and reads an empty list as the identity', () => {
     expect(() => field.union(undefined as never)).toThrow(/expected a distance field/);
+    // A computed list that came out empty must not blow up the sketch.
+    const disc = field.circle([50, 50], 10);
+    expect(field.subtract(disc)(50, 50)).toBeCloseTo(10, 10);
+    expect(field.union()(50, 50)).toBe(-Infinity);
+    expect(field.intersect()(50, 50)).toBe(Infinity);
+    expect(zero(field.union())).toEqual([]);
+  });
+
+  it('blends exactly like a union away from the joint', () => {
+    const a = field.circle([42, 50], 12);
+    const b = field.circle([68, 50], 12);
+    // The obvious polynomial smooth maximum grows the shape by radius/4
+    // everywhere on the locus equidistant from both, out to infinity.
+    for (const y of [200, 1000, 100000]) {
+      expect(field.blend(a, b, 9)(55, y)).toBeCloseTo(field.union(a, b)(55, y), 9);
+    }
+  });
+
+  it('degrades to a union rather than to nothing on a non-finite input', () => {
+    const a = field.circle([50, 50], 10);
+    expect(field.blend(a, () => -Infinity, 5)(50, 50)).toBeCloseTo(10, 10);
+    expect(field.blend(a, a, Infinity)(50, 50)).toBeCloseTo(10, 10);
   });
 });

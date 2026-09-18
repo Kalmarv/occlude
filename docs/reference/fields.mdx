@@ -118,7 +118,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/field.intersect.mdx</include>
 <include>/_sig/field.subtract.mdx</include>
 
-These combine shapes. `union` is a **maximum**, because inside is the positive side and the union is inside wherever either field is inside. `intersect` is the minimum, and `subtract` cuts every later field out of the first. Each answer is a field again, so it feeds the next operation.
+These combine shapes. `union` is a **maximum**, because inside is the positive side and the union is inside wherever either field is inside. `intersect` is the minimum, and `subtract` cuts every later field out of the first. Each answer is a field again, and feeds the next operation.
 
 ```ts live
 import { sketch, polygon, strokes, field, fill, mm } from 'occlude';
@@ -138,14 +138,14 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/field.blend.mdx</include>
 
-`blend` is a union with a fillet of about `radius` where the two shapes meet. Two discs that only come close become one body, and the join is a curve neither shape describes. The distance it reports is approximate near that join and exact away from it. Contour it at zero, where it is exact enough to draw.
+`blend` is a union with a fillet of `radius` where the two shapes meet. Two discs that only come close become one body, and the join is a curve neither shape describes. Away from the joint it is exactly the union. Within `radius` of the joint the corner becomes an arc, so the shape is a little larger there.
 
 ```ts live
 import { sketch, polygon, field, fill, mm, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
-  const r = ui(8, { min: 0, max: 16 });
-  const parts = t.grid({ cols: 3, rows: 3 }).map((c) => field.circle([c.cx, c.cy], 11));
+  const r = ui(9, { min: 0, max: 18 });
+  const parts = t.grid({ cols: 3, rows: 3 }).map((c) => field.circle([c.cx, c.cy], 15.5));
   const body = parts.reduce((acc, f) => field.blend(acc, f, r));
   return polygon(t.isolines(body, 0), { fill: fill('hatch', { angle: 20, spacing: mm(1.3) }) });
 });
@@ -153,6 +153,10 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 :::warning
 The algebra reads its fields as distances. `field.union` of two noise fields is the larger noise, and that means nothing. Combine only fields that measure a shape: these three, `distanceTo`, and what the algebra itself returns.
+:::
+
+:::note
+A boundary stays exact, and the depth behind it does not. `union` measures correctly outside the shape and understates depth inside, because the nearest boundary may belong to the other field. `intersect` is the reverse. Contour at zero and the outline is right. Read a level far from zero near a seam and it is an estimate.
 :::
 
 ## t.streamlines()

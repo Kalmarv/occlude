@@ -264,7 +264,7 @@ export class Material {
       if (col.length !== x.length) {
         throw new Error(`material: attribute '${name}' has ${col.length} values for ${x.length} vertices`);
       }
-      if (name === 'x' || name === 'y' || name === 'index') {
+      if (name === 'x' || name === 'y' || name === 'index' || name === 'adjacent') {
         throw new Error(`material: '${name}' is a reserved vertex field`);
       }
     }

@@ -50,8 +50,33 @@ describe('a stroke shader', () => {
     expect(encodePlanBuffer([{ ...twice.chains[0], index: 0 }])).toEqual(encodePlanBuffer([{ ...twice.chains[1], index: 0 }]));
   });
 
+  it('refuses a pen slot the drawing does not have, instead of losing the ink', () => {
+    // The exporters find no pen for an unknown slot and drop the chain, so
+    // this must be an error and not a silent disappearance.
+    expect(() => planned(() => ({ pen: 42 }))).toThrow(/no pen 42 in this drawing/);
+    expect(() => planned(() => ({ pen: NaN }))).toThrow(/no pen NaN in this drawing/);
+  });
+
+  it('refuses passes that cannot terminate, and caps the rest', () => {
+    expect(() => planned(() => ({ passes: Infinity }))).toThrow(/passes must be a finite number/);
+    const capped = planned(() => ({ passes: 5000 }));
+    const plain = planned();
+    expect(capped.chains.length).toBe(plain.chains.length * 16);
+  });
+
+  it('draws a dash finer than the nib as a solid line', () => {
+    // A period below the nib is not a dash on paper. It is a hundred
+    // thousand pen lifts in the plan, from a typo.
+    expect(planned(() => ({ dash: [mm(0.0005), mm(0.0005)] })).buffer).toEqual(planned().buffer);
+  });
+
   it('switches pen where the program says so, and nowhere else', () => {
-    const shaded = planned((_s, p) => ({ pen: p[0] < 50 ? 0 : 1 }));
+    const twoPen: SketchDef = sketch({}, () => [
+      polygon(circle(50, 50, 30)),
+      polygon(circle(50, 50, 12), { pen: 'pigma-05-black' }),
+    ]);
+    const result = render(twoPen, { paper: { w: 100, h: 100 } });
+    const shaded = { chains: decodePlanBuffer(planBuffer(result, { shader: shader((_s, p) => ({ pen: p[0] < 50 ? 0 : 1 })) }).buffer) };
     const pens = new Set(shaded.chains.map((c) => c.pen));
     expect(pens).toEqual(new Set([0, 1]));
     for (const c of shaded.chains) {

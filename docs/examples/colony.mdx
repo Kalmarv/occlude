@@ -28,7 +28,7 @@ export default sketch({
   return [
     strokes(t.isolines(body, [-12, -8, -5, -2.5]), { pen: 'fine' }),
     polygon(t.isolines(body, 0), { opaque: true, fill: fill('hatch', { angle: 35, spacing: mm(1.3) }), pen: 'fine' }),
-    strokes(t.isolines(body, [4, 8, 12]), { pen: 'ink' }),
+    strokes(t.isolines(body, [2, 4, 6]), { pen: 'ink' }),
   ];
 });
 ```

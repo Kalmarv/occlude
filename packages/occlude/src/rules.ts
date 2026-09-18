@@ -19,6 +19,7 @@
  * `rule.edge((e) => e.length > 3 && t.chance(0.3)).split()`.
  */
 
+import { inheritEdge } from './material.js';
 import type { Material, Vertex, Edge } from './material.js';
 import type { Next, StepRule, SplitOpts, ChildSpec, Ref } from './steps.js';
 import type { PointSelection, EdgeSelection } from './relation.js';
@@ -186,7 +187,16 @@ class EdgeRule {
    * an L-system is made of — a Koch curve is one motif and four steps.
    */
   replace(motif: Material, opts: ReplaceOpts = {}): StepRule {
-    const pts = motif.pts;
+    // The motif's CHAIN, not its rows. A material's row order is an
+    // accident of how it was built — `steps` inserts a split point after
+    // its edge's start, and an added point goes last — so threading rows
+    // would silently draw a different motif than the one on screen.
+    const chains = motif.curves();
+    if (chains.length !== 1) {
+      throw new Error(`rule.replace: a motif is one open chain, and this one has ${chains.length === 0 ? 'none' : String(chains.length)}. Give the motif's points the edges that join them in order.`);
+    }
+    if (chains[0].closed) throw new Error('rule.replace: a motif is an open chain, and this one is closed');
+    const pts = chains[0].pts;
     if (pts.length < 2) throw new Error('rule.replace: a motif needs at least two points');
     const [x0, y0] = pts[0];
     const [x1, y1] = pts[pts.length - 1];
@@ -206,19 +216,38 @@ class EdgeRule {
     return (cur, next) => {
       const sel = this.select(cur);
       if (sel.length === 0) return;
+      const names = cur.attrNames;
+      const edgeNames = cur.edgeAttrNames;
       next.disconnect(sel);
       for (const e of sel) {
         const ex = e.b.x - e.a.x;
         const ey = e.b.y - e.a.y;
         const across = (typeof flip === 'function' ? flip(e, cur) : flip === true) ? -1 : 1;
+        // A motif point stands between the edge's ends, so it inherits from
+        // them the way a split point does: the declared transfer policy,
+        // interpolating by default. Every declared column must be given,
+        // because a column is never dropped in silence.
+        const inherit = (at: number): Record<string, number> => {
+          const out: Record<string, number> = {};
+          for (const name of names) {
+            const va = e.a[name];
+            const vb = e.b[name];
+            out[name] = cur.transfers[name] === 'nearest' ? (at <= 0.5 ? va : vb) : va + (vb - va) * at;
+          }
+          return out;
+        };
+        // A child edge inherits the parent's columns the way a split's
+        // children do: 'copy' keeps the value, 'distribute' takes the
+        // child's share of the parent.
+        const childEdge = edgeNames.length > 0 ? inheritEdge(cur, e.attrs, 1 / (local.length + 1)) : undefined;
         let from: Ref = e.a;
         for (const [along, off] of local) {
           const o = off * across;
-          const handle = next.addPoint([e.a.x + along * ex - o * ey, e.a.y + along * ey + o * ex], {});
-          next.connect(from, handle);
+          const handle = next.addPoint([e.a.x + along * ex - o * ey, e.a.y + along * ey + o * ex], inherit(along));
+          next.connect(from, handle, childEdge);
           from = handle;
         }
-        next.connect(from, e.b);
+        next.connect(from, e.b, childEdge);
       }
     };
   }

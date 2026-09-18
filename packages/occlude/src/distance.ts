@@ -208,9 +208,12 @@ export function distanceTo(boundary: Boundary): DistanceField {
  * is no `contour()` and no `offset()`. A field is a function, so a shape
  * grown by four is `(x, y) => f(x, y) + 4`, written where it is needed.
  *
- * `circle`, `rect` and `segment` are exact. `blend` is not: a smooth
- * minimum distorts distance near the joint, and levels far from zero drift.
- * Contour it at zero and it is exact enough to draw.
+ * `circle`, `rect` and `segment` are exact. `union` is exact outside the
+ * shape and understates depth inside it, because the nearest boundary may
+ * belong to the other field; `intersect` is the reverse, and `subtract` is
+ * approximate near the cut. Contour any of them at zero and the boundary
+ * is exact. `blend` is exact wherever the joint is further than its radius
+ * away, and rounds the corner within that distance.
  */
 
 const asField = (f: DistanceField, what: string): DistanceField => {
@@ -218,10 +221,16 @@ const asField = (f: DistanceField, what: string): DistanceField => {
   return f;
 };
 
-const many = (fields: readonly DistanceField[], what: string): DistanceField[] => {
-  if (fields.length === 0) throw new Error(`field.${what}: give at least one field`);
-  return fields.map((f) => asField(f, what));
-};
+/** Nothing to combine is not a mistake: it is the identity. `distanceTo`
+ * already returns a field that is nowhere inside for an empty boundary,
+ * "so isolines over an empty field yields no contours rather than
+ * throwing" — a computed list that came out empty must behave the same. */
+const many = (fields: readonly DistanceField[], what: string): DistanceField[] => fields.map((f) => asField(f, what));
+
+/** Nowhere inside — the identity of a union, and an empty drawing. */
+const nowhere: DistanceField = () => -Infinity;
+/** Everywhere inside — the identity of an intersection. */
+const everywhere: DistanceField = () => Infinity;
 
 /** A disc of radius `r` about `[cx, cy]`. Exact. */
 const circleField = (center: readonly [number, number], r: number): DistanceField => {
@@ -262,6 +271,7 @@ const segmentField = (a: readonly [number, number], b: readonly [number, number]
 /** Inside wherever any of them is inside. */
 const unionField = (...fields: DistanceField[]): DistanceField => {
   const fs = many(fields, 'union');
+  if (fs.length === 0) return nowhere;
   if (fs.length === 1) return fs[0];
   return (x, y) => {
     let best = -Infinity;
@@ -273,6 +283,7 @@ const unionField = (...fields: DistanceField[]): DistanceField => {
 /** Inside only where all of them are inside. */
 const intersectField = (...fields: DistanceField[]): DistanceField => {
   const fs = many(fields, 'intersect');
+  if (fs.length === 0) return everywhere;
   if (fs.length === 1) return fs[0];
   return (x, y) => {
     let best = Infinity;
@@ -285,6 +296,7 @@ const intersectField = (...fields: DistanceField[]): DistanceField => {
 const subtractField = (a: DistanceField, ...holes: DistanceField[]): DistanceField => {
   const base = asField(a, 'subtract');
   const fs = many(holes, 'subtract');
+  if (fs.length === 0) return base;
   return (x, y) => {
     let best = base(x, y);
     for (const f of fs) best = Math.min(best, -f(x, y));
@@ -293,22 +305,29 @@ const subtractField = (a: DistanceField, ...holes: DistanceField[]): DistanceFie
 };
 
 /**
- * A union with a fillet of about `radius` where the two meet. The joint is
- * a smooth maximum, so the result is a shape rather than a corner. It is
- * an approximate distance near the joint, and exact far from it.
+ * A union with a fillet of `radius` where the two meet. Away from the
+ * joint it is exactly the union. Within `radius` of it the corner becomes
+ * an arc, so the blended shape is a little larger there than the union —
+ * a fillet adds material, and this one adds it only where it belongs.
  */
 const blendField = (a: DistanceField, b: DistanceField, radius: number): DistanceField => {
   const fa = asField(a, 'blend');
   const fb = asField(b, 'blend');
   const k = Math.abs(radius);
-  if (!(k > 0)) return unionField(fa, fb);
+  if (!(k > 0) || !Number.isFinite(k)) return unionField(fa, fb);
   return (x, y) => {
     const u = fa(x, y);
     const v = fb(x, y);
-    // Polynomial smooth maximum: the quadratic term is the fillet, and it
-    // vanishes as soon as the two fields are further apart than k.
-    const h = Math.max(0, k - Math.abs(u - v)) / k;
-    return Math.max(u, v) + (h * h * k) / 4;
+    // An empty field is -Infinity by design. Blending with one gives the
+    // other, rather than NaN everywhere.
+    if (!Number.isFinite(u) || !Number.isFinite(v)) return Math.max(u, v);
+    // A ROUNDED union: a quarter circle of radius k across the joint. The
+    // obvious polynomial smooth maximum is wrong for this job — its bump
+    // is added wherever the two fields are within k of EACH OTHER, which
+    // on the locus equidistant from both is true out to infinity, so the
+    // whole shape grows by k/4 and never stops. This form is exactly the
+    // union wherever the joint is further than k away.
+    return Math.min(-k, Math.max(u, v)) + Math.hypot(Math.max(k + u, 0), Math.max(k + v, 0));
   };
 };
 
