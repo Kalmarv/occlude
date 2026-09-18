@@ -316,18 +316,23 @@ function reachable(graph: Graph, target: string): Set<string> {
   return seen;
 }
 
+/** How a viewer's own sketch is shaped: the expression it returns, and what
+ * runs before it. A viewer on a material shows ink only through
+ * `strokes(...)`, and one on a stepped material shows a frame of its
+ * history; a probe in the prelude is how it reads the frame count back from
+ * the run. Neither reaches the graph's compiled sketch, and the words either
+ * one uses are imported for it. */
+export interface Preview {
+  wrap?: (expression: string) => string;
+  prelude?: (expression: string) => string[];
+}
+
 /**
  * Compile the sub-graph that feeds one node's input into a whole sketch.
  * The target's input is the `return`, so a viewer renders what it reads.
  * A viewer and the output node both take their one input as `in`.
- *
- * `wrap` turns the returned expression into the viewer's own picture: a
- * viewer on a material shows ink only through `strokes(...)`, and a viewer
- * on a stepped material shows one frame of its history. It is the viewer's
- * own sketch and never reaches the graph's compiled sketch. The words the
- * wrapper uses are imported for it.
  */
-export function compileFor(graph: Graph, catalogue: Catalogue, target: string, input: string, wrap?: (expression: string) => string): CompiledSketch {
+export function compileFor(graph: Graph, catalogue: Catalogue, target: string, input: string, preview: Preview = {}): CompiledSketch {
   const order = topoOrder(graph);
   const wordsById = validate(graph, catalogue);
   const targetNode = nodeById(graph, target);
@@ -354,10 +359,13 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
   }
   raw.push(...rawTexts(graph.config));
   if (raw.length > 0) extra.push(...usedImports(raw.join('\n'), catalogue));
-  if (wrap) extra.push(...usedImports(wrap(''), catalogue));
-  const body = nodes.filter((n) => n.source !== '').map((n) => `  ${n.source.replace(/\n/g, '\n  ')}`);
   const returned = inputExpression(targetNode, input, graph, catalogue);
-  const expression = wrap ? wrap(returned) : returned;
+  const expression = preview.wrap ? preview.wrap(returned) : returned;
+  const prelude = preview.prelude ? preview.prelude(returned) : [];
+  for (const line of prelude) extra.push(...usedImports(line, catalogue));
+  if (preview.wrap) extra.push(...usedImports(preview.wrap(''), catalogue));
+  const body = nodes.filter((n) => n.source !== '').map((n) => `  ${n.source.replace(/\n/g, '\n  ')}`);
+  for (const line of prelude) body.push(`  ${line}`);
   const source = `${importLines(words, extra)}\n\nexport default sketch(${literal(graph.config)}, (t) => {\n${body.join('\n')}\n  return ${expression};\n});\n`;
   return { source, nodes };
 }

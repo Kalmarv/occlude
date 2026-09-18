@@ -198,8 +198,12 @@ describe('the compiled sketch', () => {
   });
 
   it('wraps a viewer’s own picture in the word it names', () => {
-    const compiled = compileFor(doc(NODES), CATALOGUE, 'n4', 'in', (expression) => `strokes(${expression})`);
+    const compiled = compileFor(doc(NODES), CATALOGUE, 'n4', 'in', {
+      wrap: (expression) => `strokes(${expression})`,
+      prelude: (expression) => [`t.probe('frames', ${expression}.history.length);`],
+    });
     expect(compiled.source).toContain("import { sketch, circle, strokes } from 'occlude';");
+    expect(compiled.source).toContain(`  t.probe('frames', n3.grown.history.length);`);
     expect(compiled.source).toContain('  return strokes(n3.grown);');
   });
 
