@@ -134,6 +134,13 @@ export interface Catalogue {
    * module here — the pen and paper libraries are `@user/pens` and
    * `@user/papers`, and a body may name one of their pens. */
   importable: { module: string; names: { name: string; spec: string }[] }[];
+  /** Every type name a sketch may import from each module. A code node body
+   * is ordinary TypeScript: it may say `as Vec3` or annotate a parameter,
+   * and the compiled sketch has to declare that name or it does not
+   * typecheck — in the node's own editor, and in the studio after "Open as
+   * sketch". A class is in `importable` already; these are the aliases and
+   * interfaces, which carry no value. */
+  importableTypes?: { module: string; names: string[] }[];
 }
 
 const lookups = new WeakMap<Catalogue, Map<string, CatalogueWord>>();

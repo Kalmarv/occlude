@@ -22,6 +22,36 @@
 
 import ts from 'typescript';
 
+/**
+ * Every type name the source references. A code node's body is ordinary
+ * TypeScript — `as Vec3`, a parameter annotation — and the compiled sketch
+ * has to declare that name or it does not typecheck, in the node's own
+ * editor and in the studio after "Open as sketch". Only the leftmost name of
+ * a reference is a name to import: `occlude.Vec3` imports nothing.
+ */
+export function typeNames(source: string): Set<string> {
+  const file = ts.createSourceFile(
+    'body.ts',
+    `async function __body() {\n${source}\n}`,
+    ts.ScriptTarget.ES2022,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const out = new Set<string>();
+  const leftmost = (name: ts.EntityName): string => (ts.isIdentifier(name) ? name.text : leftmost(name.left));
+  const walk = (node: ts.Node): void => {
+    if (ts.isTypeReferenceNode(node)) {
+      out.add(leftmost(node.typeName));
+      // The arguments are types too: `Prepared<Mesh>` names both.
+      for (const argument of node.typeArguments ?? []) walk(argument);
+      return;
+    }
+    ts.forEachChild(node, walk);
+  };
+  walk(file);
+  return out;
+}
+
 /** A lexical scope: the names it binds. */
 interface Scope {
   names: Set<string>;

@@ -461,6 +461,10 @@ const twoDNames = new Set<string>();
  * binds it (`circle3` → `circle as circle3`): a code node body reaches for
  * these, and the compiler imports what it finds. */
 const importable: Record<'occlude' | 'occlude/3d', Map<string, string>> = { occlude: new Map(), 'occlude/3d': new Map() };
+/** Every type name a sketch may import, per module. A class is a value and
+ * is in `importable`; these are the aliases and interfaces, which a body can
+ * only name in a type position. */
+const importableTypes: Record<'occlude' | 'occlude/3d', Set<string>> = { occlude: new Set(), 'occlude/3d': new Set() };
 
 function walk(symbols: ts.Symbol[], module: 'occlude' | 'occlude/3d'): void {
   for (let sym of symbols) {
@@ -482,6 +486,7 @@ function walk(symbols: ts.Symbol[], module: 'occlude' | 'occlude/3d'): void {
       }
       continue;
     }
+    if (sym.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface)) importableTypes[module].add(name);
     if (!(sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable | ts.SymbolFlags.Class))) continue;
     const type = sym.flags & ts.SymbolFlags.Class ? checker.getDeclaredTypeOfSymbol(sym) : checker.getTypeOfSymbolAtLocation(sym, decl);
     // An object a sketch may reach into (`v3.add`, the 3D `force`) is
@@ -730,6 +735,14 @@ for (const module of ['occlude', 'occlude/3d'] as const) {
   for (let i = 0; i < entries.length; i += 4) {
     lines.push(`      ${entries.slice(i, i + 4).map(([local, spec]) => `{ name: ${q(local)}, spec: ${q(spec)} }`).join(', ')},`);
   }
+  lines.push('    ] },');
+}
+lines.push('  ],');
+lines.push('  importableTypes: [');
+for (const module of ['occlude', 'occlude/3d'] as const) {
+  const names = [...importableTypes[module]].sort();
+  lines.push(`    { module: ${q(module)}, names: [`);
+  for (let i = 0; i < names.length; i += 6) lines.push(`      ${names.slice(i, i + 6).map(q).join(', ')},`);
   lines.push('    ] },');
 }
 lines.push('  ],');

@@ -14,7 +14,7 @@
  * the viewers a change reaches.
  */
 
-import { freeNames } from './names.js';
+import { freeNames, typeNames } from './names.js';
 import {
   accepts, inputTakes, outputType, topoOrder, wordInputs, wordOf,
   type Catalogue, type CatalogueWord, type Graph, type GraphNode, type NodeKind, type Takes, type ValueType,
@@ -280,10 +280,29 @@ export function usedImports(body: string, catalogue: Catalogue, params: Iterable
   return out;
 }
 
+/** The library types a stretch of source names. A type carries no value, so
+ * it is imported with `import type` and never reaches the runtime. */
+export function usedTypes(body: string, catalogue: Catalogue): { module: string; name: string }[] {
+  const named = typeNames(body);
+  const out: { module: string; name: string }[] = [];
+  // A name two modules both export (`occlude` re-exports the 3D types) is
+  // imported once, from the first that has it: importing it twice would not
+  // compile.
+  const seen = new Set<string>();
+  for (const { module, names } of catalogue.importableTypes ?? []) {
+    for (const name of names) {
+      if (!named.has(name) || seen.has(name)) continue;
+      seen.add(name);
+      out.push({ module, name });
+    }
+  }
+  return out;
+}
+
 /** The import lines for the emitted words and the code bodies' names.
  * `sketch` always comes first from `occlude`; a toolkit word is a member of
  * `t`, so it is never imported. */
-function importLines(words: CatalogueWord[], extra: Imported[]): string {
+function importLines(words: CatalogueWord[], extra: Imported[], types: { module: string; name: string }[] = []): string {
   const byModule = new Map<string, Set<string>>([['occlude', new Set<string>()]]);
   const add = (module: string, spec: string): void => {
     const set = byModule.get(module) ?? new Set<string>();
@@ -298,6 +317,16 @@ function importLines(words: CatalogueWord[], extra: Imported[]): string {
   for (const [module, specs] of byModule) {
     if (module === 'occlude' || specs.size === 0) continue;
     lines.push(`import { ${[...specs].sort().join(', ')} } from '${module}';`);
+  }
+  // The types the bodies name, after the values, one line per module.
+  const byType = new Map<string, Set<string>>();
+  for (const { module, name } of types) {
+    const set = byType.get(module) ?? new Set<string>();
+    set.add(name);
+    byType.set(module, set);
+  }
+  for (const [module, names] of byType) {
+    lines.push(`import type { ${[...names].sort().join(', ')} } from '${module}';`);
   }
   return lines.join('\n');
 }
@@ -341,6 +370,8 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
   const nodes: CompiledNode[] = [];
   const words: CatalogueWord[] = [];
   const extra: Imported[] = [];
+  /** The library types the bodies name: `import type`, never a value. */
+  const types: { module: string; name: string }[] = [];
   const raw: string[] = [];
   const hashes = new Map<string, string>();
   for (const id of emitted) {
@@ -348,7 +379,10 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
     const word = wordsById.get(id);
     const source = nodeSource(node, word, graph, catalogue);
     if (word) words.push(word);
-    if (node.kind === 'code') extra.push(...usedImports(node.body!, catalogue, Object.keys(node.inputs)));
+    if (node.kind === 'code') {
+      extra.push(...usedImports(node.body!, catalogue, Object.keys(node.inputs)));
+      types.push(...usedTypes(node.body!, catalogue));
+    }
     for (const inp of Object.values(node.inputs)) if (isRaw(inp.value)) raw.push(inp.value.__raw);
     const upstream = Object.values(node.inputs)
       .map((inp) => (inp.from ? hashes.get(inp.from[0]) ?? '' : literal(inp.value)))
@@ -366,7 +400,7 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
   if (preview.wrap) extra.push(...usedImports(preview.wrap(''), catalogue));
   const body = nodes.filter((n) => n.source !== '').map((n) => `  ${n.source.replace(/\n/g, '\n  ')}`);
   for (const line of prelude) body.push(`  ${line}`);
-  const source = `${importLines(words, extra)}\n\nexport default sketch(${literal(graph.config)}, (t) => {\n${body.join('\n')}\n  return ${expression};\n});\n`;
+  const source = `${importLines(words, extra, types)}\n\nexport default sketch(${literal(graph.config)}, (t) => {\n${body.join('\n')}\n  return ${expression};\n});\n`;
   return { source, nodes };
 }
 
