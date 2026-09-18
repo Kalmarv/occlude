@@ -140,7 +140,9 @@ function validate(graph: Graph, catalogue: Catalogue): Map<string, CatalogueWord
     else if (word.receiver && word.receiver !== 't') reserved.add(word.receiver);
   }
   for (const node of graph.nodes) {
-    if (node.kind === 'code') for (const name of usedImports(node.body!, catalogue)) reserved.add(name.name);
+    if (node.kind === 'code') {
+      for (const name of usedImports(node.body!, catalogue, Object.keys(node.inputs))) reserved.add(name.name);
+    }
   }
   for (const node of graph.nodes) {
     for (const inp of Object.values(node.inputs)) if (isRaw(inp.value)) for (const name of usedImports(inp.value.__raw, catalogue)) reserved.add(name.name);
@@ -249,14 +251,17 @@ function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Gra
 
 /** The names a stretch of source reaches for. A code node body and a raw
  * config value are TypeScript the compiler does not parse, so a name a
- * module exports is imported when the text uses it as something other than a
- * property key or a parameter — an unused import is harmless, a missing one
- * would not run. */
-export function usedImports(body: string, catalogue: Catalogue): { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] {
+ * module exports is imported when the text uses it as something other than
+ * a property key, an arrow parameter or one of `params` — the node's own
+ * input keys, which arrive as parameters and shadow the import. An unused
+ * import is harmless; a missing one would not run. */
+export function usedImports(body: string, catalogue: Catalogue, params: Iterable<string> = []): { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] {
   const out: { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] = [];
+  const declared = new Set(params);
   const count = (pattern: string): number => body.match(new RegExp(pattern, 'g'))?.length ?? 0;
   for (const { module, names } of catalogue.importable) {
     for (const { name, spec } of names) {
+      if (declared.has(name)) continue;
       const uses = count(`(?<![\\w$.])${name}(?![\\w$])`);
       if (uses === 0) continue;
       // A name the body declares at its top level shadows the import for the
@@ -328,7 +333,7 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
     const word = wordsById.get(id);
     const source = nodeSource(node, word, graph, catalogue);
     if (word) words.push(word);
-    if (node.kind === 'code') extra.push(...usedImports(node.body!, catalogue));
+    if (node.kind === 'code') extra.push(...usedImports(node.body!, catalogue, Object.keys(node.inputs)));
     for (const inp of Object.values(node.inputs)) if (isRaw(inp.value)) raw.push(inp.value.__raw);
     const upstream = Object.values(node.inputs)
       .map((inp) => (inp.from ? hashes.get(inp.from[0]) ?? '' : literal(inp.value)))
