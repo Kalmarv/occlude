@@ -24,6 +24,42 @@ import type { Next, StepRule, SplitOpts, ChildSpec, Ref } from './steps.js';
 import type { PointSelection, EdgeSelection } from './relation.js';
 import type { XY } from './vec.js';
 
+// ---- the seam between the flat world and the mesh -----------------------
+
+/**
+ * What a rule needs of a state and of an edit batch. A 2D material and a
+ * 3D mesh both satisfy these, and both spell `steps` the same way, so one
+ * rule runs in either.
+ *
+ * The row type is `any` here, and nowhere else. A rule builder never sees
+ * the state, so it cannot be told which world it is for; and a function
+ * parameter is contravariant, so a constraint naming a concrete row would
+ * accept one world and refuse the other. `any` in this one constraint is
+ * what lets `Rewrite` be assignable to BOTH `StepRule` and a mesh rule.
+ * The artist's own safety comes from the callback, where the row is real.
+ */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export interface RuleCollection {
+  filter(fn: (row: any, i: number) => boolean): any;
+  readonly length: number;
+}
+export interface RuleState {
+  readonly points: RuleCollection;
+  readonly edges: RuleCollection;
+}
+export interface RuleBatch {
+  move(selection: any, field: any): void;
+  set(target: any, field: any): void;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+/**
+ * A rule, ready for `steps`. It is generic so that one value fits a
+ * material's `steps` and a mesh's `steps` alike — write the rule once, run
+ * it in the flat world or on a surface.
+ */
+export type Rewrite = <S extends RuleState, B extends RuleBatch>(cur: S, next: B, k: number) => void;
+
 /** Tested against every point of the frozen state, with the state itself. */
 export type PointMatch = (p: Vertex, cur: Material) => boolean;
 /** Tested against every edge of the frozen state, with the state itself. */
@@ -39,6 +75,13 @@ export interface ReplaceOpts {
   flip?: boolean | ((e: Edge, cur: Material) => boolean);
 }
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/** A rule body written against the flat world, handed out as one that runs
+ * in either. The body only ever calls words both worlds have. */
+const crossWorld = (body: (cur: Material, next: Next, k: number) => void): Rewrite => body as any;
+const crossWorldEdges = (body: (cur: Material, next: { setEdges(sel: unknown, field: unknown): void }, k: number) => void): Rewrite => body as any;
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 const asMatch = <T>(m: ((v: T, cur: Material) => boolean) | undefined): ((v: T, cur: Material) => boolean) | undefined => {
   if (m === undefined) return undefined;
   if (typeof m !== 'function') throw new Error('rule: a pattern is a function of the point or edge');
@@ -53,22 +96,23 @@ class PointRule {
     return this.match === undefined ? cur.points : cur.points.filter((p) => this.match!(p, cur));
   }
 
-  /** Displace every match. */
-  move(by: XY | ((p: Vertex, cur: Material) => XY)): StepRule {
-    return (cur, next) => {
+  /** Displace every match. Runs in the flat world and on a mesh alike:
+   * `by` is whatever that world calls a displacement. */
+  move(by: XY | ((p: Vertex, cur: Material) => XY)): Rewrite {
+    return crossWorld((cur, next) => {
       const sel = this.select(cur);
       if (sel.length === 0) return;
       next.move(sel, typeof by === 'function' ? (p) => (by as (p: Vertex, cur: Material) => XY)(p, cur) : by);
-    };
+    });
   }
 
-  /** Write attributes on every match. */
-  set(attrs: Record<string, number> | ((p: Vertex, cur: Material) => Record<string, number>)): StepRule {
-    return (cur, next) => {
+  /** Write attributes on every match. Runs in either world. */
+  set(attrs: Record<string, number> | ((p: Vertex, cur: Material) => Record<string, number>)): Rewrite {
+    return crossWorld((cur, next) => {
       const sel = this.select(cur);
       if (sel.length === 0) return;
       next.set(sel, typeof attrs === 'function' ? (p) => (attrs as (p: Vertex, cur: Material) => Record<string, number>)(p, cur) : attrs);
-    };
+    });
   }
 
   /** Grow a child from every match. */
@@ -118,13 +162,13 @@ class EdgeRule {
     };
   }
 
-  /** Write attributes on every match. */
-  set(attrs: Record<string, number> | ((e: Edge, cur: Material) => Record<string, number>)): StepRule {
-    return (cur, next) => {
+  /** Write attributes on every match. Runs in either world. */
+  set(attrs: Record<string, number> | ((e: Edge, cur: Material) => Record<string, number>)): Rewrite {
+    return crossWorldEdges((cur, next) => {
       const sel = this.select(cur);
       if (sel.length === 0) return;
-      next.setEdges(sel, typeof attrs === 'function' ? (e) => (attrs as (e: Edge, cur: Material) => Record<string, number>)(e, cur) : attrs);
-    };
+      next.setEdges(sel, typeof attrs === 'function' ? (e: Edge) => (attrs as (e: Edge, cur: Material) => Record<string, number>)(e, cur) : attrs);
+    });
   }
 
   /** Cut every match, keeping its two points. */
@@ -180,14 +224,65 @@ class EdgeRule {
   }
 }
 
+/** Tested against every face of the frozen state, with the state itself. */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export type FaceMatch = (f: any, cur: any) => boolean;
+
+/** Faces that match, and what to do with every one of them. */
+class FaceRule {
+  constructor(private readonly match: FaceMatch | undefined) {}
+
+  /**
+   * Write attributes on every match.
+   *
+   * A mesh stores its faces, so this writes their columns. A material does
+   * NOT: a face in the flat world is computed from the points and edges
+   * every time it is asked for, and it owns no columns, so there is
+   * nowhere to write and this says so rather than dropping the values.
+   * Move or write the face's own points instead.
+   */
+  set(attrs: Record<string, number> | ((f: any, cur: any) => Record<string, number>)): Rewrite {
+    const match = this.match;
+    return ((cur: any, next: any) => {
+      if (typeof next.setFaces !== 'function') {
+        throw new Error('rule.face().set: this state has no face attributes to write. A face of a material is computed from its points and edges, so it owns no columns — write the face\'s points, or run the rule on a mesh.');
+      }
+      const all = cur.faces;
+      const faces = typeof all === 'function' ? all.call(cur) : all;
+      const sel = match === undefined ? faces : faces.filter((f: any) => match(f, cur));
+      if (sel.length === 0) return;
+      next.setFaces(sel, typeof attrs === 'function' ? (f: any) => attrs(f, cur) : attrs);
+    }) as any;
+  }
+
+  /** Displace the points of every match. Both worlds store their points,
+   * so this works in both. */
+  move(by: (f: any, cur: any) => unknown): Rewrite {
+    const match = this.match;
+    return ((cur: any, next: any) => {
+      const all = cur.faces;
+      const faces = typeof all === 'function' ? all.call(cur) : all;
+      for (const f of match === undefined ? faces : faces.filter((g: any) => match(g, cur))) {
+        next.move(f.points, () => by(f, cur));
+      }
+    }) as any;
+  }
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 /**
- * Patterns. `rule.point()` and `rule.edge()` with no pattern match
- * everything. A face rule is not here: a material is points and edges, and
- * a face is a separate value with its own selection.
+ * Patterns. `rule.point()`, `rule.edge()` and `rule.face()` with no
+ * pattern match everything.
+ *
+ * A rule that only moves or writes runs in EITHER world: hand it to a
+ * material's `steps` or to a mesh's. The rules that change topology —
+ * split, extrude, connect, remove, replace — are the flat world's alone,
+ * because a mesh edit batch has no per-step topology.
  */
 export const rule = {
   point: (match?: PointMatch): PointRule => new PointRule(asMatch(match)),
   edge: (match?: EdgeMatch): EdgeRule => new EdgeRule(asMatch(match)),
+  face: (match?: FaceMatch): FaceRule => new FaceRule(asMatch(match)),
 };
 
 /** @internal One batch from a list of rules: every rule matches the same

@@ -152,3 +152,47 @@ describe('rewrite rules', () => {
     expect(() => rule.edge().replace(chain([[0, 0], [0, 0]]))).toThrow(/different points/);
   });
 });
+
+describe('one rule, two worlds', () => {
+  it('runs the same rule value on a material and on a mesh, with no cast', async () => {
+    const { plane } = await import('../src/three/api/index.js');
+    // Built once. Handed to both worlds' steps.
+    const lift = rule.point().move([0, 0, 0.5]);
+    const flat = rule.point().move([1, 0]);
+
+    const mesh = plane(4).subdivide(2);
+    const before = [...mesh.points][0].z;
+    const lifted = mesh.steps(1, lift);
+    expect([...lifted.points][0].z).toBeCloseTo(before + 0.5, 6);
+
+    const m = line(3);
+    expect(m.steps(1, flat).points.at(0).x).toBeCloseTo(1, 10);
+  });
+
+  it('writes face attributes on a mesh, and says why a material cannot', async () => {
+    const { plane } = await import('../src/three/api/index.js');
+    const mesh = plane(4).subdivide(1).faceAttribute('heat', 0);
+    const warm = mesh.steps(1, rule.face((f) => f.center[0] > 0).set({ heat: 1 }));
+    const heats = [...warm.faces].map((f: { attributes: { heat: number } }) => f.attributes.heat);
+    expect(heats.some((h) => h === 1)).toBe(true);
+    expect(heats.some((h) => h === 0)).toBe(true);
+
+    // A material's faces are computed, not stored: there is nowhere to write.
+    const square = material([[0, 0], [10, 0], [10, 10], [0, 10]] as [number, number][], {
+      edges: [[0, 1], [1, 2], [2, 3], [3, 0]] as [number, number][],
+    });
+    expect(() => square.steps(1, rule.face().set({ heat: 1 }) as never)).toThrow(/no face attributes/);
+  });
+
+  it('spreads a value across a mesh by face adjacency, one step at a time', async () => {
+    const { plane } = await import('../src/three/api/index.js');
+    const mesh = plane(4).subdivide(2).faceAttribute('lit', 0);
+    const seed = mesh.steps(1, rule.face((f) => f.index === 0).set({ lit: 1 }));
+    const lit = (m: { faces: Iterable<{ attributes: { lit: number } }> }) =>
+      [...m.faces].filter((f) => f.attributes.lit > 0).length;
+    expect(lit(seed)).toBe(1);
+    // A cellular rule: a dark face next to a lit one lights up.
+    const spread = seed.steps(2, rule.face((f) => f.attributes.lit === 0 && [...f.adjacent].some((g: { attributes: { lit: number } }) => g.attributes.lit === 1)).set({ lit: 1 }));
+    expect(lit(spread)).toBeGreaterThan(lit(seed));
+  });
+});
