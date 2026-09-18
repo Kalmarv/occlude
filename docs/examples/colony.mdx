@@ -1,0 +1,34 @@
+---
+title: Colony
+description: Nine thrown discs blended into one body, contoured inside and out.
+---
+
+`t.throw` puts nine points in a disc. Each becomes a `field.circle`, and `field.blend` folds them together one at a time. The fold is the whole drawing. A `field.union` would keep every seam, and the result would read as nine circles stacked. The blend puts a fillet where two discs come close, so they read as one body with a curve nobody drew.
+
+Everything after that is ordinary. `t.isolines(body, 0)` is the outline, and `polygon` fills it and makes it opaque. Levels above zero are rings inside the body, and the drawing puts them on top of the hatch. Levels below zero are halos, and every one of them lies outside the body, so the opaque fill never reaches them. Move a halo level above zero and the body hides it at once.
+
+Uses: `t.throw`, `field.circle`, `field.blend` folded with `reduce`, `t.isolines` at a level and at several, `polygon` with `opaque` and a `fill`, `strokes`.
+
+:::note
+The fold order matters a little. `reduce` blends the running body with the next disc. A disc that joins late meets a large shape, and a disc that joins early meets a small one. Blending pairs first and then the pairs gives a slightly different body from the same points.
+:::
+
+```ts live
+import { sketch, polygon, strokes, circle, field, fill, pen, mm } from 'occlude';
+
+export default sketch({
+  aspect: [1, 1], seed: 5, margin: 6,
+  pens: { ink: pen({ width: mm(0.3), color: '#16181d' }), fine: pen({ width: mm(0.15), color: '#16181d' }) },
+}, (t) => {
+  const b = t.bounds();
+  const seeds = t.throw(circle(b.w / 2, b.h / 2, b.w * 0.31), { count: 9 }).points;
+  const body = seeds
+    .map((p) => field.circle([p.x, p.y], b.w * 0.095))
+    .reduce((acc, f) => field.blend(acc, f, 7));
+  return [
+    strokes(t.isolines(body, [-12, -8, -5, -2.5]), { pen: 'fine' }),
+    polygon(t.isolines(body, 0), { opaque: true, fill: fill('hatch', { angle: 35, spacing: mm(1.3) }), pen: 'fine' }),
+    strokes(t.isolines(body, [4, 8, 12]), { pen: 'ink' }),
+  ];
+});
+```
