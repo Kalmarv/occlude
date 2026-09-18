@@ -258,7 +258,15 @@ function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Gra
 export function usedImports(body: string, catalogue: Catalogue, params: Iterable<string> = []): { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] {
   const out: { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] = [];
   const declared = new Set(params);
-  const count = (pattern: string): number => body.match(new RegExp(pattern, 'g'))?.length ?? 0;
+  // A name inside a string or a comment is not a name the sketch reaches
+  // for: `stroke: 'cross'` names a pen, not the word. A template literal is
+  // left alone — its `${…}` parts are references.
+  const source = body
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\/\/[^\n]*/g, ' ')
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""');
+  const count = (pattern: string): number => source.match(new RegExp(pattern, 'g'))?.length ?? 0;
   for (const { module, names } of catalogue.importable) {
     for (const { name, spec } of names) {
       if (declared.has(name)) continue;
@@ -266,7 +274,7 @@ export function usedImports(body: string, catalogue: Catalogue, params: Iterable
       if (uses === 0) continue;
       // A name the body declares at its top level shadows the import for the
       // whole body; one declared inside a block does not.
-      if (new RegExp(`^(?:const|let|var|function|class)\\s+${name}\\b`, 'm').test(body)) continue;
+      if (new RegExp(`^(?:const|let|var|function|class)\\s+${name}\\b`, 'm').test(source)) continue;
       // The only uses that are not uses: a property key, and an arrow
       // parameter. A name used as a bare argument (`meanBy(cur.points,
       // length)`) is a use, and dropping it would not run.
@@ -313,11 +321,13 @@ function reachable(graph: Graph, target: string): Set<string> {
  * The target's input is the `return`, so a viewer renders what it reads.
  * A viewer and the output node both take their one input as `in`.
  *
- * `wrap` names a word to call around the returned expression: a viewer on a
- * material shows ink only through `strokes(...)`. It is the viewer's own
- * picture and never reaches the graph's compiled sketch.
+ * `wrap` turns the returned expression into the viewer's own picture: a
+ * viewer on a material shows ink only through `strokes(...)`, and a viewer
+ * on a stepped material shows one frame of its history. It is the viewer's
+ * own sketch and never reaches the graph's compiled sketch. The words the
+ * wrapper uses are imported for it.
  */
-export function compileFor(graph: Graph, catalogue: Catalogue, target: string, input: string, wrap?: string): CompiledSketch {
+export function compileFor(graph: Graph, catalogue: Catalogue, target: string, input: string, wrap?: (expression: string) => string): CompiledSketch {
   const order = topoOrder(graph);
   const wordsById = validate(graph, catalogue);
   const targetNode = nodeById(graph, target);
@@ -344,10 +354,10 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
   }
   raw.push(...rawTexts(graph.config));
   if (raw.length > 0) extra.push(...usedImports(raw.join('\n'), catalogue));
-  if (wrap) extra.push({ module: 'occlude', name: wrap, spec: wrap });
+  if (wrap) extra.push(...usedImports(wrap(''), catalogue));
   const body = nodes.filter((n) => n.source !== '').map((n) => `  ${n.source.replace(/\n/g, '\n  ')}`);
   const returned = inputExpression(targetNode, input, graph, catalogue);
-  const expression = wrap ? `${wrap}(${returned})` : returned;
+  const expression = wrap ? wrap(returned) : returned;
   const source = `${importLines(words, extra)}\n\nexport default sketch(${literal(graph.config)}, (t) => {\n${body.join('\n')}\n  return ${expression};\n});\n`;
   return { source, nodes };
 }

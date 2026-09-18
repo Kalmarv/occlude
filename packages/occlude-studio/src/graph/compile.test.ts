@@ -145,6 +145,25 @@ describe('the compiled sketch', () => {
     expect(compileGraph(graph, CATALOGUE).source).toContain(`const n3 = strokes(n2, { pen: 'pigma-005-black' });`);
   });
 
+  it('does not read a name inside a string or a comment as a use', () => {
+    const graph = doc([
+      { id: 'n2', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 1 }, y: { value: 1 }, r: { value: 1 } } },
+      {
+        // The id is the word `cross`, which a pen name in the body would
+        // otherwise turn into an import — and then into a refusal.
+        id: 'cross', kind: 'code', x: 0, y: 0,
+        inputs: { shape: { type: 'shape', from: ['n2', 'out'] } },
+        outputs: { out: 'drawing' },
+        body: "// polygons cross here\nreturn { out: strokes(shape, { pen: 'cross' }) };",
+      },
+      { id: 'n5', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['cross', 'out'] } } },
+    ]);
+    const { source } = compileGraph(graph, CATALOGUE);
+    expect(source).toContain('const cross = ((shape) => {');
+    expect(source).toContain(`{ pen: 'cross' }`);
+    expect(source).toContain("import { sketch, circle, strokes } from 'occlude';");
+  });
+
   it('imports the words a code body reaches for, and not the ones it declares', () => {
     const graph = doc([
       { id: 'n1', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 10 }, y: { value: 10 }, r: { value: 4 } } },
@@ -179,7 +198,7 @@ describe('the compiled sketch', () => {
   });
 
   it('wraps a viewer’s own picture in the word it names', () => {
-    const compiled = compileFor(doc(NODES), CATALOGUE, 'n4', 'in', 'strokes');
+    const compiled = compileFor(doc(NODES), CATALOGUE, 'n4', 'in', (expression) => `strokes(${expression})`);
     expect(compiled.source).toContain("import { sketch, circle, strokes } from 'occlude';");
     expect(compiled.source).toContain('  return strokes(n3.grown);');
   });
