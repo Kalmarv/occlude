@@ -80,6 +80,9 @@ export function accepts(output: ValueType, takes: Takes): boolean {
 
 /** One option of an options record. */
 export interface CatalogueOption {
+  /** The control holds source text, written into the sketch as it stands: a
+   * parameter no socket and no control can say. */
+  raw?: boolean;
   name: string;
   takes?: Takes;
   control?: ControlKind;
@@ -91,6 +94,8 @@ export interface CatalogueOption {
 /** A parameter of a built-in word, in call order. A plain parameter
  * carries one input; an options record carries one input per option. */
 export interface CatalogueParam {
+  /** The control holds source text, written into the sketch as it stands. */
+  raw?: boolean;
   name: string;
   takes?: Takes;
   control?: ControlKind;
@@ -102,6 +107,8 @@ export interface CatalogueParam {
 /** One input of a built-in word: a plain parameter, one option, or the
  * receiver a method hangs off. */
 export interface CatalogueInput {
+  /** The control holds source text, written into the sketch as it stands. */
+  raw?: boolean;
   /** The key inside a node's `inputs`. */
   name: string;
   /** The parameter it belongs to. */
@@ -189,13 +196,13 @@ export function wordInputs(word: CatalogueWord): CatalogueInput[] {
   for (const p of word.params) {
     if (!p.options) {
       seen.add(p.name);
-      out.push({ name: p.name, param: p.name, takes: p.takes, control: p.control, choices: p.choices, optional: p.optional });
+      out.push({ name: p.name, param: p.name, takes: p.takes, control: p.control, choices: p.choices, raw: p.raw, optional: p.optional });
       continue;
     }
     for (const o of p.options) {
       const name = seen.has(o.name) ? `${p.name}.${o.name}` : o.name;
       seen.add(name);
-      out.push({ name, param: p.name, option: o.name, takes: o.takes, control: o.control, choices: o.choices, optional: o.optional });
+      out.push({ name, param: p.name, option: o.name, takes: o.takes, control: o.control, choices: o.choices, raw: o.raw, optional: o.optional });
     }
   }
   return out;

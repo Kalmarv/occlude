@@ -346,7 +346,7 @@ function controlOf(type: ts.Type): { control: 'number' | 'text' | 'check' | 'men
 // ---- the words ----
 
 type Takes = { socket: SocketClass; kinds?: GeometryKind[] };
-interface Control { control: 'number' | 'text' | 'check' | 'menu'; choices?: string[] }
+interface Control { control: 'number' | 'text' | 'check' | 'menu'; choices?: string[]; raw?: boolean }
 interface Option extends Partial<Takes>, Partial<Control> { name: string; optional: boolean }
 interface Param extends Partial<Takes>, Partial<Control> {
   name: string;
@@ -418,6 +418,13 @@ function paramsOf(sig: ts.Signature, at: ts.Node, word: string): { params: Param
         if (input) options.push({ name, optional: propOptional, ...input });
         else dropped.push(`${word}.${param.getName()}.${name}`);
       }
+      if (problem && !isCallable(record)) {
+        // The record holds something no option can say (a per-fill parameter
+        // list, a cost function beside plain options): the whole record is
+        // source text the node carries.
+        params.push({ name: param.getName(), optional, control: 'text', raw: true });
+        continue;
+      }
       if (problem) return { params, problem, dropped };
       if (options.length === 0) {
         if (optional) continue;
@@ -427,14 +434,35 @@ function paramsOf(sig: ts.Signature, at: ts.Node, word: string): { params: Param
       continue;
     }
     const { input, problem } = inputOf(type, `parameter ${param.getName()}`, !optional);
-    if (problem) return { params, problem, dropped };
-    if (!input) {
-      dropped.push(`${word}.${param.getName()}`);
+    if (input && !problem) {
+      params.push({ name: param.getName(), optional, ...input });
       continue;
     }
-    params.push({ name: param.getName(), optional, ...input });
+    // A parameter no socket and no control can say is still the artist's to
+    // write: it becomes source text the node carries and the compiler writes
+    // back verbatim, the way a `mm(0.3)` literal already does. Without this
+    // the parameter was dropped and the whole word went with it —
+    // `material(points, { active: 1 })` and `fill('hatch', { angle: 45 })`
+    // are ordinary, and neither had a node. A callable is the exception: a
+    // rule body belongs in the graph, not in a text box.
+    if (!isCallable(type)) {
+      params.push({ name: param.getName(), optional, control: 'text', raw: true });
+      continue;
+    }
+    if (problem) return { params, problem, dropped };
+    dropped.push(`${word}.${param.getName()}`);
   }
   return { params, dropped };
+}
+
+/**
+ * Whether a type is a function the artist would have to write. A parameter
+ * like that stays out of the node: a rule body or a cost function belongs in
+ * the graph, not squeezed into a text box on a node's face.
+ */
+function isCallable(type: ts.Type): boolean {
+  return nonNullish(type).getCallSignatures().length > 0
+    || (nonNullish(type).isUnion() && nonNullish(type).types.some((t) => t.getCallSignatures().length > 0));
 }
 
 /** The signature of a callable type that becomes the node: one that maps
@@ -787,6 +815,7 @@ const inputFields = (i: Partial<Takes> & Partial<Control>): string => {
   if (i.socket) parts.push(`takes: { socket: ${q(i.socket)}${i.kinds ? `, kinds: [${i.kinds.map(q).join(', ')}]` : ''} }`);
   if (i.control) parts.push(`control: ${q(i.control)}`);
   if (i.choices) parts.push(`choices: [${i.choices.map(q).join(', ')}]`);
+  if (i.raw) parts.push('raw: true');
   return parts.join(', ');
 };
 const lines: string[] = [];

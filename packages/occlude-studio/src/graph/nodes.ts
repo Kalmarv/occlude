@@ -341,6 +341,9 @@ function controlBox(node: GraphNode, input: CatalogueInput, hooks: NodePaintHook
   const key = input.name;
   const value = node.inputs[key]?.value;
   if (isRaw(value)) return rawBox(node, key, value.__raw, hooks);
+  // A parameter no socket and no control can say: the artist writes it, and
+  // the compiler writes it into the sketch as it stands.
+  if (input.raw) return rawBox(node, key, typeof value === 'string' ? value : '', hooks);
   const kind = input.control ?? 'text';
   if (kind === 'check') {
     const box = document.createElement('input');

@@ -664,6 +664,17 @@ class Reader {
     for (let i = 0; i < args.length; i++) {
       const param = word.params[i]!;
       const arg = args[i]!;
+      // A parameter the catalogue could only keep as source text takes the
+      // argument exactly as the sketch wrote it. The one rule: the text must
+      // name nothing the graph has renamed — a node id is not always the
+      // name the sketch used, and the text keeps the sketch's.
+      if (param.raw) {
+        if (reads(arg).some((id) => this.bindings.has(id.text))) {
+          return no(`${param.name} is source text that reads a value the graph holds`);
+        }
+        inputs[param.name] = { value: { __raw: this.code(arg) } };
+        continue;
+      }
       if (param.options) {
         if (!ts.isObjectLiteralExpression(arg)) return no(`the options of ${param.name} are not written out`);
         if (!this.optionsInto(param, flat, arg, inputs)) return no(`an option of ${param.name} is not a literal or an earlier node`);

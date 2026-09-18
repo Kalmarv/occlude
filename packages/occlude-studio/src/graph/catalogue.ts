@@ -214,6 +214,15 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'modify', module: 'occlude', receiver: null,
+      import: 'modify', call: 'modify', returns: 'shape',
+      page: '/docs/reference/shapes', group: 'Shapes',
+      params: [
+        { name: 'mods', control: 'text', raw: true, optional: false },
+        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
+      ],
+    },
+    {
       word: 'ngon', module: 'occlude', receiver: null,
       import: 'ngon', call: 'ngon', returns: 'shape',
       page: '/docs/reference/shapes', group: 'Shapes',
@@ -370,7 +379,8 @@ export const CATALOGUE: Catalogue = {
       import: 'fill', call: 'fill', returns: 'Fill',
       page: '/docs/reference/fills', group: 'Fills',
       params: [
-        { name: 'name', control: 'text', optional: false },
+        { name: 'name', control: 'text', optional: true },
+        { name: 'params', control: 'text', raw: true, optional: true },
       ],
     },
     {
@@ -490,7 +500,7 @@ export const CATALOGUE: Catalogue = {
       import: null, call: 't.noise', returns: 'Number',
       page: '/docs/reference/random', group: 'Random',
       params: [
-        { name: 'x', takes: { socket: 'Number' }, optional: false },
+        { name: 'x', takes: { socket: 'Number' }, optional: true },
         { name: 'y', takes: { socket: 'Number' }, optional: true },
         { name: 'z', takes: { socket: 'Number' }, optional: true },
       ],
@@ -654,6 +664,17 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'curve', module: 'occlude', receiver: null,
+      import: 'curve', call: 'curve', returns: 'material',
+      page: '/docs/reference/material', group: 'Material',
+      params: [
+        { name: 'pts', control: 'text', raw: true, optional: false },
+        { name: 'opts', optional: true, options: [
+          { name: 'closed', control: 'check', optional: true },
+        ] },
+      ],
+    },
+    {
       word: 'material', module: 'occlude', receiver: null,
       import: 'material', call: 'material', returns: 'material',
       page: '/docs/reference/material', group: 'Material',
@@ -675,6 +696,15 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'Material.attributes', module: 'occlude', receiver: null,
+      import: null, call: '{self}.attributes', returns: 'material',
+      self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
+      page: '/docs/reference/material', group: 'Material',
+      params: [
+        { name: 'values', control: 'text', raw: true, optional: false },
+      ],
+    },
+    {
       word: 'Material.edgeAttribute', module: 'occlude', receiver: null,
       import: null, call: '{self}.edgeAttribute', returns: 'material',
       self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
@@ -685,6 +715,15 @@ export const CATALOGUE: Catalogue = {
         { name: 'opts', optional: true, options: [
           { name: 'transfer', control: 'menu', choices: ['copy', 'distribute'], optional: true },
         ] },
+      ],
+    },
+    {
+      word: 'Material.edgeAttributes', module: 'occlude', receiver: null,
+      import: null, call: '{self}.edgeAttributes', returns: 'material',
+      self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
+      page: '/docs/reference/material', group: 'Material',
+      params: [
+        { name: 'values', control: 'text', raw: true, optional: false },
       ],
     },
     {
@@ -721,6 +760,16 @@ export const CATALOGUE: Catalogue = {
           { name: 'spacing', takes: { socket: 'Number' }, optional: true },
           { name: 'count', takes: { socket: 'Number' }, optional: true },
         ] },
+      ],
+    },
+    {
+      word: 'Material.withEdges', module: 'occlude', receiver: null,
+      import: null, call: '{self}.withEdges', returns: 'material',
+      self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
+      page: '/docs/reference/material', group: 'Material',
+      params: [
+        { name: 'pairs', control: 'text', raw: true, optional: false },
+        { name: 'edgeAttributes', control: 'text', raw: true, optional: true },
       ],
     },
     {
@@ -839,6 +888,7 @@ export const CATALOGUE: Catalogue = {
       page: '/docs/reference/connect', group: 'Connect',
       params: [
         { name: 'm', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
+        { name: 'edgeAttributes', control: 'text', raw: true, optional: true },
       ],
     },
     {
@@ -859,6 +909,7 @@ export const CATALOGUE: Catalogue = {
       params: [
         { name: 'a', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
         { name: 'b', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
+        { name: 'edgeAttributes', control: 'text', raw: true, optional: true },
       ],
     },
     {
@@ -867,6 +918,7 @@ export const CATALOGUE: Catalogue = {
       page: '/docs/reference/connect', group: 'Connect',
       params: [
         { name: 'm', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
+        { name: 'edgeAttributes', control: 'text', raw: true, optional: true },
       ],
     },
     {
@@ -903,6 +955,7 @@ export const CATALOGUE: Catalogue = {
       page: '/docs/reference/connect', group: 'Connect',
       params: [
         { name: 'm', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
+        { name: 'edgeAttributes', control: 'text', raw: true, optional: true },
       ],
     },
     {
@@ -1123,6 +1176,7 @@ export const CATALOGUE: Catalogue = {
       import: 'box', call: 'box', returns: 'mesh',
       page: '/docs/reference/3d/primitives', group: 'Primitives',
       params: [
+        { name: 'size', control: 'text', raw: true, optional: true },
         { name: 'options', optional: true, options: [
           { name: 'key', control: 'text', optional: true },
           { name: 'creaseAngle', takes: { socket: 'Number' }, optional: true },
@@ -1214,6 +1268,81 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'revolve', module: 'occlude/3d', receiver: null,
+      import: 'revolve', call: 'revolve', returns: 'mesh',
+      page: '/docs/reference/3d/curves', group: 'Curves and profiles',
+      params: [
+        { name: 'profile', control: 'text', raw: true, optional: false },
+        { name: 'options', optional: true, options: [
+          { name: 'segments', takes: { socket: 'Number' }, optional: true },
+          { name: 'angle', takes: { socket: 'Number' }, optional: true },
+          { name: 'caps', control: 'check', optional: true },
+          { name: 'key', control: 'text', optional: true },
+          { name: 'creaseAngle', takes: { socket: 'Number' }, optional: true },
+          { name: 'stroke', control: 'text', optional: true },
+          { name: 'fillPen', control: 'text', optional: true },
+          { name: 'maxPoints', takes: { socket: 'Number' }, optional: true },
+          { name: 'maxFaces', takes: { socket: 'Number' }, optional: true },
+          { name: 'maxCapPoints', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 'sweep', module: 'occlude/3d', receiver: null,
+      import: 'sweep', call: 'sweep', returns: 'mesh',
+      page: '/docs/reference/3d/curves', group: 'Curves and profiles',
+      params: [
+        { name: 'profile', control: 'text', raw: true, optional: false },
+        { name: 'path', control: 'text', raw: true, optional: false },
+        { name: 'options', optional: true, options: [
+          { name: 'normal', takes: { socket: 'Vector' }, optional: true },
+          { name: 'scale', takes: { socket: 'Number' }, optional: true },
+          { name: 'twist', takes: { socket: 'Number' }, optional: true },
+          { name: 'caps', control: 'check', optional: true },
+          { name: 'key', control: 'text', optional: true },
+          { name: 'creaseAngle', takes: { socket: 'Number' }, optional: true },
+          { name: 'stroke', control: 'text', optional: true },
+          { name: 'fillPen', control: 'text', optional: true },
+          { name: 'maxPoints', takes: { socket: 'Number' }, optional: true },
+          { name: 'maxFaces', takes: { socket: 'Number' }, optional: true },
+          { name: 'maxCapPoints', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 'instanceOnFaces', module: 'occlude/3d', receiver: null,
+      import: 'instanceOnFaces', call: 'instanceOnFaces', returns: 'mesh',
+      page: '/docs/reference/3d/instances', group: 'Instances and sampling',
+      params: [
+        { name: 'prototype', takes: { socket: 'Geometry', kinds: ['mesh'] }, optional: false },
+        { name: 'faces', control: 'text', raw: true, optional: false },
+        { name: 'options', optional: true, options: [
+          { name: 'rotate', takes: { socket: 'Vector' }, optional: true },
+          { name: 'key', control: 'text', optional: true },
+          { name: 'creaseAngle', takes: { socket: 'Number' }, optional: true },
+          { name: 'stroke', control: 'text', optional: true },
+          { name: 'fillPen', control: 'text', optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 'instanceOnPoints', module: 'occlude/3d', receiver: null,
+      import: 'instanceOnPoints', call: 'instanceOnPoints', returns: 'mesh',
+      page: '/docs/reference/3d/instances', group: 'Instances and sampling',
+      params: [
+        { name: 'prototype', takes: { socket: 'Geometry', kinds: ['mesh'] }, optional: false },
+        { name: 'input', control: 'text', raw: true, optional: false },
+        { name: 'options', optional: true, options: [
+          { name: 'rotate', takes: { socket: 'Vector' }, optional: true },
+          { name: 'offset', takes: { socket: 'Vector' }, optional: true },
+          { name: 'key', control: 'text', optional: true },
+          { name: 'creaseAngle', takes: { socket: 'Number' }, optional: true },
+          { name: 'stroke', control: 'text', optional: true },
+          { name: 'fillPen', control: 'text', optional: true },
+        ] },
+      ],
+    },
+    {
       word: 'orthographic', module: 'occlude/3d', receiver: null,
       import: 'orthographic', call: 'orthographic', returns: 'Camera',
       page: '/docs/reference/3d/view', group: 'View',
@@ -1248,7 +1377,7 @@ export const CATALOGUE: Catalogue = {
       import: 'view', call: 'view', returns: 'drawing',
       page: '/docs/reference/3d/view', group: 'View',
       params: [
-        { name: 'geometry', takes: { socket: 'Geometry', kinds: ['curves', 'mesh'] }, optional: false },
+        { name: 'geometry', control: 'text', raw: true, optional: false },
         { name: 'options', optional: false, options: [
           { name: 'camera', takes: { socket: 'Camera' }, optional: false },
           { name: 'stroke', control: 'text', optional: true },
@@ -1296,6 +1425,28 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'trace', module: 'occlude/3d', receiver: null,
+      import: 'trace', call: 'trace', returns: 'curves',
+      page: '/docs/reference/3d/surface', group: 'Surface curves',
+      params: [
+        { name: 'mesh', takes: { socket: 'Geometry', kinds: ['mesh'] }, optional: false },
+        { name: 'seeds', control: 'text', raw: true, optional: false },
+        { name: 'direction', takes: { socket: 'Vector' }, optional: false },
+        { name: 'options', optional: false, options: [
+          { name: 'step', takes: { socket: 'Number' }, optional: false },
+          { name: 'maxLength', takes: { socket: 'Number' }, optional: true },
+          { name: 'maxSteps', takes: { socket: 'Number' }, optional: true },
+          { name: 'creaseDegrees', takes: { socket: 'Number' }, optional: true },
+          { name: 'uv', control: 'text', optional: true },
+          { name: 'chartAttribute', control: 'text', optional: true },
+          { name: 'stroke', control: 'text', optional: true },
+          { name: 'key', control: 'text', optional: true },
+          { name: 'creaseAngle', takes: { socket: 'Number' }, optional: true },
+          { name: 'fillPen', control: 'text', optional: true },
+        ] },
+      ],
+    },
+    {
       word: 'boundaryLoops', module: 'occlude', receiver: null,
       import: 'boundaryLoops', call: 'boundaryLoops', returns: 'shape',
       page: '', group: 'Other',
@@ -1322,6 +1473,15 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'bridgeGapFor', module: 'occlude', receiver: null,
+      import: 'bridgeGapFor', call: 'bridgeGapFor', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'pen', control: 'text', raw: true, optional: false },
+        { name: 'bridge', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
       word: 'cloneSurface3', module: 'occlude', receiver: null,
       import: 'cloneSurface3', call: 'cloneSurface3', returns: 'surface',
       page: '', group: 'Other',
@@ -1330,11 +1490,21 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'curveMs', module: 'occlude', receiver: null,
+      import: 'curveMs', call: 'curveMs', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'curve', control: 'text', raw: true, optional: false },
+        { name: 'pulse', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
       word: 'cylindricalUV', module: 'occlude/3d', receiver: null,
       import: 'cylindricalUV', call: 'cylindricalUV', returns: 'mesh',
       page: '', group: 'Other',
       params: [
         { name: 'mesh', takes: { socket: 'Geometry', kinds: ['mesh'] }, optional: false },
+        { name: 'settings', control: 'text', raw: true, optional: true },
       ],
     },
     {
@@ -1629,6 +1799,19 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'extrudeFaces3', module: 'occlude', receiver: null,
+      import: 'extrudeFaces3', call: 'extrudeFaces3', returns: 'surface',
+      page: '', group: 'Other',
+      params: [
+        { name: 'surface', takes: { socket: 'Geometry', kinds: ['surface'] }, optional: false },
+        { name: 'selection', control: 'text', raw: true, optional: false },
+        { name: 'distance', takes: { socket: 'Number' }, optional: false },
+        { name: 'options', optional: false, options: [
+          { name: 'operation', control: 'text', optional: false },
+        ] },
+      ],
+    },
+    {
       word: 'faces', module: 'occlude', receiver: null,
       import: 'faces', call: 'faces', returns: 'faces',
       page: '', group: 'Other',
@@ -1796,6 +1979,7 @@ export const CATALOGUE: Catalogue = {
       params: [
         { name: 'columns', takes: { socket: 'Number' }, optional: false },
         { name: 'rows', takes: { socket: 'Number' }, optional: false },
+        { name: 'size', control: 'text', raw: true, optional: true },
       ],
     },
     {
@@ -1825,11 +2009,50 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'liftAt', module: 'occlude', receiver: null,
+      import: 'liftAt', call: 'liftAt', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'map', control: 'text', raw: true, optional: false },
+        { name: 'x', takes: { socket: 'Number' }, optional: false },
+        { name: 'y', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'liftForTravel', module: 'occlude', receiver: null,
+      import: 'liftForTravel', call: 'liftForTravel', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'map', control: 'text', raw: true, optional: false },
+        { name: 'from', control: 'text', raw: true, optional: false },
+        { name: 'to', control: 'text', raw: true, optional: false },
+        { name: 'marginPulses', takes: { socket: 'Number' }, optional: false },
+        { name: 'fullUpPulse', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'lineArt3', module: 'occlude', receiver: null,
+      import: 'lineArt3', call: 'lineArt3', returns: 'drawing',
+      page: '', group: 'Other',
+      params: [
+        { name: 'options', control: 'text', raw: true, optional: false },
+      ],
+    },
+    {
       word: 'long', module: 'occlude', receiver: null,
       import: 'long', call: 'long', returns: 'Number',
       page: '', group: 'Other',
       params: [
         { name: 'n', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'Material.cellOf', module: 'occlude', receiver: null,
+      import: null, call: '{self}.cellOf', returns: 'faces',
+      self: { param: 'material', takes: { socket: 'Geometry', kinds: ['material'] } },
+      page: '', group: 'Material',
+      params: [
+        { name: 'site', control: 'text', raw: true, optional: false },
       ],
     },
     {
@@ -1887,7 +2110,8 @@ export const CATALOGUE: Catalogue = {
       import: 'mesh', call: 'mesh', returns: 'mesh',
       page: '', group: 'Other',
       params: [
-        { name: 'source', takes: { socket: 'Geometry', kinds: ['surface'] }, optional: false },
+        { name: 'positions', control: 'text', raw: true, optional: true },
+        { name: 'faces', control: 'text', raw: true, optional: true },
         { name: 'options', optional: true, options: [
           { name: 'key', control: 'text', optional: true },
           { name: 'creaseAngle', takes: { socket: 'Number' }, optional: true },
@@ -1910,6 +2134,24 @@ export const CATALOGUE: Catalogue = {
       page: '', group: 'Other',
       params: [
         { name: 'mesh', takes: { socket: 'Geometry', kinds: ['mesh'] }, optional: false },
+        { name: 'settings', control: 'text', raw: true, optional: true },
+      ],
+    },
+    {
+      word: 'planDurationMs', module: 'occlude', receiver: null,
+      import: 'planDurationMs', call: 'planDurationMs', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'planned', control: 'text', raw: true, optional: false },
+        { name: 'accel', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'pointCloud3', module: 'occlude', receiver: null,
+      import: 'pointCloud3', call: 'pointCloud3', returns: 'surface',
+      page: '', group: 'Other',
+      params: [
+        { name: 'positions', control: 'text', raw: true, optional: false },
       ],
     },
     {
@@ -1929,6 +2171,15 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'primLength', module: 'occlude', receiver: null,
+      import: 'primLength', call: 'primLength', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'p', control: 'text', raw: true, optional: false },
+        { name: 'tol', takes: { socket: 'Number' }, optional: true },
+      ],
+    },
+    {
       word: 'radians', module: 'occlude', receiver: null,
       import: 'radians', call: 'radians', returns: 'Number',
       page: '', group: 'Other',
@@ -1945,11 +2196,38 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'settleAtLift', module: 'occlude', receiver: null,
+      import: 'settleAtLift', call: 'settleAtLift', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'penDelay', takes: { socket: 'Number' }, optional: false },
+        { name: 'pulse', takes: { socket: 'Number' }, optional: false },
+        { name: 'm', control: 'text', raw: true, optional: false },
+      ],
+    },
+    {
       word: 'snapshotSurface3', module: 'occlude', receiver: null,
       import: 'snapshotSurface3', call: 'snapshotSurface3', returns: 'surface',
       page: '', group: 'Other',
       params: [
         { name: 'surface', takes: { socket: 'Geometry', kinds: ['surface'] }, optional: false },
+      ],
+    },
+    {
+      word: 'stationsMaterial', module: 'occlude', receiver: null,
+      import: 'stationsMaterial', call: 'stationsMaterial', returns: 'material',
+      page: '', group: 'Other',
+      params: [
+        { name: 'stations', control: 'text', raw: true, optional: false },
+      ],
+    },
+    {
+      word: 'surface3', module: 'occlude', receiver: null,
+      import: 'surface3', call: 'surface3', returns: 'surface',
+      page: '', group: 'Other',
+      params: [
+        { name: 'positions', control: 'text', raw: true, optional: false },
+        { name: 'polygons', control: 'text', raw: true, optional: false },
       ],
     },
     {
@@ -1990,6 +2268,19 @@ export const CATALOGUE: Catalogue = {
         { name: 'y1', takes: { socket: 'Number' }, optional: false },
         { name: 'x2', takes: { socket: 'Number' }, optional: false },
         { name: 'y2', takes: { socket: 'Number' }, optional: false },
+        { name: 'o', control: 'text', raw: true, optional: true },
+        { name: 'shapeOpts', control: 'text', raw: true, optional: true },
+      ],
+    },
+    {
+      word: 't.strokes3', module: 'occlude', receiver: 't',
+      import: null, call: 't.strokes3', returns: 'shape',
+      page: '', group: 'Other',
+      params: [
+        { name: 'runs', control: 'text', raw: true, optional: false },
+        { name: 'options', optional: true, options: [
+          { name: 'pass', control: 'text', optional: true },
+        ] },
       ],
     },
     {
@@ -2019,6 +2310,25 @@ export const CATALOGUE: Catalogue = {
           { name: 'scale', takes: { socket: 'Vector' }, optional: true },
           { name: 'origin', takes: { socket: 'Vector' }, optional: true },
         ] },
+      ],
+    },
+    {
+      word: 'travelLiftPulse', module: 'occlude', receiver: null,
+      import: 'travelLiftPulse', call: 'travelLiftPulse', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 'm', control: 'text', raw: true, optional: false },
+        { name: 'from', control: 'text', raw: true, optional: false },
+        { name: 'to', control: 'text', raw: true, optional: false },
+      ],
+    },
+    {
+      word: 'voronoi', module: 'occlude', receiver: null,
+      import: 'voronoi', call: 'voronoi', returns: 'material',
+      page: '', group: 'Other',
+      params: [
+        { name: 'points', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
+        { name: 'bounds', control: 'text', raw: true, optional: false },
       ],
     },
     {
