@@ -252,20 +252,22 @@ function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Gra
  * module exports is imported when the text uses it as something other than a
  * property key or a parameter — an unused import is harmless, a missing one
  * would not run. */
-function usedImports(body: string, catalogue: Catalogue): { module: 'occlude' | 'occlude/3d'; name: string }[] {
-  const out: { module: 'occlude' | 'occlude/3d'; name: string }[] = [];
+function usedImports(body: string, catalogue: Catalogue): { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] {
+  const out: { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] = [];
   const count = (pattern: string): number => body.match(new RegExp(pattern, 'g'))?.length ?? 0;
   for (const { module, names } of catalogue.importable) {
-    for (const name of names) {
+    for (const { name, spec } of names) {
       const uses = count(`(?<![\\w$.])${name}(?![\\w$])`);
       if (uses === 0) continue;
-      // A name the body declares shadows the import for the whole body.
-      if (count(`(?:const|let|var|function|class)\\s+${name}\\b`) > 0) continue;
-      const other = count(`(?<![\\w$.])${name}\\s*:`)
-        + count(`[(,]\\s*${name}\\s*[,)=]`)
-        + count(`[(,]\\s*${name}\\s*\\)\\s*=>`);
+      // A name the body declares at its top level shadows the import for the
+      // whole body; one declared inside a block does not.
+      if (new RegExp(`^(?:const|let|var|function|class)\\s+${name}\\b`, 'm').test(body)) continue;
+      // The only uses that are not uses: a property key, and an arrow
+      // parameter. A name used as a bare argument (`meanBy(cur.points,
+      // length)`) is a use, and dropping it would not run.
+      const other = count(`(?<![\\w$.])${name}\\s*:`) + count(`[(,]\\s*${name}\\s*\\)\\s*=>`);
       if (uses <= other) continue;
-      out.push({ module, name });
+      out.push({ module, name, spec });
     }
   }
   return out;
@@ -274,14 +276,14 @@ function usedImports(body: string, catalogue: Catalogue): { module: 'occlude' | 
 /** The import lines for the emitted words and the code bodies' names.
  * `sketch` always comes first from `occlude`; a toolkit word is a member of
  * `t`, so it is never imported. */
-function importLines(words: CatalogueWord[], extra: { module: 'occlude' | 'occlude/3d'; name: string }[]): string {
+function importLines(words: CatalogueWord[], extra: { module: 'occlude' | 'occlude/3d'; spec: string }[]): string {
   const occlude = new Set<string>();
   const three = new Set<string>();
   for (const word of words) {
     if (word.import === null) continue;
     (word.module === 'occlude' ? occlude : three).add(word.import);
   }
-  for (const { module, name } of extra) (module === 'occlude' ? occlude : three).add(name);
+  for (const { module, spec } of extra) (module === 'occlude' ? occlude : three).add(spec);
   const lines = [`import { ${['sketch', ...[...occlude].sort()].join(', ')} } from 'occlude';`];
   if (three.size > 0) lines.push(`import { ${[...three].sort().join(', ')} } from 'occlude/3d';`);
   return lines.join('\n');
@@ -318,7 +320,7 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
   const emitted = order.filter((id) => wanted.has(id));
   const nodes: CompiledNode[] = [];
   const words: CatalogueWord[] = [];
-  const extra: { module: 'occlude' | 'occlude/3d'; name: string }[] = [];
+  const extra: { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] = [];
   const raw: string[] = [];
   const hashes = new Map<string, string>();
   for (const id of emitted) {
@@ -337,7 +339,7 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
   }
   raw.push(...rawTexts(graph.config));
   if (raw.length > 0) extra.push(...usedImports(raw.join('\n'), catalogue));
-  if (wrap) extra.push({ module: 'occlude', name: wrap });
+  if (wrap) extra.push({ module: 'occlude', name: wrap, spec: wrap });
   const body = nodes.filter((n) => n.source !== '').map((n) => `  ${n.source.replace(/\n/g, '\n  ')}`);
   const returned = inputExpression(targetNode, input, graph, catalogue);
   const expression = wrap ? `${wrap}(${returned})` : returned;

@@ -69,7 +69,10 @@ it('compiles the graph to a sketch of its own', () => {
   expect(compileFor(graph, CATALOGUE, 'v4', 'in').nodes.map((n) => n.id)).toEqual(['n1', 'n2', 'n3', 'n4', 'n5', 'v4']);
   // The words the code bodies reach for are imported, not only the ones the
   // built-in nodes call.
-  expect(source).toContain("import { sketch, add, circle, fill, force, mm, mul, neighbours, polygon, strokes } from 'occlude';");
+  const imports = /^import \{[^}]*\} from 'occlude';$/m.exec(source)?.[0] ?? '';
+  for (const name of ['sketch', 'add', 'circle', 'fill', 'force', 'mm', 'mul', 'neighbours', 'polygon', 'strokes']) {
+    expect(imports, name).toContain(name);
+  }
   expect(source).toContain('const n5 = ((ring, dish) => {');
   expect(source).toContain('return n8.ink;');
 });

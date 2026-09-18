@@ -456,9 +456,10 @@ function addWord(word: string, module: 'occlude' | 'occlude/3d', receiver: strin
 /** The 3D module's own names, so a name it shares with `occlude` (both have
  * a `circle`) is imported under a distinct name. */
 const twoDNames = new Set<string>();
-/** Every name a sketch may import, per module: a code node body reaches for
+/** Every name a sketch may import, per module, mapped to the specifier that
+ * binds it (`circle3` → `circle as circle3`): a code node body reaches for
  * these, and the compiler imports what it finds. */
-const importable: Record<'occlude' | 'occlude/3d', Set<string>> = { occlude: new Set(), 'occlude/3d': new Set() };
+const importable: Record<'occlude' | 'occlude/3d', Map<string, string>> = { occlude: new Map(), 'occlude/3d': new Map() };
 
 function walk(symbols: ts.Symbol[], module: 'occlude' | 'occlude/3d'): void {
   for (let sym of symbols) {
@@ -467,7 +468,7 @@ function walk(symbols: ts.Symbol[], module: 'occlude' | 'occlude/3d'): void {
     const decl = sym.valueDeclaration ?? sym.declarations?.[0];
     if (!decl) continue;
     if (module === 'occlude' && (sym.flags & ts.SymbolFlags.Variable) && NAMESPACES.includes(name)) {
-      importable.occlude.add(name);
+      importable.occlude.set(name, name);
       const type = checker.getTypeOfSymbolAtLocation(sym, decl);
       for (const prop of checker.getPropertiesOfType(type)) {
         const memberDecl = prop.valueDeclaration ?? prop.declarations?.[0] ?? decl;
@@ -482,16 +483,18 @@ function walk(symbols: ts.Symbol[], module: 'occlude' | 'occlude/3d'): void {
     }
     if (!(sym.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable))) continue;
     const type = checker.getTypeOfSymbolAtLocation(sym, decl);
+    // An object a sketch may reach into (`v3.add`, the 3D `force`) is
+    // importable too, and so is any other exported value.
+    const clash = module === 'occlude/3d' && twoDNames.has(name);
+    importable[module].set(clash ? `${name}3` : name, clash ? `${name} as ${name}3` : name);
     if (type.getCallSignatures().length === 0) continue;
-    const key = module === 'occlude/3d' && twoDNames.has(name) ? `3d.${name}` : name;
-    const importName = module === 'occlude/3d' && twoDNames.has(name) ? `${name}3` : name;
-    importable[module].add(importName);
+    const key = clash ? `3d.${name}` : name;
     const plan = planOf(type, decl, key);
     if ('problem' in plan) {
       skipped.push({ word: key, reason: plan.problem });
       continue;
     }
-    addWord(key, module, null, importName === name ? name : `${name} as ${importName}`, importName, plan, decl);
+    addWord(key, module, null, clash ? `${name} as ${name}3` : name, clash ? `${name}3` : name, plan, decl);
   }
 }
 
@@ -662,9 +665,11 @@ for (const w of words) {
 lines.push('  ],');
 lines.push('  importable: [');
 for (const module of ['occlude', 'occlude/3d'] as const) {
-  const names = [...importable[module]].sort();
+  const entries = [...importable[module]].sort((a, b) => a[0].localeCompare(b[0]));
   lines.push(`    { module: ${q(module)}, names: [`);
-  for (let i = 0; i < names.length; i += 8) lines.push(`      ${names.slice(i, i + 8).map(q).join(', ')},`);
+  for (let i = 0; i < entries.length; i += 4) {
+    lines.push(`      ${entries.slice(i, i + 4).map(([local, spec]) => `{ name: ${q(local)}, spec: ${q(spec)} }`).join(', ')},`);
+  }
   lines.push('    ] },');
 }
 lines.push('  ],');

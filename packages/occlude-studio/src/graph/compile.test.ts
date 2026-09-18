@@ -47,7 +47,13 @@ const CATALOGUE: Catalogue = {
     },
   ],
   importable: [
-    { module: 'occlude', names: ['circle', 'strokes', 'polygon', 'force', 'mul'] },
+    { module: 'occlude', names: [
+      { name: 'circle', spec: 'circle' },
+      { name: 'strokes', spec: 'strokes' },
+      { name: 'polygon', spec: 'polygon' },
+      { name: 'force', spec: 'force' },
+      { name: 'mul', spec: 'mul' },
+    ] },
   ],
 };
 
