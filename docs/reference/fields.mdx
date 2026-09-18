@@ -95,19 +95,19 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## field.circle() · field.rect() · field.segment()
+## field.circle() · field.box() · field.segment()
 
 <include>/_sig/field.circle.mdx</include>
-<include>/_sig/field.rect.mdx</include>
+<include>/_sig/field.box.mdx</include>
 <include>/_sig/field.segment.mdx</include>
 
-A shape can be the field that measures it. These three are exact. They carry the same sign as `distanceTo`: how far inside the point lies, and negative outside. `t.isolines(f, 0)` draws the boundary back out.
+A shape can be the field that measures it. These three are exact, and they spell their arguments the way `circle` and `line` do. They carry the same sign as `distanceTo`: how far inside the point lies, and negative outside. `t.isolines(f, 0)` draws the boundary back out.
 
 ```ts live
 import { sketch, strokes, field } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const bar = field.segment([24, 72], [76, 28], 10);
+  const bar = field.segment(24, 72, 76, 28, 10);
   return strokes(t.isolines(bar, [-28, -22, -16, -10, -5, 0, 5, 9]));
 });
 ```
@@ -124,8 +124,8 @@ These combine shapes. `union` is a **maximum**, because inside is the positive s
 import { sketch, polygon, strokes, field, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const body = field.union(field.circle([38, 38], 28), field.rect([62, 66], [52, 30]));
-  const holes = field.union(field.circle([36, 36], 11), field.circle([72, 66], 8));
+  const body = field.union(field.circle(38, 38, 28), field.box(62, 66, 52, 30));
+  const holes = field.union(field.circle(36, 36, 11), field.circle(72, 66, 8));
   const plate = field.subtract(body, holes);
   return [
     polygon(t.isolines(plate, 0), { fill: fill('hatch', { angle: 40, spacing: mm(1.4) }) }),
@@ -145,11 +145,15 @@ import { sketch, polygon, field, fill, mm, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
   const r = ui(9, { min: 0, max: 18 });
-  const parts = t.grid({ cols: 3, rows: 3 }).map((c) => field.circle([c.cx, c.cy], 15.5));
+  const parts = t.grid({ cols: 3, rows: 3 }).map((c) => field.circle(c.cx, c.cy, 15.5));
   const body = parts.reduce((acc, f) => field.blend(acc, f, r));
   return polygon(t.isolines(body, 0), { fill: fill('hatch', { angle: 20, spacing: mm(1.3) }) });
 });
 ```
+
+:::note
+A box is always centred, and that is why it is not called `rect`. `rect(x, y, w, h)` anchors by the sketch's own rect mode, and a pure field function cannot read the sketch. One name with two anchors is a trap. The algebra takes plain numbers for the same reason. A length in the sketch's units needs the resolved paper, so resolve it first with `t.bounds()`.
+:::
 
 :::warning
 The algebra reads its fields as distances. `field.union` of two noise fields is the larger noise, and that means nothing. Combine only fields that measure a shape: these three, `distanceTo`, and what the algebra itself returns.

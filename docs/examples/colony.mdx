@@ -23,7 +23,7 @@ export default sketch({
   const b = t.bounds();
   const seeds = t.throw(circle(b.w / 2, b.h / 2, b.w * 0.31), { count: 9 }).points;
   const body = seeds
-    .map((p) => field.circle([p.x, p.y], b.w * 0.095))
+    .map((p) => field.circle(p.x, p.y, b.w * 0.095))
     .reduce((acc, f) => field.blend(acc, f, 7));
   return [
     strokes(t.isolines(body, [-12, -8, -5, -2.5]), { pen: 'fine' }),

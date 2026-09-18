@@ -25,7 +25,7 @@ const radialError = (cs: { pts: [number, number][] }[], cx: number, cy: number, 
 
 describe('shapes as distance fields', () => {
   it('measures a circle exactly, and its contour is the circle', () => {
-    const f = field.circle([50, 50], 18);
+    const f = field.circle(50, 50, 18);
     expect(f(50, 50)).toBeCloseTo(18, 10);
     expect(f(68, 50)).toBeCloseTo(0, 10);
     expect(f(78, 50)).toBeCloseTo(-10, 10);
@@ -33,7 +33,7 @@ describe('shapes as distance fields', () => {
   });
 
   it('agrees with distanceTo over the same circle', () => {
-    const exact = field.circle([50, 50], 18);
+    const exact = field.circle(50, 50, 18);
     const lowered = distanceTo(contour(exact));
     for (const [x, y] of [[50, 50], [60, 50], [50, 62], [75, 75], [30, 40]] as [number, number][]) {
       expect(lowered(x, y)).toBeCloseTo(exact(x, y), 1);
@@ -41,7 +41,7 @@ describe('shapes as distance fields', () => {
   });
 
   it('measures a box exactly, inside and past a corner', () => {
-    const f = field.rect([50, 50], [40, 20]);
+    const f = field.box(50, 50, 40, 20);
     expect(f(50, 50)).toBeCloseTo(10, 10);
     expect(f(70, 50)).toBeCloseTo(0, 10);
     expect(f(74, 50)).toBeCloseTo(-4, 10);
@@ -51,15 +51,15 @@ describe('shapes as distance fields', () => {
   });
 
   it('measures a capsule from its segment', () => {
-    const f = field.segment([30, 50], [70, 50], 6);
+    const f = field.segment(30, 50, 70, 50, 6);
     expect(f(50, 50)).toBeCloseTo(6, 10);
     expect(f(50, 56)).toBeCloseTo(0, 10);
     expect(f(76, 50)).toBeCloseTo(0, 10);
   });
 
   it('unions by taking the larger value, because inside is positive', () => {
-    const a = field.circle([40, 50], 14);
-    const b = field.circle([60, 50], 14);
+    const a = field.circle(40, 50, 14);
+    const b = field.circle(60, 50, 14);
     const u = field.union(a, b);
     expect(u(40, 50)).toBeCloseTo(14, 10);
     expect(u(50, 50)).toBeCloseTo(Math.max(a(50, 50), b(50, 50)), 10);
@@ -69,14 +69,14 @@ describe('shapes as distance fields', () => {
   });
 
   it('intersects by taking the smaller value', () => {
-    const i = field.intersect(field.circle([40, 50], 14), field.circle([60, 50], 14));
+    const i = field.intersect(field.circle(40, 50, 14), field.circle(60, 50, 14));
     expect(i(50, 50)).toBeGreaterThan(0);
     expect(i(30, 50)).toBeLessThan(0);
     expect(i(70, 50)).toBeLessThan(0);
   });
 
   it('subtracts a hole, leaving a ring whose contour has two loops', () => {
-    const ring = field.subtract(field.circle([50, 50], 25), field.circle([50, 50], 12));
+    const ring = field.subtract(field.circle(50, 50, 25), field.circle(50, 50, 12));
     expect(ring(50, 50)).toBeLessThan(0);
     expect(ring(50, 68)).toBeGreaterThan(0);
     const cs = zero(ring);
@@ -88,8 +88,8 @@ describe('shapes as distance fields', () => {
 
   it('blends two shapes into one, where a union leaves two', () => {
     // Two discs with a 2mm gap between their edges.
-    const a = field.circle([42, 50], 12);
-    const b = field.circle([68, 50], 12);
+    const a = field.circle(42, 50, 12);
+    const b = field.circle(68, 50, 12);
     // Just apart: the union is two separate loops.
     expect(zero(field.union(a, b)).length).toBe(2);
     // Blended, the fillet joins them into one.
@@ -99,7 +99,7 @@ describe('shapes as distance fields', () => {
   });
 
   it('is ordinary geometry once contoured, and draws with occlusion', () => {
-    const shape = field.blend(field.circle([40, 50], 16), field.rect([62, 50], [26, 14]), 8);
+    const shape = field.blend(field.circle(40, 50, 16), field.box(62, 50, 26, 14), 8);
     const def: SketchDef = sketch({}, () => [
       polygon(contour(shape, 0.5), { opaque: true }),
       polygon(circle(50, 50, 40)),
@@ -114,7 +114,7 @@ describe('shapes as distance fields', () => {
   it('refuses a field that is not a function, and reads an empty list as the identity', () => {
     expect(() => field.union(undefined as never)).toThrow(/expected a distance field/);
     // A computed list that came out empty must not blow up the sketch.
-    const disc = field.circle([50, 50], 10);
+    const disc = field.circle(50, 50, 10);
     expect(field.subtract(disc)(50, 50)).toBeCloseTo(10, 10);
     expect(field.union()(50, 50)).toBe(-Infinity);
     expect(field.intersect()(50, 50)).toBe(Infinity);
@@ -122,8 +122,8 @@ describe('shapes as distance fields', () => {
   });
 
   it('blends exactly like a union away from the joint', () => {
-    const a = field.circle([42, 50], 12);
-    const b = field.circle([68, 50], 12);
+    const a = field.circle(42, 50, 12);
+    const b = field.circle(68, 50, 12);
     // The obvious polynomial smooth maximum grows the shape by radius/4
     // everywhere on the locus equidistant from both, out to infinity.
     for (const y of [200, 1000, 100000]) {
@@ -132,7 +132,7 @@ describe('shapes as distance fields', () => {
   });
 
   it('degrades to a union rather than to nothing on a non-finite input', () => {
-    const a = field.circle([50, 50], 10);
+    const a = field.circle(50, 50, 10);
     expect(field.blend(a, () => -Infinity, 5)(50, 50)).toBeCloseTo(10, 10);
     expect(field.blend(a, a, Infinity)(50, 50)).toBeCloseTo(10, 10);
   });

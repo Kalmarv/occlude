@@ -28,7 +28,7 @@ export default sketch({
 
   // One body from four discs.
   const body = t.throw(circle(b.w / 2, b.h / 2, b.w * 0.24), { count: 4 })
-    .points.map((p) => field.circle([p.x, p.y], b.w * 0.2))
+    .points.map((p) => field.circle(p.x, p.y, b.w * 0.2))
     .reduce((acc, f) => field.blend(acc, f, 11));
 
   // A coarse outline, roughened twice by one motif.

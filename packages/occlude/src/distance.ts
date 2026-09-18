@@ -232,18 +232,22 @@ const nowhere: DistanceField = () => -Infinity;
 /** Everywhere inside — the identity of an intersection. */
 const everywhere: DistanceField = () => Infinity;
 
-/** A disc of radius `r` about `[cx, cy]`. Exact. */
-const circleField = (center: readonly [number, number], r: number): DistanceField => {
-  const [cx, cy] = center;
-  return (x, y) => r - Math.hypot(x - cx, y - cy);
-};
+/** A disc of radius `r` about `cx, cy` — spelled like `circle(x, y, r)`.
+ * Exact. */
+const circleField = (cx: number, cy: number, r: number): DistanceField =>
+  (x, y) => r - Math.hypot(x - cx, y - cy);
 
-/** An axis-aligned box centred on `center`, `size` wide and tall. Exact
- * inside and out, including the rounded distance past a corner. */
-const rectField = (center: readonly [number, number], size: readonly [number, number]): DistanceField => {
-  const [cx, cy] = center;
-  const hw = Math.abs(size[0]) / 2;
-  const hh = Math.abs(size[1]) / 2;
+/**
+ * An axis-aligned box, `w` by `h`, CENTRED on `cx, cy`. Exact inside and
+ * out, including the rounded distance past a corner.
+ *
+ * It is `box` and not `rect` on purpose. `rect(x, y, w, h)` anchors by the
+ * sketch's own rect mode, and a pure field function cannot read that, so
+ * one name with two anchors would be a trap. A box is centred, always.
+ */
+const boxField = (cx: number, cy: number, w: number, h: number): DistanceField => {
+  const hw = Math.abs(w) / 2;
+  const hh = Math.abs(h) / 2;
   return (x, y) => {
     const dx = Math.abs(x - cx) - hw;
     const dy = Math.abs(y - cy) - hh;
@@ -254,13 +258,19 @@ const rectField = (center: readonly [number, number], size: readonly [number, nu
   };
 };
 
-/** A capsule: every point within `r` of the segment `a`–`b`. Exact. With
- * `r` of zero the field is zero on the segment and negative everywhere
- * else, which draws as a line rather than an area. */
-const segmentField = (a: readonly [number, number], b: readonly [number, number], r = 0): DistanceField => {
-  const [ax, ay] = a;
-  const dx = b[0] - ax;
-  const dy = b[1] - ay;
+/**
+ * A capsule: every point within `r` of the segment, spelled like
+ * `line(x0, y0, x1, y1)`. Exact.
+ *
+ * `r` is required, and for a reason: a capsule of no radius is never
+ * positive, so its zero contour is empty and the sketch draws nothing at
+ * all. A field is an area, and an area needs a width.
+ */
+const segmentField = (x0: number, y0: number, x1: number, y1: number, r: number): DistanceField => {
+  const ax = x0;
+  const ay = y0;
+  const dx = x1 - ax;
+  const dy = y1 - ay;
   const len2 = dx * dx + dy * dy;
   return (x, y) => {
     const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2)) : 0;
@@ -343,7 +353,7 @@ const blendField = (a: DistanceField, b: DistanceField, radius: number): Distanc
  */
 export const field = {
   circle: circleField,
-  rect: rectField,
+  box: boxField,
   segment: segmentField,
   union: unionField,
   intersect: intersectField,
