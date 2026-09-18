@@ -19,7 +19,7 @@ import { ClassicPreset, type Root } from 'rete';
 
 import './wa.js';
 import { iconButton, withIcon } from './icons.js';
-import { confirmDialog, notify, promptDialog } from './wa.js';
+import { confirmDialog, notify, promptDialog, showPanel } from './wa.js';
 import { Preview } from './preview.js';
 import { RenderClient } from './workerClient.js';
 import type { RunConfig } from './runner.js';
@@ -32,7 +32,7 @@ import { bridgeDiagnostics, markWired, paintNode, takesLabel, takesOf, type Node
 import { compileFor, compileGraph, type CompiledSketch } from './graph/compile.js';
 import { estimateBox, layoutGraph, type NodeBox } from './graph/layout.js';
 import { importSketch } from './graph/import.js';
-import { loadSketchByName } from './sketchApi.js';
+import { loadSketchByName, takeLive } from './sketchApi.js';
 import {
   accepts, graphToJson, inputTakes, kindOf, outputType, parseGraph, wordInputs, wordOf,
   type Catalogue, type CatalogueWord, type Graph, type GraphNode, type ValueType,
@@ -349,7 +349,38 @@ const paintHooks: NodePaintHooks = {
   },
   remove: (node) => void removeNode(node.id),
   select: (node) => select(node.id),
+  fitViewer: (node) => views.get(node.id)?.preview?.fit(),
+  showViewer: (node) => showViewer(node),
 };
+
+/**
+ * A viewer's picture, big. The node's canvas is a thumbnail of a step; this
+ * is the same picture on the same painter, with room to read it. It paints
+ * what the viewer already rendered — opening a picture costs no render.
+ */
+function showViewer(node: GraphNode): void {
+  const cached = viewerResults.get(node.id);
+  if (!cached) {
+    notify(`${node.id} has no picture yet`, 'warning');
+    return;
+  }
+  const box = el('div', 'graph-shown');
+  const canvas = document.createElement('canvas');
+  box.append(canvas);
+  const big = new Preview(canvas);
+  showPanel({
+    title: `${node.id} — ${node.inputs['in']?.from?.join('.') ?? 'nothing'}`,
+    body: box,
+    wide: true,
+    onClose: () => big.dispose(),
+  });
+  // The canvas has no size until the dialog has laid out.
+  requestAnimationFrame(() => {
+    big.setPaperColor(cached.result.paper.color ?? settings.paperColor);
+    big.setResult(cached.result);
+    big.fit();
+  });
+}
 
 // ---- the document and the canvas, kept in step ----
 
@@ -983,6 +1014,31 @@ async function save(): Promise<void> {
  * imported document, and from here it behaves like any other — it paints,
  * it renders, it saves under a name, its viewers show its steps.
  */
+async function readSketch(source: string, name: string): Promise<boolean> {
+  generation += 1;
+  try {
+    graph = importSketch(source, catalogue);
+  } catch (error) {
+    // A sketch that cannot be read is an answer, not a crash: the importer
+    // names the statement it stopped at.
+    const message = error instanceof Error ? error.message : String(error);
+    status(`import '${name}': ${message}`, 'err');
+    notify(`import '${name}': ${message}`, 'danger');
+    return false;
+  }
+  nameInput.value = '';
+  mainSource = null;
+  fitted = null;
+  viewerResults.clear();
+  viewerFrames.clear();
+  await buildCanvas();
+  history.replaceState(null, '', '/graph.html');
+  dirty = true; // the imported graph has no name in the store yet
+  clearSelection();
+  await renderAll();
+  return true;
+}
+
 async function importFrom(): Promise<void> {
   const asked = await promptDialog({
     title: 'Import a sketch',
@@ -1003,28 +1059,7 @@ async function importFrom(): Promise<void> {
     notify(`import '${name}': ${message}`, 'danger');
     return;
   }
-  generation += 1;
-  try {
-    graph = importSketch(source, catalogue);
-  } catch (error) {
-    // A sketch that cannot be read is an answer, not a crash: the importer
-    // names the statement it stopped at.
-    const message = error instanceof Error ? error.message : String(error);
-    status(`import '${name}': ${message}`, 'err');
-    notify(`import '${name}': ${message}`, 'danger');
-    return;
-  }
-  nameInput.value = '';
-  mainSource = null;
-  fitted = null;
-  viewerResults.clear();
-  viewerFrames.clear();
-  await buildCanvas();
-  history.replaceState(null, '', '/graph.html');
-  dirty = true; // the imported graph has no name in the store yet
-  clearSelection();
-  await renderAll();
-  notify(`imported '${name}' as a graph — Save gives it a name`, 'success');
+  if (await readSketch(source, name)) notify(`imported '${name}' as a graph — Save gives it a name`, 'success');
 }
 
 async function newGraph(): Promise<void> {
@@ -1134,7 +1169,23 @@ async function boot(): Promise<void> {
     ],
   };
   preview.setPaperColor(settings.paperColor);
-  const wanted = new URLSearchParams(location.search).get('graph');
+  const params = new URLSearchParams(location.search);
+  // "Open in Graph" on the studio page hands the editor's own buffer over,
+  // the way Evolve is handed one: what the artist is looking at, saved or
+  // not.
+  if (params.get('live') === '1') {
+    const live = takeLive();
+    if (live?.source) {
+      await refreshList();
+      if (await readSketch(live.source, live.name || 'the editor')) {
+        nameInput.value = live.name;
+        seedInput.value = typeof graph.config.seed === 'number' ? String(graph.config.seed) : '';
+        notify(`read '${live.name || 'the editor'}' as a graph — Save gives it a name`, 'success');
+        return;
+      }
+    }
+  }
+  const wanted = params.get('graph');
   if (wanted) {
     const opened = await open(wanted);
     await refreshList();

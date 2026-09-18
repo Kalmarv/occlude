@@ -546,6 +546,12 @@ async function boot(): Promise<void> {
     if (sketchName.trim()) u.set('sketch', sketchName.trim());
     location.href = withSeed(`/evolve.html?${u.toString()}`, seedUsed);
   };
+  // The graph page reads the buffer, not the saved file: an unsaved edit is
+  // what the artist is looking at, and it is what they mean by "this sketch".
+  ($('btn-graph') as HTMLButtonElement).onclick = () => {
+    stashLive({ name: sketchName.trim(), source: editor.getValue() });
+    location.href = '/graph.html?live=1';
+  };
   ($('btn-fork') as HTMLButtonElement).onclick = async () => {
     try {
       const name = await rail.saveCurrent();

@@ -46,6 +46,22 @@ export function confirmDialog(opts: { title: string; body: string | HTMLElement;
   });
 }
 
+/** A panel as a dialog: a title and an element, with nothing to answer.
+ * Returns the closer, and calls `onClose` once the dialog is gone so the
+ * caller can release what it painted into the body. */
+export function showPanel(opts: { title: string; body: HTMLElement; wide?: boolean; onClose?: () => void }): () => void {
+  const dlg = document.createElement('wa-dialog') as HTMLElement & { open: boolean };
+  dlg.setAttribute('label', opts.title);
+  dlg.setAttribute('light-dismiss', '');
+  if (opts.wide) dlg.classList.add('wa-dialog-wide');
+  opts.body.classList.add('dialog-body');
+  dlg.addEventListener('wa-after-hide', () => { dlg.remove(); opts.onClose?.(); });
+  dlg.append(opts.body);
+  document.body.append(dlg);
+  requestAnimationFrame(() => { dlg.open = true; });
+  return () => { dlg.open = false; };
+}
+
 /** A prompt as a dialog: resolves the typed text, or null when dismissed. */
 export function promptDialog(opts: { title: string; body?: string; label?: string; placeholder?: string; confirm?: string; danger?: boolean; validate?: (v: string) => string | null }): Promise<string | null> {
   return new Promise((resolve) => {

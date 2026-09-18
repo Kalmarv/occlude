@@ -89,6 +89,10 @@ export interface NodePaintHooks {
   zoom(): number;
   /** Remember a node's size in the document. */
   setSize(node: GraphNode, width: number, height: number): void;
+  /** Fit this viewer's picture to its canvas again. */
+  fitViewer(node: GraphNode): void;
+  /** Show this viewer's picture at full size. */
+  showViewer(node: GraphNode): void;
   remove(node: GraphNode): void;
   select(node: GraphNode): void;
 }
@@ -162,6 +166,127 @@ function nodeTitle(node: GraphNode): string {
   return 'output';
 }
 
+/**
+ * A number the artist drags.
+ *
+ * A spinner's arrows are two pixels wide and change a value by one, which is
+ * the wrong gesture for a drawing: the value wanted is almost always "a bit
+ * more". So the field scrubs — press it and drag sideways — and a press that
+ * does not move is a request to type, which is what the caret is for.
+ *
+ * The step is read from the value the drag started at, so a drag does not
+ * change pace as it crosses ten or a hundred. `Ctrl` is ten times coarser,
+ * `Shift` ten times finer, the way Blender's fields read.
+ */
+const HOLD = 3;
+
+function stepFor(value: number): number {
+  const size = Math.abs(value);
+  if (size >= 100) return 1;
+  if (size >= 10) return 0.5;
+  if (size >= 1) return 0.1;
+  return 0.01;
+}
+
+/** As many decimals as the step has, so a drag never writes 50.30000000004. */
+function roundTo(value: number, step: number): number {
+  const places = Math.max(0, Math.ceil(-Math.log10(step)) + 1);
+  return Number(value.toFixed(places));
+}
+
+interface NumberFieldOptions {
+  /** An empty field is a value the node does not carry (an unset option). */
+  allowEmpty?: boolean;
+  /** Whole numbers only (a frame, a count the library counts in). */
+  integer?: boolean;
+  min?: number;
+  placeholder?: string;
+}
+
+function numberField(
+  value: number | undefined,
+  title: string,
+  commit: (next: number | undefined) => void,
+  options: NumberFieldOptions = {},
+): HTMLInputElement {
+  const box = document.createElement('input');
+  box.type = 'text';
+  box.inputMode = 'decimal';
+  box.className = 'graph-lit graph-scrub';
+  box.value = value === undefined ? '' : String(value);
+  box.placeholder = options.placeholder ?? '0';
+  box.title = `${title} — drag to scrub, Ctrl coarser, Shift finer; click to type`;
+  noDrag(box);
+
+  const clamp = (n: number): number => {
+    const whole = options.integer ? Math.round(n) : n;
+    return options.min !== undefined ? Math.max(options.min, whole) : whole;
+  };
+  const read = (): number => {
+    const n = Number(box.value.trim());
+    return Number.isFinite(n) ? n : 0;
+  };
+  const write = (n: number): void => {
+    box.value = String(n);
+    commit(n);
+  };
+
+  let drag: { x: number; from: number; step: number; moved: boolean } | null = null;
+  box.addEventListener('pointerdown', (event) => {
+    if (box.disabled || document.activeElement === box) return; // typing: the caret is the artist's
+    // No focus, so no caret and no text selection while the value scrubs.
+    event.preventDefault();
+    const from = read();
+    drag = { x: event.clientX, from, step: options.integer ? 1 : stepFor(from), moved: false };
+    box.setPointerCapture(event.pointerId);
+    box.classList.add('scrubbing');
+  });
+  box.addEventListener('pointermove', (event) => {
+    if (!drag) return;
+    const travel = event.clientX - drag.x;
+    if (!drag.moved && Math.abs(travel) < HOLD) return;
+    drag.moved = true;
+    const step = drag.step * (event.ctrlKey || event.metaKey ? 10 : event.shiftKey ? 0.1 : 1);
+    write(clamp(roundTo(drag.from + travel * step, step)));
+  });
+  const release = (event: PointerEvent): void => {
+    if (!drag) return;
+    const moved = drag.moved;
+    drag = null;
+    box.classList.remove('scrubbing');
+    if (box.hasPointerCapture(event.pointerId)) box.releasePointerCapture(event.pointerId);
+    // A press that did not move is a request to type.
+    if (!moved) {
+      box.focus();
+      box.select();
+    }
+  };
+  box.addEventListener('pointerup', release);
+  box.addEventListener('pointercancel', release);
+
+  const typed = (): void => {
+    const text = box.value.trim();
+    if (text === '' && options.allowEmpty) {
+      commit(undefined);
+      return;
+    }
+    const n = Number(text);
+    write(clamp(Number.isFinite(n) ? n : 0));
+  };
+  box.addEventListener('change', typed);
+  box.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      typed();
+      box.blur();
+    }
+    if (event.key === 'Escape') {
+      box.value = value === undefined ? '' : String(value);
+      box.blur();
+    }
+  });
+  return box;
+}
+
 /** A value JSON cannot spell (`mm(0.3)`, `pen({ width: mm(0.3) })`): the
  * box edits its own source text, and what the artist types stays raw — the
  * compiler is the only thing that can tell whether it still parses. */
@@ -181,20 +306,8 @@ function rawBox(node: GraphNode, key: string, text: string, hooks: NodePaintHook
 function literalBox(node: GraphNode, key: string, hooks: NodePaintHooks): HTMLInputElement {
   const value = node.inputs[key]?.value;
   if (isRaw(value)) return rawBox(node, key, value.__raw, hooks);
-  const box = document.createElement('input');
-  box.type = 'number';
-  box.className = 'graph-lit';
-  box.step = 'any';
-  box.value = typeof value === 'number' || typeof value === 'string' ? String(value) : '';
-  box.placeholder = '0';
-  box.title = `A literal for ${key}, used while nothing is wired into it`;
-  noDrag(box);
-  box.oninput = () => {
-    const text = box.value.trim();
-    const n = Number(text);
-    hooks.setValue(node, key, text === '' || !Number.isFinite(n) ? 0 : n);
-  };
-  return box;
+  const start = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)) ? Number(value) : undefined;
+  return numberField(start, `${key}, while nothing is wired into it`, (next) => hooks.setValue(node, key, next ?? 0));
 }
 
 /** A control: a literal the node edits, which nothing may wire into. */
@@ -233,13 +346,19 @@ function controlBox(node: GraphNode, input: CatalogueInput, hooks: NodePaintHook
     select.onchange = () => (select.value === '' ? hooks.unset(node, key) : hooks.setValue(node, key, select.value));
     return select;
   }
+  if (kind === 'number') {
+    const start = typeof value === 'number' ? value : undefined;
+    return numberField(start, `${key}, a number the node carries`, (next) => {
+      if (next === undefined) hooks.unset(node, key);
+      else hooks.setValue(node, key, next);
+    }, { allowEmpty: true, placeholder: '—' });
+  }
   const box = document.createElement('input');
-  box.type = kind === 'number' ? 'number' : 'text';
-  box.className = kind === 'number' ? 'graph-lit' : 'graph-text';
-  if (kind === 'number') box.step = 'any';
+  box.type = 'text';
+  box.className = 'graph-text';
   box.value = value === undefined || value === null ? '' : String(value);
   box.placeholder = '—';
-  box.title = `${key}: ${kind === 'number' ? 'a number' : 'text'} the node carries. Empty leaves it out of the call.`;
+  box.title = `${key}: text the node carries. Empty leaves it out of the call.`;
   noDrag(box);
   box.oninput = () => {
     const text = box.value;
@@ -247,7 +366,7 @@ function controlBox(node: GraphNode, input: CatalogueInput, hooks: NodePaintHook
       hooks.unset(node, key);
       return;
     }
-    hooks.setValue(node, key, kind === 'number' ? Number(text) : text);
+    hooks.setValue(node, key, text);
   };
   return box;
 }
@@ -489,21 +608,16 @@ function viewerRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): 
     const chosen = node.inputs['in']?.value;
     const value = typeof chosen === 'number' && chosen >= 0 ? Math.round(chosen) : -1;
     const count = hooks.frames(node);
-    const box = document.createElement('input');
-    box.type = 'number';
-    box.className = 'graph-lit';
-    box.step = '1';
-    box.min = '0';
-    box.value = value >= 0 ? String(value) : '';
-    box.placeholder = '—';
-    box.title = count > 0
-      ? `Which kept state to show: 0 to ${count - 1}. Empty shows the material itself.`
-      : 'Which kept state to show: 0 is the first. Empty shows the material itself.';
-    noDrag(box);
     // Never `unset`: the frame lives beside the wire on `in`, and removing
-    // the input would remove the picture.
+    // the input would remove the picture. An empty field is -1, the material
+    // itself.
     const write = (next: number): void => hooks.setValue(node, 'in', next);
-    box.oninput = () => write(box.value.trim() === '' ? -1 : Number(box.value));
+    const box = numberField(
+      value >= 0 ? value : undefined,
+      count > 0 ? `the kept state to show, 0 to ${count - 1}; empty shows the material itself` : 'the kept state to show; empty shows the material itself',
+      (next) => write(next ?? -1),
+      { allowEmpty: true, integer: true, min: 0, placeholder: '—' },
+    );
     if (count > 0) {
       const range = document.createElement('input');
       range.type = 'range';
@@ -523,6 +637,17 @@ function viewerRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): 
       frame.append(box);
     }
     host.append(frame);
+  }
+  // The picture's own two controls sit in the title row, where every node
+  // keeps its chrome: fit it to the canvas again, and open it big enough to
+  // look at.
+  const head = host.querySelector<HTMLElement>('.graph-node-head');
+  if (head) {
+    const fit = iconButton('frame', 'Fit the picture', () => hooks.fitViewer(node));
+    const open = iconButton('view', 'Open this picture at full size', () => hooks.showViewer(node));
+    noDrag(fit);
+    noDrag(open);
+    head.querySelector('.graph-node-id')?.after(fit, open);
   }
   const canvas = document.createElement('canvas');
   canvas.className = 'graph-viewer';
