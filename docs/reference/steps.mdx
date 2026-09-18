@@ -9,7 +9,7 @@ description: Change a material by a rule, one batch of edits at a time.
 
 <include>/_sig/Material.steps.mdx</include>
 
-The rule is `(prev, next, k) => …`: `prev` is the current state, `next` collects the edits, `k` is the iteration. The shorthand `{ move, set }` applies one move or one column write to every point. Several rules become passes: each pass reads the state the pass before it produced. `{ every: m }` keeps the initial state, every m-th state and the last one on the result's `history`.
+The rule is `(prev, next, k) => …`: `prev` is the current state, `next` collects the edits, `k` is the iteration. The shorthand `{ move, set }` applies one move or one column write to every point. Several rules become passes: each pass reads the state the pass before it produced. An ARRAY of rules is one batch instead: every rule in it matches the same frozen state. `{ every: m }` keeps the initial state, every m-th state and the last one on the result's `history`.
 
 :::warning
 Two edits that contradict each other in one batch fail the step. Examples: remove a point and also connect it, or split an edge and also disconnect it. Moves add up, and the last write of a column wins.
@@ -24,6 +24,63 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   return grown.history.map((h) => strokes(h.material));
 });
 ```
+
+## rule.point() · rule.edge() · rule.face()
+
+<include>/_sig/rule.point.mdx</include>
+<include>/_sig/rule.edge.mdx</include>
+<include>/_sig/rule.face.mdx</include>
+
+A rule is a pattern and a replacement. The pattern picks the points, edges or faces that match, and the action says what happens to every one of them. A rule builds a `steps` rule, so `m.steps(n, rule.point(…).move(…))` is the whole story. There is no separate verb.
+
+The actions on points are `move`, `set`, `extrude`, `connect` and `remove`. On edges they are `split`, `set`, `remove` and `replace`. On faces they are `set` and `move`.
+
+```ts live
+import { sketch, strokes, material, rule } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  // The Koch generator: a bump across the middle third of any edge.
+  const h = Math.sqrt(3) / 6;
+  const motif = material([[0, 0], [1 / 3, 0], [0.5, h], [2 / 3, 0], [1, 0]], { edges: [[0, 1], [1, 2], [2, 3], [3, 4]] });
+  // The same rule, three times over, at three step counts.
+  return [1, 3, 5].map((n, row) => {
+    const y = 35 + row * 30;
+    const seed = material([[15, y], [85, y]], { edges: [[0, 1]] });
+    return strokes(seed.steps(n, rule.edge().replace(motif, { flip: true })).curves());
+  });
+});
+```
+
+:::note
+A rule reads the frozen state, so randomness comes from the pattern and not from the action: `rule.edge((e) => t.chance(0.3)).split()`. A seeded stream lives on the toolkit, and `rule` is a plain import.
+:::
+
+## One batch or several passes
+
+<include>/_sig/Material.steps.mdx</include>
+
+`steps(n, [a, b])` is ONE batch. Both rules match the same frozen state. A point that `a` moves is still where it was when `b` looks at it. Order inside the array changes nothing. `steps(n, a, b)` is two passes, and `b` reads what `a` committed.
+
+```ts live
+import { sketch, strokes, circle, rule, mul, sub } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
+  const ring = t.sample(circle(50, 50, 26), { count: 90 });
+  const grown = ring.steps(26, [
+    rule.point().move((p) => mul(sub(p, [50, 50]), 0.012)),
+    rule.edge((e) => e.length > 2.2).split(),
+  ]);
+  return strokes(grown.curves());
+});
+```
+
+## A rule in three dimensions
+
+A rule that only moves or writes runs in either world. Build it once and hand it to a material's `steps` or to a mesh's. Five rules belong to the flat world alone: `split`, `extrude`, `connect`, `remove` and `replace`. A mesh edit batch has no topology of its own.
+
+:::warning
+A mesh stores its faces, and they own attribute columns. `rule.face().set()` writes those columns. A material computes a face from its points and edges every time, and that face owns no columns. `rule.face().set()` on a material says so and stops.
+:::
 
 ## next.move()
 

@@ -224,9 +224,15 @@ class EdgeRule {
   }
 }
 
-/** Tested against every face of the frozen state, with the state itself. */
+/**
+ * A face of whichever world the rule runs in. A material's face and a
+ * mesh's face share `index`, `area`, a centre and `adjacent`; everything
+ * else is that world's own, so the row is not narrowed here.
+ */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export type FaceMatch = (f: any, cur: any) => boolean;
+export type FaceRow = any;
+/** Tested against every face of the frozen state, with the state itself. */
+export type FaceMatch = (f: FaceRow, cur: FaceRow) => boolean;
 
 /** Faces that match, and what to do with every one of them. */
 class FaceRule {
@@ -241,7 +247,7 @@ class FaceRule {
    * nowhere to write and this says so rather than dropping the values.
    * Move or write the face's own points instead.
    */
-  set(attrs: Record<string, number> | ((f: any, cur: any) => Record<string, number>)): Rewrite {
+  set(attrs: Record<string, number> | ((f: FaceRow, cur: FaceRow) => Record<string, number>)): Rewrite {
     const match = this.match;
     return ((cur: any, next: any) => {
       if (typeof next.setFaces !== 'function') {
@@ -257,7 +263,7 @@ class FaceRule {
 
   /** Displace the points of every match. Both worlds store their points,
    * so this works in both. */
-  move(by: (f: any, cur: any) => unknown): Rewrite {
+  move(by: (f: FaceRow, cur: FaceRow) => unknown): Rewrite {
     const match = this.match;
     return ((cur: any, next: any) => {
       const all = cur.faces;

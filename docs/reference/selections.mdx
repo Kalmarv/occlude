@@ -161,6 +161,34 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## p.adjacent · points.near()
+
+<include>/_sig/Vertex.adjacent.mdx</include>
+<include>/_sig/PointSelection.near.mdx</include>
+
+Two different questions. `p.adjacent` is topology: the points an edge joins this one to. `points.near(p, { radius })` is distance: the points within `radius`, joined or not, and never `p` itself. A rule wants one or the other. Name the right one and the rule stays honest.
+
+```ts live
+import { sketch, circle, strokes, line, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
+  const tree = connect.tree(t.scatter({ spacing: 12 }).points.filter((p) => p.x > 6 && p.x < 94 && p.y > 6 && p.y < 94).extract());
+  const hub = [...tree.points].reduce((a, b) => (b.adjacent.length > a.adjacent.length ? b : a));
+  return [
+    strokes(tree),
+    // Joined to the hub: blue.
+    [...hub.adjacent].map((q) => line(hub.x, hub.y, q.x, q.y, { pen: 'stabilo-88-blue' })),
+    // Close to the hub, joined or not: a ring.
+    [...tree.points.near(hub, { radius: 26 })].map((q) => circle(q.x, q.y, 2, { pen: 'stabilo-88-green' })),
+    circle(hub.x, hub.y, 3),
+  ];
+});
+```
+
+:::note
+`near` builds one index for each radius and keeps it on the state. A whole pass of queries at one radius pays for one grid. A selection of part of a state answers with its own members only.
+:::
+
 ## components()
 
 <include>/_sig/components.mdx</include>
