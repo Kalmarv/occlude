@@ -8,15 +8,18 @@
  * BUILDS a `StepRule`, and `m.steps(n, …)` runs it. There is no `rules()`
  * verb, because that would be a second spelling of `steps`.
  *
- * Order does not matter inside one batch. Every rule in an array matches
- * against the same frozen state, and every match edits the same next
- * state — so a point a rule moves is still where it was when the next rule
- * looks at it. `steps(n, [a, b])` is that one batch. `steps(n, a, b)` is
- * the older meaning, two passes, where `b` sees what `a` committed.
+ * MATCHING is order-free inside one batch: every rule in an array reads
+ * the same frozen state, so a point one rule moves is still where it was
+ * when the next one looks at it. EDITING is not, and `stepOnce`'s rules
+ * decide it — moves add up, a later `set` overwrites an earlier one, a
+ * later `connect` on an existing pair is dropped, and new points keep the
+ * order the rules asked for them. `steps(n, [a, b])` is that one batch.
+ * `steps(n, a, b)` is the older meaning, two passes, where `b` sees what
+ * `a` committed.
  *
- * Randomness is not a rule option. A seeded stream lives on the toolkit,
- * and these factories are pure, so a chance belongs in the predicate:
- * `rule.edge((e) => e.length > 3 && t.chance(0.3)).split()`.
+ * Randomness is not a rule option: these factories are pure and have no
+ * seed of their own. A chance belongs in the pattern, where it runs once
+ * for each row: `rule.edge((e) => e.length > 3 && t.chance(0.3)).split()`.
  */
 
 import { inheritEdge } from './material.js';

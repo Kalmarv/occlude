@@ -52,14 +52,14 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 ```
 
 :::note
-A rule reads the frozen state, so randomness comes from the pattern and not from the action: `rule.edge((e) => t.chance(0.3)).split()`. A seeded stream lives on the toolkit, and `rule` is a plain import.
+`rule` is a plain import and has no seed of its own. Put a chance in the pattern, where it runs once for each row: `rule.edge((e) => t.chance(0.3)).split()`. A seeded stream lives on the toolkit.
 :::
 
 ## One batch or several passes
 
-<include>/_sig/Material.steps.mdx</include>
+`steps(n, [a, b])` is ONE batch. Both rules match the same frozen state. A point that `a` moves is still where it was when `b` looks at it. `steps(n, a, b)` is two passes, and `b` reads what `a` committed.
 
-`steps(n, [a, b])` is ONE batch. Both rules match the same frozen state. A point that `a` moves is still where it was when `b` looks at it. Order inside the array changes nothing. `steps(n, a, b)` is two passes, and `b` reads what `a` committed.
+Matching is order-free. Editing is not, and the batch rules decide it. Moves add up, so two move rules commute. A later `set` overwrites an earlier one. A later `connect` on a pair an earlier rule already made changes nothing, and its edge attributes go with it. New points keep the order the rules asked for them, and row order is visible in `p.index` and in plot order.
 
 ```ts live
 import { sketch, strokes, circle, rule, mul, sub } from 'occlude';
@@ -76,7 +76,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 
 ## A rule in three dimensions
 
-A rule that only moves or writes runs in either world. Build it once and hand it to a material's `steps` or to a mesh's. Five rules belong to the flat world alone: `split`, `extrude`, `connect`, `remove` and `replace`. A mesh edit batch has no topology of its own.
+A rule that only moves or writes runs in either world. Build it once and hand it to a material's `steps` or to a mesh's. `rule.point()` has `extrude`, `connect` and `remove`. `rule.edge()` has `split`, `remove` and `replace`. These change topology, and a mesh edit batch has none, so they belong to the flat world. `rule.face().set()` runs the other way: only a mesh stores face columns.
 
 :::warning
 A mesh stores its faces, and they own attribute columns. `rule.face().set()` writes those columns. A material computes a face from its points and edges every time, and that face owns no columns. `rule.face().set()` on a material says so and stops.

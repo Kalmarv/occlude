@@ -27,7 +27,7 @@ describe('rewrite rules', () => {
     expect(moved.points.length).toBe(5);
   });
 
-  it('matches against the frozen state, so a rule list has no order effects', () => {
+  it('matches every rule against the frozen state, so move rules commute', () => {
     const m = line(3, 2);
     // Both rules read x. In one batch the second sees the ORIGINAL x, so
     // every point moves by its starting x, not by the moved one.
@@ -39,6 +39,19 @@ describe('rewrite rules', () => {
     // As two passes the second rule sees the first's result: 2 → 4 → 8.
     const passes = m.steps(1, rule.point().move((p) => [p.x, 0]), rule.point().move((p) => [p.x, 0]));
     expect(passes.points.at(2).x).toBeCloseTo(8, 10);
+  });
+
+  it('edits in rule order, so a later set wins and new rows follow the rules', () => {
+    const attributed = () => material([[0, 0], [1, 0]] as [number, number][], { edges: [[0, 1]] as [number, number][] }).attribute('age', 0);
+    const a = rule.point().set({ age: 1 });
+    const b = rule.point().set({ age: 2 });
+    // Matching is order-free; WRITING is last-wins, as everywhere else.
+    expect(attributed().steps(1, [a, b]).points.at(0).age).toBe(2);
+    expect(attributed().steps(1, [b, a]).points.at(0).age).toBe(1);
+    // A move is the commuting case, and the only one.
+    const m = line(2);
+    expect(m.steps(1, [rule.point().move([1, 0]), rule.point().move([10, 0])]).points.at(0).x)
+      .toBeCloseTo(m.steps(1, [rule.point().move([10, 0]), rule.point().move([1, 0])]).points.at(0).x, 10);
   });
 
   it('splits every edge that matches, and only those', () => {
