@@ -430,7 +430,7 @@ export const CATALOGUE: Catalogue = {
       import: null, call: 't.within', returns: 'faces',
       page: '/docs/reference/fields', group: 'Fields',
       params: [
-        { name: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] }, optional: true },
+        { name: 'faces', takes: { socket: 'Geometry', kinds: ['faces', 'material', 'points'] }, optional: true },
         { name: 'area', takes: { socket: 'Geometry', kinds: ['shape', 'faces', 'material', 'points'] }, optional: false },
         { name: 'opts', optional: true, options: [
           { name: 'faces', control: 'menu', choices: ['contained', 'centroid'], optional: true },
@@ -688,7 +688,7 @@ export const CATALOGUE: Catalogue = {
       import: null, call: 't.sample', returns: 'material',
       page: '/docs/reference/material', group: 'Material',
       params: [
-        { name: 'shape', takes: { socket: 'Geometry', kinds: ['shape'] }, optional: true },
+        { name: 'shape', takes: { socket: 'Geometry', kinds: ['shape', 'curves'] }, optional: true },
         { name: 'options', optional: false, options: [
           { name: 'count', takes: { socket: 'Number' }, optional: true },
           { name: 'spacing', takes: { socket: 'Number' }, optional: true },
@@ -1181,7 +1181,7 @@ export const CATALOGUE: Catalogue = {
       import: 'view', call: 'view', returns: 'drawing',
       page: '/docs/reference/3d/view', group: 'View',
       params: [
-        { name: 'geometry', takes: { socket: 'Geometry', kinds: ['curves'] }, optional: false },
+        { name: 'geometry', takes: { socket: 'Geometry', kinds: ['curves', 'mesh'] }, optional: false },
         { name: 'options', optional: false, options: [
           { name: 'camera', takes: { socket: 'Camera' }, optional: false },
           { name: 'stroke', control: 'text', optional: true },

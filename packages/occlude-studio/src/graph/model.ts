@@ -68,7 +68,14 @@ export function accepts(output: ValueType, takes: Takes): boolean {
   // checked against the socket.
   if (output === 'Geometry') return true;
   const kind = kindOf(output);
-  return kind !== undefined && takes.kinds.includes(kind);
+  if (kind === undefined) return false;
+  if (takes.kinds.includes(kind)) return true;
+  // A shape *is* a drawing. An input that takes what a sketch may draw takes
+  // a shape too — `clip(region, children)` declares `children` a drawing
+  // because its type is the whole tree, and `clip(sheet, ellipse(…))` is the
+  // ordinary way to write it. The reverse is not true: a group is not a
+  // shape, and a material is not ink at all.
+  return kind === 'shape' && takes.kinds.includes('drawing');
 }
 
 /** One option of an options record. */

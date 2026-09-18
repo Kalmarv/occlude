@@ -25,7 +25,9 @@ describe('the catalogue', () => {
   it('gives t.sample a shape and a count, and a material back', () => {
     const inputs = wordInputs(word('t.sample'));
     expect(inputs.map((i) => i.name)).toEqual(['shape', 'count', 'spacing', 'tolerance']);
-    expect(inputs[0].takes).toEqual({ socket: 'Geometry', kinds: ['shape'] });
+    // One socket carries what every overload of the word takes there:
+    // `t.sample` samples a shape's boundary and a surface's curves alike.
+    expect(inputs[0].takes).toEqual({ socket: 'Geometry', kinds: ['shape', 'curves'] });
     expect(inputs[1].takes).toEqual({ socket: 'Number' });
     expect(word('t.sample').returns).toBe('material');
   });

@@ -430,6 +430,11 @@ function planOf(type: ts.Type, at: ts.Node, word: string): { params: Param[]; re
    * `rnd()`, `rnd(n)` and `rnd(a, b)` are one word, and a node built from
    * the widest signature alone would call `t.rnd(2)` an error. */
   const perSignature: Set<string>[] = [];
+  /** Every usable overload's parameters, by position, so a parameter's socket
+   * can be the union of what all of them take. Overloads name the same place
+   * differently — `t.within(points, area)` and `t.within(faces, area)` — so
+   * the place is what they share, not the name. */
+  const perPosition: Param[][] = [];
   for (const sig of type.getCallSignatures()) {
     const returns = valueOf(checker.getReturnTypeOfSignature(sig));
     if (!returns) {
@@ -443,11 +448,33 @@ function planOf(type: ts.Type, at: ts.Node, word: string): { params: Param[]; re
     }
     dropped.push(...left);
     perSignature.push(new Set(sig.getParameters().map((p) => p.getName())));
+    params.forEach((param, i) => {
+      (perPosition[i] ??= []).push(param);
+    });
     if (!best || params.length >= best.params.length) best = { params, returns };
   }
   if (best && perSignature.length > 1) {
     for (const param of best.params) {
       if (perSignature.some((names) => !names.has(param.name))) param.optional = true;
+      // A parameter one overload takes as a material and another as points
+      // takes both: `t.within(points, area)` and `t.within(faces, area)` are
+      // one word, and a node built from the widest signature alone would
+      // refuse the others' geometry.
+      const everywhere = perPosition[best!.params.indexOf(param)] ?? [];
+      if (param.socket === 'Geometry' && param.kinds) {
+        const kinds = new Set(param.kinds);
+        let allGeometry = true;
+        for (const other of everywhere) {
+          if (other.socket !== 'Geometry' || !other.kinds) {
+            // One overload takes something else entirely at this place; the
+            // socket cannot be widened without lying about what fits.
+            if (other.socket !== undefined || other.control !== undefined) allGeometry = false;
+            continue;
+          }
+          for (const kind of other.kinds) kinds.add(kind);
+        }
+        if (allGeometry) param.kinds = [...kinds];
+      }
     }
   }
   return best ?? { problem: firstProblem || 'no call signature' };
