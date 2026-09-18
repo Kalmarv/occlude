@@ -1,0 +1,44 @@
+---
+title: Front
+description: A contour map with weather across it, where one shader decides every mark the pen makes.
+---
+
+The contours are the substrate. A noise field makes the land, and `t.isolines` cuts it at fifteen levels. A heavy pen takes one line, and it reads as a coastline. Nothing in that geometry knows about the weather.
+
+The weather is a second field, and only the shader reads it. It is a diagonal ramp with a noise wobble, so it crosses the sheet as a front. The shader asks the field for a value at each point along each stroke. Below `0.34` it keeps nothing. Then the mark grows. A thin dash with a long gap gives way to a long dash with a short gap. A solid line follows, and the heavy pen ends it. The stroke splits wherever that answer changes, so a single contour can start as dust and end as a coastline.
+
+The occlusion is the same as ever, and the shader never puts ink outside it. Compare the two edges in the drawing. Where the land runs off the sheet the contours stop at the paper. Where the front runs out the contours fade instead.
+
+Uses: `t.isolines`, `t.noise`, `shader` with `keep`, `dash` and `pen`, `t.plan({ shader })`, `pen()` in the sketch config, `strokes`.
+
+:::note
+A shader chooses among the pens the drawing already uses. `pen: 'heavy'` works here because one contour already asks for `heavy`. A name the drawing never drew with is an error, and the message names the pens it has.
+:::
+
+```ts live
+import { sketch, shader, strokes, pen, mm } from 'occlude';
+
+export default sketch({
+  aspect: [1, 1], seed: 11, margin: 6,
+  pens: { fine: pen({ width: mm(0.15), color: '#16181d' }), heavy: pen({ width: mm(0.32), color: '#16181d' }) },
+}, (t) => {
+  const b = t.bounds();
+  const land = (x, y) => t.noise(x / 46, y / 46) + 0.3 * t.noise(x / 19, y / 19);
+  const weather = (x, y) => (x + y) / (b.w + b.h) + 0.16 * t.noise(x / 24, y / 24);
+  t.plan({
+    shader: shader((s, p) => {
+      const w = weather(p[0], p[1]);
+      if (w < 0.34) return { keep: false };
+      if (w < 0.48) return { dash: [mm(0.8), mm(3.0)] };
+      if (w < 0.62) return { dash: [mm(2.0), mm(1.6)] };
+      if (w < 0.84) return {};
+      return { pen: 'heavy' };
+    }),
+  });
+  const levels = Array.from({ length: 15 }, (_, i) => 0.38 + (i * 0.62) / 14);
+  return [
+    strokes(t.isolines(land, levels), { pen: 'fine' }),
+    strokes(t.isolines(land, [0.70]), { pen: 'heavy' }),
+  ];
+});
+```

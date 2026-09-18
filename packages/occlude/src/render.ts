@@ -773,6 +773,11 @@ export function planBuffer(result: RenderResult, opts: PlanOptions = result.plan
     const frame = {
       nibOf: (pen: number): number => Math.max(result.pens[pen]?.width ?? 0, SNAP_GRID),
       resolve: (v: L): number => resolveLen(v, result.frame.inner),
+      penOf: (name: string): number => {
+        const i = result.pens.findIndex((p) => p.name === name);
+        if (i < 0) throw new Error(`shader: this drawing does not use the pen '${name}' (it uses ${result.pens.map((p) => `'${p.name}'`).join(', ')}). A shader chooses among the pens the drawing draws with.`);
+        return i;
+      },
     };
     buffer = encodePlanBuffer(shadeChains(decodePlanBuffer(buffer), opts.shader.program, frame));
   }

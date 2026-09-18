@@ -88,6 +88,20 @@ describe('a stroke shader', () => {
     expect(seen[0].s).toBe(0);
   });
 
+  it('names its pen, and says which pens the drawing has when the name is wrong', () => {
+    const named: SketchDef = sketch({}, () => [
+      polygon(circle(50, 50, 30)),
+      polygon(circle(50, 50, 12), { pen: 'pigma-05-black' }),
+    ]);
+    const shade = (program: StrokeProgram) => {
+      const result = render(named, { paper: { w: 100, h: 100 } });
+      return decodePlanBuffer(planBuffer(result, { shader: shader(program) }).buffer);
+    };
+    const chains = shade((_s, p) => ({ pen: p[0] < 50 ? 'pigma-005-black' : 'pigma-05-black' }));
+    expect(new Set(chains.map((c) => c.pen))).toEqual(new Set([0, 1]));
+    expect(() => shade(() => ({ pen: 'stabilo-88-green' }))).toThrow(/does not use the pen 'stabilo-88-green'/);
+  });
+
   it('refuses anything that is not a program', () => {
     expect(() => shader(undefined as unknown as StrokeProgram)).toThrow(/expected a function/);
   });

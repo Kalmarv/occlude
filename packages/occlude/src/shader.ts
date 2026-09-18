@@ -25,6 +25,9 @@ import type { PlanChain } from './plan.js';
 export interface ShadeFrame {
   nibOf(pen: number): number;
   resolve(v: L): number;
+  /** The drawing's pen table, by name. A shader reaches a pen the drawing
+   * uses; an unknown name is a loud error, the same as anywhere else. */
+  penOf(name: string): number;
 }
 
 /** What the engine knows about the stroke at the point being shaded. */
@@ -47,10 +50,12 @@ export interface StrokeInk {
   /** Draw this span more than once — retrace, the same path repeated. A
    * value below 1 is a dropout, the same as `keep: false`. */
   passes?: number;
-  /** Pen slot to draw this span with. The tour grouped pens BEFORE the
-   * shader ran, so an override costs a tool change the plan did not
-   * optimize for. */
-  pen?: number;
+  /** The pen to draw this span with, by name or by slot. The tour grouped
+   * pens BEFORE the shader ran, so an override costs a tool change the
+   * plan did not optimize for. A shader reaches the pens the drawing
+   * already uses: a name the drawing never drew with is an error, not a
+   * new pen. */
+  pen?: number | string;
   /** Mark and gap, repeated along the stroke. Lengths in the sketch's own
    * units: `mm(2)` is two millimetres, a bare `2` is two percent of the
    * drawable's short side. */
@@ -156,7 +161,8 @@ const normalize = (ink: StrokeInk, pen: number, frame: ShadeFrame): Span => {
     // anything else is a solid line, not an error that stops the drawing.
     if (Number.isFinite(on) && Number.isFinite(off) && on > 0 && off > 0) dash = [on, off];
   }
-  return { keep, passes: Math.max(1, passes), pen: ink.pen === undefined ? pen : Math.max(0, Math.floor(ink.pen)), dash };
+  const want = ink.pen === undefined ? pen : typeof ink.pen === 'string' ? frame.penOf(ink.pen) : Math.max(0, Math.floor(ink.pen));
+  return { keep, passes: Math.max(1, passes), pen: want, dash };
 };
 
 const same = (a: Span, b: Span): boolean =>
