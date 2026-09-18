@@ -26,6 +26,7 @@ services:
       HOST: ${OCCLUDE_HOST:-0.0.0.0}
     volumes:
       - ./packages/occlude-studio/sketches:/app/sketches
+      - ./packages/occlude-studio/graphs:/app/graphs
       - ./packages/occlude-studio/fills:/app/fills
       - ./packages/occlude-studio/assets:/app/assets
       - ./packages/occlude-studio/results:/app/results
@@ -48,6 +49,7 @@ services:
       # dev's own libraries, so trying things out never touches prod's store;
       # they seed themselves (default pens and papers) on first save
       - ./packages/occlude-studio/dev-store/sketches:/src/packages/occlude-studio/sketches
+      - ./packages/occlude-studio/dev-store/graphs:/src/packages/occlude-studio/graphs
       - ./packages/occlude-studio/dev-store/fills:/src/packages/occlude-studio/fills
       - ./packages/occlude-studio/dev-store/assets:/src/packages/occlude-studio/assets
       - ./packages/occlude-studio/dev-store/results:/src/packages/occlude-studio/results

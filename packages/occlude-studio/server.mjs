@@ -19,6 +19,7 @@ import { stripFillTypes } from './fill-transpile.mjs';
 import { createAssetHandler } from './asset-store.mjs';
 import { createFillHandler } from './fill-store.mjs';
 import { createResultHandler } from './result-store.mjs';
+import { createGraphHandler } from './graph-store.mjs';
 
 const root = resolve(fileURLToPath(new URL('.', import.meta.url)));
 const dist = join(root, 'dist');
@@ -34,6 +35,7 @@ const sketchApi = createSketchHandler(join(root, 'sketches'));
 const assetApi = createAssetHandler(join(root, 'assets'));
 const fillApi = createFillHandler(join(root, 'fills'), join(root, 'sketches'));
 const resultApi = createResultHandler(join(root, 'results'));
+const graphApi = createGraphHandler(join(root, 'graphs'));
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -91,6 +93,10 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname.startsWith('/api/results')) {
     void resultApi(req, res);
+    return;
+  }
+  if (url.pathname.startsWith('/api/graphs')) {
+    void graphApi(req, res);
     return;
   }
   if (url.pathname.startsWith('/api/')) {

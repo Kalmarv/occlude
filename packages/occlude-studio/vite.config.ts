@@ -24,25 +24,30 @@ import { createAssetHandler } from './asset-store.mjs';
 import { createFillHandler } from './fill-store.mjs';
 // @ts-expect-error same
 import { createResultHandler } from './result-store.mjs';
+// @ts-expect-error same
+import { createGraphHandler } from './graph-store.mjs';
 
-/** Sketch-store API in dev/preview; server.mjs hosts the same handler in prod. */
+/** The store APIs in dev/preview; server.mjs hosts the same handlers in prod. */
 function sketchStore(): Plugin {
   const handler = createSketchHandler(resolve(__dirname, 'sketches'));
   const assets = createAssetHandler(resolve(__dirname, 'assets'));
   const fills = createFillHandler(resolve(__dirname, 'fills'), resolve(__dirname, 'sketches'));
   const results = createResultHandler(resolve(__dirname, 'results'));
+  const graphs = createGraphHandler(resolve(__dirname, 'graphs'));
   return {
     name: 'occlude-sketch-store',
     configureServer(server) {
       server.middlewares.use(assets);
       server.middlewares.use(fills);
       server.middlewares.use(results);
+      server.middlewares.use(graphs);
       server.middlewares.use(handler);
     },
     configurePreviewServer(server) {
       server.middlewares.use(assets);
       server.middlewares.use(fills);
       server.middlewares.use(results);
+      server.middlewares.use(graphs);
       server.middlewares.use(handler);
     },
   };
@@ -74,6 +79,7 @@ export default defineConfig({
         machine: resolve(__dirname, 'machine.html'),
         results: resolve(__dirname, 'results.html'),
         evolve: resolve(__dirname, 'evolve.html'),
+        graph: resolve(__dirname, 'graph.html'),
         // The docs site's live-example script: a stable name, since the
         // (separately built) docs pages load it by URL.
         live: resolve(__dirname, 'src/live-embed.ts'),

@@ -91,16 +91,17 @@ COPY --from=verified /src/packages/occlude-studio/package.json \
                      /src/packages/occlude-studio/result-store.mjs \
                      /src/packages/occlude-studio/fill-store.mjs \
                      /src/packages/occlude-studio/fill-transpile.mjs \
-                     /src/packages/occlude-studio/asset-store.mjs ./
+                     /src/packages/occlude-studio/asset-store.mjs \
+                     /src/packages/occlude-studio/graph-store.mjs ./
 COPY --from=verified /src/packages/occlude-studio/assets ./assets
 # Runs as `node` (uid 1000) so files it writes into the bind-mounted
 # libraries belong to the checkout's owner, not root.
-RUN mkdir -p sketches fills results \
+RUN mkdir -p sketches fills results graphs \
  && chown -R node:node /app \
  && git config --system --add safe.directory '*'
 USER node
 ENV PORT=4173 HOST=0.0.0.0
-VOLUME ["/app/sketches", "/app/fills", "/app/assets", "/app/results"]
+VOLUME ["/app/sketches", "/app/fills", "/app/assets", "/app/results", "/app/graphs"]
 CMD ["node", "server.mjs"]
 
 # ------------------------------------------------------------------------ dev

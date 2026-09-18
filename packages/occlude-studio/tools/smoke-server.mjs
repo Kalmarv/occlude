@@ -112,6 +112,7 @@ try {
   await expect('/api/fills', 'application/json');
   await expect('/api/assets', 'application/json');
   await expect('/api/results', 'application/json');
+  await expect('/api/graphs', 'application/json');
   await expect('/docs', 'text/html');
   console.log(failures.length
     ? `studio smoke FAIL\n  ${failures.join('\n  ')}`

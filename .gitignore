@@ -5,6 +5,7 @@ pkg/
 *.log
 .DS_Store
 packages/occlude-studio/sketches/
+packages/occlude-studio/graphs/
 packages/occlude-studio/results/
 packages/occlude-studio/fills/
 packages/occlude-studio/dev-store/
