@@ -1176,16 +1176,22 @@ async function boot(): Promise<void> {
   // "Open in Graph" on the studio page hands the editor's own buffer over,
   // the way Evolve is handed one: what the artist is looking at, saved or
   // not.
+  // Why the page fell back to the template, when it did. The template
+  // renders, and its own status would wipe the reason off the line: a
+  // handoff that failed must not look like a page that simply opened.
+  let fallback: string | null = null;
   if (params.get('live') === '1') {
     const live = takeLive();
-    if (live?.source) {
+    const from = live?.name || 'the editor';
+    if (!live?.source) fallback = `nothing arrived from the studio — open the sketch there and press Open in Graph again`;
+    else if (await readSketch(live.source, from)) {
       await refreshList();
-      if (await readSketch(live.source, live.name || 'the editor')) {
-        nameInput.value = live.name;
-        seedInput.value = typeof graph.config.seed === 'number' ? String(graph.config.seed) : '';
-        notify(`read '${live.name || 'the editor'}' as a graph — Save gives it a name`, 'success');
-        return;
-      }
+      nameInput.value = live.name;
+      seedInput.value = typeof graph.config.seed === 'number' ? String(graph.config.seed) : '';
+      notify(`read '${from}' as a graph — Save gives it a name`, 'success');
+      return;
+    } else {
+      fallback = `'${from}' would not read as a graph — the template is below`;
     }
   }
   const wanted = params.get('graph');
@@ -1195,6 +1201,7 @@ async function boot(): Promise<void> {
     // A link that cannot open falls back to the template: the document must
     // never be left half-loaded with the canvas still in build mode.
     if (opened) return;
+    fallback = `'${wanted}' would not open — the template is below`;
     history.replaceState(null, '', '/graph.html');
   }
   graph = template();
@@ -1203,6 +1210,10 @@ async function boot(): Promise<void> {
   await refreshList();
   dirty = false;
   await renderAll();
+  if (fallback) {
+    status(fallback, 'err');
+    notify(fallback, 'warning');
+  }
 }
 
 void boot();
