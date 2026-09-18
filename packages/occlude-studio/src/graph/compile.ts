@@ -51,10 +51,31 @@ function hash(text: string): string {
 
 const KEY = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
+/** A value JSON cannot hold: the source text of an expression, written
+ * verbatim. A sketch config carries `pen({ width: mm(0.3) })` and `mm(6)`,
+ * and a graph document is JSON, so the one thing JSON cannot spell keeps its
+ * own text. Import stores that text; the compiler writes it back. */
+export interface RawValue {
+  __raw: string;
+}
+
+export function isRaw(value: unknown): value is RawValue {
+  return typeof value === 'object' && value !== null && Object.keys(value).length === 1 && typeof (value as RawValue).__raw === 'string';
+}
+
+/** Every raw value in a JSON tree, in order. */
+function rawTexts(value: unknown): string[] {
+  if (isRaw(value)) return [value.__raw];
+  if (Array.isArray(value)) return value.flatMap(rawTexts);
+  if (typeof value === 'object' && value !== null) return Object.values(value).flatMap(rawTexts);
+  return [];
+}
+
 /** A JSON value as a JavaScript literal, written the way a docs example
  * writes it: unquoted keys where they are identifiers, `, ` separators. */
 export function literal(value: unknown): string {
   if (value === null) return 'null';
+  if (isRaw(value)) return value.__raw;
   if (typeof value === 'string') {
     return `'${value
       .replace(/\\/g, '\\\\')
@@ -119,8 +140,12 @@ function validate(graph: Graph, catalogue: Catalogue): Map<string, CatalogueWord
     else if (word.receiver && word.receiver !== 't') reserved.add(word.receiver);
   }
   for (const node of graph.nodes) {
-    if (node.kind === 'code') for (const name of bodyImports(node.body!, catalogue)) reserved.add(name.name);
+    if (node.kind === 'code') for (const name of usedImports(node.body!, catalogue)) reserved.add(name.name);
   }
+  for (const node of graph.nodes) {
+    for (const inp of Object.values(node.inputs)) if (isRaw(inp.value)) for (const name of usedImports(inp.value.__raw, catalogue)) reserved.add(name.name);
+  }
+  for (const name of usedImports(rawTexts(graph.config).join('\n'), catalogue)) reserved.add(name.name);
   for (const node of graph.nodes) {
     if (reserved.has(node.id)) throw new Error(`graph: node id ${node.id} is a name the compiled sketch already uses`);
   }
@@ -222,11 +247,12 @@ function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Gra
   return node.kind === 'code' ? codeSource(node, graph, catalogue) : '';
 }
 
-/** The names a code node body reaches for. The body is TypeScript the
- * compiler does not parse, so a name a module exports is imported when the
- * body uses it as something other than a property key or a parameter — an
- * unused import is harmless, a missing one would not run. */
-function bodyImports(body: string, catalogue: Catalogue): { module: 'occlude' | 'occlude/3d'; name: string }[] {
+/** The names a stretch of source reaches for. A code node body and a raw
+ * config value are TypeScript the compiler does not parse, so a name a
+ * module exports is imported when the text uses it as something other than a
+ * property key or a parameter — an unused import is harmless, a missing one
+ * would not run. */
+function usedImports(body: string, catalogue: Catalogue): { module: 'occlude' | 'occlude/3d'; name: string }[] {
   const out: { module: 'occlude' | 'occlude/3d'; name: string }[] = [];
   const count = (pattern: string): number => body.match(new RegExp(pattern, 'g'))?.length ?? 0;
   for (const { module, names } of catalogue.importable) {
@@ -293,13 +319,15 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
   const nodes: CompiledNode[] = [];
   const words: CatalogueWord[] = [];
   const extra: { module: 'occlude' | 'occlude/3d'; name: string }[] = [];
+  const raw: string[] = [];
   const hashes = new Map<string, string>();
   for (const id of emitted) {
     const node = nodeById(graph, id);
     const word = wordsById.get(id);
     const source = nodeSource(node, word, graph, catalogue);
     if (word) words.push(word);
-    if (node.kind === 'code') extra.push(...bodyImports(node.body!, catalogue));
+    if (node.kind === 'code') extra.push(...usedImports(node.body!, catalogue));
+    for (const inp of Object.values(node.inputs)) if (isRaw(inp.value)) raw.push(inp.value.__raw);
     const upstream = Object.values(node.inputs)
       .map((inp) => (inp.from ? hashes.get(inp.from[0]) ?? '' : literal(inp.value)))
       .join(',');
@@ -307,6 +335,8 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
     hashes.set(id, nodeHash);
     nodes.push({ id, kind: node.kind, source, outputs: outputsOf(node, catalogue), hash: nodeHash });
   }
+  raw.push(...rawTexts(graph.config));
+  if (raw.length > 0) extra.push(...usedImports(raw.join('\n'), catalogue));
   if (wrap) extra.push({ module: 'occlude', name: wrap });
   const body = nodes.filter((n) => n.source !== '').map((n) => `  ${n.source.replace(/\n/g, '\n  ')}`);
   const returned = inputExpression(targetNode, input, graph, catalogue);

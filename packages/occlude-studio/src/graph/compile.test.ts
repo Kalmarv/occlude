@@ -114,6 +114,21 @@ describe('the compiled sketch', () => {
     expect(source).toContain('const n3 = strokes(n2);');
   });
 
+  it('writes a raw value as the source it carries, and imports what it reaches for', () => {
+    const graph = parseGraph({
+      version: 1, name: 'raw', config: { aspect: [1, 1], seed: 8, pens: { ink: { __raw: 'pen({ width: mm(0.3) })' } } },
+      nodes: [
+        { id: 'n1', kind: 'builtin', word: 'circle', inputs: { x: { value: 10 }, y: { value: 10 }, r: { value: 4 } } },
+        { id: 'n2', kind: 'builtin', word: 'strokes', inputs: { source: { from: ['n1', 'out'] }, pen: { value: { __raw: "'pigma-005-black'" } } } },
+        { id: 'n5', kind: 'output', inputs: { in: { from: ['n2', 'out'] } } },
+      ],
+    });
+    const { source } = compileGraph(graph, CATALOGUE);
+    expect(source).toContain(`sketch({ aspect: [1, 1], seed: 8, pens: { ink: pen({ width: mm(0.3) }) } }, (t) => {`);
+    expect(source).toContain(`{ pen: 'pigma-005-black' }`);
+    expect(source).toContain('import { sketch, circle, strokes } from');
+  });
+
   it('writes a control as a plain literal', () => {
     const graph = doc([
       { id: 'n1', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 10 }, y: { value: 10 }, r: { value: 4 } } },
