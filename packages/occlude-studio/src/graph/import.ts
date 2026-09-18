@@ -101,6 +101,9 @@ class Reader {
   /** Every name the sketch function declares anywhere: a name that is both an
    * alias and a local is the local, and is left alone. */
   private readonly shadowed = new Set<string>();
+  /** The declaration the sketch's config came from, when it came from one:
+   * it is the document's config, so it is not read as a node too. */
+  private configDecl: ts.VariableDeclaration | undefined;
   /** The word a call text names: `t.sample`, `connect.chain`, `box`. */
   private readonly byCall = new Map<string, CatalogueWord>();
   private readonly byWord = new Map<string, CatalogueWord>();
@@ -109,6 +112,20 @@ class Reader {
     for (const word of catalogue.words) {
       this.byWord.set(word.word, word);
       if (!this.byCall.has(word.call)) this.byCall.set(word.call, word);
+    }
+    // A node id is a `const` beside the sketch's imports and its toolkit, so
+    // it may not be a name any of them bind. The compiler refuses one, and a
+    // sketch with `const circle = …` is ordinary. Reserving every importable
+    // name up front — not only the ones this graph happens to import — keeps
+    // an id from moving when a later edit adds an import.
+    this.taken.add('t');
+    this.taken.add('sketch');
+    for (const name of NAMESPACES) this.taken.add(name);
+    for (const entry of catalogue.importable) {
+      for (const { name, spec } of entry.names) {
+        this.taken.add(name);
+        this.taken.add(spec.split(' as ')[0]!);
+      }
     }
   }
 
@@ -125,7 +142,11 @@ class Reader {
     for (const st of this.file.statements) {
       if (ts.isImportDeclaration(st) || ts.isExportAssignment(st)) continue;
       if (ts.isVariableStatement(st)) {
-        for (const decl of st.declarationList.declarations) this.readDeclaration(decl, []);
+        for (const decl of st.declarationList.declarations) {
+          // The config's own `const` is the document's config, not a node.
+          if (decl === this.configDecl) continue;
+          this.readDeclaration(decl, []);
+        }
         continue;
       }
       throw new Error(`cannot read ${describe(st)} at line ${this.line(st)}`);
@@ -190,11 +211,31 @@ class Reader {
   private argumentsOf(call: ts.CallExpression): [Record<string, unknown>, ts.ArrowFunction | ts.FunctionExpression] {
     const [first, second] = call.arguments;
     if (!first) throw new Error(`cannot read the sketch call at line ${this.line(call)} (it has no arguments)`);
-    if (ts.isObjectLiteralExpression(first)) {
+    const firstObject = first && this.objectOf(first);
+    if (firstObject) {
       if (!second) throw new Error(`cannot read the sketch call at line ${this.line(call)} (it has no function)`);
-      return [this.configOf(first), this.functionOf(second)];
+      return [this.configOf(firstObject), this.functionOf(second)];
     }
-    return [second && ts.isObjectLiteralExpression(second) ? this.configOf(second) : {}, this.functionOf(first)];
+    const secondObject = second && this.objectOf(second);
+    return [secondObject ? this.configOf(secondObject) : {}, this.functionOf(first)];
+  }
+
+  /** The object a config argument is: written out, or held in a `const`
+   * above the call (`const sketchConfig = { … }`). The name is the sketch's
+   * own, and the config belongs to the document, not to a node. */
+  private objectOf(expr: ts.Expression): ts.ObjectLiteralExpression | undefined {
+    if (ts.isObjectLiteralExpression(expr)) return expr;
+    if (!ts.isIdentifier(expr)) return undefined;
+    for (const st of this.file.statements) {
+      if (!ts.isVariableStatement(st)) continue;
+      for (const decl of st.declarationList.declarations) {
+        if (!ts.isIdentifier(decl.name) || decl.name.text !== expr.text) continue;
+        if (!decl.initializer || !ts.isObjectLiteralExpression(decl.initializer)) return undefined;
+        this.configDecl = decl;
+        return decl.initializer;
+      }
+    }
+    return undefined;
   }
 
   private functionOf(node: ts.Expression): ts.ArrowFunction | ts.FunctionExpression {

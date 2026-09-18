@@ -21,6 +21,7 @@
  * sketch that imports and compiles is counted, which is the cheap answer.
  */
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,6 +32,7 @@ import {
   type AsyncSketchDef, type PaperDef, type PenDef, type SketchDef,
 } from 'occlude';
 
+import { assetsFromDisk } from '../../occlude/tools/asset-preload.js';
 import { CATALOGUE } from '../src/graph/catalogue.js';
 import { compileGraph, usedImports } from '../src/graph/compile.js';
 import { importSketch, type ImportRefusal } from '../src/graph/import.js';
@@ -42,6 +44,7 @@ const pkg = resolve(here, '..');
 const root = resolve(pkg, '../..');
 /** The owner's own library, in the prod checkout. Read only, never written. */
 const PROD = '/home/kalmarv/containers/occlude/packages/occlude-studio/sketches';
+const PROD_ASSETS = '/home/kalmarv/containers/occlude/packages/occlude-studio/assets';
 
 const args = process.argv.slice(2);
 const RUN = args.includes('--run');
@@ -121,7 +124,12 @@ function definition(text: string, pens: PenDef[], papers: PaperDef[]): SketchDef
     if (mod) return mod;
     throw new Error(`cannot import '${name}' here`);
   };
-  new Function('require', 'exports', 'module', liveExampleToJs(text))(require, module.exports, module);
+  // The same two steps the studio takes: the server strips the types
+  // (`/api/transpile`), and the runner's own transform turns ESM into the CJS
+  // the worker evaluates. A docs fence needs only the second; a sketch from
+  // the library is ordinary TypeScript and needs both.
+  const js = liveExampleToJs(stripTypeScriptTypes(text, { mode: 'strip' }));
+  new Function('require', 'exports', 'module', js)(require, module.exports, module);
   const value = module.exports.default;
   if (isSketch(value) || isSketchAsync(value)) return value;
   const found = Object.values(module.exports).find((v) => isSketch(v) || isSketchAsync(v));
@@ -129,12 +137,14 @@ function definition(text: string, pens: PenDef[], papers: PaperDef[]): SketchDef
   throw new Error('exports no sketch');
 }
 
-async function runs(text: string, pens: PenDef[], papers: PaperDef[]): Promise<void> {
+async function runs(text: string, pens: PenDef[], papers: PaperDef[], assetDir: string): Promise<void> {
   await renderAsync(definition(text, pens, papers), {
     paper: { paper: 'Square20', landscape: false },
     coarsen: 4,
     marginPct: 5,
     library: structuredClone(pens),
+    // A sketch that reads an image reads it from the store it belongs to.
+    assets: assetsFromDisk(text, assetDir),
   });
 }
 
@@ -169,6 +179,14 @@ function countGraph(graph: Graph): Row {
 
 const pad = (text: string, width: number): string => (text.length >= width ? text : text + ' '.repeat(width - text.length));
 const padLeft = (text: string, width: number): string => (text.length >= width ? text : ' '.repeat(width - text.length) + text);
+/** A thrown thing's first line. Not everything thrown is an Error with a
+ * message: a decoder throws a string, and a report that crashes says less
+ * than a report that names the sketch. */
+const why = (error: unknown): string => {
+  const text = error instanceof Error ? error.message : String(error);
+  return (text || String(error)).split('\n')[0]!;
+};
+
 const share = (builtin: number, code: number): string => (builtin + code === 0 ? '—' : `${Math.round((100 * builtin) / (builtin + code))}%`);
 
 async function main(): Promise<void> {
@@ -193,9 +211,9 @@ async function main(): Promise<void> {
     const library = libraries.get(source.group)!;
     if (RUN && source.group !== 'docs') {
       try {
-        await runs(source.text, library.pens, library.papers);
+        await runs(source.text, library.pens, library.papers, source.group === 'mine' ? PROD_ASSETS : join(pkg, 'assets'));
       } catch (error) {
-        skipped.push({ name: `${source.group}/${source.name}`, why: `does not run: ${(error as Error).message.split('\n')[0]}` });
+        skipped.push({ name: `${source.group}/${source.name}`, why: `does not run: ${why(error)}` });
         continue;
       }
     }
@@ -206,7 +224,7 @@ async function main(): Promise<void> {
       compileGraph(graph, CATALOGUE);
       parseGraph(JSON.parse(graphToJson(graph)));
     } catch (error) {
-      skipped.push({ name: `${source.group}/${source.name}`, why: `does not import: ${(error as Error).message.split('\n')[0]}` });
+      skipped.push({ name: `${source.group}/${source.name}`, why: `does not import: ${why(error)}` });
       continue;
     }
     const row = countGraph(graph);
