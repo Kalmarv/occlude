@@ -797,6 +797,22 @@ coincident mm, before and after. That is the real claim — an existing
 sketch's toolpath is untouched — and it is measured rather than argued from
 the shape of the diff.
 
+### `dot` is the vector dot product, not a tap
+
+`CLAUDE.md`'s design laws say "`strokes`, `stroke` and `dot` interpret
+geometry as ink". The `dot` exported from `src/index.ts` is
+`dot(a: XY, b: XY): number` from `vec.ts` — the vector dot product.
+`dot(30, 50, { pen })` therefore computes a dot product and draws nothing,
+silently, because a number is not a drawable.
+
+The tap word is `dots(points, { pen })`, and `working/relations-design.md`
+lists it as designed and NOT built: it needs the planner's zero-length
+cleanup to spare it, occlusion as a point, nib-width preview and a settle
+on export — a wasm protocol change on both sides in one commit.
+
+Cost an example page twenty minutes. Either the laws should say `dots`, or
+`dots` should exist.
+
 ### Open, and waiting on a ruling
 
 - `p.adjacent` is a FOURTH spelling of "what is joined to this vertex",
