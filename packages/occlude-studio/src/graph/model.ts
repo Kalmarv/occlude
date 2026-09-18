@@ -19,7 +19,7 @@ export type GeometryKind = (typeof GEOMETRY_KINDS)[number];
 
 /** The socket classes: what a connection carries, at the granularity the
  * artist wires. */
-export const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier', 'VectorField', 'Tone', 'Pen'] as const;
+export const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier', 'VectorField', 'Tone', 'Pen', 'Image'] as const;
 export type SocketClass = (typeof SOCKET_CLASSES)[number];
 
 /** A value a code node declares, an input takes or a word returns. */

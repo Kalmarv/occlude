@@ -44,6 +44,7 @@ const TS_TYPE: Record<string, { type: string; module?: 'occlude' | 'occlude/3d';
   Tone: { type: 'ToneField', module: 'occlude', name: 'ToneField' },
   // A pen is named, not built: a sketch says which of its pens to draw with.
   Pen: { type: 'string' },
+  Image: { type: 'ImageSampler', module: 'occlude', name: 'ImageSampler' },
   // Geometry with no kind is "the graph does not know": `any`, not
   // `unknown`, because a squiggle the graph invented on a body that runs is
   // worse than no check. A node whose type the artist declares is checked.
@@ -64,6 +65,7 @@ const SOCKET_CLASS_LABEL: Record<string, string> = {
   VectorField: 'vectors',
   Tone: 'tone',
   Pen: 'pen',
+  Image: 'picture',
 };
 
 /** The socket a value type travels on, and the geometry kinds it names. */

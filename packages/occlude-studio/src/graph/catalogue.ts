@@ -1221,6 +1221,15 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 't.image', module: 'occlude', receiver: 't',
+      import: null, call: 't.image', returns: 'Image',
+      page: '/docs/reference/images', group: 'Images',
+      params: [
+        { name: 'name', control: 'text', optional: false },
+        { name: 'place', control: 'text', raw: true, optional: true },
+      ],
+    },
+    {
       word: 'box', module: 'occlude/3d', receiver: null,
       import: 'box', call: 'box', returns: 'mesh',
       page: '/docs/reference/3d/primitives', group: 'Primitives',
@@ -2042,6 +2051,90 @@ export const CATALOGUE: Catalogue = {
       page: '', group: 'Other',
       params: [
         { name: 'n', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'ImageSampler.a', module: 'occlude', receiver: null,
+      import: null, call: '{self}.a', returns: 'Number',
+      self: { param: 'image', takes: { socket: 'Image' } },
+      page: '', group: 'ImageSampler',
+      params: [
+        { name: 'x', takes: { socket: 'Number' }, optional: false },
+        { name: 'y', takes: { socket: 'Number' }, optional: false },
+        { name: 'area', takes: { socket: 'Number' }, optional: true },
+      ],
+    },
+    {
+      word: 'ImageSampler.bands', module: 'occlude', receiver: null,
+      import: null, call: '{self}.bands', returns: 'Number',
+      self: { param: 'image', takes: { socket: 'Image' } },
+      page: '', group: 'ImageSampler',
+      params: [
+        { name: 'x', takes: { socket: 'Number' }, optional: false },
+        { name: 'y', takes: { socket: 'Number' }, optional: false },
+        { name: 'n', takes: { socket: 'Number' }, optional: false },
+        { name: 'area', takes: { socket: 'Number' }, optional: true },
+      ],
+    },
+    {
+      word: 'ImageSampler.dir', module: 'occlude', receiver: null,
+      import: null, call: '{self}.dir', returns: 'Number',
+      self: { param: 'image', takes: { socket: 'Image' } },
+      page: '', group: 'ImageSampler',
+      params: [
+        { name: 'x', takes: { socket: 'Number' }, optional: false },
+        { name: 'y', takes: { socket: 'Number' }, optional: false },
+        { name: 'area', takes: { socket: 'Number' }, optional: true },
+      ],
+    },
+    {
+      word: 'ImageSampler.edge', module: 'occlude', receiver: null,
+      import: null, call: '{self}.edge', returns: 'Number',
+      self: { param: 'image', takes: { socket: 'Image' } },
+      page: '', group: 'ImageSampler',
+      params: [
+        { name: 'x', takes: { socket: 'Number' }, optional: false },
+        { name: 'y', takes: { socket: 'Number' }, optional: false },
+        { name: 'area', takes: { socket: 'Number' }, optional: true },
+      ],
+    },
+    {
+      word: 'ImageSampler.field', module: 'occlude', receiver: null,
+      import: null, call: '{self}.field', returns: 'Field',
+      self: { param: 'image', takes: { socket: 'Image' } },
+      page: '', group: 'ImageSampler',
+      params: [
+        { name: 'channel', control: 'menu', choices: ['a', 'lum', 'dark', 'edge'], optional: true },
+        { name: 'opts', optional: true, options: [
+          { name: 'area', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 'ImageSampler.height', module: 'occlude', receiver: null, value: true,
+      import: null, call: '{self}.height', returns: 'Number',
+      self: { param: 'image', takes: { socket: 'Image' } },
+      page: '', group: 'ImageSampler',
+      params: [
+      ],
+    },
+    {
+      word: 'ImageSampler.lum', module: 'occlude', receiver: null,
+      import: null, call: '{self}.lum', returns: 'Number',
+      self: { param: 'image', takes: { socket: 'Image' } },
+      page: '', group: 'ImageSampler',
+      params: [
+        { name: 'x', takes: { socket: 'Number' }, optional: false },
+        { name: 'y', takes: { socket: 'Number' }, optional: false },
+        { name: 'area', takes: { socket: 'Number' }, optional: true },
+      ],
+    },
+    {
+      word: 'ImageSampler.width', module: 'occlude', receiver: null, value: true,
+      import: null, call: '{self}.width', returns: 'Number',
+      self: { param: 'image', takes: { socket: 'Image' } },
+      page: '', group: 'ImageSampler',
+      params: [
       ],
     },
     {

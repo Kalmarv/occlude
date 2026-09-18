@@ -63,6 +63,7 @@ const SOCKET_COLORS: Record<string, string> = {
   VectorField: 'var(--toolpath)',
   Tone: 'var(--muted)',
   Pen: 'var(--accent-edge)',
+  Image: 'var(--warn)',
 };
 
 /** What a viewer's own picture wraps: a material is not ink. */

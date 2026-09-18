@@ -89,7 +89,7 @@ for (const page of PAGES) for (const word of page.words) if (!pageOfWord.has(wor
 
 // ---- the type → socket map ----
 
-const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier', 'VectorField', 'Tone', 'Pen'] as const;
+const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier', 'VectorField', 'Tone', 'Pen', 'Image'] as const;
 type SocketClass = (typeof SOCKET_CLASSES)[number];
 const GEOMETRY_KINDS = ['shape', 'material', 'points', 'faces', 'mesh', 'curves', 'surface', 'drawing'] as const;
 type GeometryKind = (typeof GEOMETRY_KINDS)[number];
@@ -129,6 +129,7 @@ const BY_NAME: Record<string, ValueType> = {
   VectorFieldFn: 'VectorField',
   DirectionField: 'VectorField',
   ToneField: 'Tone',
+  ImageSampler: 'Image',
   CurveSamples: 'curves',
   Drawing3: 'drawing',
   LineArtScene3: 'drawing',
@@ -367,7 +368,7 @@ interface Word {
   receiver: string | null;
   import: string | null;
   call: string;
-  self?: { param: string; takes: { socket: SocketClass; kinds: GeometryKind[] } };
+  self?: { param: string; takes: { socket: SocketClass; kinds?: GeometryKind[] } };
   params: Param[];
   returns: ValueType;
   page: string;
@@ -653,12 +654,14 @@ function walk(symbols: ts.Symbol[], module: 'occlude' | 'occlude/3d'): void {
  * receiver travels on. A row view (`Edge`, `Vertex`, `Station`, `Next`) is
  * reached by indexing a material, not by a wire, so it has no kind and no
  * node. */
-const OWNERS: Record<string, { kind: GeometryKind; param: string }> = {
+const OWNERS: Record<string, { kind?: GeometryKind; socket?: SocketClass; param: string }> = {
   Material: { kind: 'material', param: 'material' },
   PointSelection: { kind: 'points', param: 'points' },
   Faces: { kind: 'faces', param: 'faces' },
   FaceSelection: { kind: 'faces', param: 'faces' },
   '3d.Mesh': { kind: 'mesh', param: 'mesh' },
+  // A picture is not geometry, and its words hang off it the same way.
+  ImageSampler: { socket: 'Image', param: 'image' },
 };
 
 /** Every method and value a receiver class offers, as a word that takes the
@@ -701,7 +704,11 @@ function walkOwners(moduleSymbol: ts.Symbol): void {
       words.push({
         word, module: name.startsWith('3d.') ? 'occlude/3d' : 'occlude', receiver: null, import: null,
         ...(isValue ? { value: true } : {}),
-        call: `{self}.${member}`, self: { param: owner.param, takes: { socket: 'Geometry', kinds: [owner.kind] } },
+        call: `{self}.${member}`,
+        self: {
+          param: owner.param,
+          takes: owner.kind ? { socket: 'Geometry', kinds: [owner.kind] } : { socket: owner.socket! },
+        },
         params: plan.params, returns: plan.returns,
         page: page ? `/docs/reference/${page.slug}` : '',
         group: page ? page.group : name,
@@ -929,7 +936,7 @@ for (const w of words) {
   lines.push('    {');
   lines.push(`      word: ${q(w.word)}, module: ${q(w.module)}, receiver: ${w.receiver ? q(w.receiver) : 'null'},${w.value ? ' value: true,' : ''}${w.template ? ` template: ${q(w.template)},` : ''}`);
   lines.push(`      import: ${w.import ? q(w.import) : 'null'}, call: ${q(w.call)}, returns: ${q(w.returns)},`);
-  if (w.self) lines.push(`      self: { param: ${q(w.self.param)}, takes: { socket: ${q(w.self.takes.socket)}, kinds: [${w.self.takes.kinds.map(q).join(', ')}] } },`);
+  if (w.self) lines.push(`      self: { param: ${q(w.self.param)}, takes: { socket: ${q(w.self.takes.socket)}${w.self.takes.kinds ? `, kinds: [${w.self.takes.kinds.map(q).join(', ')}]` : ''} } },`);
   lines.push(`      page: ${q(w.page)}, group: ${q(w.group)},`);
   lines.push('      params: [');
   for (const p of w.params) {
