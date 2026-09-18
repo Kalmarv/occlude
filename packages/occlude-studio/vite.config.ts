@@ -34,6 +34,7 @@ function sketchStore(): Plugin {
   const fills = createFillHandler(resolve(__dirname, 'fills'), resolve(__dirname, 'sketches'));
   const results = createResultHandler(resolve(__dirname, 'results'));
   const graphs = createGraphHandler(resolve(__dirname, 'graphs'));
+  const groups = createGraphHandler(resolve(__dirname, 'groups'), '/api/groups');
   return {
     name: 'occlude-sketch-store',
     configureServer(server) {
@@ -41,6 +42,7 @@ function sketchStore(): Plugin {
       server.middlewares.use(fills);
       server.middlewares.use(results);
       server.middlewares.use(graphs);
+      server.middlewares.use(groups);
       server.middlewares.use(handler);
     },
     configurePreviewServer(server) {
@@ -48,6 +50,7 @@ function sketchStore(): Plugin {
       server.middlewares.use(fills);
       server.middlewares.use(results);
       server.middlewares.use(graphs);
+      server.middlewares.use(groups);
       server.middlewares.use(handler);
     },
   };

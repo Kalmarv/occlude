@@ -32,10 +32,11 @@ if (!existsSync(join(dist, 'index.html'))) {
 }
 
 const sketchApi = createSketchHandler(join(root, 'sketches'));
+const graphApi = createGraphHandler(join(root, 'graphs'));
+const groupApi = createGraphHandler(join(root, 'groups'), '/api/groups');
 const assetApi = createAssetHandler(join(root, 'assets'));
 const fillApi = createFillHandler(join(root, 'fills'), join(root, 'sketches'));
 const resultApi = createResultHandler(join(root, 'results'));
-const graphApi = createGraphHandler(join(root, 'graphs'));
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -97,6 +98,10 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname.startsWith('/api/graphs')) {
     void graphApi(req, res);
+    return;
+  }
+  if (url.pathname.startsWith('/api/groups')) {
+    void groupApi(req, res);
     return;
   }
   if (url.pathname.startsWith('/api/')) {

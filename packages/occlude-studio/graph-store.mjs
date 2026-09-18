@@ -10,6 +10,9 @@
  *   PUT    /api/graphs/<name>   → save body; rejected unless it parses as JSON
  *   DELETE /api/graphs/<name>   → remove
  *
+ * The same handler serves the group library under /api/groups: a group is
+ * the same document with a boundary, and it wants the same four routes.
+ *
  * Names are ^[a-zA-Z0-9 _-]{1,64}$ (the sketch store's rule).
  */
 
@@ -28,12 +31,12 @@ const readBody = async (req) => {
  * Returns a connect-style handler: (req, res, next) => void.
  * Calls next() (when given) for non-/api/graphs paths, else 404s.
  */
-export function createGraphHandler(dir) {
+export function createGraphHandler(dir, route = '/api/graphs') {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
   return async function handler(req, res, next) {
     const url = new URL(req.url ?? '/', 'http://x');
-    if (!url.pathname.startsWith('/api/graphs')) {
+    if (!url.pathname.startsWith(route)) {
       if (next) return next();
       res.statusCode = 404;
       return res.end('{"error":"not found"}');
@@ -45,8 +48,8 @@ export function createGraphHandler(dir) {
       res.end(body);
     };
     try {
-      // There are no sub-resources: whatever follows /api/graphs IS the name.
-      const rest = url.pathname.slice('/api/graphs'.length).replace(/^\//, '');
+      // There are no sub-resources: whatever follows the route IS the name.
+      const rest = url.pathname.slice(route.length).replace(/^\//, '');
       if (rest === '') {
         if (req.method !== 'GET') return send(405, '{"error":"method"}');
         const files = await fs.readdir(dir);
