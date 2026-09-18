@@ -1830,6 +1830,27 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 't.cx', module: 'occlude', receiver: 't', value: true,
+      import: null, call: 't.cx', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+      ],
+    },
+    {
+      word: 't.cy', module: 'occlude', receiver: 't', value: true,
+      import: null, call: 't.cy', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+      ],
+    },
+    {
+      word: 't.height', module: 'occlude', receiver: 't', value: true,
+      import: null, call: 't.height', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+      ],
+    },
+    {
       word: 't.len', module: 'occlude', receiver: 't',
       import: null, call: 't.len', returns: 'Number',
       page: '', group: 'Other',
@@ -1846,6 +1867,13 @@ export const CATALOGUE: Catalogue = {
         { name: 'y1', takes: { socket: 'Number' }, optional: false },
         { name: 'x2', takes: { socket: 'Number' }, optional: false },
         { name: 'y2', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.width', module: 'occlude', receiver: 't', value: true,
+      import: null, call: 't.width', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
       ],
     },
     {

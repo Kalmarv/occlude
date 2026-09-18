@@ -111,6 +111,9 @@ export interface CatalogueInput {
 
 /** One exported word, as the catalogue carries it. */
 export interface CatalogueWord {
+  /** The word is a value, not a call: `t.cx` is the middle of the drawable,
+   * and the compiled sketch writes it with no parentheses. */
+  value?: boolean;
   /** As the reference writes it: `circle`, `t.sample`, `connect.dots`,
    * `3d.box`. Unique across the catalogue. */
   word: string;

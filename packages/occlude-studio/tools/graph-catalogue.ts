@@ -337,6 +337,8 @@ interface Param extends Partial<Takes>, Partial<Control> {
 }
 
 interface Word {
+  /** A value, not a call: written with no parentheses. */
+  value?: boolean;
   word: string;
   module: 'occlude' | 'occlude/3d';
   receiver: string | null;
@@ -471,7 +473,7 @@ function isToolkitAlias(word: string, receiver: string | null): boolean {
  * the docs and not a reason the artist cannot have the node. An undocumented
  * word is grouped by its owner (or `Other`) and carries no page link.
  */
-function addWord(word: string, module: 'occlude' | 'occlude/3d', receiver: string | null, importSpec: string | null, call: string, plan: { params: Param[]; returns: ValueType }, at: ts.Node): void {
+function addWord(word: string, module: 'occlude' | 'occlude/3d', receiver: string | null, importSpec: string | null, call: string, plan: { params: Param[]; returns: ValueType }, at: ts.Node, isValue = false): void {
   const page = pageOfWord.get(word);
   if (!page && isToolkitAlias(word, receiver)) {
     skipped.push({ word, reason: 'the module exports the same word; the toolkit spelling is a second door' });
@@ -483,6 +485,7 @@ function addWord(word: string, module: 'occlude' | 'occlude/3d', receiver: strin
     word, module, receiver, import: importSpec, call, params: plan.params, returns: plan.returns,
     page: page ? `/docs/reference/${page.slug}` : '',
     group: page ? page.group : owner === '' || owner === 't' ? 'Other' : owner,
+    ...(isValue ? { value: true } : {}),
   });
 }
 
@@ -620,7 +623,20 @@ function walkToolkit(): void {
     const name = prop.getName();
     if (name.startsWith('_')) continue;
     const propDecl = prop.valueDeclaration ?? prop.declarations?.[0] ?? entry;
-    const plan = planOf(checker.getTypeOfSymbolAtLocation(prop, propDecl), propDecl, `t.${name}`);
+    const propType = checker.getTypeOfSymbolAtLocation(prop, propDecl);
+    // A toolkit member that is a value and not a function is a node with no
+    // inputs: `t.cx` is the middle of the drawable, and a sketch writes it
+    // with no parentheses.
+    if (propType.getCallSignatures().length === 0) {
+      const returns = valueOf(propType);
+      if (!returns) {
+        skipped.push({ word: `t.${name}`, reason: `holds ${checker.typeToString(propType, propDecl, ts.TypeFormatFlags.NoTruncation)}` });
+        continue;
+      }
+      addWord(`t.${name}`, 'occlude', 't', null, `t.${name}`, { params: [], returns }, propDecl, true);
+      continue;
+    }
+    const plan = planOf(propType, propDecl, `t.${name}`);
     if ('problem' in plan) {
       skipped.push({ word: `t.${name}`, reason: plan.problem });
       continue;
@@ -746,7 +762,7 @@ lines.push('export const CATALOGUE: Catalogue = {');
 lines.push('  words: [');
 for (const w of words) {
   lines.push('    {');
-  lines.push(`      word: ${q(w.word)}, module: ${q(w.module)}, receiver: ${w.receiver ? q(w.receiver) : 'null'},`);
+  lines.push(`      word: ${q(w.word)}, module: ${q(w.module)}, receiver: ${w.receiver ? q(w.receiver) : 'null'},${w.value ? ' value: true,' : ''}`);
   lines.push(`      import: ${w.import ? q(w.import) : 'null'}, call: ${q(w.call)}, returns: ${q(w.returns)},`);
   if (w.self) lines.push(`      self: { param: ${q(w.self.param)}, takes: { socket: ${q(w.self.takes.socket)}, kinds: [${w.self.takes.kinds.map(q).join(', ')}] } },`);
   lines.push(`      page: ${q(w.page)}, group: ${q(w.group)},`);

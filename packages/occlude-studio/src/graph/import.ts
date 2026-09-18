@@ -385,7 +385,12 @@ class Reader {
       const id = this.uniqueId(name);
       let builtin: { node: GraphNode; word: CatalogueWord } | undefined;
       if (before.length > 0) this.refuse(id, undefined, 'a statement before it joined this node');
-      else if (!ts.isCallExpression(expr)) {
+      else if (!ts.isCallExpression(expr) && this.valueWordOf(expr)) {
+        const word = this.valueWordOf(expr)!;
+        const node = this.add({ id, kind: 'builtin', word: word.word, x: 0, y: 0, inputs: {} });
+        this.bindings.set(name, { node, output: 'out', type: word.returns });
+        return;
+      } else if (!ts.isCallExpression(expr)) {
         // A literal is a value the graph holds, not a body that computes
         // one: `const boxSpread = 30;` was a code node whose whole text was
         // `return { out: 30 }` — a function call to say thirty.
@@ -591,7 +596,9 @@ class Reader {
     if (direct) return { word: direct };
     const callee = expr.expression;
     if (!ts.isPropertyAccessExpression(callee)) {
-      this.refuse(id, undefined, 'the callee is not a name');
+      this.refuse(id, undefined, ts.isIdentifier(callee)
+        ? `${callee.text} is not a catalogue word`
+        : `${describe(callee)} is not a name the catalogue knows`);
       return undefined;
     }
     const method = callee.name.text;
@@ -721,6 +728,19 @@ class Reader {
     return { id, kind: 'list', x: 0, y: 0, inputs, outputs: { out: 'drawing' } };
   }
 
+  /**
+   * The catalogue word an expression *is*, rather than calls: `t.cx` is the
+   * middle of the drawable, written with no parentheses.
+   */
+  private valueWordOf(expr: ts.Expression): CatalogueWord | undefined {
+    if (!ts.isPropertyAccessExpression(expr)) return undefined;
+    const owner = expr.expression;
+    if (!ts.isIdentifier(owner) || this.bindings.has(owner.text)) return undefined;
+    const ns = this.namespaces.get(owner.text);
+    const word = this.byCall.get(ns ? `${ns}.${expr.name.text}` : `${owner.text}.${expr.name.text}`);
+    return word?.value ? word : undefined;
+  }
+
   /** Several expressions as one list node. Used where a word is variadic. */
   private gather(items: readonly ts.Expression[], forId: string): GraphNode | undefined {
     const mark = this.nodes.length;
@@ -762,6 +782,11 @@ class Reader {
     if (ts.isCallExpression(arg)) {
       const lifted = this.liftCall(arg);
       if (lifted) return { from: [lifted.id, 'out'] };
+    }
+    const asValue = this.valueWordOf(arg);
+    if (asValue) {
+      const node = this.add({ id: this.uniqueId(asValue.word.split('.').pop() ?? 'value'), kind: 'builtin', word: asValue.word, x: 0, y: 0, inputs: {} });
+      return { from: [node.id, 'out'] };
     }
     // `t.material(...shapes)`: the collection IS the arguments. The rest
     // parameter takes one socket, and the wire remembers it was spread —

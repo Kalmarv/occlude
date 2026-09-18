@@ -260,10 +260,13 @@ function codeSource(node: GraphNode, graph: Graph, catalogue: Catalogue): string
  * output node is the `return`. */
 function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Graph, catalogue: Catalogue): string {
   if (word) {
-    const args = builtinArgs(word, node, graph, catalogue).map((arg) => arg ?? 'undefined');
     // A value method hangs off its receiver: `m.steps(...)`. The receiver is
     // an input, not an argument, and it must be wired.
     const call = word.self ? word.call.replace('{self}', inputExpression(node, word.self.param, graph, catalogue)) : word.call;
+    // A word that is a value and not a call takes no parentheses: `t.cx` is
+    // the middle of the drawable, not a function that returns it.
+    if (word.value) return `const ${node.id} = ${call};`;
+    const args = builtinArgs(word, node, graph, catalogue).map((arg) => arg ?? 'undefined');
     return `const ${node.id} = ${call}(${args.join(', ')});`;
   }
   // A value node is its literal, written out. Nothing wires into it.
