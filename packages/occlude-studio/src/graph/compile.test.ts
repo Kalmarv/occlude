@@ -413,6 +413,54 @@ describe('a change reaches only what depends on it', () => {
   });
 });
 
+describe('the nodes that are not words', () => {
+  const graph = (nodes: unknown[]): ReturnType<typeof parseGraph> =>
+    parseGraph({ version: 1, name: 'v', config: { seed: 1 }, nodes });
+
+  it('writes a value node as the const a sketch would write', () => {
+    const compiled = compileGraph(graph([
+      { id: 'size', kind: 'value', x: 0, y: 0, inputs: { v: { value: 30 } }, outputs: { out: 'Number' } },
+      { id: 'mid', kind: 'value', x: 0, y: 0, inputs: { v: { value: 50 } }, outputs: { out: 'Number' } },
+      { id: 'ring', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { from: ['mid', 'out'] }, y: { from: ['mid', 'out'] }, r: { from: ['size', 'out'] } } },
+      { id: 'out', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['ring', 'out'] } } },
+    ]), CATALOGUE);
+    expect(compiled.source).toContain('const size = 30;');
+    expect(compiled.source).toContain('const mid = 50;');
+    expect(compiled.source).toContain('const ring = circle(mid, mid, size);');
+    expect(compiled.source).toContain('return ring;');
+  });
+
+  it('writes a list node as the array a sketch would write, spread and all', () => {
+    const compiled = compileGraph(graph([
+      { id: 'a', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 1 }, y: { value: 2 }, r: { value: 3 } } },
+      { id: 'b', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 4 }, y: { value: 5 }, r: { value: 6 } } },
+      { id: 'both', kind: 'list', x: 0, y: 0, inputs: { 0: { from: ['a', 'out'] }, 1: { from: ['b', 'out'], spread: true } } },
+      { id: 'out', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['both', 'out'] } } },
+    ]), CATALOGUE);
+    expect(compiled.source).toContain('const both = [a, ...b];');
+  });
+
+  it('leaves a place nothing reaches out of the array', () => {
+    const compiled = compileGraph(graph([
+      { id: 'a', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 1 }, y: { value: 2 }, r: { value: 3 } } },
+      { id: 'some', kind: 'list', x: 0, y: 0, inputs: { 0: { from: ['a', 'out'] } } },
+      { id: 'out', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['some', 'out'] } } },
+    ]), CATALOGUE);
+    expect(compiled.source).toContain('const some = [a];');
+  });
+
+  it('keeps a list in the order of its places, whatever order they were wired in', () => {
+    const compiled = compileGraph(graph([
+      { id: 'a', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 1 }, y: { value: 1 }, r: { value: 1 } } },
+      { id: 'b', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 2 }, y: { value: 2 }, r: { value: 2 } } },
+      // The document lists place 2 before place 0.
+      { id: 'both', kind: 'list', x: 0, y: 0, inputs: { 2: { from: ['b', 'out'] }, 0: { from: ['a', 'out'] } } },
+      { id: 'out', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['both', 'out'] } } },
+    ]), CATALOGUE);
+    expect(compiled.source).toContain('const both = [a, b];');
+  });
+});
+
 describe('the catalogue', () => {
   it('gives an option input its option name, qualified only on a clash', () => {
     expect(wordInputs(CATALOGUE.words[1]).map((i) => i.name)).toEqual(['shape', 'count', 'spacing']);
