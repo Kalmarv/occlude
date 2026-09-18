@@ -467,6 +467,10 @@ function reteNode(node: GraphNode): ReteNode {
     for (const [key, type] of Object.entries(node.outputs ?? {})) {
       rete.addOutput(key, new ClassicPreset.Output(port(takesOf(type).socket), key));
     }
+  } else if (node.kind === 'value') {
+    // A literal: nothing wires in, one wire out.
+    const type = node.outputs?.out ?? 'Number';
+    rete.addOutput('out', new ClassicPreset.Output(port(takesOf(type).socket), 'out'));
   } else {
     rete.addInput('in', new ClassicPreset.Input(port('Geometry'), 'in'));
   }
@@ -725,11 +729,13 @@ function addBuiltin(word: CatalogueWord, at?: { x: number; y: number }): void {
   void place(node, at);
 }
 
-function addNode(kind: 'code' | 'viewer' | 'output', at?: { x: number; y: number }): void {
+function addNode(kind: 'code' | 'viewer' | 'output' | 'value', at?: { x: number; y: number }): void {
   const id = freshId();
   const node: GraphNode = kind === 'code'
     ? { id, kind, x: 0, y: 0, inputs: {}, outputs: { out: 'Number' }, body: 'return { out: 1 };' }
-    : { id, kind, x: 0, y: 0, inputs: {} };
+    : kind === 'value'
+      ? { id, kind, x: 0, y: 0, inputs: { v: { value: 0 } }, outputs: { out: 'Number' } }
+      : { id, kind, x: 0, y: 0, inputs: {} };
   void place(node, at);
 }
 
@@ -1129,6 +1135,7 @@ function buildPalette(): void {
   paletteList.replaceChildren();
   const nodes = el('div', 'graph-palette-group');
   nodes.append(el('div', 'graph-palette-title', 'Nodes'));
+  nodes.append(paletteItem('value', 'Number', (at) => addNode('value', at), 'A number the graph holds'));
   nodes.append(paletteItem('code', 'body', (at) => addNode('code', at), 'A function body with declared inputs and outputs'));
   nodes.append(paletteItem('viewer', 'picture', (at) => addNode('viewer', at), 'Draw what this point of the graph holds'));
   nodes.append(paletteItem('output', 'return', (at) => addNode('output', at), 'What the sketch returns'));

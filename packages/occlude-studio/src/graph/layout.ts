@@ -76,7 +76,9 @@ export function estimateBox(node: GraphNode, catalogue: Catalogue): NodeBox {
     const plain = wordInputs(word).filter((input) => input.option === undefined).length;
     return { width: 208, height: HEAD_H + (plain + records.size + 1) * ROW_H };
   }
-  // The output node, a group node, a group's input node: a title and a row.
+  // A value node is its literal and its output; the output node, a group
+  // node and a group's input node are a title and a row.
+  if (node.kind === 'value') return { width: 176, height: HEAD_H + 2 * ROW_H };
   return { width: 208, height: HEAD_H + ROW_H };
 }
 

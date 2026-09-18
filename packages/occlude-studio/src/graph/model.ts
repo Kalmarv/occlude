@@ -187,7 +187,13 @@ export function wordInputs(word: CatalogueWord): CatalogueInput[] {
 
 // ---- the document ----
 
-export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output' | 'group' | 'input';
+/**
+ * `value` is a literal the graph holds: a number the artist drags, a vector.
+ * The sketch's own `const boxSpread = 30;` is one, and without it the
+ * importer had to make a code node whose whole body was `return { out: 30 }`
+ * — a function call to say thirty.
+ */
+export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output' | 'group' | 'input' | 'value';
 
 /** An input: a literal, an edge, or (for code nodes) the edge's type. */
 export interface GraphInput {
@@ -229,7 +235,7 @@ export interface Graph {
 }
 
 const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-const KINDS: readonly NodeKind[] = ['builtin', 'code', 'viewer', 'output', 'group', 'input'];
+const KINDS: readonly NodeKind[] = ['builtin', 'code', 'viewer', 'output', 'group', 'input', 'value'];
 /** Words a compiled sketch cannot bind: a node id becomes a `const`, and a
  * code node's keys become parameters. */
 const RESERVED = new Set([
@@ -296,6 +302,13 @@ function parseNode(raw: unknown): GraphNode {
   if (kind === 'group') {
     if (typeof r.word !== 'string' || r.word === '') throw new Error(`graph: node ${id} is a group with no name`);
     node.word = r.word;
+  }
+  // A value node declares what its literal is: the socket the wire out of it
+  // travels on.
+  if (kind === 'value') {
+    const type = r.outputs === undefined ? 'Number' : parseValueType(expectObject(r.outputs, `value node ${id} outputs`).out, `value node ${id} output`);
+    node.outputs = { out: type };
+    if (node.inputs['v'] === undefined) throw new Error(`graph: value node ${id} holds no value`);
   }
   // A group node's boundary and a group's own `input` node declare outputs
   // without a body, the way a code node does.
@@ -447,6 +460,6 @@ export function outputType(node: GraphNode, name: string, catalogue: Catalogue):
     const word = wordOf(catalogue, node.word!);
     return name === 'out' ? word?.returns : undefined;
   }
-  if (node.kind === 'code') return node.outputs?.[name];
+  if (node.kind === 'code' || node.kind === 'value') return node.outputs?.[name];
   return undefined;
 }

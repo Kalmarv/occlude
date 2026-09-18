@@ -385,8 +385,18 @@ class Reader {
       const id = this.uniqueId(name);
       let builtin: { node: GraphNode; word: CatalogueWord } | undefined;
       if (before.length > 0) this.refuse(id, undefined, 'a statement before it joined this node');
-      else if (!ts.isCallExpression(expr)) this.refuse(id, undefined, `the value is ${describe(expr)}, not a call`);
-      else builtin = this.tryBuiltin(expr, id);
+      else if (!ts.isCallExpression(expr)) {
+        // A literal is a value the graph holds, not a body that computes
+        // one: `const boxSpread = 30;` was a code node whose whole text was
+        // `return { out: 30 }` — a function call to say thirty.
+        const value = this.valueNode(expr, id);
+        if (value) {
+          this.add(value.node);
+          this.bindings.set(name, { node: value.node, output: 'out', type: value.type });
+          return;
+        }
+        this.refuse(id, undefined, `the value is ${describe(expr)}, not a call`);
+      } else builtin = this.tryBuiltin(expr, id);
       if (builtin) {
         this.add(builtin.node);
         this.bindings.set(name, { node: builtin.node, output: 'out', type: builtin.word.returns });
@@ -641,6 +651,23 @@ class Reader {
   /** Record why a statement is a code node. Free when nothing is listening. */
   private refuse(node: string, word: string | undefined, reason: string): void {
     this.refusals?.push({ node, word, reason });
+  }
+
+  /**
+   * A literal the graph can hold on a node of its own: a number, or a pair
+   * of them. Anything else the sketch wrote as a constant — a string, an
+   * options object — has no socket to leave on, and stays a code node.
+   */
+  private valueNode(expr: ts.Expression, id: string): { node: GraphNode; type: ValueType } | undefined {
+    const value = this.literal(expr);
+    if (value === undefined) return undefined;
+    const type: ValueType | undefined = typeof value === 'number'
+      ? 'Number'
+      : Array.isArray(value) && value.length === 2 && value.every((v) => typeof v === 'number')
+        ? 'Vector'
+        : undefined;
+    if (!type) return undefined;
+    return { node: { id, kind: 'value', x: 0, y: 0, inputs: { v: { value } }, outputs: { out: type } }, type };
   }
 
   /** One argument as an input, or undefined when it cannot be one. */

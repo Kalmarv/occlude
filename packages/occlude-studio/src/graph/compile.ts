@@ -263,6 +263,8 @@ function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Gra
     const call = word.self ? word.call.replace('{self}', inputExpression(node, word.self.param, graph, catalogue)) : word.call;
     return `const ${node.id} = ${call}(${args.join(', ')});`;
   }
+  // A value node is its literal, written out. Nothing wires into it.
+  if (node.kind === 'value') return `const ${node.id} = ${literal(node.inputs['v']?.value)};`;
   return node.kind === 'code' ? codeSource(node, graph, catalogue) : '';
 }
 

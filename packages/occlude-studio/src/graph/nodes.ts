@@ -182,6 +182,7 @@ function nodeTitle(node: GraphNode): string {
   if (node.kind === 'builtin') return node.word ?? 'built-in';
   if (node.kind === 'code') return 'code';
   if (node.kind === 'viewer') return 'viewer';
+  if (node.kind === 'value') return 'value';
   return 'output';
 }
 
@@ -697,6 +698,31 @@ function viewerRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): 
   return { canvas };
 }
 
+/** A value node: a literal the graph holds, and the socket it leaves on. A
+ * number is dragged like any other; anything else is its own source text,
+ * because JSON cannot spell `mm(3)` and the compiler is the only thing that
+ * can tell whether it still parses. */
+function valueRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): void {
+  const type = node.outputs?.out ?? 'Number';
+  const line = nodeRow();
+  line.dataset.row = 'v';
+  const held = node.inputs['v']?.value;
+  if (type === 'Number' && !isRaw(held)) {
+    line.append(el('span', 'graph-row-name', 'number'));
+    line.append(numberField(typeof held === 'number' ? held : 0, 'the value this node holds', (next) => hooks.setValue(node, 'v', next ?? 0)));
+  } else {
+    line.append(el('span', 'graph-row-name', takesLabel(takesOf(type))));
+    line.append(rawBox(node, 'v', isRaw(held) ? held.__raw : JSON.stringify(held ?? null), hooks));
+  }
+  host.append(line);
+  const out = nodeRow('graph-row graph-row-out');
+  out.dataset.row = 'out';
+  out.append(el('span', 'graph-row-type', takesLabel(takesOf(type))));
+  out.append(el('span', 'graph-row-name', 'out'));
+  out.append(socketDot('output', 'out', takesOf(type).socket, hooks));
+  host.append(out);
+}
+
 /** An output node: what the sketch returns. */
 function outputRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): void {
   const line = nodeRow();
@@ -731,7 +757,8 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
     paint.editor = code.editor;
     paint.note = code.note;
     cleanups.push(() => code.editor.dispose());
-  } else if (node.kind === 'viewer') {
+  } else if (node.kind === 'value') valueRows(host, node, hooks);
+  else if (node.kind === 'viewer') {
     const shown = viewerRows(host, node, hooks);
     paint.canvas = shown.canvas;
     paint.value = shown.value;
