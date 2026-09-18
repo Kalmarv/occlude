@@ -55,7 +55,15 @@ const KEY = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
  * writes it: unquoted keys where they are identifiers, `, ` separators. */
 export function literal(value: unknown): string {
   if (value === null) return 'null';
-  if (typeof value === 'string') return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  if (typeof value === 'string') {
+    return `'${value
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029')}'`;
+  }
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (Array.isArray(value)) return `[${value.map(literal).join(', ')}]`;
   if (typeof value === 'object') {
@@ -103,17 +111,47 @@ function validate(graph: Graph, catalogue: Catalogue): Map<string, CatalogueWord
     if (!word) throw new Error(`graph: node ${node.id} names unknown word ${node.word}`);
     words.set(node.id, word);
   }
+  // A node id is emitted as a `const` beside the imports and the toolkit, so
+  // it must not be one of their names.
+  const reserved = new Set(['t', 'sketch']);
+  for (const word of words.values()) {
+    if (word.receiver === null && word.import) reserved.add(word.call);
+    else if (word.receiver && word.receiver !== 't') reserved.add(word.receiver);
+  }
   for (const node of graph.nodes) {
+    if (node.kind === 'code') for (const name of bodyImports(node.body!, catalogue)) reserved.add(name.name);
+  }
+  for (const node of graph.nodes) {
+    if (reserved.has(node.id)) throw new Error(`graph: node id ${node.id} is a name the compiled sketch already uses`);
+  }
+  for (const node of graph.nodes) {
+    const word = words.get(node.id);
+    if (word) {
+      const byName = new Map(wordInputs(word).map((input) => [input.name, input]));
+      for (const [key, input] of Object.entries(node.inputs)) {
+        const spec = byName.get(key);
+        if (!spec) throw new Error(`graph: node ${node.id} has no input ${key} for ${word.word}`);
+        if (!input.from) continue;
+        if (!spec.takes) throw new Error(`graph: ${node.id}.${key} is a control; nothing wires into it`);
+        const output = outputType(nodeById(graph, input.from[0]), input.from[1], catalogue);
+        if (!output) throw new Error(`graph: ${input.from[0]} has no output ${input.from[1]}`);
+        if (!accepts(output, spec.takes)) {
+          throw new Error(`graph: ${node.id}.${key} takes ${takesText(spec.takes)}; ${input.from[0]}.${input.from[1]} is ${output}`);
+        }
+      }
+      continue;
+    }
     const takes = inputTakes(node, catalogue);
     for (const [key, input] of Object.entries(node.inputs)) {
+      if (node.kind === 'viewer' || node.kind === 'output') {
+        if (key !== 'in') throw new Error(`graph: node ${node.id} has no input ${key}`);
+      }
       if (!input.from) continue;
-      const [fromId, out] = input.from;
-      const source = nodeById(graph, fromId);
-      const output = outputType(source, out, catalogue);
-      if (!output) throw new Error(`graph: ${fromId} has no output ${out}`);
+      const output = outputType(nodeById(graph, input.from[0]), input.from[1], catalogue);
+      if (!output) throw new Error(`graph: ${input.from[0]} has no output ${input.from[1]}`);
       const wanted = takes[key];
       if (wanted && !accepts(output, wanted)) {
-        throw new Error(`graph: ${node.id}.${key} takes ${takesText(wanted)}; ${fromId}.${out} is ${output}`);
+        throw new Error(`graph: ${node.id}.${key} takes ${takesText(wanted)}; ${input.from[0]}.${input.from[1]} is ${output}`);
       }
     }
   }
@@ -121,16 +159,16 @@ function validate(graph: Graph, catalogue: Catalogue): Map<string, CatalogueWord
 }
 
 /** The arguments of a built-in call, in parameter order: one per plain
- * parameter, one options record per record parameter. Trailing `undefined`
- * arguments are dropped, so an unset option never reaches the call. */
-function builtinArgs(word: CatalogueWord, node: GraphNode, graph: Graph, catalogue: Catalogue): string[] {
+ * parameter, one options record per record parameter. A `null` marks an
+ * argument the node leaves to the library; trailing ones are dropped. */
+function builtinArgs(word: CatalogueWord, node: GraphNode, graph: Graph, catalogue: Catalogue): (string | null)[] {
   const inputs = wordInputs(word);
-  const args: string[] = [];
+  const args: (string | null)[] = [];
   for (const param of word.params) {
     if (!param.options) {
       if (node.inputs[param.name] === undefined) {
         if (!param.optional) throw new Error(`graph: node ${node.id} has no input ${param.name} for ${word.word}`);
-        args.push('undefined');
+        args.push(null);
         continue;
       }
       args.push(inputExpression(node, param.name, graph, catalogue));
@@ -142,21 +180,34 @@ function builtinArgs(word: CatalogueWord, node: GraphNode, graph: Graph, catalog
       if (node.inputs[input.name] === undefined) continue;
       parts.push(`${input.option}: ${inputExpression(node, input.name, graph, catalogue)}`);
     }
-    args.push(parts.length === 0 ? 'undefined' : `{ ${parts.join(', ')} }`);
+    if (parts.length > 0) {
+      args.push(`{ ${parts.join(', ')} }`);
+      continue;
+    }
+    // Nothing is set. A record the library insists on (an option of it has
+    // no default) is an error the artist must see here, not a call that
+    // throws mid-render.
+    const required = param.options.filter((option) => !option.optional);
+    if (required.length > 0) throw new Error(`graph: node ${node.id} has no input ${required[0].name} for ${word.word}`);
+    // An optional record never reaches the call; a required one arrives
+    // empty, which every options record accepts.
+    args.push(param.optional ? null : '{}');
   }
-  while (args.length > 0 && args[args.length - 1] === 'undefined') args.pop();
+  while (args.length > 0 && args[args.length - 1] === null) args.pop();
   return args;
 }
 
 /** A code node: an immediately-invoked arrow with one parameter per input.
- * `t` comes from the enclosing sketch. */
+ * `t` comes from the enclosing sketch. A one-line body stays on the `const`
+ * line, unless it holds a line comment — that would comment out the call's
+ * closing tokens. */
 function codeSource(node: GraphNode, graph: Graph, catalogue: Catalogue): string {
   const keys = Object.keys(node.inputs);
   const body = node.body!.trim();
   const lines = body.split('\n');
   const params = keys.join(', ');
   const args = keys.map((key) => inputExpression(node, key, graph, catalogue)).join(', ');
-  if (lines.length === 1) return `const ${node.id} = ((${params}) => { ${body} })(${args});`;
+  if (lines.length === 1 && !body.includes('//')) return `const ${node.id} = ((${params}) => { ${body} })(${args});`;
   const inner = lines.map((line) => (line === '' ? '' : `  ${line}`)).join('\n');
   return `const ${node.id} = ((${params}) => {\n${inner}\n})(${args});`;
 }
@@ -164,7 +215,10 @@ function codeSource(node: GraphNode, graph: Graph, catalogue: Catalogue): string
 /** The `const` line(s) of one node. A viewer compiles to nothing; the
  * output node is the `return`. */
 function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Graph, catalogue: Catalogue): string {
-  if (word) return `const ${node.id} = ${word.word}(${builtinArgs(word, node, graph, catalogue).join(', ')});`;
+  if (word) {
+    const args = builtinArgs(word, node, graph, catalogue).map((arg) => arg ?? 'undefined');
+    return `const ${node.id} = ${word.call}(${args.join(', ')});`;
+  }
   return node.kind === 'code' ? codeSource(node, graph, catalogue) : '';
 }
 
@@ -245,7 +299,7 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
     const upstream = Object.values(node.inputs)
       .map((inp) => (inp.from ? hashes.get(inp.from[0]) ?? '' : literal(inp.value)))
       .join(',');
-    const nodeHash = hash(`${source}\u0000${upstream}`);
+    const nodeHash = hash(`${literal(graph.config)}\u0000${source}\u0000${upstream}`);
     hashes.set(id, nodeHash);
     nodes.push({ id, kind: node.kind, source, outputs: outputsOf(node, catalogue), hash: nodeHash });
   }

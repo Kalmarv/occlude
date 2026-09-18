@@ -137,7 +137,7 @@ export const CATALOGUE: Catalogue = {
         { name: 'y', takes: { socket: 'Number' }, optional: false },
         { name: 'h', takes: { socket: 'Number' }, optional: false },
         { name: 'opts', optional: true, options: [
-          { name: 'unit', control: 'menu', choices: ['user', 'mm'], optional: true },
+          { name: 'unit', control: 'menu', choices: ['mm', 'user'], optional: true },
           { name: 'align', control: 'menu', choices: ['center', 'left', 'right'], optional: true },
           { name: 'pen', control: 'text', optional: true },
           { name: 'fill', takes: { socket: 'Fill' }, optional: true },
@@ -962,6 +962,36 @@ export const CATALOGUE: Catalogue = {
           { name: 'creaseAngle', takes: { socket: 'Number' }, optional: true },
           { name: 'stroke', control: 'text', optional: true },
           { name: 'fillPen', control: 'text', optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 'orthographic', module: 'occlude/3d', receiver: null,
+      import: 'orthographic', call: 'orthographic', returns: 'Camera',
+      page: '/docs/reference/3d/view', group: 'View',
+      params: [
+        { name: 'options', optional: false, options: [
+          { name: 'eye', takes: { socket: 'Vector' }, optional: false },
+          { name: 'target', takes: { socket: 'Vector' }, optional: true },
+          { name: 'up', takes: { socket: 'Vector' }, optional: true },
+          { name: 'near', takes: { socket: 'Number' }, optional: true },
+          { name: 'far', takes: { socket: 'Number' }, optional: true },
+          { name: 'span', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 'perspective', module: 'occlude/3d', receiver: null,
+      import: 'perspective', call: 'perspective', returns: 'Camera',
+      page: '/docs/reference/3d/view', group: 'View',
+      params: [
+        { name: 'options', optional: false, options: [
+          { name: 'eye', takes: { socket: 'Vector' }, optional: false },
+          { name: 'target', takes: { socket: 'Vector' }, optional: true },
+          { name: 'up', takes: { socket: 'Vector' }, optional: true },
+          { name: 'near', takes: { socket: 'Number' }, optional: true },
+          { name: 'far', takes: { socket: 'Number' }, optional: true },
+          { name: 'fovDegrees', takes: { socket: 'Number' }, optional: true },
         ] },
       ],
     },

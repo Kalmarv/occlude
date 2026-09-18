@@ -67,7 +67,6 @@ export interface CatalogueOption {
   /** A menu's choices, in the order the type writes them. */
   choices?: string[];
   optional: boolean;
-  default?: number | boolean | string;
 }
 
 /** A parameter of a built-in word, in call order. A plain parameter
@@ -93,7 +92,6 @@ export interface CatalogueInput {
   control?: ControlKind;
   choices?: string[];
   optional: boolean;
-  default?: number | boolean | string;
 }
 
 /** One exported word, as the catalogue carries it. */
@@ -154,7 +152,7 @@ export function wordInputs(word: CatalogueWord): CatalogueInput[] {
     for (const o of p.options) {
       const name = seen.has(o.name) ? `${p.name}.${o.name}` : o.name;
       seen.add(name);
-      out.push({ name, param: p.name, option: o.name, takes: o.takes, control: o.control, choices: o.choices, optional: o.optional, default: o.default });
+      out.push({ name, param: p.name, option: o.name, takes: o.takes, control: o.control, choices: o.choices, optional: o.optional });
     }
   }
   return out;
@@ -195,6 +193,19 @@ export interface Graph {
 
 const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const KINDS: readonly NodeKind[] = ['builtin', 'code', 'viewer', 'output'];
+/** Words a compiled sketch cannot bind: a node id becomes a `const`, and a
+ * code node's keys become parameters. */
+const RESERVED = new Set([
+  'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else', 'enum',
+  'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'implements', 'import', 'in', 'instanceof',
+  'interface', 'let', 'new', 'null', 'package', 'private', 'protected', 'public', 'return', 'static', 'super',
+  'switch', 'this', 'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with', 'yield',
+]);
+
+/** A name a compiled sketch may bind. */
+function isUsableName(name: string): boolean {
+  return IDENT.test(name) && !RESERVED.has(name);
+}
 
 /** The JSON boundary. `what` names the field for the message. */
 function expectObject(raw: unknown, what: string): Record<string, unknown> {
@@ -226,7 +237,7 @@ function parseInput(node: string, key: string, raw: unknown): GraphInput {
 function parseNode(raw: unknown): GraphNode {
   const r = expectObject(raw, 'a node');
   const id = r.id;
-  if (typeof id !== 'string' || !IDENT.test(id)) throw new Error(`graph: bad node id ${JSON.stringify(id)} (letters, digits, _ and $ only)`);
+  if (typeof id !== 'string' || !isUsableName(id)) throw new Error(`graph: bad node id ${JSON.stringify(id)} (letters, digits, _ and $ only, and not a reserved word)`);
   if (!KINDS.includes(r.kind as NodeKind)) throw new Error(`graph: node ${id} has unknown kind ${String(r.kind)}`);
   const kind = r.kind as NodeKind;
   const x = typeof r.x === 'number' && Number.isFinite(r.x) ? r.x : 0;
@@ -242,10 +253,13 @@ function parseNode(raw: unknown): GraphNode {
   if (kind === 'code') {
     if (typeof r.body !== 'string') throw new Error(`graph: code node ${id} has no body`);
     node.body = r.body;
+    for (const key of Object.keys(inputs)) {
+      if (!isUsableName(key) || key === 't') throw new Error(`graph: code node ${id} input name ${JSON.stringify(key)} is not a usable identifier`);
+    }
     const rawOutputs = expectObject(r.outputs ?? {}, `code node ${id} outputs`);
     const outputs: Record<string, ValueType> = {};
     for (const [key, value] of Object.entries(rawOutputs)) {
-      if (!IDENT.test(key)) throw new Error(`graph: code node ${id} output name ${JSON.stringify(key)} is not an identifier`);
+      if (!isUsableName(key)) throw new Error(`graph: code node ${id} output name ${JSON.stringify(key)} is not a usable identifier`);
       outputs[key] = parseValueType(value, `code node ${id} output ${key}`);
     }
     if (Object.keys(outputs).length === 0) throw new Error(`graph: code node ${id} declares no outputs`);
@@ -329,8 +343,19 @@ export function topoOrder(graph: Graph): string[] {
     }
   }
   if (order.length !== graph.nodes.length) {
-    const stuck = graph.nodes.filter((n) => !order.includes(n.id)).map((n) => n.id);
-    throw new Error(`graph: cycle between ${stuck.join(', ')}`);
+    // Only the nodes of the cycle: drop the stuck nodes that merely read a
+    // cycle member, or the message sends the artist to an innocent node.
+    const stuck = new Set(graph.nodes.filter((n) => !order.includes(n.id)).map((n) => n.id));
+    const readsStuck = (id: string): boolean => {
+      const node = graph.nodes.find((n) => n.id === id);
+      return node !== undefined && Object.values(node.inputs).some((input) => input.from !== undefined && stuck.has(input.from[0]));
+    };
+    for (let pass = 0; pass < graph.nodes.length; pass++) {
+      const innocent = [...stuck].filter((id) => !readsStuck(id));
+      if (innocent.length === 0) break;
+      for (const id of innocent) stuck.delete(id);
+    }
+    throw new Error(`graph: cycle between ${[...stuck].join(', ')}`);
   }
   return order;
 }

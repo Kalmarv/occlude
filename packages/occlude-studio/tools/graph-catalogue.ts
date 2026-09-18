@@ -166,17 +166,23 @@ const BY_CONTROL: Record<string, 'number' | 'text' | 'check'> = {
  * variants loses its alias when it joins another union (`FillSpec |
  * CustomFillFn` flattens into its four variants), so the discriminant names
  * the family. */
-const BY_DISCRIMINANT: Record<string, ValueType> = { use: 'Fill', asset: 'Fill', custom: 'Fill', mask: 'Fill' };
+const BY_DISCRIMINANT: Record<string, ValueType> = {
+  use: 'Fill', asset: 'Fill', custom: 'Fill', mask: 'Fill',
+  orthographic: 'Camera', perspective: 'Camera',
+};
 
 /** The value a discriminated object carries, by its `type` literal. */
 function byDiscriminant(type: ts.Type): ValueType | undefined {
-  const disc = checker.getPropertyOfType(type, 'type');
-  if (!disc) return undefined;
-  const discType = checker.getTypeOfSymbolAtLocation(disc, disc.valueDeclaration ?? entry);
-  const literals = (discType.isUnion() ? discType.types : [discType]).filter((t) => (t.flags & ts.TypeFlags.StringLiteral) !== 0);
-  for (const literal of literals) {
-    const value = BY_DISCRIMINANT[(literal as ts.StringLiteralType).value];
-    if (value) return value;
+  for (const property of ['type', 'kind']) {
+    const disc = checker.getPropertyOfType(type, property);
+    const at = disc?.valueDeclaration ?? disc?.declarations?.[0];
+    if (!disc || !at) continue;
+    const discType = checker.getTypeOfSymbolAtLocation(disc, at);
+    const literals = (discType.isUnion() ? discType.types : [discType]).filter((t) => (t.flags & ts.TypeFlags.StringLiteral) !== 0);
+    for (const literal of literals) {
+      const value = BY_DISCRIMINANT[(literal as ts.StringLiteralType).value];
+      if (value) return value;
+    }
   }
   return undefined;
 }
@@ -191,7 +197,8 @@ function isScalarField(type: ts.Type): boolean {
   if (!sig) return false;
   const params = sig.getParameters();
   if (params.length < 2) return false;
-  const types = params.map((p) => checker.getTypeOfSymbolAtLocation(p, p.valueDeclaration ?? entry));
+  const types = params.map((p) => (p.valueDeclaration ? checker.getTypeOfSymbolAtLocation(p, p.valueDeclaration) : undefined));
+  if (types.some((t) => t === undefined)) return false;
   return types.every(isNumberish) && isNumberish(checker.getReturnTypeOfSignature(sig));
 }
 
@@ -342,6 +349,10 @@ interface Word {
 }
 
 const skipped: { word: string; reason: string }[] = [];
+/** Options and parameters a node leaves out because their type carries no
+ * socket and no control: the run reports them, so the palette's gaps are
+ * never silent. */
+const dropped: string[] = [];
 
 /** A parameter's input: the socket it takes, or the control it edits, or a
  * reason the word cannot be a node. */
@@ -355,11 +366,12 @@ function inputOf(type: ts.Type, what: string, required: boolean): { input?: Part
 }
 
 /** The parameters of one signature, or a reason it cannot be a node. */
-function paramsOf(sig: ts.Signature, at: ts.Node): { params: Param[]; problem?: string } {
+function paramsOf(sig: ts.Signature, at: ts.Node, word: string): { params: Param[]; problem?: string; dropped: string[] } {
   const params: Param[] = [];
+  const dropped: string[] = [];
   for (const param of sig.getParameters()) {
     const decl = param.valueDeclaration;
-    if (!decl || !ts.isParameter(decl)) return { params, problem: `parameter ${param.getName()} has no declaration` };
+    if (!decl || !ts.isParameter(decl)) return { params, problem: `parameter ${param.getName()} has no declaration`, dropped };
     // A rest parameter carries the same socket as its element type; a rest
     // tuple (`...args: [...ShapeValue[], { tolerance }]`) carries its first.
     const declared = checker.getTypeOfSymbolAtLocation(param, decl);
@@ -379,30 +391,35 @@ function paramsOf(sig: ts.Signature, at: ts.Node): { params: Param[]; problem?: 
         const { input, problem: bad } = inputOf(checker.getTypeOfSymbolAtLocation(prop, propDecl), `option ${name}`, !propOptional);
         if (bad) {
           if (!optional) problem ??= bad;
+          else dropped.push(`${word}.${param.getName()}.${name}`);
           continue;
         }
         if (input) options.push({ name, optional: propOptional, ...input });
+        else dropped.push(`${word}.${param.getName()}.${name}`);
       }
-      if (problem) return { params, problem };
+      if (problem) return { params, problem, dropped };
       if (options.length === 0) {
         if (optional) continue;
-        return { params, problem: `options record ${param.getName()} carries nothing a node can set` };
+        return { params, problem: `options record ${param.getName()} carries nothing a node can set`, dropped };
       }
       params.push({ name: param.getName(), optional, options });
       continue;
     }
     const { input, problem } = inputOf(type, `parameter ${param.getName()}`, !optional);
-    if (problem) return { params, problem };
-    if (!input) continue;
+    if (problem) return { params, problem, dropped };
+    if (!input) {
+      dropped.push(`${word}.${param.getName()}`);
+      continue;
+    }
     params.push({ name: param.getName(), optional, ...input });
   }
-  return { params };
+  return { params, dropped };
 }
 
 /** The signature of a callable type that becomes the node: one that maps
  * whole, and among those the most capable (most parameters), then the last
  * — the overload a docs example reaches for. */
-function planOf(type: ts.Type, at: ts.Node): { params: Param[]; returns: ValueType } | { problem: string } {
+function planOf(type: ts.Type, at: ts.Node, word: string): { params: Param[]; returns: ValueType } | { problem: string } {
   let firstProblem = '';
   let best: { params: Param[]; returns: ValueType } | undefined;
   for (const sig of type.getCallSignatures()) {
@@ -411,11 +428,12 @@ function planOf(type: ts.Type, at: ts.Node): { params: Param[]; returns: ValueTy
       firstProblem ||= `returns ${checker.typeToString(checker.getReturnTypeOfSignature(sig), at, ts.TypeFormatFlags.NoTruncation)}`;
       continue;
     }
-    const { params, problem } = paramsOf(sig, at);
+    const { params, problem, dropped: left } = paramsOf(sig, at, word);
     if (problem) {
       firstProblem ||= problem;
       continue;
     }
+    dropped.push(...left);
     if (!best || params.length >= best.params.length) best = { params, returns };
   }
   return best ?? { problem: firstProblem || 'no call signature' };
@@ -453,7 +471,7 @@ function walk(symbols: ts.Symbol[], module: 'occlude' | 'occlude/3d'): void {
       const type = checker.getTypeOfSymbolAtLocation(sym, decl);
       for (const prop of checker.getPropertiesOfType(type)) {
         const memberDecl = prop.valueDeclaration ?? prop.declarations?.[0] ?? decl;
-        const plan = planOf(checker.getTypeOfSymbolAtLocation(prop, memberDecl), memberDecl);
+        const plan = planOf(checker.getTypeOfSymbolAtLocation(prop, memberDecl), memberDecl, `${name}.${prop.getName()}`);
         if ('problem' in plan) {
           skipped.push({ word: `${name}.${prop.getName()}`, reason: plan.problem });
           continue;
@@ -468,7 +486,7 @@ function walk(symbols: ts.Symbol[], module: 'occlude' | 'occlude/3d'): void {
     const key = module === 'occlude/3d' && twoDNames.has(name) ? `3d.${name}` : name;
     const importName = module === 'occlude/3d' && twoDNames.has(name) ? `${name}3` : name;
     importable[module].add(importName);
-    const plan = planOf(type, decl);
+    const plan = planOf(type, decl, key);
     if ('problem' in plan) {
       skipped.push({ word: key, reason: plan.problem });
       continue;
@@ -501,7 +519,7 @@ function walkToolkit(): void {
     const name = prop.getName();
     if (name.startsWith('_')) continue;
     const propDecl = prop.valueDeclaration ?? prop.declarations?.[0] ?? entry;
-    const plan = planOf(checker.getTypeOfSymbolAtLocation(prop, propDecl), propDecl);
+    const plan = planOf(checker.getTypeOfSymbolAtLocation(prop, propDecl), propDecl, `t.${name}`);
     if ('problem' in plan) {
       skipped.push({ word: `t.${name}`, reason: plan.problem });
       continue;
@@ -660,6 +678,13 @@ console.log(`${words.length} words → ${out}`);
 const byGroup = new Map<string, number>();
 for (const w of words) byGroup.set(w.group, (byGroup.get(w.group) ?? 0) + 1);
 for (const [group, n] of byGroup) console.log(`  ${String(n).padStart(3)}  ${group}`);
+console.log(`\n${dropped.length} inputs are not on a node (no socket, no control):`);
+const byWord = new Map<string, number>();
+for (const entry of dropped) {
+  const word = entry.split('.')[0];
+  byWord.set(word, (byWord.get(word) ?? 0) + 1);
+}
+console.log(`  ${[...byWord].map(([word, n]) => `${word}(${n})`).join(', ')}`);
 console.log(`\n${skipped.length} words have no node:`);
 const byReason = new Map<string, string[]>();
 for (const s of skipped) {
@@ -671,5 +696,6 @@ for (const [reason, list] of byReason) {
 }
 if (process.argv.includes('--full')) {
   console.log('');
+  for (const entry of [...new Set(dropped)].sort()) console.log(`  dropped: ${entry}`);
   for (const s of skipped.sort((a, b) => a.word.localeCompare(b.word))) console.log(`  ${s.word}: ${s.reason}`);
 }

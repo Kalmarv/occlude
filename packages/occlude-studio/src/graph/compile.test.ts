@@ -175,6 +175,60 @@ describe('the compiled sketch', () => {
 });
 
 describe('a graph it must refuse', () => {
+  it('escapes a string that holds a line terminator, and keeps a comment body off the close', () => {
+    const graph = doc([
+      { id: 'n1', kind: 'builtin', word: 'strokes', x: 0, y: 0, inputs: { source: { from: ['n2', 'out'] }, pen: { value: 'a\nb\rc\u2028d' } } },
+      { id: 'n2', kind: 'code', x: 0, y: 0, inputs: {}, outputs: { out: 'shape' }, body: 'return { out: circle(1, 1, 1) }; // one ring' },
+      { id: 'n5', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['n1', 'out'] } } },
+    ]);
+    const { source } = compileGraph(graph, CATALOGUE);
+    expect(source).toContain(`{ pen: 'a\\nb\\rc\\u2028d' }`);
+    // The body's comment must not comment out the call's closing tokens.
+    expect(source).toContain(`const n2 = (() => {\n    return { out: circle(1, 1, 1) }; // one ring\n  })();`);
+    // And the whole thing is a program: the fragment parses.
+    expect(() => new Function('return ' + source.replace(/^import .*$/m, '').replace('export default', ''))).not.toThrow();
+  });
+
+  it('refuses a wire into a control, and an input the word does not have', () => {
+    const control = doc([
+      { id: 'n1', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 10 }, y: { value: 10 }, r: { value: 4 } } },
+      { id: 'n2', kind: 'builtin', word: 't.sample', x: 0, y: 0, inputs: { shape: { from: ['n1', 'out'] } } },
+      { id: 'n3', kind: 'builtin', word: 'strokes', x: 0, y: 0, inputs: { source: { from: ['n2', 'out'] }, pen: { from: ['n1', 'out'] } } },
+      { id: 'n5', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['n3', 'out'] } } },
+    ]);
+    expect(() => compileGraph(control, CATALOGUE)).toThrow('graph: n3.pen is a control; nothing wires into it');
+
+    const typo = doc([
+      { id: 'n1', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 10 }, y: { value: 10 }, r: { value: 4 }, raduis: { value: 2 } } },
+      { id: 'n5', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['n1', 'out'] } } },
+    ]);
+    expect(() => compileGraph(typo, CATALOGUE)).toThrow('graph: node n1 has no input raduis for circle');
+  });
+
+  it('refuses a node id the compiled sketch already uses', () => {
+    const graph = doc([
+      { id: 'circle', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 10 }, y: { value: 10 }, r: { value: 4 } } },
+      { id: 'n5', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['circle', 'out'] } } },
+    ]);
+    expect(() => compileGraph(graph, CATALOGUE)).toThrow('graph: node id circle is a name the compiled sketch already uses');
+  });
+
+  it('refuses a required option nobody set, rather than emitting a call that throws', () => {
+    const required: Catalogue = {
+      words: [{
+        word: 't.scatter', module: 'occlude', receiver: 't', import: null, call: 't.scatter', returns: 'drawing',
+        page: '/docs/reference/points', group: 'Points',
+        params: [{ name: 'opts', optional: false, options: [{ name: 'spacing', takes: { socket: 'Number' }, optional: false }] }],
+      }],
+      importable: [],
+    };
+    const graph = doc([
+      { id: 'n1', kind: 'builtin', word: 't.scatter', x: 0, y: 0, inputs: {} },
+      { id: 'n5', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['n1', 'out'] } } },
+    ]);
+    expect(() => compileGraph(graph, required)).toThrow('graph: node n1 has no input spacing for t.scatter');
+  });
+
   it('names the nodes of a cycle', () => {
     const graph = doc([
       { id: 'n1', kind: 'builtin', word: 't.material', x: 0, y: 0, inputs: { shape: { from: ['n2', 'out'] } } },
