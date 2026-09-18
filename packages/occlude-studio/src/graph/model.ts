@@ -237,7 +237,7 @@ export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output' | 'group' | 'inp
  * named algorithms. `times` is the only one that needs nothing settled: its
  * bindings are two numbers.
  */
-export const ZONE_KINDS = ['times', 'map', 'steps'] as const;
+export const ZONE_KINDS = ['times', 'map', 'filter', 'steps'] as const;
 export type ZoneKind = (typeof ZONE_KINDS)[number];
 
 /** The zone's own inputs, and the names its `input` node offers each run. */
@@ -267,6 +267,15 @@ ${body}
     takes: [{ name: 'rows', takes: { socket: 'Geometry', any: true } }],
     binds: [{ name: 'row', type: 'Geometry' }],
     call: (args, params, body) => `${args['rows'] ?? '[]'}.map((${params}) => {
+${body}
+})`,
+  },
+  // A body per row that answers yes or no, and keeps the rows it said yes
+  // to. The same machine as `map`; only what each run answers is different.
+  filter: {
+    takes: [{ name: 'rows', takes: { socket: 'Geometry', any: true } }],
+    binds: [{ name: 'row', type: 'Geometry' }],
+    call: (args, params, body) => `${args['rows'] ?? '[]'}.filter((${params}) => {
 ${body}
 })`,
   },

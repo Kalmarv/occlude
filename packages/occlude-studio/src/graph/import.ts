@@ -779,11 +779,11 @@ class Reader {
     if (!ts.isPropertyAccessExpression(callee)) return undefined;
     const isTimes = callee.name.text === 'times'
       && ts.isIdentifier(callee.expression) && callee.expression.text === 't' && !this.bindings.has('t');
-    const isMap = callee.name.text === 'map';
+    const isMap = callee.name.text === 'map' || callee.name.text === 'filter';
     const isSteps = callee.name.text === 'steps';
     if (!isTimes && !isMap && !isSteps) return undefined;
-    const kind: ZoneKind = isTimes ? 'times' : isMap ? 'map' : 'steps';
-    const named = isTimes ? 't.times' : isMap ? '.map' : '.steps';
+    const kind: ZoneKind = isTimes ? 'times' : isSteps ? 'steps' : callee.name.text === 'filter' ? 'filter' : 'map';
+    const named = isTimes ? 't.times' : isSteps ? '.steps' : `.${callee.name.text}`;
     const [first, second] = expr.arguments;
     // `t.times(count, body)` takes the count first; `rows.map(body)` and
     // `m.steps(count, body)` take their collection as the receiver.
