@@ -289,6 +289,34 @@ function showDirty(): void {
  * still the graph you were looking at.
  */
 const DRAFT = 'occlude.graph.draft';
+/** Where each graph was last looked at from, by name. Coming back to a graph
+ * and finding it where you left it is the difference between a document and
+ * a page that reloads. */
+const VIEWS = 'occlude.graph.views';
+
+function rememberView(): void {
+  const name = nameInput.value.trim();
+  if (!name) return;
+  try {
+    const all = JSON.parse(localStorage.getItem(VIEWS) ?? '{}') as Record<string, unknown>;
+    all[name] = canvas.viewport();
+    localStorage.setItem(VIEWS, JSON.stringify(all));
+  } catch {
+    // nothing to do
+  }
+}
+
+function recallView(name: string): boolean {
+  try {
+    const all = JSON.parse(localStorage.getItem(VIEWS) ?? '{}') as Record<string, { x: number; y: number; k: number }>;
+    const at = all[name];
+    if (!at || ![at.x, at.y, at.k].every((n) => typeof n === 'number' && Number.isFinite(n)) || at.k <= 0) return false;
+    canvas.lookAt(at);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function saveDraft(): void {
   try {
@@ -604,6 +632,8 @@ canvas.editor.addPipe((context: Root<GraphScheme>) => {
 });
 
 canvas.area.addPipe((context: AreaExtra | Root<GraphScheme>) => {
+  // The artist's own view of this graph, kept as they move it.
+  if (context.type === 'translated' || context.type === 'zoomed') rememberView();
   if (context.type === 'nodepicked') {
     const id = context.data.id;
     const at = (other: string): { x: number; y: number } => {
@@ -643,6 +673,14 @@ canvas.area.addPipe((context: AreaExtra | Root<GraphScheme>) => {
     }
   }
   return context;
+});
+
+// A double-click on the empty canvas goes to the palette, ready to type.
+canvasHost.addEventListener('dblclick', (event) => {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('.graph-node')) return;
+  paletteSearch.focus();
+  paletteSearch.select();
 });
 
 // A press on the empty canvas clears the selection.
@@ -769,8 +807,10 @@ async function buildCanvas(): Promise<void> {
     }
   }
   loading = false;
-  // A graph's own positions can sit anywhere; bring them into view, once.
-  canvas.fit();
+  // A graph's own positions can sit anywhere; bring them into view, once —
+  // unless this graph has been looked at before, and then leave it where the
+  // artist left it.
+  if (!recallView(nameInput.value.trim())) canvas.fit();
 }
 
 function freshId(besides?: Map<string, string>): string {
@@ -1293,7 +1333,27 @@ function buildPalette(): void {
   if (count) count.textContent = `${catalogue.words.length}`;
 }
 
-paletteSearch.oninput = () => {
+/** The word the arrows are on: typing filters, the arrows move, Enter adds. */
+let marked = -1;
+
+function shownWords(): HTMLElement[] {
+  return [...paletteList.querySelectorAll<HTMLElement>('.graph-palette-item')].filter((item) => !item.hidden);
+}
+
+function mark(at: number): void {
+  const items = shownWords();
+  for (const item of items) item.classList.remove('graph-palette-on');
+  if (items.length === 0) {
+    marked = -1;
+    return;
+  }
+  marked = ((at % items.length) + items.length) % items.length;
+  const item = items[marked]!;
+  item.classList.add('graph-palette-on');
+  item.scrollIntoView({ block: 'nearest' });
+}
+
+function filterPalette(): void {
   const query = paletteSearch.value.trim().toLowerCase();
   for (const group of paletteList.querySelectorAll<HTMLElement>('.graph-palette-group')) {
     let shown = 0;
@@ -1305,7 +1365,37 @@ paletteSearch.oninput = () => {
     }
     group.hidden = shown === 0;
   }
-};
+  // Typing puts the mark on the first word it finds, so Enter adds the word
+  // you were looking for without reaching for the mouse.
+  mark(0);
+}
+
+paletteSearch.oninput = filterPalette;
+
+// The palette is a keyboard first: type to narrow, arrows to move, Enter to
+// add at the middle of the view, Escape to give up on the search.
+paletteSearch.addEventListener('keydown', (event) => {
+  const items = shownWords();
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    mark(marked + (event.key === 'ArrowDown' ? 1 : -1));
+    return;
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    items[marked === -1 ? 0 : marked]?.click();
+    return;
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    if (paletteSearch.value === '') {
+      paletteSearch.blur();
+      return;
+    }
+    paletteSearch.value = '';
+    filterPalette();
+  }
+});
 
 // ---- storage ----
 

@@ -69,6 +69,10 @@ export interface GraphCanvas {
   fit(): void;
   /** Put one node in front of the others. */
   raise(id: string): void;
+  /** Where the canvas is looking, and how far in. */
+  viewport(): { x: number; y: number; k: number };
+  /** Look there instead. */
+  lookAt(at: { x: number; y: number; k: number }): void;
 }
 
 /** The DOM render plugin. One element per node, socket and connection. */
@@ -256,5 +260,7 @@ export function createCanvas(container: HTMLElement, hooks: CanvasHooks): GraphC
     refresh: (id) => void area.update('node', id),
     raise: (id) => render.raise(id),
     fit: () => void AreaExtensions.zoomAt(area, editor.getNodes(), { scale: 0.92 }),
+    viewport: () => ({ ...area.area.transform }),
+    lookAt: (at) => void area.area.zoom(at.k, 0, 0).then(() => area.area.translate(at.x, at.y)),
   };
 }

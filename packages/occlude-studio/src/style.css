@@ -3500,6 +3500,13 @@ wa-dialog.wa-dialog-wide {
   border-radius: var(--r-sm);
 }
 
+/* The word the arrows are on. */
+.graph-palette-item.graph-palette-on {
+  background: var(--control);
+  outline: 1px solid var(--accent-edge);
+  outline-offset: -1px;
+}
+
 /* A wire is being dragged: what it can land on is lit, and the rest steps
    back, so wiring a graph you do not know by heart is not guessing. */
 .graph-canvas.graph-wiring .graph-sock {
