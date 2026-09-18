@@ -4,8 +4,8 @@
  *   pnpm --filter occlude docs:signatures
  *
  * Walks the public surface (`src/index.ts` exports, the members of the
- * value classes and row views, the toolkit, and the `connect`/`force`
- * namespaces) and writes one MDX partial per word under `docs/_sig/`,
+ * value classes and row views, the toolkit, and the `connect`/`force`/
+ * `field` namespaces) and writes one MDX partial per word under `docs/_sig/`,
  * e.g. `_sig/Material.planarize.mdx` holding
  *
  *   <p class="sig"><code>m.planarize(opts?: PlanarizeOpts): Material</code></p>
@@ -32,7 +32,7 @@ const entry3d = join(pkg, 'src/three/api/index.ts');
 const RECEIVER: Record<string, string> = {
   Material: 'm', Faces: 'cells', FaceSelection: 'sel', Face: 'face', Edge: 'edge', Vertex: 'p',
   PointSelection: 'points', EdgeSelection: 'edges', Station: 'station', Next: 'next', Toolkit: 't', '3d.Mesh': 'mesh',
-  connect: 'connect', force: 'force', query: 'query', ease: 'ease',
+  connect: 'connect', force: 'force', query: 'query', ease: 'ease', field: 'field',
 };
 /** Reference page per type name; a link is emitted only when the page exists. */
 const PAGE: Record<string, string> = {
@@ -41,7 +41,7 @@ const PAGE: Record<string, string> = {
   Faces: 'faces', FaceSelection: 'faces', Face: 'faces', FaceMeasurements: 'faces', MeasureOpts: 'faces', PlanarizeOpts: 'faces',
   Next: 'steps', StepRule: 'steps', StepShorthand: 'steps', StepsOptions: 'steps', Vec: 'material', XY: 'material',
   ShapeValue: 'shapes', ShapeOpts: 'shapes', GroupValue: 'shapes', GroupOpts: 'shapes', FillSpec: 'fills', ModifierValue: 'shapes',
-  FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', Boundary: 'material', L: 'shapes', Toolkit: 'shapes',
+  FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', DistanceField: 'fields', Boundary: 'material', L: 'shapes', Toolkit: 'shapes',
   Mesh: '3d/primitives', Vec3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
 };
 
@@ -81,7 +81,10 @@ function collectAliases(mod: ts.Symbol): void {
 const expand = (sig: string) => sig.replace(/\b([A-Z][A-Za-z0-9]*)\b(<[^<>]*>)?(\[\])?/g, (m, name: string, _args: string | undefined, array: string | undefined) => {
   const text = ALIAS.get(name);
   if (!text) return m;
-  return array ? (text.includes(' | ') ? `(${text})[]` : `${text}[]`) : text;
+  // A union or a function type needs parentheses before `[]`, or the array
+  // reads as part of the union, or as the function's return type.
+  const needsParens = text.includes(' | ') || text.includes('=>');
+  return array ? (needsParens ? `(${text})[]` : `${text}[]`) : text;
 });
 
 // MDX reads `{ … }` as an expression even inside HTML, so braces are entities too.
@@ -120,7 +123,7 @@ function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
 }
 
 const OWNERS = ['Material', 'Faces', 'FaceSelection', 'Face', 'Edge', 'Vertex', 'PointSelection', 'EdgeSelection', 'Station', 'Next', 'Toolkit'];
-const NAMESPACES = ['connect', 'force', 'query', 'ease'];
+const NAMESPACES = ['connect', 'force', 'query', 'ease', 'field'];
 // occlude/3d: every exported function, keyed `3d.<name>`, spelled bare (it is imported by name).
 const sf3 = program.getSourceFile(entry3d);
 const mod3 = sf3 && checker.getSymbolAtLocation(sf3);

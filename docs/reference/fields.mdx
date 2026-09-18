@@ -95,6 +95,66 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## field.circle() · field.rect() · field.segment()
+
+<include>/_sig/field.circle.mdx</include>
+<include>/_sig/field.rect.mdx</include>
+<include>/_sig/field.segment.mdx</include>
+
+A shape can be the field that measures it. These three are exact. They carry the same sign as `distanceTo`: how far inside the point lies, and negative outside. `t.isolines(f, 0)` draws the boundary back out.
+
+```ts live
+import { sketch, strokes, field } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const bar = field.segment([24, 72], [76, 28], 10);
+  return strokes(t.isolines(bar, [-28, -22, -16, -10, -5, 0, 5, 9]));
+});
+```
+
+## field.union() · field.intersect() · field.subtract()
+
+<include>/_sig/field.union.mdx</include>
+<include>/_sig/field.intersect.mdx</include>
+<include>/_sig/field.subtract.mdx</include>
+
+These combine shapes. `union` is a **maximum**, because inside is the positive side and the union is inside wherever either field is inside. `intersect` is the minimum, and `subtract` cuts every later field out of the first. Each answer is a field again, so it feeds the next operation.
+
+```ts live
+import { sketch, polygon, strokes, field, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const body = field.union(field.circle([38, 38], 28), field.rect([62, 66], [52, 30]));
+  const holes = field.union(field.circle([36, 36], 11), field.circle([72, 66], 8));
+  const plate = field.subtract(body, holes);
+  return [
+    polygon(t.isolines(plate, 0), { fill: fill('hatch', { angle: 40, spacing: mm(1.4) }) }),
+    strokes(t.isolines(plate, -5)),
+  ];
+});
+```
+
+## field.blend()
+
+<include>/_sig/field.blend.mdx</include>
+
+`blend` is a union with a fillet of about `radius` where the two shapes meet. Two discs that only come close become one body, and the join is a curve neither shape describes. The distance it reports is approximate near that join and exact away from it. Contour it at zero, where it is exact enough to draw.
+
+```ts live
+import { sketch, polygon, field, fill, mm, ui } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const r = ui(8, { min: 0, max: 16 });
+  const parts = t.grid({ cols: 3, rows: 3 }).map((c) => field.circle([c.cx, c.cy], 11));
+  const body = parts.reduce((acc, f) => field.blend(acc, f, r));
+  return polygon(t.isolines(body, 0), { fill: fill('hatch', { angle: 20, spacing: mm(1.3) }) });
+});
+```
+
+:::warning
+The algebra reads its fields as distances. `field.union` of two noise fields is the larger noise, and that means nothing. Combine only fields that measure a shape: these three, `distanceTo`, and what the algebra itself returns.
+:::
+
 ## t.streamlines()
 
 <include>/_sig/Toolkit.streamlines.mdx</include>
