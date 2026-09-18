@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, initOcclude, mm, path, polygon, primLength, rect, render, shader, sketch,
+  circle, fill, initOcclude, mm, path, polygon, primLength, rect, render, shader, sketch,
   type PlanChain, type SketchDef, type StrokeInk, type StrokeProgram,
 } from '../src/index.js';
 import { decodePlanBuffer, encodePlanBuffer } from '../src/plan.js';
@@ -144,6 +144,56 @@ describe('a stroke shader', () => {
       .map((c) => c.prims.reduce((sum, p) => sum + primLength(p), 0));
     expect(marks.length).toBeGreaterThan(10);
     for (const len of marks) expect(len).toBeCloseTo(2, 1);
+  });
+
+  it('keeps a dash in phase across a span the artist cannot see', () => {
+    // Two spans with the SAME dash and different passes: the boundary is
+    // invisible in the marks, so the pattern must not restart at it.
+    const marks = (program: StrokeProgram) => {
+      const result = render(scene, { paper: { w: 100, h: 100 } });
+      return decodePlanBuffer(planBuffer(result, { shader: shader(program) }).buffer)
+        .map((c) => c.prims.reduce((sum, p) => sum + primLength(p), 0));
+    };
+    const even = marks(() => ({ dash: [mm(2), mm(2)] }));
+    const split = marks((_s, _p, ctx) => ({ dash: [mm(2), mm(2)], passes: ctx.at < 0.5 ? 1 : 2 }));
+    // Every mark is a full mark in both, give or take the ends of a stroke.
+    const full = (lens: number[]) => lens.filter((l) => l > 1.9 && l < 2.1).length;
+    expect(full(even)).toBeGreaterThan(10);
+    // The second half is drawn twice, so its full marks are counted twice.
+    expect(full(split)).toBeGreaterThan(full(even));
+    // A restart at the boundary would leave a short mark there; allow one
+    // short piece per stroke end, not one per span.
+    const short = (lens: number[]) => lens.filter((l) => l < 1.5).length;
+    expect(short(split)).toBeLessThanOrEqual(short(even) * 2 + 2);
+  });
+
+  it('shades a stipple tap as one thing, not along a length', () => {
+    // A tap is a zero-length chain. It reaches the plan through a stipple
+    // fill, and the program is asked for it once.
+    const stipple: SketchDef = sketch({}, () => polygon(circle(50, 50, 30), { fill: fill('stipple', { density: 0.4 }) }));
+    const taps = (opts: PlanOptions) => {
+      const result = render(stipple, { paper: { w: 100, h: 100 } });
+      // Plan ONCE: planning twice runs the program twice.
+      const { buffer } = planBuffer(result, opts);
+      const chains = decodePlanBuffer(buffer);
+      return { all: chains.length, dots: chains.filter((c) => c.dot).length, buffer };
+    };
+    const plain = taps({});
+    expect(plain.dots).toBeGreaterThan(100);
+
+    // A tap is asked once, at zero, and its stroke has no length.
+    const seen: { s: number; length: number; dot: boolean }[] = [];
+    taps({ shader: shader((s, _p, ctx) => { if (ctx.dot) seen.push({ s, length: ctx.length, dot: ctx.dot }); return {}; }) });
+    expect(seen.length).toBe(plain.dots);
+    for (const row of seen.slice(0, 20)) {
+      expect(row.s).toBe(0);
+      expect(row.length).toBe(0);
+    }
+
+    // The usual promises hold for taps too.
+    expect(Array.from(taps({ shader: shader(() => ({})) }).buffer)).toEqual(Array.from(plain.buffer));
+    expect(taps({ shader: shader(() => ({ keep: false })) }).all).toBe(0);
+    expect(taps({ shader: shader(() => ({ passes: 2 })) }).dots).toBe(plain.dots * 2);
   });
 
   it('refuses anything that is not a program', () => {
