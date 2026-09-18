@@ -409,7 +409,16 @@ class Reader {
           }
         }
         this.refuse(id, undefined, `the value is ${describe(expr)}, not a call`);
-      } else builtin = this.tryBuiltin(expr, id);
+      } else {
+        // A body that runs many times is a zone, not a code node.
+        const zone = this.zoneNode(expr, id);
+        if (zone) {
+          this.add(zone);
+          this.bindings.set(name, { node: zone, output: 'out', type: 'Geometry' });
+          return;
+        }
+        builtin = this.tryBuiltin(expr, id);
+      }
       if (builtin) {
         this.add(builtin.node);
         this.bindings.set(name, { node: builtin.node, output: 'out', type: builtin.word.returns });
@@ -752,6 +761,106 @@ class Reader {
     return word?.value ? word : undefined;
   }
 
+  /**
+   * A word whose parameter is a body that runs many times: `t.times(n, (i, u)
+   * => …)` is a zone, not a code node. The count is a wire, the callback's
+   * own parameters are what the inside is handed each run, and every name the
+   * body reaches for from outside crosses the boundary under its own name.
+   *
+   * The inside starts as one code node holding the body the sketch wrote —
+   * the compiler writes that back as the callback, unwrapped — and the artist
+   * can take it apart into nodes from there.
+   */
+  private zoneNode(expr: ts.CallExpression, id: string): GraphNode | undefined {
+    // `t.times` is not a catalogue word and cannot be: its second parameter
+    // is a function, and no socket carries one. That is exactly why it is a
+    // zone, so the zone recognises the call itself.
+    const callee = expr.expression;
+    if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== 'times') return undefined;
+    if (!ts.isIdentifier(callee.expression) || callee.expression.text !== 't' || this.bindings.has('t')) return undefined;
+    const [count, callback] = expr.arguments;
+    if (!count || !callback || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) {
+      this.refuse(id, 't.times', 'the body is not written out where the zone can hold it');
+      return undefined;
+    }
+    const mark = this.nodes.length;
+    const counted = this.argument(count, false);
+    if (counted === undefined) {
+      this.rollback(mark);
+      this.refuse(id, 't.times', 'the count is not a literal or an earlier node');
+      return undefined;
+    }
+    const binds: string[] = [];
+    for (const parameter of callback.parameters) {
+      if (!ts.isIdentifier(parameter.name)) {
+        this.rollback(mark);
+        this.refuse(id, 't.times', 'the body takes a pattern, not a name');
+        return undefined;
+      }
+      binds.push(parameter.name.text);
+    }
+    // What the body reads from outside: each becomes a boundary output, and
+    // the zone node takes it under the same name.
+    const body = callback.body;
+    const captured = this.inputsOf([body]);
+    const inputs: Record<string, GraphInput> = { count: counted };
+    const boundary: Record<string, ValueType> = {};
+    for (const name of binds) boundary[name] = 'Number';
+    for (const [name, input] of Object.entries(captured)) {
+      if (binds.includes(name)) continue;
+      inputs[name] = input;
+      boundary[name] = input.type ?? 'Geometry';
+    }
+    const inner: GraphNode = {
+      id: 'body', kind: 'code', x: 0, y: 0,
+      inputs: Object.fromEntries(Object.keys(boundary).map((name) => [name, { type: boundary[name]!, from: ['each', name] as [string, string] }])),
+      outputs: { out: 'Geometry' },
+      body: this.bodyOf(body),
+    };
+    const inside: Graph = {
+      version: 1, name: '', config: {},
+      nodes: [
+        { id: 'each', kind: 'input', x: 0, y: 0, inputs: {}, outputs: boundary },
+        inner,
+        { id: 'result', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['body', 'out'] } } },
+      ],
+    };
+    return { id, kind: 'zone', zone: 'times', x: 0, y: 0, inputs, outputs: { out: 'Geometry' }, binds, graph: inside };
+  }
+
+  /**
+   * A callback's body as a code node's body. A code node answers with
+   * `{ out: … }`, and the zone's compiler unwraps that again, so the callback
+   * the sketch wrote comes back out unchanged:
+   *
+   * - an expression body is the answer;
+   * - a block whose only `return` is its last statement has that one rewritten;
+   * - a block with an early return keeps every one of them, inside a function
+   *   of its own, because rewriting them all is not something to guess at.
+   */
+  private bodyOf(body: ts.ConciseBody): string {
+    if (!ts.isBlock(body)) return `return { out: ${this.code(body)} };`;
+    const statements = [...body.statements];
+    const returns = (node: ts.Node): ts.ReturnStatement[] => {
+      const out: ts.ReturnStatement[] = [];
+      const walk = (n: ts.Node): void => {
+        if (ts.isFunctionLike(n)) return; // a nested function's returns are its own
+        if (ts.isReturnStatement(n)) out.push(n);
+        ts.forEachChild(n, walk);
+      };
+      for (const st of statements) walk(st);
+      return out;
+    };
+    const found = returns(body);
+    const last = statements[statements.length - 1];
+    if (found.length === 1 && last !== undefined && found[0] === last && found[0]!.expression) {
+      const head = statements.slice(0, -1).map((st) => this.code(st)).join('\n');
+      return `${head === '' ? '' : `${head}\n`}return { out: ${this.code(found[0]!.expression!)} };`;
+    }
+    const text = statements.map((st) => this.code(st)).join('\n');
+    return `return { out: (() => {\n${text.split('\n').map((line) => (line === '' ? '' : `  ${line}`)).join('\n')}\n})() };`;
+  }
+
   /** Several expressions as one list node. Used where a word is variadic. */
   private gather(items: readonly ts.Expression[], forId: string): GraphNode | undefined {
     const mark = this.nodes.length;
@@ -895,6 +1004,15 @@ class Reader {
     if (ts.isCallExpression(expr)) {
       const word = this.wordFor(expr.expression);
       if (word) return word.returns;
+      // JavaScript's own `Math` answers with a number. That is not a claim
+      // about the vocabulary, only about the type: without it
+      // `Math.round(t.rnd(5, 10))` was a value of unknown kind, and a Number
+      // socket would not take it.
+      const callee = expr.expression;
+      if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)
+        && callee.expression.text === 'Math' && !this.bindings.has('Math')) {
+        return 'Number';
+      }
     }
     // A field takes a point: `(x, y) => number`. `() => t.rnd(15, 35)` is a
     // generator the sketch calls, and typing it `Field` made the node that

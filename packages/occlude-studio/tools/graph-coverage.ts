@@ -164,7 +164,10 @@ interface Row {
 function countGraph(graph: Graph): Row {
   const row: Row = { group: '', name: '', builtin: 0, code: 0, codeLines: 0, buckets: new Map(), words: [], refusals: [] };
   for (const node of graph.nodes) {
-    if (node.kind === 'builtin') row.builtin++;
+    // A statement is a node when it is anything but a code node: a word, a
+    // literal, a list, a zone. The output node is the sketch's `return` and
+    // a viewer is not a statement at all, so neither is counted either way.
+    if (node.kind !== 'code' && node.kind !== 'output' && node.kind !== 'viewer') row.builtin++;
     if (node.kind !== 'code') continue;
     const body = node.body ?? '';
     row.code++;

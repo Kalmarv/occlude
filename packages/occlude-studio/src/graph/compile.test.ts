@@ -461,6 +461,57 @@ describe('the nodes that are not words', () => {
   });
 });
 
+describe('a zone', () => {
+  it('writes the callback the sketch would have written', () => {
+    const graph = parseGraph({
+      version: 1, name: 'z', config: { seed: 1 },
+      nodes: [
+        { id: 'many', kind: 'value', x: 0, y: 0, inputs: { v: { value: 12 } }, outputs: { out: 'Number' } },
+        {
+          id: 'rows', kind: 'zone', zone: 'times', x: 0, y: 0,
+          inputs: { count: { from: ['many', 'out'] } },
+          outputs: { out: 'drawing' },
+          graph: {
+            version: 1, name: '', config: {},
+            nodes: [
+              { id: 'each', kind: 'input', x: 0, y: 0, inputs: {}, outputs: { i: 'Number', u: 'Number', count: 'Number' } },
+              { id: 'ring', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { from: ['each', 'i'] }, y: { from: ['each', 'u'] }, r: { from: ['each', 'count'] } } },
+              { id: 'done', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['ring', 'out'] } } },
+            ],
+          },
+        },
+        { id: 'out', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['rows', 'out'] } } },
+      ],
+    });
+    const compiled = compileGraph(graph, CATALOGUE);
+    expect(compiled.source).toContain('const many = 12;');
+    // The count is read where the sketch reads it; `i` and `u` are the
+    // callback's own, and a boundary name the recipe does not bind is the
+    // outer value the zone takes — the callback closes over it.
+    expect(compiled.source).toContain('const rows = t.times(many, (i, u) => {');
+    expect(compiled.source).toContain('const ring = circle(i, u, many);');
+    expect(compiled.source).toContain('return ring;');
+    expect(compiled.source).toContain('return rows;');
+  });
+
+  it('refuses a zone whose body has no result', () => {
+    expect(() => parseGraph({
+      version: 1, name: 'z', config: {},
+      nodes: [{
+        id: 'rows', kind: 'zone', zone: 'times', x: 0, y: 0, inputs: {},
+        graph: { version: 1, name: '', config: {}, nodes: [{ id: 'each', kind: 'input', x: 0, y: 0, inputs: {}, outputs: { i: 'Number' } }] },
+      }],
+    })).toThrow(/has no result/);
+  });
+
+  it('refuses a zone that names no recipe', () => {
+    expect(() => parseGraph({
+      version: 1, name: 'z', config: {},
+      nodes: [{ id: 'rows', kind: 'zone', zone: 'forever', x: 0, y: 0, inputs: {}, graph: { version: 1, name: '', config: {}, nodes: [] } }],
+    })).toThrow(/unknown zone/);
+  });
+});
+
 describe('the catalogue', () => {
   it('gives an option input its option name, qualified only on a clash', () => {
     expect(wordInputs(CATALOGUE.words[1]).map((i) => i.name)).toEqual(['shape', 'count', 'spacing']);

@@ -220,8 +220,43 @@ export function wordInputs(word: CatalogueWord): CatalogueInput[] {
  * what a sketch returns when it draws more than one thing, and what a word
  * takes when it takes a collection. Its inputs are numbered, and one of them
  * may carry a whole collection (`...boxes`) rather than one value.
+ *
+ * `zone` is a body that runs many times. A word whose required parameter is a
+ * function has no socket and never will — no socket carries a function — so
+ * such a body is not a value on a wire at all: it is a region of the graph,
+ * with its own `input` node for what varies per run and its own `output` node
+ * for what each run produces. The compiler writes it back as the callback the
+ * sketch would have written.
  */
-export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output' | 'group' | 'input' | 'value' | 'list';
+export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output' | 'group' | 'input' | 'value' | 'list' | 'zone';
+
+/**
+ * What a zone runs, and what its inside is given.
+ *
+ * One mechanism, and a recipe per word — which is the project's own law about
+ * named algorithms. `times` is the only one that needs nothing settled: its
+ * bindings are two numbers.
+ */
+export const ZONE_KINDS = ['times'] as const;
+export type ZoneKind = (typeof ZONE_KINDS)[number];
+
+/** The zone's own inputs, and the names its `input` node offers each run. */
+export const ZONES: Record<ZoneKind, {
+  /** The node's own inputs, in call order. */
+  takes: { name: string; takes: Takes }[];
+  /** What the inside is handed on each run, in the callback's order. */
+  binds: { name: string; type: ValueType }[];
+  /** The call the compiler writes, given the inputs and the body. */
+  call(args: Record<string, string>, params: string, body: string): string;
+}> = {
+  times: {
+    takes: [{ name: 'count', takes: { socket: 'Number' } }],
+    binds: [{ name: 'i', type: 'Number' }, { name: 'u', type: 'Number' }],
+    call: (args, params, body) => `t.times(${args['count'] ?? '0'}, (${params}) => {
+${body}
+})`,
+  },
+};
 
 /** An input: a literal, an edge, or (for code nodes) the edge's type. */
 export interface GraphInput {
@@ -252,6 +287,15 @@ export interface GraphNode {
   /** Code nodes: declared outputs, and the body. */
   outputs?: Record<string, ValueType>;
   body?: string;
+  /** A zone: which recipe it runs, and the graph that is its body. The body
+   * is held here and not in the group library, because a zone is this
+   * sketch's own body and not a thing to reuse. */
+  zone?: ZoneKind;
+  graph?: Graph;
+  /** A zone: the callback's own parameter names, in order. The sketch chose
+   * them (`(k, u) => …`), and the compiled callback keeps them, so the body
+   * reads exactly as it was written. */
+  binds?: string[];
 }
 
 export interface Graph {
@@ -263,7 +307,7 @@ export interface Graph {
 }
 
 const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-const KINDS: readonly NodeKind[] = ['builtin', 'code', 'viewer', 'output', 'group', 'input', 'value', 'list'];
+const KINDS: readonly NodeKind[] = ['builtin', 'code', 'viewer', 'output', 'group', 'input', 'value', 'list', 'zone'];
 /** Words a compiled sketch cannot bind: a node id becomes a `const`, and a
  * code node's keys become parameters. */
 const RESERVED = new Set([
@@ -337,6 +381,22 @@ function parseNode(raw: unknown): GraphNode {
     const type = r.outputs === undefined ? 'Number' : parseValueType(expectObject(r.outputs, `value node ${id} outputs`).out, `value node ${id} output`);
     node.outputs = { out: type };
     if (node.inputs['v'] === undefined) throw new Error(`graph: value node ${id} holds no value`);
+  }
+  if (kind === 'zone') {
+    const which = r.zone;
+    if (typeof which !== 'string' || !(ZONE_KINDS as readonly string[]).includes(which)) {
+      throw new Error(`graph: zone node ${id} names unknown zone ${JSON.stringify(r.zone)}`);
+    }
+    node.zone = which as ZoneKind;
+    node.graph = parseGraph(r.graph);
+    const binds = r.binds === undefined ? ZONES[which as ZoneKind].binds.map((b) => b.name) : r.binds;
+    if (!Array.isArray(binds) || binds.some((b) => typeof b !== 'string' || !isUsableName(b))) {
+      throw new Error(`graph: zone node ${id} has a binding that is not a usable name`);
+    }
+    node.binds = binds as string[];
+    node.outputs = { out: r.outputs === undefined ? 'Geometry' : parseValueType(expectObject(r.outputs, `zone node ${id} outputs`).out, `zone node ${id} output`) };
+    if (!node.graph.nodes.some((n) => n.kind === 'input')) throw new Error(`graph: zone node ${id} has no boundary`);
+    if (!node.graph.nodes.some((n) => n.kind === 'output')) throw new Error(`graph: zone node ${id} has no result`);
   }
   // A list is what it collects: numbered inputs, and one drawing out.
   if (kind === 'list') {
@@ -416,6 +476,11 @@ export function graphToJson(graph: Graph): string {
         out.inputs = n.inputs;
         if (n.outputs !== undefined) out.outputs = n.outputs;
         if (n.body !== undefined) out.body = n.body;
+        // A zone carries its recipe, the names its body is handed, and the
+        // graph that is that body.
+        if (n.zone !== undefined) out.zone = n.zone;
+        if (n.binds !== undefined) out.binds = n.binds;
+        if (n.graph !== undefined) out.graph = JSON.parse(graphToJson(n.graph)) as unknown;
         return out;
       }),
     },
@@ -485,6 +550,10 @@ export function inputTakes(node: GraphNode, catalogue: Catalogue): Record<string
   }
   // The output node takes what a sketch may return: shapes and drawings.
   if (node.kind === 'output') return { in: { socket: 'Geometry', kinds: ['shape', 'drawing'] } };
+  // A zone takes exactly what its recipe names.
+  if (node.kind === 'zone' && node.zone) {
+    return Object.fromEntries(ZONES[node.zone].takes.map((t) => [t.name, t.takes]));
+  }
   // A list takes any geometry in every place it holds, and in one more: a
   // list with nowhere left to wire is a list you cannot add to.
   if (node.kind === 'list') {
@@ -511,6 +580,6 @@ export function outputType(node: GraphNode, name: string, catalogue: Catalogue):
     const word = wordOf(catalogue, node.word!);
     return name === 'out' ? word?.returns : undefined;
   }
-  if (node.kind === 'code' || node.kind === 'value' || node.kind === 'list') return node.outputs?.[name];
+  if (node.kind === 'code' || node.kind === 'value' || node.kind === 'list' || node.kind === 'zone') return node.outputs?.[name];
   return undefined;
 }

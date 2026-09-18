@@ -16,7 +16,7 @@
 
 import { freeNames, typeNames } from './names.js';
 import {
-  accepts, inputTakes, outputType, topoOrder, wordInputs, wordOf,
+  ZONES, accepts, inputTakes, outputType, topoOrder, wordInputs, wordOf,
   type Catalogue, type CatalogueWord, type Graph, type GraphNode, type NodeKind, type Takes, type ValueType,
 } from './model.js';
 
@@ -116,12 +116,25 @@ function takesText(takes: Takes): string {
 }
 
 /** The expression an input reads: a literal, or the upstream node's output. */
-function inputExpression(node: GraphNode, key: string, graph: Graph, catalogue: Catalogue): string {
+/**
+ * How a wire reads as an expression.
+ *
+ * `boundary` is a zone's answer for its own `input` node: inside a zone, a
+ * wire from the boundary is either the callback's parameter (`i`, `u`) or the
+ * outer `const` the zone node reads, because the callback closes over the
+ * enclosing scope exactly as a hand-written one does.
+ */
+function inputExpression(node: GraphNode, key: string, graph: Graph, catalogue: Catalogue, boundary?: (output: string) => string): string {
   const input = node.inputs[key];
   if (!input) throw new Error(`graph: node ${node.id} has no input ${key}`);
   if (!input.from) return literal(input.value);
   const [fromId, out] = input.from;
   const source = nodeById(graph, fromId);
+  if (source.kind === 'input') {
+    if (!boundary) throw new Error(`graph: node ${node.id} reads a boundary outside a zone`);
+    const expression = boundary(out);
+    return input.spread ? `...${expression}` : expression;
+  }
   if (!outputType(source, out, catalogue)) {
     throw new Error(source.kind === 'output'
       ? `graph: node ${node.id} input ${key} reads the output node, which has no outputs`
@@ -156,6 +169,15 @@ function validate(graph: Graph, catalogue: Catalogue): Map<string, CatalogueWord
   for (const node of graph.nodes) {
     if (node.kind === 'code') {
       for (const name of usedImports(node.body!, catalogue, Object.keys(node.inputs))) reserved.add(name.name);
+    }
+    // A zone's inside is compiled in the same scope: its own ids are consts
+    // beside these, and its bodies reach for the same imports.
+    if (node.kind === 'zone' && node.graph) {
+      for (const inner of node.graph.nodes) {
+        if (inner.kind === 'code') {
+          for (const name of usedImports(inner.body!, catalogue, Object.keys(inner.inputs))) reserved.add(name.name);
+        }
+      }
     }
   }
   for (const node of graph.nodes) {
@@ -205,7 +227,7 @@ function validate(graph: Graph, catalogue: Catalogue): Map<string, CatalogueWord
 /** The arguments of a built-in call, in parameter order: one per plain
  * parameter, one options record per record parameter. A `null` marks an
  * argument the node leaves to the library; trailing ones are dropped. */
-function builtinArgs(word: CatalogueWord, node: GraphNode, graph: Graph, catalogue: Catalogue): (string | null)[] {
+function builtinArgs(word: CatalogueWord, node: GraphNode, graph: Graph, catalogue: Catalogue, boundary?: (output: string) => string): (string | null)[] {
   const inputs = wordInputs(word);
   const args: (string | null)[] = [];
   for (const param of word.params) {
@@ -215,14 +237,14 @@ function builtinArgs(word: CatalogueWord, node: GraphNode, graph: Graph, catalog
         args.push(null);
         continue;
       }
-      args.push(inputExpression(node, param.name, graph, catalogue));
+      args.push(inputExpression(node, param.name, graph, catalogue, boundary));
       continue;
     }
     const parts: string[] = [];
     for (const input of inputs) {
       if (input.param !== param.name) continue;
       if (node.inputs[input.name] === undefined) continue;
-      parts.push(`${input.option}: ${inputExpression(node, input.name, graph, catalogue)}`);
+      parts.push(`${input.option}: ${inputExpression(node, input.name, graph, catalogue, boundary)}`);
     }
     if (parts.length > 0) {
       args.push(`{ ${parts.join(', ')} }`);
@@ -245,12 +267,12 @@ function builtinArgs(word: CatalogueWord, node: GraphNode, graph: Graph, catalog
  * `t` comes from the enclosing sketch. A one-line body stays on the `const`
  * line, unless it holds a line comment — that would comment out the call's
  * closing tokens. */
-function codeSource(node: GraphNode, graph: Graph, catalogue: Catalogue): string {
+function codeSource(node: GraphNode, graph: Graph, catalogue: Catalogue, boundary?: (output: string) => string): string {
   const keys = Object.keys(node.inputs);
   const body = node.body!.trim();
   const lines = body.split('\n');
   const params = keys.join(', ');
-  const args = keys.map((key) => inputExpression(node, key, graph, catalogue)).join(', ');
+  const args = keys.map((key) => inputExpression(node, key, graph, catalogue, boundary)).join(', ');
   if (lines.length === 1 && !body.includes('//')) return `const ${node.id} = ((${params}) => { ${body} })(${args});`;
   const inner = lines.map((line) => (line === '' ? '' : `  ${line}`)).join('\n');
   return `const ${node.id} = ((${params}) => {\n${inner}\n})(${args});`;
@@ -258,15 +280,15 @@ function codeSource(node: GraphNode, graph: Graph, catalogue: Catalogue): string
 
 /** The `const` line(s) of one node. A viewer compiles to nothing; the
  * output node is the `return`. */
-function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Graph, catalogue: Catalogue): string {
+function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Graph, catalogue: Catalogue, boundary?: (output: string) => string): string {
   if (word) {
     // A value method hangs off its receiver: `m.steps(...)`. The receiver is
     // an input, not an argument, and it must be wired.
-    const call = word.self ? word.call.replace('{self}', inputExpression(node, word.self.param, graph, catalogue)) : word.call;
+    const call = word.self ? word.call.replace('{self}', inputExpression(node, word.self.param, graph, catalogue, boundary)) : word.call;
     // A word that is a value and not a call takes no parentheses: `t.cx` is
     // the middle of the drawable, not a function that returns it.
     if (word.value) return `const ${node.id} = ${call};`;
-    const args = builtinArgs(word, node, graph, catalogue).map((arg) => arg ?? 'undefined');
+    const args = builtinArgs(word, node, graph, catalogue, boundary).map((arg) => arg ?? 'undefined');
     return `const ${node.id} = ${call}(${args.join(', ')});`;
   }
   // A value node is its literal, written out. Nothing wires into it.
@@ -278,10 +300,72 @@ function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Gra
     const places = Object.keys(node.inputs)
       .filter((key) => node.inputs[key]!.from !== undefined || node.inputs[key]!.value !== undefined)
       .sort((a, b) => Number(a) - Number(b));
-    const items = places.map((key) => inputExpression(node, key, graph, catalogue));
+    const items = places.map((key) => inputExpression(node, key, graph, catalogue, boundary));
     return `const ${node.id} = [${items.join(', ')}];`;
   }
-  return node.kind === 'code' ? codeSource(node, graph, catalogue) : '';
+  // A zone is a body that runs many times: the callback the sketch would
+  // have written, with the zone's own inputs read before it.
+  if (node.kind === 'zone') return zoneSource(node, graph, catalogue, boundary);
+  return node.kind === 'code' ? codeSource(node, graph, catalogue, boundary) : '';
+}
+
+/**
+ * A zone's `const`: its recipe's call, with the inside as the callback.
+ *
+ * The inside is an ordinary graph and compiles with the same machinery — one
+ * `const` per node, in topological order. Two rules are its own: a wire from
+ * the boundary is either the callback's own parameter or the outer `const`
+ * the zone node reads, and the inside's `output` node is the callback's
+ * `return`.
+ */
+function zoneSource(node: GraphNode, graph: Graph, catalogue: Catalogue, outer?: (output: string) => string): string {
+  const recipe = ZONES[node.zone!];
+  const inside = node.graph!;
+  // What the zone itself reads, as the enclosing scope spells it.
+  const args: Record<string, string> = {};
+  for (const { name } of recipe.takes) {
+    args[name] = node.inputs[name] === undefined ? '0' : inputExpression(node, name, graph, catalogue, outer);
+  }
+  const params = node.binds ?? recipe.binds.map((b) => b.name);
+  const bound = new Set(params);
+  // A boundary output is the callback's parameter when the recipe binds it,
+  // and otherwise the outer value the zone node takes under that name.
+  const boundary = (output: string): string => {
+    if (bound.has(output)) return output;
+    if (node.inputs[output] !== undefined) return inputExpression(node, output, graph, catalogue, outer);
+    throw new Error(`graph: zone ${node.id} has no value for ${output}`);
+  };
+  // An inside that is nothing but one code node is the body the sketch
+  // wrote: write it back as the callback, with no wrapper around it. A zone
+  // the artist has since taken apart compiles node by node like any graph.
+  const only = inside.nodes.filter((n) => n.kind !== 'input' && n.kind !== 'output' && n.kind !== 'viewer');
+  const result0 = inside.nodes.find((n) => n.kind === 'output');
+  // …and only while every name that body reads means the same thing outside
+  // it. A capture whose outer `const` is a code node reads `it.out`, and the
+  // body says `it`: written back as it stands, that would call an object.
+  // Such a zone compiles node by node instead, with the names bound.
+  const namesCarry = only.length === 1 && only[0]!.kind === 'code'
+    && Object.keys(only[0]!.inputs).every((name) => boundary(name) === name);
+  if (namesCarry && result0?.inputs['in']?.from?.[0] === only[0]!.id) {
+    const body = only[0]!.body!.trim();
+    const returned = result0.inputs['in']!.from![1];
+    const unwrapped = body.replace(new RegExp(`return \\{ ${returned}: ([\\s\\S]*) \\};$`), 'return $1;');
+    const indented = unwrapped.split('\n').map((line) => (line === '' ? '' : `  ${line}`)).join('\n');
+    return `const ${node.id} = ${recipe.call(args, params.join(', '), indented)};`;
+  }
+  const lines: string[] = [];
+  for (const id of topoOrder(inside)) {
+    const inner = nodeById(inside, id);
+    if (inner.kind === 'input' || inner.kind === 'output' || inner.kind === 'viewer') continue;
+    const word = inner.kind === 'builtin' ? wordOf(catalogue, inner.word!) : undefined;
+    if (inner.kind === 'builtin' && !word) throw new Error(`graph: zone ${node.id} node ${id} names unknown word ${inner.word}`);
+    const source = nodeSource(inner, word, inside, catalogue, boundary);
+    if (source !== '') lines.push(`  ${source.replace(/\n/g, '\n  ')}`);
+  }
+  const result = inside.nodes.find((n) => n.kind === 'output');
+  if (!result) throw new Error(`graph: zone ${node.id} has no result`);
+  lines.push(`  return ${inputExpression(result, 'in', inside, catalogue, boundary)};`);
+  return `const ${node.id} = ${recipe.call(args, params.join(', '), lines.join('\n'))};`;
 }
 
 /** The library names a stretch of source reaches for: every name it reads
@@ -403,6 +487,20 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
     if (node.kind === 'code') {
       extra.push(...usedImports(node.body!, catalogue, Object.keys(node.inputs)));
       types.push(...usedTypes(node.body!, catalogue));
+    }
+    // A zone's inside is part of this sketch: its words are imported here.
+    if (node.kind === 'zone' && node.graph) {
+      for (const inner of node.graph.nodes) {
+        if (inner.kind === 'builtin') {
+          const word = wordOf(catalogue, inner.word!);
+          if (word) words.push(word);
+        }
+        if (inner.kind === 'code') {
+          extra.push(...usedImports(inner.body!, catalogue, Object.keys(inner.inputs)));
+          types.push(...usedTypes(inner.body!, catalogue));
+        }
+        for (const inp of Object.values(inner.inputs)) if (isRaw(inp.value)) raw.push(inp.value.__raw);
+      }
     }
     for (const inp of Object.values(node.inputs)) if (isRaw(inp.value)) raw.push(inp.value.__raw);
     const upstream = Object.values(node.inputs)
