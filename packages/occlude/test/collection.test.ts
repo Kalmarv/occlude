@@ -50,7 +50,7 @@ describe('geometry collections: points and edges', () => {
     const m = Y();
     const stale = m.points.filter((p) => p.age >= 3);
     const moved = m.steps(1, (cur, next) => {
-      const tips = cur.points.filter((p) => cur.degree(p) === 1 && p.age > 0);
+      const tips = cur.points.filter((p) => p.adjacent.length === 1 && p.age > 0);
       next.move(tips, () => [0, 1]);
       next.set(tips, () => ({ age: 9 }));
     });

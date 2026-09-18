@@ -171,7 +171,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   });
   const stopped = grow(false);
   const joined = grow(join);
-  const junctions = (m) => m.points.filter((p) => m.degree(p) >= 3).map((p) => circle(p.x, p.y, 1.6, { pen: 'stabilo-88-green' }));
+  const junctions = (m) => m.points.filter((p) => p.adjacent.length >= 3).map((p) => circle(p.x, p.y, 1.6, { pen: 'stabilo-88-green' }));
   return [
     strokes(stopped), junctions(stopped),
     group({ translate: [100, 0] }, strokes(joined), junctions(joined)),

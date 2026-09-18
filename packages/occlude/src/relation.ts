@@ -460,7 +460,7 @@ export function components(m: Material): Components {
     stack.push(s);
     while (stack.length) {
       const v = stack.pop()!;
-      for (const w of m.connected(v)) {
+      for (const w of m.adjacentRows(v)) {
         if (labels[w] === -1) {
           labels[w] = id;
           stack.push(w);

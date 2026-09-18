@@ -137,36 +137,15 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## connectedPoints() · degree() · isConnected()
-
-<include>/_sig/Material.connectedPoints.mdx</include>
-<include>/_sig/Material.degree.mdx</include>
-<include>/_sig/Material.isConnected.mdx</include>
-
-What the edges say about one vertex: the vertices joined to it, and how many there are. `isConnected` tells you if a given vertex is one of them. A vertex with one edge is an end. A vertex with three or more edges is a junction.
-
-```ts live
-import { sketch, circle, strokes, line, connect } from 'occlude';
-
-export default sketch({ aspect: [1, 1] }, (t) => {
-  const tree = connect.tree(t.scatter({ spacing: 11 }).points.filter((p) => p.x > 4 && p.x < 96 && p.y > 4 && p.y < 96).extract());
-  const hub = [...tree.points].reduce((a, b) => (tree.degree(b) > tree.degree(a) ? b : a));
-  const around = tree.connectedPoints(hub);
-  return [
-    strokes(tree),
-    tree.points.filter((p) => tree.degree(p) === 1).map((p) => circle(p.x, p.y, 1.2)),
-    circle(hub.x, hub.y, 2.4, { pen: 'stabilo-88-blue' }),
-    around.map((q) => tree.isConnected(hub, q) && line(hub.x, hub.y, q.x, q.y, { pen: 'stabilo-88-blue' })),
-  ];
-});
-```
-
-## p.adjacent · points.near()
+## p.adjacent · points.near() · isConnected()
 
 <include>/_sig/Vertex.adjacent.mdx</include>
 <include>/_sig/PointSelection.near.mdx</include>
+<include>/_sig/Material.isConnected.mdx</include>
 
-Two different questions. `p.adjacent` is topology: the points an edge joins this one to. `points.near(p, { radius })` is distance: the points within `radius`, joined or not, and never `p` itself. A rule wants one or the other. Name the right one and the rule stays honest.
+Two different questions. `p.adjacent` is topology: the points an edge joins this one to. `points.near(p, { radius })` is distance: the points closer than `radius`, joined or not. A rule wants one or the other. Name the right one and the rule stays honest. `a.adjacent.has(b)` tells you that two points share an edge. `isConnected` answers the same question by row.
+
+A vertex with one edge is an end. A vertex with three or more is a junction.
 
 ```ts live
 import { sketch, circle, strokes, line, connect } from 'occlude';

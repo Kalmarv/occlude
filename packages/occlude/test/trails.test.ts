@@ -33,10 +33,10 @@ const components = (m: Material) => {
   const seen = new Int32Array(m.n).fill(-1);
   let c = 0;
   for (let v = 0; v < m.n; v++) {
-    if (seen[v] !== -1 || m.connected(v).length === 0) continue;
+    if (seen[v] !== -1 || m.points.at(v).adjacent.length === 0) continue;
     const st = [v];
     seen[v] = c;
-    while (st.length) for (const w of m.connected(st.pop()!)) if (seen[w] === -1) { seen[w] = c; st.push(w); }
+    while (st.length) for (const q of m.points.at(st.pop()!).adjacent) if (seen[q.index] === -1) { seen[q.index] = c; st.push(q.index); }
     c++;
   }
   return c;

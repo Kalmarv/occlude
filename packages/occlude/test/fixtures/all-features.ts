@@ -179,9 +179,9 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const edgeQ = query.edges(grown);
   const near = edgeQ.nearest([116, 36], { within: 10 });
   const hit = edgeQ.firstHit([104, 36], [128, 36]);
-  const deg0 = grown.degree(0);
-  const conn0 = grown.connected(0).length;
-  const cp0 = grown.connectedPoints(0).length;
+  const deg0 = grown.points.at(0).adjacent.length;
+  const conn0 = grown.points.at(0).adjacent.length;
+  const cp0 = grown.points.at(0).adjacent.length;
 
   const selA = grown.points.filter((p) => p.age <= 0);
   const selUnion = selA.union(grown.points.filter((p) => p.index < 6));
@@ -194,7 +194,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
 
   scene.push(strokes(grown));
   scene.push(runs.map((r) => stroke(r)));
-  scene.push(grown.points.filter((p) => grown.degree(p) === 1).map((p) => circle(p.x, p.y, 1)));
+  scene.push(grown.points.filter((p) => p.adjacent.length === 1).map((p) => circle(p.x, p.y, 1)));
   scene.push(selExtract.points.map((p) => circle(p.x, p.y, 0.6)));
 
   // ---- planar faces, measured, drawn as boundaries -----------------------

@@ -100,8 +100,8 @@ describe('t.material: a shape boundary with its own vertices', () => {
     // Rows keep contour order: the ring's three vertices, then the chain's two.
     expect(m!.pts).toEqual([[0, 0], [10, 0], [10, 10], [10, 10], [30, 10]]);
     expect(m!.n).toBe(5);                         // (10, 10) exists twice, one per contour
-    expect(m!.degree(2)).toBe(2);
-    expect(m!.degree(3)).toBe(1);
+    expect(m!.points.at(2).adjacent.length).toBe(2);
+    expect(m!.points.at(3).adjacent.length).toBe(1);
     expect(() => run((t) => t.material([[1, 2]] as never))).toThrow(/expected a shape/);
   });
 

@@ -420,7 +420,7 @@ describe('material: material beyond one chain', () => {
     const sq = material([[0, 0], [1, 0], [1, 1], [0, 1]]);
     const near = connect.nearest(sq, { count: 2 });
     expect(near.edgeCount).toBe(4);
-    expect(near.degree(0)).toBe(2);
+    expect(near.points.at(0).adjacent.length).toBe(2);
     // pairs: both sets kept, coincident points distinct
     const a = material([[0, 0], [1, 0]]);
     const b = material([[0, 0], [1, 5]]);
@@ -482,7 +482,7 @@ describe('material: material beyond one chain', () => {
       next.connect(0, h);
     });
     expect(grown.n).toBe(5);
-    expect(grown.degree(1)).toBe(3); // the tip became a junction
+    expect(grown.points.at(1).adjacent.length).toBe(3); // the tip became a junction
     expect(Array.from(grown.attrs.active)).toEqual([0, 0, 1, 1, 0]);
     expect(Array.from(grown.attrs.generation)).toEqual([0, 0, 1, 1, 0]);
     expect(grown.isConnected(0, 4)).toBe(true);
@@ -691,7 +691,7 @@ describe('boundaries (review 2026-09-07)', () => {
     expect(r.pts[0]).toEqual([50, 50]);
     expect(r.attrs.age[0]).toBe(3);
     expect(r.edgeCount).toBe(2);
-    expect(r.degree(0)).toBe(0);
+    expect(r.points.at(0).adjacent.length).toBe(0);
     // a zero-length chain does not loop forever
     expect(curve([[3, 3], [3, 3]], { closed: false }).resample({ spacing: 1 }).n).toBe(1);
   });
@@ -772,7 +772,7 @@ describe('structural editing (edges brief)', () => {
     expect(noJunction.edgeList[0]).toBe(2);
     expect(noJunction.edgeList[1]).toBe(3);
     expect(noJunction.edge(0).attrs.rest).toBeCloseTo(Math.hypot(10, 5));
-    expect(noJunction.degree(0)).toBe(0); // 0 is isolated now, never joined to anything
+    expect(noJunction.points.at(0).adjacent.length).toBe(0); // 0 is isolated now, never joined to anything
     // idempotent, by predicate too
     const twice = y.steps(1, (_, n) => { n.remove(4); n.remove(4); n.remove(_.points.filter((p) => p.age === 5)); });
     expect(twice.n).toBe(4);
@@ -783,7 +783,7 @@ describe('structural editing (edges brief)', () => {
     const cut = y.steps(1, (cur, n) => { n.disconnect(cur.edge(1)); n.disconnect(cur.edge(1)); });
     expect(cut.n).toBe(5);
     expect(cut.edgeCount).toBe(3);
-    expect(cut.degree(2)).toBe(0);
+    expect(cut.points.at(2).adjacent.length).toBe(0);
     const pruned = y.steps(1, (_, n) => n.disconnect(_.edges.filter((e) => e.length > 11)));
     expect(pruned.edgeCount).toBe(1); // the three ~11.18 diagonals go, the 10-long base stays
   });
@@ -800,7 +800,7 @@ describe('structural editing (edges brief)', () => {
     expect(out.attrs.age[1]).toBeCloseTo(1.25); // interpolated between 1 and 2
     expect(out.edge(0).attrs.rest).toBeCloseTo(10); // children inherit the parent's rest
     expect(out.edge(1).attrs.rest).toBeCloseTo(10);
-    expect(out.degree(1)).toBe(3);
+    expect(out.points.at(1).adjacent.length).toBe(3);
     const other = Y();
     expect(() => y.steps(1, (_, n) => n.split(other.edge(0)))).toThrow(/another material/);
     expect(() => y.steps(1, (_, n) => n.remove(other.vertex(0)))).toThrow(/another material/);
@@ -885,7 +885,7 @@ describe('structural editing (edges brief)', () => {
       n.extrude(cur.points.filter((p) => p.active === 0), () => []);
     });
     expect(out.n).toBe(5);
-    expect(out.degree(3)).toBe(4); // the tip: its chain edge, the new child, vertex 0, and the split vertex
+    expect(out.points.at(3).adjacent.length).toBe(4); // the tip: its chain edge, the new child, vertex 0, and the split vertex
     expect(out.isConnected(3, 0)).toBe(true); // rows: 0, split(1), 1→2, 2→3, child→4
     expect(out.isConnected(3, 1)).toBe(true);
     expect(out.isConnected(3, 4)).toBe(true);

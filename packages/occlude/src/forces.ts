@@ -149,7 +149,7 @@ export function adjacent(m: Material): (p: Vertex, q: Vertex) => boolean {
 export function tension(m: Material, opts: { rest: number }): (p: Vertex) => Vec {
   const { rest } = opts;
   return (p) =>
-    sumBy(m.connected(p.index), (j) => {
+    sumBy(m.adjacentRows(p.index), (j) => {
       const delta = sub(m.vertex(j), p);
       return mul(unit(delta), Math.max(0, length(delta) - rest));
     });
@@ -182,7 +182,7 @@ function radial(m: Material, radius: number, excludeConnected: boolean, strength
   const my = m.y;
   return (p) => {
     const own = ownerOf(p) === m ? p.index : -1;
-    const adj = excludeConnected && own >= 0 ? m.connected(own) : null;
+    const adj = excludeConnected && own >= 0 ? m.adjacentRows(own) : null;
     const px = p.x;
     const py = p.y;
     let x = 0;
@@ -290,7 +290,7 @@ export function field(vf: VectorFieldFn, opts: { strength?: number } = {}): (p: 
 export function relax(m: Material, opts: { amount?: number } = {}): (p: Vertex) => Vec {
   const { amount = 1 } = opts;
   return (p) => {
-    const nb = m.connected(p.index);
+    const nb = m.adjacentRows(p.index);
     if (nb.length < 2) return [0, 0];
     let mx = 0;
     let my = 0;

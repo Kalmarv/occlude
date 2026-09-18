@@ -14,7 +14,7 @@ const euler = (m: Material) => {
     if (seen[v] !== -1) continue;
     const st = [v];
     seen[v] = c;
-    while (st.length) for (const w of m.connected(st.pop()!)) if (seen[w] === -1) { seen[w] = c; st.push(w); }
+    while (st.length) for (const q of m.points.at(st.pop()!).adjacent) if (seen[q.index] === -1) { seen[q.index] = c; st.push(q.index); }
     c++;
   }
   return m.edgeCount - m.n + c;
@@ -40,14 +40,14 @@ describe('planarize', () => {
     const pt = t.planarize();
     expect(pt.n).toBe(4);
     expect(pt.edgeCount).toBe(3);
-    expect(pt.degree(2)).toBe(3); // the T's stem end is the shared vertex
+    expect(pt.points.at(2).adjacent.length).toBe(3); // the T's stem end is the shared vertex
     // three lines through one point: one new vertex, six children
     let star = append(seg([0, 0], [10, 10]), seg([0, 10], [10, 0]));
     star = append(star, seg([5, 0], [5, 10]));
     const ps = star.planarize();
     expect(ps.n).toBe(7);
     expect(ps.edgeCount).toBe(6);
-    expect(ps.degree(6)).toBe(6);
+    expect(ps.points.at(6).adjacent.length).toBe(6);
     // collinear endpoint contact: a shared endpoint, no overlap
     const touch = append(seg([0, 0], [5, 0]), seg([5, 0], [10, 0]));
     const ptouch = touch.planarize();
@@ -62,7 +62,7 @@ describe('planarize', () => {
     const p = m.planarize();
     expect(p.n).toBe(4);
     expect(p.edgeCount).toBe(1);
-    expect(p.degree(2)).toBe(0);
+    expect(p.points.at(2).adjacent.length).toBe(0);
     const gap = append(seg([0, 0], [10, 0]), seg([5, 1e-9], [5, 5]));
     expect(gap.planarize().edgeCount).toBe(2); // the gap stays
   });
@@ -302,18 +302,18 @@ describe('review of 3df7b04', () => {
     const near = append(append(seg([0, 0], [10, 0]), seg([5, -1], [5, 1])), seg([5 + 1e-10, -1], [5 + 2e-10, 1]));
     const p = near.planarize();
     expect(p.n).toBe(8);
-    expect(p.degree(6)).toBe(4);
-    expect(p.degree(7)).toBe(4);
+    expect(p.points.at(6).adjacent.length).toBe(4);
+    expect(p.points.at(7).adjacent.length).toBe(4);
     // three lines through one point: proven by the third pairwise event
     let star = append(seg([0, 0], [10, 10]), seg([0, 10], [10, 0]));
     star = append(star, seg([5, 0], [5, 10]));
-    expect(star.planarize().degree(6)).toBe(6);
+    expect(star.planarize().points.at(6).adjacent.length).toBe(6);
     // a crossing at a vertex that lies on both edges joins that vertex
     let through = append(seg([0, 0], [10, 0]), seg([5, -5], [5, 5]));
     through = append(through, seg([5, 0], [9, 9])); // its endpoint (5,0) lies on both
     const pt = through.planarize();
     expect(pt.n).toBe(6);
-    expect(pt.degree(4)).toBe(5);
+    expect(pt.points.at(4).adjacent.length).toBe(5);
   });
 
   it('2b. edges that very nearly meet at one point say so, instead of asking for a planarize that has already run', () => {

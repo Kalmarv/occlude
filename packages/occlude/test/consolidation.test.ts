@@ -23,8 +23,8 @@ describe('Stage A repairs (con2)', () => {
 
   it('A4 triangulate by index: the first row at a position takes part, later coincident rows stay isolated', () => {
     const m = connect.triangulate([[0, 0], [10, 0], [0, 10], [10, 0], [10, 10]]);
-    expect(m.degree(1)).toBeGreaterThan(0);
-    expect(m.degree(3)).toBe(0);
+    expect(m.points.at(1).adjacent.length).toBeGreaterThan(0);
+    expect(m.points.at(3).adjacent.length).toBe(0);
     expect(m.edgeCount).toBe(5); // two triangles over four distinct positions
     expect(connect.triangulate([[0, 0], [1, 1], [2, 2]]).edgeCount).toBe(0); // collinear
     expect(connect.triangulate([[0, 0], [0, 0]]).edgeCount).toBe(0);

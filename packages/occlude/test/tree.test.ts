@@ -23,7 +23,7 @@ const components = (m: Material) => {
     if (seen[v] !== -1) continue;
     const stack = [v];
     seen[v] = c;
-    while (stack.length) for (const w of m.connected(stack.pop()!)) if (seen[w] === -1) { seen[w] = c; stack.push(w); }
+    while (stack.length) for (const q of m.points.at(stack.pop()!).adjacent) if (seen[q.index] === -1) { seen[q.index] = c; stack.push(q.index); }
     c++;
   }
   return c;

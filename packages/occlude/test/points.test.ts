@@ -213,7 +213,7 @@ describe('voronoi as material', () => {
     expect(cells.faces().length).toBe(4);
     const centre = cells.points.filter((p) => Math.abs(p.x - 50) < 1e-9 && Math.abs(p.y - 50) < 1e-9);
     expect(centre.length).toBe(1);
-    expect(cells.degree(centre.at(0))).toBe(4);
+    expect(centre.at(0).adjacent.length).toBe(4);
     expect(cells.faces().map((f) => f.area)).toEqual([2500, 2500, 2500, 2500]);
   });
 
@@ -410,7 +410,7 @@ describe('review of fe26c3f', () => {
       // the centre is one vertex of degree n (for n ≥ 4 every wall meets there)
       const centre = cells.points.filter((p) => Math.abs(p.x - 50) < 1e-6 && Math.abs(p.y - 50) < 1e-6);
       expect(centre.length).toBe(1);
-      expect(cells.degree(centre.at(0))).toBe(n);
+      expect(centre.at(0).adjacent.length).toBe(n);
       for (const f of cells.faces()) expect(cells.siteOf(f)).toBeDefined();
     }
     // a lattice: every interior corner has four cells
@@ -419,7 +419,7 @@ describe('review of fe26c3f', () => {
     const cells = voronoi(grid, B);
     expect(cells.faces().length).toBe(30);
     expect(rectArea(cells)).toBeCloseTo(10000, 6);
-    expect(cells.points.filter((p) => cells.degree(p) === 4).length).toBe(20);
+    expect(cells.points.filter((p) => p.adjacent.length === 4).length).toBe(20);
     // a jittered lattice at awkward scale and offset
     const far = grid.map(([x, y]) => [x * 1e-3 + 1234.5, y * 1e-3 + 6789.25] as [number, number]);
     const fb = { x: 1234.5, y: 6789.25, w: 0.1, h: 0.1 };

@@ -51,9 +51,9 @@ describe('what a direct write reaches', () => {
 
   it('adjacency is topology only: a coordinate write cannot stale it', () => {
     const m = square();
-    expect(m.connected(0)).toEqual([1, 3]);
+    expect(m.points.at(0).adjacent.indices).toEqual([1, 3]);
     m.x[0] = 100;
-    expect(m.connected(0)).toEqual([1, 3]);
+    expect(m.points.at(0).adjacent.indices).toEqual([1, 3]);
   });
 
   it('a prepared edge query keeps the geometry it was prepared on', () => {

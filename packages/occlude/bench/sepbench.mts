@@ -25,7 +25,7 @@ function kernel(x: Float64Array, y: Float64Array, radius: number, adj: (i: numbe
   }
 }
 const ox = new Float64Array(N), oy = new Float64Array(N);
-t0 = performance.now(); kernel(ring.x, ring.y, 2, (i) => ring.connected(i), ox, oy); console.log('typed-array JS kernel (grid, no allocation)', (performance.now() - t0).toFixed(1), 'ms');
-t0 = performance.now(); for (let k = 0; k < 5; k++) kernel(ring.x, ring.y, 2, (i) => ring.connected(i), ox, oy); console.log('  warm ×5 avg', ((performance.now() - t0) / 5).toFixed(1), 'ms');
+t0 = performance.now(); kernel(ring.x, ring.y, 2, (i) => i.adjacent, ox, oy); console.log('typed-array JS kernel (grid, no allocation)', (performance.now() - t0).toFixed(1), 'ms');
+t0 = performance.now(); for (let k = 0; k < 5; k++) kernel(ring.x, ring.y, 2, (i) => i.adjacent, ox, oy); console.log('  warm ×5 avg', ((performance.now() - t0) / 5).toFixed(1), 'ms');
 // how many neighbours per point on this ring?
 

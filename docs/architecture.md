@@ -577,7 +577,7 @@ removals, connections, extensions), validates conflicts and ownership,
 and publishes one new state, optionally recording history. Forces are
 prepared per state (spatial index built once in `force.nearby`) and
 evaluated per point. `relation.ts` is selections, extraction,
-`connectedPoints`, `components` and `meanBy`; `query.ts` prepares a grid
+`components` and `meanBy`; `query.ts` prepares a grid
 over a state's edges for `nearest` and `firstHit` with a wide-box fallback
 so long queries stay exact; `faces.ts` planarizes with Shewchuk's
 `orient2d` for every orientation decision and reads bounded faces, face

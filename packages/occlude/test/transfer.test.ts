@@ -97,13 +97,14 @@ describe('transfer contracts (con2 stage B)', () => {
     expect(out.edgeCount).toBe(3);
     expect(out.edgeAttrs.w[0]).toBe(5);
     expect(() => m.steps(1, (_, next) => next.setEdge(9, { w: 1 }))).toThrow(/no edge 9/);
-    expect(m.degree(m.vertex(1))).toBe(2);
-    expect(m.connected(m.vertex(0))).toEqual([1]);
+    expect(m.vertex(1).adjacent.length).toBe(2);
+    expect(m.vertex(0).adjacent.indices).toEqual([1]);
     expect(m.isConnected(m.vertex(0), 1)).toBe(true);
     expect(m.prev(m.vertex(1))).toBe(0);
     expect(m.next(m.vertex(1))).toBe(2);
-    expect(() => m.degree(curve([[0, 0], [1, 1]], { closed: false }).vertex(0))).toThrow(/another state/);
-    expect(() => m.degree(7)).toThrow(/no vertex 7/);
+    // A foreign vertex describes its own state now; it does not throw.
+    expect(curve([[0, 0], [1, 1]], { closed: false }).vertex(0).adjacent.length).toBe(1);
+    expect(() => m.points.at(7).adjacent.length).toThrow(/no member 7/);
     expect(m.contour.indices).toEqual([0, 1, 2, 3]);
   });
 

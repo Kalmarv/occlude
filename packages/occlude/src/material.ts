@@ -294,7 +294,7 @@ export class Material {
     // is asked for.
     const vertexProto = Object.create(viewProto(this, 'vertex')) as object;
     Object.defineProperty(vertexProto, 'adjacent', {
-      get(this: Vertex) { return new PointSelection(self, self.connected(this.index)); },
+      get(this: Vertex) { return new PointSelection(self, self.adjacentRows(this.index)); },
       enumerable: false,
     });
     this.vertexProto = Object.freeze(vertexProto);
@@ -389,25 +389,14 @@ export class Material {
     return new EdgeSelection(this, null);
   }
 
-  /** Rows connected to `i` (a row or a vertex view of this state), in edge order. */
-  connected(i: Vertex | number): readonly number[] {
-    return this.adj[this.rowOfVertex(i, 'connected')];
-  }
-
-  degree(i: Vertex | number): number {
-    return this.adj[this.rowOfVertex(i, 'degree')].length;
+  /** @internal Rows adjacent to `i`, in edge order. The engine's own door;
+   * a sketch says `p.adjacent`, which is a selection and composes. */
+  adjacentRows(i: Vertex | number): readonly number[] {
+    return this.adj[this.rowOfVertex(i, 'adjacentRows')];
   }
 
   isConnected(i: Vertex | number, j: Vertex | number): boolean {
     return this.adj[this.rowOfVertex(i, 'isConnected')].includes(this.rowOfVertex(j, 'isConnected'));
-  }
-
-  /** The vertices connected to `p` by an edge, as views, in adjacency
-   * order — an isolated vertex has none. Topology only: no spatial search
-   * (see `neighbours` for that). `p` must be a vertex of this state. */
-  connectedPoints(p: Vertex | number): Vertex[] {
-    const row = this.rowOfVertex(p, 'connectedPoints');
-    return this.adj[row].map((j) => this.vertex(j));
   }
 
   private rowOfVertex(p: Vertex | number, what: string): number {
@@ -1700,7 +1689,7 @@ export const connect = {
    *
    * Rows are not reordered and the result is a chain-free tree: `strokes`
    * walks each arm, `faces()` finds nothing because a tree encloses nothing,
-   * and `m.degree(p)` tells a tip from a fork.
+   * and `p.adjacent.length` tells a tip from a fork.
    */
   tree(m: PointsLike, opts: { cost?: (a: Vertex, b: Vertex) => number; edgeAttributes?: Record<string, number> } = {}): Material {
     const mm = material(m);

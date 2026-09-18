@@ -26,7 +26,7 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
     next.move(cur.points, (p) => mul(push(p), 0.2));
     const near = neighbours(cur, { radius: 2.5 });
     const room = cur.edges.filter((e) => {
-      const own = new Set([e.a.index, e.b.index, ...cur.connected(e.a), ...cur.connected(e.b)]);
+      const own = new Set([e.a.index, e.b.index, ...e.a.adjacent.indices, ...e.b.adjacent.indices]);
       return near(mul(add(e.a, e.b), 0.5)).every((j) => own.has(j));
     });
     next.splitEdges(room.filter(() => t.chance(0.3)));

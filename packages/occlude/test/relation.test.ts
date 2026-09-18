@@ -194,16 +194,19 @@ describe('selections in edits', () => {
 describe('relational attributes', () => {
   it('connectedPoints, meanBy, degree as attributes', () => {
     const m = Y();
-    expect(m.connectedPoints(m.vertex(2)).map((p) => p.index)).toEqual([1, 3, 4]);
-    expect(m.connectedPoints(5)).toEqual([]);
-    expect(() => m.connectedPoints(Y().vertex(2))).toThrow(/another state/);
-    expect(() => m.connectedPoints(9)).toThrow(/no vertex/);
-    const marked = m.attribute('neighbourAge', (p) => meanBy(m.connectedPoints(p), (q) => q.age));
+    expect(m.vertex(2).adjacent.map((p) => p.index)).toEqual([1, 3, 4]);
+    expect(m.points.at(5).adjacent.indices).toEqual([]);
+    // `p.adjacent` closes over the material that made the view, so a
+    // vertex of another state answers about ITS state instead of throwing.
+    // The cross-state guard now lives where it matters: the step verbs.
+    expect(Y().vertex(2).adjacent.source).not.toBe(m);
+    expect(() => m.points.at(9).adjacent).toThrow(/no member/);
+    const marked = m.attribute('neighbourAge', (p) => meanBy(p.adjacent, (q) => q.age));
     expect(Array.from(marked.attrs.neighbourAge)).toEqual([1, 1, (1 + 3 + 4) / 3, 2, 2, 0]);
     expect(meanBy([], () => 1)).toBe(0);
     expect(meanBy([1, NaN], (v) => v)).toBeNaN();
     expect(meanBy(new Set([2, 4]), (v) => v)).toBe(3);
-    const deg = m.attribute('degree', (p) => m.degree(p.index));
+    const deg = m.attribute('degree', (p) => p.adjacent.length);
     expect(Array.from(deg.attrs.degree)).toEqual([1, 2, 3, 1, 1, 0]);
   });
 

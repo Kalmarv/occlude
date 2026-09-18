@@ -412,7 +412,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 });
 ```
 
-`m.attribute(name, constant | p => value, { transfer? })` adds a point column and returns a new material; `m.attributes({ a: …, b: … }, { transfer?: { a: … } })` adds several at once, every initializer reading the material as it is, so no column sees another's new value. `m.edgeAttribute(name, constant | e => value)` and `m.edgeAttributes({ … })` do the same for edge columns, each edge its own row. Read `m.points` (vertex views `{ index, x, y, ...attrs }`), `m.pts` (tuples), `m.x`, `m.y` and `m.attrs.age` (the columns), `m.connected(i)`, `m.degree(i)`, `m.edges` and `m.curves()`.
+`m.attribute(name, constant | p => value, { transfer? })` adds a point column and returns a new material; `m.attributes({ a: …, b: … }, { transfer?: { a: … } })` adds several at once, every initializer reading the material as it is, so no column sees another's new value. `m.edgeAttribute(name, constant | e => value)` and `m.edgeAttributes({ … })` do the same for edge columns, each edge its own row. Read `m.points` (vertex views `{ index, x, y, ...attrs }`), `m.pts` (tuples), `m.x`, `m.y` and `m.attrs.age` (the columns), `p.adjacent` on a vertex view, `m.edges` and `m.curves()`.
 
 ```ts live
 import { sketch, circle, material } from 'occlude';
@@ -591,7 +591,7 @@ With fewer than three distinct positions, or all of them collinear, there is
 no triangulation to draw on and every pair becomes a candidate.
 
 The result is a tree, so `faces()` finds nothing in it, `strokes` walks each
-arm, and `m.degree(p)` tells a tip from a fork.
+arm, and `p.adjacent.length` tells a tip from a fork.
 
 ```ts live
 import { sketch, strokes, circle, connect } from 'occlude';
@@ -608,7 +608,7 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   return [
     strokes(tree),
     strokes(connect.triangulate(pts), { pen: 'stabilo-88-blue' }),
-    tree.points.map((p) => circle(p.x, p.y, tree.degree(p) > 2 ? 1.4 : 1)),
+    tree.points.map((p) => circle(p.x, p.y, p.adjacent.length > 2 ? 1.4 : 1)),
   ];
 });
 ```
@@ -665,7 +665,7 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
   const seen = new Uint8Array(rivers.n);
   const order = [mouth];
   seen[mouth] = 1;
-  for (let k = 0; k < order.length; k++) for (const w of rivers.connected(order[k])) if (!seen[w]) { seen[w] = 1; parent[w] = order[k]; order.push(w); }
+  for (let k = 0; k < order.length; k++) for (const w of rivers.points.at(order[k]).adjacent.indices) if (!seen[w]) { seen[w] = 1; parent[w] = order[k]; order.push(w); }
   const drains = new Float64Array(rivers.n).fill(1);
   for (let k = order.length - 1; k > 0; k--) drains[parent[order[k]]] += drains[order[k]];
   return [
@@ -1140,9 +1140,9 @@ export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
   const piece = arc.extract();
   const smooth = piece.steps(60, (cur, next) => {
     const relax = force.relax(cur);
-    next.move(cur.points.filter((p) => cur.degree(p) === 2), (p) => mul(relax(p), 0.5));
+    next.move(cur.points.filter((p) => p.adjacent.length === 2), (p) => mul(relax(p), 0.5));
   });
-  const ends = (m) => m.points.filter((p) => m.degree(p) === 1).map((p) => circle(p.x, p.y, 1.2));
+  const ends = (m) => m.points.filter((p) => p.adjacent.length === 1).map((p) => circle(p.x, p.y, 1.2));
   const faint = { pen: 'pigma-005-black' };
   const heavy = { pen: 'stabilo-88-blue' };
   return [
@@ -1155,7 +1155,7 @@ export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
 
 ### Relations
 
-`m.connectedPoints(p)` is adjacency as views, `meanBy(items, fn)` a scalar mean (0 of nothing), and `components(m)` one connected-components pass with `count`, a `labels` column and `label(vertex)`. Connected and nearby are different questions; nearby is a spatial query, below.
+`p.adjacent` is adjacency as views, `meanBy(items, fn)` a scalar mean (0 of nothing), and `components(m)` one connected-components pass with `count`, a `labels` column and `label(vertex)`. Connected and nearby are different questions; nearby is a spatial query, below.
 
 ```ts live
 import { sketch, strokes, circle, group, connect, meanBy } from 'occlude';
@@ -1167,7 +1167,7 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
   const mesh = connect.triangulate(t.grid({ cols: 9, rows: 8 }).map((c) => [c.cx * 0.48 + t.rnd(-2.4, 2.4), c.cy + t.rnd(-2.8, 2.8)]));
   const hot = [12, 39, 61];
   const raw = mesh.attribute('hot', (p) => (hot.includes(p.index) ? 1 : 0));
-  const warm = raw.attribute('warmth', (p) => meanBy(raw.connectedPoints(p), (q) => q.hot));
+  const warm = raw.attribute('warmth', (p) => meanBy(p.adjacent, (q) => q.hot));
   const halo = warm.edges.filter((e) => e.a.warmth > 0 && e.b.warmth > 0);
   const marks = (m) => m.points.filter((p) => p.hot === 1).map((p) => circle(p.x, p.y, 2.2, { pen: 'stabilo-88-blue' }));
   return [
@@ -1195,7 +1195,7 @@ export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
   const pens = ['pigma-01-black', 'stabilo-88-blue', 'stabilo-88-green'];
   return [
     segmentRuns(labelled, (a) => a.piece).map((r) => stroke(r, { pen: pens[r.key % 3] })),
-    labelled.points.filter((p) => labelled.degree(p) === 0).map((p) => circle(p.x, p.y, 1, { pen: pens[p.piece % 3] })),
+    labelled.points.filter((p) => p.adjacent.length === 0).map((p) => circle(p.x, p.y, 1, { pen: pens[p.piece % 3] })),
   ];
 });
 ```
@@ -1516,7 +1516,7 @@ Structural helpers are ordinary functions over the edit interface:
 
 ```ts
 // prune: drop the tips older than a lifespan, edges and all
-next.remove(prev.points.filter(p => prev.degree(p) === 1 && p.age > lifespan));
+next.remove(prev.points.filter(p => p.adjacent.length === 1 && p.age > lifespan));
 
 // replace an edge with a bend through a new junction
 function fork(next, edge, position) {
@@ -2028,8 +2028,8 @@ export default sketch({ aspect: [2, 2], seed: 7 }, (t) => {
     group({ translate: [50, 0] }, segmentRuns(web, (a, b) => band((a.age + b.age) / 2)).map((r) => stroke(r, { pen: pens[r.key] }))),
     group({ translate: [0, 50] }, cells.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: mm(1) }), stroke: false })), strokes(planar, { pen: 'pigma-005-black' })),
     group({ translate: [50, 50] }, strokes(web, { pen: 'pigma-005-black' }),
-      web.points.filter((p) => web.degree(p) > 2).map((p) => circle(p.x, p.y, 0.7, { pen: 'stabilo-88-blue' })),
-      web.points.filter((p) => web.degree(p) === 1).map((p) => circle(p.x, p.y, 0.4))),
+      web.points.filter((p) => p.adjacent.length > 2).map((p) => circle(p.x, p.y, 0.7, { pen: 'stabilo-88-blue' })),
+      web.points.filter((p) => p.adjacent.length === 1).map((p) => circle(p.x, p.y, 0.4))),
   ];
 });
 ```
