@@ -35,3 +35,16 @@ describe('common mesh primitive catalog',()=>{
   manifold(sphere(1,{segments:3,rings:2}),2);manifold(torus(1,.2,{segments:3,tubeSegments:3}),0);
  });
 });
+
+describe('degenerate primitives draw nothing instead of failing the sketch',()=>{
+ it('a box with a non-positive dimension is an empty mesh',async()=>{
+  const {box,view,perspective}=await import('../src/three/api/index.js');
+  for(const size of [0,[1,1,0] as const,[1,-2,1] as const]){
+   const b=box(size as never);
+   expect(b.faces.length).toBe(0);expect(b.points.length).toBe(0);
+  }
+  const {sketch,paper}=await import('../src/index.js');
+  const out=sketch({paper:paper({width:100,height:100}),seed:1},()=>view([box(1),box([1,1,0])],{camera:perspective({eye:[3,3,3],target:[0,0,0],fovDegrees:60})}));
+  expect(out).toBeDefined();
+ });
+});

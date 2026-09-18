@@ -137,7 +137,9 @@ export function surface3(positions: readonly Vec3[], polygons: readonly (readonl
 
 export function box3(size: Vec3 = [1, 1, 1], center: Vec3 = [0, 0, 0]): Surface3 {
   finite3(size); finite3(center);
-  if (size.some(v => v <= 0)) throw new Error('box dimensions must be positive');
+  // A box with no extent on some axis is nothing to draw, not a fault: the
+  // sketch keeps rendering and this box contributes no faces.
+  if (size.some(v => v <= 0)) return surface3([], []);
   const signs: Vec3[] = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
   return surface3(signs.map(p => p.map((v, i) => center[i] + v * size[i] / 2) as unknown as Vec3), [[3,2,1,0],[4,5,6,7],[0,1,5,4],[1,2,6,5],[2,3,7,6],[3,0,4,7]]);
 }
