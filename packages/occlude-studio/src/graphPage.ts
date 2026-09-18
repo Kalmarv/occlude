@@ -400,6 +400,7 @@ const paintHooks: NodePaintHooks = {
   viewerShow,
   frames: (node) => viewerFrames.get(node.id) ?? 0,
   zoom: () => canvas.area.area.transform.k,
+  takesOf: (node) => inputTakes(node, catalogue),
   setSpread: (node, key, spread) => {
     const input = node.inputs[key];
     if (!input) return;
@@ -481,6 +482,11 @@ function reteNode(node: GraphNode): ReteNode {
     rete.addOutput('out', new ClassicPreset.Output(port(takesOf(type).socket), 'out'));
   } else if (node.kind === 'list') {
     for (const key of listPlaces(node)) rete.addInput(key, new ClassicPreset.Input(port('Geometry'), key));
+    rete.addOutput('out', new ClassicPreset.Output(port('Geometry'), 'out'));
+  } else if (node.kind === 'zone') {
+    for (const [key, takes] of Object.entries(inputTakes(node, catalogue))) {
+      if (takes) rete.addInput(key, new ClassicPreset.Input(port(takes.socket), key));
+    }
     rete.addOutput('out', new ClassicPreset.Output(port('Geometry'), 'out'));
   } else {
     rete.addInput('in', new ClassicPreset.Input(port('Geometry'), 'in'));

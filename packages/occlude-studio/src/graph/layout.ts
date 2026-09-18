@@ -81,6 +81,9 @@ export function estimateBox(node: GraphNode, catalogue: Catalogue): NodeBox {
   // title and a row.
   if (node.kind === 'value') return { width: 176, height: HEAD_H + 2 * ROW_H };
   if (node.kind === 'list') return { width: 176, height: HEAD_H + (listPlaces(node).length + 1) * ROW_H };
+  // A zone is its inputs, the line that says how big its body is, and the
+  // result.
+  if (node.kind === 'zone') return { width: 224, height: HEAD_H + (Object.keys(node.inputs).length + 2) * ROW_H + 12 };
   return { width: 208, height: HEAD_H + ROW_H };
 }
 

@@ -550,9 +550,19 @@ export function inputTakes(node: GraphNode, catalogue: Catalogue): Record<string
   }
   // The output node takes what a sketch may return: shapes and drawings.
   if (node.kind === 'output') return { in: { socket: 'Geometry', kinds: ['shape', 'drawing'] } };
-  // A zone takes exactly what its recipe names.
+  // A zone takes what its recipe names, and one socket for every name its
+  // body reaches for from outside — those cross the boundary under their own
+  // names, and the boundary node declares what each one is.
   if (node.kind === 'zone' && node.zone) {
-    return Object.fromEntries(ZONES[node.zone].takes.map((t) => [t.name, t.takes]));
+    const out: Record<string, Takes | undefined> = {};
+    for (const t of ZONES[node.zone].takes) out[t.name] = t.takes;
+    const edge = node.graph?.nodes.find((n) => n.kind === 'input');
+    for (const key of Object.keys(node.inputs)) {
+      if (out[key] !== undefined) continue;
+      const type = edge?.outputs?.[key] ?? 'Geometry';
+      out[key] = { socket: socketOf(type), kinds: kindOf(type) ? [kindOf(type)!] : undefined };
+    }
+    return out;
   }
   // A list takes any geometry in every place it holds, and in one more: a
   // list with nowhere left to wire is a list you cannot add to.

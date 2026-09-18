@@ -94,6 +94,8 @@ export interface NodePaintHooks {
   zoom(): number;
   /** A list place carries a whole collection, not one value. */
   setSpread(node: GraphNode, key: string, spread: boolean): void;
+  /** What each input of a node takes, as the model reads it. */
+  takesOf(node: GraphNode): Record<string, Takes | undefined>;
   /** Remember a node's size in the document. */
   setSize(node: GraphNode, width: number, height: number): void;
   /** Fit this viewer's picture to its canvas again. */
@@ -189,6 +191,7 @@ function nodeTitle(node: GraphNode): string {
   if (node.kind === 'viewer') return 'viewer';
   if (node.kind === 'value') return 'value';
   if (node.kind === 'list') return 'list';
+  if (node.kind === 'zone') return node.zone ?? 'zone';
   return 'output';
 }
 
@@ -765,6 +768,39 @@ function listRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): vo
   host.append(out);
 }
 
+/**
+ * A zone: a body that runs many times. The node shows what it runs on — the
+ * recipe's own inputs, then every name the body reaches for from outside —
+ * and says how large the body is. The body itself is a graph of its own.
+ */
+function zoneRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): void {
+  const takes = hooks.takesOf(node);
+  for (const [key, take] of Object.entries(takes)) {
+    if (!take) continue;
+    const line = nodeRow();
+    line.dataset.row = key;
+    line.append(socketDot('input', key, take.socket, hooks));
+    line.append(el('span', 'graph-row-name', key));
+    line.append(el('span', 'graph-row-type', takesLabel(take)));
+    if (take.socket === 'Number' && !node.inputs[key]?.from) line.append(literalBox(node, key, hooks));
+    host.append(line);
+  }
+  const binds = node.binds ?? [];
+  const inside = node.graph?.nodes.filter((n) => n.kind !== 'input' && n.kind !== 'output').length ?? 0;
+  const note = el('div', 'graph-zone-body');
+  note.append(el('span', 'graph-zone-binds', binds.length > 0 ? `(${binds.join(', ')}) →` : 'each run →'));
+  note.append(el('span', 'graph-zone-count', `${inside} node${inside === 1 ? '' : 's'}`));
+  note.title = 'The body this zone runs. Every run is handed the names on the left.';
+  noDrag(note);
+  host.append(note);
+  const out = nodeRow('graph-row graph-row-out');
+  out.dataset.row = 'out';
+  out.append(el('span', 'graph-row-type', 'each run'));
+  out.append(el('span', 'graph-row-name', 'out'));
+  out.append(socketDot('output', 'out', 'Geometry', hooks));
+  host.append(out);
+}
+
 /** An output node: what the sketch returns. */
 function outputRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): void {
   const line = nodeRow();
@@ -801,6 +837,7 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
     cleanups.push(() => code.editor.dispose());
   } else if (node.kind === 'value') valueRows(host, node, hooks);
   else if (node.kind === 'list') listRows(host, node, hooks);
+  else if (node.kind === 'zone') zoneRows(host, node, hooks);
   else if (node.kind === 'viewer') {
     const shown = viewerRows(host, node, hooks);
     paint.canvas = shown.canvas;
