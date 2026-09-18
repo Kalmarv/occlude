@@ -578,6 +578,14 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
   if (node.width !== undefined) host.style.width = `${node.width}px`;
   if (node.height !== undefined) host.style.height = `${node.height}px`;
 
+  // Only a node with room inside it is sized by hand: a built-in and the
+  // output node are exactly their rows, and a handle on them would sit on
+  // the output socket and take its presses.
+  if (node.kind !== 'code' && node.kind !== 'viewer') {
+    markWired(host, hooks.wired(node));
+    return paint;
+  }
+
   const corner = el('div', 'graph-size');
   corner.title = 'Drag to size this node';
   noDrag(corner);

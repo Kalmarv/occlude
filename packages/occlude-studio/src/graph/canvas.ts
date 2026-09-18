@@ -74,6 +74,11 @@ class DomRender extends Scope<never, [AreaExtra]> {
   /** Each connection element's unlisten functions. */
   private wires = new Map<HTMLElement, (() => void)[]>();
 
+  /** How many nodes have been pressed: the last one pressed is the one on
+   * top. Nodes overlap, and a node under another one has its sockets and
+   * its size handle out of reach until it comes forward. */
+  private raised = 0;
+
   constructor(
     private area: AreaPlugin<GraphScheme, AreaExtra>,
     private watcher: DOMSocketPosition<GraphScheme, AreaExtra>,
@@ -118,7 +123,11 @@ class DomRender extends Scope<never, [AreaExtra]> {
       for (const [key] of Object.entries(node.outputs)) if (key) this.announce(element, node.id, 'output', key);
       const at = this.hooks.position(node.id);
       if (at) void this.area.translate(node.id, at);
-      element.addEventListener('pointerdown', this.picked);
+      // The capture phase, because a node body owns its own pointer events
+      // and stops them before they reach here: pressing the code, a picture
+      // or a socket still selects the node it belongs to and brings it
+      // forward.
+      element.addEventListener('pointerdown', this.picked, true);
       return true;
     }
     if (data.type === 'connection') {
@@ -146,7 +155,9 @@ class DomRender extends Scope<never, [AreaExtra]> {
   private picked = (event: PointerEvent): void => {
     const node = (event.target as HTMLElement | null)?.closest<HTMLElement>('.graph-node');
     const id = node?.dataset.nodeId;
-    if (id) this.hooks.pick(id, event.shiftKey);
+    if (!id || !node) return;
+    node.style.zIndex = String(++this.raised);
+    this.hooks.pick(id, event.shiftKey);
   };
 
   /** Announce a socket: the connection plugin caches the element, the

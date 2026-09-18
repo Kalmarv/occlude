@@ -3182,6 +3182,15 @@ button.armed {
   width: 232px;
 }
 
+/* The size handle needs a strip of its own. Without it the handle sits on
+   the last row, which is the output row, and covers the output socket: the
+   handle is painted last, so it takes the press and no wire can start. Only
+   a code node and a viewer carry a handle, so only they pay the strip. */
+.graph-node-body[data-kind='code'],
+.graph-node-body[data-kind='viewer'] {
+  padding-bottom: 14px;
+}
+
 .graph-node.graph-sel .graph-node-body {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent-edge), var(--shadow-2);
@@ -3519,8 +3528,8 @@ button.armed {
 /* The size corner: on the body's chrome, never on a socket or a control. */
 .graph-size {
   position: absolute;
-  right: 0;
-  bottom: 0;
+  right: 1px;
+  bottom: 1px;
   width: 12px;
   height: 12px;
   cursor: nwse-resize;

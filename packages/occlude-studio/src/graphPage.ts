@@ -911,7 +911,7 @@ async function open(name: string): Promise<boolean> {
     seedInput.value = typeof next.config.seed === 'number' ? String(next.config.seed) : '';
     history.replaceState(null, '', graphHref(next.name));
     dirty = false;
-    select('');
+    clearSelection();
     await renderAll();
     return true;
   } catch (error) {
@@ -982,7 +982,7 @@ async function importFrom(): Promise<void> {
   await buildCanvas();
   history.replaceState(null, '', '/graph.html');
   dirty = true; // the imported graph has no name in the store yet
-  select('');
+  clearSelection();
   await renderAll();
   notify(`imported '${name}' as a graph — Save gives it a name`, 'success');
 }
@@ -999,7 +999,7 @@ async function newGraph(): Promise<void> {
   await buildCanvas();
   history.replaceState(null, '', '/graph.html');
   dirty = false;
-  select('');
+  clearSelection();
   await renderAll();
 }
 
@@ -1021,7 +1021,7 @@ async function remove(): Promise<void> {
     viewerResults.clear();
     viewerFrames.clear();
     await buildCanvas();
-    select('');
+    clearSelection();
     await renderAll();
   } catch (error) {
     notify(`delete: ${error instanceof Error ? error.message : String(error)}`, 'danger');
