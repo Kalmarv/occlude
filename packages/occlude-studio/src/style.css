@@ -3500,6 +3500,15 @@ wa-dialog.wa-dialog-wide {
   border-radius: var(--r-sm);
 }
 
+/* Work that is not saved says so, on the name it would be saved under. */
+.graph-name.graph-dirty {
+  border-color: var(--warn);
+}
+
+.graph-name.graph-dirty::placeholder {
+  color: var(--warn);
+}
+
 /* A zone's body: what it runs, and how large that is. */
 .graph-zone-body {
   display: flex;

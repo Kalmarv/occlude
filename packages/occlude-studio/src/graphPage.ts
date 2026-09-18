@@ -115,10 +115,11 @@ const deleteBtn = iconButton('trash', 'Delete this graph', () => void remove());
 const sketchBtn = withIcon(button('Open as sketch', () => openAsSketch()), 'export');
 sketchBtn.classList.add('graph-sketch');
 sketchBtn.title = 'Write the compiled source into the studio and open it there';
+const fitCanvasBtn = iconButton('frame', 'Fit the whole graph in view (Home)', () => canvas.fit());
 const layoutBtn = iconButton('layout', 'Lay the graph out — columns that follow the wires', () => void autoLayout());
 const importBtn = withIcon(button('Import', () => void importFrom()), 'import');
 importBtn.title = 'Read a sketch from the library into a graph';
-actions.append(nameInput, openSelect, refreshBtn, newBtn, layoutBtn, importBtn, saveBtn, deleteBtn, sketchBtn);
+actions.append(nameInput, openSelect, refreshBtn, newBtn, fitCanvasBtn, layoutBtn, importBtn, saveBtn, deleteBtn, sketchBtn);
 head.append(heading, actions);
 
 const body = el('div', 'graph-body');
@@ -273,6 +274,47 @@ function status(text: string, kind: 'ok' | 'err' = 'ok'): void {
   statusLine.className = `graph-status graph-status-${kind}`;
 }
 
+/** The name field wears the unsaved mark, and the tab title with it: work
+ * that is not saved has to look unsaved. */
+function showDirty(): void {
+  nameInput.classList.toggle('graph-dirty', dirty);
+  const name = nameInput.value.trim() || 'untitled';
+  document.title = `${dirty ? '• ' : ''}${name} — occlude graph`;
+}
+
+/**
+ * The open graph, kept in this browser. A crash, a reload or a stray link
+ * loses nothing: the draft is written on every change and read back on the
+ * next visit, and the name it was drafted under is what says whether it is
+ * still the graph you were looking at.
+ */
+const DRAFT = 'occlude.graph.draft';
+
+function saveDraft(): void {
+  try {
+    localStorage.setItem(DRAFT, JSON.stringify({ name: nameInput.value.trim(), at: Date.now(), graph: JSON.parse(graphToJson(graph)) }));
+  } catch {
+    // A full or blocked store is not a reason to stop drawing.
+  }
+}
+
+function takeDraft(): { name: string; at: number; graph: unknown } | null {
+  try {
+    const raw = localStorage.getItem(DRAFT);
+    return raw === null ? null : (JSON.parse(raw) as { name: string; at: number; graph: unknown });
+  } catch {
+    return null;
+  }
+}
+
+function dropDraft(): void {
+  try {
+    localStorage.removeItem(DRAFT);
+  } catch {
+    // nothing to do
+  }
+}
+
 // ---- the canvas ----
 
 const canvas: GraphCanvas = createCanvas(canvasHost, {
@@ -418,6 +460,7 @@ const paintHooks: NodePaintHooks = {
     node.height = height;
     canvas.area.resize(node.id, width, height);
     dirty = true;
+    showDirty();
   },
   remove: (node) => void removeNode(node.id),
   select: (node) => select(node.id),
@@ -538,6 +581,7 @@ canvas.area.addPipe((context: AreaExtra | Root<GraphScheme>) => {
       node.x = Math.round(view.position.x);
       node.y = Math.round(view.position.y);
       dirty = true;
+      showDirty();
     }
     // The rest followed; their new places are the document's too.
     for (const other of moved?.others ?? []) {
@@ -680,8 +724,9 @@ async function buildCanvas(): Promise<void> {
   canvas.fit();
 }
 
-function freshId(): string {
-  for (let i = 1; ; i++) if (!nodeById(`n${i}`)) return `n${i}`;
+function freshId(besides?: Map<string, string>): string {
+  const taken = new Set(besides ? [...besides.values()] : []);
+  for (let i = 1; ; i++) if (!nodeById(`n${i}`) && !taken.has(`n${i}`)) return `n${i}`;
 }
 
 function paintSelection(): void {
@@ -830,6 +875,7 @@ async function autoLayout(): Promise<void> {
   }
   canvas.fit();
   dirty = true;
+  showDirty();
   status(`laid out ${graph.nodes.length} nodes`);
 }
 
@@ -929,6 +975,8 @@ function schedule(): void {
 
 function touch(): void {
   dirty = true;
+  showDirty();
+  saveDraft();
   schedule();
 }
 
@@ -1260,6 +1308,7 @@ async function open(name: string): Promise<boolean> {
     seedInput.value = typeof next.config.seed === 'number' ? String(next.config.seed) : '';
     history.replaceState(null, '', graphHref(next.name));
     dirty = false;
+    showDirty();
     clearSelection();
     await renderAll();
     return true;
@@ -1280,6 +1329,9 @@ async function save(): Promise<void> {
     await saveGraphText(name, graphToJson(graph));
     history.replaceState(null, '', graphHref(name));
     dirty = false;
+    showDirty();
+    // What is in the store needs no draft.
+    dropDraft();
     await refreshList();
     notify(`saved '${name}'`, 'success');
   } catch (error) {
@@ -1311,7 +1363,8 @@ async function readSketch(source: string, name: string): Promise<boolean> {
   viewerFrames.clear();
   await buildCanvas();
   history.replaceState(null, '', '/graph.html');
-  dirty = true; // the imported graph has no name in the store yet
+  dirty = true;
+  showDirty(); // the imported graph has no name in the store yet
   clearSelection();
   await renderAll();
   return true;
@@ -1352,6 +1405,7 @@ async function newGraph(): Promise<void> {
   await buildCanvas();
   history.replaceState(null, '', '/graph.html');
   dirty = false;
+  showDirty();
   clearSelection();
   await renderAll();
 }
@@ -1412,7 +1466,9 @@ seedInput.onchange = () => {
 };
 
 document.addEventListener('keydown', (event) => {
-  const target = event.target as HTMLElement | null;
+  // The document itself can be the target, and it has no `closest`: a key
+  // pressed with nothing focused would have thrown before it was read.
+  const target = event.target instanceof Element ? event.target : null;
   if (target?.closest('input, textarea, select, .monaco-editor')) return;
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
     event.preventDefault();
@@ -1425,6 +1481,64 @@ document.addEventListener('keydown', (event) => {
     for (const id of [...selection]) void removeNode(id);
   }
   if (event.key === 'Escape') clearSelection();
+  // Blender's key for it: frame everything.
+  if (event.key === 'Home') {
+    event.preventDefault();
+    canvas.fit();
+  }
+  // Duplicate the selection where it stands, a little aside.
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
+    event.preventDefault();
+    void duplicateSelection();
+  }
+});
+
+/**
+ * The selection again, a little down and to the right, and wired to whatever
+ * the originals read. A wire *between* two of the copied nodes is copied
+ * too; a wire from outside the selection is kept as it was, because the
+ * thing it comes from is still there.
+ */
+async function duplicateSelection(): Promise<void> {
+  const chosen = graph.nodes.filter((node) => selection.has(node.id));
+  if (chosen.length === 0) return;
+  const renamed = new Map<string, string>();
+  for (const node of chosen) renamed.set(node.id, freshId(renamed));
+  const made: GraphNode[] = [];
+  for (const node of chosen) {
+    const copy = parseGraph(JSON.parse(graphToJson({ ...graph, nodes: [node] }))).nodes[0]!;
+    copy.id = renamed.get(node.id)!;
+    copy.x = node.x + 36;
+    copy.y = node.y + 30;
+    for (const input of Object.values(copy.inputs)) {
+      const from = input.from?.[0];
+      if (from !== undefined && renamed.has(from)) input.from = [renamed.get(from)!, input.from![1]];
+    }
+    graph.nodes.push(copy);
+    made.push(copy);
+  }
+  for (const copy of made) await canvas.editor.addNode(reteNode(copy));
+  for (const copy of made) {
+    for (const [key, input] of Object.entries(copy.inputs)) {
+      if (!input.from || !nodeById(input.from[0])) continue;
+      await canvas.editor.addConnection({
+        id: wireId({ source: input.from[0], sourceOutput: input.from[1], target: copy.id, targetInput: key }),
+        source: input.from[0], sourceOutput: input.from[1], target: copy.id, targetInput: key,
+      });
+    }
+  }
+  selection = new Set(made.map((node) => node.id));
+  paintSelection();
+  for (const copy of made) canvas.raise(copy.id);
+  touch();
+}
+
+// Leaving with work that is not saved asks first. The draft is written
+// either way, so an answer of "leave" still loses nothing.
+window.addEventListener('beforeunload', (event) => {
+  if (!dirty) return;
+  event.preventDefault();
+  event.returnValue = '';
 });
 
 window.addEventListener('resize', () => {
@@ -1482,11 +1596,40 @@ async function boot(): Promise<void> {
     fallback = `'${wanted}' would not open — the template is below`;
     history.replaceState(null, '', '/graph.html');
   }
+  // A draft of work that was never saved: it is the artist's, and it is
+  // offered before the template is.
+  const draft = takeDraft();
+  if (!wanted && draft) {
+    const when = new Date(draft.at);
+    const name = draft.name || 'an unnamed graph';
+    const keep = await confirmDialog({
+      title: 'Unsaved work',
+      body: `${name} has changes from ${when.toLocaleString()} that were never saved. Open them?`,
+      confirm: 'Open the draft',
+    });
+    if (keep) {
+      try {
+        graph = parseGraph(draft.graph);
+        nameInput.value = draft.name;
+        seedInput.value = typeof graph.config.seed === 'number' ? String(graph.config.seed) : '';
+        await buildCanvas();
+        await refreshList();
+        dirty = true;
+        showDirty();
+        await renderAll();
+        return;
+      } catch (error) {
+        notify(`that draft would not open: ${error instanceof Error ? error.message : String(error)}`, 'danger');
+      }
+    }
+    dropDraft();
+  }
   graph = template();
   seedInput.value = String(graph.config.seed ?? '');
   await buildCanvas();
   await refreshList();
   dirty = false;
+  showDirty();
   await renderAll();
   if (fallback) {
     status(fallback, 'err');
