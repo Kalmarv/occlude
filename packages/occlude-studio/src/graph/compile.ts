@@ -263,8 +263,11 @@ export function usedImports(body: string, catalogue: Catalogue, params: Iterable
   const declared = new Set(params);
   // A name inside a string or a comment is not a name the sketch reaches
   // for: `stroke: 'cross'` names a pen, not the word. A template literal is
-  // left alone — its `${…}` parts are references.
+  // left alone — its `${…}` parts are references. A spread is blanked too:
+  // `...add(p, q)` reads `add`, and the lookbehind below would take the dots
+  // for a property access.
   const source = body
+    .replace(/\.\.\./g, ' ')
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/\/\/[^\n]*/g, ' ')
     .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")

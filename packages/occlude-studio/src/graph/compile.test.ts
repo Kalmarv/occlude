@@ -164,6 +164,25 @@ describe('the compiled sketch', () => {
     expect(source).toContain("import { sketch, circle, strokes } from 'occlude';");
   });
 
+  it('imports a name a spread call reaches for', () => {
+    const graph = doc([
+      { id: 'n1', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 10 }, y: { value: 10 }, r: { value: 4 } } },
+      {
+        id: 'n2', kind: 'code', x: 0, y: 0,
+        inputs: { shape: { type: 'shape', from: ['n1', 'out'] } },
+        outputs: { out: 'shape' },
+        body: 'return { out: polygon([...mul(shape, 2)]) };',
+      },
+      { id: 'n5', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['n2', 'out'] } } },
+    ]);
+    const { source } = compileGraph(graph, CATALOGUE);
+    // `mul` is read after a spread, and the lookbehind must not take the dots
+    // for a property access.
+    const imports = /^import \{[^}]*\} from 'occlude';$/m.exec(source)?.[0] ?? '';
+    expect(imports).toContain('mul');
+    expect(imports).toContain('polygon');
+  });
+
   it('imports the words a code body reaches for, and not the ones it declares', () => {
     const graph = doc([
       { id: 'n1', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 10 }, y: { value: 10 }, r: { value: 4 } } },
