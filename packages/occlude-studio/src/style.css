@@ -3159,6 +3159,21 @@ button.armed {
   color: var(--faint);
 }
 
+/* Dragging on the canvas drags nodes and wires, never a text selection. The
+   code editor and the fields the artist types in keep theirs. */
+.graph-canvas,
+.graph-node,
+.graph-rail {
+  user-select: none;
+}
+
+.graph-code,
+.graph-node-body input,
+.graph-node-body select,
+.graph-rail input {
+  user-select: text;
+}
+
 /* ---- the nodes ---- */
 
 .graph-node-body {

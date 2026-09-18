@@ -41,6 +41,7 @@ const PATHS = {
   check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
   view: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>',
+  layout: '<rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="3" y="14" width="6" height="6" rx="1.5"/><rect x="15" y="9" width="6" height="6" rx="1.5"/><path d="M9 7h3v5h3"/><path d="M9 17h3v-5"/>',
 } as const;
 
 export type IconName = keyof typeof PATHS;

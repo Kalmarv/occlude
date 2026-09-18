@@ -211,8 +211,12 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
     expect(graph.nodes[2]!.inputs).toEqual({ dots: { type: 'material', from: ['dots', 'out'] } });
     expect(graph.nodes[2]!.body).toBe('return { out: dots.steps(4, (cur, next) => next) };');
     expect(graph.nodes[3]!.inputs).toEqual({ in: { from: ['grown', 'out'] } });
-    // A column per topological depth, a row per node in it.
-    expect(graph.nodes.map((n) => [n.x, n.y])).toEqual([[40, 60], [300, 60], [560, 60], [820, 60]]);
+    // A column per topological depth. The places themselves are the
+    // layout's (`layout.test.ts` owns what they must satisfy); what the
+    // import owes is that a chain reads left to right.
+    const xs = graph.nodes.map((n) => n.x);
+    expect(xs).toEqual([...xs].sort((a, b) => a - b));
+    expect(new Set(xs).size).toBe(4);
   });
 
   it('keeps a call in the config as its own text, and reads the rest', () => {

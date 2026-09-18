@@ -28,19 +28,12 @@
 
 import ts from 'typescript';
 
+import { estimateBox, layoutGraph } from './layout.js';
 import {
-  accepts, topoOrder, wordInputs,
+  accepts, wordInputs,
   type Catalogue, type CatalogueInput, type CatalogueParam, type CatalogueWord,
   type Graph, type GraphInput, type GraphNode, type Takes, type ValueType,
 } from './model.js';
-
-/** The canvas geometry: a column per topological depth (a 220 px node and a
- * 40 px gutter), a row per node in the column (140 px pitch). The fixture
- * graph (`fixtures/bloom.json`) uses the same numbers. */
-const COLUMN = 260;
-const ROW = 140;
-const ORIGIN_X = 40;
-const ORIGIN_Y = 60;
 
 /** What the output node takes: what a sketch may return (`model.ts`). */
 const OUTPUT_TAKES: Takes = { socket: 'Geometry', kinds: ['shape', 'drawing'] };
@@ -78,7 +71,7 @@ export interface ImportRefusal {
 export function importSketch(source: string, catalogue: Catalogue, refusals?: ImportRefusal[]): Graph {
   const file = ts.createSourceFile('sketch.ts', source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
   const graph = new Reader(file, catalogue, refusals).read();
-  layout(graph);
+  layout(graph, catalogue);
   return graph;
 }
 
@@ -703,24 +696,13 @@ class Reader {
 
 /** Lay the nodes out left to right in topological depth: a node sits at the
  * depth of its deepest input, one row per node in a column. */
-function layout(graph: Graph): void {
-  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
-  const depth = new Map<string, number>();
-  for (const id of topoOrder(graph)) {
-    const node = byId.get(id)!;
-    let at = 0;
-    for (const input of Object.values(node.inputs)) {
-      if (input.from) at = Math.max(at, (depth.get(input.from[0]) ?? 0) + 1);
-    }
-    depth.set(id, at);
-  }
-  const rows = new Map<number, number>();
+function layout(graph: Graph, catalogue: Catalogue): void {
+  const places = layoutGraph(graph, (node) => estimateBox(node, catalogue));
   for (const node of graph.nodes) {
-    const at = depth.get(node.id)!;
-    const row = rows.get(at) ?? 0;
-    rows.set(at, row + 1);
-    node.x = ORIGIN_X + at * COLUMN;
-    node.y = ORIGIN_Y + row * ROW;
+    const at = places.get(node.id);
+    if (!at) continue;
+    node.x = Math.round(at.x);
+    node.y = Math.round(at.y);
   }
 }
 

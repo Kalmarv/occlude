@@ -30,6 +30,7 @@ import { CATALOGUE } from './graph/catalogue.js';
 import { createCanvas, type AreaExtra, type GraphCanvas, type GraphScheme, type GraphWire, type ReteNode } from './graph/canvas.js';
 import { bridgeDiagnostics, markWired, paintNode, takesLabel, takesOf, type NodePaint, type NodePaintHooks } from './graph/nodes.js';
 import { compileFor, compileGraph, type CompiledSketch } from './graph/compile.js';
+import { estimateBox, layoutGraph, type NodeBox } from './graph/layout.js';
 import { importSketch } from './graph/import.js';
 import { loadSketchByName } from './sketchApi.js';
 import {
@@ -108,9 +109,10 @@ const deleteBtn = iconButton('trash', 'Delete this graph', () => void remove());
 const sketchBtn = withIcon(button('Open as sketch', () => openAsSketch()), 'export');
 sketchBtn.classList.add('graph-sketch');
 sketchBtn.title = 'Write the compiled source into the studio and open it there';
+const layoutBtn = iconButton('layout', 'Lay the graph out — columns that follow the wires', () => void autoLayout());
 const importBtn = withIcon(button('Import', () => void importFrom()), 'import');
 importBtn.title = 'Read a sketch from the library into a graph';
-actions.append(nameInput, openSelect, refreshBtn, newBtn, importBtn, saveBtn, deleteBtn, sketchBtn);
+actions.append(nameInput, openSelect, refreshBtn, newBtn, layoutBtn, importBtn, saveBtn, deleteBtn, sketchBtn);
 head.append(heading, actions);
 
 const body = el('div', 'graph-body');
@@ -585,6 +587,44 @@ async function removeNode(id: string): Promise<void> {
     syncWired(other);
   }
   touch();
+}
+
+/**
+ * Lay the graph out: columns that follow the wires, every node level with
+ * what feeds it, nothing overlapping. The sizes are the ones on the canvas —
+ * a code node that grew to its body and a viewer the artist sized are as
+ * tall as they look — so the result is what the eye sees, not an estimate.
+ *
+ * It moves every node, which is why it is a button and not something the
+ * page does on its own: a place the artist chose is theirs until they ask.
+ */
+async function autoLayout(): Promise<void> {
+  const zoom = canvas.area.area.transform.k || 1;
+  const measure = (node: GraphNode): NodeBox => {
+    const body = views.get(node.id)?.body;
+    if (!body) return estimateBox(node, catalogue);
+    const rect = body.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return estimateBox(node, catalogue);
+    return { width: rect.width / zoom, height: rect.height / zoom };
+  };
+  let places: Map<string, { x: number; y: number }>;
+  try {
+    places = layoutGraph(graph, measure);
+  } catch (error) {
+    // A cycle has no layering, and the compiler says so first anyway.
+    status(error instanceof Error ? error.message : String(error), 'err');
+    return;
+  }
+  for (const node of graph.nodes) {
+    const at = places.get(node.id);
+    if (!at) continue;
+    node.x = Math.round(at.x);
+    node.y = Math.round(at.y);
+    await canvas.area.translate(node.id, { x: node.x, y: node.y });
+  }
+  canvas.fit();
+  dirty = true;
+  status(`laid out ${graph.nodes.length} nodes`);
 }
 
 // ---- compile and render ----
