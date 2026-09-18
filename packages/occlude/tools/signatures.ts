@@ -42,6 +42,7 @@ const PAGE: Record<string, string> = {
   Next: 'steps', StepRule: 'steps', StepShorthand: 'steps', StepsOptions: 'steps', Vec: 'material', XY: 'material',
   ShapeValue: 'shapes', ShapeOpts: 'shapes', GroupValue: 'shapes', GroupOpts: 'shapes', FillSpec: 'fills', ModifierValue: 'shapes',
   FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', Boundary: 'material', L: 'shapes', Toolkit: 'shapes',
+  Mesh: '3d/primitives', Vec3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
 };
 
 const program = ts.createProgram([entry, entry3d], {
@@ -55,11 +56,39 @@ const moduleSymbol = checker.getSymbolAtLocation(sf);
 if (!moduleSymbol) throw new Error('index.ts has no module symbol');
 const FLAGS = ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope;
 
+// A short type alias with no page of its own (`IntersectionInput`,
+// `PointsLike`) tells a reader nothing; its definition does. Each such name
+// is spelled out once, one level deep, with type arguments dropped.
+const ALIAS = new Map<string, string>();
+function aliasText(sym: ts.Symbol): string | undefined {
+  const decl = sym.declarations?.find(ts.isTypeAliasDeclaration);
+  if (!decl || decl.typeParameters) return undefined;
+  let text = decl.type.getText();
+  // `Mesh<any, any, any, any>` is `Mesh`; `Iterable<XY>` keeps its argument.
+  text = text.replace(/<\s*(?:any|unknown)(?:\s*,\s*(?:any|unknown))*\s*>/g, '');
+  text = text.replace(/\s*\|\s*/g, ' | ').replace(/\s+/g, ' ').replace(/^\| /, '').trim();
+  return text.length <= 80 && !text.includes('{') ? text : undefined;
+}
+function collectAliases(mod: ts.Symbol): void {
+  for (let sym of checker.getExportsOfModule(mod)) {
+    const name = sym.getName();
+    if (sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    if (PAGE[name] || ALIAS.has(name)) continue;
+    const text = aliasText(sym);
+    if (text && text !== name) ALIAS.set(name, text);
+  }
+}
+const expand = (sig: string) => sig.replace(/\b([A-Z][A-Za-z0-9]*)\b(<[^<>]*>)?(\[\])?/g, (m, name: string, _args: string | undefined, array: string | undefined) => {
+  const text = ALIAS.get(name);
+  if (!text) return m;
+  return array ? (text.includes(' | ') ? `(${text})[]` : `${text}[]`) : text;
+});
+
 // MDX reads `{ … }` as an expression even inside HTML, so braces are entities too.
 const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\{/g, '&#123;').replace(/\}/g, '&#125;');
 function link(sig: string): string {
   // Type names are identifiers; only those with an existing page get an anchor.
-  return escape(sig.replace(/<undefined>/g, '')).replace(/\b([A-Z][A-Za-z0-9]*)\b/g, (name) => {
+  return escape(expand(sig.replace(/<undefined>/g, ''))).replace(/\b([A-Z][A-Za-z0-9]*)\b/g, (name) => {
     const page = PAGE[name];
     return page && existsSync(join(docs, 'reference', `${page}.mdx`)) ? `<a href="/docs/reference/${page}">${name}</a>` : name;
   });
@@ -95,6 +124,10 @@ const NAMESPACES = ['connect', 'force', 'query', 'ease'];
 // occlude/3d: every exported function, keyed `3d.<name>`, spelled bare (it is imported by name).
 const sf3 = program.getSourceFile(entry3d);
 const mod3 = sf3 && checker.getSymbolAtLocation(sf3);
+collectAliases(moduleSymbol);
+if (mod3) collectAliases(mod3);
+// An alias of an alias (`Sources = PointsLike`) spells out the same definition.
+for (const [name, text] of ALIAS) ALIAS.set(name, expand(text));
 if (mod3) {
   for (let sym of checker.getExportsOfModule(mod3)) {
     const name = sym.getName();

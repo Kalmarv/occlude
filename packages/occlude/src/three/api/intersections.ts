@@ -83,8 +83,7 @@ export function* intersectionConstructionJob(captured:ReturnType<typeof captureI
  stats.outputNodes=network.nodes.length;stats.outputSegments=network.segments.length;
  return {curves:new SurfaceCurves<IntersectionAttributes>(network,{key:settings.key,stroke:settings.stroke}),stats:Object.freeze(stats)};
 }
-/** Synchronous construction for bounded sketches. Use t.intersections in
- * sketchAsync for substantial work that should yield and accept cancellation. */
+/** The curves where meshes cross: two meshes, or every pair of a list. */
 export function intersections(a:IntersectionInput,b:IntersectionInput,options?:IntersectionOptions):SurfaceCurves<IntersectionAttributes>;
 export function intersections(objects:readonly IntersectionInput[],options?:IntersectionOptions):SurfaceCurves<IntersectionAttributes>;
 export function intersections(...args:IntersectionArguments):SurfaceCurves<IntersectionAttributes> {
