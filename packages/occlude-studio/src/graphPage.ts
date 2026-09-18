@@ -764,7 +764,7 @@ function addNode(kind: 'code' | 'viewer' | 'output' | 'value' | 'list' | 'paper'
     : kind === 'value'
       ? { id, kind, x: 0, y: 0, inputs: { v: { value: 0 } }, outputs: { out: 'Number' } }
       : kind === 'list'
-        ? { id, kind, x: 0, y: 0, inputs: {}, outputs: { out: 'drawing' } }
+        ? { id, kind, x: 0, y: 0, inputs: {}, outputs: { out: 'Geometry' } }
         : kind === 'paper'
           ? { id, kind, x: 0, y: 0, inputs: {}, outputs: Object.fromEntries(Object.keys(PAPER_OUTPUTS).map((k) => [k, 'Number' as const])) }
           : { id, kind, x: 0, y: 0, inputs: {} };

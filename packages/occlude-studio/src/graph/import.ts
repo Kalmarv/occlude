@@ -452,7 +452,7 @@ class Reader {
           const list = this.listNode(expr, id);
           if (list) {
             this.add(list);
-            this.bindings.set(name, { node: list, output: 'out', type: 'drawing' });
+            this.bindings.set(name, { node: list, output: 'out', type: 'Geometry' });
             return;
           }
         }
@@ -807,7 +807,7 @@ class Reader {
       }
       inputs[String(i)] = spread ? { from: input.from, spread: true } : input;
     }
-    return { id, kind: 'list', x: 0, y: 0, inputs, outputs: { out: 'drawing' } };
+    return { id, kind: 'list', x: 0, y: 0, inputs, outputs: { out: 'Geometry' } };
   }
 
   /**
@@ -1043,7 +1043,7 @@ class Reader {
       }
       inputs[String(i)] = spread ? { from: input.from, spread: true } : input;
     }
-    return this.add({ id: listId, kind: 'list', x: 0, y: 0, inputs, outputs: { out: 'drawing' } });
+    return this.add({ id: listId, kind: 'list', x: 0, y: 0, inputs, outputs: { out: 'Geometry' } });
   }
 
   private valueNode(expr: ts.Expression, id: string): { node: GraphNode; type: ValueType } | undefined {
@@ -1067,6 +1067,16 @@ class Reader {
     if (ts.isCallExpression(arg)) {
       const lifted = this.liftCall(arg);
       if (lifted) return { from: [lifted.id, 'out'] };
+    }
+    // A list written where it is used: `view([...boxes, ...roads], …)` is
+    // the list node, wired in, exactly as a named one would be.
+    if (ts.isArrayLiteralExpression(arg) && arg.elements.length > 0 && !restLike) {
+      const mark = this.nodes.length;
+      const listId = this.uniqueId('list');
+      const list = this.listNode(arg, listId);
+      if (list) return { from: [this.add(list).id, 'out'] };
+      this.rollback(mark);
+      this.taken.delete(listId);
     }
     // A field written where it is used: it becomes its own node, wired in.
     if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) {

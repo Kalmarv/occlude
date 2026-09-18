@@ -474,7 +474,10 @@ function parseNode(raw: unknown): GraphNode {
   }
   // A list is what it collects: numbered inputs, and one drawing out.
   if (kind === 'list') {
-    node.outputs = { out: 'drawing' };
+    // What a list holds is not something the graph knows: it is a JavaScript
+    // array, and saying `drawing` was a claim it could not back — a list of
+    // meshes was refused by the socket that takes meshes.
+    node.outputs = { out: 'Geometry' };
     for (const key of Object.keys(node.inputs)) {
       if (!/^\d+$/.test(key)) throw new Error(`graph: list node ${id} input ${key} is not a place in the list`);
     }

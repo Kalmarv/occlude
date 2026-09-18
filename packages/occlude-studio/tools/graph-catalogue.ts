@@ -518,7 +518,16 @@ function planOf(type: ts.Type, at: ts.Node, word: string): { params: Param[]; re
     params.forEach((param, i) => {
       (perPosition[i] ??= []).push(param);
     });
-    if (!best || params.length >= best.params.length) best = { params, returns };
+    // The best overload is the one that says the most: fewest parameters
+    // reduced to source text, then most parameters. Without the first rule a
+    // signature the raw fallback rescued could beat one that maps properly —
+    // `view(geometry, opts)` lost its geometry socket to an overload whose
+    // geometry carries nothing.
+    const rawCount = (ps: Param[]): number => ps.filter((p) => p.raw).length;
+    const better = !best
+      || rawCount(params) < rawCount(best.params)
+      || (rawCount(params) === rawCount(best.params) && params.length >= best.params.length);
+    if (better) best = { params, returns };
   }
   if (best && perSignature.length > 1) {
     for (const param of best.params) {
@@ -532,6 +541,9 @@ function planOf(type: ts.Type, at: ts.Node, word: string): { params: Param[]; re
         const kinds = new Set(param.kinds);
         let allGeometry = true;
         for (const other of everywhere) {
+          // A parameter reduced to source text says nothing about what fits,
+          // so it neither widens the socket nor vetoes it.
+          if (other.raw) continue;
           if (other.socket !== 'Geometry' || !other.kinds) {
             // One overload takes something else entirely at this place; the
             // socket cannot be widened without lying about what fits.

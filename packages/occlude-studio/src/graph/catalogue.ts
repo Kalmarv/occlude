@@ -1426,7 +1426,7 @@ export const CATALOGUE: Catalogue = {
       import: 'view', call: 'view', returns: 'drawing',
       page: '/docs/reference/3d/view', group: 'View',
       params: [
-        { name: 'geometry', control: 'text', raw: true, optional: false },
+        { name: 'geometry', takes: { socket: 'Geometry', kinds: ['curves', 'mesh'] }, optional: false },
         { name: 'options', optional: false, options: [
           { name: 'camera', takes: { socket: 'Camera' }, optional: false },
           { name: 'stroke', control: 'text', optional: true },
@@ -2341,8 +2341,7 @@ export const CATALOGUE: Catalogue = {
       import: 'mesh', call: 'mesh', returns: 'mesh',
       page: '', group: 'Other',
       params: [
-        { name: 'positions', control: 'text', raw: true, optional: true },
-        { name: 'faces', control: 'text', raw: true, optional: true },
+        { name: 'source', takes: { socket: 'Geometry', kinds: ['surface'] }, optional: true },
         { name: 'options', optional: true, options: [
           { name: 'key', control: 'text', optional: true },
           { name: 'creaseAngle', takes: { socket: 'Number' }, optional: true },
