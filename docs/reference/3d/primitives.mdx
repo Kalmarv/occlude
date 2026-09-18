@@ -73,7 +73,7 @@ export default sketch({ aspect: [1, 1], pens: { ink: pen({ width: mm(0.3), color
 
 ## translate() · rotate() · scale()
 
-A mesh is born at the world origin. `.translate(triple)`, `.rotate(degreesTriple)` and `.scale(scalarOrTriple)` return new values. They pivot on the object's own origin, and `translate` moves that origin with the object. So translate-then-rotate turns the bar where it stands, and rotate-then-translate turns it first: the blue bar and the bar below it land in different places. A `rotate('z', degrees)` form turns about one axis.
+A mesh is born at the world origin. `.translate(triple)`, `.rotate(degreesTriple)` and `.scale(scalarOrTriple)` return new values. They pivot on the object's own origin, and `translate` moves that origin with the object. Translate then rotate turns the bar where it stands. Rotate then translate turns it first. The blue bar and the bar below it land in different places. A `rotate('z', degrees)` form turns about one axis.
 
 ```ts live
 import { sketch, pen, mm } from 'occlude';
