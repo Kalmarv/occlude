@@ -35,7 +35,7 @@ import { estimateBox, layoutGraph, type NodeBox } from './graph/layout.js';
 import { importSketch } from './graph/import.js';
 import { loadSketchByName, takeLive } from './sketchApi.js';
 import {
-  accepts, graphToJson, inputTakes, kindOf, listPlaces, outputType, parseGraph, wordInputs, wordOf,
+  PAPER_OUTPUTS, accepts, graphToJson, inputTakes, kindOf, listPlaces, outputType, parseGraph, wordInputs, wordOf,
   type Catalogue, type CatalogueWord, type Graph, type GraphNode, type ValueType,
 } from './graph/model.js';
 import { deleteGraph, graphHref, listGraphs, loadGraphText, saveGraphText } from './graph/store.js';
@@ -483,6 +483,8 @@ function reteNode(node: GraphNode): ReteNode {
   } else if (node.kind === 'list') {
     for (const key of listPlaces(node)) rete.addInput(key, new ClassicPreset.Input(port('Geometry'), key));
     rete.addOutput('out', new ClassicPreset.Output(port('Geometry'), 'out'));
+  } else if (node.kind === 'paper') {
+    for (const key of Object.keys(PAPER_OUTPUTS)) rete.addOutput(key, new ClassicPreset.Output(port('Number'), key));
   } else if (node.kind === 'zone') {
     for (const [key, takes] of Object.entries(inputTakes(node, catalogue))) {
       if (takes) rete.addInput(key, new ClassicPreset.Input(port(takes.socket), key));
@@ -751,7 +753,7 @@ function addBuiltin(word: CatalogueWord, at?: { x: number; y: number }): void {
   void place(node, at);
 }
 
-function addNode(kind: 'code' | 'viewer' | 'output' | 'value' | 'list', at?: { x: number; y: number }): void {
+function addNode(kind: 'code' | 'viewer' | 'output' | 'value' | 'list' | 'paper', at?: { x: number; y: number }): void {
   const id = freshId();
   const node: GraphNode = kind === 'code'
     ? { id, kind, x: 0, y: 0, inputs: {}, outputs: { out: 'Number' }, body: 'return { out: 1 };' }
@@ -759,7 +761,9 @@ function addNode(kind: 'code' | 'viewer' | 'output' | 'value' | 'list', at?: { x
       ? { id, kind, x: 0, y: 0, inputs: { v: { value: 0 } }, outputs: { out: 'Number' } }
       : kind === 'list'
         ? { id, kind, x: 0, y: 0, inputs: {}, outputs: { out: 'drawing' } }
-        : { id, kind, x: 0, y: 0, inputs: {} };
+        : kind === 'paper'
+          ? { id, kind, x: 0, y: 0, inputs: {}, outputs: Object.fromEntries(Object.keys(PAPER_OUTPUTS).map((k) => [k, 'Number' as const])) }
+          : { id, kind, x: 0, y: 0, inputs: {} };
   void place(node, at);
 }
 
@@ -1161,6 +1165,7 @@ function buildPalette(): void {
   nodes.append(el('div', 'graph-palette-title', 'Nodes'));
   nodes.append(paletteItem('value', 'Number', (at) => addNode('value', at), 'A number the graph holds'));
   nodes.append(paletteItem('list', 'drawing', (at) => addNode('list', at), 'Several values as one, in order'));
+  nodes.append(paletteItem('paper', 'Number', (at) => addNode('paper', at), 'The sheet: its width, its height and its middle'));
   nodes.append(paletteItem('code', 'body', (at) => addNode('code', at), 'A function body with declared inputs and outputs'));
   nodes.append(paletteItem('viewer', 'picture', (at) => addNode('viewer', at), 'Draw what this point of the graph holds'));
   nodes.append(paletteItem('output', 'return', (at) => addNode('output', at), 'What the sketch returns'));

@@ -226,6 +226,11 @@ export function wordInputs(word: CatalogueWord): CatalogueInput[] {
  * takes when it takes a collection. Its inputs are numbered, and one of them
  * may carry a whole collection (`...boxes`) rather than one value.
  *
+ * `paper` is the sheet the sketch is drawn on: its width, its height and its
+ * middle, as four numbers a wire can carry. It holds nothing and compiles to
+ * nothing — each of its outputs is the toolkit's own word for that number,
+ * written where it is read.
+ *
  * `zone` is a body that runs many times. A word whose required parameter is a
  * function has no socket and never will — no socket carries a function — so
  * such a body is not a value on a wire at all: it is a region of the graph,
@@ -233,7 +238,15 @@ export function wordInputs(word: CatalogueWord): CatalogueInput[] {
  * for what each run produces. The compiler writes it back as the callback the
  * sketch would have written.
  */
-export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output' | 'group' | 'input' | 'value' | 'list' | 'zone';
+export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output' | 'group' | 'input' | 'value' | 'list' | 'zone' | 'paper';
+
+/** What a paper node offers, and the toolkit word each one is. */
+export const PAPER_OUTPUTS: Record<string, string> = {
+  width: 't.width',
+  height: 't.height',
+  cx: 't.cx',
+  cy: 't.cy',
+};
 
 /**
  * What a zone runs, and what its inside is given.
@@ -350,7 +363,7 @@ export interface Graph {
 }
 
 const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-const KINDS: readonly NodeKind[] = ['builtin', 'code', 'viewer', 'output', 'group', 'input', 'value', 'list', 'zone'];
+const KINDS: readonly NodeKind[] = ['builtin', 'code', 'viewer', 'output', 'group', 'input', 'value', 'list', 'zone', 'paper'];
 /** Words a compiled sketch cannot bind: a node id becomes a `const`, and a
  * code node's keys become parameters. */
 const RESERVED = new Set([
@@ -440,6 +453,10 @@ function parseNode(raw: unknown): GraphNode {
     node.outputs = { out: r.outputs === undefined ? 'Geometry' : parseValueType(expectObject(r.outputs, `zone node ${id} outputs`).out, `zone node ${id} output`) };
     if (!node.graph.nodes.some((n) => n.kind === 'input')) throw new Error(`graph: zone node ${id} has no boundary`);
     if (!node.graph.nodes.some((n) => n.kind === 'output')) throw new Error(`graph: zone node ${id} has no result`);
+  }
+  // The sheet: four numbers, and nothing to set.
+  if (kind === 'paper') {
+    node.outputs = Object.fromEntries(Object.keys(PAPER_OUTPUTS).map((key) => [key, 'Number' as ValueType]));
   }
   // A list is what it collects: numbered inputs, and one drawing out.
   if (kind === 'list') {
@@ -634,6 +651,7 @@ export function outputType(node: GraphNode, name: string, catalogue: Catalogue):
     const word = wordOf(catalogue, node.word!);
     return name === 'out' ? word?.returns : undefined;
   }
+  if (node.kind === 'paper') return PAPER_OUTPUTS[name] === undefined ? undefined : 'Number';
   if (node.kind === 'code' || node.kind === 'value' || node.kind === 'list' || node.kind === 'zone') return node.outputs?.[name];
   return undefined;
 }

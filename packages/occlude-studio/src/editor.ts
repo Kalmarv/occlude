@@ -306,6 +306,11 @@ export function clearRuntimeMarkers(model: monaco.editor.ITextModel): void {
 let scratch: monaco.editor.ITextModel | null = null;
 
 export async function transpileToCjs(source: string): Promise<{ js: string | null; errors: string[] }> {
+  // The language defaults are what make this CommonJS, and they are set up
+  // with the first editor. A graph of nothing but word nodes never makes one,
+  // and the emit came back as ESM the worker could not evaluate: "Cannot use
+  // import statement outside a module", on a graph with no code in it at all.
+  setupMonaco();
   const uri = monaco.Uri.parse('file:///graph-emit.ts');
   scratch ??= monaco.editor.createModel(source, 'typescript', uri);
   if (scratch.getValue() !== source) scratch.setValue(source);

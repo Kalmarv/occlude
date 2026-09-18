@@ -105,6 +105,14 @@ class Reader {
   /** Every name the sketch function declares anywhere: a name that is both an
    * alias and a local is the local, and is left alone. */
   private readonly shadowed = new Set<string>();
+  /** A name the sketch gave `t.bounds()` and never reads whole: every use is
+   * `b.w`, `b.h`, `b.cx` or `b.cy`, so the sheet's own node can stand for it
+   * and each field becomes a wire. */
+  private readonly sheets = new Map<string, GraphNode>();
+  /** How `b.w` reads once the sheet is a node, and which output it takes. */
+  private static readonly SHEET_FIELDS: Record<string, string> = { w: 'width', h: 'height', cx: 'cx', cy: 'cy' };
+  /** Names that may become a sheet: read only through those fields. */
+  private sheetNames = new Set<string>();
   /** The declaration the sketch's config came from, when it came from one:
    * it is the document's config, so it is not read as a node too. */
   private configDecl: ts.VariableDeclaration | undefined;
@@ -155,6 +163,10 @@ class Reader {
       }
       throw new Error(`cannot read ${describe(st)} at line ${this.line(st)}`);
     }
+    // A name that is only ever read as one of the sheet's fields can be the
+    // sheet's own node. One read of the whole thing and it cannot, because
+    // the node has no whole to give.
+    this.sheetNames = sheetNames([...statements, returned]);
     // What each statement still needs: the statements after it, and the
     // return.
     const needed = statements.map((_, i) => {
@@ -394,6 +406,16 @@ class Reader {
     if (ts.isIdentifier(decl.name)) {
       const name = decl.name.text;
       const id = this.uniqueId(name);
+      // `const b = t.bounds()` read only as `b.w`, `b.h`, `b.cx`, `b.cy` is
+      // the sheet: a node with those four numbers on its own sockets.
+      if (before.length === 0 && this.sheetNames.has(name) && isBoundsCall(expr, (n) => this.bindings.has(n))) {
+        const sheet = this.add({
+          id, kind: 'paper', x: 0, y: 0, inputs: {},
+          outputs: Object.fromEntries(Object.keys(Reader.SHEET_FIELDS).map((f) => [Reader.SHEET_FIELDS[f]!, 'Number' as ValueType])),
+        });
+        this.sheets.set(name, sheet);
+        return;
+      }
       let builtin: { node: GraphNode; word: CatalogueWord } | undefined;
       if (before.length > 0) this.refuse(id, undefined, 'a statement before it joined this node');
       else if (!ts.isCallExpression(expr) && this.valueWordOf(expr)) {
@@ -1092,6 +1114,17 @@ class Reader {
     const inputs: Record<string, GraphInput> = {};
     for (const node of nodes) {
       for (const id of reads(node)) {
+        // A sheet's field is a wire of its own, under the name the body will
+        // read once the field access is rewritten.
+        const sheet = this.sheets.get(id.text);
+        if (sheet) {
+          const field = sheetFieldOf(id);
+          if (field) {
+            const key = `${id.text}_${field}`;
+            inputs[key] = { type: 'Number', from: [sheet.id, Reader.SHEET_FIELDS[field]!] };
+          }
+          continue;
+        }
         if (id.text in inputs) continue;
         const binding = this.bindings.get(id.text);
         if (!binding) continue;
@@ -1169,15 +1202,26 @@ class Reader {
    * property name, a declaration and a name the sketch declares itself are
    * left as they are. */
   private code(node: ts.Node): string {
-    if (this.aliases.size === 0) return this.text(node);
+    if (this.aliases.size === 0 && this.sheets.size === 0) return this.text(node);
     const start = node.getStart(this.file);
     let text = this.text(node);
-    const edits = reads(node)
-      .filter((id) => !this.shadowed.has(id.text) && this.aliases.has(id.text))
-      .sort((a, b) => b.getStart(this.file) - a.getStart(this.file));
-    for (const id of edits) {
-      const at = id.getStart(this.file) - start;
-      text = `${text.slice(0, at)}${this.aliases.get(id.text)!}${text.slice(id.getEnd() - start)}`;
+    /** Each edit: where it is, how far it runs, what it becomes. Applied back
+     * to front so an earlier edit does not move a later one. */
+    const edits: { from: number; to: number; text: string }[] = [];
+    for (const id of reads(node)) {
+      const sheet = this.sheets.get(id.text);
+      if (sheet) {
+        const field = sheetFieldOf(id);
+        // `b.w` is one wire: the whole access becomes the name of it.
+        if (field) edits.push({ from: id.getStart(this.file), to: id.parent.getEnd(), text: `${id.text}_${field}` });
+        continue;
+      }
+      if (!this.shadowed.has(id.text) && this.aliases.has(id.text)) {
+        edits.push({ from: id.getStart(this.file), to: id.getEnd(), text: this.aliases.get(id.text)! });
+      }
+    }
+    for (const edit of edits.sort((a, b) => b.from - a.from)) {
+      text = `${text.slice(0, edit.from - start)}${edit.text}${text.slice(edit.to - start)}`;
     }
     return text;
   }
@@ -1234,6 +1278,41 @@ function zoneShapeOf(expr: ts.CallExpression, bound: (name: string) => boolean):
     return { kind: 'steps', named: '.steps', over: callee.expression, callback: args[1], count: args[0], options: args[2] };
   }
   return undefined;
+}
+
+/** `t.bounds()`, and nothing else. */
+function isBoundsCall(expr: ts.Expression, bound: (name: string) => boolean): boolean {
+  if (!ts.isCallExpression(expr) || expr.arguments.length > 0) return false;
+  const callee = expr.expression;
+  return ts.isPropertyAccessExpression(callee) && callee.name.text === 'bounds'
+    && ts.isIdentifier(callee.expression) && callee.expression.text === 't' && !bound('t');
+}
+
+/** The sheet field an identifier is read through, when it is read through one:
+ * `b.w` is `w`. */
+function sheetFieldOf(id: ts.Identifier): string | undefined {
+  const parent = id.parent;
+  if (!parent || !ts.isPropertyAccessExpression(parent) || parent.expression !== id) return undefined;
+  const field = parent.name.text;
+  return field === 'w' || field === 'h' || field === 'cx' || field === 'cy' ? field : undefined;
+}
+
+/**
+ * Every name that is only ever read through the sheet's own fields. One read
+ * of the whole value and the name is not a sheet: the node has no whole to
+ * give, only four numbers.
+ */
+function sheetNames(nodes: readonly ts.Node[]): Set<string> {
+  const through = new Set<string>();
+  const whole = new Set<string>();
+  for (const node of nodes) {
+    for (const id of reads(node)) {
+      if (sheetFieldOf(id)) through.add(id.text);
+      else whole.add(id.text);
+    }
+  }
+  for (const name of whole) through.delete(name);
+  return through;
 }
 
 /** Lay the nodes out left to right in topological depth: a node sits at the

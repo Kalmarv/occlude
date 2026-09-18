@@ -16,7 +16,7 @@
 
 import { freeNames, typeNames } from './names.js';
 import {
-  ZONES, accepts, inputTakes, outputType, topoOrder, wordInputs, wordOf,
+  PAPER_OUTPUTS, ZONES, accepts, inputTakes, outputType, topoOrder, wordInputs, wordOf,
   type Catalogue, type CatalogueWord, type Graph, type GraphNode, type NodeKind, type Takes, type ValueType,
 } from './model.js';
 
@@ -167,6 +167,13 @@ function inputExpression(node: GraphNode, key: string, graph: Graph, catalogue: 
     throw new Error(source.kind === 'output'
       ? `graph: node ${node.id} input ${key} reads the output node, which has no outputs`
       : `graph: ${fromId} has no output ${out}`);
+  }
+  // The sheet holds nothing: each of its outputs is the toolkit's own word
+  // for that number, written where it is read.
+  if (source.kind === 'paper') {
+    const word = PAPER_OUTPUTS[out];
+    if (!word) throw new Error(`graph: the sheet has no ${out}`);
+    return input.spread ? `...${word}` : word;
   }
   // A code node written as its own expression is read as the `const`, not as
   // a field of it.

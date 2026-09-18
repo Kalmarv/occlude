@@ -21,7 +21,7 @@ import { sliderSpec } from '../uiPanel.js';
 import { iconButton } from '../icons.js';
 import { el } from '../widgets.js';
 import { isRaw, usedImports, usedTypes } from './compile.js';
-import { listPlaces, wordInputs, type Catalogue, type CatalogueInput, type CatalogueWord, type GraphNode, type Takes } from './model.js';
+import { PAPER_OUTPUTS, listPlaces, wordInputs, type Catalogue, type CatalogueInput, type CatalogueWord, type GraphNode, type Takes } from './model.js';
 
 /** How a value type reads in TypeScript: what a code node's declared input
  * is checked as. `Geometry` has no one type, so it is `unknown`. */
@@ -192,6 +192,7 @@ function nodeTitle(node: GraphNode): string {
   if (node.kind === 'value') return 'value';
   if (node.kind === 'list') return 'list';
   if (node.kind === 'zone') return node.zone ?? 'zone';
+  if (node.kind === 'paper') return 'paper';
   return 'output';
 }
 
@@ -808,6 +809,19 @@ function zoneRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): vo
   host.append(out);
 }
 
+/** The sheet: its width, its height and its middle, as numbers a wire can
+ * carry. Nothing goes in. */
+function paperRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): void {
+  for (const key of Object.keys(PAPER_OUTPUTS)) {
+    const line = nodeRow('graph-row graph-row-out');
+    line.dataset.row = key;
+    line.append(el('span', 'graph-row-type', 'number'));
+    line.append(el('span', 'graph-row-name', key));
+    line.append(socketDot('output', key, 'Number', hooks));
+    host.append(line);
+  }
+}
+
 /** An output node: what the sketch returns. */
 function outputRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): void {
   const line = nodeRow();
@@ -845,6 +859,7 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
   } else if (node.kind === 'value') valueRows(host, node, hooks);
   else if (node.kind === 'list') listRows(host, node, hooks);
   else if (node.kind === 'zone') zoneRows(host, node, hooks);
+  else if (node.kind === 'paper') paperRows(host, node, hooks);
   else if (node.kind === 'viewer') {
     const shown = viewerRows(host, node, hooks);
     paint.canvas = shown.canvas;

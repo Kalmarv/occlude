@@ -84,6 +84,7 @@ export function estimateBox(node: GraphNode, catalogue: Catalogue): NodeBox {
   // A zone is its inputs, the line that says how big its body is, and the
   // result.
   if (node.kind === 'zone') return { width: 224, height: HEAD_H + (Object.keys(node.inputs).length + 2) * ROW_H + 12 };
+  if (node.kind === 'paper') return { width: 168, height: HEAD_H + 4 * ROW_H };
   return { width: 208, height: HEAD_H + ROW_H };
 }
 
