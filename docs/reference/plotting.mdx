@@ -49,6 +49,10 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
 The example hides ink twice, and the two holes do not look alike. The opaque circle occludes, and the strokes stop at its edge. The shader refuses to draw, and the strokes stop wherever it says. `decimate` and `wobble` are the same idea with the answer fixed in advance, and they run before occlusion. A shader runs after it, and never puts ink outside what the engine cleared.
 :::
 
+:::note
+The program runs once for each nib step of every stroke, so keep it cheap. A dense hatch at a 0.14mm nib is about 240 000 calls and 34 milliseconds of planning, against 4 without a shader. A drawing with no shader pays none of it.
+:::
+
 :::warning
 A shader renumbers the plan. `passes` doubles the chains, a dash multiplies them, and `keep: false` removes them. A `t.draw({ chains })` range written against the unshaded plan covers a different part of the shaded one. `ctx.index` is the row before shading.
 :::
