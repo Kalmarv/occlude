@@ -168,16 +168,40 @@ function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Gra
   return node.kind === 'code' ? codeSource(node, graph, catalogue) : '';
 }
 
-/** The import lines for the emitted words. `sketch` always comes first
- * from `occlude`; a toolkit word is a member of `t`, so it is never
- * imported. */
-function importLines(words: CatalogueWord[]): string {
+/** The names a code node body reaches for. The body is TypeScript the
+ * compiler does not parse, so a name a module exports is imported when the
+ * body uses it as something other than a property key or a parameter — an
+ * unused import is harmless, a missing one would not run. */
+function bodyImports(body: string, catalogue: Catalogue): { module: 'occlude' | 'occlude/3d'; name: string }[] {
+  const out: { module: 'occlude' | 'occlude/3d'; name: string }[] = [];
+  const count = (pattern: string): number => body.match(new RegExp(pattern, 'g'))?.length ?? 0;
+  for (const { module, names } of catalogue.importable) {
+    for (const name of names) {
+      const uses = count(`(?<![\\w$.])${name}(?![\\w$])`);
+      if (uses === 0) continue;
+      // A name the body declares shadows the import for the whole body.
+      if (count(`(?:const|let|var|function|class)\\s+${name}\\b`) > 0) continue;
+      const other = count(`(?<![\\w$.])${name}\\s*:`)
+        + count(`[(,]\\s*${name}\\s*[,)=]`)
+        + count(`[(,]\\s*${name}\\s*\\)\\s*=>`);
+      if (uses <= other) continue;
+      out.push({ module, name });
+    }
+  }
+  return out;
+}
+
+/** The import lines for the emitted words and the code bodies' names.
+ * `sketch` always comes first from `occlude`; a toolkit word is a member of
+ * `t`, so it is never imported. */
+function importLines(words: CatalogueWord[], extra: { module: 'occlude' | 'occlude/3d'; name: string }[]): string {
   const occlude = new Set<string>();
   const three = new Set<string>();
   for (const word of words) {
     if (word.import === null) continue;
     (word.module === 'occlude' ? occlude : three).add(word.import);
   }
+  for (const { module, name } of extra) (module === 'occlude' ? occlude : three).add(name);
   const lines = [`import { ${['sketch', ...[...occlude].sort()].join(', ')} } from 'occlude';`];
   if (three.size > 0) lines.push(`import { ${[...three].sort().join(', ')} } from 'occlude/3d';`);
   return lines.join('\n');
@@ -210,12 +234,14 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
   const emitted = order.filter((id) => wanted.has(id));
   const nodes: CompiledNode[] = [];
   const words: CatalogueWord[] = [];
+  const extra: { module: 'occlude' | 'occlude/3d'; name: string }[] = [];
   const hashes = new Map<string, string>();
   for (const id of emitted) {
     const node = nodeById(graph, id);
     const word = wordsById.get(id);
     const source = nodeSource(node, word, graph, catalogue);
     if (word) words.push(word);
+    if (node.kind === 'code') extra.push(...bodyImports(node.body!, catalogue));
     const upstream = Object.values(node.inputs)
       .map((inp) => (inp.from ? hashes.get(inp.from[0]) ?? '' : literal(inp.value)))
       .join(',');
@@ -225,7 +251,7 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
   }
   const body = nodes.filter((n) => n.source !== '').map((n) => `  ${n.source.replace(/\n/g, '\n  ')}`);
   const expression = inputExpression(targetNode, input, graph, catalogue);
-  const source = `${importLines(words)}\n\nexport default sketch(${literal(graph.config)}, (t) => {\n${body.join('\n')}\n  return ${expression};\n});\n`;
+  const source = `${importLines(words, extra)}\n\nexport default sketch(${literal(graph.config)}, (t) => {\n${body.join('\n')}\n  return ${expression};\n});\n`;
   return { source, nodes };
 }
 

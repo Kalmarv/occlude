@@ -46,6 +46,9 @@ const CATALOGUE: Catalogue = {
       ],
     },
   ],
+  importable: [
+    { module: 'occlude', names: ['circle', 'strokes', 'polygon', 'force', 'mul'] },
+  ],
 };
 
 const doc = (nodes: unknown[], config: Record<string, unknown> = { aspect: [1, 1], seed: 8 }) => parseGraph({
@@ -119,6 +122,22 @@ describe('the compiled sketch', () => {
       { id: 'n5', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['n3', 'out'] } } },
     ]);
     expect(compileGraph(graph, CATALOGUE).source).toContain(`const n3 = strokes(n2, { pen: 'pigma-005-black' });`);
+  });
+
+  it('imports the words a code body reaches for, and not the ones it declares', () => {
+    const graph = doc([
+      { id: 'n1', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 10 }, y: { value: 10 }, r: { value: 4 } } },
+      {
+        id: 'n2', kind: 'code', x: 0, y: 0,
+        inputs: { shape: { type: 'shape', from: ['n1', 'out'] } },
+        outputs: { out: 'drawing' },
+        body: 'const mul = 2;\nconst push = force.sum();\nreturn { out: strokes(shape, { pen: mul > 0 ? \'a\' : \'b\' }) };',
+      },
+      { id: 'n5', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['n2', 'out'] } } },
+    ]);
+    const { source } = compileGraph(graph, CATALOGUE);
+    expect(source).toContain(`import { sketch, circle, force, strokes } from 'occlude';`);
+    expect(source).not.toContain('mul,');
   });
 
   it('keeps a multi-line code body at two-space indent', () => {

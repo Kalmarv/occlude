@@ -122,6 +122,10 @@ export interface CatalogueWord {
 
 export interface Catalogue {
   words: CatalogueWord[];
+  /** Every name a sketch may import from each module. A code node body is
+   * TypeScript the compiler does not parse, so the names it reaches for are
+   * read from here — an unused import is harmless, a missing one is not. */
+  importable: { module: 'occlude' | 'occlude/3d'; names: string[] }[];
 }
 
 const lookups = new WeakMap<Catalogue, Map<string, CatalogueWord>>();

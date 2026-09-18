@@ -162,6 +162,25 @@ const BY_CONTROL: Record<string, 'number' | 'text' | 'check'> = {
   boolean: 'check',
 };
 
+/** A value the library discriminates by a `type` string. A union of such
+ * variants loses its alias when it joins another union (`FillSpec |
+ * CustomFillFn` flattens into its four variants), so the discriminant names
+ * the family. */
+const BY_DISCRIMINANT: Record<string, ValueType> = { use: 'Fill', asset: 'Fill', custom: 'Fill', mask: 'Fill' };
+
+/** The value a discriminated object carries, by its `type` literal. */
+function byDiscriminant(type: ts.Type): ValueType | undefined {
+  const disc = checker.getPropertyOfType(type, 'type');
+  if (!disc) return undefined;
+  const discType = checker.getTypeOfSymbolAtLocation(disc, disc.valueDeclaration ?? entry);
+  const literals = (discType.isUnion() ? discType.types : [discType]).filter((t) => (t.flags & ts.TypeFlags.StringLiteral) !== 0);
+  for (const literal of literals) {
+    const value = BY_DISCRIMINANT[(literal as ts.StringLiteralType).value];
+    if (value) return value;
+  }
+  return undefined;
+}
+
 function isNumberish(type: ts.Type): boolean {
   return (type.flags & (ts.TypeFlags.Number | ts.TypeFlags.NumberLiteral)) !== 0;
 }
@@ -232,6 +251,8 @@ function valueOf(raw: ts.Type, seen = new Set<ts.Type>()): ValueType | undefined
   const alias = type.aliasSymbol?.getName();
   if (alias && BY_NAME[alias]) return BY_NAME[alias];
   if (isNumberish(type)) return 'Number';
+  const discriminated = byDiscriminant(type);
+  if (discriminated) return discriminated;
   const kinds = kindsOf(type);
   if (kinds) {
     if (kinds.length === 1) return kinds[0];
@@ -255,9 +276,24 @@ function valueOf(raw: ts.Type, seen = new Set<ts.Type>()): ValueType | undefined
   return undefined;
 }
 
-/** What an input takes: the geometry kinds, or the one class. */
+/** What an input takes: the geometry kinds, or the one class. A union with
+ * a member no socket carries still takes what its other members carry —
+ * `fill?: FillSpec | CustomFillFn` takes a Fill. */
 function takesOf(raw: ts.Type): { socket: SocketClass; kinds?: GeometryKind[] } | undefined {
   const type = nonNullish(raw);
+  const strict = strictTakesOf(type);
+  if (strict) return strict;
+  if (!type.isUnion()) return undefined;
+  const mapped = type.types.map((t) => strictTakesOf(t)).filter((t) => t !== undefined);
+  if (mapped.length === 0) return undefined;
+  const classes = [...new Set(mapped.map((t) => t.socket))];
+  if (classes.length !== 1) return undefined;
+  const kinds = [...new Set(mapped.flatMap((t) => t.kinds ?? []))];
+  if (kinds.length === 0) return { socket: classes[0] };
+  return { socket: 'Geometry', kinds };
+}
+
+function strictTakesOf(type: ts.Type): { socket: SocketClass; kinds?: GeometryKind[] } | undefined {
   const kinds = kindsOf(type);
   if (kinds) return { socket: 'Geometry', kinds };
   const value = valueOf(type);
@@ -402,6 +438,9 @@ function addWord(word: string, module: 'occlude' | 'occlude/3d', receiver: strin
 /** The 3D module's own names, so a name it shares with `occlude` (both have
  * a `circle`) is imported under a distinct name. */
 const twoDNames = new Set<string>();
+/** Every name a sketch may import, per module: a code node body reaches for
+ * these, and the compiler imports what it finds. */
+const importable: Record<'occlude' | 'occlude/3d', Set<string>> = { occlude: new Set(), 'occlude/3d': new Set() };
 
 function walk(symbols: ts.Symbol[], module: 'occlude' | 'occlude/3d'): void {
   for (let sym of symbols) {
@@ -410,6 +449,7 @@ function walk(symbols: ts.Symbol[], module: 'occlude' | 'occlude/3d'): void {
     const decl = sym.valueDeclaration ?? sym.declarations?.[0];
     if (!decl) continue;
     if (module === 'occlude' && (sym.flags & ts.SymbolFlags.Variable) && NAMESPACES.includes(name)) {
+      importable.occlude.add(name);
       const type = checker.getTypeOfSymbolAtLocation(sym, decl);
       for (const prop of checker.getPropertiesOfType(type)) {
         const memberDecl = prop.valueDeclaration ?? prop.declarations?.[0] ?? decl;
@@ -426,12 +466,13 @@ function walk(symbols: ts.Symbol[], module: 'occlude' | 'occlude/3d'): void {
     const type = checker.getTypeOfSymbolAtLocation(sym, decl);
     if (type.getCallSignatures().length === 0) continue;
     const key = module === 'occlude/3d' && twoDNames.has(name) ? `3d.${name}` : name;
+    const importName = module === 'occlude/3d' && twoDNames.has(name) ? `${name}3` : name;
+    importable[module].add(importName);
     const plan = planOf(type, decl);
     if ('problem' in plan) {
       skipped.push({ word: key, reason: plan.problem });
       continue;
     }
-    const importName = module === 'occlude/3d' && twoDNames.has(name) ? `${name}3` : name;
     addWord(key, module, null, importName === name ? name : `${name} as ${importName}`, importName, plan, decl);
   }
 }
@@ -599,6 +640,14 @@ for (const w of words) {
   }
   lines.push('      ],');
   lines.push('    },');
+}
+lines.push('  ],');
+lines.push('  importable: [');
+for (const module of ['occlude', 'occlude/3d'] as const) {
+  const names = [...importable[module]].sort();
+  lines.push(`    { module: ${q(module)}, names: [`);
+  for (let i = 0; i < names.length; i += 8) lines.push(`      ${names.slice(i, i + 8).map(q).join(', ')},`);
+  lines.push('    ] },');
 }
 lines.push('  ],');
 lines.push('};');
