@@ -157,6 +157,12 @@ describe('the compiled sketch', () => {
     );
   });
 
+  it('wraps a viewer’s own picture in the word it names', () => {
+    const compiled = compileFor(doc(NODES), CATALOGUE, 'n4', 'in', 'strokes');
+    expect(compiled.source).toContain("import { sketch, circle, strokes } from 'occlude';");
+    expect(compiled.source).toContain('  return strokes(n3.grown);');
+  });
+
   it('compiles a viewer to the sub-graph it reads, and nothing else', () => {
     const compiled = compileFor(doc(NODES), CATALOGUE, 'n4', 'in');
     expect(compiled.source).toBe(

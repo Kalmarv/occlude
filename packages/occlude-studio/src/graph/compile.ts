@@ -279,8 +279,12 @@ function reachable(graph: Graph, target: string): Set<string> {
  * Compile the sub-graph that feeds one node's input into a whole sketch.
  * The target's input is the `return`, so a viewer renders what it reads.
  * A viewer and the output node both take their one input as `in`.
+ *
+ * `wrap` names a word to call around the returned expression: a viewer on a
+ * material shows ink only through `strokes(...)`. It is the viewer's own
+ * picture and never reaches the graph's compiled sketch.
  */
-export function compileFor(graph: Graph, catalogue: Catalogue, target: string, input: string): CompiledSketch {
+export function compileFor(graph: Graph, catalogue: Catalogue, target: string, input: string, wrap?: string): CompiledSketch {
   const order = topoOrder(graph);
   const wordsById = validate(graph, catalogue);
   const targetNode = nodeById(graph, target);
@@ -303,8 +307,10 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
     hashes.set(id, nodeHash);
     nodes.push({ id, kind: node.kind, source, outputs: outputsOf(node, catalogue), hash: nodeHash });
   }
+  if (wrap) extra.push({ module: 'occlude', name: wrap });
   const body = nodes.filter((n) => n.source !== '').map((n) => `  ${n.source.replace(/\n/g, '\n  ')}`);
-  const expression = inputExpression(targetNode, input, graph, catalogue);
+  const returned = inputExpression(targetNode, input, graph, catalogue);
+  const expression = wrap ? `${wrap}(${returned})` : returned;
   const source = `${importLines(words, extra)}\n\nexport default sketch(${literal(graph.config)}, (t) => {\n${body.join('\n')}\n  return ${expression};\n});\n`;
   return { source, nodes };
 }
