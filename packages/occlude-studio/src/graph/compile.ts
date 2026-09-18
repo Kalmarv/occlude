@@ -176,7 +176,10 @@ function validate(graph: Graph, catalogue: Catalogue): Map<string, CatalogueWord
         if (!spec.takes) throw new Error(`graph: ${node.id}.${key} is a control; nothing wires into it`);
         const output = outputType(nodeById(graph, input.from[0]), input.from[1], catalogue);
         if (!output) throw new Error(`graph: ${input.from[0]} has no output ${input.from[1]}`);
-        if (!accepts(output, spec.takes)) {
+        // A spread carries a collection, and what a collection holds is not
+        // what it is: `[a, b, c]` spread into a shape socket gives that
+        // socket three shapes, and the graph cannot see inside the list.
+        if (!input.spread && !accepts(output, spec.takes)) {
           throw new Error(`graph: ${node.id}.${key} takes ${takesText(spec.takes)}; ${input.from[0]}.${input.from[1]} is ${output}`);
         }
       }

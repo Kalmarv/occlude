@@ -628,12 +628,32 @@ class Reader {
       return undefined;
     };
     const args = expr.arguments;
-    if (args.length > word.params.length) return no('more arguments than the word has parameters');
     const flat = wordInputs(word);
     const inputs: Record<string, GraphInput> = {};
     // The receiver is the word's first input, and the compiler writes it
     // back into `{self}`.
     if (word.self && self) inputs[word.self.param] = self;
+
+    // A variadic word takes its arguments on one socket, and several
+    // arguments are a list: `t.material(a, b, c)` is the list `[a, b, c]`
+    // spread into that socket, which is the same call. The leading
+    // parameters are read first, because the source reads them first and the
+    // seeded stream draws in the order it is read.
+    const rest = word.params.findIndex((param) => param.name === 'args');
+    if (args.length > word.params.length && rest >= 0 && rest === word.params.length - 1) {
+      for (let i = 0; i < rest; i++) {
+        const param = word.params[i]!;
+        const input = this.argument(args[i]!, false);
+        if (input === undefined) return no(`${param.name} is not a literal or an earlier node`);
+        inputs[param.name] = input;
+      }
+      const gathered = this.gather(args.slice(rest), id);
+      if (!gathered) return no('an argument is not a value the graph holds');
+      inputs['args'] = { from: [gathered.id, 'out'], spread: true };
+      const node: GraphNode = { id, kind: 'builtin', word: word.word, x: 0, y: 0, inputs };
+      return this.fits(word, inputs) ? { node, word } : no('an argument does not fit its socket');
+    }
+    if (args.length > word.params.length) return no('more arguments than the word has parameters');
     for (let i = 0; i < args.length; i++) {
       const param = word.params[i]!;
       const arg = args[i]!;
@@ -699,6 +719,26 @@ class Reader {
       inputs[String(i)] = spread ? { from: input.from, spread: true } : input;
     }
     return { id, kind: 'list', x: 0, y: 0, inputs, outputs: { out: 'drawing' } };
+  }
+
+  /** Several expressions as one list node. Used where a word is variadic. */
+  private gather(items: readonly ts.Expression[], forId: string): GraphNode | undefined {
+    const mark = this.nodes.length;
+    const listId = this.uniqueId('list');
+    const inputs: Record<string, GraphInput> = {};
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]!;
+      const spread = ts.isSpreadElement(item);
+      const input = this.argument(spread ? item.expression : item, false);
+      if (!input?.from) {
+        this.rollback(mark);
+        this.taken.delete(listId);
+        this.refuse(forId, undefined, `argument ${i} is not a value the graph holds`);
+        return undefined;
+      }
+      inputs[String(i)] = spread ? { from: input.from, spread: true } : input;
+    }
+    return this.add({ id: listId, kind: 'list', x: 0, y: 0, inputs, outputs: { out: 'drawing' } });
   }
 
   private valueNode(expr: ts.Expression, id: string): { node: GraphNode; type: ValueType } | undefined {
@@ -788,6 +828,8 @@ class Reader {
       if (!spec) return false;
       if (!input.from) continue;
       if (!spec.takes) return false; // a control holds a literal; nothing wires into it
+      // A spread carries a collection; what it holds is not what it is.
+      if (input.spread) continue;
       const type = this.outputTypeOf(input.from[0], input.from[1]);
       if (!type || !accepts(type, spec.takes)) return false;
     }
