@@ -21,7 +21,7 @@ import { sliderSpec } from '../uiPanel.js';
 import { iconButton } from '../icons.js';
 import { el } from '../widgets.js';
 import { isRaw, usedImports, usedTypes } from './compile.js';
-import { wordInputs, type Catalogue, type CatalogueInput, type CatalogueWord, type GraphNode, type Takes } from './model.js';
+import { listPlaces, wordInputs, type Catalogue, type CatalogueInput, type CatalogueWord, type GraphNode, type Takes } from './model.js';
 
 /** How a value type reads in TypeScript: what a code node's declared input
  * is checked as. `Geometry` has no one type, so it is `unknown`. */
@@ -89,6 +89,8 @@ export interface NodePaintHooks {
   frames(node: GraphNode): number;
   /** The canvas zoom, so a drag in screen pixels becomes area units. */
   zoom(): number;
+  /** A list place carries a whole collection, not one value. */
+  setSpread(node: GraphNode, key: string, spread: boolean): void;
   /** Remember a node's size in the document. */
   setSize(node: GraphNode, width: number, height: number): void;
   /** Fit this viewer's picture to its canvas again. */
@@ -183,6 +185,7 @@ function nodeTitle(node: GraphNode): string {
   if (node.kind === 'code') return 'code';
   if (node.kind === 'viewer') return 'viewer';
   if (node.kind === 'value') return 'value';
+  if (node.kind === 'list') return 'list';
   return 'output';
 }
 
@@ -723,6 +726,39 @@ function valueRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): v
   host.append(out);
 }
 
+/**
+ * A list: several values as one, in order. Each place takes any geometry,
+ * and a place may carry a whole collection instead of one value — that is
+ * the `...` a sketch writes. A list always keeps one empty place at the end,
+ * so there is always somewhere to wire the next thing.
+ */
+function listRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): void {
+  for (const key of listPlaces(node)) {
+    const line = nodeRow();
+    line.dataset.row = key;
+    line.append(socketDot('input', key, 'Geometry', hooks));
+    line.append(el('span', 'graph-row-name', key));
+    const input = node.inputs[key];
+    if (input?.from) {
+      const spread = document.createElement('input');
+      spread.type = 'checkbox';
+      spread.className = 'graph-check';
+      spread.checked = input.spread === true;
+      spread.title = 'This place carries a whole collection, not one value (the `...` a sketch writes)';
+      noDrag(spread);
+      spread.onchange = () => hooks.setSpread(node, key, spread.checked);
+      line.append(el('span', 'graph-row-type', '…'), spread);
+    }
+    host.append(line);
+  }
+  const out = nodeRow('graph-row graph-row-out');
+  out.dataset.row = 'out';
+  out.append(el('span', 'graph-row-type', 'drawing'));
+  out.append(el('span', 'graph-row-name', 'out'));
+  out.append(socketDot('output', 'out', 'Geometry', hooks));
+  host.append(out);
+}
+
 /** An output node: what the sketch returns. */
 function outputRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): void {
   const line = nodeRow();
@@ -758,6 +794,7 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
     paint.note = code.note;
     cleanups.push(() => code.editor.dispose());
   } else if (node.kind === 'value') valueRows(host, node, hooks);
+  else if (node.kind === 'list') listRows(host, node, hooks);
   else if (node.kind === 'viewer') {
     const shown = viewerRows(host, node, hooks);
     paint.canvas = shown.canvas;

@@ -44,6 +44,9 @@ export function kindOf(type: ValueType): GeometryKind | undefined {
 export interface Takes {
   socket: SocketClass;
   kinds?: GeometryKind[];
+  /** Anything at all fits here. A list's places do: a list is a JavaScript
+   * array, and the socket class is only what colours its dot. */
+  any?: boolean;
 }
 
 /** A literal-only input: the node edits it, and nothing wires into it. */
@@ -52,6 +55,9 @@ export type ControlKind = 'number' | 'text' | 'check' | 'menu';
 /** Whether an output may feed an input. A Field takes a Number as a
  * constant field. A geometry input takes the kinds it names. */
 export function accepts(output: ValueType, takes: Takes): boolean {
+  // A list is a JavaScript array: it holds whatever it is given, and the
+  // library judges what that means when it is drawn.
+  if (takes.any) return true;
   if (takes.socket === 'Field') return output === 'Field' || output === 'Number';
   if (socketOf(output) !== takes.socket) return false;
   if (takes.socket !== 'Geometry' || !takes.kinds) return true;
@@ -192,8 +198,13 @@ export function wordInputs(word: CatalogueWord): CatalogueInput[] {
  * The sketch's own `const boxSpread = 30;` is one, and without it the
  * importer had to make a code node whose whole body was `return { out: 30 }`
  * — a function call to say thirty.
+ *
+ * `list` is several values as one: `[insets, filledRender, accent]`, which is
+ * what a sketch returns when it draws more than one thing, and what a word
+ * takes when it takes a collection. Its inputs are numbered, and one of them
+ * may carry a whole collection (`...boxes`) rather than one value.
  */
-export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output' | 'group' | 'input' | 'value';
+export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output' | 'group' | 'input' | 'value' | 'list';
 
 /** An input: a literal, an edge, or (for code nodes) the edge's type. */
 export interface GraphInput {
@@ -235,7 +246,7 @@ export interface Graph {
 }
 
 const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-const KINDS: readonly NodeKind[] = ['builtin', 'code', 'viewer', 'output', 'group', 'input', 'value'];
+const KINDS: readonly NodeKind[] = ['builtin', 'code', 'viewer', 'output', 'group', 'input', 'value', 'list'];
 /** Words a compiled sketch cannot bind: a node id becomes a `const`, and a
  * code node's keys become parameters. */
 const RESERVED = new Set([
@@ -309,6 +320,13 @@ function parseNode(raw: unknown): GraphNode {
     const type = r.outputs === undefined ? 'Number' : parseValueType(expectObject(r.outputs, `value node ${id} outputs`).out, `value node ${id} output`);
     node.outputs = { out: type };
     if (node.inputs['v'] === undefined) throw new Error(`graph: value node ${id} holds no value`);
+  }
+  // A list is what it collects: numbered inputs, and one drawing out.
+  if (kind === 'list') {
+    node.outputs = { out: 'drawing' };
+    for (const key of Object.keys(node.inputs)) {
+      if (!/^\d+$/.test(key)) throw new Error(`graph: list node ${id} input ${key} is not a place in the list`);
+    }
   }
   // A group node's boundary and a group's own `input` node declare outputs
   // without a body, the way a code node does.
@@ -450,7 +468,23 @@ export function inputTakes(node: GraphNode, catalogue: Catalogue): Record<string
   }
   // The output node takes what a sketch may return: shapes and drawings.
   if (node.kind === 'output') return { in: { socket: 'Geometry', kinds: ['shape', 'drawing'] } };
+  // A list takes any geometry in every place it holds, and in one more: a
+  // list with nowhere left to wire is a list you cannot add to.
+  if (node.kind === 'list') {
+    return Object.fromEntries(listPlaces(node).map((key) => [key, { socket: 'Geometry' as const, any: true }]));
+  }
   return {};
+}
+
+/**
+ * A list's places, in order, plus the free one at the end. The document holds
+ * only the places something is wired to; the free place is where the next
+ * thing goes, and it becomes real the moment a wire lands on it.
+ */
+export function listPlaces(node: GraphNode): string[] {
+  const held = Object.keys(node.inputs).map(Number).filter((n) => Number.isInteger(n) && n >= 0).sort((a, b) => a - b);
+  const next = held.length === 0 ? 0 : held[held.length - 1]! + 1;
+  return [...held.map(String), String(next)];
 }
 
 /** The value type of one output of a node, or undefined when the node has
@@ -460,6 +494,6 @@ export function outputType(node: GraphNode, name: string, catalogue: Catalogue):
     const word = wordOf(catalogue, node.word!);
     return name === 'out' ? word?.returns : undefined;
   }
-  if (node.kind === 'code' || node.kind === 'value') return node.outputs?.[name];
+  if (node.kind === 'code' || node.kind === 'value' || node.kind === 'list') return node.outputs?.[name];
   return undefined;
 }

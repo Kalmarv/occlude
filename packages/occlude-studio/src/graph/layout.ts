@@ -23,7 +23,7 @@
  * refuses one too: a graph that cannot be drawn in order cannot run.
  */
 
-import { topoOrder, wordInputs, wordOf, type Catalogue, type Graph, type GraphNode } from './model.js';
+import { listPlaces, topoOrder, wordInputs, wordOf, type Catalogue, type Graph, type GraphNode } from './model.js';
 
 /** A node's size, in area units. */
 export interface NodeBox {
@@ -76,9 +76,11 @@ export function estimateBox(node: GraphNode, catalogue: Catalogue): NodeBox {
     const plain = wordInputs(word).filter((input) => input.option === undefined).length;
     return { width: 208, height: HEAD_H + (plain + records.size + 1) * ROW_H };
   }
-  // A value node is its literal and its output; the output node, a group
-  // node and a group's input node are a title and a row.
+  // A value node is its literal and its output; a list is its places and its
+  // output; the output node, a group node and a group's input node are a
+  // title and a row.
   if (node.kind === 'value') return { width: 176, height: HEAD_H + 2 * ROW_H };
+  if (node.kind === 'list') return { width: 176, height: HEAD_H + (listPlaces(node).length + 1) * ROW_H };
   return { width: 208, height: HEAD_H + ROW_H };
 }
 

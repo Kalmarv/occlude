@@ -395,6 +395,14 @@ class Reader {
           this.bindings.set(name, { node: value.node, output: 'out', type: value.type });
           return;
         }
+        if (ts.isArrayLiteralExpression(expr)) {
+          const list = this.listNode(expr, id);
+          if (list) {
+            this.add(list);
+            this.bindings.set(name, { node: list, output: 'out', type: 'drawing' });
+            return;
+          }
+        }
         this.refuse(id, undefined, `the value is ${describe(expr)}, not a call`);
       } else builtin = this.tryBuiltin(expr, id);
       if (builtin) {
@@ -463,6 +471,17 @@ class Reader {
     if (wired) {
       this.add({ id, kind: 'output', x: 0, y: 0, inputs: { in: { from: wired } } });
       return;
+    }
+    // What a sketch returns is very often a list of the things it drew.
+    if (before.length === 0 && ts.isArrayLiteralExpression(expr)) {
+      const listId = this.uniqueId('ink');
+      const list = this.listNode(expr, listId);
+      if (list) {
+        this.add(list);
+        this.add({ id, kind: 'output', x: 0, y: 0, inputs: { in: { from: [list.id, 'out'] } } });
+        return;
+      }
+      this.taken.delete(listId);
     }
     const type = this.typeOf(expr);
     const ink = this.add({
@@ -658,6 +677,30 @@ class Reader {
    * of them. Anything else the sketch wrote as a constant — a string, an
    * options object — has no socket to leave on, and stays a code node.
    */
+  /**
+   * An array of values the graph already holds: `[insets, filledRender,
+   * accent]`, which is what a sketch returns when it draws more than one
+   * thing. Each element is a place — an earlier node, a call lifted into
+   * one, or a spread of a collection.
+   */
+  private listNode(expr: ts.ArrayLiteralExpression, id: string): GraphNode | undefined {
+    if (expr.elements.length === 0) return undefined;
+    const mark = this.nodes.length;
+    const inputs: Record<string, GraphInput> = {};
+    for (let i = 0; i < expr.elements.length; i++) {
+      const element = expr.elements[i]!;
+      const spread = ts.isSpreadElement(element);
+      const input = this.argument(spread ? element.expression : element, false);
+      if (!input?.from) {
+        this.rollback(mark);
+        this.refuse(id, undefined, `place ${i} of the list is not a value the graph holds`);
+        return undefined;
+      }
+      inputs[String(i)] = spread ? { from: input.from, spread: true } : input;
+    }
+    return { id, kind: 'list', x: 0, y: 0, inputs, outputs: { out: 'drawing' } };
+  }
+
   private valueNode(expr: ts.Expression, id: string): { node: GraphNode; type: ValueType } | undefined {
     const value = this.literal(expr);
     if (value === undefined) return undefined;

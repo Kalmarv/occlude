@@ -265,6 +265,16 @@ function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Gra
   }
   // A value node is its literal, written out. Nothing wires into it.
   if (node.kind === 'value') return `const ${node.id} = ${literal(node.inputs['v']?.value)};`;
+  // A list is its places, in order: the array the sketch would have written.
+  if (node.kind === 'list') {
+    // Only the places something reaches: an empty place is a place waiting
+    // for a wire, not a hole in the drawing.
+    const places = Object.keys(node.inputs)
+      .filter((key) => node.inputs[key]!.from !== undefined || node.inputs[key]!.value !== undefined)
+      .sort((a, b) => Number(a) - Number(b));
+    const items = places.map((key) => inputExpression(node, key, graph, catalogue));
+    return `const ${node.id} = [${items.join(', ')}];`;
+  }
   return node.kind === 'code' ? codeSource(node, graph, catalogue) : '';
 }
 
