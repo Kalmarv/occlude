@@ -29,7 +29,7 @@ import { mountShell } from './shell.js';
 import { button, el } from './widgets.js';
 import { CATALOGUE } from './graph/catalogue.js';
 import { createCanvas, type AreaExtra, type GraphCanvas, type GraphScheme, type GraphWire, type ReteNode } from './graph/canvas.js';
-import { bridgeDiagnostics, markWired, paintNode, takesLabel, takesOf, type NodePaint, type NodePaintHooks } from './graph/nodes.js';
+import { bridgeDiagnostics, markWired, paintNode, takesLabel, takesOf, type NodePaint, type NodePaintHooks, type ViewerShow } from './graph/nodes.js';
 import { compileFor, compileGraph, type CompiledSketch } from './graph/compile.js';
 import { estimateBox, layoutGraph, type NodeBox } from './graph/layout.js';
 import { importSketch } from './graph/import.js';
@@ -317,14 +317,23 @@ function typeOfOutput(id: string, key: string): ValueType | undefined {
   return node ? outputType(node, key, catalogue) : undefined;
 }
 
-/** A viewer shows a material, points or faces as ink: its own sketch wraps
- * them in `strokes(...)`. The graph's return does not. */
-function viewerWrap(node: GraphNode): boolean {
+/**
+ * What a viewer can make of the value on its socket. A shape or a drawing is
+ * ink already; a material, points, faces or a mesh is not, and the viewer's
+ * own sketch wraps it in `strokes(...)`; a number is not a picture at all
+ * and is read back from the run; and a value whose kind the graph does not
+ * know is tried both ways. The graph's own return is unchanged by any of it.
+ */
+function viewerShow(node: GraphNode): ViewerShow {
   const input = node.inputs['in'];
-  if (!input?.from) return false;
+  if (!input?.from) return 'ink';
   const type = typeOfOutput(input.from[0], input.from[1]);
-  const kind = type ? kindOf(type) : undefined;
-  return kind !== undefined && WRAPPED_KINDS.includes(kind);
+  if (type === undefined) return 'ink';
+  if (type === 'Number') return 'number';
+  if (type === 'Geometry') return 'try';
+  const kind = kindOf(type);
+  if (kind === undefined) return 'ink';
+  return WRAPPED_KINDS.includes(kind) ? 'strokes' : 'ink';
 }
 
 /** The history frame a viewer shows: `inputs.frame`, -1 for the material
@@ -387,7 +396,7 @@ const paintHooks: NodePaintHooks = {
     node.body = text;
     touch();
   },
-  viewerWrap,
+  viewerShow,
   frames: (node) => viewerFrames.get(node.id) ?? 0,
   zoom: () => canvas.area.area.transform.k,
   setSize: (node, width, height) => {
@@ -962,64 +971,113 @@ async function renderViewer(node: GraphNode, mine: number): Promise<void> {
   if (!node.inputs['in']?.from) {
     viewerResults.delete(node.id);
     view?.preview?.setStale(true);
+    if (view?.paint.value) view.paint.value.textContent = '—';
     setBad(node.id, false);
     return;
   }
-  const wrap = viewerWrap(node);
+  const show = viewerShow(node);
   const frame = viewerFrame(node);
-  let compiled: CompiledSketch;
-  try {
-    // A viewer shows a material, points or faces as ink: the wrapper is the
-    // compiler's, so the import and the return are right by construction. A
-    // chosen frame shows that kept state instead — the ternary keeps a
+
+  /** The viewer's own sketch. `wrapped` decides whether the value is asked
+   * to be ink; `try` asks once each way. */
+  const sketchFor = (wrapped: boolean): CompiledSketch => compileFor(graph, catalogue, node.id, 'in', {
+    // A chosen frame shows that kept state instead — the ternary keeps a
     // material with no history from throwing, which is the library's own
-    // best-effort rule.
-    // The frame count is not in the document — the material is only in the
-    // worker — so the sketch probes it and the reply carries it back.
-    compiled = compileFor(graph, catalogue, node.id, 'in', {
-      wrap: wrap
+    // best-effort rule. The frame count is not in the document (the material
+    // is only in the worker), so the sketch probes it and the reply carries
+    // it back.
+    wrap: show === 'number'
+      ? () => '[]'
+      : wrapped
         ? (expression: string) => `strokes(${frame >= 0 ? `(${expression}).history.length > ${frame} ? (${expression}).history[${frame}].material : ${expression}` : expression})`
         : undefined,
-      prelude: wrap ? (expression: string) => [`t.probe('frames', ${expression}.history.length);`] : undefined,
-    });
+    prelude: show === 'number'
+      ? (expression: string) => [`t.probe('value', ${expression});`]
+      : wrapped
+        ? (expression: string) => [`t.probe('frames', ${expression}.history.length);`]
+        : undefined,
+  });
+
+  const wantsInk = show === 'strokes' || show === 'try';
+  let compiled: CompiledSketch;
+  try {
+    compiled = sketchFor(wantsInk);
   } catch (error) {
     status(error instanceof Error ? error.message : String(error), 'err');
     return;
   }
-  // The frame is part of the picture: the same nodes at another frame are
-  // another render.
-  const hash = `${compiled.nodes.map((n) => n.hash).join('|')}${wrap ? '|strokes' : ''}|f${frame}`;
+  // The frame and the way it is shown are part of the picture: the same
+  // nodes shown another way are another render.
+  const hash = `${compiled.nodes.map((n) => n.hash).join('|')}|${show}|f${frame}`;
   const cached = viewerResults.get(node.id);
   if (cached?.hash === hash) {
     view?.preview?.setStale(false);
     setBad(node.id, false);
     return;
   }
+  const run = async (source: CompiledSketch): Promise<Awaited<ReturnType<typeof client.render>>> =>
+    client.render({ js: await jsOf(source.source), cfg: runConfig() }, () => mine === generation);
   try {
-    const reply = await client.render({ js: await jsOf(compiled.source), cfg: runConfig() }, () => mine === generation);
+    let reply = await run(compiled);
     if (!reply || mine !== generation) return;
-    viewerResults.set(node.id, { hash, result: reply.result });
-    setBad(node.id, false);
-    // A material's kept states, from the probe: the scrubber's extent. The
-    // node is repainted only when that number changes, and the repaint takes
-    // the picture it already has.
-    const frames = Math.max(0, Math.round(reply.probes.frames?.max ?? 0));
-    if (frames !== (viewerFrames.get(node.id) ?? -1)) {
-      viewerFrames.set(node.id, frames);
-      canvas.refresh(node.id);
-    }
-    const live = views.get(node.id)?.preview;
-    if (live) {
-      live.setPaperColor(reply.result.paper.color ?? settings.paperColor);
-      live.setResult(reply.result);
-      live.fit();
+    if (reply) {
+      viewerResults.set(node.id, { hash, result: reply.result });
+      setBad(node.id, false);
+      showReply(node, reply, show);
     }
   } catch (error) {
     if (mine !== generation) return;
+    // Best effort: a value the graph could not name may simply not be ink.
+    // Draw it bare before calling it an error.
+    if (show === 'try') {
+      try {
+        const bare = await run(sketchFor(false));
+        if (!bare || mine !== generation) return;
+        viewerResults.set(node.id, { hash, result: bare.result });
+        setBad(node.id, false);
+        showReply(node, bare, show);
+        return;
+      } catch {
+        // fall through to the message from the first attempt
+      }
+    }
     // The node is marked and the status names it: no toast per viewer.
     status(`${node.id}: ${error instanceof Error ? error.message : String(error)}`, 'err');
     setBad(node.id, true);
     view?.preview?.setStale(true);
+  }
+}
+
+/** Put a viewer's reply on its face: a picture, or the number it read. */
+function showReply(node: GraphNode, reply: { result: RenderResult; probes: Record<string, { count: number; min: number; max: number; mean: number }> }, show: ViewerShow): void {
+  const view = views.get(node.id);
+  if (show === 'number') {
+    const probe = reply.probes.value;
+    if (view?.paint.value) {
+      // One number reads as itself; a column of them reads as what the run
+      // made of it.
+      const round = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(3));
+      view.paint.value.textContent = !probe || probe.count === 0
+        ? '—'
+        : probe.count === 1
+          ? round(probe.mean)
+          : `${probe.count} · ${round(probe.min)} … ${round(probe.max)} · mean ${round(probe.mean)}`;
+    }
+    return;
+  }
+  // A material's kept states, from the probe: the scrubber's extent. The
+  // node is repainted only when that number changes, and the repaint takes
+  // the picture it already has.
+  const frames = Math.max(0, Math.round(reply.probes.frames?.max ?? 0));
+  if (frames !== (viewerFrames.get(node.id) ?? -1)) {
+    viewerFrames.set(node.id, frames);
+    canvas.refresh(node.id);
+  }
+  const live = views.get(node.id)?.preview;
+  if (live) {
+    live.setPaperColor(reply.result.paper.color ?? settings.paperColor);
+    live.setResult(reply.result);
+    live.fit();
   }
 }
 

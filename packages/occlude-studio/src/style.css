@@ -3500,6 +3500,19 @@ wa-dialog.wa-dialog-wide {
   border-radius: var(--r-sm);
 }
 
+/* A viewer on a number: what the run actually held, not a picture. */
+.graph-value {
+  margin: 8px 10px;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  text-align: center;
+  background: var(--control);
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--r-sm);
+}
+
 .graph-viewer-tag {
   align-self: flex-end;
   margin: 0 10px 8px;

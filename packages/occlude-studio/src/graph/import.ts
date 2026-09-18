@@ -748,7 +748,12 @@ class Reader {
       const word = this.wordFor(expr.expression);
       if (word) return word.returns;
     }
-    if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) return 'Field';
+    // A field takes a point: `(x, y) => number`. `() => t.rnd(15, 35)` is a
+    // generator the sketch calls, and typing it `Field` made the node that
+    // reads it red — `Expected 2 arguments, but got 0` on code that runs.
+    if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) {
+      return expr.parameters.length === 2 ? 'Field' : 'Geometry';
+    }
     if (ts.isNumericLiteral(expr)) return 'Number';
     if (ts.isPrefixUnaryExpression(expr) && ts.isNumericLiteral(expr.operand)) return 'Number';
     if (ts.isBinaryExpression(expr) && ARITHMETIC.includes(expr.operatorToken.kind)) return 'Number';

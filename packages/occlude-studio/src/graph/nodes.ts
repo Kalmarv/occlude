@@ -20,7 +20,7 @@ import { createEditor, type Editor } from '../editor.js';
 import { sliderSpec } from '../uiPanel.js';
 import { iconButton } from '../icons.js';
 import { el } from '../widgets.js';
-import { isRaw, usedImports } from './compile.js';
+import { isRaw, usedImports, usedTypes } from './compile.js';
 import { wordInputs, type Catalogue, type CatalogueInput, type CatalogueWord, type GraphNode, type Takes } from './model.js';
 
 /** How a value type reads in TypeScript: what a code node's declared input
@@ -83,9 +83,8 @@ export interface NodePaintHooks {
   unset(node: GraphNode, key: string): void;
   /** The code node's body changed. */
   setBody(node: GraphNode, body: string): void;
-  /** A viewer wraps a material, points or faces in `strokes(...)` for its
-   * own picture — the graph's ink does not change. */
-  viewerWrap(node: GraphNode): boolean;
+  /** What a viewer can make of its input (`ViewerShow`). */
+  viewerShow(node: GraphNode): ViewerShow;
   /** How many kept states the viewer's material has, 0 when unknown. */
   frames(node: GraphNode): number;
   /** The canvas zoom, so a drag in screen pixels becomes area units. */
@@ -100,9 +99,26 @@ export interface NodePaintHooks {
   select(node: GraphNode): void;
 }
 
+/**
+ * What a viewer does with the value on its socket.
+ *
+ * - `number` — not geometry at all: show the number, and what a run made of
+ *   it (how many, the range, the mean) when it is a whole column of them.
+ * - `ink` — a shape or a drawing: draw it as it stands.
+ * - `strokes` — a material, points, faces, a mesh: not ink until something
+ *   interprets it, so the viewer's own sketch wraps it in `strokes(...)`.
+ *   The graph's ink is unchanged; only this picture is.
+ * - `try` — geometry whose kind the graph does not know. Wrap it, and if
+ *   that will not render, draw it bare. Best effort, which is the rule the
+ *   rest of the engine follows.
+ */
+export type ViewerShow = 'number' | 'ink' | 'strokes' | 'try';
+
 export interface NodePaint {
   /** The viewer's canvas, when the node has one. */
   canvas?: HTMLCanvasElement;
+  /** Where a viewer on a number writes what it read. */
+  value?: HTMLElement;
   /** The code node's editor, when the node has one. */
   editor?: Editor;
   /** Where a code node's first type error reads: a squiggle alone is thin. */
@@ -405,6 +421,12 @@ function builtinRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks):
     return;
   }
   const inputs = wordInputs(word);
+  // The receiver comes first and is not one of `params`: `Material.planarize`
+  // takes its material on a socket, and without the row that socket has no
+  // element, so the wire into it could not be measured and was never drawn.
+  // That is what made an imported chain look like a row of loose nodes.
+  const self = inputs.find((input) => input.self);
+  if (self) host.append(inputRow(node, self, hooks));
   for (const param of word.params) {
     if (!param.options) {
       const input = inputs.find((i) => i.param === param.name && i.option === undefined);
@@ -596,13 +618,22 @@ function codeRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): { 
 
 /** A viewer: the input, its own picture, and the word `strokes` when the
  * picture needs it. */
-function viewerRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): HTMLCanvasElement {
+function viewerRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): { canvas?: HTMLCanvasElement; value?: HTMLElement } {
+  const show = hooks.viewerShow(node);
   const line = nodeRow();
   line.dataset.row = 'in';
   line.append(socketDot('input', 'in', 'Geometry', hooks));
   line.append(el('span', 'graph-row-name', 'in'));
   host.append(line);
-  if (hooks.viewerWrap(node)) {
+  if (show === 'number') {
+    // Not a picture: a number, and what the run made of it.
+    const value = el('div', 'graph-value', '—');
+    value.title = 'What this point of the graph held, read back from the run';
+    noDrag(value);
+    host.append(value);
+    return { value };
+  }
+  if (show === 'strokes' || show === 'try') {
     // A material carries its kept states: pick one to look at. Empty shows
     // the material itself, which is what a material with no history has.
     const frame = el('div', 'graph-row graph-row-in');
@@ -656,12 +687,14 @@ function viewerRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): 
   canvas.className = 'graph-viewer';
   noDrag(canvas);
   host.append(canvas);
-  if (hooks.viewerWrap(node)) {
-    const tag = el('div', 'graph-viewer-tag', 'strokes');
-    tag.title = 'This picture wraps its input in strokes(...): a material is not ink. The graph itself is unchanged.';
+  if (show === 'strokes' || show === 'try') {
+    const tag = el('div', 'graph-viewer-tag', show === 'try' ? 'strokes?' : 'strokes');
+    tag.title = show === 'try'
+      ? 'The graph does not know what this value is. The picture wraps it in strokes(...) and draws it bare if that will not render. The graph itself is unchanged.'
+      : 'This picture wraps its input in strokes(...): a material is not ink. The graph itself is unchanged.';
     host.append(tag);
   }
-  return canvas;
+  return { canvas };
 }
 
 /** An output node: what the sketch returns. */
@@ -698,7 +731,11 @@ export function paintNode(host: HTMLElement, node: GraphNode, hooks: NodePaintHo
     paint.editor = code.editor;
     paint.note = code.note;
     cleanups.push(() => code.editor.dispose());
-  } else if (node.kind === 'viewer') paint.canvas = viewerRows(host, node, hooks);
+  } else if (node.kind === 'viewer') {
+    const shown = viewerRows(host, node, hooks);
+    paint.canvas = shown.canvas;
+    paint.value = shown.value;
+  }
   else outputRows(host, node, hooks);
 
   // A remembered size is the node's own; without one it sizes to its
@@ -801,8 +838,17 @@ export function bridgeDiagnostics(
     const used = usedImports(text, catalogue);
     const specs = (module: 'occlude' | 'occlude/3d'): string[] =>
       [...new Set(used.filter((u) => u.module === module).map((u) => u.spec))].sort();
-    const lines = [`import type { ${['Toolkit', ...typesOf('occlude')].join(', ')} } from 'occlude';`];
-    if (typesOf('occlude/3d').length > 0) lines.push(`import type { ${typesOf('occlude/3d').join(', ')} } from 'occlude/3d';`);
+    // The types the node's own inputs carry, and the ones the body names for
+    // itself (`as Vec3`): the compiled sketch imports both, and a prologue
+    // that imports less marks a body red for a name the sketch will have.
+    const named = new Map<'occlude' | 'occlude/3d', Set<string>>();
+    for (const module of ['occlude', 'occlude/3d'] as const) named.set(module, new Set(typesOf(module)));
+    for (const { module, name } of usedTypes(text, catalogue)) {
+      if (module === 'occlude' || module === 'occlude/3d') named.get(module)!.add(name);
+    }
+    const all = (module: 'occlude' | 'occlude/3d'): string[] => [...named.get(module)!].sort();
+    const lines = [`import type { ${['Toolkit', ...all('occlude')].join(', ')} } from 'occlude';`];
+    if (all('occlude/3d').length > 0) lines.push(`import type { ${all('occlude/3d').join(', ')} } from 'occlude/3d';`);
     lines.push(`import { ${['sketch', ...specs('occlude')].join(', ')} } from 'occlude';`);
     if (specs('occlude/3d').length > 0) lines.push(`import { ${specs('occlude/3d').join(', ')} } from 'occlude/3d';`);
     lines.push(`export default (t: Toolkit${params.length > 0 ? `, ${params.join(', ')}` : ''}) => {`);
