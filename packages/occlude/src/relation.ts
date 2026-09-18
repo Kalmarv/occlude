@@ -43,6 +43,8 @@ function sameSource(a: { source: Material }, b: { source: Material }, what: stri
 }
 
 import { groupRows } from './groupRows.js';
+import { neighbours } from './forces.js';
+import type { XY } from './vec.js';
 export { groupRows } from './groupRows.js';
 
 /** The rows a collection over `count` source rows holds: null is all of them. */
@@ -140,6 +142,27 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
 
   /** True when `view` is a vertex of the source and was selected. A vertex
    * of another state is never a member; an edge view is the wrong domain. */
+  /**
+   * The points of this selection within `radius` of `p`, never `p` itself.
+   * Proximity, not topology: `p.adjacent` is the points an edge joins it
+   * to. The index is built once per radius and cached on the state, so a
+   * whole pass of queries at one radius pays for one grid.
+   */
+  near(p: XY, opts: { radius: number }): PointSelection {
+    const radius = opts.radius;
+    if (!(radius > 0)) throw new Error('near: radius must be a positive distance');
+    const box = this.source.nearBox;
+    let index = box.byRadius.get(radius);
+    if (index === undefined) {
+      index = neighbours(this.source, { radius });
+      box.byRadius.set(radius, index);
+    }
+    const rows = index(p);
+    // The index covers the whole state. A selection of part of it answers
+    // with its own members only.
+    return new PointSelection(this.source, this.rows === null ? rows : rows.filter((r) => this.set!.has(r)));
+  }
+
   has(view: Vertex): boolean {
     if (isEdgeView(view)) throw new Error('selection.has: this is a point selection; an edge view cannot be a member');
     if (!isVertexView(view)) throw new Error('selection.has: expected a vertex view');

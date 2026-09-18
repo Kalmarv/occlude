@@ -50,6 +50,7 @@ export {
 export type { XY, Vec } from './vec.js';
 export { viewKind, viewProto, ownedBy, ownerOfView } from './views.js';
 export { inheritEdge } from './steps.js';
+import { oneBatch } from './rules.js';
 export type {
   Handle, Ref, ChildSpec, ChildInterval, SplitOpts, EdgeRef, StepRule, StepShorthand, StepsOptions, Next, StepKit,
 } from './steps.js';
@@ -61,7 +62,15 @@ export type {
  * not a persistent identity. `material` (non-enumerable) names that material, so
  * a force can tell "this vertex of these sources" from a foreign point
  * that happens to share an index. */
-export type Vertex = { index: number; x: number; y: number } & Record<string, number>;
+export type Vertex = {
+  index: number;
+  x: number;
+  y: number;
+  /** The vertices an edge joins this one to, in adjacency order. Topology
+   * only: no spatial search — `cur.points.near(p, { radius })` is that. An
+   * isolated vertex has none. */
+  readonly adjacent: PointSelection;
+} & Record<string, number>;
 
 export interface Edge {
   /** Vertex views at the edge's ends, in stored order (a → b). */
@@ -217,6 +226,9 @@ export class Material {
    * step makes a state per iteration, and most never ask. The box is
    * mutable inside a frozen material. */
   private readonly adjBox: { rows: number[][] | null };
+  /** @internal Spatial indexes for `points.near`, one per radius. The
+   * state is frozen, so the cache lives in a box like the adjacency does. */
+  readonly nearBox: { byRadius: Map<number, (p: XY) => number[]> } = { byRadius: new Map() };
   private readonly facesBox: { faces: Faces | null };
   private readonly vertexProto: object;
   private readonly edgeProto: object;
@@ -275,7 +287,17 @@ export class Material {
     }
     this.adjBox = { rows: null };
     this.facesBox = { faces: null };
-    this.vertexProto = viewProto(this, 'vertex');
+    const self = this;
+    // A vertex knows the vertices an edge joins it to. Lazy and
+    // non-enumerable, exactly like an edge's `faces` below: a view is made
+    // every time a selection is read, so this must cost nothing until it
+    // is asked for.
+    const vertexProto = Object.create(viewProto(this, 'vertex')) as object;
+    Object.defineProperty(vertexProto, 'adjacent', {
+      get(this: Vertex) { return new PointSelection(self, self.connected(this.index)); },
+      enumerable: false,
+    });
+    this.vertexProto = Object.freeze(vertexProto);
     // An edge knows the faces on its two sides once the material's faces
     // have been read (cached on the state): the reverse of `face.edges`.
     const owner = this;
@@ -895,11 +917,15 @@ export class Material {
    * The everyday step is shorter: `.steps(n, { move: p => [dx, dy] })` moves
    * every point by a field and `set` writes attributes in the same pass.
    */
-  steps(n: number, rule: StepRule | StepShorthand, ...passesAndOptions: StepRule[] | [...StepRule[], StepsOptions]): Material {
-    if (isStepShorthand(rule)) rule = stepRuleOf(rule);
+  steps(n: number, rule: StepRule | StepShorthand | readonly StepRule[], ...passesAndOptions: StepRule[] | [...StepRule[], StepsOptions]): Material {
+    // A list of rules is ONE batch: they all match the frozen state, and
+    // they all edit the same next one. Separate arguments stay separate
+    // passes, where a later pass sees what an earlier one committed.
+    if (Array.isArray(rule)) rule = oneBatch(rule as readonly StepRule[]);
+    else if (isStepShorthand(rule as StepRule | StepShorthand)) rule = stepRuleOf(rule as StepShorthand);
     const last = passesAndOptions[passesAndOptions.length - 1];
     const opts: StepsOptions = typeof last === 'object' ? last : {};
-    const passes: StepRule[] = [rule, ...(passesAndOptions as (StepRule | StepsOptions)[]).filter((pass): pass is StepRule => typeof pass === 'function')];
+    const passes: StepRule[] = [rule as StepRule, ...(passesAndOptions as (StepRule | StepsOptions)[]).filter((pass): pass is StepRule => typeof pass === 'function')];
     const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
     const snaps: Snapshot[] = [];
     const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), this.iteration, [], copyAttrs(this.edgeAttrs), { ...this.transfers }, { ...this.edgeTransfers });
