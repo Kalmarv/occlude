@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { compileFor, compileGraph, literal } from './compile.js';
+import { compileFor, compileGraph, literal, type CompiledSketch } from './compile.js';
 import { accepts, parseGraph, wordInputs, type Catalogue } from './model.js';
 
 /** The words these tests need, shaped exactly as the generator emits them. */
@@ -232,6 +232,44 @@ describe('a graph it must refuse', () => {
     expect(() => parseGraph({ version: 1, nodes: [
       { id: 'n1', kind: 'code', inputs: {}, outputs: { out: 'Stuff' }, body: 'return { out: 1 };' },
     ] })).toThrow(/unknown type "Stuff"/);
+  });
+});
+
+describe('a change reaches only what depends on it', () => {
+  /** Two branches: circle → sample → code, and a circle of its own. */
+  const branch = (r: number) => doc([
+    { id: 'n1', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 10 }, y: { value: 10 }, r: { value: r } } },
+    { id: 'n2', kind: 'builtin', word: 't.sample', x: 0, y: 0, inputs: { shape: { from: ['n1', 'out'] }, count: { value: 12 } } },
+    { id: 'n3', kind: 'code', x: 0, y: 0, inputs: { ring: { type: 'material', from: ['n2', 'out'] } }, outputs: { grown: 'drawing' }, body: 'return { grown: strokes(ring) };' },
+    { id: 'n6', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 90 }, y: { value: 90 }, r: { value: 5 } } },
+    { id: 'v1', kind: 'viewer', x: 0, y: 0, inputs: { in: { from: ['n2', 'out'] } } },
+    { id: 'v2', kind: 'viewer', x: 0, y: 0, inputs: { in: { from: ['n6', 'out'] } } },
+    { id: 'n5', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['n3', 'grown'] } } },
+  ]);
+
+  it('leaves an untouched viewer byte-identical, and moves the ones below', () => {
+    const before = branch(4);
+    const after = branch(9);
+    const v1Before = compileFor(before, CATALOGUE, 'v1', 'in');
+    const v1After = compileFor(after, CATALOGUE, 'v1', 'in');
+    const v2Before = compileFor(before, CATALOGUE, 'v2', 'in');
+    const v2After = compileFor(after, CATALOGUE, 'v2', 'in');
+
+    // The viewer that reads the changed branch compiles to new source...
+    expect(v1After.source).not.toBe(v1Before.source);
+    // ...and the one on the other branch does not: its canvas keeps its picture.
+    expect(v2After.source).toBe(v2Before.source);
+
+    const hashes = (c: CompiledSketch): Record<string, string> => Object.fromEntries(c.nodes.map((n) => [n.id, n.hash]));
+    const was = hashes(compileGraph(before, CATALOGUE));
+    const now = hashes(compileGraph(after, CATALOGUE));
+    // The changed node's hash moves, and so does everything below it.
+    expect(now.n1).not.toBe(was.n1);
+    expect(now.n2).not.toBe(was.n2);
+    expect(now.n3).not.toBe(was.n3);
+    // The branch nothing changed on keeps its hash.
+    expect(now.n6).toBe(was.n6);
+    expect(hashes(v2After).n6).toBe(hashes(v2Before).n6);
   });
 });
 
