@@ -24,6 +24,6 @@ describe('model-space point grid',()=>{
    expect(()=>grid({cols:1,rows:-1})).toThrow('integer');
    expect(()=>grid({cols:1000,rows:1000,maxPoints:100_000})).toThrow('budget');
    expect(()=>grid({cols:2,rows:2,maxPoints:3})).toThrow('budget');
-   expect(()=>grid({cols:2,rows:2,spacing:0})).toThrow('positive');
+   expect(grid({cols:2,rows:2,spacing:0}).points.length).toBe(0);
  });
 });

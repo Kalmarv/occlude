@@ -38,10 +38,11 @@ export interface SurfaceMappingStats {
 function limit(value:number|undefined,fallback:number,name:string):number {
   const n=value??fallback;if(!(n===Infinity||Number.isSafeInteger(n))||n<0)throw new Error(`surface mapping ${name} budget must be a nonnegative integer or Infinity`);return n;
 }
-function checkFrame(frame:ChartFrame|undefined):Required<ChartFrame> {
+/** A frame with no extent maps nothing: the patterns are dropped rather than
+ * divided by zero, and the sketch keeps its other drawings. */
+function checkFrame(frame:ChartFrame|undefined):Required<ChartFrame>|undefined {
   const value={x:frame?.x??0,y:frame?.y??0,width:frame?.width??1,height:frame?.height??frame?.width??1};
-  if(!Object.values(value).every(Number.isFinite)||value.width<=0||value.height<=0)throw new Error('surface mapping frame requires finite origin and positive width/height');
-  return value;
+  return Object.values(value).every(Number.isFinite)&&value.width>0&&value.height>0?value:undefined;
 }
 /** Capture mutable material columns before any asynchronous task boundary. */
 export function captureSurfaceMapping(mesh:Mesh<any,any,any,any>,pattern:Material|readonly Material[],options:SurfaceMappingOptions={}) {
@@ -57,12 +58,14 @@ export function captureSurfaceMapping(mesh:Mesh<any,any,any,any>,pattern:Materia
   const frame=checkFrame(settings.frame);
   let points=0,segments=0;
   for(const material of patterns){points+=material.n;segments+=material.edgeCount;if(points>maxPoints||segments>maxSegments)throw new Error('surface mapping exceeds input point/segment budget');}
-  const captured=patterns.map(p=>{
-    if(!p.x.every(Number.isFinite)||!p.y.every(Number.isFinite))throw new Error('surface mapping material requires finite coordinates');
+  // A pattern whose coordinates the frame cannot represent is left out; the
+  // other patterns still map.
+  const captured=frame===undefined?[]:patterns.flatMap(p=>{
+    if(!p.x.every(Number.isFinite)||!p.y.every(Number.isFinite))return [];
     const columns=(input:Readonly<Record<string,Float64Array>>)=>Object.fromEntries(Object.entries(input).map(([name,value])=>[name,value.slice()]));
     const x=Float64Array.from(p.x as Iterable<number>,v=>(v-frame.x)/frame.width),y=Float64Array.from(p.y as Iterable<number>,v=>(v-frame.y)/frame.height);
-    if(!x.every(Number.isFinite)||!y.every(Number.isFinite))throw new Error('surface mapping frame produces unrepresentable chart coordinates');
-    return new Material(x,y,columns(p.attrs),p.edgeList.slice(),0,[],columns(p.edgeAttrs),{...p.transfers},{...p.edgeTransfers});
+    if(!x.every(Number.isFinite)||!y.every(Number.isFinite))return [];
+    return [new Material(x,y,columns(p.attrs),p.edgeList.slice(),0,[],columns(p.edgeAttrs),{...p.transfers},{...p.edgeTransfers})];
   });
   return {mesh,patterns:captured,settings};
 }

@@ -84,7 +84,8 @@ describe('interlace', () => {
   it('is deterministic, and refuses what it cannot use', () => {
     const x = cross();
     expect(Array.from(interlace(x, { gap: 7 }).x)).toEqual(Array.from(interlace(x, { gap: 7 }).x));
-    expect(() => interlace(x, { gap: -1 })).toThrow(/non-negative length/);
+    // A gap below zero cuts nothing away; a missing one is still a mistake.
+    expect(Array.from(interlace(x, { gap: -1 }).x)).toEqual(Array.from(interlace(x, { gap: 0 }).x));
     expect(() => interlace(x, {} as never)).toThrow(/non-negative length/);
     expect(() => interlace(x, { gap: 4, over: 1 as never })).toThrow(/must be a function/);
     // Nothing to weave is not an error.

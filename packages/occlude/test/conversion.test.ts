@@ -33,7 +33,10 @@ describe('t.material: a shape boundary with its own vertices', () => {
     expect(pile!.edgeCount).toBe(12);
     expect(pile!.planarize().faces().length).toBe(3);
     expect(coarse!.curves().length).toBe(2);
-    expect(() => run((t) => t.material({ tolerance: mm(1) } as never))).toThrow(/at least one shape/);
+    // No shapes (a spread of an empty list) is the empty material.
+    let none: Material | null = null;
+    run((t) => { none = t.material({ tolerance: mm(1) } as never); });
+    expect(none!.n).toBe(0);
   });
   it('keeps a rectangle\'s four corners and a regular polygon\'s vertices, as rings', () => {
     let r: Material | null = null;

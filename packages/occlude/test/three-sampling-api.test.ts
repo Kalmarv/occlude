@@ -70,8 +70,10 @@ describe('surface samples and scatter',()=>{
   const target=plane(),fail={rnd:()=>{throw Error('random must not run');}};
   expect(sampleSurfacePoints(target,{count:0},fail).points.length).toBe(0);
   expect(()=>sampleSurfacePoints(target,{count:10,maxPoints:9,weight:()=>{throw Error('field must not run');}},fail)).toThrow('budget');
-  expect(()=>sampleSurfacePoints(target,{count:1,weight:-1},fail)).toThrow('nonnegative');
-  expect(()=>sampleSurfacePoints(target,{count:1,weight:0},fail)).toThrow('positive weighted');
+  // A face the weight field rejects is never sampled; no weighted area at all
+  // is no samples, not a failed sketch.
+  expect(sampleSurfacePoints(target,{count:1,weight:-1},fail).points.length).toBe(0);
+  expect(sampleSurfacePoints(target,{count:1,weight:0},fail).generation.reason).toBe('empty');
   expect(scatterSurfacePoints(target,{spacing:1,weight:0},fail).generation).toEqual({attempts:0,accepted:0,reason:'empty'});
   expect(scatterSurfacePoints(target,{spacing:1,maxAttempts:0},fail).generation.reason).toBe('attempt-limit');
   expect(()=>scatterSurfacePoints(target,{spacing:mm(1) as any},fail)).toThrow('world units');

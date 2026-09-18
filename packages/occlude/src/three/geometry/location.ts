@@ -74,8 +74,11 @@ function freeze<T>(value:T):T {
     for(const v of Object.values(value))freeze(v);Object.freeze(value);
   }return value;
 }
+/** Zero where there is no direction to normalize — a collapsed triangle, a
+ * placement that folds the surface flat. Every consumer already reads a zero
+ * vector as "no direction here". */
 function unit(v:Vec3):Vec3 {
-  finite3(v);const scale=Math.max(...v.map(Math.abs));if(!scale)throw new Error('surface direction is degenerate');
+  finite3(v);const scale=Math.max(...v.map(Math.abs));if(!scale)return freeze([0,0,0] as Vec3);
   const scaled=v.map(n=>n/scale) as unknown as Vec3;return freeze(mul3(scaled,1/Math.hypot(...scaled)));
 }
 /** Same weighted transfer rule as surface sampling: numeric columns interpolate,

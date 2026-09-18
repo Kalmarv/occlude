@@ -49,8 +49,11 @@ function geometricNormal(ab:Vec3,ac:Vec3):Vec3 {
   const edgeScale=Math.max(Math.hypot(...ab),Math.hypot(...ac));
   const scaledCross=cross3(mul3(ab,1/edgeScale),mul3(ac,1/edgeScale)),normalLength=Math.hypot(...scaledCross);
   if(normalLength>0&&Number.isFinite(1/normalLength))return unit3(scaledCross);
-  const scaled=(v:Vec3)=>{const s=Math.max(...v.map(Math.abs));if(!s)throw new Error('surface direction is degenerate');return unit3(v.map(n=>n/s) as unknown as Vec3);};
-  return scaled(cross3(scaled(ab),scaled(ac)));
+  // A triangle with no plane has no normal: zero, the "no direction here" the
+  // tracer and the face measures already read.
+  const scaled=(v:Vec3)=>{const s=Math.max(...v.map(Math.abs));return s?unit3(v.map(n=>n/s) as unknown as Vec3):undefined;};
+  const u=scaled(ab),w=scaled(ac);if(!u||!w)return [0,0,0];
+  return scaled(cross3(u,w))??[0,0,0];
 }
 /** Pack once per surface, placement and coordinate column; results are weakly
  * held by the source snapshot, so retaining geometry retains its packing. */
@@ -108,8 +111,8 @@ export function evaluateLocation3(packed:PackedSurfaceTarget3,batch:SurfaceEvalu
       const normal=recipe.space==='model'?modelNormal(packed,t):[packed.normals[t*3],packed.normals[t*3+1],packed.normals[t*3+2]] as Vec3;
       out.tone[i]=lightTone3(normal,recipe);
     }else{
-      if(!uv)throw new Error(`surface image evaluation requires finite corner pairs in ${packed.uvAttribute}`);
-      out.tone[i]=imageValue3(uv,recipe);
+      // A location with no chart coordinates reads as unpainted.
+      out.tone[i]=uv?imageValue3(uv,recipe):0;
     }
   }
 }

@@ -78,10 +78,12 @@ export class Collection<Row extends {readonly id:string;readonly index:number}, 
     return Object.freeze([...groups].map(([key,indices])=>this.derive(indices,key) as this&{readonly key:Key}));
   }
   extract():Extracted{return this.extractor(this.indices);}
-  private numbers(name:string):number[]{return this.map(row=>{const v=(row as unknown as Record<string,unknown>)[name];if(typeof v!=='number'||!Number.isFinite(v))throw new Error(`'${name}' is not a finite number on every ${this.domain}`);return v;});}
-  /** Numeric reductions over an attribute; an empty selection has no mean. */
+  /** A column that is not numeric is the wrong column and still throws; a row
+   * whose value is not finite is left out of the reduction. */
+  private numbers(name:string):number[]{return this.map(row=>{const v=(row as unknown as Record<string,unknown>)[name];if(typeof v!=='number')throw new Error(`'${name}' is not a finite number on every ${this.domain}`);return v;}).filter(Number.isFinite);}
+  /** Numeric reductions over an attribute; the mean of nothing is NaN. */
   sum(name:string):number{return this.numbers(name).reduce((a,b)=>a+b,0);}
-  mean(name:string):number{const v=this.numbers(name);if(!v.length)throw new Error(`mean of '${name}' over an empty ${this.domain} selection`);return v.reduce((a,b)=>a+b,0)/v.length;}
+  mean(name:string):number{const v=this.numbers(name);return v.reduce((a,b)=>a+b,0)/v.length;}
   max(name:string):number{return this.numbers(name).reduce((a,b)=>Math.max(a,b),-Infinity);}
   min(name:string):number{return this.numbers(name).reduce((a,b)=>Math.min(a,b),Infinity);}
 }

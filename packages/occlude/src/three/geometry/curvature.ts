@@ -1,3 +1,4 @@
+import {clampSetting} from '../degenerate.js';
 import {snapshotSurface3} from './model.js';
 import type {Surface3} from './surface.js';
 import {triangulation3} from './triangulation.js';
@@ -94,9 +95,8 @@ function eigen(a:number,b:number,d:number):{k1:number;k2:number;e1:[number,numbe
 }
 
 export function estimateCurvature3(input:Surface3,options:CurvatureOptions3={}):CurvatureEstimate3 {
-  const source=snapshotSurface3(input),smoothing=options.smoothing??1,creaseDegrees=options.creaseDegrees??60;
+  const source=snapshotSurface3(input),smoothing=options.smoothing??1,creaseDegrees=clampSetting(options.creaseDegrees,0,180,60,'curvature creaseDegrees');
   if(!Number.isSafeInteger(smoothing)||smoothing<0||smoothing>64)throw new Error('curvature smoothing must be an integer between 0 and 64');
-  if(!Number.isFinite(creaseDegrees)||creaseDegrees<0||creaseDegrees>180)throw new Error('curvature creaseDegrees must lie in [0,180]');
   const key=JSON.stringify([smoothing,creaseDegrees]);
   let entries=cache.get(source);const previous=entries?.get(key);if(previous)return previous;
   const topology=triangulation3(source),triangles=source.triangles,points=source.points;

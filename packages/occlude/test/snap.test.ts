@@ -55,9 +55,11 @@ describe('snap', () => {
     expect(Array.from(snap(pts, () => NaN, { radius: 9 }).x)).toEqual(Array.from(pts.x));
     // Radius 0 is a legal no-op; the rest are refused.
     expect(Array.from(snap(pts, f, { radius: 0 }).x)).toEqual(Array.from(pts.x));
-    expect(() => snap(pts, f, { radius: -1 })).toThrow(/non-negative length/);
+    expect(Array.from(snap(pts, f, { radius: -1 }).x)).toEqual(Array.from(pts.x));
     expect(() => snap(pts, f, { radius: mm(2) as never })).toThrow(/non-negative length/);
-    expect(() => snap(pts, f, { radius: 5, samples: 0 })).toThrow(/at least 1/);
+    // Staying put is always one of the offers, so a request for none is one.
+    expect(Array.from(snap(pts, f, { radius: 5, samples: 0 }).x))
+      .toEqual(Array.from(snap(pts, f, { radius: 5, samples: 1 }).x));
     expect(() => snap(pts, 3 as never, { radius: 5 })).toThrow(/expected a field/);
   });
 });

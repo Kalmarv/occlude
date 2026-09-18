@@ -48,8 +48,10 @@ describe('owned 3D curve geometry',()=>{
   const parameters:number[]=[];const path=curve(t=>{parameters.push(t);return [t,t*t,t*t*t];},{segments:4});
   expect(parameters).toEqual([0,.25,.5,.75,1]);expect(path.points.at(-1)).toMatchObject({x:1,y:1,z:1});
   expect(()=>curve(()=>{throw Error('should not run');},{segments:100,maxPoints:10})).toThrow('budget');
-  expect(()=>circle(1,{segments:2})).toThrow('three points');
-  expect(()=>polyline([[0,0,0],[1,0,0],[0,0,0]],{closed:true})).toThrow('zero-length');
+  expect(circle(1,{segments:2}).segments.length).toBe(0);
+  expect(circle(0).segments.length).toBe(0);
+  expect(polyline([[0,0,0],[0,0,0],[1,0,0]]).segments.length).toBe(1);
+  expect(polyline([[0,0,0],[1,0,0],[0,0,0]],{closed:true}).segments.length).toBe(2);
   expect(()=>polyline([[0,0,0],[Infinity,0,0]])).toThrow();
   expect(()=>path.attribute('index',1)).toThrow('reserved');
   const ring=circle(2,{segments:12});expect(ring.points.length).toBe(12);expect(ring.edges.length).toBe(12);

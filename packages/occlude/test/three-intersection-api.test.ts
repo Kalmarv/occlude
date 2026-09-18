@@ -22,7 +22,7 @@ describe('public three intersections API',()=>{
     expect(list.sources.length).toBe(4);
     // a meets b and b meets c; a-c and everything with far are empty pairs.
     expect(list.edges.length).toBe(ab.edges.length+bc.edges.length);
-    expect(()=>intersections([a])).toThrow('at least two');
+    expect(intersections([a]).edges.length).toBe(0);expect(intersections([]).edges.length).toBe(0);
     expect(()=>intersections([a,b,c],{maxPairs:2})).toThrow('pair budget');
     // Instances in a list: the set's own members never pair with each other.
     const pins=instanceOnPoints(box(.4),pointCloud([[0,0,0],[.2,0,0]]).points);

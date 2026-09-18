@@ -53,7 +53,10 @@ describe('Stage A repairs (con2)', () => {
     const m = curve([[0, 0], [10, 0], [20, 0]], { closed: false });
     expect(m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 0 })).n).toBe(3);
     expect(m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 1 })).n).toBe(3);
-    expect(() => m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 1.5 }))).toThrow(/within \[0, 1\]/);
+    // An edge runs 0…1: a parameter past the end is read as the end, which
+    // creates nothing, exactly as `at: 1` does.
+    expect(m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 1.5 })).n).toBe(3);
+    expect(() => m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: NaN }))).toThrow(/within \[0, 1\]/);
     expect(() => m.steps(1, (_, n) => n.splitEdges(_.edges.filter(() => true), { at: 0, point: { x: 1 } as never }))).toThrow(/endpoint/);
   });
 

@@ -45,11 +45,12 @@ describe('rotation values and alignment',()=>{
    near(r.apply([1,0,0]),[1,0,0]);
  });
  it('rejects degenerate axes, references and ambiguous option combinations',()=>{
-   expect(()=>axisAngle([0,0,0],90)).toThrow('nonzero');
+   // A vector that names no axis asks for no turn.
+   expect(axisAngle([0,0,0],90).quaternion).toEqual([0,0,0,1]);
    expect(()=>axisAngle('z',NaN)).toThrow('finite degrees');
-   expect(()=>alignAxis('z',[0,0,0])).toThrow('nonzero');
-   expect(()=>alignAxis('z',[0,0,1],{up:[0,0,1]})).toThrow('parallel');
-   expect(()=>alignAxis('z',[1,0,0],{up:[0,1,0],localUp:[0,0,2]})).toThrow('parallel');
+   expect(alignAxis('z',[0,0,0]).quaternion).toEqual([0,0,0,1]);
+   expect(alignAxis('z',[0,0,1],{up:[0,0,1]}).quaternion).toEqual([0,0,0,1]);
+   expect(alignAxis('z',[1,0,0],{up:[0,1,0],localUp:[0,0,2]}).apply([0,0,1])).toEqual(alignAxis('z',[1,0,0],{up:[0,1,0]}).apply([0,0,1]));
    expect(()=>alignAxis('z',[1,0,0],{localUp:[1,0,0]})).toThrow('requires');
    expect(()=>alignAxis('z',[1,0,0],{up:[0,1,0],previous:axisAngle('x',0)})).toThrow('either');
  });

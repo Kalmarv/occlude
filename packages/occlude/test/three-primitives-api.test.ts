@@ -30,8 +30,14 @@ describe('common mesh primitive catalog',()=>{
     expect(source.surface).toEqual(source.scale(1).surface);
   }
  });
- it('rejects invalid geometry and oversized resolution before generation',()=>{
-  for(const make of [()=>sphere(0),()=>sphere(1,{rings:1}),()=>sphere(1,{segments:1e9}),()=>cylinder(1,0),()=>cone(-1),()=>torus(1,1),()=>torus(1,.2,{segments:1e9})])expect(make).toThrow();
+ it('draws nothing for a degenerate primitive and rejects oversized resolution',()=>{
+  // A zero size or too few segments to close a surface is an empty mesh, the
+  // same nothing-to-draw box3 gives a zero size.
+  for(const make of [()=>sphere(0),()=>sphere(1,{rings:1}),()=>cylinder(1,0),()=>cone(-1),()=>torus(0,.2)])expect(make().surface.faces.length).toBe(0);
+  // A tube as fat as the centerline folds the ring onto its own axis: no
+  // simple polygon can hold that, so it stays an error.
+  for(const make of [()=>torus(1,1),()=>sphere(1,{segments:1e9}),()=>torus(1,.2,{segments:1e9})])expect(make).toThrow();
+  expect(()=>sphere(1,{rings:1.5})).toThrow('integer');
   manifold(sphere(1,{segments:3,rings:2}),2);manifold(torus(1,.2,{segments:3,tubeSegments:3}),0);
  });
 });

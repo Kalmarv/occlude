@@ -17,18 +17,21 @@ export type IsolineAttributes={level:number;levelIndex:number};
  * `c => c.uv[1]` both read naturally. */
 export type IsolineRow=MeshCornerRow<any,any,any,any>&{readonly x:number;readonly y:number;readonly z:number};
 export type IsolineField=string|((row:IsolineRow)=>number);
+/** No levels is no contours. A level list, a flat field, a spacing of zero and
+ * a field with no finite values all resolve to nothing to draw; the level
+ * count, which is a repetition count, still rejects a non-integer. */
 function resolveLevels(spec:IsolineLevels,values:ArrayLike<number>):number[] {
-  let min=Infinity,max=-Infinity;for(let i=0;i<values.length;i++){min=Math.min(min,values[i]);max=Math.max(max,values[i]);}
-  if(Array.isArray(spec)){if(!spec.length||spec.some(l=>!Number.isFinite(l)))throw new Error('isolines levels must be a nonempty finite array');return [...spec];}
+  let min=Infinity,max=-Infinity;for(let i=0;i<values.length;i++)if(Number.isFinite(values[i])){min=Math.min(min,values[i]);max=Math.max(max,values[i]);}
+  if(Array.isArray(spec))return spec.filter(l=>Number.isFinite(l));
   if('count'in spec){
     const count=spec.count,lo=spec.min??min,hi=spec.max??max;
-    if(!Number.isSafeInteger(count)||count<1)throw new Error('isolines count must be a positive integer');
-    if(!Number.isFinite(lo)||!Number.isFinite(hi)||!(hi>lo))throw new Error('isolines require a positive finite level range');
+    if(!Number.isSafeInteger(count))throw new Error('isolines count must be a positive integer');
+    if(count<1||!Number.isFinite(lo)||!Number.isFinite(hi)||!(hi>lo))return [];
     return Array.from({length:count},(_,i)=>lo+(hi-lo)*(i+1)/(count+1));
   }
   const spacing=(spec as {spacing:number}).spacing,offset=(spec as {offset?:number}).offset??0;
-  if(!Number.isFinite(spacing)||spacing<=0||!Number.isFinite(offset))throw new Error('isolines spacing must be positive and finite');
-  if(!Number.isFinite(min)||!Number.isFinite(max))throw new Error('isolines require finite corner values');
+  if(!Number.isFinite(spacing)||spacing<=0||!Number.isFinite(offset))return [];
+  if(!Number.isFinite(min)||!Number.isFinite(max))return [];
   const first=Math.ceil((min-offset)/spacing),last=Math.floor((max-offset)/spacing);
   if(last-first>1_000_000)throw new Error('isolines spacing produces too many levels');
   const out:number[]=[];for(let k=first;k<=last;k++)out.push(k*spacing+offset);
@@ -48,8 +51,11 @@ export function isolines(mesh:Mesh<any,any,any,any>,field:IsolineField,options:I
   const corners=[...mesh.corners];
   const values=Float64Array.from(corners,c=>{
     const row:IsolineRow=Object.freeze(Object.assign(Object.create(c) as IsolineRow,{...c.point.attributes,x:c.point.x,y:c.point.y,z:c.point.z}));
+    // A named column that is not numeric is the wrong column and still throws;
+    // a value the field could not answer leaves that corner out, so only the
+    // triangles touching it are skipped.
     const v=typeof field==='string'?(c.point.attributes[field]??c.attributes[field]):field(row);
-    if(typeof v!=='number'||!Number.isFinite(v))throw new Error(typeof field==='string'?`isolines require a finite numeric point attribute '${field}'`:'isolines field must return finite numbers');
+    if(typeof v!=='number')throw new Error(typeof field==='string'?`isolines require a finite numeric point attribute '${field}'`:'isolines field must return finite numbers');
     return v;
   });
   const levels=resolveLevels(spec,values);

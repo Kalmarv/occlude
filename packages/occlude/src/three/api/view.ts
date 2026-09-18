@@ -3,6 +3,7 @@ import type {L} from '../../units.js';
 import type {Attributes3} from '../geometry/surface.js';
 import {cameraFrame3,type Camera3,type PaperFrame3} from '../camera.js';
 import {sub3,type Vec3} from '../math.js';
+import {clampSetting} from '../degenerate.js';
 import {lineArt3} from '../scene.js';
 import {drawing3,type Drawing3} from '../drawing.js';
 import {hatch3} from '../curves/hatch.js';
@@ -47,24 +48,30 @@ export interface ViewOptions<F extends Attributes3=Attributes3> {
 // a single mesh overload preserves its precise face-column types.
 type AnyMesh=Mesh<any,any,any,any>;
 type ViewGeometry=SurfaceCurves<any>|AnyMesh|CurveGeometry<any,any>|Instances<any,any,any,any,any,any,any>;
+/** Lists nest to any depth: a view takes what the sketch already holds
+ * (`[boxes, style(intersections(boxes), ...)]`) without flattening by hand. */
+export type ViewInput=ViewGeometry|readonly ViewInput[];
+const flattenGeometry=(value:ViewInput):ViewGeometry[]=>Array.isArray(value)?(value as readonly ViewInput[]).flatMap(flattenGeometry):[value as ViewGeometry];
 export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(geometry:Mesh<P,E,F,C>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,A extends Attributes3,S extends Attributes3,R extends PointRow<{}>,C extends Attributes3>(geometry:Instances<P,E,F,A,S,R,C>,options:ViewOptions<F>,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
 export function view(geometry:SurfaceCurves<any>|CurveGeometry<any,any>,options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
-export function view(geometry:readonly ViewGeometry[],options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
-export function view(geometry:ViewGeometry|readonly ViewGeometry[],options:ViewOptions<any>,draw?:(lines:ProjectedLines)=>Tree):Drawing3 {
-  const settings=captureValue(options),crease=settings.creaseAngle??30;
-  if(!Number.isFinite(crease)||crease<0||crease>180)throw new Error('view creaseAngle must be between 0 and 180 degrees');
+export function view(geometry:readonly ViewInput[],options:ViewOptions,draw?:(lines:ProjectedLines)=>Tree):Drawing3;
+export function view(geometry:ViewInput,options:ViewOptions<any>,draw?:(lines:ProjectedLines)=>Tree):Drawing3 {
+  const settings=captureValue(options),crease=clampSetting(settings.creaseAngle,0,180,30,'view creaseAngle');
   const recipes:readonly ViewHatch<any>[]=settings.hatch?(Array.isArray(settings.hatch)?settings.hatch:[settings.hatch]):[];
   const hatchKeys=recipes.map((r,i)=>r.key??(Array.isArray(settings.hatch)?`hatch:${i}`:'hatch'));
   const planes=settings.sections??[],sectionKeys=planes.map((p,i)=>p.key??`section:${i}`);
   for(const [kind,keys] of [['hatch',hatchKeys],['section',sectionKeys]] as const){
     if(keys.some(k=>typeof k!=='string'||!k)||new Set(keys).size!==keys.length)throw new Error(`view ${kind} keys must be nonempty and unique`);
   }
-  const meshes=Array.isArray(geometry)?geometry:[geometry];
+  const meshes=flattenGeometry(geometry);
   const objects:SurfaceObject3[]=[],supported:SurfaceCurveObject3[]=[];
   const geometryKeys=new Set<string>(),seen=new Set<ViewGeometry>();
   meshes.forEach((value:ViewGeometry,index:number)=>{
-    if(seen.has(value))throw new Error(`the same geometry value appears twice in this view (position ${index}); a view draws each value once, so drop the repeat or place copies with instances`);seen.add(value);
+    // The same value listed twice (a nested list of the same meshes, say) is
+    // one drawing of it, not two: a view draws each value once. Copies are
+    // placed with instances.
+    if(seen.has(value))return;seen.add(value);
     if(!(value instanceof Mesh)&&!(value instanceof Instances)&&!(value instanceof CurveGeometry)&&!(value instanceof SurfaceCurves))throw new Error('view requires mesh, curve or instance geometry');
     const id=value.key??`object:${index}`;
     if(geometryKeys.has(id))throw new Error('view geometry keys must be unique');geometryKeys.add(id);

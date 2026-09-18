@@ -277,9 +277,8 @@ function parseSvgText(text: string): { layers: SvgLayer[]; width: number; height
   }
   if (current && current.chains.length > 0) layers.push(current);
   if (loose.length > 0) layers.push({ name: 'ungrouped', chains: loose });
-  if (layers.length === 0) {
-    throw new Error('svg(): no polylines, lines, or straight paths found');
-  }
+  // Nothing drawable in the file: no layers, and the shapes that would have
+  // come from them are simply not there.
   return { layers, width, height };
 }
 
@@ -308,8 +307,7 @@ export function svg(text: string, opts: SvgShapesOptions = {}): GroupValue {
         return p.build(shapeOpts);
       }),
     );
-  if (shapes.length === 0) {
-    throw new Error(`svg(): layer filter matched nothing (layers: ${parsed.layers.map((l) => l.name).join(', ')})`);
-  }
+  // A filter that matches no layer draws no shapes — an empty group, which
+  // composes like any other.
   return group({}, ...shapes);
 }

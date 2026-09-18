@@ -177,9 +177,13 @@ describe('outline chaining',()=>{
 });
 
 describe('view inputs',()=>{
-  it('names a geometry value passed twice',()=>{
+  it('draws a geometry value listed twice once, at any nesting depth',()=>{
     const ring=torus(1,.3,{segments:8,tubeSegments:6}),camera=orthographic({eye:[4,6,5],target:[0,0,0],up:[0,0,1],span:6});
-    expect(()=>compileSketch(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([box(1),ring,ring],{camera,stroke:'ink'})))).toThrow('appears twice');
+    const cube=box(1);
+    expect(view([cube,ring,ring],{camera,stroke:'ink'}).scene.objects.map(o=>o.id)).toEqual(['object:0','object:1']);
+    // Lists nest: the sketch hands over what it holds, repeats and all.
+    expect(view([[cube,ring],[ring],cube],{camera,stroke:'ink'}).scene.objects.length).toBe(2);
+    expect(view([[[ring]]],{camera,stroke:'ink'}).scene.objects.length).toBe(1);
   });
 });
 
@@ -242,7 +246,7 @@ describe('per-object crease threshold',()=>{
     expect(smooth.cube).toBeGreaterThan(0);
     // The threshold rides on the feature so the default drawing and callbacks agree.
     expect(plain.style({creaseAngle:60}).translate([1,0,0]).subdivide(1).creaseAngle).toBe(60);
-    expect(()=>plain.style({creaseAngle:200})).toThrow('creaseAngle');
+    expect(plain.style({creaseAngle:200}).creaseAngle).toBe(180);
     const placed=instanceOnPoints(plain.style({creaseAngle:180}),pointCloud([[0,0,0]]).points);
     let seen:ProjectedLines|undefined;
     await compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},()=>view([placed],{camera,stroke:'ink'},lines=>{seen=lines;return [];})));
@@ -258,14 +262,15 @@ describe('vector helpers and light floor',()=>{
     expect(near(v3.lerp([0,0,0],[2,2,2],.5),[1,1,1])).toBe(true);
     expect(falloff([1,0,0],{radius:2})).toBeCloseTo(.5);expect(falloff([3,0,0],{radius:2})).toBe(0);
     expect(falloff({x:0,y:0,z:0},{center:[0,0,1],radius:1,ease:t=>t*t})).toBe(0);
-    expect(()=>falloff([0,0,0],{radius:0})).toThrow('radius');
+    expect(falloff([0,0,0],{radius:0})).toBe(0);
   });
   it('a light floor keeps a minimum tone on lit faces and named directions resolve',()=>{
     const plain=lightRecipe3({direction:'up'}),floored=lightRecipe3({direction:[0,0,1],ambient:0,floor:.2});
     expect(lightTone3([0,0,1],plain)).toBeCloseTo(0);
     expect(lightTone3([0,0,1],floored)).toBeCloseTo(.2);expect(lightTone3([0,0,-1],floored)).toBeCloseTo(1);
     expect(typeof light({direction:'x'})).toBe('function');
-    expect(()=>lightRecipe3({direction:'up',floor:2})).toThrow('floor');
+    expect(lightRecipe3({direction:'up',floor:2}).floor).toBe(1);
+    expect(lightTone3([0,0,1],lightRecipe3({direction:[0,0,0]}))).toBe(lightTone3([0,0,-1],lightRecipe3({direction:[0,0,0]})));
   });
 });
 
@@ -282,7 +287,7 @@ describe('2D steps shorthand and toolkit noise',()=>{
     let seen:number[]=[];
     compileSketch(sketch({seed:7},t=>{
       seen=[t.noise(10,20,0),t.noise({x:10,y:20}),t.noise([10,20]),t.noise([20,40,0],{wavelength:2}),t.noise({x:10,y:20},{amount:3})];
-      expect(()=>t.noise([0,0],{wavelength:0})).toThrow('wavelength');
+      expect(t.noise([0,0],{wavelength:0})).toBe(0);
       return null;
     }));
     expect(seen[1]).toBe(seen[0]);expect(seen[2]).toBe(seen[0]);expect(seen[3]).toBe(seen[0]);expect(seen[4]).toBeCloseTo(3*seen[0]);

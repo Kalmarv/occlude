@@ -337,7 +337,10 @@ describe('thicken: material and callback contract', () => {
     expect(calls).toBe(0);
     expect(thicken(material([]), { radius: -1 }).n).toBe(0);
     expect(() => thicken(material([]), { radius: NaN })).toThrow(/radius must be finite/);
-    expect(() => thicken(material([]), { radius: 1, tolerance: 0 })).toThrow(/tolerance/);
+    // A tolerance with no size in it is no instruction: the default stands.
+    const dot = material([[0, 0]]);
+    expect(thicken(dot, { radius: 1, tolerance: 0 }).n).toBe(thicken(dot, { radius: 1 }).n);
+    expect(() => thicken(material([]), { radius: 1, tolerance: 'x' as never })).toThrow(/tolerance/);
   });
 
   it('clamps negative radius fields to zero while retaining finite validation', () => {
@@ -349,7 +352,10 @@ describe('thicken: material and callback contract', () => {
     expect(actual.y).toEqual(expected.y);
     expect(actual.edgeList).toEqual(expected.edgeList);
     expect(thicken(src, { radius: -1 }).n).toBe(0);
-    expect(() => thicken(src, { radius: () => Infinity })).toThrow(/must be finite/);
+    // A radius the field cannot put a finite number on leaves that vertex
+    // out of the union — here that is both of them, so nothing is thickened.
+    expect(thicken(src, { radius: () => Infinity }).n).toBe(0);
+    expect(() => thicken(src, { radius: (() => 'wide') as never })).toThrow(/must be finite/);
   });
 
   it('rejects unknown options, a missing radius and wrong sources', () => {
@@ -915,5 +921,7 @@ describe('thicken: overlapping recursive rectangles', () => {
 it('bounds polygon construction and coordinate range instead of returning partial geometry', () => {
   expect(() => thicken(material([[0, 0]]), { radius: 1, tolerance: 1e-20 })).toThrow(/budget/);
   expect(() => thicken(material([[0, 0], [1e20, 0]]), { radius: 1 })).toThrow(/range|precision/);
-  expect(() => thicken(material([[1e20, 1e20]]), { radius: 1 })).toThrow(/represent/);
+  // A mark too far out for the polygon grid to hold has no boundary to
+  // union in: it is left out, and a material of nothing else is empty.
+  expect(thicken(material([[1e20, 1e20]]), { radius: 1 }).n).toBe(0);
 });

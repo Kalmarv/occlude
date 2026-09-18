@@ -318,8 +318,10 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
     },
     split(edge, opts = {}) {
       const row = edgeRow(edge, 'split');
-      const at = opts.at ?? 0.5;
-      if (!Number.isFinite(at) || at < 0 || at > 1) throw new Error(`steps: split at ${at} — must be within [0, 1]`);
+      const asked = opts.at ?? 0.5;
+      if (!Number.isFinite(asked)) throw new Error(`steps: split at ${asked} — must be within [0, 1]`);
+      // An edge runs 0…1; a split asked for past either end lands on that end.
+      const at = Math.min(Math.max(asked, 0), 1);
       if (at === 0 || at === 1) {
         // Nothing is created, so the overrides, which describe what a
         // created point or child edge would carry, have nothing to apply
@@ -335,8 +337,9 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
     },
     splitEdges(selection, opts = {}) {
       const rows = edgeRows(selection, 'splitEdges');
-      const at = opts.at ?? 0.5;
-      if (!Number.isFinite(at) || at < 0 || at > 1) throw new Error(`steps: splitEdges at ${at} — must be within [0, 1]`);
+      const asked = opts.at ?? 0.5;
+      if (!Number.isFinite(asked)) throw new Error(`steps: splitEdges at ${asked} — must be within [0, 1]`);
+      const at = Math.min(Math.max(asked, 0), 1);
       if (at === 0 || at === 1) {
         if (opts.point || opts.edges || opts.attributes || opts.parent) throw new Error('steps: a split at an endpoint creates nothing — point/edge overrides would modify existing data');
         return;
@@ -546,7 +549,9 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   for (const l of links) {
     const ra = resolve(l.a, 'connect');
     const rb = resolve(l.b, 'connect');
-    if (ra === rb) throw new Error(`steps: connect: edge ${ra}–${rb} joins a vertex to itself`);
+    // A link whose ends resolve to one vertex is no edge; it is dropped, the
+    // way an existing pair is left as it is.
+    if (ra === rb) continue;
     const key = pairKey(ra, rb);
     if (have.has(key)) continue; // an existing pair is left as it is
     checkAttrs(l.attrs, enames, 'a new edge');

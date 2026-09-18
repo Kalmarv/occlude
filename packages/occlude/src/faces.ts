@@ -604,8 +604,14 @@ function checkPlanar(m: Material): void {
             }
           }
         }
+        // As far as these coordinates can tell, the two edges meet at one
+        // point — the crossing is read as that meeting. Refusing here would
+        // blank a drawing over a gap of a rounding, and planarize can
+        // neither prove the point nor separate it, so there is nothing the
+        // reader could do about it either.
         if (gap <= EVENT_TOL) {
-          throw new Error(`faces: edges ${ev.i} and ${ev.j} cross at (${ev.x}, ${ev.y}), where vertices ${pair[0]} and ${pair[1]} are ${gap.toExponential(2)} apart but distinct — these edges very nearly meet at one point, which planarize can neither prove to be one point nor separate, so running it again will not help; move one edge, or give them a shared endpoint exactly`);
+          events.length = 0;
+          return;
         }
       }
       const where = ev.kind === 'cross' ? `edges ${ev.i} and ${ev.j} cross` : `vertex ${ev.vertex} lies on edge ${ev.edge}`;

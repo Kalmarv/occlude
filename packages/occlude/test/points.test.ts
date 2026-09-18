@@ -18,6 +18,27 @@ function run(body: (t: Toolkit) => void, seed: number | string = 1): Execution {
 }
 const square = (x0: number, y0: number, s: number) => curve([[x0, y0], [x0 + s, y0], [x0 + s, y0 + s], [x0, y0 + s]]);
 
+describe('a spacing at or below zero', () => {
+  const field = () => 1;
+  it('yields no samples across sample, scatter, settle and resample', () => {
+    // One rule, read in every place a spacing is: nothing to place means an
+    // empty piece, and the sketch keeps drawing. A missing option is still a
+    // mistake, and so is a fractional count.
+    run((t) => {
+      for (const spacing of [0, -1] as const) {
+        expect(t.sample(circle(50, 50, 20), { spacing }).n).toBe(0);
+        expect(t.scatter(field, { spacing }).n).toBe(0);
+        const src = material([[10, 10], [20, 20]]);
+        expect(t.settle(src, { density: field, spacing }).n).toBe(src.n);
+        expect(curve([[0, 0], [10, 0]]).resample({ spacing }).n).toBe(0);
+        expect(curve([[0, 0], [10, 0]]).along({ spacing })).toEqual([]);
+      }
+      expect(() => t.scatter(field, {} as never)).toThrow(/spacing/);
+      expect(() => t.sample(circle(50, 50, 20), {})).toThrow(/exactly one/);
+    });
+  });
+});
+
 describe('scatter as material', () => {
   const field = (x: number, y: number) => Math.max(0.03, 1 - Math.hypot(x - 50, (y - 50) * 1.5) / 55);
 
@@ -82,7 +103,8 @@ describe('relax and settle as explicit operations', () => {
       out = t.settle(src, { density: field, spacing: 4.8, iterations: 8 });
       expect(() => t.settle(square(0, 0, 10), { density: field, spacing: 4 })).toThrow(/point-only material.*extract/);
       expect(() => t.settle(src!, { spacing: 4 } as never)).toThrow(/density/);
-      expect(() => t.settle(src!, { density: field, spacing: 0 })).toThrow(/spacing/);
+      // No capacity to settle against: the points come back as they came in.
+      expect(t.settle(src!, { density: field, spacing: 0 }).n).toBe(src!.n);
       expect(t.settle(material([]), { density: field, spacing: 4 }).n).toBe(0);
     }, 11);
     expect(out!.attrNames).toEqual(['tag', 'mass', 'demand']);

@@ -1,6 +1,7 @@
 import {PointGeometry,type GeometryOptions} from './mesh.js';
 import {assembleSurface3,type SurfacePoint3} from '../geometry/surface.js';
 import {finite3,type Vec3} from '../math.js';
+import {emptySize} from '../degenerate.js';
 export interface GridOptions extends GeometryOptions {
   readonly cols:number;readonly rows:number;
   /** Number of Z layers; one produces an XY point grid. */
@@ -16,9 +17,11 @@ export function grid(options:GridOptions):PointGeometry<{i:number;j:number;k:num
   for(const [name,value] of Object.entries({cols,rows,layers,maxPoints}))if(!(name==='maxPoints'&&value===Infinity||Number.isSafeInteger(value))||value<0)throw new Error(`grid ${name} must be a nonnegative integer`);
   const count=cols*rows*layers;if(!Number.isSafeInteger(count)||count>maxPoints)throw new Error(`grid exceeds point budget (${maxPoints})`);
   const input=options.spacing??1,spacing:Vec3=typeof input==='number'?[input,input,input]:input;
-  finite3(spacing);if(spacing.some(s=>s<=0))throw new Error('grid spacing must be positive');
+  finite3(spacing);
   const points:SurfacePoint3[]=[];
-  if(count)for(let k=0;k<layers;k++)for(let j=0;j<rows;j++)for(let i=0;i<cols;i++){
+  // A grid with no separation has no extent to lay points out in: empty, the
+  // same nothing-to-draw a zero size gives every other primitive.
+  if(count&&!emptySize(...spacing))for(let k=0;k<layers;k++)for(let j=0;j<rows;j++)for(let i=0;i<cols;i++){
     const position:Vec3=[(i-(cols-1)/2)*spacing[0],(j-(rows-1)/2)*spacing[1],(k-(layers-1)/2)*spacing[2]];
     finite3(position);points.push({id:`p${points.length}`,position,attributes:{i,j,k}});
   }

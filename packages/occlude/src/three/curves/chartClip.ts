@@ -23,7 +23,8 @@ const uvPoint=(uv:UV2):H=>{
 export function clipChartSegment3(uv:readonly [UV2,UV2,UV2],start:UV2,end:UV2):ChartSegmentClip3|null {
   const triangle=uv.map(uvPoint) as unknown as readonly [H,H,H],a=uvPoint(start),b=uvPoint(end);
   const orientation=sign(orientPoint(...triangle,2));
-  if(!orientation)throw new Error('surface mapping requires nondegenerate UV triangles');
+  // A UV triangle with no area clips nothing: skip it, keep the sheet.
+  if(!orientation)return null;
   let low:Ratio=[0n,1n],high:Ratio=[1n,1n];
   for(let i=0;i<3;i++){
     const p=triangle[i],q=triangle[(i+1)%3];

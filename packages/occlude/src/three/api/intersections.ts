@@ -22,7 +22,8 @@ interface Source {id:string;binding:SurfaceBinding3}
 export type IntersectionArguments=[a:IntersectionInput,b:IntersectionInput,options?:IntersectionOptions]|[objects:readonly IntersectionInput[],options?:IntersectionOptions];
 export function captureIntersections(...args:IntersectionArguments) {
  const [inputs,groups,options]=Array.isArray(args[0])
-  ?(()=>{const list=args[0] as readonly IntersectionInput[];if(list.length<2)throw new Error('intersections of a list need at least two objects');return [list,list.map((_,i)=>i),(args[1] as IntersectionOptions|undefined)??{}] as const;})()
+  // Fewer than two objects cross nowhere: no pairs, an empty curve set.
+  ?(()=>{const list=args[0] as readonly IntersectionInput[];return [list,list.map((_,i)=>i),(args[1] as IntersectionOptions|undefined)??{}] as const;})()
   :[[args[0] as IntersectionInput,args[1] as IntersectionInput],[0,1],(args[2] as IntersectionOptions|undefined)??{}] as const;
  if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('intersection options must be an object');
  const settings=structuredClone(options),maxPairs=settings.maxPairs??Infinity;

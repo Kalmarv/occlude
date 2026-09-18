@@ -56,7 +56,9 @@ export function warp(m: Material, opts: WarpOpts): Material {
   const a = corners(opts?.from, 'from');
   const b = corners(opts?.to, 'to');
   if (a.length !== b.length) throw new Error(`warp: the cage has ${a.length} corners and the moved cage ${b.length} — they must match, corner for corner`);
-  if (a.length < 3) throw new Error(`warp: a cage needs at least three corners (got ${a.length})`);
+  // A cage of fewer than three corners encloses nothing and bends nothing:
+  // the material comes through as it is.
+  if (a.length < 3) return src;
   const n = a.length;
 
   const x = new Float64Array(src.n);

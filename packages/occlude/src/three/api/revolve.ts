@@ -1,6 +1,7 @@
 import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV} from '../geometry/coordinates.js';
 import {surface3,assembleSurface3,type Attributes3,type SurfacePoint3,type SurfaceFace3} from '../geometry/surface.js';
-import {Mesh,CurveGeometry,type EdgeAttributes,type GeometryOptions} from './mesh.js';
+import {Mesh,CurveGeometry,emptyMesh,type EdgeAttributes,type GeometryOptions} from './mesh.js';
+import {emptyCount,emptySize} from '../degenerate.js';
 import {curvePath,constructionBudget,constructionCapBudget,type ConstructionBudget} from './curveTopology.js';
 import type {Vec3} from '../math.js';
 export interface RevolveOptions extends GeometryOptions,ConstructionBudget {
@@ -15,8 +16,11 @@ export interface RevolveOptions extends GeometryOptions,ConstructionBudget {
 export function revolve<P extends Attributes3,E extends EdgeAttributes>(profile:CurveGeometry<P,E>,options:RevolveOptions={}):Mesh<P,{},Partial<E>&Attributes3,SurfaceUV> {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('revolve options must be an object');
   const path=curvePath(profile),angle=options.angle??360,n=options.segments??32,full=Math.abs(angle)===360;
-  if(!Number.isFinite(angle)||angle===0||Math.abs(angle)>360)throw new Error('revolve angle must be nonzero and within -360 to 360 degrees');
-  if(!Number.isSafeInteger(n)||n<1||Math.abs(angle)/n>=180)throw new Error('revolve needs integer segments with each angular step smaller than 180 degrees');
+  if(!Number.isFinite(angle)||Math.abs(angle)>360)throw new Error('revolve angle must be within -360 to 360 degrees');
+  // No profile, no turn and no segments each revolve nothing. The angular step
+  // is a construction constraint, not a magnitude, and still throws.
+  if(!path.edges.length||emptySize(Math.abs(angle))||emptyCount(n,1,'revolve segments'))return emptyMesh(options);
+  if(Math.abs(angle)/n>=180)throw new Error('revolve needs an angular step smaller than 180 degrees');
   if(options.caps!==undefined&&typeof options.caps!=='boolean')throw new Error('revolve caps must be boolean');
   const caps=options.caps===true&&!full;
   if(caps&&!path.closed)throw new Error('revolve angular caps require a closed profile');
@@ -24,7 +28,8 @@ export function revolve<P extends Attributes3,E extends EdgeAttributes>(profile:
   if(source.points.some(p=>p.position[0]<0||Math.abs(p.position[1])>extent*1e-10))throw new Error('revolve profile must lie in the XZ meridian with x >= 0');
   const axis=(i:number)=>source.points[i].position[0]===0&&source.points[i].position[1]===0;
   const usedEdges=path.edges.filter(i=>!source.edges[i].vertices.every(axis)),edgeSet=new Set(usedEdges);
-  if(!usedEdges.length)throw new Error('revolve profile lies entirely on the axis');
+  // A profile lying on the axis sweeps no surface: an empty mesh, not a fault.
+  if(!usedEdges.length)return emptyMesh(options);
   const used=new Set(usedEdges.flatMap(i=>source.edges[i].vertices));
   for(let i=0;i<path.points.length;i++){
     const p=path.points[i];if(!axis(p))continue;

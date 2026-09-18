@@ -70,7 +70,7 @@ describe('CPU surface evaluation reference',()=>{
     const plain=box(1).cornerAttributes({label:'x'}).surface,stripped={...plain,faces:plain.faces.map(f=>({...f,corners:f.corners!.map(c=>({...c,attributes:{label:'x'}}))}))};
     const packed=packSurfaceTarget3({surface:stripped});expect(packed.uv).toBeUndefined();
     const recipe:ImageRecipe3={kind:'image',name:'c',pixels:checkerboard(2,2),channel:'lum',origin:'bottom-left',wrap:'clamp',area:0,uvAttribute:'uv'};
-    expect(()=>evaluateSurfaceCpu3({surface:stripped},{triangle:new Uint32Array([0]),weights:new Float32Array([1,0,0])},recipe)).toThrow('finite corner pairs');
+    expect(evaluateSurfaceCpu3({surface:stripped},{triangle:new Uint32Array([0]),weights:new Float32Array([1,0,0])},recipe).tone![0]).toBe(0);
   });
   it('reports only decisions within the shared quantum as ambiguous',()=>{
     const tone=new Float32Array([0.5,0.5+TONE_QUANTUM/2,0.5-TONE_QUANTUM*2,0.25]),thresholds=new Float32Array([0.5,0.5,0.5,0.9]);

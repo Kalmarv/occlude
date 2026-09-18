@@ -427,7 +427,10 @@ describe('material: material beyond one chain', () => {
     const paired = connect.pairs(a, b);
     expect(paired.n).toBe(4);
     expect(paired.isConnected(0, 2)).toBe(true);
-    expect(() => connect.pairs(a, material([[0, 0]]))).toThrow(/lengths must match/);
+    // A row with no partner is carried through as a point, not an error.
+    const short = connect.pairs(a, material([[0, 0]]));
+    expect(short.n).toBe(3);
+    expect(short.edgeCount).toBe(1);
     // triangulate: edges of the Delaunay triangles, accessible as connectivity
     const tri = connect.triangulate(sq);
     expect(tri.edgeCount).toBe(5);
@@ -445,7 +448,10 @@ describe('material: material beyond one chain', () => {
     expect(cs.filter((c) => c.closed)).toHaveLength(1);
     expect(cs.filter((c) => c.closed)[0].indices).toEqual([4, 5, 6]);
     expect(cs.filter((c) => !c.closed).every((c) => c.indices.includes(1))).toBe(true); // all three arms meet at the junction
-    expect(() => y.contour).toThrow(/use curves\(\)/);
+    // Several chains have no single contour, so the longest of them by arc
+    // length stands in — the triangle here, not one of the Y's arms.
+    expect(y.contour.indices).toEqual([4, 5, 6]);
+    expect(y.contour.closed).toBe(true);
   });
 
   it('collection edits: move/set with where read the frozen state; moves add; last set wins', () => {
@@ -601,13 +607,29 @@ describe('material: material beyond one chain', () => {
     expect(isStations(both.pts)).toBe(false);
   });
 
+  it('a setting outside its range clamps instead of refusing', () => {
+    // One policy, wherever a setting has a range: the nearest value in it.
+    // Wrong types and missing options are still mistakes.
+    const pts = material([[0, 0], [10, 0], [5, 8], [14, 7]]);
+    expect(Array.from(connect.unimpeded(pts, { room: 0.25 }).edgeList))
+      .toEqual(Array.from(connect.unimpeded(pts, { room: 1 }).edgeList));
+    expect(banding({ min: 0, max: 10, count: 0 })(7)).toBe(0);
+    const line = curve([[0, 0], [10, 0]], { closed: false });
+    expect(line.steps(1, (cur, n) => n.split(cur.edge(0), { at: 9 })).n).toBe(line.n);
+    expect(line.steps(1, (cur, n) => n.split(cur.edge(0), { at: -9 })).n).toBe(line.n);
+    expect(() => connect.unimpeded(pts, { room: 'wide' as never })).toThrow(/must be a number/);
+    expect(() => banding({ min: 0, max: 10, count: 1.5 })).toThrow(/positive integer/);
+  });
+
   it('extent and banding', () => {
     expect(extent([3, -1, 7])).toEqual([-1, 7]);
     expect(extent([])).toEqual([0, 0]);
     const band = banding({ min: 0, max: 10, count: 4 });
     expect([-5, 0, 2.4, 2.5, 9.9, 10, 99].map(band)).toEqual([0, 0, 0, 1, 3, 3, 3]);
     expect(banding({ min: 5, max: 5, count: 3 })(5)).toBe(0);
-    expect(() => banding({ min: 0, max: 1, count: 0 })).toThrow(/positive integer/);
+    // No bands to sort into puts everything in band 0, like a constant range.
+    expect(banding({ min: 0, max: 1, count: 0 })(0.7)).toBe(0);
+    expect(() => banding({ min: 0, max: 1, count: 2.5 })).toThrow(/positive integer/);
   });
 
   it('segmentRuns on a branched material: runs end at junctions and cover each edge once', () => {
@@ -639,7 +661,9 @@ describe('boundaries (review 2026-09-07)', () => {
     const out = c.steps(1, (_, n) => { n.connect(0, 1); n.connect(1, 0); n.connect(0, 1); });
     expect(out.edgeCount).toBe(2);
     expect(tension(out, { rest: 1 })(out.vertex(0))).toEqual(pullBefore);
-    expect(() => c.steps(1, (_, n) => n.connect(1, 1))).toThrow(/joins a vertex to itself/);
+    // A link whose ends are one vertex is no edge: dropped, like a pair
+    // that is already there.
+    expect(c.steps(1, (_, n) => n.connect(1, 1)).edgeCount).toBe(2);
   });
 
   it('2. a handle is owned by its batch: one saved from an earlier step is refused', () => {
@@ -655,9 +679,12 @@ describe('boundaries (review 2026-09-07)', () => {
     const even = line.resample({ spacing: 2 });
     expect(even.n).toBe(6);
     expect(even.pts.map(([x]) => x)).toEqual([0, 2, 4, 6, 8, 10]);
-    expect(() => line.resample({ count: 1 })).toThrow(/at least 2/);
-    expect(() => line.resample({ spacing: 0 })).toThrow(/positive/);
-    expect(() => line.resample({ spacing: -1 })).toThrow(/positive/);
+    // Nothing to place — fewer than two samples, or a spacing with no length
+    // in it — builds nothing; a fractional count is still a mistake.
+    expect(line.resample({ count: 1 }).n).toBe(0);
+    expect(line.resample({ spacing: 0 }).n).toBe(0);
+    expect(line.resample({ spacing: -1 }).n).toBe(0);
+    expect(() => line.resample({ count: 2.5 })).toThrow(/integer/);
     const mixed = material([[0, 0], [10, 0], [50, 50]], { edges: [[0, 1]], age: [1, 2, 3] });
     const r = mixed.resample({ spacing: 5 });
     expect(r.n).toBe(4); // the isolated point first, then the 3-sample chain
@@ -802,7 +829,9 @@ describe('structural editing (edges brief)', () => {
     const untouched = line.steps(1, (cur, n) => n.split(cur.edge(0), { at: 1, point: { age: 0 } }));
     expect(untouched.n).toBe(line.n);
     expect(Array.from(untouched.attrs.age)).toEqual(Array.from(line.attrs.age));
-    expect(() => line.steps(1, (cur, n) => n.split(cur.edge(0), { at: 1.5 }))).toThrow(/within \[0, 1\]/);
+    // A parameter past the end of the edge is read as the end, which creates
+    // nothing, exactly as `at: 1` does.
+    expect(line.steps(1, (cur, n) => n.split(cur.edge(0), { at: 1.5 })).n).toBe(line.n);
     // distinct child-edge definitions on one parent are a conflict; the same one twice is fine
     const same = (p: import('../src/material.js').Edge, c: import('../src/material.js').ChildInterval) => ({ rest: p.attrs.rest * c.fraction });
     expect(() => line.steps(1, (cur, n) => { n.split(cur.edge(0), { at: 0.3, edges: same }); n.split(cur.edge(0), { at: 0.6, edges: same }); })).not.toThrow();

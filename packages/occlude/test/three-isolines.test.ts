@@ -70,8 +70,11 @@ describe('isolines',()=>{
     const sheet=plane(2).subdivide(2).attributes({h:p=>p.x});
     expect(new Set(isolines(sheet,'h',{levels:{count:3}}).edges.map(e=>e.level))).toEqual(new Set([-.5,0,.5]));
     expect(new Set(isolines(sheet,'h',{levels:{spacing:.4,offset:.1}}).edges.map(e=>e.level)).size).toBe(5);
-    expect(()=>isolines(sheet,'h',{levels:[]})).toThrow();
-    expect(()=>isolines(sheet,'h',{levels:{count:0}})).toThrow();
+    expect(isolines(sheet,'h',{levels:[]}).edges.length).toBe(0);
+    expect(isolines(sheet,'h',{levels:{count:0}}).edges.length).toBe(0);
+    expect(isolines(sheet,'h',{levels:{spacing:0}}).edges.length).toBe(0);
+    // One unusable level leaves the others alone.
+    expect(new Set(isolines(sheet,'h',{levels:[0,Number.NaN,.5]}).edges.map(e=>e.level))).toEqual(new Set([0,.5]));
     expect(()=>isolines(sheet,'missing',{levels:[0]})).toThrow('missing');
   });
   it('enforces budgets and validates inputs',()=>{

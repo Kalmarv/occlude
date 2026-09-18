@@ -80,8 +80,11 @@ describe('connect.unimpeded', () => {
       .toEqual(Array.from(connect.unimpeded(pts, { room: 1.6 }).edgeList));
     // Rows are untouched: the lattice is in the edges.
     expect(Array.from(connect.unimpeded(pts, {}).x)).toEqual(Array.from(pts.x));
-    expect(() => connect.unimpeded(pts, { room: 0.5 })).toThrow(/must be at least 1/);
-    expect(() => connect.unimpeded(pts, { room: () => 0.4 })).toThrow(/must be at least 1 everywhere/);
+    // Below 1 the region between two rows is not a lune, so a smaller room
+    // is read as 1 — the Gabriel graph — instead of stopping the drawing.
+    const gabriel = Array.from(connect.unimpeded(pts, { room: 1 }).edgeList);
+    expect(Array.from(connect.unimpeded(pts, { room: 0.5 }).edgeList)).toEqual(gabriel);
+    expect(Array.from(connect.unimpeded(pts, { room: () => 0.4 }).edgeList)).toEqual(gabriel);
     expect(() => connect.unimpeded(pts, { room: 'wide' as never })).toThrow(/must be a number, or a field/);
     // A field of room: tight on the left, loose on the right, so the lattice
     // is denser on the left than a single value could make it everywhere.
@@ -92,7 +95,8 @@ describe('connect.unimpeded', () => {
       return n;
     };
     expect(leftOf(graded, (x) => x < 100)).toBeGreaterThan(leftOf(graded, (x) => x >= 100));
-    expect(() => connect.unimpeded(pts, { room: 0 })).toThrow(/must be at least 1/);
+    expect(Array.from(connect.unimpeded(pts, { room: 0 }).edgeList))
+      .toEqual(Array.from(connect.unimpeded(pts, { room: 1 }).edgeList));
     // Too few rows to join is not an error.
     expect(connect.unimpeded(material([]), {}).edgeCount).toBe(0);
     expect(connect.unimpeded(material([[1, 1]]), {}).edgeCount).toBe(0);

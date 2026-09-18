@@ -50,7 +50,7 @@ describe('mesh curvature estimation',()=>{
   });
   it('caches per surface and validates options',()=>{
     const s=sphere(1).surface;expect(estimateCurvature3(s)).toBe(estimateCurvature3(s));expect(estimateCurvature3(s,{smoothing:0})).not.toBe(estimateCurvature3(s));
-    expect(()=>estimateCurvature3(s,{smoothing:-1})).toThrow('smoothing');expect(()=>estimateCurvature3(s,{creaseDegrees:200})).toThrow('creaseDegrees');
+    expect(()=>estimateCurvature3(s,{smoothing:-1})).toThrow('smoothing');expect(estimateCurvature3(s,{creaseDegrees:200})).toBe(estimateCurvature3(s,{creaseDegrees:180}));
     expect(()=>curvatureAt3(estimateCurvature3(s),9999,[1,0,0])).toThrow('triangle');
   });
 });

@@ -40,7 +40,8 @@ describe('procedural surface construction',()=>{
     const s=box3([2,2,2]),out=transformSurface3(s,{scale:[-2,3,4],rotate:[30,20,10],translate:[4,5,6]});
     expect(volume(out)).toBeCloseTo(8*24,9);expect(out.faces.map(f=>f.id)).toEqual(s.faces.map(f=>f.id));
     const translated=transformSurface3(s,{translate:[1,2,3]});expect(translated.points[0].position).toEqual([0,1,2]);
-    expect(()=>transformSurface3(s,{scale:[0,1,1]})).toThrow(/nonsingular/);
+    // A singular scale flattens the surface rather than failing.
+    expect(transformSurface3(s,{scale:[0,1,1]}).points.every(p=>p.position[0]===0)).toBe(true);
   });
   it('captures frozen inputs, commits in order, bounds history and rejects old selections',()=>{
     const s=grid3(1,1),old=new FaceSelection3(s);const seen:number[]=[];
@@ -49,7 +50,9 @@ describe('procedural surface construction',()=>{
   });
   it('rejects coincident adjacent walls and nonfinite callback output',()=>{
     const s=grid3(2,1);expect(()=>extrudeFaces3(s,new FaceSelection3(s),1,{operation:'bad'})).toThrow(/nonadjacent/);
-    expect(()=>extrudeFaces3(s,new FaceSelection3(s,[0]),()=>NaN,{operation:'bad'})).toThrow(/finite/);
-    expect(()=>grid3(0,1)).toThrow();expect(()=>new FaceSelection3(s,[99])).toThrow();
+    // A distance the callback could not answer skips that face, like zero.
+    expect(extrudeFaces3(s,new FaceSelection3(s,[0]),()=>NaN,{operation:'bad'}).faces.length).toBe(s.faces.length);
+    expect(grid3(0,1).faces.length).toBe(0);expect(grid3(1,1,[0,1]).faces.length).toBe(0);
+    expect(()=>new FaceSelection3(s,[99])).toThrow();
   });
 });

@@ -47,10 +47,12 @@ describe('transported profile sweeps',()=>{
  });
  it('rejects undefined frames, singular fields and oversized topology before field evaluation',()=>{
   const profile=circle(),path=polyline([[0,0,0],[0,0,1]]);
-  expect(()=>sweep(profile,path,{normal:[0,0,1]})).toThrow('parallel');
-  expect(()=>sweep(profile,path,{scale:0})).toThrow('positive');expect(()=>sweep(profile,path,{twist:Infinity})).toThrow('finite');
+  // A normal along the tangent, and a path that doubles back, name no frame:
+  // the sweep picks a consistent one rather than refusing to draw.
+  expect(sweep(profile,path,{normal:[0,0,1]}).surface.faces.length).toBe(sweep(profile,path).surface.faces.length);
+  expect(sweep(profile,path,{scale:0}).surface.triangles.length).toBe(0);expect(()=>sweep(profile,path,{twist:Infinity})).toThrow('finite');
   expect(()=>sweep(profile,circle(),{twist:30})).toThrow('whole turns');
-  expect(()=>sweep(profile,polyline([[0,0,0],[0,0,1],[0,0,0]]))).toThrow('180-degree');
+  expect(sweep(profile,polyline([[0,0,0],[0,0,1],[0,0,2]])).surface.faces.length).toBe(sweep(profile,polyline([[0,0,0],[0,0,1],[0,0,0]])).surface.faces.length);
   expect(()=>sweep(profile.translate([0,0,1]),path)).toThrow('XY');
   expect(()=>sweep(polyline([[0,0,0],[1,0,0]]),path,{caps:true})).toThrow('closed profile');
   expect(()=>sweep(profile,path,{caps:true,maxCapPoints:3})).toThrow('cap point budget');

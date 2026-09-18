@@ -2,7 +2,9 @@ import type {Vec3} from '../math.js';
 export type WorldBounds3=readonly [number,number,number,number,number,number];
 interface Node {readonly bounds:WorldBounds3;readonly left?:Node;readonly right?:Node;readonly indices?:readonly number[]}
 export function worldBounds3(points:readonly Vec3[]):WorldBounds3 {
- if(!points.length)throw new Error('world bounds require points');
+ // Empty geometry has empty bounds: a box that contains and overlaps nothing.
+ // Reachable since a degenerate construction returns an empty surface.
+ if(!points.length)return Object.freeze([Infinity,Infinity,Infinity,-Infinity,-Infinity,-Infinity]) as unknown as WorldBounds3;
  const b=[Infinity,Infinity,Infinity,-Infinity,-Infinity,-Infinity];
  for(const p of points)for(let k=0;k<3;k++){if(!Number.isFinite(p[k]))throw new Error('world bounds require finite coordinates');b[k]=Math.min(b[k],p[k]);b[k+3]=Math.max(b[k+3],p[k]);}
  return Object.freeze(b) as unknown as WorldBounds3;

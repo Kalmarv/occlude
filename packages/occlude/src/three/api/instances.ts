@@ -32,8 +32,9 @@ function key(value?:string):string|undefined{if(value!==undefined&&(typeof value
 function vector(value:Vec3):Vec3{finite3(value);return Object.freeze([...value]) as Vec3;}
 function transform(input:InstanceTransformInput):InstanceTransform {
   if(!input||typeof input!=='object'||Array.isArray(input))throw new Error('instance transform must be an object');
+  // A zero scale collapses that instance to nothing to draw, the same way a
+  // zero size makes an empty mesh. It is not a fault in the placement.
   const s=input.scale??1,scale=vector(typeof s==='number'?[s,s,s]:s);
-  if(scale.some(v=>v===0))throw new Error('instance scale must be nonsingular');
   return Object.freeze({translate:vector(input.translate??[0,0,0]),rotate:Array.isArray(input.rotate??[0,0,0])?vector((input.rotate??[0,0,0]) as Vec3):rotation3(input.rotate!),scale});
 }
 function ownAttributes<A extends Attributes3>(attributes:A):Readonly<A>{

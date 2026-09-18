@@ -114,10 +114,14 @@ export function polygonUnion(
       }
     }
     const path = hull(pts);
-    if (path.length < 3)
-      throw new Error('thicken: coordinates cannot represent a positive-radius boundary');
+    // A mark too small for the polygon grid to hold has no boundary to
+    // union in: it is left out and the rest of the material still thickens.
+    if (path.length < 3) continue;
     paths.push(path);
   }
+  // Every mark was too small for the grid to hold: there is no boundary to
+  // union, which is an empty result rather than a failed one.
+  if (paths.length === 0) return [];
   const clipper = new ClipperLib.Clipper();
   clipper.StrictlySimple = true;
   clipper.PreserveCollinear = provenance;

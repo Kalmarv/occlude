@@ -101,7 +101,7 @@ describe('physical surface hatch',()=>{
     const curves=result.features.filter(r=>select(r.feature));expect(curves.some(r=>r.hidden.length)).toBe(true);
     expect(curves.every(r=>r.feature.faceAttributes[0].density===10)).toBe(true);
     expect(()=>lineArt3({camera,objects:[{id:'stale',surface:source,hatch}],lineSets:[]})).toThrow('different captured surface');
-    expect(()=>hatch3(source,[{id:'bad',spacing:mm(0),angle:0}])).toThrow('positive');
+    expect(hatch3(source,[{id:'bad',spacing:mm(0),angle:0}]).families[0].length).toBe(0);
     expect(()=>classify(hatch3(source,[{id:'too-many',spacing:mm(.001),angle:0}],{maxSegments:10}))).toThrow('capacity');
   });
 });

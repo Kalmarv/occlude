@@ -3,9 +3,13 @@ import {sealAssembledTopology3,shareTopology3,topology3} from './topology.js';
 import { groupRows } from '../../groupRows.js';
 import { add3,cross3,finite3,mul3,sub3,unit3,type Vec3 } from '../math.js';
 import { assembleSurface3,surface3,type Surface3,type SurfaceFace3,type SurfacePoint3,type SurfaceTriangle3,type Attributes3 } from './surface.js';
+import {emptyCount,emptySize,sampleValue} from '../degenerate.js';
 
 export function grid3(columns:number,rows:number,size:readonly[number,number]=[1,1]):Surface3 {
-  if(!Number.isSafeInteger(columns)||!Number.isSafeInteger(rows)||columns<1||rows<1||columns*rows>1_000_000||size.some(n=>!Number.isFinite(n)||n<=0))throw new Error('grid needs positive cell counts and dimensions (at most one million faces)');
+  // No cells or no extent is nothing to draw, not a fault; the face cap is a
+  // real budget and still throws.
+  if(emptyCount(columns,1,'grid columns')||emptyCount(rows,1,'grid rows')||emptySize(...size))return surface3([],[]);
+  if(columns*rows>1_000_000)throw new Error('grid needs positive cell counts and dimensions (at most one million faces)');
   const positions:Vec3[]=[],faces:number[][]=[];
   for(let y=0;y<=rows;y++)for(let x=0;x<=columns;x++)positions.push([(x/columns-.5)*size[0],(y/rows-.5)*size[1],0]);
   for(let y=0;y<rows;y++)for(let x=0;x<columns;x++){const p=y*(columns+1)+x;faces.push([p,p+1,p+columns+2,p+columns+1]);}
@@ -23,7 +27,12 @@ export function faceGeometry3(surface:Surface3):FaceGeometry3 {
   if(captured){const hit=faceGeometries.get(surface.points)?.get(surface.triangles);if(hit)return hit;}
   const normals=surface.faces.map(()=>[0,0,0] as Vec3),centers=surface.faces.map(()=>[0,0,0] as Vec3),areas=surface.faces.map(()=>0);
   for(const t of surface.triangles){const [a,b,c]=t.vertices.map(v=>surface.points[v].position),n=cross3(sub3(b,a),sub3(c,a)),area=Math.hypot(...n)/2;normals[t.face]=add3(normals[t.face],n);areas[t.face]+=area;centers[t.face]=add3(centers[t.face],mul3(add3(add3(a,b),c),area/3));}
-  const result:FaceGeometry3=Object.freeze({normals:Object.freeze(normals.map(n=>Object.freeze(unit3(n)))),centers:Object.freeze(centers.map((c,i)=>Object.freeze(mul3(c,1/areas[i])))),areas:Object.freeze(areas)});
+  // A face with no represented triangles (a degenerate polygon) has no normal:
+  // zero, the same "no direction here" the tracer already reads, and the mean
+  // of its own vertices for a center.
+  const polygonCenter=(i:number):Vec3=>{const vs=surface.faces[i].vertices;return vs.length?mul3(vs.reduce((sum,v)=>add3(sum,surface.points[v].position),[0,0,0] as Vec3),1/vs.length):[0,0,0];};
+  const finiteLength=(n:Vec3)=>{const l=Math.hypot(...n);return l>0&&Number.isFinite(l)?l:0;};
+  const result:FaceGeometry3=Object.freeze({normals:Object.freeze(normals.map(n=>Object.freeze(finiteLength(n)?unit3(n):[0,0,0] as Vec3))),centers:Object.freeze(centers.map((c,i)=>Object.freeze(areas[i]>0?mul3(c,1/areas[i]):polygonCenter(i)))),areas:Object.freeze(areas)});
   if(captured){let byTriangles=faceGeometries.get(surface.points);if(!byTriangles){byTriangles=new WeakMap();faceGeometries.set(surface.points,byTriangles);}byTriangles.set(surface.triangles,result);}
   return result;
 }
@@ -57,7 +66,7 @@ export function extrudeFaces3(surface:Surface3,selection:FaceSelection3,distance
   if(!options.operation)throw new Error('extrusion requires a stable operation ID');
   surface=snapshotSurface3(surface);
   const measures=measureFaces3(surface),distances=new Map<number,number>();
-  for(const i of selection.indices){const d=typeof distance==='function'?distance(measures[i]):distance;if(!Number.isFinite(d))throw new Error('extrusion distance must be finite');if(d!==0)distances.set(i,d);}
+  for(const i of selection.indices){const d=sampleValue(typeof distance==='function'?distance(measures[i]):distance,0);if(d!==0)distances.set(i,d);}
   for(const e of surface.edges)if(e.faces.filter(f=>distances.has(f)).length>1)throw new Error('independent extrusion requires nonadjacent selected faces; select a separated set per pass');
   const points=surface.points.map(p=>({...p,position:[...p.position] as Vec3,attributes:structuredClone(p.attributes)})),faces:SurfaceFace3[]=[],triangles:SurfaceTriangle3[]=[];
   const capPoints=new Map<number,Map<number,number>>(),parents=new Map<number,number>();
@@ -91,7 +100,7 @@ export function transformPosition3(position:Vec3,options:Parameters<typeof trans
 /** Affine modeling edit with an explicit pivot and Euler or rotation values.
  * Negative determinant reverses polygon and triangle winding consistently. */
 export function transformSurface3(surface:Surface3,options:{translate?:Vec3;rotate?:RotationInput;scale?:Vec3;origin?:Vec3}):Surface3 {
-  const translate=options.translate??[0,0,0],rotate=options.rotate??[0,0,0],scale=options.scale??[1,1,1],origin=options.origin??[0,0,0];[translate,scale,origin].forEach(finite3);rotation3(rotate);if(scale.some(v=>v===0))throw new Error('surface scale must be nonsingular');
+  const translate=options.translate??[0,0,0],rotate=options.rotate??[0,0,0],scale=options.scale??[1,1,1],origin=options.origin??[0,0,0];[translate,scale,origin].forEach(finite3);rotation3(rotate);
   const settings={translate,rotate,scale,origin};
   const points=surface.points.map(p=>({...p,position:transformPosition3(p.position,settings)}));
   const mirrored=scale.filter(n=>n<0).length%2===1;

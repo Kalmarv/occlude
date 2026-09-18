@@ -18,7 +18,7 @@
  * A mask is opaque with zero ink — the primitive of hidden-line rendering.
  */
 
-import { positiveLength } from './guard.js';
+import { usableLength } from './guard.js';
 import { mm, type L } from './units.js';
 import { liveExampleToJs } from './docsExamples.js';
 import type { CustomFillFn, FillAssetDef } from './fillModule.js';
@@ -214,11 +214,14 @@ function occludeModule(): Record<string, unknown> {
   return occludeExports;
 }
 
-/** Validate the L-typed params a fill use may carry (mid-edit transients). */
-export function validateFillParams(name: string, params: Record<string, unknown>): void {
+/** Can this fill use draw? Its L-typed params must be usable lengths: a
+ * spacing or minDist at or below zero (a mid-edit transient) makes no ink,
+ * and the region is left opaque with none. */
+export function fillParamsUsable(params: Record<string, unknown>): boolean {
   for (const key of ['spacing', 'minDist'] as const) {
-    if (key in params) positiveLength(name, params[key] as L | undefined);
+    if (key in params && !usableLength(params[key] as L | undefined)) return false;
   }
+  return true;
 }
 
 /** Default hatch spacing for a pen: 3× nib width, in mm. */

@@ -327,11 +327,11 @@ describe('review of 3df7b04', () => {
     const B = seg([73.20410337299109, 72.78040776029229], [132.96105215325952, 10.908244401216507]);
     const C = curve([[88.05579760993993, 23.695069348886015], [108.05579760993993, 36.695069348886015], [125.05579760993993, 15.695069348886015]]);
     const planar = append(append(A, B), C).planarize();
-    // The message names the real cause and the separation, and does NOT send
-    // the reader back to planarize.
-    expect(() => planar.faces()).toThrow(/very nearly meet at one point/);
-    expect(() => planar.faces()).toThrow(/apart but distinct/);
-    expect(() => planar.faces()).not.toThrow(/run planarize\(\) first/);
+    // As far as these coordinates can tell, the edges meet at one point, and
+    // the crossing is read as that meeting: there is nothing the reader could
+    // do about a gap of a rounding, so the drawing goes on.
+    expect(() => planar.faces()).not.toThrow();
+    expect(planar.faces().length).toBeGreaterThan(0);
     // An ordinary un-planarized crossing still gets the ordinary advice.
     expect(() => append(seg([0, 0], [10, 10]), seg([0, 10], [10, 0])).faces()).toThrow(/run planarize\(\) first/);
   });

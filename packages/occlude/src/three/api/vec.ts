@@ -1,5 +1,6 @@
 import {add3,sub3,mul3,dot3,cross3,lerp3,unit3,type Vec3} from '../math.js';
 import type {Vector3} from '../rotation.js';
+import {emptySize} from '../degenerate.js';
 import {vector3} from '../rotation.js';
 const v=(p:Vector3):Vec3=>vector3(p);
 /** Small vector vocabulary for fields and placements: triples or `{x, y, z}` rows in, fresh triples out. */
@@ -17,7 +18,8 @@ export const v3={
 };
 /** 1 at `center`, 0 at `radius` and beyond, linear or eased in between. */
 export function falloff(point:Vector3,options:{center?:Vector3;radius:number;ease?:(t:number)=>number}):number {
-  const {radius}=options;if(!(radius>0)||!Number.isFinite(radius))throw new Error('falloff radius must be positive and finite');
-  const t=Math.max(0,1-v3.distance(point,options.center??[0,0,0])/radius);
+  // No radius is no reach: the falloff is zero everywhere rather than failing.
+  const {radius}=options;
+  const t=emptySize(radius)?0:Math.max(0,1-v3.distance(point,options.center??[0,0,0])/radius);
   return options.ease?options.ease(t):t;
 }

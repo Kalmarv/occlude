@@ -44,7 +44,7 @@ export type Shaper = ((v: number) => number) & {
 };
 
 export function shaper(points: readonly ShaperPoint[], opts: ShaperOpts = {}): Shaper {
-  if (!Array.isArray(points) || points.length < 2) {
+  if (!Array.isArray(points)) {
     throw new Error('shaper: at least two [x, y] points');
   }
   for (const p of points) {
@@ -61,33 +61,51 @@ export function shaper(points: readonly ShaperPoint[], opts: ShaperOpts = {}): S
     if (sorted[i][0] <= sorted[i - 1][0]) sorted[i][0] = Math.min(1, sorted[i - 1][0] + 1e-6);
   }
   const method = opts.method ?? 'akima';
-  const interp = createInterpolatorWithFallback(
-    method as InterpolationMethod,
-    sorted.map((p) => p[0]),
-    sorted.map((p) => p[1]),
-  );
-  let x0 = sorted[0][0];
-  let x1 = sorted[sorted.length - 1][0];
+  // Fewer than two knots is a curve still being drawn, not a mistake: one
+  // knot holds its own value everywhere, none passes its input through. The
+  // editor's first click must not blank the sketch.
+  const interp = sorted.length > 1
+    ? createInterpolatorWithFallback(
+      method as InterpolationMethod,
+      sorted.map((p) => p[0]),
+      sorted.map((p) => p[1]),
+    )
+    : sorted.length === 1
+      ? () => sorted[0][1]
+      : (v: number) => v;
+  let x0 = sorted.length ? sorted[0][0] : 0;
+  let x1 = sorted.length ? sorted[sorted.length - 1][0] : 1;
   let lo = Infinity;
   let hi = -Infinity;
   for (const [, y] of sorted) {
     lo = Math.min(lo, y);
     hi = Math.max(hi, y);
   }
+  if (!sorted.length) {
+    lo = 0;
+    hi = 1;
+  }
   if (opts.bounds) {
     const [[bx0, by0], [bx1, by1]] = opts.bounds;
-    if (![bx0, by0, bx1, by1].every(Number.isFinite) || bx1 <= bx0 || by1 <= by0) {
+    if (![bx0, by0, bx1, by1].every(Number.isFinite)) {
       throw new Error('shaper: bounds are [[x0, y0], [x1, y1]] with x1 > x0 and y1 > y0');
     }
-    x0 = bx0;
-    x1 = bx1;
-    lo = by0;
-    hi = by1;
+    // An area with no width or no height says nothing about the curve — a
+    // corner dragged past its opposite, mid-edit — so the knots' own span
+    // stands in for the side that collapsed.
+    if (bx1 > bx0) {
+      x0 = bx0;
+      x1 = bx1;
+    }
+    if (by1 > by0) {
+      lo = by0;
+      hi = by1;
+    }
   }
   // Inputs outside the knots hold the end knots' values (the interpolator
   // is not asked to extrapolate); outputs stay within the range.
-  const kx0 = sorted[0][0];
-  const kx1 = sorted[sorted.length - 1][0];
+  const kx0 = sorted.length ? sorted[0][0] : x0;
+  const kx1 = sorted.length ? sorted[sorted.length - 1][0] : x1;
   const fn = ((v: number): number => {
     if (!Number.isFinite(v)) return NaN;
     const c = v < x0 ? x0 : v > x1 ? x1 : v;

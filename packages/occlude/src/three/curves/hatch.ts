@@ -22,12 +22,15 @@ export interface HatchSource3 {
   readonly families:readonly (readonly HatchFamily3[])[];
   readonly maxSegments:number;
 }
-function validateFamilies3(values:readonly HatchFamily3[]):void {
-  if(new Set(values.map(v=>v.id)).size!==values.length||values.some(v=>!v.id||!Number.isFinite(v.angle)))throw new Error('hatch families need unique IDs per face and finite angles');
-  for(const value of values) {
+/** Families that draw on this face. A missing or repeated ID is a naming
+ * mistake and still throws; a family whose spacing has no length, or whose
+ * angle or offset is not a number, simply draws no lines there. */
+function drawableFamilies3(values:readonly HatchFamily3[]):readonly HatchFamily3[] {
+  if(new Set(values.map(v=>v.id)).size!==values.length||values.some(v=>!v.id))throw new Error('hatch families need unique IDs per face and finite angles');
+  return values.filter(value=>{
     const spacing=resolveLen(value.spacing,{innerW:100,innerH:100}),offset=resolveLen(value.offset??0,{innerW:100,innerH:100});
-    if(!Number.isFinite(spacing)||spacing<=0||!Number.isFinite(offset))throw new Error('hatch spacing must be positive and finite, with a finite offset');
-  }
+    return Number.isFinite(value.angle)&&Number.isFinite(spacing)&&spacing>0&&Number.isFinite(offset);
+  });
 }
 /** Capture per-face drawing intent now; generate at the resolved camera/paper.
  * A second family is crosshatch. Callbacks run once against frozen model rows. */
@@ -35,8 +38,7 @@ export function hatch3(input:Surface3,families:readonly HatchFamily3[]|((face:Fa
   const surface=snapshotSurface3(input),maxSegments=options.maxSegments??Infinity;
   if(!(maxSegments===Infinity||Number.isSafeInteger(maxSegments))||maxSegments<1)throw new Error('hatch maxSegments must be a positive integer or Infinity');
   const rows=measureFaces3(surface).map(face=>{
-    const values=typeof families==='function'?families(Object.freeze({...face,attributes:freezeCurves3(face.attributes)})):families;
-    validateFamilies3(values);
+    const values=drawableFamilies3(typeof families==='function'?families(Object.freeze({...face,attributes:freezeCurves3(face.attributes)})):families);
     return values.map(value=>freezeCurves3(structuredClone(value)));
   });
   return freezeCurves3({surface,families:rows,maxSegments});
@@ -44,7 +46,7 @@ export function hatch3(input:Surface3,families:readonly HatchFamily3[]|((face:Fa
 export function validateHatch3(hatch:HatchSource3,surface:Surface3):void {
   if(hatch.surface!==surface)throw new Error('hatch belongs to a different captured surface; draw hatch.surface or regenerate it');
   if(hatch.families.length!==surface.faces.length||!(hatch.maxSegments===Infinity||Number.isSafeInteger(hatch.maxSegments))||hatch.maxSegments<1)throw new Error('invalid captured hatch families or capacity');
-  hatch.families.forEach(validateFamilies3);
+  hatch.families.forEach(drawableFamilies3);
 }
 const edgeKey=(a:number,b:number)=>a<b?`${a}:${b}`:`${b}:${a}`;
 /** A paper ruling lifts to a plane through the eye (perspective), or a parallel
@@ -141,7 +143,9 @@ export function realizeHatch3(hatch:HatchSource3,world:Surface3,frame:CameraFram
   for(let face=0;face<surface.faces.length;face++)for(const family of hatch.families[face]) {
     const spacing=resolveLen(family.spacing,units),rawPhase=resolveLen(family.offset??0,units);
     const remainder=rawPhase%spacing,phase=remainder<0?remainder+spacing:remainder;
-    if(!Number.isFinite(spacing)||spacing<=0||!Number.isFinite(phase)||!Number.isFinite(family.angle))throw new Error('hatch spacing must resolve to positive finite paper length, with finite angle and offset');
+    // Resolved against the real paper this time: a spacing with no length here
+    // draws no lines on this face, and the other faces keep theirs.
+    if(!Number.isFinite(spacing)||spacing<=0||!Number.isFinite(phase)||!Number.isFinite(family.angle))continue;
     const angle=family.angle%360,key=JSON.stringify([family.id,spacing,phase,angle]);
     let group=groups.get(key);if(!group){group={key,family,spacing,phase,angle,faces:[]};groups.set(key,group);}
     group.faces.push(face);

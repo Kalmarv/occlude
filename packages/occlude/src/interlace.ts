@@ -64,8 +64,10 @@ interface Hit {
 
 export function interlace(m: Material, opts: InterlaceOpts): Material {
   const src = makeMaterial(m);
-  const gap = opts?.gap;
-  if (!(gap >= 0)) throw new Error(`interlace: { gap } must be a non-negative length in the material's own coordinates (got ${String(gap)})`);
+  const asked = opts?.gap;
+  if (typeof asked !== 'number') throw new Error(`interlace: { gap } must be a non-negative length in the material's own coordinates (got ${String(asked)})`);
+  // A gap below zero, or one that is no number at all, cuts nothing away.
+  const gap = asked > 0 ? asked : 0;
   if (opts.over !== undefined && typeof opts.over !== 'function') throw new Error('interlace: { over } must be a function of the crossing');
 
   const chains = src.curves().map((c) => c.pts.map(([x, y]) => [x, y] as [number, number]));

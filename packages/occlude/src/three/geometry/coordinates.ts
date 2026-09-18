@@ -23,16 +23,16 @@ export function arcParameters3(points:readonly Vec3[],closed:boolean):readonly n
     const p=points[i],q=points[(i+1)%points.length];
     distances.push(distances[i]+Math.hypot(q[0]-p[0],q[1]-p[1],q[2]-p[2]));
   }
+  // A path with no length has no parameter to spread: every sample sits at 0.
   const total=distances.at(-1)!;
-  if(!(total>0)||!Number.isFinite(total))throw new Error('surface chart arc length is not representable');
-  return distances.map(d=>d/total);
+  return total>0&&Number.isFinite(total)?distances.map(d=>d/total):distances.map(()=>0);
 }
 
 /** Cap coordinates in the original profile, unaffected by transport or scale. */
 export function profileCoordinates3(points:readonly Vec3[],axes:readonly [number,number]):readonly (readonly [number,number])[] {
   const low=[Infinity,Infinity],high=[-Infinity,-Infinity];
   for(const p of points)for(let k=0;k<2;k++){low[k]=Math.min(low[k],p[axes[k]]);high[k]=Math.max(high[k],p[axes[k]]);}
-  const span=high.map((h,k)=>h-low[k]);
-  if(span.some(s=>!(s>0)||!Number.isFinite(s)))throw new Error('surface cap chart extent is not representable');
-  return points.map(p=>[(p[axes[0]]-low[0])/span[0],(p[axes[1]]-low[1])/span[1]] as const);
+  // A cap with no extent on an axis has no chart to spread across it: 0 there.
+  const span=high.map((h,k)=>h-low[k]),usable=span.map(s=>s>0&&Number.isFinite(s)?1/s:0);
+  return points.map(p=>[(p[axes[0]]-low[0])*usable[0],(p[axes[1]]-low[1])*usable[1]] as const);
 }

@@ -108,11 +108,15 @@ describe('isolines: marching squares core', () => {
     }
   });
 
-  it('guards: zero step and grids past the cap fail loudly', () => {
+  it('guards: a zero step and an absent level draw nothing, the cap fails loudly', () => {
     const field = (): number => 1;
-    expect(() => isolinesOf(env, field, 0, { step: 0 })).toThrow(/positive length/);
+    expect(isolinesOf(env, field, 0, { step: 0 })).toEqual([]);
     expect(() => isolinesOf(env, field, 0, { step: 0.01 })).toThrow(/cap/);
-    expect(() => isolinesOf(env, field, Number.NaN)).toThrow(/level/);
+    expect(isolinesOf(env, field, Number.NaN)).toEqual([]);
+    // One absent level is skipped; the levels beside it still march.
+    const some = isolinesOf(env, (x: number) => x, [Number.NaN, 50]);
+    expect(some[0]).toEqual([]);
+    expect(some[1].length).toBeGreaterThan(0);
   });
 
   it('non-finite field samples count as outside', () => {
@@ -132,11 +136,11 @@ describe('isolines: grid sizing', () => {
     expect(cs.length).toBe(1);
   });
 
-  it('absurd grids still fail fast (memory ceiling, zero step)', () => {
+  it('absurd grids still fail fast (memory ceiling); a zero step draws nothing', () => {
     expect(() =>
       isolinesOf(env, () => 0, 0, { step: 0.02 }),
     ).toThrow(/grid cells/);
-    expect(() => isolinesOf(env, () => 0, 0, { step: 0 })).toThrow();
+    expect(isolinesOf(env, () => 0, 0, { step: 0 })).toEqual([]);
   });
 });
 

@@ -84,6 +84,8 @@ describe('shared exact surface constructions',()=>{
   expect(p.modelPosition).toEqual([2.7,.15000000000000002,0]);
   expect(p.position[0]).toBe(1e16+4);expect(p.modelFrame!.du).toEqual([3,0,0]);expect(p.frame!.du).toEqual([4,0,0]);
   const thin=mesh([[0,0,0],[1,1,0],[0,2,0]],[[0,1,2]]);
-  expect(()=>surfaceLocation3(thin.surface,0,[.2,.3,.5],{placement:{id:'collapsed',transform:{translate:[1e16,0,0]}}})).toThrow('degenerate');
+  // A triangle the placement collapses has no direction to report: zero, which
+  // every consumer already reads as "no direction here".
+  expect(surfaceLocation3(thin.surface,0,[.2,.3,.5],{placement:{id:'collapsed',transform:{translate:[1e16,0,0]}}}).normal).toEqual([0,0,0]);
  });
 });

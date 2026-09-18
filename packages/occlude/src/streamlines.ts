@@ -19,7 +19,7 @@
  * processed in queue order.
  */
 
-import { positiveLength } from './guard.js';
+import { usableLength } from './guard.js';
 import type { IsoContour, IsoEnv } from './isolines.js';
 import type { VectorFieldFn } from './shapes.js';
 import { mm, type L } from './units.js';
@@ -117,8 +117,10 @@ function gridNear(g: Grid, x: number, y: number, d: number, skipFrom: number): b
 
 export function streamlinesOf(env: IsoEnv, field: VectorFieldFn, opts: StreamOpts = {}): IsoContour[] {
   const b = env.bounds;
-  positiveLength('streamlines', opts.step);
-  positiveLength('streamlines', opts.minSpacing);
+  // A step, a minimum spacing or a fixed spacing that is not a positive
+  // length leaves nothing to trace.
+  if (!usableLength(opts.step) || !usableLength(opts.minSpacing)) return [];
+  if (typeof opts.spacing !== 'function' && !usableLength(opts.spacing)) return [];
   const floorU = env.len(opts.minSpacing ?? mm(0.3));
   const spacingAt: (x: number, y: number) => number = (() => {
     const s = opts.spacing;
@@ -127,7 +129,6 @@ export function streamlinesOf(env: IsoEnv, field: VectorFieldFn, opts: StreamOpt
       const v = typeof raw === 'number' ? raw : Number.isFinite(raw?.value) ? env.len(raw) : NaN;
       return Number.isFinite(v) ? Math.max(floorU, v) : NaN;
     };
-    positiveLength('streamlines', s);
     const fixed = Math.max(floorU, env.len(s ?? mm(1)));
     return () => fixed;
   })();
@@ -139,7 +140,10 @@ export function streamlinesOf(env: IsoEnv, field: VectorFieldFn, opts: StreamOpt
   const maxSteps = Math.max(2, Math.ceil(maxLenU / stepU));
   const cols = Math.max(1, Math.ceil(b.w / cellU) + 1);
   const rows = Math.max(1, Math.ceil(b.h / cellU) + 1);
-  if (!Number.isFinite(cols * rows) || cols * rows > 1 << 24) {
+  // A separation grid of no finite size has no cells to seed; one too fine
+  // to hold is a resource guard and still names itself.
+  if (!Number.isFinite(cols * rows)) return [];
+  if (cols * rows > 1 << 24) {
     throw new Error(`streamlines: separation grid is ${cols}×${rows} — spacing too small for this drawable`);
   }
   const grid: Grid = {

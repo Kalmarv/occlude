@@ -1,6 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {plane,box,cylinder,sphere,torus,mesh,pointCloud,instanceOnPoints,trace,light,gradient,curvature,across,laneThreshold,view,orthographic,perspective} from '../src/three/api/index.js';
 import {hatchSurface,captureHatch} from '../src/three/api/hatch.js';
+import {directionField} from '../src/three/surface/fields.js';
 import {sampleSurfacePoints} from '../src/three/api/sampling.js';
 import {compileSketchAsync,initOcclude,pen,mm,sketchAsync,assetTable} from '../src/index.js';
 import {image} from '../src/imageAsset.js';
@@ -187,8 +188,12 @@ describe('seeded surface hatch',()=>{
   it('validates options, budgets and cancellation',async()=>{
     expect(()=>captureHatch(sheet(),{direction:[1,0,0]} as never)).toThrow('spacing');
     expect(()=>captureHatch(sheet(),{spacing:.1} as never)).toThrow('direction');
-    expect(()=>captureHatch(sheet(),{direction:[0,0,0],spacing:.1})).toThrow('direction');
-    expect(()=>captureHatch(sheet(),{direction:[1,0,0],spacing:.1,tone:2})).toThrow('tone');
+    // A vector with no direction reports none, so the caller's fallback policy
+    // applies; a spacing or step with no length draws no lines at all.
+    expect(directionField([0,0,0])({} as never)).toBeNull();
+    expect(hatchSurface(sheet(),{direction:[1,0,0],spacing:0,step:.1},stream(1)).curves.edges.length).toBe(0);
+    expect(hatchSurface(sheet(),{direction:[1,0,0],spacing:.1,step:0},stream(1)).curves.edges.length).toBe(0);
+    expect(captureHatch(sheet(),{direction:[1,0,0],spacing:.1,tone:2}).settings.families[0].constantTone).toBe(2);
     expect(()=>hatchSurface(sheet(),{direction:[1,0,0],spacing:.1,step:.1,maxSegments:3},stream(1))).toThrow('segment budget');
     const capped=hatchSurface(sheet(),{direction:[1,0,0],spacing:.05,step:.05,maxTotalSteps:50},stream(1));
     expect(capped.stats.stops.budget).toBeGreaterThan(0);

@@ -41,9 +41,9 @@ describe('explicit stored UV projections',()=>{
     expect(surfaceLocation3(edgeOn.surface,0,[1,0,0]).chartStatus).toBe('regular');
     const flat=planarUV(mesh([[0,0,0],[1,0,0],[1,0,1]],[[0,1,2]]));
     expect(surfaceLocation3(flat.surface,0,[1,0,0]).chartStatus).toBe('degenerate');
-    expect(()=>planarUV(plane(),{u:[1,0,0],v:[2,0,0]})).toThrow('independent');
+    expect(planarUV(plane(),{u:[1,0,0],v:[2,0,0]}).corners.map(c=>c.uv)).toEqual([[0,0],[0,0],[0,0],[0,0]]);
     expect(()=>cylindricalUV(cylinder())).toThrow('separate planar cap chart');
-    expect(()=>cylindricalUV(plane(),{height:0})).toThrow('height');
+    expect(cylindricalUV(plane().translate([5,0,0]),{height:0}).corners.every(c=>c.uv[1]===0)).toBe(true);
     expect(()=>cylindricalUV(plane(),{axis:[0,0,0]})).toThrow();
     expect(()=>cylindricalUV(plane(),{seam:[0,0,1]})).toThrow();
   });

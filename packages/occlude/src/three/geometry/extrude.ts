@@ -25,22 +25,29 @@ const key=(a:number,b:number)=>a<b?`${a}:${b}`:`${b}:${a}`;
 export function extrudeRegion3(surface:Surface3,components:readonly ExtrudeComponent3[],operation='extrude'):Surface3 {
   if(typeof operation!=='string'||!operation)throw new Error('extrusion requires a nonempty key');
   const selected=new Map<number,number>();
-  components.forEach(c=>{
-    finite3(c.vector);
-    if(!c.vector.some(n=>n!==0))throw new Error(`extrusion component ${c.index} has a zero vector; deselect it or translate instead`);
-    for(const f of c.faces){if(!surface.faces[f])throw new Error('extrusion selects a missing face');if(selected.has(f))throw new Error('extrusion components overlap');selected.set(f,c.index);}
-  });
-  if(!selected.size)return surface;
+  // A component with no vector moves nowhere, and a closed shell has no
+  // boundary to raise walls from: drop those and extrude the rest. Dropping one
+  // can only free boundary edges for its neighbours, so the pass repeats until
+  // every surviving component has a boundary.
+  let active=components.filter(c=>{finite3(c.vector);return c.vector.some(n=>n!==0);});
   const topology=topology3(surface),id=(...parts:(string|number)[])=>JSON.stringify(['extrude',operation,...parts]);
   // Boundary edges per component, oriented as the selected face winds them.
-  const boundary=components.map(()=>[] as {edge:number;a:number;b:number;face:number}[]);
-  for(let e=0;e<surface.edges.length;e++){
-    const edge=surface.edges[e],owners=edge.faces.filter(f=>selected.has(f));
-    if(owners.length!==1)continue;
-    const face=surface.faces[owners[0]],vs=face.vertices,i=vs.findIndex((v,j)=>key(v,vs[(j+1)%vs.length])===key(...edge.vertices));
-    boundary[selected.get(owners[0])!].push({edge:e,a:vs[i],b:vs[(i+1)%vs.length],face:owners[0]});
+  let boundary=active.map(()=>[] as {edge:number;a:number;b:number;face:number}[]);
+  for(;;){
+    selected.clear();
+    active.forEach((c,i)=>{for(const f of c.faces){if(!surface.faces[f])throw new Error('extrusion selects a missing face');if(selected.has(f))throw new Error('extrusion components overlap');selected.set(f,i);}});
+    boundary=active.map(()=>[] as {edge:number;a:number;b:number;face:number}[]);
+    for(let e=0;e<surface.edges.length;e++){
+      const edge=surface.edges[e],owners=edge.faces.filter(f=>selected.has(f));
+      if(owners.length!==1)continue;
+      const face=surface.faces[owners[0]],vs=face.vertices,i=vs.findIndex((v,j)=>key(v,vs[(j+1)%vs.length])===key(...edge.vertices));
+      boundary[selected.get(owners[0])!].push({edge:e,a:vs[i],b:vs[(i+1)%vs.length],face:owners[0]});
+    }
+    const keep=active.filter((_,i)=>boundary[i].length);
+    if(keep.length===active.length)break;
+    active=keep;
   }
-  components.forEach((c,i)=>{if(!boundary[i].length)throw new Error(`extrusion component ${c.index} is a closed shell with no boundary; translate it instead of extruding`);});
+  if(!selected.size)return surface;
   const points:SurfacePoint3[]=surface.points.map(p=>({...p,position:[...p.position] as Vec3,attributes:structuredClone(p.attributes)}));
   // A point is interior to one component when every incident face is selected
   // in that component; it moves in place. Otherwise each component using it
@@ -53,7 +60,7 @@ export function extrudeRegion3(surface:Surface3,components:readonly ExtrudeCompo
     if(owners.size===1&&!owners.has(undefined))interior.set(v,[...owners][0]!);
     else if(!owners.has(undefined)&&owners.size>1)throw new Error(`point ${surface.points[v].id} joins extruded regions by vertex only; extrude them separately`);
   }
-  const vectors=new Map(components.map(c=>[c.index,c.vector]));
+  const vectors=new Map(active.map((c,i)=>[i,c.vector]));
   const mapped=(v:number,component:number):number=>{
     if(interior.get(v)===component)return v;
     const k=`${component}:${v}`,found=copies.get(k);if(found!==undefined)return found;
@@ -74,7 +81,7 @@ export function extrudeRegion3(surface:Surface3,components:readonly ExtrudeCompo
   // Walls follow boundary loops so side charts run continuously around them.
   const parentEdge=new Map<string,number>();
   for(const [ci,edges] of boundary.entries()){
-    const component=components[ci],starts=new Map<number,number[]>();
+    const component=active[ci],componentIndex=ci,starts=new Map<number,number[]>();
     edges.forEach((e,i)=>{const list=starts.get(e.a)??[];list.push(i);starts.set(e.a,list);});
     const used=new Set<number>();
     for(let first=0;first<edges.length;first++){
@@ -90,7 +97,7 @@ export function extrudeRegion3(surface:Surface3,components:readonly ExtrudeCompo
       const total=lengths.reduce((a,b)=>a+b,0);let along=0;
       loop.forEach((i,j)=>{
         const e=edges[i],face=surface.faces[e.face],u0=total?along/total:0,u1=j===loop.length-1?1:total?(along+lengths[j])/total:0;along+=lengths[j];
-        const a=e.a,b=e.b,bTop=mapped(b,component.index),aTop=mapped(a,component.index);
+        const a=e.a,b=e.b,bTop=mapped(b,componentIndex),aTop=mapped(a,componentIndex);
         const cornerOf=(v:number):SurfaceCorner3|undefined=>face.corners?.[face.vertices.indexOf(v)];
         const corner=(v:number,local:number,uv:readonly [number,number]):SurfaceCorner3=>{
           const source=cornerOf(v),attributes:Attributes3=structuredClone(source?.attributes??{});

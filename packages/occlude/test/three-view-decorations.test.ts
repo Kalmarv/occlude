@@ -62,6 +62,6 @@ it('transforms captured prototype sections with instances and captures hatch eli
 it('validates keys and physical recipe values before drawing',()=>{
  expect(()=>view(box(),{camera,hatch:[{key:'same',spacing:mm(2)},{key:'same',spacing:mm(3)}]})).toThrow('hatch keys');
  expect(()=>view(box(),{camera,sections:[{key:'',origin:[0,0,0],normal:[0,0,1]}]})).toThrow('section keys');
- expect(()=>view(box(),{camera,hatch:{spacing:()=>mm(0)}})).toThrow('positive');
+ expect(view(box(),{camera,hatch:{spacing:()=>mm(0)}}).scene.objects.every(o=>o.hatch!.families.every(f=>!f.length))).toBe(true);
  expect(()=>view(box(),{camera,sections:[{origin:[0,0,0],normal:[0,0,0]}]})).toThrow();
 });

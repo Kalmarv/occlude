@@ -66,6 +66,7 @@ describe('quadtree', () => {
     expect(() => quadtree(pts, B, { capacity: 0 })).toThrow(/at least 1/);
     expect(() => quadtree(pts, B, { capacity: 1.5 })).toThrow(/whole number/);
     expect(() => quadtree(pts, B, { depth: -1 })).toThrow(/non-negative/);
-    expect(() => quadtree(pts, { x: 0, y: 0, w: 0, h: 10 }, {})).toThrow(/positive width and height/);
+    // A rectangle with no extent has no cell to subdivide.
+    expect(quadtree(pts, { x: 0, y: 0, w: 0, h: 10 }, {}).n).toBe(0);
   });
 });

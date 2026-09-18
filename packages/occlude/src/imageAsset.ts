@@ -277,7 +277,10 @@ export function image(assets: AssetTable | undefined, name: string, place: Image
       const iterations = opts.iterations ?? 3;
       if (!Number.isInteger(iterations) || iterations < 0) throw new Error(`image.flow: iterations must be a non-negative whole number, got ${String(opts.iterations)}`);
       const reach = opts.radius ?? width / 64;
-      if (!(reach > 0)) throw new Error(`image.flow: radius must be a positive length in sketch units, got ${String(opts.radius)}`);
+      // No radius, no neighbourhood to average over: the field has no
+      // opinion anywhere, which is what [0, 0] says here — the same answer
+      // it gives outside the picture.
+      if (!(reach > 0)) return () => [0, 0];
       // The working grid comes from the radius: CELLS_PER_RADIUS cells across
       // it, so the neighbourhood is the same handful of cells whatever the
       // radius, and the cost grows with the grid alone rather than with the
@@ -475,9 +478,11 @@ export function image(assets: AssetTable | undefined, name: string, place: Image
       if (!['lum', 'dark', 'a'].includes(channel)) throw new Error(`image.surface: unknown channel '${String(channel)}' — lum, dark or a`);
       if (origin !== 'bottom-left' && origin !== 'top-left') throw new Error('image.surface: origin must be bottom-left or top-left');
       if (wrap !== 'clamp' && wrap !== 'repeat') throw new Error('image.surface: wrap must be clamp or repeat');
-      if (!Number.isFinite(area) || area < 0 || area > 1) throw new Error('image.surface: area is a chart-unit half-size in [0,1]');
+      if (typeof area !== 'number') throw new Error('image.surface: area is a chart-unit half-size in [0,1]');
+      // A half-size outside the chart is read as the nearest size in it.
+      const span = Number.isFinite(area) ? Math.min(1, Math.max(0, area)) : 0;
       if (typeof uv !== 'string' || !uv) throw new Error('image.surface: uv must name a corner column');
-      const recipe: ImageRecipe3 = Object.freeze({ kind: 'image', name, pixels: prefilterPixels3(px, area * px.width, area * px.height), channel, origin, wrap, area, uvAttribute: uv });
+      const recipe: ImageRecipe3 = Object.freeze({ kind: 'image', name, pixels: prefilterPixels3(px, span * px.width, span * px.height), channel, origin, wrap, area: span, uvAttribute: uv });
       return registerToneRecipe3((s: { readonly uv?: readonly [number, number] }) => {
         if (!s.uv) throw new Error(`image.surface: this surface location has no '${uv}' chart coordinates`);
         return imageValue3(s.uv, recipe);

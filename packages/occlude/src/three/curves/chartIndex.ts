@@ -23,8 +23,8 @@ export function* chartIndexJob3(surface:Surface3,uvName='uv',chartName='chart',s
       if(values.some(uv=>!Array.isArray(uv)||uv.length!==2||!uv.every(Number.isFinite)))throw new Error(`surface mapping requires finite corner pairs in ${uvName}`);
       const uv=values.map(v=>Object.freeze([...(v as readonly number[])])) as unknown as readonly [UV2,UV2,UV2];
       const exact=uv.map(p=>point([p[0],p[1],0])) as unknown as readonly [H,H,H];
-      if(orientPoint(...exact,2)===0n)throw new Error(`surface mapping has a degenerate UV triangle on face ${face.id}`);
-      byTriangle.set(i,rows.length);rows.push({triangle:i,chart:names[0] as string|number,uv,component:-1});
+      // A triangle with no area in UV carries no chart: skip it, map the rest.
+      if(orientPoint(...exact,2)!==0n){byTriangle.set(i,rows.length);rows.push({triangle:i,chart:names[0] as string|number,uv,component:-1});}
     }
     if((i&127)===127)yield;
   }

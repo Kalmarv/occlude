@@ -13,6 +13,7 @@ import {toneRecipe3,decideTone3,type ToneRecipe3} from '../surface/tone.js';
 import {evaluateSurfaceCpu3,type SurfaceEvaluationResult3,type SurfaceEvaluationStats3} from '../surface/evaluate.js';
 import type {SceneCompute3} from '../scene.js';
 import {add3,sub3,mul3,dot3,cross3,type Vec3} from '../math.js';
+import {clampSetting,sampleValue} from '../degenerate.js';
 
 /** One direction family of a hatch. Several families over the same surface
  * are crosshatch; each keeps its identity and may name its own pen. */
@@ -63,8 +64,11 @@ interface Settings {
   readonly maxTraces:number;readonly maxSegments:number;readonly maxTotalSteps:number;readonly creaseDegrees:number;readonly fallback?:DirectionField;
   readonly uv?:string;readonly chartAttribute?:string;readonly budget:SurfaceCurveBudget3;readonly key?:string;
 }
-function positive(value:number|undefined,fallback:number,name:string):number {
-  const n=value??fallback;if(!Number.isFinite(n)||n<=0)throw new Error(`hatch ${name} must be positive and finite`);return n;
+/** A spacing, step or length that is not positive draws no lines. The family
+ * carrying it is dropped below; NaN marks it so a missing option still reads
+ * as the mistake it is when nothing else is given. */
+function positive(value:number|undefined,fallback:number):number {
+  const n=value??fallback;return Number.isFinite(n)&&n>0?n:NaN;
 }
 function count(value:number|undefined,fallback:number,name:string):number {
   const n=value??fallback;if(!(n===Infinity||Number.isSafeInteger(n))||n<0)throw new Error(`hatch ${name} must be a nonnegative integer or Infinity`);return n;
@@ -82,15 +86,19 @@ export function captureHatch(input:HatchInput,options:HatchOptions) {
     const direction=row.direction??options.direction;if(direction===undefined)throw new Error(`hatch family ${id} requires a direction`);
     const toneInput=row.tone??options.tone??1,tone=toneField(toneInput);
     const stroke=row.stroke??options.stroke;if(stroke!==undefined&&(typeof stroke!=='string'||!stroke))throw new Error('hatch stroke must be a pen name');
-    return {id,direction:directionField(direction),tone,constantTone:typeof toneInput==='number'?toneInput:undefined,recipe:toneRecipe3(toneInput),stroke,spacing:positive(row.spacing??options.spacing,NaN,'spacing')};
+    if(row.spacing===undefined&&options.spacing===undefined)throw new Error('hatch requires a spacing');
+    return {id,direction:directionField(direction),tone,constantTone:typeof toneInput==='number'?toneInput:undefined,recipe:toneRecipe3(toneInput),stroke,spacing:positive(row.spacing??options.spacing,NaN)};
   });
   if(new Set(families.map(f=>f.id)).size!==families.length)throw new Error('hatch family ids must be unique');
+  // A degenerate step or length stops every family; a degenerate spacing stops
+  // its own. What is left traces, and an empty list traces nothing.
+  const step=options.step===undefined?undefined:positive(options.step,NaN),maxLength=options.maxLength===undefined?undefined:positive(options.maxLength,NaN);
+  const traced=[step,maxLength].some(n=>n!==undefined&&!Number.isFinite(n))?[]:families.filter(f=>Number.isFinite(f.spacing));
   const settings:Settings={
-    families,step:options.step===undefined?undefined:positive(options.step,NaN,'step'),maxLength:options.maxLength===undefined?undefined:positive(options.maxLength,NaN,'maxLength'),
+    families:traced,step,maxLength,
     maxSteps:count(options.maxSteps,Infinity,'maxSteps'),seeds:count(options.seeds,16,'seeds'),maxTraces:count(options.maxTraces,Infinity,'maxTraces'),maxSegments:count(options.maxSegments,Infinity,'maxSegments'),maxTotalSteps:count(options.maxTotalSteps,Infinity,'maxTotalSteps'),
-    creaseDegrees:options.creaseDegrees??60,fallback:directionField(options.fallback??defaultFallback),uv:options.uv,chartAttribute:options.chartAttribute,budget:structuredClone(options.budget??{}),key:options.key,
+    creaseDegrees:clampSetting(options.creaseDegrees,0,180,60,'hatch creaseDegrees'),fallback:directionField(options.fallback??defaultFallback),uv:options.uv,chartAttribute:options.chartAttribute,budget:structuredClone(options.budget??{}),key:options.key,
   };
-  if(!Number.isFinite(settings.creaseDegrees)||settings.creaseDegrees<0||settings.creaseDegrees>180)throw new Error('hatch creaseDegrees must lie in [0,180]');
   for(const name of [settings.uv,settings.chartAttribute])if(name!==undefined&&(typeof name!=='string'||!name))throw new Error('hatch coordinate columns must be nonempty strings');
   const bindings:{id:string;binding:SurfaceBinding3}[]=input instanceof Mesh?[{id:input.key??'mesh',binding:surfaceBinding3(input.surface)}]:input.rows.map(row=>({id:row.id,binding:instanceSurfaceBinding3(input,row)}));
   return {bindings,settings};
@@ -217,8 +225,9 @@ function toneWork(traced:HatchTraced):ToneWork[][] {
   }));
 }
 function cpuTone(work:ToneWork,settings:Settings,i:number):number {
-  const node=work.nodes[i],v=work.family.tone(traceLocation3(work.surface.env,node.triangle,node.weights,settings));
-  if(!Number.isFinite(v))throw new Error('hatch tone must be finite');return v;
+  // A node the tone field could not answer reads as unpainted, not as a
+  // broken sketch.
+  const node=work.nodes[i];return sampleValue(work.family.tone(traceLocation3(work.surface.env,node.triangle,node.weights,settings)),0);
 }
 function batchOf(work:ToneWork){const n=work.nodes.length,batch={triangle:Uint32Array.from(work.nodes,node=>node.triangle),weights:new Float32Array(n*3)};work.nodes.forEach((node,i)=>batch.weights.set(node.weights,i*3));return batch;}
 function settle(work:ToneWork,settings:Settings,tone:Float32Array,stats:{ambiguous:number}):void {
@@ -332,12 +341,14 @@ export type TraceAttributes={trace:number};
 export function trace(mesh:Mesh<any,any,any,any>,seeds:Iterable<TraceSeed>,direction:DirectionInput,options:TraceOptions):SurfaceCurves<TraceAttributes> {
   if(!(mesh instanceof Mesh))throw new Error('trace requires a mesh');
   if(!options||typeof options!=='object')throw new Error('trace requires options with a step');
-  const step=positive(options.step,NaN,'step'),field=directionField(direction);
-  const settings:TraceOptions3={step,maxLength:positive(options.maxLength,step*1000,'maxLength'),maxSteps:count(options.maxSteps,Infinity,'maxSteps'),creaseDegrees:options.creaseDegrees??60,loopDistance:step*0.5,uvAttribute:options.uv,chartAttribute:options.chartAttribute};
+  const step=positive(options.step,NaN),field=directionField(direction);
+  const settings:TraceOptions3={step,maxLength:positive(options.maxLength,step*1000),maxSteps:count(options.maxSteps,Infinity,'maxSteps'),creaseDegrees:clampSetting(options.creaseDegrees,0,180,60,'trace creaseDegrees'),loopDistance:step*0.5,uvAttribute:options.uv,chartAttribute:options.chartAttribute};
+  // No step and no length are no walk: an empty set of curves.
+  const walks=[settings.step,settings.maxLength].every(Number.isFinite);
   const binding=surfaceBinding3(mesh.surface),env=traceEnvironment3(binding.source,binding);
   const nodes:SurfaceCurveNetworkInput3['nodes'][number][]=[],segments:SurfaceCurveNetworkInput3['segments'][number][]=[];
   let index=0;
-  for(const seed of seeds){
+  for(const seed of walks?seeds:[]){
     const location='sample' in seed?seed.sample:seed;
     if(!location||!Number.isSafeInteger(location.triangle)||!mesh.surface.triangles[location.triangle]||location.barycentric.length!==3)throw new Error('trace seeds require a surface sample or location on this mesh');
     // A location knows its surface; a seed sampled on another mesh would be

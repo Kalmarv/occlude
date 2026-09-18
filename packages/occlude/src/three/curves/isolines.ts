@@ -25,10 +25,13 @@ function positiveBudget(value:number|undefined,fallback:number,name:string):numb
 export function isolines3(input:Surface3,values:ArrayLike<number>,levels:readonly number[],options:IsolineOptions3={}):IsolineResult3 {
   const surface=snapshotSurface3(input),binding=surfaceBinding3(surface),key=options.key??'isolines';
   const maxSegments=positiveBudget(options.maxSegments,250000,'segment'),maxNodes=positiveBudget(options.maxNodes,250000,'node');
-  if(!levels.length||levels.some(l=>!Number.isFinite(l)))throw new Error('isolines require at least one finite level');
+  // A level that is not a number draws no contour, and its neighbours keep
+  // their own level index; no levels at all leaves the network empty rather
+  // than breaking the sketch.
   const offsets:number[]=[];let total=0;for(const face of surface.faces){offsets.push(total);total+=face.vertices.length;}
   if(values.length!==total)throw new Error('isolines require one value per corner');
-  for(let i=0;i<total;i++)if(!Number.isFinite(values[i]))throw new Error('isolines require finite corner values');
+  // A corner the field could not answer skips the triangles that touch it.
+
   const nodes:SurfaceCurveNetworkInput3['nodes'][number][]=[],nodeIds=new Map<string,string>(),positions=new Map<string,readonly [number,number,number]>();
   const segments:{id:string;a:string;b:string;triangle:number;length:number;index:number;level:number}[]=[];
   const stats={crossings:0,segments:0,chains:0,nodes:0};
@@ -38,8 +41,10 @@ export function isolines3(input:Surface3,values:ArrayLike<number>,levels:readonl
     const id=identity('isoline-node',key,k);nodeIds.set(k,id);nodes.push({id,point});positions.set(id,pointNumber(point));return id;
   };
   levels.forEach((level,li)=>{
+    if(!Number.isFinite(level))return;
     for(let ti=0;ti<surface.triangles.length;ti++){
       const t=surface.triangles[ti],corners=triangleCorners3(surface,ti),f=corners.map(c=>values[offsets[t.face]+c]);
+      if(!f.every(Number.isFinite))continue;
       const above=f.map(v=>v>=level);
       if(above.every(Boolean)||!above.some(Boolean))continue;
       const world=bindingTriangle3(binding,ti),ends:string[]=[];

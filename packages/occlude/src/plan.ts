@@ -65,8 +65,8 @@ export function checkDrawRequest(req: DrawRequest): DrawRequest {
   }
   if (req.progress) {
     const p = pair(req.progress, 'progress');
-    if (p[0] < 0 || p[1] > 1) throw new Error('draw: progress must lie within [0, 1]');
-    out.progress = p;
+    // The whole plan is 0…1; a request past either end is read as that end.
+    out.progress = [Math.min(Math.max(p[0], 0), 1), Math.min(Math.max(p[1], 0), 1)];
   }
   if (req.minutes) {
     const m = pair(req.minutes, 'minutes');

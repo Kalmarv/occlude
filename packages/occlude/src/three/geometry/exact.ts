@@ -206,7 +206,8 @@ export function orientPoint(a:H,b:H,c:H,drop:number):bigint {
  * represented triangle. There is no coordinate tolerance or label exemption. */
 export function triangleWeights(triangle:readonly [H,H,H],p:H):V|null {
   const [a,b,c]=triangle,n=plane(a,b,c);
-  if(n.slice(0,3).every(v=>v===0n))throw new Error('exact triangle is degenerate');
+  // A triangle with no plane holds no point: no weights, not a broken sketch.
+  if(n.slice(0,3).every(v=>v===0n))return null;
   if(dot(n,p)!==0n)return null;
   let drop=0;for(let k=1;k<3;k++)if(abs(n[k])>abs(n[drop]))drop=k;
   const determinant=orientPoint(a,b,c,drop),polarity=sign(determinant);

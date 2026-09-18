@@ -211,7 +211,9 @@ export function withinRegion(
       y1 = Math.max(y1, y);
     }
   }
-  if (!Number.isFinite(x0)) throw new Error(`${who}: within needs an area with some extent`);
+  // An area with no extent holds nothing: an empty box and a loop set
+  // nothing lies inside, so the operation comes back empty.
+  if (!Number.isFinite(x0)) return { bounds: { x: 0, y: 0, w: 0, h: 0 }, loops: [] };
   const box: Bounds = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   return { bounds: box, loops: isAxisBox(loops, box) ? null : loops };
 }
@@ -263,7 +265,8 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
   if (typeof opts?.density !== 'function') throw new Error('settle: { density } is required — the field the point count follows');
   if (opts.spacing === undefined) throw new Error('settle: { spacing } is required — it sets one point\'s capacity');
   const spacingU = env.len(opts.spacing);
-  if (!(spacingU > 0)) throw new Error('settle: { spacing } must be a positive length — it sets one point\'s capacity');
+  // No capacity to settle against: the points come back as they came in.
+  if (!(spacingU > 0)) return m;
   const n = opts.iterations ?? 10;
   if (!Number.isInteger(n) || n < 0) throw new Error('settle: iterations must be a non-negative integer');
   const region = opts.within === undefined ? null : withinRegion(opts.within, 'settle', opts.bounds);
@@ -416,7 +419,8 @@ export function throwPoints(env: PointsEnv, field: FieldFn2 | undefined, opts: T
 export function scatterPoints(env: PointsEnv, field: FieldFn2 | undefined, opts: ScatterOpts): Material {
   const f: FieldFn2 = field ?? (() => 1);
   const spacingU = env.len(opts.spacing);
-  if (!(spacingU > 0)) throw new Error('scatter: spacing must be a positive length');
+  // No spacing to pack at: no points.
+  if (!(spacingU > 0)) return makeMaterial([]);
   const region = opts.within === undefined ? null : withinRegion(opts.within, 'scatter', undefined);
   const { bounds } = region ?? env;
   const rMin = spacingU; // full-demand radius

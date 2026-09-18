@@ -6,6 +6,7 @@ import type {DisplaceOptions,RotateOptions,ScaleOptions} from './mesh.js';
 import {Collection} from './collection.js';
 import {surface3,assembleSurface3,type Attributes3,type Surface3,type SurfacePoint3,type Attribute3} from '../geometry/surface.js';
 import {sub3,mul3,cross3,type Vec3} from '../math.js';
+import {emptySize,sampleValue} from '../degenerate.js';
 type Combined<A,B>=Omit<A,keyof B>&B;
 export interface SurfaceSample<F extends Attributes3,C extends Attributes3={},Q extends Attributes3={}> extends Omit<SurfaceLocation3,'face'|'faceAttributes'|'pointAttributes'|'cornerAttributes'> {
   readonly face:FaceRow<F>;
@@ -98,8 +99,9 @@ function prepare<P extends Attributes3,E extends EdgeAttributes,F extends Attrib
   const source=target.surface,origin=source.points[0]?.position??[0,0,0];
   const extent=source.points.reduce((m,p)=>Math.max(m,...sub3(p.position,origin).map(Math.abs)),0);
   if(!Number.isFinite(extent))throw new Error('surface sampling extent is not representable');
-  const faces=target.faces.map(f=>f),weights=faces.map(f=>evaluate(weight??1,f));
-  if(weights.some(w=>!Number.isFinite(w)||w<0))throw new Error('surface sampling face weights must be nonnegative and finite');
+  // A face the weight field could not answer, or answered negatively, is never
+  // sampled. The other faces still are.
+  const faces=target.faces.map(f=>f),weights=faces.map(f=>Math.max(0,sampleValue(evaluate(weight??1,f),0)));
   const maxWeight=weights.reduce((a,b)=>Math.max(a,b),0),triangles:number[]=[],cumulative:number[]=[];let total=0;
   if(extent&&maxWeight)source.triangles.forEach((t,i)=>{
     if(!weights[t.face])return;
@@ -131,19 +133,23 @@ export function sampleSurfacePoints<P extends Attributes3,E extends EdgeAttribut
   const count=options.count,limit=options.maxPoints??Infinity;nonnegativeInteger(count,'surface sample count');nonnegativeInteger(limit,'surface sample point budget');
   if(count>limit)throw new Error('surface sampling exceeds point budget');
   const points:SurfacePoint3[]=[],samples=new Map<string,SurfaceSample<F,C,P>>();
-  if(count){const prepared=prepare(target,options.weight);if(!prepared.total)throw new Error('surface sampling requires positive weighted surface area');
-    for(let i=0;i<count;i++){env.signal?.throwIfAborted();const next=draw(target,prepared,env,i,options);points.push(next.point);samples.set(next.point.id,next.sample);}
+  // An empty mesh, or one with no weighted area, yields no samples rather than
+  // failing: the sketch keeps drawing whatever else it holds.
+  if(count){const prepared=prepare(target,options.weight);
+    if(prepared.total)for(let i=0;i<count;i++){env.signal?.throwIfAborted();const next=draw(target,prepared,env,i,options);points.push(next.point);samples.set(next.point.id,next.sample);}
   }
-  return result(target,points,samples,{attempts:count,accepted:count,reason:'count'},options);
+  return result(target,points,samples,{attempts:count,accepted:points.length,reason:points.length===count?'count':'empty'},options);
 }
 /** Global dart rejection with a bounded sparse world-space neighbor grid. */
 export function scatterSurfacePoints<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(target:Mesh<P,E,F,C>,options:SurfaceScatterOptions<F>,env:SurfaceSamplingEnv):SurfaceSamples<Combined<F,P>,F,C,P>{
   optionsObject(options);env.signal?.throwIfAborted();if(!(target instanceof Mesh))throw new Error('surface scatter requires a mesh');
   const spacing=options.spacing,limit=options.maxPoints??Infinity,budget=options.maxAttempts??100_000;
-  if(!Number.isFinite(spacing)||spacing<=0)throw new Error('surface scatter spacing must be positive finite world units');
+  if(typeof spacing!=='number')throw new Error('surface scatter spacing must be positive finite world units');
   nonnegativeInteger(limit,'surface scatter point limit');nonnegativeInteger(budget,'surface scatter attempt limit');
   const points:SurfacePoint3[]=[],samples=new Map<string,SurfaceSample<F,C,P>>(),buckets=new Map<string,number[]>();let attempts=0,reason:SamplingGeneration['reason']='point-limit';
-  if(limit&&budget){
+  // No spacing is no lattice to keep points apart: no points, and the sketch
+  // keeps rendering.
+  if(limit&&budget&&!emptySize(spacing)){
     const prepared=prepare(target,options.weight);
     if(prepared.extent/spacing>2**48)throw new Error('surface scatter spacing is too small relative to the mesh extent for its neighbor grid');
     reason=prepared.total?'attempt-limit':'empty';

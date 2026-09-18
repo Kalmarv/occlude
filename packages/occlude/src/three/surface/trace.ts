@@ -94,21 +94,24 @@ const noLocation=Object.freeze({}) as unknown as SurfaceLocation3;
  * segment. `startDirection` seeds the sign for unoriented fields. */
 export function traceSurface3(env:TraceEnvironment3,start:{triangle:number;weights:Vec3},direction:DirectionField,options:TraceOptions3,hooks:TraceHooks3={},startDirection?:Vec3):Trace3 {
   const {step,maxLength,maxSteps}=options;
-  if(!(step>0)||!Number.isFinite(step)||!(maxLength>0)||!(maxSteps===Infinity||Number.isSafeInteger(maxSteps))||maxSteps<0)throw new Error('trace requires positive step and length and a nonnegative step budget');
+  if(!(maxSteps===Infinity||Number.isSafeInteger(maxSteps))||maxSteps<0)throw new Error('trace requires positive step and length and a nonnegative step budget');
+  // No step and no length are no walk: the trace is its start node alone.
+  const walks=step>0&&Number.isFinite(step)&&maxLength>0;
   const cosCrease=Math.cos(Math.min(180,Math.max(0,options.creaseDegrees))*Math.PI/180);
   let triangle=start.triangle,weights=normalize(start.weights),previous=startDirection;
   const nodes:TraceNode3[]=[{triangle,weights,position:position(env,triangle,weights),normal:env.normals[triangle],distance:0}];
   const supports:number[]=[];
-  let length=0,steps=0,stop:TraceStop3='maxSteps',closed=false,stalled=0;
+  let length=0,steps=0,stop:TraceStop3=walks?'maxSteps':'degenerate',closed=false,stalled=0;
   const startPosition=nodes[0].position;
-  while(true){
+  while(walks){
     if(steps>=maxSteps){stop='maxSteps';break;}
     if(hooks.budget&&!hooks.budget()){stop='budget';break;}
     const n=env.normals[triangle];if(!n.some(v=>v!==0)){stop='degenerate';break;}
     const location=hooks.blind?noLocation:traceLocation3(env,triangle,weights,options);
     const wanted=direction(location,previous);
     if(!wanted){stop='field';break;}
-    if(wanted.length!==3||!wanted.every(Number.isFinite))throw new Error('direction field must return a finite vector or null');
+    // A vector the field could not answer is no direction at all.
+    if(wanted.length!==3||!wanted.every(Number.isFinite)){stop='field';break;}
     const inPlane=unit(sub3(wanted,mul3(n,dot3(wanted,n))));
     if(!inPlane){stop='degenerate';break;}
     const u=inPlane;

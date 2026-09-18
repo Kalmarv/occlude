@@ -92,8 +92,8 @@ describe('ridges', () => {
     expect(allPts(coarse).length).not.toBe(allPts(a).length);
   });
 
-  it('refuses a step it cannot sample on', () => {
-    expect(() => ridgesOf(env, () => 0, { step: 0 })).toThrow();
-    expect(() => ridgesOf(env, () => 0, { step: -1 })).toThrow();
+  it('draws nothing on a step it cannot sample on', () => {
+    expect(ridgesOf(env, () => 0, { step: 0 })).toEqual([]);
+    expect(ridgesOf(env, () => 0, { step: -1 })).toEqual([]);
   });
 });

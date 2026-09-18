@@ -33,6 +33,7 @@
  */
 
 import { Material, material as makeMaterial, type Station, type TransferPolicy } from './material.js';
+import { valueAt } from './guard.js';
 
 /** A number in the source material's coordinates, or a field read at the sample. */
 export type OscillateAmount = number | ((x: number, y: number) => number);
@@ -63,10 +64,10 @@ function requireAmount(v: unknown, name: string, what: string): void {
   if (typeof v !== 'number' && typeof v !== 'function') throw new Error(`oscillate: ${name} must be a finite number in the material's own coordinates, or a field of them — ${String(v)} is not resolved here (mm(1) and the other lengths need the sketch frame, as for thicken)`);
 }
 
-function amountAt(v: OscillateAmount, x: number, y: number, what: string): number {
-  const n = typeof v === 'function' ? v(x, y) : v;
-  if (typeof n !== 'number' || !Number.isFinite(n)) throw new Error(`oscillate: ${what} is ${String(n)} at (${x}, ${y}) — it must be a finite number in the material's own coordinates (mm(1) and the other lengths are not resolved here)`);
-  return n;
+/** The amount at one station, or zero where the field does not answer with
+ * a finite number — that station keeps still while the rest swing. */
+function amountAt(v: OscillateAmount, x: number, y: number): number {
+  return valueAt(typeof v === 'function' ? v(x, y) : v, 0);
 }
 
 /** The swung stations as ordinary Material: the source's own columns and
@@ -145,11 +146,12 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
   // the finest chain's rate.
   let shortest = Infinity;
   for (const st of source.along()) {
-    const lam = amountAt(opts.wavelength, st.x, st.y, '{ wavelength }');
-    if (!(lam > 0)) throw new Error(`oscillate: { wavelength } is ${lam} at (${st.x}, ${st.y}) — it must be positive everywhere a chain goes`);
-    shortest = Math.min(shortest, lam);
+    const lam = amountAt(opts.wavelength, st.x, st.y);
+    if (lam > 0) shortest = Math.min(shortest, lam);
   }
-  if (!Number.isFinite(shortest)) return makeMaterial([]);
+  // Nowhere to swing at all — an empty material, or a wavelength no station
+  // can read: the chains come through straight.
+  if (!Number.isFinite(shortest)) return chainsMaterial(source.along());
   const out: Station[] = [];
   for (const fine of byChain(source.along({ spacing: shortest / steps }))) {
     if (fine.length < 2) continue;
@@ -160,9 +162,10 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
       const a = fine[k - 1];
       const b = fine[k];
       const ds = Math.hypot(b.x - a.x, b.y - a.y);
-      const lam = (amountAt(opts.wavelength, a.x, a.y, '{ wavelength }') + amountAt(opts.wavelength, b.x, b.y, '{ wavelength }')) / 2;
-      if (!(lam > 0)) throw new Error(`oscillate: { wavelength } is ${lam} on chain ${a.chain} — it must be positive everywhere a chain goes`);
-      cycles.push(cycles[k - 1] + ds / lam);
+      const lam = (amountAt(opts.wavelength, a.x, a.y) + amountAt(opts.wavelength, b.x, b.y)) / 2;
+      // A span with no wavelength on it advances no phase: the swing holds
+      // where it was and the span is drawn straight.
+      cycles.push(cycles[k - 1] + (lam > 0 ? ds / lam : 0));
     }
     // A ring must come back to the phase it left, or the seam shows a step.
     // `along` walks a closed chain from the seam and never repeats it, so the
@@ -174,14 +177,18 @@ export function oscillate(m: Material, opts: OscillateOpts): Material {
     if (fine[0].closed) {
       const a = fine[fine.length - 1];
       const b = fine[0];
-      const lam = (amountAt(opts.wavelength, a.x, a.y, '{ wavelength }') + amountAt(opts.wavelength, b.x, b.y, '{ wavelength }')) / 2;
-      span += Math.hypot(b.x - a.x, b.y - a.y) / lam;
+      const lam = (amountAt(opts.wavelength, a.x, a.y) + amountAt(opts.wavelength, b.x, b.y)) / 2;
+      if (lam > 0) span += Math.hypot(b.x - a.x, b.y - a.y) / lam;
     }
     const fit = fine[0].closed && span > 0 ? Math.max(1, Math.round(span)) / span : 1;
     for (let k = 0; k < fine.length; k++) {
       const st = fine[k];
-      const a = amountAt(opts.amplitude, st.x, st.y, '{ amplitude }');
-      const swing = a * shape((((phase0 + cycles[k] * fit) % 1) + 1) % 1);
+      const a = amountAt(opts.amplitude, st.x, st.y);
+      // A station whose wavelength is not a positive length has no cycle to
+      // sit on, and one whose waveform gives no number has no offset: either
+      // way it stays where the chain put it.
+      const lam = amountAt(opts.wavelength, st.x, st.y);
+      const swing = lam > 0 ? a * valueAt(shape((((phase0 + cycles[k] * fit) % 1) + 1) % 1), 0) : 0;
       out.push({ ...st, x: st.x + st.normal[0] * swing, y: st.y + st.normal[1] * swing });
     }
   }

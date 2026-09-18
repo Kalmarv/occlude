@@ -57,7 +57,8 @@ describe('warp', () => {
   it('refuses a cage it cannot use', () => {
     const m = material([[10, 10]]);
     expect(() => warp(m, { from: square(), to: square().slice(0, 3) })).toThrow(/corner for corner/);
-    expect(() => warp(m, { from: square().slice(0, 2), to: square().slice(0, 2) })).toThrow(/at least three corners/);
+    // A cage of fewer than three corners encloses nothing and bends nothing.
+    expect(Array.from(warp(m, { from: square().slice(0, 2), to: square().slice(0, 2) }).x)).toEqual(Array.from(m.x));
     expect(() => warp(m, { from: 'box' as never, to: square() })).toThrow(/must be a loop of corners/);
     expect(() => warp(m, { from: [[0, 0], [1, 1], [NaN, 2]], to: square() })).toThrow(/not a finite/);
     // A material is a legal way to give a cage.

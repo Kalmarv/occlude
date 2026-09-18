@@ -26,7 +26,9 @@ describe('image chart bridge',()=>{
     expect(lum(at([-3,.75]))).toBe(0);expect(img.surface({wrap:'repeat'})(at([1.75,.75]))).toBeCloseTo(1,12);
     expect(()=>lum({})).toThrow('chart coordinates');
     expect(()=>img.surface({channel:'edge' as never})).toThrow('channel');
-    expect(()=>img.surface({area:2})).toThrow('area');
+    // An out-of-range half-size reads as the nearest size inside the chart.
+    expect(img.surface({area:2})(at([.5,.75]))).toBe(img.surface({area:1})(at([.5,.75])));
+    expect(()=>img.surface({area:'big' as never})).toThrow('area');
   });
   it('prefilters once so footprint averaging is part of the recipe',()=>{
     const img=image(assets,'tone.png'),blurred=img.surface({area:.5});

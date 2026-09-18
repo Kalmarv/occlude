@@ -168,7 +168,8 @@ export function travelLiftPulse(m: LiftModel, from: [number, number], to: [numbe
 /** Piecewise-linear settle curve, clamped at both ends. */
 export function curveMs(curve: SettlePoint[], pulse: number): number {
   const pts = [...curve].sort((a, b) => a.pulse - b.pulse);
-  if (pts.length === 0) throw new Error('settle curve: no points');
+  // A curve with no points says nothing about settling: no wait.
+  if (pts.length === 0) return 0;
   if (pulse <= pts[0].pulse) return pts[0].ms;
   if (pulse >= pts[pts.length - 1].pulse) return pts[pts.length - 1].ms;
   for (let i = 1; i < pts.length; i++) {

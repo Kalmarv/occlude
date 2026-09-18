@@ -13,7 +13,7 @@ import type { SceneCompute3 } from './three/scene.js';
 
 import { makePlan, parseToolpath, planValue, resolveDraw, selectAll, type DrawRequest, type DrawTiming, type DrawingPlan, type FlatChain, type PlanOptions, type PlanSelection, type PlanSettings } from './plan.js';
 import type { EstimateOpts, PenTiming } from './motion.js';
-import { resolveFill, validateFillParams, isNativeFill, type FillSpec } from './fills.js';
+import { resolveFill, fillParamsUsable, isNativeFill, type FillSpec } from './fills.js';
 import { paperSize, type PaperChoice } from './paper.js';
 import type { PenDef } from './pens.js';
 import { flattenPrim, subPrim, type Prim } from './prims.js';
@@ -380,17 +380,21 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
         if (spec.params.connectors === false) flags |= 8;
         const spacing = spec.params.spacing === undefined ? penDef.width * 0.9
           : resolveLen(spec.params.spacing as Parameters<typeof resolveLen>[0], frame.inner);
-        if (!Number.isFinite(spacing) || spacing <= 0) throw new Error('contour: spacing must be finite and positive');
         nativeSpacing = spacing * (opts.coarsen ?? 1);
-        if (!Number.isFinite(nativeSpacing) || nativeSpacing <= 0) throw new Error('contour: coarsened spacing must be finite and positive');
-        fillKind = 3;
+        // A spacing that is not a positive length — a mid-edit zero, or a
+        // coarsen that swallowed it — has no contours to draw. The shape
+        // keeps its opacity and generates nothing, exactly as a mask does,
+        // so the outline and everything under it still render.
+        fillKind = Number.isFinite(nativeSpacing) && nativeSpacing > 0 ? 3 : 2;
       } else {
         // Pending: ink is generated between the passes, against the FINAL
         // outline pass 1 returns — never here, where deform hasn't run.
         fillKind = 1;
         const winding = geom.kind === 'path' || geom.kind === 'area' ? geom.winding : 'nonzero';
         const order = shape.order;
-        let run: FillJob['run'];
+        // null: this use cannot draw (a degenerate spacing), so the shape
+        // falls back to an opaque fill with no ink.
+        let run: FillJob['run'] | null;
         if (spec.type === 'use' || spec.type === 'asset') {
           const def = spec.type === 'asset' ? spec.def : resolveFill(spec.name, exec.inputs.fills);
           const label = spec.type === 'asset' ? 'fill asset' : spec.name;
@@ -400,7 +404,6 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
                 'custom fills are saved on the studio Fills page',
             );
           }
-          validateFillParams(label, spec.params);
           const params: Record<string, unknown> = { ...def.params, ...spec.params };
           // Field params are anchored by the runtime (rule 10: `align` on the
           // fill use applies to all of them): the fill receives a sampler in
@@ -414,14 +417,13 @@ export function encodeScene(exec: Execution, opts: RenderOptions = {}): EncodedS
               params[k] = (px: number, py: number) => field(...apply(fm, px, py));
             }
           }
-          run = (region, ctx) => def.generate(region, params, ctx);
+          run = fillParamsUsable(spec.params) ? (region, ctx) => def.generate(region, params, ctx) : null;
         } else {
           const fn = spec.fn;
           run = (region, ctx) => fn(region, ctx);
         }
-        fillJobs.set(shapeIndex, {
-          order, penWidth: penDef.width, winding, anchor, run,
-        });
+        if (run) fillJobs.set(shapeIndex, { order, penWidth: penDef.width, winding, anchor, run });
+        else fillKind = 2;
       }
     }
 

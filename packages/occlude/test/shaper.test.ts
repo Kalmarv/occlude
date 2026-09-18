@@ -53,8 +53,13 @@ describe('shaper', () => {
     expect(s(0.25)).toBeCloseTo(0.1, 6); // linear between (0,0) and (0.5,0.2)
   });
 
-  it('refuses fewer than two knots or non-numeric ones', () => {
-    expect(() => shaper([[0, 0]])).toThrow(/two/);
+  it('holds one knot, passes none through, and refuses non-numeric ones', () => {
+    // A curve still being drawn is not a mistake: one knot is its value
+    // everywhere, no knots is the input unchanged.
+    const one = shaper([[0.25, 0.7]]);
+    expect(one(0)).toBeCloseTo(0.7, 6);
+    expect(one(1)).toBeCloseTo(0.7, 6);
+    expect(shaper([])(0.4)).toBeCloseTo(0.4, 6);
     expect(() => shaper([[0, 0], [1, 'x' as unknown as number]])).toThrow(/numbers/);
   });
 });
@@ -66,7 +71,9 @@ describe('shaper bounds', () => {
     expect(s.range).toEqual([0, 2]);
     expect(s(1.5)).toBeCloseTo(0.9, 6); // past the last knot: holds its value
     expect(s(0.5)).toBeCloseTo(0.4, 6);
-    expect(() => shaper([[0, 0], [1, 1]], { bounds: [[0, 0], [0, 1]] })).toThrow(/bounds/);
+    // A side of the area that collapsed says nothing; the knots' span stands.
+    expect(shaper([[0, 0], [1, 1]], { bounds: [[0, 0], [0, 1]] }).domain).toEqual([0, 1]);
+    expect(() => shaper([[0, 0], [1, 1]], { bounds: [[0, 0], [Number.NaN, 1]] })).toThrow(/bounds/);
   });
 });
 

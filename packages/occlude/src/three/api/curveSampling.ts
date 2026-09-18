@@ -1,4 +1,5 @@
 import {Collection} from './collection.js';
+import {emptySize} from '../degenerate.js';
 import {Mesh,PointGeometry,captureAttributeFields,evaluate,pointSteps,type PointRow,type Field,type AttributeFields,type GeometryOptions,type PointRule,type StepAttributes,type StepsOptions,type PointSnapshot,type StepShorthand} from './mesh.js';
 import type {DisplaceOptions,RotateOptions,ScaleOptions} from './mesh.js';
 import {Instances,instanceSurfaceBinding3} from './instances.js';
@@ -101,7 +102,11 @@ export class CurveSamples<P extends Attributes3={},A extends Attributes3={}> ext
 export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<A>,options:CurveSamplingOptions={}):CurveSamples<A,A> {
  const {count,spacing}=options,maxPoints=options.maxPoints??Infinity,maxSupports=options.maxSupports??Infinity;
  if(count!==undefined&&spacing!==undefined)throw new Error('curve sample chooses count or spacing');
- if(count!==undefined&&(!Number.isSafeInteger(count)||count<1)||spacing!==undefined&&(!Number.isFinite(spacing)||spacing<=0)||[maxPoints,maxSupports].some(n=>!(n===Infinity||Number.isSafeInteger(n))||n<0))throw new Error('invalid curve sampling count, spacing or budget');
+ // A non-integer count, a spacing that is not a number and an invalid budget
+ // are mistakes; a count below one or a spacing with no length simply asks for
+ // no samples.
+ if(count!==undefined&&!Number.isSafeInteger(count)||spacing!==undefined&&typeof spacing!=='number'||[maxPoints,maxSupports].some(n=>!(n===Infinity||Number.isSafeInteger(n))||n<0))throw new Error('invalid curve sampling count, spacing or budget');
+ if(count!==undefined&&count<1||spacing!==undefined&&emptySize(spacing))return new CurveSamples(new PointGeometry<A>(assembleSurface3([],[],[]),{key:options.key}),target,new Map());
  const network=target.network,groups=new Map<string,SupportedCurveSegment3[]>(),chains:SupportedCurveSegment3[][]=[];
  const degree=new Map<number,number>();for(const segment of network.reference?.segments??network.segments)for(const node of [segment.a,segment.b])degree.set(node,(degree.get(node)??0)+1);
  for(const segment of network.segments){const rows=groups.get(segment.chainId)??[];rows.push(segment);groups.set(segment.chainId,rows);}
@@ -112,7 +117,9 @@ export function sampleSurfaceCurves<A extends Attributes3>(target:SurfaceCurves<
  const points:SurfacePoint3[]=[],attachments=new Map<string,Attachment>();let supports=0;
  for(const chain of chains){
   const closed=chain[0].a===chain.at(-1)!.b,length=chain.reduce((sum,s)=>sum+s.length,0);
-  if(!(length>0)||!Number.isFinite(length))throw new Error('curve sampling requires a representable positive chain length');
+  // A chain with no length has nowhere to place a sample: skip it and sample
+  // the chains that do.
+  if(!(length>0)||!Number.isFinite(length))continue;
   const n=count??(spacing===undefined?32:Math.max(closed?1:2,Math.ceil(length/spacing)+(closed?0:1)));
   if(!Number.isSafeInteger(n)||points.length+n>maxPoints)throw new Error('curve sampling exceeds point budget');
   let edge=0,offset=0;

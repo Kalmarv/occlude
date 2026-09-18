@@ -73,7 +73,7 @@ describe('shared mesh instances',()=>{
  });
  it('rejects reserved attributes, singular scales and wrong geometry domains',()=>{
   const sites=pointCloud([[0,0,0]]),prototype=box();
-  expect(()=>instanceOnPoints(prototype,sites.points,{scale:0})).toThrow('nonsingular');
+  expect(instanceOnPoints(prototype,sites.points,{scale:0}).rows[0].transform.scale).toEqual([0,0,0]);
   expect(()=>instanceOnPoints(prototype,prototype.faces as any)).toThrow('point collection');
   expect(()=>instanceOnPoints(sites as any,sites.points)).toThrow('mesh prototype');
   expect(()=>instanceOnPoints(prototype,sites.points).attribute('transform',1)).toThrow('reserved');

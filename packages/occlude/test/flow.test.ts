@@ -126,8 +126,10 @@ describe('image flow', () => {
     for (const [x, y] of [[5, 5], [17, 31], [39, 2]] as [number, number][]) expect(a(x, y)).toEqual(b(x, y));
     expect(() => img.flow({ iterations: -1 })).toThrow(/non-negative whole number/);
     expect(() => img.flow({ iterations: 1.5 })).toThrow(/non-negative whole number/);
-    expect(() => img.flow({ radius: 0 })).toThrow(/positive length/);
-    expect(() => img.flow({ radius: -3 })).toThrow(/positive length/);
+    // No radius, no neighbourhood to average over: the field has no opinion
+    // anywhere, which is the answer it gives outside the picture too.
+    expect(img.flow({ radius: 0 })(5, 5)).toEqual([0, 0]);
+    expect(img.flow({ radius: -3 })(5, 5)).toEqual([0, 0]);
     // The grid comes from the radius, so a radius small enough to need an
     // absurd grid is refused by name instead of being attempted.
     expect(() => img.flow({ radius: 0.002 })).toThrow(/more than four million cells/);

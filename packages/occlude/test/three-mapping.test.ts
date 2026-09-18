@@ -103,7 +103,7 @@ describe('mapSurface',()=>{
   it('places sketch-unit material through an explicit frame, never paper percentages',()=>{
     const sheet=plane(2),marks=mapSurface(sheet,curve([[25,-10],[25,110]],{closed:false}),{frame:{width:100}});
     expect(marks.points.map(p=>p.x)).toEqual([-0.5,-0.5,-0.5]);
-    expect(()=>mapSurface(sheet,stripe(.5),{frame:{width:0}})).toThrow('frame');
+    expect(mapSurface(sheet,stripe(.5),{frame:{width:0}}).edges.length).toBe(0);
   });
 
   it('repeats prototype marks at instance placements without realization',()=>{

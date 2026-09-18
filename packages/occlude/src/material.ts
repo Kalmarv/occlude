@@ -460,13 +460,26 @@ export class Material {
     return cs.length === 1 && cs[0].closed && cs[0].indices.length === this.n;
   }
 
-  /** The material's single chain as a stampable contour — for chain materials;
-   * a branched material has several, see `curves()`. */
+  /** The material's single chain as a stampable contour. A material with
+   * several chains has no single one, so this is the longest of them by arc
+   * length (ties: the first in `curves()` order) — the outline of a grown or
+   * cut material, with the crumbs left out. For all of them, see `curves()`. */
   get contour(): Curve {
     const cs = this.curves();
     if (cs.length === 1) return cs[0];
     if (cs.length === 0) return { pts: this.pts, closed: false, indices: Array.from({ length: this.n }, (_, i) => i) };
-    throw new Error(`contour: this material has ${cs.length} chains — use curves()`);
+    let best = cs[0];
+    let bestLength = -1;
+    for (const c of cs) {
+      let length = 0;
+      for (let k = 1; k < c.pts.length; k++) length += Math.hypot(c.pts[k][0] - c.pts[k - 1][0], c.pts[k][1] - c.pts[k - 1][1]);
+      if (c.closed && c.pts.length > 2) length += Math.hypot(c.pts[0][0] - c.pts[c.pts.length - 1][0], c.pts[0][1] - c.pts[c.pts.length - 1][1]);
+      if (length > bestLength) {
+        bestLength = length;
+        best = c;
+      }
+    }
+    return best;
   }
 
   /**
@@ -592,12 +605,14 @@ export class Material {
     // adds nothing needs no attributes.
     checkAttrs(edgeAttributes, names, 'a new edge', { complete: false });
     for (const [a, b] of pairs) {
-      if (a === b) throw new Error(`connect: edge ${a}–${b} joins a vertex to itself`);
       if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0 || a >= this.n || b >= this.n) throw new Error(`connect: edge ${a}–${b} names a vertex beyond ${this.n - 1}`);
     }
-    if (pairs.some(([a, b]) => !seen.has(pairKey(a, b)))) checkAttrs(edgeAttributes, names, 'a new edge');
+    // A pair whose ends are the same vertex is no edge; it is dropped, the
+    // way an existing pair is left as it is.
+    if (pairs.some(([a, b]) => a !== b && !seen.has(pairKey(a, b)))) checkAttrs(edgeAttributes, names, 'a new edge');
     let added = 0;
     for (const [a, b] of pairs) {
+      if (a === b) continue;
       const k = pairKey(a, b);
       if (seen.has(k)) continue;
       seen.add(k);
@@ -623,7 +638,8 @@ export class Material {
    * per column to say otherwise — an `age` is a choice, not a mean).
    */
   resample(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer> }): Material {
-    checkSampling('resample', opts);
+    // Too small to place samples (a mid-edit zero spacing): nothing to build.
+    if (!checkSampling('resample', opts)) return material([]);
     for (let i = 0; i < this.n; i++) {
       if (this.adj[i].length > 2) throw new Error(`resample: vertex ${i} is a junction — chains only`);
     }
@@ -735,7 +751,7 @@ export class Material {
    */
   along(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer> } = {}): Station[] {
     const atVertices = opts.spacing === undefined && opts.count === undefined;
-    if (!atVertices) checkSampling('along', opts);
+    if (!atVertices && !checkSampling('along', opts)) return [];
     for (let i = 0; i < this.n; i++) {
       if (this.adj[i].length > 2) throw new Error(`along: vertex ${i} is a junction — chains only`);
     }
@@ -903,16 +919,21 @@ export class Material {
 /** The classes `stepOnce` must recognise and construct (see steps.ts). */
 const KIT: StepKit = { Material, PointSelection, EdgeSelection };
 
-/** Sampling options shared by `t.sample` and `resample`: exactly one of
- * `count` or `spacing`, both positive. */
-export function checkSampling(who: string, opts: { count?: number; spacing?: number }): void {
+/** Sampling options shared by `t.sample`, `resample` and `along`: exactly
+ * one of `count` or `spacing`, and a count in whole samples — a missing,
+ * doubled or fractional option is a mistake and says so. A size with nothing
+ * to place — a spacing at or below zero, fewer than two samples — is not a
+ * mistake but a degenerate one, and comes back `false`: no samples, and the
+ * rest of the sketch still draws. */
+export function checkSampling(who: string, opts: { count?: number; spacing?: number }): boolean {
   if ((opts.spacing === undefined) === (opts.count === undefined)) {
     throw new Error(`${who}: give exactly one of { count, spacing }`);
   }
-  if (opts.spacing !== undefined && !(opts.spacing > 0)) throw new Error(`${who}: spacing must be positive`);
-  if (opts.count !== undefined && (!Number.isInteger(opts.count) || opts.count < 2)) {
+  if (opts.count !== undefined && !Number.isInteger(opts.count)) {
     throw new Error(`${who}: count must be an integer of at least 2 (open) or 3 (closed)`);
   }
+  if (opts.spacing !== undefined && !(opts.spacing > 0)) return false;
+  return opts.count === undefined || opts.count >= 2;
 }
 
 /**
@@ -1444,8 +1465,10 @@ export const connect = {
   tour(m: PointsLike, opts: { cost?: (a: Vertex, b: Vertex) => number; closed?: boolean; candidates?: number; edgeAttributes?: Record<string, number> } = {}): Material {
     const mm = material(m);
     const n = mm.n;
-    const k = opts.candidates ?? 12;
-    if (!Number.isInteger(k) || k < 2) throw new Error(`connect.tour: candidates must be a whole number of neighbours, at least 2 (got ${String(opts.candidates)})`);
+    const asked = opts.candidates ?? 12;
+    if (!Number.isInteger(asked)) throw new Error(`connect.tour: candidates must be a whole number of neighbours, at least 2 (got ${String(opts.candidates)})`);
+    // A choice needs two to choose between: fewer is read as two.
+    const k = Math.max(2, asked);
     if (opts.cost !== undefined && typeof opts.cost !== 'function') throw new Error('connect.tour: cost must be a function of two vertex views');
     if (n < 2) return mm.withEdges([], opts.edgeAttributes);
     const views = Array.from({ length: n }, (_, i) => mm.vertex(i));
@@ -1456,8 +1479,11 @@ export const connect = {
       const key = i < j ? i * n + j : j * n + i;
       let v = cache.get(key);
       if (v === undefined) {
-        v = raw(views[i], views[j]);
-        if (typeof v !== 'number' || Number.isNaN(v)) throw new Error(`connect.tour: cost(${i}, ${j}) is ${String(v)} — it must be a number`);
+        const answer = raw(views[i], views[j]);
+        if (typeof answer !== 'number') throw new Error(`connect.tour: cost(${i}, ${j}) is ${String(answer)} — it must be a number`);
+        // A cost the function cannot put a number on is a pair not worth
+        // travelling: infinitely expensive, so every other route wins.
+        v = Number.isNaN(answer) ? Infinity : answer;
         cache.set(key, v);
       }
       return v;
@@ -1660,8 +1686,10 @@ export const connect = {
     const cost = (i: number, j: number): number => {
       if (!raw) return Math.hypot(mm.x[i] - mm.x[j], mm.y[i] - mm.y[j]);
       const v = raw(views[i], views[j]);
-      if (typeof v !== 'number' || Number.isNaN(v)) throw new Error(`connect.tree: cost(${i}, ${j}) is ${String(v)} — it must be a number`);
-      return v;
+      if (typeof v !== 'number') throw new Error(`connect.tree: cost(${i}, ${j}) is ${String(v)} — it must be a number`);
+      // A cost with no number on it is an infinitely expensive link: the
+      // tree grows through its neighbours instead.
+      return Number.isNaN(v) ? Infinity : v;
     };
     // Candidates: the Delaunay edges, plus a zero-length link from every row
     // sharing a position to the first row there, which Delaunay left out.
@@ -1751,10 +1779,12 @@ export const connect = {
     const mm = material(m);
     const asked = opts.room ?? 1;
     if (typeof asked !== 'number' && typeof asked !== 'function') throw new Error('connect.unimpeded: { room } must be a number, or a field of them read at the middle of each pair');
+    // Below 1 the region between two rows is not a lune and the family is
+    // not defined, so a smaller (or unanswerable) room is read as 1 — the
+    // Gabriel graph — rather than stopping the drawing.
     const roomAt = (x: number, y: number): number => {
       const v = typeof asked === 'function' ? asked(x, y) : asked;
-      if (!(v >= 1)) throw new Error(`connect.unimpeded: { room } is ${String(v)} at (${x}, ${y}) — it must be at least 1 everywhere, because below that the region between two rows is not a lune and the family is not defined`);
-      return v;
+      return typeof v === 'number' && v > 1 ? v : 1;
     };
     if (mm.n < 2) return mm.withEdges([], opts.edgeAttributes);
     const grid = pointGrid(mm.x, mm.y, Math.max(2, Math.ceil(Math.sqrt(mm.n / 2))));
@@ -1818,10 +1848,11 @@ export const connect = {
   pairs(a: PointsLike, b: PointsLike, edgeAttributes?: Record<string, number>): Material {
     const ma = material(a);
     const mb = material(b);
-    if (ma.n !== mb.n) throw new Error(`connect.pairs: ${ma.n} and ${mb.n} points — lengths must match`);
     const joined = append(ma, mb);
     const pairs: [number, number][] = [];
-    for (let i = 0; i < ma.n; i++) pairs.push([i, ma.n + i]);
+    // Rows with no partner are carried through as points: a row of five and
+    // a row of four join four times, and still draw.
+    for (let i = 0; i < Math.min(ma.n, mb.n); i++) pairs.push([i, ma.n + i]);
     return joined.withEdges(pairs, edgeAttributes);
   },
   /** Delaunay triangulation edges over the vertices. */
@@ -1884,7 +1915,8 @@ export function append(...args: (Material | AppendOpts)[]): Material {
   const trailingOpts = last !== null && typeof last === 'object' && Object.getPrototypeOf(last) === Object.prototype;
   const opts: AppendOpts = trailingOpts ? (last as AppendOpts) : {};
   const sides = (trailingOpts ? args.slice(0, -1) : args) as Material[];
-  if (sides.length === 0) throw new Error('append: give at least one material');
+  // Nothing to append (a spread of an empty list) is the empty material.
+  if (sides.length === 0) return material([]);
   for (const m of sides) if (!(m instanceof Material)) throw new Error('append: every side must be a material — convert a shape with t.material(shape) first');
   return sides.reduce((acc, m) => appendTwo(acc, m, opts));
 }
@@ -1972,15 +2004,17 @@ export function extent(values: ArrayLike<number>): [number, number] {
 
 /**
  * A classifier from a numeric range into `count` equal bands, 0 … count-1:
- * `min` and below is band 0, `max` and above the last; a constant range
- * puts everything in band 0. `count` must be a positive integer.
+ * `min` and below is band 0, `max` and above the last; a constant range, or
+ * a count with no bands in it, puts everything in band 0. `count` is a whole
+ * number of bands.
  */
 export function banding(opts: { min: number; max: number; count: number }): (v: number) => number {
   const { min, max, count } = opts;
-  if (!Number.isInteger(count) || count < 1) throw new Error(`banding: count must be a positive integer, got ${count}`);
+  if (!Number.isInteger(count)) throw new Error(`banding: count must be a positive integer, got ${count}`);
   const span = max - min;
   return (v) => {
-    if (!(span > 0)) return 0;
+    // No bands to sort into, or no range to sort by: everything is band 0.
+    if (!(count >= 1) || !(span > 0)) return 0;
     const b = Math.floor(((v - min) / span) * count);
     return b < 0 ? 0 : b >= count ? count - 1 : b;
   };

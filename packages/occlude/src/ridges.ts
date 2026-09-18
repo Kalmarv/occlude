@@ -41,7 +41,7 @@
  * the drawing's decision, made with `m.points.filter(...).inducedEdges()`.
  */
 
-import { positiveLength } from './guard.js';
+import { usableLength } from './guard.js';
 import type { FieldFn } from './shapes.js';
 import { mm, type L } from './units.js';
 import type { IsoEnv } from './isolines.js';
@@ -66,13 +66,15 @@ export interface RidgeContour {
 
 export function ridgesOf(env: IsoEnv, field: FieldFn, opts: RidgeOpts = {}): RidgeContour[] {
   const b = env.bounds;
-  positiveLength('ridges', opts.step);
+  // A step that is not a positive length draws no ridges at all.
+  if (!usableLength(opts.step)) return [];
   const stepU =
     opts.step !== undefined ? env.len(opts.step) : Math.max(env.len(mm(1)), Math.max(b.w, b.h) / 256);
   const gw = Math.max(3, Math.ceil(b.w / stepU) + 1);
   const gh = Math.max(3, Math.ceil(b.h / stepU) + 1);
   const cells = gw * gh;
-  if (!Number.isFinite(cells)) throw new Error(`ridges: grid is ${cells} — check for a zero step`);
+  // A grid that is not a finite size has no samples to walk.
+  if (!Number.isFinite(cells)) return [];
   if (cells > 16_777_216) {
     throw new Error(`ridges: ${Math.floor(cells)} grid cells (step too fine) — capped at 16.7M (~128MB of samples)`);
   }

@@ -999,16 +999,27 @@ describe('ui() tweakable values', () => {
 });
 
 describe('live-coding guards', () => {
-  it('rejects infinite and absurd repetition counts with clear errors', async () => {
+  it('a count of 0, NaN or Infinity is zero repetitions; only the cap refuses', async () => {
     const { times, range } = await import('../src/index.js');
     // The freeze that motivated this: STEP typed as "0.0" on the way to
-    // "0.05" makes (MAX - MIN) / STEP + 1 === Infinity.
-    expect(() => times(Infinity, () => null)).toThrow(/zero step/);
-    expect(() => times(NaN, () => null)).toThrow(/count is NaN/);
+    // "0.05" makes (MAX - MIN) / STEP + 1 === Infinity. A count nobody can
+    // walk draws nothing, everywhere the same rule is read (times, range,
+    // the layout grid); the repetition cap is a memory guard and still says
+    // so by name.
+    expect(times(Infinity, () => null)).toEqual([]);
+    expect(times(NaN, () => null)).toEqual([]);
+    expect(times(0, () => null)).toEqual([]);
     expect(() => times(1e9, () => null)).toThrow(/cap/);
-    expect(() => range(0, 10, 0)).toThrow(/zero step/);
+    expect(range(0, 10, 0)).toEqual([]);
+    expect(range(0, 10, NaN)).toEqual([]);
     expect(times(3, (k) => k)).toEqual([0, 1, 2]);
     expect(range(0, 3)).toEqual([0, 1, 2]);
+    // The layout grid reads the same rule: no cells to lay out, no cells.
+    const none = sketch({ aspect: [1, 1] }, (t) => [
+      ...t.grid({ cols: 0, rows: 4 }).map((c) => rect(c.x, c.y, c.w, c.h)),
+      circle(50, 50, 10),
+    ]);
+    expect(sq(none).frags.length).toBeGreaterThan(0);
     // grid needs sketch state for bounds(): validate via a render.
     const def = sketch({ aspect: [1, 1] }, (t) =>
       t.grid({ cols: 1e6, rows: 1e6 }).map((c) => rect(c.x, c.y, c.w, c.h)),
@@ -1016,14 +1027,23 @@ describe('live-coding guards', () => {
     expect(() => sq(def)).toThrow(/grid.*cap/);
   });
 
-  it('rejects zero or negative fill spacings', () => {
-    // Fill params are validated at encode (mid-edit transient guard).
+  it('a fill spacing at or below zero makes no ink, and still occludes', () => {
+    // Fill params are read at encode (the mid-edit transient guard). A
+    // spacing with no length in it has no lines to lay down: the region
+    // keeps its opacity and generates nothing, exactly as a mask does.
     const bad = (spec: ReturnType<typeof fill>) =>
       sketch({ seed: 1 }, () => [circle(50, 50, 10, { fill: spec })]);
-    expect(() => sq(bad(fill('hatch', { angle: 45, spacing: 0 })))).toThrow(/positive length/);
-    expect(() => sq(bad(fill('hatch', { angle: 45, spacing: mm(0) })))).toThrow(/positive length/);
-    expect(() => sq(bad(fill('hatch', { angle: 45, spacing: mm(-1) })))).toThrow(/positive length/);
-    expect(() => sq(bad(fill('stipple', { density: 0.5, minDist: mm(0) })))).toThrow(/positive length/);
+    const real = sq(bad(fill('hatch', { angle: 45, spacing: mm(2) })));
+    for (const spec of [
+      fill('hatch', { angle: 45, spacing: 0 }),
+      fill('hatch', { angle: 45, spacing: mm(0) }),
+      fill('hatch', { angle: 45, spacing: mm(-1) }),
+      fill('stipple', { density: 0.5, minDist: mm(0) }),
+    ]) {
+      const r = sq(bad(spec));
+      expect(r.frags.length).toBeGreaterThan(0); // the outline still draws
+      expect(r.frags.length).toBeLessThan(real.frags.length);
+    }
     expect(sq(bad(fill('hatch', { angle: 45, spacing: mm(0.05) })))).toBeTruthy(); // small-but-real stays legal
   });
 });
@@ -1049,11 +1069,9 @@ describe('svg() shape source', () => {
     );
     const r = sq(def);
     expect(r.frags.length).toBeGreaterThan(0);
-    expect(() =>
-      sketch({ aspect: [1, 1] }, (t) => t.svg(fixture, { layers: ['nope'] })) && sq(
-        sketch({ aspect: [1, 1] }, (t) => t.svg(fixture, { layers: ['nope'] })),
-      ),
-    ).toThrow(/layer filter/);
+    // A filter that matches no layer draws no shapes, and composes as an
+    // empty group like any other.
+    expect(sq(sketch({ aspect: [1, 1] }, (t) => t.svg(fixture, { layers: ['nope'] }))).frags.length).toBe(0);
   });
 
   it('keeps cubic and quadratic Béziers as curves, with S/T reflection and transforms on the control points', () => {

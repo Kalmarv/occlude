@@ -23,7 +23,7 @@ describe('exact chart segment clipping',()=>{
   const overlap=clipChartSegment3(chart,[-1,0],[2,0])!;
   expect([pointNumber(overlap.a),pointNumber(overlap.b)]).toEqual([[0,0,0],[1,0,0]]);
   expect(clipChartSegment3(chart,[-1,1+Number.EPSILON],[1,1+Number.EPSILON])).toBeNull();
-  expect(()=>clipChartSegment3([[0,0],[1,0],[2,0]],[0,0],[1,0])).toThrow('nondegenerate');
+  expect(clipChartSegment3([[0,0],[1,0],[2,0]],[0,0],[1,0])).toBeNull();
  });
  it('keeps rational attachment when UV and world scales differ radically',()=>{
   for(const scale of [2**-300,2**300]){

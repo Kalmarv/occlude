@@ -28,7 +28,8 @@ export interface GridOptions {
  */
 export function grid(b: { w: number; h: number }, opts: GridOptions): GridCell[] {
   const { cols, rows, gap = 0 } = opts;
-  finiteCount('grid', cols * rows);
+  // No cells to lay out (a zero or non-finite count): an empty grid.
+  if (finiteCount('grid', cols * rows) === 0) return [];
   const cells: GridCell[] = [];
   const cw = (b.w - gap * (cols - 1)) / cols;
   const ch = (b.h - gap * (rows - 1)) / rows;

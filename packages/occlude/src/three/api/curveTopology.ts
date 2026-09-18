@@ -7,18 +7,18 @@ export interface CurvePath {readonly points:readonly number[];readonly edges:rea
 export function curvePath<P extends Attributes3,E extends EdgeAttributes>(curve:CurveGeometry<P,E>):CurvePath {
   if(!(curve instanceof CurveGeometry))throw new Error('construction requires curve geometry');
   const {points,edges}=curve.surface;
-  if(!edges.length)throw new Error('construction requires a nonempty curve path');
-  const adjacency=points.map(()=>[] as number[]);
-  edges.forEach((edge,i)=>{
-    const [a,b]=edge.vertices;
-    if(Math.hypot(...sub3(points[a].position,points[b].position))===0)throw new Error('construction path has a zero-length edge');
-    adjacency[a].push(i);adjacency[b].push(i);
-  });
+  // A zero-length edge is no step along the path: drop it and order what is
+  // left. Nothing left is an empty path, and every construction over it is an
+  // empty mesh rather than a failed sketch.
+  const kept=edges.flatMap((edge,i)=>Math.hypot(...sub3(points[edge.vertices[0]].position,points[edge.vertices[1]].position))===0?[]:[i]);
+  if(!kept.length)return {points:[],edges:[],closed:false};
+  const first=kept[0],adjacency=points.map(()=>[] as number[]);
+  for(const i of kept){const [a,b]=edges[i].vertices;adjacency[a].push(i);adjacency[b].push(i);}
   if(adjacency.some(row=>row.length>2))throw new Error('construction requires an unbranched curve path');
   const ends=adjacency.flatMap((row,i)=>row.length===1?[i]:[]),closed=ends.length===0;
   if(!closed&&ends.length!==2)throw new Error('construction requires one connected curve path');
   const ordered:number[]=[],orderedEdges:number[]=[],used=new Set<number>();
-  let current=closed?edges[0].vertices[0]:ends[0];
+  let current=closed?edges[first].vertices[0]:ends[0];
   for(;;){
     ordered.push(current);
     const edge=adjacency[current].find(i=>!used.has(i));
@@ -27,10 +27,10 @@ export function curvePath<P extends Attributes3,E extends EdgeAttributes>(curve:
     const [a,b]=edges[edge].vertices;current=a===current?b:a;
     if(closed&&current===ordered[0])break;
   }
-  if(used.size!==edges.length)throw new Error('construction requires one connected curve path');
+  if(used.size!==kept.length)throw new Error('construction requires one connected curve path');
   if(!closed){
-    const first=orderedEdges.indexOf(0);
-    if(ordered[first]!==edges[0].vertices[0]){ordered.reverse();orderedEdges.reverse();}
+    const at=orderedEdges.indexOf(first);
+    if(ordered[at]!==edges[first].vertices[0]){ordered.reverse();orderedEdges.reverse();}
   }
   return {points:ordered,edges:orderedEdges,closed};
 }

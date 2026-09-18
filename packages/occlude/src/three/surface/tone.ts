@@ -1,6 +1,7 @@
 import type {Vec3} from '../math.js';
 import type {AssetPixels} from '../../imageAsset.js';
 import {dot3,unit3,finite3} from '../math.js';
+import {clampSetting} from '../degenerate.js';
 
 /** Tone convention for surface drawing: 0 is light (no hatch), 1 is dark
  * (full requested coverage). Built-in recipes are data, so a batched GPU
@@ -43,13 +44,13 @@ export function lightRecipe3(options:{direction:LightDirection3;ambient?:number;
   const direction:Vec3|undefined=typeof options.direction==='string'?named[options.direction]:options.direction;
   if(!direction)throw new Error('light direction must be a vector or up/down/x/y/z');
   finite3(direction);
-  if(!direction.some(n=>n!==0))throw new Error('light direction must be nonzero');
-  const ambient=options.ambient??0.15,ramp=options.ramp??'linear',space=options.space??'world',floor=options.floor??0;
-  if(!Number.isFinite(floor)||floor<0||floor>1)throw new Error('light floor must lie in [0,1]');
-  if(!Number.isFinite(ambient)||ambient<0||ambient>1)throw new Error('light ambient must lie in [0,1]');
+  // A light pointing nowhere lights nothing: every normal reads as turned away
+  // and the tone comes out flat.
+  const ramp=options.ramp??'linear',space=options.space??'world';
+  const floor=clampSetting(options.floor,0,1,0,'light floor'),ambient=clampSetting(options.ambient,0,1,0.15,'light ambient');
   if(ramp!=='linear'&&ramp!=='smooth')throw new Error('light ramp must be linear or smooth');
   if(space!=='world'&&space!=='model')throw new Error('light space must be world or model');
-  return Object.freeze({kind:'light',direction:Object.freeze(unit3(direction)) as Vec3,ambient,ramp,space,floor});
+  return Object.freeze({kind:'light',direction:Object.freeze(direction.some(n=>n!==0)?unit3(direction):[0,0,0]) as Vec3,ambient,ramp,space,floor});
 }
 /** CPU reference. Illumination is ambient plus the ramped cosine; tone is its
  * complement. A face turned away from the light reaches 1 - ambient. */
@@ -99,8 +100,9 @@ export function imageValue3(uv:readonly [number,number],recipe:ImageRecipe3):num
  * closer than one quantum to its threshold is ambiguous on any backend and is
  * settled by the CPU reference, so f32 evaluation never flips a decision. */
 export const TONE_QUANTUM=2**-10;
+/** A tone the field could not answer reads as unpainted. */
 export function decideTone3(tone:number,threshold:number):'accept'|'reject'|'ambiguous' {
-  if(!Number.isFinite(tone))throw new Error('tone must be finite');
+  if(!Number.isFinite(tone))return 'reject';
   const gap=tone-threshold;
   return Math.abs(gap)<TONE_QUANTUM?'ambiguous':gap>=0?'accept':'reject';
 }

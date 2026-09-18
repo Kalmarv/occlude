@@ -50,9 +50,13 @@ describe('curve-profile revolution',()=>{
   expect(()=>revolve(polyline([[1,1,0],[1,1,1]]))).toThrow('XZ');
   expect(()=>revolve(polyline([[1,1,1e12],[1,1,1e12+1]]))).toThrow('XZ');
   expect(()=>revolve(polyline([[1,0,0],[0,0,1],[1,0,2]]))).toThrow('pinched');
-  expect(()=>revolve(polyline([[0,0,0],[0,0,1]]))).toThrow('entirely');
+  expect(revolve(polyline([[0,0,0],[0,0,1]])).surface.faces.length).toBe(0);
   const profile=polyline([[1,0,0],[1,0,1]]);
-  expect(()=>revolve(profile,{segments:2})).toThrow('smaller than 180');expect(()=>revolve(profile,{angle:0})).toThrow('angle');
+  expect(()=>revolve(profile,{segments:2})).toThrow('smaller than 180');
+  // No turn, no segments and no profile each revolve nothing.
+  expect(revolve(profile,{angle:0}).surface.faces.length).toBe(0);
+  expect(revolve(profile,{segments:0}).surface.faces.length).toBe(0);
+  expect(revolve(polyline([])).surface.faces.length).toBe(0);
   expect(()=>revolve(profile,{angle:90,caps:true})).toThrow('closed profile');
   expect(()=>revolve(profile,{maxPoints:10})).toThrow('points budget');expect(()=>revolve(profile,{maxFaces:10})).toThrow('faces budget');
   expect(()=>revolve(profile,{segments:1e9,maxPoints:1_000_000})).toThrow('budget');

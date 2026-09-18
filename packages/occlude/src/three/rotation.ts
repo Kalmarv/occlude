@@ -9,12 +9,15 @@ export function vector3(value:Vector3):Vec3 {
   const v=Array.isArray(value)?value:[(value as {x:number}).x,(value as {y:number}).y,(value as {z:number}).z];
   finite3(v as Vec3);return [...v] as unknown as Vec3;
 }
-function direction(value:Axis3):Vec3 {
+/** Undefined where there is no direction: a zero vector names no axis, so the
+ * rotation asked for is the identity. An unknown axis name is still a mistake. */
+function direction(value:Axis3):Vec3|undefined {
   const v=typeof value==='string'?value==='x'?[1,0,0]:value==='y'?[0,1,0]:value==='z'?[0,0,1]:undefined:vector3(value);
   if(!v)throw new Error('rotation axis must be x, y, z or a nonzero direction');
-  const scale=Math.max(...v.map(Math.abs));if(!(scale>0))throw new Error('rotation direction must be nonzero');
+  const scale=Math.max(...v.map(Math.abs));if(!(scale>0))return undefined;
   const scaled=v.map(n=>n/scale) as unknown as Vec3;return mul3(scaled,1/Math.hypot(...scaled));
 }
+const IDENTITY=():Rotation=>new Rotation([0,0,0,1]);
 function degrees(value:number):number {if(!Number.isFinite(value))throw new Error('rotation angle must be finite degrees');return (value%360)*Math.PI/180;}
 function multiply(a:Quaternion3,b:Quaternion3):Quaternion3 {
   const [x,y,z,w]=a,[u,v,s,t]=b;return [w*u+x*t+y*s-z*v,w*v-x*s+y*t+z*u,w*s+x*v-y*u+z*t,w*t-x*u-y*v-z*s];
@@ -48,17 +51,18 @@ export function rotation3(value:RotationInput):Rotation {
 }
 export function axisAngle(axis:Axis3,angle:number):Rotation {
   const unit=direction(axis),half=degrees(angle)/2,s=Math.sin(half);
+  if(!unit)return IDENTITY();
   return new Rotation([unit[0]*s,unit[1]*s,unit[2]*s,Math.cos(half)]);
 }
 /** Choose a reference from the fixed local axis, never the changing target. */
 function perpendicular(axis:Vec3):Vec3 {
   const index=[0,1,2].sort((a,b)=>Math.abs(axis[a])-Math.abs(axis[b]))[0];
   const ref:Vec3=[index===0?1:0,index===1?1:0,index===2?1:0];
-  return direction(sub3(ref,mul3(axis,dot3(axis,ref))));
+  return direction(sub3(ref,mul3(axis,dot3(axis,ref))))??ref;
 }
 function shortest(from:Vec3,to:Vec3,antipodal:Vec3):Rotation {
   const cross=cross3(from,to),s=Math.hypot(...cross),c=Math.max(-1,Math.min(1,dot3(from,to)));
-  if(s===0)return c<0?new Rotation([...direction(antipodal),0]):new Rotation([0,0,0,1]);
+  if(s===0)return c<0?new Rotation([...(direction(antipodal)??perpendicular(from)),0]):IDENTITY();
   // Choose the well-conditioned half-angle branch. Keep tiny transverse
   // components even when dot rounds to +/-1, without dividing by tiny s first.
   if(c>=0){const w=Math.sqrt((1+c)/2);return new Rotation([cross[0]/(2*w),cross[1]/(2*w),cross[2]/(2*w),w]);}
@@ -75,21 +79,26 @@ export interface AlignAxisOptions {
   /** Transport an existing orientation by the shortest change of direction. */
   readonly previous?:RotationInput;
 }
-function projected(value:Vector3,axis:Vec3,label:string):Vec3 {
-  const v=direction(value),t=cross3(axis,cross3(v,axis));
-  if(Math.hypot(...cross3(v,axis))===0)throw new Error(`${label} must not be parallel to the aligned axis`);
-  return direction(t);
+/** A reference with no direction of its own, or one lying along the axis,
+ * names no angle around it: any perpendicular will do. */
+function projected(value:Vector3,axis:Vec3):Vec3 {
+  const v=direction(value);
+  if(!v||Math.hypot(...cross3(v,axis))===0)return perpendicular(axis);
+  return direction(cross3(axis,cross3(v,axis)))??perpendicular(axis);
 }
 export function alignAxis(axis:Axis3,target:Vector3,options:AlignAxisOptions={}):Rotation {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('alignment options must be an object');
-  const local=direction(axis),world=direction(target),reference=options.localUp?projected(options.localUp,local,'localUp'):perpendicular(local);
   if(options.localUp&&!options.up)throw new Error('localUp requires a world up reference');
   if(options.up&&options.previous)throw new Error('alignment uses either an up reference or previous orientation');
+  // Nothing to align, or nothing to align it to: the identity turn.
+  const local=direction(axis),world=direction(target);
+  if(!local||!world)return IDENTITY();
+  const reference=options.localUp?projected(options.localUp,local):perpendicular(local);
   let result:Rotation;
-  if(options.previous){const previous=rotation3(options.previous);result=previous.then(shortest(direction(previous.apply(local)),world,previous.apply(reference)));}
+  if(options.previous){const previous=rotation3(options.previous),turned=direction(previous.apply(local));if(!turned)return IDENTITY();result=previous.then(shortest(turned,world,previous.apply(reference)));}
   else result=shortest(local,world,reference);
   if(options.up){
-    const from=projected(result.apply(reference),world,'rotated reference'),to=projected(options.up,world,'up');
+    const from=projected(result.apply(reference),world),to=projected(options.up,world);
     result=result.then(axisAngle(world,Math.atan2(dot3(world,cross3(from,to)),dot3(from,to))*180/Math.PI));
   }
   if(options.twist!==undefined)result=result.then(axisAngle(world,options.twist));

@@ -5,6 +5,7 @@ import {meshPoints,meshEdges,meshFaces,meshCorners,type MeshCorners,type MeshCor
 import {assembleSurface3,surface3,box3,type Surface3,type SurfacePoint3,type Attributes3,type Attribute3,type Provenance3} from '../geometry/surface.js';
 import {captureSurface3,ownSurface3,cloneSurface3,editAttributes3,transformSurface3,measureFaces3} from '../geometry/model.js';
 import {add3,sub3,mul3,dot3,cross3,finite3,type Vec3} from '../math.js';
+import {clampSetting,emptySize,sampleValue} from '../degenerate.js';
 import {Collection} from './collection.js';
 import {subdivideSurface,type SubdivisionOptions,type PointTransfers} from './subdivide.js';
 import {extrudeRegion3,regionDirection3} from '../geometry/extrude.js';
@@ -46,8 +47,7 @@ function checkedStroke(value:string|undefined):string|undefined {
   return value;
 }
 function checkedCreaseAngle(value:number|undefined):number|undefined {
-  if(value!==undefined&&(!Number.isFinite(value)||value<0||value>180))throw new Error('creaseAngle must be between 0 and 180 degrees');
-  return value;
+  return value===undefined?undefined:clampSetting(value,0,180,30,'creaseAngle');
 }
 export type PointRow<A extends Attributes3={}> = Readonly<A & {id:string;index:number;x:number;y:number;z:number;attributes:Readonly<A>;provenance?:Provenance3}>;
 export type EdgeRow<A extends EdgeAttributes={},P extends Attributes3={}> = Readonly<A & {id:string;index:number;vertices:readonly [number,number];a:PointRow<P>; b:PointRow<P>;length:number;attributes:Readonly<A>;provenance?:Provenance3}>;
@@ -140,10 +140,10 @@ function displaced<R extends PointRow<any>>(surface:Surface3,field:Field<R,Vec3|
     const value=evaluate(field,row);
     let delta:Vec3;
     if(typeof value==='number'){
-      if(!Number.isFinite(value))throw new Error('displace amount must be finite');
-      const direction=axis??(normals??=vertexNormals(surface))[i];
-      if(!direction)throw new Error('a scalar displacement needs a vertex normal or { along }: this point has no faces');
-      delta=mul3(direction,value);
+      // A sample the field could not answer, or a point with no normal to
+      // follow, leaves that point where it is. The rest still move.
+      const amount=sampleValue(value,0),direction=axis??(normals??=vertexNormals(surface))[i];
+      delta=direction?mul3(direction,amount):[0,0,0];
     }else{delta=value;finite3(delta);}
     return {...surface.points[i],position:add3(surface.points[i].position,delta)};
   });
@@ -478,10 +478,11 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
       if(Array.isArray(offset))vector=offset as Vec3;
       else if(typeof offset==='function')vector=offset(region);
       else {
-        const distance=evaluate(offset.distance,region);
-        if(!Number.isFinite(distance))throw new Error(`extrude distance must be finite for region ${index}`);
-        if(!region.normal)throw new Error(`extrude region ${index} has no well-defined direction; supply a vector instead of a distance`);
-        vector=[region.normal[0]*distance,region.normal[1]*distance,region.normal[2]*distance];
+        // A region whose faces cancel has no direction to follow, and a
+        // distance the field could not answer is no distance: that region
+        // stays where it is and the others still extrude.
+        const distance=sampleValue(evaluate(offset.distance,region),0);
+        vector=region.normal?[region.normal[0]*distance,region.normal[1]*distance,region.normal[2]*distance]:[0,0,0];
       }
       if(!Array.isArray(vector)||vector.length!==3)throw new Error(`extrude offset must produce a 3-vector for region ${index}`);
       finite3(vector);
@@ -622,7 +623,7 @@ export function mesh(source:Surface3|readonly Vec3[],facesOrOptions:readonly (re
 }
 /** One quad with a stored unit-square XY chart. Subdivision preserves this chart. */
 export function plane(width=1,height=width,options:GeometryOptions={}):Mesh<{},{},{},SurfaceUV>{
-  if(![width,height].every(n=>Number.isFinite(n)&&n>0))throw new Error('plane dimensions must be positive and finite');
+  if(emptySize(width,height))return emptyMesh(options);
   const source=surface3([[-width/2,-height/2,0],[width/2,-height/2,0],[width/2,height/2,0],[-width/2,height/2,0]],[[0,1,2,3]]);
   const uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
   return new Mesh(ownSurface3(chartSurface3(source,(_,c)=>({uv:uv[c],chart:'plane'}))),options);
@@ -632,4 +633,9 @@ export function box(size:number|Vec3=1,options:GeometryOptions={}):Mesh<{},{},{}
   const source=box3(typeof size==='number'?[size,size,size]:size),uv:readonly (readonly [number,number])[]=[[0,0],[1,0],[1,1],[0,1]];
   return new Mesh(ownSurface3(chartSurface3(source,(f,c)=>({uv:uv[c],chart:source.faces[f].id}))),options);
 }
+/** Nothing to draw, as a value. A degenerate construction returns one of these
+ * rather than failing, and it flows through view, hatch, sampling and the plan
+ * like any other geometry. */
+export function emptyMesh(options:GeometryOptions={}):Mesh<any,any,any,any>{return new Mesh(ownSurface3(surface3([],[])),options);}
+export function emptyCurve(options:GeometryOptions={}):CurveGeometry<any,any>{return new CurveGeometry(surface3([],[]),[],options);}
 export function pointCloud(positions:readonly Vec3[],options:GeometryOptions={}):PointGeometry{return new PointGeometry(ownSurface3(surface3(positions,[])),options);}

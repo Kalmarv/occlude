@@ -152,12 +152,15 @@ function checkOpts(opts: ThickenOpts): number {
       `thicken: radius must be finite, got ${radius}`,
     );
   }
-  const tol = opts.tolerance ?? 0.05;
-  if (typeof tol !== 'number' || !Number.isFinite(tol) || tol <= 0) {
+  const asked = opts.tolerance ?? 0.05;
+  if (typeof asked !== 'number') {
     throw new Error(
       `thicken: tolerance must be finite and greater than zero, got ${String(opts.tolerance)}`,
     );
   }
+  // A tolerance with no size in it (a mid-edit zero) is no instruction: the
+  // default stands, and the material still thickens.
+  const tol = Number.isFinite(asked) && asked > 0 ? asked : 0.05;
   if (opts.point !== undefined && typeof opts.point !== 'function') {
     throw new Error('thicken: point must be a function of an event');
   }
@@ -219,16 +222,19 @@ export function thicken(
   for (const row of vRows) {
     const x = src.x[row];
     const y = src.y[row];
-    if (!Number.isFinite(x) || !Number.isFinite(y))
-      throw new Error(`thicken: vertex ${row} is not finite`);
+    // A vertex with no place, or no radius to give it, is left out of the
+    // union: its row keeps the NaN radius, and the edges that meet it are
+    // skipped below. The rest of the material still thickens.
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
     let r: number;
     if (typeof opts.radius === 'number') r = opts.radius;
     else r = opts.radius(src.vertex(row));
-    if (typeof r !== 'number' || !Number.isFinite(r)) {
+    if (typeof r !== 'number') {
       throw new Error(
         `thicken: radius for vertex ${row} must be finite, got ${String(r)}`,
       );
     }
+    if (!Number.isFinite(r)) continue;
     radii[row] = Math.max(0, r);
   }
 
@@ -242,6 +248,8 @@ export function thicken(
     onEdge.add(b);
     const ra = radii[a];
     const rb = radii[b];
+    // An end that was left out (NaN) takes its edge with it.
+    if (!(ra >= 0) || !(rb >= 0)) continue;
     if (!(ra > 0) && !(rb > 0)) continue;
     shapes.push({
       ax: src.x[a],
@@ -280,13 +288,11 @@ export function thicken(
   }
   if (shapes.length === 0) return makeMaterial([]);
 
-  const loops = polygonUnion(shapes, tol, !!opts.point).map(canonicalize);
-  for (const loop of loops) {
-    if (loop.length < 3 || loopArea(loop) === 0)
-      throw new Error(
-        'thicken: polygon boundary cannot be represented by these binary64 coordinates',
-      );
-  }
+  // A loop that came back with no area cannot be drawn as a boundary at
+  // these coordinates; it is left out and the loops that survive are kept.
+  const loops = polygonUnion(shapes, tol, !!opts.point)
+    .map(canonicalize)
+    .filter((loop) => loop.length >= 3 && loopArea(loop) !== 0);
 
   loops.sort((a, b) => {
     const aa = loopArea(a);

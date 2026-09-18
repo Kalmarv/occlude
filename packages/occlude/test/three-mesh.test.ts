@@ -61,8 +61,11 @@ describe('polygon surfaces and topology features', () => {
     expect(featureSnapshot3([{id:'L',surface:shape}],[],frame()).features).toHaveLength(6);
   });
   it('rejects ambiguous topology and nonplanar construction, then preserves triangulation through deformation', () => {
-    expect(()=>surface3([[0,0,0],[1,1,0],[0,1,0],[1,0,0]],[[0,1,2,3]])).toThrow();
-    expect(()=>surface3([[0,0,0],[1,0,0],[1,1,1],[0,1,0]],[[0,1,2,3]])).toThrow(/planar/);
+    // A polygon with no usable plane keeps its place in the face order and
+    // contributes no triangles; a nonplanar one becomes its own triangles.
+    const bowtie=surface3([[0,0,0],[1,1,0],[0,1,0],[1,0,0]],[[0,1,2,3]]);
+    expect(bowtie.faces.length).toBe(1);expect(bowtie.triangles.length).toBe(0);
+    expect(surface3([[0,0,0],[1,0,0],[1,1,1],[0,1,0]],[[0,1,2,3]]).triangles.length).toBe(2);
     expect(()=>surface3([[0,0,0],[1,0,0],[0,1,0],[0,-1,0]],[[0,1,2],[0,1,3]])).toThrow(/winding/);
     const shape=surface3([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0]],[[0,1,2,3]]);
     const triangles=shape.triangles.map(t=>[...t.vertices]);shape.points[0].position=[-1,-1,4];

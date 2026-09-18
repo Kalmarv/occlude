@@ -11,6 +11,20 @@ const turns = (v: number[]) => {
 };
 
 describe('oscillate', () => {
+  it('a value one station cannot read leaves that station straight', () => {
+    // The per-sample rule: a field that does not answer with a finite number
+    // here degrades THIS station, never the drawing. Half of this line has a
+    // wavelength, half has none; the half with one still swings.
+    const src = line(0, 50, 100, 50);
+    const half = oscillate(src, { wavelength: (x) => (x < 50 ? 8 : NaN), amplitude: 3 });
+    expect(Array.from(half.x).some((x, i) => x < 50 && half.y[i] !== 50)).toBe(true);
+    expect(Array.from(half.x).filter((x, i) => x > 50 && half.y[i] !== 50)).toHaveLength(0);
+    // An amplitude nobody can read is no swing, and a waveform that answers
+    // with nothing is no offset: the chain comes through straight either way.
+    expect(ys(oscillate(src, { wavelength: 8, amplitude: () => NaN })).every((y) => y === 50)).toBe(true);
+    expect(ys(oscillate(src, { wavelength: 8, amplitude: 3, shape: () => NaN })).every((y) => y === 50)).toBe(true);
+  });
+
   it('swings to the amplitude, at the wavelength, about the chain it was given', () => {
     const w = oscillate(line(0, 50, 120, 50), { wavelength: 10, amplitude: 4 });
     const v = ys(w);
@@ -100,8 +114,12 @@ describe('oscillate', () => {
     const src = line(0, 50, 60, 50);
     // Lengths are material coordinates here, as for thicken: mm(1) is not resolved.
     expect(() => oscillate(src, { wavelength: mm(1) as never, amplitude: 2 })).toThrow(/is not resolved here/);
-    expect(() => oscillate(src, { wavelength: 0, amplitude: 2 })).toThrow(/must be positive/);
-    expect(() => oscillate(src, { wavelength: (x) => 5 - x, amplitude: 2 })).toThrow(/must be positive/);
+    // A wavelength with no length in it has no cycle to sit on: that station
+    // stays where the chain put it, and the sketch still draws.
+    expect(Array.from(oscillate(src, { wavelength: 0, amplitude: 2 }).y).every((y) => y === 50)).toBe(true);
+    const partly = oscillate(src, { wavelength: (x) => 5 - x, amplitude: 2 });
+    expect(Array.from(partly.y).some((y) => y !== 50)).toBe(true);
+    expect(Array.from(partly.x).filter((x, i) => x > 5 && partly.y[i] !== 50)).toHaveLength(0);
     expect(() => oscillate(src, { amplitude: 2 } as never)).toThrow(/\{ wavelength \} is required/);
     expect(() => oscillate(src, { wavelength: 5 } as never)).toThrow(/\{ amplitude \} is required/);
     expect(() => oscillate(src, { wavelength: 5, amplitude: 2, steps: 3 })).toThrow(/at least 4/);

@@ -43,10 +43,15 @@ const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 export function snap(m: Material, field: SnapField, opts: SnapOpts): Material {
   const src = makeMaterial(m);
   if (typeof field !== 'function') throw new Error('snap: expected a field, (x, y) => number');
-  const radius = opts?.radius;
-  if (!(radius >= 0)) throw new Error(`snap: { radius } must be a non-negative length in the material's own coordinates, got ${String(radius)} (mm(1) and the other lengths need the sketch frame)`);
-  const samples = opts.samples ?? 48;
-  if (!Number.isInteger(samples) || samples < 1) throw new Error(`snap: { samples } must be a whole number of offsets, at least 1 (got ${String(opts.samples)})`);
+  const asked = opts?.radius;
+  if (typeof asked !== 'number') throw new Error(`snap: { radius } must be a non-negative length in the material's own coordinates, got ${String(asked)} (mm(1) and the other lengths need the sketch frame)`);
+  // A radius below zero is no radius to look around in: the points stay put.
+  const radius = asked > 0 ? asked : 0;
+  const asked2 = opts.samples ?? 48;
+  if (!Number.isInteger(asked2)) throw new Error(`snap: { samples } must be a whole number of offsets, at least 1 (got ${String(opts.samples)})`);
+  // Staying put is always one of the offers, so a request for fewer than one
+  // offset is one offset.
+  const samples = Math.max(1, asked2);
   if (radius === 0 || src.n === 0) return src;
   // One spiral, built once and reused at every point: the offsets do not
   // depend on where the point is.

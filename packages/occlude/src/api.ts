@@ -932,7 +932,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     if(a instanceof Mesh){const options=b as SurfaceScatterOptions<any>;return scatterSurfacePoints(a,options,{rnd:exec.stream('__surface-scatter:'+ (options?.key??a.key??'default')).rnd,signal:scope?.signal});}
     const field = typeof a === 'function' ? a : undefined;
     const raw = (typeof a === 'function' || a === undefined ? b : a) as ScatterOpts;
-    if (!raw?.spacing) throw new Error('scatter: { spacing } is required');
+    if (raw?.spacing === undefined) throw new Error('scatter: { spacing } is required');
     const opts: ScatterOpts = raw.within === undefined ? raw : { ...raw, within: numericAreaLoops(exec, raw.within, 'scatter') };
     return scatterPoints(pointsEnv(), field, opts);
   }
@@ -1134,7 +1134,8 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const trailingOpts = last !== null && typeof last === 'object' && Object.getPrototypeOf(last) === Object.prototype && !('__occludeShape' in last);
     const opts: { tolerance?: L } = trailingOpts ? (last as { tolerance?: L }) : {};
     const shapes = (trailingOpts ? args.slice(0, -1) : args) as unknown[];
-    if (shapes.length === 0) throw new Error('t.material: give at least one shape (circle, rect, path, polygon, …); for points use the pure material(points)');
+    // No shapes (a spread of an empty list) is the empty material.
+    if (shapes.length === 0) return materialOf([]);
     const pts: [number, number][] = [];
     const edges: [number, number][] = [];
     for (const shape of shapes) for (const c of shapeContours(exec, shape as ShapeValue, opts.tolerance)) {
@@ -1176,11 +1177,12 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     if(shape instanceof SurfaceCurves)return sampleSurfaceCurves(shape,options as CurveSamplingOptions);
     if(shape instanceof Mesh){const opts=options as SurfaceSamplingOptions<any>;return sampleSurfacePoints(shape,opts,{rnd:exec.stream('__surface-sample:'+(opts?.key??shape.key??'default')).rnd,signal:scope?.signal});}
     const opts=options as {count?:number;spacing?:L;tolerance?:L};
-    checkSampling('sample', { count: opts.count, spacing: opts.spacing === undefined ? undefined : 1 });
     const frame = exec.frame;
     const unit = unitMm(frame);
     const spacingU = opts.spacing !== undefined ? resolveLen(opts.spacing, frame.inner) / unit : undefined;
-    if (spacingU !== undefined && !(spacingU > 0)) throw new Error('sample: spacing must be positive');
+    // A spacing that resolves to nothing, or a count with fewer than two
+    // samples in it, samples nothing: an empty material, not a failed sketch.
+    if (!checkSampling('sample', { count: opts.count, spacing: spacingU })) return materialOf([]);
     const pts: [number, number][] = [];
     const edges: [number, number][] = [];
     // Each outline keeps its OWN closure: a path may hold a ring and a chain.
@@ -1258,7 +1260,9 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     const [x, y, z] = Array.isArray(a) ? [a[0], a[1], a[2] ?? 0] : [row.x, row.y, row.z ?? 0];
     const options = (b as NoiseOptions | undefined) ?? {};
     const wavelength = options.wavelength ?? 1, amount = options.amount ?? 1;
-    if (!(wavelength > 0) || !Number.isFinite(amount)) throw new Error('noise wavelength must be positive and amount finite');
+    // No wavelength to walk, or no amount to give: no noise here. The field
+    // stays flat where it cannot be read.
+    if (!(wavelength > 0) || !Number.isFinite(amount)) return 0;
     return amount * exec.noise(x / wavelength, y / wavelength, z / wavelength);
   }
   const b0 = exec.bounds();

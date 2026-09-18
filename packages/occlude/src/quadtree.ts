@@ -39,7 +39,8 @@ export function quadtree(points: Material | Parameters<typeof makeMaterial>[0], 
   if (!Number.isInteger(capacity) || capacity < 1) throw new Error(`quadtree: { capacity } must be a whole number of points, at least 1 (got ${String(opts.capacity)})`);
   const depth = opts.depth ?? 12;
   if (!Number.isInteger(depth) || depth < 0) throw new Error(`quadtree: { depth } must be a non-negative whole number of splits (got ${String(opts.depth)})`);
-  if (!(bounds.w > 0) || !(bounds.h > 0)) throw new Error(`quadtree: bounds must have positive width and height, got ${bounds.w}×${bounds.h}`);
+  // A rectangle with no width or height has no cell to subdivide.
+  if (!(bounds.w > 0) || !(bounds.h > 0)) return makeMaterial([]);
 
   const pts: number[] = [];
   for (let i = 0; i < m.n; i++) {

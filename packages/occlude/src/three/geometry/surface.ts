@@ -1,6 +1,6 @@
 import {inheritTopology3} from './topology.js';
 import { orient2d } from 'robust-predicates';
-import { add3, cross3, dot3, finite3, mul3, sub3, type Vec3 } from '../math.js';
+import { add3, cross3, finite3, mul3, sub3, type Vec3 } from '../math.js';
 
 export type Attribute3 = number | string | boolean | readonly number[];
 export type Attributes3 = Record<string, Attribute3>;
@@ -30,20 +30,27 @@ function copyAttributes(attributes:Attributes3):Attributes3 {
 }
 const copyProvenance=(provenance:Provenance3):Provenance3=>({operation:provenance.operation,parents:[...provenance.parents]});
 
-/** Deterministic ear clipping of a simple planar polygon. No fan triangulation
- * of concave faces; robust orientation guards crossings and ear containment. */
+/** Deterministic ear clipping of a simple polygon. No fan triangulation of
+ * concave faces; robust orientation guards crossings and ear containment.
+ * A nonplanar polygon is clipped in its own average plane, so the face becomes
+ * the triangles that plane gives: the polygon is authoring topology, the
+ * triangles are what is drawn and occluded.
+ *
+ * A polygon with no plane at all — zero extent, cancelling winding, no ear to
+ * clip — yields no triangles rather than failing. The face keeps its identity,
+ * its corners and its place in the face order (`triangle.face` indices and
+ * chart callbacks stay aligned); it simply contributes nothing to draw. */
 function triangulate(positions: readonly Vec3[], vertices: readonly number[]): [number, number, number][] {
   const origin = positions[vertices[0]];
   const local = vertices.map(i => sub3(positions[i], origin));
   const extent = Math.max(...local.map(p => Math.hypot(...p)));
-  if (!(extent > 0) || !Number.isFinite(extent)) throw new Error('surface face has zero or unrepresentable extent');
+  if (!(extent > 0) || !Number.isFinite(extent)) return [];
   const normalized = local.map(p => mul3(p, 1 / extent));
   let normal: Vec3 = [0, 0, 0];
   for (let i = 1; i + 1 < normalized.length; i++) normal = add3(normal, cross3(normalized[i], normalized[i + 1]));
   const norm = Math.hypot(...normal);
-  if (!(norm > 1e-14)) throw new Error('surface face is degenerate or has cancelling winding');
+  if (!(norm > 1e-14)) return [];
   normal = mul3(normal, 1 / norm);
-  if (normalized.some(p => Math.abs(dot3(normal, p)) > 1e-10)) throw new Error('new surface faces must be planar; deform a triangulated surface for piecewise nonplanar geometry');
   const drop = Math.abs(normal[0]) > Math.abs(normal[1]) ? (Math.abs(normal[0]) > Math.abs(normal[2]) ? 0 : 2) : (Math.abs(normal[1]) > Math.abs(normal[2]) ? 1 : 2);
   const projected = normalized.map(p => drop === 0 ? [p[1], p[2]] : drop === 1 ? [p[0], p[2]] : [p[0], p[1]]);
   const turn = (a: number, b: number, c: number) => -orient2d(...projected[a] as [number, number], ...projected[b] as [number, number], ...projected[c] as [number, number]);
@@ -64,9 +71,9 @@ function triangulate(positions: readonly Vec3[], vertices: readonly number[]): [
       if (remaining.some(p => p !== a && p !== b && p !== c && turn(a, b, p) * sign >= 0 && turn(b, c, p) * sign >= 0 && turn(c, a, p) * sign >= 0)) continue;
       triangles.push([vertices[a], vertices[b], vertices[c]]); remaining.splice(j, 1); found = true; break;
     }
-    if (!found) throw new Error('surface face cannot be triangulated without degeneracy');
+    if (!found) return [];
   }
-  if (turn(remaining[0], remaining[1], remaining[2]) * sign <= 0) throw new Error('surface face has a degenerate final triangle');
+  if (turn(remaining[0], remaining[1], remaining[2]) * sign <= 0) return [];
   triangles.push(remaining.map(i => vertices[i]) as [number, number, number]);
   return triangles;
 }

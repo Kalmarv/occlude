@@ -120,6 +120,9 @@ describe('connect.tree', () => {
     // Deterministic.
     expect(Array.from(connect.tree(pts).edgeList)).toEqual(Array.from(connect.tree(pts).edgeList));
     expect(() => connect.tree(pts, { cost: 2 as never })).toThrow(/must be a function/);
-    expect(() => connect.tree(pts, { cost: () => NaN })).toThrow(/must be a number/);
+    // A cost with no number on it is an infinitely expensive link: the tree
+    // still spans, through the neighbours it can price.
+    expect(connect.tree(pts, { cost: () => NaN }).edgeCount).toBe(connect.tree(pts).edgeCount);
+    expect(() => connect.tree(pts, { cost: (() => 'far') as never })).toThrow(/must be a function|must be a number/);
   });
 });

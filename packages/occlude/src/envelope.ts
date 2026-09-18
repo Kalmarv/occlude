@@ -55,11 +55,9 @@ export function envelope(m: Material): Material {
     // A closed member's last segment returns to its first point.
     return c.closed && pts.length > 2 ? [...pts, pts[0]] : pts;
   });
-  if (chains.length < 2) {
-    throw new Error(
-      `envelope: a family needs at least two curves (got ${chains.length}) — append the members into one material, in the order they are drawn`,
-    );
-  }
+  // One curve has no neighbour to meet, so there is no envelope to draw:
+  // the family is empty until the second member arrives.
+  if (chains.length < 2) return makeMaterial([]);
 
   const side = (ax: number, ay: number, bx: number, by: number, px: number, py: number): number =>
     (bx - ax) * (py - ay) - (by - ay) * (px - ax);

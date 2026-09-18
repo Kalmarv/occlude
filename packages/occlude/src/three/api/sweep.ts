@@ -1,7 +1,8 @@
 import {chartSurface3,arcParameters3,profileCoordinates3,type SurfaceUV} from '../geometry/coordinates.js';
 import {surface3,assembleSurface3,type Attributes3,type SurfacePoint3,type SurfaceFace3,type SurfaceTriangle3} from '../geometry/surface.js';
 import {add3,sub3,mul3,dot3,cross3,unit3,finite3,type Vec3} from '../math.js';
-import {Mesh,CurveGeometry,evaluate,type PointRow,type Field,type EdgeAttributes,type GeometryOptions} from './mesh.js';
+import {Mesh,CurveGeometry,emptyMesh,evaluate,type PointRow,type Field,type EdgeAttributes,type GeometryOptions} from './mesh.js';
+import {sampleValue} from '../degenerate.js';
 import {curvePath,constructionBudget,constructionCapBudget,type ConstructionBudget} from './curveTopology.js';
 type Combined<A,B>=Omit<A,keyof B>&B;
 export interface SweepOptions<A extends Attributes3={}> extends GeometryOptions,ConstructionBudget {
@@ -18,9 +19,12 @@ function rotate(v:Vec3,axis:Vec3,angle:number):Vec3 {
   return add3(add3(mul3(v,c),mul3(cross3(axis,v),s)),mul3(axis,dot3(axis,v)*(1-c)));
 }
 function perpendicular(v:Vec3,tangent:Vec3):Vec3{return unit3(sub3(v,mul3(tangent,dot3(v,tangent))));}
+/** A half turn names no rotation axis, so the frame carries straight through:
+ * the arriving normal is already perpendicular to a reversed tangent, and every
+ * choice is as arbitrary as the next. */
 function transport(normal:Vec3,from:Vec3,to:Vec3):Vec3 {
   const axis=cross3(from,to),s=Math.hypot(...axis),c=dot3(from,to);
-  if(s===0){if(c<0)throw new Error('sweep has an ambiguous 180-degree frame turn');return perpendicular(normal,to);}
+  if(s===0)return perpendicular(normal,to);
   return perpendicular(rotate(normal,mul3(axis,1/s),Math.atan2(s,c)),to);
 }
 /** Carry an XY profile along an unbranched 3D path using transported frames.
@@ -28,6 +32,8 @@ function transport(normal:Vec3,from:Vec3,to:Vec3):Vec3 {
 export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends Attributes3,B extends EdgeAttributes>(profile:CurveGeometry<P,E>,path:CurveGeometry<A,B>,options:SweepOptions<A>={}):Mesh<Combined<A,P>,{},Partial<Combined<B,E>>&Attributes3,SurfaceUV> {
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('sweep options must be an object');
   const section=curvePath(profile),route=curvePath(path),shape=profile.surface,source=path.surface;
+  // Nothing to carry, or nowhere to carry it: an empty sweep, not a failure.
+  if(!section.edges.length||!route.edges.length)return emptyMesh(options);
   const count=route.points.length,width=section.points.length,caps=options.caps===true&&!route.closed;
   if(options.caps!==undefined&&typeof options.caps!=='boolean')throw new Error('sweep caps must be boolean');
   if(caps&&!section.closed)throw new Error('sweep end caps require a closed profile');
@@ -45,18 +51,23 @@ export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends A
   const length=distances.at(-1)!;if(!Number.isFinite(length))throw new Error('sweep path length is not representable');
   const tangents=centers.map((_,i)=>{
     if(!route.closed&&i===0)return directions[0];if(!route.closed&&i===count-1)return directions.at(-1)!;
+    // A path that doubles back has no mean tangent: follow the outgoing leg.
     const tangent=add3(directions[(i+directions.length-1)%directions.length],directions[i]);
-    if(Math.hypot(...tangent)===0)throw new Error('sweep path has an ambiguous 180-degree reversal');
-    return unit3(tangent);
+    return Math.hypot(...tangent)===0?directions[i]:unit3(tangent);
   });
   let start:Vec3;
-  if(options.normal){finite3(options.normal);if(Math.hypot(...cross3(options.normal,tangents[0]))===0)throw new Error('sweep normal must not be parallel to the initial tangent');start=perpendicular(options.normal,tangents[0]);}
-  else{const axis=[0,1,2].sort((a,b)=>Math.abs(tangents[0][a])-Math.abs(tangents[0][b]))[0];start=perpendicular([axis===0?1:0,axis===1?1:0,axis===2?1:0],tangents[0]);}
+  // A normal lying along the tangent names no direction in the section plane;
+  // the automatic choice below is as good as any other.
+  const automatic=()=>{const axis=[0,1,2].sort((a,b)=>Math.abs(tangents[0][a])-Math.abs(tangents[0][b]))[0];return perpendicular([axis===0?1:0,axis===1?1:0,axis===2?1:0],tangents[0]);};
+  if(options.normal){finite3(options.normal);start=Math.hypot(...cross3(options.normal,tangents[0]))===0?automatic():perpendicular(options.normal,tangents[0]);}
+  else start=automatic();
   const normals:Vec3[]=[start];for(let i=1;i<count;i++)normals.push(transport(normals[i-1],tangents[i-1],tangents[i]));
   let closure=0;
   if(route.closed){const end=transport(normals.at(-1)!,tangents.at(-1)!,tangents[0]);closure=Math.atan2(dot3(tangents[0],cross3(end,start)),dot3(end,start));}
-  const rows=path.points.map(p=>p),scales=route.points.map(i=>evaluate(options.scale??1,rows[i]));
-  if(scales.some(s=>!Number.isFinite(s)||s<=0))throw new Error('sweep scale must be positive and finite at every path point');
+  // A section the scale field collapses (zero, or a value it could not answer)
+  // contributes no width at that point; the sweep still runs and the triangles
+  // that collapse there are dropped below.
+  const rows=path.points.map(p=>p),scales=route.points.map(i=>Math.max(0,sampleValue(evaluate(options.scale??1,rows[i]),0)));
   const points:SurfacePoint3[]=[],faces:SurfaceFace3[]=[],triangles:SurfaceTriangle3[]=[];
   for(let ring=0;ring<count;ring++){
     const normal=rotate(normals[ring],tangents[ring],(closure+twist*Math.PI/180)*distances[ring]/length),binormal=unit3(cross3(tangents[ring],normal)),pathPoint=source.points[route.points[ring]];
@@ -78,10 +89,13 @@ export function sweep<P extends Attributes3,E extends EdgeAttributes,A extends A
     faces.push({id:JSON.stringify(['sweep','cap',ring===0?'start':'end']),vertices:boundary,attributes:{},provenance:{operation:'sweep',parents:section.edges.map(i=>shape.edges[i].id)}});
     for(const t of cap.triangles)triangles.push({face,vertices:t.vertices.map(i=>boundary[i]) as [number,number,number]});
   }
-  for(const triangle of triangles){
+  // A triangle with no area draws nothing: drop it and keep the rest of the
+  // skin. Its polygon stays, so charts and edges still line up.
+  const drawable=triangles.filter(triangle=>{
     const [a,b,c]=triangle.vertices.map(i=>points[i].position),ab=sub3(b,a),ac=sub3(c,a),scale=Math.max(Math.hypot(...ab),Math.hypot(...ac));
-    if(!(scale>0)||!Number.isFinite(scale)||Math.hypot(...cross3(mul3(ab,1/scale),mul3(ac,1/scale)))===0)throw new Error('sweep creates a degenerate triangle; adjust the profile or path');
-  }
+    return scale>0&&Number.isFinite(scale)&&Math.hypot(...cross3(mul3(ab,1/scale),mul3(ac,1/scale)))!==0;
+  });
+  triangles.length=0;triangles.push(...drawable);
   const profilePoints=section.points.map(i=>shape.points[i].position),u=arcParameters3(profilePoints,section.closed),v=arcParameters3(centers,route.closed);
   const capUV=caps?profileCoordinates3(profilePoints,[0,1]):undefined,sideCount=section.edges.length*route.edges.length;
   const surface=chartSurface3(assembleSurface3(points,faces,triangles),(f,c,vertex)=>{

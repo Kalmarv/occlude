@@ -47,7 +47,9 @@ describe('connected-region extrusion',()=>{
     const heights=[...out.surface.faces].filter(f=>f.provenance?.operation!=='extrude'&&region.some(r=>r.id===f.id)).map(f=>out.surface.points[f.vertices[0]].position[2]);
     expect(new Set(heights)).toEqual(new Set([1,2]));
     expect(out.surface.faces.length).toBe(model.surface.faces.length+left.boundaryEdges().length+right.boundaryEdges().length);
-    expect(()=>model.extrude(region,r=>[0,0,r.index])).toThrow('zero vector');
+    // A component with no vector is left where it is; the other still extrudes.
+    const partial=model.extrude(region,r=>[0,0,r.index]);
+    expect(partial.surface.faces.filter(f=>f.provenance?.operation==='extrude').length).toBe(right.boundaryEdges().length);
   });
   it('walls hole loops and open sheet edges',()=>{
     const model=sheet();
@@ -66,10 +68,11 @@ describe('connected-region extrusion',()=>{
   });
   it('rejects closed shells, foreign selections and bad offsets',()=>{
     const model=box(1);
-    expect(()=>model.extrude(model.faces,[0,0,1])).toThrow('closed shell');
+    // A closed shell has no boundary to raise walls from: nothing to extrude.
+    expect(model.extrude(model.faces,[0,0,1]).surface.faces.length).toBe(model.surface.faces.length);
     const other=box(1);
     expect(()=>model.extrude(other.faces,[0,0,1])).toThrow('this mesh revision');
-    expect(()=>model.extrude(model.faces.filter(f=>f.normal[2]>0.9),{distance:Number.NaN})).toThrow('finite');
+    expect(model.extrude(model.faces.filter(f=>f.normal[2]>0.9),{distance:Number.NaN}).surface.faces.length).toBe(model.surface.faces.length);
     expect(()=>model.extrude(model.faces.filter(f=>f.normal[2]>0.9),[0,0,1],{key:''})).toThrow('nonempty');
     // Two opposite faces cancel: no region direction for a scalar distance.
     const ends=model.faces.filter(f=>Math.abs(f.normal[2])>0.9);
@@ -79,7 +82,8 @@ describe('connected-region extrusion',()=>{
     const cancelling=mesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0],[1,1,1],[0,1,1],[1,0,1],[0,0,1]],[[0,1,2,3],[3,2,4,5],[5,4,6,7]]);
     const both=cancelling.faces;
     expect(both.components().length).toBe(1);
-    expect(()=>cancelling.extrude(both,{distance:1})).toThrow('well-defined direction');
+    // Two opposite faces cancel: no direction to follow, so nothing moves.
+    expect(cancelling.extrude(both,{distance:1}).surface.faces.length).toBe(cancelling.surface.faces.length);
   });
   it('retains cap corner UVs and generates continuous side charts',()=>{
     const model=plane(2,2).subdivide(1);

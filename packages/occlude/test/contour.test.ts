@@ -28,9 +28,12 @@ it('resolves native spacing and generates connected runs through real WASM', asy
   }
 });
 
-it('rejects invalid spacing and meaningless parameters', () => {
+it('draws no contours for a spacing it cannot use, and rejects meaningless parameters', () => {
   for (const spacing of [0,-1,NaN,Infinity]) {
-    expect(()=>draw(circle(50,50,20,{fill:fill('contour',{spacing})}))).toThrow(/spacing/);
+    // No spacing to walk: the region keeps its opacity and lays down no ink,
+    // exactly as a mask does, and the outline still draws.
+    expect(draw(circle(50,50,20,{stroke:false,fill:fill('contour',{spacing})})).frags.length).toBe(0);
+    expect(draw(circle(50,50,20,{fill:fill('contour',{spacing})})).frags.length).toBeGreaterThan(0);
   }
   expect(()=>draw(circle(50,50,20,{fill:fill('contour',{angle:45})}))).toThrow(/unsupported parameter/);
   expect(draw(circle(50,50,20,{stroke:false,fill:fill('contour',{spacing:mm(2)})})).frags.length).toBeGreaterThan(0);

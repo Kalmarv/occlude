@@ -231,7 +231,8 @@ describe('engine: one plan, every consumer', () => {
     const bad = (req: unknown) => sketch({ aspect: [1, 1], seed: 1 }, (t) => { t.draw(req as never); return stroke([[0, 0], [1, 1]]); });
     expect(() => render(bad({ progress: [0.5, 0.2] }), { paper: 'Square20' })).toThrow(/exceeds/);
     expect(() => render(bad({ chains: [0, 2], progress: [0, 1] }), { paper: 'Square20' })).toThrow(/one of/);
-    expect(() => render(bad({ progress: [0, 2] }), { paper: 'Square20' })).toThrow(/within \[0, 1\]/);
+    // The whole plan is 0…1: a request past either end is read as that end.
+    expect(() => render(bad({ progress: [0, 2] }), { paper: 'Square20' })).not.toThrow();
     expect(() => render(bad({ nope: 1 }), { paper: 'Square20' })).toThrow(/unknown option/);
     expect(() => render(sketch({ aspect: [1, 1], seed: 1 }, (t) => { t.plan({ optimize: -1 }); return stroke([[0, 0], [1, 1]]); }), { paper: 'Square20' })).toThrow(/optimize/);
   });

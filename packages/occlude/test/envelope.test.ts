@@ -93,9 +93,10 @@ describe('envelope', () => {
     expect(envelope(family(pencil)).n).toBe(0);
   });
 
-  it('refuses what is not a family, and is a pure function of one', () => {
-    expect(() => envelope(curve([[0, 0], [1, 1]]) as unknown as Material)).toThrow(/at least two curves/);
-    expect(() => envelope(material([[0, 0], [1, 1]]))).toThrow(/at least two curves/);
+  it('is empty without a family, and is a pure function of one', () => {
+    // One curve has no neighbour to meet: no envelope yet, no error.
+    expect(envelope(curve([[0, 0], [1, 1]]) as unknown as Material).n).toBe(0);
+    expect(envelope(material([[0, 0], [1, 1]])).n).toBe(0);
     const twice = () => Array.from(envelope(family(chords(100, 50))).x);
     expect(twice()).toEqual(twice());
   });

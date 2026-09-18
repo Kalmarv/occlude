@@ -168,10 +168,15 @@ describe('connect.tour', () => {
     expect(Array.from(connect.tour(pts).edgeList)).toEqual(Array.from(connect.tour(pts).edgeList));
     const c = (a: { x: number }, b: { x: number }) => Math.abs(a.x - b.x);
     expect(Array.from(connect.tour(pts, { cost: c as never }).edgeList)).toEqual(Array.from(connect.tour(pts, { cost: c as never }).edgeList));
-    expect(() => connect.tour(pts, { candidates: 1 })).toThrow(/at least 2/);
+    // A choice needs two to choose between: fewer is read as two.
+    expect(Array.from(connect.tour(pts, { candidates: 1 }).edgeList))
+      .toEqual(Array.from(connect.tour(pts, { candidates: 2 }).edgeList));
     expect(() => connect.tour(pts, { candidates: 2.5 })).toThrow(/whole number/);
     expect(() => connect.tour(pts, { cost: 3 as never })).toThrow(/must be a function/);
-    expect(() => connect.tour(pts, { cost: () => NaN })).toThrow(/must be a number/);
+    // A cost with no number on it is an infinitely expensive pair, not a
+    // broken sketch: the route is still built, around it.
+    expect(connect.tour(pts, { cost: () => NaN }).edgeCount).toBe(connect.tour(pts).edgeCount);
+    expect(() => connect.tour(pts, { cost: (() => 'far') as never })).toThrow(/must be a number/);
     // Too few rows to route is not an error.
     expect(connect.tour(material([])).edgeCount).toBe(0);
     expect(connect.tour(material([[1, 1]])).edgeCount).toBe(0);
