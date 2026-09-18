@@ -50,6 +50,10 @@ The example hides ink twice, and the two holes do not look alike. The opaque cir
 :::
 
 :::warning
+A shader renumbers the plan. `passes` doubles the chains, a dash multiplies them, and `keep: false` removes them. A `t.draw({ chains })` range written against the unshaded plan covers a different part of the shaded one. `ctx.index` is the row before shading.
+:::
+
+:::warning
 The route is already chosen when a shader runs. A `pen` answer costs a pen change the plan did not order around. Weight from `passes` is real ink on paper. The preview cannot show it, because the second pass covers the first exactly. Sixteen passes is the most a program can ask for.
 :::
 

@@ -256,3 +256,17 @@ describe('one rule, two worlds', () => {
     expect(lit(spread)).toBeGreaterThan(lit(seed));
   });
 });
+
+describe('a rule names the world its callback reads', () => {
+  it('types cur for the flat world by default, and for a mesh when asked', async () => {
+    const { plane } = await import('../src/three/api/index.js');
+    const mesh = plane(4).subdivide(1);
+    type MeshState = typeof mesh;
+    // Default: cur is a Material, and the flat world's words typecheck.
+    const flat = rule.point((p, cur) => cur.points.near(p, { radius: 2 }).length >= 0);
+    expect(line(3).steps(1, flat.move([0, 0])).points.length).toBe(3);
+    // Named: cur is the mesh, and a mesh word typechecks instead.
+    const solid = rule.point<{ z: number }, MeshState>((p, cur) => p.z >= 0 && [...cur.points].length > 0);
+    expect([...mesh.steps(1, solid.move([0, 0, 1])).points][0].z).toBeCloseTo(1, 6);
+  });
+});

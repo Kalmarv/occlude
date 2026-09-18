@@ -64,10 +64,15 @@ export interface RuleBatch {
  */
 export type Rewrite = <S extends RuleState, B extends RuleBatch>(cur: S, next: B, k: number) => void;
 
-/** Tested against every point of the frozen state, with the state itself. */
-export type PointMatch = (p: Vertex, cur: Material, k: number) => boolean;
-/** Tested against every edge of the frozen state, with the state itself. */
-export type EdgeMatch = (e: Edge, cur: Material, k: number) => boolean;
+/**
+ * Tested against every point of the frozen state, with the state and the
+ * step. The row and the state default to the flat world, because that is
+ * where most rules are written. A rule for a mesh names its own:
+ * `rule.point<MeshPointRow, Mesh>((p, cur) => …)`.
+ */
+export type PointMatch<P = Vertex, S = Material> = (p: P, cur: S, k: number) => boolean;
+/** Tested against every edge of the frozen state, with the state and the step. */
+export type EdgeMatch<E = Edge, S = Material> = (e: E, cur: S, k: number) => boolean;
 
 /** A motif's chain, mapped onto an edge: the first point of the motif goes
  * to the edge's `a`, the last to its `b`, and the rest ride the similarity
@@ -318,8 +323,8 @@ export class FaceRule {
  * because a mesh edit batch has no per-step topology.
  */
 export const rule = {
-  point: (match?: PointMatch): PointRule => new PointRule(asMatch(match)),
-  edge: (match?: EdgeMatch): EdgeRule => new EdgeRule(asMatch(match)),
+  point: <P = Vertex, S = Material>(match?: PointMatch<P, S>): PointRule => new PointRule(asMatch(match as PointMatch | undefined)),
+  edge: <E = Edge, S = Material>(match?: EdgeMatch<E, S>): EdgeRule => new EdgeRule(asMatch(match as EdgeMatch | undefined)),
   face: (match?: FaceMatch): FaceRule => new FaceRule(asMatch(match)),
 };
 
