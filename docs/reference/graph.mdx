@@ -9,11 +9,24 @@ one program. Open the canvas at [the graph page](/graph.html).
 
 ## Nodes
 
-A node is a word, a code node, a viewer or the output. A word node calls one
-occlude word: `circle`, `t.sample`, `polygon`, `box`. The palette lists every
-word the reference documents, grouped as the reference groups it. A code node
-holds a function body. A viewer draws what one wire carries. The output node
-is what the sketch returns.
+A node is a word, a value, a list, a code node, a viewer or the output.
+
+A **word** node calls one occlude word: `circle`, `t.sample`, `polygon`,
+`box`. The palette lists every word whose types map to sockets. A word the
+reference documents carries a link to its page. A word the reference has not
+reached yet carries no link. Its group is then its owner. A few words are
+values and not calls. `t.cx` is the middle of the drawable, and the compiled
+sketch writes it with no parentheses.
+
+A **value** node holds a literal: a number you drag, a vector. It compiles to
+the `const` a sketch would write.
+
+A **list** node holds several values as one, in order. It compiles to an
+array. A place may carry a whole collection in place of one value. That is the
+`...` a sketch writes. Wire the last place and a new one appears.
+
+A **code** node holds a function body. A **viewer** shows what one wire
+carries. The **output** node is what the sketch returns.
 
 ## Sockets
 
@@ -45,10 +58,25 @@ body returns an object that holds one entry for each output.
 
 ## Viewer
 
-A viewer draws what one wire carries, on a small sheet inside the node. A
-viewer on a material shows the points and chains. A viewer on a drawing shows
-the ink. A viewer never reaches the compiled sketch, so it costs the plot
-nothing.
+A viewer shows what one wire carries. A viewer never reaches the compiled
+sketch, so it costs the plot nothing.
+
+A viewer on a drawing draws the ink. A viewer on a material, on points or on
+faces wraps the value in `strokes(...)` for its own picture. A material is
+not ink until something interprets it. The node then says `strokes` on its
+face, and the graph's own ink does not change.
+
+A viewer on a number shows the number. A column of numbers shows how many,
+the range and the mean.
+
+A viewer on a value whose kind the graph cannot name tries both ways. It
+wraps the value. It draws the value bare if the wrap will not render.
+
+A viewer on a material with kept states carries a scrubber. Pick a state and
+the picture shows it.
+
+Two buttons sit in the viewer's title row. One fits the picture again. One
+opens it at full size.
 
 ## Evaluation
 
@@ -57,6 +85,13 @@ and only the nodes below it run again. A viewer above the change keeps its
 picture. The seed lives in the graph's config. A code node draws from the
 sketch's stream, as any sketch function does. The same graph and the same
 seed give the same ink.
+
+## Layout
+
+Press **Lay out** to place every node in columns that follow the wires. A
+node sits to the right of everything that feeds it, and level with the middle
+of what feeds it. Nothing overlaps. It moves every node, so it is a button:
+a place you chose is yours until you ask.
 
 ## Export
 
