@@ -143,7 +143,7 @@ export type { FaceMeasure, MeasureOpts } from './measure.js';
 export type { IsoContour, IsoOpts } from './isolines.js';
 // Loops → signed distance field (positive inside): pure, composes with
 // isolines (offsetting is a recipe), scatter, decimate, deform.
-export { distanceTo } from './distance.js';
+export { distanceTo, field } from './distance.js';
 export type { DistanceField } from './distance.js';
 // The one boundary contract of polygon, distanceTo and force.boundary.
 export { boundaryLoops, numericLoops } from './boundary.js';

@@ -194,3 +194,140 @@ export function distanceTo(boundary: Boundary): DistanceField {
     return inside ? best : -best;
   };
 }
+
+// ---- the algebra -------------------------------------------------------
+
+/**
+ * Distance fields as shapes you can combine. A shape here is a function of
+ * a point, POSITIVE INSIDE and negative outside, exactly like `distanceTo`.
+ * The sign is why union is a maximum and not a minimum: the union is
+ * inside wherever EITHER field is inside, and inside is the larger value.
+ *
+ * Everything else is already vocabulary. The boundary of a field is
+ * `t.isolines(f, 0)`, and a ring is the same call at another level — there
+ * is no `contour()` and no `offset()`. A field is a function, so a shape
+ * grown by four is `(x, y) => f(x, y) + 4`, written where it is needed.
+ *
+ * `circle`, `rect` and `segment` are exact. `blend` is not: a smooth
+ * minimum distorts distance near the joint, and levels far from zero drift.
+ * Contour it at zero and it is exact enough to draw.
+ */
+
+const asField = (f: DistanceField, what: string): DistanceField => {
+  if (typeof f !== 'function') throw new Error(`field.${what}: expected a distance field, a function of (x, y)`);
+  return f;
+};
+
+const many = (fields: readonly DistanceField[], what: string): DistanceField[] => {
+  if (fields.length === 0) throw new Error(`field.${what}: give at least one field`);
+  return fields.map((f) => asField(f, what));
+};
+
+/** A disc of radius `r` about `[cx, cy]`. Exact. */
+const circleField = (center: readonly [number, number], r: number): DistanceField => {
+  const [cx, cy] = center;
+  return (x, y) => r - Math.hypot(x - cx, y - cy);
+};
+
+/** An axis-aligned box centred on `center`, `size` wide and tall. Exact
+ * inside and out, including the rounded distance past a corner. */
+const rectField = (center: readonly [number, number], size: readonly [number, number]): DistanceField => {
+  const [cx, cy] = center;
+  const hw = Math.abs(size[0]) / 2;
+  const hh = Math.abs(size[1]) / 2;
+  return (x, y) => {
+    const dx = Math.abs(x - cx) - hw;
+    const dy = Math.abs(y - cy) - hh;
+    // Outside: distance to the nearest corner or edge. Inside: the nearest
+    // edge, which is the larger (least negative) of the two.
+    const outside = Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
+    return -(outside + Math.min(Math.max(dx, dy), 0));
+  };
+};
+
+/** A capsule: every point within `r` of the segment `a`–`b`. Exact. With
+ * `r` of zero the field is zero on the segment and negative everywhere
+ * else, which draws as a line rather than an area. */
+const segmentField = (a: readonly [number, number], b: readonly [number, number], r = 0): DistanceField => {
+  const [ax, ay] = a;
+  const dx = b[0] - ax;
+  const dy = b[1] - ay;
+  const len2 = dx * dx + dy * dy;
+  return (x, y) => {
+    const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2)) : 0;
+    return r - Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
+  };
+};
+
+/** Inside wherever any of them is inside. */
+const unionField = (...fields: DistanceField[]): DistanceField => {
+  const fs = many(fields, 'union');
+  if (fs.length === 1) return fs[0];
+  return (x, y) => {
+    let best = -Infinity;
+    for (const f of fs) best = Math.max(best, f(x, y));
+    return best;
+  };
+};
+
+/** Inside only where all of them are inside. */
+const intersectField = (...fields: DistanceField[]): DistanceField => {
+  const fs = many(fields, 'intersect');
+  if (fs.length === 1) return fs[0];
+  return (x, y) => {
+    let best = Infinity;
+    for (const f of fs) best = Math.min(best, f(x, y));
+    return best;
+  };
+};
+
+/** `a` with every later field cut out of it. */
+const subtractField = (a: DistanceField, ...holes: DistanceField[]): DistanceField => {
+  const base = asField(a, 'subtract');
+  const fs = many(holes, 'subtract');
+  return (x, y) => {
+    let best = base(x, y);
+    for (const f of fs) best = Math.min(best, -f(x, y));
+    return best;
+  };
+};
+
+/**
+ * A union with a fillet of about `radius` where the two meet. The joint is
+ * a smooth maximum, so the result is a shape rather than a corner. It is
+ * an approximate distance near the joint, and exact far from it.
+ */
+const blendField = (a: DistanceField, b: DistanceField, radius: number): DistanceField => {
+  const fa = asField(a, 'blend');
+  const fb = asField(b, 'blend');
+  const k = Math.abs(radius);
+  if (!(k > 0)) return unionField(fa, fb);
+  return (x, y) => {
+    const u = fa(x, y);
+    const v = fb(x, y);
+    // Polynomial smooth maximum: the quadratic term is the fillet, and it
+    // vanishes as soon as the two fields are further apart than k.
+    const h = Math.max(0, k - Math.abs(u - v)) / k;
+    return Math.max(u, v) + (h * h * k) / 4;
+  };
+};
+
+/**
+ * Shapes as distance fields, and the algebra over them. Pure: no seed and
+ * no paper, so it is a module import. `distanceTo(shape)` brings ordinary
+ * geometry into the same algebra.
+ *
+ * The name is `field` and not `distance`, because `distance(a, b)` is
+ * already the distance between two points. The algebra is only meaningful
+ * for a field that measures distance: `union` of two noise fields is a
+ * maximum of noise, and nobody wants that.
+ */
+export const field = {
+  circle: circleField,
+  rect: rectField,
+  segment: segmentField,
+  union: unionField,
+  intersect: intersectField,
+  subtract: subtractField,
+  blend: blendField,
+};
