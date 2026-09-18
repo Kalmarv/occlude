@@ -5,7 +5,7 @@ description: A contour map with weather across it, where one shader decides ever
 
 The contours are the substrate. A noise field makes the land, and `t.isolines` cuts it at fifteen levels. A heavy pen takes one line, and it reads as a coastline. Nothing in that geometry knows about the weather.
 
-The weather is a second field, and only the shader reads it. It is a diagonal ramp with a noise wobble, so it crosses the sheet as a front. The shader asks the field for a value once for each nib step along each stroke. Below `0.34` it keeps nothing. Then the mark grows. A thin dash with a long gap gives way to a long dash with a short gap. A solid line follows, and the heavy pen ends it. The stroke splits wherever that answer changes, so a single contour can start as dust and end as a coastline.
+The weather is a second field, and only the shader reads it. It is a diagonal ramp with a noise wobble, so it crosses the sheet as a front. It runs from zero at the top left to about one at the bottom right. The shader asks it for a value once for each nib step along each stroke. Below `0.34` it keeps nothing. Then the mark grows. A thin dash with a long gap gives way to a long dash with a short gap. A solid line follows, and the heavy pen ends it. The stroke splits wherever that answer changes, so a single contour can start as dust and end as a coastline.
 
 The occlusion is the same as ever, and the shader never puts ink outside it. Compare the two edges in the drawing. Where the land runs off the sheet the contours stop at the paper. Where the front runs out the contours fade instead.
 

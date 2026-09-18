@@ -7,7 +7,7 @@ A rule is a pattern and a replacement. Here the pattern is every edge. The repla
 
 The motif knows nothing about the shape it lands on. `replace` reads it in its own frame. That frame runs along the line from the motif's first point to its last, and across it. Both are fractions of the motif's own span. One motif rides an edge of any length at any angle. Each generation lands on edges a third the size of the last.
 
-The seed is a triangle, so the curve closes and the result is an area. `flip` sends the bumps outward. Send them inward instead, and the same rule eats the triangle away.
+The seed is a triangle, so the curve closes and the result is an area. `flip` sends the bumps outward here. The seed's winding decides that, so try `flip` both ways on a new seed. Turn the bumps inward and the same rule eats the triangle away.
 
 Uses: `material` with explicit `edges`, `rule.edge()`, `replace` with `flip`, `steps`, `polygon` with `opaque` and a `fill`, `strokes`.
 
