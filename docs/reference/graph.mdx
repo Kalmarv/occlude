@@ -1,0 +1,66 @@
+---
+title: Graph
+description: A canvas of nodes that compiles to an ordinary sketch.
+---
+
+The graph is a second way to write a sketch. You place nodes on a canvas and
+wire them. The graph compiles to an ordinary sketch, so the drawing is always
+one program. Open the canvas at [the graph page](/graph.html).
+
+## Nodes
+
+A node is a word, a code node, a viewer or the output. A word node calls one
+occlude word: `circle`, `t.sample`, `polygon`, `box`. The palette lists every
+word the reference documents, grouped as the reference groups it. A code node
+holds a function body. A viewer draws what one wire carries. The output node
+is what the sketch returns.
+
+## Sockets
+
+A wire carries one value, and the socket names the class of that value:
+Number, Vector, Field, Fill, Camera or Geometry. Geometry covers a shape, a
+material, a point selection, a face, a mesh, a curve and a drawing. The input
+decides what it makes of the geometry. `polygon.contours` takes a shape, a
+material, a point selection or a face. `t.sample.shape` takes a shape alone.
+The canvas refuses a wire the input cannot use, and the message names both
+ends. A Field input also takes a Number, and reads it as a constant field.
+
+An input with no socket is a **control**. You type a control on the node, and
+nothing wires into it: a pen name, a checkbox, a choice from a list. The
+controls are the options of the word, so `polygon` carries `opaque`, `pen`
+and `mode` beside its contours.
+
+:::note
+An option you leave unset never reaches the call. The library's own default
+applies, exactly as in a hand-written sketch.
+:::
+
+## Code node
+
+A code node is a function body with declared inputs and outputs. Each input
+arrives as a parameter with the input's own name. The `t` toolkit of the
+running sketch is in scope. Write the body as TypeScript. The editor holds
+the library types, so completion and error markers work as in the studio. The
+body returns an object that holds one entry for each output.
+
+## Viewer
+
+A viewer draws what one wire carries, on a small sheet inside the node. A
+viewer on a material shows the points and chains. A viewer on a drawing shows
+the ink. A viewer never reaches the compiled sketch, so it costs the plot
+nothing.
+
+## Evaluation
+
+A node's value is a function of its inputs and of the seed. Change one node
+and only the nodes below it run again. A viewer above the change keeps its
+picture. The seed lives in the graph's config. A code node draws from the
+sketch's stream, as any sketch function does. The same graph and the same
+seed give the same ink.
+
+## Export
+
+The compiled sketch is the graph. Press **Open as sketch** to send it to the
+studio, then read, edit, save or plot it as any other sketch. The studio
+saves a graph as JSON beside the sketches, so a graph is a document you can
+keep, copy and share.
