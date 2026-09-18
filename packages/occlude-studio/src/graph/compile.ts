@@ -14,6 +14,7 @@
  * the viewers a change reaches.
  */
 
+import { freeNames } from './names.js';
 import {
   accepts, inputTakes, outputType, topoOrder, wordInputs, wordOf,
   type Catalogue, type CatalogueWord, type Graph, type GraphNode, type NodeKind, type Takes, type ValueType,
@@ -262,40 +263,17 @@ function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Gra
   return node.kind === 'code' ? codeSource(node, graph, catalogue) : '';
 }
 
-/** The names a stretch of source reaches for. A code node body and a raw
- * config value are TypeScript the compiler does not parse, so a name a
- * module exports is imported when the text uses it as something other than
- * a property key, an arrow parameter or one of `params` — the node's own
+/** The library names a stretch of source reaches for: every name it reads
+ * and does not itself bind (`names.ts`), minus `params` — the node's own
  * input keys, which arrive as parameters and shadow the import. An unused
  * import is harmless; a missing one would not run. */
 export function usedImports(body: string, catalogue: Catalogue, params: Iterable<string> = []): Imported[] {
-  const out: Imported[] = [];
   const declared = new Set(params);
-  // A name inside a string or a comment is not a name the sketch reaches
-  // for: `stroke: 'cross'` names a pen, not the word. A template literal is
-  // left alone — its `${…}` parts are references. A spread is blanked too:
-  // `...add(p, q)` reads `add`, and the lookbehind below would take the dots
-  // for a property access.
-  const source = body
-    .replace(/\.\.\./g, ' ')
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/\/\/[^\n]*/g, ' ')
-    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
-    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""');
-  const count = (pattern: string): number => source.match(new RegExp(pattern, 'g'))?.length ?? 0;
+  const free = freeNames(body);
+  const out: Imported[] = [];
   for (const { module, names } of catalogue.importable) {
     for (const { name, spec } of names) {
-      if (declared.has(name)) continue;
-      const uses = count(`(?<![\\w$.])${name}(?![\\w$])`);
-      if (uses === 0) continue;
-      // A name the body declares at its top level shadows the import for the
-      // whole body; one declared inside a block does not.
-      if (new RegExp(`^(?:const|let|var|function|class)\\s+${name}\\b`, 'm').test(source)) continue;
-      // The only uses that are not uses: a property key, and an arrow
-      // parameter. A name used as a bare argument (`meanBy(cur.points,
-      // length)`) is a use, and dropping it would not run.
-      const other = count(`(?<![\\w$.])${name}\\s*:`) + count(`[(,]\\s*${name}\\s*\\)\\s*=>`);
-      if (uses <= other) continue;
+      if (declared.has(name) || !free.has(name)) continue;
       out.push({ module, name, spec });
     }
   }
