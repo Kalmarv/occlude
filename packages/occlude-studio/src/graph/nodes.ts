@@ -40,6 +40,10 @@ const TS_TYPE: Record<string, { type: string; module?: 'occlude' | 'occlude/3d';
   Fill: { type: 'FillSpec', module: 'occlude', name: 'FillSpec' },
   Camera: { type: 'Camera3', module: 'occlude', name: 'Camera3' },
   Modifier: { type: 'ModifierValue', module: 'occlude', name: 'ModifierValue' },
+  VectorField: { type: 'VectorFieldFn', module: 'occlude', name: 'VectorFieldFn' },
+  Tone: { type: 'ToneField', module: 'occlude', name: 'ToneField' },
+  // A pen is named, not built: a sketch says which of its pens to draw with.
+  Pen: { type: 'string' },
   // Geometry with no kind is "the graph does not know": `any`, not
   // `unknown`, because a squiggle the graph invented on a body that runs is
   // worse than no check. A node whose type the artist declares is checked.
@@ -57,6 +61,9 @@ const SOCKET_CLASS_LABEL: Record<string, string> = {
   Fill: 'fill',
   Camera: 'camera',
   Modifier: 'modifier',
+  VectorField: 'vectors',
+  Tone: 'tone',
+  Pen: 'pen',
 };
 
 /** The socket a value type travels on, and the geometry kinds it names. */
@@ -96,6 +103,8 @@ export interface NodePaintHooks {
   setSpread(node: GraphNode, key: string, spread: boolean): void;
   /** What each input of a node takes, as the model reads it. */
   takesOf(node: GraphNode): Record<string, Takes | undefined>;
+  /** The pens the sketch can draw with, by name. */
+  pens(): string[];
   /** Remember a node's size in the document. */
   setSize(node: GraphNode, width: number, height: number): void;
   /** Fit this viewer's picture to its canvas again. */
@@ -331,6 +340,35 @@ function rawBox(node: GraphNode, key: string, text: string, hooks: NodePaintHook
   return box;
 }
 
+/** The pen an unwired Pen input names. A pen is a socket so one pen node can
+ * feed every shape that draws with it; it still holds a name of its own when
+ * nothing is wired, because naming one on the node is how a sketch reads. */
+function penBox(node: GraphNode, key: string, hooks: NodePaintHooks): HTMLElement {
+  const value = node.inputs[key]?.value;
+  if (isRaw(value)) return rawBox(node, key, value.__raw, hooks);
+  const select = document.createElement('select');
+  select.className = 'graph-menu';
+  const empty = document.createElement('option');
+  empty.value = '';
+  empty.textContent = '—';
+  select.append(empty);
+  const names = hooks.pens();
+  // A pen the sketch names that the library no longer has is still shown, or
+  // the node would quietly forget which pen it drew with.
+  if (typeof value === 'string' && value !== '' && !names.includes(value)) names.push(value);
+  for (const name of names) {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    select.append(option);
+  }
+  select.value = typeof value === 'string' ? value : '';
+  select.title = `${key}: which pen to draw with. Empty leaves it out of the call.`;
+  noDrag(select);
+  select.onchange = () => (select.value === '' ? hooks.unset(node, key) : hooks.setValue(node, key, select.value));
+  return select;
+}
+
 /** The literal an unwired Number input carries: the one way to give a
  * number to a socket with nothing wired into it. */
 function literalBox(node: GraphNode, key: string, hooks: NodePaintHooks): HTMLInputElement {
@@ -413,6 +451,7 @@ function inputRow(node: GraphNode, input: CatalogueInput, hooks: NodePaintHooks)
     line.append(el('span', 'graph-row-name', input.name));
     line.append(el('span', 'graph-row-type', takesLabel(input.takes)));
     if (input.takes.socket === 'Number') line.append(literalBox(node, input.name, hooks));
+    if (input.takes.socket === 'Pen') line.append(penBox(node, input.name, hooks));
   } else {
     line.append(el('span', 'graph-row-name', input.name));
     line.append(controlBox(node, input, hooks));
@@ -723,6 +762,9 @@ function valueRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): v
   if (type === 'Number' && !isRaw(held)) {
     line.append(el('span', 'graph-row-name', 'number'));
     line.append(numberField(typeof held === 'number' ? held : 0, 'the value this node holds', (next) => hooks.setValue(node, 'v', next ?? 0)));
+  } else if (type === 'Pen' && !isRaw(held)) {
+    line.append(el('span', 'graph-row-name', 'pen'));
+    line.append(penBox(node, 'v', hooks));
   } else {
     line.append(el('span', 'graph-row-name', takesLabel(takesOf(type))));
     line.append(rawBox(node, 'v', isRaw(held) ? held.__raw : JSON.stringify(held ?? null), hooks));

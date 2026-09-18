@@ -18,7 +18,9 @@ describe('the catalogue', () => {
     const inputs = wordInputs(word('circle'));
     expect(inputs.slice(0, 3).map((i) => i.name)).toEqual(['x', 'y', 'r']);
     expect(inputs.slice(0, 3).map((i) => i.takes?.socket)).toEqual(['Number', 'Number', 'Number']);
-    expect(inputs[3]).toMatchObject({ option: 'pen', control: 'text' });
+    // A pen is a socket, so one pen node can feed every shape that draws
+    // with it. It still names one on the node when nothing is wired.
+    expect(inputs[3]).toMatchObject({ option: 'pen', takes: { socket: 'Pen' } });
     expect(word('circle').returns).toBe('shape');
   });
 
@@ -37,7 +39,7 @@ describe('the catalogue', () => {
     expect(inputs[0].takes?.socket).toBe('Geometry');
     expect([...inputs[0].takes!.kinds!].sort()).toEqual(['faces', 'material', 'points', 'shape']);
     expect(inputs.find((i) => i.name === 'opaque')?.control).toBe('check');
-    expect(inputs.find((i) => i.name === 'pen')?.control).toBe('text');
+    expect(inputs.find((i) => i.name === 'pen')?.takes).toEqual({ socket: 'Pen' });
     expect(word('polygon').returns).toBe('shape');
   });
 

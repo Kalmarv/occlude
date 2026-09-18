@@ -89,7 +89,7 @@ for (const page of PAGES) for (const word of page.words) if (!pageOfWord.has(wor
 
 // ---- the type → socket map ----
 
-const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier'] as const;
+const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier', 'VectorField', 'Tone', 'Pen'] as const;
 type SocketClass = (typeof SOCKET_CLASSES)[number];
 const GEOMETRY_KINDS = ['shape', 'material', 'points', 'faces', 'mesh', 'curves', 'surface', 'drawing'] as const;
 type GeometryKind = (typeof GEOMETRY_KINDS)[number];
@@ -126,6 +126,9 @@ const BY_NAME: Record<string, ValueType> = {
   SurfaceCurves: 'curves',
   Surface3: 'surface',
   ModifierValue: 'Modifier',
+  VectorFieldFn: 'VectorField',
+  DirectionField: 'VectorField',
+  ToneField: 'Tone',
   CurveSamples: 'curves',
   Drawing3: 'drawing',
   LineArtScene3: 'drawing',
@@ -379,13 +382,29 @@ const dropped: string[] = [];
 
 /** A parameter's input: the socket it takes, or the control it edits, or a
  * reason the word cannot be a node. */
-function inputOf(type: ts.Type, what: string, required: boolean): { input?: Partial<Takes> & Partial<Control>; problem?: string } {
+/**
+ * The names that mean a pen. A pen is a plain string in the types — the name
+ * of one of the sketch's own pens — so the type cannot say it is a pen and
+ * the name has to. Making it a socket is what lets one pen node feed every
+ * shape that draws with it, instead of the same word typed on each.
+ */
+const PEN_NAMES = new Set(['pen', 'fillPen']);
+
+function inputOf(type: ts.Type, what: string, required: boolean, name?: string): { input?: Partial<Takes> & Partial<Control>; problem?: string } {
+  if (name !== undefined && PEN_NAMES.has(name) && isStringish(type)) return { input: { socket: 'Pen' } };
   const takes = takesOf(type);
   if (takes) return { input: takes };
   const control = controlOf(type);
   if (control) return { input: control };
   if (!required) return {};
   return { problem: `${what} is ${checker.typeToString(nonNullish(type), undefined, ts.TypeFormatFlags.NoTruncation)}` };
+}
+
+/** A type that is a string, or a string and nothing else beside null. */
+function isStringish(type: ts.Type): boolean {
+  const inner = nonNullish(type);
+  if ((inner.flags & ts.TypeFlags.String) !== 0) return true;
+  return inner.isUnion() && inner.types.every((t) => (t.flags & (ts.TypeFlags.String | ts.TypeFlags.StringLiteral)) !== 0);
 }
 
 /** The parameters of one signature, or a reason it cannot be a node. */
@@ -411,7 +430,7 @@ function paramsOf(sig: ts.Signature, at: ts.Node, word: string): { params: Param
         if (name.startsWith('_')) continue;
         const propDecl = prop.valueDeclaration ?? prop.declarations?.[0] ?? at;
         const propOptional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-        const { input, problem: bad } = inputOf(checker.getTypeOfSymbolAtLocation(prop, propDecl), `option ${name}`, !propOptional);
+        const { input, problem: bad } = inputOf(checker.getTypeOfSymbolAtLocation(prop, propDecl), `option ${name}`, !propOptional, name);
         if (bad) {
           if (!optional) problem ??= bad;
           else dropped.push(`${word}.${param.getName()}.${name}`);
@@ -435,7 +454,7 @@ function paramsOf(sig: ts.Signature, at: ts.Node, word: string): { params: Param
       params.push({ name: param.getName(), optional, options });
       continue;
     }
-    const { input, problem } = inputOf(type, `parameter ${param.getName()}`, !optional);
+    const { input, problem } = inputOf(type, `parameter ${param.getName()}`, !optional, param.getName());
     if (input && !problem) {
       params.push({ name: param.getName(), optional, ...input });
       continue;

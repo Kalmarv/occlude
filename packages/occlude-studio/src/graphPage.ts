@@ -60,6 +60,9 @@ const SOCKET_COLORS: Record<string, string> = {
   Fill: 'var(--muted)',
   Camera: 'var(--faint)',
   Modifier: 'var(--warn)',
+  VectorField: 'var(--toolpath)',
+  Tone: 'var(--muted)',
+  Pen: 'var(--accent-edge)',
 };
 
 /** What a viewer's own picture wraps: a material is not ink. */
@@ -401,6 +404,7 @@ const paintHooks: NodePaintHooks = {
   frames: (node) => viewerFrames.get(node.id) ?? 0,
   zoom: () => canvas.area.area.transform.k,
   takesOf: (node) => inputTakes(node, catalogue),
+  pens: () => pens.map((pen) => pen.name),
   setSpread: (node, key, spread) => {
     const input = node.inputs[key];
     if (!input) return;
@@ -1166,6 +1170,11 @@ function buildPalette(): void {
   nodes.append(paletteItem('value', 'Number', (at) => addNode('value', at), 'A number the graph holds'));
   nodes.append(paletteItem('list', 'drawing', (at) => addNode('list', at), 'Several values as one, in order'));
   nodes.append(paletteItem('paper', 'Number', (at) => addNode('paper', at), 'The sheet: its width, its height and its middle'));
+  // One pen, wired wherever it draws: change it in one place.
+  nodes.append(paletteItem('pen', 'Pen', (at) => void place({
+    id: freshId(), kind: 'value', x: 0, y: 0,
+    inputs: { v: { value: pens[0]?.name ?? '' } }, outputs: { out: 'Pen' },
+  }, at), 'A pen, wired wherever it draws'));
   nodes.append(paletteItem('code', 'body', (at) => addNode('code', at), 'A function body with declared inputs and outputs'));
   nodes.append(paletteItem('viewer', 'picture', (at) => addNode('viewer', at), 'Draw what this point of the graph holds'));
   nodes.append(paletteItem('output', 'return', (at) => addNode('output', at), 'What the sketch returns'));
