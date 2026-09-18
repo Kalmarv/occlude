@@ -494,6 +494,38 @@ describe('a zone', () => {
     expect(compiled.source).toContain('return rows;');
   });
 
+  it('writes a rule that answers with nothing', () => {
+    const graph = parseGraph({
+      version: 1, name: 'z', config: {},
+      nodes: [
+        { id: 'ring', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 1 }, y: { value: 2 }, r: { value: 3 } } },
+        { id: 'dots', kind: 'builtin', word: 't.sample', x: 0, y: 0, inputs: { shape: { from: ['ring', 'out'] }, count: { value: 8 } } },
+        {
+          id: 'grown', kind: 'zone', zone: 'steps', x: 0, y: 0,
+          inputs: { material: { from: ['dots', 'out'] }, count: { value: 4 } },
+          binds: ['cur', 'next'],
+          graph: {
+            version: 1, name: '', config: {},
+            nodes: [
+              { id: 'each', kind: 'input', x: 0, y: 0, inputs: {}, outputs: { cur: 'Geometry', next: 'Geometry' } },
+              { id: 'body', kind: 'code', x: 0, y: 0, inputs: { cur: { type: 'Geometry', from: ['each', 'cur'] }, next: { type: 'Geometry', from: ['each', 'next'] } }, outputs: { out: 'Geometry' }, body: 'next.move(cur.points, () => [1, 0]);' },
+              // A rule's result reads nothing: what it did to the next state
+              // is its answer.
+              { id: 'result', kind: 'output', x: 0, y: 0, inputs: {} },
+            ],
+          },
+        },
+        { id: 'ink', kind: 'builtin', word: 'strokes', x: 0, y: 0, inputs: { source: { from: ['grown', 'out'] } } },
+        { id: 'out', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['ink', 'out'] } } },
+      ],
+    });
+    const compiled = compileGraph(graph, CATALOGUE);
+    expect(compiled.source).toContain('const grown = dots.steps(4, (cur, next) => {');
+    expect(compiled.source).toContain('next.move(cur.points, () => [1, 0]);');
+    // No `return` is written: the rule answers with nothing.
+    expect(compiled.source).not.toContain('return next');
+  });
+
   it('refuses a zone whose body has no result', () => {
     expect(() => parseGraph({
       version: 1, name: 'z', config: {},

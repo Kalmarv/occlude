@@ -776,9 +776,16 @@ function listRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): vo
 function zoneRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): void {
   const takes = hooks.takesOf(node);
   for (const [key, take] of Object.entries(takes)) {
-    if (!take) continue;
     const line = nodeRow();
     line.dataset.row = key;
+    if (!take) {
+      // A control the zone edits: a rule's own options, as source text.
+      const held = node.inputs[key]?.value;
+      line.append(el('span', 'graph-row-name', key));
+      line.append(rawBox(node, key, isRaw(held) ? held.__raw : '', hooks));
+      host.append(line);
+      continue;
+    }
     line.append(socketDot('input', key, take.socket, hooks));
     line.append(el('span', 'graph-row-name', key));
     line.append(el('span', 'graph-row-type', takesLabel(take)));

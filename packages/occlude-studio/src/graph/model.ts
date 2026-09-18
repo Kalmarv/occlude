@@ -237,15 +237,19 @@ export type NodeKind = 'builtin' | 'code' | 'viewer' | 'output' | 'group' | 'inp
  * named algorithms. `times` is the only one that needs nothing settled: its
  * bindings are two numbers.
  */
-export const ZONE_KINDS = ['times', 'map'] as const;
+export const ZONE_KINDS = ['times', 'map', 'steps'] as const;
 export type ZoneKind = (typeof ZONE_KINDS)[number];
 
 /** The zone's own inputs, and the names its `input` node offers each run. */
 export const ZONES: Record<ZoneKind, {
-  /** The node's own inputs, in call order. */
-  takes: { name: string; takes: Takes }[];
+  /** The node's own inputs, in call order. An entry with no socket is a
+   * control the node edits — a step rule's own options are one. */
+  takes: { name: string; takes?: Takes; raw?: boolean }[];
   /** What the inside is handed on each run, in the callback's order. */
   binds: { name: string; type: ValueType }[];
+  /** Whether each run answers with a value. A step rule does not: it moves
+   * the next state, and the zone's own answer is what the word returns. */
+  answers?: false;
   /** The call the compiler writes, given the inputs and the body. */
   call(args: Record<string, string>, params: string, body: string): string;
 }> = {
@@ -265,6 +269,21 @@ ${body}
     call: (args, params, body) => `${args['rows'] ?? '[]'}.map((${params}) => {
 ${body}
 })`,
+  },
+  // A rule, run a fixed number of times, carrying state. Each run is handed
+  // the state it starts from and the one it is building; it answers with
+  // nothing, because what it did to the next state *is* its answer.
+  steps: {
+    takes: [
+      { name: 'material', takes: { socket: 'Geometry', kinds: ['material', 'points', 'faces', 'mesh'] } },
+      { name: 'count', takes: { socket: 'Number' } },
+      { name: 'opts', raw: true },
+    ],
+    binds: [{ name: 'current', type: 'Geometry' }, { name: 'next', type: 'Geometry' }],
+    answers: false,
+    call: (args, params, body) => `${args['material'] ?? 'undefined'}.steps(${args['count'] ?? '0'}, (${params}) => {
+${body}
+}${args['opts'] ? `, ${args['opts']}` : ''})`,
   },
 };
 
@@ -566,6 +585,7 @@ export function inputTakes(node: GraphNode, catalogue: Catalogue): Record<string
   if (node.kind === 'zone' && node.zone) {
     const out: Record<string, Takes | undefined> = {};
     for (const t of ZONES[node.zone].takes) out[t.name] = t.takes;
+    // A control the recipe names is shown even when nothing is set on it.
     const edge = node.graph?.nodes.find((n) => n.kind === 'input');
     for (const key of Object.keys(node.inputs)) {
       if (out[key] !== undefined) continue;

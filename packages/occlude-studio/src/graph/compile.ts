@@ -324,7 +324,8 @@ function zoneSource(node: GraphNode, graph: Graph, catalogue: Catalogue, outer?:
   // What the zone itself reads, as the enclosing scope spells it.
   const args: Record<string, string> = {};
   for (const { name } of recipe.takes) {
-    args[name] = node.inputs[name] === undefined ? '0' : inputExpression(node, name, graph, catalogue, outer);
+    if (node.inputs[name] === undefined) continue;
+    args[name] = inputExpression(node, name, graph, catalogue, outer);
   }
   const params = node.binds ?? recipe.binds.map((b) => b.name);
   const bound = new Set(params);
@@ -346,10 +347,13 @@ function zoneSource(node: GraphNode, graph: Graph, catalogue: Catalogue, outer?:
   // Such a zone compiles node by node instead, with the names bound.
   const namesCarry = only.length === 1 && only[0]!.kind === 'code'
     && Object.keys(only[0]!.inputs).every((name) => boundary(name) === name);
-  if (namesCarry && result0?.inputs['in']?.from?.[0] === only[0]!.id) {
+  const reads = recipe.answers === false || result0?.inputs['in']?.from?.[0] === only[0]?.id;
+  if (namesCarry && reads) {
     const body = only[0]!.body!.trim();
-    const returned = result0.inputs['in']!.from![1];
-    const unwrapped = body.replace(new RegExp(`return \\{ ${returned}: ([\\s\\S]*) \\};$`), 'return $1;');
+    const returned = result0?.inputs['in']?.from?.[1] ?? 'out';
+    const unwrapped = recipe.answers === false
+      ? body
+      : body.replace(new RegExp(`return \\{ ${returned}: ([\\s\\S]*) \\};$`), 'return $1;');
     const indented = unwrapped.split('\n').map((line) => (line === '' ? '' : `  ${line}`)).join('\n');
     return `const ${node.id} = ${recipe.call(args, params.join(', '), indented)};`;
   }
@@ -364,7 +368,10 @@ function zoneSource(node: GraphNode, graph: Graph, catalogue: Catalogue, outer?:
   }
   const result = inside.nodes.find((n) => n.kind === 'output');
   if (!result) throw new Error(`graph: zone ${node.id} has no result`);
-  lines.push(`  return ${inputExpression(result, 'in', inside, catalogue, boundary)};`);
+  // A rule answers with nothing: what it did to the next state is its answer.
+  if (recipe.answers !== false) {
+    lines.push(`  return ${inputExpression(result, 'in', inside, catalogue, boundary)};`);
+  }
   return `const ${node.id} = ${recipe.call(args, params.join(', '), lines.join('\n'))};`;
 }
 
