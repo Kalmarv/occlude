@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, initOcclude, mm, polygon, primLength, rect, render, shader, sketch,
+  circle, initOcclude, mm, path, polygon, primLength, rect, render, shader, sketch,
   type PlanChain, type SketchDef, type StrokeInk, type StrokeProgram,
 } from '../src/index.js';
 import { decodePlanBuffer, encodePlanBuffer } from '../src/plan.js';
@@ -79,11 +79,15 @@ describe('a stroke shader', () => {
     const shaded = { chains: decodePlanBuffer(planBuffer(result, { shader: shader((_s, p) => ({ pen: p[0] < 50 ? 0 : 1 })) }).buffer) };
     const pens = new Set(shaded.chains.map((c) => c.pen));
     expect(pens).toEqual(new Set([0, 1]));
+    // Every chain sits on the side its pen says, give or take the nib the
+    // split lands on — a span boundary is decided once per nib step.
+    let wrong = 0;
     for (const c of shaded.chains) {
-      const mid = c.prims[0];
-      const x = mid.t === 'line' ? mid.x0 : mid.t === 'arc' ? mid.cx + mid.r * Math.cos(mid.start) : mid.x0;
-      expect(c.pen).toBe(x < 50 ? 0 : 1);
+      const p = c.prims[0];
+      const x = p.t === 'line' ? (p.x0 + p.x1) / 2 : p.t === 'arc' ? p.cx + p.r * Math.cos(p.start + p.sweep / 2) : (p.x0 + p.x1) / 2;
+      if (Math.abs(x - 50) > 1 && c.pen !== (x < 50 ? 0 : 1)) wrong++;
     }
+    expect(wrong).toBe(0);
   });
 
   it('dashes a stroke into marks and gaps, keeping the total mark length', () => {
@@ -109,8 +113,10 @@ describe('a stroke shader', () => {
       expect(row.at).toBeCloseTo(row.length > 0 ? row.s / row.length : 0, 9);
       expect(Number.isInteger(row.index)).toBe(true);
     }
-    // The first sample of a stroke is its start.
-    expect(seen[0].s).toBe(0);
+    // The program is asked at the middle of each nib step, so the first
+    // sample lies inside the first step rather than exactly at zero.
+    expect(seen[0].s).toBeGreaterThan(0);
+    expect(seen[0].s).toBeLessThan(seen[0].length);
   });
 
   it('names its pen, and says which pens the drawing has when the name is wrong', () => {
@@ -125,6 +131,19 @@ describe('a stroke shader', () => {
     const chains = shade((_s, p) => ({ pen: p[0] < 50 ? 'pigma-005-black' : 'pigma-05-black' }));
     expect(new Set(chains.map((c) => c.pen))).toEqual(new Set([0, 1]));
     expect(() => shade(() => ({ pen: 'stabilo-88-green' }))).toThrow(/does not use the pen 'stabilo-88-green'/);
+  });
+
+  it('measures arc length along a curve, not the curve\'s own parameter', () => {
+    // A cubic's parameter is not uniform in arc length. Dividing one by the
+    // other made marks from 1.0mm to 5.0mm when all were asked to be 2mm.
+    const curve: SketchDef = sketch({}, () => path().moveTo(6, 50).bezierTo(90, 6, 10, 94, 94, 50).build());
+    const out = render(curve, { paper: { w: 100, h: 100 } });
+    const kinds = new Set(decodePlanBuffer(planBuffer(out, {}).buffer).flatMap((c) => c.prims.map((p) => p.t)));
+    expect(kinds).toEqual(new Set(['cubic']));
+    const marks = decodePlanBuffer(planBuffer(out, { shader: shader(() => ({ dash: [2, 2] })) }).buffer)
+      .map((c) => c.prims.reduce((sum, p) => sum + primLength(p), 0));
+    expect(marks.length).toBeGreaterThan(10);
+    for (const len of marks) expect(len).toBeCloseTo(2, 1);
   });
 
   it('refuses anything that is not a program', () => {

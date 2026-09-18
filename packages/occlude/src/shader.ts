@@ -9,7 +9,8 @@
  * is exact rather than reconstructed.
  *
  * The stage is chains to chains: the program is sampled along a chain at
- * the pen's own nib width (finer detail cannot reach the paper), the chain
+ * the pen's own nib width, in the MIDDLE of each step (finer detail cannot
+ * reach the paper, and the middle gives the last step a say), the chain
  * is cut where the returned ink changes, and each constant span is kept,
  * dropped, dashed, re-penned or drawn more than once. Nothing here moves a
  * point: a shader never puts ink outside what occlusion cleared.
@@ -96,24 +97,70 @@ export const isShader = (v: unknown): v is ShaderValue =>
 
 // ---- cutting a chain by arc length -------------------------------------
 
-/** Per-primitive lengths and the cumulative offsets along a chain. */
+/**
+ * How far along a cubic each of its parameter samples sits. A line and an
+ * arc are uniform in their own parameter, so arc length IS the parameter
+ * scaled; a cubic is not, and mapping one to the other with a straight
+ * division puts the pen in the wrong place. A dash on a curve made marks
+ * from one to five millimetres long when they were all asked to be two.
+ */
+const ARC_SAMPLES = 128;
+
+const arcTable = (p: Prim): Float64Array | undefined => {
+  if (p.t !== 'cubic') return undefined;
+  const cum = new Float64Array(ARC_SAMPLES + 1);
+  let [px, py] = evalPrim(p, 0);
+  for (let i = 1; i <= ARC_SAMPLES; i++) {
+    const [x, y] = evalPrim(p, i / ARC_SAMPLES);
+    cum[i] = cum[i - 1] + Math.hypot(x - px, y - py);
+    px = x;
+    py = y;
+  }
+  return cum;
+};
+
+/** The parameter at `frac` of a primitive's own arc length. */
+const paramAt = (table: Float64Array | undefined, frac: number): number => {
+  const f = Math.min(Math.max(frac, 0), 1);
+  if (table === undefined) return f;
+  const want = f * table[ARC_SAMPLES];
+  if (!(want > 0)) return 0;
+  let lo = 0;
+  let hi = ARC_SAMPLES;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (table[mid] <= want) lo = mid;
+    else hi = mid;
+  }
+  const span = table[hi] - table[lo];
+  const within = span > 0 ? (want - table[lo]) / span : 0;
+  return (lo + within) / ARC_SAMPLES;
+};
+
+/** Per-primitive lengths, cumulative offsets, and the arc tables curves need. */
 interface Ruler {
   lengths: number[];
   starts: number[];
+  tables: (Float64Array | undefined)[];
   total: number;
 }
 
 const measure = (prims: readonly Prim[]): Ruler => {
   const lengths: number[] = [];
   const starts: number[] = [];
+  const tables: (Float64Array | undefined)[] = [];
   let total = 0;
   for (const p of prims) {
     starts.push(total);
-    const L = primLength(p);
+    const table = arcTable(p);
+    tables.push(table);
+    // The table's own last entry IS the length it will be inverted
+    // against, so a curve measures and maps with one set of numbers.
+    const L = table === undefined ? primLength(p) : table[ARC_SAMPLES];
     lengths.push(L);
     total += L;
   }
-  return { lengths, starts, total };
+  return { lengths, starts, tables, total };
 };
 
 /** The point at arc length `s` along a chain. */
@@ -123,7 +170,7 @@ const pointAt = (prims: readonly Prim[], r: Ruler, s: number): [number, number] 
     const end = r.starts[i] + r.lengths[i];
     if (s <= end || i === prims.length - 1) {
       const L = r.lengths[i];
-      return evalPrim(prims[i], L > 0 ? Math.min(Math.max((s - r.starts[i]) / L, 0), 1) : 0);
+      return evalPrim(prims[i], paramAt(r.tables[i], L > 0 ? (s - r.starts[i]) / L : 0));
     }
   }
   return evalPrim(prims[prims.length - 1], 1);
@@ -141,8 +188,8 @@ const cut = (prims: readonly Prim[], r: Ruler, s0: number, s1: number): Prim[] =
     const a = r.starts[i];
     const b = a + L;
     if (b <= s0 || a >= s1) continue;
-    const t0 = Math.min(Math.max((s0 - a) / L, 0), 1);
-    const t1 = Math.min(Math.max((s1 - a) / L, 0), 1);
+    const t0 = paramAt(r.tables[i], (s0 - a) / L);
+    const t1 = paramAt(r.tables[i], (s1 - a) / L);
     if (t1 > t0) out.push(t0 === 0 && t1 === 1 ? prims[i] : subPrim(prims[i], t0, t1));
   }
   return out;
@@ -221,9 +268,11 @@ function shadeChain(chain: PlanChain, program: StrokeProgram, frame: ShadeFrame)
   const steps = Math.max(1, Math.ceil(r.total / step));
   const cuts: { from: number; span: Span }[] = [];
   for (let i = 0; i < steps; i++) {
-    const s = (r.total * i) / steps;
+    // The step's MIDDLE, not its leading edge: the last nib of a stroke
+    // gets a say, and a change lands within half a step of where it is.
+    const s = (r.total * (i + 0.5)) / steps;
     const span = normalize(program(s, pointAt(chain.prims, r, s), { ...ctxBase, at: s / r.total }), chain.pen, frame, nib);
-    if (cuts.length === 0 || !same(cuts[cuts.length - 1].span, span)) cuts.push({ from: s, span });
+    if (cuts.length === 0 || !same(cuts[cuts.length - 1].span, span)) cuts.push({ from: (r.total * i) / steps, span });
   }
 
   // One span that changes nothing is the chain itself. Say so exactly:

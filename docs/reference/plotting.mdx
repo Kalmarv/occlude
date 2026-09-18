@@ -25,7 +25,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
 
 <include>/_sig/shader.mdx</include>
 
-A shader is a program that runs along every stroke in the plan. It reads the arc length in millimetres, the point there, and the stroke it walks. It answers with what the pen does: more `passes`, another `pen`, a `dash`, or no ink. Give it to `t.plan({ shader })`, and the stroke splits wherever the answer changes.
+A shader is a program that runs along every stroke in the plan. It reads the arc length in millimetres, the point there, and the stroke it walks. It answers with what the pen does: more `passes`, another `pen`, a `dash`, or no ink. Give it to `t.plan({ shader })`, and the stroke splits wherever the answer changes. A split lands on the nib grid.
 
 ```ts live
 import { sketch, shader, polygon, circle, mm } from 'occlude';
@@ -50,7 +50,7 @@ The example hides ink twice, and the two holes do not look alike. The opaque cir
 :::
 
 :::warning
-The route is already chosen when a shader runs. A `pen` answer costs a pen change the plan did not order around. Weight from `passes` is real ink on paper, and the preview cannot show it: the second pass covers the first exactly.
+The route is already chosen when a shader runs. A `pen` answer costs a pen change the plan did not order around. Weight from `passes` is real ink on paper. The preview cannot show it, because the second pass covers the first exactly. Sixteen passes is the most a program can ask for.
 :::
 
 ## Export
