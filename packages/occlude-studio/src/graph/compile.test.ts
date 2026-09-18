@@ -164,6 +164,23 @@ describe('the compiled sketch', () => {
     expect(source).toContain("import { sketch, circle, strokes } from 'occlude';");
   });
 
+  it('imports from the module the catalogue names, not only from occlude', () => {
+    const withPens: Catalogue = {
+      ...CATALOGUE,
+      importable: [
+        ...CATALOGUE.importable,
+        { module: '@user/pens', names: [{ name: 'azure', spec: 'azure' }, { name: 'ink', spec: 'ink' }] },
+      ],
+    };
+    const graph = doc([
+      { id: 'n2', kind: 'code', x: 0, y: 0, inputs: {}, outputs: { out: 'drawing' }, body: "return { out: strokes(m, { pen: azure }) };" },
+      { id: 'n5', kind: 'output', x: 0, y: 0, inputs: { in: { from: ['n2', 'out'] } } },
+    ]);
+    const { source } = compileGraph(graph, withPens);
+    expect(source).toContain("import { azure } from '@user/pens';");
+    expect(source).toContain("import { sketch, strokes } from 'occlude';");
+  });
+
   it('imports a name a spread call reaches for', () => {
     const graph = doc([
       { id: 'n1', kind: 'builtin', word: 'circle', x: 0, y: 0, inputs: { x: { value: 10 }, y: { value: 10 }, r: { value: 4 } } },

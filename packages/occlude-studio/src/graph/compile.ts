@@ -100,6 +100,14 @@ function nodeById(graph: Graph, id: string): GraphNode {
   return node;
 }
 
+/** One name a code body or a raw value reaches for, and the module that
+ * binds it. */
+interface Imported {
+  module: string;
+  name: string;
+  spec: string;
+}
+
 /** How an input reads in a message: its kinds, or its class. */
 function takesText(takes: Takes): string {
   if (takes.socket === 'Geometry' && takes.kinds) return takes.kinds.join(' or ');
@@ -258,8 +266,8 @@ function nodeSource(node: GraphNode, word: CatalogueWord | undefined, graph: Gra
  * a property key, an arrow parameter or one of `params` — the node's own
  * input keys, which arrive as parameters and shadow the import. An unused
  * import is harmless; a missing one would not run. */
-export function usedImports(body: string, catalogue: Catalogue, params: Iterable<string> = []): { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] {
-  const out: { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] = [];
+export function usedImports(body: string, catalogue: Catalogue, params: Iterable<string> = []): Imported[] {
+  const out: Imported[] = [];
   const declared = new Set(params);
   // A name inside a string or a comment is not a name the sketch reaches
   // for: `stroke: 'cross'` names a pen, not the word. A template literal is
@@ -295,16 +303,22 @@ export function usedImports(body: string, catalogue: Catalogue, params: Iterable
 /** The import lines for the emitted words and the code bodies' names.
  * `sketch` always comes first from `occlude`; a toolkit word is a member of
  * `t`, so it is never imported. */
-function importLines(words: CatalogueWord[], extra: { module: 'occlude' | 'occlude/3d'; spec: string }[]): string {
-  const occlude = new Set<string>();
-  const three = new Set<string>();
-  for (const word of words) {
-    if (word.import === null) continue;
-    (word.module === 'occlude' ? occlude : three).add(word.import);
+function importLines(words: CatalogueWord[], extra: Imported[]): string {
+  const byModule = new Map<string, Set<string>>([['occlude', new Set<string>()]]);
+  const add = (module: string, spec: string): void => {
+    const set = byModule.get(module) ?? new Set<string>();
+    set.add(spec);
+    byModule.set(module, set);
+  };
+  for (const word of words) if (word.import !== null) add(word.module, word.import);
+  for (const { module, spec } of extra) add(module, spec);
+  // `sketch` always leads the `occlude` line, and that line always exists.
+  const occlude = [...(byModule.get('occlude') ?? [])].sort();
+  const lines = [`import { ${['sketch', ...occlude].join(', ')} } from 'occlude';`];
+  for (const [module, specs] of byModule) {
+    if (module === 'occlude' || specs.size === 0) continue;
+    lines.push(`import { ${[...specs].sort().join(', ')} } from '${module}';`);
   }
-  for (const { module, spec } of extra) (module === 'occlude' ? occlude : three).add(spec);
-  const lines = [`import { ${['sketch', ...[...occlude].sort()].join(', ')} } from 'occlude';`];
-  if (three.size > 0) lines.push(`import { ${[...three].sort().join(', ')} } from 'occlude/3d';`);
   return lines.join('\n');
 }
 
@@ -346,7 +360,7 @@ export function compileFor(graph: Graph, catalogue: Catalogue, target: string, i
   const emitted = order.filter((id) => wanted.has(id));
   const nodes: CompiledNode[] = [];
   const words: CatalogueWord[] = [];
-  const extra: { module: 'occlude' | 'occlude/3d'; name: string; spec: string }[] = [];
+  const extra: Imported[] = [];
   const raw: string[] = [];
   const hashes = new Map<string, string>();
   for (const id of emitted) {

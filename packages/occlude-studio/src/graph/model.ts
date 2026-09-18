@@ -130,8 +130,10 @@ export interface Catalogue {
   /** Every name a sketch may import from each module: the name a body must
    * spell, and the specifier that binds it (`circle3` ← `circle as
    * circle3`). A code node body is TypeScript the compiler does not parse,
-   * so the names it reaches for are read from here. */
-  importable: { module: 'occlude' | 'occlude/3d'; names: { name: string; spec: string }[] }[];
+   * so the names it reaches for are read from here. A host adds its own
+   * module here — the pen and paper libraries are `@user/pens` and
+   * `@user/papers`, and a body may name one of their pens. */
+  importable: { module: string; names: { name: string; spec: string }[] }[];
 }
 
 const lookups = new WeakMap<Catalogue, Map<string, CatalogueWord>>();
