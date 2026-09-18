@@ -59,6 +59,8 @@ export const CATALOGUE: Catalogue = {
           { name: 'opaque', control: 'check', optional: true },
           { name: 'z', takes: { socket: 'Number' }, optional: true },
           { name: 'mode', control: 'menu', choices: ['corner', 'center'], optional: true },
+          { name: 'decimate', takes: { socket: 'Field' }, optional: true },
+          { name: 'wobble', takes: { socket: 'Field' }, optional: true },
           { name: 'bridge', takes: { socket: 'Number' }, optional: true },
           { name: 'preserveStroke', control: 'check', optional: true },
           { name: 'strokeSeed', takes: { socket: 'Number' }, optional: true },
@@ -88,6 +90,15 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'decimate', module: 'occlude', receiver: null,
+      import: 'decimate', call: 'decimate', returns: 'shape',
+      page: '/docs/reference/shapes', group: 'Shapes',
+      params: [
+        { name: 'p', takes: { socket: 'Field' }, optional: false },
+        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
+      ],
+    },
+    {
       word: 'ellipse', module: 'occlude', receiver: null,
       import: 'ellipse', call: 'ellipse', returns: 'shape',
       page: '/docs/reference/shapes', group: 'Shapes',
@@ -104,6 +115,8 @@ export const CATALOGUE: Catalogue = {
           { name: 'opaque', control: 'check', optional: true },
           { name: 'z', takes: { socket: 'Number' }, optional: true },
           { name: 'mode', control: 'menu', choices: ['corner', 'center'], optional: true },
+          { name: 'decimate', takes: { socket: 'Field' }, optional: true },
+          { name: 'wobble', takes: { socket: 'Field' }, optional: true },
           { name: 'bridge', takes: { socket: 'Number' }, optional: true },
           { name: 'preserveStroke', control: 'check', optional: true },
           { name: 'strokeSeed', takes: { socket: 'Number' }, optional: true },
@@ -118,6 +131,8 @@ export const CATALOGUE: Catalogue = {
       page: '/docs/reference/shapes', group: 'Shapes',
       params: [
         { name: 'opts', optional: false, options: [
+          { name: 'decimate', takes: { socket: 'Field' }, optional: true },
+          { name: 'wobble', takes: { socket: 'Field' }, optional: true },
           { name: 'bridge', takes: { socket: 'Number' }, optional: true },
           { name: 'rotate', takes: { socket: 'Number' }, optional: true },
           { name: 'scale', takes: { socket: 'Number' }, optional: true },
@@ -145,6 +160,8 @@ export const CATALOGUE: Catalogue = {
           { name: 'opaque', control: 'check', optional: true },
           { name: 'z', takes: { socket: 'Number' }, optional: true },
           { name: 'mode', control: 'menu', choices: ['corner', 'center'], optional: true },
+          { name: 'decimate', takes: { socket: 'Field' }, optional: true },
+          { name: 'wobble', takes: { socket: 'Field' }, optional: true },
           { name: 'bridge', takes: { socket: 'Number' }, optional: true },
           { name: 'preserveStroke', control: 'check', optional: true },
           { name: 'strokeSeed', takes: { socket: 'Number' }, optional: true },
@@ -178,6 +195,8 @@ export const CATALOGUE: Catalogue = {
           { name: 'opaque', control: 'check', optional: true },
           { name: 'z', takes: { socket: 'Number' }, optional: true },
           { name: 'mode', control: 'menu', choices: ['corner', 'center'], optional: true },
+          { name: 'decimate', takes: { socket: 'Field' }, optional: true },
+          { name: 'wobble', takes: { socket: 'Field' }, optional: true },
           { name: 'bridge', takes: { socket: 'Number' }, optional: true },
           { name: 'preserveStroke', control: 'check', optional: true },
           { name: 'strokeSeed', takes: { socket: 'Number' }, optional: true },
@@ -211,6 +230,8 @@ export const CATALOGUE: Catalogue = {
           { name: 'opaque', control: 'check', optional: true },
           { name: 'z', takes: { socket: 'Number' }, optional: true },
           { name: 'mode', control: 'menu', choices: ['corner', 'center'], optional: true },
+          { name: 'decimate', takes: { socket: 'Field' }, optional: true },
+          { name: 'wobble', takes: { socket: 'Field' }, optional: true },
           { name: 'bridge', takes: { socket: 'Number' }, optional: true },
           { name: 'preserveStroke', control: 'check', optional: true },
           { name: 'strokeSeed', takes: { socket: 'Number' }, optional: true },
@@ -233,6 +254,8 @@ export const CATALOGUE: Catalogue = {
           { name: 'opaque', control: 'check', optional: true },
           { name: 'z', takes: { socket: 'Number' }, optional: true },
           { name: 'mode', control: 'menu', choices: ['corner', 'center'], optional: true },
+          { name: 'decimate', takes: { socket: 'Field' }, optional: true },
+          { name: 'wobble', takes: { socket: 'Field' }, optional: true },
           { name: 'bridge', takes: { socket: 'Number' }, optional: true },
           { name: 'preserveStroke', control: 'check', optional: true },
           { name: 'strokeSeed', takes: { socket: 'Number' }, optional: true },
@@ -258,12 +281,24 @@ export const CATALOGUE: Catalogue = {
           { name: 'opaque', control: 'check', optional: true },
           { name: 'z', takes: { socket: 'Number' }, optional: true },
           { name: 'mode', control: 'menu', choices: ['corner', 'center'], optional: true },
+          { name: 'decimate', takes: { socket: 'Field' }, optional: true },
+          { name: 'wobble', takes: { socket: 'Field' }, optional: true },
           { name: 'bridge', takes: { socket: 'Number' }, optional: true },
           { name: 'preserveStroke', control: 'check', optional: true },
           { name: 'strokeSeed', takes: { socket: 'Number' }, optional: true },
           { name: 'rotate', takes: { socket: 'Number' }, optional: true },
           { name: 'scale', takes: { socket: 'Number' }, optional: true },
         ] },
+      ],
+    },
+    {
+      word: 'roughen', module: 'occlude', receiver: null,
+      import: 'roughen', call: 'roughen', returns: 'shape',
+      page: '/docs/reference/shapes', group: 'Shapes',
+      params: [
+        { name: 'amount', takes: { socket: 'Field' }, optional: false },
+        { name: 'detail', takes: { socket: 'Number' }, optional: false },
+        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
       ],
     },
     {
@@ -288,6 +323,8 @@ export const CATALOGUE: Catalogue = {
           { name: 'opaque', control: 'check', optional: true },
           { name: 'z', takes: { socket: 'Number' }, optional: true },
           { name: 'mode', control: 'menu', choices: ['corner', 'center'], optional: true },
+          { name: 'decimate', takes: { socket: 'Field' }, optional: true },
+          { name: 'wobble', takes: { socket: 'Field' }, optional: true },
           { name: 'bridge', takes: { socket: 'Number' }, optional: true },
           { name: 'preserveStroke', control: 'check', optional: true },
           { name: 'strokeSeed', takes: { socket: 'Number' }, optional: true },
@@ -309,12 +346,23 @@ export const CATALOGUE: Catalogue = {
           { name: 'opaque', control: 'check', optional: true },
           { name: 'z', takes: { socket: 'Number' }, optional: true },
           { name: 'mode', control: 'menu', choices: ['corner', 'center'], optional: true },
+          { name: 'decimate', takes: { socket: 'Field' }, optional: true },
+          { name: 'wobble', takes: { socket: 'Field' }, optional: true },
           { name: 'bridge', takes: { socket: 'Number' }, optional: true },
           { name: 'preserveStroke', control: 'check', optional: true },
           { name: 'strokeSeed', takes: { socket: 'Number' }, optional: true },
           { name: 'rotate', takes: { socket: 'Number' }, optional: true },
           { name: 'scale', takes: { socket: 'Number' }, optional: true },
         ] },
+      ],
+    },
+    {
+      word: 'wobble', module: 'occlude', receiver: null,
+      import: 'wobble', call: 'wobble', returns: 'shape',
+      page: '/docs/reference/shapes', group: 'Shapes',
+      params: [
+        { name: 'amount', takes: { socket: 'Field' }, optional: false },
+        { name: 'children', takes: { socket: 'Geometry', kinds: ['drawing'] }, optional: true },
       ],
     },
     {
@@ -330,7 +378,7 @@ export const CATALOGUE: Catalogue = {
       import: 'distanceTo', call: 'distanceTo', returns: 'Field',
       page: '/docs/reference/fields', group: 'Fields',
       params: [
-        { name: 'boundary', takes: { socket: 'Geometry', kinds: ['shape'] }, optional: false },
+        { name: 'boundary', takes: { socket: 'Geometry', kinds: ['shape', 'faces', 'material', 'points'] }, optional: false },
       ],
     },
     {
@@ -863,6 +911,9 @@ export const CATALOGUE: Catalogue = {
       page: '/docs/reference/connect', group: 'Connect',
       params: [
         { name: 'm', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
+        { name: 'opts', optional: true, options: [
+          { name: 'room', takes: { socket: 'Field' }, optional: true },
+        ] },
       ],
     },
     {
@@ -1004,6 +1055,20 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'oscillate', module: 'occlude', receiver: null,
+      import: 'oscillate', call: 'oscillate', returns: 'material',
+      page: '/docs/reference/transforms', group: 'Transforms',
+      params: [
+        { name: 'm', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
+        { name: 'opts', optional: false, options: [
+          { name: 'wavelength', takes: { socket: 'Field' }, optional: false },
+          { name: 'amplitude', takes: { socket: 'Field' }, optional: false },
+          { name: 'phase', takes: { socket: 'Number' }, optional: true },
+          { name: 'steps', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
       word: 'thicken', module: 'occlude', receiver: null,
       import: 'thicken', call: 'thicken', returns: 'material',
       page: '/docs/reference/transforms', group: 'Transforms',
@@ -1043,6 +1108,8 @@ export const CATALOGUE: Catalogue = {
           { name: 'opaque', control: 'check', optional: true },
           { name: 'z', takes: { socket: 'Number' }, optional: true },
           { name: 'mode', control: 'menu', choices: ['corner', 'center'], optional: true },
+          { name: 'decimate', takes: { socket: 'Field' }, optional: true },
+          { name: 'wobble', takes: { socket: 'Field' }, optional: true },
           { name: 'bridge', takes: { socket: 'Number' }, optional: true },
           { name: 'preserveStroke', control: 'check', optional: true },
           { name: 'strokeSeed', takes: { socket: 'Number' }, optional: true },
@@ -1233,8 +1300,17 @@ export const CATALOGUE: Catalogue = {
       import: 'boundaryLoops', call: 'boundaryLoops', returns: 'shape',
       page: '', group: 'Other',
       params: [
-        { name: 'input', takes: { socket: 'Geometry', kinds: ['shape'] }, optional: false },
+        { name: 'input', takes: { socket: 'Geometry', kinds: ['shape', 'faces', 'material', 'points'] }, optional: false },
         { name: 'who', control: 'text', optional: false },
+      ],
+    },
+    {
+      word: 'box3', module: 'occlude', receiver: null,
+      import: 'box3', call: 'box3', returns: 'surface',
+      page: '', group: 'Other',
+      params: [
+        { name: 'size', takes: { socket: 'Vector' }, optional: true },
+        { name: 'center', takes: { socket: 'Vector' }, optional: true },
       ],
     },
     {
@@ -1243,6 +1319,14 @@ export const CATALOGUE: Catalogue = {
       page: '', group: 'Other',
       params: [
         { name: 'bridge', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'cloneSurface3', module: 'occlude', receiver: null,
+      import: 'cloneSurface3', call: 'cloneSurface3', returns: 'surface',
+      page: '', group: 'Other',
+      params: [
+        { name: 'surface', takes: { socket: 'Geometry', kinds: ['surface'] }, optional: false },
       ],
     },
     {
@@ -1706,6 +1790,15 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'grid3', module: 'occlude', receiver: null,
+      import: 'grid3', call: 'grid3', returns: 'surface',
+      page: '', group: 'Other',
+      params: [
+        { name: 'columns', takes: { socket: 'Number' }, optional: false },
+        { name: 'rows', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
       word: 'h', module: 'occlude', receiver: null,
       import: 'h', call: 'h', returns: 'Number',
       page: '', group: 'Other',
@@ -1782,6 +1875,28 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'measureFaces3', module: 'occlude', receiver: null,
+      import: 'measureFaces3', call: 'measureFaces3', returns: 'faces',
+      page: '', group: 'Other',
+      params: [
+        { name: 'surface', takes: { socket: 'Geometry', kinds: ['surface'] }, optional: false },
+      ],
+    },
+    {
+      word: 'mesh', module: 'occlude/3d', receiver: null,
+      import: 'mesh', call: 'mesh', returns: 'mesh',
+      page: '', group: 'Other',
+      params: [
+        { name: 'source', takes: { socket: 'Geometry', kinds: ['surface'] }, optional: false },
+        { name: 'options', optional: true, options: [
+          { name: 'key', control: 'text', optional: true },
+          { name: 'creaseAngle', takes: { socket: 'Number' }, optional: true },
+          { name: 'stroke', control: 'text', optional: true },
+          { name: 'fillPen', control: 'text', optional: true },
+        ] },
+      ],
+    },
+    {
       word: 'planarize', module: 'occlude', receiver: null,
       import: 'planarize', call: 'planarize', returns: 'material',
       page: '', group: 'Other',
@@ -1827,6 +1942,14 @@ export const CATALOGUE: Catalogue = {
       page: '', group: 'Other',
       params: [
         { name: 'n', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'snapshotSurface3', module: 'occlude', receiver: null,
+      import: 'snapshotSurface3', call: 'snapshotSurface3', returns: 'surface',
+      page: '', group: 'Other',
+      params: [
+        { name: 'surface', takes: { socket: 'Geometry', kinds: ['surface'] }, optional: false },
       ],
     },
     {
@@ -1882,6 +2005,20 @@ export const CATALOGUE: Catalogue = {
       page: '', group: 'Other',
       params: [
         { name: 'optimize', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 'transformSurface3', module: 'occlude', receiver: null,
+      import: 'transformSurface3', call: 'transformSurface3', returns: 'surface',
+      page: '', group: 'Other',
+      params: [
+        { name: 'surface', takes: { socket: 'Geometry', kinds: ['surface'] }, optional: false },
+        { name: 'options', optional: false, options: [
+          { name: 'translate', takes: { socket: 'Vector' }, optional: true },
+          { name: 'rotate', takes: { socket: 'Vector' }, optional: true },
+          { name: 'scale', takes: { socket: 'Vector' }, optional: true },
+          { name: 'origin', takes: { socket: 'Vector' }, optional: true },
+        ] },
       ],
     },
     {

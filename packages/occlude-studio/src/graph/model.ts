@@ -14,12 +14,12 @@
  */
 
 /** The concrete kinds of geometry, in the library's own words. */
-export const GEOMETRY_KINDS = ['shape', 'material', 'points', 'faces', 'mesh', 'curves', 'drawing'] as const;
+export const GEOMETRY_KINDS = ['shape', 'material', 'points', 'faces', 'mesh', 'curves', 'surface', 'drawing'] as const;
 export type GeometryKind = (typeof GEOMETRY_KINDS)[number];
 
 /** The socket classes: what a connection carries, at the granularity the
  * artist wires. */
-export const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera'] as const;
+export const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier'] as const;
 export type SocketClass = (typeof SOCKET_CLASSES)[number];
 
 /** A value a code node declares, an input takes or a word returns. */

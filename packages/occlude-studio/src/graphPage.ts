@@ -59,6 +59,7 @@ const SOCKET_COLORS: Record<string, string> = {
   Field: 'var(--ink)',
   Fill: 'var(--muted)',
   Camera: 'var(--faint)',
+  Modifier: 'var(--warn)',
 };
 
 /** What a viewer's own picture wraps: a material is not ink. */

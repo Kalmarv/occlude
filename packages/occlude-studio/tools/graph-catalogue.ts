@@ -89,14 +89,24 @@ for (const page of PAGES) for (const word of page.words) if (!pageOfWord.has(wor
 
 // ---- the type → socket map ----
 
-const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera'] as const;
+const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier'] as const;
 type SocketClass = (typeof SOCKET_CLASSES)[number];
-const GEOMETRY_KINDS = ['shape', 'material', 'points', 'faces', 'mesh', 'curves', 'drawing'] as const;
+const GEOMETRY_KINDS = ['shape', 'material', 'points', 'faces', 'mesh', 'curves', 'surface', 'drawing'] as const;
 type GeometryKind = (typeof GEOMETRY_KINDS)[number];
 type ValueType = GeometryKind | SocketClass;
 
 /** The value a type carries, by type name. A name absent here carries no
  * value, and a word that needs it is left out. */
+/**
+ * A named type that is one value, decided by its name before its members.
+ *
+ * `Boundary` is deliberately absent. It is the library's own spelling of
+ * "an area is an input" — a loop, a contour record, one face, a chain
+ * material, a point source — and naming it `shape` here threw the other
+ * three kinds away, so `distanceTo(aMaterial)` was refused by a socket that
+ * the library itself accepts. Left unnamed, the union is walked and the
+ * socket takes every kind it really holds.
+ */
 const BY_NAME: Record<string, ValueType> = {
   Len: 'Number',
   L: 'Number',
@@ -114,6 +124,8 @@ const BY_NAME: Record<string, ValueType> = {
   Mesh: 'mesh',
   Instances: 'mesh',
   SurfaceCurves: 'curves',
+  Surface3: 'surface',
+  ModifierValue: 'Modifier',
   CurveSamples: 'curves',
   Drawing3: 'drawing',
   LineArtScene3: 'drawing',
@@ -125,7 +137,6 @@ const BY_NAME: Record<string, ValueType> = {
   Loop: 'shape',
   LoopPoints: 'shape',
   IsoContour: 'shape',
-  Boundary: 'shape',
   FaceLike: 'faces',
   FaceSource: 'faces',
   ChainSource: 'material',
@@ -294,6 +305,13 @@ function takesOf(raw: ts.Type): { socket: SocketClass; kinds?: GeometryKind[] } 
   const mapped = type.types.map((t) => strictTakesOf(t)).filter((t) => t !== undefined);
   if (mapped.length === 0) return undefined;
   const classes = [...new Set(mapped.map((t) => t.socket))];
+  // A Field socket already takes a Number and reads it as a constant field,
+  // so `number | FieldFn` is a Field. That is the wire rule the page has
+  // always had; the generator was throwing the word away instead of using
+  // it, which is why `decimate`, `wobble` and `roughen` had no node.
+  if (classes.length === 2 && classes.includes('Field') && classes.includes('Number')) {
+    return { socket: 'Field' };
+  }
   if (classes.length !== 1) return undefined;
   const kinds = [...new Set(mapped.flatMap((t) => t.kinds ?? []))];
   if (kinds.length === 0) return { socket: classes[0] };

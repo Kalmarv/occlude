@@ -33,11 +33,13 @@ const TS_TYPE: Record<string, { type: string; module?: 'occlude' | 'occlude/3d';
   drawing: { type: 'Tree', module: 'occlude', name: 'Tree' },
   mesh: { type: 'Mesh', module: 'occlude/3d', name: 'Mesh' },
   curves: { type: 'SurfaceCurves', module: 'occlude/3d', name: 'SurfaceCurves' },
+  surface: { type: 'Surface3', module: 'occlude/3d', name: 'Surface3' },
   Number: { type: 'number' },
   Vector: { type: 'Vec', module: 'occlude', name: 'Vec' },
   Field: { type: 'FieldFn', module: 'occlude', name: 'FieldFn' },
   Fill: { type: 'FillSpec', module: 'occlude', name: 'FillSpec' },
   Camera: { type: 'Camera3', module: 'occlude', name: 'Camera3' },
+  Modifier: { type: 'ModifierValue', module: 'occlude', name: 'ModifierValue' },
   // Geometry with no kind is "the graph does not know": `any`, not
   // `unknown`, because a squiggle the graph invented on a body that runs is
   // worse than no check. A node whose type the artist declares is checked.
@@ -54,6 +56,7 @@ const SOCKET_CLASS_LABEL: Record<string, string> = {
   Field: 'field',
   Fill: 'fill',
   Camera: 'camera',
+  Modifier: 'modifier',
 };
 
 /** The socket a value type travels on, and the geometry kinds it names. */
