@@ -5,7 +5,7 @@ import {
   circle, fill, initOcclude, mm, path, polygon, primLength, rect, render, shader, sketch,
   type PlanChain, type SketchDef, type StrokeInk, type StrokeProgram,
 } from '../src/index.js';
-import { decodePlanBuffer, encodePlanBuffer } from '../src/plan.js';
+import { decodePlanBuffer, encodePlanBuffer, type PlanOptions } from '../src/plan.js';
 import { planBuffer } from '../src/render.js';
 
 beforeAll(async () => {

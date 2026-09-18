@@ -56,12 +56,11 @@ describe('rewrite rules', () => {
 
   it('splits every edge that matches, and only those', () => {
     const m = line(4, 3);
-    const long = m.steps(1, rule.edge((e) => e.length > 0.9));
-    expect(long.points.length).toBe(4);
-    const split = m.steps(1, rule.edge((e) => e.length > 0.9).split());
-    expect(split.points.length).toBe(4 + 3);
+    // A pattern that matches nothing changes nothing.
     const none = m.steps(1, rule.edge((e) => e.length > 100).split());
     expect(none.points.length).toBe(4);
+    const split = m.steps(1, rule.edge((e) => e.length > 0.9).split());
+    expect(split.points.length).toBe(4 + 3);
   });
 
   it('grows a Koch curve by replacing every edge with one motif', () => {
