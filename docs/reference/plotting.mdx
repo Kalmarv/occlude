@@ -54,6 +54,10 @@ The program runs once for each nib step of every stroke, so keep it cheap. A den
 :::
 
 :::warning
+**The studio preview does not show a shader.** The preview draws the finished paper. A shader runs after that, on the plan. A shaded sketch previews solid and plots shaded. Export an SVG or a PNG to see what the machine will draw. This breaks the rule that the preview matches the plot, and it is the feature's one open flaw.
+:::
+
+:::warning
 A shader renumbers the plan. `passes` doubles the chains, a dash multiplies them, and `keep: false` removes them. A `t.draw({ chains })` range written against the unshaded plan covers a different part of the shaded one. `ctx.index` is the row before shading.
 :::
 
