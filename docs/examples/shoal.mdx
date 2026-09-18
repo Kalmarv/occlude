@@ -1,24 +1,24 @@
 ---
 title: Shoal
-description: A distance field makes the form, a rewrite rule roughens its coast, and one shader inks the result by the same field.
+description: A distance field makes the form, one edit roughens its coast, and one shader inks the result by the same field.
 ---
 
 Three mechanisms, one drawing, and each does the part it is best at.
 
-`sdf.blend` folds four discs into one body. `t.isolines(body, 0)` gives its outline, and `resample` coarsens that outline to edges seven millimetres long. Long edges are what a rewrite rule wants. `rule.edge().replace(motif)` then swaps every edge for a bump, twice, so the smooth blob grows a fractal coast.
+`sdf.blend` folds four discs into one body. `t.isolines(body, 0)` gives its outline, and `resample` coarsens that outline to edges seven millimetres long. Long edges are what a motif wants. `next.replace(cur.edges, motif)` then swaps every edge for a bump, twice, so the smooth blob grows a fractal coast.
 
 The shader reads the same field that made the form. Deep inside the body the hatch runs solid, and near the coast it breaks into dashes. The steps come from the field's own maximum, measured over a grid. Nothing here is a number picked by eye.
 
 `ctx.pen` is what keeps the coast crisp. The coastline draws in its own pen, and the shader returns an empty record for it. A shader sees what the engine knows about a stroke, so it can ink the fill and leave the outline alone.
 
-Uses: `t.throw`, `sdf.circle`, `sdf.blend`, `t.isolines`, `resample`, `rule.edge().replace`, `t.plan({ shader })`, `ctx.pen`, `polygon` with a `fill`, `strokes`.
+Uses: `t.throw`, `sdf.circle`, `sdf.blend`, `t.isolines`, `resample`, `next.replace`, `t.plan({ shader })`, `ctx.pen`, `polygon` with a `fill`, `strokes`.
 
 :::note
 The coastline goes down first, before the filled shape. A stroke on a filled shape's boundary is coincident with it, and the engine culls it. Draw the outline afterwards and it disappears.
 :::
 
 ```ts live
-import { sketch, polygon, strokes, circle, material, sdf, rule, shader, fill, pen, mm } from 'occlude';
+import { sketch, polygon, strokes, circle, material, sdf, shader, fill, pen, mm } from 'occlude';
 
 export default sketch({
   aspect: [1, 1], seed: 12, margin: 6,
@@ -35,7 +35,7 @@ export default sketch({
   const h = Math.sqrt(3) / 10;
   const motif = material([[0, 0], [1 / 3, 0], [0.5, h], [2 / 3, 0], [1, 0]], { edges: [[0, 1], [1, 2], [2, 3], [3, 4]] });
   const coast = t.isolines(body, 0).resample({ spacing: 7 })
-    .steps(2, rule.edge().replace(motif, { flip: (e) => e.index % 2 === 0 }));
+    .steps(2, (cur, next) => next.replace(cur.edges, motif, { flip: (e) => e.index % 2 === 0 }));
 
   // The field's own depth decides the ink. The coast keeps its pen.
   let deepest = 0;

@@ -32,8 +32,7 @@ const entry3d = join(pkg, 'src/three/api/index.ts');
 const RECEIVER: Record<string, string> = {
   Material: 'm', Faces: 'cells', FaceSelection: 'sel', Face: 'face', Edge: 'edge', Vertex: 'p',
   PointSelection: 'points', EdgeSelection: 'edges', Station: 'station', Next: 'next', Toolkit: 't', '3d.Mesh': 'mesh',
-  connect: 'connect', force: 'force', query: 'query', ease: 'ease', sdf: 'sdf', rule: 'rule',
-  PointRule: 'rule.point(…)', EdgeRule: 'rule.edge(…)', FaceRule: 'rule.face(…)',
+  connect: 'connect', force: 'force', query: 'query', ease: 'ease', sdf: 'sdf',
 };
 /** Reference page per type name; a link is emitted only when the page exists. */
 const PAGE: Record<string, string> = {
@@ -41,7 +40,7 @@ const PAGE: Record<string, string> = {
   Vertex: 'selections', Edge: 'selections', PointSelection: 'selections', EdgeSelection: 'selections', Station: 'selections',
   Faces: 'faces', FaceSelection: 'faces', Face: 'faces', FaceMeasurements: 'faces', MeasureOpts: 'faces', PlanarizeOpts: 'faces',
   Next: 'steps', StepRule: 'steps', StepShorthand: 'steps', StepsOptions: 'steps', FaceRow: 'steps', Rewrite: 'steps',
-  PointRule: 'steps', EdgeRule: 'steps', FaceRule: 'steps', ReplaceOpts: 'steps', ChildSpec: 'steps', SplitOpts: 'steps', Vec: 'material', XY: 'material',
+  ReplaceOpts: 'steps', ChildSpec: 'steps', SplitOpts: 'steps', Vec: 'material', XY: 'material',
   ShapeValue: 'shapes', ShapeOpts: 'shapes', GroupValue: 'shapes', GroupOpts: 'shapes', FillSpec: 'fills', ModifierValue: 'shapes',
   FieldFn2: 'fields', FieldFn: 'fields', VectorFieldFn: 'fields', DistanceField: 'fields', Boundary: 'material', L: 'shapes', Toolkit: 'shapes',
   Mesh: '3d/primitives', Vec3: '3d/primitives', Instances: '3d/instances', SurfaceCurves: '3d/surface',
@@ -124,8 +123,8 @@ function member(owner: string, sym: ts.Symbol, ownerType: ts.Type): void {
   void ownerType;
 }
 
-const OWNERS = ['Material', 'Faces', 'FaceSelection', 'Face', 'Edge', 'Vertex', 'PointSelection', 'EdgeSelection', 'Station', 'Next', 'Toolkit', 'PointRule', 'EdgeRule', 'FaceRule'];
-const NAMESPACES = ['connect', 'force', 'query', 'ease', 'sdf', 'rule'];
+const OWNERS = ['Material', 'Faces', 'FaceSelection', 'Face', 'Edge', 'Vertex', 'PointSelection', 'EdgeSelection', 'Station', 'Next', 'Toolkit'];
+const NAMESPACES = ['connect', 'force', 'query', 'ease', 'sdf'];
 // occlude/3d: every exported function, keyed `3d.<name>`, spelled bare (it is imported by name).
 const sf3 = program.getSourceFile(entry3d);
 const mod3 = sf3 && checker.getSymbolAtLocation(sf3);

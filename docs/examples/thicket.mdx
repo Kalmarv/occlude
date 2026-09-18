@@ -3,22 +3,22 @@ title: Thicket
 description: A tree grown by one rule, which stops where it runs out of room.
 ---
 
-One rule grows the whole tree. A tip is a point with exactly one neighbour. The pattern finds every tip, and the action extrudes from it. A fork returns two children and a shoot returns one, so the same action makes a trunk and a twig.
+One pass grows the whole tree. A tip is a point with exactly one neighbour. The pass finds every tip and extrudes from it. A fork returns two children and a shoot returns one, so the same action makes a trunk and a twig.
 
-`p.adjacent` and `near` answer different questions, and the rule needs both. `p.adjacent` holds the points an edge joins to this one, so a tip has exactly one of them. `near` is what is merely close, joined or not. A tip grows only when nothing but its own branch lies within a short radius of it.
+`p.adjacent` and `near` answer different questions, and the pass needs both. `p.adjacent` holds the points an edge joins to this one, so a tip has exactly one of them. `near` is what is merely close, joined or not. `near(p, { radius }).subtract(p.adjacent)` is everything close that is not joined. A tip grows only when that is empty.
 
 That second test is what makes the drawing stop. The crown fills, the tips crowd each other, and growth ends on its own. Without it the branches double every step and the crown goes solid black.
 
-The chance lives in the pattern and the action, not in an option. `rule` is a plain import and has no seed, so `t.chance` and `t.rnd` come from the sketch.
+The chance lives in the pass, where the toolkit is in scope, so `t.chance` and `t.rnd` are the sketch's own seeded streams.
 
-Uses: `rule.point` with `p.adjacent` and `points.near`, `extrude` returning one child or two, a point column carried through the extrude, `t.chance`, `t.rnd`.
+Uses: `steps`, `p.adjacent`, `points.near` with `subtract`, `next.extrude`, a point column carried through it, `t.chance`, `t.rnd`.
 
 :::note
 `gen` counts how far a tip is from the trunk. It rides the extrude as an ordinary point column, so a branch knows its own age and shortens with it. A new point must name every declared column. The engine never drops a column in silence.
 :::
 
 ```ts live
-import { sketch, strokes, material, rule, pen, mm, add, mul, sub, unit } from 'occlude';
+import { sketch, strokes, material, pen, mm, add, mul, sub, unit, fromAngle, angleOf } from 'occlude';
 
 export default sketch({
   aspect: [1, 1], seed: 6, margin: 6,
@@ -30,26 +30,23 @@ export default sketch({
     { edges: [[0, 1]] },
   );
   const room = b.w * 0.010;
-  const grown = trunk.steps(16, rule.point((p, cur) => {
-    if (p.adjacent.length !== 1 || p.y > b.h * 0.95) return false;
-    const own = new Set([p.index, ...[...p.adjacent].map((q) => q.index)]);
-    return cur.points.near(p, { radius: room }).every((q) => own.has(q.index));
-  }).extrude((p) => {
-    const dir = unit(sub(p, p.adjacent.at(0)));
-    const len = b.h * 0.085 * Math.pow(0.86, p.gen);
-    const turn = (deg) => {
-      const a = (deg * Math.PI) / 180;
-      return [dir[0] * Math.cos(a) - dir[1] * Math.sin(a), dir[0] * Math.sin(a) + dir[1] * Math.cos(a)];
-    };
-    if (t.chance(0.46 + 0.04 * p.gen)) {
-      const spread = 15 + t.rnd(16);
-      return [
-        { position: add(p, mul(turn(spread), len)), attributes: { gen: p.gen + 1 } },
-        { position: add(p, mul(turn(-spread), len)), attributes: { gen: p.gen + 1 } },
-      ];
-    }
-    return [{ position: add(p, mul(turn(t.rnd(-11, 11)), len)), attributes: { gen: p.gen + 1 } }];
-  }));
+  const grown = trunk.steps(16, (cur, next) => {
+    // A tip has one neighbour, and nothing but its own branch nearby.
+    const tips = cur.points.filter((p) =>
+      p.adjacent.length === 1 && p.y <= b.h * 0.95 &&
+      cur.points.near(p, { radius: room }).subtract(p.adjacent).length === 0);
+    next.extrude(tips, (p) => {
+      const dir = unit(sub(p, p.adjacent.at(0)));
+      const len = b.h * 0.085 * Math.pow(0.86, p.gen);
+      const turn = (deg) => fromAngle(angleOf(dir) + (deg * Math.PI) / 180);
+      const child = (deg) => ({ position: add(p, mul(turn(deg), len)), attributes: { gen: p.gen + 1 } });
+      if (t.chance(0.46 + 0.04 * p.gen)) {
+        const spread = 15 + t.rnd(16);
+        return [child(spread), child(-spread)];
+      }
+      return [child(t.rnd(-11, 11))];
+    });
+  });
   return strokes(grown.curves(), { pen: 'ink' });
 });
 ```

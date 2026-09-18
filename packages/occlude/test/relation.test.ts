@@ -226,3 +226,27 @@ describe('relational attributes', () => {
     expect(Array.from(components(y).labels)).toEqual([0, 0, 0, 0, 0, 1]);
   });
 });
+
+describe('p.adjacent and points.near answer different questions', () => {
+  const line3 = () => material([[0, 0], [1, 0], [2, 0]] as [number, number][], { edges: [[0, 1], [1, 2]] as [number, number][] });
+
+  it('gives a point the points an edge joins it to, and never itself', () => {
+    const m = line3();
+    const middle = m.points.at(1);
+    expect(middle.adjacent.length).toBe(2);
+    expect(middle.adjacent.map((p) => p.index).sort()).toEqual([0, 2]);
+    expect(m.points.at(0).adjacent.length).toBe(1);
+    expect(material([[0, 0]] as [number, number][]).points.at(0).adjacent.length).toBe(0);
+  });
+
+  it('finds points near one, by distance and not by topology', () => {
+    const m = material([[0, 0], [1, 0], [5, 0], [0, 1]] as [number, number][]);
+    const p = m.points.at(0);
+    expect(m.points.near(p, { radius: 1.5 }).map((q) => q.index).sort()).toEqual([1, 3]);
+    // Never the queried vertex, whatever the radius, when it is of this state.
+    expect(m.points.near(p, { radius: 100 }).map((q) => q.index)).not.toContain(0);
+    // A selection of part of the state answers with its own members only.
+    expect(m.points.filter((q) => q.index !== 1).near(p, { radius: 1.5 }).map((q) => q.index)).toEqual([3]);
+    expect(() => m.points.near(p, { radius: 0 })).toThrow(/positive distance/);
+  });
+});

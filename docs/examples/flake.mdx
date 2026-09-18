@@ -3,20 +3,20 @@ title: Flake
 description: One motif and a triangle, grown four times by a single rewrite rule.
 ---
 
-A rule is a pattern and a replacement. Here the pattern is every edge. The replacement is one motif: a five point chain with a bump across its middle third. `rule.edge().replace(motif)` swaps every edge for that chain, and `steps` does it four times over.
+One edit does the whole drawing. `next.replace(cur.edges, motif)` swaps every edge for a motif: a five point chain with a bump across its middle third. `steps` does it four times over.
 
 The motif knows nothing about the shape it lands on. `replace` reads it in its own frame. That frame runs along the line from the motif's first point to its last, and across it. Both are fractions of the motif's own span. One motif rides an edge of any length at any angle. Each generation lands on edges a third the size of the last.
 
-The seed is a triangle, so the curve closes and the result is an area. `flip` sends the bumps outward here. The seed's winding decides that, so try `flip` both ways on a new seed. Turn the bumps inward and the same rule eats the triangle away.
+`t.sample` puts three points on a circle, so the seed is a triangle and the curve closes into an area. `flip` sends the bumps outward here. The seed's winding decides that, so try `flip` both ways on a new seed. Turn the bumps inward and the same rule eats the triangle away.
 
-Uses: `material` with explicit `edges`, `rule.edge()`, `replace` with `flip`, `steps`, `polygon` with `opaque` and a `fill`, `strokes`.
+Uses: `t.sample`, `material` with explicit `edges`, `next.replace` with `flip`, `steps`, `polygon` with `opaque` and a `fill`, `strokes`.
 
 :::note
 Each step multiplies the edges by four, so the count is `4ⁿ`. Four steps on a triangle is 768 edges and draws in a moment. Eight would be 196 608, and the plotter would still be going at breakfast.
 :::
 
 ```ts live
-import { sketch, polygon, strokes, material, rule, fill, pen, mm } from 'occlude';
+import { sketch, polygon, strokes, material, fill, pen, mm, circle } from 'occlude';
 
 export default sketch({
   aspect: [1, 1], margin: 6,
@@ -25,13 +25,8 @@ export default sketch({
   const b = t.bounds();
   const h = Math.sqrt(3) / 6;
   const motif = material([[0, 0], [1 / 3, 0], [0.5, h], [2 / 3, 0], [1, 0]], { edges: [[0, 1], [1, 2], [2, 3], [3, 4]] });
-  const r = b.w * 0.44;
-  const corners = [0, 1, 2].map((i) => {
-    const a = -Math.PI / 2 + (i * 2 * Math.PI) / 3;
-    return [b.w / 2 + r * Math.cos(a), b.h * 0.52 + r * Math.sin(a)];
-  });
-  const tri = material(corners, { edges: [[0, 1], [1, 2], [2, 0]] });
-  const grown = tri.steps(4, rule.edge().replace(motif, { flip: true }));
+  const seed = t.sample(circle(b.w / 2, b.h * 0.52, b.w * 0.44), { count: 3 });
+  const grown = seed.steps(4, (cur, next) => next.replace(cur.edges, motif, { flip: true }));
   return [
     polygon(grown.curves(), { opaque: true, fill: fill('hatch', { angle: 30, spacing: mm(1.6) }), pen: 'fine' }),
     strokes(grown.curves(), { pen: 'ink' }),

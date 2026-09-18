@@ -123,6 +123,7 @@ export {
   standaloneEstimate, fitDuration, planSchedule, chainsBounds, resolveDraw, planValue, checkDrawRequest,
 } from './plan.js';
 export { plan, planBuffer, planSvg, planGcode, planToolpath, bridgeGapFor } from './render.js';
+export type { ReplaceOpts } from './steps.js';
 export type { PlanChain, PlanSettings, DrawingPlan, PlanSelection, FlatChain, TimeSelection, FitResult, PlanOptions, DrawRequest, DrawTiming, ResolvedDraw } from './plan.js';
 export { PAPERS, DEFAULT_PAPERS, paperSize } from './paper.js';
 export type { Paper, PaperChoice, PaperDef } from './paper.js';
@@ -145,8 +146,6 @@ export type { IsoContour, IsoOpts } from './isolines.js';
 // Loops → signed distance field (positive inside): pure, composes with
 // isolines (offsetting is a recipe), scatter, decimate, deform.
 export { distanceTo, sdf } from './distance.js';
-export { rule } from './rules.js';
-export type { PointMatch, EdgeMatch, FaceMatch, FaceRow, ReplaceOpts, Rewrite, PointRule, EdgeRule, FaceRule } from './rules.js';
 export type { DistanceField } from './distance.js';
 // The one boundary contract of polygon, distanceTo and force.boundary.
 export { boundaryLoops, numericLoops } from './boundary.js';

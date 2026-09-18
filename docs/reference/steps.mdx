@@ -25,74 +25,24 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## rule.point() · rule.edge() · rule.face()
-
-<include>/_sig/rule.point.mdx</include>
-<include>/_sig/rule.edge.mdx</include>
-<include>/_sig/rule.face.mdx</include>
-
-A rule is a pattern and a replacement. The pattern picks the points, edges or faces that match, and the action says what happens to every one of them. A rule builds a `steps` rule, so `m.steps(n, rule.point(…).move(…))` is the whole story. There is no separate verb. The callback reads a material by default, and a rule for a mesh names its own world: `rule.point<MeshPointRow, Mesh>(…)`.
-
-The actions on points are `move`, `set`, `extrude`, `connect` and `remove`. On edges they are `split`, `set`, `remove` and `replace`. On faces they are `set` and `move`. Every pattern and every action callback also sees the step number.
-
-<include>/_sig/PointRule.move.mdx</include>
-<include>/_sig/PointRule.set.mdx</include>
-<include>/_sig/PointRule.extrude.mdx</include>
-<include>/_sig/PointRule.connect.mdx</include>
-<include>/_sig/PointRule.remove.mdx</include>
-<include>/_sig/EdgeRule.split.mdx</include>
-<include>/_sig/EdgeRule.set.mdx</include>
-<include>/_sig/EdgeRule.remove.mdx</include>
-<include>/_sig/EdgeRule.replace.mdx</include>
-<include>/_sig/FaceRule.set.mdx</include>
-<include>/_sig/FaceRule.move.mdx</include>
-
-```ts live
-import { sketch, strokes, material, rule } from 'occlude';
-
-export default sketch({ aspect: [1, 1] }, (t) => {
-  // The Koch generator: a bump across the middle third of any edge.
-  const h = Math.sqrt(3) / 6;
-  const motif = material([[0, 0], [1 / 3, 0], [0.5, h], [2 / 3, 0], [1, 0]], { edges: [[0, 1], [1, 2], [2, 3], [3, 4]] });
-  // The same rule, three times over, at three step counts.
-  return [1, 3, 5].map((n, row) => {
-    const y = 35 + row * 30;
-    const seed = material([[15, y], [85, y]], { edges: [[0, 1]] });
-    return strokes(seed.steps(n, rule.edge().replace(motif, { flip: true })).curves());
-  });
-});
-```
-
-:::note
-`rule` is a plain import and has no seed of its own. Put a chance in the pattern, where it runs once for each row: `rule.edge((e) => t.chance(0.3)).split()`. A seeded stream lives on the toolkit.
-:::
-
 ## One batch or several passes
 
-`steps(n, [a, b])` is ONE batch. Both rules match the same frozen state. A point that `a` moves is still where it was when `b` looks at it. `steps(n, a, b)` is two passes, and `b` reads what `a` committed.
+`steps(n, [a, b])` is ONE batch. Both passes read the same frozen state. A point that `a` moves is still where it was when `b` looks at it. `steps(n, a, b)` is two batches, and `b` reads what `a` committed.
 
-Matching is order-free. Editing is not, and the batch rules decide it. Moves add up, so two move rules commute. A later `set` overwrites an earlier one. A later `connect` on a pair an earlier rule already made changes nothing, and its edge attributes go with it. New points keep the order the rules asked for them, and row order is visible in `p.index` and in plot order.
+Reading is order-free. Editing is not, and the batch rules decide it. Moves add up, so two moves commute. A later `set` overwrites an earlier one. A later `connect` on a pair an earlier pass already made changes nothing, and its edge attributes go with it. New points keep the order the passes asked for them, and row order is visible in `p.index` and in plot order.
 
 ```ts live
-import { sketch, strokes, circle, rule, mul, sub } from 'occlude';
+import { sketch, strokes, circle, mul, sub } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
   const ring = t.sample(circle(50, 50, 26), { count: 90 });
   const grown = ring.steps(26, [
-    rule.point().move((p) => mul(sub(p, [50, 50]), 0.012)),
-    rule.edge((e) => e.length > 2.2).split(),
+    (cur, next) => next.move(cur.points, (p) => mul(sub(p, [50, 50]), 0.012)),
+    (cur, next) => next.splitEdges(cur.edges.filter((e) => e.length > 2.2)),
   ]);
   return strokes(grown.curves());
 });
 ```
-
-## A rule in three dimensions
-
-A rule that only moves or writes runs in either world. Build it once and hand it to a material's `steps` or to a mesh's. `rule.point()` has `extrude`, `connect` and `remove`. `rule.edge()` has `split`, `remove` and `replace`. These change topology, and a mesh edit batch has none, so they belong to the flat world. `rule.face().set()` runs the other way: only a mesh stores face columns.
-
-:::warning
-A mesh stores its faces, and they own attribute columns. `rule.face().set()` writes those columns. A material computes a face from its points and edges every time, and that face owns no columns. `rule.face().set()` on a material says so and stops.
-:::
 
 ## next.move()
 
@@ -166,6 +116,31 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   return [strokes(finer), finer.points.map((p) => circle(p.x, p.y, 1, { pen: 'stabilo-88-blue' }))];
 });
 ```
+
+## next.replace()
+
+<include>/_sig/Next.replace.mdx</include>
+
+Swap every selected edge for a motif. The edge goes, and the motif's chain takes its place between the same two points. `replace` reads the motif in its own frame. That frame runs along the line from its first point to its last, and across it. One motif rides an edge of any length at any angle. Point columns interpolate and edge columns inherit, exactly as a split's children do.
+
+An L-system is exactly this substitution, over and over. A Koch curve is one motif and four steps.
+
+```ts live
+import { sketch, strokes, material, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], margin: 6 }, (t) => {
+  const b = t.bounds();
+  const h = Math.sqrt(3) / 6;
+  const motif = material([[0, 0], [1 / 3, 0], [0.5, h], [2 / 3, 0], [1, 0]], { edges: [[0, 1], [1, 2], [2, 3], [3, 4]] });
+  const seed = t.sample(circle(b.w / 2, b.h * 0.56, b.w * 0.42), { count: 3 });
+  const flake = seed.steps(4, (cur, next) => next.replace(cur.edges, motif, { flip: true }));
+  return strokes(flake.curves());
+});
+```
+
+:::note
+A motif is ONE open chain, read from its edges and not from its row order. Nothing but the build order decides a material's rows. A motif with the right points in the wrong order would draw something else. `flip` mirrors it across the edge. The callback sees the step, so alternating on the step turns the curve inward and outward by turns. The seed's winding decides the outward side.
+:::
 
 ## next.connect() · next.disconnect()
 

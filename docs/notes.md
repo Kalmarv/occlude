@@ -746,83 +746,55 @@ idempotent either: `blend(a, a, 8)` contours at radius 14.34 against a disc
 of 12. A fillet adds material, and the docs say so rather than claiming
 otherwise.
 
-### Why there is no `rules()` verb
+### The rules layer, built and then folded away
 
-A rule is a pattern and a replacement, and `steps` already had both halves:
-a `StepRule` receives the frozen state and an edit batch, and an edit over a
-selection already applies to every match at once. So `rule.point(p).move(f)`
-BUILDS a `StepRule`. A new verb would have been a second spelling.
+A `rule.point(pred).extrude(fn)` layer was built on this branch and removed
+again the same day, on the owner's ruling. It is recorded because the
+reasoning survives the code.
 
-The one distinction worth a word is batching, and existing syntax carries
-it: a shorthand is an object and a rule is a function, so an ARRAY is
-unambiguous. `steps(n, [a, b])` is one batch; `steps(n, a, b)` stays two
-passes.
+The layer was sugar: a pattern and an action that BUILT a `StepRule`. There
+was never a `rules()` verb, because `steps` already hands a pass the frozen
+state and an edit batch, and an edit over a selection already applies to
+every match at once. But sugar over a call that already reads well is a
+second spelling of it — `rule.point(pred).extrude(fn)` is `steps` with a
+filter in front — and this project spends its budget on one word per job.
 
-**"Order inside the array changes nothing" is FALSE**, and the docs said it
-for a day. Matching is order-free. Editing is not: two `set` rules give 2
-then 1 when swapped, two extrudes swap their row order, and only `move`
-commutes.
+Two things from it were real and stayed:
 
-Randomness is not a rule option. The first sketch wanted
-`split({ chance: 0.3 })`; a seeded stream lives on the toolkit and these
-factories are pure, so a chance goes in the pattern, where it runs once per
-row.
+- **`next.replace(edges, motif, { flip? })`**, on the edit batch beside
+  `next.splitEdges`. The edge goes and the motif's one open chain takes its
+  place between the same two points, scaled and turned to the edge, with
+  point columns interpolated and edge columns inherited exactly as a
+  split's children are. An L-system is this substitution repeated. The
+  motif is read from its EDGES, never its row order: a material's rows
+  follow how it was built, so a motif with the right points in the wrong
+  order would draw something else, silently.
+- **The array form of `steps`.** `steps(n, [a, b])` is one batch, every
+  pass reading the same frozen state; `steps(n, a, b)` is two. A shorthand
+  is an object and a pass is a function, so an array is unambiguous.
 
-A rule that only moves or writes runs on a MESH too — `Rewrite` is generic
-and assignable to both worlds. The topology actions keep the flat world's
-type, because a mesh edit batch has no per-step topology; a type error is
-better than a run-time one.
+Worth keeping from the layer's short life: **"order inside the array
+changes nothing" is FALSE**, and the docs said it for a day. Reading is
+order-free. Editing is not — two `set` passes give 2 then 1 when swapped,
+two extrudes swap their row order, and only `move` commutes.
 
-`rule.face()` writes a mesh's face columns and refuses a material's. 2D
-faces are DERIVED — `new Faces(m)` recomputes the planar embedding every
-time, and `Faces` has no attribute columns — so there is nowhere to write.
-Reading is already at parity (`Face` has `adjacent`, `edges`, `points`,
-`boundaryEdges`, `area`, `centroid`, `contours`). Writing needs face columns
-on `Material`, whose constructor is already nine positional parameters, and
-lazy validation on read — recomputing the embedding every step would put a
-full face computation inside a 240-step loop.
+Also worth keeping: the examples that motivated the layer needed no new
+words to lose it. `near(p, { radius }).subtract(p.adjacent)` is "close but
+not joined", and `fromAngle(angleOf(v) + a)` turns a vector. Both already
+existed. A proposal to add `except`/`and`/`or` and a vector `rotate` was
+declined for that reason: the first three duplicate `subtract`/`intersect`/
+`union`, and `rotate` is already the field transform.
 
-### Using the oracle across checkouts
+### Rulings (2026-09-18)
 
-`pnpm --filter occlude plotstats <sketch> --seed 42` reads the STUDIO's pen
-and paper libraries from `packages/occlude-studio/sketches/*.json`, which is
-gitignored user data. A checkout that has one and a checkout that does not
-are measuring different pens, so the numbers are not comparable.
+- 2D face attributes: ruled NOT NOW. Reading is at parity; writing needs a
+  lazy face column store, which is its own design.
+- `ctx.kind` / `ctx.depth`: ruled YES, a per-chain source label in the plan
+  protocol, Rust and TypeScript in one commit. Telling a hatch from an
+  outline by pen name is a workaround.
+- `dot` versus `dots`: the law is stale and `dots` is approved. Build
+  `dots` and fix the law.
 
-This looked like a regression for ten minutes. A worktree at the branch
-point reported 399 chains and 6664mm against the branch's 360 and 6395 on
-an unchanged fixture — all of it the pen library, because the working
-checkout had a 1.25mm 'azure' pen saved and the worktree fell back to the
-defaults. Different nibs change bridging and merging; different feeds moved
-the estimate from 5.3 minutes to 12.2.
-
-**Pass `--pens docs` on both sides.** With it pinned, this branch's three
-features are byte-identical to `a996915` on `all-features.ts`: 399 chains,
-6664 draw mm, 1630 travel mm, 5.3 est min, 0 bridge, 383 euler, 0.4
-coincident mm, before and after. That is the real claim — an existing
-sketch's toolpath is untouched — and it is measured rather than argued from
-the shape of the diff.
-
-### `dot` is the vector dot product, not a tap
-
-`CLAUDE.md`'s design laws say "`strokes`, `stroke` and `dot` interpret
-geometry as ink". The `dot` exported from `src/index.ts` is
-`dot(a: XY, b: XY): number` from `vec.ts` — the vector dot product.
-`dot(30, 50, { pen })` therefore computes a dot product and draws nothing,
-silently, because a number is not a drawable.
-
-The tap word is `dots(points, { pen })`, and `working/relations-design.md`
-lists it as designed and NOT built: it needs the planner's zero-length
-cleanup to spare it, occlusion as a point, nib-width preview and a settle
-on export — a wasm protocol change on both sides in one commit.
-
-Cost an example page twenty minutes. Either the laws should say `dots`, or
-`dots` should exist.
-
-### Open, and waiting on a ruling
-
-- `p.adjacent` is a FOURTH spelling of "what is joined to this vertex",
-  beside `m.connected`, `m.connectedPoints` and `m.degree`. The removals
-  `working/relations-design.md` approves would fix it.
-- 2D face attributes, above.
-- `ctx.kind` / `ctx.depth`, above.
+`m.connected`, `m.connectedPoints` and `m.degree` are GONE: `p.adjacent` is
+the one word, and `adjacentRows` is the engine's internal door.
+`isConnected` and `maxDegree` remain — the ruling named three words.

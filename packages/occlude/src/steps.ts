@@ -130,6 +130,14 @@ export interface StepsOptions {
   every?: number;
 }
 
+/** How a motif lands on an edge. */
+export interface ReplaceOpts {
+  /** Mirror the motif across the edge. The callback sees the edge and the
+   * step, so alternating on the step grows a curve inward and outward by
+   * turns. Which side is "outward" depends on the seed's winding. */
+  flip?: boolean | ((e: Edge, k: number) => boolean);
+}
+
 export interface Next {
   /** Displace selected points. Callbacks read this pass's input; moves add up. */
   move(points: PointSelection, by: XY | ((p: Vertex) => XY)): void;
@@ -154,6 +162,12 @@ export interface Next {
   split(edge: EdgeRef, opts?: SplitOpts): Ref;
   /** Split selected input edges. To select by completed movement, use a later pass. */
   splitEdges(edges: EdgeSelection, opts?: SplitOpts): void;
+  /** Swap every selected edge for a motif. The edge goes, and the motif's
+   * one open chain takes its place between the same two points, scaled and
+   * turned to the edge. Point columns interpolate and edge columns inherit,
+   * exactly as a split's children do. This is the substitution an L-system
+   * is made of: a Koch curve is one motif and four steps. */
+  replace(edges: EdgeSelection, motif: Material, opts?: ReplaceOpts): void;
   /** Create children connected to selected parents. Children do not enter the
    * parent selection. With inherit, parent attributes precede explicit overrides. */
   extrude(points: PointSelection, spec: (p: Vertex) => ChildSpec | ChildSpec[], opts?: { inherit?: boolean }): void;
@@ -334,6 +348,65 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
       added.push({ x: NaN, y: NaN, attrs: {} }); // placeholder: resolved by the split
       recordSplit(row, { ...splitRequest(opts, at), handle });
       return { __handle: handle, __batch: batch };
+    },
+    replace(selection, motif, opts = {}) {
+      // The motif's CHAIN, not its rows. A material's row order is an
+      // accident of how it was built — a split point is inserted after its
+      // edge's start, and an added point goes last — so threading rows
+      // would silently draw a different motif than the one on screen.
+      const chains = motif.curves();
+      if (chains.length !== 1) throw new Error(`steps: replace: a motif is one open chain, and this one has ${chains.length === 0 ? 'none' : String(chains.length)}. Give the motif's points the edges that join them in order.`);
+      if (chains[0].closed) throw new Error('steps: replace: a motif is an open chain, and this one is closed');
+      const pts = chains[0].pts;
+      if (pts.length < 2) throw new Error('steps: replace: a motif needs at least two points');
+      const [mx0, my0] = pts[0];
+      const [mx1, my1] = pts[pts.length - 1];
+      const mdx = mx1 - mx0;
+      const mdy = my1 - my0;
+      const span = mdx * mdx + mdy * mdy;
+      if (!(span > 0)) throw new Error('steps: replace: a motif must start and end at different points');
+      // The motif in its own frame: along the line from first to last, and
+      // across it. Both are fractions of the motif's own span, so the shape
+      // rides any edge at any length and any angle.
+      const local = pts.slice(1, -1).map(([px, py]) => {
+        const ux = px - mx0;
+        const uy = py - my0;
+        return [(ux * mdx + uy * mdy) / span, (ux * -mdy + uy * mdx) / span] as [number, number];
+      });
+      const rows = edgeRows(selection, 'replace');
+      if (rows.length === 0) return;
+      const names = cur.attrNames;
+      const edgeNames = cur.edgeAttrNames;
+      const flip = opts.flip;
+      for (const row of rows) {
+        const e = cur.edge(row);
+        disconnected.add(row);
+        const ex = e.b.x - e.a.x;
+        const ey = e.b.y - e.a.y;
+        const across = (typeof flip === 'function' ? flip(e, k) : flip === true) ? -1 : 1;
+        // A motif point stands between the edge's ends, so it inherits from
+        // them the way a split point does: the declared transfer policy,
+        // interpolating by default. Every declared column must be given,
+        // because a column is never dropped in silence.
+        const inherit = (at: number): Record<string, number> => {
+          const out: Record<string, number> = {};
+          for (const name of names) {
+            const va = e.a[name];
+            const vb = e.b[name];
+            out[name] = cur.transfers[name] === 'nearest' ? (at <= 0.5 ? va : vb) : va + (vb - va) * at;
+          }
+          return out;
+        };
+        const childEdge = edgeNames.length > 0 ? inheritEdge(cur, e.attrs, 1 / (local.length + 1)) : undefined;
+        let from: Ref = e.a;
+        for (const [along, off] of local) {
+          const o = off * across;
+          const handle = next.addPoint([e.a.x + along * ex - o * ey, e.a.y + along * ey + o * ex], inherit(along));
+          next.connect(from, handle, childEdge);
+          from = handle;
+        }
+        next.connect(from, e.b, childEdge);
+      }
     },
     splitEdges(selection, opts = {}) {
       const rows = edgeRows(selection, 'splitEdges');
