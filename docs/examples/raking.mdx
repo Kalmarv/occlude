@@ -1,0 +1,47 @@
+---
+title: Raking
+description: A shader lights a three dimensional scene, and nothing in the model knows about the light.
+---
+
+The model is a plane and nine spheres. The view resolves it the way it always does. The silhouettes are exact, the hatch fills the surfaces, and a sphere hides the ground behind it.
+
+Then one shader inks the result. It reads a diagonal ramp across the sheet and thins the ink along it. Near the top right every line is solid. Down and left the lines break into long dashes, then short ones, then stop. The drawing reads as raking light, and no light exists anywhere in the model.
+
+This is why a shader runs where it does. It sees the strokes the engine has already resolved. It works the same on a flat drawing and on a solid one. The same program would light a set of circles.
+
+Uses: `plane`, `sphere`, `instanceOnPoints`, `t.scatter` on a mesh, `view` with `stroke` and `hatch`, `t.plan({ shader })` with `dash` and `keep`.
+
+:::note
+A shader never reveals what a shape hid. It removes ink and it re-inks ink, and the removal happens after the view has already decided what is visible. Fading a line out does not show the sphere behind it.
+:::
+
+```ts live
+import { sketch, shader, pen, mm } from 'occlude';
+import { plane, sphere, instanceOnPoints, view, orthographic } from 'occlude/3d';
+
+export default sketch({
+  aspect: [1, 1], seed: 9, margin: 6,
+  pens: { ink: pen({ width: mm(0.28), color: '#16181d' }), fine: pen({ width: mm(0.12), color: '#16181d' }) },
+}, (t) => {
+  const b = t.bounds();
+  const ground = plane(9, 9);
+  const stones = instanceOnPoints(
+    sphere(0.85, { segments: 14, rings: 8 }).translate([0, 0, 0.85]),
+    t.scatter(ground, { spacing: 2.2, maxPoints: 9, maxAttempts: 2000 }).points,
+  );
+  t.plan({
+    shader: shader((s, p) => {
+      const l = (p[0] + (b.h - p[1])) / (b.w + b.h);
+      if (l < 0.30) return { keep: false };
+      if (l < 0.42) return { dash: [mm(0.6), mm(2.2)] };
+      if (l < 0.56) return { dash: [mm(1.8), mm(1.2)] };
+      return {};
+    }),
+  });
+  return view([ground, stones], {
+    camera: orthographic({ eye: [7, 9, 7], target: [0, 0, 0.5], span: 12 }),
+    stroke: 'ink',
+    hatch: { spacing: mm(1.4), angle: 40, stroke: 'fine' },
+  });
+});
+```

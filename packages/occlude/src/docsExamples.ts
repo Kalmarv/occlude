@@ -80,6 +80,7 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'examples-shoal', title: 'Example: shoal', file: 'examples/shoal.mdx', live: true, group: 'topics' },
   { slug: 'examples-thicket', title: 'Example: thicket', file: 'examples/thicket.mdx', live: true, group: 'topics' },
   { slug: 'examples-between', title: 'Example: between', file: 'examples/between.mdx', live: true, group: 'topics' },
+  { slug: 'examples-raking', title: 'Example: raking', file: 'examples/raking.mdx', live: true, group: 'topics' },
   { slug: 'workshop-01', title: '1. Put marks on paper', file: 'workshop-01-marks.md', live: true, group: 'workshop' },
   { slug: 'workshop-02', title: '2. Turn a shape into something editable', file: 'workshop-02-material.md', live: true, group: 'workshop' },
   { slug: 'workshop-03', title: '3. Give geometry information', file: 'workshop-03-attributes.md', live: true, group: 'workshop' },
