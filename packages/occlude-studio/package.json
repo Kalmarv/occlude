@@ -11,7 +11,8 @@
     "test": "../occlude/node_modules/.bin/vitest run",
     "graph:catalogue": "../occlude/node_modules/.bin/tsx tools/graph-catalogue.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && node --check server.mjs",
-    "smoke": "node tools/smoke-server.mjs"
+    "smoke": "node tools/smoke-server.mjs",
+    "graph:coverage": "../occlude/node_modules/.bin/tsx tools/graph-coverage.ts"
   },
   "dependencies": {
     "@awesome.me/webawesome": "3.12.0",

@@ -61,11 +61,23 @@ interface Binding {
   type: ValueType;
 }
 
+/** Why one statement could not be a built-in node. The coverage report reads
+ * these: a word that is in the palette and still became code is a gap worth
+ * closing, and the reason names which one. */
+export interface ImportRefusal {
+  /** The node id the statement became. */
+  node: string;
+  /** The word the call names, when it names one the catalogue carries. */
+  word?: string;
+  reason: string;
+}
+
 /** Read a sketch source as a graph. Throws an Error naming what it cannot
- * read. */
-export function importSketch(source: string, catalogue: Catalogue): Graph {
+ * read. `refusals`, when given, collects why each statement that could have
+ * been a built-in node is a code node instead. */
+export function importSketch(source: string, catalogue: Catalogue, refusals?: ImportRefusal[]): Graph {
   const file = ts.createSourceFile('sketch.ts', source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
-  const graph = new Reader(file, catalogue).read();
+  const graph = new Reader(file, catalogue, refusals).read();
   layout(graph);
   return graph;
 }
@@ -93,7 +105,7 @@ class Reader {
   private readonly byCall = new Map<string, CatalogueWord>();
   private readonly byWord = new Map<string, CatalogueWord>();
 
-  constructor(private readonly file: ts.SourceFile, private readonly catalogue: Catalogue) {
+  constructor(private readonly file: ts.SourceFile, private readonly catalogue: Catalogue, private readonly refusals?: ImportRefusal[]) {
     for (const word of catalogue.words) {
       this.byWord.set(word.word, word);
       if (!this.byCall.has(word.call)) this.byCall.set(word.call, word);
@@ -334,7 +346,10 @@ class Reader {
     if (ts.isIdentifier(decl.name)) {
       const name = decl.name.text;
       const id = this.uniqueId(name);
-      const builtin = before.length === 0 && ts.isCallExpression(expr) ? this.builtinOf(expr, id) : undefined;
+      let builtin: { node: GraphNode; word: CatalogueWord } | undefined;
+      if (before.length > 0) this.refuse(id, undefined, 'a statement before it joined this node');
+      else if (!ts.isCallExpression(expr)) this.refuse(id, undefined, `the value is ${describe(expr)}, not a call`);
+      else builtin = this.builtinOf(expr, id);
       if (builtin) {
         this.add(builtin.node);
         this.bindings.set(name, { node: builtin.node, output: 'out', type: builtin.word.returns });
@@ -441,35 +456,56 @@ class Reader {
    * the call to a code node — the same call, the same ink. */
   private builtinOf(expr: ts.CallExpression, id: string): { node: GraphNode; word: CatalogueWord } | undefined {
     const word = this.wordFor(expr.expression);
-    if (!word) return undefined;
+    if (!word) {
+      this.refuse(id, undefined, ts.isIdentifier(expr.expression) || ts.isPropertyAccessExpression(expr.expression)
+        ? `${this.text(expr.expression)} is not a catalogue word`
+        : 'the callee is not a name');
+      return undefined;
+    }
+    const no = (reason: string): undefined => {
+      this.refuse(id, word.word, reason);
+      return undefined;
+    };
     const args = expr.arguments;
-    if (args.length > word.params.length) return undefined; // a rest parameter, or more arguments than parameters
+    if (args.length > word.params.length) return no('more arguments than the word has parameters');
     const flat = wordInputs(word);
     const inputs: Record<string, GraphInput> = {};
     for (let i = 0; i < args.length; i++) {
       const param = word.params[i]!;
       const arg = args[i]!;
       if (param.options) {
-        if (!ts.isObjectLiteralExpression(arg) || !this.optionsInto(param, flat, arg, inputs)) return undefined;
+        if (!ts.isObjectLiteralExpression(arg)) return no(`the options of ${param.name} are not written out`);
+        if (!this.optionsInto(param, flat, arg, inputs)) return no(`an option of ${param.name} is not a literal or an earlier node`);
         continue;
       }
       const input = this.argument(arg, param.name === 'args');
-      if (input === undefined) return undefined;
+      if (input === undefined) {
+        return no(ts.isCallExpression(arg)
+          ? `${param.name} is a call, not a value the graph holds`
+          : `${param.name} is not a literal or an earlier node`);
+      }
       inputs[param.name] = input;
     }
     for (const param of word.params) {
       if (!param.options) {
-        if (!param.optional && inputs[param.name] === undefined) return undefined;
+        if (!param.optional && inputs[param.name] === undefined) return no(`${param.name} is required and was not given`);
         continue;
       }
       // A record the library insists on (an option of it has no default) must
       // arrive with something set: the compiler refuses an empty one, so the
       // call is a code node instead.
       const set = flat.filter((input) => input.param === param.name && inputs[input.name] !== undefined);
-      if (set.length === 0 && !param.optional && param.options.some((option) => !option.optional)) return undefined;
+      if (set.length === 0 && !param.optional && param.options.some((option) => !option.optional)) {
+        return no(`${param.name} is required and was not given`);
+      }
     }
-    if (!this.fits(word, inputs)) return undefined;
+    if (!this.fits(word, inputs)) return no('an argument does not fit its socket');
     return { node: { id, kind: 'builtin', word: word.word, x: 0, y: 0, inputs }, word };
+  }
+
+  /** Record why a statement is a code node. Free when nothing is listening. */
+  private refuse(node: string, word: string | undefined, reason: string): void {
+    this.refusals?.push({ node, word, reason });
   }
 
   /** One argument as an input, or undefined when it cannot be one. */
