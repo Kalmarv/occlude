@@ -29,7 +29,7 @@ export interface StepKit {
       edgeAttrs?: Record<string, Float64Array>;
       transfers?: Record<string, TransferPolicy>;
       edgeTransfers?: Record<string, EdgeTransfer>;
-      ids?: { points?: Float64Array; edges?: Float64Array };
+      ids?: { points?: Float64Array; edges?: Float64Array; edgeRoots?: Float64Array };
     },
   ) => Material;
   PointSelection: typeof PointSelection;
@@ -461,7 +461,7 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   // ---- the moved state: split transfer callbacks read it ----
   // The same rows, moved: the split callbacks read this state and must see
   // the identities they will be asked about.
-  const moved = new Material(nx, ny, nattrs, cur.edgeList, { iteration: iteration, history: [], edgeAttrs: neattrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(cur.pointIds), edges: Float64Array.from(cur.edgeIds) } });
+  const moved = new Material(nx, ny, nattrs, cur.edgeList, { iteration: iteration, history: [], edgeAttrs: neattrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(cur.pointIds), edges: Float64Array.from(cur.edgeIds), edgeRoots: Float64Array.from(cur.edgeRoots) } });
 
   const movedEdges = moved.edges;
 
@@ -604,9 +604,13 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   const eattrs: Record<string, number[]> = {};
   for (const name of enames) eattrs[name] = [];
   const eids: number[] = [];
-  const pushEdge = (a: number, b: number, attrs: Record<string, number>, id = mint()) => {
+  const eroots: number[] = [];
+  /** A new edge row. `id` is its own; `root` is the wall it descends from,
+   * which is itself unless a split made it. */
+  const pushEdge = (a: number, b: number, attrs: Record<string, number>, id = mint(), root = id) => {
     edges.push(a, b);
     eids.push(id);
+    eroots.push(root);
     for (const name of enames) eattrs[name].push(attrs[name]);
   };
   for (let e = 0; e < m; e++) {
@@ -618,7 +622,7 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
     const cuts = cutsByEdge.get(e);
     if (!cuts) {
       // Nothing cut it: this is the same edge it was.
-      pushEdge(a, b, parentAttrs, cur.edgeIds[e]);
+      pushEdge(a, b, parentAttrs, cur.edgeIds[e], cur.edgeRoots[e]);
       continue;
     }
     const override = childEdgeOverride.get(e);
@@ -631,7 +635,10 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
         if (!enames.includes(name)) throw new Error(`steps: no edge attribute '${name}' — declare it with edgeAttribute()`);
         if (!Number.isFinite(extra[name])) throw new Error(`steps: '${name}' for a child edge is not a finite number`);
       }
-      pushEdge(rows[i], rows[i + 1], { ...inheritEdge(cur, parentAttrs, child.fraction), ...extra });
+      // A child is a new edge with a new id, but it is still a piece of the
+      // wall its parent was: the root carries, so a face that lost nothing
+      // but a subdivision still shares its boundary.
+      pushEdge(rows[i], rows[i + 1], { ...inheritEdge(cur, parentAttrs, child.fraction), ...extra }, mint(), cur.edgeRoots[e]);
     }
   }
   const resolve = (r: Ref, what: string): number => {
@@ -663,5 +670,5 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids) } });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) } });
 }

@@ -159,3 +159,39 @@ describe('a selection outlives the state it was made in', () => {
     expect(again.length).toBe(m.edgeCount - 1); // the split parent is not there
   });
 });
+
+describe('lineage: a split ends an edge but not the wall it was', () => {
+  it('gives a child a new id and its parent\'s root', () => {
+    const m = ring();
+    const parent = m.edges.at(0);
+    const parentRoot = m.edgeRoots[0];
+    const after = m.steps(1, (cur, next) => {
+      next.splitEdges(cur.edges.filter((_, i) => i === 0), { at: 0.5 });
+    });
+    // The parent is retired, so its id resolves to nothing.
+    expect(after.rowOfEdge(parent.id)).toBe(-1);
+    // Two children carry the wall it was.
+    const children = [...after.edges].filter((e) => after.edgeRoots[e.index] === parentRoot);
+    expect(children).toHaveLength(2);
+    // Each has an id of its own, and neither is the parent's.
+    expect(new Set(children.map((e) => e.id as number)).size).toBe(2);
+    expect(children.some((e) => (e.id as number) === (parent.id as number))).toBe(false);
+  });
+
+  it('a wall split twice still names one root', () => {
+    const m = ring();
+    const root = m.edgeRoots[0];
+    let after = m.steps(1, (cur, next) => next.splitEdges(cur.edges.filter((_, i) => i === 0), { at: 0.5 }));
+    after = after.steps(1, (cur, next) => {
+      const firstChild = [...cur.edges].find((e) => cur.edgeRoots[e.index] === root)!;
+      next.splitEdges(cur.edges.filter((_, i) => i === firstChild.index), { at: 0.5 });
+    });
+    const pieces = [...after.edges].filter((e) => after.edgeRoots[e.index] === root);
+    expect(pieces).toHaveLength(3);
+  });
+
+  it('an edge that was never split is its own root', () => {
+    const m = ring();
+    for (const e of m.edges) expect(m.edgeRoots[e.index]).toBe(e.id as number);
+  });
+});

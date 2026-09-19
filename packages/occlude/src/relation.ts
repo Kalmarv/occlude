@@ -502,8 +502,12 @@ function extractRows(m: Material, pointRows: readonly number[], edgeRows: readon
     edgeAttrs[name] = col;
   }
   const edgeIds = new Float64Array(edgeRows.length);
-  for (let k = 0; k < edgeRows.length; k++) edgeIds[k] = m.edgeIds[edgeRows[k]];
-  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: pointIds, edges: edgeIds } });
+  const edgeRoots = new Float64Array(edgeRows.length);
+  for (let k = 0; k < edgeRows.length; k++) {
+    edgeIds[k] = m.edgeIds[edgeRows[k]];
+    edgeRoots[k] = m.edgeRoots[edgeRows[k]];
+  }
+  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: pointIds, edges: edgeIds, edgeRoots } });
 }
 
 // ---- relational measures ----------------------------------------------------------

@@ -246,7 +246,7 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
     y[p] = coords[2 * p + 1];
   }
   // Relaxing moves points; it makes and unmakes nothing.
-  const out = new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyColumns(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds) } });
+  const out = new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyColumns(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds), edgeRoots: Float64Array.from(m.edgeRoots) } });
   return region?.loops ? withinMaterial(out, region.loops) : out;
 }
 

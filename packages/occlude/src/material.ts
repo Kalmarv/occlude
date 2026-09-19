@@ -299,6 +299,17 @@ export class Material {
    * opaque. */
   readonly pointIds: Float64Array;
   readonly edgeIds: Float64Array;
+  /**
+   * The oldest ancestor of each edge — its LINEAGE.
+   *
+   * A split retires the parent and mints two children, which keeps ids
+   * unique and `edgeOf(id)` unambiguous. But a face whose wall was merely
+   * subdivided is still the same face, and by id alone it would share
+   * nothing with its predecessor. The root is what says "this is still
+   * that wall": a child takes its parent's root, and an edge born from
+   * nothing is its own root.
+   */
+  readonly edgeRoots: Float64Array;
   /** id → row, built the first time an id is looked up. A box, like the
    * adjacency, because the state is frozen. */
   private readonly idBox: { points: Map<number, number> | null; edges: Map<number, number> | null };
@@ -335,8 +346,9 @@ export class Material {
       edgeTransfers?: Record<string, EdgeTransfer>;
       /** The identity of each row, carried from wherever these rows came
        * from. Absent means this is new geometry, and the constructor
-       * mints. */
-      ids?: { points?: Float64Array; edges?: Float64Array };
+       * mints. `edgeRoots` says which older edge each edge descends from;
+       * absent means each edge is its own root. */
+      ids?: { points?: Float64Array; edges?: Float64Array; edgeRoots?: Float64Array };
     } = {},
   ) {
     const {
@@ -392,6 +404,10 @@ export class Material {
     }
     this.pointIds = ids?.points ?? mintIds(this.n);
     this.edgeIds = ids?.edges ?? mintIds(edgeCount);
+    if (ids?.edgeRoots !== undefined && ids.edgeRoots.length !== edgeCount) {
+      throw new Error(`material: ${ids.edgeRoots.length} edge roots for ${edgeCount} edges`);
+    }
+    this.edgeRoots = ids?.edgeRoots ?? Float64Array.from(this.edgeIds);
     this.idBox = { points: null, edges: null };
     const self = this;
     // A vertex knows the vertices an edge joins it to. Lazy and
@@ -732,7 +748,7 @@ export class Material {
       else transfers[name] = policy;
     }
     // Setting a column changes no row, so every identity carries.
-    return new Material(copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), ...cols }, copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds) } });
+    return new Material(copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), ...cols }, copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) } });
   }
 
   /** A new material with an EDGE column set: a constant, or one value per
@@ -765,7 +781,7 @@ export class Material {
       if (policy === 'copy') delete edgeTransfers[name];
       else edgeTransfers[name] = policy;
     }
-    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: { ...copyAttrs(this.edgeAttrs), ...cols }, transfers: { ...this.transfers }, edgeTransfers: edgeTransfers, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds) } });
+    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: { ...copyAttrs(this.edgeAttrs), ...cols }, transfers: { ...this.transfers }, edgeTransfers: edgeTransfers, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) } });
   }
 
   /** A new material with these edges added (undirected; an existing pair
@@ -1134,7 +1150,7 @@ export class Material {
     const passes: StepRule[] = [rule as StepRule, ...(passesAndOptions as (StepRule | StepsOptions)[]).filter((pass): pass is StepRule => typeof pass === 'function')];
     const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
     const snaps: Snapshot[] = [];
-    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds) } });
+    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds), edgeRoots: copy(this.edgeRoots) } });
     if (every) snaps.push({ iteration: this.iteration, material: base });
     let cur = base;
     for (let k = 0; k < n; k++) {
@@ -1143,7 +1159,7 @@ export class Material {
     }
     if (every && n > 0) snaps.push({ iteration: cur.iteration, material: cur });
     return every
-      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), { iteration: cur.iteration, history: snaps, edgeAttrs: copyAttrs(cur.edgeAttrs), transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: copy(cur.pointIds), edges: copy(cur.edgeIds) } })
+      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), { iteration: cur.iteration, history: snaps, edgeAttrs: copyAttrs(cur.edgeAttrs), transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: copy(cur.pointIds), edges: copy(cur.edgeIds), edgeRoots: copy(cur.edgeRoots) } })
       : cur;
   }
 }
