@@ -38,7 +38,7 @@
  * the ground falls away to either side, in the field's units per square
  * drawable unit — and `height`, the field's own value there. Nothing is
  * thresholded: a weak ridge is a real ridge, and which ones are worth ink is
- * the drawing's decision, made with `m.points.filter(...).inducedEdges()`.
+ * the drawing's decision, made with `m.points.filter(...).edges`.
  */
 
 import { usableLength } from './guard.js';

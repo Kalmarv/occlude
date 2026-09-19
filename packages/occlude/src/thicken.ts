@@ -204,7 +204,7 @@ export function thicken(
   } else if (source instanceof PointSelection) {
     src = source.source;
     vRows = source.indices;
-    eRows = source.inducedEdges().indices;
+    eRows = source.edges.indices;
   } else if (source instanceof EdgeSelection) {
     src = source.source;
     vRows = source.endpointRows;
@@ -386,5 +386,5 @@ export function thicken(
     attrs = cols;
   }
 
-  return new Material(x, y, attrs, edges, 0, [], {}, {}, {});
+  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: {}, edgeTransfers: {} });
 }

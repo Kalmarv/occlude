@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   add, append, banding, connect, curve, distance, extent, isStations, length, limit, material, mul, perp, segmentRuns, stationsMaterial, sub, sum, sumBy, unit,
-  type Material, type Next,
+  type Material, type Next, type Vertex,
 } from '../src/material.js';
-import { force, neighbours } from '../src/forces.js';
-const { adjacent, attract, boundary, drift, field, nearby, relax, separation, tension, vortex } = force;
+import { force } from '../src/forces.js';
+const { attract, boundary, drift, field, relax, separation, tension, vortex } = force;
 
 const square = () => curve([[0, 0], [10, 0], [10, 10], [0, 10]], { age: 0 });
 
@@ -14,7 +14,7 @@ describe('curve values', () => {
     expect(c.n).toBe(3);
     expect(c.closed).toBe(true);
     expect(c.attrNames).toEqual(['age', 'energy']);
-    expect(c.vertex(1)).toEqual({ index: 1, x: 10, y: 0, age: 2, energy: 0.5 });
+    expect(c.points.at(1)).toEqual({ index: 1, x: 10, y: 0, age: 2, energy: 0.5 });
     expect(c.pts).toEqual([[0, 0], [10, 0], [10, 10]]);
     expect(c.contour).toEqual({ pts: [[0, 0], [10, 0], [10, 10]], closed: true, indices: [0, 1, 2] });
     expect(Object.isFrozen(c)).toBe(true);
@@ -23,13 +23,13 @@ describe('curve values', () => {
 
   it('connectivity is the order; open curves end', () => {
     const c = square();
-    expect(c.prev(0)).toBe(3);
-    expect(c.next(3)).toBe(0);
+    expect(c.points.at(0).adjacent.indices).toEqual([1, 3]);
+    expect(c.points.at(0).edges.length).toBe(2);
     expect(c.edges).toHaveLength(4);
     expect(c.closed).toBe(true);
     const o = curve([[0, 0], [10, 0], [10, 10]], { closed: false });
-    expect(o.prev(0)).toBe(-1);
-    expect(o.next(2)).toBe(-1);
+    expect(o.points.at(0).adjacent.indices).toEqual([1]);
+    expect(o.points.at(2).edges.length).toBe(1);
     expect(o.edges).toHaveLength(2);
     expect(o.contour.closed).toBe(false);
   });
@@ -38,8 +38,8 @@ describe('curve values', () => {
 describe('forces', () => {
   it('tension is zero within rest and pulls beyond it', () => {
     const c = square();
-    expect(tension(c, { rest: 20 })(c.vertex(0))).toEqual([0, 0]);
-    const [fx, fy] = tension(c, { rest: 4 })(c.vertex(0));
+    expect(tension(c, { rest: 20 })(c.points.at(0))).toEqual([0, 0]);
+    const [fx, fy] = tension(c, { rest: 4 })(c.points.at(0));
     expect(fx).toBeCloseTo(6);
     expect(fy).toBeCloseTo(6);
   });
@@ -50,11 +50,10 @@ describe('forces', () => {
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     for (let i = 0; i < 200; i++) pts.push([rnd() * 50, rnd() * 50]);
     const c = curve(pts);
-    const near = neighbours(c, { radius: 4 });
     for (const p of c.points.filter((p) => p.index < 30)) {
       const brute: number[] = [];
-      for (let j = 0; j < c.n; j++) if (j !== p.index && distance(p, c.vertex(j)) < 4) brute.push(j);
-      expect([...near(p)].sort((a, b) => a - b)).toEqual(brute);
+      for (let j = 0; j < c.n; j++) if (j !== p.index && distance(p, c.points.at(j)) < 4) brute.push(j);
+      expect([...c.points.near(p, { radius: 4 }).indices].sort((a, b) => a - b)).toEqual(brute);
     }
   });
 
@@ -68,8 +67,9 @@ describe('forces', () => {
     for (const p of c.points.filter((p) => p.index < 20)) {
       let fx = 0;
       let fy = 0;
+      const joined = new Set(p.adjacent.indices);
       for (let j = 0; j < c.n; j++) {
-        if (j === p.index || j === c.prev(p.index) || j === c.next(p.index)) continue;
+        if (j === p.index || joined.has(j)) continue;
         const dx = p.x - c.x[j];
         const dy = p.y - c.y[j];
         const d = Math.hypot(dx, dy);
@@ -83,47 +83,55 @@ describe('forces', () => {
     }
   });
 
-  it('nearby: sums your contribution over sources within the radius; self skipped, chain not', () => {
+  it('the neighbourhood recipe sums over sources within the radius; self skipped, chain not', () => {
     const c = curve([[0, 0], [1, 0], [2, 0], [10, 10]]);
-    const count = nearby(c, { radius: 5 }, () => [1, 0]);
-    expect(count(c.vertex(0))).toEqual([2, 0]); // vertices 1 and 2; not itself, not the far one
-    const noChain = nearby(c, { radius: 5, skip: adjacent(c) }, () => [1, 0]);
-    expect(noChain(c.vertex(0))).toEqual([1, 0]); // next (1) skipped; 2 is not adjacent to 0; prev (3) is far
-    expect(noChain(c.vertex(1))).toEqual([0, 0]); // 0 and 2 are its chain neighbours
-    // foreign sources: a plain list, nothing is "self", q carries its index
-    const obstacles: [number, number][] = [[0, 1], [0, 2], [50, 50]];
+    const count = (p: Vertex) => sumBy(c.points.near(p, { radius: 5 }), () => [1, 0]);
+    expect(count(c.points.at(0))).toEqual([2, 0]); // vertices 1 and 2; not itself, not the far one
+    const noChain = (p: Vertex) => sumBy(c.points.near(p, { radius: 5 }).subtract(p.adjacent), () => [1, 0]);
+    expect(noChain(c.points.at(0))).toEqual([1, 0]); // 1 is joined; 2 is not adjacent to 0; 3 is far
+    expect(noChain(c.points.at(1))).toEqual([0, 0]); // 0 and 2 are its chain neighbours
+    // foreign sources: another material, nothing is "self", q carries its index
+    const obstacles = material([[0, 1], [0, 2], [50, 50]]);
     const seen: number[] = [];
-    const push = nearby(obstacles, { radius: 3 }, (p, q) => { seen.push(q.index); return sub(p, q); });
-    expect(push(c.vertex(0))).toEqual([0, -3]);
+    const push = (p: Vertex) => sumBy(obstacles.points.near(p, { radius: 3 }), (q) => { seen.push(q.index); return sub(p, q); });
+    expect(push(c.points.at(0))).toEqual([0, -3]);
     expect(seen.sort()).toEqual([0, 1]);
     // a vertex at an obstacle's exact position still interacts with it (no false self)
-    const at = nearby([[0, 0]], { radius: 3 }, () => [7, 0]);
-    expect(at(c.vertex(0))).toEqual([7, 0]);
+    const here = material([[0, 0]]);
+    expect(sumBy(here.points.near(c.points.at(0), { radius: 3 }), () => [7, 0])).toEqual([7, 0]);
   });
 
-  it('separation through nearby matches the brute-force sum exactly', () => {
+  it('separation matches the hand-written recipe to the last few bits', () => {
     const pts: [number, number][] = [];
     let seed = 5;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     for (let i = 0; i < 150; i++) pts.push([rnd() * 40, rnd() * 40]);
     const c = curve(pts);
     const repel = separation(c, { radius: 4, excludeConnected: true });
-    const byHand = nearby(c, { radius: 4, skip: adjacent(c) }, (p, q) => {
+    const byHand = (p: Vertex) => sumBy(c.points.near(p, { radius: 4 }).subtract(p.adjacent), (q) => {
       const d = sub(p, q);
       return mul(unit(d), (1 - length(d) / 4) * 4);
     });
-    for (const p of c.points) expect(repel(p)).toEqual(byHand(p));
+    // The recipe sums over a SELECTION, which is in row order; the fixed-law
+    // recipe sums in the spatial index's own order. Same terms, same total
+    // to within the order of summation — not the same last bit.
+    for (const p of c.points) {
+      const [ax, ay] = repel(p);
+      const [bx, by] = byHand(p);
+      expect(ax).toBeCloseTo(bx, 12);
+      expect(ay).toBeCloseTo(by, 12);
+    }
   });
 
   it('attract pulls toward sources, fading to zero at the radius', () => {
     const c = curve([[0, 0], [10, 0], [10, 10], [0, 10]]);
     const pull = attract([[4, 0]], { radius: 8, strength: 2 });
-    expect(pull(c.vertex(0))).toEqual([1, 0]); // distance 4 of 8 → half strength, toward +x
-    expect(pull(c.vertex(2))).toEqual([0, 0]); // out of range
+    expect(pull(c.points.at(0))).toEqual([1, 0]); // distance 4 of 8 → half strength, toward +x
+    expect(pull(c.points.at(2))).toEqual([0, 0]); // out of range
     // on the curve itself, chain neighbours included unless skipped
     const self = attract(c, { radius: 12 });
     const withSkip = attract(c, { radius: 12, excludeConnected: true });
-    expect(self(c.vertex(0))).not.toEqual(withSkip(c.vertex(0)));
+    expect(self(c.points.at(0))).not.toEqual(withSkip(c.points.at(0)));
   });
 
   it('boundary: zero deep inside, inward at the edge, inward outside', () => {
@@ -151,8 +159,8 @@ describe('forces', () => {
     expect(f([2, 4])).toEqual([2, -1]);
     const c = curve([[0, 0], [10, 5], [20, 0]], { closed: false });
     const smooth = relax(c, { amount: 0.5 });
-    expect(smooth(c.vertex(1))).toEqual([0, -2.5]); // midpoint (10, 0) − (10, 5), halved
-    expect(smooth(c.vertex(0))).toEqual([0, 0]); // open end stays
+    expect(smooth(c.points.at(1))).toEqual([0, -2.5]); // midpoint (10, 0) − (10, 5), halved
+    expect(smooth(c.points.at(0))).toEqual([0, 0]); // open end stays
   });
 
   it('drift is pure and deterministic given the noise it is handed', () => {
@@ -299,7 +307,7 @@ describe('steps', () => {
     expect(next.n).toBe(5);
     expect(next.pts).toEqual([[0, 0], [10, 0], [20, 0], [10, 10], [0, 10]]);
     expect(Array.from(next.attrs.age)).toEqual([5, 0, 5, 5, 5]);
-    expect(next.next(4)).toBe(0);
+    expect(next.points.at(4).adjacent.indices).toContain(0);
   });
 
   it('split predicates run in edge order on the moved edges; equal parameters share a vertex, conflicts throw', () => {
@@ -426,7 +434,7 @@ describe('material: material beyond one chain', () => {
     const b = material([[0, 0], [1, 5]]);
     const paired = connect.pairs(a, b);
     expect(paired.n).toBe(4);
-    expect(paired.isConnected(0, 2)).toBe(true);
+    expect(paired.points.at(0).adjacent.has(paired.points.at(2))).toBe(true);
     // A row with no partner is carried through as a point, not an error.
     const short = connect.pairs(a, material([[0, 0]]));
     expect(short.n).toBe(3);
@@ -485,7 +493,7 @@ describe('material: material beyond one chain', () => {
     expect(grown.points.at(1).adjacent.length).toBe(3); // the tip became a junction
     expect(Array.from(grown.attrs.active)).toEqual([0, 0, 1, 1, 0]);
     expect(Array.from(grown.attrs.generation)).toEqual([0, 0, 1, 1, 0]);
-    expect(grown.isConnected(0, 4)).toBe(true);
+    expect(grown.points.at(0).adjacent.has(grown.points.at(4))).toBe(true);
     expect(grown.curves()).toHaveLength(3); // 4→0→1 is one chain into the junction, then 1→2 and 1→3
     expect(() => start.steps(1, (_, n) => n.connect(0, 7))).toThrow(/no vertex 7/);
     expect(() => start.steps(1, (_, n) => n.addPoint([0, 0], { active: 0 }))).toThrow(/must give 'generation'/);
@@ -493,15 +501,15 @@ describe('material: material beyond one chain', () => {
     expect(() => start.steps(1, (_, n) => n.connect(0, { __handle: 3, __batch: {} }))).toThrow(/another edit batch/);
   });
 
-  it('nearby identity: membership in the source state, not coordinates or indices', () => {
+  it('neighbourhood identity: membership in the source state, not coordinates or indices', () => {
     const a = curve([[0, 0], [5, 0], [5, 5]], { closed: false });
     const b = curve([[0, 0], [5, 0], [5, 5]], { closed: false }); // same coordinates, another material
-    const count = nearby(b, { radius: 100 }, () => [1, 0]);
-    expect(count(a.vertex(0))).toEqual([3, 0]); // all three of b, including the coincident one
-    expect(count(b.vertex(0))).toEqual([2, 0]); // b's own vertex 0 skipped
-    // adjacent(m) only means something for m's own vertices
-    expect(adjacent(b)(a.vertex(0), b.vertex(1))).toBe(false);
-    expect(adjacent(b)(b.vertex(0), b.vertex(1))).toBe(true);
+    const count = (p: Vertex) => sumBy(b.points.near(p, { radius: 100 }), () => [1, 0]);
+    expect(count(a.points.at(0))).toEqual([3, 0]); // all three of b, including the coincident one
+    expect(count(b.points.at(0))).toEqual([2, 0]); // b's own vertex 0 skipped
+    // `adjacent` is topology, and only b's own vertices are in b's topology
+    expect(b.points.at(0).adjacent.has(b.points.at(1))).toBe(true);
+    expect(b.points.at(0).adjacent.has(a.points.at(1))).toBe(false);
   });
 
   it('resample: even spacing, endpoints and closure kept, transfer rules', () => {
@@ -649,7 +657,7 @@ describe('material: material beyond one chain', () => {
     expect(smooth(y.vertex(0))).toEqual([0, 0]);
     const both = append(y, curve([[5, 5], [6, 5]], { closed: false }));
     expect(both.n).toBe(6);
-    expect(both.isConnected(4, 5)).toBe(true);
+    expect(both.points.at(4).adjacent.has(both.points.at(5))).toBe(true);
     expect(tension(both, { rest: 0.5 })(both.vertex(4))).toEqual([0.5, 0]);
   });
 });
@@ -657,7 +665,7 @@ describe('material: material beyond one chain', () => {
 describe('boundaries (review 2026-09-07)', () => {
   it('1. connecting an existing pair is idempotent — no second edge, no doubled tension', () => {
     const c = curve([[0, 0], [10, 0], [10, 10]], { closed: false });
-    const pullBefore = tension(c, { rest: 1 })(c.vertex(0));
+    const pullBefore = tension(c, { rest: 1 })(c.points.at(0));
     const out = c.steps(1, (_, n) => { n.connect(0, 1); n.connect(1, 0); n.connect(0, 1); });
     expect(out.edgeCount).toBe(2);
     expect(tension(out, { rest: 1 })(out.vertex(0))).toEqual(pullBefore);
@@ -703,7 +711,7 @@ describe('boundaries (review 2026-09-07)', () => {
     expect(again.attrNames).toEqual(['age']);
     expect(Array.from(again.attrs.age)).toEqual([7, 7, 7]);
     const repel = separation(c.points, { radius: 100 });
-    expect(Number.isFinite(repel(c.vertex(0))[0])).toBe(true);
+    expect(Number.isFinite(repel(c.points.at(0))[0])).toBe(true);
   });
 
   it('5. segmentRuns classifies in stored edge orientation whatever the walk direction', () => {
@@ -802,8 +810,10 @@ describe('structural editing (edges brief)', () => {
     expect(out.edge(1).attrs.rest).toBeCloseTo(10);
     expect(out.points.at(1).adjacent.length).toBe(3);
     const other = Y();
-    expect(() => y.steps(1, (_, n) => n.split(other.edge(0)))).toThrow(/another material/);
-    expect(() => y.steps(1, (_, n) => n.remove(other.vertex(0)))).toThrow(/another material/);
+    // A view of a material that shares no identity is not of this state,
+    // and the refusal names both ways that can happen.
+    expect(() => y.steps(1, (_, n) => n.split(other.edge(0)))).toThrow(/not an edge of this state/);
+    expect(() => y.steps(1, (_, n) => n.remove(other.vertex(0)))).toThrow(/not a vertex of this state/);
     let stale: import('../src/material.js').Ref | null = null;
     const a = y.steps(1, (cur, n) => { stale = n.split(cur.edge(0)); });
     expect(() => a.steps(1, (cur, n) => { n.split(cur.edge(0)); n.connect(stale!, 4, { rest: 1, strength: 1 }); })).toThrow(/another edit batch/);
@@ -886,9 +896,9 @@ describe('structural editing (edges brief)', () => {
     });
     expect(out.n).toBe(5);
     expect(out.points.at(3).adjacent.length).toBe(4); // the tip: its chain edge, the new child, vertex 0, and the split vertex
-    expect(out.isConnected(3, 0)).toBe(true); // rows: 0, split(1), 1→2, 2→3, child→4
-    expect(out.isConnected(3, 1)).toBe(true);
-    expect(out.isConnected(3, 4)).toBe(true);
+    expect(out.points.at(3).adjacent.has(out.points.at(0))).toBe(true); // rows: 0, split(1), 1→2, 2→3, child→4
+    expect(out.points.at(3).adjacent.has(out.points.at(1))).toBe(true);
+    expect(out.points.at(3).adjacent.has(out.points.at(4))).toBe(true);
     expect(() => line.steps(1, (_, n) => n.extrude(_.points, () => ({ position: [1, 1], attributes: { active: 0 }, to: 0 } as never)))).toThrow(/exactly one of/);
   });
 
@@ -1143,7 +1153,7 @@ describe('view identity: the brand lives off the view, not on it', () => {
     const { ownedBy } = await import('../src/material.js');
     const { viewKind } = await import('../src/material.js');
     const c = curve([[0, 0], [10, 0], [10, 10]], { age: [1, 2, 3] });
-    const v = c.vertex(1);
+    const v = c.points.at(1);
     expect(Object.keys(v)).toEqual(['index', 'x', 'y', 'age']);
     expect(JSON.stringify(v)).toBe('{"index":1,"x":10,"y":0,"age":2}');
     expect(v).toEqual({ index: 1, x: 10, y: 0, age: 2 });
@@ -1167,7 +1177,7 @@ describe('view identity: the brand lives off the view, not on it', () => {
     expect(viewKind(f.faces[0])).toBe('face');
     expect(ownedBy(f.faces[0], f)).toBe(true);
     expect(Object.isFrozen(f.faces[0])).toBe(true);
-    expect(Object.keys(f.faces[0])).toEqual(['index', 'area', 'perimeter', 'bounds', 'centroid', 'contours']);
+    expect(Object.keys(f.faces[0])).toEqual(['index', 'area', 'perimeter', 'bounds', 'centroid']);
   });
 });
 

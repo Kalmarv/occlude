@@ -62,15 +62,55 @@ rasters are implementation numbers. They are not tenants.
   is cut at the boundary, a point selection and a face collection are
   filtered. A shape area is lowered by the toolkit, never by a pure
   kernel.
+- **One accessor protocol.** A geometry value says what it is by what it
+  answers: `contours()` for areas, `curves()` for chains, `points` for
+  positions. Every area consumer reads `contours()`, every chain consumer
+  `curves()`, every point consumer `points`; a consumer refuses a value
+  that cannot answer, by name. The protocol is structural — no base class,
+  no marker, nothing a value cannot already say honestly.
+- **A collection you hold is a property; one you compute is a call.**
+  `m.points`, `m.edges`, `cells.points`, `face.edges` are properties;
+  `m.faces()`, `m.curves()`, `cells.contours()`, `cells.boundaryEdges()`
+  are calls, because each makes a new collection. The rule is one rule for
+  2D and 3D.
+- **A method stays in its world; a function crosses one.** Material to
+  material is a method (`m.thicken`, `m.warp`, `m.steps`); shape to
+  material, material to ink, geometry to field are functions (`polygon`,
+  `strokes`, `distanceTo`). Anything that needs paper, units or the seed
+  is on the toolkit whatever world it stays in. `connect.*` is the one
+  kept exception: a family of recipes reads better with its prefix.
 - **The frame rule.** Value methods exist only on resolved data-world
   values (Material, Station, Selection, Face, contour records).
   Anything that needs the sketch frame — paper, units, a shape's own
   transform — is a toolkit function. `station.place(...)` is right;
   `.along()` or `.length` on `circle()` is not: `t.material(circle(…))`
   first.
-- **Drawing stays explicit.** `strokes`, `stroke` and `dot` interpret
-  geometry as ink. A Material never draws itself, and no value carries a
-  display translation that changes what is drawn.
+- **A shape is not geometry until the toolkit lowers it.** A shape needs
+  the paper, the units and its own transform before it has points, so
+  `t.distanceTo(circle(…))` works and `distanceTo(circle(…))` does not.
+  The two doors are `t.material` and `t.sample`; a pure kernel never
+  lowers a shape, and a consumer handed one refuses by name and says
+  which door to use.
+- **Identity is minted, kept and retired.** Every vertex and edge carries
+  an `id` — minted once, never reused, outside `attrs` so nothing
+  interpolates it. A split retires the parent and mints two children,
+  each keeping the parent's lineage root, which is how a face keeps its
+  columns across a subdivided wall. A view or a selection from an earlier
+  state is resolved by id, never by row: `sel.in(state)`, `cur.point(id)`,
+  and the step verbs take stale references and skip what is gone.
+- **Relations speak the mesh's words.** `p.adjacent` and `p.edges` for
+  one vertex; `sel.adjacent()`, `sel.connected()`, `sel.components()` for
+  a whole selection, the same three on points and on edges in 2D and 3D;
+  `points.near` for distance, which is a different question from
+  topology; `rows` to hand back rows the sketch worked out; `pairs` for a
+  relation between two selections. One meaning each, named: `sel.edges`
+  is the edges among the members and `sel.edges.adjacent()` the edges
+  touching them.
+- **Drawing stays explicit.** `strokes`, `stroke`, `polygon` and `dots`
+  interpret geometry as ink — along a contour, over an area, and as a tap
+  at every point. A Material never draws itself, and no value carries a
+  display translation that changes what is drawn. (`dot` is the vector
+  product and stays.)
 - **One conversion per meaning.** Two doors, one contract each:
   `t.material(shape, { tolerance? })` keeps the boundary's own vertices —
   a rectangle's four corners — and `t.sample(shape, { count?, spacing?,

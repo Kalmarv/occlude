@@ -8,9 +8,9 @@ describe('typed corner fields and edits',()=>{
   const c=model.corners.at(0)!;
   expectTypeOf(c.uv).toEqualTypeOf<readonly [number,number]>();expectTypeOf(c.point.mass).toEqualTypeOf<2>();expectTypeOf(c.face.tone).toEqualTypeOf<0.5>();
   expect(c.point.corners.length).toBe(3);expect(c.face.corners.length).toBe(4);expect(c.face.corners.has(c)).toBe(true);
-  expect(model.faces.filter(f=>f.index===0).corners().points().length).toBe(4);
+  expect(model.faces.filter(f=>f.index===0).corners().points.length).toBe(4);
   expect(model.points.filter(p=>p.index===0).corners().faces().length).toBe(3);
-  expect(model.corners.groupBy(c=>c.face.index).map(g=>g.points().length)).toEqual([4,4,4,4,4,4]);
+  expect(model.corners.groupBy(c=>c.face.index).map(g=>g.points.length)).toEqual([4,4,4,4,4,4]);
   expect(model.corners.filter(c=>c.index===0).complement().length).toBe(23);
   expect(model.corners.extract().length).toBe(24);expect(()=>JSON.stringify(c)).not.toThrow();
   expect(()=>model.corners.has({...c})).toThrow('expected a corner row');

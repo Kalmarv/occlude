@@ -77,7 +77,7 @@ export class EdgeSelection3 implements Iterable<EdgeMeasure3> {
   groupBy<K>(fn: (edge: EdgeMeasure3, index: number) => K): { key: K; selection: EdgeSelection3 }[] {
     return groupRows(this.indices,i => i,(row,i) => fn(this.captured.edges[row],i)).map(g => ({ key: g.key, selection: new EdgeSelection3(this.source,g.rows,this.captured) }));
   }
-  points(): PointSelection3 { return new PointSelection3(this.source,this.indices.flatMap(i => [...this.captured.edges[i].vertices]),this.captured); }
+  get points(): PointSelection3 { return new PointSelection3(this.source,this.indices.flatMap(i => [...this.captured.edges[i].vertices]),this.captured); }
   union(other: EdgeSelection3): EdgeSelection3 {
     if (other.source !== this.source || other.captured !== this.captured) throw new Error('edge selections belong to different captures; derive them from one selection');
     return new EdgeSelection3(this.source,[...this.indices,...other.indices],this.captured);

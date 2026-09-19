@@ -1,0 +1,33 @@
+---
+title: Nightfall
+description: A sky of taps, a hill that hides them, and the horizon between.
+---
+
+The mark here is the tap, not the stroke. `t.scatter` takes a density field and `t.settle` moves the points until each one carries the same weight of that field. More of them fall in the dark of the sky, fewer near the light at the horizon. `dots` draws them.
+
+A dot hides as a point. The moon and the hill are opaque, so every tap behind them is gone. The whole tap goes, never half of one. That is the difference between a dot and a very short stroke. The horizon is an ordinary stroke, drawn after the hill, so it keeps its pen.
+
+Uses: `t.scatter` with a density, `t.settle`, `dots`, `polygon` with `opaque`, `stroke`.
+
+```ts live paper=180x120
+import { sketch, dots, stroke, polygon, circle } from 'occlude';
+
+export default sketch({ aspect: [3, 2], seed: 4 }, (t) => {
+  // A horizon that wanders, and the hill under it: the same points, closed
+  // down the sides, so the hill is an area and can hide what is behind it.
+  const ridge = t.times(80, (k, u) => [u * t.width, 72 + t.noise(u * 2.6, 0) * 15 - 7]);
+  const hill = [...ridge, [t.width, t.height], [0, t.height]];
+
+  const dark = (x, y) => Math.max(0.02, 1 - y / 76) ** 1.6;
+  const sky = t.settle(t.scatter(dark, { spacing: 2.6 }), { density: dark, spacing: 2.6, iterations: 12 });
+
+  // The taps go down first. Both opaque shapes over them take whole dots
+  // away: the moon a disc of sky, the hill everything below the horizon.
+  return [
+    dots(sky),
+    circle(126, 26, 13, { opaque: true, pen: 'stabilo-88-blue' }),
+    polygon(hill, { opaque: true, stroke: false }),
+    stroke(ridge, { pen: 'pigma-05-black' }),
+  ];
+});
+```

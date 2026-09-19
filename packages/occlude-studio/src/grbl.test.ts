@@ -211,7 +211,13 @@ describe('GRBL driver', () => {
     const run = g.plot(plan([[0, false, pts]]), [pen], opts, (p) => states.push(p.state));
     await tick(30);
     await g.stop();
-    await run;
+    // A stopped plot may report by rejecting or by returning, depending on
+    // which side of the write the abort lands on. Both mean stopped, and the
+    // assertions below are what the test is actually about; without this the
+    // gate fails under load and says the driver is broken when it is not.
+    await run.catch((e: unknown) => {
+      if (!(e instanceof Error) || e.message !== 'stopped') throw e;
+    });
     expect(port.realtime).toContain('\x18');
     expect(port.commands.slice(-4)).toEqual(['$1=254', 'G91 G0 Z0.050', 'G91 G0 Z-0.050', 'G90']); // released after the stop, with a move for the timer
     expect(states.at(-1)).toBe('stopped');

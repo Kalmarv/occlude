@@ -33,14 +33,14 @@ import { bindModeling3 } from './three/modeling.js';
 import { resolveTree3, classifyForRun3, strokesForRun3 } from './three/resolve.js';
 import { checkDrawRequest, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours } from './record.js';
-import { fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
+import { customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
 import { finiteCount } from './guard.js';
 import { svg as svgValue } from './svgin.js';
 import { label } from './font.js';
 import { grid as gridCells, type GridCell, type GridOptions } from './layout.js';
 import { type FieldAlign, Shape, geomClosed, type FieldFn, type LengthFn, type ModifierValue, type PathCmd, type ShapeGeom, type VectorFieldFn } from './shapes.js';
-import { Execution, type ExecutionInputs, type PaperSpec, type SketchOptions, type Winding } from './execution.js';
+import { Execution, type ExecutionInputs, type PaperSpec, type Pickable, type SketchOptions, type Winding } from './execution.js';
 import type { PenDef } from './pens.js';
 import { invertRange, mapRange, normRange } from './random.js';
 import {
@@ -51,7 +51,7 @@ import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { ridgesOf, type RidgeOpts } from './ridges.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { unitMm } from './record.js';
-import { boundaryLoops, numericLoops, type Boundary, type LoopPoints } from './boundary.js';
+import { areaLoops, numericLoops, type AreaInput, type Geometry, type LoopPoints } from './boundary.js';
 import {
   Material, material as materialOf, alongChain, checkSampling, isStations, stationsMaterial,
   withinMaterial, type PointsLike, type Station, type Transfer,
@@ -60,7 +60,8 @@ import { PointSelection } from './relation.js';
 import { Faces, FaceSelection, type Face } from './faces.js';
 import { voronoi } from './voronoi.js';
 import { quadtree, type QuadtreeOpts } from './quadtree.js';
-import { distanceTo } from './distance.js';
+import { distanceTo, type DistanceField } from './distance.js';
+import { force, sourcePoints, type Sources } from './forces.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
   vectorField as vectorFieldMark, within as withinField, type BoundEnv, type Prepared,
@@ -248,14 +249,20 @@ export type Contour = [L, L][];
  * `.map`: nothing here assigns pens from keys.
  */
 export function strokes(source:ProjectedCurves,opts?:ProjectedStrokeOptions):ProjectedStrokes;
-export function strokes(source:readonly IsoContour[]|{curves():IsoContour[]},opts?:ShapeOpts):ShapeValue[];
+export function strokes(source:Geometry|readonly IsoContour[],opts?:ShapeOpts):ShapeValue[];
 export function strokes(
-  source: readonly IsoContour[] | { curves(): IsoContour[] } | ProjectedCurves,
+  source: Geometry | readonly IsoContour[] | ProjectedCurves,
   opts?: ShapeOpts | ProjectedStrokeOptions,
 ): ShapeValue[] | ProjectedStrokes {
   if(source instanceof ProjectedCurves)return projectedStrokes(source,opts);
-  const contours = Array.isArray(source) ? (source as readonly IsoContour[]) : (source as { curves(): IsoContour[] }).curves();
-  return contours.map((c) => stroke(c, opts));
+  if (Array.isArray(source)) return (source as readonly IsoContour[]).map((c) => stroke(c, opts));
+  // A chain consumer reads `curves()`. A value that has no chains to draw —
+  // a face collection is areas, not chains — is refused by name.
+  const chains = (source as Geometry).curves;
+  if (typeof chains !== 'function') {
+    throw new Error('strokes: this value has no chains to draw — a face collection is areas; draw `cells.contours()` with polygon, or its `edges` with strokes');
+  }
+  return chains.call(source).map((c) => stroke(c, opts));
 }
 
 export interface PolygonOpts extends ShapeOpts {
@@ -270,18 +277,58 @@ export interface PolygonOpts extends ShapeOpts {
  * through the one lowerer, so it agrees with what the shape itself inks; a
  * face, loops, a chain material or a selection come from the boundary
  * contract. */
-function areaLoops(run: Execution | null, input: Boundary | ShapeValue, who: string): LoopPoints[] {
+function lowerArea(run: Execution | null, input: AreaInput | ShapeValue, who: string): LoopPoints[] {
   if (isShapeValue(input)) {
     if (!run) throw new Error(`${who}: a shape area is lowered by the toolkit — use t.${who}`);
     return shapeContours(run, input, undefined).map((c) => c.pts);
   }
-  return boundaryLoops(input, who);
+  return areaLoops(input, who);
 }
 
 /** `areaLoops` for a consumer that computes with the coordinates: a length
  * such as `mm(10)` is a drawing unit the sketch must resolve first. */
-function numericAreaLoops(run: Execution | null, input: Boundary | ShapeValue, who: string): [number, number][][] {
-  return numericLoops(areaLoops(run, input, who), who);
+function numericAreaLoops(run: Execution | null, input: AreaInput | ShapeValue, who: string): [number, number][][] {
+  return numericLoops(lowerArea(run, input, who), who);
+}
+
+/**
+ * A shape as geometry: its outlines as contour records, in the sketch's own
+ * units, with each outline's own closure.
+ *
+ * This is the one door the frame rule names. A shape is a description in
+ * sketch coordinates; it needs the paper, the units and its own transform
+ * before it is geometry, so the toolkit lowers it and every `t.` word takes
+ * a shape because of this function. A pure kernel never calls it.
+ *
+ * `polygon` is the deliberate exception and must stay one: it defers the
+ * shape into the drawing tree, where it is lowered inside the full transform
+ * chain — the paper offset, the user origin, and any enclosing `group`.
+ * Lowering it here instead would quietly drop the group's transform.
+ */
+function lowerShape(run: Execution, input: Geometry | AreaInput | ShapeValue, who: string): Geometry | AreaInput {
+  if (!isShapeValue(input)) return input as Geometry | AreaInput;
+  return shapeContours(run, input, undefined).map((c) => ({ pts: c.pts, closed: c.closed }));
+}
+
+/**
+ * Points a word may draw a neighbourhood from — and a shape is NOT one.
+ *
+ * Lowering a shape here would make the answer depend on a flattening
+ * tolerance nobody chose: how strongly a circle pushes its neighbours away
+ * would be set by how finely it happened to be flattened, and
+ * `excludeConnected` would change meaning, because a lowered outline has
+ * edges where a list of points has none. So the refusal names the door:
+ * `t.material(shape)` keeps the boundary's own vertices and
+ * `t.sample(shape, { count })` places the number you ask for. Either choice
+ * is the sketch's to make, in the open.
+ */
+function pointSources(sources: Sources | ShapeValue, who: string): Sources {
+  if (!isShapeValue(sources)) return sources as Sources;
+  throw new Error(
+    `${who}: a shape is not a set of points — how many it has would be decided by a flattening ` +
+      `tolerance, not by you. Use t.material(shape) for the boundary's own vertices, or ` +
+      `t.sample(shape, { count }) for a number you choose.`,
+  );
 }
 
 /**
@@ -297,7 +344,7 @@ function numericAreaLoops(run: Execution | null, input: Boundary | ShapeValue, w
  * annulus and a pentagram as an empty pentagon. `path({ winding })` is the
  * other spelling: there the geometry's own orientation decides, as in SVG.
  */
-export function polygon(contours: Boundary | Contour | Contour[] | ShapeValue, opts: PolygonOpts = {}): ShapeValue {
+export function polygon(contours: AreaInput | Contour | Contour[] | ShapeValue, opts: PolygonOpts = {}): ShapeValue {
   const { winding: given, ...rest } = opts;
   // The source is the authority for the fill rule, and a path carries one:
   // `polygon(somePath)` keeps it, and `opts.winding` overrides it. Loops and
@@ -310,7 +357,7 @@ export function polygon(contours: Boundary | Contour | Contour[] | ShapeValue, o
     const o = contours.opts;
     return shape({ kind: 'area', of: { geom: contours.geom, opts: { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin } }, winding }, rest);
   }
-  const loops = areaLoops(null, contours, 'polygon');
+  const loops = lowerArea(null, contours, 'polygon');
   const cmds: PathCmd[] = [];
   for (const loop of loops) {
     if (loop.length < 2) continue;
@@ -353,20 +400,20 @@ export interface WithinFaces {
 
 export interface Within {
   <F extends FieldFn | VectorFieldFn | LengthFn>(field: F, area: ShapeValue): Prepared<F>;
-  (material: Material, area: Boundary | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
-  (points: PointSelection, area: Boundary | ShapeValue): PointSelection;
-  (faces: Faces | FaceSelection, area: Boundary | ShapeValue, opts?: WithinFaces): FaceSelection;
+  (material: Material, area: AreaInput | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
+  (points: PointSelection, area: AreaInput | ShapeValue): PointSelection;
+  (faces: Faces | FaceSelection, area: AreaInput | ShapeValue, opts?: WithinFaces): FaceSelection;
 }
 
 export function withinAny<F extends FieldFn | VectorFieldFn | LengthFn>(run: Execution, field: F, area: ShapeValue): Prepared<F>;
-export function withinAny(run: Execution, material: Material, area: Boundary | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
-export function withinAny(run: Execution, points: PointSelection, area: Boundary | ShapeValue): PointSelection;
-export function withinAny(run: Execution, faces: Faces | FaceSelection, area: Boundary | ShapeValue, opts?: WithinFaces): FaceSelection;
+export function withinAny(run: Execution, material: Material, area: AreaInput | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
+export function withinAny(run: Execution, points: PointSelection, area: AreaInput | ShapeValue): PointSelection;
+export function withinAny(run: Execution, faces: Faces | FaceSelection, area: AreaInput | ShapeValue, opts?: WithinFaces): FaceSelection;
 
 export function withinAny(
   run: Execution,
   x: FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | Faces | FaceSelection,
-  area: Boundary | ShapeValue,
+  area: AreaInput | ShapeValue,
   opts: { transfer?: Record<string, Transfer>; faces?: 'contained' | 'centroid' } = {},
 ): FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | FaceSelection {
   if (typeof x === 'function') return withinField(x, area as ShapeValue, boundEnv(run));
@@ -405,8 +452,9 @@ export function withinAny(
   // cells share its edges), while a face merely touching it from outside is
   // not.
   const keep = (f: Face): boolean => {
-    if (f.contours.length === 0) return false;
-    for (const c of f.contours) {
+    const areas = f.contours();
+    if (areas.length === 0) return false;
+    for (const c of areas) {
       for (let k = 0; k < c.pts.length; k++) {
         const p = c.pts[k];
         if (!(inside(p[0], p[1]) >= 0)) return false;
@@ -419,7 +467,7 @@ export function withinAny(
     // A face must also have somewhere of its own inside the fill: a wall it
     // shares with the boundary says nothing by itself, and the same walls bound
     // the annulus and the hole it encloses.
-    const probe = interiorPoint(f.contours.map((c) => c.pts));
+    const probe = interiorPoint(areas.map((c) => c.pts));
     if (probe && !(inside(probe[0], probe[1]) > 0)) return false;
     // Every vertex inside and no edge crossing still leaves the reverse case: a
     // real boundary — a hole, or an island — lying strictly inside the face,
@@ -427,7 +475,7 @@ export function withinAny(
     // its ends and its middle; the face's own contours say what is inside IT,
     // so a wall the face shares with the boundary is ON it, not in it, and
     // passes.
-    const faceInside = distanceTo(f.contours);
+    const faceInside = distanceTo(areas);
     for (const s of fill.boundary) {
       const [ax, ay, bx, by] = s;
       if (faceInside(ax, ay) > 0 || faceInside(bx, by) > 0 || faceInside((ax + bx) / 2, (ay + by) / 2) > 0) return false;
@@ -470,6 +518,48 @@ export function stroke(
     if (closed) cmds.push({ op: 'close' });
   }
   return shape({ kind: 'path', cmds, winding: 'nonzero' }, opts);
+}
+
+/**
+ * A tap of the pen at every point: pen down, the pen's delay, pen up.
+ *
+ * `dots` is the third way to spell ink, beside `stroke`/`strokes` (along a
+ * contour) and `polygon` (an area). It takes any geometry that has points
+ * — a material, a selection, a face collection, a plain list of pairs —
+ * and marks each one. A dot is occluded as a point: a shape drawn over it
+ * hides it whole, and nothing hides half of it. The preview shows it at
+ * nib width, the plan keeps it through the zero-length cleanup, and the
+ * machine gets one pen-down with the pen's settle.
+ *
+ * No points, no ink.
+ */
+export function dots(points: Sources, opts: { pen?: string } = {}): ShapeValue[] {
+  const list = materialOf(sourcePoints(points));
+  const out: ShapeValue[] = [];
+  // A dot is an engine stipple mark, and a stipple mark belongs to a
+  // region: the marks are supplied for a shape and judged strictly inside
+  // it. A shape with a fill HIDES what is beneath it, so one box around a
+  // whole cloud would erase everything drawn before it. Instead every dot
+  // carries its own box, a hundredth of a millimetre across — four cells
+  // of the engine's 0.005 mm input grid, so the tap is strictly inside it,
+  // and two hundredths of a nib, so what it hides is nothing a pen could
+  // draw. The box is in PAPER mm and the dot's place is the translate, so
+  // the box is the same hair whatever the paper and whatever the sketch's
+  // own coordinates mean.
+  const r = mm(0.01);
+  const g = mm(-0.01);
+  const box: [L, L][] = [[g, g], [r, g], [r, r], [g, r]];
+  for (let i = 0; i < list.n; i++) {
+    const x = list.x[i];
+    const y = list.y[i];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    // The box is centred on the origin and the shape is moved to the dot,
+    // so the tap IS the anchor's origin: it rides every transform the
+    // shape rode without any arithmetic of ours.
+    const mark: CustomFillFn = (_region, ctx) => [{ type: 'dot', x: ctx.anchor.e, y: ctx.anchor.f }];
+    out.push(polygon(box, { ...opts, translate: [x, y], stroke: false, fill: customFill(mark) }));
+  }
+  return out;
 }
 
 /** Mutable builder; `build()` snapshots, so the builder stays extendable. */
@@ -943,11 +1033,11 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * `t.throw(field, { count, within? })` kept with the chance the field
    * gives at the point. The random counterpart of `scatter`. */
   function throwTk(field: FieldFn2 | undefined, opts: ThrowOpts): Material;
-  function throwTk(area: Boundary | ShapeValue, opts: Omit<ThrowOpts, 'within'>): Material;
+  function throwTk(area: AreaInput | ShapeValue, opts: Omit<ThrowOpts, 'within'>): Material;
   function throwTk(opts: ThrowOpts): Material;
-  function throwTk(a: FieldFn2 | Boundary | ShapeValue | ThrowOpts | undefined, b?: ThrowOpts | Omit<ThrowOpts, 'within'>): Material {
+  function throwTk(a: FieldFn2 | AreaInput | ShapeValue | ThrowOpts | undefined, b?: ThrowOpts | Omit<ThrowOpts, 'within'>): Material {
     const field = typeof a === 'function' ? a : undefined;
-    const area = b !== undefined && typeof a !== 'function' && a !== undefined ? (a as Boundary | ShapeValue) : undefined;
+    const area = b !== undefined && typeof a !== 'function' && a !== undefined ? (a as AreaInput | ShapeValue) : undefined;
     const raw = (b ?? a) as ThrowOpts;
     if (!raw || typeof raw !== 'object' || raw.count === undefined) throw new Error('throw: { count } is required');
     const within = area ?? raw.within;
@@ -986,7 +1076,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     return quadtree(points, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h }, opts);
   }
 
-  function voronoiTk(sites: PointsLike, opts: { bounds?: PointBounds; within?: Boundary | ShapeValue } = {}): Material {
+  function voronoiTk(sites: PointsLike, opts: { bounds?: PointBounds; within?: AreaInput | ShapeValue } = {}): Material {
     const b = exec.bounds();
     if (opts.within === undefined) return voronoi(sites, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h });
     const region = withinRegion(numericAreaLoops(exec, opts.within, 'voronoi'), 'voronoi', opts.bounds);
@@ -1031,7 +1121,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
         ei++;
       }
     }
-    return new Material(x, y, {}, edges, 0, [], level ? { level } : {}, {}, level ? { level: 'copy' } : {});
+    return new Material(x, y, {}, edges, { iteration: 0, history: [], edgeAttrs: level ? { level } : {}, transfers: {}, edgeTransfers: level ? { level: 'copy' } : {} });
   }
 
   /** Contours of `{ field ≥ at }` via marching squares over the drawable, as
@@ -1058,7 +1148,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * value there. `t.isolines` says where the field is a given height; this
    * says where it runs along a top. Valleys are the ridges of the negated
    * field, so there is no option for them. Nothing is thresholded: pick with
-   * `m.points.filter((p) => p.strength > x).inducedEdges().extract()`.
+   * `m.points.filter((p) => p.strength > x).edges.extract()`.
    * Deterministic, no seed. */
   function ridges(field: FieldFn2, opts: RidgeOpts = {}): Material {
     const b = exec.bounds();
@@ -1094,7 +1184,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
         ei++;
       }
     }
-    return new Material(x, y, { strength, height }, edges, 0, [], {}, { strength: 'interpolate', height: 'interpolate' }, {});
+    return new Material(x, y, { strength, height }, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: { strength: 'interpolate', height: 'interpolate' }, edgeTransfers: {} });
   }
 
   /** Evenly spaced streamlines of a vector field over the drawable (Jobard &
@@ -1171,11 +1261,23 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   function sample<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>,options:SurfaceSamplingOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
   function sample<A extends Attributes3>(curves:SurfaceCurves<A>,options?:CurveSamplingOptions):CurveSamples<A,A>;
   function sample(shape:ShapeValue,options:{count?:number;spacing?:L;tolerance?:L}):Material;
+  function sample(shape:Material,options:{count?:number;spacing?:L}):Material;
   function sample(
-    shape: ShapeValue | Mesh<any,any,any> | SurfaceCurves<any>,
+    shape: ShapeValue | Material | Mesh<any,any,any> | SurfaceCurves<any>,
     options: { count?: number; spacing?: L; tolerance?: L } | SurfaceSamplingOptions<any> | CurveSamplingOptions = {},
   ): Material | SurfaceSamples<any,any,any,any> | CurveSamples<any,any> {
     if(shape instanceof SurfaceCurves)return sampleSurfaceCurves(shape,options as CurveSamplingOptions);
+    // A material is already geometry: redistributing along its chains by arc
+    // length is `resample`, the same door in the material's own world. The
+    // toolkit form exists so one word means one thing whatever it is given.
+    if(shape instanceof Material){
+      // A length is a drawing unit; the material's own coordinates are what
+      // `resample` counts in, so it is resolved through the frame exactly as
+      // a shape's spacing is.
+      const opts=options as {count?:number;spacing?:L};
+      const spacing=opts.spacing===undefined?undefined:resolveLen(opts.spacing,exec.frame.inner)/unitMm(exec.frame);
+      return shape.resample(spacing===undefined?{count:opts.count}:{spacing});
+    }
     if(shape instanceof Mesh){const opts=options as SurfaceSamplingOptions<any>;return sampleSurfacePoints(shape,opts,{rnd:exec.stream('__surface-sample:'+(opts?.key??shape.key??'default')).rnd,signal:scope?.signal});}
     const opts=options as {count?:number;spacing?:L;tolerance?:L};
     const frame = exec.frame;
@@ -1268,7 +1370,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     return amount * exec.noise(x / wavelength, y / wavelength, z / wavelength);
   }
   const b0 = exec.bounds();
-  const within = ((x: never, area: Boundary | ShapeValue, opts?: never) => withinAny(exec, x, area, opts)) as Within;
+  const within = ((x: never, area: AreaInput | ShapeValue, opts?: never) => withinAny(exec, x, area, opts)) as Within;
   const synthEnv = (opts: SynthOpts): SynthOpts => ({
     ...opts,
     seed: opts.seed ?? `${exec.seedUsed}:synth:${exec.rng.float()}`,
@@ -1294,7 +1396,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /** A seeded vector noise field: `deform(t.noiseField(4), …)`. */
     noiseField: (amount: number, wavelength = 25): VectorFieldFn => noiseFieldOf(noise, amount, wavelength),
     rnd,
-    pick: <T,>(arr: readonly T[]): T => exec.pick(arr),
+    pick: <T,>(items: Pickable<T>): T => exec.pick(items),
     chance: (p: number): boolean => exec.chance(p),
     prob: <T,>(p: number, fn: () => T, elseFn?: () => T): T | undefined => exec.prob(p, fn, elseFn),
     noise,
@@ -1316,7 +1418,31 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /** A shape's boundary as material with the boundary's OWN vertices,
      * curves flattened. `sample` redistributes instead. */
     material: materialFromShape,
-    sample, probe, inspect, plan: planWith, draw, distanceTo, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk,
+    sample, probe, inspect, plan: planWith, draw, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk,
+    /**
+     * The distance field of an area, taking a shape as well as resolved
+     * geometry: inside the sketch the frame is in hand, so the toolkit
+     * lowers the shape and the pure `distanceTo` never has to.
+     */
+    distanceTo: (area: Geometry | AreaInput | ShapeValue): DistanceField => distanceTo(lowerShape(exec, area, 'distanceTo') as AreaInput),
+    /**
+     * The forces, each taking a shape where it takes an area or points. The
+     * pure `force.*` is the same kernel with the frame left out.
+     */
+    force: {
+      ...force,
+      /**
+       * A boundary force from an area, taking a shape: an area's resolution
+       * is what a flattening tolerance is for, so lowering one here means
+       * what it means everywhere else.
+       */
+      boundary: (area: Geometry | AreaInput | ShapeValue, opts: { radius: number; strength?: number }) =>
+        force.boundary(lowerShape(exec, area, 'force.boundary') as AreaInput, opts),
+      separation: (sources: Sources | ShapeValue, opts: { radius: number; excludeConnected?: boolean }) =>
+        force.separation(pointSources(sources, 'force.separation'), opts),
+      attract: (sources: Sources | ShapeValue, opts: { radius: number; strength?: number; excludeConnected?: boolean }) =>
+        force.attract(pointSources(sources, 'force.attract'), opts),
+    },
     within,
     rotate: rotateField,
     /** Translate a field by lengths of this run (`mm(…)`, `w(…)` resolve). */

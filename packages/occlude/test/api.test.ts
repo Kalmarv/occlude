@@ -887,7 +887,7 @@ describe('points: scatter / relax / settle / voronoi', () => {
     const pts = [[10, 10], [90, 10], [50, 80], [30, 40]] as [number, number][];
     const cells = voronoi(pts, { x: 0, y: 0, w: 100, h: 100 });
     expect(cells.faces().length).toBe(4);
-    for (const f of cells.faces()) expect(f.contours[0].pts.length).toBeGreaterThanOrEqual(3);
+    for (const f of cells.faces()) expect(f.contours()[0].pts.length).toBeGreaterThanOrEqual(3);
     // Delaunay stays a connection between the sites: one interior point -> 3 triangles.
     expect(connect.triangulate(pts).faces().length).toBe(3);
   });

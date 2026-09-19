@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { append, components, curve, envelope, material, type Material } from '../src/index.js';
+import { append, curve, material, type Material } from '../src/index.js';
 
 const family = (members: [number, number][][]): Material =>
   members.map((pts) => curve(pts)).reduce((a, b) => append(a, b)) as unknown as Material;
@@ -14,7 +14,7 @@ const chords = (k: number, n: number): [number, number][][] =>
 
 describe('envelope', () => {
   it('finds the parabola a family of chords is drawing', () => {
-    const e = envelope(family(chords(100, 200)));
+    const e = family(chords(100, 200)).envelope();
     expect(e.n).toBeGreaterThan(150);
     for (let i = 0; i < e.n; i++) {
       // √x + √y = √k, to the family's own resolution
@@ -24,7 +24,7 @@ describe('envelope', () => {
 
   it('closes on the true envelope as the family gets denser', () => {
     const err = (n: number): number => {
-      const e = envelope(family(chords(100, n)));
+      const e = family(chords(100, n)).envelope();
       let worst = 0;
       for (let i = 0; i < e.n; i++) worst = Math.max(worst, Math.abs(Math.sqrt(e.x[i]) + Math.sqrt(e.y[i]) - 10));
       return worst;
@@ -37,8 +37,8 @@ describe('envelope', () => {
   });
 
   it('is one chain along the family, carrying which members made it', () => {
-    const e = envelope(family(chords(100, 60)));
-    expect(components(e).count).toBe(1);
+    const e = family(chords(100, 60)).envelope();
+    expect(e.points.components()).toHaveLength(1);
     expect(e.n).toBe(e.edgeList.length / 2 + 1);
     const members = Array.from(e.attrs.member);
     // Strictly increasing: one vertex per neighbouring pair, in family order.
@@ -57,8 +57,8 @@ describe('envelope', () => {
     const shuffled = inOrder.flatMap((_, i) =>
       i * 2 < inOrder.length ? [inOrder[i], inOrder[inOrder.length - 1 - i]] : [],
     );
-    const a = envelope(family(inOrder));
-    const b = envelope(family(shuffled));
+    const a = family(inOrder).envelope();
+    const b = family(shuffled).envelope();
     // Same curves, different order, different envelope — and the shuffled one
     // is not the parabola any more.
     let worst = 0;
@@ -76,8 +76,8 @@ describe('envelope', () => {
         const a = (k / 64) * Math.PI * 2;
         return [cx + 30 * Math.cos(a), 50 + 30 * Math.sin(a)] as [number, number];
       });
-    const e = envelope(family(Array.from({ length: 24 }, (_, i) => ring(30 + i * 1.5))));
-    expect(components(e).count).toBe(2);
+    const e = family(Array.from({ length: 24 }, (_, i) => ring(30 + i * 1.5))).envelope();
+    expect(e.points.components()).toHaveLength(2);
     const above = Array.from(e.y).filter((y) => y > 50).length;
     expect(above).toBe(e.n / 2);
   });
@@ -90,14 +90,14 @@ describe('envelope', () => {
       const a = (i / 30) * Math.PI * 0.9;
       return [[50, 50], [50 + 60 * Math.cos(a), 50 + 60 * Math.sin(a)]] as [number, number][];
     });
-    expect(envelope(family(pencil)).n).toBe(0);
+    expect(family(pencil).envelope().n).toBe(0);
   });
 
   it('is empty without a family, and is a pure function of one', () => {
     // One curve has no neighbour to meet: no envelope yet, no error.
-    expect(envelope(curve([[0, 0], [1, 1]]) as unknown as Material).n).toBe(0);
-    expect(envelope(material([[0, 0], [1, 1]])).n).toBe(0);
-    const twice = () => Array.from(envelope(family(chords(100, 50))).x);
+    expect((curve([[0, 0], [1, 1]]) as unknown as Material).envelope().n).toBe(0);
+    expect(material([[0, 0], [1, 1]]).envelope().n).toBe(0);
+    const twice = () => Array.from(family(chords(100, 50)).envelope().x);
     expect(twice()).toEqual(twice());
   });
 });

@@ -18,7 +18,7 @@
 
 import { Delaunay } from 'd3-delaunay';
 import { Material, material as makeMaterial, withinMaterial } from './material.js';
-import { numericLoops, type Boundary } from './boundary.js';
+import { numericLoops, type AreaInput } from './boundary.js';
 import { distanceTo } from './distance.js';
 // Type-only (erased): a shape area is recognised and refused here, never
 // lowered — the toolkit does that, where the sketch frame is known.
@@ -51,7 +51,7 @@ export interface ScatterOpts {
    * that is exactly the box, so nothing is dropped. `bounds` and `within`
    * are alternatives; giving both is an error. A shape is lowered by the
    * toolkit, where the sketch frame exists. */
-  within?: Boundary | ShapeValue;
+  within?: AreaInput | ShapeValue;
 }
 
 export interface RelaxOpts {
@@ -65,7 +65,7 @@ export interface RelaxOpts {
    * area's box and the result is trimmed to the area afterwards, so a
    * non-rectangular boundary thins the population near itself. A rectangle
    * needs no trimming. `bounds` and `within` are alternatives. */
-  within?: Boundary | ShapeValue;
+  within?: AreaInput | ShapeValue;
   /** Density raster resolution along the bounds' long side (default 256, clamped 32…512). */
   resolution?: number;
 }
@@ -82,7 +82,7 @@ export interface SettleOpts {
    * box and the result is trimmed to the area afterwards, so the population
    * near a non-rectangular boundary is thinned. A rectangle needs no
    * trimming. `bounds` and `within` are alternatives. */
-  within?: Boundary | ShapeValue;
+  within?: AreaInput | ShapeValue;
   resolution?: number;
   /** Point attributes for each child a split inserts, merged over the
    * inherited ones (a copy of the parent's): a partial record of declared
@@ -190,7 +190,7 @@ function isAxisBox(loops: readonly (readonly (readonly [number, number])[])[], b
 /** The toolkit uses this too, for an operation whose cells are clipped to a
  * box (voronoi): a non-null `loops` means the area is not its own box. */
 export function withinRegion(
-  area: Boundary | ShapeValue,
+  area: AreaInput | ShapeValue,
   who: string,
   bounds: Bounds | undefined,
 ): { bounds: Bounds; loops: [number, number][][] | null } {
@@ -245,7 +245,8 @@ export function relaxMaterial(env: PointsEnv, m: Material, opts: RelaxOpts = {})
     x[p] = coords[2 * p];
     y[p] = coords[2 * p + 1];
   }
-  const out = new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), m.iteration, [], copyColumns(m.edgeAttrs), { ...m.transfers }, { ...m.edgeTransfers });
+  // Relaxing moves points; it makes and unmakes nothing.
+  const out = new Material(x, y, copyColumns(m.attrs), Uint32Array.from(m.edgeList), { iteration: m.iteration, history: [], edgeAttrs: copyColumns(m.edgeAttrs), transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(m.pointIds), edges: Float64Array.from(m.edgeIds), edgeRoots: Float64Array.from(m.edgeRoots) }, faceAttrs: m.faceAttrs });
   return region?.loops ? withinMaterial(out, region.loops) : out;
 }
 
@@ -362,7 +363,7 @@ export function settleMaterial(env: PointsEnv, m: Material, opts: SettleOpts): M
     attrs[name] = col;
   }
   attrs.demand = demand;
-  const out = new Material(x, y, attrs, new Uint32Array(0), m.iteration, [], {}, { ...m.transfers }, {});
+  const out = new Material(x, y, attrs, new Uint32Array(0), { iteration: m.iteration, history: [], edgeAttrs: {}, transfers: { ...m.transfers }, edgeTransfers: {} });
   return region?.loops ? withinMaterial(out, region.loops) : out;
 }
 
@@ -374,7 +375,7 @@ export interface ThrowOpts {
   /** How many points to throw. */
   count: number;
   /** Keep only what lands inside this area (default: the whole drawable). */
-  within?: Boundary | ShapeValue;
+  within?: AreaInput | ShapeValue;
   /** Tries per point before the throw gives up and returns the points it
    * has (default 1000): the termination rule for a field that is nearly
    * zero everywhere. */

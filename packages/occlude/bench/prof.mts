@@ -42,7 +42,7 @@ t(`  append ×400 (incremental, O(n²) total)`, () => { let m = material([]); fo
 const pn = t(`  planarize 400 chords`, () => net.planarize()) as O.Material;
 console.log(`     -> ${pn.n} vertices ${pn.edgeCount} edges`);
 const fc = t(`  faces of it`, () => pn.faces()) as O.Faces;
-t(`  faces.select area>1 + boundaries`, () => fc.select((f) => f.area > 1).boundaries());
+t(`  faces.filter area>1 + contours`, () => fc.filter((f) => f.area > 1).contours());
 t(`  pn.curves()`, () => pn.curves(), 3);
 t(`  pn.edges (views)`, () => pn.edges, 3);
 t(`  query.edges prepare + 1000 firstHit`, () => { const q = O.query.edges(pn); for (let i = 0; i < 1000; i++) q.firstHit([rnd(0, 100), rnd(0, 100)], [rnd(0, 100), rnd(0, 100)]); });

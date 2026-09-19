@@ -29,6 +29,33 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## What a geometry value can say
+
+A value answers `contours()` for areas, `curves()` for chains, and `points` for positions. A consumer asks for the one it needs, and it refuses a value that cannot answer, by name.
+
+A shape is not geometry until the toolkit lowers it. Every word on `t` takes a shape. The plain import takes geometry. `t.distanceTo(circle(...))` works and `distanceTo(circle(...))` does not, because a shape needs the paper, the units and its own transform before it has points.
+
+A shape enters the point world through two doors only. `t.material(shape)` keeps the boundary's own vertices. `t.sample(shape, { count })` redistributes along it by arc length. `connect.*`, `voronoi` and `t.quadtree` take points, so give them the material one of those doors made.
+
+| value | answers |
+| --- | --- |
+| material | `contours()`, `curves()`, `points` |
+| point selection | `points`, `curves()` |
+| edge selection | `points`, `curves()` |
+| face collection or face selection | `points`, `edges`, `contours()` |
+| one face | `points`, `edges`, `contours()` |
+| contour records and loops | themselves |
+
+## What a point or an edge is, across states
+
+Every vertex and every edge has an `id` for as long as it exists. An id is opaque: you cannot do arithmetic with it, and it is equal only to itself. It is never reused.
+
+New geometry mints new ids. A step that moves or sets keeps them. A split retires the edge it cut and gives both halves ids of their own, so `edgeOf(parentId)` finds nothing afterwards.
+
+A selection can then outlive the state that made it. `sel.in(state)` reads a selection against a later state and drops the members that are gone. `sel.has(view)` asks by identity, so a vertex you kept from an earlier step is the same vertex. A step verb takes a selection from an earlier state and finds the rows itself.
+
+Store an id in an ordinary column and look it up later with `m.pointOf(id)` or `m.edgeOf(id)`. `m.points.at(row)` and `m.edges.at(row)` ask the same question by position in one state. An id and a row are both numbers. The two have different names, and neither guesses.
+
 ## material()
 
 <include>/_sig/material.mdx</include>
@@ -136,6 +163,32 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   return [strokes(ring.edges.filter((e) => e.attrs.long === 1), { pen: 'pigma-05-black' }), strokes(ring.edges.filter((e) => e.attrs.long === 0))];
 });
 ```
+
+## What keeps a column
+
+A column belongs to the material that declares it. An operation that makes a
+new material decides what to carry, and the three answers differ. We measured this table. It is
+what the code does, not what it should do.
+
+| operation | point columns | edge columns | transfer policies |
+|---|---|---|---|
+| `warp`, `snap`, `resample`, `trails`, `planarize`, `append`, `withEdges`, `steps` | kept | kept | kept |
+| `oscillate` | kept, and an edge column arrives as a POINT column | dropped | edge policies dropped |
+| `thicken`, `envelope`, `interlace` | dropped | dropped | dropped |
+
+The third row matches its geometry. A thickened outline has two vertices for
+each vertex of the source. An envelope's vertices are crossings of a family,
+and come from no vertex at all. An interlace cuts a chain where it passes
+under. None of these has one source row to read a value from.
+
+The second row is a trap. `oscillate` walks the chains as stations. A station
+carries an edge's sampled value as an ordinary point value. So an edge
+quantity that `'distribute'` conserves, such as a rest length, comes out as a
+point value under the same name. Rename the column before you oscillate, or
+write it back afterwards.
+
+To keep a column through an operation in the third row, read it off the source
+first. Then set it again on the result.
 
 ## withEdges()
 

@@ -101,10 +101,7 @@ function chainsMaterial(stations: readonly Station[]): Material {
     const last = k === stations.length - 1 || stations[k + 1].chain !== q.chain;
     if (last && q.closed && k > runStart + 1) edges.push(k, runStart);
   });
-  return new Material(
-    Float64Array.from(stations, (q) => q.x), Float64Array.from(stations, (q) => q.y),
-    cols, Uint32Array.from(edges), 0, [], {}, policies,
-  );
+  return new Material(Float64Array.from(stations, (q) => q.x), Float64Array.from(stations, (q) => q.y), cols, Uint32Array.from(edges), { iteration: 0, history: [], edgeAttrs: {}, transfers: policies });
 }
 
 /** Stations of one chain, in walk order. */

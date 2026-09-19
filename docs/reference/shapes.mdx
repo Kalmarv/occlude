@@ -84,7 +84,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 <include>/_sig/polygon.mdx</include>
 
-One area from its boundary. Give a loop of pairs, several loops, contour records, a [face](/docs/reference/faces), a chain [material](/docs/reference/material), or a shape. A loop that is not closed gets a closing chord. `winding` decides the fill rule where loops nest or cross: `'evenodd'` (the default) makes every enclosed loop a hole, `'nonzero'` fills through.
+One area from its boundary. Give a loop of pairs, several loops, contour records, a [face](/docs/reference/faces), a chain [material](/docs/reference/material), or a shape. `polygon` reads the area's `contours()`. A loop that is not closed gets a closing chord. `winding` decides the fill rule where loops nest or cross: `'evenodd'` (the default) makes every enclosed loop a hole, `'nonzero'` fills through.
 
 ```ts live
 import { sketch, polygon, fill, mm } from 'occlude';
@@ -215,7 +215,7 @@ export default sketch({ aspect: [1, 1] }, (t) => [
 <include>/_sig/stroke.mdx</include>
 <include>/_sig/strokes.2.mdx</include>
 
-Draw geometry as ink. `stroke` draws one contour or one list of pairs. `strokes` draws every chain of a [material](/docs/reference/material), a [selection](/docs/reference/selections) or a list of contours, once each, all with the same options. A material never draws itself. These are the words that make ink.
+Draw geometry as ink. `stroke` draws one contour or one list of pairs. `strokes` draws every chain of a [material](/docs/reference/material), a [selection](/docs/reference/selections) or a list of contours, once each, all with the same options. `strokes` reads the source's `curves()`. A material never draws itself. These are the words that make ink.
 
 ```ts live
 import { sketch, stroke, strokes, circle } from 'occlude';
@@ -233,4 +233,25 @@ Every shape accepts these. `fill` makes the shape opaque and gives it a texture.
 import { sketch, circle, rect, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => [rect(10, 20, 50, 50, { fill: fill('hatch', { angle: 30, spacing: mm(1.5) }), stroke: false }), circle(60, 55, 24, { opaque: true, pen: 'stabilo-88-blue' }), circle(78, 28, 14, { rotate: 20, scale: [1.6, 1], origin: [78, 28] })]);
+```
+
+## dots
+
+<include>/_sig/dots.mdx</include>
+
+A tap of the pen at every point: pen down, the pen's delay, pen up. `dots` is the third way to spell ink, beside `stroke`/`strokes` along a contour and `polygon` over an area. It marks every point of any geometry that has points. That is a material, a selection, a face collection, or a plain list of pairs.
+
+A dot hides as a point. A shape drawn over it hides the whole dot, and nothing hides half of it. The preview shows it at nib width. The plan keeps it through the cleanup that drops zero-length moves. The machine gets one pen-down with that pen's settle. No points means no ink.
+
+A dot of its own hides nothing a pen could draw. The engine judges a tap inside a region, so every tap rides in a region a hundredth of a millimetre across. A stroke under a cloud of dots comes out whole.
+
+```ts live
+import { sketch, dots, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const field = t.scatter((x, y) => 0.15 + 0.85 * t.noise(x / 26, y / 26) ** 2, { spacing: 3.4 });
+  const moon = circle(64, 36, 19, { opaque: true, pen: 'stabilo-88-blue' });
+  // The taps go down first, so the moon hides the ones behind it — whole.
+  return [dots(field), moon, strokes(t.material(circle(64, 36, 19)), { pen: 'stabilo-88-blue' })];
+});
 ```

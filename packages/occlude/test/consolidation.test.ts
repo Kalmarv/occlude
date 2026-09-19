@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { connect, curve, material, neighbours, initOcclude, path, render, sketch, stroke } from '../src/index.js';
+import { connect, curve, material, initOcclude, path, render, sketch, stroke } from '../src/index.js';
 
 describe('Stage A repairs (con2)', () => {
   it('A1 a value update keeps the declared transfer policy; explicit interpolate resets it', () => {
@@ -42,7 +42,7 @@ describe('Stage A repairs (con2)', () => {
 
   it('A6 neighbour cells never alias: far-apart and negative coordinates', () => {
     const m = material([[0, 0], [0, -65536 * 3], [-3, 65535 * 3], [1.5, 0.5]]);
-    const near = neighbours(m, { radius: 3 });
+    const near = (p: [number, number]) => [...m.points.near(p, { radius: 3 }).indices];
     expect(near([0, 0]).sort()).toEqual([0, 3]);
     expect(near([0, -65536 * 3])).toEqual([1]);
     expect(near([-3, 65535 * 3])).toEqual([2]);

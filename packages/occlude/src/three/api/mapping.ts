@@ -65,7 +65,7 @@ export function captureSurfaceMapping(mesh:Mesh<any,any,any,any>,pattern:Materia
     const columns=(input:Readonly<Record<string,Float64Array>>)=>Object.fromEntries(Object.entries(input).map(([name,value])=>[name,value.slice()]));
     const x=Float64Array.from(p.x as Iterable<number>,v=>(v-frame.x)/frame.width),y=Float64Array.from(p.y as Iterable<number>,v=>(v-frame.y)/frame.height);
     if(!x.every(Number.isFinite)||!y.every(Number.isFinite))return [];
-    return [new Material(x,y,columns(p.attrs),p.edgeList.slice(),0,[],columns(p.edgeAttrs),{...p.transfers},{...p.edgeTransfers})];
+    return [new Material(x, y, columns(p.attrs), p.edgeList.slice(), { iteration: 0, history: [], edgeAttrs: columns(p.edgeAttrs), transfers: {...p.transfers}, edgeTransfers: {...p.edgeTransfers}, ids: {points:Float64Array.from(p.pointIds),edges:Float64Array.from(p.edgeIds),edgeRoots:Float64Array.from(p.edgeRoots)} })];
   });
   return {mesh,patterns:captured,settings};
 }

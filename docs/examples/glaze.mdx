@@ -1,0 +1,43 @@
+---
+title: Glaze
+description: Every cell keeps the tone it was given, through an edit that redraws its walls.
+---
+
+A face is not a row. A face is the set of walls it has. A column on a face survives any edit that leaves those walls alone, and even an edit that splits them.
+
+One step gives every cell a tone, by name. The next step cracks the glaze: it splits every wall at the middle and moves every vertex. That changes the drawing completely. It does not change the name of one cell, because a child wall remembers the wall it came from. The hatch then reads `f.tone` for its angle and its spacing. Each cell hatches as the tone of its first step.
+
+Uses: `t.voronoi`, `steps` with `next.setFaces`, `next.splitEdges`, `next.move`, a face column read as `f.tone`, `polygon(face)` with a `hatch` fill.
+
+```ts live paper=180x120
+import { sketch, strokes, polygon, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [3, 2], seed: 9 }, (t) => {
+  const cells = t.voronoi(t.relax(t.scatter({ spacing: 24 }), { iterations: 5 }));
+
+  // The tone is given once, to the cells as they are now.
+  const tinted = cells.steps(1, (cur, next) => {
+    next.setFaces(cur.faces(), () => ({ tone: t.rnd() }));
+  });
+
+  // Then the glaze cracks: every wall splits and every vertex wanders. The
+  // walls are new rows with new ids, and each one still names the wall it
+  // came from, so every cell is the same cell.
+  const cracked = tinted.steps(2, (cur, next) => {
+    next.splitEdges(cur.edges, { at: 0.5 });
+  }, (cur, next) => {
+    // The outer wall sits on the edge of the paper, so only what is inside
+    // wanders: the glaze cracks, the plate does not change shape.
+    const inner = cur.points.filter((p) => p.x > 1 && p.x < t.width - 1 && p.y > 1 && p.y < t.height - 1);
+    next.move(inner, (p) => [t.noise(p.x / 14, p.y / 14) * 2.2, t.noise(p.y / 14, p.x / 14) * 2.2]);
+  });
+
+  return [
+    cracked.faces().map((f) => polygon(f, {
+      fill: fill('hatch', { angle: f.tone * 170, spacing: mm(0.6 + f.tone * 1.8) }),
+      stroke: false,
+    })),
+    strokes(cracked, { pen: 'pigma-005-black' }),
+  ];
+});
+```

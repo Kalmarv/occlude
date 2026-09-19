@@ -1,4 +1,5 @@
 import type { ModelingStats3 } from './three/modeling.js';
+import { resetIds } from './material.js';
 import type { LineArtScene3 } from './three/scene.js';
 import type { ClassifiedScene3 } from './three/visibility/scene.js';
 import type { RetainedDrawing3 } from './three/drawing.js';
@@ -122,11 +123,30 @@ export interface InspectionPayload {
   iteration: number;
 }
 
+/** Anything a draw can land in: an array, or a collection that answers
+ * `length` and `at` — a selection, or the pairs a relation gave back. */
+export type Pickable<T> = { readonly length: number; at(i: number): T | undefined };
+
+/**
+ * One draw, one member. The draw is consumed whatever happens, so the seed
+ * stream does not depend on what is in the collection; an empty one has no
+ * member to give and says so by name, the same for an array and for a
+ * selection (whose own `at` would otherwise refuse and an array's would
+ * quietly answer `undefined`).
+ */
+function pickFrom<T>(items: Pickable<T>, unit: number, record: (i: number) => void): T {
+  const n = items.length;
+  if (n === 0) throw new Error('pick: nothing to pick from (0 members)');
+  const i = Math.floor(unit * n);
+  record(i);
+  return items.at(i) as T;
+}
+
 export interface RandomStream {
   rnd(): number;
   rnd(n: number): number;
   rnd(a: number, b: number): number;
-  pick<T>(arr: readonly T[]): T;
+  pick<T>(items: Pickable<T>): T;
   chance(p: number): boolean;
   prob<T>(p: number, fn: () => T, elseFn?: () => T): T | undefined;
   noise(x: number, y?: number, z?: number): number;
@@ -277,6 +297,11 @@ export class Execution {
   begin(cfg: CompileConfig): void {
     if (this.compiled) throw new Error('Execution: already compiled — one execution runs one sketch once');
     this.compiled = true;
+    // Identities start over with the run. A counter that survived between
+    // runs would show different ids in a warm studio worker than in a cold
+    // render for the same sketch and seed — no ink difference, but a broken
+    // promise.
+    resetIds();
     this.cameras3 = Object.freeze(Object.fromEntries(Object.entries(cfg.cameras3 ?? {}).map(([key, camera]) => [key,
       cameraFrame3(camera, { x: 0, y: 0, width: 1, height: 1 }).camera,
     ])));
@@ -463,10 +488,8 @@ export class Execution {
     return v;
   }
 
-  pick<T>(arr: readonly T[]): T {
-    const i = Math.floor(this.unitDraw(this.rng) * arr.length);
-    this.madeOf(i);
-    return arr[i];
+  pick<T>(items: Pickable<T>): T {
+    return pickFrom(items, this.unitDraw(this.rng), (i) => this.madeOf(i));
   }
 
   chance(p: number): boolean {
@@ -504,7 +527,7 @@ export class Execution {
     };
     return {
       rnd: rnd as RandomStream['rnd'],
-      pick: <T>(arr: readonly T[]): T => { const i = Math.floor(this.unitDraw(rng) * arr.length); this.madeOf(i); return arr[i]; },
+      pick: <T>(items: Pickable<T>): T => pickFrom(items, this.unitDraw(rng), (i) => this.madeOf(i)),
       chance: chanceOf,
       prob: (p, fn, elseFn) => (chanceOf(p) ? fn() : elseFn?.()),
       noise: (x, y = 0, z = 0) => rng.noise(x, y, z),

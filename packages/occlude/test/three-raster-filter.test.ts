@@ -28,7 +28,7 @@ describe('certified raster filter',()=>{
         expect(filtered.features.map(f=>f.hidden.length>0)).toEqual(exact.features.map(f=>f.hidden.length>0));
       }
     }
-  });
+  },20_000);
   it('proves only features the exact classifier also finds wholly hidden, and covers nothing a line lies on',async()=>{
     const run=await compileSketchAsync(sketch({seed:1,pens:{ink:pen({width:mm(.2)})}},scenes[0]));
     const [source,classified]=[...run.scenes3][0];

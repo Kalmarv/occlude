@@ -20,7 +20,7 @@ console.log(`  -> ${pn.n} vertices ${pn.edgeCount} edges`);
 med(`faces of ${pn.edgeCount} planar edges`, () => pn.faces());
 const fc = pn.faces();
 console.log(`  -> ${fc.faces.length} faces`);
-med('faces.select area>1 + boundaries', () => fc.select((f) => f.area > 1).boundaries());
+med('faces.filter area>1 + contours', () => fc.filter((f) => f.area > 1).contours());
 
 // Demanding: planarization at the scale where the event bookkeeping, not the
 // sweep, decides the cost — a million vertices out of three thousand chords.

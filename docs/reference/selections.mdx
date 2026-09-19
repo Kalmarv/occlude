@@ -119,13 +119,13 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## inducedEdges() · edges.points · edges.curves()
+## points.edges · edges.points · edges.curves()
 
-<include>/_sig/PointSelection.inducedEdges.mdx</include>
+<include>/_sig/PointSelection.edges.mdx</include>
 <include>/_sig/EdgeSelection.points.mdx</include>
 <include>/_sig/EdgeSelection.curves.mdx</include>
 
-`inducedEdges()` is the source edges with both ends in the point selection. `edges.points` is the endpoints of an edge selection, each once. `edges.curves()` walks the selected edges into chains, each edge once, with ends and junctions those of the selection alone. `strokes(edges)` draws those chains.
+`points.edges` is the source edges with both ends in the point selection. `edges.points` is the endpoints of an edge selection, each once. `edges.curves()` walks the selected edges into chains, each edge once, with ends and junctions those of the selection alone. `strokes(edges)` draws those chains.
 
 ```ts live
 import { sketch, circle, strokes, connect } from 'occlude';
@@ -133,19 +133,19 @@ import { sketch, circle, strokes, connect } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const web = connect.triangulate(t.scatter({ spacing: 12 }));
   const inner = web.points.filter((p) => Math.hypot(p.x - 50, p.y - 50) < 30);
-  return [strokes(web, { pen: 'pigma-005-black' }), strokes(inner.inducedEdges(), { pen: 'pigma-05-black' })];
+  return [strokes(web, { pen: 'pigma-005-black' }), strokes(inner.edges, { pen: 'pigma-05-black' })];
 });
 ```
 
-## p.adjacent · points.near() · isConnected()
+## p.adjacent · p.edges · points.near()
 
 <include>/_sig/Vertex.adjacent.mdx</include>
+<include>/_sig/Vertex.edges.mdx</include>
 <include>/_sig/PointSelection.near.mdx</include>
-<include>/_sig/Material.isConnected.mdx</include>
 
-Two different questions. `p.adjacent` is topology: the points an edge joins this one to. `points.near(p, { radius })` is distance: the points closer than `radius`, joined or not. A rule wants one or the other. Name the right one and the rule stays honest. `a.adjacent.has(b)` tells you that two points share an edge. `isConnected` answers the same question by row.
+Two different questions. `p.adjacent` is topology: the points an edge joins this one to. `points.near(p, { radius })` is distance: the points closer than `radius`, joined or not. A rule wants one or the other. Name the right one and the rule stays honest. `a.adjacent.has(b)` tells you that two points share an edge.
 
-A vertex with one edge is an end. A vertex with three or more is a junction.
+`p.edges` is the same neighbourhood as edges. `p.edges.length` is the degree: a vertex with one edge is an end, and a vertex with three or more is a junction.
 
 ```ts live
 import { sketch, circle, strokes, line, connect } from 'occlude';
@@ -168,19 +168,20 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
 `near` builds one index for each radius and keeps it on the state. A whole pass of queries at one radius pays for one grid. A selection of part of a state answers with its own members only.
 :::
 
-## components()
+## adjacent() · connected() · components()
 
-<include>/_sig/components.mdx</include>
+<include>/_sig/PointSelection.adjacent.mdx</include>
+<include>/_sig/PointSelection.connected.mdx</include>
+<include>/_sig/PointSelection.components.mdx</include>
 
-The connected pieces of a material, in one pass: `count`, a `labels` column and `label(vertex)`. A loose vertex is a piece of its own.
+The same three words a whole selection says, on points and on edges. `adjacent()` is one step out: every point an edge joins to a member, members excluded. `connected()` is all the way out: the members plus everything reachable from them. `components()` partitions the MEMBERS into pieces, joined by the edges among them alone, and keys them `0, 1, 2 …` as `groupBy` does. A loose vertex is a piece of its own.
 
 ```ts live
-import { sketch, strokes, components, connect } from 'occlude';
+import { sketch, strokes, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const lattice = connect.unimpeded(t.scatter({ spacing: 9 }), { room: 3.5 });
-  const pieces = components(lattice);
-  return lattice.edges.groupBy((e) => pieces.label(e.a)).map((sel) => strokes(sel, { pen: sel.key % 2 ? 'stabilo-88-blue' : 'pigma-005-black' }));
+  return lattice.points.components().map((piece) => strokes(piece.edges, { pen: piece.key % 2 ? 'stabilo-88-blue' : 'pigma-005-black' }));
 });
 ```
 
@@ -200,3 +201,49 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   return [strokes(web, { pen: 'pigma-005-black' }), probes.points.map((p) => { const hit = q.nearest(p, { within: 10 }); return hit ? line(p.x, p.y, hit.position[0], hit.position[1], { pen: 'stabilo-88-blue' }) : circle(p.x, p.y, 1); })];
 });
 ```
+
+## rows()
+
+<include>/_sig/PointSelection.rows.mdx</include>
+<include>/_sig/EdgeSelection.rows.mdx</include>
+
+The selection that holds those SOURCE rows. The rows are rows of the state, never positions inside this selection, so `sel.rows([0, 3])` means the same rows whatever `sel` holds. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A row that is not in the state is an error.
+
+## pairs()
+
+<include>/_sig/PointSelection.pairs.mdx</include>
+<include>/_sig/EdgeSelection.pairs.mdx</include>
+
+Every pair of members the predicate accepts, as views: `[a, b]` two at a time. A member is never paired with itself. `radius` takes the candidates from the spatial index. Write that form. Edges are near each other by their MIDDLES. Without a radius this is the full product. The library permits it, and it costs what it sounds like.
+
+When the two selections hold the same rows, each pair appears once, in no order. The predicate sees `(a, b)` with `a` before `b` by row. It never sees `(b, a)`. Two different selections give the ordered product instead.
+
+`t.pick(pairs)` takes one pair at a time, because `t.pick` takes anything with `length` and `at`.
+
+```ts live
+import { sketch, circle, line } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const cloud = t.relax(t.scatter({ spacing: 11 }), { iterations: 2 });
+  // The relation this drawing is about: two points close enough to see each
+  // other, and level enough to be a rung. The sketch states it; `pairs`
+  // finds it.
+  const rungs = cloud.points.pairs(cloud.points, (a, b) => Math.abs(a.y - b.y) < 5, { radius: 20 });
+  return [
+    cloud.points.map((p) => circle(p.x, p.y, 1.1)),
+    rungs.map(([a, b]) => line(a.x, a.y, b.x, b.y, { pen: 'stabilo-88-blue' })),
+  ];
+});
+```
+
+:::note
+**A pair in a step.** A pair is two rows. A batch is a set of edits to rows. Two pairs can then ask contradicting things of one row. The batch rules decide. They are the same rules as for any other edit:
+
+| Two pairs ask | What happens |
+|---|---|
+| to move the same row | the moves add up, as two `next.move` calls do |
+| to set the same column of one row | the last write wins |
+| to connect the same two rows | one edge; a second `connect` of a pair that exists is ignored |
+| to split one edge at different parameters | both splits happen, in edge then parameter order |
+| to remove a row that another pair moves or connects | the batch throws and publishes nothing |
+:::

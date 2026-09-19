@@ -787,8 +787,9 @@ declined for that reason: the first three duplicate `subtract`/`intersect`/
 
 ### Rulings (2026-09-18)
 
-- 2D face attributes: ruled NOT NOW. Reading is at parity; writing needs a
-  lazy face column store, which is its own design.
+- 2D face attributes: ruled NOT NOW, then BUILT in the geometry spec's
+  Part 6 — a store keyed by the face's boundary-wall lineage roots, so a
+  column survives any edit that leaves those walls alone.
 - `ctx.kind` / `ctx.depth`: ruled YES, a per-chain source label in the plan
   protocol, Rust and TypeScript in one commit. Telling a hatch from an
   outline by pen name is a workaround.
@@ -797,4 +798,9 @@ declined for that reason: the first three duplicate `subtract`/`intersect`/
 
 `m.connected`, `m.connectedPoints` and `m.degree` are GONE: `p.adjacent` is
 the one word, and `adjacentRows` is the engine's internal door.
-`isConnected` and `maxDegree` remain — the ruling named three words.
+`isConnected`, `maxDegree`, `m.prev`/`m.next`, `force.adjacent`,
+`force.nearby`, the `neighbours` export and `components(m)` went with them
+in the relations series (geometry spec, Part 7a): `p.adjacent.has(q)`,
+`p.edges.length`, `sel.components()` and `sumBy(points.near(p, { radius }),
+…)` say all of it, and `m.vertex(row)`/`m.edge(row)` became internal doors
+beside `adjacentRows` — a sketch says `m.points.at(row)`.

@@ -682,11 +682,12 @@ Mesh rows expose ordinary collections: `face.points`, `face.edges`,
 `point.adjacent`. Edge endpoints `a` and `b` are the same typed point rows.
 Relations follow polygon edges, without adding triangulation diagonals.
 
-A face selection has `.points()`, `.edges()`, `.boundaryEdges()`, `.adjacent()`,
-`.connected()` and `.components()`. Point selections have `.edges()`, `.faces()`,
-`.adjacent()`, `.connected()` and `.components()`; edge selections have
-`.points()` and `.faces()`. Filtering, grouping and set operations preserve these
-capabilities. Row fields retain attributes across every relation.
+A face selection has `.points` and `.edges`, plus `.boundaryEdges()`,
+`.adjacent()`, `.connected()` and `.components()`. Point selections have
+`.edges` and `.faces`, plus `.adjacent()`, `.connected()` and `.components()`;
+edge selections have `.points` and `.faces()`. Filtering, grouping and set
+operations preserve these capabilities. Row fields retain attributes across
+every relation.
 
 `.adjacent()` collects one-hop neighbors; subtract the starting selection when
 only its outside neighbors are wanted. `.connected()` expands through the whole
@@ -783,7 +784,7 @@ Use `.cornerAttributes({ name: valueOrField })` or
 `.cornerAttribute(name, valueOrField)` to initialize columns. A corner exposes
 `point`, `face`, `localIndex`, and the ordinary row identity and attributes.
 `face.corners` and `point.corners` are owned collections; face and point
-selections also provide `.corners()`. A corner selection can recover `.points()`
+selections also provide `.corners()`. A corner selection can recover `.points`
 and `.faces()`. Its `.extract()` returns readonly corner rows, since corners
 alone do not define a mesh.
 
@@ -1609,7 +1610,7 @@ Await each batch before making dependent CPU edits. Inputs are captured when sub
 
 ### Points, edges and instances
 
-`PointSelection3(surface)` captures point positions, attributes, original-edge neighbors and boundary status. `EdgeSelection3(surface)` captures original polygon edges with endpoints, center, length, incident faces and attributes; triangulation diagonals are excluded. Both support iteration, `filter`, `map`, `groupBy` and `union`. Derive selections from one captured selection before unioning them. Point `adjacent()` follows original edges; edge `points()` selects its endpoints.
+`PointSelection3(surface)` captures point positions, attributes, original-edge neighbors and boundary status. `EdgeSelection3(surface)` captures original polygon edges with endpoints, center, length, incident faces and attributes; triangulation diagonals are excluded. Both support iteration, `filter`, `map`, `groupBy` and `union`. Derive selections from one captured selection before unioning them. Point `adjacent()` follows original edges; edge `points` selects its endpoints.
 
 `editPoints3(surface, selection, callback)` returns an owned surface with optional position and attribute replacements. `editEdges3(surface, selection, callback)` replaces selected edge attributes. Every callback reads frozen rows from the edit's input; all patches commit after the callbacks finish. Omitted point fields stay unchanged; supplied attribute objects replace that row's attributes, so spread existing attributes to retain them. IDs and fixed triangulation survive these edits. A selection from a previous surface value cannot edit a later value. Selection predicates retain their captured measurements even if the original editable geometry changes.
 

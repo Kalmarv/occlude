@@ -3,7 +3,7 @@ title: Connect
 description: The ways to put edges between points.
 ---
 
-Every builder takes points, a material or a selection of one, and returns a material with new edges. Most builders keep the rows, their order and their columns, and change only the edge list. `connect.pairs` joins the rows of two materials, and `connect.trails` adds a pass-through vertex at each junction. `edgeAttributes` gives every new edge the same columns.
+Every builder takes points, a material or a selection of one, and returns a material with new edges. Most builders keep the rows, their order and their columns, and change only the edge list. `connect.pairs` joins the rows of two materials. `trails` is a method on the material, and it adds a pass-through vertex at each junction. `edgeAttributes` gives every new edge the same columns.
 
 ## connect.chain() · connect.ring()
 
@@ -97,9 +97,9 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
 });
 ```
 
-## connect.trails()
+## m.trails()
 
-<include>/_sig/connect.trails.mdx</include>
+<include>/_sig/Material.trails.mdx</include>
 
 The same drawing, wired so the pen lifts as few times as possible. At a junction, each pair of edges gets its own pass-through vertex. A chain walk then runs straight through the junction. The ink does not change. The result is a drawing, not a structure: `faces()` refuses it, so keep the original for questions.
 
@@ -109,7 +109,7 @@ import { sketch, strokes, material, connect, label, group } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const grid = material(t.grid({ cols: 5, rows: 5 }).map((c) => [c.cx * 0.46 + 2, c.cy * 0.46 + 10]));
   const web = connect.triangulate(grid);
-  const routed = connect.trails(web);
+  const routed = web.trails();
   return [
     strokes(web), label(`${web.curves().length} STROKES`, 25, 62, 4, { align: 'center' }),
     group({ translate: [50, 0] }, strokes(routed, { pen: 'stabilo-88-blue' }), label(`${routed.curves().length} TRAILS`, 25, 62, 4, { align: 'center', pen: 'stabilo-88-blue' })),

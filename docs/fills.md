@@ -294,7 +294,7 @@ Rules the library keeps:
 The radius field changes the material being filled; contour spacing changes the marks inside it. The three panels below use the same recursive rectangles with constant, left-to-right, and radial thickening. Decimation breaks up the fill, while a separate outline keeps the silhouette readable. Change the radius expressions or the decimation amount to explore the texture.
 
 ```ts live
-import { sketch, append, thicken, polygon, fill, decimate, label } from 'occlude';
+import { sketch, append, polygon, fill, decimate, label } from 'occlude';
 
 export default sketch({ aspect: [3, 1], margin: 5, seed: 42 }, (t) =>
   t.times(3, (panel) => {
@@ -308,7 +308,7 @@ export default sketch({ aspect: [3, 1], margin: 5, seed: 42 }, (t) =>
       material = children.reduce((m, shape) => append(m, t.material(shape)), material);
       size /= 2;
     }
-    const area = thicken(material, {
+    const area = material.thicken({
       radius: (p) => {
         if (panel === 0) return 1.2;
         if (panel === 1) return t.map(p.x, cx - 35, cx + 35, 0.2, 2.2);

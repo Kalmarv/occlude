@@ -293,6 +293,9 @@ export class OrderedEditor {
       get faces(): never {
         throw new Error('ordered-steps prototype: faces are not modelled');
       },
+      get id(): never {
+        throw new Error('ordered-steps prototype: identity is not modelled');
+      },
     });
     // Always expose live endpoints, even when connect received frozen prev views.
     a = this.ps[ai].view;
@@ -474,16 +477,18 @@ export class OrderedEditor {
           rows.get(this.es[id].b)!,
         ]),
       ),
-      this.prev.iteration + 1,
-      [],
-      Object.fromEntries(
-        Object.keys(this.prev.edgeAttrs).map((k) => [
-          k,
-          Float64Array.from(edges, (id) => this.es[id].attrs[k]),
-        ]),
-      ),
-      { ...this.prev.transfers },
-      { ...this.prev.edgeTransfers },
+      {
+        iteration: this.prev.iteration + 1,
+        history: [],
+        edgeAttrs: Object.fromEntries(
+          Object.keys(this.prev.edgeAttrs).map((k) => [
+            k,
+            Float64Array.from(edges, (id) => this.es[id].attrs[k]),
+          ]),
+        ),
+        transfers: { ...this.prev.transfers },
+        edgeTransfers: { ...this.prev.edgeTransfers },
+      },
     );
     this.snapshots.set(output, { points, edges });
     return output;

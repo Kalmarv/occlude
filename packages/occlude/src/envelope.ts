@@ -112,15 +112,5 @@ export function envelope(m: Material): Material {
     open = next;
   }
 
-  return new Material(
-    Float64Array.from(xs),
-    Float64Array.from(ys),
-    { member: Float64Array.from(member) },
-    Uint32Array.from(edges),
-    0,
-    [],
-    {},
-    { member: 'nearest' },
-    {},
-  );
+  return new Material(Float64Array.from(xs), Float64Array.from(ys), { member: Float64Array.from(member) }, Uint32Array.from(edges), { iteration: 0, history: [], edgeAttrs: {}, transfers: { member: 'nearest' }, edgeTransfers: {} });
 }

@@ -45,6 +45,8 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'reference-math', title: 'Reference: Math', file: 'reference/math.mdx', live: true, group: 'topics' },
   { slug: 'reference-random', title: 'Reference: Random', file: 'reference/random.mdx', live: true, group: 'topics' },
   { slug: 'reference-sketch', title: 'Reference: Sketch', file: 'reference/sketch.mdx', live: true, group: 'topics' },
+  // The graph page carries screenshots, not a runnable example: there is
+  // no ink to hash, and the canvas is the thing to look at.
   { slug: 'reference-selections', title: 'Reference: Selections', file: 'reference/selections.mdx', live: true, group: 'topics' },
   { slug: 'reference-steps', title: 'Reference: Steps and forces', file: 'reference/steps.mdx', live: true, group: 'topics' },
   { slug: 'reference-faces', title: 'Reference: Faces', file: 'reference/faces.mdx', live: true, group: 'topics' },
@@ -82,6 +84,10 @@ export const DOC_PAGES: { slug: string; title: string; file: string; live: boole
   { slug: 'examples-between', title: 'Example: between', file: 'examples/between.mdx', live: true, group: 'topics' },
   { slug: 'examples-raking', title: 'Example: raking', file: 'examples/raking.mdx', live: true, group: 'topics' },
   { slug: 'examples-span', title: 'Example: span', file: 'examples/span.mdx', live: true, group: 'topics' },
+  { slug: 'examples-reach', title: 'Example: reach', file: 'examples/reach.mdx', live: true, group: 'topics' },
+  { slug: 'examples-nightfall', title: 'Example: nightfall', file: 'examples/nightfall.mdx', live: true, group: 'topics' },
+  { slug: 'examples-glaze', title: 'Example: glaze', file: 'examples/glaze.mdx', live: true, group: 'topics' },
+  { slug: 'examples-spindle', title: 'Example: spindle', file: 'examples/spindle.mdx', live: true, group: 'topics' },
   { slug: 'workshop-01', title: '1. Put marks on paper', file: 'workshop-01-marks.md', live: true, group: 'workshop' },
   { slug: 'workshop-02', title: '2. Turn a shape into something editable', file: 'workshop-02-material.md', live: true, group: 'workshop' },
   { slug: 'workshop-03', title: '3. Give geometry information', file: 'workshop-03-attributes.md', live: true, group: 'workshop' },

@@ -1,0 +1,38 @@
+---
+title: Spindle
+description: One shape through both doors, and the drift between them is the drawing.
+---
+
+A shape is not geometry. It becomes geometry at the toolkit, through two doors, and this drawing is both of them at once on one pentagon.
+
+`t.material(plate)` keeps the boundary's own vertices: five corners, exact. The five long ticks stand at those corners. `t.sample(plate, { count })` redistributes along the same boundary by arc length. That gives seventy-five evenly spaced stations, and a station need not land on a corner. The short ticks stand at the stations. They march past each corner and do not stop on it. Every chord runs between two stations, so the web is arc-length work and the outline is corner work, in one picture.
+
+Uses: `t.material`, `t.sample`, `points.at`, `t.times`, `strokes`, vector arithmetic (`sub`, `unit`, `mul`, `add`).
+
+```ts live paper=150x150
+import { sketch, strokes, line, ngon, sub, unit, mul, add } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
+  const plate = ngon(50, 50, 5, 38, { rotation: -90 });
+  const corners = t.material(plate);          // the boundary's own vertices
+  const ring = t.sample(plate, { count: 75 }); // evenly, by arc length
+
+  const tick = (p, len) => {
+    const d = unit(sub(p, [50, 50]));
+    const a = add(p, mul(d, 1.5));
+    const b = add(p, mul(d, 1.5 + len));
+    return line(a[0], a[1], b[0], b[1], { pen: len > 3 ? 'pigma-05-black' : 'pigma-005-black' });
+  };
+
+  return [
+    t.times(75, (i) => {
+      const a = ring.points.at(i);
+      const b = ring.points.at((i * 31) % 75);
+      return line(a.x, a.y, b.x, b.y, { pen: 'pigma-005-black' });
+    }),
+    strokes(corners, { pen: 'pigma-05-black' }),
+    ring.points.map((p) => tick(p, 2.4)),
+    corners.points.map((p) => tick(p, 6)),
+  ];
+});
+```

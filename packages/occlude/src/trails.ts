@@ -177,11 +177,5 @@ export function trails(m: Material, opts: TrailsOpts = {}): Material {
   }
   const extra = opts.edgeAttributes ?? {};
   for (const k of Object.keys(extra)) if (!edgeNames.includes(k)) edgeCols[k] = new Array(edges.length / 2).fill(extra[k]);
-  return new Material(
-    Float64Array.from(xs), Float64Array.from(ys),
-    Object.fromEntries(names.map((k) => [k, Float64Array.from(cols[k])])),
-    Uint32Array.from(edges), 0, [],
-    Object.fromEntries(Object.keys(edgeCols).map((k) => [k, Float64Array.from(edgeCols[k])])),
-    { ...src.transfers }, { ...src.edgeTransfers },
-  );
+  return new Material(Float64Array.from(xs), Float64Array.from(ys), Object.fromEntries(names.map((k) => [k, Float64Array.from(cols[k])])), Uint32Array.from(edges), { iteration: 0, history: [], edgeAttrs: Object.fromEntries(Object.keys(edgeCols).map((k) => [k, Float64Array.from(edgeCols[k])])), transfers: { ...src.transfers }, edgeTransfers: { ...src.edgeTransfers } });
 }

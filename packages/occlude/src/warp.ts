@@ -128,11 +128,5 @@ export function warp(m: Material, opts: WarpOpts): Material {
     x[i] = nx;
     y[i] = ny;
   }
-  return new Material(
-    x, y,
-    Object.fromEntries(Object.entries(src.attrs).map(([k, col]) => [k, Float64Array.from(col)])),
-    Uint32Array.from(src.edgeList), src.iteration, src.history,
-    Object.fromEntries(Object.entries(src.edgeAttrs).map(([k, col]) => [k, Float64Array.from(col)])),
-    { ...src.transfers }, { ...src.edgeTransfers },
-  );
+  return new Material(x, y, Object.fromEntries(Object.entries(src.attrs).map(([k, col]) => [k, Float64Array.from(col)])), Uint32Array.from(src.edgeList), { iteration: src.iteration, history: src.history, edgeAttrs: Object.fromEntries(Object.entries(src.edgeAttrs).map(([k, col]) => [k, Float64Array.from(col)])), transfers: { ...src.transfers }, edgeTransfers: { ...src.edgeTransfers }, ids: { points: Float64Array.from(src.pointIds), edges: Float64Array.from(src.edgeIds), edgeRoots: Float64Array.from(src.edgeRoots) }, faceAttrs: src.faceAttrs });
 }

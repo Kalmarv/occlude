@@ -194,7 +194,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/force.field.mdx</include>
 <include>/_sig/force.relax.mdx</include>
 
-You prepare a force once, with its sources. Then it gives a vector at a point. Nothing moves until a rule calls `next.move` with it. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`. `attract` pulls toward sources. `drift` reads a direction from a noise function and turns slowly with the iteration, so it takes `(p, k)`. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. Here is one force alone. The black ring is the start. The blue ring is the same ring after ten steps under `separation`.
+You prepare a force once, with its sources. Then it gives a vector at a point. Nothing moves until a rule calls `next.move` with it. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`. `attract` pulls toward sources. `drift` reads a direction from a noise function and turns slowly with the iteration, so it takes `(p, k)`. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. `boundary` reads the area's `contours()`. `separation` and `neighbours` read the sources' `points`. Here is one force alone. The black ring is the start. The blue ring is the same ring after ten steps under `separation`.
 
 ```ts live
 import { sketch, circle, strokes, force, mul } from 'occlude';
@@ -230,20 +230,21 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## force.nearby()
+## Your own interaction
 
-<include>/_sig/force.nearby.mdx</include>
-<include>/_sig/force.adjacent.mdx</include>
-
-Your own interaction. `nearby` finds every source within `radius` of a point, from an index built once for the state. It sums what `contribution(p, q)` returns for each source. A vertex never interacts with itself. `skip: force.adjacent(m)` leaves out the vertices joined to `p`.
+A force of your own is a function, not a word of the library. Sum what you
+want over the points within a radius. `cur.points.near(p, { radius })` is
+the neighbourhood, from an index built once for the state, and a vertex is
+never its own neighbour. `sumBy` adds the vectors up. To skip the points at
+the other end of `p`'s edges, subtract them: `.subtract(p.adjacent)`.
 
 ```ts live
-import { sketch, circle, strokes, force, sub, unit, mul, distance } from 'occlude';
+import { sketch, circle, strokes, force, sub, unit, mul, sumBy, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const cloud = t.scatter({ spacing: 9 });
   const spread = cloud.steps(12, (cur, next) => {
-    const repel = force.nearby(cur, { radius: 14 }, (p, q) => mul(unit(sub(p, q)), 14 - distance(p, q)));
+    const repel = (p) => sumBy(cur.points.near(p, { radius: 14 }), (q) => mul(unit(sub(p, q)), 14 - distance(p, q)));
     const keep = force.boundary([[6, 6], [94, 6], [94, 94], [6, 94]], { radius: 12, strength: 3 });
     next.move(cur.points, (p) => mul(force.sum(repel, keep)(p), 0.05));
   });

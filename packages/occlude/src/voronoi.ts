@@ -147,7 +147,7 @@ export function voronoiOf(sites: Sites, bounds: Bounds): Material {
   const faceOfSite = new Int32Array(source.n).fill(-1);
   if (del) {
     for (const f of cells) {
-      const outer = f.contours[0].pts;
+      const outer = f.contours()[0].pts;
       let cx = 0;
       let cy = 0;
       let a2 = 0;

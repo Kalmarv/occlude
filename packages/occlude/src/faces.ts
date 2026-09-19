@@ -34,7 +34,7 @@
  */
 
 import { orient2d } from 'robust-predicates';
-import { Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Edge } from './material.js';
+import { mintIds, Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Edge } from './material.js';
 import { groupRows, EdgeSelection, PointSelection } from './relation.js';
 import { contourMoment, measureFaces, type FaceMeasurements, type MeasureOpts } from './measure.js';
 import type { IsoContour } from './isolines.js';
@@ -423,11 +423,16 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   const oy: number[] = [];
   const oattrs: Record<string, number[]> = {};
   for (const name of names) oattrs[name] = [];
+  // A vertex that survives planarizing is the vertex it was. Coincident
+  // endpoints merge into the lowest row, and that row's identity is the one
+  // that carries; the others are gone. A crossing is a new vertex.
+  const oids: number[] = [];
   for (let i = 0; i < n; i++) {
     if (rep[i] !== i) continue;
     rowMap[i] = ox.length;
     ox.push(m.x[i]);
     oy.push(m.y[i]);
+    oids.push(m.pointIds[i]);
     const resolved = resolvedAttrs.get(i);
     for (const name of names) oattrs[name].push(resolved ? resolved[name] : m.attrs[name][i]);
   }
@@ -449,6 +454,7 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
     groupRow.set(g, ox.length);
     ox.push(pos[0]);
     oy.push(pos[1]);
+    oids.push(mintIds(1)[0]);
     for (const name of names) oattrs[name].push(attrs[name]);
   }
   const rowOfGroup = (g: number): number => {
@@ -459,6 +465,8 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
 
   // ---- child edges in parent, parameter order ----
   const edges: number[] = [];
+  const eids: number[] = [];
+  const eroots: number[] = [];
   const eattrs: Record<string, number[]> = {};
   for (const name of enames) eattrs[name] = [];
   for (let e = 0; e < E; e++) {
@@ -490,6 +498,11 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
         if (!Number.isFinite(extra[name])) throw new Error(`planarize: '${name}' for a child edge is not a finite number`);
       }
       edges.push(stops[k].row, stops[k + 1].row);
+      // A piece of a wall is a new edge, and still that wall: a fresh id,
+      // the parent's root. An edge no crossing touched comes through this
+      // loop as its own single child, so it keeps its id too.
+      eids.push(stops.length === 2 ? m.edgeIds[e] : mintIds(1)[0]);
+      eroots.push(m.edgeRoots[e]);
       const inherited = inheritEdge(m, parentAttrs, child.fraction);
       for (const name of enames) eattrs[name].push(name in extra ? extra[name] : inherited[name]);
     }
@@ -498,13 +511,25 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), 0, [], edgeAttrs, { ...m.transfers }, { ...m.edgeTransfers });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), {
+    iteration: 0,
+    edgeAttrs,
+    transfers: { ...m.transfers },
+    edgeTransfers: { ...m.edgeTransfers },
+    ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) },
+    faceAttrs: m.faceAttrs,
+  });
 }
 
 // ---- faces ----------------------------------------------------------------------------
 
-/** A bounded region of one planar state, read-only. */
-export interface Face {
+/**
+ * A bounded region of one planar state, read-only.
+ *
+ * Face columns read flat off it — `face.height` — the way a vertex's own
+ * columns do, which is why the face's ten own fields are reserved names.
+ */
+export type Face = {
   /** Row in the face collection it came from — not an identity. */
   index: number;
   /** Filled area in squared material units: outer minus holes. */
@@ -528,9 +553,24 @@ export interface Face {
   readonly adjacent: FaceSelection;
   /** Closed contours: the outer boundary with positive signed area
    * (counter-clockwise in a y-up reading), holes negative. Bridges and
-   * branches inside the face are not part of them. */
-  contours: IsoContour[];
-}
+   * branches inside the face are not part of them.
+   *
+   * A method, not a property, because every area value answers `contours()`
+   * — a face, a face collection, a material and a plain contour record are
+   * all read the same way by `polygon`, `distanceTo` and `t.within`. */
+  contours(): IsoContour[];
+  /**
+   * The face columns, read flat: `f.height`, the way a vertex reads `p.age`.
+   *
+   * `number | undefined`, and the `undefined` is the honest half: a face
+   * column is SPARSE. A write names the faces it writes, a face the write
+   * passed by has no value, and a new face that shares no wall with any old
+   * one has nothing to inherit. Declared as `number` this read `NaN` into a
+   * hatch angle without a word said, which is the worst kind of plotter bug
+   * — it typechecks, it does not throw, and it shows after the pen has
+   * moved. Give the column a `fallback` if every face must answer.
+   */
+} & Record<string, number | undefined>;
 
 interface Walk {
   halfEdges: number[]; // in walk order
@@ -670,6 +710,8 @@ export class Faces {
   readonly faces: readonly Face[];
   /** @internal */ readonly next: Int32Array; // face-walk successor of a half-edge
   /** @internal */ readonly faceOf: Int32Array; // face index on a half-edge's left, -1 outside
+  /** One key per face, built the first time a face column is read. */
+  private readonly keyBox: { keys: string[] | null };
 
   /** @internal Use `material.faces()`. */
   constructor(m: Material) {
@@ -835,14 +877,93 @@ export class Faces {
         my += mo.cy * mo.a;
       }
       const centroid: [number, number] = ma !== 0 ? [mx / ma, my / ma] : [NaN, NaN];
-      const view = Object.assign(Object.create(faceProto) as Face, { index: f, area, perimeter, bounds: Object.freeze({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }), centroid: Object.freeze(centroid) as unknown as [number, number], contours: Object.freeze(contours) as unknown as IsoContour[] });
-      Object.freeze(view);
+      const view = Object.assign(Object.create(faceProto) as Face, { index: f, area, perimeter, bounds: Object.freeze({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }), centroid: Object.freeze(centroid) as unknown as [number, number] });
+      // The contours are the face's own, but `contours()` is a call, like
+      // every other area value's: it hangs off the view without joining the
+      // view's data keys, so a face still spreads and serialises as the
+      // plain record it is.
+      const held = Object.freeze(contours) as unknown as IsoContour[];
+      Object.defineProperty(view, 'contours', { value: () => held });
       views.push(view);
     }
     this.faces = Object.freeze(views);
     this.next = next;
     this.faceOf = faceOf;
+    this.keyBox = { keys: null };
+    // Face columns read flat, the way a vertex's do: `face.height`. The
+    // values are keyed by the face's walls, so they are found once the
+    // keys are known, and then baked onto the frozen view.
+    const columns = Object.entries(m.faceAttrs);
+    if (columns.length > 0) {
+      const keys = this.keys();
+      // A face whose walls are unchanged finds its value by key. A face
+      // whose boundary moved inherits from the old face it shares the most
+      // walls with — that is what `'nearest'` means for a thing that has no
+      // position of its own — and `'drop'` lets a column stop at a boundary
+      // change rather than follow it.
+      const wallsOf = (key: string): string[] => (key === '' ? [] : key.split(','));
+      for (let f = 0; f < views.length; f++) {
+        const mine = wallsOf(keys[f]);
+        for (const [name, column] of columns) {
+          let value = column.values.get(keys[f]);
+          // Only a face that appeared AFTER the column was written
+          // inherits. A face the write saw and passed by has no value, and
+          // taking a neighbour's would be the column spreading on its own.
+          const isNew = !column.seen.has(keys[f]);
+          if (value === undefined && isNew && column.transfer === 'nearest' && mine.length > 0) {
+            let best = -1;
+            for (const [key, held] of column.values) {
+              const shared = wallsOf(key).filter((w) => mine.includes(w)).length;
+              if (shared > best) {
+                best = shared;
+                value = shared > 0 ? held : undefined;
+              }
+            }
+          }
+          const settled = value ?? column.fallback;
+          if (settled === undefined) continue; // a face this column never reached
+          Object.defineProperty(views[f], name, { value: settled, enumerable: true });
+        }
+      }
+    }
+    for (const view of views) Object.freeze(view);
     Object.freeze(this);
+  }
+
+  /**
+   * A key per face: the lineage roots of its boundary walls, sorted, joined.
+   *
+   * It is the walls that say which face this is. Two states of the same
+   * material give a face the same key when its boundary is made of the same
+   * walls, whatever the rows were renumbered to, and a wall that was merely
+   * subdivided still counts — that is what the root is for.
+   *
+   * Built in ONE pass over `faceOf`: for each edge, if its two sides differ,
+   * that edge is a wall of each side that is a face. Asking each face for
+   * its `boundaryEdges` instead would be an O(E) scan per face.
+   */
+  keys(): readonly string[] {
+    if (this.keyBox.keys) return this.keyBox.keys;
+    const walls: number[][] = this.faces.map(() => []);
+    const roots = this.source.edgeRoots;
+    for (let e = 0; e < this.faceOf.length / 2; e++) {
+      const l = this.faceOf[2 * e];
+      const r = this.faceOf[2 * e + 1];
+      if (l === r) continue; // inside a face, not a wall of it
+      if (l >= 0) walls[l].push(roots[e]);
+      if (r >= 0) walls[r].push(roots[e]);
+    }
+    // A wall cut in half is still one wall: the key is the SET of walls, so
+    // a root that appears twice counts once. Without this, subdividing a
+    // boundary would change the key of a face nothing else touched.
+    const keys = walls.map((w) => [...new Set(w)].sort((a, b) => a - b).join(','));
+    this.keyBox.keys = keys;
+    return keys;
+  }
+
+  /** This face's key: the walls it is made of. */
+  keyOf(face: Face): string {
+    return this.keys()[face.index];
   }
 
   get length(): number {
@@ -927,13 +1048,13 @@ export class Faces {
 
   /** Every source edge incident to a bounded face, once: the walls, and
    * any dangling edge lying inside a face (both its sides are that face). */
-  edges(): EdgeSelection {
+  get edges(): EdgeSelection {
     return new EdgeSelection(this.source, this.edgeRowsWhere((l, r) => l >= 0 || r >= 0));
   }
 
-  /** Endpoints of `edges()`, once, in row order. */
-  points(): PointSelection {
-    return this.edges().points;
+  /** Endpoints of `edges`, once, in row order. */
+  get points(): PointSelection {
+    return this.edges.points;
   }
 
   /** Edges separating the union of all bounded faces from the outside:
@@ -1076,14 +1197,14 @@ export class FaceSelection<K = undefined> implements Iterable<Face> {
   /** Every source edge incident to a selected face, once, including
    * internal walls between two selected faces and dangling edges inside
    * a selected face. */
-  edges(): EdgeSelection {
+  get edges(): EdgeSelection {
     const sel = this.set;
     return new EdgeSelection(this.source.source, this.source.edgeRowsWhere((l, r) => sel.has(l) || sel.has(r)));
   }
 
-  /** Endpoints of `edges()`, once, in row order. */
-  points(): PointSelection {
-    return this.edges().points;
+  /** Endpoints of `edges`, once, in row order. */
+  get points(): PointSelection {
+    return this.edges.points;
   }
 
   /** The faces across the walls of any selected face, one hop: a selected

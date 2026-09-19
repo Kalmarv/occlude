@@ -14,10 +14,13 @@ import { assetTable, scanAssetNames, type AssetPixels, type AssetTable } from '.
 
 const assetsDir = fileURLToPath(new URL('../../occlude-studio/assets/', import.meta.url));
 
-export function assetsFromDisk(source: string): AssetTable {
+/** Every asset a source names, decoded. `dir` reads another store's assets
+ * — the coverage report reads the owner's, in the other checkout. */
+export function assetsFromDisk(source: string, dir: string = assetsDir): AssetTable {
+  const base = dir.endsWith('/') ? dir : `${dir}/`;
   const entries: [string, { text: string } | { pixels: AssetPixels }][] = [];
   for (const name of scanAssetNames(source)) {
-    const path = assetsDir + name;
+    const path = base + name;
     const ext = extname(name).toLowerCase();
     if (ext === '.svg' || ext === '.txt' || ext === '.json') {
       entries.push([name, { text: readFileSync(path, 'utf8') }]);

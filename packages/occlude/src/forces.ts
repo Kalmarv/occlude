@@ -6,11 +6,11 @@
  * the material module never depends on this one.
  */
 
-import { material, type Material, type PointsLike, type Vertex } from './material.js';
+import { material, Material, type PointsLike, type Vertex } from './material.js';
 import { length, mul, perp, sub, sumBy, unit, vx, vy, type Vec, type XY } from './vec.js';
 import { ownerOf } from './views.js';
 import { distanceTo } from './distance.js';
-import { numericLoops, type Boundary } from './boundary.js';
+import { numericLoops, type AreaInput, type Geometry } from './boundary.js';
 import { grad } from './field.js';
 import type { VectorFieldFn } from './shapes.js';
 
@@ -30,7 +30,7 @@ export interface NeighbourStats {
  * within `radius` of `p` (a vertex of THIS material is excluded from its own
  * query; a foreign point is not), in grid order — the sketch decides what
  * to do with them. Connectivity is a different concept and is NOT
- * excluded here (see `force.adjacent`). Rows are valid for this state.
+ * excluded here. Rows are valid for this state.
  */
 export function neighbours(m: Material, opts: { radius: number; stats?: NeighbourStats }): (p: XY) => number[] {
   const radius = opts.radius;
@@ -102,41 +102,28 @@ export function neighbours(m: Material, opts: { radius: number; stats?: Neighbou
 // vocabulary. Copy one into a sketch and change it; a custom force that
 // earns reuse can become a recipe.
 
-/** Points a force can be prepared from: a material (its vertices, with `index`
- * and attributes on `q`) or any list of points. */
-export type Sources = PointsLike;
+/**
+ * Points a force can be prepared from: any geometry that has points — a
+ * material, a point selection, an edge selection, a face collection — or a
+ * plain list of points. A point consumer reads `points`, which is the
+ * protocol's answer for "where are they"; a value that has none is refused
+ * by the material constructor, by name.
+ */
+export type Sources = Geometry | PointsLike;
 
 /**
- * A neighbourhood interaction: the sum, over every source point `q` within
- * `radius` of `p`, of `contribution(p, q)`. The spatial index over
- * `sources` is built ONCE, here, for that frozen state; the returned
- * function evaluates at any point. `q` is a vertex view of the sources.
+ * The positions a source holds.
  *
- * Identity: a vertex of the source material never interacts with itself —
- * decided by membership in that state, not by coordinates or by an index
- * from an unrelated collection. Nothing else is skipped unless `skip(p, q)`
- * says so; connected neighbours are NOT excluded by default (see
- * `adjacent`). Contributions accumulate in a fixed grid order.
+ * A material IS the answer — asking it for `points` would throw its edges
+ * away, and `force.separation`'s own `excludeConnected` reads them. A point
+ * selection answers `points` with itself. Everything else that has points —
+ * a face collection, an edge selection — is read through the protocol.
  */
-export function nearby(
-  sources: Sources,
-  opts: { radius: number; skip?: (p: Vertex, q: Vertex) => boolean; stats?: NeighbourStats },
-  contribution: (p: Vertex, q: Vertex) => XY,
-): (p: Vertex) => Vec {
-  const m = material(sources);
-  const near = neighbours(m, { radius: opts.radius, stats: opts.stats });
-  const skip = opts.skip;
-  return (p) =>
-    sumBy(near(p), (j) => {
-      const q = m.vertex(j);
-      return skip && skip(p, q) ? [0, 0] : contribution(p, q);
-    });
-}
-
-/** The explicit "skip what I'm connected to" rule for `nearby`: true when
- * `p` and `q` share an edge of `m` (both must be vertices of `m`). */
-export function adjacent(m: Material): (p: Vertex, q: Vertex) => boolean {
-  return (p, q) => ownerOf(p) === m && m.isConnected(p.index, q.index);
+export function sourcePoints(sources: Sources): PointsLike {
+  if (sources instanceof Material) return sources;
+  const points = (sources as Geometry).points;
+  if (points === undefined || (points as unknown) === sources) return sources as PointsLike;
+  return points as unknown as PointsLike;
 }
 
 /**
@@ -166,7 +153,7 @@ export function tension(m: Material, opts: { rest: number }): (p: Vertex) => Vec
  */
 export function separation(sources: Sources, opts: { radius: number; excludeConnected?: boolean }): (p: Vertex) => Vec {
   const { radius, excludeConnected = false } = opts;
-  return radial(material(sources), radius, excludeConnected, radius, -1);
+  return radial(material(sourcePoints(sources)), radius, excludeConnected, radius, -1);
 }
 
 /** The fixed-law radial recipes (`separation`, `attract`) on the raw
@@ -236,7 +223,7 @@ export function attract(
   opts: { radius: number; strength?: number; excludeConnected?: boolean },
 ): (p: Vertex) => Vec {
   const { radius, strength = 1, excludeConnected = false } = opts;
-  return radial(material(sources), radius, excludeConnected, strength, +1);
+  return radial(material(sourcePoints(sources)), radius, excludeConnected, strength, +1);
 }
 
 /**
@@ -248,7 +235,7 @@ export function attract(
  * pts, isolines' pts. Sampled obstacles are `separation`; this is the
  * continuous boundary.
  */
-export function boundary(loops: Boundary, opts: { radius: number; strength?: number }): (p: XY) => Vec {
+export function boundary(loops: AreaInput, opts: { radius: number; strength?: number }): (p: XY) => Vec {
   const { radius, strength = 1 } = opts;
   const inside = distanceTo(numericLoops(loops, 'force.boundary'));
   const inward = grad(inside);
@@ -302,7 +289,6 @@ export function relax(m: Material, opts: { amount?: number } = {}): (p: Vertex) 
   };
 }
 
-/** The forces as one namespace: `force.nearby(...)`, `force.tension(...)`. */
 /** Prepared forces summed into one: `(p, k) => vector`. Every force gets
  * `p` and the iteration `k` (those that do not turn ignore it), so a
  * rule reads `next.move(prev.points, (p) => mul(push(p, k), speed))` with the speed
@@ -322,4 +308,4 @@ export function sumForces(...forces: readonly ((p: Vertex, k: number) => XY)[]):
 }
 
 export const force = {
-  sum: sumForces, nearby, adjacent, tension, separation, drift, attract, boundary, vortex, field, relax };
+  sum: sumForces, tension, separation, drift, attract, boundary, vortex, field, relax };

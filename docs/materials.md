@@ -60,7 +60,7 @@ A cell is not a live construction: moving a site or a wall does not rebuild anyt
 
 ### snap
 
-`snap(m, field, { radius, samples? })` gives every point a look around: it
+`m.snap(field, { radius, samples? })` gives every point a look around: it
 moves to wherever `field` is greatest inside `radius` of where it stood, or
 stays put if that is already the best place it can see. A lattice is regular
 and a scatter is even, and neither knows anything about what is underneath;
@@ -68,11 +68,11 @@ snapping puts the marks **on** the feature — the dark of an eye, the crest of
 a ridge, the edge of a shape — instead of beside it.
 
 Greatest, always. There is no option to seek the least, because there does not
-need to be one: a field is a function, and `snap(m, (x, y) => -f(x, y), …)` is
+need to be one: a field is a function, and `m.snap((x, y) => -f(x, y), …)` is
 the other direction. The same goes for anything else you want it to prefer —
 `snap` never learns a second mode, it reads whatever field it is handed.
 
-It is a pure import like `thicken` and `oscillate`: no seed, no paper,
+It is a same-world method like `thicken` and `oscillate`: no seed, no paper,
 distances in the material's own coordinates. The look around is a fixed spiral
 of `samples` offsets over the disc (48 by default) plus the point's own
 position, so the same input always gives the same output. Non-finite samples
@@ -81,7 +81,7 @@ moved there. Structure is untouched — edges, columns and row order all
 survive; this moves points, it does not add, remove or reconnect them.
 
 ```ts live
-import { sketch, circle, line, strokes, snap, material } from 'occlude';
+import { sketch, circle, line, strokes, material } from 'occlude';
 
 // A lattice knows nothing about what it is sitting on. Give every point a look
 // 7 units around itself and let it move to the best place it can see, and the
@@ -90,7 +90,7 @@ import { sketch, circle, line, strokes, snap, material } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
   const ridge = (x, y) => t.noise(x / 58, y / 58);
   const lattice = material(t.grid({ cols: 17, rows: 9 }).map((c) => [c.cx, c.cy]));
-  const moved = snap(lattice, ridge, { radius: 9 });
+  const moved = lattice.snap(ridge, { radius: 9 });
   return [
     strokes(t.isolines(ridge, [0.15, 0.45], { step: 0.8 }), { pen: 'stabilo-88-blue' }),
     lattice.points.map((p) => line(p.x, p.y, moved.x[p.index], moved.y[p.index])),
@@ -103,7 +103,7 @@ The pattern is not in the scatter, which is even and knows nothing. It is
 entirely in where each point decides to go.
 
 ```ts live
-import { sketch, strokes, connect, snap } from 'occlude';
+import { sketch, strokes, connect } from 'occlude';
 
 // Marbling. An even scatter has no pattern in it at all; the pattern is
 // entirely in where each point decides to go. This field's maxima are not
@@ -115,7 +115,7 @@ import { sketch, strokes, connect, snap } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const warp = (x, y) => t.noise(x / 44, y / 60) * 30 + t.noise(x / 13, y / 13) * 3;
   const grain = (x, y) => Math.cos(((y + warp(x, y)) * Math.PI * 2) / 8);
-  const settled = snap(t.scatter({ spacing: 1.3 }), grain, { radius: 4, samples: 140 });
+  const settled = t.scatter({ spacing: 1.3 }).snap(grain, { radius: 4, samples: 140 });
   return strokes(connect.nearest(settled, { count: 2 }));
 });
 ```
@@ -125,7 +125,7 @@ that fan out across it, and the shape columns then hatch each cell along its
 own axis — a ruling that follows a structure nobody drew.
 
 ```ts live
-import { sketch, strokes, polygon, fill, mm, degrees, snap } from 'occlude';
+import { sketch, strokes, polygon, fill, mm, degrees } from 'occlude';
 
 // Composed: the same crests, but the points are Voronoi sites now. Sites
 // strung along a line give cells that fan out ACROSS it — long, thin, and
@@ -136,7 +136,7 @@ import { sketch, strokes, polygon, fill, mm, degrees, snap } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
   const warp = (x, y) => t.noise(x / 46, y / 62) * 30;
   const grain = (x, y) => Math.cos(((y + warp(x, y)) * Math.PI * 2) / 19);
-  const sites = snap(t.scatter({ spacing: 3.1 }), grain, { radius: 9, samples: 200 });
+  const sites = t.scatter({ spacing: 3.1 }).snap(grain, { radius: 9, samples: 200 });
   const cells = t.voronoi(sites);
   const measured = cells.faces().measure();
   return [
@@ -154,7 +154,7 @@ every point on the sheet see the same few summits and an even scatter collapses
 into a handful of piles — the field's maxima, drawn by whatever fell into them.
 
 ```ts live
-import { sketch, circle, line, snap, material, strokes } from 'occlude';
+import { sketch, circle, line, material, strokes } from 'occlude';
 
 // Poked: `radius` is how far a point may look, so make it enormous. At 4 units
 // every point tidies itself onto the nearest crest. At 45 nearly every point
@@ -164,7 +164,7 @@ import { sketch, circle, line, snap, material, strokes } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const land = (x, y) => t.noise(x / 42, y / 42);
   const cloud = t.scatter({ spacing: 4.4 });
-  const gathered = snap(cloud, land, { radius: 45, samples: 700 });
+  const gathered = cloud.snap(land, { radius: 45, samples: 700 });
   return [
     strokes(t.isolines(land, [0.2, 0.5], { step: 0.9 }), { pen: 'stabilo-88-blue' }),
     cloud.points.map((p) => line(p.x, p.y, gathered.x[p.index], gathered.y[p.index])),
@@ -179,7 +179,7 @@ picture of it, and the cairns stand on summits nobody located by hand: an even
 lattice was simply allowed to walk uphill until it could see nothing higher.
 
 ```ts live
-import { sketch, pen, mm, material, snap } from 'occlude';
+import { sketch, pen, mm, material } from 'occlude';
 import { plane, sphere, view, orthographic } from 'occlude/3d';
 
 // A survey. The land is a height field; the contours are real plane sections
@@ -194,7 +194,7 @@ export default sketch({ seed: 12, pens: {
   const lattice = material(t.times(20, (i) => t.times(20, (j) => [-3.6 + i * 0.38, -3.6 + j * 0.38])).flat());
   // Uphill until nothing higher is in sight; many points arrive at the same
   // summit, so keep one cairn per place.
-  const found = snap(lattice, height, { radius: 1.5, samples: 260 }).points;
+  const found = lattice.snap(height, { radius: 1.5, samples: 260 }).points;
   const summits = [];
   for (const p of found) if (!summits.some(([sx, sy]) => Math.hypot(sx - p.x, sy - p.y) < 0.5)) summits.push([p.x, p.y]);
   const land = plane(8, 8).subdivide(6).displace((p) => [0, 0, height(p.x, p.y)]);
@@ -276,7 +276,7 @@ Composed with the rest of the toolkit: the lattice is Material, so it can be
 cut to a shape and swung like anything else.
 
 ```ts live
-import { sketch, strokes, circle, oscillate } from 'occlude';
+import { sketch, strokes, circle } from 'occlude';
 
 // Composed: the lattice is Material like anything else, so it can be cut and
 // it can be shaken. `t.within` trims it to a disc — the cells at the rim come
@@ -290,8 +290,8 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const lens = circle(100, 50, 46);
   const lattice = t.within(t.quadtree(pts, { capacity: 3 }), lens);
   return [
-    strokes(oscillate(lattice, { wavelength: 2.2, amplitude: 0.45 })),
-    strokes(oscillate(t.material(lens), { wavelength: 2.6, amplitude: 0.5 }), { pen: 'stabilo-88-blue' }),
+    strokes(lattice.oscillate({ wavelength: 2.2, amplitude: 0.45 })),
+    strokes(t.material(lens).oscillate({ wavelength: 2.6, amplitude: 0.5 }), { pen: 'stabilo-88-blue' }),
   ];
 });
 ```
@@ -388,8 +388,8 @@ A material is a set of vertices, each with `x`, `y` and any named attribute colu
 | making | `t.sample(shape)`, `material(points)`, `curve(pts)`, `connect.*`, `.attribute()`, `.resample()` |
 | vectors | `add sub mul length distance unit limit perp dot cross fromAngle angleOf sum sumBy`: tuples in either spelling, tuples out, nothing mutated; angles in radians |
 | rules | `.steps(n, (current, next, k) => …)` with the collection edits, or the shorthand `.steps(n, { move: p => [dx, dy], set })` over every point; forces prepared once and evaluated at a point |
-| collections | `.points`, `.edges`, `.faces()`: iterate, `length`, `at`, `map`, `filter` (a selection), `groupBy` (selections by key); `.extract()` for independent material; `connectedPoints`, `components`, `meanBy` |
-| areas | `.planarize()` shares crossings on purpose; `.faces()` reads the enclosed regions; `boundaryEdges()` and `contours()` outline a union as walls or as loops |
+| collections | `.points`, `.edges`, `.faces()`: iterate, `length`, `at`, `map`, `filter` (a selection), `groupBy` (selections by key); `.adjacent()`, `.connected()`, `.components()`; `.extract()` for independent material; `meanBy` |
+| areas | `.planarize()` shares crossings on purpose; `.faces()` reads the enclosed regions; `boundaryEdges` and `contours()` outline a union as walls or as loops |
 | drawing | `.curves()`, `.along()` for stations to place things at, `strokes()`, `segmentRuns`, `extent`, `banding`, then `stroke`, `polygon`, `circle` |
 
 All are pure imports except `t.sample`, which reads the paper. Shapes stay exact through the engine; sampling is the one explicit lossy step into this vocabulary.
@@ -644,7 +644,7 @@ the network into an area whose trunk is broad because everything upstream
 drains through it.
 
 ```ts live
-import { sketch, polygon, strokes, connect, thicken, fill, mm } from 'occlude';
+import { sketch, polygon, strokes, connect, fill, mm } from 'occlude';
 
 // Composed: the same drainage, given width. A tree has exactly one path
 // between any two points, so every point knows how much of the tree lies
@@ -669,7 +669,7 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
   const drains = new Float64Array(rivers.n).fill(1);
   for (let k = order.length - 1; k > 0; k--) drains[parent[order[k]]] += drains[order[k]];
   return [
-    polygon(thicken(rivers, { radius: (p) => 0.14 + Math.pow(drains[p.index], 0.42) * 0.3 }), {
+    polygon(rivers.thicken({ radius: (p) => 0.14 + Math.pow(drains[p.index], 0.42) * 0.3 }), {
       fill: fill('hatch', { angle: 30, spacing: mm(0.5) }),
     }),
     strokes(t.isolines(land, [0.56, 0.72], { step: 0.9 }), { pen: 'stabilo-88-blue' }),
@@ -743,7 +743,7 @@ a plain grid comes off the plotter as one stroke per edge pair, and a Voronoi
 web as one per wall, even though a pen could run straight through most of
 them.
 
-`connect.trails(m)` re-wires the same drawing so it lifts as few times as it
+`m.trails()` re-wires the same drawing so it lifts as few times as it
 can. A *trail* is a walk that uses no edge twice, and the fewest trails
 covering a connected network is `max(1, odd / 2)`, where `odd` counts its
 odd-degree vertices — every trail has two ends, and only an odd vertex can be
@@ -775,7 +775,7 @@ original to ask questions of, and trail the copy to plot it.
 Each faint line below is the pen travelling with its nib up.
 
 ```ts live
-import { sketch, strokes, line, label, circle, connect, append } from 'occlude';
+import { sketch, strokes, line, label, circle, append } from 'occlude';
 
 // The same ink, routed two ways. Each faint line is the pen travelling with
 // its nib UP, from where one stroke ended to where the next begins. Left: the
@@ -798,7 +798,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
     });
   };
   const plain = web(50);
-  const trailed = connect.trails(web(150));
+  const trailed = web(150).trails();
   return [
     strokes(plain), travel(plain), label(`CHAINS ${plain.curves().length}`, 12, 94, 4),
     strokes(trailed), travel(trailed), label(`TRAILS ${trailed.curves().length}`, 112, 94, 4),
@@ -810,7 +810,7 @@ Sixteen closed curves, overlapping. Every crossing is degree four, so the whole
 arrangement has no odd vertex anywhere — and the entire plate is one pen-down.
 
 ```ts live
-import { sketch, strokes, curve, connect, append } from 'occlude';
+import { sketch, strokes, curve, append } from 'occlude';
 
 // Soap. Sixteen closed curves, overlapping, planarized into one network — and
 // because every crossing of two closed curves is a vertex of degree four, the
@@ -832,7 +832,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
     }), { closed: true });
   });
   const net = bubbles.reduce((p, q) => append(p, q)).planarize();
-  const one = connect.trails(net);
+  const one = net.trails();
   console.error(`chains=${net.curves().length} trails=${one.curves().length} closed=${one.curves().filter((c) => c.closed).length}`);
   return strokes(one);
 });
@@ -842,7 +842,7 @@ Composed with the rest of the toolkit: the fill layer and the stroke layer are
 routed separately, and only the strokes care.
 
 ```ts live
-import { sketch, strokes, polygon, fill, mm, degrees, connect } from 'occlude';
+import { sketch, strokes, polygon, fill, mm, degrees } from 'occlude';
 
 // Composed: the fill layer and the stroke layer are routed separately, and
 // only the strokes care. The cells are settled against a photograph and
@@ -856,7 +856,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
   const sites = t.settle(t.scatter(density, { spacing: 5.4 }), { density, spacing: 5.4, iterations: 10 });
   const cells = t.voronoi(sites);
   const measured = cells.faces().measure();
-  const walls = connect.trails(cells);
+  const walls = cells.trails();
   console.error(`walls: chains=${cells.curves().length} trails=${walls.curves().length}`);
   return [
     measured.map((r) => polygon(r.face, {
@@ -873,7 +873,7 @@ junction is now two rows, its two passes wobble independently and come apart,
 so the network unravels into the runs the pen actually draws.
 
 ```ts live
-import { sketch, strokes, circle, connect, oscillate, append } from 'occlude';
+import { sketch, strokes, circle, append } from 'occlude';
 
 // Poked: swing the trails, and the routing becomes visible in the ink. At a
 // crossing the pen passes through twice, and after the re-wiring those two
@@ -886,7 +886,7 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
     return t.sample(circle(100 + Math.cos(a) * 17, 50 + Math.sin(a) * 17, 26), { count: 140 });
   });
   const net = rings.reduce((p, q) => append(p, q)).planarize();
-  return strokes(oscillate(connect.trails(net), { wavelength: 30, amplitude: 4.5 }));
+  return strokes(net.trails().oscillate({ wavelength: 30, amplitude: 4.5 }));
 });
 ```
 
@@ -895,7 +895,7 @@ trail, so one tube: bent once, never cut, and the classifier decides which
 length is in front where it passes through itself.
 
 ```ts live
-import { sketch, pen, mm, circle as disc, connect, append } from 'occlude';
+import { sketch, pen, mm, circle as disc, append } from 'occlude';
 import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
 
 // A trail is a pen-down run, and a pen-down run is a path — so each one can be
@@ -909,7 +909,7 @@ export default sketch({ seed: 2, pens: { ink: pen({ width: mm(0.3), color: '#182
     return t.sample(disc(50 + Math.cos(a) * 15, 50 + Math.sin(a) * 15, 24), { count: 150 });
   });
   const net = rings.reduce((p, q) => append(p, q)).planarize();
-  const runs = connect.trails(net).curves();
+  const runs = net.trails().curves();
   // The tube leans in and out of the sheet as it goes, so the crossings have
   // something to decide.
   const lift = (x, y) => t.noise(x / 26, y / 26) * 0.9;
@@ -1041,7 +1041,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
 ```
 
 And in three dimensions, where the lattice is chosen flat and then lifted —
-through `connect.trails` first, so the frame is a few long members rather than
+through `.trails()` first, so the frame is a few long members rather than
 a hundred little struts.
 
 ```ts live
@@ -1050,14 +1050,14 @@ import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
 
 // A space frame. The lattice is chosen flat — `room` decides which pairs are
 // close enough to be worth a member — and then lifted onto a dome. Passing it
-// through `connect.trails` first means the frame is made of a few long members
+// through `.trails()` first means the frame is made of a few long members
 // rather than a hundred little struts, which is what you would actually build
 // it out of, and each of those runs is swept into a tube that has to decide
 // what it stands in front of.
 export default sketch({ seed: 5, pens: { ink: pen({ width: mm(0.26), color: '#18202A' }) } }, (t) => {
   const plan = disc(50, 50, 42);
   const pts = t.relax(t.scatter({ spacing: 9, within: plan }), { iterations: 3, within: plan });
-  const frame = connect.trails(connect.unimpeded(pts, { room: 1.45 }));
+  const frame = connect.unimpeded(pts, { room: 1.45 }).trails();
   const dome = (x, y) => 2.6 * Math.cos(Math.min(1, Math.hypot(x - 50, y - 50) / 44) * Math.PI / 2);
   const world = (x, y) => [(x - 50) / 9, (y - 50) / 9, dome(x, y)];
   return view(frame.curves().filter((c) => c.pts.length > 1).map((c) =>
@@ -1102,7 +1102,7 @@ A selection is consumed where its domain makes sense: `strokes(edges)` draws the
 | `coll.groupBy(v => key)` | selections by key, first-occurrence order, rows in source order, keys compared as a Map compares them; each has `key` |
 | `sel.union(o)`, `intersect(o)`, `subtract(o)` | a new selection over the same source; equal rows in different states are not the same thing |
 | `points.extract()` | the selected points with every point column and no edges |
-| `points.inducedEdges()` | the source edges with both ends selected |
+| `points.edges` | the source edges with both ends selected |
 | `edges.extract()` | the selected edges, their endpoints and both attribute domains |
 | `edges.points` | the endpoints, each once, in source order, as a point selection |
 | `edges.curves()` | the selected edges as chains, each edge once; junctions and ends are those of the selected graph |
@@ -1155,7 +1155,7 @@ export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
 
 ### Relations
 
-`p.adjacent` is adjacency as views, `meanBy(items, fn)` a scalar mean (0 of nothing), and `components(m)` one connected-components pass with `count`, a `labels` column and `label(vertex)`. Connected and nearby are different questions; nearby is a spatial query, below.
+`p.adjacent` is adjacency as views and `p.edges` the same neighbourhood as edges, so `p.edges.length` is the degree. `meanBy(items, fn)` is a scalar mean (0 of nothing). A whole selection says the same words: `sel.adjacent()` one step out, `sel.connected()` all the way out, and `sel.components()` the pieces. Connected and nearby are different questions; nearby is a spatial query, below.
 
 ```ts live
 import { sketch, strokes, circle, group, connect, meanBy } from 'occlude';
@@ -1178,11 +1178,11 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
 ```
 
 ```ts live
-import { sketch, stroke, circle, material, append, connect, components, segmentRuns } from 'occlude';
+import { sketch, stroke, circle, material, append, connect, segmentRuns } from 'occlude';
 
-// Separate chains, a ring and lone points in one material. components()
-// labels each piece once and the pen cycles by label; isolated vertices
-// are pieces too.
+// Separate chains, a ring and lone points in one material.
+// points.components() gives each piece once and the pen cycles by its key;
+// isolated vertices are pieces too.
 export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
   const chain = (x, y, n) => connect.chain(t.times(n, (k) => [x + k * 6.4, y + t.noise(x + k, y) * 12]));
   let all = append(chain(12, 20, 8), chain(80, 16, 10));
@@ -1190,8 +1190,9 @@ export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
   all = append(all, chain(20, 68, 12));
   all = append(all, connect.ring(t.times(12, (k) => [132 + Math.cos(k / 12 * Math.PI * 2) * 16, 68 + Math.sin(k / 12 * Math.PI * 2) * 16])));
   all = append(all, material([[100, 44], [176, 84], [60, 92], [184, 40]]));
-  const pieces = components(all);
-  const labelled = all.attribute('piece', (p) => pieces.label(p), { transfer: 'nearest' });
+  const pieceOf = new Map();
+  all.points.components().forEach((piece) => { for (const i of piece.indices) pieceOf.set(i, piece.key); });
+  const labelled = all.attribute('piece', (p) => pieceOf.get(p.index), { transfer: 'nearest' });
   const pens = ['pigma-01-black', 'stabilo-88-blue', 'stabilo-88-green'];
   return [
     segmentRuns(labelled, (a) => a.piece).map((r) => stroke(r, { pen: pens[r.key % 3] })),
@@ -1272,17 +1273,17 @@ By default only the final state is kept. `{ every: m }` also records the initial
 
 ### forces
 
-A force is prepared once with its sources, then evaluated at a point to give a vector; nothing moves until the rule says so. Two callback shapes: `p => vector` for a wind, drift or vector field, and `(p, q) => vector` for an interaction with another point, which goes through `force.nearby`. That finds every source `q` within a radius of `p` from an index built once for the frozen state, and sums your contributions:
+A force is prepared once with its sources, then evaluated at a point to give a vector; nothing moves until the rule says so. A force is only a function `p => vector`, so an interaction of your own is a function too: take the neighbourhood with `points.near`, and sum your contributions with `sumBy`.
 
 ```ts
-const repel = force.nearby(sources, { radius }, (p, q) => {
+const repel = (p) => sumBy(sources.points.near(p, { radius }), (q) => {
   const delta = sub(p, q);
   return mul(unit(delta), radius - length(delta));
 });
 next.move(prev.points, (p) => mul(repel(p), speed));
 ```
 
-`sources` is a material or any list of points: the material being moved, or obstacles that stay put. A vertex of the source material never interacts with itself. `excludeConnected: true` on the recipes, or `skip: force.adjacent(m)` on `nearby`, excludes connected neighbours. The named recipes are short functions on this mechanism:
+`sources` is any material: the one being moved, or obstacles that stay put. A vertex is never its own neighbour, and a point of another state is just a position. `.subtract(p.adjacent)` leaves out the points `p` is joined to; the recipes say `excludeConnected: true` for the same thing. The named recipes are short functions on this mechanism:
 
 | Recipe | Prepared with | Vector |
 |---|---|---|
@@ -1316,14 +1317,14 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
 });
 ```
 
-Sources need not be the moving geometry. Here a ring grows among six fixed posts that shove it away, with the interaction written in place through `force.nearby`.
+Sources need not be the moving geometry. Here a ring grows among six fixed posts that shove it away, with the interaction written in place over `points.near`.
 
 ```ts live
-import { sketch, stroke, circle, force, sub, unit, length, mul } from 'occlude';
+import { sketch, stroke, circle, force, material, sub, unit, length, mul, sumBy } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
-  const posts = [[40, 24], [100, 16], [160, 28], [44, 76], [104, 84], [160, 72]];
-  const shove = force.nearby(posts, { radius: 18 }, (p, q) => {
+  const posts = material([[40, 24], [100, 16], [160, 28], [44, 76], [104, 84], [160, 72]]);
+  const shove = (p) => sumBy(posts.points.near(p, { radius: 18 }), (q) => {
     const delta = sub(p, q);
     return mul(unit(delta), (18 - length(delta)) * 0.9);
   });
@@ -1334,7 +1335,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   }, (cur, next, k) => {
     next.splitEdges(cur.edges.filter((e) => e.length > 2.2 && t.chance(0.3)));
   });
-  return [posts.map(([x, y]) => circle(x, y, 4)), stroke(grown.contour)];
+  return [posts.points.map((q) => circle(q.x, q.y, 4)), stroke(grown.contour)];
 });
 ```
 
@@ -1560,18 +1561,18 @@ The regions a network encloses are data too. `m.planarize()` makes every crossin
 | `m.planarize({ point?, edges? })` | independent material with crossings and contacts shared and edges split in order; overlaps, duplicate edges and zero-length edges are errors naming the rows |
 | `point: (event) => attrs` | resolves competing point attributes at an event; needed only where the candidates disagree |
 | `edges: (parent, child) => attrs` | child edge attributes over the parent's |
-| `m.faces()` | the bounded faces as a collection: iterate, `length`, `at`, `map`, `filter`, `groupBy`; crossings without a shared vertex are an error that says to planarize. Rows are properties, collections are methods: `face.edges` but `cells.edges()` |
-| `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds`, `centroid` (holes respected; field-weighted centres come from `measure()`), `contours` (closed records, for consumers that want them one by one — `polygon` and `distanceTo` take the face itself); its own `edges`, `points`, `boundaryEdges`: the collection's navigation restricted to one face (`strokes(f.boundaryEdges)` is its outline); and `adjacent`, the faces across its walls as a selection |
+| `m.faces()` | the bounded faces as a collection: iterate, `length`, `at`, `map`, `filter`, `groupBy`; crossings without a shared vertex are an error that says to planarize. Rows and collections read the same way: `face.edges` and `cells.edges` |
+| `face` | `index`, `area` (outer minus holes), `perimeter`, `bounds`, `centroid` (holes respected; field-weighted centres come from `measure()`), `contours()` (closed records, for consumers that want them one by one — `polygon` and `distanceTo` take the face itself); its own `edges`, `points`, `boundaryEdges`: the collection's navigation restricted to one face (`strokes(f.boundaryEdges)` is its outline); and `adjacent`, the faces across its walls as a selection |
 | `cells.filter(f => bool)` | a fixed-membership face selection with `union`, `intersect`, `subtract` |
-| `cells.edges()`, `sel.edges()` | every source edge incident to the (selected) faces, once, as an edge selection: shared walls included, and a spur inside a face counts as that face's edge |
-| `cells.points()`, `sel.points()` | the endpoints of those edges, once |
+| `cells.edges`, `sel.edges` | every source edge incident to the (selected) faces, once, as an edge selection: shared walls included, and a spur inside a face counts as that face's edge |
+| `cells.points`, `sel.points` | the endpoints of those edges, once |
 | `edge.faces` | the faces on the two sides of a source edge, once the material's faces have been read: two for a wall between cells, one for an outer wall or a spur, none for an edge no face touches; the reverse of `face.edges` |
 | `cells.adjacent()`, `sel.adjacent()`, `face.adjacent` | the faces across the walls of the (selected) faces, one hop: neighbours share a wall, not merely a corner, and a selected neighbour is collected too, so `sel.adjacent().subtract(sel)` is the ring outside |
 | `cells.boundaryEdges()`, `sel.boundaryEdges()` | edges between the selected union and its exterior: walls between two selected faces are excluded, a hole's boundary stays |
 | `cells.contours()`, `sel.contours()` | closed contours around the same union boundary, as loops: what `polygon` reads for the union |
 | `cells.measure(field?, { resolution?, bounds?, precision? })` | per-face geometric `area`, `centroid`, `orientation`, `elongation`, `inscribedCentre` and `inscribedRadius` (holes respected) and, given a field, its `integral`, `mean` and density-weighted `weightedCentroid`; `forFace(face)` looks one up |
 
-A detached segment floating inside a face belongs to no face: its walk encloses nothing, so `edges()` leaves it out and `boundaryEdges()` never sees it.
+A detached segment floating inside a face belongs to no face: its walk encloses nothing, so `edges` leaves it out and `boundaryEdges` never sees it.
 
 Measurements are midpoint sums on a square raster (cells of the long side of `bounds` over `resolution`, default 256; bounds default to the measured faces' box), each raster centre inside a face contributing its sample times the cell area, non-finite samples absent. The error scales with the cell size. `integral` is that sum; `mean` is the average of the samples that fell inside, which keeps it within the field's own range however small the face is, and is `NaN` for a face that caught no sample at all — a region too small for the raster reports no measurement rather than a zero. A density-weighted centre needs a nonnegative field with positive total; with a negative sample or zero total it is null, while a signed field still has an integral and a mean. A measurement is a frozen result about its exact faces, not geometry, and does not follow later edits.
 
@@ -1822,7 +1823,7 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 14 }), { iterations: 2 });
   const cells = t.voronoi(sites);
   const rooms = cells.faces().filter((f) => f.area > 260);
-  const internal = rooms.edges().filter((e) => !rooms.boundaryEdges().has(e));
+  const internal = rooms.edges.filter((e) => !rooms.boundaryEdges().has(e));
   const rows = new Set(internal.indices);
   const opened = cells.steps(1, (cur, next) => next.disconnect(cur.edges.filter((e) => rows.has(e.index))));
   // The boundary goes down first: ink laid on ink already there is dropped,
@@ -2112,7 +2113,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
 
 ## Oscillation
 
-`oscillate(m, { wavelength, amplitude, shape?, phase?, steps? })` swings a chain from side to side as it goes. It is a pure import like `thicken`: no seed, no paper, and `wavelength` and `amplitude` are numbers in the material's own coordinates — or **fields** read at each sample, which is the whole point, because then tone drives them. The result is ordinary Material with the source's own columns, so it strokes, resamples, planarizes, thickens and is occluded like anything else.
+`m.oscillate({ wavelength, amplitude, shape?, phase?, steps? })` swings a chain from side to side as it goes. It is a same-world method like `thicken`: no seed, no paper, and `wavelength` and `amplitude` are numbers in the material's own coordinates — or **fields** read at each sample, which is the whole point, because then tone drives them. The result is ordinary Material with the source's own columns, so it strokes, resamples, planarizes, thickens and is occluded like anything else.
 
 | Option | Meaning |
 |---|---|
@@ -2131,22 +2132,22 @@ Two details are load-bearing. Phase is **integrated** along the chain, `φ(s) = 
 One chain each — a plain swing, a wavelength that stretches, an amplitude that grows, and a ring that comes back to meet itself.
 
 ```ts live
-import { sketch, strokes, oscillate, curve, circle } from 'occlude';
+import { sketch, strokes, curve, circle } from 'occlude';
 
 // One chain each: a plain swing, a wavelength that stretches, an amplitude
 // that grows, and a ring — whose wave comes back to meet its own seam.
 export default sketch({ aspect: [2, 1], seed: 1 }, (t) => [
-  strokes(oscillate(curve([[12, 16], [188, 16]]), { wavelength: 9, amplitude: 4 })),
-  strokes(oscillate(curve([[12, 38], [188, 38]]), { wavelength: (x) => 2.5 + (x / 200) * 16, amplitude: 4 })),
-  strokes(oscillate(curve([[12, 60], [188, 60]]), { wavelength: 9, amplitude: (x) => 0.3 + (x / 200) * 7 })),
-  strokes(oscillate(t.sample(circle(100, 81, 12), { count: 200 }), { wavelength: 6, amplitude: 2.6 })),
+  strokes(curve([[12, 16], [188, 16]]).oscillate({ wavelength: 9, amplitude: 4 })),
+  strokes(curve([[12, 38], [188, 38]]).oscillate({ wavelength: (x) => 2.5 + (x / 200) * 16, amplitude: 4 })),
+  strokes(curve([[12, 60], [188, 60]]).oscillate({ wavelength: 9, amplitude: (x) => 0.3 + (x / 200) * 7 })),
+  strokes(t.sample(circle(100, 81, 12), { count: 200 }).oscillate({ wavelength: 6, amplitude: 2.6 })),
 ]);
 ```
 
 Distance, drawn as texture. Every ridge is the same construction; what changes is how hard it wiggles and how tightly, so the far ones read as haze and the near ones as scrub. The amplitude is a field, which is why the scrub clumps into bushes instead of running at one height, and each ridge carries an opaque mask with no texture at all, so it simply hides the country behind it. Every mark on the page is one continuous pen-down stroke.
 
 ```ts live
-import { sketch, strokes, polygon, oscillate, curve } from 'occlude';
+import { sketch, strokes, polygon, curve } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const K = 8;
@@ -2163,7 +2164,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
     // Amplitude is a field, so the scrub clumps along the ridge instead of
     // running at one height: bushes here, bare ground there.
     const reach = 0.1 + u * u * 4.6;
-    const scrub = oscillate(spine, {
+    const scrub = spine.oscillate({
       wavelength: 13 - u * 10.8,
       amplitude: (x) => reach * (0.18 + Math.max(0, t.noise(x * 0.055 + k * 7, k * 3)) * 1.5),
       phase: k * 0.31,
@@ -2182,7 +2183,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
 Composed with the rest of the toolkit. One distance field does two jobs at once: its `curl` gives the streamlines their direction, and its value gives the oscillation its wavelength and amplitude — so the water's texture and its path cannot disagree, being the same function read twice.
 
 ```ts live
-import { sketch, strokes, polygon, circle, rect, append, curl, distanceTo, oscillate } from 'occlude';
+import { sketch, strokes, polygon, circle, rect, append, curl, distanceTo } from 'occlude';
 
 // Two stones in a stream. The streamlines come from the curl of the stones'
 // shared distance field, so they take the shape of both and merge between
@@ -2195,7 +2196,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const out = (x, y) => Math.max(0, -d(x, y));
   const lines = t.streamlines(t.within(curl(d), circle(100, 50, 105)), { spacing: 1.6 });
   return [
-    strokes(oscillate(lines, {
+    strokes(lines.oscillate({
       wavelength: (x, y) => 1.7 + out(x, y) * 0.55,
       amplitude: (x, y) => 1.05 * Math.exp(-Math.pow(out(x, y) / 13, 2)),
     })),
@@ -2207,7 +2208,7 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
 Poked: an amplitude far larger than the ring it swings on. The wave turns the ring inside out and crosses itself, so the output stops being a line and becomes a network — planarize it and it has faces, and the shape columns above then hatch each petal along its own axis. Neither operation knows about the other.
 
 ```ts live
-import { sketch, strokes, polygon, circle, oscillate, fill, mm, degrees } from 'occlude';
+import { sketch, strokes, polygon, circle, fill, mm, degrees } from 'occlude';
 
 // Poked: an amplitude far larger than the ring it swings on. The wave turns
 // the ring inside out and crosses itself, so the output stops being a line
@@ -2215,7 +2216,7 @@ import { sketch, strokes, polygon, circle, oscillate, fill, mm, degrees } from '
 // and filled by the room each one holds.
 export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
   const ring = t.sample(circle(100, 50, 21), { count: 900 });
-  const knot = oscillate(ring, { wavelength: 11, amplitude: 27 }).planarize();
+  const knot = ring.oscillate({ wavelength: 11, amplitude: 27 }).planarize();
   const measured = knot.faces().measure();
   return [
     measured.results.filter((r) => r.inscribedRadius > 1.2).map((r) =>
@@ -2232,7 +2233,7 @@ of nothing but a wavelength and an amplitude that read the page. The globe
 hides its own far side.
 
 ```ts live
-import { sketch, pen, mm, curve, oscillate } from 'occlude';
+import { sketch, pen, mm, curve } from 'occlude';
 import { sphere, mapSurface, style, view, orthographic } from 'occlude/3d';
 
 export default sketch({ seed: 9, pens: {
@@ -2242,8 +2243,7 @@ export default sketch({ seed: 9, pens: {
   const CHART = { x: 0, y: 0, width: 100, height: 100 };
   // Where the ground is rough the latitude lines buckle, and buckle tightly.
   const rough = (x, y) => Math.max(0, t.noise(x / 17, y / 17) * 1.15 - 0.08);
-  const bands = t.times(38, (k, u) => oscillate(
-    curve(t.times(300, (j, f) => [f * 100, 7 + u * 86])),
+  const bands = t.times(38, (k, u) => curve(t.times(300, (j, f) => [f * 100, 7 + u * 86])).oscillate(
     { wavelength: (x, y) => 2.2 + (1 - rough(x, y)) * 7, amplitude: (x, y) => rough(x, y) * 1.5 },
   ));
   const globe = sphere(1.6, { segments: 96, rings: 48 });
@@ -2264,7 +2264,7 @@ that, because the two strands are in the same plane and neither is in front.
 Which one is on top is information the drawing **carries**, not information it
 contains.
 
-`interlace(m, { gap, over? })` adds that information. Every proper crossing of
+`m.interlace({ gap, over? })` adds that information. Every proper crossing of
 two non-adjacent edges is found, `over` is asked which strand is on top, and
 the one underneath loses `gap` of its length, centred on the crossing. What
 comes back is ordinary Material — shorter, in more pieces — which strokes,
@@ -2288,11 +2288,11 @@ A zero `gap` removes nothing and therefore splits nothing. Two adjacent
 segments of one chain meet at a vertex rather than crossing, and are never
 counted; a strand crossing *itself* elsewhere is.
 
-Like `thicken` and `oscillate` this is a pure import: no seed, no paper, and
-`gap` is a length in the material's own coordinates.
+Like `thicken` and `oscillate` this is a same-world method: no seed, no paper,
+and `gap` is a length in the material's own coordinates.
 
 ```ts live
-import { sketch, strokes, curve, append, interlace, label, group } from 'occlude';
+import { sketch, strokes, curve, append, label, group } from 'occlude';
 
 // One crossing, three ways. The geometry is identical in all three — two
 // straight lines meeting at a point — and the only thing that differs is what
@@ -2305,9 +2305,9 @@ export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
     curve([[cx - 22, 66], [cx + 22, 34]]),
   );
   const shown = [
-    ['gap: 0', (m) => interlace(m, { gap: 0 })],
-    ['over: () => true', (m) => interlace(m, { gap: 7, over: () => true })],
-    ['over: () => false', (m) => interlace(m, { gap: 7, over: () => false })],
+    ['gap: 0', (m) => m.interlace({ gap: 0 })],
+    ['over: () => true', (m) => m.interlace({ gap: 7, over: () => true })],
+    ['over: () => false', (m) => m.interlace({ gap: 7, over: () => false })],
   ];
   return shown.map(([text, fn], i) => {
     const cx = 36 + i * 64;
@@ -2319,7 +2319,7 @@ export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
 Eight rings, and a list of decisions.
 
 ```ts live
-import { sketch, strokes, circle, append, interlace } from 'occlude';
+import { sketch, strokes, circle, append } from 'occlude';
 
 // A knot panel. Eight rings on a circle, each overlapping its neighbours, and
 // every crossing decided by the rule that a strand which went under last time
@@ -2332,7 +2332,7 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
     const a = (k / N) * Math.PI * 2;
     return t.sample(circle(100 + Math.cos(a) * 28, 50 + Math.sin(a) * 28, 17), { count: 260 });
   }).reduce((p, q) => append(p, q));
-  return strokes(interlace(rings, { gap: 2.6 }));
+  return strokes(rings.interlace({ gap: 2.6 }));
 });
 ```
 
@@ -2341,7 +2341,7 @@ nothing keeping the strands apart, so they are allowed to run over one another;
 wobbled by `oscillate`; and only then told which of them is on top.
 
 ```ts live
-import { sketch, strokes, material, curl, oscillate, interlace, add, mul, fromAngle } from 'occlude';
+import { sketch, strokes, material, curl, add, mul, fromAngle } from 'occlude';
 
 // Composed: a tangle that was grown, not drawn. Each strand is a tip with a
 // heading, extruded one step at a time and steered toward the curl of a noise
@@ -2365,8 +2365,8 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
     });
     next.set(tips, { tip: 0 });
   });
-  const wobbled = oscillate(grown, { wavelength: 13, amplitude: 1.6 });
-  return strokes(interlace(wobbled, { gap: 2.2 }));
+  const wobbled = grown.oscillate({ wavelength: 13, amplitude: 1.6 });
+  return strokes(wobbled.interlace({ gap: 2.2 }));
 });
 ```
 
@@ -2375,7 +2375,7 @@ strands at all. Here it asks *where the crossing is*, so a shape appears in the
 cloth that no line follows and nothing shades.
 
 ```ts live
-import { sketch, strokes, curve, append, interlace } from 'occlude';
+import { sketch, strokes, curve, append } from 'occlude';
 
 // Poked: the crossings carry the picture. This is a plain plaid, evenly
 // spaced, every strand identical — and `over` is not alternating but asks
@@ -2390,7 +2390,7 @@ export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
   const warp = t.times(N, (k) => curve([[1, at(k)], [99, at(k)]]));
   const weft = t.times(N, (k) => curve([[at(k), 1], [at(k), 99]]));
   const cloth = [...warp, ...weft].reduce((p, q) => append(p, q));
-  return strokes(interlace(cloth, {
+  return strokes(cloth.interlace({
     gap: 1.7,
     over: (c) => (c.chainA < N) === (Math.hypot(c.x - 50, c.y - 52) < 31),
   }));
@@ -2404,7 +2404,7 @@ nothing and works it out. The two diagrams agree, and only one of them needed a
 third dimension to exist.
 
 ```ts live
-import { sketch, pen, mm, strokes, curve, interlace, label, group } from 'occlude';
+import { sketch, pen, mm, strokes, curve, label, group } from 'occlude';
 import { circle, polyline, sweep, view, orthographic } from 'occlude/3d';
 
 // The same knot, decided two ways. On the left it is flat: one closed curve
@@ -2424,7 +2424,7 @@ export default sketch({ seed: 1, pens: {
   };
   const flat = curve(t.times(P, (k) => { const [x, y] = pt(k); return [26 + x * 5.2, 46 + y * 5.2]; }), { closed: true });
   return [
-    group({}, strokes(interlace(flat, { gap: 2.1 }), { pen: 'ink' }), label('AUTHORED', 13, 80, 3.4, { pen: 'ink' })),
+    group({}, strokes(flat.interlace({ gap: 2.1 }), { pen: 'ink' }), label('AUTHORED', 13, 80, 3.4, { pen: 'ink' })),
     group({ translate: [25, -4] },
       view(sweep(circle(0.16, { segments: 14 }), polyline(t.times(P, pt), { closed: true })), {
         camera: orthographic({ eye: [0, -1.1, 12], target: [0, 0, 0], span: 19 }),
@@ -2438,11 +2438,11 @@ export default sketch({ seed: 1, pens: {
 
 ## Thickness
 
-**`thicken(source, opts)`** turns points and connections into filled ribbons, beaded outlines, and perforated networks. Start with native material from `t.scatter`, `t.sample`, `t.voronoi`, or `t.streamlines`, then choose a radius — the full width is twice that radius. Overlapping parts join into one area; isolated points become discs, and openings between connections can remain as holes.
+**`source.thicken(opts)`** turns points and connections into filled ribbons, beaded outlines, and perforated networks. Start with native material from `t.scatter`, `t.sample`, `t.voronoi`, or `t.streamlines`, then choose a radius — the full width is twice that radius. Overlapping parts join into one area; isolated points become discs, and openings between connections can remain as holes.
 
 Finite negative radii clamp to zero, including values returned by a radius field. This lets a field fade thickness out without a render error. Clamping happens at source vertices before interpolation along edges; it does not shrink an existing filled area. `NaN` and infinite radii remain errors.
 
-The result is an ordinary boundary **Material**. Draw it with `polygon` and a fill, trace it with `strokes`, sample its outline with `along`, or use `distanceTo` and `t.isolines` for contour bands. `thicken` is a pure module import; drawing and filling remain explicit.
+The result is an ordinary boundary **Material**. Draw it with `polygon` and a fill, trace it with `strokes`, sample its outline with `along`, or use `distanceTo` and `t.isolines` for contour bands. `thicken` is a method on the material; drawing and filling remain explicit.
 
 Use `polygon(body, { fill: fill('hatch') })` to fill the combined area while preserving its holes. `strokes(body, { fill: … })` creates a separate filled shape for **each** boundary, including the hole boundaries; it does not fill the compound area.
 
@@ -2451,12 +2451,12 @@ Use `polygon(body, { fill: fill('hatch') })` to fill the combined area while pre
 Turn Voronoi walls into a continuous cut-paper lattice. A relaxed scatter supplies the cells; a radius that grows down the page makes the openings gradually smaller. The hatch fills the thickened walls while the holes stay empty. Try changing the scatter spacing, the relaxation count, or the radius field.
 
 ```ts live
-import { sketch, thicken, polygon, fill, mm } from 'occlude';
+import { sketch, polygon, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 19 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 14 }), { iterations: 3 });
   const lace = t.voronoi(sites, { bounds: { x: 7, y: 7, w: 86, h: 86 } });
-  const body = thicken(lace, { radius: (p) => 0.45 + 1.5 * p.y / 100 });
+  const body = lace.thicken({ radius: (p) => 0.45 + 1.5 * p.y / 100 });
   return polygon(body, {
     fill: fill('hatch', { angle: 35, spacing: mm(0.6) }),
     pen: 'stabilo-88-blue',
@@ -2479,12 +2479,12 @@ What participates:
 Sample a circle, then vary the radius in six waves around its rim. On the left, the point selection keeps the ring's connections and makes a scalloped ribbon. On the right, `.extract()` drops connectivity and the same samples become overlapping beads. Increase the sample count to bring the beads together; change the wave count to reshape the ornament.
 
 ```ts live
-import { sketch, circle, thicken, polygon, fill, mm, group } from 'occlude';
+import { sketch, circle, polygon, fill, mm, group } from 'occlude';
 
 export default sketch({ aspect: [2, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 34), { count: 30 })
     .attribute('radius', (p) => 2 + 2.8 * (1 + Math.cos(6 * Math.atan2(p.y - 50, p.x - 50))) / 2);
-  const body = (source) => polygon(thicken(source, { radius: (p) => p.radius }), {
+  const body = (source) => polygon(source.thicken({ radius: (p) => p.radius }), {
     fill: fill('hatch', { angle: 45, spacing: mm(0.65) }),
   });
   return [body(ring.points), group({ translate: [100, 0] }, body(ring.points.extract()))];
@@ -2498,19 +2498,19 @@ Streamlines already arrive as connected material. Here a smooth wave controls bo
 Without `point` the result carries **no columns** — this is a generative conversion, not a topology-preserving edit, so nothing is inherited and no source vertex keeps its identity. With `point`, the callback runs once for each final boundary vertex, after ordering and tessellation, and returns that row's complete record:
 
 ```ts live
-import { sketch, curl, rect, thicken, polygon, strokes, fill, mm } from 'occlude';
+import { sketch, curl, rect, polygon, strokes, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const flow = t.within(curl((x, y) => t.noise(x / 55, y / 55)), rect(6, 6, 188, 88));
   const threads = t.streamlines(flow, { spacing: 9, step: 2 })
     .attribute('tone', (p) => (1 + Math.sin(p.x / 13 + p.y / 19)) / 2);
-  const ribbons = thicken(threads, {
+  const ribbons = threads.thicken({
     radius: (p) => 0.45 + 2.3 * p.tone,
     point: ({ candidates }) => ({ tone: Math.max(...candidates.map((c) => c.attrs.tone)) }),
   });
   return [
     polygon(ribbons, { fill: fill('hatch', { angle: 60, spacing: mm(0.7) }), stroke: false }),
-    strokes(ribbons.points.filter((p) => p.tone > 0.7).inducedEdges().extract(), { pen: 'stabilo-88-blue' }),
+    strokes(ribbons.points.filter((p) => p.tone > 0.7).edges.extract(), { pen: 'stabilo-88-blue' }),
   ];
 });
 ```
@@ -2528,7 +2528,7 @@ and drift and the wrong one for "pull this corner out": a field never sees more
 than one point at a time, so it cannot know that a stroke should turn as it
 stretches, or that a hatch should stay evenly spaced.
 
-A cage can. `warp(m, { from, to })` writes every point of the material once as
+A cage can. `m.warp({ from, to })` writes every point of the material once as
 a fixed weighted blend of the cage's corners — mean value coordinates, a closed
 form with no solve, defined everywhere in the plane — and then re-evaluates the
 blend against the moved corners. Move a corner and the whole drawing follows
@@ -2560,13 +2560,13 @@ sent somewhere surprising. That is a property of the coordinates, not a missing
 check. A cage that folds over itself is likewise not refused, and not
 recommended.
 
-Like `thicken`, `oscillate` and `interlace` this is a pure import: no seed, no
-paper, no units.
+Like `thicken`, `oscillate` and `interlace` this is a same-world method: no
+seed, no paper, no units.
 
 The same lattice twice, with one corner of the cage dragged:
 
 ```ts live
-import { sketch, strokes, curve, append, warp, connect, material, group, label } from 'occlude';
+import { sketch, strokes, curve, append, connect, material, group, label } from 'occlude';
 
 // The blue quadrilateral is the cage: four corners, and on the right the
 // bottom-right one has been dragged. Every point of the lattice was written
@@ -2586,7 +2586,7 @@ export default sketch({ aspect: [2, 1], seed: 1 }, (t) => {
     ...t.times(9, (k) => curve([[8 + k * 9.2, 18], [8 + k * 9.2, 82]])),
   ].reduce((p, q) => append(p, q)).resample({ spacing: 1.2 });
   const panel = (cage, x, text) => group({ translate: [x, 0] }, [
-    strokes(warp(lattice, { from: rest, to: cage })),
+    strokes(lattice.warp({ from: rest, to: cage })),
     strokes(connect.ring(material(cage)), { pen: 'stabilo-88-blue' }),
     label(text, 4, 8, 3.2, { pen: 'stabilo-88-blue' }),
   ]);
@@ -2600,7 +2600,7 @@ Four vessels, one drawing. The hatch is made once, flat, and each pot is that
 drawing read through a different cage.
 
 ```ts live paper=200x100
-import { sketch, rect, curve, append, warp, strokes, group } from 'occlude';
+import { sketch, rect, curve, append, strokes, group } from 'occlude';
 
 // The hatch is the throwing rings, so it crowds at the foot and the neck where
 // the wall pulls in, opens across the belly, and tips where the axis leans.
@@ -2648,8 +2648,8 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
       return [cx + nx * f.r(v) * 1.1 * u, cy + ny * f.r(v) * 1.1 * u];
     });
     return group({ translate: [22 + i * 48, 14] }, [
-      strokes(warp(hatch, { from: rest, to: cage })),
-      strokes(warp(wall, { from: rest, to: cage }), { pen: 'stabilo-88-blue' }),
+      strokes(hatch.warp({ from: rest, to: cage })),
+      strokes(wall.warp({ from: rest, to: cage }), { pen: 'stabilo-88-blue' }),
     ]);
   });
 });
@@ -2661,7 +2661,7 @@ Cells, settling, `within`, an opaque mask and a cage, in a drawing where the
 structure is authored once and placed nine times.
 
 ```ts live paper=140x140
-import { sketch, rect, circle, polygon, warp, strokes, group } from 'occlude';
+import { sketch, rect, circle, polygon, strokes, group } from 'occlude';
 
 // There is exactly ONE panel of cell structure here: points scattered and
 // settled against a field that wants them crowded at the base, their Voronoi
@@ -2705,10 +2705,10 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
       const lean = twist * v * v * t.height * 0.09;
       return [t.cx + (x / (PW / 2) - 1) * hw + lean, t.cy - r];
     });
-    const outline = warp(edge, { from: rest, to: cage });
+    const outline = edge.warp({ from: rest, to: cage });
     return group({ rotate: k * 40, origin: [t.cx, t.cy] }, [
       polygon(outline, { opaque: true, stroke: false }),
-      strokes(warp(veins, { from: rest, to: cage })),
+      strokes(veins.warp({ from: rest, to: cage })),
       strokes(outline, { pen: 'stabilo-88-blue' }),
     ]);
   };
@@ -2727,7 +2727,7 @@ A cage is two loops and nothing more — so the loops are free to be the *same*
 loop, read differently.
 
 ```ts live paper=140x140
-import { sketch, strokes, curve, append, warp, material, connect } from 'occlude';
+import { sketch, strokes, curve, append, material, connect } from 'occlude';
 
 // The cage does not move. Only the correspondence does.
 //
@@ -2778,7 +2778,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
       const rolled = cage.map((_, j) => cage[(j + i) % N]);
       // the band between this square and the next one in, cut as one area
       const band = t.within(lattice, [square(s), square(sides[i + 1])]);
-      return strokes(warp(band, { from: cage, to: rolled }));
+      return strokes(band.warp({ from: cage, to: rolled }));
     }),
     sides.map((s) => strokes(connect.ring(material(square(s).map(([x, y]) => ({ x, y })))), { pen: 'stabilo-88-blue' })),
   ];
@@ -2791,7 +2791,7 @@ A surface chart is an ordinary 2D plane, so a cage works on it exactly as it
 works on paper — and `mapSurface` then puts the result on the pot.
 
 ```ts live paper=150x120
-import { sketch, curve, rect, append, warp, pen, mm } from 'occlude';
+import { sketch, curve, rect, append, pen, mm } from 'occlude';
 import { polyline, revolve, mapSurface, view, perspective, style } from 'occlude/3d';
 
 // The ornament — a diaper lattice with a dot in every diamond — is drawn once,
@@ -2868,7 +2868,7 @@ export default sketch({ aspect: [5, 4], seed: 5, pens: {
 
   const pot = (k, x, y, s, turn) => {
     const to = rest.map(([u, v]) => cages[k]((u - U0) / (U1 - U0), (v - V0) / (V1 - V0)));
-    const panel = append(warp(flatAll, { from: rest, to }), warp(flatEdge, { from: rest, to }));
+    const panel = append(flatAll.warp({ from: rest, to }), flatEdge.warp({ from: rest, to }));
     const body = revolve(polyline(meridian), { segments: 72 }).scale(s).rotate([0, 0, turn]).translate([x, y, 0]);
     return [body, style(mapSurface(body, panel), { stroke: 'paint' })];
   };
@@ -2893,7 +2893,7 @@ there.
 
 What has never been available is that curve **itself**, as geometry: to draw it
 heavier than the family, to cut with it, to hang something else off it.
-`envelope(m)` returns it.
+`m.envelope()` returns it.
 
 The textbook definition wants calculus — solve `F(x, y, t) = 0` and
 `∂F/∂t = 0` together — and calculus is not what a drawing has. A drawing has a
@@ -2934,11 +2934,11 @@ Two members that share an endpoint **meet** without crossing, and are not
 reported: a pencil of lines through one hub has no envelope, and its hub is the
 one place it is provably tangent to nothing.
 
-Like `thicken`, `oscillate`, `interlace` and `warp` this is a pure import: no
-seed, no paper, no units.
+Like `thicken`, `oscillate`, `interlace` and `warp` this is a same-world
+method: no seed, no paper, no units.
 
 ```ts live paper=140x140
-import { sketch, strokes, curve, append, envelope, group } from 'occlude';
+import { sketch, strokes, curve, append, group } from 'occlude';
 
 // Curve stitching, four times over. Every black line is straight and none of
 // them touches the curve at the corner — but the curve is the only thing the
@@ -2955,7 +2955,7 @@ export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
         return curve([[ox + sx * 44 * u, oy], [ox, oy + sy * 44 * (1 - u)]]);
       })
       .reduce((a, b) => append(a, b));
-    return [strokes(fam), strokes(envelope(fam), { pen: 'stabilo-88-blue' })];
+    return [strokes(fam), strokes(fam.envelope(), { pen: 'stabilo-88-blue' })];
   };
   return [
     corner(6, 6, 1, 1),
@@ -2969,7 +2969,7 @@ export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
 ### A rose window
 
 ```ts live paper=140x140
-import { sketch, strokes, envelope, append, material, connect, circle, polygon, group } from 'occlude';
+import { sketch, strokes, append, material, connect, circle, polygon, group } from 'occlude';
 
 // A rose window. Every black line is straight, and every curve in the tracery
 // is one nobody drew: place n points on a circle, join k to m·k, and the pile
@@ -2992,7 +2992,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
 
   const band = (R, n, m) => {
     const fam = pile(t.cx, t.cy, R, n, m);
-    return [strokes(fam), strokes(envelope(fam), { pen: 'stabilo-88-blue' })];
+    return [strokes(fam), strokes(fam.envelope(), { pen: 'stabilo-88-blue' })];
   };
 
   // Each band is laid down, then the next ring in is made opaque over it, so
@@ -3011,7 +3011,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
 ### The light in a dented bowl
 
 ```ts live paper=180x120
-import { sketch, strokes, envelope, append, material, connect, components, polygon } from 'occlude';
+import { sketch, strokes, append, material, connect, polygon } from 'occlude';
 
 // The light in a dented bowl.
 //
@@ -3031,12 +3031,9 @@ export default sketch({ aspect: [3, 2], seed: 14 }, (t) => {
     t.noise(x / 46, y / 46) + 0.42 -
     1.3 * Math.hypot((x - t.cx) / (t.width * 0.4), (y - t.cy) / (t.height * 0.46)) ** 2;
   const all = t.isolines(field, 0, { close: true, step: 0.6 });
-  const c = components(all);
-  const size = new Int32Array(c.count);
-  for (const p of all.points) size[c.label(p)]++;
-  let best = 0;
-  for (let k = 1; k < c.count; k++) if (size[k] > size[best]) best = k;
-  const bowl = all.points.filter((p) => c.label(p) === best).inducedEdges().extract().resample({ spacing: 0.7 });
+  const pieces = all.points.components();
+  const biggest = pieces.reduce((a, b) => (b.length > a.length ? b : a));
+  const bowl = biggest.edges.extract().resample({ spacing: 0.7 });
 
   const wall = bowl.curves()[0].pts;
   const n = wall.length;
@@ -3064,7 +3061,7 @@ export default sketch({ aspect: [3, 2], seed: 14 }, (t) => {
     // the caustic is cut to the bowl too: where two neighbouring rays run
     // nearly parallel their crossing runs off to infinity, which is true and
     // is not part of the picture
-    strokes(t.within(envelope(rays), bowl), { pen: 'stabilo-88-blue' }),
+    strokes(t.within(rays.envelope(), bowl), { pen: 'stabilo-88-blue' }),
     strokes(bowl),
   ];
 });
@@ -3073,7 +3070,7 @@ export default sketch({ aspect: [3, 2], seed: 14 }, (t) => {
 ### The curve that is not drawn
 
 ```ts live paper=140x140
-import { sketch, strokes, envelope, append, material, connect, circle } from 'occlude';
+import { sketch, strokes, append, material, connect, circle } from 'occlude';
 
 // The curve is not drawn.
 //
@@ -3104,7 +3101,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 
   // where each chord touches the curve nobody is drawing
   const touch = new Map();
-  for (const p of envelope(chords).points) touch.set(p.member, [p.x, p.y]);
+  for (const p of chords.envelope().points) touch.set(p.member, [p.x, p.y]);
 
   const cut = t
     .times(N, (k) => {
@@ -3123,7 +3120,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 ### Straight steel, curved tower
 
 ```ts live paper=180x120
-import { sketch, envelope, append, material, connect, warp, pen, mm } from 'occlude';
+import { sketch, append, material, connect, pen, mm } from 'occlude';
 import { polyline, circle as ring3, plane, revolve, mapSurface, view, perspective, style } from 'occlude/3d';
 
 // A cooling tower, and the drawing it was made from, lying on the floor under
@@ -3187,7 +3184,7 @@ export default sketch({ aspect: [3, 2], seed: 8, pens: {
       );
     })
     .reduce((a, b) => append(a, b));
-  const waist = envelope(chords);
+  const waist = chords.envelope();
 
   const floor = plane(5.4).translate([0, 0, -H]);
 

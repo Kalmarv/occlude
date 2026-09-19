@@ -37,10 +37,10 @@ import {
   rotate, scale, vectorField, grad, curl, distanceTo,
   map, norm, invertRange, ease,
   material, curve, append, connect, planarize,
-  segmentRuns, neighbours, extent, banding,
+  segmentRuns, extent, banding,
   add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy,
-  force, sumForces, meanBy, components, query,
-  boundaryLoops, numericLoops, ui,
+  force, sumForces, meanBy, query,
+  areaLoops, numericLoops, ui,
   type Station, type Tree,
 } from 'occlude';
 
@@ -170,12 +170,14 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const runs = segmentRuns(grown, (a, b) => Math.round((a.age + b.age) / 2));
   const band = banding.over(grown.attrs.age, { count: 2 });
   const ageExtent = extent(grown.attrs.age);
-  const parts = components(grown);
-  const tagged = grown.attribute('piece', (p) => parts.label(p), { transfer: 'nearest' });
+  const parts = grown.points.components();
+  const partOf = new Map<number, number>();
+  parts.forEach((piece, k) => { for (const i of piece.indices) partOf.set(i, k); });
+  const tagged = grown.attribute('piece', (p) => partOf.get(p.index) ?? 0, { transfer: 'nearest' });
   const meanAge = meanBy(grown.points, (p) => p.age);
   const sumX = sumBy(grown.points, (p) => [p.x, 0])[0];
   const firstPt = grown.points.length > 0 ? grown.points.at(0) : undefined;
-  const nearby = firstPt ? neighbours(grown, { radius: 6 })(firstPt).length : 0;
+  const nearby = firstPt ? grown.points.near(firstPt, { radius: 6 }).length : 0;
   const edgeQ = query.edges(grown);
   const near = edgeQ.nearest([116, 36], { within: 10 });
   const hit = edgeQ.firstHit([104, 36], [128, 36]);
@@ -213,11 +215,11 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const measured = faceSet.measure(land, { resolution: 40 });
   const faceOne = chosen.length > 0 ? measured.forFace(chosen.at(0)) : null;
   const facePerim = chosen.length > 0 ? chosen.at(0).perimeter : 0;
-  const faceEdges = chosen.edges().length;
+  const faceEdges = chosen.edges.length;
   scene.push(strokes(planar));
   scene.push(strokes(chosen.boundaryEdges()));
   scene.push(strokes(chosen.contours()));
-  scene.push(chosen.map((f) => (f.contours[0] ? stroke(f.contours[0]) : null)));
+  scene.push(chosen.map((f) => (f.contours()[0] ? stroke(f.contours()[0]) : null)));
 
   // ---- stations along a spine, and resampling ----------------------------
   const spine = t.material(ellipse(40, 20, 30, 9));
@@ -269,7 +271,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const vFrom = fromAngle(Math.PI / 2);
 
   // ---- helpers that are easy to forget -----------------------------------
-  const loops = boundaryLoops([[[0, 0], [4, 0], [4, 4]]], 'all-features');
+  const loops = areaLoops([[[0, 0], [4, 0], [4, 4]]], 'all-features');
   const numLoops = numericLoops([[[0, 0], [4, 0], [4, 4]]], 'all-features');
   const connectRing = connect.ring(material([[0, 0], [4, 0], [2, 4]])).edges.length;
   const connectChain = connect.chain(material([[0, 0], [4, 0], [2, 4]])).edges.length;
@@ -311,7 +313,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
     4, 22, 2,
   ));
   scene.push(label(
-    report(['m', meanAge, sumX, parts.count, nearby, deg0, conn0, cp0, 'v', vLen, vDist, vDot, 'c', connectRing, connectNear, 'n', isolinesMat.edges.length, streams.edges.length]),
+    report(['m', meanAge, sumX, parts.length, nearby, deg0, conn0, cp0, 'v', vLen, vDist, vDot, 'c', connectRing, connectNear, 'n', isolinesMat.edges.length, streams.edges.length]),
     4, 25, 2,
   ));
 

@@ -1,5 +1,5 @@
 // Varying-radius recursive boundaries: near-tangent coverage regression.
-import { sketch, append, thicken, polygon, fill } from 'occlude';
+import { sketch, append, polygon, fill } from 'occlude';
 import type { Material } from 'occlude';
 
 export default sketch({ aspect: [1, 1], margin: 6, seed: 42 }, (t) => {
@@ -14,7 +14,7 @@ export default sketch({ aspect: [1, 1], margin: 6, seed: 42 }, (t) => {
     const combined = shapes.reduce((m, shape) => append(m, t.material(shape)), source);
     return subdivide(width / 2, combined, level - 1);
   };
-  return polygon(thicken(subdivide(size, initial, levels), { radius: p => t.map(p.x, 0, 100, 0.1, 1) }), {
+  return polygon(subdivide(size, initial, levels).thicken({ radius: p => t.map(p.x, 0, 100, 0.1, 1) }), {
     fill: fill('hatch'),
   });
 });

@@ -5,28 +5,27 @@ description: A network grown from a mouth, thickened into one body.
 
 Points spread over the page, denser toward the mouth at the bottom. The network grows from the mouth. Each step, every point within reach of the network joins its nearest joined point, and remembers the step it joined in. Early joins are the trunk and late joins are the twigs. `thicken` turns the tree into one body, with a radius that falls with that step, and one `polygon` fills it.
 
-Uses: `t.scatter` with a density, `t.relax`, `attribute`, `steps` with `neighbours`, `connect` and `set`, `inducedEdges`, `extract`, `thicken`, `polygon` with a fill.
+Uses: `t.scatter` with a density, `t.relax`, `attribute`, `steps` with `points.near`, `connect` and `set`, `edges`, `extract`, `thicken`, `polygon` with a fill.
 
 ```ts live
-import { sketch, strokes, polygon, fill, mm, material, neighbours, distance, thicken } from 'occlude';
+import { sketch, strokes, polygon, fill, mm, material, distance } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const pts = t.relax(t.scatter((x, y) => 0.3 + 0.7 * Math.pow(y / 100, 1.5), { spacing: 4.5 }), { iterations: 2 });
   const root = [...pts.points].reduce((a, b) => (distance(b, [50, 97]) < distance(a, [50, 97]) ? b : a));
   const seeded = pts.attribute('when', (p) => (p.index === root.index ? 0 : -1));
   const tree = seeded.steps(40, (cur, next, k) => {
-    const near = neighbours(cur, { radius: 9 });
     for (const p of cur.points.filter((q) => q.when < 0)) {
-      const joined = near(p).map((i) => cur.vertex(i)).filter((q) => q.when >= 0);
+      const joined = [...cur.points.near(p, { radius: 9 })].filter((q) => q.when >= 0);
       if (joined.length === 0) continue;
       const q = joined.reduce((a, b) => (distance(p, b) < distance(p, a) ? b : a));
       next.connect(p, q);
       next.set(p, { when: k + 1 });
     }
   });
-  const grown = tree.points.filter((p) => p.when >= 0).inducedEdges().extract();
+  const grown = tree.points.filter((p) => p.when >= 0).edges.extract();
   const most = Math.max(...grown.points.map((p) => p.when));
-  const body = thicken(grown, { radius: (p) => 0.35 + 2.6 * Math.pow(1 - p.when / most, 2.4) });
+  const body = grown.thicken({ radius: (p) => 0.35 + 2.6 * Math.pow(1 - p.when / most, 2.4) });
   return [polygon(body, { fill: fill('hatch', { angle: 90, spacing: mm(0.7) }), pen: 'pigma-005-black' }), strokes(grown, { pen: 'pigma-005-black' })];
 });
 ```

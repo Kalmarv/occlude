@@ -6,7 +6,7 @@ description: The regions that a planar material encloses, and what you can read 
 A planar material is one whose edges meet only at shared vertices. Its edges divide the page into regions. `faces()` reads those regions. Each face knows its area, its centroid, its walls and its neighbours. A face is an area: `polygon(f)` fills it and `distanceTo(f)` measures from its walls.
 
 :::note
-A reading on one face is a property: `face.edges`. The same reading on a collection of faces is a method: `cells.edges()`.
+On one face every reading is a property: `face.edges`, `face.boundaryEdges`. On a collection of faces, `edges` and `points` are properties too. `boundaryEdges()` and `contours()` are calls.
 :::
 
 ## face
@@ -18,7 +18,7 @@ A reading on one face is a property: `face.edges`. The same reading on a collect
 <include>/_sig/Face.centroid.mdx</include>
 <include>/_sig/Face.contours.mdx</include>
 
-One region. `area` is the outer area minus the holes. `centroid` is the centroid of that filled area. `contours` holds the outer loop and the holes as closed records. A face is an area, so you can give it to `polygon`, `distanceTo`, `force.boundary` and `t.within` as it is.
+One region. `area` is the outer area minus the holes. `centroid` is the centroid of that filled area. `contours()` holds the outer loop and the holes as closed records. A face is an area, so you can give it to `polygon`, `distanceTo`, `force.boundary` and `t.within` as it is.
 
 ```ts live
 import { sketch, circle, strokes, distanceTo } from 'occlude';
@@ -83,7 +83,7 @@ import { sketch, circle, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
   const lens = cells.filter((f) => Math.abs(f.centroid[0] - 50) < 1).at(0);
-  return [strokes(cells.edges(), { pen: 'pigma-005-black' }), strokes(lens.boundaryEdges, { pen: 'pigma-05-black' })];
+  return [strokes(cells.edges, { pen: 'pigma-005-black' }), strokes(lens.boundaryEdges, { pen: 'pigma-05-black' })];
 });
 ```
 
@@ -100,18 +100,18 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.material(circle(38, 50, 30), circle(62, 50, 30), circle(50, 26, 18)).planarize().faces();
   const most = Math.max(...cells.map((f) => f.adjacent.length));
   const middle = cells.filter((f) => f.adjacent.length === most).at(0);
-  return [strokes(cells.edges()), middle.adjacent.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) }))];
+  return [strokes(cells.edges), middle.adjacent.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.5) }) }))];
 });
 ```
 
-## cells.edges() · points() · boundaryEdges() · contours()
+## cells.edges · points · boundaryEdges() · contours()
 
 <include>/_sig/Faces.edges.mdx</include>
 <include>/_sig/Faces.points.mdx</include>
 <include>/_sig/Faces.boundaryEdges.mdx</include>
 <include>/_sig/Faces.contours.mdx</include>
 
-The same readings for a collection or a selection of faces. `edges()` is every edge that touches a selected face, once. `boundaryEdges()` is the outline of the selected faces as one region. A wall between two selected faces is not part of it. The boundary of a hole is part of it. `contours()` is that outline as closed loops. `polygon` reads it to fill the region.
+The same readings for a collection or a selection of faces. `edges` is every edge that touches a selected face, once. `boundaryEdges()` is the outline of the selected faces as one region. A wall between two selected faces is not part of it. The boundary of a hole is part of it. `contours()` is that outline as closed loops. `polygon` reads it to fill the region.
 
 ```ts live
 import { sketch, circle, polygon, fill, mm, strokes } from 'occlude';
@@ -136,7 +136,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.voronoi(t.scatter({ spacing: 14 })).faces();
   const seed = cells.filter((f) => f.centroid[0] > 40 && f.centroid[0] < 60 && f.centroid[1] > 40 && f.centroid[1] < 60);
   const ring = seed.adjacent().subtract(seed);
-  return [strokes(cells.edges()), ring.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) }))];
+  return [strokes(cells.edges), ring.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) }))];
 });
 ```
 
@@ -155,7 +155,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize().faces();
   const light = (x, y) => Math.max(0, 1 - Math.hypot(x - 20, y - 20) / 70);
   const m = cells.measure(light, { resolution: 120 });
-  return [strokes(cells.edges()), [...m].map((r) => [circle(r.centroid[0], r.centroid[1], 1.2), circle(r.weightedCentroid[0], r.weightedCentroid[1], 1.2, { pen: 'stabilo-88-blue' }), line(r.centroid[0], r.centroid[1], r.weightedCentroid[0], r.weightedCentroid[1], { pen: 'stabilo-88-blue' })])];
+  return [strokes(cells.edges), [...m].map((r) => [circle(r.centroid[0], r.centroid[1], 1.2), circle(r.weightedCentroid[0], r.weightedCentroid[1], 1.2, { pen: 'stabilo-88-blue' }), line(r.centroid[0], r.centroid[1], r.weightedCentroid[0], r.weightedCentroid[1], { pen: 'stabilo-88-blue' })])];
 });
 ```
 
