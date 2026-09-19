@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { compileFor, compileGraph, literal, type CompiledSketch } from './compile.js';
-import { accepts, parseGraph, wordInputs, type Catalogue } from './model.js';
+import { accepts, parseGraph, topoOrder, wordInputs, type Catalogue, type GraphNode } from './model.js';
 
 /** The words these tests need, shaped exactly as the generator emits them. */
 const CATALOGUE: Catalogue = {
@@ -561,3 +561,22 @@ describe('the catalogue', () => {
     expect(literal({ aspect: [1, 1], seed: 8, note: "it's" })).toBe(`{ aspect: [1, 1], seed: 8, note: 'it\\'s' }`);
   });
 });
+it('reads the nodes in the document\'s order, not the array\'s', () => {
+  // Two nodes that read nothing of each other are read in the order the
+  // document holds them, and that order is what each draws from the seeded
+  // stream. With `order` on the node, rewriting the array cannot move it.
+  const nodes: GraphNode[] = [
+    { id: 'a', kind: 'builtin', word: 'circle', order: 0, x: 0, y: 0, inputs: { x: { value: 1 }, y: { value: 1 }, r: { value: 1 } } },
+    { id: 'b', kind: 'builtin', word: 'circle', order: 1, x: 0, y: 0, inputs: { x: { value: 2 }, y: { value: 2 }, r: { value: 2 } } },
+    { id: 'out', kind: 'output', order: 2, x: 0, y: 0, inputs: { in: { from: ['a', 'out'] } } },
+  ];
+  const straight = compileGraph(doc(nodes), CATALOGUE).source;
+  const swapped = compileGraph(doc([nodes[1]!, nodes[0]!, nodes[2]!]), CATALOGUE).source;
+  expect(swapped).toBe(straight);
+  expect(topoOrder(doc([nodes[1]!, nodes[0]!, nodes[2]!]))).toEqual(['a', 'b', 'out']);
+  // Without it, the array is the order — which is what every document
+  // written before this meant.
+  const bare = nodes.map((n) => ({ ...n, order: undefined }));
+  expect(topoOrder(doc([bare[1]!, bare[0]!, bare[2]!]))).toEqual(['b', 'a', 'out']);
+});
+

@@ -1441,6 +1441,10 @@ class Reader {
   // ---- bookkeeping ----
 
   private add(node: GraphNode): GraphNode {
+    // The order a sketch is read in is the order it draws in, and the
+    // seeded stream is ink: pin it on the node, so a later rewrite of the
+    // document cannot move a node's place in the stream.
+    node.order = this.nodes.length;
     this.nodes.push(node);
     this.byId.set(node.id, node);
     return node;

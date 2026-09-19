@@ -374,6 +374,23 @@ export interface GraphNode {
    * this document, inside a frame of its own. Like `collapsed`, it is a
    * way of looking and it belongs to the document. */
   opened?: boolean;
+  /**
+   * Where this node stands among the nodes nothing orders for it.
+   *
+   * The compiled sketch reads the nodes in topological order, and two nodes
+   * that read nothing of each other are read in the order the document
+   * holds them. That order decides what each one draws from the seeded
+   * stream, so it is ink: swap two `t.scatter` nodes in the file and the
+   * drawing changes. Holding it in the node rather than in the array makes
+   * it a property of the document instead of a property of how the document
+   * happens to be written down, and anything that rewrites the array —
+   * expanding a group, pasting, a round trip through a sketch — leaves the
+   * ink alone by construction.
+   *
+   * Absent means "wherever the array put me", which is what every document
+   * written before this meant.
+   */
+  order?: number;
   /** The size the artist dragged the node to, in area units. Absent means
    * the body sizes itself to its content, as every node did before. */
   width?: number;
@@ -464,6 +481,7 @@ function parseNode(raw: unknown): GraphNode {
   const node: GraphNode = { id, kind, x, y, inputs };
   if (r.collapsed === true) node.collapsed = true;
   if (r.opened === true) node.opened = true;
+  if (typeof r.order === 'number' && Number.isFinite(r.order)) node.order = r.order;
   if (r.view3 === true) node.view3 = true;
   if (typeof r.width === 'number' && Number.isFinite(r.width) && r.width > 0) node.width = r.width;
   if (typeof r.height === 'number' && Number.isFinite(r.height) && r.height > 0) node.height = r.height;
@@ -576,6 +594,7 @@ export function nodeToRaw(n: GraphNode): Record<string, unknown> {
   out.y = n.y;
   if (n.collapsed) out.collapsed = true;
   if (n.opened) out.opened = true;
+  if (n.order !== undefined) out.order = n.order;
   if (n.view3) out.view3 = true;
   if (n.width !== undefined) out.width = n.width;
   if (n.height !== undefined) out.height = n.height;
@@ -615,7 +634,10 @@ export function graphToJson(graph: Graph): string {
  * Nodes keep their file order among equals, so the order is stable. A cycle
  * throws with the nodes it found. */
 export function topoOrder(graph: Graph): string[] {
-  const index = new Map(graph.nodes.map((n, i) => [n.id, i]));
+  // Among nodes nothing orders for it, the document's own order decides —
+  // the node's `order` when it has one, and where the array put it when it
+  // does not.
+  const index = new Map(graph.nodes.map((n, i) => [n.id, n.order ?? i]));
   const indegree = new Map(graph.nodes.map((n) => [n.id, 0]));
   const consumers = new Map<string, string[]>(graph.nodes.map((n) => [n.id, []]));
   for (const node of graph.nodes) {

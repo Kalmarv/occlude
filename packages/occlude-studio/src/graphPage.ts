@@ -1708,6 +1708,9 @@ async function place(node: GraphNode, at = canvas.centre()): Promise<void> {
   node.id = freshId(undefined, held);
   node.x = spot.x - origin.x;
   node.y = spot.y - origin.y;
+  // Last in the reading order, which is where the array would have put it:
+  // a new node draws from the seeded stream after everything already here.
+  node.order = held.nodes.reduce((most, n, i) => Math.max(most, n.order ?? i), -1) + 1;
   held.nodes.push(node);
   const id = host ? `${host.id}${PATH}${node.id}` : node.id;
   canvasName.set(node, id);
