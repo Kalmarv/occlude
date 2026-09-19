@@ -3726,3 +3726,39 @@ wa-dialog.wa-dialog-wide {
   stroke: var(--danger);
   stroke-width: 2.5;
 }
+
+/* A toggle in the page head reads as pressed, not as a button that was
+   clicked a moment ago. */
+.icon-btn[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* With snapping on, the ground the nodes land on is worth seeing. */
+.graph-canvas.graph-gridded {
+  background-image: radial-gradient(color-mix(in srgb, var(--accent) 28%, var(--edge-strong)) 1px, transparent 1px);
+}
+
+/* Align and distribute, on the canvas beside the work and only while more
+   than one node is picked. */
+.graph-arrange {
+  position: absolute;
+  z-index: 60;
+  left: 10px;
+  top: 10px;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(4px);
+  box-shadow: var(--shadow-2);
+}
+
+.graph-arrange .icon-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}

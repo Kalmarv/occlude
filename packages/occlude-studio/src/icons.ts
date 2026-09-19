@@ -41,6 +41,15 @@ const PATHS = {
   check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
   view: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>',
+  grid: '<path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',
+  alignLeft: '<path d="M4 3v18"/><rect x="7" y="5.5" width="12" height="4.5" rx="1"/><rect x="7" y="14" width="7" height="4.5" rx="1"/>',
+  alignMiddleX: '<path d="M12 3v18"/><rect x="5" y="5.5" width="14" height="4.5" rx="1"/><rect x="8.5" y="14" width="7" height="4.5" rx="1"/>',
+  alignRight: '<path d="M20 3v18"/><rect x="5" y="5.5" width="12" height="4.5" rx="1"/><rect x="10" y="14" width="7" height="4.5" rx="1"/>',
+  alignTop: '<path d="M3 4h18"/><rect x="5.5" y="7" width="4.5" height="12" rx="1"/><rect x="14" y="7" width="4.5" height="7" rx="1"/>',
+  alignMiddleY: '<path d="M3 12h18"/><rect x="5.5" y="5" width="4.5" height="14" rx="1"/><rect x="14" y="8.5" width="4.5" height="7" rx="1"/>',
+  alignBottom: '<path d="M3 20h18"/><rect x="5.5" y="5" width="4.5" height="12" rx="1"/><rect x="14" y="10" width="4.5" height="7" rx="1"/>',
+  spreadX: '<path d="M3 4v16M21 4v16"/><rect x="10" y="7.5" width="4" height="9" rx="1"/>',
+  spreadY: '<path d="M4 3h16M4 21h16"/><rect x="7.5" y="10" width="9" height="4" rx="1"/>',
   layout: '<rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="3" y="14" width="6" height="6" rx="1.5"/><rect x="15" y="9" width="6" height="6" rx="1.5"/><path d="M9 7h3v5h3"/><path d="M9 17h3v-5"/>',
 } as const;
 

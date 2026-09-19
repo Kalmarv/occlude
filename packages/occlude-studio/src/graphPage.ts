@@ -18,7 +18,7 @@ import { moduleName, type PaperDef, type PenDef, type RenderResult } from 'occlu
 import { ClassicPreset, type Root } from 'rete';
 
 import './wa.js';
-import { iconButton, withIcon } from './icons.js';
+import { iconButton, withIcon, type IconName } from './icons.js';
 import { confirmDialog, notify, promptDialog, showPanel } from './wa.js';
 import { transpileToCjs } from './editor.js';
 import { Preview } from './preview.js';
@@ -35,7 +35,7 @@ import { estimateBox, layoutGraph, type NodeBox } from './graph/layout.js';
 import { importSketch } from './graph/import.js';
 import { loadSketchByName, takeLive } from './sketchApi.js';
 import {
-  PAPER_OUTPUTS, accepts, graphToJson, inputTakes, kindOf, listPlaces, outputType, parseGraph, wordInputs, wordOf,
+  PAPER_OUTPUTS, accepts, cloneNode, graphToJson, inputTakes, kindOf, listPlaces, outputType, parseGraph, wordInputs, wordOf,
   type Catalogue, type CatalogueWord, type Graph, type GraphNode, type ValueType,
 } from './graph/model.js';
 import { deleteGraph, graphHref, listGraphs, loadGraphText, saveGraphText } from './graph/store.js';
@@ -116,10 +116,32 @@ const sketchBtn = withIcon(button('Open as sketch', () => openAsSketch()), 'expo
 sketchBtn.classList.add('graph-sketch');
 sketchBtn.title = 'Write the compiled source into the studio and open it there';
 const fitCanvasBtn = iconButton('frame', 'Fit the whole graph in view (Home)', () => canvas.fit());
+/** The ground follows the view, so the dots are the grid a node snaps to and
+ * not decoration that happens to look like one. */
+function paintGrid(): void {
+  const { x, y, k } = canvas.area.area.transform;
+  canvasHost.style.backgroundSize = `${GRID * k}px ${GRID * k}px`;
+  canvasHost.style.backgroundPosition = `${x}px ${y}px`;
+}
+
+/** Snapping is how the artist works, not what the graph is, so it lives with
+ * the page and not in the document. */
+const GRID = 22;
+let snapping = false;
+try { snapping = localStorage.getItem('occlude.graph.snap') === 'on'; } catch { /* private window */ }
+const onGrid = (n: number): number => Math.round(n / GRID) * GRID;
+const snapBtn = iconButton('grid', 'Snap to the grid while dragging', () => setSnap(!snapping));
+function setSnap(on: boolean): void {
+  snapping = on;
+  snapBtn.setAttribute('aria-pressed', String(on));
+  canvasHost.classList.toggle('graph-gridded', on);
+  try { localStorage.setItem('occlude.graph.snap', on ? 'on' : 'off'); } catch { /* private window */ }
+}
+
 const layoutBtn = iconButton('layout', 'Lay the graph out — columns that follow the wires', () => void autoLayout());
 const importBtn = withIcon(button('Import', () => void importFrom()), 'import');
 importBtn.title = 'Read a sketch from the library into a graph';
-actions.append(nameInput, openSelect, refreshBtn, newBtn, fitCanvasBtn, layoutBtn, importBtn, saveBtn, deleteBtn, sketchBtn);
+actions.append(nameInput, openSelect, refreshBtn, newBtn, fitCanvasBtn, layoutBtn, snapBtn, importBtn, saveBtn, deleteBtn, sketchBtn);
 head.append(heading, actions);
 
 const body = el('div', 'graph-body');
@@ -717,7 +739,10 @@ canvas.editor.addPipe((context: Root<GraphScheme>) => {
 
 canvas.area.addPipe((context: AreaExtra | Root<GraphScheme>) => {
   // The artist's own view of this graph, kept as they move it.
-  if (context.type === 'translated' || context.type === 'zoomed') rememberView();
+  if (context.type === 'translated' || context.type === 'zoomed') {
+    rememberView();
+    paintGrid();
+  }
   if (context.type === 'nodepicked') {
     const id = context.data.id;
     const at = (other: string): { x: number; y: number } => {
@@ -728,11 +753,23 @@ canvas.area.addPipe((context: AreaExtra | Root<GraphScheme>) => {
       ? { id, from: at(id), others: [...selection].filter((other) => other !== id).map((other) => ({ id: other, from: at(other) })) }
       : null;
   }
-  if (context.type === 'nodetranslated' && group && context.data.id === group.id) {
-    const dx = context.data.position.x - group.from.x;
-    const dy = context.data.position.y - group.from.y;
-    for (const other of group.others) {
-      void canvas.area.translate(other.id, { x: other.from.x + dx, y: other.from.y + dy });
+  if (context.type === 'nodetranslated') {
+    const at = context.data.position;
+    // Snap the node under the hand; the rest of the selection follows by the
+    // same delta, so a picture that was arranged stays arranged. The
+    // corrected translate comes back through here already on the grid, and
+    // that pass is the one that moves the others.
+    const leading = !group || context.data.id === group.id;
+    if (snapping && leading && (onGrid(at.x) !== at.x || onGrid(at.y) !== at.y)) {
+      void canvas.area.translate(context.data.id, { x: onGrid(at.x), y: onGrid(at.y) });
+      return context;
+    }
+    if (group && context.data.id === group.id) {
+      const dx = at.x - group.from.x;
+      const dy = at.y - group.from.y;
+      for (const other of group.others) {
+        void canvas.area.translate(other.id, { x: other.from.x + dx, y: other.from.y + dy });
+      }
     }
   }
   if (context.type === 'nodedragged') {
@@ -825,6 +862,101 @@ canvasHost.addEventListener('pointerdown', (event) => {
   window.addEventListener('pointerup', up);
 }, true);
 
+/**
+ * Align and distribute. The strip shows itself only when there is more than
+ * one node picked, because that is the only time it means anything, and it
+ * sits on the canvas rather than in the page head so it is next to the work.
+ * Sizes are measured from the drawn node and fall back to the estimate the
+ * layout uses, so a node that has not been drawn yet still lines up.
+ */
+type Placed = { node: GraphNode; w: number; h: number };
+
+function placedSelection(): Placed[] {
+  const zoom = canvas.area.area.transform.k || 1;
+  return graph.nodes.filter((node) => selection.has(node.id)).map((node) => {
+    const rect = views.get(node.id)?.body?.getBoundingClientRect();
+    const box = rect && rect.width > 0 && rect.height > 0
+      ? { width: rect.width / zoom, height: rect.height / zoom }
+      : estimateBox(node, catalogue);
+    return { node, w: box.width, h: box.height };
+  });
+}
+
+/** Put the nodes where the arrangement says, in the document and on the
+ * canvas at once. */
+async function settle(places: { node: GraphNode; x: number; y: number }[]): Promise<void> {
+  for (const place of places) {
+    place.node.x = Math.round(place.x);
+    place.node.y = Math.round(place.y);
+    await canvas.area.translate(place.node.id, { x: place.node.x, y: place.node.y });
+  }
+  touch();
+}
+
+type AlignTo = 'left' | 'middleX' | 'right' | 'top' | 'middleY' | 'bottom';
+
+async function align(to: AlignTo): Promise<void> {
+  const chosen = placedSelection();
+  if (chosen.length < 2) return;
+  const edge = {
+    left: Math.min(...chosen.map((p) => p.node.x)),
+    right: Math.max(...chosen.map((p) => p.node.x + p.w)),
+    top: Math.min(...chosen.map((p) => p.node.y)),
+    bottom: Math.max(...chosen.map((p) => p.node.y + p.h)),
+  };
+  const midX = (edge.left + edge.right) / 2;
+  const midY = (edge.top + edge.bottom) / 2;
+  await settle(chosen.map((p) => ({
+    node: p.node,
+    x: to === 'left' ? edge.left : to === 'right' ? edge.right - p.w : to === 'middleX' ? midX - p.w / 2 : p.node.x,
+    y: to === 'top' ? edge.top : to === 'bottom' ? edge.bottom - p.h : to === 'middleY' ? midY - p.h / 2 : p.node.y,
+  })));
+}
+
+/** Even gaps, with the two outermost nodes left where they are: the artist
+ * set the span, the strip only shares it out. */
+async function spread(axis: 'x' | 'y'): Promise<void> {
+  const chosen = placedSelection();
+  if (chosen.length < 3) return;
+  const near = (p: Placed): number => (axis === 'x' ? p.node.x : p.node.y);
+  const size = (p: Placed): number => (axis === 'x' ? p.w : p.h);
+  const order = [...chosen].sort((a, b) => near(a) - near(b));
+  const first = order[0]!;
+  const last = order[order.length - 1]!;
+  const span = near(last) + size(last) - near(first);
+  const gap = (span - order.reduce((sum, p) => sum + size(p), 0)) / (order.length - 1);
+  let at = near(first);
+  await settle(order.map((p) => {
+    const place = { node: p.node, x: axis === 'x' ? at : p.node.x, y: axis === 'y' ? at : p.node.y };
+    at += size(p) + gap;
+    return place;
+  }));
+}
+
+const arrange = el('div', 'graph-arrange');
+arrange.hidden = true;
+for (const [name, label, run] of [
+  ['alignLeft', 'Align left edges', () => align('left')],
+  ['alignMiddleX', 'Align centres across', () => align('middleX')],
+  ['alignRight', 'Align right edges', () => align('right')],
+  ['alignTop', 'Align top edges', () => align('top')],
+  ['alignMiddleY', 'Align centres down', () => align('middleY')],
+  ['alignBottom', 'Align bottom edges', () => align('bottom')],
+  ['spreadX', 'Even gaps across', () => spread('x')],
+  ['spreadY', 'Even gaps down', () => spread('y')],
+] as [IconName, string, () => Promise<void>][]) {
+  arrange.append(iconButton(name, label, () => void run()));
+}
+canvasHost.append(arrange);
+
+/** Where the pointer last was over the canvas, in client pixels: paste puts
+ * what it makes under the hand, the way the palette's drop does. */
+let pointerAt: { x: number; y: number } | null = null;
+canvasHost.addEventListener('pointermove', (event) => {
+  pointerAt = { x: event.clientX, y: event.clientY };
+});
+canvasHost.addEventListener('pointerleave', () => { pointerAt = null; });
+
 function applyWire(wire: GraphWire): void {
   // While the canvas is being rebuilt the document is already the truth:
   // and the teardown of the graph being replaced must never touch the new
@@ -903,6 +1035,7 @@ function freshId(besides?: Map<string, string>): string {
 }
 
 function paintSelection(): void {
+  arrange.hidden = selection.size < 2;
   for (const id of canvas.area.nodeViews.keys()) {
     canvas.area.nodeViews.get(id)?.element.classList.toggle('graph-sel', selection.has(id));
   }
@@ -1729,28 +1862,54 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     void duplicateSelection();
   }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+    event.preventDefault();
+    copySelection();
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'x') {
+    event.preventDefault();
+    void cutSelection();
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
+    event.preventDefault();
+    void pasteClipping();
+  }
 });
 
+/** Take the wire off an input. What is left is the input's own literal, or
+ * nothing at all — and an input that is set to nothing is not in the
+ * document, because `{}` is neither a value nor an edge. */
+function cutWire(node: GraphNode, key: string): void {
+  const input = node.inputs[key];
+  if (!input) return;
+  delete input.from;
+  delete input.spread;
+  if (input.value === undefined) delete node.inputs[key];
+}
+
 /**
- * The selection again, a little down and to the right, and wired to whatever
- * the originals read. A wire *between* two of the copied nodes is copied
- * too; a wire from outside the selection is kept as it was, because the
- * thing it comes from is still there.
+ * Put a set of nodes into the open graph: fresh ids, moved by (dx, dy), and
+ * the wires among them re-pointed at the copies. A wire that leaves the set
+ * survives only when the thing it comes from is still in this graph — true
+ * for a duplicate, false for a paste from another document, where it is
+ * dropped and the input falls back to its own control.
  */
-async function duplicateSelection(): Promise<void> {
-  const chosen = graph.nodes.filter((node) => selection.has(node.id));
-  if (chosen.length === 0) return;
+async function implant(source: GraphNode[], dx: number, dy: number): Promise<GraphNode[]> {
   const renamed = new Map<string, string>();
-  for (const node of chosen) renamed.set(node.id, freshId(renamed));
+  for (const node of source) renamed.set(node.id, freshId(renamed));
   const made: GraphNode[] = [];
-  for (const node of chosen) {
-    const copy = parseGraph(JSON.parse(graphToJson({ ...graph, nodes: [node] }))).nodes[0]!;
+  for (const node of source) {
+    const copy = cloneNode(node);
     copy.id = renamed.get(node.id)!;
-    copy.x = node.x + 36;
-    copy.y = node.y + 30;
-    for (const input of Object.values(copy.inputs)) {
+    copy.x = node.x + dx;
+    copy.y = node.y + dy;
+    for (const [key, input] of Object.entries(copy.inputs)) {
       const from = input.from?.[0];
-      if (from !== undefined && renamed.has(from)) input.from = [renamed.get(from)!, input.from![1]];
+      if (from === undefined) continue;
+      if (renamed.has(from)) input.from = [renamed.get(from)!, input.from![1]];
+      // An input with nothing left in it is an input that is not set: the
+      // document says so by leaving the key out, not by holding `{}`.
+      else if (!nodeById(from)) cutWire(copy, key);
     }
     graph.nodes.push(copy);
     made.push(copy);
@@ -1769,6 +1928,75 @@ async function duplicateSelection(): Promise<void> {
   paintSelection();
   for (const copy of made) canvas.raise(copy.id);
   touch();
+  return made;
+}
+
+/** The selection again, a little down and to the right. */
+async function duplicateSelection(): Promise<void> {
+  const chosen = graph.nodes.filter((node) => selection.has(node.id));
+  if (chosen.length === 0) return;
+  await implant(chosen, 36, 30);
+}
+
+const CLIP = 'occlude.graph.clip';
+
+/**
+ * A clipping is a graph document that holds only the copied nodes, so the
+ * one reader (`parseGraph`) reads it. It is written to the system clipboard
+ * *and* to local storage: the clipboard carries it between windows and out
+ * to a text editor, and the store is what a browser that refuses to hand
+ * back the clipboard falls back to.
+ */
+function copySelection(): void {
+  const chosen = graph.nodes.filter((node) => selection.has(node.id));
+  if (chosen.length === 0) return;
+  // A wire that leaves the selection has no meaning once the clipping is on
+  // its own, so it is cut here and the clipping is a graph in its own right.
+  const kept = new Set(chosen.map((node) => node.id));
+  const nodes = chosen.map((node) => {
+    const copy = cloneNode(node);
+    for (const [key, input] of Object.entries(copy.inputs)) {
+      if (input.from && !kept.has(input.from[0])) cutWire(copy, key);
+    }
+    return copy;
+  });
+  const text = graphToJson({ ...graph, name: 'clipping', nodes });
+  try { localStorage.setItem(CLIP, text); } catch { /* private window */ }
+  void navigator.clipboard?.writeText(text).catch(() => undefined);
+  status(`copied ${chosen.length} node${chosen.length === 1 ? '' : 's'}`);
+}
+
+async function cutSelection(): Promise<void> {
+  if (selection.size === 0) return;
+  copySelection();
+  for (const id of [...selection]) await removeNode(id);
+}
+
+function clippingOf(text: string | null): GraphNode[] | null {
+  if (!text || !text.trimStart().startsWith('{')) return null;
+  try {
+    const nodes = parseGraph(JSON.parse(text)).nodes;
+    return nodes.length > 0 ? nodes : null;
+  } catch { return null; }
+}
+
+/** Paste under the pointer, or in the middle of the view when the pointer is
+ * elsewhere. The clipping keeps its own shape: every node moves by the same
+ * amount, so what was one picture stays one picture. */
+async function pasteClipping(): Promise<void> {
+  let text: string | null = null;
+  try { text = await navigator.clipboard.readText(); } catch { text = null; }
+  let nodes = clippingOf(text);
+  if (!nodes) {
+    try { nodes = clippingOf(localStorage.getItem(CLIP)); } catch { nodes = null; }
+  }
+  if (!nodes) { status('nothing to paste', 'err'); return; }
+  const at = pointerAt ? canvas.at(pointerAt.x, pointerAt.y) : canvas.centre();
+  const left = Math.min(...nodes.map((node) => node.x));
+  const top = Math.min(...nodes.map((node) => node.y));
+  const spot = freeSpot(at);
+  const made = await implant(nodes, spot.x - left, spot.y - top);
+  status(`pasted ${made.length} node${made.length === 1 ? '' : 's'}`);
 }
 
 // Leaving with work that is not saved asks first. The draft is written
@@ -1786,6 +2014,8 @@ window.addEventListener('resize', () => {
 // ---- boot ----
 
 async function boot(): Promise<void> {
+  setSnap(snapping);
+  paintGrid();
   buildPalette();
   pens = await loadPens();
   papers = await loadPapers();

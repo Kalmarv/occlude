@@ -536,6 +536,32 @@ export function parseGraph(raw: unknown): Graph {
   };
 }
 
+/** One node as the file holds it. A node on its own is also what a clipping
+ * and a duplicate are made of, and neither can be asked to satisfy the
+ * document's rule that every wire lands on a node that is present. */
+export function nodeToRaw(n: GraphNode): Record<string, unknown> {
+  const out: Record<string, unknown> = { id: n.id, kind: n.kind };
+  if (n.word !== undefined) out.word = n.word;
+  out.x = n.x;
+  out.y = n.y;
+  if (n.width !== undefined) out.width = n.width;
+  if (n.height !== undefined) out.height = n.height;
+  out.inputs = n.inputs;
+  if (n.outputs !== undefined) out.outputs = n.outputs;
+  if (n.body !== undefined) out.body = n.body;
+  // A zone carries its recipe, the names its body is handed, and the
+  // graph that is that body.
+  if (n.zone !== undefined) out.zone = n.zone;
+  if (n.binds !== undefined) out.binds = n.binds;
+  if (n.graph !== undefined) out.graph = JSON.parse(graphToJson(n.graph)) as unknown;
+  return out;
+}
+
+/** A node that shares nothing with the one it came from. */
+export function cloneNode(n: GraphNode): GraphNode {
+  return parseNode(JSON.parse(JSON.stringify(nodeToRaw(n))));
+}
+
 /** The graph as the file holds it: stable key order, two-space indent. */
 export function graphToJson(graph: Graph): string {
   return JSON.stringify(
@@ -544,21 +570,7 @@ export function graphToJson(graph: Graph): string {
       name: graph.name,
       config: graph.config,
       nodes: graph.nodes.map((n) => {
-        const out: Record<string, unknown> = { id: n.id, kind: n.kind };
-        if (n.word !== undefined) out.word = n.word;
-        out.x = n.x;
-        out.y = n.y;
-        if (n.width !== undefined) out.width = n.width;
-        if (n.height !== undefined) out.height = n.height;
-        out.inputs = n.inputs;
-        if (n.outputs !== undefined) out.outputs = n.outputs;
-        if (n.body !== undefined) out.body = n.body;
-        // A zone carries its recipe, the names its body is handed, and the
-        // graph that is that body.
-        if (n.zone !== undefined) out.zone = n.zone;
-        if (n.binds !== undefined) out.binds = n.binds;
-        if (n.graph !== undefined) out.graph = JSON.parse(graphToJson(n.graph)) as unknown;
-        return out;
+        return nodeToRaw(n);
       }),
     },
     null,
