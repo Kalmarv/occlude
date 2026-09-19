@@ -45,6 +45,11 @@ const TS_TYPE: Record<string, { type: string; module?: 'occlude' | 'occlude/3d';
   // A pen is named, not built: a sketch says which of its pens to draw with.
   Pen: { type: 'string' },
   Image: { type: 'ImageSampler', module: 'occlude', name: 'ImageSampler' },
+  // A force is a function of a point, and a body calls it: `push(p, k)`
+  // inside a rule is checked for what it is instead of reading as an error.
+  // The point is `any` because the socket cannot say whether this force
+  // wants a vertex or a bare position, and both are forces.
+  Force: { type: '((p: any, k?: number) => [number, number])' },
   // Geometry with no kind is "the graph does not know": `any`, not
   // `unknown`, because a squiggle the graph invented on a body that runs is
   // worse than no check. A node whose type the artist declares is checked.

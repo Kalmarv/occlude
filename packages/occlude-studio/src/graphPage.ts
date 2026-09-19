@@ -383,6 +383,32 @@ function placeTo(id: string, at: { x: number; y: number }): void {
   node.y = Math.round(at.y - origin.y);
 }
 
+/**
+ * A body that has never been looked at has no places: the importer writes
+ * the nodes and leaves them at the origin, which would paint them all on
+ * top of each other. Lay one out the first time it is painted — on opening
+ * it, and on opening a document that was saved with it open — and leave it
+ * alone ever after, because where the artist puts a node is the artist's.
+ */
+function settleBodies(): void {
+  for (const zone of openZones()) {
+    const body = zone.graph!;
+    if (body.nodes.length < 2 || !body.nodes.every((n) => n.x === 0 && n.y === 0)) continue;
+    try {
+      const places = layoutGraph(body, (n) => estimateBox(n, catalogue));
+      for (const inner of body.nodes) {
+        const at = places.get(inner.id);
+        if (!at) continue;
+        inner.x = Math.round(at.x);
+        inner.y = Math.round(at.y);
+      }
+    } catch {
+      // A cycle inside a body is the compiler's to report, not the canvas's:
+      // paint it stacked rather than refuse to open it.
+    }
+  }
+}
+
 /** The frames behind the nodes, measured from the bodies they hold. */
 function paintFrames(): void {
   canvas.setFrames(openZones().map((zone) => {
@@ -745,29 +771,8 @@ const paintHooks: NodePaintHooks = {
   },
   openGroup: (node) => void openGroup(node.word ?? ''),
   openZone: (node, on) => {
-    if (on) {
-      node.opened = true;
-      // A body that has never been looked at has no places: the importer
-      // writes the nodes and leaves them at the origin, which paints them
-      // all on top of each other. Lay it out once, the first time it is
-      // opened, and leave it alone ever after — where the artist puts a
-      // node is the artist's.
-      const body = node.graph;
-      if (body && body.nodes.every((n) => n.x === 0 && n.y === 0)) {
-        try {
-          const places = layoutGraph(body, (n) => estimateBox(n, catalogue));
-          for (const inner of body.nodes) {
-            const at = places.get(inner.id);
-            if (!at) continue;
-            inner.x = Math.round(at.x);
-            inner.y = Math.round(at.y);
-          }
-        } catch {
-          // A cycle inside a body is the compiler's to report, not the
-          // canvas's: paint it stacked rather than refuse to open it.
-        }
-      }
-    } else delete node.opened;
+    if (on) node.opened = true;
+    else delete node.opened;
     // The body's nodes join the canvas or leave it, so this is a rebuild,
     // not a repaint. The document did not change what it MAKES, so the
     // preview is not stale and nothing re-renders.
@@ -1607,6 +1612,7 @@ async function buildCanvas(): Promise<void> {
     view.off?.();
   }
   views.clear();
+  settleBodies();
   const showing = painted();
   for (const { id, node } of showing) await canvas.editor.addNode(reteNode(node, id));
   for (const { id, node } of showing) {
