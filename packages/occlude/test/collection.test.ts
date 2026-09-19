@@ -46,9 +46,9 @@ describe('geometry collections: points and edges', () => {
     expect(calls).toBe(3);
   });
 
-  it('edits scope by selection and refuse a selection of another state', () => {
+  it('edits scope by selection, and a selection from an earlier state re-binds', () => {
     const m = Y();
-    const stale = m.points.filter((p) => p.age >= 3);
+    const earlier = m.points.filter((p) => p.age >= 3);
     const moved = m.steps(1, (cur, next) => {
       const tips = cur.points.filter((p) => p.adjacent.length === 1 && p.age > 0);
       next.move(tips, () => [0, 1]);
@@ -57,7 +57,10 @@ describe('geometry collections: points and edges', () => {
     expect(moved.y[2]).toBe(1);
     expect(moved.attrs.age[3]).toBe(9);
     expect(moved.y[0]).toBe(0); // degree 1 but age 0
-    expect(() => moved.steps(1, (cur, next) => next.move(stale, () => [1, 0]))).toThrow(/another state|different state/);
+    // A selection made before the step names the same points afterwards:
+    // the verb finds them by identity instead of refusing the selection.
+    const again = moved.steps(1, (_cur, next) => next.move(earlier, () => [1, 0]));
+    for (const i of earlier.indices) expect(again.x[i]).toBe(moved.x[i] + 1);
   });
 });
 

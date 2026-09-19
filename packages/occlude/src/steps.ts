@@ -234,8 +234,11 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
     if (r instanceof EdgeSelection) throw new Error(`steps: ${what} needs a point selection, not edges`);
     if (isHandle(r)) throw new Error(`steps: ${what} cannot be a handle here`);
     if (isVertexView(r)) {
-      if (ownerOf(r) !== cur) throw new Error(`steps: ${what} is a vertex of another material`);
-      return r.index;
+      if (ownerOf(r) === cur) return r.index;
+      // The same vertex, held from an earlier state: found by who it is.
+      const row = cur.rowOfPoint(r.id);
+      if (row < 0) throw new Error(`steps: ${what} is not a vertex of this state — it is of another material, or this state no longer has it`);
+      return row;
     }
     if (!Number.isInteger(r) || r < 0 || r >= n) throw new Error(`steps: ${what}: no vertex ${String(r)} in this state (${n} rows)`);
     return r;
@@ -246,18 +249,24 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
       return e;
     }
     if (viewKind(e) !== 'edge') throw new Error(`steps: ${what} must be an edge row or view`);
-    if (ownerOf(e as unknown as Vertex) !== cur) throw new Error(`steps: ${what} is an edge of another material (or another state)`);
-    return e.index;
+    if (ownerOf(e as unknown as Vertex) === cur) return e.index;
+    const row = cur.rowOfEdge(e.id);
+    if (row < 0) throw new Error(`steps: ${what} is not an edge of this state — it is of another material, or a split retired it`);
+    return row;
   };
+  // A selection from an EARLIER state of the same evolution is re-bound by
+  // identity rather than refused: the rows are that state's numbering, but
+  // the points are the same points. Members that are gone are skipped. A
+  // selection of a material with no shared identity re-binds to nothing,
+  // and the verb then does nothing — which is what "skip what is gone"
+  // means when everything is gone.
   const pointRows = (selection: PointSelection, what: string): readonly number[] => {
     if (!(selection instanceof PointSelection)) throw new Error(`steps: ${what} needs a point selection — use prev.points.filter(...)`);
-    if (selection.source !== cur) throw new Error(`steps: ${what}: selection is of another state — select from this pass's input`);
-    return selection.indices;
+    return selection.source === cur ? selection.indices : selection.in(cur).indices;
   };
   const edgeRows = (selection: EdgeSelection, what: string): readonly number[] => {
     if (!(selection instanceof EdgeSelection)) throw new Error(`steps: ${what} needs an edge selection — use prev.edges.filter(...)`);
-    if (selection.source !== cur) throw new Error(`steps: ${what}: selection is of another state — select from this pass's input`);
-    return selection.indices;
+    return selection.source === cur ? selection.indices : selection.in(cur).indices;
   };
   const writePoint = (index: number, attrs: Record<string, number>) => {
     for (const [name, v] of Object.entries(attrs)) {

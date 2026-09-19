@@ -802,8 +802,10 @@ describe('structural editing (edges brief)', () => {
     expect(out.edge(1).attrs.rest).toBeCloseTo(10);
     expect(out.points.at(1).adjacent.length).toBe(3);
     const other = Y();
-    expect(() => y.steps(1, (_, n) => n.split(other.edge(0)))).toThrow(/another material/);
-    expect(() => y.steps(1, (_, n) => n.remove(other.vertex(0)))).toThrow(/another material/);
+    // A view of a material that shares no identity is not of this state,
+    // and the refusal names both ways that can happen.
+    expect(() => y.steps(1, (_, n) => n.split(other.edge(0)))).toThrow(/not an edge of this state/);
+    expect(() => y.steps(1, (_, n) => n.remove(other.vertex(0)))).toThrow(/not a vertex of this state/);
     let stale: import('../src/material.js').Ref | null = null;
     const a = y.steps(1, (cur, n) => { stale = n.split(cur.edge(0)); });
     expect(() => a.steps(1, (cur, n) => { n.split(cur.edge(0)); n.connect(stale!, 4, { rest: 1, strength: 1 }); })).toThrow(/another edit batch/);

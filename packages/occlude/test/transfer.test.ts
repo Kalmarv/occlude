@@ -68,7 +68,7 @@ describe('transfer contracts (con2 stage B)', () => {
     expect(planarize(append(a, c), { point: () => ({ kind: 9 }) }).attrs.kind[4]).toBe(9);
   });
 
-  it('edits take a selection of the current state — for points, edges and bulk splits — and refuses another state', () => {
+  it('edits take a selection of the current state — for points, edges and bulk splits — and re-bind an earlier one', () => {
     const m = curve([[0, 0], [10, 0], [20, 0], [30, 0]], { closed: false, active: [1, 0, 1, 0] });
     const stale = m.points.filter((p) => p.active === 1);
     const out = m.steps(1, (cur, next) => {
@@ -83,7 +83,10 @@ describe('transfer contracts (con2 stage B)', () => {
     expect(Array.from(out.y)).toEqual([5, 0, 2.5, 5, 2.5, 0]);
     expect(Array.from(out.attrs.active)).toEqual([2, 0, 1, 2, 1, 0]);
     expect(out.edgeCount).toBe(4); // edge 0 gone; edges 1 and 2 split into two each
-    expect(() => m.steps(1, (_, next) => next.move(stale, () => [1, 0]))).toThrow(/another state/);
+    // A selection made before the step is about the same points, so the
+    // verb takes it and moves them.
+    const rebound = m.steps(1, (_, next) => next.move(stale, () => [1, 0]));
+    for (const i of stale.indices) expect(rebound.x[i]).toBe(m.x[i] + 1);
     expect(() => m.steps(1, (cur, next) => next.remove(cur.edges.filter(() => true) as never))).toThrow(/point selection/);
   });
 

@@ -149,16 +149,17 @@ describe('selection-first step passes', () => {
     let selection: PointSelection;
     let handle: Handle;
     const seed = material([[0, 0]]);
-    expect(() =>
-      seed.steps(
-        1,
-        (prev, next) => {
-          selection = prev.points;
-          next.move(selection, [1, 0]);
-        },
-        (_, next) => next.move(selection, [1, 0]),
-      ),
-    ).toThrow(/another state/);
+    // A selection made in an earlier pass is about the same points, so the
+    // later pass re-binds it rather than refusing it: the point moves twice.
+    const twice = seed.steps(
+      1,
+      (prev, next) => {
+        selection = prev.points;
+        next.move(selection, [1, 0]);
+      },
+      (_, next) => next.move(selection, [1, 0]),
+    );
+    expect(twice.x[0]).toBe(2);
     expect(() =>
       seed.steps(
         1,

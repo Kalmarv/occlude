@@ -176,8 +176,30 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
   has(view: Vertex): boolean {
     if (isEdgeView(view)) throw new Error('selection.has: this is a point selection; an edge view cannot be a member');
     if (!isVertexView(view)) throw new Error('selection.has: expected a vertex view');
-    if (!ownedBy(view, this.source)) return false;
-    return this.set === null ? view.index < this.source.n : this.set.has(view.index);
+    // A view from an earlier state of the same evolution is asked about by
+    // identity: the row it holds is that state's, but who it is has not
+    // changed. A vertex that is gone is not a member, which is the same
+    // answer a foreign vertex gets.
+    const row = ownedBy(view, this.source) ? view.index : this.source.rowOfPoint(view.id);
+    if (row < 0) return false;
+    return this.set === null ? row < this.source.n : this.set.has(row);
+  }
+
+  /**
+   * This selection read against a later state: the rows are found again by
+   * identity, and the members that are gone are dropped.
+   *
+   * A selection holds rows, and rows are a state's own numbering. `in` is
+   * how a selection made two steps ago is still about the same points.
+   */
+  in(state: Material): PointSelection<K> {
+    if (state === this.source) return this;
+    const rows: number[] = [];
+    for (const i of this.indices) {
+      const row = state.rowOfPoint(this.source.pointIds[i] as never);
+      if (row >= 0) rows.push(row);
+    }
+    return new PointSelection(state, rows, this.key);
   }
 
   union(other: PointSelection<unknown>): PointSelection {
@@ -342,12 +364,28 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
   /** True when `view` is an edge of the source and was selected. */
   has(view: Edge): boolean {
     if (isEdgeView(view)) {
-      if (!ownedBy(view, this.source)) return false;
-      return this.set === null ? view.index < this.source.edgeCount : this.set.has(view.index);
+      // Asked by identity when the view is from another state of the same
+      // evolution; an edge that a split retired is not a member.
+      const row = ownedBy(view, this.source) ? view.index : this.source.rowOfEdge(view.id);
+      if (row < 0) return false;
+      return this.set === null ? row < this.source.edgeCount : this.set.has(row);
     }
     if (isVertexView(view)) throw new Error('selection.has: this is an edge selection; a vertex view cannot be a member');
     throw new Error('selection.has: expected an edge view');
   }
+
+  /** This selection read against a later state, by identity: an edge that
+   * was split is gone, because a split retires the parent. */
+  in(state: Material): EdgeSelection<K> {
+    if (state === this.source) return this;
+    const rows: number[] = [];
+    for (const e of this.indices) {
+      const row = state.rowOfEdge(this.source.edgeIds[e] as never);
+      if (row >= 0) rows.push(row);
+    }
+    return new EdgeSelection(state, rows, this.key);
+  }
+
 
   /** The endpoints of the selected edges — each once, source order. */
   get endpointRows(): readonly number[] {

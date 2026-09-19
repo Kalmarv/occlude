@@ -21,9 +21,11 @@ describe('selections', () => {
     expect(old.map((p) => p.index)).toEqual([2, 3, 4, 5]);
     expect(old.has(m.vertex(3))).toBe(true);
     expect(old.has(m.vertex(0))).toBe(false);
-    // the same rows of another state are not members
+    // A vertex of a LATER state of the same evolution is the same vertex:
+    // `has` asks by identity, not by row. A vertex of a material that
+    // shares no identity is not a member, however its rows line up.
     const other = m.attribute('age', 0);
-    expect(old.has(other.vertex(3))).toBe(false);
+    expect(old.has(other.vertex(3))).toBe(true);
     expect(old.has(Y().vertex(3))).toBe(false);
     // wrong domain
     expect(() => old.has(m.edge(0) as unknown as Vertex)).toThrow(/edge view/);
@@ -119,10 +121,13 @@ describe('extraction', () => {
     expect(Array.from(branches.attrs.kind)).toEqual([7, 7, 7]);
     expect(branches.transfers.kind).toBe('nearest');
     expect(branches.iteration).toBe(0);
-    // independent: writing the copy leaves the source alone, and the source's views are not owned by it
+    // independent: writing the copy leaves the source alone. The extracted
+    // edge IS one of the source's edges — extraction carries identity, which
+    // is what makes an extracted piece still about the same material — so
+    // `has` says so.
     branches.x[0] = 999;
     expect(src.x[2]).toBe(20);
-    expect(src.edges.filter(() => true).has(branches.edge(0))).toBe(false);
+    expect(src.edges.filter(() => true).has(branches.edge(0))).toBe(true);
     // a split afterwards obeys the carried policy (nearest copies)
     const split = branches.steps(1, (cur, next) => next.split(cur.edge(0), { at: 0.3 }));
     expect(split.attrs.kind[1]).toBe(7);
@@ -163,13 +168,15 @@ describe('drawing selections', () => {
 });
 
 describe('selections in edits', () => {
-  it('a current-state selection drives existing selectors; outer selections do not rebind', () => {
+  it('a current-state selection drives existing selectors, and an outer one re-binds by identity', () => {
     const m = Y();
     const outer = m.points.filter((p) => p.age >= 3);
     const moved = m.steps(1, (current, next) => {
       const old = current.points.filter((p) => p.age >= 3);
-      expect(current).not.toBe(m); // steps works on its own copy: the outer selection is of another state
-      expect(outer.has(current.vertex(3))).toBe(false);
+      expect(current).not.toBe(m); // steps works on its own copy
+      // The copy carries identity, so a selection made before the step is
+      // still about the same points: `has` answers by who, not by which row.
+      expect(outer.has(current.vertex(3))).toBe(true);
       next.move(current.points.filter((p) => old.has(p)), () => [0, 5]);
       const strong = current.edges.filter((e) => e.attrs.strength >= 3);
       next.setEdges(current.edges.filter((e) => strong.has(e)), () => ({ strength: 100 }));

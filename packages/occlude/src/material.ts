@@ -454,13 +454,22 @@ export class Material {
     return map.get(id) ?? -1;
   }
 
-  /** The vertex an id names in this state, or undefined when it is gone. */
-  point(id: PointId): Vertex | undefined {
+  /**
+   * The vertex an id names in this state, or undefined when it is gone.
+   *
+   * Named apart from `vertex(row)` on purpose: an id and a row are both
+   * numbers, so one word taking either would have to guess which you meant,
+   * and guessing wrong is silent. `pointOf` asks by identity, `vertex` by
+   * position in this state.
+   */
+  pointOf(id: PointId): Vertex | undefined {
     const row = this.rowOfPoint(id);
     return row < 0 ? undefined : this.vertex(row);
   }
 
-  /** The edge an id names in this state, or undefined when it is gone. */
+  /** The edge an id names in this state, or undefined when it is gone; a
+   * split retires the parent, so its id resolves to nothing. `edge(row)`
+   * is the same question asked by position. */
   edgeOf(id: EdgeId): Edge | undefined {
     const row = this.rowOfEdge(id);
     return row < 0 ? undefined : this.edge(row);
