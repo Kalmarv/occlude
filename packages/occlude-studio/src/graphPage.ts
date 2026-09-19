@@ -38,7 +38,7 @@ import { estimateBox, layoutGraph, type NodeBox } from './graph/layout.js';
 import { importSketch, layoutBlock } from './graph/import.js';
 import { loadSketchByName, stashLive, takeLive } from './sketchApi.js';
 import {
-  PAPER_OUTPUTS, accepts, cloneNode, graphToJson, inputTakes, isUsableName, kindOf, listPlaces, outputType, parseGraph, wordInputs, wordOf,
+  PAPER_OUTPUTS, accepts, cloneNode, graphToJson, inputTakes, isUsableName, kindOf, listPlaces, outputType, parseGraph, socketOf, wordInputs, wordOf,
   type Catalogue, type CatalogueWord, type Graph, type GraphNode, type Takes, type ValueType,
 } from './graph/model.js';
 import { deleteGraph, graphHref, listGraphs, listGroups, loadGraphText, loadGroupText, saveGraphText, saveGroupText } from './graph/store.js';
@@ -1286,6 +1286,126 @@ mapBox.addEventListener('pointerup', (event) => {
 });
 mapBox.addEventListener('wheel', (event) => event.stopPropagation());
 
+/**
+ * What flows through a socket, as a picture, while the pointer rests on it.
+ *
+ * The brief asks for thumbnails on geometry sockets. Always-on would be a
+ * render per socket per edit, which is the opposite of the fifty-node rule in
+ * the same list — so the picture is made when it is asked for, by resting on
+ * the socket, and kept until the graph that made it changes. It is the viewer
+ * node's own machinery: a viewer is wired to the socket in a copy of the
+ * document, and what that viewer would show is what the thumbnail shows.
+ */
+const THUMB_DELAY = 420;
+const THUMB_ID = 'thumb_socket';
+
+const thumb = el('div', 'graph-thumb');
+thumb.hidden = true;
+const thumbCanvas = document.createElement('canvas');
+const thumbNote = el('div', 'graph-thumb-note');
+thumb.append(thumbCanvas, thumbNote);
+canvasHost.append(thumb);
+const thumbPreview = new Preview(thumbCanvas);
+
+/** The last picture, by the compiled hash of what it draws. */
+const thumbCache = new Map<string, RenderResult>();
+let thumbTimer: number | undefined;
+let thumbShowing: string | null = null;
+let thumbTurn = 0;
+
+function hideThumb(): void {
+  window.clearTimeout(thumbTimer);
+  thumbTimer = undefined;
+  thumbTurn++;
+  thumbShowing = null;
+  thumb.hidden = true;
+}
+
+/** The viewer this socket would have, if it had one. */
+function thumbViewer(nodeId: string, key: string): GraphNode {
+  return { id: THUMB_ID, kind: 'viewer', x: 0, y: 0, inputs: { in: { from: [nodeId, key] } } };
+}
+
+async function showThumb(nodeId: string, key: string, dot: HTMLElement): Promise<void> {
+  const at = `${nodeId}:${key}`;
+  const type = typeOfOutput(nodeId, key);
+  // Only geometry: a number is already written on the node that made it.
+  if (!type || socketOf(type) !== 'Geometry') return;
+  const fake = thumbViewer(nodeId, key);
+  const show = viewerShow(fake);
+  if (show === 'number') return;
+  const host = canvasHost.getBoundingClientRect();
+  const spot = dot.getBoundingClientRect();
+  thumb.style.left = `${Math.min(host.width - 176, spot.right - host.left + 10)}px`;
+  thumb.style.top = `${Math.max(6, Math.min(host.height - 150, spot.top - host.top - 60))}px`;
+  thumbNote.textContent = `${key === 'out' ? nodeId : at} · ${type}`;
+  thumb.hidden = false;
+  thumbShowing = at;
+
+  let compiled: CompiledSketch;
+  try {
+    const flattened = flat();
+    compiled = compileFor(
+      { ...flattened, nodes: [...flattened.nodes, fake] },
+      catalogue,
+      THUMB_ID,
+      'in',
+      {
+        wrap: show === 'strokes' || show === 'try' ? (expression: string) => `strokes(${expression})` : undefined,
+      },
+    );
+  } catch (error) {
+    thumbPreview.setStale(true);
+    thumbNote.textContent = error instanceof Error ? error.message : String(error);
+    return;
+  }
+  const key2 = compiled.nodes.map((n) => n.hash).join('|');
+  const cached = thumbCache.get(key2);
+  if (cached) {
+    thumbPreview.setPaperColor(cached.paper.color ?? settings.paperColor);
+    thumbPreview.setResult(cached);
+    thumbPreview.fit();
+    return;
+  }
+  const mine = ++thumbTurn;
+  thumbPreview.setStale(true);
+  try {
+    const reply = await client.render({ js: await jsOf(compiled.source), cfg: runConfig() }, () => mine === thumbTurn);
+    if (!reply || mine !== thumbTurn || thumbShowing !== at) return;
+    // A graph is small and a socket is looked at many times: keep a few.
+    if (thumbCache.size > 24) thumbCache.clear();
+    thumbCache.set(key2, reply.result);
+    thumbPreview.setPaperColor(reply.result.paper.color ?? settings.paperColor);
+    thumbPreview.setResult(reply.result);
+    thumbPreview.fit();
+  } catch (error) {
+    if (mine !== thumbTurn) return;
+    thumbPreview.setStale(true);
+    thumbNote.textContent = error instanceof Error ? error.message : String(error);
+  }
+}
+
+canvasHost.addEventListener('pointerover', (event) => {
+  const target = event.target as HTMLElement | null;
+  const dot = target?.closest<HTMLElement>('[data-socket]');
+  const parts = dot?.dataset.socket?.split(':') ?? [];
+  const body = dot?.closest<HTMLElement>('.graph-node-body');
+  if (!dot || !body || parts[0] !== 'output' || !body.dataset.node) {
+    if (!target?.closest('.graph-thumb')) hideThumb();
+    return;
+  }
+  const at = `${body.dataset.node}:${parts[1]}`;
+  if (thumbShowing === at) return;
+  hideThumb();
+  const turn = thumbTurn;
+  thumbTimer = window.setTimeout(() => {
+    if (turn !== thumbTurn) return;
+    void showThumb(body.dataset.node!, parts[1]!, dot);
+  }, THUMB_DELAY);
+});
+
+canvasHost.addEventListener('pointerleave', () => hideThumb());
+
 /** Where the pointer last was over the canvas, in client pixels: paste puts
  * what it makes under the hand, the way the palette's drop does. */
 let pointerAt: { x: number; y: number } | null = null;
@@ -1642,6 +1762,9 @@ function schedule(): void {
 
 function touch(): void {
   paintMap();
+  // A picture of a socket is a picture of the graph that fed it.
+  thumbCache.clear();
+  hideThumb();
   dirty = true;
   showDirty();
   saveDraft();

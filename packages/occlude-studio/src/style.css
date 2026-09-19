@@ -3837,3 +3837,39 @@ wa-dialog.wa-dialog-wide {
   outline: 1px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* What flows through a socket, while the pointer rests on it. */
+.graph-thumb {
+  position: absolute;
+  z-index: 70;
+  width: 168px;
+  padding: 5px;
+  pointer-events: none;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  backdrop-filter: blur(4px);
+  box-shadow: var(--shadow-2);
+}
+
+.graph-thumb[hidden] {
+  display: none;
+}
+
+.graph-thumb canvas {
+  display: block;
+  width: 100%;
+  height: 104px;
+  border-radius: var(--r-sm);
+  background: var(--paper);
+}
+
+.graph-thumb-note {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
