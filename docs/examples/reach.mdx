@@ -1,0 +1,37 @@
+---
+title: Reach
+description: A network whose loose ends reach for each other, written as one relation.
+---
+
+Points scattered and settled, then joined wherever the space between them is empty enough. That leaves a web with loose ends: vertices with one edge and nowhere else to go. The drawing is about what those ends do next. Every pair of ends within reach of each other, and not already joined, gets a thread. That is one relation, stated once, in one call. `pairs` finds the pairs, the step connects them, and the web becomes one piece where it can.
+
+The pen then tells the pieces apart. `points.components()` gives one selection for each connected piece. The largest piece gets the heavy pen and the rest stay faint. The drawing then shows the body of the web, and what is still adrift.
+
+Uses: `t.scatter`, `t.relax`, `connect.unimpeded`, `p.edges`, `pairs` with a radius, `p.adjacent.has`, `steps` with `next.connect`, `points.components()`, `complement`.
+
+```ts live paper=180x120
+import { sketch, strokes, circle, connect } from 'occlude';
+
+export default sketch({ aspect: [3, 2], seed: 11 }, (t) => {
+  const cloud = t.relax(t.scatter({ spacing: 8.5 }), { iterations: 3 });
+  const web = connect.unimpeded(cloud, { room: 2.4 });
+
+  const reached = web.steps(1, (cur, next) => {
+    // A loose end is a vertex with one edge. Two of them reach for each
+    // other when they are close and not already joined.
+    const ends = cur.points.filter((p) => p.edges.length === 1);
+    for (const [a, b] of ends.pairs(ends, (p, q) => !p.adjacent.has(q), { radius: 18 })) {
+      next.connect(a, b);
+    }
+  });
+
+  const pieces = reached.points.components();
+  const body = pieces.reduce((a, b) => (b.length > a.length ? b : a));
+  const adrift = body.complement();
+  return [
+    strokes(adrift.edges, { pen: 'pigma-005-black' }),
+    strokes(body.edges, { pen: 'pigma-05-black' }),
+    adrift.map((p) => circle(p.x, p.y, 0.9, { pen: 'stabilo-88-blue' })),
+  ];
+});
+```
