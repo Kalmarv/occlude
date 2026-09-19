@@ -36,7 +36,7 @@ import { compileFor, compileGraph, type CompiledSketch } from './graph/compile.j
 import { collapse, expand, groupInputs, groupOutputs, type Group } from './graph/groups.js';
 import { estimateBox, layoutGraph, type NodeBox } from './graph/layout.js';
 import { importSketch, layoutBlock } from './graph/import.js';
-import { loadSketchByName, takeLive } from './sketchApi.js';
+import { loadSketchByName, stashLive, takeLive } from './sketchApi.js';
 import {
   PAPER_OUTPUTS, accepts, cloneNode, graphToJson, inputTakes, isUsableName, kindOf, listPlaces, outputType, parseGraph, wordInputs, wordOf,
   type Catalogue, type CatalogueWord, type Graph, type GraphNode, type Takes, type ValueType,
@@ -118,6 +118,7 @@ const deleteBtn = iconButton('trash', 'Delete this graph', () => void remove());
 const sketchBtn = withIcon(button('Open as sketch', () => openAsSketch()), 'export');
 sketchBtn.classList.add('graph-sketch');
 sketchBtn.title = 'Write the compiled source into the studio and open it there';
+const evolveBtn = iconButton('evolve', 'Evolve this graph — the compiled sketch, seed by seed', () => evolveGraph());
 const fitCanvasBtn = iconButton('frame', 'Fit the whole graph in view (Home)', () => canvas.fit());
 /** The ground follows the view, so the dots are the grid a node snaps to and
  * not decoration that happens to look like one. */
@@ -144,7 +145,7 @@ function setSnap(on: boolean): void {
 const layoutBtn = iconButton('layout', 'Lay the graph out — columns that follow the wires', () => void autoLayout());
 const importBtn = withIcon(button('Import', () => void importFrom()), 'import');
 importBtn.title = 'Read a sketch from the library into a graph';
-actions.append(nameInput, openSelect, refreshBtn, newBtn, fitCanvasBtn, layoutBtn, snapBtn, importBtn, saveBtn, deleteBtn, sketchBtn);
+actions.append(nameInput, openSelect, refreshBtn, newBtn, fitCanvasBtn, layoutBtn, snapBtn, importBtn, saveBtn, deleteBtn, evolveBtn, sketchBtn);
 head.append(heading, actions);
 
 const body = el('div', 'graph-body');
@@ -2369,6 +2370,31 @@ async function remove(): Promise<void> {
 
 /** Exactly what the docs' live embeds do: the source goes into the studio's
  * buffer and the studio opens on it. */
+/**
+ * Evolve, on a graph. The page rewrites literals in source and runs seeds
+ * against each other; a graph is a program like any other once it is
+ * compiled, so it goes over as the editor's unsaved buffer does — which is
+ * also why what comes back is a sketch, not a graph. The graph is untouched.
+ */
+function evolveGraph(): void {
+  let compiled: CompiledSketch;
+  try {
+    compiled = compileGraph(flat(), catalogue);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    status(message, 'err');
+    markErrors(message);
+    return;
+  }
+  const name = graph.name && graph.name !== 'untitled' ? graph.name : '';
+  stashLive({ name, source: `${compiled.source}\n${layoutBlock(graph)}` });
+  const params = new URLSearchParams({ live: '1' });
+  if (name) params.set('sketch', name);
+  if (typeof graph.config.seed === 'number') params.set('seed', String(graph.config.seed));
+  leaving = true;
+  location.href = `/evolve.html?${params.toString()}`;
+}
+
 function openAsSketch(): void {
   let compiled: CompiledSketch;
   try {
