@@ -163,7 +163,16 @@ interface Row {
 
 function countGraph(graph: Graph): Row {
   const row: Row = { group: '', name: '', builtin: 0, code: 0, codeLines: 0, buckets: new Map(), words: [], refusals: [] };
+  count(graph, row);
+  return row;
+}
+
+/** A statement inside a zone's body is a statement: the share of statements
+ * that are nodes has to look there too, or a rule's whole body counts as
+ * the one node that holds it. */
+function count(graph: Graph, row: Row): void {
   for (const node of graph.nodes) {
+    if (node.graph) count(node.graph, row);
     // A statement is a node when it is anything but a code node: a word, a
     // literal, a list, a zone. The output node is the sketch's `return` and
     // a viewer is not a statement at all, so neither is counted either way.
@@ -177,7 +186,6 @@ function countGraph(graph: Graph): Row {
     row.buckets.set(bucket, (row.buckets.get(bucket) ?? 0) + lines);
     for (const used of usedImports(body, CATALOGUE, Object.keys(node.inputs))) row.words.push(used.spec);
   }
-  return row;
 }
 
 const pad = (text: string, width: number): string => (text.length >= width ? text : text + ' '.repeat(width - text.length));

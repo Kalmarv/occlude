@@ -226,12 +226,24 @@ class Reader {
       for (const id of reads(returned)) names.add(id.text);
       return names;
     });
-    // A statement that only *does* something — a `for` that grows an array,
-    // `t.plan` — has no value to hand on, and the graph has no wire for
-    // order. It joins the body of the next node instead: the code keeps
-    // running where it ran. A statement that gives a name a new value the
-    // rest of the sketch reads is a node of its own, because that value has
-    // to flow.
+    this.walk(statements, needed, returned);
+    return { version: 1, name: '', config, nodes: this.nodes };
+  }
+
+  /**
+   * A list of statements as nodes, and the expression they lead to as the
+   * output.
+   *
+   * A statement that only *does* something — a `for` that grows an array,
+   * `t.plan` — has no value to hand on, and the graph has no wire for
+   * order. It joins the body of the next node instead: the code keeps
+   * running where it ran. A statement that gives a name a new value the
+   * rest reads is a node of its own, because that value has to flow.
+   *
+   * The sketch's own body and a zone's body are the same walk: a body is a
+   * graph, and that is the whole of what makes one.
+   */
+  private walk(statements: ts.Statement[], needed: Set<string>[], returned: ts.Expression | undefined): void {
     let pending: ts.Statement[] = [];
     const flush = (): ts.Statement[] => {
       const held = pending;
@@ -252,8 +264,31 @@ class Reader {
       }
       pending.push(st);
     });
-    this.readOutput(returned, flush());
-    return { version: 1, name: '', config, nodes: this.nodes };
+    if (returned) this.readOutput(returned, flush());
+    else this.readEnd(flush());
+  }
+
+  /** A body that answers with nothing — a `steps` rule — still has to run
+   * what it ran: the statements nobody read become one last code node, and
+   * the output node reads nothing at all. */
+  private readEnd(before: ts.Statement[]): void {
+    const id = this.uniqueId('output');
+    if (before.length === 0) {
+      this.add({ id, kind: 'output', x: 0, y: 0, inputs: {} });
+      return;
+    }
+    const did = this.add({
+      id: this.uniqueId('does'),
+      kind: 'code',
+      x: 0,
+      y: 0,
+      inputs: this.inputsOf(before),
+      outputs: { out: 'Number' },
+      body: `${this.codeBefore(before)}return { out: 0 };`,
+    });
+    // The output reads it, so the compiler keeps it: a rule's work is done
+    // for its effect, and something has to hold the order.
+    this.add({ id, kind: 'output', x: 0, y: 0, inputs: { in: { from: [did.id, 'out'] } } });
   }
 
   // ---- the sketch call ----
@@ -1016,7 +1051,7 @@ class Reader {
     const edge = free('each');
     const held = free('body');
     const answer = free('result');
-    const inside: Graph = {
+    const whole: Graph = {
       version: 1, name: '', config: {},
       nodes: [
         { id: edge, kind: 'input', x: 0, y: 0, inputs: {}, outputs: boundary },
@@ -1030,7 +1065,74 @@ class Reader {
         { id: answer, kind: 'output', x: 0, y: 0, inputs: recipe.answers === false ? {} : { in: { from: [held, 'out'] } } },
       ],
     };
+    // A body is a graph, so read it as one. A body that will not come apart
+    // — one statement, or a statement the reader refuses — stays the one
+    // code node it always was, and the compiler writes that back as the
+    // callback the sketch wrote.
+    const inside = this.insideOf(callback, boundary, edge, recipe.answers !== false) ?? whole;
     return { id, kind: 'zone', zone: kind, x: 0, y: 0, inputs, outputs: { out: recipe.returns ?? 'Geometry' }, binds, graph: inside };
+  }
+
+  /**
+   * A zone's body, read as the graph it is.
+   *
+   * The same walk the sketch's own body gets, with the boundary names bound
+   * to the `input` node before it starts: inside the body, `cur` is `each.cur`
+   * and a captured `wander` is `each.wander`, which is exactly what the
+   * compiler writes back. A body of one statement gives one node and nothing
+   * is gained, so that one keeps the shape it had; anything the reader
+   * refuses gives `undefined` and the body stays whole.
+   */
+  private insideOf(
+    callback: ts.ArrowFunction | ts.FunctionExpression,
+    boundary: Record<string, ValueType>,
+    edge: string,
+    answers: boolean,
+  ): Graph | undefined {
+    const body = callback.body;
+    if (!ts.isBlock(body)) return undefined;
+    const statements = [...body.statements];
+    const last = statements[statements.length - 1];
+    const returned = last && ts.isReturnStatement(last) ? last.expression : undefined;
+    if (answers && !returned) return undefined;
+    const inner = new Reader(this.file, this.catalogue, this.refusals);
+    inner.readImports();
+    for (const name of this.shadowed) inner.shadowed.add(name);
+    bindNames(callback, inner.shadowed);
+    const input: GraphNode = { id: edge, kind: 'input', x: 0, y: 0, inputs: {}, outputs: boundary };
+    inner.add(input);
+    for (const [name, type] of Object.entries(boundary)) {
+      inner.taken.add(name);
+      inner.bindings.set(name, { node: input, output: name, type });
+    }
+    inner.sheetNames = sheetNames(returned ? [...statements, returned] : statements);
+    const needed = statements.map((_, i) => {
+      const names = new Set<string>();
+      for (const later of statements.slice(i + 1)) for (const id of reads(later)) names.add(id.text);
+      if (returned) for (const id of reads(returned)) names.add(id.text);
+      return names;
+    });
+    const before = this.refusals?.length ?? 0;
+    try {
+      inner.walk(statements, needed, returned);
+    } catch {
+      // A body the reader cannot read is a body that stays whole. The
+      // refusals it wrote on the way out are not this graph's.
+      if (this.refusals) this.refusals.length = before;
+      return undefined;
+    }
+    // A body comes apart only when something is GAINED by it: at least one
+    // statement that the palette can say. Splitting a body the vocabulary
+    // cannot say into several pieces it still cannot say makes a picture of
+    // code nodes wired together, which is more to look at and no more to
+    // work with — and it costs the compiler's own fast path, which writes
+    // the body back as the sketch wrote it.
+    const own = inner.nodes.filter((n) => n.kind !== 'input' && n.kind !== 'output');
+    if (own.length < 2 || !own.some((n) => n.kind !== 'code')) {
+      if (this.refusals) this.refusals.length = before;
+      return undefined;
+    }
+    return { version: 1, name: '', config: {}, nodes: inner.nodes };
   }
 
   /**
