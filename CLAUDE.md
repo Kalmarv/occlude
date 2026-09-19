@@ -85,9 +85,11 @@ rasters are implementation numbers. They are not tenants.
   transform — is a toolkit function. `station.place(...)` is right;
   `.along()` or `.length` on `circle()` is not: `t.material(circle(…))`
   first.
-- **Drawing stays explicit.** `strokes`, `stroke` and `dot` interpret
-  geometry as ink. A Material never draws itself, and no value carries a
-  display translation that changes what is drawn.
+- **Drawing stays explicit.** `strokes`, `stroke`, `polygon` and `dots`
+  interpret geometry as ink — along a contour, over an area, and as a tap
+  at every point. A Material never draws itself, and no value carries a
+  display translation that changes what is drawn. (`dot` is the vector
+  product and stays.)
 - **One conversion per meaning.** Two doors, one contract each:
   `t.material(shape, { tolerance? })` keeps the boundary's own vertices —
   a rectangle's four corners — and `t.sample(shape, { count?, spacing?,

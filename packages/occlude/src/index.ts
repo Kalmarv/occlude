@@ -18,7 +18,7 @@
 // The declarative API.
 export {
   sketch, compileSketch, isSketch, sketchAsync, compileSketchAsync, isSketchAsync, commitCamera3,
-  circle, ellipse, rect, line, polygon, ngon, stroke, strokes, path, PathValue,
+  circle, ellipse, rect, line, polygon, ngon, stroke, strokes, dots, path, PathValue,
   group, clip, mask, invert, decimate, wobble, modify, dash, smooth, roughen, deform,
   times, range,
 } from './api.js';

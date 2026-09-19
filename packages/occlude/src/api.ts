@@ -33,7 +33,7 @@ import { bindModeling3 } from './three/modeling.js';
 import { resolveTree3, classifyForRun3, strokesForRun3 } from './three/resolve.js';
 import { checkDrawRequest, clonePlanOptions, type DrawRequest, type PlanOptions } from './plan.js';
 import { lowerToUserContours } from './record.js';
-import { fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
+import { customFill, fill, rulings, type CustomFillFn, type FillSpec } from './fills.js';
 import { ease } from './ease.js';
 import { finiteCount } from './guard.js';
 import { svg as svgValue } from './svgin.js';
@@ -61,7 +61,7 @@ import { Faces, FaceSelection, type Face } from './faces.js';
 import { voronoi } from './voronoi.js';
 import { quadtree, type QuadtreeOpts } from './quadtree.js';
 import { distanceTo, type DistanceField } from './distance.js';
-import { force, type Sources } from './forces.js';
+import { force, sourcePoints, type Sources } from './forces.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
   vectorField as vectorFieldMark, within as withinField, type BoundEnv, type Prepared,
@@ -518,6 +518,61 @@ export function stroke(
     if (closed) cmds.push({ op: 'close' });
   }
   return shape({ kind: 'path', cmds, winding: 'nonzero' }, opts);
+}
+
+/**
+ * A tap of the pen at every point: pen down, the pen's delay, pen up.
+ *
+ * `dots` is the third way to spell ink, beside `stroke`/`strokes` (along a
+ * contour) and `polygon` (an area). It takes any geometry that has points
+ * — a material, a selection, a face collection, a plain list of pairs —
+ * and marks each one. A dot is occluded as a point: a shape drawn over it
+ * hides it whole, and nothing hides half of it. The preview shows it at
+ * nib width, the plan keeps it through the zero-length cleanup, and the
+ * machine gets one pen-down with the pen's settle.
+ *
+ * No points, no ink.
+ */
+export function dots(points: Sources, opts: { pen?: string } = {}): ShapeValue | ShapeValue[] {
+  const list = materialOf(sourcePoints(points));
+  const n = list.n;
+  if (n === 0) return [];
+  // A dot is an engine stipple mark, and a stipple mark belongs to a
+  // region: the marks are supplied for a shape and judged strictly inside
+  // it. The region here is the points' own box, grown by a hair so that no
+  // dot sits on its boundary, with no outline of its own. It hides
+  // nothing: it carries the taps, and that is all it is for.
+  let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
+  for (let i = 0; i < n; i++) {
+    if (list.x[i] < minX) minX = list.x[i];
+    if (list.x[i] > maxX) maxX = list.x[i];
+    if (list.y[i] < minY) minY = list.y[i];
+    if (list.y[i] > maxY) maxY = list.y[i];
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return [];
+  const pad = 1 + Math.max(maxX - minX, maxY - minY) * 1e-6;
+  const box: [number, number][] = [
+    [minX - pad, minY - pad], [maxX + pad, minY - pad],
+    [maxX + pad, maxY + pad], [minX - pad, maxY + pad],
+  ];
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  // A fill returns marks in PAPER mm. `ctx.anchor` is the affine from
+  // shape-local mm (origin at the shape's own bbox centre) to paper, so a
+  // dot rides every transform the shape rode — a turned group turns its
+  // dots, and a mirrored one mirrors them.
+  const marks: CustomFillFn = (_region, ctx) => {
+    const a = ctx.anchor;
+    const unit = ctx.len(1);
+    const out: { type: 'dot'; x: number; y: number }[] = [];
+    for (let i = 0; i < n; i++) {
+      const lx = (list.x[i] - cx) * unit;
+      const ly = (list.y[i] - cy) * unit;
+      out.push({ type: 'dot', x: a.a * lx + a.c * ly + a.e, y: a.b * lx + a.d * ly + a.f });
+    }
+    return out;
+  };
+  return polygon(box, { ...opts, stroke: false, fill: customFill(marks) });
 }
 
 /** Mutable builder; `build()` snapshots, so the builder stays extendable. */

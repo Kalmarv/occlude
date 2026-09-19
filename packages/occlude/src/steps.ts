@@ -209,7 +209,7 @@ export interface Next {
   replace(edges: EdgeSelection, motif: Material, opts?: ReplaceOpts): void;
   /** Create children connected to selected parents. Children do not enter the
    * parent selection. With inherit, parent attributes precede explicit overrides. */
-  extrude(points: PointSelection, spec: (p: Vertex) => ChildSpec | ChildSpec[], opts?: { inherit?: boolean }): void;
+  extrude(points: PointSelection | Vertex, spec: (p: Vertex) => ChildSpec | ChildSpec[], opts?: { inherit?: boolean }): void;
 }
 
 /** @internal Every declared column named (unless `complete: false`), no unknown name, every value finite. */
@@ -298,7 +298,11 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   // selection of a material with no shared identity re-binds to nothing,
   // and the verb then does nothing — which is what "skip what is gone"
   // means when everything is gone.
-  const pointRows = (selection: PointSelection, what: string): readonly number[] => {
+  const pointRows = (selection: PointSelection | Vertex, what: string): readonly number[] => {
+    // One vertex is a collection of one. `t.pick(cur.points)` gives a
+    // vertex, and having to write `.rows([p.index])` to hand it back would
+    // be the library asking for ceremony it can do itself.
+    if (isVertexView(selection)) return [rowOf(selection, what)];
     if (!(selection instanceof PointSelection)) throw new Error(`steps: ${what} needs a point selection — use prev.points.filter(...)`);
     return selection.source === cur ? selection.indices : selection.in(cur).indices;
   };

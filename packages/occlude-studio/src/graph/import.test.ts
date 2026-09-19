@@ -204,13 +204,15 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
     expect(graph.config).toEqual({ aspect: [1, 1], seed: 3 });
     expect(graph.nodes.map((n) => [n.id, n.kind])).toEqual([
       // A step rule is a zone: a body that runs many times, carrying state.
-      ['ring', 'builtin'], ['dots', 'builtin'], ['grown', 'zone'], ['output', 'output'],
+      // `dots` is a word of the library now, so a local of that name is
+      // given one of its own rather than shadowing it.
+      ['ring', 'builtin'], ['dots2', 'builtin'], ['grown', 'zone'], ['output', 'output'],
     ]);
     expect(graph.nodes[0]!.word).toBe('circle');
     expect(graph.nodes[0]!.inputs).toEqual({ x: { value: 50 }, y: { value: 50 }, r: { value: 18 } });
     expect(graph.nodes[1]!.inputs).toEqual({ shape: { from: ['ring', 'out'] }, count: { value: 48 } });
     expect(graph.nodes[2]!.zone).toBe('steps');
-    expect(graph.nodes[2]!.inputs).toEqual({ material: { from: ['dots', 'out'] }, count: { value: 4 } });
+    expect(graph.nodes[2]!.inputs).toEqual({ material: { from: ['dots2', 'out'] }, count: { value: 4 } });
     expect(graph.nodes[2]!.binds).toEqual(['cur', 'next']);
     expect(graph.nodes[3]!.inputs).toEqual({ in: { from: ['grown', 'out'] } });
     // A column per topological depth. The places themselves are the

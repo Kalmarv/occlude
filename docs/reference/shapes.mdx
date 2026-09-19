@@ -234,3 +234,22 @@ import { sketch, circle, rect, fill, mm } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => [rect(10, 20, 50, 50, { fill: fill('hatch', { angle: 30, spacing: mm(1.5) }), stroke: false }), circle(60, 55, 24, { opaque: true, pen: 'stabilo-88-blue' }), circle(78, 28, 14, { rotate: 20, scale: [1.6, 1], origin: [78, 28] })]);
 ```
+
+## dots
+
+<include>/_sig/dots.mdx</include>
+
+A tap of the pen at every point: pen down, the pen's delay, pen up. `dots` is the third way to spell ink, beside `stroke`/`strokes` along a contour and `polygon` over an area. It marks every point of any geometry that has points. That is a material, a selection, a face collection, or a plain list of pairs.
+
+A dot hides as a point. A shape drawn over it hides the whole dot, and nothing hides half of it. The preview shows it at nib width. The plan keeps it through the cleanup that drops zero-length moves. The machine gets one pen-down with that pen's settle. No points means no ink.
+
+```ts live
+import { sketch, dots, circle, strokes } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const field = t.scatter((x, y) => 0.15 + 0.85 * t.noise(x / 26, y / 26) ** 2, { spacing: 3.4 });
+  const moon = circle(64, 36, 19, { opaque: true, pen: 'stabilo-88-blue' });
+  // The taps go down first, so the moon hides the ones behind it — whole.
+  return [dots(field), moon, strokes(t.material(circle(64, 36, 19)), { pen: 'stabilo-88-blue' })];
+});
+```
