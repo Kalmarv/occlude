@@ -521,7 +521,10 @@ describe('within: an edge selection', () => {
     run((t) => {
       const m = ladder();
       expect(() => t.within(m.edges, rect(0, 0, 50, 100), { edges: 'centroid' as never })).toThrow(/edges must be 'contained' or 'midpoint'/);
-      expect(() => t.within(m.points, rect(0, 0, 50, 100), { edges: 'midpoint' } as never)).toThrow(/'edges' is for an edge selection/);
+      // The types already forbid this one; the refusal is for a sketch that
+      // reaches it anyway, so the test needs a loose handle to get there.
+      const loose = t.within as (x: unknown, area: unknown, opts?: unknown) => unknown;
+      expect(() => loose(m.points, rect(0, 0, 50, 100), { edges: 'midpoint' })).toThrow(/'edges' is for an edge selection/);
       expect(() => t.within(m.edges, rect(0, 0, 50, 100), { transfer: {} } as never)).toThrow(/kept whole or not at all/);
     });
   });

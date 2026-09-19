@@ -99,7 +99,7 @@ describe('Stage C helpers (con2)', () => {
     expect(strokes(m.edges.filter((e) => e.index !== 1))).toHaveLength(2);
     const band = banding.over(m.attrs.age, { count: 2 });
     expect([0, 1, 2, 3].map(band)).toEqual([0, 0, 1, 1]);
-    expect(strokes(segmentRuns(m, (a, b) => band((a.age + b.age) / 2)))).toHaveLength(2);
+    expect(strokes(segmentRuns(m, (e) => band((e.a.age + e.b.age) / 2)))).toHaveLength(2);
     expect(m.points.filter((p) => p.index < 2).complement().indices).toEqual([2, 3]);
     expect(m.edges.filter((e) => e.index === 0).complement().indices).toEqual([1, 2]);
     const pull = force.tension(m, { rest: 5 });

@@ -1196,7 +1196,7 @@ export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
   const labelled = all.attribute('piece', (p) => pieceOf.get(p.index), { transfer: 'nearest' });
   const pens = ['pigma-01-black', 'stabilo-88-blue', 'stabilo-88-green'];
   return [
-    segmentRuns(labelled, (a) => a.piece).map((r) => stroke(r, { pen: pens[r.key % 3] })),
+    segmentRuns(labelled, (e) => e.a.piece).map((r) => stroke(r, { pen: pens[r.key % 3] })),
     labelled.points.filter((p) => p.adjacent.length === 0).map((p) => circle(p.x, p.y, 1, { pen: pens[p.piece % 3] })),
   ];
 });
@@ -1972,7 +1972,7 @@ Attributes carry across operations by a policy declared once on the column and h
 
 ### Runs and bands
 
-`extent(column)` is `[min, max]`. `banding({ min, max, count })` classifies into `count` equal bands, and `banding.over(values, { count })` does the same from the values' own extent. `segmentRuns(m, (a, b) => key)` classifies every edge by its two vertices and gathers consecutive equal keys into runs, chain by chain, so together the runs redraw every edge once. A vertex attribute needs an interpretation before it can own an edge: the start's, the end's or their mean are different drawings.
+`extent(column)` is `[min, max]`. `banding({ min, max, count })` classifies into `count` equal bands, and `banding.over(values, { count })` does the same from the values' own extent. `segmentRuns(m, (e) => key)` classifies every edge and gathers consecutive equal keys into runs, chain by chain, so together the runs redraw every edge once. The key reads the EDGE, in stored order, so `e.attrs` is as available as `e.a` and `e.b`. A vertex attribute needs an interpretation before it can own an edge: the start's, the end's or their mean are different drawings.
 
 The grown ring from above, cut into runs by age band and drawn in two pens, chosen after the growth rather than inside it.
 
@@ -1992,7 +1992,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   const [young, old] = extent(last.attrs.age);
   const band = banding({ min: young, max: old, count: 2 });
   const pens = ['stabilo-88-blue', 'pigma-005-black'];
-  return segmentRuns(last, (a, b) => band((a.age + b.age) / 2)).map((r) => stroke(r, { pen: pens[r.key] }));
+  return segmentRuns(last, (e) => band((e.a.age + e.b.age) / 2)).map((r) => stroke(r, { pen: pens[r.key] }));
 });
 ```
 
@@ -2026,7 +2026,7 @@ export default sketch({ aspect: [2, 2], seed: 7 }, (t) => {
   const cells = planar.faces().filter((f) => f.area > 3);
   return [
     strokes(web),
-    group({ translate: [50, 0] }, segmentRuns(web, (a, b) => band((a.age + b.age) / 2)).map((r) => stroke(r, { pen: pens[r.key] }))),
+    group({ translate: [50, 0] }, segmentRuns(web, (e) => band((e.a.age + e.b.age) / 2)).map((r) => stroke(r, { pen: pens[r.key] }))),
     group({ translate: [0, 50] }, cells.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: mm(1) }), stroke: false })), strokes(planar, { pen: 'pigma-005-black' })),
     group({ translate: [50, 50] }, strokes(web, { pen: 'pigma-005-black' }),
       web.points.filter((p) => p.adjacent.length > 2).map((p) => circle(p.x, p.y, 0.7, { pen: 'stabilo-88-blue' })),

@@ -377,7 +377,7 @@ describe('segmentRuns', () => {
     // ages: 0 0 1 1 0 0 → by start vertex: the two 0-runs across the seam
     // (indices 4,5,0,1) must be ONE run.
     const c = curve([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0]], { age: [0, 0, 1, 1, 0, 0] });
-    const runs = segmentRuns(c, (a) => a.age);
+    const runs = segmentRuns(c, (e) => e.a.age);
     expect(runs.map((r) => r.key)).toEqual([1, 0]);
     // 1-run: edges 2→3, 3→4 ; 0-run: edges 4→5, 5→0, 0→1, 1→2
     expect(runs[0].from).toBe(2);
@@ -395,17 +395,17 @@ describe('segmentRuns', () => {
     const c = curve([[0, 0], [1, 0], [2, 0], [3, 0]], { age: [0, 0, 0, 1] });
     // The single age-1 vertex owns its OUTGOING edge under the start rule
     // and its INCOMING edge under the end rule: a different segment inks.
-    const byStart = segmentRuns(c, (a) => a.age).find((r) => r.key === 1)!;
-    const byEnd = segmentRuns(c, (_, b) => b.age).find((r) => r.key === 1)!;
+    const byStart = segmentRuns(c, (e) => e.a.age).find((r) => r.key === 1)!;
+    const byEnd = segmentRuns(c, (e) => e.b.age).find((r) => r.key === 1)!;
     expect(byStart.from).toBe(3);
     expect(byEnd.from).toBe(2);
-    const both = segmentRuns(c, (a, b) => (a.age === b.age ? a.age : 'mixed')).map((r) => r.key);
+    const both = segmentRuns(c, (e) => (e.a.age === e.b.age ? e.a.age : 'mixed')).map((r) => r.key);
     expect(both).toEqual(['mixed', 0]); // edges 2→3 and 3→0 straddle the age change
   });
 
   it('open curves run from the first vertex', () => {
     const c = curve([[0, 0], [1, 0], [2, 0]], { closed: false, age: [0, 1, 1] });
-    const runs = segmentRuns(c, (a) => a.age);
+    const runs = segmentRuns(c, (e) => e.a.age);
     expect(runs.map((r) => r.key)).toEqual([0, 1]);
     expect(runs[0].from).toBe(0);
   });
@@ -642,7 +642,7 @@ describe('material: material beyond one chain', () => {
 
   it('segmentRuns on a branched material: runs end at junctions and cover each edge once', () => {
     const y = material([[0, 0], [1, 0], [2, 1], [2, -1]], { edges: [[0, 1], [1, 2], [1, 3]], age: [0, 0, 5, 5] });
-    const runs = segmentRuns(y, (a, b) => (a.age + b.age) / 2 > 2 ? 'old' : 'young');
+    const runs = segmentRuns(y, (e) => (e.a.age + e.b.age) / 2 > 2 ? 'old' : 'young');
     expect(runs.reduce((n, r) => n + r.pts.length - 1, 0)).toBe(3);
     expect(runs.every((r) => r.pts.length === 2)).toBe(true);
     const keys: string[] = runs.map((r) => r.key);
@@ -717,7 +717,7 @@ describe('boundaries (review 2026-09-07)', () => {
   it('5. segmentRuns classifies in stored edge orientation whatever the walk direction', () => {
     const m = material([[0, 0], [1, 0], [2, 0]], { edges: [[1, 0], [1, 2]], age: [0, 5, 9] });
     const seen: [number, number][] = [];
-    segmentRuns(m, (a, b) => { seen.push([a.index, b.index]); return 'k'; });
+    segmentRuns(m, (e) => { seen.push([e.a.index, e.b.index]); return 'k'; });
     expect(seen.sort()).toEqual([[1, 0], [1, 2]]);
   });
 

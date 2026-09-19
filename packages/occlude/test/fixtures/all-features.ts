@@ -167,7 +167,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
     next.splitEdges(cur.edges.filter((e) => e.length > 4.6), { at: 0.5 });
   });
 
-  const runs = segmentRuns(grown, (a, b) => Math.round((a.age + b.age) / 2));
+  const runs = segmentRuns(grown, (e) => Math.round((e.a.age + e.b.age) / 2));
   const band = banding.over(grown.attrs.age, { count: 2 });
   const ageExtent = extent(grown.attrs.age);
   const parts = grown.points.components();

@@ -2599,24 +2599,32 @@ export interface SegmentRun<K = number | string> extends IsoContour {
 }
 
 /**
- * Classify every edge with `key(a, b)` (a → b in stored order) and gather
- * consecutive edges of equal key into runs, chain by chain (`curves()`):
- * runs end at endpoints and junctions and never split across a closed
- * chain's seam; runs meet end to end, so together they redraw every edge
- * once; a uniform closed chain is one closed run. The classification is
- * the artist's: a vertex attribute needs an interpretation before it can
- * own an edge — the start vertex's, the end's, both, or their mean are
- * different drawings.
+ * Classify every edge with `key(e)` and gather consecutive edges of equal
+ * key into runs, chain by chain (`curves()`): runs end at endpoints and
+ * junctions and never split across a closed chain's seam; runs meet end to
+ * end, so together they redraw every edge once; a uniform closed chain is
+ * one closed run.
+ *
+ * The classifier gets the EDGE, in its stored orientation — `e.a` and
+ * `e.b` as it was connected, whatever direction the drawing walk takes.
+ * That is the whole edge: its own columns (`e.attrs.level`, which is what
+ * `isolines` writes), its `length`, its `mid`, its `root`. It used to get
+ * the two vertex views alone, so an edge column — the one thing that
+ * already belongs to an edge, and survives a split — could not classify a
+ * run without rebuilding the edge row from the pair by hand.
+ *
+ * The classification is still the artist's. A VERTEX attribute needs an
+ * interpretation before it can own an edge: `e.a.age`, `e.b.age`, both, or
+ * their mean are different drawings.
  */
-export function segmentRuns<K extends number | string>(m: Material, key: (a: Vertex, b: Vertex) => K): SegmentRun<K>[] {
+export function segmentRuns<K extends number | string>(m: Material, key: (e: Edge) => K): SegmentRun<K>[] {
   const runs: SegmentRun<K>[] = [];
-  // The classifier sees each edge in its STORED orientation (a → b as it
-  // was connected), whatever direction the drawing walk happens to take.
-  const stored = new Map<number, [number, number]>();
-  for (let e = 0; e < m.edgeList.length; e += 2) {
-    const a = m.edgeList[e];
-    const b = m.edgeList[e + 1];
-    if (!stored.has(pairKey(a, b))) stored.set(pairKey(a, b), [a, b]);
+  // The classifier sees each edge in its STORED orientation, so the row is
+  // what it is handed, never a pair rebuilt from the walk.
+  const storedRow = new Map<number, number>();
+  for (let e = 0; e < m.edgeCount; e++) {
+    const k = pairKey(m.edgeList[2 * e], m.edgeList[2 * e + 1]);
+    if (!storedRow.has(k)) storedRow.set(k, e);
   }
   for (const c of m.curves()) {
     const idx = c.indices;
@@ -2624,8 +2632,7 @@ export function segmentRuns<K extends number | string>(m: Material, key: (a: Ver
     if (segs <= 0) continue;
     const keys: K[] = [];
     for (let s = 0; s < segs; s++) {
-      const [a, b] = stored.get(pairKey(idx[s], idx[(s + 1) % idx.length]))!;
-      keys.push(key(m.vertex(a), m.vertex(b)));
+      keys.push(key(m.edge(storedRow.get(pairKey(idx[s], idx[(s + 1) % idx.length]))!)));
     }
     let start = 0;
     if (c.closed) {

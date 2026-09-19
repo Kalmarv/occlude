@@ -264,7 +264,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
 
 `marks` is an array with one array per side; the drawing flattens nesting like any other.
 
-**A shoreline that carries the attribute.** The points know their side, but the shore is drawn from the connections between points, and a connection has two ends. `segmentRuns(m, (a, b) => key)` looks at every connection with its two points, computes a key, and gathers consecutive connections with equal keys into runs, each drawn as one stroke. The key `a.east + b.east` is 2 where both ends are eastern, 1 where the shore crosses from one side to the other, 0 in the west; `pens[run.key]` turns that into a pen, so the eastern shore is blue and the two crossing connections stay black. The pond keeps hiding the hatch but no longer draws its own outline (`stroke: false`), since the runs draw it.
+**A shoreline that carries the attribute.** The points know their side, but the shore is drawn from the connections between points, and a connection has two ends. `segmentRuns(m, (e) => key)` looks at every connection as a whole, with its two points as `e.a` and `e.b`, computes a key, and gathers consecutive connections with equal keys into runs, each drawn as one stroke. The key `a.east + b.east` is 2 where both ends are eastern, 1 where the shore crosses from one side to the other, 0 in the west; `pens[run.key]` turns that into a pen, so the eastern shore is blue and the two crossing connections stay black. The pond keeps hiding the hatch but no longer draws its own outline (`stroke: false`), since the runs draw it.
 
 ```ts live focus=17-20
 import { sketch, circle, ellipse, rect, clip, line, polygon, fill, mm, stroke, segmentRuns } from 'occlude';
@@ -284,7 +284,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
   });
   const reeds = nudged.points.filter((p) => p.east === 1).map((p) => line(p.x, p.y, p.x + 1, p.y - 7));
   const pens = ['pigma-005-black', 'pigma-005-black', 'stabilo-88-blue'];
-  const runs = segmentRuns(nudged, (a, b) => a.east + b.east);
+  const runs = segmentRuns(nudged, (e) => e.a.east + e.b.east);
   const shoreline = runs.map((run) => stroke(run, { pen: pens[run.key] }));
   return [sky, sun, farHill, nearHill, polygon(nudged, { opaque: true, stroke: false }), shoreline, reeds];
 });

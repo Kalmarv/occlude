@@ -98,7 +98,7 @@ export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
 <include>/_sig/banding.mdx</include>
 <include>/_sig/extent.mdx</include>
 
-`segmentRuns(m, key)` classifies every edge by its two vertices. It gathers consecutive equal keys into runs, chain by chain. Together the runs draw every edge once. `banding({ min, max, count })` maps a value to one of `count` bands. `extent(column)` is `[min, max]`.
+`segmentRuns(m, key)` classifies every edge and gathers consecutive equal keys into runs, chain by chain. Together the runs draw every edge once. The key reads the EDGE, in stored order. It can use the edge's own columns, and also `e.a` and `e.b`. A vertex attribute needs an interpretation before it can own an edge: the start's, the end's or their mean are different drawings. `banding({ min, max, count })` maps a value to one of `count` bands. `extent(column)` is `[min, max]`.
 
 ```ts live
 import { sketch, stroke, circle, segmentRuns, banding, extent } from 'occlude';
@@ -107,6 +107,6 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 50, 38), { count: 60 }).attribute('h', (p) => p.y);
   const [lo, hi] = extent(ring.attrs.h);
   const band = banding({ min: lo, max: hi, count: 3 });
-  return segmentRuns(ring, (a, b) => band((a.h + b.h) / 2)).map((run) => stroke(run, { pen: run.key === 1 ? 'stabilo-88-blue' : undefined }));
+  return segmentRuns(ring, (e) => band((e.a.h + e.b.h) / 2)).map((run) => stroke(run, { pen: run.key === 1 ? 'stabilo-88-blue' : undefined }));
 });
 ```
