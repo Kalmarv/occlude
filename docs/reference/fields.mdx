@@ -14,11 +14,11 @@ A field is a function of position. A scalar field is `(x, y) => number`. A vecto
 `grad(f)` is the gradient of a scalar field: it points uphill. `curl(f)` is the gradient turned 90°, so it runs along the contours of `f`. `vectorField(fn)` marks your own vector function. Then `rotate` turns its arrows too. At the bottom left, `rotate` turns the same east-pointing function 45° twice. The plain one, in green, still points east. The marked one, in blue, has turned.
 
 ```ts live
-import { sketch, line, circle, strokes, curl, grad, vectorField, rotate } from 'occlude';
+import { sketch, line, circle, strokes, curl, grad, vectorField, rotate, add, mul, unit } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const hill = (x, y) => t.noise(x / 30, y / 30);
-  const arrow = (x, y, [dx, dy], len, pen) => { const k = len / Math.hypot(dx, dy); return [line(x, y, x + dx * k, y + dy * k, { pen }), circle(x + dx * k, y + dy * k, 0.6, { pen })]; };
+  const arrow = (x, y, v, len, pen) => { const tip = add([x, y], mul(unit(v), len)); return [line(x, y, tip[0], tip[1], { pen }), circle(tip[0], tip[1], 0.6, { pen })]; };
   const arrows = (vf, pen) => t.grid({ cols: 10, rows: 10 }).map((c) => arrow(c.cx, c.cy, vf(c.cx, c.cy), 3.5, pen));
   const plain = rotate((x, y) => [1, 0], 45), marked = rotate(vectorField((x, y) => [1, 0]), 45);
   return [strokes(t.isolines(hill, [-0.4, -0.2, 0, 0.2, 0.4]), { pen: 'pigma-005-black' }), arrows(grad(hill), undefined), arrows(curl(hill), 'stabilo-88-blue'), arrow(8, 92, plain(0, 0), 8, 'stabilo-88-green'), arrow(8, 92, marked(0, 0), 8, 'stabilo-88-blue')];

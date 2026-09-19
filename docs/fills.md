@@ -229,15 +229,15 @@ export default sketch({ aspect: [2, 1], seed: 3 }, () =>
   circle(100, 50, 42, {
     fill: (region, ctx) => {
       const b = region.bbox;
-      const dots = [];
-      while (dots.length < 900) {
+      const out = [];
+      while (out.length < 900) {
         const x = b.x + ctx.rnd() * b.w;
         const y = b.y + ctx.rnd() * b.h;
         if (!region.contains(x, y)) continue;
         const shade = Math.hypot(x - (b.x + b.w * 0.35), y - (b.y + b.h * 0.3)) / (b.w * 0.8);
-        dots.push({ type: 'arc', cx: x, cy: y, r: 0.1 + shade * shade * 1.8, start: 0, sweep: Math.PI * 2 });
+        out.push({ type: 'arc', cx: x, cy: y, r: 0.1 + shade * shade * 1.8, start: 0, sweep: Math.PI * 2 });
       }
-      return dots;
+      return out;
     },
   }),
 );
@@ -294,18 +294,18 @@ Rules the library keeps:
 The radius field changes the material being filled; contour spacing changes the marks inside it. The three panels below use the same recursive rectangles with constant, left-to-right, and radial thickening. Decimation breaks up the fill, while a separate outline keeps the silhouette readable. Change the radius expressions or the decimation amount to explore the texture.
 
 ```ts live
-import { sketch, append, polygon, fill, decimate, label } from 'occlude';
+import { sketch, append, rect, polygon, fill, decimate, label } from 'occlude';
 
 export default sketch({ aspect: [3, 1], margin: 5, seed: 42 }, (t) =>
   t.times(3, (panel) => {
     const cx = 50 + panel * 100;
-    let material = t.material(t.rect(cx - 20, 28, 40, 40));
+    let material = t.material(rect(cx - 20, 28, 40, 40));
     let size = 40;
     for (let generation = 0; generation < 2; generation++) {
       const children = material.along().map((p) =>
-        t.rect(p.x - size / 4, p.y - size / 4, size / 2, size / 2),
+        rect(p.x - size / 4, p.y - size / 4, size / 2, size / 2),
       );
-      material = children.reduce((m, shape) => append(m, t.material(shape)), material);
+      material = append(material, t.material(...children));
       size /= 2;
     }
     const area = material.thicken({

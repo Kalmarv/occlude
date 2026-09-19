@@ -130,11 +130,11 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 The faces on the other side of the walls of the selected faces, one step out. A selected face can be in the result too, when it is the neighbour of another selected face. Use `sel.adjacent().subtract(sel)` to get only the faces outside the selection.
 
 ```ts live
-import { sketch, polygon, fill, mm, strokes } from 'occlude';
+import { sketch, polygon, rect, fill, mm, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const cells = t.voronoi(t.scatter({ spacing: 14 })).faces();
-  const seed = cells.filter((f) => f.centroid[0] > 40 && f.centroid[0] < 60 && f.centroid[1] > 40 && f.centroid[1] < 60);
+  const seed = t.within(cells, rect(40, 40, 20, 20), { faces: 'centroid' });
   const ring = seed.adjacent().subtract(seed);
   return [strokes(cells.edges), ring.map((f) => polygon(f, { stroke: false, fill: fill('hatch', { angle: 45, spacing: mm(1.2) }) }))];
 });
@@ -172,5 +172,39 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const m = t.material(circle(38, 50, 30), circle(62, 50, 30)).planarize();
   const walls = m.edges.filter((e) => e.faces.length === 2);
   return [strokes(m, { pen: 'pigma-005-black' }), strokes(walls, { pen: 'pigma-05-black' })];
+});
+```
+
+## faceAttribute() · faceAttributes()
+
+<include>/_sig/Material.faceAttribute.mdx</include>
+<include>/_sig/Material.faceAttributes.mdx</include>
+
+A value that belongs to what the walls enclose. A face is not a row. Walls come and go, and a face comes and goes with them. So a face column takes the face's own walls as its key. The column then follows the material through any edit that leaves those walls alone. It follows an edit that SPLITS a wall too. A child wall remembers the wall it came from, so a subdivided cell is the same cell.
+
+`transfer` says what a face does when its boundary really changes. `'nearest'` is the default: it takes the value of the old face it shares the most walls with. `'drop'` stops there. A face that shares no wall with any old face starts from `fallback`. A face column is sparse, and the type says so: read `f.height` and you may get `undefined`.
+
+Inside a step, `next.setFaces(faces, values)` writes the same column.
+
+```ts live
+import { sketch, strokes, polygon, fill, mm } from 'occlude';
+
+export default sketch({ aspect: [3, 2], seed: 9 }, (t) => {
+  const cells = t.voronoi(t.relax(t.scatter({ spacing: 26 }), { iterations: 4 }));
+  // The tone is given once, to the cells as they are now.
+  const tinted = cells.faceAttribute('tone', () => t.rnd());
+  // Then every wall is split and every inside vertex wanders. The walls are
+  // new rows with new ids, and each one still names the wall it came from,
+  // so every cell keeps the tone it was given.
+  const cracked = tinted.steps(1, (cur, next) => {
+    next.splitEdges(cur.edges, { at: 0.5 });
+  }, (cur, next) => {
+    const inner = cur.points.filter((p) => p.x > 1 && p.x < t.width - 1 && p.y > 1 && p.y < t.height - 1);
+    next.move(inner, (p) => [t.noise(p.x / 14, p.y / 14) * 2, t.noise(p.y / 14, p.x / 14) * 2]);
+  });
+  return [
+    cracked.faces().map((f) => polygon(f, { fill: fill('hatch', { angle: f.tone * 170, spacing: mm(0.7 + f.tone * 1.6) }), stroke: false })),
+    strokes(cracked, { pen: 'pigma-005-black' }),
+  ];
 });
 ```

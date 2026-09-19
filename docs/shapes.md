@@ -184,10 +184,10 @@ import { sketch, clip, invert, polygon, circle } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const blobs = t.isolines((x, y) => t.noise(x / 28, y / 28), 0.1, { close: true });
   const region = polygon(blobs);
-  const dots = (r) => t.grid({ cols: 40, rows: 20 }).map((c) => circle(c.cx, c.cy, r));
+  const discs = (r) => t.grid({ cols: 40, rows: 20 }).map((c) => circle(c.cx, c.cy, r));
   return [
-    clip(region, dots(2.1)),
-    clip(invert(region), dots(0.8)),
+    clip(region, discs(2.1)),
+    clip(invert(region), discs(0.8)),
   ];
 });
 ```

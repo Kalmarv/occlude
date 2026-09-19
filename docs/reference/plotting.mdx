@@ -39,7 +39,7 @@ export default sketch({ aspect: [1, 1], seed: 7 }, (t) => {
     })),
   });
   return [
-    ...Array.from({ length: 24 }, (_, i) => polygon(circle(b.w * 0.5, b.h * 0.5, 3 + i * 1.7))),
+    t.times(24, (i) => polygon(circle(b.w * 0.5, b.h * 0.5, 3 + i * 1.7))),
     polygon(circle(b.w * 0.74, b.h * 0.28, b.w * 0.13), { opaque: true }),
   ];
 });

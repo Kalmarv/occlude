@@ -59,12 +59,12 @@ A vector is a pair `[x, y]`. Every function below takes `[x, y]` or `{ x, y }`, 
 `add` and `sub` are the arithmetic. `mul` scales a vector by a number. `unit` is the direction with length 1, and `unit([0, 0])` is `[0, 0]`. `perp` turns a vector a quarter turn. `length` and `distance` measure. `limit` caps a length. `dot` and `cross` are the two products. The sign of `cross(a, b)` tells you the side of `a` that `b` lies on. `fromAngle` and `angleOf` convert between an angle and a unit vector. `sum` and `sumBy` add vectors up.
 
 ```ts live
-import { sketch, line, circle, add, sub, unit, mul, perp } from 'occlude';
+import { sketch, stroke, circle, add, sub, unit, mul, perp } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const a = [12, 72], b = [88, 32];
   const n = mul(unit(perp(sub(b, a))), 22);
   const mid = mul(add(a, b), 0.5);
-  return [line(a[0], a[1], b[0], b[1]), line(mid[0], mid[1], mid[0] + n[0], mid[1] + n[1], { pen: 'stabilo-88-blue' }), circle(mid[0], mid[1], 1.2)];
+  return [stroke([a, b]), stroke([mid, add(mid, n)], { pen: 'stabilo-88-blue' }), circle(mid[0], mid[1], 1.2)];
 });
 ```

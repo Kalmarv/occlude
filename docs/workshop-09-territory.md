@@ -90,7 +90,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   return [
     beside.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: mm(1.4) }), stroke: false })),
     strokes(diagram, { pen: 'pigma-005-black' }),
-    strokes(diagram.edges.filter((e) => e.index === chosen.index), { pen: 'stabilo-88-blue' }),
+    strokes(diagram.edges.rows([chosen.index]), { pen: 'stabilo-88-blue' }),
     sites.points.map((p) => circle(p.x, p.y, 1.8)),
     label(`${beside.length} beside this wall`, 4, 6, 3.4),
   ];

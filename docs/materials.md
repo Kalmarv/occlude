@@ -406,7 +406,7 @@ import { sketch, ngon, polygon, strokes, sub, mul } from 'occlude';
 export default sketch({ aspect: [2, 1] }, (t) => {
   const corners = t.material(ngon(100, 50, 6, 40));
   const star = corners.steps(1, (cur, next) => {
-    next.move(cur.points.filter(() => true), (p) => mul(sub([100, 50], p), p.index % 2 ? 0.45 : 0));
+    next.move(cur.points, (p) => mul(sub([100, 50], p), p.index % 2 ? 0.45 : 0));
   });
   return [strokes(corners, { pen: 'pigma-005-black' }), polygon(star, { pen: 'stabilo-88-blue' })];
 });
@@ -464,10 +464,10 @@ import { sketch, strokes, connect, circle, group } from 'occlude';
 // Right: joined by a tour. The rows did not move — only the edges did.
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const pts = t.scatter({ spacing: 13, within: circle(48, 50, 42) });
-  const dots = (m) => m.points.map((p) => circle(p.x, p.y, 0.9));
+  const marks = (m) => m.points.map((p) => circle(p.x, p.y, 0.9));
   return [
-    strokes(connect.chain(pts), { pen: 'stabilo-88-blue' }), dots(pts),
-    group({ translate: [104, 0] }, strokes(connect.tour(pts)), dots(pts)),
+    strokes(connect.chain(pts), { pen: 'stabilo-88-blue' }), marks(pts),
+    group({ translate: [104, 0] }, strokes(connect.tour(pts)), marks(pts)),
   ];
 });
 ```
@@ -668,8 +668,9 @@ export default sketch({ aspect: [2, 1], seed: 17 }, (t) => {
   for (let k = 0; k < order.length; k++) for (const w of rivers.points.at(order[k]).adjacent.indices) if (!seen[w]) { seen[w] = 1; parent[w] = order[k]; order.push(w); }
   const drains = new Float64Array(rivers.n).fill(1);
   for (let k = order.length - 1; k > 0; k--) drains[parent[order[k]]] += drains[order[k]];
+  const measured = rivers.attribute('drains', (p) => drains[p.index]);
   return [
-    polygon(rivers.thicken({ radius: (p) => 0.14 + Math.pow(drains[p.index], 0.42) * 0.3 }), {
+    polygon(measured.thicken({ radius: (p) => 0.14 + Math.pow(p.drains, 0.42) * 0.3 }), {
       fill: fill('hatch', { angle: 30, spacing: mm(0.5) }),
     }),
     strokes(t.isolines(land, [0.56, 0.72], { step: 0.9 }), { pen: 'stabilo-88-blue' }),
@@ -1823,9 +1824,8 @@ export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const sites = t.relax(t.scatter({ spacing: 14 }), { iterations: 2 });
   const cells = t.voronoi(sites);
   const rooms = cells.faces().filter((f) => f.area > 260);
-  const internal = rooms.edges.filter((e) => !rooms.boundaryEdges().has(e));
-  const rows = new Set(internal.indices);
-  const opened = cells.steps(1, (cur, next) => next.disconnect(cur.edges.filter((e) => rows.has(e.index))));
+  const internal = rooms.edges.subtract(rooms.boundaryEdges());
+  const opened = cells.steps(1, (_cur, next) => next.disconnect(internal));
   // The boundary goes down first: ink laid on ink already there is dropped,
   // so the black walls yield to the blue boundary where they coincide.
   return [

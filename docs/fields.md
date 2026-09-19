@@ -186,14 +186,14 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 Contour levels drawn differently. `edges.groupBy` splits the material into one selection per level, each carrying its level as `key`, and a selection is drawn or filled directly: here the lowest level is filled as an area, the middle one stroked, and the highest one softened for a few steps first, which is where an independent copy is made on purpose.
 
 ```ts live
-import { sketch, strokes, polygon, fill, force, mul, mm } from 'occlude';
+import { sketch, strokes, polygon, fill, force, mm } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const contours = t.isolines((x, y) => t.noise(x / 30, y / 30), [0.1, 0.3, 0.5], { step: 1, close: true });
   const [low, mid, high] = contours.edges.groupBy((e) => e.attrs.level);
   const softened = high.extract().steps(12, (cur, next) => {
     const smooth = force.relax(cur, { amount: 0.5 });
-    next.move(cur.points.filter((p) => p.adjacent.length === 2), (p) => mul(smooth(p), 1));
+    next.move(cur.points.filter((p) => p.edges.length === 2), smooth);
   });
   return [
     polygon(low, { fill: fill('hatch', { angle: 30, spacing: mm(2.4) }), stroke: false }),
@@ -351,11 +351,8 @@ export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
     const crests = m.points.components();
     const peak = (crest) => crest.map((p) => p.strength).reduce((a, b) => Math.max(a, b), 0);
     const top = crests.map(peak).reduce((a, b) => Math.max(a, b), 0);
-    const kept = new Set();
-    for (const crest of crests) {
-      if (peak(crest) > top * minStrength && crest.length >= minRun) for (const i of crest.indices) kept.add(i);
-    }
-    return m.points.filter((p) => kept.has(p.index)).edges.extract();
+    const kept = crests.filter((crest) => peak(crest) > top * minStrength && crest.length >= minRun);
+    return m.points.rows(kept.flatMap((crest) => crest.indices)).edges;
   };
 
   // Two passes at two steps. The step is the scale the derivatives are taken
@@ -414,23 +411,20 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
   // hair a distance field grows along the middle of a smooth blob — dozens of
   // two-vertex ridges, all of them real — does not reach the paper, while the
   // spine does.
-  const longRuns = (m, least) => {
-    const long = new Set();
-    for (const run of m.points.components()) if (run.length > least) for (const i of run.indices) long.add(i);
-    return (p) => long.has(p.index);
-  };
-  const longChannel = longRuns(channels, 40);
-  const longSpine = longRuns(spines, 6);
+  const longRuns = (m, least) =>
+    m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => run.indices));
+  const longChannels = longRuns(channels, 40);
+  const longSpines = longRuns(spines, 6);
 
   return [
     strokes(ripples),
     strokes(
-      channels.points.filter((p) => longChannel(p) && -d(p.x, p.y) > 4).edges.extract(),
+      longChannels.filter((p) => -d(p.x, p.y) > 4).edges,
       { pen: 'stabilo-88-blue' },
     ),
     polygon(stones, { opaque: true, stroke: false }),
     strokes(stones),
-    strokes(spines.points.filter((p) => longSpine(p) && d(p.x, p.y) > 2).edges.extract(), { pen: 'stabilo-88-blue' }),
+    strokes(longSpines.filter((p) => d(p.x, p.y) > 2).edges, { pen: 'stabilo-88-blue' }),
   ];
 });
 ```
@@ -462,12 +456,13 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
   };
 
   const crests = t.ridges(blur, { step: 1 });
-  const long = new Set();
-  for (const run of crests.points.components()) if (run.length > 10) for (const i of run.indices) long.add(i);
+  const long = crests.points.rows(
+    crests.points.components().filter((run) => run.length > 10).flatMap((run) => run.indices),
+  );
 
   return [
     strokes(connect.unimpeded(pts, { room: 1.4 }), { pen: 'stabilo-88-blue' }),
-    strokes(crests.points.filter((p) => long.has(p.index) && blur(p.x, p.y) > 0.4).edges.extract()),
+    strokes(long.filter((p) => blur(p.x, p.y) > 0.4).edges),
     pts.points.map((p) => circle(p.x, p.y, 1.1)),
   ];
 });
@@ -496,11 +491,8 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
   const height = (x, y) =>
     t.noise(x / 48, y / 48) + 0.45 * t.noise(x / 19, y / 19) + 0.14 * t.noise(x / 8, y / 8);
 
-  const longest = (m, least) => {
-    const long = new Set();
-    for (const run of m.points.components()) if (run.length > least) for (const i of run.indices) long.add(i);
-    return m.points.filter((p) => long.has(p.index)).edges.extract();
-  };
+  const longest = (m, least) =>
+    m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => run.indices)).edges.extract();
   // the drawable rectangle onto the chart's unit square: an affine cage
   const sheet = [[0, 0], [t.width, 0], [t.width, t.height], [0, t.height]];
   const chart = [[0, 0], [1, 0], [1, 1], [0, 1]];

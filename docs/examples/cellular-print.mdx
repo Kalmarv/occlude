@@ -20,7 +20,7 @@ export default sketch({ aspect: [2, 1], seed: 11 }, (t) => {
   const lines = t.times(chords, (k) => (k % 3 === 0
     ? through(t.rnd(6, 194), t.rnd(6, 94), t.rnd(Math.PI))
     : through(focus[0] + t.rnd(-26, 26), focus[1] + t.rnd(-18, 18), t.rnd(Math.PI))));
-  const cells = t.within(append(frame, ...lines).planarize().faces(), rect(6, 6, 188, 88));
+  const cells = t.within(append(frame, ...lines).planarize().faces(), frame);
   const chosen = cells.filter((f) => f.area < limit);
   const spacing = (f) => mm(gap * (0.4 + 0.6 * Math.sqrt(f.area / limit)));
   return [

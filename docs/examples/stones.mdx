@@ -24,19 +24,16 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
   const ripples = t.isolines(d, [-2.2, -4.4, -6.6, -8.8, -11], { step: 0.5 });
   const spines = t.ridges(d, { step: 2.4 });
   const channels = t.ridges((x, y) => -d(x, y), { step: 1.1 });
-  const longRuns = (m, least) => {
-    const long = new Set();
-    for (const run of m.points.components()) if (run.length > least) for (const i of run.indices) long.add(i);
-    return (p) => long.has(p.index);
-  };
-  const longChannel = longRuns(channels, 40);
-  const longSpine = longRuns(spines, 6);
+  const longRuns = (m, least) =>
+    m.points.rows(m.points.components().filter((run) => run.length > least).flatMap((run) => run.indices));
+  const longChannels = longRuns(channels, 40);
+  const longSpines = longRuns(spines, 6);
   return [
     strokes(ripples),
-    strokes(channels.points.filter((p) => longChannel(p) && -d(p.x, p.y) > 4).edges.extract(), { pen: 'stabilo-88-blue' }),
+    strokes(longChannels.filter((p) => -d(p.x, p.y) > 4).edges, { pen: 'stabilo-88-blue' }),
     polygon(stones, { opaque: true, stroke: false }),
     strokes(stones),
-    strokes(spines.points.filter((p) => longSpine(p) && d(p.x, p.y) > 2).edges.extract(), { pen: 'stabilo-88-blue' }),
+    strokes(longSpines.filter((p) => d(p.x, p.y) > 2).edges, { pen: 'stabilo-88-blue' }),
   ];
 });
 ```

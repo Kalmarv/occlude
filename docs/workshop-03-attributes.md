@@ -184,7 +184,7 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
     polygon(raised, { opaque: true }),
     strokes(shore, { pen: 'stabilo-88-green' }),
     eastern.map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-green' })),
-    raised.points.filter((p) => p.east === 1).map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-blue' })),
+    eastern.in(raised).map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-blue' })),
   ];
 });
 ```

@@ -83,10 +83,10 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const box = rect(15, 25, 70, 50);
   const corners = t.material(box);
   const samples = t.sample(box, { count: 4 });
-  const dots = (m) => m.points.map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-blue' }));
+  const rings = (m) => m.points.map((p) => circle(p.x, p.y, 1.4, { pen: 'stabilo-88-blue' }));
   return [
-    strokes(corners), dots(corners),
-    group({ translate: [100, 0] }, strokes(samples), dots(samples)),
+    strokes(corners), rings(corners),
+    group({ translate: [100, 0] }, strokes(samples), rings(samples)),
   ];
 });
 ```

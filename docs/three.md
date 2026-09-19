@@ -1439,7 +1439,7 @@ collections, extruded as one region, and shaded through the same surface
 fields as any other mesh.
 
 ```ts live
-import { sketchAsync, label, pen, mm } from 'occlude';
+import { sketchAsync, label, meanBy, pen, mm } from 'occlude';
 import { plane, light, view, orthographic } from 'occlude/3d';
 
 export default sketchAsync({ seed: 42, pens: {
@@ -1450,7 +1450,7 @@ export default sketchAsync({ seed: 42, pens: {
     .faceAttributes({ heat: f => Math.exp(-3 * (f.center[0] ** 2 + f.center[1] ** 2)) })
     .steps(4, (current, next) => {
       next.setFaces(current.faces, f => ({
-        heat: 0.5 * f.heat + 0.5 * f.adjacent.map(a => a.heat).reduce((a, b) => a + b, 0) / Math.max(1, f.adjacent.length),
+        heat: 0.5 * f.heat + 0.5 * meanBy(f.adjacent, a => a.heat),
       }));
     });
   const warm = sheet.faces.filter(f => f.heat > 0.2);

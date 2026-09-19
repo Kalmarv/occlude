@@ -227,7 +227,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
     });
   };
   for (let i = step; i < size; i += step) { split('y', i); split('x', i); }
-  for (const pen of pens) pieces[Math.floor(t.rnd(pieces.length))].pen = pen;
+  for (const pen of pens) t.pick(pieces).pen = pen;
   return pieces.map((s) =>
     rect(s.x, s.y, s.w, s.h, s.pen ? { fill: fill('solid'), fillPen: s.pen } : {}));
 });

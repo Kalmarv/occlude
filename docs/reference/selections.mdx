@@ -6,7 +6,7 @@ description: Rows of a material, chosen and combined, and what they know about e
 `m.points` and `m.edges` are collections of rows. `filter` picks rows from one and returns a selection. A selection is the same kind of collection, bound to the same state, with only the rows that passed. A selection filters, iterates, maps and groups again like the whole. It copies no data. Two selections combine only when they come from the same state.
 
 :::note
-A row number belongs to one state. When a step adds or removes vertices, the rows get new numbers. A selection from the step before is not valid in the step after. Select again from the current state.
+A row number belongs to one state. When a step adds or removes vertices, the rows get new numbers. A selection is more than its rows. Every vertex and edge carries an id, so a selection made in one state still names the same points in the next. `sel.in(state)` reads it against a later state and drops the members that are gone. A step verb takes one directly and finds the rows itself. Select again when you want to ask the new state a new question. Do not select again to keep hold of the same points.
 :::
 
 ## vertex
@@ -72,10 +72,10 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 Splits a collection into one selection for each key, in the order the keys first appear. Each selection carries its `key`. The key is not a column: a later state does not know it.
 
 ```ts live
-import { sketch, circle, strokes } from 'occlude';
+import { sketch, circle, rect, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const cloud = t.scatter({ spacing: 8 }).points.filter((p) => p.x > 4 && p.x < 96 && p.y > 4 && p.y < 96).extract();
+  const cloud = t.within(t.scatter({ spacing: 8 }).points, rect(4, 4, 92, 92)).extract();
   const bands = cloud.points.groupBy((p) => Math.floor(p.y / 25));
   return bands.map((sel) => sel.map((p) => circle(p.x, p.y, 0.6 + sel.key * 0.6, { pen: sel.key % 2 ? 'stabilo-88-blue' : undefined })));
 });
@@ -115,7 +115,8 @@ import { sketch, circle, strokes, group } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const ring = t.sample(circle(50, 60, 34), { count: 40 });
   const arc = ring.edges.filter((e) => e.a.y < 60 && e.b.y < 60).extract();
-  return [strokes(ring, { pen: 'pigma-005-black' }), group({ translate: [0, -22] }, strokes(arc, { pen: 'stabilo-88-blue' }), arc.points.filter((p) => p.index === 0).map((p) => circle(p.x, p.y, 2, { pen: 'stabilo-88-blue' })))];
+  const start = arc.points.at(0);
+  return [strokes(ring, { pen: 'pigma-005-black' }), group({ translate: [0, -22] }, strokes(arc, { pen: 'stabilo-88-blue' }), circle(start.x, start.y, 2, { pen: 'stabilo-88-blue' }))];
 });
 ```
 
@@ -132,7 +133,7 @@ import { sketch, circle, strokes, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const web = connect.triangulate(t.scatter({ spacing: 12 }));
-  const inner = web.points.filter((p) => Math.hypot(p.x - 50, p.y - 50) < 30);
+  const inner = web.points.near([50, 50], { radius: 30 });
   return [strokes(web, { pen: 'pigma-005-black' }), strokes(inner.edges, { pen: 'pigma-05-black' })];
 });
 ```
@@ -148,17 +149,17 @@ Two different questions. `p.adjacent` is topology: the points an edge joins this
 `p.edges` is the same neighbourhood as edges. `p.edges.length` is the degree: a vertex with one edge is an end, and a vertex with three or more is a junction.
 
 ```ts live
-import { sketch, circle, strokes, line, connect } from 'occlude';
+import { sketch, circle, rect, strokes, line, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
-  const tree = connect.tree(t.scatter({ spacing: 12 }).points.filter((p) => p.x > 6 && p.x < 94 && p.y > 6 && p.y < 94).extract());
-  const hub = [...tree.points].reduce((a, b) => (b.adjacent.length > a.adjacent.length ? b : a));
+  const tree = connect.tree(t.within(t.scatter({ spacing: 12 }).points, rect(6, 6, 88, 88)).extract());
+  const hub = [...tree.points].reduce((a, b) => (b.edges.length > a.edges.length ? b : a));
   return [
     strokes(tree),
     // Joined to the hub: blue.
-    [...hub.adjacent].map((q) => line(hub.x, hub.y, q.x, q.y, { pen: 'stabilo-88-blue' })),
+    hub.adjacent.map((q) => line(hub.x, hub.y, q.x, q.y, { pen: 'stabilo-88-blue' })),
     // Close to the hub, joined or not: a ring.
-    [...tree.points.near(hub, { radius: 26 })].map((q) => circle(q.x, q.y, 2, { pen: 'stabilo-88-green' })),
+    tree.points.near(hub, { radius: 26 }).map((q) => circle(q.x, q.y, 2, { pen: 'stabilo-88-green' })),
     circle(hub.x, hub.y, 3),
   ];
 });
