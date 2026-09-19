@@ -477,16 +477,18 @@ export class OrderedEditor {
           rows.get(this.es[id].b)!,
         ]),
       ),
-      this.prev.iteration + 1,
-      [],
-      Object.fromEntries(
-        Object.keys(this.prev.edgeAttrs).map((k) => [
-          k,
-          Float64Array.from(edges, (id) => this.es[id].attrs[k]),
-        ]),
-      ),
-      { ...this.prev.transfers },
-      { ...this.prev.edgeTransfers },
+      {
+        iteration: this.prev.iteration + 1,
+        history: [],
+        edgeAttrs: Object.fromEntries(
+          Object.keys(this.prev.edgeAttrs).map((k) => [
+            k,
+            Float64Array.from(edges, (id) => this.es[id].attrs[k]),
+          ]),
+        ),
+        transfers: { ...this.prev.transfers },
+        edgeTransfers: { ...this.prev.edgeTransfers },
+      },
     );
     this.snapshots.set(output, { points, edges });
     return output;

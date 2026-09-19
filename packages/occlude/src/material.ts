@@ -317,15 +317,36 @@ export class Material {
     y: Float64Array,
     attrs: Record<string, Float64Array>,
     edgeList: Uint32Array,
-    iteration = 0,
-    history: readonly Snapshot[] = [],
-    edgeAttrs: Record<string, Float64Array> = {},
-    transfers: Record<string, TransferPolicy> = {},
-    edgeTransfers: Record<string, EdgeTransfer> = {},
-    /** The identity of each row, carried from wherever these rows came
-     * from. Absent means this is new geometry, and the constructor mints. */
-    ids?: { points?: Float64Array; edges?: Float64Array },
+    /**
+     * Everything a rebuild carries over, by name.
+     *
+     * The positional four are the geometry itself and are always given.
+     * The rest used to be five positional parameters, and every new one
+     * made the next call site one transposition away from a silent
+     * wrong-column bug — the kind that shows up as columns quietly
+     * vanishing after a `thicken` or a `warp`, with nothing to see. Named,
+     * a mistake is a type error.
+     */
+    carry: {
+      iteration?: number;
+      history?: readonly Snapshot[];
+      edgeAttrs?: Record<string, Float64Array>;
+      transfers?: Record<string, TransferPolicy>;
+      edgeTransfers?: Record<string, EdgeTransfer>;
+      /** The identity of each row, carried from wherever these rows came
+       * from. Absent means this is new geometry, and the constructor
+       * mints. */
+      ids?: { points?: Float64Array; edges?: Float64Array };
+    } = {},
   ) {
+    const {
+      iteration = 0,
+      history = [],
+      edgeAttrs = {},
+      transfers = {},
+      edgeTransfers = {},
+      ids,
+    } = carry;
     if (x.length !== y.length) throw new Error('material: x and y columns differ in length');
     for (const [name, col] of Object.entries(edgeAttrs)) {
       if (col.length !== edgeList.length / 2) {
@@ -710,12 +731,8 @@ export class Material {
       if (policy === 'interpolate') delete transfers[name];
       else transfers[name] = policy;
     }
-    return new Material(
-      copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), ...cols }, copyEdges(this.edgeList), this.iteration, [],
-      copyAttrs(this.edgeAttrs), transfers, { ...this.edgeTransfers },
-      // Setting a column changes no row, so every identity carries.
-      { points: copy(this.pointIds), edges: copy(this.edgeIds) },
-    );
+    // Setting a column changes no row, so every identity carries.
+    return new Material(copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), ...cols }, copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds) } });
   }
 
   /** A new material with an EDGE column set: a constant, or one value per
@@ -748,11 +765,7 @@ export class Material {
       if (policy === 'copy') delete edgeTransfers[name];
       else edgeTransfers[name] = policy;
     }
-    return new Material(
-      copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), this.iteration, [],
-      { ...copyAttrs(this.edgeAttrs), ...cols }, { ...this.transfers }, edgeTransfers,
-      { points: copy(this.pointIds), edges: copy(this.edgeIds) },
-    );
+    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: { ...copyAttrs(this.edgeAttrs), ...cols }, transfers: { ...this.transfers }, edgeTransfers: edgeTransfers, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds) } });
   }
 
   /** A new material with these edges added (undirected; an existing pair
@@ -789,7 +802,7 @@ export class Material {
     }
     const edgeAttrs: Record<string, Float64Array> = {};
     for (const name of names) edgeAttrs[name] = Float64Array.from(cols[name]);
-    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), this.iteration, [], edgeAttrs, { ...this.transfers }, { ...this.edgeTransfers });
+    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), { iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers } });
   }
 
   /**
@@ -899,7 +912,7 @@ export class Material {
     for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
     const edgeAttrs: Record<string, Float64Array> = {};
     for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), this.iteration, [], edgeAttrs, { ...this.transfers }, { ...this.edgeTransfers });
+    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers } });
   }
 
   /**
@@ -1121,7 +1134,7 @@ export class Material {
     const passes: StepRule[] = [rule as StepRule, ...(passesAndOptions as (StepRule | StepsOptions)[]).filter((pass): pass is StepRule => typeof pass === 'function')];
     const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
     const snaps: Snapshot[] = [];
-    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), this.iteration, [], copyAttrs(this.edgeAttrs), { ...this.transfers }, { ...this.edgeTransfers }, { points: copy(this.pointIds), edges: copy(this.edgeIds) });
+    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), { iteration: this.iteration, history: [], edgeAttrs: copyAttrs(this.edgeAttrs), transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: copy(this.edgeIds) } });
     if (every) snaps.push({ iteration: this.iteration, material: base });
     let cur = base;
     for (let k = 0; k < n; k++) {
@@ -1130,7 +1143,7 @@ export class Material {
     }
     if (every && n > 0) snaps.push({ iteration: cur.iteration, material: cur });
     return every
-      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), cur.iteration, snaps, copyAttrs(cur.edgeAttrs), { ...cur.transfers }, { ...cur.edgeTransfers }, { points: copy(cur.pointIds), edges: copy(cur.edgeIds) })
+      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), { iteration: cur.iteration, history: snaps, edgeAttrs: copyAttrs(cur.edgeAttrs), transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: copy(cur.pointIds), edges: copy(cur.edgeIds) } })
       : cur;
   }
 }
@@ -1423,17 +1436,7 @@ export function withinMaterial(
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(
-    Float64Array.from(ox),
-    Float64Array.from(oy),
-    attrs,
-    Uint32Array.from(edges),
-    m.iteration,
-    [],
-    edgeAttrs,
-    { ...m.transfers },
-    { ...m.edgeTransfers },
-  );
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: m.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers } });
 }
 
 // ---- constructors ----------------------------------------------------------------
@@ -1494,10 +1497,7 @@ export function stationsMaterial(stations: readonly Station[]): Material {
   }
   const attrs = Object.fromEntries(Object.entries(cols).map(([name, values]) => [name, Float64Array.from(values)]));
   const transfers = Object.fromEntries([...policies].filter(([, policy]) => policy !== 'interpolate'));
-  return new Material(
-    Float64Array.from(stations, q => q.x), Float64Array.from(stations, q => q.y),
-    attrs, Uint32Array.from(edges.flat()), 0, [], {}, transfers,
-  );
+  return new Material(Float64Array.from(stations, q => q.x), Float64Array.from(stations, q => q.y), attrs, Uint32Array.from(edges.flat()), { iteration: 0, history: [], edgeAttrs: {}, transfers: transfers });
 }
 
 /**
@@ -2183,7 +2183,7 @@ function appendTwo(a: Material, b: Material, opts: AppendOpts): Material {
     else col.fill(edgeFill[k], a.edgeCount);
     edgeAttrs[k] = col;
   }
-  return new Material(x, y, attrs, edges, 0, [], edgeAttrs, { ...b.transfers, ...a.transfers }, { ...b.edgeTransfers, ...a.edgeTransfers });
+  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...b.transfers, ...a.transfers }, edgeTransfers: { ...b.edgeTransfers, ...a.edgeTransfers } });
 }
 
 // ---- interpretation ---------------------------------------------------------------

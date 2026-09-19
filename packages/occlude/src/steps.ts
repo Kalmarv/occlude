@@ -23,9 +23,14 @@ import type { PointSelection, EdgeSelection } from './relation.js';
 export interface StepKit {
   Material: new (
     x: Float64Array, y: Float64Array, attrs: Record<string, Float64Array>, edgeList: Uint32Array,
-    iteration?: number, history?: readonly Snapshot[], edgeAttrs?: Record<string, Float64Array>,
-    transfers?: Record<string, TransferPolicy>, edgeTransfers?: Record<string, EdgeTransfer>,
-    ids?: { points?: Float64Array; edges?: Float64Array },
+    carry?: {
+      iteration?: number;
+      history?: readonly Snapshot[];
+      edgeAttrs?: Record<string, Float64Array>;
+      transfers?: Record<string, TransferPolicy>;
+      edgeTransfers?: Record<string, EdgeTransfer>;
+      ids?: { points?: Float64Array; edges?: Float64Array };
+    },
   ) => Material;
   PointSelection: typeof PointSelection;
   EdgeSelection: typeof EdgeSelection;
@@ -456,7 +461,7 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   // ---- the moved state: split transfer callbacks read it ----
   // The same rows, moved: the split callbacks read this state and must see
   // the identities they will be asked about.
-  const moved = new Material(nx, ny, nattrs, cur.edgeList, iteration, [], neattrs, { ...cur.transfers }, { ...cur.edgeTransfers }, { points: Float64Array.from(cur.pointIds), edges: Float64Array.from(cur.edgeIds) });
+  const moved = new Material(nx, ny, nattrs, cur.edgeList, { iteration: iteration, history: [], edgeAttrs: neattrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(cur.pointIds), edges: Float64Array.from(cur.edgeIds) } });
 
   const movedEdges = moved.edges;
 
@@ -658,5 +663,5 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), iteration, [], edgeAttrs, { ...cur.transfers }, { ...cur.edgeTransfers }, { points: Float64Array.from(oids), edges: Float64Array.from(eids) });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids) } });
 }

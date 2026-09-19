@@ -386,5 +386,5 @@ export function thicken(
     attrs = cols;
   }
 
-  return new Material(x, y, attrs, edges, 0, [], {}, {}, {});
+  return new Material(x, y, attrs, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: {}, edgeTransfers: {} });
 }

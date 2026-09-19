@@ -498,7 +498,7 @@ export function planarize(m: Material, opts: PlanarizeOpts = {}): Material {
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), 0, [], edgeAttrs, { ...m.transfers }, { ...m.edgeTransfers });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: 0, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers } });
 }
 
 // ---- faces ----------------------------------------------------------------------------

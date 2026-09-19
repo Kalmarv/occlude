@@ -1079,7 +1079,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
         ei++;
       }
     }
-    return new Material(x, y, {}, edges, 0, [], level ? { level } : {}, {}, level ? { level: 'copy' } : {});
+    return new Material(x, y, {}, edges, { iteration: 0, history: [], edgeAttrs: level ? { level } : {}, transfers: {}, edgeTransfers: level ? { level: 'copy' } : {} });
   }
 
   /** Contours of `{ field ≥ at }` via marching squares over the drawable, as
@@ -1142,7 +1142,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
         ei++;
       }
     }
-    return new Material(x, y, { strength, height }, edges, 0, [], {}, { strength: 'interpolate', height: 'interpolate' }, {});
+    return new Material(x, y, { strength, height }, edges, { iteration: 0, history: [], edgeAttrs: {}, transfers: { strength: 'interpolate', height: 'interpolate' }, edgeTransfers: {} });
   }
 
   /** Evenly spaced streamlines of a vector field over the drawable (Jobard &
