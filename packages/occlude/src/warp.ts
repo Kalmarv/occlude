@@ -134,5 +134,7 @@ export function warp(m: Material, opts: WarpOpts): Material {
     Uint32Array.from(src.edgeList), src.iteration, src.history,
     Object.fromEntries(Object.entries(src.edgeAttrs).map(([k, col]) => [k, Float64Array.from(col)])),
     { ...src.transfers }, { ...src.edgeTransfers },
+    // Only the positions move: every row is the row it was.
+    { points: Float64Array.from(src.pointIds), edges: Float64Array.from(src.edgeIds) },
   );
 }

@@ -1,4 +1,5 @@
 import type { ModelingStats3 } from './three/modeling.js';
+import { resetIds } from './material.js';
 import type { LineArtScene3 } from './three/scene.js';
 import type { ClassifiedScene3 } from './three/visibility/scene.js';
 import type { RetainedDrawing3 } from './three/drawing.js';
@@ -277,6 +278,11 @@ export class Execution {
   begin(cfg: CompileConfig): void {
     if (this.compiled) throw new Error('Execution: already compiled — one execution runs one sketch once');
     this.compiled = true;
+    // Identities start over with the run. A counter that survived between
+    // runs would show different ids in a warm studio worker than in a cold
+    // render for the same sketch and seed — no ink difference, but a broken
+    // promise.
+    resetIds();
     this.cameras3 = Object.freeze(Object.fromEntries(Object.entries(cfg.cameras3 ?? {}).map(([key, camera]) => [key,
       cameraFrame3(camera, { x: 0, y: 0, width: 1, height: 1 }).camera,
     ])));

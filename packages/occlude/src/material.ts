@@ -67,14 +67,17 @@ export type {
 // ---- the material --------------------------------------------------------------------
 
 /** A vertex view: its row `index` in THIS state, position, and every
- * attribute column. A plain snapshot, valid for the material it came from —
- * not a persistent identity. `material` (non-enumerable) names that material, so
- * a force can tell "this vertex of these sources" from a foreign point
- * that happens to share an index. */
+ * attribute column. A plain snapshot of the state it came from — the row is
+ * not a persistent identity, but `id` is. `material` (non-enumerable) names
+ * that material, so a force can tell "this vertex of these sources" from a
+ * foreign point that happens to share an index. */
 export type Vertex = {
   index: number;
   x: number;
   y: number;
+  /** This vertex, for as long as it exists. Opaque and never reused: store
+   * it in a column and `cur.point(id)` finds the row it became. */
+  readonly id: PointId;
   /** The vertices an edge joins this one to, in adjacency order. Topology
    * only: no spatial search — `cur.points.near(p, { radius })` is that. An
    * isolated vertex has none. */
@@ -88,6 +91,9 @@ export interface Edge {
   length: number;
   /** Row of this edge in the material's edge list. */
   index: number;
+  /** This edge, for as long as it exists. A split retires it and gives its
+   * children ids of their own. */
+  readonly id: EdgeId;
   /** This edge's attribute row: `edge.attrs.rest`. */
   attrs: Record<string, number>;
   /** The faces on this edge's two sides, from the material's `faces()`:
@@ -207,6 +213,53 @@ export type TransferPolicy = 'interpolate' | 'nearest';
  * copies. Per-operation `edges` overrides win over either. */
 export type EdgeTransfer = 'copy' | 'distribute';
 
+/**
+ * The identity of one vertex or one edge, for as long as it exists.
+ *
+ * An id is opaque: the type refuses arithmetic on it, it is equal only to
+ * itself, and it is never reused. It is a NUMBER underneath, not a string,
+ * for one reason — a sketch stores an id in an ordinary column and looks it
+ * up in a later step (`cur.point(id)`), and a column holds numbers.
+ *
+ * THE RULE, in three words: mint, keep, retire.
+ *
+ * - **Mint.** New geometry gets new ids. Every material built from nothing
+ *   — `material()`, `resample`, `thicken`, `envelope`, `voronoi`, `settle` —
+ *   mints, because it *is* new geometry. The constructor mints when it is
+ *   given none, so a rebuild that has not been taught about identity is
+ *   honest rather than wrong.
+ * - **Keep.** A rebuild that carries a row forward carries its id: every
+ *   column copy, every survivor of a step, every extracted selection.
+ * - **Retire.** A split ends the parent and both children are new. After
+ *   `splitEdges`, `cur.edge(parentId)` finds nothing, which is the same
+ *   rule as "rows that are gone are skipped". The alternative — the first
+ *   child inherits — is equally defensible and would silently change what
+ *   `has` answers after a growth step, so it is written here rather than
+ *   discovered later.
+ *
+ * The counter is per run, not per process: a module-global counter would
+ * make the same sketch show different ids in a warm studio worker than in
+ * a cold render. No ink moves either way, but "same program, same seed,
+ * same ink" is a promise about what the artist sees.
+ */
+export type PointId = number & { readonly __pointId: unique symbol };
+export type EdgeId = number & { readonly __edgeId: unique symbol };
+
+/** The run's id counter. Reset at the start of every execution. */
+let nextId = 1;
+
+/** @internal Start a run's identities over. Called once per execution. */
+export function resetIds(): void {
+  nextId = 1;
+}
+
+/** @internal A fresh block of `count` ids, contiguous and never reused. */
+export function mintIds(count: number): Float64Array {
+  const out = new Float64Array(count);
+  for (let i = 0; i < count; i++) out[i] = nextId++;
+  return out;
+}
+
 export class Material {
   readonly n: number;
   readonly x: Float64Array;
@@ -239,6 +292,16 @@ export class Material {
    * state is frozen, so the cache lives in a box like the adjacency does. */
   readonly nearBox: { byRadius: Map<number, (p: XY) => number[]> } = { byRadius: new Map() };
   private readonly facesBox: { faces: Faces | null };
+  /** One id per vertex row, and one per edge row. Outside `attrs` on
+   * purpose: a column would be interpolated at every split (a mean of two
+   * ids is a forged id), would be demanded of every `addPoint` caller, and
+   * would appear as a plain number on a vertex view — the opposite of
+   * opaque. */
+  readonly pointIds: Float64Array;
+  readonly edgeIds: Float64Array;
+  /** id → row, built the first time an id is looked up. A box, like the
+   * adjacency, because the state is frozen. */
+  private readonly idBox: { points: Map<number, number> | null; edges: Map<number, number> | null };
   private readonly vertexProto: object;
   private readonly edgeProto: object;
 
@@ -259,6 +322,9 @@ export class Material {
     edgeAttrs: Record<string, Float64Array> = {},
     transfers: Record<string, TransferPolicy> = {},
     edgeTransfers: Record<string, EdgeTransfer> = {},
+    /** The identity of each row, carried from wherever these rows came
+     * from. Absent means this is new geometry, and the constructor mints. */
+    ids?: { points?: Float64Array; edges?: Float64Array },
   ) {
     if (x.length !== y.length) throw new Error('material: x and y columns differ in length');
     for (const [name, col] of Object.entries(edgeAttrs)) {
@@ -296,6 +362,16 @@ export class Material {
     }
     this.adjBox = { rows: null };
     this.facesBox = { faces: null };
+    const edgeCount = edgeList.length / 2;
+    if (ids?.points !== undefined && ids.points.length !== this.n) {
+      throw new Error(`material: ${ids.points.length} point ids for ${this.n} vertices`);
+    }
+    if (ids?.edges !== undefined && ids.edges.length !== edgeCount) {
+      throw new Error(`material: ${ids.edges.length} edge ids for ${edgeCount} edges`);
+    }
+    this.pointIds = ids?.points ?? mintIds(this.n);
+    this.edgeIds = ids?.edges ?? mintIds(edgeCount);
+    this.idBox = { points: null, edges: null };
     const self = this;
     // A vertex knows the vertices an edge joins it to. Lazy and
     // non-enumerable, exactly like an edge's `faces` below: a view is made
@@ -306,12 +382,19 @@ export class Material {
       get(this: Vertex) { return new PointSelection(self, self.adjacentRows(this.index)); },
       enumerable: false,
     });
+    // Identity hangs off the view, never on it: a vertex still spreads and
+    // serialises as its columns, and `p.id` is there when it is asked for.
+    Object.defineProperty(vertexProto, 'id', {
+      get(this: Vertex) { return self.pointIds[this.index] as PointId; },
+      enumerable: false,
+    });
     this.vertexProto = Object.freeze(vertexProto);
     // An edge knows the faces on its two sides once the material's faces
     // have been read (cached on the state): the reverse of `face.edges`.
     const owner = this;
     const edgeProto = Object.create(viewProto(this, 'edge')) as object;
     Object.defineProperty(edgeProto, 'faces', { get(this: Edge) { return owner.faces().facesOf(this); }, enumerable: false });
+    Object.defineProperty(edgeProto, 'id', { get(this: Edge) { return owner.edgeIds[this.index] as EdgeId; }, enumerable: false });
     this.edgeProto = Object.freeze(edgeProto);
     Object.freeze(this.attrs);
     Object.freeze(this.edgeAttrs);
@@ -340,6 +423,47 @@ export class Material {
   /** Names of the attribute columns. */
   get attrNames(): string[] {
     return Object.keys(this.attrs);
+  }
+
+  /**
+   * The row an id is at in THIS state, or -1 when it is gone.
+   *
+   * This is how a later step finds what an earlier one marked: store
+   * `p.id` in a column, and `m.rowOfPoint(id)` says where it went. The map
+   * is built the first time it is asked for, like the adjacency.
+   */
+  rowOfPoint(id: PointId): number {
+    let map = this.idBox.points;
+    if (!map) {
+      map = new Map();
+      for (let i = 0; i < this.n; i++) map.set(this.pointIds[i], i);
+      this.idBox.points = map;
+    }
+    return map.get(id) ?? -1;
+  }
+
+  /** The edge row an id is at in this state, or -1 when it is gone (a
+   * split retires the parent, so its id resolves to nothing). */
+  rowOfEdge(id: EdgeId): number {
+    let map = this.idBox.edges;
+    if (!map) {
+      map = new Map();
+      for (let e = 0; e < this.edgeCount; e++) map.set(this.edgeIds[e], e);
+      this.idBox.edges = map;
+    }
+    return map.get(id) ?? -1;
+  }
+
+  /** The vertex an id names in this state, or undefined when it is gone. */
+  point(id: PointId): Vertex | undefined {
+    const row = this.rowOfPoint(id);
+    return row < 0 ? undefined : this.vertex(row);
+  }
+
+  /** The edge an id names in this state, or undefined when it is gone. */
+  edgeOf(id: EdgeId): Edge | undefined {
+    const row = this.rowOfEdge(id);
+    return row < 0 ? undefined : this.edge(row);
   }
 
   /** The vertex at row `i` as a plain view. */
@@ -580,6 +704,8 @@ export class Material {
     return new Material(
       copy(this.x), copy(this.y), { ...copyAttrs(this.attrs), ...cols }, copyEdges(this.edgeList), this.iteration, [],
       copyAttrs(this.edgeAttrs), transfers, { ...this.edgeTransfers },
+      // Setting a column changes no row, so every identity carries.
+      { points: copy(this.pointIds), edges: copy(this.edgeIds) },
     );
   }
 
@@ -616,6 +742,7 @@ export class Material {
     return new Material(
       copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), this.iteration, [],
       { ...copyAttrs(this.edgeAttrs), ...cols }, { ...this.transfers }, edgeTransfers,
+      { points: copy(this.pointIds), edges: copy(this.edgeIds) },
     );
   }
 
@@ -985,7 +1112,7 @@ export class Material {
     const passes: StepRule[] = [rule as StepRule, ...(passesAndOptions as (StepRule | StepsOptions)[]).filter((pass): pass is StepRule => typeof pass === 'function')];
     const every = opts.every !== undefined ? Math.max(1, Math.floor(opts.every)) : 0;
     const snaps: Snapshot[] = [];
-    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), this.iteration, [], copyAttrs(this.edgeAttrs), { ...this.transfers }, { ...this.edgeTransfers });
+    const base = new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), this.iteration, [], copyAttrs(this.edgeAttrs), { ...this.transfers }, { ...this.edgeTransfers }, { points: copy(this.pointIds), edges: copy(this.edgeIds) });
     if (every) snaps.push({ iteration: this.iteration, material: base });
     let cur = base;
     for (let k = 0; k < n; k++) {
@@ -994,7 +1121,7 @@ export class Material {
     }
     if (every && n > 0) snaps.push({ iteration: cur.iteration, material: cur });
     return every
-      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), cur.iteration, snaps, copyAttrs(cur.edgeAttrs), { ...cur.transfers }, { ...cur.edgeTransfers })
+      ? new Material(copy(cur.x), copy(cur.y), copyAttrs(cur.attrs), copyEdges(cur.edgeList), cur.iteration, snaps, copyAttrs(cur.edgeAttrs), { ...cur.transfers }, { ...cur.edgeTransfers }, { points: copy(cur.pointIds), edges: copy(cur.edgeIds) })
       : cur;
   }
 }

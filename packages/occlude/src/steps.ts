@@ -13,7 +13,7 @@
 
 import { vx, vy, type XY } from './vec.js';
 import { ownerOf, pairKey, viewKind } from './views.js';
-import type { Material, Vertex, Edge, TransferPolicy, EdgeTransfer, Snapshot } from './material.js';
+import { mintIds, type Material, type Vertex, type Edge, type TransferPolicy, type EdgeTransfer, type Snapshot } from './material.js';
 import type { PointSelection, EdgeSelection } from './relation.js';
 
 /** What `stepOnce` needs from the material cluster, handed over by the
@@ -25,6 +25,7 @@ export interface StepKit {
     x: Float64Array, y: Float64Array, attrs: Record<string, Float64Array>, edgeList: Uint32Array,
     iteration?: number, history?: readonly Snapshot[], edgeAttrs?: Record<string, Float64Array>,
     transfers?: Record<string, TransferPolicy>, edgeTransfers?: Record<string, EdgeTransfer>,
+    ids?: { points?: Float64Array; edges?: Float64Array },
   ) => Material;
   PointSelection: typeof PointSelection;
   EdgeSelection: typeof EdgeSelection;
@@ -444,7 +445,9 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   rule(cur, next, k);
 
   // ---- the moved state: split transfer callbacks read it ----
-  const moved = new Material(nx, ny, nattrs, cur.edgeList, iteration, [], neattrs, { ...cur.transfers }, { ...cur.edgeTransfers });
+  // The same rows, moved: the split callbacks read this state and must see
+  // the identities they will be asked about.
+  const moved = new Material(nx, ny, nattrs, cur.edgeList, iteration, [], neattrs, { ...cur.transfers }, { ...cur.edgeTransfers }, { points: Float64Array.from(cur.pointIds), edges: Float64Array.from(cur.edgeIds) });
 
   const movedEdges = moved.edges;
 
@@ -540,6 +543,10 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   const oy: number[] = [];
   const oattrs: Record<string, number[]> = {};
   for (const name of names) oattrs[name] = [];
+  // Identity rides beside the coordinates: a survivor's id is pushed where
+  // its position is, and a row that did not exist before takes a fresh one.
+  const oids: number[] = [];
+  const mint = (): number => (mintIds(1)[0]);
   const cutRow = new Map<string, number>(); // `${edge}@${at}` → row
   const insertAfter = new Map<number, [number, Cut][]>();
   for (const [row, cuts] of cutsByEdge) {
@@ -553,12 +560,14 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
     rowMap[i] = ox.length;
     ox.push(nx[i]);
     oy.push(ny[i]);
+    oids.push(cur.pointIds[i]);
     for (const name of names) oattrs[name].push(nattrs[name][i]);
     for (const [row, c] of insertAfter.get(i) ?? []) {
       const e = movedEdges.at(row);
       cutRow.set(`${row}@${c.at}`, ox.length);
       ox.push(e.a.x + (e.b.x - e.a.x) * c.at);
       oy.push(e.a.y + (e.b.y - e.a.y) * c.at);
+      oids.push(mint()); // a vertex where an edge was cut is a new vertex
       for (const name of names) oattrs[name].push(c.point[name]);
     }
   }
@@ -572,6 +581,7 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
     handleRow[h] = ox.length;
     ox.push(added[h].x);
     oy.push(added[h].y);
+    oids.push(mint());
     for (const name of names) oattrs[name].push(added[h].attrs[name]);
   }
 
@@ -579,8 +589,10 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   const edges: number[] = [];
   const eattrs: Record<string, number[]> = {};
   for (const name of enames) eattrs[name] = [];
-  const pushEdge = (a: number, b: number, attrs: Record<string, number>) => {
+  const eids: number[] = [];
+  const pushEdge = (a: number, b: number, attrs: Record<string, number>, id = mint()) => {
     edges.push(a, b);
+    eids.push(id);
     for (const name of enames) eattrs[name].push(attrs[name]);
   };
   for (let e = 0; e < m; e++) {
@@ -591,7 +603,8 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
     for (const name of enames) parentAttrs[name] = neattrs[name][e];
     const cuts = cutsByEdge.get(e);
     if (!cuts) {
-      pushEdge(a, b, parentAttrs);
+      // Nothing cut it: this is the same edge it was.
+      pushEdge(a, b, parentAttrs, cur.edgeIds[e]);
       continue;
     }
     const override = childEdgeOverride.get(e);
@@ -636,5 +649,5 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), iteration, [], edgeAttrs, { ...cur.transfers }, { ...cur.edgeTransfers });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), iteration, [], edgeAttrs, { ...cur.transfers }, { ...cur.edgeTransfers }, { points: Float64Array.from(oids), edges: Float64Array.from(eids) });
 }

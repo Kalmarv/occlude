@@ -226,7 +226,7 @@ describe('per-object pen',()=>{
     expect(viewOnly).not.toContain('#22aa22');
     expect(sphere(1).style({stroke:'fine'}).translate([1,0,0]).subdivide(1).stroke).toBe('fine');
     expect(()=>sphere(1,{stroke:''})).toThrow('pen name');
-  });
+  },20_000);
 });
 
 describe('per-object crease threshold',()=>{

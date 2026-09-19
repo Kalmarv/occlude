@@ -433,10 +433,14 @@ function extractRows(m: Material, pointRows: readonly number[], edgeRows: readon
   const x = new Float64Array(n);
   const y = new Float64Array(n);
   const rowMap = new Map<number, number>();
+  // An extracted row is the row it came from, so it keeps its identity: a
+  // selection pulled out and grown is still made of the same points.
+  const pointIds = new Float64Array(n);
   for (let k = 0; k < n; k++) {
     const i = pointRows[k];
     x[k] = m.x[i];
     y[k] = m.y[i];
+    pointIds[k] = m.pointIds[i];
     rowMap.set(i, k);
   }
   const attrs: Record<string, Float64Array> = {};
@@ -459,7 +463,9 @@ function extractRows(m: Material, pointRows: readonly number[], edgeRows: readon
     for (let k = 0; k < edgeRows.length; k++) col[k] = src[edgeRows[k]];
     edgeAttrs[name] = col;
   }
-  return new Material(x, y, attrs, edges, 0, [], edgeAttrs, { ...m.transfers }, { ...m.edgeTransfers });
+  const edgeIds = new Float64Array(edgeRows.length);
+  for (let k = 0; k < edgeRows.length; k++) edgeIds[k] = m.edgeIds[edgeRows[k]];
+  return new Material(x, y, attrs, edges, 0, [], edgeAttrs, { ...m.transfers }, { ...m.edgeTransfers }, { points: pointIds, edges: edgeIds });
 }
 
 // ---- relational measures ----------------------------------------------------------
