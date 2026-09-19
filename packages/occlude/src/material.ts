@@ -821,8 +821,12 @@ export class Material {
    * boundary does change, a new face takes the value of the old face it
    * shares the most walls with (`'nearest'`, the default), or the column
    * stops there (`'drop'`). A face that shares no wall with any old face
-   * starts from `fallback`, and a column with no fallback is an error
-   * where the face appeared, not where it is read.
+   * starts from `fallback`.
+   *
+   * A face column is SPARSE, and the type says so (`number | undefined`).
+   * A write names the faces it writes and passes the rest by; a face with
+   * nothing to inherit and no `fallback` simply does not carry the column.
+   * Give the column a `fallback` when every face must answer.
    */
   faceAttribute(name: string, value: number | ((f: Face) => number), opts: { transfer?: FaceTransfer; fallback?: number } = {}): Material {
     return this.faceAttributes({ [name]: value }, opts);

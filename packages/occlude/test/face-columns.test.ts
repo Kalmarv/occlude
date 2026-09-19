@@ -157,5 +157,11 @@ describe('when the boundary changes', () => {
     const after = written.faces();
     expect(after.at(0).tone).toBe(7);
     for (let i = 1; i < after.length; i++) expect(after.at(i).tone).toBeUndefined();
+    // And the TYPE says so. A face column is sparse, so reading one as a
+    // number is a mistake the compiler catches — not a NaN in a hatch angle
+    // that shows up after the pen has moved.
+    // @ts-expect-error a face column may be absent
+    const asNumber: number = after.at(1).tone;
+    expect(asNumber).toBeUndefined();
   });
 });

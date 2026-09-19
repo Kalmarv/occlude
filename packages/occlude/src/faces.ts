@@ -559,7 +559,18 @@ export type Face = {
    * — a face, a face collection, a material and a plain contour record are
    * all read the same way by `polygon`, `distanceTo` and `t.within`. */
   contours(): IsoContour[];
-} & Record<string, number>;
+  /**
+   * The face columns, read flat: `f.height`, the way a vertex reads `p.age`.
+   *
+   * `number | undefined`, and the `undefined` is the honest half: a face
+   * column is SPARSE. A write names the faces it writes, a face the write
+   * passed by has no value, and a new face that shares no wall with any old
+   * one has nothing to inherit. Declared as `number` this read `NaN` into a
+   * hatch angle without a word said, which is the worst kind of plotter bug
+   * — it typechecks, it does not throw, and it shows after the pen has
+   * moved. Give the column a `fallback` if every face must answer.
+   */
+} & Record<string, number | undefined>;
 
 interface Walk {
   halfEdges: number[]; // in walk order

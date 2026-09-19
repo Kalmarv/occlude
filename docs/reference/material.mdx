@@ -164,6 +164,32 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## What keeps a column
+
+A column belongs to the material that declares it. An operation that makes a
+new material decides what to carry, and the three answers differ. We measured this table. It is
+what the code does, not what it should do.
+
+| operation | point columns | edge columns | transfer policies |
+|---|---|---|---|
+| `warp`, `snap`, `resample`, `trails`, `planarize`, `append`, `withEdges`, `steps` | kept | kept | kept |
+| `oscillate` | kept, and an edge column arrives as a POINT column | dropped | edge policies dropped |
+| `thicken`, `envelope`, `interlace` | dropped | dropped | dropped |
+
+The third row matches its geometry. A thickened outline has two vertices for
+each vertex of the source. An envelope's vertices are crossings of a family,
+and come from no vertex at all. An interlace cuts a chain where it passes
+under. None of these has one source row to read a value from.
+
+The second row is a trap. `oscillate` walks the chains as stations. A station
+carries an edge's sampled value as an ordinary point value. So an edge
+quantity that `'distribute'` conserves, such as a rest length, comes out as a
+point value under the same name. Rename the column before you oscillate, or
+write it back afterwards.
+
+To keep a column through an operation in the third row, read it off the source
+first. Then set it again on the result.
+
 ## withEdges()
 
 <include>/_sig/Material.withEdges.mdx</include>
