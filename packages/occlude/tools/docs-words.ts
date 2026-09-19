@@ -17,7 +17,11 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { DOC_PAGES } from '../dist/docsExamples.js';
+// From SOURCE, like every other tool here (`docs-hashes.ts`,
+// `check-docs-examples.ts`). Importing the BUILD made this gate depend on a
+// `dist` that `check.mjs` has not produced yet, so it passed on a warm tree
+// and failed in a clean container — which is what the Docker build is for.
+import { DOC_PAGES } from '../src/docsExamples.js';
 
 const root = resolve(new URL('../../..', import.meta.url).pathname);
 const FENCE = /```ts live[^\n]*\n([\s\S]*?)```/g;
@@ -44,7 +48,7 @@ for (const page of DOC_PAGES.filter((p) => p.live)) {
     // `dots(`; a value word such as `t.cx` as `.cx`. A numbered overload
     // (`strokes.2`) is the same word.
     const word = sig.replace(/\.\d+$/, '');
-    const last = word.split('.').pop();
+    const last = word.split('.').pop()!;
     if (NOT_LIVE.has(last)) continue;
     if (new RegExp(`\\b${last}\\b`).test(code)) continue;
     console.log(`${page.file}: documents ${word} and no example uses it`);

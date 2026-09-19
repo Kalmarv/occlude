@@ -28,7 +28,7 @@
     "docs:hashes": "tsx tools/docs-hashes.ts",
     "docs:signatures": "tsx tools/signatures.ts",
     "docs:ste": "node tools/ste-lint.mjs",
-    "docs:words": "node tools/docs-words.mjs",
+    "docs:words": "tsx tools/docs-words.ts",
     "typecheck": "tsc -p tsconfig.check.json",
     "store-sweep": "tsx tools/store-sweep.ts",
     "smoke": "tsx tools/smoke.ts"
