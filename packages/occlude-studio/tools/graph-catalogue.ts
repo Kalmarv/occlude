@@ -592,8 +592,24 @@ const words: Word[] = [];
  * and not a second entry for the same idea.
  */
 function isToolkitAlias(word: string, receiver: string | null): boolean {
-  return receiver === 't' && words.some((w) => w.receiver === null && w.word === word.slice(2));
+  if (receiver !== 't') return false;
+  const bare = word.slice(2);
+  const pure = words.find((w) => w.receiver === null && w.word === bare);
+  if (!pure) return false;
+  // A toolkit form that takes MORE than the pure word is not a second door
+  // for the same idea: it is the only door a shape can go through. Keep
+  // both, and let the socket say which takes what.
+  const toolkitTakesMore = TOOLKIT_FORMS.has(bare);
+  return !toolkitTakesMore;
 }
+
+/**
+ * The words the toolkit does not merely re-export: it lowers a shape for
+ * them, because a shape needs the frame before it is geometry. The pure
+ * export stays in the palette for a resolved value, and the `t.` form is
+ * what a shape is given to.
+ */
+const TOOLKIT_FORMS = new Set(['distanceTo', 'neighbours']);
 
 /**
  * A word joins the palette when its types map, whether or not a reference
@@ -771,6 +787,28 @@ function walkToolkit(): void {
     if (propType.getCallSignatures().length === 0) {
       const returns = valueOf(propType);
       if (!returns) {
+        // A namespace on the toolkit — `t.force.boundary(shape, …)` — is a
+        // family of words, not a value. Each member is its own word, named
+        // with its prefix as the module namespaces are.
+        const members = checker.getPropertiesOfType(propType).filter((m) => !m.getName().startsWith('_'));
+        const callable = members.filter((m) => {
+          const at = m.valueDeclaration ?? m.declarations?.[0] ?? propDecl;
+          return checker.getTypeOfSymbolAtLocation(m, at).getCallSignatures().length > 0;
+        });
+        if (callable.length > 0) {
+          for (const member of callable) {
+            const at = member.valueDeclaration ?? member.declarations?.[0] ?? propDecl;
+            const memberType = checker.getTypeOfSymbolAtLocation(member, at);
+            const word = `t.${name}.${member.getName()}`;
+            const memberPlan = planOf(memberType, at, word);
+            if ('problem' in memberPlan) {
+              skipped.push({ word, reason: memberPlan.problem });
+              continue;
+            }
+            addWord(word, 'occlude', 't', null, word, memberPlan, at);
+          }
+          continue;
+        }
         skipped.push({ word: `t.${name}`, reason: `holds ${checker.typeToString(propType, propDecl, ts.TypeFormatFlags.NoTruncation)}` });
         continue;
       }

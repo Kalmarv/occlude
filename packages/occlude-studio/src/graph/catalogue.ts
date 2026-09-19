@@ -2603,6 +2603,305 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 't.distanceTo', module: 'occlude', receiver: 't',
+      import: null, call: 't.distanceTo', returns: 'Field',
+      page: '', group: 'Other',
+      params: [
+        { name: 'area', takes: { socket: 'Geometry' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.backIn', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.backIn', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.backInOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.backInOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.backOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.backOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.bounceIn', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.bounceIn', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.bounceInOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.bounceInOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.bounceOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.bounceOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.circIn', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.circIn', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.circInOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.circInOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.circOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.circOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.cubicIn', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.cubicIn', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.cubicInOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.cubicInOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.cubicOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.cubicOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.elasticIn', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.elasticIn', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.elasticInOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.elasticInOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.elasticOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.elasticOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.expoIn', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.expoIn', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.expoInOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.expoInOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.expoOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.expoOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.linear', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.linear', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.powIn', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.powIn', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+        { name: 'p', takes: { socket: 'Number' }, optional: true },
+      ],
+    },
+    {
+      word: 't.ease.powInOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.powInOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+        { name: 'p', takes: { socket: 'Number' }, optional: true },
+      ],
+    },
+    {
+      word: 't.ease.powOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.powOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+        { name: 'p', takes: { socket: 'Number' }, optional: true },
+      ],
+    },
+    {
+      word: 't.ease.quadIn', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.quadIn', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.quadInOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.quadInOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.quadOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.quadOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.quartIn', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.quartIn', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.quartInOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.quartInOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.quartOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.quartOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.quintIn', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.quintIn', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.quintInOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.quintInOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.quintOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.quintOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.sinIn', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.sinIn', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.sinInOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.sinInOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.sinOut', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.sinOut', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.smooth', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.smooth', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
+      word: 't.ease.smoother', module: 'occlude', receiver: 't',
+      import: null, call: 't.ease.smoother', returns: 'Number',
+      page: '', group: 'Other',
+      params: [
+        { name: 't', takes: { socket: 'Number' }, optional: false },
+      ],
+    },
+    {
       word: 't.height', module: 'occlude', receiver: 't', value: true,
       import: null, call: 't.height', returns: 'Number',
       page: '', group: 'Other',

@@ -147,7 +147,10 @@ export function areaLoops(input: AreaInput, who: string): LoopPoints[] {
   if (hasCurves(input)) return input.curves().map((c) => c.pts as LoopPoints);
   if (isContour(input)) return [input.pts as LoopPoints];
   if (!Array.isArray(input)) {
-    throw new Error(`${who}: expected a shape, a face, loops of points, contour records or a chain material`);
+    throw new Error(
+      `${who}: expected geometry — a material, a selection, a face, contour records or loops of points. ` +
+        `A shape is not geometry until the toolkit lowers it: use t.${who}(…).`,
+    );
   }
   if (input.length === 0) return [];
   // What the first entry is decides the shape of the whole: a point means

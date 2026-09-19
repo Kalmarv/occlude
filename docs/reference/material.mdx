@@ -31,7 +31,11 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 ## What a geometry value can say
 
-A value answers `contours()` for areas, `curves()` for chains, and `points` for positions. A consumer asks for the one it needs, and it refuses a value that cannot answer, by name. A shape is not geometry until the toolkit lowers it with `t.material` or `t.sample`.
+A value answers `contours()` for areas, `curves()` for chains, and `points` for positions. A consumer asks for the one it needs, and it refuses a value that cannot answer, by name.
+
+A shape is not geometry until the toolkit lowers it. Every word on `t` takes a shape; the plain import takes geometry. `t.distanceTo(circle(...))` works and `distanceTo(circle(...))` does not, because a shape needs the paper, the units and its own transform before it has points.
+
+A shape enters the point world through one of two doors only: `t.material(shape)` keeps the boundary's own vertices, and `t.sample(shape, { count })` redistributes along it by arc length. `connect.*`, `voronoi` and `t.quadtree` take points, so give them the material one of those doors made.
 
 | value | answers |
 | --- | --- |

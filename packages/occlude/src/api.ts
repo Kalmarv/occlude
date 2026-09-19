@@ -60,7 +60,8 @@ import { PointSelection } from './relation.js';
 import { Faces, FaceSelection, type Face } from './faces.js';
 import { voronoi } from './voronoi.js';
 import { quadtree, type QuadtreeOpts } from './quadtree.js';
-import { distanceTo } from './distance.js';
+import { distanceTo, type DistanceField } from './distance.js';
+import { force, neighbours, type NeighbourStats, type Sources } from './forces.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
   vectorField as vectorFieldMark, within as withinField, type BoundEnv, type Prepared,
@@ -288,6 +289,25 @@ function lowerArea(run: Execution | null, input: AreaInput | ShapeValue, who: st
  * such as `mm(10)` is a drawing unit the sketch must resolve first. */
 function numericAreaLoops(run: Execution | null, input: AreaInput | ShapeValue, who: string): [number, number][][] {
   return numericLoops(lowerArea(run, input, who), who);
+}
+
+/**
+ * A shape as geometry: its outlines as contour records, in the sketch's own
+ * units, with each outline's own closure.
+ *
+ * This is the one door the frame rule names. A shape is a description in
+ * sketch coordinates; it needs the paper, the units and its own transform
+ * before it is geometry, so the toolkit lowers it and every `t.` word takes
+ * a shape because of this function. A pure kernel never calls it.
+ *
+ * `polygon` is the deliberate exception and must stay one: it defers the
+ * shape into the drawing tree, where it is lowered inside the full transform
+ * chain — the paper offset, the user origin, and any enclosing `group`.
+ * Lowering it here instead would quietly drop the group's transform.
+ */
+function lowerShape(run: Execution, input: Geometry | AreaInput | ShapeValue, who: string): Geometry | AreaInput {
+  if (!isShapeValue(input)) return input as Geometry | AreaInput;
+  return shapeContours(run, input, undefined).map((c) => ({ pts: c.pts, closed: c.closed }));
 }
 
 /**
@@ -1335,7 +1355,29 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     /** A shape's boundary as material with the boundary's OWN vertices,
      * curves flattened. `sample` redistributes instead. */
     material: materialFromShape,
-    sample, probe, inspect, plan: planWith, draw, distanceTo, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk,
+    sample, probe, inspect, plan: planWith, draw, relax, settle, voronoi: voronoiTk, quadtree: quadtreeTk,
+    /**
+     * The distance field of an area, taking a shape as well as resolved
+     * geometry: inside the sketch the frame is in hand, so the toolkit
+     * lowers the shape and the pure `distanceTo` never has to.
+     */
+    distanceTo: (area: Geometry | AreaInput | ShapeValue): DistanceField => distanceTo(lowerShape(exec, area, 'distanceTo') as AreaInput),
+    /**
+     * The forces, each taking a shape where it takes an area or points. The
+     * pure `force.*` is the same kernel with the frame left out.
+     */
+    force: {
+      ...force,
+      boundary: (area: Geometry | AreaInput | ShapeValue, opts: { radius: number; strength?: number }) =>
+        force.boundary(lowerShape(exec, area, 'force.boundary') as AreaInput, opts),
+      separation: (sources: Sources | ShapeValue, opts: { radius: number; excludeConnected?: boolean }) =>
+        force.separation(lowerShape(exec, sources as never, 'force.separation') as Sources, opts),
+      attract: (sources: Sources | ShapeValue, opts: { radius: number; strength?: number; excludeConnected?: boolean }) =>
+        force.attract(lowerShape(exec, sources as never, 'force.attract') as Sources, opts),
+    },
+    /** The neighbourhood query, taking a shape as well as a material. */
+    neighbours: (m: Material | ShapeValue, opts: { radius: number; stats?: NeighbourStats }) =>
+      neighbours(isShapeValue(m) ? materialFromShape(m) : m, opts),
     within,
     rotate: rotateField,
     /** Translate a field by lengths of this run (`mm(…)`, `w(…)` resolve). */

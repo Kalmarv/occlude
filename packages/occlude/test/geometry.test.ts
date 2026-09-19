@@ -185,3 +185,33 @@ describe('the consumers say what they read', () => {
     }
   });
 });
+
+describe('a shape is not geometry until the toolkit lowers it', () => {
+  it('every t. word takes a shape where the plain import takes geometry', () => {
+    const drawn = ink(sketch({}, (t) => {
+      const area = circle(50, 50, 20);
+      // The toolkit lowers the shape; each of these would refuse it bare.
+      expect(typeof t.distanceTo(area)).toBe('function');
+      expect(typeof t.force.boundary(area, { radius: 3 })).toBe('function');
+      expect(typeof t.force.separation(area, { radius: 3 })).toBe('function');
+      expect(typeof t.force.attract(area, { radius: 3 })).toBe('function');
+      expect(typeof t.neighbours(area, { radius: 3 })).toBe('function');
+      return [];
+    }));
+    expect(drawn).toBe(0);
+  });
+
+  it('the same words take resolved geometry, and give the same field', () => {
+    ink(sketch({}, (t) => {
+      const m = t.material(circle(50, 50, 20));
+      const bare = distanceTo(m);
+      const viaToolkit = t.distanceTo(m);
+      expect(viaToolkit(50, 50)).toBeCloseTo(bare(50, 50), 10);
+      return [];
+    }));
+  });
+
+  it('the pure import still refuses a shape, by name', () => {
+    expect(() => distanceTo(circle(50, 50, 20) as never)).toThrow(/not geometry until the toolkit lowers it: use t\.distanceTo/);
+  });
+});
