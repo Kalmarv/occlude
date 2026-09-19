@@ -50,6 +50,32 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## e.mid · e.adjacent
+
+<include>/_sig/Edge.mid.mdx</include>
+<include>/_sig/Edge.adjacent.mdx</include>
+
+A vertex answers `x` and `y`, and a face answers `area`, `perimeter`, `centroid` and `bounds`. An edge answers these. `mid` is the middle of the wall, as a fresh pair. A segment has no area, so this is a midpoint and not a centroid. It is where a motif gets stamped, and it is how one wall says where it is.
+
+`e.adjacent` is the edges that share a vertex with this one, this edge excluded. It is what `p.adjacent` is for a vertex, in the edge's own world. It names a neighbour once, even when the two edges share both ends. It is a selection, so it filters, draws and composes.
+
+```ts live
+import { sketch, strokes, circle, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
+  const web = connect.triangulate(t.scatter({ spacing: 15 }));
+  const wall = web.edges.at(24);
+  const touching = wall.adjacent;
+  return [
+    strokes(web.edges.subtract(touching).subtract(web.edges.rows([wall.index])), { pen: 'pigma-005-black' }),
+    strokes(touching, { pen: 'stabilo-88-blue' }),
+    strokes(web.edges.rows([wall.index]), { pen: 'pigma-05-black' }),
+    [...touching].map((e) => circle(e.mid[0], e.mid[1], 1.2, { pen: 'stabilo-88-blue' })),
+    circle(wall.mid[0], wall.mid[1], 2.2),
+  ];
+});
+```
+
 ## filter()
 
 <include>/_sig/PointSelection.filter.mdx</include>
@@ -132,46 +158,57 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 ## points.edges · edges.points · edges.curves()
 
 <include>/_sig/PointSelection.edges.mdx</include>
+<include>/_sig/EdgeSelection.edges.mdx</include>
 <include>/_sig/EdgeSelection.points.mdx</include>
 <include>/_sig/EdgeSelection.curves.mdx</include>
 
-`points.edges` is the source edges with both ends in the point selection. `edges.points` is the endpoints of an edge selection, each once. `edges.curves()` walks the selected edges into chains, each edge once, with ends and junctions those of the selection alone. `strokes(edges)` draws those chains.
+`points.edges` is the source edges with both ends in the point selection. `edges.edges` is the selection itself. Every geometry value then answers the word, and a consumer reads any of them the same way. `edges.points` is the endpoints of an edge selection, each once. `edges.curves()` walks the selected edges into chains, each edge once, with ends and junctions those of the selection alone. `strokes(edges)` draws those chains.
 
 ```ts live
 import { sketch, circle, strokes, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const web = connect.triangulate(t.scatter({ spacing: 12 }));
-  const inner = web.points.near([50, 50], { radius: 30 });
-  const chains = inner.edges.curves();
+  // A material, a point selection and an edge selection all answer `edges`,
+  // so one helper reads any of them. An edge selection comes back itself.
+  const walls = (g) => g.edges;
+  const inner = walls(web.points.near([50, 50], { radius: 30 }));
+  const chains = walls(inner).curves();
   return [
-    strokes(web.edges.subtract(inner.edges), { pen: 'pigma-005-black' }),
+    strokes(walls(web).subtract(inner), { pen: 'pigma-005-black' }),
     strokes(chains.filter((c, i) => i % 2 === 0), { pen: 'pigma-05-black' }),
     strokes(chains.filter((c, i) => i % 2 === 1), { pen: 'stabilo-88-blue' }),
   ];
 });
 ```
 
-## p.adjacent · p.edges · points.near()
+## p.adjacent · p.edges · points.near() · edges.near()
 
 <include>/_sig/Vertex.adjacent.mdx</include>
 <include>/_sig/Vertex.edges.mdx</include>
 <include>/_sig/PointSelection.near.mdx</include>
+<include>/_sig/EdgeSelection.near.mdx</include>
 
 Two different questions. `p.adjacent` is topology: the points an edge joins this one to. `points.near(p, { radius })` is distance: the points closer than `radius`, joined or not. A rule wants one or the other. Name the right one and the rule stays honest. `a.adjacent.has(b)` tells you that two points share an edge.
 
 `p.edges` is the same neighbourhood as edges. `p.edges.length` is the degree: a vertex with one edge is an end, and a vertex with three or more is a junction.
 
+`edges.near(p, { radius })` is the same distance question for walls, and it measures the whole segment. A long wall passing close to a place is near it, whichever end you measure from. The topological question for a wall is `e.adjacent`.
+
 ```ts live
-import { sketch, circle, rect, strokes, line, connect } from 'occlude';
+import { sketch, circle, rect, strokes, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
   const tree = connect.tree(t.within(t.scatter({ spacing: 12 }).points, rect(6, 6, 88, 88)).extract());
   const hub = [...tree.points].reduce((a, b) => (b.edges.length > a.edges.length ? b : a));
+  // Joined to the hub, and passing close to it: two different questions,
+  // and the same wall may answer both. Each wall is drawn once.
+  const spokes = hub.edges;
+  const close = tree.edges.near(hub, { radius: 13 }).subtract(spokes);
   return [
-    strokes(tree),
-    // Joined to the hub: blue.
-    hub.adjacent.map((q) => line(hub.x, hub.y, q.x, q.y, { pen: 'stabilo-88-blue' })),
+    strokes(tree.edges.subtract(spokes).subtract(close)),
+    strokes(spokes, { pen: 'stabilo-88-blue' }),
+    strokes(close, { pen: 'pigma-05-black' }),
     // Close to the hub, joined or not: a ring.
     tree.points.near(hub, { radius: 26 }).map((q) => circle(q.x, q.y, 2, { pen: 'stabilo-88-green' })),
     circle(hub.x, hub.y, 3),

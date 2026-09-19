@@ -468,3 +468,61 @@ describe('within: holes and winding', () => {
     expect(evenodd).toBe(0); // inside a hole: nothing survives
   });
 });
+
+describe('within: an edge selection', () => {
+  /** A ladder of horizontal walls crossing x = 50, so a box that ends at
+   * x = 50 cuts some of them and contains others. */
+  const ladder = () =>
+    material(
+      [[10, 20], [40, 20], [45, 40], [70, 40], [60, 60], [90, 60], [20, 80], [30, 80]],
+      { edges: [[0, 1], [2, 3], [4, 5], [6, 7]] },
+    );
+
+  it('keeps a wall whole or not at all — the face contract, on an edge', () => {
+    run((t) => {
+      const m = ladder();
+      const kept = t.within(m.edges, rect(0, 0, 50, 100));
+      // Walls 0 (10→40) and 3 (20→30) are inside. Wall 1 (45→70) crosses
+      // the boundary and wall 2 (60→90) is outside.
+      expect(kept.indices).toEqual([0, 3]);
+      // Nothing is clipped: what comes back is a selection of the source.
+      expect([...kept].map((e) => e.length)).toEqual([30, 10]);
+    });
+  });
+
+  it("'midpoint' keeps the wall the boundary cuts, and the ink reaches past", () => {
+    run((t) => {
+      const m = ladder();
+      // Wall 1 runs 45 → 70; its middle is at 57.5, outside. Move the
+      // boundary out to 60 and the middle is in, so the whole wall is.
+      expect(t.within(m.edges, rect(0, 0, 60, 100), { edges: 'midpoint' }).indices).toEqual([0, 1, 3]);
+      expect(t.within(m.edges, rect(0, 0, 60, 100)).indices).toEqual([0, 3]);
+    });
+  });
+
+  it('a wall running ALONG the boundary belongs to it', () => {
+    run((t) => {
+      const wall = chord(10, 50, 90, 50);
+      expect(t.within(wall.edges, rect(0, 50, 100, 50)).indices).toEqual([0]);
+    });
+  });
+
+  it('a material is CUT and a selection is FILTERED, which is the difference', () => {
+    run((t) => {
+      const m = ladder();
+      const cut = t.within(m, rect(0, 0, 50, 100));
+      // The material keeps the part of wall 1 that is inside, as new geometry.
+      expect(cut.edgeCount).toBe(3);
+      expect(t.within(m.edges, rect(0, 0, 50, 100)).length).toBe(2);
+    });
+  });
+
+  it('refuses a mode that is not one of the two, and one meant for another kind', () => {
+    run((t) => {
+      const m = ladder();
+      expect(() => t.within(m.edges, rect(0, 0, 50, 100), { edges: 'centroid' as never })).toThrow(/edges must be 'contained' or 'midpoint'/);
+      expect(() => t.within(m.points, rect(0, 0, 50, 100), { edges: 'midpoint' } as never)).toThrow(/'edges' is for an edge selection/);
+      expect(() => t.within(m.edges, rect(0, 0, 50, 100), { transfer: {} } as never)).toThrow(/kept whole or not at all/);
+    });
+  });
+});

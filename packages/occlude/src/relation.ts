@@ -55,6 +55,7 @@ function sameSource(a: { source: Material }, b: { source: Material }, what: stri
 import { groupRows } from './groupRows.js';
 import { neighbours } from './forces.js';
 import type { XY } from './vec.js';
+import { edges as buildEdgeQuery, type EdgeQuery } from './query.js';
 export { groupRows } from './groupRows.js';
 
 /** The rows a collection over `count` source rows holds: null is all of them. */
@@ -558,12 +559,40 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     return out;
   }
 
+  /**
+   * The edges of this selection CLOSER THAN `radius` to `p`, by the true
+   * distance to the segment — so a long wall passing near the place is
+   * near it, whichever end it is measured from.
+   *
+   * Proximity, not topology: `e.adjacent` is the edges that touch this one.
+   * `edges.pairs({ radius })` is a different question again — it takes its
+   * CANDIDATES by midpoint, because a relation between two walls has no
+   * third place to measure from, and its predicate decides the rest.
+   *
+   * One grid, built once and kept on the state, and it judges every radius,
+   * so a radius that changes from edge to edge costs nothing extra.
+   */
+  near(p: XY, opts: { radius: number }): EdgeSelection {
+    const rows = edgeQuery(this.source).within(p, opts.radius);
+    // The grid covers the whole state. A selection of part of it answers
+    // with its own members only.
+    return new EdgeSelection(this.source, this.memberRows === null ? rows : rows.filter((r) => this.set!.has(r)));
+  }
+
   /** The endpoints of the selected edges — each once, source order. */
   get endpointRows(): readonly number[] {
     const m = this.source;
     const rows: number[] = [];
     for (const e of this.indices) rows.push(m.edgeList[2 * e], m.edgeList[2 * e + 1]);
     return rowsOf(rows);
+  }
+
+  /** Itself. Every geometry value answers `edges` with the edges it holds,
+   * and an edge selection holds these. The protocol is structural, so the
+   * word has to be here for a consumer to read this value the same way it
+   * reads a material or a point selection. */
+  get edges(): EdgeSelection<K> {
+    return this;
   }
 
   /** Endpoint vertices of the selected edges, each once, source order —
@@ -822,4 +851,9 @@ export function whereRows(
   }
   if (domain === 'points') return new Set(isPoints ? where.indices : where.points.indices);
   return new Set(isPoints ? where.edges.indices : where.indices);
+}
+
+/** The edge grid for one state, built the first time it is asked for. */
+function edgeQuery(m: Material): EdgeQuery {
+  return (m.edgeQueryBox.query ??= buildEdgeQuery(m));
 }

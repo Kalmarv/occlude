@@ -6,12 +6,13 @@
  * the material module never depends on this one.
  */
 
-import { material, Material, type PointsLike, type Vertex } from './material.js';
+import { material, Material, type PointsLike, type Vertex, type Edge } from './material.js';
 import { length, mul, perp, sub, sumBy, unit, vx, vy, type Vec, type XY } from './vec.js';
 import { ownerOf } from './views.js';
 import { distanceTo } from './distance.js';
 import { numericLoops, type AreaInput, type Geometry } from './boundary.js';
 import { grad } from './field.js';
+import { valueAt } from './guard.js';
 import type { VectorFieldFn } from './shapes.js';
 
 // ---- spatial neighbours -----------------------------------------------------------
@@ -132,14 +133,36 @@ export function sourcePoints(sources: Sources): PointsLike {
  * `rest`. Zero when every neighbour is within `rest`: a slack chain, not
  * a spring. Needs connectivity; on a junction it pulls toward every
  * branch.
+ *
+ * `rest` is one length, or a function of the EDGE between the two — which
+ * is what a rest length is: a property of the wall, not of either end.
+ * The library's own note on `'distribute'` names a rest length as the
+ * example of an edge column, and this is the force that reads it:
+ * `force.tension(m, { rest: (e) => e.attrs.rest })`. A rest that is not a
+ * finite length is no rest at all, so that edge pulls from zero and a
+ * degenerate column slackens the chain instead of tearing it.
  */
-export function tension(m: Material, opts: { rest: number }): (p: Vertex) => Vec {
+export function tension(m: Material, opts: { rest: number | ((e: Edge) => number) }): (p: Vertex) => Vec {
   const { rest } = opts;
-  return (p) =>
-    sumBy(m.adjacentRows(p.index), (j) => {
+  if (typeof rest === 'number') {
+    return (p) =>
+      sumBy(m.adjacentRows(p.index), (j) => {
+        const delta = sub(m.vertex(j), p);
+        return mul(unit(delta), Math.max(0, length(delta) - rest));
+      });
+  }
+  if (typeof rest !== 'function') throw new Error(`force.tension: { rest } must be a length, or a function of the edge — got ${String(rest)}`);
+  // `adjacentRows` and `incidentEdgeRows` are built by one pass over the
+  // edge list and pushed to in step, so the k-th neighbour is the far end
+  // of the k-th edge.
+  return (p) => {
+    const edgeRows = m.incidentEdgeRows(p.index);
+    return sumBy(m.adjacentRows(p.index), (j, k) => {
       const delta = sub(m.vertex(j), p);
-      return mul(unit(delta), Math.max(0, length(delta) - rest));
+      const r = valueAt(rest(m.edge(edgeRows[k])), 0);
+      return mul(unit(delta), Math.max(0, length(delta) - r));
     });
+  };
 }
 
 /**

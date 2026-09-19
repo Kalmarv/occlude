@@ -31,8 +31,30 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Toolkit.within.2.mdx</include>
 <include>/_sig/Toolkit.within.3.mdx</include>
 <include>/_sig/Toolkit.within.4.mdx</include>
+<include>/_sig/Toolkit.within.5.mdx</include>
 
-Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. It filters a point selection or a face collection. For faces, `{ faces: 'contained' }` (the default) keeps a face whose whole area is inside. `'centroid'` keeps a face whose centroid is inside. `area` is a shape, a loop of pairs, a face, or a contour material. `t.within` reads the area's `contours()`.
+Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. It filters a point selection, an edge selection or a face collection. `area` is a shape, a loop of pairs, a face, or a contour material. `t.within` reads the area's `contours()`.
+
+A selection cannot clip. A face and an edge come through whole or not at all. Each has the same two ways to decide. For faces, `{ faces: 'contained' }` (the default) keeps a face whose whole area is inside, and `'centroid'` keeps a face whose centroid is inside. For edges, `{ edges: 'contained' }` (the default) keeps a wall with neither end outside and no crossing of the boundary. `'midpoint'` keeps a wall whose `mid` is inside. A wall running along the boundary belongs to it. To cut at the boundary instead, hand `within` the material.
+
+Below, the heavy walls are `contained`. The blue walls are what `midpoint` adds. Each one straddles the circle, so its ink reaches past the edge by up to half a wall.
+
+```ts live
+import { sketch, strokes, circle, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
+  const web = connect.triangulate(t.scatter({ spacing: 11 }));
+  const disc = circle(50, 50, 30);
+  const whole = t.within(web.edges, disc);
+  const cut = t.within(web.edges, disc, { edges: 'midpoint' });
+  return [
+    strokes(web.edges.subtract(cut), { pen: 'pigma-005-black' }),
+    strokes(cut.subtract(whole), { pen: 'stabilo-88-blue' }),
+    strokes(whole, { pen: 'pigma-05-black' }),
+    circle(50, 50, 30, { pen: 'stabilo-88-blue' }),
+  ];
+});
+```
 
 ```ts live
 import { sketch, circle, rect, strokes } from 'occlude';
@@ -118,7 +140,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/sdf.intersect.mdx</include>
 <include>/_sig/sdf.subtract.mdx</include>
 
-These combine shapes. `union` is a **maximum**, because inside is the positive side and the union is inside wherever either field is inside. `intersect` is the minimum, and `subtract` cuts every later field out of the first. Each answer is a field again, and feeds the next operation. Below, a disc and a box join, two discs are cut out of them, and a larger disc crops what is left: the part that survives is inside both.
+These combine shapes. `union` is a **maximum**, because inside is the positive side and the union is inside wherever either field is inside. `intersect` is the minimum, and `subtract` cuts every later field out of the first. Each answer is a field again, and feeds the next operation. Below, a disc and a box join. Two smaller discs cut holes in them. A larger disc then crops the result. The part that survives is inside both.
 
 ```ts live
 import { sketch, polygon, strokes, sdf, fill, mm } from 'occlude';

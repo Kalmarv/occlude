@@ -290,6 +290,13 @@ export class OrderedEditor {
         check();
         return Object.freeze({ ...e.attrs });
       },
+      get mid(): [number, number] {
+        check();
+        return [(a.x + b.x) / 2, (a.y + b.y) / 2];
+      },
+      get adjacent(): never {
+        throw new Error('ordered-steps prototype: selections are not modelled');
+      },
       get faces(): never {
         throw new Error('ordered-steps prototype: faces are not modelled');
       },

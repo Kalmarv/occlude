@@ -62,6 +62,11 @@ export interface EdgeQuery {
    * incident to that vertex of the source state, so a tip can sense the
    * nearest line that is not its own stem. */
   nearest(position: XY, opts: { within: number; excludeIncident?: Vertex | number }): NearestHit | null;
+  /** Every edge CLOSER THAN `radius` to `position`, by true distance to the
+   * segment, as source edge rows ascending. The bound is strict, as it is
+   * for `points.near`. This is what `edges.near` reads; `nearest` answers
+   * the different question of which ONE is closest. */
+  within(position: XY, radius: number): number[];
   /** The first edge a straight move from `from` to `to` would meet, by
    * smallest `along` then source edge order; endpoint contact counts.
    * `excludeIncident` skips every edge incident to that vertex of the
@@ -294,6 +299,48 @@ export function edges(m: Material): EdgeQuery {
         }
       }
       return bestE < 0 ? null : { edge: m.edge(bestE), position: [bestX, bestY], t: bestT, distance: bestD };
+    },
+    within(position, radius) {
+      if (!(radius > 0) || !Number.isFinite(radius)) throw new Error('edges.near: radius must be a positive distance');
+      const px = vx(position);
+      const py = vy(position);
+      queryId++;
+      candN = 0;
+      const c0 = col(px - radius - pad);
+      const c1 = col(px + radius + pad);
+      const r0 = row(py - radius - pad);
+      const r1 = row(py + radius + pad);
+      const cc = col(px);
+      const cr = row(py);
+      const kMax = Math.max(cc - c0, c1 - cc, cr - r0, r1 - cr);
+      const out: number[] = [];
+      let judged = 0;
+      for (let k = 0; k <= kMax; k++) {
+        if (k > 0) {
+          // Everything still unvisited lies outside the square already
+          // covered, so once that square reaches past the radius there is
+          // nothing left to find.
+          const x0 = minx + (cc - k + 1) * cell;
+          const x1 = minx + (cc + k) * cell;
+          const y0 = miny + (cr - k + 1) * cell;
+          const y1 = miny + (cr + k) * cell;
+          const reach = Math.max(0, Math.min(px - x0, x1 - px, py - y0, y1 - py));
+          if (reach > radius + pad) break;
+        }
+        gatherRing(k, cc, cr, c0, c1, r0, r1);
+        for (; judged < candN; judged++) {
+          const e = cand[judged];
+          const dx = bx[e] - ax[e];
+          const dy = by[e] - ay[e];
+          const len2 = dx * dx + dy * dy;
+          let t = 0;
+          if (len2 > 0) t = Math.max(0, Math.min(1, ((px - ax[e]) * dx + (py - ay[e]) * dy) / len2));
+          if (Math.hypot(px - (ax[e] + dx * t), py - (ay[e] + dy * t)) < radius) out.push(e);
+        }
+      }
+      // The grid hands them back ring by ring; a selection is source order.
+      out.sort((p, q) => p - q);
+      return out;
     },
     firstHit(from, to, opts = {}) {
       const fx = vx(from);

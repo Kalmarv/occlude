@@ -3,7 +3,7 @@ import {Mesh,PointGeometry,CurveGeometry,type PointRow,type EdgeRow,type FaceRow
 import {assembleSurface3,type Attributes3} from '../geometry/surface.js';
 import {faceGeometry3} from '../geometry/model.js';
 import {topology3,topologyConnected,topologyComponents,type SurfaceTopology3} from '../geometry/topology.js';
-import {sub3} from '../math.js';
+import {sub3,add3,mul3} from '../math.js';
 
 export type MeshPointRow<P extends Attributes3={},E extends EdgeAttributes={},F extends Attributes3={},C extends Attributes3={}> = PointRow<P>&{
   readonly edges:MeshEdges<P,E,F,C>;readonly faces:MeshFaces<P,E,F,C>;readonly adjacent:MeshPoints<P,E,F,C>;readonly corners:MeshCorners<P,E,F,C>;
@@ -44,7 +44,7 @@ function context<P extends Attributes3,E extends EdgeAttributes,F extends Attrib
   },()=>{new MeshPoints(result);});
   const edges=lazy(()=>{
     const p=points();
-    return Object.freeze(surface.edges.map((e,index)=>relations<MeshEdgeRow<E,P,F,C>>({...e.attributes,id:e.id,index,vertices:e.vertices,a:p[e.vertices[0]],b:p[e.vertices[1]],length:Math.hypot(...sub3(surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position)),attributes:e.attributes,provenance:e.provenance},{
+    return Object.freeze(surface.edges.map((e,index)=>relations<MeshEdgeRow<E,P,F,C>>({...e.attributes,id:e.id,index,vertices:e.vertices,a:p[e.vertices[0]],b:p[e.vertices[1]],length:Math.hypot(...sub3(surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position)),mid:mul3(add3(surface.points[e.vertices[0]].position,surface.points[e.vertices[1]].position),0.5),attributes:e.attributes,provenance:e.provenance},{
       points:()=>new MeshPoints(result,e.vertices),faces:()=>new MeshFaces(result,e.faces),
     })));
   },()=>{new MeshEdges(result);});

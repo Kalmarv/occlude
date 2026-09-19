@@ -56,7 +56,7 @@ import {
   Material, material as materialOf, alongChain, checkSampling, isStations, stationsMaterial,
   withinMaterial, type PointsLike, type Station, type Transfer,
 } from './material.js';
-import { PointSelection } from './relation.js';
+import { PointSelection, EdgeSelection } from './relation.js';
 import { Faces, FaceSelection, type Face } from './faces.js';
 import { voronoi } from './voronoi.js';
 import { quadtree, type QuadtreeOpts } from './quadtree.js';
@@ -398,27 +398,47 @@ export interface WithinFaces {
   faces?: 'contained' | 'centroid';
 }
 
+/** How `within` decides that an edge belongs to an area. A selection cannot
+ * clip, so an edge is kept whole or not at all — the face contract, on a
+ * wall. `'contained'` (the default) keeps an edge with neither end strictly
+ * outside and no crossing of the boundary, so a wall running ALONG the
+ * boundary belongs to it. `'midpoint'` keeps an edge whose `mid` is inside,
+ * so a wall the boundary cuts is kept whole and its ink may reach past the
+ * edge by up to half that wall. To cut at the boundary instead, hand
+ * `within` the MATERIAL: a material is cut, a selection is filtered. */
+export interface WithinEdges {
+  edges?: 'contained' | 'midpoint';
+}
+
 export interface Within {
   <F extends FieldFn | VectorFieldFn | LengthFn>(field: F, area: ShapeValue): Prepared<F>;
   (material: Material, area: AreaInput | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
   (points: PointSelection, area: AreaInput | ShapeValue): PointSelection;
+  (edges: EdgeSelection, area: AreaInput | ShapeValue, opts?: WithinEdges): EdgeSelection;
   (faces: Faces | FaceSelection, area: AreaInput | ShapeValue, opts?: WithinFaces): FaceSelection;
 }
 
 export function withinAny<F extends FieldFn | VectorFieldFn | LengthFn>(run: Execution, field: F, area: ShapeValue): Prepared<F>;
 export function withinAny(run: Execution, material: Material, area: AreaInput | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
 export function withinAny(run: Execution, points: PointSelection, area: AreaInput | ShapeValue): PointSelection;
+export function withinAny(run: Execution, edges: EdgeSelection, area: AreaInput | ShapeValue, opts?: WithinEdges): EdgeSelection;
 export function withinAny(run: Execution, faces: Faces | FaceSelection, area: AreaInput | ShapeValue, opts?: WithinFaces): FaceSelection;
 
 export function withinAny(
   run: Execution,
-  x: FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | Faces | FaceSelection,
+  x: FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | Faces | FaceSelection,
   area: AreaInput | ShapeValue,
-  opts: { transfer?: Record<string, Transfer>; faces?: 'contained' | 'centroid' } = {},
-): FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | FaceSelection {
+  opts: { transfer?: Record<string, Transfer>; faces?: 'contained' | 'centroid'; edges?: 'contained' | 'midpoint' } = {},
+): FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | EdgeSelection | FaceSelection {
   if (typeof x === 'function') return withinField(x, area as ShapeValue, boundEnv(run));
   if (opts.faces !== undefined && opts.faces !== 'contained' && opts.faces !== 'centroid') {
     throw new Error(`within: faces must be 'contained' or 'centroid', got '${String(opts.faces)}'`);
+  }
+  if (opts.edges !== undefined && opts.edges !== 'contained' && opts.edges !== 'midpoint') {
+    throw new Error(`within: edges must be 'contained' or 'midpoint', got '${String(opts.edges)}'`);
+  }
+  if (opts.edges !== undefined && !(x instanceof EdgeSelection)) {
+    throw new Error("within: 'edges' is for an edge selection");
   }
   const loops = numericAreaLoops(run, area, 'within');
   // The FILLED REGION, not the contours: under a nonzero rule an interior
@@ -435,6 +455,19 @@ export function withinAny(
     return withinMaterial(x, loops, { ...opts, inside, crossings: fill.crossings });
   }
   if (x instanceof PointSelection) return x.filter((p) => inside(p.x, p.y) > 0);
+  if (x instanceof EdgeSelection) {
+    if (opts.transfer !== undefined) throw new Error("within: 'transfer' is for a material — an edge is kept whole or not at all");
+    // The midpoint: one question, one point, and the wall goes with it.
+    if (opts.edges === 'midpoint') return x.filter((e) => inside(e.mid[0], e.mid[1]) > 0);
+    // Contained, which is the face rule on a wall: neither end strictly
+    // outside, and no crossing of a REAL boundary. `>= 0` keeps a wall that
+    // runs along the boundary, exactly as a cell sharing the frame's edge
+    // belongs to the frame.
+    return x.filter((e) => {
+      if (!(inside(e.a.x, e.a.y) >= 0) || !(inside(e.b.x, e.b.y) >= 0)) return false;
+      return fill.crossings(e.a.x, e.a.y, e.b.x, e.b.y).length === 0;
+    });
+  }
   const faces: Faces | FaceSelection = x;
   if (opts.transfer !== undefined) throw new Error("within: 'transfer' is for a material — a face is kept whole or not at all");
   if (opts.faces === 'centroid') {

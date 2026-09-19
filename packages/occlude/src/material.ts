@@ -45,9 +45,10 @@ import { oscillate as oscillateKernel, type OscillateOpts } from './oscillate.js
 import { envelope as envelopeKernel } from './envelope.js';
 import { interlace as interlaceKernel, type InterlaceOpts } from './interlace.js';
 import { snap as snapKernel, type SnapField, type SnapOpts } from './snap.js';
-import { distance, perp, isArr, vx, vy, type XY } from './vec.js';
+import { distance, perp, isArr, vx, vy, type XY, type Vec } from './vec.js';
 import { ownerOf, ownedBy, ownerOfView, pairKey, viewKind, viewProto } from './views.js';
 import { checkAttrs, stepOnce, isStepShorthand, stepRuleOf, type StepKit, type StepRule, type StepShorthand, type StepsOptions } from './steps.js';
+import type { EdgeQuery } from './query.js';
 
 // The vocabulary this module was one file with, re-exported so its
 // importers keep one door: vectors (vec.ts), view identity (views.ts) and
@@ -108,6 +109,16 @@ export interface Edge {
    * An edge that has never been split is its own root.
    */
   readonly root: EdgeId;
+  /**
+   * The middle of the edge, as a fresh pair. A Vertex answers `x` and `y`
+   * and a Face answers `centroid`; this is the wall's own place, which is
+   * where a motif gets stamped and how one wall says how far it is from
+   * another. Not a centroid — a segment has no area to weight.
+   */
+  readonly mid: Vec;
+  /** The edges that share a vertex with this one, this edge excluded —
+   * what `p.adjacent` is for a vertex, in the edge's own world. */
+  readonly adjacent: EdgeSelection;
   /** This edge's attribute row: `edge.attrs.rest`. */
   attrs: Record<string, number>;
   /** The faces on this edge's two sides, from the material's `faces()`:
@@ -350,6 +361,10 @@ export class Material {
    * another edge by its middle, and the one spatial index the library has
    * is over points. */
   readonly midBox: { material: Material | null } = { material: null };
+  /** @internal The edge grid `edges.near` walks, built once per state. One
+   * grid for every radius: unlike the point index, which is keyed by radius,
+   * this one judges true segment distance per call. */
+  readonly edgeQueryBox: { query: EdgeQuery | null } = { query: null };
   private readonly facesBox: { faces: Faces | null };
   /** One id per vertex row, and one per edge row. Outside `attrs` on
    * purpose: a column would be interpolated at every split (a mean of two
@@ -509,6 +524,19 @@ export class Material {
     Object.defineProperty(edgeProto, 'faces', { get(this: Edge) { return owner.faces().facesOf(this); }, enumerable: false });
     Object.defineProperty(edgeProto, 'id', { get(this: Edge) { return owner.edgeIds[this.index] as EdgeId; }, enumerable: false });
     Object.defineProperty(edgeProto, 'root', { get(this: Edge) { return owner.edgeRoots[this.index] as EdgeId; }, enumerable: false });
+    Object.defineProperty(edgeProto, 'mid', { get(this: Edge) { return [(this.a.x + this.b.x) / 2, (this.a.y + this.b.y) / 2] as Vec; }, enumerable: false });
+    Object.defineProperty(edgeProto, 'adjacent', {
+      get(this: Edge) {
+        // Every edge at either end, minus this one. A ring of two would
+        // otherwise name its partner twice, so the rows go through a set.
+        const rows = new Set<number>();
+        for (const e of owner.incidentEdgeRows(this.a.index)) rows.add(e);
+        for (const e of owner.incidentEdgeRows(this.b.index)) rows.add(e);
+        rows.delete(this.index);
+        return new EdgeSelection(owner, rows);
+      },
+      enumerable: false,
+    });
     this.edgeProto = Object.freeze(edgeProto);
     Object.freeze(this.attrs);
     Object.freeze(this.edgeAttrs);
