@@ -303,7 +303,110 @@ const client = new RenderClient();
 const preview = new Preview(paperCanvas);
 preview.setPaperColor(settings.paperColor);
 
-const nodeById = (id: string): GraphNode | undefined => graph.nodes.find((n) => n.id === id);
+/**
+ * A zone's body is painted in THIS document, inside a frame of its own, so
+ * an inner node needs a name on the canvas that cannot collide with an
+ * outer one: `n4/n1` is node `n1` of the body of zone `n4`. Everything the
+ * page does by id — paint, position, select, wire, drag — goes through
+ * `nodeById`, so teaching that one function the path teaches all of it.
+ *
+ * The inner nodes are the very objects in `zone.graph`, so an edit lands in
+ * the document with nothing to write back.
+ */
+const PATH = '/';
+
+/** Where a zone's body is painted: under the zone, in its own column. */
+const FRAME_GAP = 44;
+const FRAME_PAD = 26;
+const ZONE_HEIGHT = 180;
+
+function zoneOf(id: string): { zone: GraphNode; innerId: string } | undefined {
+  const cut = id.indexOf(PATH);
+  if (cut < 0) return undefined;
+  const zone = graph.nodes.find((n) => n.id === id.slice(0, cut));
+  return zone?.kind === 'zone' && zone.graph ? { zone, innerId: id.slice(cut + 1) } : undefined;
+}
+
+const nodeById = (id: string): GraphNode | undefined => {
+  const inner = zoneOf(id);
+  if (inner) return inner.zone.graph!.nodes.find((n) => n.id === inner.innerId);
+  return graph.nodes.find((n) => n.id === id);
+};
+
+/** The zones whose bodies are open, in document order. */
+const openZones = (): GraphNode[] => graph.nodes.filter((n) => n.kind === 'zone' && n.opened && n.graph);
+
+/** Where an open zone's body sits on the canvas. The body's own positions
+ * are relative to it, so the document never learns where the frame is. */
+function frameOrigin(zone: GraphNode): { x: number; y: number } {
+  const view = canvas.area.nodeViews.get(zone.id);
+  const height = view?.element.offsetHeight ?? ZONE_HEIGHT;
+  return { x: zone.x + FRAME_PAD, y: zone.y + height + FRAME_GAP + FRAME_PAD };
+}
+
+/** The canvas name of a node object, for the hooks: an inner node is known
+ * by its path, and a hook is handed the node, not the name. Rebuilt with
+ * the canvas, which is the only thing that changes it. */
+const canvasName = new Map<GraphNode, string>();
+const idOf = (node: GraphNode): string => canvasName.get(node) ?? node.id;
+
+/** Every node the canvas paints: this graph's, and the body of every zone
+ * that is open, under the name the canvas knows it by. */
+function painted(): { id: string; node: GraphNode }[] {
+  const out = graph.nodes.map((node) => ({ id: node.id, node }));
+  for (const zone of openZones()) {
+    for (const inner of zone.graph!.nodes) out.push({ id: `${zone.id}${PATH}${inner.id}`, node: inner });
+  }
+  canvasName.clear();
+  for (const { id, node } of out) canvasName.set(node, id);
+  return out;
+}
+
+/** Where the canvas puts a node: a body's places are its frame's. */
+function placeOf(id: string): { x: number; y: number } | null {
+  const node = nodeById(id);
+  if (!node) return null;
+  const inner = zoneOf(id);
+  if (!inner) return { x: node.x, y: node.y };
+  const origin = frameOrigin(inner.zone);
+  return { x: origin.x + node.x, y: origin.y + node.y };
+}
+
+/** The other way: what the artist dragged a node to, in the node's own
+ * terms. */
+function placeTo(id: string, at: { x: number; y: number }): void {
+  const node = nodeById(id);
+  if (!node) return;
+  const inner = zoneOf(id);
+  const origin = inner ? frameOrigin(inner.zone) : { x: 0, y: 0 };
+  node.x = Math.round(at.x - origin.x);
+  node.y = Math.round(at.y - origin.y);
+}
+
+/** The frames behind the nodes, measured from the bodies they hold. */
+function paintFrames(): void {
+  canvas.setFrames(openZones().map((zone) => {
+    const origin = frameOrigin(zone);
+    let w = 220;
+    let h = 120;
+    for (const inner of zone.graph!.nodes) {
+      const view = canvas.area.nodeViews.get(`${zone.id}${PATH}${inner.id}`);
+      const width = view?.element.offsetWidth ?? 180;
+      const height = view?.element.offsetHeight ?? 120;
+      w = Math.max(w, inner.x + width);
+      h = Math.max(h, inner.y + height);
+    }
+    const binds = (zone.binds ?? []).join(', ');
+    return {
+      id: zone.id,
+      x: origin.x - FRAME_PAD,
+      y: origin.y - FRAME_PAD,
+      w: w + FRAME_PAD * 2,
+      h: h + FRAME_PAD * 2,
+      label: `${zone.id} · ${zone.zone ?? 'zone'}${binds ? ` (${binds})` : ''}`,
+    };
+  }));
+}
 const wiredOf = (node: GraphNode): Set<string> =>
   new Set(Object.entries(node.inputs).filter(([, input]) => input.from).map(([key]) => key));
 
@@ -469,10 +572,7 @@ function dropDraft(): void {
 
 const canvas: GraphCanvas = createCanvas(canvasHost, {
   paint,
-  position: (id) => {
-    const node = nodeById(id);
-    return node ? { x: node.x, y: node.y } : null;
-  },
+  position: (id) => placeOf(id),
   pick: (id, shift) => select(id, shift),
   allowWire: (from, to) => {
     const forward = from.side === 'output' && to.side === 'input';
@@ -617,7 +717,7 @@ const paintHooks: NodePaintHooks = {
     touch();
   },
   viewerShow,
-  frames: (node) => viewerFrames.get(node.id) ?? 0,
+  frames: (node) => viewerFrames.get(idOf(node)) ?? 0,
   zoom: () => canvas.area.area.transform.k,
   takesOf: (node) => inputTakes(node, catalogue),
   pens: () => pens.map((pen) => pen.name),
@@ -631,32 +731,65 @@ const paintHooks: NodePaintHooks = {
   setSize: (node, width, height) => {
     node.width = width;
     node.height = height;
-    canvas.area.resize(node.id, width, height);
+    canvas.area.resize(idOf(node), width, height);
     dirty = true;
     showDirty();
   },
   fold: (node, on) => {
     if (on) node.collapsed = true;
     else delete node.collapsed;
-    canvas.refresh(node.id);
+    canvas.refresh(idOf(node));
     // A folded viewer draws nothing, so opening one has a picture to make.
     if (node.kind === 'viewer' && !on) schedule();
     touch();
   },
   openGroup: (node) => void openGroup(node.word ?? ''),
-  hasModel: (node) => (viewerModels.get(node.id)?.construction.length ?? 0) > 0,
+  openZone: (node, on) => {
+    if (on) {
+      node.opened = true;
+      // A body that has never been looked at has no places: the importer
+      // writes the nodes and leaves them at the origin, which paints them
+      // all on top of each other. Lay it out once, the first time it is
+      // opened, and leave it alone ever after — where the artist puts a
+      // node is the artist's.
+      const body = node.graph;
+      if (body && body.nodes.every((n) => n.x === 0 && n.y === 0)) {
+        try {
+          const places = layoutGraph(body, (n) => estimateBox(n, catalogue));
+          for (const inner of body.nodes) {
+            const at = places.get(inner.id);
+            if (!at) continue;
+            inner.x = Math.round(at.x);
+            inner.y = Math.round(at.y);
+          }
+        } catch {
+          // A cycle inside a body is the compiler's to report, not the
+          // canvas's: paint it stacked rather than refuse to open it.
+        }
+      }
+    } else delete node.opened;
+    // The body's nodes join the canvas or leave it, so this is a rebuild,
+    // not a repaint. The document did not change what it MAKES, so the
+    // preview is not stale and nothing re-renders.
+    void buildCanvas().then(() => {
+      canvas.refresh(node.id);
+      paintFrames();
+    });
+    touch();
+  },
+  hasModel: (node) => (viewerModels.get(idOf(node))?.construction.length ?? 0) > 0,
   setModel: (node, on) => {
     if (on) node.view3 = true;
     else delete node.view3;
-    canvas.refresh(node.id);
+    canvas.refresh(idOf(node));
     // Going back to the drawing needs the picture the 2D canvas never got.
     if (!on) schedule();
     touch();
   },
-  remove: (node) => void removeNode(node.id),
-  select: (node) => select(node.id),
+  remove: (node) => void removeNode(idOf(node)),
+  select: (node) => select(idOf(node)),
   fitViewer: (node) => {
-    const view = views.get(node.id);
+    const view = views.get(idOf(node));
     // One word, two pictures: framing the model is what Home does there.
     if (view?.camera) view.camera.fit();
     else view?.preview?.fit();
@@ -700,12 +833,13 @@ const wireId = (wire: { source: string; sourceOutput: string; target: string; ta
 
 /** The Rete node for a document node: its sockets are exactly the ones its
  * body draws, and nothing else. */
-function reteNode(node: GraphNode): ReteNode {
-  const rete = new ClassicPreset.Node(node.id);
+function reteNode(node: GraphNode, id: string = node.id): ReteNode {
+  const rete = new ClassicPreset.Node(id);
   // The constructor's argument is the label; the id is ours (a graph node's
-  // id is the `const` name in the compiled sketch).
-  rete.id = node.id;
-  rete.label = node.id;
+  // id is the `const` name in the compiled sketch). An open zone's body is
+  // painted in this document, so an inner node is known by its path.
+  rete.id = id;
+  rete.label = id;
   const port = (socketClass: string): ClassicPreset.Socket => new ClassicPreset.Socket(socketClass);
   if (node.kind === 'builtin') {
     const word = node.word ? wordOf(catalogue, node.word) : undefined;
@@ -992,8 +1126,7 @@ canvas.area.addPipe((context: AreaExtra | Root<GraphScheme>) => {
     const node = nodeById(context.data.id);
     const view = canvas.area.nodeViews.get(context.data.id);
     if (node && view) {
-      node.x = Math.round(view.position.x);
-      node.y = Math.round(view.position.y);
+      placeTo(context.data.id, view.position);
       dirty = true;
       showDirty();
     }
@@ -1001,12 +1134,10 @@ canvas.area.addPipe((context: AreaExtra | Root<GraphScheme>) => {
     for (const other of moved?.others ?? []) {
       const rest = nodeById(other.id);
       const otherView = canvas.area.nodeViews.get(other.id);
-      if (rest && otherView) {
-        rest.x = Math.round(otherView.position.x);
-        rest.y = Math.round(otherView.position.y);
-      }
+      if (rest && otherView) placeTo(other.id, otherView.position);
     }
   }
+  if (context.type === 'nodetranslated' || context.type === 'nodedragged' || context.type === 'noderesized') paintFrames();
   return context;
 });
 
@@ -1064,13 +1195,13 @@ canvasHost.addEventListener('pointerdown', (event) => {
     marquee.style.width = `${rect.width}px`;
     marquee.style.height = `${rect.height}px`;
   };
-  const inside = (rect: DOMRect): string[] => graph.nodes
-    .filter((node) => {
-      const body = views.get(node.id)?.body?.getBoundingClientRect();
+  const inside = (rect: DOMRect): string[] => painted()
+    .filter(({ id }) => {
+      const body = views.get(id)?.body?.getBoundingClientRect();
       if (!body) return false;
       return body.left < rect.right && body.right > rect.left && body.top < rect.bottom && body.bottom > rect.top;
     })
-    .map((node) => node.id);
+    .map(({ id }) => id);
   const move = (moved: PointerEvent): void => {
     const rect = box({ x: moved.clientX, y: moved.clientY });
     paint(rect);
@@ -1097,8 +1228,8 @@ type Placed = { node: GraphNode; w: number; h: number };
 
 function placedSelection(): Placed[] {
   const zoom = canvas.area.area.transform.k || 1;
-  return graph.nodes.filter((node) => selection.has(node.id)).map((node) => {
-    const rect = views.get(node.id)?.body?.getBoundingClientRect();
+  return painted().filter(({ id }) => selection.has(id)).map(({ id, node }) => {
+    const rect = views.get(id)?.body?.getBoundingClientRect();
     const box = rect && rect.width > 0 && rect.height > 0
       ? { width: rect.width / zoom, height: rect.height / zoom }
       : estimateBox(node, catalogue);
@@ -1110,10 +1241,13 @@ function placedSelection(): Placed[] {
  * canvas at once. */
 async function settle(places: { node: GraphNode; x: number; y: number }[]): Promise<void> {
   for (const place of places) {
-    place.node.x = Math.round(place.x);
-    place.node.y = Math.round(place.y);
-    await canvas.area.translate(place.node.id, { x: place.node.x, y: place.node.y });
+    // The canvas is told where on the canvas; the node keeps its own place,
+    // which for a node inside a frame is the frame's.
+    const id = idOf(place.node);
+    placeTo(id, { x: place.x, y: place.y });
+    await canvas.area.translate(id, { x: Math.round(place.x), y: Math.round(place.y) });
   }
+  paintFrames();
   touch();
 }
 
@@ -1427,11 +1561,15 @@ function applyWire(wire: GraphWire): void {
   const target = nodeById(wire.target);
   if (!target) return;
   const key = String(wire.targetInput);
-  target.inputs[key] = { ...target.inputs[key], from: [wire.source, String(wire.sourceOutput)] };
+  // A wire inside a frame is a wire of the body, and the body names its own
+  // nodes: the frame's prefix is the canvas's word, not the document's.
+  const scope = wire.target.slice(0, wire.target.length - target.id.length);
+  const source = wire.source.startsWith(scope) ? wire.source.slice(scope.length) : wire.source;
+  target.inputs[key] = { ...target.inputs[key], from: [source, String(wire.sourceOutput)] };
   syncWired(target);
   // A list grows: the place that was free is taken, so a new free one has to
   // appear, and the node's sockets are rebuilt with it.
-  if (target.kind === 'viewer' || target.kind === 'list') canvas.refresh(target.id);
+  if (target.kind === 'viewer' || target.kind === 'list') canvas.refresh(wire.target);
   touch();
 }
 
@@ -1469,31 +1607,37 @@ async function buildCanvas(): Promise<void> {
     view.off?.();
   }
   views.clear();
-  for (const node of graph.nodes) await canvas.editor.addNode(reteNode(node));
-  for (const node of graph.nodes) {
+  const showing = painted();
+  for (const { id, node } of showing) await canvas.editor.addNode(reteNode(node, id));
+  for (const { id, node } of showing) {
+    // An inner node reads inner nodes: its wires are named inside the frame
+    // it belongs to, so they take the same prefix its own name does.
+    const scope = id.slice(0, id.length - node.id.length);
     for (const [key, input] of Object.entries(node.inputs)) {
       if (!input.from) continue;
-      const [source, output] = input.from;
+      const [from, output] = input.from;
+      const source = `${scope}${from}`;
       if (!nodeById(source)) continue;
       await canvas.editor.addConnection({
-        id: wireId({ source, sourceOutput: output, target: node.id, targetInput: key }),
+        id: wireId({ source, sourceOutput: output, target: id, targetInput: key }),
         source,
         sourceOutput: output,
-        target: node.id,
+        target: id,
         targetInput: key,
       });
     }
   }
   loading = false;
+  paintFrames();
   // A graph's own positions can sit anywhere; bring them into view, once —
   // unless this graph has been looked at before, and then leave it where the
   // artist left it.
   if (!recallView(nameInput.value.trim())) canvas.fit();
 }
 
-function freshId(besides?: Map<string, string>): string {
+function freshId(besides?: Map<string, string>, held: Graph = graph): string {
   const taken = new Set(besides ? [...besides.values()] : []);
-  for (let i = 1; ; i++) if (!nodeById(`n${i}`) && !taken.has(`n${i}`)) return `n${i}`;
+  for (let i = 1; ; i++) if (!held.nodes.some((n) => n.id === `n${i}`) && !taken.has(`n${i}`)) return `n${i}`;
 }
 
 function paintSelection(): void {
@@ -1550,16 +1694,42 @@ function freeSpot(at: { x: number; y: number }): { x: number; y: number } {
 async function place(node: GraphNode, at = canvas.centre()): Promise<void> {
   // A wire that is waiting decides where its node stands: at the drop.
   const spot = freeSpot(waiting ? waiting.at : at);
-  node.x = spot.x;
-  node.y = spot.y;
-  graph.nodes.push(node);
-  await canvas.editor.addNode(reteNode(node));
+  // Dropped inside an open frame, the node belongs to that body: the frame
+  // is where the body is, so putting a node in it means putting it there.
+  const host = frameAt(spot);
+  const held = host ? host.graph! : graph;
+  const origin = host ? frameOrigin(host) : { x: 0, y: 0 };
+  node.id = freshId(undefined, held);
+  node.x = spot.x - origin.x;
+  node.y = spot.y - origin.y;
+  held.nodes.push(node);
+  const id = host ? `${host.id}${PATH}${node.id}` : node.id;
+  canvasName.set(node, id);
+  await canvas.editor.addNode(reteNode(node, id));
   // In front and picked: the node the artist just made is the node they are
   // working on.
-  canvas.raise(node.id);
-  select(node.id);
+  canvas.raise(id);
+  select(id);
   if (waiting) await wireWaiting(node);
+  if (host) paintFrames();
   touch();
+}
+
+/** The open zone whose frame covers this place, if any. */
+function frameAt(at: { x: number; y: number }): GraphNode | undefined {
+  for (const zone of openZones()) {
+    const origin = frameOrigin(zone);
+    let w = 220;
+    let h = 120;
+    for (const inner of zone.graph!.nodes) {
+      const view = canvas.area.nodeViews.get(`${zone.id}${PATH}${inner.id}`);
+      w = Math.max(w, inner.x + (view?.element.offsetWidth ?? 180));
+      h = Math.max(h, inner.y + (view?.element.offsetHeight ?? 120));
+    }
+    if (at.x >= origin.x - FRAME_PAD && at.x <= origin.x + w + FRAME_PAD
+      && at.y >= origin.y - FRAME_PAD && at.y <= origin.y + h + FRAME_PAD) return zone;
+  }
+  return undefined;
 }
 
 /** A word from the palette: its required numbers start at zero, so the node
@@ -1617,11 +1787,17 @@ async function removeNode(id: string): Promise<void> {
   viewerResults.delete(id);
   selection.delete(id);
   paintSelection();
-  graph.nodes = graph.nodes.filter((n) => n.id !== id);
-  for (const other of graph.nodes) {
-    for (const input of Object.values(other.inputs)) if (input.from?.[0] === id) delete input.from;
+  // A node inside an open frame belongs to that body, and so do the wires
+  // that named it.
+  const inner = zoneOf(id);
+  const held = inner ? inner.zone.graph! : graph;
+  const name = inner ? inner.innerId : id;
+  held.nodes = held.nodes.filter((n) => n.id !== name);
+  for (const other of held.nodes) {
+    for (const input of Object.values(other.inputs)) if (input.from?.[0] === name) delete input.from;
     syncWired(other);
   }
+  if (inner) paintFrames();
   touch();
 }
 

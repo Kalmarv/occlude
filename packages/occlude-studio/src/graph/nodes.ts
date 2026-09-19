@@ -122,6 +122,8 @@ export interface NodePaintHooks {
   showViewer(node: GraphNode): void;
   /** Fold a node down to its title and sockets, or open it again. */
   fold(node: GraphNode, on: boolean): void;
+  /** A zone's body, painted in this document or not. */
+  openZone(node: GraphNode, on: boolean): void;
   remove(node: GraphNode): void;
   select(node: GraphNode): void;
 }
@@ -909,10 +911,18 @@ function zoneRows(host: HTMLElement, node: GraphNode, hooks: NodePaintHooks): vo
   }
   const binds = node.binds ?? [];
   const inside = node.graph?.nodes.filter((n) => n.kind !== 'input' && n.kind !== 'output').length ?? 0;
-  const note = el('div', 'graph-zone-body');
+  // The body is a graph. Opening it paints it in this document, inside a
+  // frame of its own, which is where it belongs: a zone is part of the
+  // picture, not a document somewhere else.
+  const note = el('button', 'graph-zone-body') as HTMLButtonElement;
+  note.type = 'button';
   note.append(el('span', 'graph-zone-binds', binds.length > 0 ? `(${binds.join(', ')}) →` : 'each run →'));
   note.append(el('span', 'graph-zone-count', `${inside} node${inside === 1 ? '' : 's'}`));
-  note.title = 'The body this zone runs. Every run is handed the names on the left.';
+  note.title = node.opened
+    ? 'Close the body: the frame below goes, the zone keeps it'
+    : 'Open the body: its nodes are painted below, in a frame of their own';
+  if (node.opened) note.classList.add('graph-zone-open');
+  note.addEventListener('click', () => hooks.openZone(node, node.opened !== true));
   noDrag(note);
   host.append(note);
   const out = nodeRow('graph-row graph-row-out');

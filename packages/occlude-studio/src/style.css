@@ -3581,6 +3581,31 @@ wa-dialog.wa-dialog-wide {
   z-index: 2;
 }
 
+/* A zone's body, painted where it belongs: a region drawn around the nodes
+   that belong to it, behind them and behind the wires. */
+.graph-zone-frame {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  pointer-events: none;
+  border: 1px dashed var(--accent-edge);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.graph-zone-frame > span {
+  position: absolute;
+  top: -0.95rem;
+  left: 10px;
+  font: inherit;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  background: var(--paper);
+  padding: 0 6px;
+}
+
 .graph-wire {
   position: absolute;
   left: 0;

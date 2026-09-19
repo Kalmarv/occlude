@@ -365,6 +365,10 @@ export interface GraphNode {
   /** Folded: the node shows its title and its sockets and nothing else.
    * It is how this graph is laid out, so it belongs to the document. */
   collapsed?: boolean;
+  /** A zone whose body is being looked at: its inner graph is painted in
+   * this document, inside a frame of its own. Like `collapsed`, it is a
+   * way of looking and it belongs to the document. */
+  opened?: boolean;
   /** The size the artist dragged the node to, in area units. Absent means
    * the body sizes itself to its content, as every node did before. */
   width?: number;
@@ -454,6 +458,7 @@ function parseNode(raw: unknown): GraphNode {
   for (const [key, value] of Object.entries(rawInputs)) inputs[key] = parseInput(id, key, value);
   const node: GraphNode = { id, kind, x, y, inputs };
   if (r.collapsed === true) node.collapsed = true;
+  if (r.opened === true) node.opened = true;
   if (r.view3 === true) node.view3 = true;
   if (typeof r.width === 'number' && Number.isFinite(r.width) && r.width > 0) node.width = r.width;
   if (typeof r.height === 'number' && Number.isFinite(r.height) && r.height > 0) node.height = r.height;
@@ -565,6 +570,7 @@ export function nodeToRaw(n: GraphNode): Record<string, unknown> {
   out.x = n.x;
   out.y = n.y;
   if (n.collapsed) out.collapsed = true;
+  if (n.opened) out.opened = true;
   if (n.view3) out.view3 = true;
   if (n.width !== undefined) out.width = n.width;
   if (n.height !== undefined) out.height = n.height;

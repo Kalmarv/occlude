@@ -61,6 +61,9 @@ export interface GraphCanvas {
   connection: ConnectionPlugin<GraphScheme, AreaExtra>;
   /** Area coordinates of a point of the page. */
   at(clientX: number, clientY: number): Position;
+  /** The frames drawn behind the nodes — a zone's body, in place. The list
+   * is the whole truth: a frame that is not in it goes. */
+  setFrames(frames: readonly { id: string; x: number; y: number; w: number; h: number; label: string }[]): void;
   /** The middle of the viewport, in area coordinates. */
   centre(): Position;
   /** Rebuild one node's body (sockets and all) and re-measure its wires. */
@@ -251,11 +254,40 @@ export function createCanvas(container: HTMLElement, hooks: CanvasHooks): GraphC
     return { x: (clientX - rect.left - x) / k, y: (clientY - rect.top - y) / k };
   };
 
+  /**
+   * The frames drawn behind the nodes: a zone's body, painted where it
+   * belongs rather than in a document of its own. They live in the area's
+   * content, so they pan and zoom with everything else.
+   */
+  const frames = new Map<string, HTMLElement>();
+
   return {
     editor,
     area,
     connection,
     at,
+    setFrames: (wanted) => {
+      for (const [id, element] of frames) {
+        if (wanted.some((f) => f.id === id)) continue;
+        area.area.content.remove(element);
+        element.remove();
+        frames.delete(id);
+      }
+      for (const frame of wanted) {
+        let element = frames.get(frame.id);
+        if (!element) {
+          element = document.createElement('div');
+          element.className = 'graph-zone-frame';
+          element.append(document.createElement('span'));
+          frames.set(frame.id, element);
+          area.area.content.add(element);
+        }
+        element.style.transform = `translate(${frame.x}px, ${frame.y}px)`;
+        element.style.width = `${frame.w}px`;
+        element.style.height = `${frame.h}px`;
+        element.firstElementChild!.textContent = frame.label;
+      }
+    },
     centre: () => at(container.clientWidth / 2, container.clientHeight / 2),
     refresh: (id) => void area.update('node', id),
     raise: (id) => render.raise(id),
