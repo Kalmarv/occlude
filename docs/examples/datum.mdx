@@ -1,0 +1,33 @@
+---
+title: Datum
+description: A contour map whose lines break around the spot heights that name them.
+---
+
+A height field, five contour levels, and four spot heights. Each number comes from the ground it names. The label is a measurement, not a decoration.
+
+A label needs clear paper around it. `t.within` reads the contours' EDGES against each label's window. It hands back the walls that lie inside, and `subtract` takes them out. `extract` makes the remainder a material of its own. The survivors are chains, with new ends where the label cut them. `trim` pulls every chain back a little from both of its ends. The gap is the window plus that margin, and no contour touches a number.
+
+The window hugs the number. A wider box would cut a hole no artist asked for. The gap you see is the size of the label, and not a stride more.
+
+A ring that no label crosses has no ends, so `trim` leaves it whole. Sixteen of these contours close on themselves. Four of them run through a label and open. The other twelve come through complete.
+
+Uses: `t.isolines`, `t.within` on an EDGE selection, `edges.union`, `edges.subtract`, `extract`, `m.trim`, `label`, `strokes`.
+
+```ts live
+import { sketch, strokes, rect, label } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const b = t.bounds();
+  const land = (x, y) => t.noise(x / 46, y / 46) + 0.35 * t.noise(x / 17, y / 17);
+  const contours = t.isolines(land, [-0.6, -0.3, 0, 0.3, 0.6]);
+  const h = 0.045 * b.h;
+  const spots = [[0.2, 0.24], [0.68, 0.36], [0.34, 0.72], [0.76, 0.8]].map(([u, v]) => {
+    const x = u * b.w, y = v * b.h;
+    return { x, y, text: `${Math.round(land(x, y) * 100)}` };
+  });
+  const boxes = spots.map((s) => rect(s.x - (0.34 * h * s.text.length + 0.2 * h), s.y - 0.8 * h, 0.68 * h * s.text.length + 0.4 * h, 1.6 * h));
+  const blocked = boxes.map((r) => t.within(contours.edges, r)).reduce((a, c) => a.union(c));
+  const broken = contours.edges.subtract(blocked).extract().trim({ start: 0.008 * b.h, end: 0.008 * b.h });
+  return [strokes(broken), spots.map((s) => label(s.text, s.x, s.y + 0.36 * h, h, { align: 'center' }))];
+});
+```

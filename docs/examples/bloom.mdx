@@ -12,7 +12,7 @@ Growth that ignores the room around an edge runs away. The vertex count doubles 
 :::
 
 ```ts live
-import { sketch, strokes, circle, force, mul, add, polygon, fill, mm } from 'occlude';
+import { sketch, strokes, circle, force, mul, polygon, fill, mm } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const ring = t.sample(circle(50, 50, 10), { count: 40 });
   const dish = t.material(circle(50, 50, 44));
@@ -26,7 +26,7 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
     next.move(cur.points, (p) => mul(push(p), 0.2));
     const room = cur.edges.filter((e) => {
       const own = e.a.adjacent.union(e.b.adjacent);
-      return cur.points.near(mul(add(e.a, e.b), 0.5), { radius: 2.5 }).subtract(own).length === 0;
+      return cur.points.near(e.center, { radius: 2.5 }).subtract(own).length === 0;
     });
     next.splitEdges(room.filter(() => t.chance(0.3)));
   }, { every: 40 });

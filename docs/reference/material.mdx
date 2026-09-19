@@ -216,7 +216,7 @@ Replaces a column by the mean of itself and its neighbours, `steps` times. It fi
 
 A tone that comes off an image carries speckle, and speckle in a density column gives banding on paper. `force.relax` smooths positions. This smooths a value and moves nothing, so every id and every position survives. A row with no neighbours is the mean of itself and keeps what it had.
 
-Below, the mark size is the column. The left cloud takes its tone straight from a noisy field. The right cloud is the same tone after six passes: the noise's own shape stays, and the speckle goes.
+Below, the mark size is the column. The left cloud takes its tone straight from a noisy field. `t.noise` runs from -1 to 1, so the tone is centred and scaled to keep every mark a positive size. The right cloud is the same tone after six passes: the noise's own shape stays, and the speckle goes.
 
 ```ts live
 import { sketch, circle, group, rect, connect } from 'occlude';
@@ -225,7 +225,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const b = t.bounds();
   const half = rect(0, 0, 0.47 * b.w, b.h);
   const cloud = connect.nearest(t.scatter({ spacing: 0.05 * b.h, within: half }), { count: 3 })
-    .attribute('tone', (p) => 0.55 * t.rnd() + t.noise(p.x / 20, p.y / 20));
+    .attribute('tone', (p) => 0.55 + 0.4 * t.noise(p.x / 20, p.y / 20) + 0.25 * (t.rnd() - 0.5));
   const marks = (m) => m.points.map((p) => circle(p.x, p.y, 0.004 * b.h + 0.024 * b.h * p.tone));
   return [marks(cloud), group({ translate: [0.53 * b.w, 0] }, marks(cloud.smooth('tone', { steps: 6 })))];
 });

@@ -1,0 +1,27 @@
+---
+title: Survey
+description: A coast drawn finely inside two windows, and cut straight outside them.
+---
+
+A coarse field pushes a ring about. The result is a coast of forty-six vertices. Two windows choose the part to survey. `t.within` reads the coast's EDGES against each window and hands back the walls that lie inside, and `resample` redistributes those walls alone. The surveyed stretches end up with a vertex every few tenths of a millimetre. The rest keep the handful they started with.
+
+One fine field then moves every vertex of the whole coast. Only the surveyed stretches have the vertices to follow it. The rest cut straight between the corners they have. That is what a coarse chain does to detail it cannot hold.
+
+A wall comes through `within` whole or not at all. The fine work stops at a coast vertex, and not at the window's own line. Look where the coast leaves a window. The crinkle ends a little before the blue edge, or a little after it, but never on it.
+
+Uses: `t.sample`, `steps` with the `move` shorthand, `t.within` on an EDGE selection, `edges.union`, `resample` with `where`, `t.material` of a rect, `strokes`.
+
+```ts live
+import { sketch, strokes, circle, rect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
+  const b = t.bounds();
+  const coast = t.sample(circle(0.5 * b.w, 0.5 * b.h, 0.34 * b.h), { count: 46 })
+    .steps(1, { move: (p) => [t.noise(p.x / 46, p.y / 46) * 0.075 * b.h, t.noise(p.y / 46, p.x / 46) * 0.075 * b.h] });
+  const areas = [rect(0.06 * b.w, 0.1 * b.h, 0.4 * b.w, 0.38 * b.h), rect(0.52 * b.w, 0.52 * b.h, 0.4 * b.w, 0.36 * b.h)];
+  const surveyed = areas.map((a) => t.within(coast.edges, a)).reduce((x, y) => x.union(y));
+  const fine = coast.resample({ spacing: 0.006 * b.h, where: surveyed });
+  const drawn = fine.steps(1, { move: (p) => [t.noise(p.x / 3.2, p.y / 3.2) * 0.011 * b.h, t.noise(p.y / 3.2, p.x / 3.2) * 0.011 * b.h] });
+  return [strokes(drawn), areas.map((a) => strokes(t.material(a), { pen: 'stabilo-88-blue' }))];
+});
+```
