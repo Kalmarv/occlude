@@ -895,7 +895,11 @@ export class Faces {
         const mine = wallsOf(keys[f]);
         for (const [name, column] of columns) {
           let value = column.values.get(keys[f]);
-          if (value === undefined && column.transfer === 'nearest' && mine.length > 0) {
+          // Only a face that appeared AFTER the column was written
+          // inherits. A face the write saw and passed by has no value, and
+          // taking a neighbour's would be the column spreading on its own.
+          const isNew = !column.seen.has(keys[f]);
+          if (value === undefined && isNew && column.transfer === 'nearest' && mine.length > 0) {
             let best = -1;
             for (const [key, held] of column.values) {
               const shared = wallsOf(key).filter((w) => mine.includes(w)).length;

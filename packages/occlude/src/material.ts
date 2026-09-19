@@ -233,6 +233,15 @@ export interface FaceColumn {
   values: ReadonlyMap<string, number>;
   transfer: FaceTransfer;
   fallback?: number;
+  /**
+   * The keys of every face of the state this column was written against.
+   *
+   * It is what tells a NEW face from one that was simply never given a
+   * value. A face in `seen` with no value has none — it was there and the
+   * write passed it by. A face that is not in `seen` appeared after the
+   * write, and that is the only face `'nearest'` inherits for.
+   */
+  seen: ReadonlySet<string>;
 }
 
 /**
@@ -840,6 +849,7 @@ export class Material {
         values: map,
         transfer: opts.transfer ?? this.faceAttrs[name]?.transfer ?? 'nearest',
         fallback: opts.fallback ?? this.faceAttrs[name]?.fallback,
+        seen: new Set(keys),
       };
     }
     return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), copyEdges(this.edgeList), {
@@ -924,7 +934,17 @@ export class Material {
     }
     const edgeAttrs: Record<string, Float64Array> = {};
     for (const name of names) edgeAttrs[name] = Float64Array.from(cols[name]);
-    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), { iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers } });
+    // Every point stays the point it was and every edge that existed stays
+    // the edge it was: only the new pairs are new. Minting the lot would
+    // retire ids nothing retired and drop the face columns keyed by them.
+    const fresh = mintIds(added);
+    const edgeIds = new Float64Array(this.edgeIds.length + added);
+    edgeIds.set(this.edgeIds);
+    edgeIds.set(fresh, this.edgeIds.length);
+    const edgeRoots = new Float64Array(this.edgeRoots.length + added);
+    edgeRoots.set(this.edgeRoots);
+    edgeRoots.set(fresh, this.edgeRoots.length);
+    return new Material(copy(this.x), copy(this.y), copyAttrs(this.attrs), Uint32Array.from(list), { iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers }, ids: { points: copy(this.pointIds), edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs });
   }
 
   /**
@@ -1486,6 +1506,14 @@ export function withinMaterial(
   const eattrs: Record<string, number[]> = {};
   for (const name of enames) eattrs[name] = [];
   const sourceRow = new Map<number, number>();
+  // A vertex the trim kept is the vertex it was, and an edge the trim did
+  // not cut is the edge it was: the trim is a subtraction, not a rebuild.
+  // A cut mints a new point and a new edge, and the piece keeps the edge's
+  // lineage root, so a face whose wall was merely shortened keeps its
+  // columns.
+  const oids: number[] = [];
+  const eids: number[] = [];
+  const eroots: number[] = [];
   // Two edges crossing the boundary at the same point must end at ONE
   // vertex, or the trimmed material is quietly disconnected there. Cut
   // points are matched on their coordinates, quantised well below the
@@ -1507,6 +1535,7 @@ export function withinMaterial(
     const row = ox.length;
     ox.push(m.x[i]);
     oy.push(m.y[i]);
+    oids.push(m.pointIds[i]);
     for (const name of names) oattrs[name].push(m.attrs[name][i]);
     sourceRow.set(i, row);
     return row;
@@ -1518,6 +1547,7 @@ export function withinMaterial(
     const row = ox.length;
     ox.push(x);
     oy.push(y);
+    oids.push(mintIds(1)[0]);
     for (const name of names) oattrs[name].push(columnValue(name, i, j, t));
     cutRow.set(key, row);
     return row;
@@ -1540,6 +1570,11 @@ export function withinMaterial(
       const from = from0.t === 0 ? copyVertex(a) : splitAt(a, b, from0.t, from0.x, from0.y);
       const to = to1.t === 1 ? copyVertex(b) : splitAt(a, b, to1.t, to1.x, to1.y);
       edges.push(from, to);
+      // Whole edge: the same edge. A cut piece is a new edge of the same
+      // lineage, exactly as a split's children are.
+      const whole = from0.t === 0 && to1.t === 1;
+      eids.push(whole ? m.edgeIds[e] : mintIds(1)[0]);
+      eroots.push(m.edgeRoots[e]);
       const share = to1.t - from0.t;
       for (const name of enames) {
         const v = m.edgeAttrs[name][e];
@@ -1558,7 +1593,7 @@ export function withinMaterial(
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: m.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers } });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: m.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...m.transfers }, edgeTransfers: { ...m.edgeTransfers }, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: m.faceAttrs });
 }
 
 // ---- constructors ----------------------------------------------------------------

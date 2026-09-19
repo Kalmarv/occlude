@@ -127,6 +127,21 @@ export interface InspectionPayload {
  * `length` and `at` — a selection, or the pairs a relation gave back. */
 export type Pickable<T> = { readonly length: number; at(i: number): T | undefined };
 
+/**
+ * One draw, one member. The draw is consumed whatever happens, so the seed
+ * stream does not depend on what is in the collection; an empty one has no
+ * member to give and says so by name, the same for an array and for a
+ * selection (whose own `at` would otherwise refuse and an array's would
+ * quietly answer `undefined`).
+ */
+function pickFrom<T>(items: Pickable<T>, unit: number, record: (i: number) => void): T {
+  const n = items.length;
+  if (n === 0) throw new Error('pick: nothing to pick from (0 members)');
+  const i = Math.floor(unit * n);
+  record(i);
+  return items.at(i) as T;
+}
+
 export interface RandomStream {
   rnd(): number;
   rnd(n: number): number;
@@ -474,9 +489,7 @@ export class Execution {
   }
 
   pick<T>(items: Pickable<T>): T {
-    const i = Math.floor(this.unitDraw(this.rng) * items.length);
-    this.madeOf(i);
-    return items.at(i) as T;
+    return pickFrom(items, this.unitDraw(this.rng), (i) => this.madeOf(i));
   }
 
   chance(p: number): boolean {
@@ -514,7 +527,7 @@ export class Execution {
     };
     return {
       rnd: rnd as RandomStream['rnd'],
-      pick: <T>(items: Pickable<T>): T => { const i = Math.floor(this.unitDraw(rng) * items.length); this.madeOf(i); return items.at(i) as T; },
+      pick: <T>(items: Pickable<T>): T => pickFrom(items, this.unitDraw(rng), (i) => this.madeOf(i)),
       chance: chanceOf,
       prob: (p, fn, elseFn) => (chanceOf(p) ? fn() : elseFn?.()),
       noise: (x, y = 0, z = 0) => rng.noise(x, y, z),

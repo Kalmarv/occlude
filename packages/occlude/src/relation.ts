@@ -266,6 +266,7 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     predicate: (a: Vertex, b: Vertex) => boolean,
     opts: { radius?: number } = {},
   ): [Vertex, Vertex][] {
+    if (!(other instanceof PointSelection)) throw new Error('selection.pairs: a point selection pairs only with a point selection');
     sameSource(this, other, 'pairs');
     const m = this.source;
     const mirror = sameMembers(this.indices, other.indices);
@@ -535,6 +536,7 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     predicate: (a: Edge, b: Edge) => boolean,
     opts: { radius?: number } = {},
   ): [Edge, Edge][] {
+    if (!(other instanceof EdgeSelection)) throw new Error('selection.pairs: an edge selection pairs only with an edge selection');
     sameSource(this, other, 'pairs');
     const m = this.source;
     const mirror = sameMembers(this.indices, other.indices);

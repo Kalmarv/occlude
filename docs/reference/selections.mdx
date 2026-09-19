@@ -241,7 +241,7 @@ export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
 
 | Two pairs ask | What happens |
 |---|---|
-| to move the same row | the last write wins, as two `next.move` calls do |
+| to move the same row | the moves add up, as two `next.move` calls do |
 | to set the same column of one row | the last write wins |
 | to connect the same two rows | one edge; a second `connect` of a pair that exists is ignored |
 | to split one edge at different parameters | both splits happen, in edge then parameter order |

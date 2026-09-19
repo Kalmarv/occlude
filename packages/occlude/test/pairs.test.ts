@@ -67,6 +67,14 @@ describe('pairs', () => {
     expect(spokes.every(([a]) => a.index === 0)).toBe(true);
   });
 
+  it('refuses the other domain by name', () => {
+    const m = curve([[0, 0], [1, 0], [2, 0]], { closed: false });
+    expect(() => (m.edges as never as { pairs(o: unknown, p: unknown): unknown }).pairs(m.points, () => true))
+      .toThrow(/an edge selection pairs only with an edge selection/);
+    expect(() => (m.points as never as { pairs(o: unknown, p: unknown): unknown }).pairs(m.edges, () => true))
+      .toThrow(/a point selection pairs only with a point selection/);
+  });
+
   it('refuses two selections of different states', () => {
     const a = material([[0, 0]]);
     const b = material([[0, 0]]);
@@ -94,6 +102,11 @@ describe('t.pick', () => {
       const [a, b] = t.pick(some);
       expect(distance(a, b)).toBeLessThan(10.5);
       expect(t.pick([7, 7, 7])).toBe(7);
+      // Nothing to pick from is nothing to pick from, whichever spelling:
+      // an array would quietly answer undefined and a selection's own `at`
+      // would refuse with a different word.
+      expect(() => t.pick([])).toThrow(/nothing to pick from/);
+      expect(() => t.pick(m.points.filter(() => false))).toThrow(/nothing to pick from/);
       return [];
     }), { paper: 'Square20' });
   });

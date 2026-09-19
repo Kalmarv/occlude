@@ -243,6 +243,8 @@ A tap of the pen at every point: pen down, the pen's delay, pen up. `dots` is th
 
 A dot hides as a point. A shape drawn over it hides the whole dot, and nothing hides half of it. The preview shows it at nib width. The plan keeps it through the cleanup that drops zero-length moves. The machine gets one pen-down with that pen's settle. No points means no ink.
 
+A dot of its own hides nothing a pen could draw. The engine judges a tap inside a region, so every tap rides in a region a hundredth of a millimetre across. A stroke under a cloud of dots comes out whole.
+
 ```ts live
 import { sketch, dots, circle, strokes } from 'occlude';
 

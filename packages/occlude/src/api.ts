@@ -533,46 +533,33 @@ export function stroke(
  *
  * No points, no ink.
  */
-export function dots(points: Sources, opts: { pen?: string } = {}): ShapeValue | ShapeValue[] {
+export function dots(points: Sources, opts: { pen?: string } = {}): ShapeValue[] {
   const list = materialOf(sourcePoints(points));
-  const n = list.n;
-  if (n === 0) return [];
+  const out: ShapeValue[] = [];
   // A dot is an engine stipple mark, and a stipple mark belongs to a
   // region: the marks are supplied for a shape and judged strictly inside
-  // it. The region here is the points' own box, grown by a hair so that no
-  // dot sits on its boundary, with no outline of its own. It hides
-  // nothing: it carries the taps, and that is all it is for.
-  let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
-  for (let i = 0; i < n; i++) {
-    if (list.x[i] < minX) minX = list.x[i];
-    if (list.x[i] > maxX) maxX = list.x[i];
-    if (list.y[i] < minY) minY = list.y[i];
-    if (list.y[i] > maxY) maxY = list.y[i];
+  // it. A shape with a fill HIDES what is beneath it, so one box around a
+  // whole cloud would erase everything drawn before it. Instead every dot
+  // carries its own box, a hundredth of a millimetre across — four cells
+  // of the engine's 0.005 mm input grid, so the tap is strictly inside it,
+  // and two hundredths of a nib, so what it hides is nothing a pen could
+  // draw. The box is in PAPER mm and the dot's place is the translate, so
+  // the box is the same hair whatever the paper and whatever the sketch's
+  // own coordinates mean.
+  const r = mm(0.01);
+  const g = mm(-0.01);
+  const box: [L, L][] = [[g, g], [r, g], [r, r], [g, r]];
+  for (let i = 0; i < list.n; i++) {
+    const x = list.x[i];
+    const y = list.y[i];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    // The box is centred on the origin and the shape is moved to the dot,
+    // so the tap IS the anchor's origin: it rides every transform the
+    // shape rode without any arithmetic of ours.
+    const mark: CustomFillFn = (_region, ctx) => [{ type: 'dot', x: ctx.anchor.e, y: ctx.anchor.f }];
+    out.push(polygon(box, { ...opts, translate: [x, y], stroke: false, fill: customFill(mark) }));
   }
-  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return [];
-  const pad = 1 + Math.max(maxX - minX, maxY - minY) * 1e-6;
-  const box: [number, number][] = [
-    [minX - pad, minY - pad], [maxX + pad, minY - pad],
-    [maxX + pad, maxY + pad], [minX - pad, maxY + pad],
-  ];
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  // A fill returns marks in PAPER mm. `ctx.anchor` is the affine from
-  // shape-local mm (origin at the shape's own bbox centre) to paper, so a
-  // dot rides every transform the shape rode — a turned group turns its
-  // dots, and a mirrored one mirrors them.
-  const marks: CustomFillFn = (_region, ctx) => {
-    const a = ctx.anchor;
-    const unit = ctx.len(1);
-    const out: { type: 'dot'; x: number; y: number }[] = [];
-    for (let i = 0; i < n; i++) {
-      const lx = (list.x[i] - cx) * unit;
-      const ly = (list.y[i] - cy) * unit;
-      out.push({ type: 'dot', x: a.a * lx + a.c * ly + a.e, y: a.b * lx + a.d * ly + a.f });
-    }
-    return out;
-  };
-  return polygon(box, { ...opts, stroke: false, fill: customFill(marks) });
+  return out;
 }
 
 /** Mutable builder; `build()` snapshots, so the builder stays extendable. */

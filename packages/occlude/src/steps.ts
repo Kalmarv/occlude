@@ -47,6 +47,7 @@ export interface StepKit {
 function withWrites(
   carried: Readonly<Record<string, FaceColumn>>,
   writes: ReadonlyMap<string, Map<string, number>>,
+  against: ReadonlySet<string>,
 ): Record<string, FaceColumn> {
   if (writes.size === 0) return { ...carried };
   const out: Record<string, FaceColumn> = { ...carried };
@@ -54,7 +55,12 @@ function withWrites(
     const was = carried[name];
     const merged = new Map(was?.values ?? []);
     for (const [key, value] of values) merged.set(key, value);
-    out[name] = { values: merged, transfer: was?.transfer ?? 'nearest', fallback: was?.fallback };
+    // The column has now been written against THIS state's faces, so every
+    // face of it that got no value has none — only a face that appears
+    // later inherits.
+    const seen = new Set(against);
+    for (const key of merged.keys()) seen.add(key);
+    out[name] = { values: merged, transfer: was?.transfer ?? 'nearest', fallback: was?.fallback, seen };
   }
   return out;
 }
@@ -340,6 +346,9 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
 
   /** Face columns written in this step, by column name and face key. */
   const pendingFaces = new Map<string, Map<string, number>>();
+  /** Every face key this pass read, so a column written here knows which
+   * faces it was written against. */
+  const faceKeysSeen = new Set<string>();
 
   const next: Next = {
     move(target: Ref | PointSelection, by: XY | ((p: Vertex) => XY)) {
@@ -365,6 +374,7 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
         throw new Error('steps: setFaces: those faces are of another state — read cur.faces() in this pass');
       }
       const keys = cells.keys();
+      for (const key of keys) faceKeysSeen.add(key);
       const chosen = faces instanceof Faces ? [...Array(cells.length).keys()] : [...faces].map((f) => f.index);
       for (const index of chosen) {
         const view = cells.at(index);
@@ -729,5 +739,5 @@ export function stepOnce(cur: Material, k: number, rule: StepRule, iteration: nu
   for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
   const edgeAttrs: Record<string, Float64Array> = {};
   for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: withWrites(cur.faceAttrs, pendingFaces) });
+  return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...cur.transfers }, edgeTransfers: { ...cur.edgeTransfers }, ids: { points: Float64Array.from(oids), edges: Float64Array.from(eids), edgeRoots: Float64Array.from(eroots) }, faceAttrs: withWrites(cur.faceAttrs, pendingFaces, faceKeysSeen) });
 }

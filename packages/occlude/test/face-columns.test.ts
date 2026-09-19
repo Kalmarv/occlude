@@ -144,4 +144,18 @@ describe('when the boundary changes', () => {
     expect(other.faces().length).toBe(1);
     for (const f of m.faces()) expect(f.height).toBe(4);
   });
+
+  it('a write to some faces leaves the rest alone', () => {
+    // Two cells sharing a wall. Writing a tone on one must not spread to
+    // the other: it was there, and the write passed it by. Only a face
+    // that appears LATER inherits.
+    const m = twoFaces();
+    const written = m.steps(1, (cur, next) => {
+      const cells = cur.faces();
+      next.setFaces(cells.filter((f) => f.index === 0), { tone: 7 });
+    });
+    const after = written.faces();
+    expect(after.at(0).tone).toBe(7);
+    for (let i = 1; i < after.length; i++) expect(after.at(i).tone).toBeUndefined();
+  });
 });

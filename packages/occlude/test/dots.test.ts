@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  circle, curve, dots, initOcclude, material, plan, render, sketch, strokes,
+  circle, curve, dots, initOcclude, line, material, plan, render, sketch, strokes,
   type SketchDef,
 } from '../src/index.js';
 
@@ -53,6 +53,15 @@ describe('dots', () => {
     expect(left).toHaveLength(2);
     const at = (f: typeof all[number]) => (f.geom as { x0: number }).x0;
     expect(left.map(at)).toEqual([all.map(at)[0], all.map(at)[3]]);
+  });
+
+  it('does not erode what is under it: the taps carry a hair of a box, not a rectangle', async () => {
+    // A cloud of dots drawn over a line must leave the line whole. The
+    // carrying box is a hundredth of a millimetre, below what a pen draws.
+    const out = sq(sketch({}, () => [line(10, 50, 90, 50), dots(row())]));
+    const strokesLeft = out.frags.filter((f) => !f.dot);
+    expect(strokesLeft).toHaveLength(1);
+    expect(out.frags.filter((f) => f.dot)).toHaveLength(4);
   });
 
   it('takes its own pen and survives the plan as one pen-down each', async () => {
