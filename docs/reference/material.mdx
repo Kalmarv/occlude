@@ -263,6 +263,28 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 Puts new vertices along each chain at even spacing by arc length. Give `spacing` or `count`, in material units. An open chain keeps both ends. A closed chain keeps its seam. A corner between two new vertices does not survive. Chains only: a junction is an error.
 
+`where` redistributes part of the material and leaves the rest alone. The eligible region is a set of edges, so a point selection means the edges with both ends in it. Consecutive eligible edges make a **run**, and a run is what gets redistributed. A run keeps the two vertices at its ends, so the result is still one chain. `count` then applies to each run, not to the chain.
+
+Everything outside a run comes through untouched and keeps its identity: the same point ids, the same edge ids, the same lineage. A new vertex inside a run gets a new id. A new edge takes the lineage of the edge it came from. A split's children do the same, so a face column still finds its cells. See [where](/docs/reference/selections#where).
+
+Below, the big rings are the eleven vertices the chain started with. Only the steep edges are eligible. The two level stretches keep their two ends and nothing else. The rises and the falls get a vertex every few millimetres.
+
+```ts live
+import { sketch, strokes, circle, curve } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 2 }, (t) => {
+  const b = t.bounds();
+  const ridge = t.sample(curve(t.times(11, (k, u) => [(0.06 + 0.88 * u) * b.w, (0.5 + 0.34 * Math.sin(u * 7)) * b.h]), { closed: false }), { count: 11 });
+  const steep = ridge.edges.filter((e) => Math.abs(e.b.y - e.a.y) > 0.12 * b.h);
+  const out = ridge.resample({ spacing: 0.035 * b.w, where: steep });
+  return [
+    strokes(out),
+    out.points.map((p) => circle(p.x, p.y, 0.9, { pen: 'stabilo-88-blue' })),
+    ridge.points.map((p) => circle(p.x, p.y, 2.2)),
+  ];
+});
+```
+
 ```ts live
 import { sketch, strokes, circle, curve } from 'occlude';
 

@@ -23,7 +23,7 @@
  * the outline of a shape comes from `t.sample`, which reads the paper.
  */
 
-import { PointSelection, EdgeSelection } from './relation.js';
+import { PointSelection, EdgeSelection, whereRows } from './relation.js';
 import { degrees } from './units.js';
 // Type-only: a placement returns a tree value (the shape `group()` makes).
 // `import type` is erased, so material never depends on api at runtime.
@@ -974,13 +974,28 @@ export class Material {
    * cut. Attributes carry over per `transfer` (default: linear
    * interpolation for every column; `'nearest'`, a constant, or a function
    * per column to say otherwise — an `age` is a choice, not a mean).
+   *
+   * `where` redistributes part of the material and leaves the rest alone.
+   * The eligible region is a set of EDGES: a point selection means the
+   * edges with both ends selected, which is what `sel.edges` already says.
+   * Consecutive eligible edges make a RUN, and a run is what gets
+   * redistributed — as an open piece, so it keeps the two vertices at its
+   * ends. `count` is then per run, not per chain. Everything outside a run
+   * comes through untouched and KEEPS ITS IDENTITY: the same point ids, the
+   * same edge ids and roots. A new vertex inside a run is minted, and a new
+   * edge takes the lineage root of the source edge under its middle, the
+   * way a split's children take their parent's — so a face column survives
+   * a partial resample.
    */
-  resample(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer> }): Material {
+  resample(opts: { spacing?: number; count?: number; transfer?: Record<string, Transfer>; where?: PointSelection | EdgeSelection }): Material {
     // Too small to place samples (a mid-edit zero spacing): nothing to build.
     if (!checkSampling('resample', opts)) return material([]);
     for (let i = 0; i < this.n; i++) {
       if (this.adj[i].length > 2) throw new Error(`resample: vertex ${i} is a junction — chains only`);
     }
+    // The eligible region is a set of EDGES: a redistribution is about the
+    // stretch between two vertices, not about the vertices.
+    const eligible = whereRows(this, opts.where, 'edges', 'resample');
     const names = this.attrNames;
     const transfer: Record<string, Transfer> = { ...this.transfers, ...(opts.transfer ?? {}) };
     const ox: number[] = [];
@@ -991,11 +1006,18 @@ export class Material {
     const enames = this.edgeAttrNames;
     const eattrs: Record<string, number[]> = {};
     for (const name of enames) eattrs[name] = [];
+    // Where each output row came from, for identity: a source row, or -1 for
+    // something this call made. Only `where` reads them — a whole resample
+    // rebuilds the material and mints as it always has.
+    const osrc: number[] = [];
+    const esrc: number[] = [];
+    const eroot: number[] = [];
     const storedRow = new Map<number, number>();
     for (let e = 0; e < this.edgeCount; e++) storedRow.set(pairKey(this.edgeList[2 * e], this.edgeList[2 * e + 1]), e);
-    const place = (a: number, b: number, t: number) => {
+    const place = (a: number, b: number, t: number, src = -1) => {
       ox.push(this.x[a] + (this.x[b] - this.x[a]) * t);
       oy.push(this.y[a] + (this.y[b] - this.y[a]) * t);
+      osrc.push(src);
       for (const name of names) {
         const rule = transfer[name] ?? 'interpolate';
         const va = this.attrs[name][a];
@@ -1008,29 +1030,18 @@ export class Material {
         oattrs[name].push(v);
       }
     };
-    // Isolated vertices are not chains: they come through unchanged.
-    for (let i = 0; i < this.n; i++) {
-      if (this.adj[i].length === 0) {
-        ox.push(this.x[i]);
-        oy.push(this.y[i]);
-        for (const name of names) oattrs[name].push(this.attrs[name][i]);
-      }
-    }
-    for (const c of this.curves()) {
-      const idx = c.indices;
-      const first = ox.length;
-      const samples = alongChain(idx.map((i) => [this.x[i], this.y[i]] as [number, number]), c.closed, opts);
-      // A new edge takes the edge attributes of the source edge under its
-      // midpoint (by arc length) — a sample that lands exactly on an old
-      // vertex belongs to neither of that vertex's edges by itself.
-      const cum = chainLengths(idx.map((i) => [this.x[i], this.y[i]] as [number, number]), c.closed);
+    // One piece of a chain, as its own little walk: `rows` are the material
+    // rows it runs through, in order. A whole chain is one piece; with
+    // `where`, a run of eligible edges is one.
+    const piece = (rows: readonly number[], closed: boolean) => {
+      const pts = rows.map((i) => [this.x[i], this.y[i]] as [number, number]);
+      const cum = chainLengths(pts, closed);
       const total = cum[cum.length - 1];
-      const at = (k: number) => cum[samples[k].seg] + samples[k].t * (cum[samples[k].seg + 1] - cum[samples[k].seg]);
-      const rowOfSeg = (s: number) => storedRow.get(pairKey(idx[s], idx[(s + 1) % idx.length]))!;
+      const rowOfSeg = (s: number) => storedRow.get(pairKey(rows[s], rows[(s + 1) % rows.length]))!;
       // Samples come in increasing arc length, so the segment under a
       // position is found from where the last one was, never from the start.
       let cursor = 0;
-      let spread = 0; // the distribute loop's own cursor: d0 never decreases within a chain
+      let spread = 0; // the distribute loop's own cursor: d0 never decreases within a piece
       const segUnder = (d: number) => {
         if (cum[cursor] > d) cursor = 0; // a closed chain's seam wraps once
         while (cursor < cum.length - 2 && cum[cursor + 1] <= d) cursor++;
@@ -1042,6 +1053,8 @@ export class Material {
       const link = (from: number, to: number, d0: number, d1: number) => {
         edges.push(from, to);
         const mid = rowOfSeg(segUnder((d0 + d1) / 2));
+        esrc.push(-1);
+        eroot.push(mid);
         for (const name of enames) {
           if (this.edgeTransfers[name] !== 'distribute') {
             eattrs[name].push(this.edgeAttrs[name][mid]);
@@ -1059,18 +1072,135 @@ export class Material {
           eattrs[name].push(sum);
         }
       };
+      const at = (samples: { seg: number; t: number }[], k: number) =>
+        cum[samples[k].seg] + samples[k].t * (cum[samples[k].seg + 1] - cum[samples[k].seg]);
+      return { pts, total, link, at };
+    };
+    // A vertex this call does not touch: verbatim, not through `transfer`.
+    // A transfer rule says what a value does at a NEW vertex, and this is
+    // not one.
+    const copy = (v: number) => {
+      ox.push(this.x[v]);
+      oy.push(this.y[v]);
+      osrc.push(eligible === null ? -1 : v);
+      for (const name of names) oattrs[name].push(this.attrs[name][v]);
+    };
+    // Isolated vertices are not chains: they come through unchanged.
+    for (let i = 0; i < this.n; i++) if (this.adj[i].length === 0) copy(i);
+    // A whole piece, redistributed: the path a resample without `where` takes
+    // for every chain, and the one a fully eligible ring takes too.
+    const whole = (rows: readonly number[], closed: boolean) => {
+      const first = ox.length;
+      const p = piece(rows, closed);
+      const samples = alongChain(p.pts, closed, opts);
       for (let k = 0; k < samples.length; k++) {
-        const { seg, t } = samples[k];
-        place(idx[seg], idx[(seg + 1) % idx.length], t);
-        if (k > 0) link(first + k - 1, first + k, at(k - 1), at(k));
+        place(rows[samples[k].seg], rows[(samples[k].seg + 1) % rows.length], samples[k].t);
+        if (k > 0) p.link(first + k - 1, first + k, p.at(samples, k - 1), p.at(samples, k));
       }
-      if (c.closed && samples.length > 1) link(first + samples.length - 1, first, at(samples.length - 1), total);
+      if (closed && samples.length > 1) p.link(first + samples.length - 1, first, p.at(samples, samples.length - 1), p.total);
+    };
+    for (const c of this.curves()) {
+      const idx = c.indices;
+      const m = idx.length;
+      const rowOfSeg = (s: number) => storedRow.get(pairKey(idx[s], idx[(s + 1) % m]))!;
+      if (eligible === null) {
+        whole(idx, c.closed);
+        continue;
+      }
+      const segs = c.closed ? m : m - 1;
+      const on = (s: number) => eligible.has(rowOfSeg(s));
+      let count = 0;
+      for (let s = 0; s < segs; s++) if (on(s)) count++;
+      if (count === segs) {
+        whole(idx, c.closed);
+        continue;
+      }
+      // An output row per source vertex, made the first time the walk needs
+      // it, so a vertex two pieces share is one row and the ring closes.
+      const rowOf = new Map<number, number>();
+      const rowFor = (v: number) => {
+        const had = rowOf.get(v);
+        if (had !== undefined) return had;
+        copy(v);
+        rowOf.set(v, ox.length - 1);
+        return ox.length - 1;
+      };
+      const keep = (s: number) => {
+        const a = rowFor(idx[s]);
+        const b = rowFor(idx[(s + 1) % m]);
+        const row = rowOfSeg(s);
+        edges.push(a, b);
+        esrc.push(row);
+        eroot.push(row);
+        for (const name of enames) eattrs[name].push(this.edgeAttrs[name][row]);
+      };
+      // A run of eligible edges, redistributed as an OPEN piece: the two
+      // vertices at its ends are the run's own first and last samples, so
+      // they stay exactly where they are and keep who they are.
+      const run = (s0: number, s1: number) => {
+        const rows: number[] = [];
+        for (let s = s0; s <= s1; s++) rows.push(idx[s % m]);
+        rows.push(idx[(s1 + 1) % m]);
+        const p = piece(rows, false);
+        const samples = alongChain(p.pts, false, opts);
+        // No length to share out, so there is nothing to redistribute: the
+        // run comes through as the edges it already was.
+        if (samples.length < 2) {
+          for (let s = s0; s <= s1; s++) keep(s % m);
+          return;
+        }
+        const last = samples.length - 1;
+        const out: number[] = [];
+        for (let k = 0; k <= last; k++) {
+          if (k === 0) out.push(rowFor(rows[0]));
+          else if (k === last) out.push(rowFor(rows[rows.length - 1]));
+          else {
+            place(rows[samples[k].seg], rows[samples[k].seg + 1], samples[k].t);
+            out.push(ox.length - 1);
+          }
+          if (k > 0) p.link(out[k - 1], out[k], p.at(samples, k - 1), p.at(samples, k));
+        }
+      };
+      // A closed chain is walked from a boundary between two pieces, so the
+      // ring closes on a vertex both of them own. An open one starts at its
+      // own first vertex.
+      let start = 0;
+      if (c.closed) {
+        for (let s = 0; s < segs; s++) {
+          if (on(s) !== on((s + segs - 1) % segs)) {
+            start = s;
+            break;
+          }
+        }
+      }
+      let s = 0;
+      while (s < segs) {
+        const kind = on((start + s) % segs);
+        let len = 1;
+        while (s + len < segs && on((start + s + len) % segs) === kind) len++;
+        if (kind) run(start + s, start + s + len - 1);
+        else for (let k = 0; k < len; k++) keep((start + s + k) % segs);
+        s += len;
+      }
     }
     const attrs: Record<string, Float64Array> = {};
     for (const name of names) attrs[name] = Float64Array.from(oattrs[name]);
     const edgeAttrs: Record<string, Float64Array> = {};
     for (const name of enames) edgeAttrs[name] = Float64Array.from(eattrs[name]);
-    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers } });
+    const base = { iteration: this.iteration, history: [], edgeAttrs: edgeAttrs, transfers: { ...this.transfers }, edgeTransfers: { ...this.edgeTransfers } };
+    if (eligible === null) return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), base);
+    // A row that came through untouched keeps what it had. A new vertex is
+    // minted, and a new edge takes the lineage root of the source edge under
+    // its middle — the way a split's children take their parent's, so the
+    // face columns keyed on those roots still find their cells.
+    const freshPoints = mintIds(osrc.reduce((k, v) => k + (v < 0 ? 1 : 0), 0));
+    const freshEdges = mintIds(esrc.reduce((k, v) => k + (v < 0 ? 1 : 0), 0));
+    let fp = 0;
+    let fe = 0;
+    const pointIds = Float64Array.from(osrc, (v) => (v < 0 ? freshPoints[fp++] : this.pointIds[v]));
+    const edgeIds = Float64Array.from(esrc, (v) => (v < 0 ? freshEdges[fe++] : this.edgeIds[v]));
+    const edgeRoots = Float64Array.from(esrc, (v, k) => (v >= 0 ? this.edgeRoots[v] : eroot[k] >= 0 ? this.edgeRoots[eroot[k]] : edgeIds[k]));
+    return new Material(Float64Array.from(ox), Float64Array.from(oy), attrs, Uint32Array.from(edges), { ...base, ids: { points: pointIds, edges: edgeIds, edgeRoots }, faceAttrs: this.faceAttrs });
   }
 
   /**

@@ -319,6 +319,12 @@ Absent is the whole material. That is what every method did before there
 was a way to say otherwise. A method refuses a selection of another
 material, by name.
 
+`m.warp` and `m.snap` move points, and they leave the rest where they are.
+`m.resample` works on EDGES. Consecutive eligible edges make a run. A run
+keeps the two vertices at its ends, so the chain stays one chain. A
+row outside the eligible region keeps its id, so a selection you held
+still answers.
+
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
 
