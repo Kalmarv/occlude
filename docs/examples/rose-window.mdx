@@ -8,7 +8,7 @@ Every chord is straight. The curve inside each band is the envelope, and nobody 
 Uses: `connect.chain`, `append`, `envelope`, `opaque`.
 
 ```ts live paper=140x140
-import { sketch, strokes, envelope, append, material, connect, circle } from 'occlude';
+import { sketch, strokes, append, material, connect, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   const pile = (cx, cy, R, n, m) => append(...t.times(n, (k) => {
@@ -18,7 +18,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
   }));
   const band = (R, n, m) => {
     const fam = pile(t.cx, t.cy, R, n, m);
-    return [strokes(fam), strokes(envelope(fam), { pen: 'stabilo-88-blue' })];
+    return [strokes(fam), strokes(fam.envelope(), { pen: 'stabilo-88-blue' })];
   };
   return [
     band(46, 126, 7),

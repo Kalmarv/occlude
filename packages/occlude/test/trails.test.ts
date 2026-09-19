@@ -42,13 +42,13 @@ const components = (m: Material) => {
   return c;
 };
 
-describe('connect.trails', () => {
+describe('trails', () => {
   it('reaches the fewest pen-down runs there can be, and draws no edge twice', () => {
     // Every trail has two ends and only an odd-degree vertex can be one, so
     // `odd / 2` is a floor nothing can beat without retracing.
     for (const [C, R] of [[9, 6], [4, 4], [12, 3]] as [number, number][]) {
       const g = grid(C, R);
-      const t = connect.trails(g);
+      const t = g.trails();
       expect(t.curves().length).toBe(Math.max(1, oddCount(g) / 2));
       // The same ink, edge for edge: nothing added, nothing dropped, nothing
       // drawn twice.
@@ -57,7 +57,7 @@ describe('connect.trails', () => {
     }
     // And it is a real improvement on the chain walk, which breaks at junctions.
     const g = grid(9, 6);
-    expect(connect.trails(g).curves().length).toBeLessThan(g.curves().length / 5);
+    expect(g.trails().curves().length).toBeLessThan(g.curves().length / 5);
   });
 
   it('a network with no odd vertex is one closed loop', () => {
@@ -66,7 +66,7 @@ describe('connect.trails', () => {
     const eight = material([[0, 0], [10, 0], [10, 10], [0, 10], [20, 10], [20, 20], [10, 20]])
       .withEdges([[0, 1], [1, 2], [2, 3], [3, 0], [2, 4], [4, 5], [5, 6], [6, 2]]);
     expect(oddCount(eight)).toBe(0);
-    const t = connect.trails(eight);
+    const t = eight.trails();
     expect(t.curves().length).toBe(1);
     expect(t.curves()[0].closed).toBe(true);
     expect(inkOf(t)).toEqual(inkOf(eight));
@@ -75,31 +75,31 @@ describe('connect.trails', () => {
   });
 
   it('counts each component on its own, and leaves isolated rows out', () => {
-    const two = connect.trails(grid(3, 3).withEdges([[0, 1], [1, 2], [3, 4], [4, 5]]));
+    const two = grid(3, 3).withEdges([[0, 1], [1, 2], [3, 4], [4, 5]]).trails();
     expect(components(two)).toBe(2);
     expect(two.curves().length).toBe(2);
     // A lone point is in no trail, exactly as the chain walk leaves it out.
     const lonely = material([[0, 0], [5, 0], [50, 50]]).withEdges([[0, 1]]);
-    const t = connect.trails(lonely);
+    const t = lonely.trails();
     expect(t.curves().length).toBe(1);
     expect(t.edgeCount).toBe(1);
     // Nothing to route is not an error.
-    expect(connect.trails(material([[1, 1], [2, 2]])).edgeCount).toBe(0);
-    expect(connect.trails(material([])).edgeCount).toBe(0);
+    expect(material([[1, 1], [2, 2]]).trails().edgeCount).toBe(0);
+    expect(material([]).trails().edgeCount).toBe(0);
   });
 
   it('carries the columns, and is deterministic', () => {
     const ring = connect.ring(material([[0, 0], [10, 0], [10, 10], [0, 10]], { weight: 3 }));
-    const t = connect.trails(ring);
+    const t = ring.trails();
     expect(Object.keys(t.attrs)).toEqual(['weight']);
     expect([...t.attrs.weight].every((v) => v === 3)).toBe(true);
-    const a = connect.trails(grid(7, 5));
-    const b = connect.trails(grid(7, 5));
+    const a = grid(7, 5).trails();
+    const b = grid(7, 5).trails();
     expect(Array.from(a.edgeList)).toEqual(Array.from(b.edgeList));
     expect(Array.from(a.x)).toEqual(Array.from(b.x));
     // A chain that was already one run stays one run and keeps its shape.
     const open = curve([[0, 0], [5, 1], [10, 0], [15, 2]]);
-    expect(connect.trails(open).curves().length).toBe(1);
-    expect(inkOf(connect.trails(open))).toEqual(inkOf(open));
+    expect(open.trails().curves().length).toBe(1);
+    expect(inkOf(open.trails())).toEqual(inkOf(open));
   });
 });

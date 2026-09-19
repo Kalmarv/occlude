@@ -1,0 +1,151 @@
+/**
+ * The geometry protocol: one value, three accessors.
+ *
+ * Every resolved geometry value answers the accessors the table in
+ * `working/geometry-spec.md` says it can, and nothing it cannot. The area
+ * consumers — `polygon`, `distanceTo`, `force.boundary`, `t.within` — read
+ * `contours()`; the chain consumers read `curves()`; the point consumers
+ * read `points`. This test is the table, executable.
+ */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { beforeAll, describe, expect, it } from 'vitest';
+import {
+  circle, connect, distanceTo, force, initOcclude, isGeometry, material, polygon, render,
+  sketch, strokes, type Face, type Faces, type SketchDef,
+} from '../src/index.js';
+
+beforeAll(async () => {
+  const wasmPath = fileURLToPath(new URL('../../../crates/occlude-core/pkg/occlude_core_bg.wasm', import.meta.url));
+  await initOcclude(readFileSync(wasmPath));
+});
+
+const ink = (def: SketchDef): number => render(def, { paper: 'Square20' }).stats.fragments;
+
+/** A closed ring, an open chain, and the collections they make. */
+const ring = () => connect.ring(material([[10, 10], [60, 10], [60, 60], [10, 60]]));
+const openChain = () => connect.chain(material([[10, 10], [60, 10], [60, 60]]));
+
+function cellsOf(): Faces {
+  return connect.ring(material([[10, 10], [60, 10], [60, 60], [10, 60]]))
+    .withEdges([[0, 1], [1, 2], [2, 3], [3, 0], [0, 2]])
+    .planarize()
+    .faces();
+}
+
+describe('what each value can say about itself', () => {
+  it('a material answers all three: its points, its chains, and its closed chains as areas', () => {
+    const m = ring();
+    expect(isGeometry(m)).toBe(true);
+    expect(m.points.length).toBe(4);
+    expect(m.curves()).toHaveLength(1);
+    expect(m.contours()).toHaveLength(1);
+    expect(m.contours()[0].closed).toBe(true);
+  });
+
+  it('an open material has chains but no areas', () => {
+    const m = openChain();
+    expect(m.curves()).toHaveLength(1);
+    expect(m.curves()[0].closed).toBe(false);
+    expect(m.contours()).toHaveLength(0);
+  });
+
+  it('a point selection is its own points, and its chains are the edges among them', () => {
+    const m = ring();
+    const sel = m.points.filter((p) => p.x < 40);
+    expect(isGeometry(sel)).toBe(true);
+    expect(sel.points).toBe(sel);
+    expect(sel.edges.length).toBe(1); // the one edge with both ends on the left
+    expect(sel.curves()).toHaveLength(1);
+  });
+
+  it('an edge selection is its endpoints and its chains', () => {
+    const m = ring();
+    const sel = m.edges.filter((_, i) => i < 2);
+    expect(isGeometry(sel)).toBe(true);
+    expect(sel.points.length).toBe(3);
+    expect(sel.curves()).toHaveLength(1);
+  });
+
+  it('a face collection and a selection answer contours(), and their rows are properties', () => {
+    const cells = cellsOf();
+    expect(cells.length).toBe(2);
+    expect(cells.points.length).toBeGreaterThan(0);
+    expect(cells.edges.length).toBeGreaterThan(0);
+    expect(cells.contours().length).toBeGreaterThan(0);
+    // boundaryEdges filters, so it stays a call.
+    expect(typeof cells.boundaryEdges).toBe('function');
+    const one = cells.filter((_, i) => i === 0);
+    expect(one.points.length).toBeGreaterThan(0);
+    expect(one.edges.length).toBeGreaterThan(0);
+    expect(one.contours().length).toBeGreaterThan(0);
+  });
+
+  it('one face answers contours() like every other area, and its relations are properties', () => {
+    const face: Face = cellsOf().at(0);
+    expect(isGeometry(face)).toBe(true);
+    expect(face.contours()).toHaveLength(1);
+    expect(face.points.length).toBeGreaterThan(0);
+    expect(face.edges.length).toBeGreaterThan(0);
+    // A face is a plain record: the contours hang off it as a call, not as
+    // one of its data keys.
+    expect(Object.keys(face)).not.toContain('contours');
+  });
+
+  it('a shape is not geometry: it needs the frame first', () => {
+    expect(isGeometry(circle(50, 50, 20))).toBe(false);
+  });
+});
+
+describe('every area consumer reads the same values', () => {
+  const rows = (): { what: string; area: unknown }[] => [
+    { what: 'a material', area: ring() },
+    { what: 'an edge selection', area: ring().edges },
+    { what: 'a point selection', area: ring().points },
+    { what: 'one face', area: cellsOf().at(0) },
+    { what: 'contour records', area: ring().contours() },
+    { what: 'one contour record', area: ring().contours()[0] },
+    { what: 'loops of points', area: [[[10, 10], [60, 10], [60, 60]]] },
+    { what: 'one loop', area: [[10, 10], [60, 10], [60, 60]] },
+  ];
+
+  it('polygon takes every row', () => {
+    for (const { what, area } of rows()) {
+      expect(() => polygon(area as never), what).not.toThrow();
+    }
+  });
+
+  it('distanceTo and force.boundary take every row', () => {
+    for (const { what, area } of rows()) {
+      expect(() => distanceTo(area as never), what).not.toThrow();
+      expect(() => force.boundary(area as never, { radius: 2 }), what).not.toThrow();
+    }
+  });
+
+  it('t.within takes every row', () => {
+    const drawn = ink(sketch({}, (t) => {
+      const dots = material([[20, 20], [30, 30], [40, 40]]);
+      for (const { area } of rows()) t.within(dots, area as never);
+      return strokes(dots);
+    }));
+    expect(drawn).toBeGreaterThanOrEqual(0);
+  });
+
+  it('a face collection is several areas, and says which it means', () => {
+    expect(() => polygon(cellsOf() as never)).toThrow(/face collection/);
+  });
+
+  it('a branching material has no single inside, and says so', () => {
+    const star = material([[0, 0], [10, 0], [0, 10], [-10, 0]], { edges: [[0, 1], [0, 2], [0, 3]] });
+    expect(() => polygon(star)).toThrow(/branches/);
+  });
+});
+
+describe('a chain consumer reads curves(), whatever the value is', () => {
+  it('draws a material, a point selection and an edge selection alike', () => {
+    const m = ring();
+    for (const source of [m, m.points, m.edges]) {
+      expect(() => strokes(source as never)).not.toThrow();
+    }
+  });
+});

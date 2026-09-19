@@ -194,7 +194,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/force.field.mdx</include>
 <include>/_sig/force.relax.mdx</include>
 
-You prepare a force once, with its sources. Then it gives a vector at a point. Nothing moves until a rule calls `next.move` with it. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`. `attract` pulls toward sources. `drift` reads a direction from a noise function and turns slowly with the iteration, so it takes `(p, k)`. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. Here is one force alone. The black ring is the start. The blue ring is the same ring after ten steps under `separation`.
+You prepare a force once, with its sources. Then it gives a vector at a point. Nothing moves until a rule calls `next.move` with it. `tension` pulls toward connected neighbours that are further than `rest`. `separation` pushes away from every source within `radius`. `attract` pulls toward sources. `drift` reads a direction from a noise function and turns slowly with the iteration, so it takes `(p, k)`. `boundary` pushes inward near the edge of an area and everywhere outside it. `vortex` turns around a centre. `field` reads a vector field. `relax` moves a vertex toward the mean of its neighbours. `boundary` reads the area's `contours()`. `separation` and `neighbours` read the sources' `points`. Here is one force alone. The black ring is the start. The blue ring is the same ring after ten steps under `separation`.
 
 ```ts live
 import { sketch, circle, strokes, force, mul } from 'occlude';

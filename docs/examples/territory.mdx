@@ -17,7 +17,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const sites = t.relax(t.scatter(density, { spacing: 5 }), { iterations: 2, density });
   const cells = t.voronoi(sites).faces();
   const contrast = (e) => { const [a, b] = e.faces; return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
-  const border = cells.edges().filter((e) => contrast(e) > ratio);
-  return [strokes(border, { pen: 'pigma-05-black' }), strokes(cells.edges(), { pen: 'pigma-005-black' })];
+  const border = cells.edges.filter((e) => contrast(e) > ratio);
+  return [strokes(border, { pen: 'pigma-05-black' }), strokes(cells.edges, { pen: 'pigma-005-black' })];
 });
 ```

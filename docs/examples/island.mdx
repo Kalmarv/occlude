@@ -5,7 +5,7 @@ description: A coast, the crests of its ranges, and the water between them. No c
 
 Every stroke is a place where the terrain does something. The coast is one contour of a shore field. The land rises with distance from the coast, plus noise. `t.ridges` finds the crests at two scales: a coarse step for the main ranges, a fine step for the spurs. The ridges of the negated height are the watercourses. `components` names each crest, `groupBy` gathers it, and the test judges it as a whole, on its best stretch and its length. That is the difference between a range and a field of scratches.
 
-Uses: `t.isolines`, `distanceTo`, `t.ridges`, `t.within`, `components`, `groupBy`, `union`, `inducedEdges`, `extract`.
+Uses: `t.isolines`, `distanceTo`, `t.ridges`, `t.within`, `components`, `groupBy`, `union`, `points.edges`, `extract`.
 
 ```ts live paper=180x120
 import { sketch, strokes, distanceTo, components } from 'occlude';
@@ -21,8 +21,8 @@ export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
     const peak = (g) => Math.max(...g.map((p) => p.strength));
     const top = Math.max(...crests.map(peak));
     const kept = crests.filter((g) => g.length >= minRun && peak(g) > top * minStrength);
-    if (kept.length === 0) return m.points.filter(() => false).inducedEdges().extract();
-    return kept.reduce((all, g) => all.union(g)).inducedEdges().extract();
+    if (kept.length === 0) return m.points.filter(() => false).edges.extract();
+    return kept.reduce((all, g) => all.union(g)).edges.extract();
   };
   const range = t.within(t.ridges(height, { step: 2.6 }), coast);
   const spurs = t.within(t.ridges(height, { step: 0.9 }), coast);

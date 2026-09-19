@@ -204,7 +204,7 @@ export function thicken(
   } else if (source instanceof PointSelection) {
     src = source.source;
     vRows = source.indices;
-    eRows = source.inducedEdges().indices;
+    eRows = source.edges.indices;
   } else if (source instanceof EdgeSelection) {
     src = source.source;
     vRows = source.endpointRows;

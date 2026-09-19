@@ -7,12 +7,15 @@ import {
   compileSketch,
   setPaperHint,
   material,
-  thicken,
   type Material,
   type ThickenOpts,
 } from '../../src/index.js';
+/** A thicken implementation: the method under test, or a saved baseline
+ * module's free function with the same contract. */
+type ThickenFn = (source: Material, opts: ThickenOpts) => Material;
+const thicken: ThickenFn = (source, opts) => source.thicken(opts);
 const at = process.argv.indexOf('--baseline');
-const before: typeof thicken | undefined =
+const before: ThickenFn | undefined =
   at < 0
     ? undefined
     : (await import(pathToFileURL(resolve(process.argv[at + 1])).href)).thicken;

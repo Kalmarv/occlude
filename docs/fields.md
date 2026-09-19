@@ -287,7 +287,7 @@ columns**. `strength` is `-λ₁`, how sharply the ground falls away to either
 side, in the field's units per square drawable unit; `height` is the field's
 own value there. Nothing is thresholded — a weak crest is a real crest, and
 which ones earn ink is the drawing's decision:
-`m.points.filter((p) => p.strength > x).inducedEdges().extract()`.
+`m.points.filter((p) => p.strength > x).edges.extract()`.
 
 `step` is not a quality setting. It is the distance the derivatives are taken
 over, so it sets the **scale of the question**: a coarse grid finds the major
@@ -359,7 +359,7 @@ export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
     const top = Math.max(...peak);
     return m.points
       .filter((p) => peak[c.label(p)] > top * minStrength && run[c.label(p)] >= minRun)
-      .inducedEdges()
+      .edges
       .extract();
   };
 
@@ -431,12 +431,12 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
   return [
     strokes(ripples),
     strokes(
-      channels.points.filter((p) => longChannel(p) && -d(p.x, p.y) > 4).inducedEdges().extract(),
+      channels.points.filter((p) => longChannel(p) && -d(p.x, p.y) > 4).edges.extract(),
       { pen: 'stabilo-88-blue' },
     ),
     polygon(stones, { opaque: true, stroke: false }),
     strokes(stones),
-    strokes(spines.points.filter((p) => longSpine(p) && d(p.x, p.y) > 2).inducedEdges().extract(), { pen: 'stabilo-88-blue' }),
+    strokes(spines.points.filter((p) => longSpine(p) && d(p.x, p.y) > 2).edges.extract(), { pen: 'stabilo-88-blue' }),
   ];
 });
 ```
@@ -474,7 +474,7 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
 
   return [
     strokes(connect.unimpeded(pts, { room: 1.4 }), { pen: 'stabilo-88-blue' }),
-    strokes(crests.points.filter((p) => run[c.label(p)] > 10 && blur(p.x, p.y) > 0.4).inducedEdges().extract()),
+    strokes(crests.points.filter((p) => run[c.label(p)] > 10 && blur(p.x, p.y) > 0.4).edges.extract()),
     pts.points.map((p) => circle(p.x, p.y, 1.1)),
   ];
 });
@@ -483,7 +483,7 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
 ### The range itself
 
 ```ts live paper=180x120
-import { sketch, warp, components, pen, mm } from 'occlude';
+import { sketch, components, pen, mm } from 'occlude';
 import { plane, mapSurface, view, perspective, style } from 'occlude/3d';
 
 // A landscape whose only lines are the ones the ground has: its crests, its
@@ -507,12 +507,12 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
     const c = components(m);
     const run = new Int32Array(c.count);
     for (const p of m.points) run[c.label(p)]++;
-    return m.points.filter((p) => run[c.label(p)] > least).inducedEdges().extract();
+    return m.points.filter((p) => run[c.label(p)] > least).edges.extract();
   };
   // the drawable rectangle onto the chart's unit square: an affine cage
   const sheet = [[0, 0], [t.width, 0], [t.width, t.height], [0, t.height]];
   const chart = [[0, 0], [1, 0], [1, 1], [0, 1]];
-  const onChart = (m) => warp(m, { from: sheet, to: chart });
+  const onChart = (m) => m.warp({ from: sheet, to: chart });
 
   const crest = onChart(longest(t.ridges(height, { step: 1.1 }), 11));
   const water = onChart(longest(t.ridges((x, y) => -height(x, y), { step: 1.1 }), 18));

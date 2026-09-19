@@ -1167,7 +1167,7 @@ describe('view identity: the brand lives off the view, not on it', () => {
     expect(viewKind(f.faces[0])).toBe('face');
     expect(ownedBy(f.faces[0], f)).toBe(true);
     expect(Object.isFrozen(f.faces[0])).toBe(true);
-    expect(Object.keys(f.faces[0])).toEqual(['index', 'area', 'perimeter', 'bounds', 'centroid', 'contours']);
+    expect(Object.keys(f.faces[0])).toEqual(['index', 'area', 'perimeter', 'bounds', 'centroid']);
   });
 });
 

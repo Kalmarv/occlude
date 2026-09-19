@@ -23,13 +23,13 @@ describe('owned mesh topology relationships',()=>{
   it('preserves relationship capabilities through selection algebra and groups',()=>{
     const model=plane(2).subdivide(1).faceAttribute('group',f=>f.center[0]<0?'left':'right');
     const left=model.faces.filter(f=>f.group==='left');
-    expect(left.length).toBe(2);expect(left.points().length).toBe(6);expect(left.edges().length).toBe(7);expect(left.boundaryEdges().length).toBe(6);
+    expect(left.length).toBe(2);expect(left.points.length).toBe(6);expect(left.edges.length).toBe(7);expect(left.boundaryEdges().length).toBe(6);
     expect(left.complement().union(left).connected().length).toBe(4);
     expect(left.intersect(model.faces).components().map(g=>g.length)).toEqual([2]);
     expect(model.faces.groupBy(f=>f.group).map(g=>[g.key,g.boundaryEdges().length])).toEqual([['left',6],['right',6]]);
     expect(left.subtract(left).components()).toEqual([]);
     expect(left.extract().faces.boundaryEdges().length).toBe(6);
-    expect(left.points().extract().points.length).toBe(6);
+    expect(left.points.extract().points.length).toBe(6);
   });
   it('distinguishes edge-connected faces from coincident or vertex-touching sheets',()=>{
     const model=mesh([[0,0,0],[1,0,0],[0,1,0],[-1,0,0],[0,-1,0],[0,0,0],[1,0,0],[0,1,0]],[[0,1,2],[0,3,4],[5,6,7]]);

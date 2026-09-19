@@ -694,8 +694,8 @@ class Reader {
    * carries, written as a chain. The catalogue keys a method by its owner
    * (`Material.planarize`, call `{self}.planarize`) and puts the receiver on
    * a socket, so a chain is a chain of nodes — the receiver of each is the
-   * one before it. Two owners can share a method name (`Material.edges` and
-   * `Faces.edges`); the receiver's own type is what tells them apart, and a
+   * one before it. Two owners can share a method name (`Material.contours`
+   * and `Faces.contours`); the receiver's own type tells them apart, and a
    * receiver whose type the graph does not know leaves the call as code
    * rather than guess.
    */
@@ -715,8 +715,8 @@ class Reader {
     }
     const method = callee.name.text;
     // A call, so a word that is read rather than called is not a candidate:
-    // `rooms.edges()` is the method, `m.edges` the getter, and writing one
-    // for the other does not run.
+    // `rooms.boundaryEdges()` is the method, `rooms.edges` the getter, and
+    // writing one for the other does not run.
     const owners = this.catalogue.words.filter((w) => w.self && !w.value && w.call === `{self}.${method}`);
     if (owners.length === 0) {
       this.refuse(id, undefined, `${this.text(callee)} is not a catalogue word`);

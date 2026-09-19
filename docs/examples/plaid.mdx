@@ -8,7 +8,7 @@ A plain plaid: evenly spaced strands, every one the same. `interlace` decides th
 Uses: `curve`, `append`, `interlace` with an `over` rule.
 
 ```ts live
-import { sketch, strokes, curve, append, interlace } from 'occlude';
+import { sketch, strokes, curve, append } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
   const N = 26;
@@ -16,6 +16,6 @@ export default sketch({ aspect: [1, 1], seed: 1 }, (t) => {
   const warp = t.times(N, (k) => curve([[1, at(k)], [99, at(k)]]));
   const weft = t.times(N, (k) => curve([[at(k), 1], [at(k), 99]]));
   const cloth = append(...warp, ...weft);
-  return strokes(interlace(cloth, { gap: 1.7, over: (c) => (c.chainA < N) === (Math.hypot(c.x - 50, c.y - 52) < 31) }));
+  return strokes(cloth.interlace({ gap: 1.7, over: (c) => (c.chainA < N) === (Math.hypot(c.x - 50, c.y - 52) < 31) }));
 });
 ```

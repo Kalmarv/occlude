@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  distanceTo, material, curve, thicken, polygon, strokes, numericLoops,
+  distanceTo, material, curve, polygon, strokes, numericLoops,
   sketch, compileSketch, append,
   type Material, type Vertex,
 } from '../src/index.js';
@@ -77,40 +77,40 @@ const radiusOf = (p: Vertex) => p.radius;
 
 describe('thicken: geometry and topology', () => {
   it('empty material and empty selections are valid empty material', () => {
-    const empty = thicken(material([]), { radius: 2 });
+    const empty = material([]).thicken({ radius: 2 });
     expect(empty.n).toBe(0);
     expect(empty.edgeCount).toBe(0);
     expect(empty.attrNames).toEqual([]);
     const sel = material([[0, 0]]).points.filter(() => false);
-    const viaSel = thicken(sel, { radius: 2 });
+    const viaSel = sel.thicken({ radius: 2 });
     expect(viaSel.n).toBe(0);
     const esel = material([[0, 0], [1, 0]], { edges: [[0, 1]] }).edges.filter(() => false);
-    expect(thicken(esel, { radius: 2 }).n).toBe(0);
+    expect(esel.thicken({ radius: 2 }).n).toBe(0);
   });
 
   it('one vertex is a closed disc within tolerance, and tiny radii survive', () => {
-    const disc = thicken(material([[0, 0]]), { radius: 5 });
+    const disc = material([[0, 0]]).thicken({ radius: 5 });
     const loops = loopsOf(disc);
     expect(loops).toHaveLength(1);
     expect(loops[0].area).toBeGreaterThan(Math.PI * 25 * 0.985);
     // Every vertex sits within tolerance of the true circle.
     for (const [x, y] of loops[0].pts) expect(Math.abs(Math.hypot(x, y) - 5)).toBeLessThanOrEqual(0.05);
 
-    const tiny = thicken(material([[0, 0]]), { radius: 0.004, tolerance: 10 });
+    const tiny = material([[0, 0]]).thicken({ radius: 0.004, tolerance: 10 });
     expect(loopsOf(tiny)).toHaveLength(1);
     expect(loopsOf(tiny)[0].pts.length).toBeGreaterThanOrEqual(3);
     expect(totalArea(tiny)).toBeGreaterThan(0);
   });
 
   it('a constant-radius edge is a capsule of the expected extent and area', () => {
-    const m = thicken(edgeMaterial([0, 0], [10, 0], 1, 1), { radius: radiusOf, tolerance: 0.01 });
+    const m = edgeMaterial([0, 0], [10, 0], 1, 1).thicken({ radius: radiusOf, tolerance: 0.01 });
     const b = bounds(m);
     expect(b.minX).toBeCloseTo(-1, 2);
     expect(b.maxX).toBeCloseTo(11, 2);
     expect(b.minY).toBeCloseTo(-1, 2);
     expect(b.maxY).toBeCloseTo(1, 2);
     expect(totalArea(m)).toBeCloseTo(2 * 1 * 10 + Math.PI, 1);
-    const coarse = thicken(edgeMaterial([0, 0], [10, 0], 1, 1), { radius: radiusOf, tolerance: 1 });
+    const coarse = edgeMaterial([0, 0], [10, 0], 1, 1).thicken({ radius: radiusOf, tolerance: 1 });
     expect(Math.abs(totalArea(coarse) - (20 + Math.PI))).toBeGreaterThan(Math.abs(totalArea(m) - (20 + Math.PI)));
   });
 
@@ -123,7 +123,7 @@ describe('thicken: geometry and topology', () => {
       [3, 0, 10], // zero-radius tapered tip
     ];
     for (const [ra, rb, L] of cases) {
-      const body = thicken(edgeMaterial([0, 0], [L, 0], ra, rb), { radius: radiusOf, tolerance: 0.01 });
+      const body = edgeMaterial([0, 0], [L, 0], ra, rb).thicken({ radius: radiusOf, tolerance: 0.01 });
       const covers = oracle([[0, 0, L, 0, ra, rb]]);
       const d = distanceTo(body);
       // Points safely away from the analytic boundary: the sign agrees.
@@ -138,7 +138,7 @@ describe('thicken: geometry and topology', () => {
 
   it('distinct coincident vertices and zero-length edges reduce to discs', () => {
     const m = material([[0, 0], [0, 0], [10, 0]], { edges: [[0, 1], [1, 2]], radius: 1 });
-    const body = thicken(m, { radius: radiusOf });
+    const body = m.thicken({ radius: radiusOf });
     expect(loopsOf(body)).toHaveLength(1);
     const d = distanceTo(body);
     expect(d(0, 0)).toBeGreaterThan(0);
@@ -150,7 +150,7 @@ describe('thicken: geometry and topology', () => {
 
   it('a Y network is one connected region with no internal seams', () => {
     const tree = material([[0, 0], [10, 0], [0, 10], [-10, 0]], { edges: [[0, 1], [0, 2], [0, 3]] });
-    const body = thicken(tree, { radius: 1 });
+    const body = tree.thicken({ radius: 1 });
     const loops = loopsOf(body);
     expect(loops).toHaveLength(1);
     expect(loops[0].area).toBeGreaterThan(0);
@@ -165,62 +165,62 @@ describe('thicken: geometry and topology', () => {
 
   it('an acute fork, a reversal and unequal branch widths still close', () => {
     const acute = material([[0, 0], [10, 0.5], [10, -0.5]], { edges: [[0, 1], [0, 2]] });
-    expect(loopsOf(thicken(acute, { radius: 1 }))).toHaveLength(1);
+    expect(loopsOf(acute.thicken({ radius: 1 }))).toHaveLength(1);
     const reversal = material([[0, 0], [10, 0], [0, 0.6]], { edges: [[0, 1], [1, 2]] });
-    expect(loopsOf(thicken(reversal, { radius: 0.5 }))).toHaveLength(1);
+    expect(loopsOf(reversal.thicken({ radius: 0.5 }))).toHaveLength(1);
     const unequal = material([[0, 0], [10, 0], [0, 10]], { edges: [[0, 1], [0, 2]], radius: [0.5, 2, 2] });
-    expect(loopsOf(thicken(unequal, { radius: radiusOf }))).toHaveLength(1);
+    expect(loopsOf(unequal.thicken({ radius: radiusOf }))).toHaveLength(1);
   });
 
   it('a closed square chain keeps its hole until the analytically expected thickness', () => {
     const square = curve([[0, 0], [20, 0], [20, 20], [0, 20]], { closed: true });
-    const thin = thicken(square, { radius: 1 });
+    const thin = square.thicken({ radius: 1 });
     const thinLoops = loopsOf(thin);
     expect(thinLoops).toHaveLength(2);
     expect(thinLoops.filter((l) => l.area < 0)).toHaveLength(1);
     expect(distanceTo(thin)(10, 10)).toBeLessThan(0); // the hole is outside the band
 
     const side = 20 - 2 * 9.99;
-    const almost = thicken(square, { radius: 9.99 });
+    const almost = square.thicken({ radius: 9.99 });
     expect(Math.abs(loopsOf(almost).find((l) => l.area < 0)!.area)).toBeCloseTo(side * side, 1);
 
-    const closed = thicken(square, { radius: 10 });
+    const closed = square.thicken({ radius: 10 });
     expect(loopsOf(closed)).toHaveLength(1);
     expect(distanceTo(closed)(10, 10)).toBeGreaterThan(0);
   });
 
   it('disjoint, overlapping, exactly tangent, contained and narrowly gapped coverage', () => {
-    const disjoint = thicken(material([[0, 0], [10, 0]], { radius: [2, 2] }), { radius: radiusOf });
+    const disjoint = material([[0, 0], [10, 0]], { radius: [2, 2] }).thicken({ radius: radiusOf });
     expect(loopsOf(disjoint)).toHaveLength(2);
     expect(loopsOf(disjoint).every((l) => l.area > 0)).toBe(true);
 
-    const overlap = thicken(material([[0, 0], [3, 0]], { radius: [2, 2] }), { radius: radiusOf });
+    const overlap = material([[0, 0], [3, 0]], { radius: [2, 2] }).thicken({ radius: radiusOf });
     expect(loopsOf(overlap)).toHaveLength(1);
     expect(distanceTo(overlap)(1.5, 0)).toBeGreaterThan(0);
 
-    const tangent = thicken(material([[0, 0], [4, 0]], { radius: [2, 2] }), { radius: radiusOf });
+    const tangent = material([[0, 0], [4, 0]], { radius: [2, 2] }).thicken({ radius: radiusOf });
     const tangentLoops = loopsOf(tangent);
     expect(tangentLoops).toHaveLength(2);
     // Both loops carry the contact point as their own row.
     const contacts = tangentLoops.map((l) => l.pts.filter(([x, y]) => Math.abs(x - 2) < 1e-9 && Math.abs(y) < 1e-9).length);
     expect(contacts).toEqual([1, 1]);
 
-    const contained = thicken(material([[0, 0], [5, 0]], { radius: [10, 2] }), { radius: radiusOf });
+    const contained = material([[0, 0], [5, 0]], { radius: [10, 2] }).thicken({ radius: radiusOf });
     expect(loopsOf(contained)).toHaveLength(1);
     expect(distanceTo(contained)(9.9, 0)).toBeGreaterThan(0);
     expect(distanceTo(contained)(10.1, 0)).toBeLessThan(0);
 
     // A 0.001 gap stays a gap; a 0.4 gap with radius 0.3 merges.
-    const nearly = thicken(material([[0, 0], [4.001, 0]], { radius: [2, 2] }), { radius: radiusOf });
+    const nearly = material([[0, 0], [4.001, 0]], { radius: [2, 2] }).thicken({ radius: radiusOf });
     expect(loopsOf(nearly)).toHaveLength(2);
     const channel = material([[0, 0], [10, 0], [0, 0.4], [10, 0.4]], { edges: [[0, 1], [2, 3]] });
-    expect(loopsOf(thicken(channel, { radius: 0.3 }))).toHaveLength(1);
-    expect(loopsOf(thicken(channel, { radius: 0.1 }))).toHaveLength(2);
+    expect(loopsOf(channel.thicken({ radius: 0.3 }))).toHaveLength(1);
+    expect(loopsOf(channel.thicken({ radius: 0.1 }))).toHaveLength(2);
   });
 
   it('duplicate, reversed and coincident edges count coverage once', () => {
     const dup = material([[0, 0], [10, 0], [0, 10]], { edges: [[0, 1], [0, 1], [1, 0]] });
-    const body = thicken(dup, { radius: 1 });
+    const body = dup.thicken({ radius: 1 });
     expect(loopsOf(body)).toHaveLength(2); // the capsule and the isolated disc
     const capsule = loopsOf(body).reduce((a, b) => (Math.abs(a.area) > Math.abs(b.area) ? a : b));
     expect(Math.abs(capsule.area)).toBeCloseTo(20 + Math.PI, 0);
@@ -230,7 +230,7 @@ describe('thicken: geometry and topology', () => {
 
   it('a self-crossing chain closes its loops without parity cancellation', () => {
     const bow = material([[0, 0], [10, 10], [10, 0], [0, 10]], { edges: [[0, 1], [1, 2], [2, 3], [3, 0]] });
-    const body = thicken(bow, { radius: 1 });
+    const body = bow.thicken({ radius: 1 });
     const loops = loopsOf(body);
     expect(loops.length).toBeGreaterThanOrEqual(1);
     for (const l of loops) {
@@ -245,11 +245,9 @@ describe('thicken: geometry and topology', () => {
   });
 
   it('subdividing an edge with interpolated position and radius preserves the union', () => {
-    const coarse = thicken(edgeMaterial([0, 0], [10, 0], 3, 0), { radius: radiusOf, tolerance: 0.01 });
-    const fine = thicken(
-      material([[0, 0], [5, 0], [10, 0]], { edges: [[0, 1], [1, 2]], radius: [3, 1.5, 0] }),
-      { radius: radiusOf, tolerance: 0.01 },
-    );
+    const coarse = edgeMaterial([0, 0], [10, 0], 3, 0).thicken({ radius: radiusOf, tolerance: 0.01 });
+    const fine = material([[0, 0], [5, 0], [10, 0]], { edges: [[0, 1], [1, 2]], radius: [3, 1.5, 0] })
+      .thicken({ radius: radiusOf, tolerance: 0.01 });
     const dc = distanceTo(coarse);
     const df = distanceTo(fine);
     for (let x = -2; x <= 11; x += 0.25) {
@@ -264,9 +262,9 @@ describe('thicken: geometry and topology', () => {
 
   it('translation moves the result and nothing else', () => {
     const base = edgeMaterial([0, 0], [10, 0], 2, 1);
-    const a = thicken(base, { radius: radiusOf, tolerance: 0.02 });
+    const a = base.thicken({ radius: radiusOf, tolerance: 0.02 });
     const shifted = material([[100, 50], [110, 50]], { edges: [[0, 1]], radius: [2, 1] });
-    const b = thicken(shifted, { radius: radiusOf, tolerance: 0.02 });
+    const b = shifted.thicken({ radius: radiusOf, tolerance: 0.02 });
     expect(a.n).toBe(b.n);
     const ba = bounds(a);
     const bb = bounds(b);
@@ -285,8 +283,8 @@ describe('thicken: material and callback contract', () => {
 
   it('point selection keeps selected isolated vertices and induced edges', () => {
     const sel = tree.points.filter((p) => p.index === 0 || p.index === 1 || p.index === 3);
-    expect(sel.inducedEdges().indices).toEqual([0, 2]);
-    const body = thicken(sel, { radius: 1 });
+    expect(sel.edges.indices).toEqual([0, 2]);
+    const body = sel.thicken({ radius: 1 });
     const loops = loopsOf(body);
     // One connected region (two induced edges share row 0) plus the isolated row 3? row 3 is connected by edge 2.
     expect(loops).toHaveLength(1);
@@ -294,14 +292,14 @@ describe('thicken: material and callback contract', () => {
     expect(distanceTo(body)(0, 10)).toBeLessThan(0);
 
     const isolated = tree.points.filter((p) => p.index === 2);
-    const disc = thicken(isolated, { radius: 1 });
+    const disc = isolated.thicken({ radius: 1 });
     expect(loopsOf(disc)).toHaveLength(1);
     expect(distanceTo(disc)(0, 10)).toBeGreaterThan(0);
   });
 
   it('edge selection contributes endpoints only', () => {
     const one = tree.edges.filter((e) => e.index === 0);
-    const body = thicken(one, { radius: 1 });
+    const body = one.thicken({ radius: 1 });
     expect(loopsOf(body)).toHaveLength(1);
     expect(distanceTo(body)(5, 0)).toBeGreaterThan(0);
     expect(distanceTo(body)(5, 10)).toBeLessThan(0); // the other vertices do not participate
@@ -311,63 +309,62 @@ describe('thicken: material and callback contract', () => {
     const groups = tree.points.groupBy((p) => (p.age > 2 ? 'old' : 'young'));
     expect(groups.map((g) => g.key)).toEqual(['old', 'young']);
     for (const g of groups) {
-      const body = thicken(g, { radius: (p) => p.age });
+      const body = g.thicken({ radius: (p) => p.age });
       expect(body.n).toBeGreaterThan(0);
     }
   });
 
   it('radius runs once per participating vertex in ascending row order', () => {
     const rows: number[] = [];
-    thicken(tree, { radius: (p) => { rows.push(p.index); return 1; } });
+    tree.thicken({ radius: (p) => { rows.push(p.index); return 1; } });
     expect(rows).toEqual([0, 1, 2, 3]);
     const seen: number[] = [];
-    thicken(tree.points.filter((p) => p.index >= 2), { radius: (p) => { seen.push(p.index); return 1; } });
+    tree.points.filter((p) => p.index >= 2).thicken({ radius: (p) => { seen.push(p.index); return 1; } });
     expect(seen).toEqual([2, 3]);
     // Duplicate source edges never change the radius call count.
     const dup = material([[0, 0], [10, 0]], { edges: [[0, 1], [0, 1], [1, 0]] });
     const counts: number[] = [];
-    thicken(dup, { radius: (p) => { counts.push(p.index); return 1; } });
+    dup.thicken({ radius: (p) => { counts.push(p.index); return 1; } });
     expect(counts).toEqual([0, 1]);
   });
 
   it('valid callbacks are not invoked on empty input, invalid options still throw', () => {
     let calls = 0;
-    const empty = thicken(material([]), { radius: () => { calls++; return 1; } });
+    const empty = material([]).thicken({ radius: () => { calls++; return 1; } });
     expect(empty.n).toBe(0);
     expect(calls).toBe(0);
-    expect(thicken(material([]), { radius: -1 }).n).toBe(0);
-    expect(() => thicken(material([]), { radius: NaN })).toThrow(/radius must be finite/);
+    expect(material([]).thicken({ radius: -1 }).n).toBe(0);
+    expect(() => material([]).thicken({ radius: NaN })).toThrow(/radius must be finite/);
     // A tolerance with no size in it is no instruction: the default stands.
     const dot = material([[0, 0]]);
-    expect(thicken(dot, { radius: 1, tolerance: 0 }).n).toBe(thicken(dot, { radius: 1 }).n);
-    expect(() => thicken(material([]), { radius: 1, tolerance: 'x' as never })).toThrow(/tolerance/);
+    expect(dot.thicken({ radius: 1, tolerance: 0 }).n).toBe(dot.thicken({ radius: 1 }).n);
+    expect(() => material([]).thicken({ radius: 1, tolerance: 'x' as never })).toThrow(/tolerance/);
   });
 
   it('clamps negative radius fields to zero while retaining finite validation', () => {
     const src = material([[0, 0], [10, 0]]);
     const field = (p: { x: number }) => p.x / 5 - 1;
-    const actual = thicken(src, { radius: field });
-    const expected = thicken(src, { radius: p => Math.max(0, field(p)) });
+    const actual = src.thicken({ radius: field });
+    const expected = src.thicken({ radius: p => Math.max(0, field(p)) });
     expect(actual.x).toEqual(expected.x);
     expect(actual.y).toEqual(expected.y);
     expect(actual.edgeList).toEqual(expected.edgeList);
-    expect(thicken(src, { radius: -1 }).n).toBe(0);
+    expect(src.thicken({ radius: -1 }).n).toBe(0);
     // A radius the field cannot put a finite number on leaves that vertex
     // out of the union — here that is both of them, so nothing is thickened.
-    expect(thicken(src, { radius: () => Infinity }).n).toBe(0);
-    expect(() => thicken(src, { radius: (() => 'wide') as never })).toThrow(/must be finite/);
+    expect(src.thicken({ radius: () => Infinity }).n).toBe(0);
+    expect(() => src.thicken({ radius: (() => 'wide') as never })).toThrow(/must be finite/);
   });
 
-  it('rejects unknown options, a missing radius and wrong sources', () => {
-    expect(() => thicken(tree, { radius: 1, wobble: 2 } as never)).toThrow(/unknown option 'wobble'/);
-    expect(() => thicken(tree, {} as never)).toThrow(/radius is required/);
-    expect(() => thicken(tree, { radius: 'x' as never })).toThrow(/radius must be a number or a function/);
-    expect(() => thicken([[0, 0]] as never, { radius: 1 })).toThrow(/source must be a Material/);
-    expect(() => thicken(tree, { radius: 1, point: 3 } as never)).toThrow(/point must be a function/);
+  it('rejects unknown options and a missing radius', () => {
+    expect(() => tree.thicken({ radius: 1, wobble: 2 } as never)).toThrow(/unknown option 'wobble'/);
+    expect(() => tree.thicken({} as never)).toThrow(/radius is required/);
+    expect(() => tree.thicken({ radius: 'x' as never })).toThrow(/radius must be a number or a function/);
+    expect(() => tree.thicken({ radius: 1, point: 3 } as never)).toThrow(/point must be a function/);
   });
 
   it('geometry-only output has empty domains, iteration 0, empty history and own arrays', () => {
-    const body = thicken(tree, { radius: 1 });
+    const body = tree.thicken({ radius: 1 });
     expect(body.attrNames).toEqual([]);
     expect(body.edgeAttrNames).toEqual([]);
     expect(body.iteration).toBe(0);
@@ -382,7 +379,7 @@ describe('thicken: material and callback contract', () => {
   });
 
   it('point creates complete, consistent output rows from source candidates', () => {
-    const body = thicken(tree, {
+    const body = tree.thicken({
       radius: (p) => p.radius,
       point: ({ candidates }) => ({
         age: Math.max(...candidates.map((c) => c.attrs.age)),
@@ -402,7 +399,7 @@ describe('thicken: material and callback contract', () => {
   it('candidate order is deterministic: vertices by row, then edges by row and t', () => {
     const taper = edgeMaterial([0, 0], [10, 0], 3, 0);
     const seen: { vertex?: number; edge?: number; t?: number }[] = [];
-    thicken(taper, {
+    taper.thicken({
       radius: radiusOf,
       point: (ev) => {
         for (const c of ev.candidates) seen.push({ vertex: c.vertex, edge: c.edge, t: c.t });
@@ -416,16 +413,16 @@ describe('thicken: material and callback contract', () => {
   });
 
   it('point failures: reserved names, inconsistent columns, non-finite values and thrown errors', () => {
-    expect(() => thicken(tree, { radius: 1, point: () => ({ x: 1 }) })).toThrow(/reserved name 'x'/);
+    expect(() => tree.thicken({ radius: 1, point: () => ({ x: 1 }) })).toThrow(/reserved name 'x'/);
     let n = 0;
-    expect(() => thicken(tree, { radius: 1, point: (): Record<string, number> => (n++ === 0 ? { a: 1 } : { b: 2 }) })).toThrow(/changed its columns/);
-    expect(() => thicken(tree, { radius: 1, point: () => ({ a: Infinity }) })).toThrow(/non-finite 'a'/);
-    expect(() => thicken(tree, { radius: 1, point: () => { throw new Error('boom'); } })).toThrow(/point callback threw.*boom/);
+    expect(() => tree.thicken({ radius: 1, point: (): Record<string, number> => (n++ === 0 ? { a: 1 } : { b: 2 }) })).toThrow(/changed its columns/);
+    expect(() => tree.thicken({ radius: 1, point: () => ({ a: Infinity }) })).toThrow(/non-finite 'a'/);
+    expect(() => tree.thicken({ radius: 1, point: () => { throw new Error('boom'); } })).toThrow(/point callback threw.*boom/);
   });
 
   it('an empty result never invokes the point callback', () => {
     let calls = 0;
-    const empty = thicken(material([[0, 0]]), { radius: 0, point: () => { calls++; return {}; } });
+    const empty = material([[0, 0]]).thicken({ radius: 0, point: () => { calls++; return {}; } });
     expect(empty.n).toBe(0);
     expect(calls).toBe(0);
   });
@@ -433,7 +430,7 @@ describe('thicken: material and callback contract', () => {
   it('repeated calls are identical, in arrays and callback visit order', () => {
     const visit = () => {
       const order: string[] = [];
-      const body = thicken(tree, { radius: radiusOf, point: (ev) => { order.push(`${ev.position[0]},${ev.position[1]}`); return {}; } });
+      const body = tree.thicken({ radius: radiusOf, point: (ev) => { order.push(`${ev.position[0]},${ev.position[1]}`); return {}; } });
       return { x: Array.from(body.x), edges: Array.from(body.edgeList), order };
     };
     const a = visit();
@@ -447,7 +444,7 @@ describe('thicken: material and callback contract', () => {
 // ---- integration -----------------------------------------------------------------
 
 describe('thicken: integration', () => {
-  const ring = thicken(curve([[0, 0], [30, 0], [30, 30], [0, 30]], { closed: true }), { radius: 2 });
+  const ring = curve([[0, 0], [30, 0], [30, 30], [0, 30]], { closed: true }).thicken({ radius: 2 });
 
   it('polygon, strokes, distanceTo and the boundary contract accept the result', () => {
     expect(polygon(ring).geom.kind).toBe('path');
@@ -459,13 +456,10 @@ describe('thicken: integration', () => {
   });
 
   it('a disconnected, holed result reports both outer and hole contours', () => {
-    const many = thicken(
-      material([[0, 0], [20, 0], [20, 20], [0, 20], [60, 0]], {
-        edges: [[0, 1], [1, 2], [2, 3], [3, 0]],
-        radius: [1, 1, 1, 1, 3],
-      }),
-      { radius: radiusOf },
-    );
+    const many = material([[0, 0], [20, 0], [20, 20], [0, 20], [60, 0]], {
+      edges: [[0, 1], [1, 2], [2, 3], [3, 0]],
+      radius: [1, 1, 1, 1, 3],
+    }).thicken({ radius: radiusOf });
     const loops = loopsOf(many);
     expect(loops.filter((l) => l.area > 0)).toHaveLength(2);
     expect(loops.filter((l) => l.area < 0)).toHaveLength(1);
@@ -476,8 +470,8 @@ describe('thicken: integration', () => {
 
 describe('thicken: regressions', () => {
   it('moving a thin drawing does not weld its outline or drop its thickness', () => {
-    const here = thicken(material([[0, 0], [10, 0]], { edges: [[0, 1]] }), { radius: 0.01 });
-    const far = thicken(material([[1e6, 1e6], [1e6 + 10, 1e6]], { edges: [[0, 1]] }), { radius: 0.01 });
+    const here = material([[0, 0], [10, 0]], { edges: [[0, 1]] }).thicken({ radius: 0.01 });
+    const far = material([[1e6, 1e6], [1e6 + 10, 1e6]], { edges: [[0, 1]] }).thicken({ radius: 0.01 });
     expect(here.n).toBeGreaterThan(0);
     expect(far.n).toBe(here.n);
     expect(loopsOf(far)).toHaveLength(1);
@@ -494,9 +488,9 @@ describe('thicken: regressions', () => {
     // A real gap keeps its gap at large coordinates. (The tight 0.001 gap is
     // checked by loop count alone: a point that near the boundary is inside
     // the arc's chord approximation, not the disc.)
-    const tight = thicken(material([[1e6, 1e6], [1e6 + 2.001, 1e6]], { radius: [1, 1] }), { radius: radiusOf });
+    const tight = material([[1e6, 1e6], [1e6 + 2.001, 1e6]], { radius: [1, 1] }).thicken({ radius: radiusOf });
     expect(loopsOf(tight)).toHaveLength(2);
-    const gap = thicken(material([[1e6, 1e6], [1e6 + 2.2, 1e6]], { radius: [1, 1] }), { radius: radiusOf });
+    const gap = material([[1e6, 1e6], [1e6 + 2.2, 1e6]], { radius: [1, 1] }).thicken({ radius: radiusOf });
     expect(loopsOf(gap)).toHaveLength(2);
     expect(distanceTo(gap)(1e6 + 1.1, 1e6)).toBeLessThan(0);
   });
@@ -510,7 +504,7 @@ describe('thicken: regressions', () => {
       { edges: [[0, 1], [2, 3]], radius: [1, 1, 1, 1], xref: [0, 10, 5, 15] },
     );
     const events: { x: number; y: number; cands: string[]; xrefs: number[] }[] = [];
-    thicken(two, {
+    two.thicken({
       radius: radiusOf,
       point: (ev) => {
         events.push({
@@ -534,7 +528,7 @@ describe('thicken: regressions', () => {
     // Disc B (radius 1 at (1, 0)) is internally tangent to and inside disc A
     // (radius 2 at the origin). Both support the boundary point (2, 0).
     const events: { x: number; y: number; cands: string[] }[] = [];
-    thicken(material([[0, 0], [1, 0]], { radius: [2, 1] }), {
+    material([[0, 0], [1, 0]], { radius: [2, 1] }).thicken({
       radius: radiusOf,
       point: (ev) => {
         events.push({ x: ev.position[0], y: ev.position[1], cands: ev.candidates.map((c) => (c.vertex !== undefined ? `v${c.vertex}` : `e${c.edge}`)) });
@@ -555,7 +549,7 @@ describe('thicken: near-degenerate junctions', () => {
     const src = material([[30,70],[30,30],[35,35],[25,35],[44.99999999999999,35]], {
       edges: [[0,1],[2,3],[2,4]],
     });
-    const body = thicken(src, {radius:p => 0.1 + p.x / 100 * 0.9});
+    const body = src.thicken({radius:p => 0.1 + p.x / 100 * 0.9});
     expect(body.curves()).toHaveLength(1);
     expect(body.curves()[0].closed).toBe(true);
     const d = distanceTo(body);
@@ -575,7 +569,7 @@ describe('thicken: near-degenerate junctions', () => {
   };
 
   it('an almost-collinear kink closes as one contour with its outer arc', () => {
-    const body = thicken(kink(0.001), { radius: 1 });
+    const body = kink(0.001).thicken({ radius: 1 });
     const loops = loopsOf(body);
     expect(loops).toHaveLength(1);
     // The outer arc at the middle vertex is present, not replaced by a false
@@ -585,12 +579,12 @@ describe('thicken: near-degenerate junctions', () => {
     expect(d(5, 0)).toBeGreaterThan(0.9);
     expect(d(15, 0.0005)).toBeGreaterThan(0.9);
     expect(d(10, 2)).toBeLessThan(0);
-    expect(() => thicken(kink(0.001), { radius: 1 })).not.toThrow();
+    expect(() => kink(0.001).thicken({ radius: 1 })).not.toThrow();
   });
 
   it('kinks survive at diminishing heights with interior and exterior witnesses', () => {
     for (const h of [1e-3, 1e-6, 1e-8, 1e-10, 1e-12]) {
-      const body = thicken(kink(h), { radius: 1 });
+      const body = kink(h).thicken({ radius: 1 });
       const loops = loopsOf(body);
       expect(loops, `height ${h}`).toHaveLength(1);
       expect(loops[0].pts.length).toBeGreaterThanOrEqual(3);
@@ -606,7 +600,7 @@ describe('thicken: near-degenerate junctions', () => {
       for (const angle of [0, 0.37, Math.PI / 2]) {
         for (const [ox, oy] of [[0, 0], [100, 100], [1e6, 1e6]] as const) {
           for (const reverse of [false, true]) {
-            const body = thicken(kink(h, ox, oy, angle, reverse), { radius: 1 });
+            const body = kink(h, ox, oy, angle, reverse).thicken({ radius: 1 });
             const loops = loopsOf(body);
             expect(loops, `h=${h} a=${angle} o=(${ox},${oy}) rev=${reverse}`).toHaveLength(1);
             expect(body.curves().every((c) => c.closed)).toBe(true);
@@ -619,13 +613,10 @@ describe('thicken: near-degenerate junctions', () => {
   });
 
   it('duplicate and reversed edges with a third hull resolve under exact identity', () => {
-    const body = thicken(
-      material([[4, 7], [5, 17], [12, 6], [18, 16], [8, 6]], {
-        edges: [[0, 1], [1, 2], [2, 3], [0, 4], [1, 2]],
-        radius: [3.612, 0.185, 3.043, 0.093, 1.746],
-      }),
-      { radius: radiusOf },
-    );
+    const body = material([[4, 7], [5, 17], [12, 6], [18, 16], [8, 6]], {
+      edges: [[0, 1], [1, 2], [2, 3], [0, 4], [1, 2]],
+      radius: [3.612, 0.185, 3.043, 0.093, 1.746],
+    }).thicken({ radius: radiusOf });
     expect(loopsOf(body).length).toBeGreaterThan(0);
     expect(body.curves().every((c) => c.closed)).toBe(true);
   });
@@ -638,16 +629,13 @@ describe('thicken: near-degenerate junctions', () => {
       ] as [number, number]);
       return material(pts, { edges: [[0, 1]], radius: [1, 1, 1] });
     };
-    expect(loopsOf(thicken(rotated(1e-4), { radius: 1, tolerance: 1e-6 }))).toHaveLength(2);
-    expect(loopsOf(thicken(rotated(0), { radius: 1, tolerance: 1e-6 }))).toHaveLength(2);
-    expect(loopsOf(thicken(rotated(-1e-4), { radius: 1, tolerance: 1e-6 }))).toHaveLength(1);
+    expect(loopsOf(rotated(1e-4).thicken({ radius: 1, tolerance: 1e-6 }))).toHaveLength(2);
+    expect(loopsOf(rotated(0).thicken({ radius: 1, tolerance: 1e-6 }))).toHaveLength(2);
+    expect(loopsOf(rotated(-1e-4).thicken({ radius: 1, tolerance: 1e-6 }))).toHaveLength(1);
   });
 
   it('separated discs far from the origin do not invent a contact', () => {
-    const body = thicken(
-      material([[1e6, 0], [1e6 + 0.02 + 0.001, 0]], { radius: [0.01, 0.01] }),
-      { radius: radiusOf },
-    );
+    const body = material([[1e6, 0], [1e6 + 0.02 + 0.001, 0]], { radius: [0.01, 0.01] }).thicken({ radius: radiusOf });
     const loops = loopsOf(body).sort((a,b) => Math.min(...a.pts.map(p=>p[0])) - Math.min(...b.pts.map(p=>p[0])));
     expect(loops).toHaveLength(2);
     const left = Math.max(...loops[0].pts.map(([x]) => x));
@@ -656,10 +644,10 @@ describe('thicken: near-degenerate junctions', () => {
   });
 
   it('a tiny closed disc far from the origin keeps its area', () => {
-    const far = thicken(material([[1e6, 1e6]], { radius: 0.001 }), { radius: radiusOf });
+    const far = material([[1e6, 1e6]], { radius: 0.001 }).thicken({ radius: radiusOf });
     expect(loopsOf(far)).toHaveLength(1);
     expect(distanceTo(far)(1e6, 1e6)).toBeGreaterThan(0);
-    const further = thicken(material([[1e8, 1e8]], { radius: 1 }), { radius: radiusOf });
+    const further = material([[1e8, 1e8]], { radius: 1 }).thicken({ radius: radiusOf });
     expect(loopsOf(further)).toHaveLength(1);
     expect(distanceTo(further)(1e8, 1e8)).toBeGreaterThan(0);
   });
@@ -684,7 +672,7 @@ describe('thicken: near-degenerate junctions', () => {
       const queries = Array.from({ length: 60 }, () => [-4 + rnd() * 30, -4 + rnd() * 30] as [number, number]);
       let body: Material;
       try {
-        body = thicken(material(pts, { edges, radius }), { radius: radiusOf, tolerance: 0.02 });
+        body = material(pts, { edges, radius }).thicken({ radius: radiusOf, tolerance: 0.02 });
       } catch (err) {
         throw new Error(`corpus case ${c} crashed: ${(err as Error).message}`);
       }
@@ -709,7 +697,7 @@ describe('thicken: sub-resolution near-tangent circle intersections', () => {
     [[-1, 0], [0.9999999999999999, 0]],
     [[0, 0], [2 * Math.cos(0.1), 2 * Math.sin(0.1)]],
   ])('returns closed bounded approximations for nearly touching discs %j', (a, b) => {
-    const out = thicken(material([a as [number, number], b as [number, number]]), { radius: 1 });
+    const out = material([a as [number, number], b as [number, number]]).thicken({ radius: 1 });
     const contours = [...out.curves()];
     expect(contours.length).toBeGreaterThan(0);
     expect(contours.every(c => c.closed)).toBe(true);
@@ -737,7 +725,7 @@ describe('thicken: shared circle intersection construction', () => {
       radius: [0.9179886434227228, 3.5909650990739466, 3.7258079521358014,
         1.0258007360622288, 3.5144658725708724],
     });
-    const body = thicken(source, {
+    const body = source.thicken({
       radius: radiusOf, tolerance: 0.02,
       point: event => ({ supports: event.candidates.length }),
     });
@@ -753,9 +741,9 @@ describe('thicken: shared circle intersection construction', () => {
 
 
 it('keeps closed coverage around a sub-resolution line–circle overlap', () => {
-  const body = thicken(material([[-4, -2], [4, -2], [0, 0.9999999999999999]], {
+  const body = material([[-4, -2], [4, -2], [0, 0.9999999999999999]], {
     edges: [[0, 1]], radius: [1, 1, 2],
-  }), { radius: radiusOf });
+  }).thicken({ radius: radiusOf });
   expect(body.curves().every(c => c.closed)).toBe(true);
   expect(distanceTo(body)(0, -2)).toBeGreaterThan(0);
   expect(distanceTo(body)(0, 1)).toBeGreaterThan(0);
@@ -789,7 +777,7 @@ describe('thicken: overlapping recursive rectangles', () => {
     it(`preserves coverage and holes at level ${level}, spacing ${spacing}, radius ${radius}`, () => {
       for (const paper of [210, 304.8]) {
         const src = recursive(level, spacing, paper);
-        const body = thicken(src, { radius, tolerance: 0.01 });
+        const body = src.thicken({ radius, tolerance: 0.01 });
         expect(body.n).toBeGreaterThan(0);
         expect([...body.x, ...body.y].every(Number.isFinite)).toBe(true);
         expect(body.curves().every(c => c.closed)).toBe(true);
@@ -827,7 +815,7 @@ describe('thicken: overlapping recursive rectangles', () => {
       const context = `size=${size}, radius=${radius}, level=${level}, spacing=${spacing}`;
       const src = recursive(level, spacing, 304.8, size);
       let body: Material;
-      try { body = thicken(src, { radius, tolerance: 0.01 }); }
+      try { body = src.thicken({ radius, tolerance: 0.01 }); }
       catch (error) { throw new Error(`${context}: ${String(error)}`); }
       expect(body.curves().every(c => c.closed), context).toBe(true);
       const shapes: Envelope[] = [];
@@ -854,7 +842,7 @@ describe('thicken: overlapping recursive rectangles', () => {
         (p: Vertex) => 0.1 + (p.y / 100) * 0.9,
       ]) {
         const src = recursive(1, undefined, paper);
-        const body = thicken(src, { radius: field, tolerance: 0.01 });
+        const body = src.thicken({ radius: field, tolerance: 0.01 });
         expect(body.curves().every(c => c.closed)).toBe(true);
         expect([...body.x, ...body.y].every(Number.isFinite)).toBe(true);
         const shapes: Envelope[] = [];
@@ -883,7 +871,7 @@ describe('thicken: overlapping recursive rectangles', () => {
       it(`certifies the reported variable-radius family: paper=${paper}, depth=${depth}, radii=${low}..${high}`, () => {
         const src = recursive(depth, undefined, paper),
           radii = Array.from(src.x, (x) => low + (x / 100) * (high - low));
-        const body = thicken(src, {
+        const body = src.thicken({
           radius: (p) => radii[p.index],
           tolerance: 0.01,
         });
@@ -919,9 +907,9 @@ describe('thicken: overlapping recursive rectangles', () => {
 
 
 it('bounds polygon construction and coordinate range instead of returning partial geometry', () => {
-  expect(() => thicken(material([[0, 0]]), { radius: 1, tolerance: 1e-20 })).toThrow(/budget/);
-  expect(() => thicken(material([[0, 0], [1e20, 0]]), { radius: 1 })).toThrow(/range|precision/);
+  expect(() => material([[0, 0]]).thicken({ radius: 1, tolerance: 1e-20 })).toThrow(/budget/);
+  expect(() => material([[0, 0], [1e20, 0]]).thicken({ radius: 1 })).toThrow(/range|precision/);
   // A mark too far out for the polygon grid to hold has no boundary to
   // union in: it is left out, and a material of nothing else is empty.
-  expect(thicken(material([[1e20, 1e20]]), { radius: 1 }).n).toBe(0);
+  expect(material([[1e20, 1e20]]).thicken({ radius: 1 }).n).toBe(0);
 });

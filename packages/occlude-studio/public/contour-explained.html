@@ -54,7 +54,7 @@
 <section class="section" id="art">
 <div class="section-number">04 / Making artwork</div><h2>Change the material. Change the texture.</h2>
 <div class="text"><p><code>thicken</code> controls the area that exists. Its radius can vary across the drawing. <code>fill('contour')</code> draws inside that area. Its spacing controls the distance between ink paths. Decimation breaks those paths into separate marks.</p><p>These operations compose, so there is no need for a separate “radial contour” mode or “recursive contour” mode.</p></div>
-<pre><code>const area = thicken(material, {
+<pre><code>const area = material.thicken({
   radius: (p) => t.map(
     Math.hypot(p.x - 50, p.y - 50),
     0, 50, 0.2, 2.2,

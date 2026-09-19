@@ -173,7 +173,7 @@ stroke how hard to bristle. Three readings of one photograph, which therefore
 cannot disagree.
 
 ```ts live
-import { sketch, strokes, circle, oscillate } from 'occlude';
+import { sketch, strokes, circle } from 'occlude';
 
 // Composed: the flow says which way each stroke runs, the tone says how close
 // together they run, and the same tone then tells every stroke how hard to
@@ -185,7 +185,7 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const dark = img.field('dark', { area: 0.7 });
   const flow = t.within(img.flow({ radius: 1.6 }), circle(50, 50, 46));
   const lines = t.streamlines(flow, { spacing: (x, y) => 0.7 + Math.pow(1 - dark(x, y), 2) * 3.4 });
-  return strokes(oscillate(lines, {
+  return strokes(lines.oscillate({
     wavelength: (x, y) => 1.2 + (1 - dark(x, y)) * 4,
     amplitude: (x, y) => Math.max(0, dark(x, y) - 0.25) * 0.5,
   }));

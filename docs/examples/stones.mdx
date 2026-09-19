@@ -34,10 +34,10 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
   const longSpine = longRuns(spines, 6);
   return [
     strokes(ripples),
-    strokes(channels.points.filter((p) => longChannel(p) && -d(p.x, p.y) > 4).inducedEdges().extract(), { pen: 'stabilo-88-blue' }),
+    strokes(channels.points.filter((p) => longChannel(p) && -d(p.x, p.y) > 4).edges.extract(), { pen: 'stabilo-88-blue' }),
     polygon(stones, { opaque: true, stroke: false }),
     strokes(stones),
-    strokes(spines.points.filter((p) => longSpine(p) && d(p.x, p.y) > 2).inducedEdges().extract(), { pen: 'stabilo-88-blue' }),
+    strokes(spines.points.filter((p) => longSpine(p) && d(p.x, p.y) > 2).edges.extract(), { pen: 'stabilo-88-blue' }),
   ];
 });
 ```

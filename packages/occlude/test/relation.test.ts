@@ -92,7 +92,7 @@ describe('extraction', () => {
     expect(pts.edgeAttrs.strength.length).toBe(0);
     expect(pts.iteration).toBe(0);
     expect(pts.history).toEqual([]);
-    const induced = branchAndLoner.inducedEdges();
+    const induced = branchAndLoner.edges;
     expect(induced.indices).toEqual([2, 3]); // 2-3, 2-4; nothing is invented for 5
     const patch = induced.extract();
     expect(patch.n).toBe(3); // the isolated 5 is absent

@@ -32,7 +32,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Toolkit.within.3.mdx</include>
 <include>/_sig/Toolkit.within.4.mdx</include>
 
-Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. It filters a point selection or a face collection. For faces, `{ faces: 'contained' }` (the default) keeps a face whose whole area is inside. `'centroid'` keeps a face whose centroid is inside. `area` is a shape, a loop of pairs, a face, or a contour material.
+Keeps only what lies inside an area. A field becomes absent outside it, so generators make nothing there and contours stop at the edge. It cuts a material at the boundary. It filters a point selection or a face collection. For faces, `{ faces: 'contained' }` (the default) keeps a face whose whole area is inside. `'centroid'` keeps a face whose centroid is inside. `area` is a shape, a loop of pairs, a face, or a contour material. `t.within` reads the area's `contours()`.
 
 ```ts live
 import { sketch, circle, rect, strokes } from 'occlude';
@@ -84,7 +84,7 @@ export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
 
 <include>/_sig/distanceTo.mdx</include>
 
-A signed distance field from a boundary: positive inside, zero on it, negative outside. `t.isolines(d, 2)` is a ring 2 units inside the boundary, and `t.isolines(d, -2)` a halo 2 units outside. There is no separate offset function. The boundary is loops, contour records, a face, or a chain material.
+A signed distance field from a boundary: positive inside, zero on it, negative outside. `t.isolines(d, 2)` is a ring 2 units inside the boundary, and `t.isolines(d, -2)` a halo 2 units outside. There is no separate offset function. The boundary is loops, contour records, a face, or a chain material. `distanceTo` reads the boundary's `contours()`.
 
 ```ts live
 import { sketch, strokes, ngon, distanceTo } from 'occlude';
@@ -191,6 +191,6 @@ import { sketch, strokes } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 6 }, (t) => {
   const ground = (x, y) => t.noise(x / 22, y / 22);
   const crests = t.ridges(ground);
-  return [strokes(t.isolines(ground, [-0.3, 0, 0.3]), { pen: 'stabilo-88-blue' }), strokes(crests.points.filter((p) => p.strength > 0.004).inducedEdges())];
+  return [strokes(t.isolines(ground, [-0.3, 0, 0.3]), { pen: 'stabilo-88-blue' }), strokes(crests.points.filter((p) => p.strength > 0.004).edges)];
 });
 ```

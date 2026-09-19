@@ -158,7 +158,7 @@ function principalAxis(face: Face): { orientation: number; elongation: number } 
   let xx = 0;
   let yy = 0;
   let xy = 0;
-  for (const c of face.contours) {
+  for (const c of face.contours()) {
     const m = contourAreaMoments(c);
     a += m.a;
     mx += m.mx;
@@ -197,7 +197,7 @@ function inscribedCircle(face: Face, precision: number): { centre: [number, numb
   const b = face.bounds;
   if (!(b.w > 0) || !(b.h > 0)) return { centre: [b.x, b.y], radius: 0 };
   let best: [number, number] = [b.x + b.w / 2, b.y + b.h / 2];
-  const dist = distanceTo(face.contours);
+  const dist = distanceTo(face.contours());
   let bestR = -Infinity;
   // Cells as a centre and a half-side, in a max-heap on their upper bound,
   // so the most promising region is always split next and the search
@@ -264,7 +264,7 @@ function inscribedCircle(face: Face, precision: number): { centre: [number, numb
  * classic per-point ray test, applied to a whole row at once. */
 function rowCrossings(f: Face, y: number, out: number[]): number[] {
   out.length = 0;
-  for (const c of f.contours) {
+  for (const c of f.contours()) {
     const pts = c.pts;
     for (let k = 0, j = pts.length - 1; k < pts.length; j = k++) {
       const [xi, yi] = pts[k];
@@ -317,7 +317,7 @@ export function measureFaces(source: Faces, members: readonly Face[], field: ((x
     let a = 0;
     let mx = 0;
     let my = 0;
-    for (const c of face.contours) {
+    for (const c of face.contours()) {
       const m = contourMoment(c);
       a += m.a;
       mx += m.a * m.cx;

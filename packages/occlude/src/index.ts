@@ -66,19 +66,15 @@ export { inheritEdge } from './steps.js';
 export type { EdgeRef, StepRule, StepsOptions } from './steps.js';
 export type { EdgeTransfer } from './material.js';
 export { stationsMaterial, isStations } from './material.js';
-export { thicken } from './thicken.js';
+// Same-world transforms are methods on Material now (`m.thicken(opts)`),
+// so only their options types are exported.
 export type { ThickenOpts } from './thicken.js';
 export type { QuadtreeOpts } from './quadtree.js';
 export type { TrailsOpts } from './trails.js';
-export { warp } from './warp.js';
 export type { WarpOpts, Corner } from './warp.js';
 export type { RidgeOpts, RidgeContour } from './ridges.js';
-export { envelope } from './envelope.js';
-export { interlace } from './interlace.js';
 export type { InterlaceOpts, Crossing } from './interlace.js';
-export { snap } from './snap.js';
 export type { SnapOpts, SnapField } from './snap.js';
-export { oscillate } from './oscillate.js';
 export type { OscillateOpts, OscillateAmount } from './oscillate.js';
 export { PointSelection, EdgeSelection, components, meanBy } from './relation.js';
 export type { Components } from './relation.js';
@@ -147,9 +143,10 @@ export type { IsoContour, IsoOpts } from './isolines.js';
 // isolines (offsetting is a recipe), scatter, decimate, deform.
 export { distanceTo, sdf } from './distance.js';
 export type { DistanceField } from './distance.js';
-// The one boundary contract of polygon, distanceTo and force.boundary.
-export { boundaryLoops, numericLoops } from './boundary.js';
-export type { Boundary } from './boundary.js';
+// The geometry protocol: what a value can say about itself, and the one
+// area contract of polygon, distanceTo, force.boundary and t.within.
+export { areaLoops, isGeometry, numericLoops } from './boundary.js';
+export type { AreaInput, Geometry } from './boundary.js';
 // Fields as citizens: explicit transforms, domain bounds, vector marking.
 export { rotate, translate, scale, within, vectorField, grad, curl } from './field.js';
 export type { Prepared } from './field.js';

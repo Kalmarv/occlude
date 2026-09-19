@@ -5,10 +5,15 @@ import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { material, curve, connect, thicken, type Material, type ThickenOpts } from '../src/index.js';
+import { material, curve, connect, type Material, type ThickenOpts } from '../src/index.js';
+
+/** A thicken implementation: the method under test, or a saved baseline module's
+ * free function with the same contract. */
+type ThickenFn = (source: Material, opts: ThickenOpts) => Material;
+const thicken: ThickenFn = (source, opts) => source.thicken(opts);
 
 const baselineArg = process.argv.indexOf('--baseline');
-const baseline: typeof thicken | undefined = baselineArg < 0 ? undefined
+const baseline: ThickenFn | undefined = baselineArg < 0 ? undefined
   : (await import(pathToFileURL(resolve(process.argv[baselineArg + 1])).href)).thicken;
 const profile = process.argv.includes('--profile');
 const runs = profile ? 15 : 5;
@@ -25,7 +30,7 @@ const fixtures: [string, Material, ThickenOpts][] = [
   ['near tangent / height', material([[0, 0], [2 * Math.cos(0.1), 2 * Math.sin(0.1)]]), { radius: 1 }],
 ];
 
-function fingerprint(fn: typeof thicken, source: Material, opts: ThickenOpts): string {
+function fingerprint(fn: ThickenFn, source: Material, opts: ThickenOpts): string {
   const hash = createHash('sha256');
   const addArrays = (out: Material) => {
     for (const array of [out.x, out.y, out.edgeList]) {
@@ -55,7 +60,7 @@ if (process.argv.includes('--verify')) {
     for (let j = 1; j < count; j++) if (rnd() < 0.7) edges.push([Math.floor(rnd() * j), j]);
     const net = source.withEdges(edges);
     const opts: ThickenOpts = { radius: p => p.radius, tolerance: 0.02 };
-    const outcome = (fn: typeof thicken) => {
+    const outcome = (fn: ThickenFn) => {
       try { return fingerprint(fn, net, opts); }
       catch (err) { return `ERROR: ${err instanceof Error ? err.message : String(err)}`; }
     };

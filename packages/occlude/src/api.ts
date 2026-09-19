@@ -51,7 +51,7 @@ import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { ridgesOf, type RidgeOpts } from './ridges.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { unitMm } from './record.js';
-import { boundaryLoops, numericLoops, type Boundary, type LoopPoints } from './boundary.js';
+import { areaLoops, numericLoops, type AreaInput, type LoopPoints } from './boundary.js';
 import {
   Material, material as materialOf, alongChain, checkSampling, isStations, stationsMaterial,
   withinMaterial, type PointsLike, type Station, type Transfer,
@@ -270,18 +270,18 @@ export interface PolygonOpts extends ShapeOpts {
  * through the one lowerer, so it agrees with what the shape itself inks; a
  * face, loops, a chain material or a selection come from the boundary
  * contract. */
-function areaLoops(run: Execution | null, input: Boundary | ShapeValue, who: string): LoopPoints[] {
+function lowerArea(run: Execution | null, input: AreaInput | ShapeValue, who: string): LoopPoints[] {
   if (isShapeValue(input)) {
     if (!run) throw new Error(`${who}: a shape area is lowered by the toolkit — use t.${who}`);
     return shapeContours(run, input, undefined).map((c) => c.pts);
   }
-  return boundaryLoops(input, who);
+  return areaLoops(input, who);
 }
 
 /** `areaLoops` for a consumer that computes with the coordinates: a length
  * such as `mm(10)` is a drawing unit the sketch must resolve first. */
-function numericAreaLoops(run: Execution | null, input: Boundary | ShapeValue, who: string): [number, number][][] {
-  return numericLoops(areaLoops(run, input, who), who);
+function numericAreaLoops(run: Execution | null, input: AreaInput | ShapeValue, who: string): [number, number][][] {
+  return numericLoops(lowerArea(run, input, who), who);
 }
 
 /**
@@ -297,7 +297,7 @@ function numericAreaLoops(run: Execution | null, input: Boundary | ShapeValue, w
  * annulus and a pentagram as an empty pentagon. `path({ winding })` is the
  * other spelling: there the geometry's own orientation decides, as in SVG.
  */
-export function polygon(contours: Boundary | Contour | Contour[] | ShapeValue, opts: PolygonOpts = {}): ShapeValue {
+export function polygon(contours: AreaInput | Contour | Contour[] | ShapeValue, opts: PolygonOpts = {}): ShapeValue {
   const { winding: given, ...rest } = opts;
   // The source is the authority for the fill rule, and a path carries one:
   // `polygon(somePath)` keeps it, and `opts.winding` overrides it. Loops and
@@ -310,7 +310,7 @@ export function polygon(contours: Boundary | Contour | Contour[] | ShapeValue, o
     const o = contours.opts;
     return shape({ kind: 'area', of: { geom: contours.geom, opts: { translate: o.translate, rotate: o.rotate, scale: o.scale, origin: o.origin } }, winding }, rest);
   }
-  const loops = areaLoops(null, contours, 'polygon');
+  const loops = lowerArea(null, contours, 'polygon');
   const cmds: PathCmd[] = [];
   for (const loop of loops) {
     if (loop.length < 2) continue;
@@ -353,20 +353,20 @@ export interface WithinFaces {
 
 export interface Within {
   <F extends FieldFn | VectorFieldFn | LengthFn>(field: F, area: ShapeValue): Prepared<F>;
-  (material: Material, area: Boundary | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
-  (points: PointSelection, area: Boundary | ShapeValue): PointSelection;
-  (faces: Faces | FaceSelection, area: Boundary | ShapeValue, opts?: WithinFaces): FaceSelection;
+  (material: Material, area: AreaInput | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
+  (points: PointSelection, area: AreaInput | ShapeValue): PointSelection;
+  (faces: Faces | FaceSelection, area: AreaInput | ShapeValue, opts?: WithinFaces): FaceSelection;
 }
 
 export function withinAny<F extends FieldFn | VectorFieldFn | LengthFn>(run: Execution, field: F, area: ShapeValue): Prepared<F>;
-export function withinAny(run: Execution, material: Material, area: Boundary | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
-export function withinAny(run: Execution, points: PointSelection, area: Boundary | ShapeValue): PointSelection;
-export function withinAny(run: Execution, faces: Faces | FaceSelection, area: Boundary | ShapeValue, opts?: WithinFaces): FaceSelection;
+export function withinAny(run: Execution, material: Material, area: AreaInput | ShapeValue, opts?: { transfer?: Record<string, Transfer> }): Material;
+export function withinAny(run: Execution, points: PointSelection, area: AreaInput | ShapeValue): PointSelection;
+export function withinAny(run: Execution, faces: Faces | FaceSelection, area: AreaInput | ShapeValue, opts?: WithinFaces): FaceSelection;
 
 export function withinAny(
   run: Execution,
   x: FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | Faces | FaceSelection,
-  area: Boundary | ShapeValue,
+  area: AreaInput | ShapeValue,
   opts: { transfer?: Record<string, Transfer>; faces?: 'contained' | 'centroid' } = {},
 ): FieldFn | VectorFieldFn | LengthFn | Material | PointSelection | FaceSelection {
   if (typeof x === 'function') return withinField(x, area as ShapeValue, boundEnv(run));
@@ -405,8 +405,9 @@ export function withinAny(
   // cells share its edges), while a face merely touching it from outside is
   // not.
   const keep = (f: Face): boolean => {
-    if (f.contours.length === 0) return false;
-    for (const c of f.contours) {
+    const areas = f.contours();
+    if (areas.length === 0) return false;
+    for (const c of areas) {
       for (let k = 0; k < c.pts.length; k++) {
         const p = c.pts[k];
         if (!(inside(p[0], p[1]) >= 0)) return false;
@@ -419,7 +420,7 @@ export function withinAny(
     // A face must also have somewhere of its own inside the fill: a wall it
     // shares with the boundary says nothing by itself, and the same walls bound
     // the annulus and the hole it encloses.
-    const probe = interiorPoint(f.contours.map((c) => c.pts));
+    const probe = interiorPoint(areas.map((c) => c.pts));
     if (probe && !(inside(probe[0], probe[1]) > 0)) return false;
     // Every vertex inside and no edge crossing still leaves the reverse case: a
     // real boundary — a hole, or an island — lying strictly inside the face,
@@ -427,7 +428,7 @@ export function withinAny(
     // its ends and its middle; the face's own contours say what is inside IT,
     // so a wall the face shares with the boundary is ON it, not in it, and
     // passes.
-    const faceInside = distanceTo(f.contours);
+    const faceInside = distanceTo(areas);
     for (const s of fill.boundary) {
       const [ax, ay, bx, by] = s;
       if (faceInside(ax, ay) > 0 || faceInside(bx, by) > 0 || faceInside((ax + bx) / 2, (ay + by) / 2) > 0) return false;
@@ -943,11 +944,11 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * `t.throw(field, { count, within? })` kept with the chance the field
    * gives at the point. The random counterpart of `scatter`. */
   function throwTk(field: FieldFn2 | undefined, opts: ThrowOpts): Material;
-  function throwTk(area: Boundary | ShapeValue, opts: Omit<ThrowOpts, 'within'>): Material;
+  function throwTk(area: AreaInput | ShapeValue, opts: Omit<ThrowOpts, 'within'>): Material;
   function throwTk(opts: ThrowOpts): Material;
-  function throwTk(a: FieldFn2 | Boundary | ShapeValue | ThrowOpts | undefined, b?: ThrowOpts | Omit<ThrowOpts, 'within'>): Material {
+  function throwTk(a: FieldFn2 | AreaInput | ShapeValue | ThrowOpts | undefined, b?: ThrowOpts | Omit<ThrowOpts, 'within'>): Material {
     const field = typeof a === 'function' ? a : undefined;
-    const area = b !== undefined && typeof a !== 'function' && a !== undefined ? (a as Boundary | ShapeValue) : undefined;
+    const area = b !== undefined && typeof a !== 'function' && a !== undefined ? (a as AreaInput | ShapeValue) : undefined;
     const raw = (b ?? a) as ThrowOpts;
     if (!raw || typeof raw !== 'object' || raw.count === undefined) throw new Error('throw: { count } is required');
     const within = area ?? raw.within;
@@ -986,7 +987,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     return quadtree(points, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h }, opts);
   }
 
-  function voronoiTk(sites: PointsLike, opts: { bounds?: PointBounds; within?: Boundary | ShapeValue } = {}): Material {
+  function voronoiTk(sites: PointsLike, opts: { bounds?: PointBounds; within?: AreaInput | ShapeValue } = {}): Material {
     const b = exec.bounds();
     if (opts.within === undefined) return voronoi(sites, opts.bounds ?? { x: 0, y: 0, w: b.w, h: b.h });
     const region = withinRegion(numericAreaLoops(exec, opts.within, 'voronoi'), 'voronoi', opts.bounds);
@@ -1058,7 +1059,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
    * value there. `t.isolines` says where the field is a given height; this
    * says where it runs along a top. Valleys are the ridges of the negated
    * field, so there is no option for them. Nothing is thresholded: pick with
-   * `m.points.filter((p) => p.strength > x).inducedEdges().extract()`.
+   * `m.points.filter((p) => p.strength > x).edges.extract()`.
    * Deterministic, no seed. */
   function ridges(field: FieldFn2, opts: RidgeOpts = {}): Material {
     const b = exec.bounds();
@@ -1268,7 +1269,7 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
     return amount * exec.noise(x / wavelength, y / wavelength, z / wavelength);
   }
   const b0 = exec.bounds();
-  const within = ((x: never, area: Boundary | ShapeValue, opts?: never) => withinAny(exec, x, area, opts)) as Within;
+  const within = ((x: never, area: AreaInput | ShapeValue, opts?: never) => withinAny(exec, x, area, opts)) as Within;
   const synthEnv = (opts: SynthOpts): SynthOpts => ({
     ...opts,
     seed: opts.seed ?? `${exec.seedUsed}:synth:${exec.rng.float()}`,

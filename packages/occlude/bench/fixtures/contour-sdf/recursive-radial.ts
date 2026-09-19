@@ -1,5 +1,5 @@
 // User's recursive radial-radius contour texture, fixed at seed 42 for comparison.
-import { sketch, append, decimate, thicken, polygon, fill } from 'occlude';
+import { sketch, append, decimate, polygon, fill } from 'occlude';
 import type { Material } from 'occlude';
 
 export default sketch({ aspect: [1, 1], margin: 5, seed: 42 }, (t) => {
@@ -14,6 +14,6 @@ export default sketch({ aspect: [1, 1], margin: 5, seed: 42 }, (t) => {
     const combined = shapes.reduce((m, shape) => append(m, t.material(shape)), source);
     return subdivide(width / 2, combined, level - 1);
   };
-  const thick = thicken(subdivide(size, initial, levels), { radius: p => t.map(Math.hypot(p.x - 50, p.y - 50), 0, 50, 0.01, 2) });
+  const thick = subdivide(size, initial, levels).thicken({ radius: p => t.map(Math.hypot(p.x - 50, p.y - 50), 0, 50, 0.01, 2) });
   return [t.group({ pen: 'hop' }, decimate(0.5, polygon(thick, { fill: fill('contour') })), polygon(thick))];
 });

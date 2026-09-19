@@ -40,7 +40,7 @@ import {
   segmentRuns, neighbours, extent, banding,
   add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy,
   force, sumForces, meanBy, components, query,
-  boundaryLoops, numericLoops, ui,
+  areaLoops, numericLoops, ui,
   type Station, type Tree,
 } from 'occlude';
 
@@ -213,11 +213,11 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const measured = faceSet.measure(land, { resolution: 40 });
   const faceOne = chosen.length > 0 ? measured.forFace(chosen.at(0)) : null;
   const facePerim = chosen.length > 0 ? chosen.at(0).perimeter : 0;
-  const faceEdges = chosen.edges().length;
+  const faceEdges = chosen.edges.length;
   scene.push(strokes(planar));
   scene.push(strokes(chosen.boundaryEdges()));
   scene.push(strokes(chosen.contours()));
-  scene.push(chosen.map((f) => (f.contours[0] ? stroke(f.contours[0]) : null)));
+  scene.push(chosen.map((f) => (f.contours()[0] ? stroke(f.contours()[0]) : null)));
 
   // ---- stations along a spine, and resampling ----------------------------
   const spine = t.material(ellipse(40, 20, 30, 9));
@@ -269,7 +269,7 @@ export default sketch({ aspect: [2, 1], margin: 4, seed: 7 }, (t) => {
   const vFrom = fromAngle(Math.PI / 2);
 
   // ---- helpers that are easy to forget -----------------------------------
-  const loops = boundaryLoops([[[0, 0], [4, 0], [4, 4]]], 'all-features');
+  const loops = areaLoops([[[0, 0], [4, 0], [4, 4]]], 'all-features');
   const numLoops = numericLoops([[[0, 0], [4, 0], [4, 4]]], 'all-features');
   const connectRing = connect.ring(material([[0, 0], [4, 0], [2, 4]])).edges.length;
   const connectChain = connect.chain(material([[0, 0], [4, 0], [2, 4]])).edges.length;

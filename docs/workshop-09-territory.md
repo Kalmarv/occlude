@@ -173,8 +173,8 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   const diagram = t.voronoi(sites);
   const cells = diagram.faces();
   const contrast = (e) => { const [a, b] = e.faces; return b !== undefined ? Math.max(a.area, b.area) / Math.min(a.area, b.area) : 0; };
-  const border = cells.edges().filter((e) => contrast(e) > ratio);
-  return [strokes(border, { pen: 'pigma-05-black' }), strokes(cells.edges(), { pen: 'pigma-005-black' })];
+  const border = cells.edges.filter((e) => contrast(e) > ratio);
+  return [strokes(border, { pen: 'pigma-05-black' }), strokes(cells.edges, { pen: 'pigma-005-black' })];
 });
 ```
 
@@ -225,7 +225,7 @@ export default sketch({ aspect: [2, 1], seed: 12 }, (t) => {
   return [
     polygon(country.contours(), { fill: hatch, stroke: false }),
     town.map((f) => polygon(f, { fill: fill('hatch', { angle: 110, spacing: mm(0.7 + 0.04 * distance(left.diagram.siteOf(f), left.centre)) }), stroke: false })),
-    strokes(left.cells.edges(), { pen: 'pigma-005-black' }),
+    strokes(left.cells.edges, { pen: 'pigma-005-black' }),
     cleared.faces().filter((f) => f.area > 90).map((f) => polygon(f, { fill: hatch, stroke: false })),
     strokes(cleared, { pen: 'pigma-005-black' }),
   ];
@@ -279,4 +279,4 @@ Two densities add: `Math.max` of two hills is two towns. For the road, a wall ha
 
 ## Where to look things up
 
-`t.voronoi`, `cellOf` and `siteOf` are under *Point distributions* on [Materials](#/materials); `edge.faces`, face selections and `boundaryEdges()` under *Faces and boundaries*; `edgeAttribute` and `disconnect` under *Making a material* and *Movement and growth*. Next, chapter 10 lets the cells measure the light on them and move toward it.
+`t.voronoi`, `cellOf` and `siteOf` are under *Point distributions* on [Materials](#/materials); `edge.faces`, face selections and `boundaryEdges` under *Faces and boundaries*; `edgeAttribute` and `disconnect` under *Making a material* and *Movement and growth*. Next, chapter 10 lets the cells measure the light on them and move toward it.

@@ -153,9 +153,9 @@ describe('faces', () => {
     expect(areas(p)).toEqual([25, 25, 25, 25]);
     expect(p.faces().length).toBe(euler(p));
     const f = p.faces().faces[0];
-    expect(f.contours).toHaveLength(1);
-    expect(f.contours[0].closed).toBe(true);
-    expect(f.contours[0].pts).toHaveLength(3);
+    expect(f.contours()).toHaveLength(1);
+    expect(f.contours()[0].closed).toBe(true);
+    expect(f.contours()[0].pts).toHaveLength(3);
   });
 
   it('nested rings: annulus + disk, three levels; faces do not overlap and areas add up', () => {
@@ -163,7 +163,7 @@ describe('faces', () => {
     const cells = two.faces();
     expect(areas(two)).toEqual([100, 800]);
     const annulus = cells.faces.find((f) => f.area === 800)!;
-    expect(annulus.contours).toHaveLength(2);
+    expect(annulus.contours()).toHaveLength(2);
     expect(annulus.perimeter).toBe(120 + 40);
     expect(annulus.bounds).toEqual({ x: 0, y: 0, w: 30, h: 30 });
     let three = append(square(0, 0, 50), square(10, 10, 30));
@@ -182,19 +182,19 @@ describe('faces', () => {
     expect(cells.length).toBe(1);
     expect(cells.faces[0].area).toBe(100);
     expect(cells.faces[0].perimeter).toBe(40);
-    expect(cells.faces[0].contours).toHaveLength(1);
-    expect(cells.faces[0].contours[0].pts).toHaveLength(4);
+    expect(cells.faces[0].contours()).toHaveLength(1);
+    expect(cells.faces[0].contours()[0].pts).toHaveLength(4);
     // a bridge between two loops
     const bridged = append(square(), square(20, 0)).steps(1, (_, next) => next.connect(1, 4));
     expect(areas(bridged)).toEqual([100, 100]);
     expect(bridged.faces().length).toBe(euler(bridged));
-    for (const f of bridged.faces().faces) expect(f.contours[0].pts).toHaveLength(4);
+    for (const f of bridged.faces().faces) expect(f.contours()[0].pts).toHaveLength(4);
     // a ring hanging inside another by a bridge: annulus with a pinched hole, two contours, no retrace
     const inner = append(square(0, 0, 30), square(10, 10, 10)).steps(1, (_, next) => next.connect(1, 5));
     const ic = inner.faces();
     expect(areas(inner)).toEqual([100, 800]);
     const ann = ic.faces.find((f) => f.area === 800)!;
-    expect(ann.contours).toHaveLength(2);
+    expect(ann.contours()).toHaveLength(2);
     expect(ann.perimeter).toBe(160);
     expect(ic.contours()).toHaveLength(1);
   });
@@ -209,7 +209,7 @@ describe('faces', () => {
     // the same tree floating inside a ring belongs to no face and takes nothing from it
     const inside = append(square(0, 0, 200), tree);
     expect(areas(inside)).toEqual([40000]);
-    expect(inside.faces().faces[0].contours).toHaveLength(1);
+    expect(inside.faces().faces[0].contours()).toHaveLength(1);
   });
 
   it('regions meeting at a vertex stay separate faces and separate contours', () => {
@@ -261,7 +261,7 @@ describe('faces', () => {
     expect(innerOnly.contours()).toHaveLength(1);
     expect(innerOnly.contours()[0].pts).toHaveLength(4);
     // contours feed polygon and stroke directly
-    expect(() => polygon(nested.faces[0].contours, { winding: 'evenodd' })).not.toThrow();
+    expect(() => polygon(nested.faces[0].contours(), { winding: 'evenodd' })).not.toThrow();
     expect(() => polygon(nested.contours())).not.toThrow();
   });
 
@@ -355,8 +355,8 @@ describe('review of 3df7b04', () => {
     const cells = p.faces();
     expect(cells.length).toBe(3);
     const outer = cells.faces.find((f) => f.area === 1400)!;
-    expect(outer.contours).toHaveLength(3);
-    for (const c of outer.contours) expect(c.pts).toHaveLength(4);
+    expect(outer.contours()).toHaveLength(3);
+    for (const c of outer.contours()) expect(c.pts).toHaveLength(4);
     const sel = cells.filter((f) => f.area === 1400);
     const b = sel.contours();
     expect(b).toHaveLength(3);
@@ -365,12 +365,12 @@ describe('review of 3df7b04', () => {
 
   it('5. face views are deeply frozen', () => {
     const f = square().faces().faces[0];
-    expect(Object.isFrozen(f.contours)).toBe(true);
-    expect(Object.isFrozen(f.contours[0])).toBe(true);
-    expect(Object.isFrozen(f.contours[0].pts)).toBe(true);
-    expect(Object.isFrozen(f.contours[0].pts[0])).toBe(true);
+    expect(Object.isFrozen(f.contours())).toBe(true);
+    expect(Object.isFrozen(f.contours()[0])).toBe(true);
+    expect(Object.isFrozen(f.contours()[0].pts)).toBe(true);
+    expect(Object.isFrozen(f.contours()[0].pts[0])).toBe(true);
     expect(Object.isFrozen(f.bounds)).toBe(true);
-    expect(() => { (f.contours[0].pts[0] as number[])[0] = 99; }).toThrow();
+    expect(() => { (f.contours()[0].pts[0] as number[])[0] = 99; }).toThrow();
   });
 });
 
@@ -413,7 +413,7 @@ describe('faces: centroid, adjacency and an edge\'s faces', () => {
   it('a face knows its centroid, holes respected', () => {
     const plain = sq(0, 0, 10).faces().at(0);
     expect(plain.centroid.map((v) => +v.toFixed(9))).toEqual([5, 5]);
-    const ring = append(sq(0, 0, 10), sq(6, 6, 2)).planarize().faces().filter((f) => f.contours.length === 2).at(0);
+    const ring = append(sq(0, 0, 10), sq(6, 6, 2)).planarize().faces().filter((f) => f.contours().length === 2).at(0);
     expect(ring.centroid[0]).toBeLessThan(5); // the hole in the top-right corner pulls the centroid away
     expect(ring.centroid[1]).toBeLessThan(5);
   });

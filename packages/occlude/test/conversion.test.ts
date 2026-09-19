@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { A4, SQ, toolkit } from './helpers/run.js';
 import {
-  append, boundaryLoops, circle, compileSketch, connect, curve, distanceTo, force, initOcclude, line, material, ngon, path, polygon, rect,
+  append, areaLoops, circle, compileSketch, connect, curve, distanceTo, force, initOcclude, line, material, ngon, path, polygon, rect,
   render, sketch, stroke, strokes, mm,
   type Material, type SketchConfig, type SketchDef, type Toolkit, Execution,
 } from '../src/index.js';
@@ -193,13 +193,13 @@ describe('one boundary contract', () => {
 
   it('loops, a single loop, contour records and a chain material resolve to the same loops', () => {
     const loop = sq(10, 10, 20);
-    const asLoops = boundaryLoops([loop], 'test');
-    expect(boundaryLoops(loop, 'test')).toEqual(asLoops);
-    expect(boundaryLoops({ pts: loop, closed: true }, 'test')).toEqual(asLoops);
-    expect(boundaryLoops([{ pts: loop, closed: true }], 'test')).toEqual(asLoops);
-    expect(boundaryLoops(curve(loop), 'test')).toEqual(asLoops);
-    expect(boundaryLoops(loop.map(([x, y]) => ({ x, y })), 'test')).toEqual(asLoops);
-    expect(boundaryLoops([], 'test')).toEqual([]);
+    const asLoops = areaLoops([loop], 'test');
+    expect(areaLoops(loop, 'test')).toEqual(asLoops);
+    expect(areaLoops({ pts: loop, closed: true }, 'test')).toEqual(asLoops);
+    expect(areaLoops([{ pts: loop, closed: true }], 'test')).toEqual(asLoops);
+    expect(areaLoops(curve(loop), 'test')).toEqual(asLoops);
+    expect(areaLoops(loop.map(([x, y]) => ({ x, y })), 'test')).toEqual(asLoops);
+    expect(areaLoops([], 'test')).toEqual([]);
     // Equivalent distance fields and polygons.
     const d1 = distanceTo([loop]);
     const d2 = distanceTo(curve(loop));
@@ -217,26 +217,26 @@ describe('one boundary contract', () => {
     const square: [number, number][] = [[0, 0], [10, 0], [10, 10], [0, 10]];
     const objects = square.map(([x, y]) => ({ x, y }));
     // A leading empty loop is a loop, not a point.
-    expect(boundaryLoops([[], square], 'test')).toEqual([[], square]);
+    expect(areaLoops([[], square], 'test')).toEqual([[], square]);
     expect(distanceTo([[], square])(5, 5)).toBe(5);
     // Loops of { x, y } points, nested, are loops.
-    expect(boundaryLoops([objects], 'test')).toEqual([square]);
-    expect(boundaryLoops([objects, objects.slice(0, 2)], 'test')).toHaveLength(2);
+    expect(areaLoops([objects], 'test')).toEqual([square]);
+    expect(areaLoops([objects, objects.slice(0, 2)], 'test')).toHaveLength(2);
     expect(distanceTo([objects])(5, 5)).toBe(5);
     expect(distanceTo(objects)(5, 5)).toBe(5);
     expect(force.boundary([[], square], { radius: 4 })([1, 5])[0]).toBeGreaterThan(0);
     expect(force.boundary([objects], { radius: 4 })([1, 5])[0]).toBeGreaterThan(0);
     // Extra entries on a point are ignored; a bad entry is named.
-    expect(boundaryLoops([[[0, 0, 9], [10, 0, 9]]], 'test')).toEqual([[[0, 0], [10, 0]]]);
-    expect(() => boundaryLoops([[[0, 0], 'no']] as never, 'test')).toThrow(/loop entry 1 is not a point/);
-    expect(() => boundaryLoops([['a', 'b']] as never, 'test')).toThrow(/expected loops of points/);
+    expect(areaLoops([[[0, 0, 9], [10, 0, 9]]], 'test')).toEqual([[[0, 0], [10, 0]]]);
+    expect(() => areaLoops([[[0, 0], 'no']] as never, 'test')).toThrow(/loop entry 1 is not a point/);
+    expect(() => areaLoops([['a', 'b']] as never, 'test')).toThrow(/expected loops of points/);
   });
 
   it('holes, chord closure, isolated points, empties and branching', () => {
     // A ring with a hole from two components of one material.
     const withHole = connect.ring(material(sq(0, 0, 30)));
     const hole = connect.ring(material(sq(10, 10, 10)));
-    const both = boundaryLoops(append(withHole, hole), 'test');
+    const both = areaLoops(append(withHole, hole), 'test');
     expect(both).toHaveLength(2);
     const d = distanceTo(both);
     expect(d(15, 15)).toBeCloseTo(-5, 9);
@@ -244,7 +244,7 @@ describe('one boundary contract', () => {
     const open = connect.chain(material([[0, 0], [10, 0], [10, 10]]));
     expect(distanceTo(open)(3, 1)).toBe(distanceTo([[[0, 0], [10, 0], [10, 10]]])(3, 1));
     // Isolated points contribute nothing; an empty material is an empty boundary.
-    expect(boundaryLoops(material([[4, 4], [5, 5]]), 'test')).toEqual([]);
+    expect(areaLoops(material([[4, 4], [5, 5]]), 'test')).toEqual([]);
     expect(distanceTo(material([]))(1, 2)).toBe(-Infinity);
     // Branching is refused with the way out named.
     const y = material([[0, 0], [10, 0], [20, 10], [20, -10]], { edges: [[0, 1], [1, 2], [1, 3]] });

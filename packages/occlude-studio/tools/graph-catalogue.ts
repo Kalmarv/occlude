@@ -100,12 +100,11 @@ type ValueType = GeometryKind | SocketClass;
 /**
  * A named type that is one value, decided by its name before its members.
  *
- * `Boundary` is deliberately absent. It is the library's own spelling of
- * "an area is an input" — a loop, a contour record, one face, a chain
- * material, a point source — and naming it `shape` here threw the other
- * three kinds away, so `distanceTo(aMaterial)` was refused by a socket that
- * the library itself accepts. Left unnamed, the union is walked and the
- * socket takes every kind it really holds.
+ * The area consumers no longer name a union of their own: they take
+ * `Geometry` or `AreaInput`, which mean any geometry and are read by
+ * `ANY_GEOMETRY` below. Before the protocol there was a `Boundary` union
+ * here, and naming it as one kind threw the others away — `distanceTo(m)`
+ * was refused by a socket the library itself accepts.
  */
 const BY_NAME: Record<string, ValueType> = {
   Len: 'Number',
@@ -141,10 +140,6 @@ const BY_NAME: Record<string, ValueType> = {
   Loop: 'shape',
   LoopPoints: 'shape',
   IsoContour: 'shape',
-  FaceLike: 'faces',
-  FaceSource: 'faces',
-  ChainSource: 'material',
-  PointSource: 'points',
   FieldFn: 'Field',
   FieldFn2: 'Field',
   DistanceField: 'Field',
@@ -154,6 +149,18 @@ const BY_NAME: Record<string, ValueType> = {
   Camera3: 'Camera',
   Tree: 'drawing',
 };
+/**
+ * The names that mean "any geometry at all".
+ *
+ * `Geometry` is the protocol: a value that answers `contours()`, `curves()`
+ * or `points`. `AreaInput` is that plus the plain loops and contour records
+ * a sketch writes by hand. Neither is one kind, and neither should be read
+ * as a list of kinds: an input that takes geometry takes every geometry,
+ * and the socket says so by carrying no kind list. This is what replaced
+ * the hand-written kind lists the palette used to need.
+ */
+const ANY_GEOMETRY = new Set(['Geometry', 'AreaInput']);
+
 /** A value tagged by a marker property, rather than by its type name. */
 const BY_MARKER: Record<string, GeometryKind> = {
   __occludeShape: 'shape',
@@ -167,7 +174,6 @@ const BY_MARKER: Record<string, GeometryKind> = {
  * `strokes({ curves(): IsoContour[] })` takes a material or a selection. */
 const BY_MEMBER: Record<string, GeometryKind> = {
   curves: 'material',
-  inducedEdges: 'points',
   area: 'faces',
 };
 /** A control the node edits, for a type no socket carries. */
@@ -225,6 +231,14 @@ function nonNullish(type: ts.Type): ts.Type {
   if (!type.isUnion()) return type;
   const inner = type.types.filter((t) => (t.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Null)) === 0);
   return inner.length === 1 ? inner[0] : type;
+}
+
+/** Whether a type is the geometry protocol itself, by either of its names. */
+function isAnyGeometry(type: ts.Type): boolean {
+  const alias = type.aliasSymbol?.getName();
+  if (alias && ANY_GEOMETRY.has(alias)) return true;
+  const name = typeName(type);
+  return name !== undefined && ANY_GEOMETRY.has(name);
 }
 
 /** The geometry kinds a type covers, when it covers geometry at all. A
@@ -305,6 +319,9 @@ function takesOf(raw: ts.Type): { socket: SocketClass; kinds?: GeometryKind[] } 
   const type = nonNullish(raw);
   const strict = strictTakesOf(type);
   if (strict) return strict;
+  // A union that holds the protocol takes every geometry, whatever else it
+  // spells out beside it: `Geometry | IsoContour[] | Loop` is geometry.
+  if (type.isUnion() && type.types.some((t) => isAnyGeometry(nonNullish(t)))) return { socket: 'Geometry' };
   if (!type.isUnion()) return undefined;
   const mapped = type.types.map((t) => strictTakesOf(t)).filter((t) => t !== undefined);
   if (mapped.length === 0) return undefined;
@@ -323,6 +340,8 @@ function takesOf(raw: ts.Type): { socket: SocketClass; kinds?: GeometryKind[] } 
 }
 
 function strictTakesOf(type: ts.Type): { socket: SocketClass; kinds?: GeometryKind[] } | undefined {
+  // A socket that takes geometry takes every geometry: no kind list.
+  if (isAnyGeometry(type)) return { socket: 'Geometry' };
   const kinds = kindsOf(type);
   if (kinds) return { socket: 'Geometry', kinds };
   const value = valueOf(type);

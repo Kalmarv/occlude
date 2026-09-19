@@ -8,7 +8,7 @@ Three operations, and none of them knows about the others. Each strand is a tip 
 Uses: `steps` with `extrude`, `curl`, `oscillate`, `interlace`.
 
 ```ts live
-import { sketch, strokes, material, curl, oscillate, interlace, add, mul, fromAngle } from 'occlude';
+import { sketch, strokes, material, curl, add, mul, fromAngle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
   const flow = curl((x, y) => t.noise(x / 40, y / 40));
@@ -25,7 +25,7 @@ export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
     });
     next.set(tips, { tip: 0 });
   });
-  const wobbled = oscillate(grown, { wavelength: 13, amplitude: 1.6 });
-  return strokes(interlace(wobbled, { gap: 2.2 }));
+  const wobbled = grown.oscillate({ wavelength: 13, amplitude: 1.6 });
+  return strokes(wobbled.interlace({ gap: 2.2 }));
 });
 ```

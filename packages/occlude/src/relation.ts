@@ -28,6 +28,7 @@
 
 import { Material, ownedBy, viewKind, type Curve, type Edge, type Vertex } from './material.js';
 import { degreesWithin, walkChains } from './chains.js';
+import { thicken as thickenKernel, type ThickenOpts } from './thicken.js';
 
 // Domain comes from the view's own marker, never from attribute names.
 const isEdgeView = (v: unknown): v is Edge => viewKind(v) === 'edge';
@@ -204,10 +205,24 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     return new PointSelection(this.source, out);
   }
 
+  /** The positions this selection holds: itself. A point consumer asks
+   * every geometry value for `points`, and a point selection is already
+   * the answer. */
+  get points(): PointSelection<K> {
+    return this;
+  }
+
+  /** The chains through these points: the chains of the edges among them.
+   * A chain consumer reads this — `strokes(sel)` draws what the selected
+   * points are connected by, never a new connection. */
+  curves(): Curve[] {
+    return this.edges.curves();
+  }
+
   /** The source edges whose BOTH endpoints are selected — connections that
    * already exist, never new ones. Selected points with no such edge are
    * absent from that edge selection's extraction. */
-  inducedEdges(): EdgeSelection {
+  get edges(): EdgeSelection {
     const m = this.source;
     const rows: number[] = [];
     const inside = (i: number) => this.set === null || this.set.has(i);
@@ -217,8 +232,16 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     return new EdgeSelection(m, rows);
   }
 
+
+  /** Thickness around what this selection holds, as `Material.thicken`
+   * does: the selection is the same material's world, and the outline is
+   * taken from the rows it picked. */
+  thicken(opts: ThickenOpts): Material {
+    return thickenKernel(this, opts);
+  }
+
   /** Independent material of the selected points and every point column,
-   * with NO edges (use `inducedEdges().extract()` to keep existing
+   * with NO edges (use `edges.extract()` to keep existing
    * connections). Edge columns stay declared, empty. Iteration 0, no
    * history; transfer policies carried. */
   extract(): Material {
@@ -356,6 +379,13 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     const out: number[] = [];
     for (let e = 0; e < this.source.edgeCount; e++) if (!(this.set === null || this.set.has(e))) out.push(e);
     return new EdgeSelection(this.source, out);
+  }
+
+  /** Thickness around what this selection holds, as `Material.thicken`
+   * does: the selection is the same material's world, and the outline is
+   * taken from the rows it picked. */
+  thicken(opts: ThickenOpts): Material {
+    return thickenKernel(this, opts);
   }
 
   /** Independent material of the selected edges, their endpoints and both

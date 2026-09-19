@@ -32,10 +32,19 @@ import { walkChains } from './chains.js';
 import { planarize, faces, type PlanarizeOpts, type Faces, type Face } from './faces.js';
 import type { IsoContour } from './isolines.js';
 import { distanceTo } from './distance.js';
-import { numericLoops, type Boundary } from './boundary.js';
+import { numericLoops, type AreaInput } from './boundary.js';
 import { Delaunay } from 'd3-delaunay';
 import { orient2d } from 'robust-predicates';
-import { trails as makeTrails } from './trails.js';
+import { trails as makeTrails, type TrailsOpts } from './trails.js';
+// Same-world transforms: a material in, a material out. They are methods on
+// Material and the kernels stay in their own files, the way `steps` already
+// delegates. The import cycle is safe because every use is at call time.
+import { thicken as thickenKernel, type ThickenOpts } from './thicken.js';
+import { warp as warpKernel, type WarpOpts } from './warp.js';
+import { oscillate as oscillateKernel, type OscillateOpts } from './oscillate.js';
+import { envelope as envelopeKernel } from './envelope.js';
+import { interlace as interlaceKernel, type InterlaceOpts } from './interlace.js';
+import { snap as snapKernel, type SnapField, type SnapOpts } from './snap.js';
 import { distance, perp, isArr, vx, vy, type XY } from './vec.js';
 import { ownerOf, ownedBy, ownerOfView, pairKey, viewKind, viewProto } from './views.js';
 import { checkAttrs, stepOnce, isStepShorthand, stepRuleOf, type StepKit, type StepRule, type StepShorthand, type StepsOptions } from './steps.js';
@@ -465,6 +474,17 @@ export class Material {
     return -1;
   }
 
+  /**
+   * The material's areas: its CLOSED chains, as contour records with their
+   * winding. This is what an area consumer reads — `polygon(m)` fills these
+   * and `t.within(x, m)` bounds by them. A material whose chains are all
+   * open has no area, and the consumer says so rather than drawing nothing.
+   * For every chain, open or closed, see `curves()`.
+   */
+  contours(): IsoContour[] {
+    return this.curves().filter((c) => c.closed);
+  }
+
   /** True when the material is one closed chain (a ring). */
   get closed(): boolean {
     const cs = this.curves();
@@ -884,6 +904,54 @@ export class Material {
     return out;
   }
 
+  // ---- same-world transforms ----
+  //
+  // A method stays in its world: each of these takes this material and
+  // gives back a material. They were free functions for no reason but
+  // history, and the kernel of each still lives in its own file.
+
+  /** Thickness around this material's chains: an outline at the radius each
+   * vertex asks for. See `ThickenOpts`. */
+  thicken(opts: ThickenOpts): Material {
+    return thickenKernel(this, opts);
+  }
+
+  /** This material through a moved cage: corner for corner, the space in
+   * between follows. See `WarpOpts`. */
+  warp(opts: WarpOpts): Material {
+    return warpKernel(this, opts);
+  }
+
+  /** Swing this material's chains, at a wavelength and amplitude read in its
+   * own units. See `OscillateOpts`. */
+  oscillate(opts: OscillateOpts): Material {
+    return oscillateKernel(this, opts);
+  }
+
+  /** The outline this material's chains sweep: their envelope. */
+  envelope(): Material {
+    return envelopeKernel(this);
+  }
+
+  /** Over and under at every crossing: the chains are cut where they pass
+   * beneath, by `{ gap }` in this material's own coordinates. */
+  interlace(opts: InterlaceOpts): Material {
+    return interlaceKernel(this, opts);
+  }
+
+  /** Pull this material's points onto a field's zero, within `{ radius }`. */
+  snap(field: SnapField, opts: SnapOpts): Material {
+    return snapKernel(this, field, opts);
+  }
+
+  /** One pen-down per pass: a junction is split into one degree-2 vertex per
+   * passing pair, so the chain walk sails through and no edge is drawn
+   * twice. The ink is exactly where it was; the result is a drawing, and
+   * `faces()` will rightly refuse it. */
+  trails(opts: TrailsOpts = {}): Material {
+    return makeTrails(this, opts);
+  }
+
   // ---- the iteration verb ----
 
   /**
@@ -1120,7 +1188,7 @@ export function loopCrossings(
  */
 export function withinMaterial(
   m: Material,
-  area: Boundary,
+  area: AreaInput,
   opts: {
     transfer?: Record<string, Transfer>;
     inside?: (x: number, y: number) => number;
@@ -1742,26 +1810,6 @@ export const connect = {
     return mm.withEdges(pairs, opts.edgeAttributes);
   },
 
-  /**
-   * The same drawing, re-wired so the pen lifts as few times as it can.
-   *
-   * `strokes` breaks a chain at every junction, so a grid comes off the
-   * plotter as one stroke per edge pair even though a pen could run straight
-   * through. A *trail* uses no edge twice, and the fewest trails covering a
-   * connected network is `max(1, odd / 2)` — every trail has two ends, and
-   * only an odd-degree vertex can be one. This reaches that minimum.
-   *
-   * It is a re-wiring, not a drawing mode: a junction is split into one
-   * degree-2 vertex per passing pair, which leaves the ink exactly where it
-   * was and lets the ordinary chain walk sail through. No edge is drawn twice.
-   *
-   * The split vertices sit on top of one another, which is what they are — one
-   * place the pen passes through twice — so the result is a DRAWING and
-   * `faces()` will rightly refuse it. Keep the original to ask questions of.
-   */
-  trails(m: PointsLike, opts: { edgeAttributes?: Record<string, number> } = {}): Material {
-    return makeTrails(material(m), opts);
-  },
 
   /**
    * Join two rows when the way between them is unimpeded — when the space

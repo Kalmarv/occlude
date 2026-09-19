@@ -31,7 +31,7 @@ describe('an area input: a face and a shape are already areas', () => {
     const face = aFace();
     const asFace = ink(sketch({}, () => polygon(face, { opaque: true })));
     expect(asFace).toBeGreaterThan(0);
-    expect(asFace).toBe(ink(sketch({}, () => polygon(face.contours, { opaque: true }))));
+    expect(asFace).toBe(ink(sketch({}, () => polygon(face.contours(), { opaque: true }))));
   });
 
   it('takes a shape, lowered through the same lowerer as t.material', () => {

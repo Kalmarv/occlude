@@ -467,7 +467,7 @@ export class Mesh<P extends Attributes3={},E extends EdgeAttributes={},F extends
    * per-face extrusion remains the advanced `extrudeFaces3`. */
   extrude(faces:MeshFaces<P,E,F,C>,offset:ExtrudeOffset<ExtrudeRegion<P,E,F,C>>,options:ExtrudeOptions={}):Mesh<P,E,F,C>{
     checkOptions(options);
-    if(!(faces instanceof Collection)||faces.domain!=='face'||faces.source!==this.surface)throw new Error('extrude requires a face selection of this mesh revision; select from mesh.faces()');
+    if(!(faces instanceof Collection)||faces.domain!=='face'||faces.source!==this.surface)throw new Error('extrude requires a face selection of this mesh revision; select from mesh.faces');
     if(typeof offset==='number')offset={distance:offset};
     if(offset===undefined||offset===null||typeof offset!=='function'&&!Array.isArray(offset)&&(typeof offset!=='object'||!('distance'in offset)))throw new Error('extrude offset must be a distance, a vector, a region callback or { distance }');
     const key=options.key??'extrude';if(typeof key!=='string'||!key)throw new Error('extrude key must be a nonempty string');

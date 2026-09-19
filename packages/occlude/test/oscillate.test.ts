@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { append, curve, material, mm, oscillate, type Material } from '../src/index.js';
+import { append, curve, material, mm, type Material } from '../src/index.js';
 
 const line = (x0: number, y0: number, x1: number, y1: number) => curve([[x0, y0], [x1, y1]]);
 const ys = (m: Material) => Array.from(m.y);
@@ -16,17 +16,17 @@ describe('oscillate', () => {
     // here degrades THIS station, never the drawing. Half of this line has a
     // wavelength, half has none; the half with one still swings.
     const src = line(0, 50, 100, 50);
-    const half = oscillate(src, { wavelength: (x) => (x < 50 ? 8 : NaN), amplitude: 3 });
+    const half = src.oscillate({ wavelength: (x) => (x < 50 ? 8 : NaN), amplitude: 3 });
     expect(Array.from(half.x).some((x, i) => x < 50 && half.y[i] !== 50)).toBe(true);
     expect(Array.from(half.x).filter((x, i) => x > 50 && half.y[i] !== 50)).toHaveLength(0);
     // An amplitude nobody can read is no swing, and a waveform that answers
     // with nothing is no offset: the chain comes through straight either way.
-    expect(ys(oscillate(src, { wavelength: 8, amplitude: () => NaN })).every((y) => y === 50)).toBe(true);
-    expect(ys(oscillate(src, { wavelength: 8, amplitude: 3, shape: () => NaN })).every((y) => y === 50)).toBe(true);
+    expect(ys(src.oscillate({ wavelength: 8, amplitude: () => NaN })).every((y) => y === 50)).toBe(true);
+    expect(ys(src.oscillate({ wavelength: 8, amplitude: 3, shape: () => NaN })).every((y) => y === 50)).toBe(true);
   });
 
   it('swings to the amplitude, at the wavelength, about the chain it was given', () => {
-    const w = oscillate(line(0, 50, 120, 50), { wavelength: 10, amplitude: 4 });
+    const w = line(0, 50, 120, 50).oscillate({ wavelength: 10, amplitude: 4 });
     const v = ys(w);
     // The swing reaches the amplitude either side and no further.
     expect(Math.max(...v)).toBeCloseTo(54, 1);
@@ -38,26 +38,26 @@ describe('oscillate', () => {
     // (the ends are not turns).
     expect(turns(v)).toBe(24);
     // Zero amplitude leaves the chain where it was.
-    const flat = oscillate(line(0, 50, 120, 50), { wavelength: 10, amplitude: 0 });
+    const flat = line(0, 50, 120, 50).oscillate({ wavelength: 10, amplitude: 0 });
     expect(Math.max(...flat.y)).toBeCloseTo(50, 9);
     expect(Math.min(...flat.y)).toBeCloseTo(50, 9);
     // The source is untouched.
     const src = line(0, 50, 120, 50);
-    oscillate(src, { wavelength: 10, amplitude: 4 });
+    src.oscillate({ wavelength: 10, amplitude: 4 });
     expect(src.n).toBe(2);
   });
 
   it('phase is integrated, so a wavelength that varies still packs more cycles where it is short', () => {
     // Half the run at wavelength 4, half at 20: 60/4 + 60/20 = 18 cycles.
-    const w = oscillate(line(0, 50, 120, 50), { wavelength: (x) => (x < 60 ? 4 : 20), amplitude: 3 });
+    const w = line(0, 50, 120, 50).oscillate({ wavelength: (x) => (x < 60 ? 4 : 20), amplitude: 3 });
     expect(turns(ys(w))).toBe(36);
     // Reading s/lambda instead of integrating would give 120/4 or 120/20 at
     // the joint and jump; here the two halves each carry their own count.
-    const left = oscillate(line(0, 50, 60, 50), { wavelength: 4, amplitude: 3 });
-    const right = oscillate(line(60, 50, 120, 50), { wavelength: 20, amplitude: 3 });
+    const left = line(0, 50, 60, 50).oscillate({ wavelength: 4, amplitude: 3 });
+    const right = line(60, 50, 120, 50).oscillate({ wavelength: 20, amplitude: 3 });
     expect(turns(ys(left)) + turns(ys(right))).toBe(36);
     // Amplitude reads the page too.
-    const grow = oscillate(line(0, 50, 100, 50), { wavelength: 10, amplitude: (x) => 1 + x / 25 });
+    const grow = line(0, 50, 100, 50).oscillate({ wavelength: 10, amplitude: (x) => 1 + x / 25 });
     const near = grow.y[2] - 50;
     const far = grow.y[grow.n - 3] - 50;
     expect(Math.abs(far)).toBeGreaterThan(Math.abs(near));
@@ -73,7 +73,7 @@ describe('oscillate', () => {
     // short span leaves the remainder to fall across the seam as a visible
     // jump — this is the measurement that catches it.
     for (const [r, wavelength] of [[13, 6], [20, 7.3], [26, 11], [9, 4.1]]) {
-      const w = oscillate(ringOf(r), { wavelength, amplitude: 2 });
+      const w = ringOf(r).oscillate({ wavelength, amplitude: 2 });
       const n = w.n;
       const off = Array.from({ length: n }, (_, k) => Math.hypot(w.x[k] - 50, w.y[k] - 50) - r);
       const d = Array.from({ length: n }, (_, k) => off[(k + 1) % n] - off[k]);
@@ -88,56 +88,56 @@ describe('oscillate', () => {
     }
     // A ring is given a whole number of cycles, never fewer than one, so a
     // circumference shorter than the wavelength still comes back to itself.
-    const tiny = oscillate(ringOf(1), { wavelength: 40, amplitude: 0.3 });
+    const tiny = ringOf(1).oscillate({ wavelength: 40, amplitude: 0.3 });
     expect(tiny.n).toBeGreaterThan(2);
   });
 
   it('the waveform is a plain function, so a sawtooth is a caller recipe', () => {
     const tri = (u: number) => (u < 0.5 ? 4 * u - 1 : 3 - 4 * u);
-    const w = oscillate(line(0, 50, 80, 50), { wavelength: 8, amplitude: 5, shape: tri, steps: 40 });
+    const w = line(0, 50, 80, 50).oscillate({ wavelength: 8, amplitude: 5, shape: tri, steps: 40 });
     expect(Math.max(...w.y)).toBeCloseTo(55, 0);
     // A square wave is legal too, and its samples sit at the two extremes.
-    const sq = oscillate(line(0, 50, 80, 50), { wavelength: 8, amplitude: 5, shape: (u) => (u < 0.5 ? 1 : -1) });
+    const sq = line(0, 50, 80, 50).oscillate({ wavelength: 8, amplitude: 5, shape: (u) => (u < 0.5 ? 1 : -1) });
     for (const y of sq.y) expect(Math.abs(Math.abs(y - 50) - 5)).toBeLessThan(1e-9);
     // phase shifts the start.
-    const a = oscillate(line(0, 50, 40, 50), { wavelength: 8, amplitude: 5 });
-    const b = oscillate(line(0, 50, 40, 50), { wavelength: 8, amplitude: 5, phase: 0.25 });
+    const a = line(0, 50, 40, 50).oscillate({ wavelength: 8, amplitude: 5 });
+    const b = line(0, 50, 40, 50).oscillate({ wavelength: 8, amplitude: 5, phase: 0.25 });
     expect(a.y[0]).toBeCloseTo(50, 6);
     expect(b.y[0]).toBeCloseTo(55, 6);
   });
 
   it('is deterministic, and refuses what it cannot read', () => {
-    const once = oscillate(line(0, 50, 77, 50), { wavelength: 6.1, amplitude: 2.3 });
-    const twice = oscillate(line(0, 50, 77, 50), { wavelength: 6.1, amplitude: 2.3 });
+    const once = line(0, 50, 77, 50).oscillate({ wavelength: 6.1, amplitude: 2.3 });
+    const twice = line(0, 50, 77, 50).oscillate({ wavelength: 6.1, amplitude: 2.3 });
     expect(Array.from(once.x)).toEqual(Array.from(twice.x));
     expect(Array.from(once.y)).toEqual(Array.from(twice.y));
     const src = line(0, 50, 60, 50);
     // Lengths are material coordinates here, as for thicken: mm(1) is not resolved.
-    expect(() => oscillate(src, { wavelength: mm(1) as never, amplitude: 2 })).toThrow(/is not resolved here/);
+    expect(() => src.oscillate({ wavelength: mm(1) as never, amplitude: 2 })).toThrow(/is not resolved here/);
     // A wavelength with no length in it has no cycle to sit on: that station
     // stays where the chain put it, and the sketch still draws.
-    expect(Array.from(oscillate(src, { wavelength: 0, amplitude: 2 }).y).every((y) => y === 50)).toBe(true);
-    const partly = oscillate(src, { wavelength: (x) => 5 - x, amplitude: 2 });
+    expect(Array.from(src.oscillate({ wavelength: 0, amplitude: 2 }).y).every((y) => y === 50)).toBe(true);
+    const partly = src.oscillate({ wavelength: (x) => 5 - x, amplitude: 2 });
     expect(Array.from(partly.y).some((y) => y !== 50)).toBe(true);
     expect(Array.from(partly.x).filter((x, i) => x > 5 && partly.y[i] !== 50)).toHaveLength(0);
-    expect(() => oscillate(src, { amplitude: 2 } as never)).toThrow(/\{ wavelength \} is required/);
-    expect(() => oscillate(src, { wavelength: 5 } as never)).toThrow(/\{ amplitude \} is required/);
-    expect(() => oscillate(src, { wavelength: 5, amplitude: 2, steps: 3 })).toThrow(/at least 4/);
+    expect(() => src.oscillate({ amplitude: 2 } as never)).toThrow(/\{ wavelength \} is required/);
+    expect(() => src.oscillate({ wavelength: 5 } as never)).toThrow(/\{ amplitude \} is required/);
+    expect(() => src.oscillate({ wavelength: 5, amplitude: 2, steps: 3 })).toThrow(/at least 4/);
     // A junction has no single side to swing to; `along` already says so.
     const star = append(append(line(0, 0, 10, 0), line(10, 0, 20, 5)), line(10, 0, 20, -5)).planarize();
-    expect(() => oscillate(star, { wavelength: 4, amplitude: 1 })).toThrow();
+    expect(() => star.oscillate({ wavelength: 4, amplitude: 1 })).toThrow();
     // Lone points contribute nothing rather than erroring.
-    expect(oscillate(material([[5, 5]]), { wavelength: 4, amplitude: 1 }).n).toBe(0);
+    expect(material([[5, 5]]).oscillate({ wavelength: 4, amplitude: 1 }).n).toBe(0);
     // The result is ordinary Material: the source's own columns, and none of
     // the station bookkeeping that would surprise the next operation.
-    const carried = oscillate(curve([[0, 50], [60, 50]], { weight: 2 }), { wavelength: 6, amplitude: 1 });
+    const carried = curve([[0, 50], [60, 50]], { weight: 2 }).oscillate({ wavelength: 6, amplitude: 1 });
     expect(Object.keys(carried.attrs).sort()).toEqual(['weight']);
     expect(carried.attrs.weight[0]).toBeCloseTo(2, 9);
     // So a swung ring that crosses itself planarizes without a resolver.
-    const knot = oscillate(curve(Array.from({ length: 200 }, (_, k) => {
+    const knot = curve(Array.from({ length: 200 }, (_, k) => {
       const a = (k / 200) * Math.PI * 2;
       return [50 + Math.cos(a) * 12, 50 + Math.sin(a) * 12] as [number, number];
-    }), { closed: true }), { wavelength: 9, amplitude: 20 });
+    }), { closed: true }).oscillate({ wavelength: 9, amplitude: 20 });
     expect(() => knot.planarize().faces()).not.toThrow();
   });
 });

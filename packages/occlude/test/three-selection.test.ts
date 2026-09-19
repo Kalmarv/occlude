@@ -12,7 +12,7 @@ describe('3D selection and editing', () => {
     expect(points.filter(p => p.boundary).length).toBe(8);
     expect(points.filter(p => p.index === 4).adjacent().indices).toEqual([1,3,5,7]);
     expect(edges.length).toBe(12); expect(edges.filter(e => e.boundary).length).toBe(8);
-    expect(edges.filter(e => e.boundary).points().indices).toEqual(points.filter(p => p.boundary).indices);
+    expect(edges.filter(e => e.boundary).points.indices).toEqual(points.filter(p => p.boundary).indices);
     surface.points[0].position = [100,100,100]; surface.points[0].attributes.tag = 'later';
     expect(points.filter(p => p.position[0] < 0).length).toBe(3);
     expect(points.map(p => p.attributes.tag)[0]).toBeUndefined();

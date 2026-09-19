@@ -10,7 +10,7 @@ import { material, type Material, type PointsLike, type Vertex } from './materia
 import { length, mul, perp, sub, sumBy, unit, vx, vy, type Vec, type XY } from './vec.js';
 import { ownerOf } from './views.js';
 import { distanceTo } from './distance.js';
-import { numericLoops, type Boundary } from './boundary.js';
+import { numericLoops, type AreaInput } from './boundary.js';
 import { grad } from './field.js';
 import type { VectorFieldFn } from './shapes.js';
 
@@ -240,7 +240,7 @@ export function attract(
 }
 
 /**
- * Boundary: keep inside an area. `keep(p)` is zero deeper than `radius`
+ * AreaInput: keep inside an area. `keep(p)` is zero deeper than `radius`
  * inside the boundary loops, grows linearly to `strength` at the edge, and
  * keeps pushing inward outside — direction from the signed distance field
  * (`distanceTo`: positive inside, holes respected; contours chord-closed).
@@ -248,7 +248,7 @@ export function attract(
  * pts, isolines' pts. Sampled obstacles are `separation`; this is the
  * continuous boundary.
  */
-export function boundary(loops: Boundary, opts: { radius: number; strength?: number }): (p: XY) => Vec {
+export function boundary(loops: AreaInput, opts: { radius: number; strength?: number }): (p: XY) => Vec {
   const { radius, strength = 1 } = opts;
   const inside = distanceTo(numericLoops(loops, 'force.boundary'));
   const inward = grad(inside);

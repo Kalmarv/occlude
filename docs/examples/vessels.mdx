@@ -8,7 +8,7 @@ One flat panel of hatch lines and one rectangle for the wall. Each pot is a cage
 Uses: `curve`, `append`, `resample`, `t.sample`, `warp`, `group`.
 
 ```ts live paper=200x100
-import { sketch, rect, curve, append, warp, strokes, group } from 'occlude';
+import { sketch, rect, curve, append, strokes, group } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   const N = 30;
@@ -38,8 +38,8 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
       return [cx + nx * f.r(v) * 1.1 * u, cy + ny * f.r(v) * 1.1 * u];
     });
     return group({ translate: [22 + i * 48, 14] }, [
-      strokes(warp(hatch, { from: rest, to: cage })),
-      strokes(warp(wall, { from: rest, to: cage }), { pen: 'stabilo-88-blue' }),
+      strokes(hatch.warp({ from: rest, to: cage })),
+      strokes(wall.warp({ from: rest, to: cage }), { pen: 'stabilo-88-blue' }),
     ]);
   });
 });

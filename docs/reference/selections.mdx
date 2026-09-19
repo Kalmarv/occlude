@@ -119,13 +119,13 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## inducedEdges() · edges.points · edges.curves()
+## points.edges · edges.points · edges.curves()
 
-<include>/_sig/PointSelection.inducedEdges.mdx</include>
+<include>/_sig/PointSelection.edges.mdx</include>
 <include>/_sig/EdgeSelection.points.mdx</include>
 <include>/_sig/EdgeSelection.curves.mdx</include>
 
-`inducedEdges()` is the source edges with both ends in the point selection. `edges.points` is the endpoints of an edge selection, each once. `edges.curves()` walks the selected edges into chains, each edge once, with ends and junctions those of the selection alone. `strokes(edges)` draws those chains.
+`points.edges` is the source edges with both ends in the point selection. `edges.points` is the endpoints of an edge selection, each once. `edges.curves()` walks the selected edges into chains, each edge once, with ends and junctions those of the selection alone. `strokes(edges)` draws those chains.
 
 ```ts live
 import { sketch, circle, strokes, connect } from 'occlude';
@@ -133,7 +133,7 @@ import { sketch, circle, strokes, connect } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const web = connect.triangulate(t.scatter({ spacing: 12 }));
   const inner = web.points.filter((p) => Math.hypot(p.x - 50, p.y - 50) < 30);
-  return [strokes(web, { pen: 'pigma-005-black' }), strokes(inner.inducedEdges(), { pen: 'pigma-05-black' })];
+  return [strokes(web, { pen: 'pigma-005-black' }), strokes(inner.edges, { pen: 'pigma-05-black' })];
 });
 ```
 

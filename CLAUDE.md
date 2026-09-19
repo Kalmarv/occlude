@@ -62,6 +62,23 @@ rasters are implementation numbers. They are not tenants.
   is cut at the boundary, a point selection and a face collection are
   filtered. A shape area is lowered by the toolkit, never by a pure
   kernel.
+- **One accessor protocol.** A geometry value says what it is by what it
+  answers: `contours()` for areas, `curves()` for chains, `points` for
+  positions. Every area consumer reads `contours()`, every chain consumer
+  `curves()`, every point consumer `points`; a consumer refuses a value
+  that cannot answer, by name. The protocol is structural — no base class,
+  no marker, nothing a value cannot already say honestly.
+- **A collection you hold is a property; one you compute is a call.**
+  `m.points`, `m.edges`, `cells.points`, `face.edges` are properties;
+  `m.faces()`, `m.curves()`, `cells.contours()`, `cells.boundaryEdges()`
+  are calls, because each makes a new collection. The rule is one rule for
+  2D and 3D.
+- **A method stays in its world; a function crosses one.** Material to
+  material is a method (`m.thicken`, `m.warp`, `m.steps`); shape to
+  material, material to ink, geometry to field are functions (`polygon`,
+  `strokes`, `distanceTo`). Anything that needs paper, units or the seed
+  is on the toolkit whatever world it stays in. `connect.*` is the one
+  kept exception: a family of recipes reads better with its prefix.
 - **The frame rule.** Value methods exist only on resolved data-world
   values (Material, Station, Selection, Face, contour records).
   Anything that needs the sketch frame — paper, units, a shape's own

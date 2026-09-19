@@ -363,7 +363,7 @@ describe('within: the filled region, not the contours', () => {
       ).planarize().faces();
       const faces = [...t.within(ring, area, { faces: 'contained' })];
       kept = faces.length;
-      contours = faces[0]?.contours.length ?? 0;
+      contours = faces[0]?.contours().length ?? 0;
     });
     expect(kept).toBe(1); // its wall runs along the hole, not across it
     expect(contours).toBe(2); // outer + hole

@@ -29,6 +29,19 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+## What a geometry value can say
+
+A value answers `contours()` for areas, `curves()` for chains, and `points` for positions. A consumer asks for the one it needs, and it refuses a value that cannot answer, by name. A shape is not geometry until the toolkit lowers it with `t.material` or `t.sample`.
+
+| value | answers |
+| --- | --- |
+| material | `contours()`, `curves()`, `points` |
+| point selection | `points`, `curves()` |
+| edge selection | `points`, `curves()` |
+| face collection or face selection | `points`, `edges`, `contours()` |
+| one face | `points`, `edges`, `contours()` |
+| contour records and loops | themselves |
+
 ## material()
 
 <include>/_sig/material.mdx</include>

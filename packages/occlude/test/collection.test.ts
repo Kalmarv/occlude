@@ -102,7 +102,7 @@ describe('selections as boundaries', () => {
     // Deliberately the wrong input (a selection is several areas): the
     // refusal is the contract.
     expect(() => polygon(cells.filter(() => true) as never)).toThrow(/several areas .*contours\(\)/);
-    // A single face IS an area: no `.contours` unwrapping at the call site.
+    // A single face IS an area: no `.contours()` unwrapping at the call site.
     expect(cells.filter((f) => f.area > 1).map((f) => polygon(f))).toHaveLength(2);
     expect(cells.length).toBe(2);
     expect(cells.at(1).area).toBe(100);
