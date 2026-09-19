@@ -34,7 +34,7 @@
  */
 
 import { orient2d } from 'robust-predicates';
-import { mintIds, Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Edge } from './material.js';
+import { mintIds, Material, inheritEdge, ownedBy, viewKind, viewProto, type ChildInterval, type Edge, type FaceColumn } from './material.js';
 import { groupRows, EdgeSelection, PointSelection } from './relation.js';
 import { contourMoment, measureFaces, type FaceMeasurements, type MeasureOpts } from './measure.js';
 import type { IsoContour } from './isolines.js';
@@ -902,6 +902,30 @@ export class Faces {
       // position of its own — and `'drop'` lets a column stop at a boundary
       // change rather than follow it.
       const wallsOf = (key: string): string[] => (key === '' ? [] : key.split(','));
+      // An index from WALL to the old keys that hold it, built once per
+      // column. The straight reading — re-split every stored key for every
+      // new face — is quadratic in the face count and was measured at
+      // 621 ms for 1800 new faces against 29 ms for the rest of the work.
+      // `order` keeps the map's own insertion order so the tie between two
+      // old faces sharing the same number of walls breaks the way it always
+      // did: the earliest written wins.
+      const indexed = new Map<FaceColumn, { byWall: Map<string, string[]>; order: Map<string, number> }>();
+      const indexOf = (column: FaceColumn) => {
+        let built = indexed.get(column);
+        if (built) return built;
+        built = { byWall: new Map<string, string[]>(), order: new Map<string, number>() };
+        let at = 0;
+        for (const key of column.values.keys()) {
+          built.order.set(key, at++);
+          for (const w of wallsOf(key)) {
+            const held = built.byWall.get(w);
+            if (held) held.push(key);
+            else built.byWall.set(w, [key]);
+          }
+        }
+        indexed.set(column, built);
+        return built;
+      };
       for (let f = 0; f < views.length; f++) {
         const mine = wallsOf(keys[f]);
         for (const [name, column] of columns) {
@@ -911,12 +935,19 @@ export class Faces {
           // taking a neighbour's would be the column spreading on its own.
           const isNew = !column.seen.has(keys[f]);
           if (value === undefined && isNew && column.transfer === 'nearest' && mine.length > 0) {
-            let best = -1;
-            for (const [key, held] of column.values) {
-              const shared = wallsOf(key).filter((w) => mine.includes(w)).length;
-              if (shared > best) {
-                best = shared;
-                value = shared > 0 ? held : undefined;
+            const { byWall, order } = indexOf(column);
+            // Only the old faces that share at least one wall are counted,
+            // and each is reached through the walls this face actually has.
+            const shared = new Map<string, number>();
+            for (const w of mine) for (const key of byWall.get(w) ?? []) shared.set(key, (shared.get(key) ?? 0) + 1);
+            let best = 0;
+            let bestAt = Infinity;
+            for (const [key, count] of shared) {
+              const at = order.get(key)!;
+              if (count > best || (count === best && at < bestAt)) {
+                best = count;
+                bestAt = at;
+                value = column.values.get(key);
               }
             }
           }

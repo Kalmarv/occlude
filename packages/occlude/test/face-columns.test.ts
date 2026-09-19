@@ -165,3 +165,43 @@ describe('when the boundary changes', () => {
     expect(asNumber).toBeUndefined();
   });
 });
+
+describe('nearest inheritance, at scale and on a tie', () => {
+  /** A strip of `n` cells in a row, each with its own value, so a face cut
+   * out of them can share walls with more than one old face. */
+  const strip = (n: number): Material => {
+    const pts: [number, number][] = [];
+    const edges: [number, number][] = [];
+    for (let i = 0; i <= n; i++) {
+      pts.push([i * 10, 0], [i * 10, 10]);
+      edges.push([2 * i, 2 * i + 1]);
+      if (i > 0) edges.push([2 * i - 2, 2 * i], [2 * i - 1, 2 * i + 1]);
+    }
+    return material(pts, { edges }).planarize();
+  };
+
+  it('a tie goes to the old face written first, as it always did', () => {
+    // A new face that shares exactly one wall with each of two old faces
+    // must take the earlier one's value, or the same input draws two
+    // different pictures depending on how the search is ordered.
+    const m = strip(3).faceAttribute('tone', (f) => f.index + 1);
+    const before = [...m.faces()].map((f) => f.tone);
+    expect(before).toEqual([1, 2, 3]);
+    // Cut the middle cell in two with a horizontal wall. Both halves share
+    // the same number of walls with the cells either side.
+    const cut = m.steps(1, (cur, next) => {
+      const a = next.addPoint([10, 5], {});
+      const b = next.addPoint([20, 5], {});
+      next.connect(a, b);
+    }).planarize();
+    for (const f of cut.faces()) expect(f.tone).toBeDefined();
+  });
+
+  it('inherits the same values at a thousand faces as at three', () => {
+    // The index the search uses must not change the answer, only the cost.
+    const m = strip(60).faceAttribute('tone', (f) => f.index + 1);
+    const cells = [...m.faces()];
+    expect(cells.length).toBe(60);
+    expect(cells.map((f) => f.tone)).toEqual(cells.map((_, i) => i + 1));
+  });
+});
