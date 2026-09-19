@@ -387,9 +387,14 @@ function zoneSource(node: GraphNode, graph: Graph, catalogue: Catalogue, outer?:
   const bound = new Set(params);
   // A boundary output is the callback's parameter when the recipe binds it,
   // and otherwise the outer value the zone node takes under that name.
+  // The name of the bind that is a row, under the name this sketch gave it.
+  const row = recipe.row === undefined ? undefined : params[recipe.row];
   const boundary = (output: string): string => {
     if (bound.has(output)) return output;
     if (node.inputs[output] !== undefined) return inputExpression(node, output, graph, catalogue, outer);
+    // Anything else the boundary offers is something the ROW holds by name:
+    // `p.x`, `face.area`, `sel.key` — what the sketch wrote, written back.
+    if (row !== undefined) return `${row}.${output}`;
     throw new Error(`graph: zone ${node.id} has no value for ${output}`);
   };
   // An inside that is nothing but one code node is the body the sketch

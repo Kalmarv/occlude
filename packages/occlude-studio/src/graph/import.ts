@@ -638,6 +638,18 @@ class Reader {
       }
       this.taken.delete(zoneId);
     }
+    // What a sketch returns is very often one word's call: `return
+    // stroke(grown.contour)`, `(p) => circle(p.x, p.y, 2)`. That is the
+    // word, wired to the output, and not a code node that holds it.
+    if (before.length === 0 && ts.isCallExpression(expr)) {
+      const mark = this.nodes.length;
+      const lifted = this.liftCall(expr);
+      if (lifted) {
+        this.add({ id, kind: 'output', x: 0, y: 0, inputs: { in: { from: [lifted.id, 'out'] } } });
+        return;
+      }
+      this.rollback(mark);
+    }
     // What a sketch returns is very often a list of the things it drew.
     if (before.length === 0 && ts.isArrayLiteralExpression(expr)) {
       const listId = this.uniqueId('ink');
@@ -1055,6 +1067,19 @@ class Reader {
       boundary[name] = input.type ?? 'Geometry';
     }
 
+    // What the row holds, by name: one socket each, so the body reads
+    // `p.x` on a wire instead of inside a code node. The compiler writes
+    // `p.x` back, so this moves no ink. A name a capture already claims
+    // stays a capture — one socket cannot carry two things — and the body
+    // goes on reading that one through the row.
+    const rowBind = recipe.row === undefined ? undefined : binds[recipe.row];
+    if (rowBind !== undefined) {
+      for (const field of fieldsRead(rowBind, callback.body)) {
+        if (field in boundary || reserved.has(field)) continue;
+        boundary[field] = 'Number';
+      }
+    }
+
     // The inside's own node names must not be names the body already reads:
     // a sketch with `const body = (x, y) => …` crossing the boundary would
     // have shadowed the node holding the body, and the `const` would have
@@ -1276,6 +1301,13 @@ class Reader {
     if (ts.isIdentifier(arg)) {
       const binding = this.bindings.get(arg.text);
       if (binding) return { from: [binding.node.id, binding.output] };
+    }
+    // What a value holds by name, where the node holding it offers that name
+    // on a socket: `p.x` inside a `map` body is the boundary's own `x`.
+    if (ts.isPropertyAccessExpression(arg) && ts.isIdentifier(arg.expression)) {
+      const binding = this.bindings.get(arg.expression.text);
+      const field = arg.name.text;
+      if (binding && this.outputTypeOf(binding.node.id, field)) return { from: [binding.node.id, field] };
     }
     if (ts.isCallExpression(arg)) {
       const lifted = this.liftCall(arg);
@@ -1594,6 +1626,31 @@ function sheetFieldOf(id: ts.Identifier): string | undefined {
   if (!parent || !ts.isPropertyAccessExpression(parent) || parent.expression !== id) return undefined;
   const field = parent.name.text;
   return field === 'w' || field === 'h' || field === 'cx' || field === 'cy' ? field : undefined;
+}
+
+/**
+ * What a row is read for, by name.
+ *
+ * `p.x`, `face.area`, `sel.key` — a plain field of the row, read and used.
+ * NOT `p.adjacent.has(q)` or `p.attrs.rest`, where the field is a step on
+ * the way to something else, and not `sel.map(…)`, where it is a call: the
+ * boundary can only offer a socket for something that is a value on its
+ * own, and the body keeps reading the rest through the row itself.
+ */
+function fieldsRead(name: string, node: ts.Node): Set<string> {
+  const out = new Set<string>();
+  for (const id of reads(node)) {
+    if (id.text !== name) continue;
+    const parent = id.parent;
+    if (!parent || !ts.isPropertyAccessExpression(parent) || parent.expression !== id) continue;
+    const grand = parent.parent;
+    // A call of it, or a field of it: not a value the boundary can carry.
+    if (grand && (ts.isCallExpression(grand) && grand.expression === parent)) continue;
+    if (grand && ts.isPropertyAccessExpression(grand) && grand.expression === parent) continue;
+    if (grand && ts.isElementAccessExpression(grand) && grand.expression === parent) continue;
+    out.add(parent.name.text);
+  }
+  return out;
 }
 
 /**

@@ -281,6 +281,17 @@ export const ZONES: Record<ZoneKind, {
   takes: { name: string; takes?: Takes; raw?: boolean }[];
   /** What the inside is handed on each run, in the callback's order. */
   binds: { name: string; type: ValueType }[];
+  /**
+   * Which bind is a ROW, when one is.
+   *
+   * A row holds things by name — a point's `x`, a face's `area`, a group's
+   * `key` — and the boundary can offer them one socket each instead of
+   * handing the body a whole row to read from inside a code node. The
+   * compiler answers such a socket with `row.name`, which is what the
+   * sketch wrote, so the body comes apart into ordinary nodes and the ink
+   * does not move.
+   */
+  row?: number;
   /** Whether each run answers with a value. A step rule does not: it moves
    * the next state, and the zone's own answer is what the word returns. */
   answers?: false;
@@ -302,6 +313,7 @@ ${body}
   map: {
     takes: [{ name: 'rows', takes: { socket: 'Geometry', any: true } }],
     binds: [{ name: 'row', type: 'Geometry' }],
+    row: 0,
     call: (args, params, body) => `${args['rows'] ?? '[]'}.map((${params}) => {
 ${body}
 })`,
@@ -323,6 +335,7 @@ ${body}
   filter: {
     takes: [{ name: 'rows', takes: { socket: 'Geometry', any: true } }],
     binds: [{ name: 'row', type: 'Geometry' }],
+    row: 0,
     call: (args, params, body) => `${args['rows'] ?? '[]'}.filter((${params}) => {
 ${body}
 })`,

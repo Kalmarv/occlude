@@ -273,14 +273,16 @@ export default sketch({}, (t) => {
       CATALOGUE,
     );
     expect(graph.nodes.map((n) => [n.id, n.kind])).toEqual([
-      ['all', 'builtin'], ['stmt', 'code'], ['ink', 'code'], ['output', 'output'],
+      ['all', 'builtin'], ['stmt', 'code'], ['strokes2', 'builtin'], ['output', 'output'],
     ]);
     const statement = graph.nodes[1]!;
     expect(statement.body).toBe('all = append(all, material([[20, 20], [30, 30]]));\nreturn { all: all };');
     expect(statement.outputs).toEqual({ all: 'material' });
     expect(statement.inputs).toEqual({ all: { type: 'material', from: ['all', 'out'] } });
-    // The return reads the loop's `all`, not the node it started from.
-    expect(graph.nodes[2]!.inputs).toEqual({ all: { type: 'material', from: ['stmt', 'all'] } });
+    // The return is the word it calls, and it reads the loop's `all` rather
+    // than the node it started from.
+    expect(graph.nodes[2]!.word).toBe('strokes');
+    expect(graph.nodes[2]!.inputs).toEqual({ source: { from: ['stmt', 'all'] } });
   });
 
   it('compiles to a sketch that binds every name it reads', () => {
