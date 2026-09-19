@@ -36,7 +36,7 @@ import { importSketch } from './graph/import.js';
 import { loadSketchByName, takeLive } from './sketchApi.js';
 import {
   PAPER_OUTPUTS, accepts, cloneNode, graphToJson, inputTakes, kindOf, listPlaces, outputType, parseGraph, wordInputs, wordOf,
-  type Catalogue, type CatalogueWord, type Graph, type GraphNode, type ValueType,
+  type Catalogue, type CatalogueWord, type Graph, type GraphNode, type Takes, type ValueType,
 } from './graph/model.js';
 import { deleteGraph, graphHref, listGraphs, loadGraphText, saveGraphText } from './graph/store.js';
 
@@ -717,6 +717,127 @@ function showReach(from: { nodeId: string; side: string; key: string | number } 
   }
 }
 
+/** What a wire let go over nothing is looking for: a word that takes what
+ * the output carries, or one that makes what the input wants. */
+export type Want = { side: 'output'; type: ValueType } | { side: 'input'; takes: Takes };
+
+/** The wire that is waiting for a word, and where its node will stand. */
+let waiting: { from: SocketSpot; at: { x: number; y: number }; want: Want } | null = null;
+
+/** Every palette item's answer to "would you fit here?", set when it is
+ * built, because a predicate per keystroke over 260 words is a filter the
+ * artist can feel. */
+const paletteFits = new Map<HTMLElement, (want: Want) => boolean>();
+
+function wantOf(from: SocketSpot): Want | null {
+  if (from.side === 'output') {
+    const type = typeOfOutput(from.nodeId, from.key);
+    return type ? { side: 'output', type } : null;
+  }
+  const node = nodeById(from.nodeId);
+  const takes = node ? inputTakes(node, catalogue)[from.key] : undefined;
+  return takes ? { side: 'input', takes } : null;
+}
+
+function wantLabel(want: Want): string {
+  return want.side === 'output' ? want.type : (want.takes.any ? 'anything' : want.takes.kinds?.join(' | ') ?? want.takes.socket);
+}
+
+/** Show the words that would land on this wire, and wait for one. */
+function askPalette(from: SocketSpot, at: { x: number; y: number }): void {
+  const want = wantOf(from);
+  if (!want) return;
+  waiting = { from, at, want };
+  for (const [item, fits] of paletteFits) item.dataset.fits = fits(want) ? '1' : '0';
+  palette.classList.add('graph-asking');
+  paletteSearch.value = '';
+  paletteSearch.placeholder = want.side === 'output' ? `takes ${wantLabel(want)}` : `makes ${wantLabel(want)}`;
+  filterPalette();
+  paletteSearch.focus();
+}
+
+/** The wire is no longer waiting: every word is on offer again. */
+function stopAsking(): void {
+  if (!waiting) return;
+  waiting = null;
+  for (const item of paletteFits.keys()) delete item.dataset.fits;
+  palette.classList.remove('graph-asking');
+  paletteSearch.placeholder = 'search the catalogue';
+  filterPalette();
+}
+
+/** Wire the node that answered to the socket that asked. The sockets are
+ * read off the built node, so this knows what every kind has without a
+ * second table. */
+async function wireWaiting(node: GraphNode): Promise<void> {
+  const held = waiting;
+  if (!held) return;
+  const rete = canvas.editor.getNode(node.id) as ReteNode | undefined;
+  if (!rete) return;
+  const mine = held.from.side === 'output' ? Object.keys(rete.inputs) : Object.keys(rete.outputs);
+  const key = mine.find((name) => (held.from.side === 'output'
+    ? wouldWire(held.from, { nodeId: node.id, side: 'input', key: name })
+    : wouldWire({ nodeId: node.id, side: 'output', key: name }, held.from)));
+  if (key !== undefined) {
+    const wire = held.from.side === 'output'
+      ? { source: held.from, target: { nodeId: node.id, side: 'input', key } }
+      : { source: { nodeId: node.id, side: 'output', key }, target: held.from };
+    await canvas.editor.addConnection({
+      id: wireId({ source: wire.source.nodeId, sourceOutput: wire.source.key, target: wire.target.nodeId, targetInput: wire.target.key }),
+      source: wire.source.nodeId, sourceOutput: wire.source.key, target: wire.target.nodeId, targetInput: wire.target.key,
+    });
+  }
+  stopAsking();
+}
+
+/** A socket, as the connection plugin names one. */
+interface SocketSpot { nodeId: string; side: string; key: string }
+
+/** How far from a socket a drop still counts, in screen pixels. A ten-pixel
+ * dot is a ten-pixel target only if the drop is judged by the dot. */
+const REACH = 46;
+
+/**
+ * A wire let go over nothing. Two answers, in order: the nearest socket it
+ * could have meant, if one is close enough to have been meant; otherwise the
+ * palette, showing only the words that take (or make) what is on the wire,
+ * and the word the artist picks is placed at the drop and wired.
+ */
+async function landWire(from: SocketSpot): Promise<void> {
+  const at = pointerAt;
+  if (!at) return;
+  const near = nearestSocket(from, at);
+  if (near) {
+    const wire = from.side === 'output' ? { source: from, target: near } : { source: near, target: from };
+    await canvas.editor.addConnection({
+      id: wireId({ source: wire.source.nodeId, sourceOutput: wire.source.key, target: wire.target.nodeId, targetInput: wire.target.key }),
+      source: wire.source.nodeId, sourceOutput: wire.source.key, target: wire.target.nodeId, targetInput: wire.target.key,
+    });
+    return;
+  }
+  if (tookAWire) return;
+  askPalette(from, canvas.at(at.x, at.y));
+}
+
+/** The compatible socket nearest the drop, within reach. */
+function nearestSocket(from: SocketSpot, at: { x: number; y: number }): SocketSpot | null {
+  let best: { spot: SocketSpot; away: number } | null = null;
+  for (const dot of canvasHost.querySelectorAll<HTMLElement>('[data-socket]')) {
+    const body = dot.closest<HTMLElement>('.graph-node-body');
+    const id = body?.dataset.node;
+    const parts = dot.dataset.socket?.split(':') ?? [];
+    if (!id || parts.length !== 2) continue;
+    const spot: SocketSpot = { nodeId: id, side: parts[0]!, key: parts[1]! };
+    const ok = from.side === 'output' ? wouldWire(from, spot) : wouldWire(spot, from);
+    if (!ok) continue;
+    const rect = dot.getBoundingClientRect();
+    const away = Math.hypot(rect.x + rect.width / 2 - at.x, rect.y + rect.height / 2 - at.y);
+    if (away > REACH) continue;
+    if (!best || away < best.away) best = { spot, away };
+  }
+  return best?.spot ?? null;
+}
+
 /** Whether a wire from one socket to another would be allowed, without
  * saying anything about it: `allowWire` is the same rule, and it talks. */
 function wouldWire(from: { nodeId: string; side: string; key: string | number }, to: { nodeId: string; side: string; key: string | number }): boolean {
@@ -734,14 +855,26 @@ function wouldWire(from: { nodeId: string; side: string; key: string | number },
 // These signals are the connection plugin's own, so this is where they are.
 canvas.connection.addPipe((context) => {
   const signal = context as { type: string; data?: { socket?: { nodeId: string; side: string; key: string | number } } };
-  if (signal.type === 'connectionpick' && signal.data?.socket) showReach(signal.data.socket);
-  if (signal.type === 'connectiondrop') showReach(null);
+  if (signal.type === 'connectionpick' && signal.data?.socket) {
+    tookAWire = false;
+    showReach(signal.data.socket);
+  }
+  if (signal.type === 'connectiondrop') {
+    showReach(null);
+    const drop = signal.data as unknown as { initial: SocketSpot; socket: SocketSpot | null; created: boolean };
+    if (!drop.created && drop.socket === null && drop.initial) void landWire(drop.initial);
+  }
   return context;
 });
+
+/** This drag pulled an existing wire off its input. Dropping it over nothing
+ * means "disconnect", so the palette does not then ask what to put there. */
+let tookAWire = false;
 
 canvas.editor.addPipe((context: Root<GraphScheme>) => {
   // A wire that landed: the drag is over either way.
   if (context.type === 'connectioncreated' || context.type === 'connectionremoved') showReach(null);
+  if (context.type === 'connectionremoved') tookAWire = true;
   return context;
 });
 
@@ -1115,11 +1248,11 @@ function clearWire(wire: GraphWire): void {
   if (loading) return;
   const target = nodeById(wire.target);
   if (!target) return;
-  const key = String(wire.targetInput);
-  const input = target.inputs[key];
-  if (input) delete input.from;
-  // A place nothing reaches is not a place: a list closes the gap.
-  if (target.kind === 'list' && input && input.value === undefined) delete target.inputs[key];
+  // An input whose wire is taken off, with no literal left, is not in the
+  // document: `{}` is neither a value nor an edge, and the compiler would
+  // read it as a value of `undefined` rather than say which input is
+  // missing. A list's place closes the gap by the same rule.
+  cutWire(target, String(wire.targetInput));
   syncWired(target);
   if (target.kind === 'viewer' || target.kind === 'list') canvas.refresh(target.id);
   touch();
@@ -1224,7 +1357,8 @@ function freeSpot(at: { x: number; y: number }): { x: number; y: number } {
 }
 
 async function place(node: GraphNode, at = canvas.centre()): Promise<void> {
-  const spot = freeSpot(at);
+  // A wire that is waiting decides where its node stands: at the drop.
+  const spot = freeSpot(waiting ? waiting.at : at);
   node.x = spot.x;
   node.y = spot.y;
   graph.nodes.push(node);
@@ -1233,6 +1367,7 @@ async function place(node: GraphNode, at = canvas.centre()): Promise<void> {
   // working on.
   canvas.raise(node.id);
   select(node.id);
+  if (waiting) await wireWaiting(node);
   touch();
 }
 
@@ -1622,7 +1757,13 @@ function showReply(node: GraphNode, reply: { result: RenderResult; probes: Recor
 /** The word being dragged out of the palette, and how to add it. */
 let dragging: ((at?: { x: number; y: number }) => void) | null = null;
 
-function paletteItem(word: string, returns: string, add: (at?: { x: number; y: number }) => void, hint: string): HTMLButtonElement {
+function paletteItem(
+  word: string,
+  returns: string,
+  add: (at?: { x: number; y: number }) => void,
+  hint: string,
+  fits: (want: Want) => boolean = () => false,
+): HTMLButtonElement {
   const item = el('button', 'graph-palette-item');
   item.title = `${hint} — click to add at the middle, or drag one onto the canvas`;
   const dot = el('span', 'graph-palette-dot');
@@ -1643,6 +1784,7 @@ function paletteItem(word: string, returns: string, add: (at?: { x: number; y: n
     dragging = null;
     canvasHost.classList.remove('graph-dropping');
   });
+  paletteFits.set(item, fits);
   return item;
 }
 
@@ -1663,19 +1805,24 @@ canvasHost.addEventListener('drop', (event) => {
 
 function buildPalette(): void {
   paletteList.replaceChildren();
+  paletteFits.clear();
   const nodes = el('div', 'graph-palette-group');
   nodes.append(el('div', 'graph-palette-title', 'Nodes'));
-  nodes.append(paletteItem('value', 'Number', (at) => addNode('value', at), 'A number the graph holds'));
-  nodes.append(paletteItem('list', 'drawing', (at) => addNode('list', at), 'Several values as one, in order'));
-  nodes.append(paletteItem('paper', 'Number', (at) => addNode('paper', at), 'The sheet: its width, its height and its middle'));
+  const makes = (type: ValueType) => (want: Want): boolean => want.side === 'input' && accepts(type, want.takes);
+  const takesAny = (want: Want): boolean => want.side === 'output';
+  nodes.append(paletteItem('value', 'Number', (at) => addNode('value', at), 'A number the graph holds', makes('Number')));
+  nodes.append(paletteItem('list', 'drawing', (at) => addNode('list', at), 'Several values as one, in order',
+    (want) => want.side === 'output' || accepts('Geometry', want.takes)));
+  nodes.append(paletteItem('paper', 'Number', (at) => addNode('paper', at), 'The sheet: its width, its height and its middle', makes('Number')));
   // One pen, wired wherever it draws: change it in one place.
   nodes.append(paletteItem('pen', 'Pen', (at) => void place({
     id: freshId(), kind: 'value', x: 0, y: 0,
     inputs: { v: { value: pens[0]?.name ?? '' } }, outputs: { out: 'Pen' },
-  }, at), 'A pen, wired wherever it draws'));
-  nodes.append(paletteItem('code', 'body', (at) => addNode('code', at), 'A function body with declared inputs and outputs'));
-  nodes.append(paletteItem('viewer', 'picture', (at) => addNode('viewer', at), 'Draw what this point of the graph holds'));
-  nodes.append(paletteItem('output', 'return', (at) => addNode('output', at), 'What the sketch returns'));
+  }, at), 'A pen, wired wherever it draws', makes('Pen')));
+  nodes.append(paletteItem('code', 'body', (at) => addNode('code', at), 'A function body with declared inputs and outputs', makes('Number')));
+  nodes.append(paletteItem('viewer', 'picture', (at) => addNode('viewer', at), 'Draw what this point of the graph holds', takesAny));
+  nodes.append(paletteItem('output', 'return', (at) => addNode('output', at), 'What the sketch returns',
+    (want) => want.side === 'output' && accepts(want.type, { socket: 'Geometry', kinds: ['shape', 'drawing'] })));
   paletteList.append(nodes);
 
   const groups = new Map<string, HTMLElement>();
@@ -1687,10 +1834,13 @@ function buildPalette(): void {
       groups.set(word.group, group);
       paletteList.append(group);
     }
-    group.append(paletteItem(word.word, word.returns, (at) => addBuiltin(word, at), `${word.word} → ${word.returns}${word.page ? ` · ${word.page}` : ''}`));
+    group.append(paletteItem(word.word, word.returns, (at) => addBuiltin(word, at), `${word.word} → ${word.returns}${word.page ? ` · ${word.page}` : ''}`,
+      (want) => (want.side === 'input'
+        ? accepts(word.returns, want.takes)
+        : wordInputs(word).some((input) => input.takes !== undefined && accepts(want.type, input.takes)))));
   }
-  const count = paletteHead.querySelector('.graph-palette-count');
-  if (count) count.textContent = `${catalogue.words.length}`;
+  // The count is the filter's to write: it is the number on offer.
+  filterPalette();
 }
 
 /** The word the arrows are on: typing filters, the arrows move, Enter adds. */
@@ -1715,16 +1865,25 @@ function mark(at: number): void {
 
 function filterPalette(): void {
   const query = paletteSearch.value.trim().toLowerCase();
+  let offered = 0;
   for (const group of paletteList.querySelectorAll<HTMLElement>('.graph-palette-group')) {
     let shown = 0;
     for (const item of group.querySelectorAll<HTMLElement>('.graph-palette-item')) {
       const word = item.querySelector('.graph-palette-word')?.textContent?.toLowerCase() ?? '';
-      const on = query === '' || word.includes(query) || (group.querySelector('.graph-palette-title')?.textContent ?? '').toLowerCase().includes(query);
+      const named = query === '' || word.includes(query) || (group.querySelector('.graph-palette-title')?.textContent ?? '').toLowerCase().includes(query);
+      // A wire is waiting: only the words that would land on it are on offer.
+      const on = named && (item.dataset.fits === undefined || item.dataset.fits === '1');
       item.hidden = !on;
       if (on) shown++;
     }
     group.hidden = shown === 0;
+    offered += shown;
   }
+  // The count says how many words are on offer, not how many exist, whenever
+  // those differ: a narrowed palette that still reads 259 is a lie.
+  const count = paletteHead.querySelector('.graph-palette-count');
+  const all = paletteFits.size;
+  if (count) count.textContent = offered === all ? `${all}` : `${offered}/${all}`;
   // Typing puts the mark on the first word it finds, so Enter adds the word
   // you were looking for without reaching for the mouse.
   mark(0);
@@ -1749,7 +1908,10 @@ paletteSearch.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     event.preventDefault();
     if (paletteSearch.value === '') {
-      paletteSearch.blur();
+      // A wire waiting for a word is called off first: the artist is looking
+      // at a narrowed palette, and Escape is how they say never mind.
+      if (waiting) stopAsking();
+      else paletteSearch.blur();
       return;
     }
     paletteSearch.value = '';
@@ -1993,7 +2155,7 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     for (const id of [...selection]) void removeNode(id);
   }
-  if (event.key === 'Escape') clearSelection();
+  if (event.key === 'Escape') { stopAsking(); clearSelection(); }
   // Blender's key for it: frame everything.
   if (event.key === 'Home') {
     event.preventDefault();

@@ -3811,3 +3811,13 @@ wa-dialog.wa-dialog-wide {
   box-shadow: var(--shadow-2);
   cursor: pointer;
 }
+
+/* A wire is waiting for a word: the palette is showing only what would land
+   on it, and says so. */
+.graph-palette.graph-asking .graph-search {
+  border-color: var(--accent);
+}
+
+.graph-palette.graph-asking .graph-search::placeholder {
+  color: var(--accent);
+}
