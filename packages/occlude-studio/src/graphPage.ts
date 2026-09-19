@@ -67,6 +67,7 @@ const SOCKET_COLORS: Record<string, string> = {
   Tone: 'var(--muted)',
   Pen: 'var(--accent-edge)',
   Image: 'var(--warn)',
+  Force: 'var(--accent-edge)',
 };
 
 /** What a viewer's own picture wraps: a material is not ink. */

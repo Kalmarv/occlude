@@ -89,7 +89,7 @@ for (const page of PAGES) for (const word of page.words) if (!pageOfWord.has(wor
 
 // ---- the type → socket map ----
 
-const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier', 'VectorField', 'Tone', 'Pen', 'Image'] as const;
+const SOCKET_CLASSES = ['Geometry', 'Number', 'Vector', 'Field', 'Fill', 'Camera', 'Modifier', 'VectorField', 'Tone', 'Pen', 'Image', 'Force'] as const;
 type SocketClass = (typeof SOCKET_CLASSES)[number];
 const GEOMETRY_KINDS = ['shape', 'material', 'points', 'faces', 'mesh', 'curves', 'surface', 'drawing'] as const;
 type GeometryKind = (typeof GEOMETRY_KINDS)[number];
@@ -223,6 +223,32 @@ function isScalarField(type: ts.Type): boolean {
   return types.every(isNumberish) && isNumberish(checker.getReturnTypeOfSignature(sig));
 }
 
+/**
+ * A force: what `force.*` returns and what a step rule evaluates at a
+ * point. A point in, a vector out, with the iteration as an optional
+ * second argument. The point is a `Vertex` for a force that reads the
+ * state's topology (`tension`, `relax`) and a bare `XY` for one that
+ * reads only a position (`boundary`, `drift`, `vortex`), and both are the
+ * same thing to the artist: `force.sum` mixes them. Structural, like a
+ * field — the library names these by their shape, not by a type of their
+ * own.
+ */
+const FORCE_POINT = new Set(['Vertex', 'XY']);
+function isPointForce(type: ts.Type): boolean {
+  const sig = type.getCallSignatures()[0];
+  if (!sig) return false;
+  const params = sig.getParameters();
+  if (params.length < 1 || params.length > 2) return false;
+  const first = params[0].valueDeclaration
+    ? checker.getTypeOfSymbolAtLocation(params[0], params[0].valueDeclaration)
+    : undefined;
+  if (!first) return false;
+  const point = nonNullish(first);
+  if (!FORCE_POINT.has(point.aliasSymbol?.getName() ?? typeName(point) ?? '')) return false;
+  const out = valueOf(checker.getReturnTypeOfSignature(sig));
+  return out === 'Vector';
+}
+
 function typeName(type: ts.Type): string | undefined {
   return type.aliasSymbol?.getName() ?? type.getSymbol()?.getName();
 }
@@ -309,6 +335,7 @@ function valueOf(raw: ts.Type, seen = new Set<ts.Type>()): ValueType | undefined
   const name = typeName(type);
   if (name && BY_NAME[name] && !(GEOMETRY_KINDS as readonly string[]).includes(BY_NAME[name])) return BY_NAME[name];
   if (isScalarField(type)) return 'Field';
+  if (isPointForce(type)) return 'Force';
   return undefined;
 }
 

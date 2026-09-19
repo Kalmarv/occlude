@@ -66,6 +66,7 @@ const SOCKET_CLASS_LABEL: Record<string, string> = {
   Tone: 'tone',
   Pen: 'pen',
   Image: 'picture',
+  Force: 'force',
 };
 
 /** The socket a value type travels on, and the geometry kinds it names. */

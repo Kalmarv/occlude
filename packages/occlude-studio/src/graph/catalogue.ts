@@ -1125,6 +1125,109 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'force.attract', module: 'occlude', receiver: 'force',
+      import: 'force', call: 'force.attract', returns: 'Force',
+      page: '/docs/reference/steps', group: 'Steps and forces',
+      params: [
+        { name: 'sources', takes: { socket: 'Geometry' }, optional: false },
+        { name: 'opts', optional: false, options: [
+          { name: 'radius', takes: { socket: 'Number' }, optional: false },
+          { name: 'strength', takes: { socket: 'Number' }, optional: true },
+          { name: 'excludeConnected', control: 'check', optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 'force.boundary', module: 'occlude', receiver: 'force',
+      import: 'force', call: 'force.boundary', returns: 'Force',
+      page: '/docs/reference/steps', group: 'Steps and forces',
+      params: [
+        { name: 'loops', takes: { socket: 'Geometry' }, optional: false },
+        { name: 'opts', optional: false, options: [
+          { name: 'radius', takes: { socket: 'Number' }, optional: false },
+          { name: 'strength', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 'force.drift', module: 'occlude', receiver: 'force',
+      import: 'force', call: 'force.drift', returns: 'Force',
+      page: '/docs/reference/steps', group: 'Steps and forces',
+      params: [
+        { name: 'noise', takes: { socket: 'Field' }, optional: false },
+        { name: 'opts', optional: false, options: [
+          { name: 'amount', takes: { socket: 'Number' }, optional: false },
+          { name: 'frequency', takes: { socket: 'Number' }, optional: true },
+          { name: 'rate', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 'force.field', module: 'occlude', receiver: 'force',
+      import: 'force', call: 'force.field', returns: 'Force',
+      page: '/docs/reference/steps', group: 'Steps and forces',
+      params: [
+        { name: 'vf', takes: { socket: 'VectorField' }, optional: false },
+        { name: 'opts', optional: true, options: [
+          { name: 'strength', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 'force.relax', module: 'occlude', receiver: 'force',
+      import: 'force', call: 'force.relax', returns: 'Force',
+      page: '/docs/reference/steps', group: 'Steps and forces',
+      params: [
+        { name: 'm', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
+        { name: 'opts', optional: true, options: [
+          { name: 'amount', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 'force.separation', module: 'occlude', receiver: 'force',
+      import: 'force', call: 'force.separation', returns: 'Force',
+      page: '/docs/reference/steps', group: 'Steps and forces',
+      params: [
+        { name: 'sources', takes: { socket: 'Geometry' }, optional: false },
+        { name: 'opts', optional: false, options: [
+          { name: 'radius', takes: { socket: 'Number' }, optional: false },
+          { name: 'excludeConnected', control: 'check', optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 'force.sum', module: 'occlude', receiver: 'force',
+      import: 'force', call: 'force.sum', returns: 'Force',
+      page: '/docs/reference/steps', group: 'Steps and forces',
+      params: [
+        { name: 'forces', takes: { socket: 'Force' }, optional: true },
+      ],
+    },
+    {
+      word: 'force.tension', module: 'occlude', receiver: 'force',
+      import: 'force', call: 'force.tension', returns: 'Force',
+      page: '/docs/reference/steps', group: 'Steps and forces',
+      params: [
+        { name: 'm', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
+        { name: 'opts', optional: false, options: [
+          { name: 'rest', takes: { socket: 'Number' }, optional: false },
+        ] },
+      ],
+    },
+    {
+      word: 'force.vortex', module: 'occlude', receiver: 'force',
+      import: 'force', call: 'force.vortex', returns: 'Force',
+      page: '/docs/reference/steps', group: 'Steps and forces',
+      params: [
+        { name: 'centre', takes: { socket: 'Vector' }, optional: false },
+        { name: 'opts', optional: false, options: [
+          { name: 'strength', takes: { socket: 'Number' }, optional: false },
+          { name: 'falloff', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
       word: 'Faces.boundaryEdges', module: 'occlude', receiver: null,
       import: null, call: '{self}.boundaryEdges', returns: 'material',
       self: { param: 'faces', takes: { socket: 'Geometry', kinds: ['faces'] } },
@@ -2644,6 +2747,14 @@ export const CATALOGUE: Catalogue = {
       ],
     },
     {
+      word: 'sumForces', module: 'occlude', receiver: null,
+      import: 'sumForces', call: 'sumForces', returns: 'Force',
+      page: '', group: 'Other',
+      params: [
+        { name: 'forces', takes: { socket: 'Force' }, optional: true },
+      ],
+    },
+    {
       word: 'surface3', module: 'occlude', receiver: null,
       import: 'surface3', call: 'surface3', returns: 'surface',
       page: '', group: 'Other',
@@ -2672,6 +2783,109 @@ export const CATALOGUE: Catalogue = {
       page: '', group: 'Other',
       params: [
         { name: 'area', takes: { socket: 'Geometry' }, optional: false },
+      ],
+    },
+    {
+      word: 't.force.attract', module: 'occlude', receiver: 't',
+      import: null, call: 't.force.attract', returns: 'Force',
+      page: '', group: 'Other',
+      params: [
+        { name: 'sources', takes: { socket: 'Geometry' }, optional: false },
+        { name: 'opts', optional: false, options: [
+          { name: 'radius', takes: { socket: 'Number' }, optional: false },
+          { name: 'strength', takes: { socket: 'Number' }, optional: true },
+          { name: 'excludeConnected', control: 'check', optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 't.force.boundary', module: 'occlude', receiver: 't',
+      import: null, call: 't.force.boundary', returns: 'Force',
+      page: '', group: 'Other',
+      params: [
+        { name: 'area', takes: { socket: 'Geometry' }, optional: false },
+        { name: 'opts', optional: false, options: [
+          { name: 'radius', takes: { socket: 'Number' }, optional: false },
+          { name: 'strength', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 't.force.drift', module: 'occlude', receiver: 't',
+      import: null, call: 't.force.drift', returns: 'Force',
+      page: '', group: 'Other',
+      params: [
+        { name: 'noise', takes: { socket: 'Field' }, optional: false },
+        { name: 'opts', optional: false, options: [
+          { name: 'amount', takes: { socket: 'Number' }, optional: false },
+          { name: 'frequency', takes: { socket: 'Number' }, optional: true },
+          { name: 'rate', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 't.force.field', module: 'occlude', receiver: 't',
+      import: null, call: 't.force.field', returns: 'Force',
+      page: '', group: 'Other',
+      params: [
+        { name: 'vf', takes: { socket: 'VectorField' }, optional: false },
+        { name: 'opts', optional: true, options: [
+          { name: 'strength', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 't.force.relax', module: 'occlude', receiver: 't',
+      import: null, call: 't.force.relax', returns: 'Force',
+      page: '', group: 'Other',
+      params: [
+        { name: 'm', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
+        { name: 'opts', optional: true, options: [
+          { name: 'amount', takes: { socket: 'Number' }, optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 't.force.separation', module: 'occlude', receiver: 't',
+      import: null, call: 't.force.separation', returns: 'Force',
+      page: '', group: 'Other',
+      params: [
+        { name: 'sources', takes: { socket: 'Geometry' }, optional: false },
+        { name: 'opts', optional: false, options: [
+          { name: 'radius', takes: { socket: 'Number' }, optional: false },
+          { name: 'excludeConnected', control: 'check', optional: true },
+        ] },
+      ],
+    },
+    {
+      word: 't.force.sum', module: 'occlude', receiver: 't',
+      import: null, call: 't.force.sum', returns: 'Force',
+      page: '', group: 'Other',
+      params: [
+        { name: 'forces', takes: { socket: 'Force' }, optional: true },
+      ],
+    },
+    {
+      word: 't.force.tension', module: 'occlude', receiver: 't',
+      import: null, call: 't.force.tension', returns: 'Force',
+      page: '', group: 'Other',
+      params: [
+        { name: 'm', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
+        { name: 'opts', optional: false, options: [
+          { name: 'rest', takes: { socket: 'Number' }, optional: false },
+        ] },
+      ],
+    },
+    {
+      word: 't.force.vortex', module: 'occlude', receiver: 't',
+      import: null, call: 't.force.vortex', returns: 'Force',
+      page: '', group: 'Other',
+      params: [
+        { name: 'centre', takes: { socket: 'Vector' }, optional: false },
+        { name: 'opts', optional: false, options: [
+          { name: 'strength', takes: { socket: 'Number' }, optional: false },
+          { name: 'falloff', takes: { socket: 'Number' }, optional: true },
+        ] },
       ],
     },
     {
