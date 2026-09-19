@@ -317,11 +317,15 @@ function valueOf(raw: ts.Type, seen = new Set<ts.Type>()): ValueType | undefined
  * `fill?: FillSpec | CustomFillFn` takes a Fill. */
 function takesOf(raw: ts.Type): { socket: SocketClass; kinds?: GeometryKind[] } | undefined {
   const type = nonNullish(raw);
+  // The protocol wins over everything a union spells out beside it:
+  // `AreaInput | Contour | Contour[] | ShapeValue` takes every geometry, and
+  // reading its members instead narrows the socket to the two kinds the
+  // other members happen to name. This must be asked BEFORE the members are
+  // walked, or the answer is the narrow one.
+  if (isAnyGeometry(type)) return { socket: 'Geometry' };
+  if (type.isUnion() && type.types.some((t) => isAnyGeometry(nonNullish(t)))) return { socket: 'Geometry' };
   const strict = strictTakesOf(type);
   if (strict) return strict;
-  // A union that holds the protocol takes every geometry, whatever else it
-  // spells out beside it: `Geometry | IsoContour[] | Loop` is geometry.
-  if (type.isUnion() && type.types.some((t) => isAnyGeometry(nonNullish(t)))) return { socket: 'Geometry' };
   if (!type.isUnion()) return undefined;
   const mapped = type.types.map((t) => strictTakesOf(t)).filter((t) => t !== undefined);
   if (mapped.length === 0) return undefined;

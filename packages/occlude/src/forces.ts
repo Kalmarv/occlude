@@ -6,11 +6,11 @@
  * the material module never depends on this one.
  */
 
-import { material, type Material, type PointsLike, type Vertex } from './material.js';
+import { material, Material, type PointsLike, type Vertex } from './material.js';
 import { length, mul, perp, sub, sumBy, unit, vx, vy, type Vec, type XY } from './vec.js';
 import { ownerOf } from './views.js';
 import { distanceTo } from './distance.js';
-import { numericLoops, type AreaInput } from './boundary.js';
+import { numericLoops, type AreaInput, type Geometry } from './boundary.js';
 import { grad } from './field.js';
 import type { VectorFieldFn } from './shapes.js';
 
@@ -102,9 +102,29 @@ export function neighbours(m: Material, opts: { radius: number; stats?: Neighbou
 // vocabulary. Copy one into a sketch and change it; a custom force that
 // earns reuse can become a recipe.
 
-/** Points a force can be prepared from: a material (its vertices, with `index`
- * and attributes on `q`) or any list of points. */
-export type Sources = PointsLike;
+/**
+ * Points a force can be prepared from: any geometry that has points — a
+ * material, a point selection, an edge selection, a face collection — or a
+ * plain list of points. A point consumer reads `points`, which is the
+ * protocol's answer for "where are they"; a value that has none is refused
+ * by the material constructor, by name.
+ */
+export type Sources = Geometry | PointsLike;
+
+/**
+ * The positions a source holds.
+ *
+ * A material IS the answer — asking it for `points` would throw its edges
+ * away, and `force.separation`'s own `excludeConnected` reads them. A point
+ * selection answers `points` with itself. Everything else that has points —
+ * a face collection, an edge selection — is read through the protocol.
+ */
+export function sourcePoints(sources: Sources): PointsLike {
+  if (sources instanceof Material) return sources;
+  const points = (sources as Geometry).points;
+  if (points === undefined || (points as unknown) === sources) return sources as PointsLike;
+  return points as unknown as PointsLike;
+}
 
 /**
  * A neighbourhood interaction: the sum, over every source point `q` within
@@ -123,7 +143,7 @@ export function nearby(
   opts: { radius: number; skip?: (p: Vertex, q: Vertex) => boolean; stats?: NeighbourStats },
   contribution: (p: Vertex, q: Vertex) => XY,
 ): (p: Vertex) => Vec {
-  const m = material(sources);
+  const m = material(sourcePoints(sources));
   const near = neighbours(m, { radius: opts.radius, stats: opts.stats });
   const skip = opts.skip;
   return (p) =>
@@ -166,7 +186,7 @@ export function tension(m: Material, opts: { rest: number }): (p: Vertex) => Vec
  */
 export function separation(sources: Sources, opts: { radius: number; excludeConnected?: boolean }): (p: Vertex) => Vec {
   const { radius, excludeConnected = false } = opts;
-  return radial(material(sources), radius, excludeConnected, radius, -1);
+  return radial(material(sourcePoints(sources)), radius, excludeConnected, radius, -1);
 }
 
 /** The fixed-law radial recipes (`separation`, `attract`) on the raw
@@ -236,11 +256,11 @@ export function attract(
   opts: { radius: number; strength?: number; excludeConnected?: boolean },
 ): (p: Vertex) => Vec {
   const { radius, strength = 1, excludeConnected = false } = opts;
-  return radial(material(sources), radius, excludeConnected, strength, +1);
+  return radial(material(sourcePoints(sources)), radius, excludeConnected, strength, +1);
 }
 
 /**
- * AreaInput: keep inside an area. `keep(p)` is zero deeper than `radius`
+ * Boundary: keep inside an area. `keep(p)` is zero deeper than `radius`
  * inside the boundary loops, grows linearly to `strength` at the edge, and
  * keeps pushing inward outside — direction from the signed distance field
  * (`distanceTo`: positive inside, holes respected; contours chord-closed).

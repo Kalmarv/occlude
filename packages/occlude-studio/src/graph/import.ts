@@ -474,6 +474,10 @@ class Reader {
         const node = this.add({ id, kind: 'builtin', word: word.word, x: 0, y: 0, inputs: {} });
         this.bindings.set(name, { node, output: 'out', type: word.returns });
         return;
+      } else if (!ts.isCallExpression(expr) && (builtin = this.selfValueNode(expr, id))) {
+        this.add(builtin.node);
+        this.bindings.set(name, { node: builtin.node, output: 'out', type: builtin.word.returns });
+        return;
       } else if (!ts.isCallExpression(expr)) {
         // A literal is a value the graph holds, not a body that computes
         // one: `const boxSpread = 30;` was a code node whose whole text was
@@ -874,6 +878,41 @@ class Reader {
     return word?.value ? word : undefined;
   }
 
+  /**
+   * A word of a value that is read rather than called: `cells.points` is
+   * `Faces.points`, with the receiver on the word's own socket. The
+   * receiver's type tells two owners of a name apart, exactly as it does
+   * for a method.
+   */
+  private selfValueOf(expr: ts.Expression): { word: CatalogueWord; self: GraphInput } | undefined {
+    if (!ts.isPropertyAccessExpression(expr)) return undefined;
+    const name = expr.name.text;
+    const owners = this.catalogue.words.filter((w) => w.self && w.value && w.call === `{self}.${name}`);
+    if (owners.length === 0) return undefined;
+    const mark = this.nodes.length;
+    const self = this.argument(expr.expression, false);
+    const type = self?.from && this.outputTypeOf(self.from[0], self.from[1]);
+    const word = type && !(type === 'Geometry' && owners.length > 1)
+      ? owners.find((w) => accepts(type, w.self!.takes))
+      : undefined;
+    if (!word || !self) {
+      this.rollback(mark);
+      return undefined;
+    }
+    return { word, self };
+  }
+
+  /** The node a read-not-called word of a value is. */
+  private selfValueNode(expr: ts.Expression, id: string): { node: GraphNode; word: CatalogueWord } | undefined {
+    const found = this.selfValueOf(expr);
+    if (!found) return undefined;
+    const node: GraphNode = {
+      id, kind: 'builtin', word: found.word.word, x: 0, y: 0,
+      inputs: { [found.word.self!.param]: found.self },
+    };
+    return { node, word: found.word };
+  }
+
 
   /**
    * A word whose parameter is a body that runs many times: `t.times(n, (i, u)
@@ -1141,6 +1180,16 @@ class Reader {
     const asValue = this.valueWordOf(arg);
     if (asValue) {
       const node = this.add({ id: this.uniqueId(asValue.word.split('.').pop() ?? 'value'), kind: 'builtin', word: asValue.word, x: 0, y: 0, inputs: {} });
+      return { from: [node.id, 'out'] };
+    }
+    // A word of a value, read rather than called: `cells.points` wired in.
+    const onSelf = this.selfValueOf(arg);
+    if (onSelf) {
+      const id = this.uniqueId(onSelf.word.word.split('.').pop() ?? 'value');
+      const node = this.add({
+        id, kind: 'builtin', word: onSelf.word.word, x: 0, y: 0,
+        inputs: { [onSelf.word.self!.param]: onSelf.self },
+      });
       return { from: [node.id, 'out'] };
     }
     // `t.material(...shapes)`: the collection IS the arguments. The rest

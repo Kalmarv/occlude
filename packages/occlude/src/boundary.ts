@@ -142,19 +142,9 @@ export function areaLoops(input: AreaInput, who: string): LoopPoints[] {
     // behaviour every open input has always had here, and the one the docs
     // and the ink baseline pin. `contours()` first means a material that
     // has both is read by what is closed.
-    if (areas.length > 0 && hasCurves(input) && input.curves().length !== areas.length) {
-      console.error(`PROBE ${who}: contours=${areas.length} curves=${input.curves().length}`);
-    }
     if (areas.length > 0 || !hasCurves(input)) return areas.map((c) => c.pts as LoopPoints);
   }
-  if (hasCurves(input)) {
-    const cs = input.curves();
-    if (!hasDegree(input) && isObj(input) && typeof (input as { edges?: unknown }).edges === 'object') {
-      const e = (input as unknown as { edges: { maxDegree(): number } }).edges;
-      if (typeof e?.maxDegree === 'function' && e.maxDegree() > 2) console.error(`PROBE-DEGREE ${who}: point selection branches`);
-    }
-    return cs.map((c) => c.pts as LoopPoints);
-  }
+  if (hasCurves(input)) return input.curves().map((c) => c.pts as LoopPoints);
   if (isContour(input)) return [input.pts as LoopPoints];
   if (!Array.isArray(input)) {
     throw new Error(`${who}: expected a shape, a face, loops of points, contour records or a chain material`);

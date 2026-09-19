@@ -149,3 +149,39 @@ describe('a chain consumer reads curves(), whatever the value is', () => {
     }
   });
 });
+
+describe('the consumers say what they read', () => {
+  it('strokes draws any value with chains, and refuses one with none by name', () => {
+    const m = ring();
+    for (const source of [m, m.points, m.edges]) {
+      expect(() => strokes(source as never)).not.toThrow();
+    }
+    // A face collection is areas, not chains.
+    expect(() => strokes(cellsOf() as never)).toThrow(/no chains to draw/);
+  });
+
+  it('a branching point selection is refused as an area, like a branching material', () => {
+    const star = material([[0, 0], [10, 0], [0, 10], [-10, 0]], { edges: [[0, 1], [0, 2], [0, 3]] });
+    expect(() => polygon(star.points)).toThrow(/branches/);
+  });
+
+  it('t.sample redistributes a material along its own chains', () => {
+    let before = 0;
+    let after = 0;
+    ink(sketch({}, (t) => {
+      const m = ring();
+      before = m.points.length;
+      after = t.sample(m, { count: 40 }).points.length;
+      return [];
+    }));
+    expect(before).toBe(4);
+    expect(after).toBe(40);
+  });
+
+  it('a force reads points from any geometry that has them', () => {
+    const m = ring();
+    for (const source of [m, m.points, m.edges.points]) {
+      expect(() => force.separation(source as never, { radius: 3 })).not.toThrow();
+    }
+  });
+});

@@ -212,6 +212,13 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     return this;
   }
 
+  /** The highest degree among the points, counted over the edges this
+   * selection induces. The area consumers refuse a branching selection by
+   * it, exactly as they refuse a branching material. */
+  maxDegree(): number {
+    return this.edges.maxDegree();
+  }
+
   /** The chains through these points: the chains of the edges among them.
    * A chain consumer reads this — `strokes(sel)` draws what the selected
    * points are connected by, never a new connection. */

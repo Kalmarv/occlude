@@ -26,18 +26,22 @@ describe('the catalogue', () => {
 
   it('gives t.sample a shape and a count, and a material back', () => {
     const inputs = wordInputs(word('t.sample'));
-    expect(inputs.map((i) => i.name)).toEqual(['shape', 'count', 'spacing', 'tolerance']);
+    expect(inputs.map((i) => i.name)).toEqual(['shape', 'count', 'spacing']);
     // One socket carries what every overload of the word takes there:
-    // `t.sample` samples a shape's boundary and a surface's curves alike.
-    expect(inputs[0].takes).toEqual({ socket: 'Geometry', kinds: ['shape', 'curves'] });
+    // `t.sample` redistributes a shape's boundary, a surface's curves and a
+    // material's own chains alike.
+    expect(inputs[0].takes?.socket).toBe('Geometry');
+    expect([...inputs[0].takes!.kinds!].sort()).toEqual(['curves', 'material', 'shape']);
     expect(inputs[1].takes).toEqual({ socket: 'Number' });
     expect(word('t.sample').returns).toBe('material');
   });
 
   it('gives polygon an area and the options a shape takes', () => {
     const inputs = wordInputs(word('polygon'));
-    expect(inputs[0].takes?.socket).toBe('Geometry');
-    expect([...inputs[0].takes!.kinds!].sort()).toEqual(['faces', 'material', 'points', 'shape']);
+    // An area consumer takes EVERY geometry, so its socket names no kinds at
+    // all: that is what the protocol bought, and what a hand-written kind
+    // list used to approximate badly.
+    expect(inputs[0].takes).toEqual({ socket: 'Geometry' });
     expect(inputs.find((i) => i.name === 'opaque')?.control).toBe('check');
     expect(inputs.find((i) => i.name === 'pen')?.takes).toEqual({ socket: 'Pen' });
     expect(word('polygon').returns).toBe('shape');

@@ -263,7 +263,7 @@ export const CATALOGUE: Catalogue = {
       import: 'polygon', call: 'polygon', returns: 'shape',
       page: '/docs/reference/shapes', group: 'Shapes',
       params: [
-        { name: 'contours', takes: { socket: 'Geometry', kinds: ['shape', 'material'] }, optional: false },
+        { name: 'contours', takes: { socket: 'Geometry' }, optional: false },
         { name: 'opts', optional: true, options: [
           { name: 'winding', control: 'menu', choices: ['nonzero', 'evenodd'], optional: true },
           { name: 'pen', takes: { socket: 'Pen' }, optional: true },
@@ -356,7 +356,7 @@ export const CATALOGUE: Catalogue = {
       import: 'strokes', call: 'strokes', returns: 'shape',
       page: '/docs/reference/shapes', group: 'Shapes',
       params: [
-        { name: 'source', takes: { socket: 'Geometry', kinds: ['shape', 'material'] }, optional: false },
+        { name: 'source', takes: { socket: 'Geometry' }, optional: false },
         { name: 'opts', optional: true, options: [
           { name: 'pen', takes: { socket: 'Pen' }, optional: true },
           { name: 'fill', takes: { socket: 'Fill' }, optional: true },
@@ -530,7 +530,7 @@ export const CATALOGUE: Catalogue = {
       page: '/docs/reference/fields', group: 'Fields',
       params: [
         { name: 'faces', takes: { socket: 'Geometry', kinds: ['faces', 'material', 'points'] }, optional: true },
-        { name: 'area', takes: { socket: 'Geometry', kinds: ['shape', 'material'] }, optional: false },
+        { name: 'area', takes: { socket: 'Geometry' }, optional: false },
         { name: 'opts', optional: true, options: [
           { name: 'faces', control: 'menu', choices: ['contained', 'centroid'], optional: true },
         ] },
@@ -834,11 +834,10 @@ export const CATALOGUE: Catalogue = {
       import: null, call: 't.sample', returns: 'material',
       page: '/docs/reference/material', group: 'Material',
       params: [
-        { name: 'shape', takes: { socket: 'Geometry', kinds: ['shape', 'curves'] }, optional: true },
+        { name: 'shape', takes: { socket: 'Geometry', kinds: ['material', 'curves', 'shape'] }, optional: true },
         { name: 'options', optional: false, options: [
           { name: 'count', takes: { socket: 'Number' }, optional: true },
           { name: 'spacing', takes: { socket: 'Number' }, optional: true },
-          { name: 'tolerance', takes: { socket: 'Number' }, optional: true },
         ] },
       ],
     },
@@ -876,7 +875,7 @@ export const CATALOGUE: Catalogue = {
         { name: 'opts', optional: true, options: [
           { name: 'iterations', takes: { socket: 'Number' }, optional: true },
           { name: 'density', takes: { socket: 'Field' }, optional: true },
-          { name: 'within', takes: { socket: 'Geometry', kinds: ['shape', 'material'] }, optional: true },
+          { name: 'within', takes: { socket: 'Geometry' }, optional: true },
           { name: 'resolution', takes: { socket: 'Number' }, optional: true },
         ] },
       ],
@@ -889,7 +888,7 @@ export const CATALOGUE: Catalogue = {
         { name: 'field', takes: { socket: 'Field' }, optional: true },
         { name: 'opts', optional: false, options: [
           { name: 'spacing', takes: { socket: 'Number' }, optional: false },
-          { name: 'within', takes: { socket: 'Geometry', kinds: ['shape', 'material'] }, optional: true },
+          { name: 'within', takes: { socket: 'Geometry' }, optional: true },
         ] },
       ],
     },
@@ -903,7 +902,7 @@ export const CATALOGUE: Catalogue = {
           { name: 'density', takes: { socket: 'Field' }, optional: false },
           { name: 'spacing', takes: { socket: 'Number' }, optional: false },
           { name: 'iterations', takes: { socket: 'Number' }, optional: true },
-          { name: 'within', takes: { socket: 'Geometry', kinds: ['shape', 'material'] }, optional: true },
+          { name: 'within', takes: { socket: 'Geometry' }, optional: true },
           { name: 'resolution', takes: { socket: 'Number' }, optional: true },
         ] },
       ],
@@ -913,7 +912,7 @@ export const CATALOGUE: Catalogue = {
       import: null, call: 't.throw', returns: 'material',
       page: '/docs/reference/points', group: 'Points',
       params: [
-        { name: 'area', takes: { socket: 'Geometry', kinds: ['shape', 'material'] }, optional: true },
+        { name: 'area', takes: { socket: 'Geometry' }, optional: true },
         { name: 'opts', optional: false, options: [
           { name: 'count', takes: { socket: 'Number' }, optional: false },
           { name: 'attempts', takes: { socket: 'Number' }, optional: true },
@@ -927,7 +926,7 @@ export const CATALOGUE: Catalogue = {
       params: [
         { name: 'sites', takes: { socket: 'Geometry', kinds: ['material'] }, optional: false },
         { name: 'opts', optional: true, options: [
-          { name: 'within', takes: { socket: 'Geometry', kinds: ['shape', 'material'] }, optional: true },
+          { name: 'within', takes: { socket: 'Geometry' }, optional: true },
         ] },
       ],
     },
@@ -2488,6 +2487,14 @@ export const CATALOGUE: Catalogue = {
     {
       word: 'PointSelection.length', module: 'occlude', receiver: null, value: true,
       import: null, call: '{self}.length', returns: 'Number',
+      self: { param: 'points', takes: { socket: 'Geometry', kinds: ['points'] } },
+      page: '', group: 'PointSelection',
+      params: [
+      ],
+    },
+    {
+      word: 'PointSelection.maxDegree', module: 'occlude', receiver: null,
+      import: null, call: '{self}.maxDegree', returns: 'Number',
       self: { param: 'points', takes: { socket: 'Geometry', kinds: ['points'] } },
       page: '', group: 'PointSelection',
       params: [

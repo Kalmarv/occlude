@@ -51,7 +51,7 @@ import { isolinesOf, type IsoContour, type IsoOpts } from './isolines.js';
 import { ridgesOf, type RidgeOpts } from './ridges.js';
 import { streamlinesOf, type StreamOpts } from './streamlines.js';
 import { unitMm } from './record.js';
-import { areaLoops, numericLoops, type AreaInput, type LoopPoints } from './boundary.js';
+import { areaLoops, numericLoops, type AreaInput, type Geometry, type LoopPoints } from './boundary.js';
 import {
   Material, material as materialOf, alongChain, checkSampling, isStations, stationsMaterial,
   withinMaterial, type PointsLike, type Station, type Transfer,
@@ -248,14 +248,20 @@ export type Contour = [L, L][];
  * `.map`: nothing here assigns pens from keys.
  */
 export function strokes(source:ProjectedCurves,opts?:ProjectedStrokeOptions):ProjectedStrokes;
-export function strokes(source:readonly IsoContour[]|{curves():IsoContour[]},opts?:ShapeOpts):ShapeValue[];
+export function strokes(source:Geometry|readonly IsoContour[],opts?:ShapeOpts):ShapeValue[];
 export function strokes(
-  source: readonly IsoContour[] | { curves(): IsoContour[] } | ProjectedCurves,
+  source: Geometry | readonly IsoContour[] | ProjectedCurves,
   opts?: ShapeOpts | ProjectedStrokeOptions,
 ): ShapeValue[] | ProjectedStrokes {
   if(source instanceof ProjectedCurves)return projectedStrokes(source,opts);
-  const contours = Array.isArray(source) ? (source as readonly IsoContour[]) : (source as { curves(): IsoContour[] }).curves();
-  return contours.map((c) => stroke(c, opts));
+  if (Array.isArray(source)) return (source as readonly IsoContour[]).map((c) => stroke(c, opts));
+  // A chain consumer reads `curves()`. A value that has no chains to draw —
+  // a face collection is areas, not chains — is refused by name.
+  const chains = (source as Geometry).curves;
+  if (typeof chains !== 'function') {
+    throw new Error('strokes: this value has no chains to draw — a face collection is areas; draw `cells.contours()` with polygon, or its `edges` with strokes');
+  }
+  return chains.call(source).map((c) => stroke(c, opts));
 }
 
 export interface PolygonOpts extends ShapeOpts {
@@ -1172,11 +1178,23 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
   function sample<P extends Attributes3,E extends EdgeAttributes,F extends Attributes3,C extends Attributes3>(mesh:Mesh<P,E,F,C>,options:SurfaceSamplingOptions<F>):SurfaceSamples<Omit<F,keyof P>&P,F,C,P>;
   function sample<A extends Attributes3>(curves:SurfaceCurves<A>,options?:CurveSamplingOptions):CurveSamples<A,A>;
   function sample(shape:ShapeValue,options:{count?:number;spacing?:L;tolerance?:L}):Material;
+  function sample(shape:Material,options:{count?:number;spacing?:L}):Material;
   function sample(
-    shape: ShapeValue | Mesh<any,any,any> | SurfaceCurves<any>,
+    shape: ShapeValue | Material | Mesh<any,any,any> | SurfaceCurves<any>,
     options: { count?: number; spacing?: L; tolerance?: L } | SurfaceSamplingOptions<any> | CurveSamplingOptions = {},
   ): Material | SurfaceSamples<any,any,any,any> | CurveSamples<any,any> {
     if(shape instanceof SurfaceCurves)return sampleSurfaceCurves(shape,options as CurveSamplingOptions);
+    // A material is already geometry: redistributing along its chains by arc
+    // length is `resample`, the same door in the material's own world. The
+    // toolkit form exists so one word means one thing whatever it is given.
+    if(shape instanceof Material){
+      // A length is a drawing unit; the material's own coordinates are what
+      // `resample` counts in, so it is resolved through the frame exactly as
+      // a shape's spacing is.
+      const opts=options as {count?:number;spacing?:L};
+      const spacing=opts.spacing===undefined?undefined:resolveLen(opts.spacing,exec.frame.inner)/unitMm(exec.frame);
+      return shape.resample(spacing===undefined?{count:opts.count}:{spacing});
+    }
     if(shape instanceof Mesh){const opts=options as SurfaceSamplingOptions<any>;return sampleSurfacePoints(shape,opts,{rnd:exec.stream('__surface-sample:'+(opts?.key??shape.key??'default')).rnd,signal:scope?.signal});}
     const opts=options as {count?:number;spacing?:L;tolerance?:L};
     const frame = exec.frame;
