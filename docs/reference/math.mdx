@@ -39,24 +39,15 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 
 A vector is a pair `[x, y]`. Every function below takes `[x, y]` or `{ x, y }`, so a vertex goes straight in, and returns a new pair. No function changes its input. Angles are in radians, from +x toward +y.
 
-### add() · sub() · mul()
+### add() · sub() · mul() · unit() · perp()
 
 <include>/_sig/add.mdx</include>
 <include>/_sig/sub.mdx</include>
 <include>/_sig/mul.mdx</include>
 <include>/_sig/unit.mdx</include>
 <include>/_sig/perp.mdx</include>
-<include>/_sig/length.mdx</include>
-<include>/_sig/distance.mdx</include>
-<include>/_sig/limit.mdx</include>
-<include>/_sig/dot.mdx</include>
-<include>/_sig/cross.mdx</include>
-<include>/_sig/fromAngle.mdx</include>
-<include>/_sig/angleOf.mdx</include>
-<include>/_sig/sum.mdx</include>
-<include>/_sig/sumBy.mdx</include>
 
-`add` and `sub` are the arithmetic. `mul` scales a vector by a number. `unit` is the direction with length 1, and `unit([0, 0])` is `[0, 0]`. `perp` turns a vector a quarter turn. `length` and `distance` measure. `limit` caps a length. `dot` and `cross` are the two products. The sign of `cross(a, b)` tells you the side of `a` that `b` lies on. `fromAngle` and `angleOf` convert between an angle and a unit vector. `sum` and `sumBy` add vectors up.
+`add` and `sub` are the arithmetic. `mul` scales a vector by a number. `unit` is the direction with length 1, and `unit([0, 0])` is `[0, 0]`. `perp` turns a vector a quarter turn.
 
 ```ts live
 import { sketch, stroke, circle, add, sub, unit, mul, perp } from 'occlude';
@@ -66,5 +57,62 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const n = mul(unit(perp(sub(b, a))), 22);
   const mid = mul(add(a, b), 0.5);
   return [stroke([a, b]), stroke([mid, add(mid, n)], { pen: 'stabilo-88-blue' }), circle(mid[0], mid[1], 1.2)];
+});
+```
+
+### length() · distance() · limit() · dot() · cross() · fromAngle() · angleOf()
+
+<include>/_sig/length.mdx</include>
+<include>/_sig/distance.mdx</include>
+<include>/_sig/limit.mdx</include>
+<include>/_sig/dot.mdx</include>
+<include>/_sig/cross.mdx</include>
+<include>/_sig/fromAngle.mdx</include>
+<include>/_sig/angleOf.mdx</include>
+
+`length` and `distance` measure. `limit` caps a length. `dot` and `cross` are the two products. The sign of `cross(a, b)` tells you the side of `a` that `b` lies on. `fromAngle` and `angleOf` convert between an angle and a unit vector.
+
+A comb wraps a stone. `angleOf` reads the direction to the stone and `fromAngle` turns it a quarter turn, so each stroke lies across that direction. `dot` against a chosen axis makes the strokes long on one side and short on the other. `distance` empties the middle, and `limit` stops the longest strokes from running together. The sign of `cross` picks the pen.
+
+```ts live
+import { sketch, stroke, sub, add, mul, unit, distance, limit, dot, cross, fromAngle, angleOf } from 'occlude';
+
+export default sketch({ aspect: [2, 1] }, (t) => {
+  const b = t.bounds();
+  const stone = [0.42 * b.w, 0.5 * b.h];
+  const axis = fromAngle(-0.4);
+  return t.grid({ cols: 52, rows: 26 }).map((c) => {
+    const p = [c.cx, c.cy];
+    const v = sub(p, stone);
+    const d = distance(p, stone);
+    const dir = fromAngle(angleOf(v) + Math.PI / 2);
+    const reach = limit(mul(dir, (2 + 8 * (1 + dot(axis, unit(v)))) * (1 - 1 / (1 + d / 14))), 11);
+    return stroke([sub(p, mul(reach, 0.5)), add(p, mul(reach, 0.5))], { pen: cross(axis, v) > 0 ? 'stabilo-88-blue' : undefined });
+  });
+});
+```
+
+### sum() · sumBy()
+
+<include>/_sig/sum.mdx</include>
+<include>/_sig/sumBy.mdx</include>
+
+`sum` adds vectors. `sumBy` reads a vector out of each item and adds those. Two turning vectors added together make one epicycle, and the running total of the steps is the curve it draws. A summed walk does not start at the middle of the page. `sumBy` finds the curve's own mean, and `length` finds how far it reaches. The drawing then puts each curve where it wants it.
+
+```ts live
+import { sketch, stroke, sum, sumBy, sub, add, mul, fromAngle, length } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const b = t.bounds();
+  const mid = [0.5 * b.w, 0.5 * b.h];
+  const wheels = [[1, 7, 0.34], [1, -5, 0.5], [1, 11, 0.22]];
+  return wheels.map(([w1, w2, r2], i) => {
+    const steps = t.times(900, (j) => sum(fromAngle((j * w1 * Math.PI * 2) / 900), mul(fromAngle((j * w2 * Math.PI * 2) / 900), r2)));
+    const path = steps.map((s, k) => sum(...steps.slice(0, k + 1)));
+    const own = mul(sumBy(path, (p) => p), 1 / path.length);
+    const spread = Math.max(...path.map((p) => length(sub(p, own))));
+    const target = (0.2 + 0.11 * i) * b.h;
+    return stroke(path.map((p) => add(mid, mul(sub(p, own), target / spread))), { pen: i === 1 ? 'stabilo-88-blue' : undefined });
+  });
 });
 ```

@@ -131,8 +131,12 @@ const changed = comparable.filter((k) => hashes[k] !== before[k]);
 const added = Object.keys(hashes).filter((k) => !(k in before));
 const missing = comparable.filter((k) => !(k in hashes));
 for (const k of changed) console.error(`changed  ${k}\n  before ${before[k]}\n  after  ${hashes[k]}`);
-for (const k of added) console.error(`added    ${k}`);
+// An example with no baseline entry is an example the oracle does not
+// watch. It used to be reported and forgiven, and four pages quietly sat
+// outside the fixture because of it. A new fence is a re-save, the same
+// one a deliberate ink change asks for.
+for (const k of added) console.error(`added    ${k} (no baseline entry — re-save the fixture)`);
 for (const k of missing) console.error(`missing  ${k}`);
 console.log(`${comparable.length - changed.length - missing.length}/${comparable.length} examples ink-identical (${skipped.length} no stable ink, ${added.length} added, ${missing.length} missing)`);
 for (const f of failed) console.error(`  fail ${f}`);
-process.exit(changed.length || missing.length || failed.length ? 1 : 0);
+process.exit(changed.length || added.length || missing.length || failed.length ? 1 : 0);

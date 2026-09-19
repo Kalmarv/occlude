@@ -45,9 +45,9 @@ A random stream of its own, keyed off the seed, with `rnd`, `pick`, `chance` and
 import { sketch, circle, line, ui } from 'occlude';
 
 export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
-  const count = ui(24, { min: 4, max: 80, step: 1, label: 'dots' });
-  const dots = t.stream('dots'), bars = t.stream('bars');
-  return [t.times(count, () => circle(dots.rnd(10, 90), dots.rnd(10, 90), 1.5)), t.times(6, () => { const y = bars.rnd(15, 85); return line(10, y, 90, y, { pen: 'stabilo-88-blue' }); })];
+  const count = ui(24, { min: 4, max: 80, step: 1, label: 'spots' });
+  const spots = t.stream('spots'), bars = t.stream('bars');
+  return [t.times(count, () => circle(spots.rnd(10, 90), spots.rnd(10, 90), 1.5)), t.times(6, () => { const y = bars.rnd(15, 85); return line(10, y, 90, y, { pen: 'stabilo-88-blue' }); })];
 });
 ```
 

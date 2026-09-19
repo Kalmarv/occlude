@@ -1801,13 +1801,13 @@ export default sketchAsync({ seed: 42, paper: paper({ width: mm(200), height: mm
     camera: { kind: 'orthographic', span: 5.5, eye: [5, 7, 6], target: [0, 0, 0.4], near: 0.1, far: 30 }, lineSets: [],
   });
   return drawing3(scene, (classified, t) => {
-    const strokes = constructStrokes3(classified, [
+    const lines = constructStrokes3(classified, [
       { id: 'edges', stroke: 'outline', select: f => (f.flags & (FeatureKind3.crease | FeatureKind3.silhouette | FeatureKind3.boundary)) !== 0 },
       { id: 'hatch', stroke: 'fine', select: f => (f.flags & FeatureKind3.hatch) !== 0 },
       { id: 'sections', stroke: 'accent', select: f => (f.flags & FeatureKind3.section) !== 0 },
     ]);
     return [
-      clip(rect(4, 4, 92, 84), t.strokes3(strokes)),
+      clip(rect(4, 4, 92, 84), t.strokes3(lines)),
       mask(rect(60, 75, 32, 13)),
       label('HATCH / SECTIONS', 61, 78, 2.5, { stroke: 'outline' }),
       label('PAPER SPACING', 61, 83, 2, { stroke: 'outline' }),

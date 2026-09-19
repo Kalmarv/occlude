@@ -49,10 +49,10 @@ export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const spacing = ui(2.4, { min: 1.2, max: 6, step: 0.1 });
   const showField = ui(false, { label: 'show field' });
   const ramp = (x, y) => x / 200;
-  const dots = t.scatter(ramp, { spacing });
+  const grains = t.scatter(ramp, { spacing });
   return [
     showField ? strokes(t.isolines(ramp, [0.2, 0.4, 0.6, 0.8], { step: 1 }), { pen: 'stabilo-88-blue' }) : [],
-    dots.points.map((p) => circle(p.x, p.y, 0.55)),
+    grains.points.map((p) => circle(p.x, p.y, 0.55)),
   ];
 });
 ```
@@ -69,8 +69,8 @@ import { sketch, circle, label, ui } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const iterations = ui(0, { min: 0, max: 20, step: 1, label: 'relax rounds' });
   const ramp = (x, y) => x / 200;
-  const dots = t.scatter(ramp, { spacing: 2.4 });
-  const relaxed = t.relax(dots, { density: ramp, iterations });
+  const grains = t.scatter(ramp, { spacing: 2.4 });
+  const relaxed = t.relax(grains, { density: ramp, iterations });
   return [relaxed.points.map((p) => circle(p.x, p.y, 0.55)), label(`${relaxed.n} points`, 4, 6, 3.4)];
 });
 ```
@@ -94,8 +94,8 @@ import { sketch, circle, label, ui } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 8 }, (t) => {
   const iterations = ui(0, { min: 0, max: 20, step: 1, label: 'settle rounds' });
   const ramp = (x, y) => x / 200;
-  const dots = t.scatter(ramp, { spacing: 2.4 });
-  const settled = t.settle(dots, { density: ramp, spacing: 2.4, iterations });
+  const grains = t.scatter(ramp, { spacing: 2.4 });
+  const settled = t.settle(grains, { density: ramp, spacing: 2.4, iterations });
   return [settled.points.map((p) => circle(p.x, p.y, 0.55)), label(`${settled.n} points`, 4, 6, 3.4)];
 });
 ```

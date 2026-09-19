@@ -209,6 +209,56 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+Eight words, and a rule usually sums a few of them. Here a ring grows: `tension` holds the chain together, `separation` keeps it off itself, `relax` smooths it, and `drift` wanders it. A second pass splits an edge that has stretched too far, and writes the iteration onto it first. A split copies an edge column to both children. Each piece of wall keeps the step that last divided it. The drawing then finds the youngest growth.
+
+```ts live
+import { sketch, stroke, strokes, circle, force, mul } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
+  const wander = force.drift(t.noise, { amount: 0.24, frequency: 0.05 });
+  const grown = t.sample(circle(100, 50, 8), { count: 24 }).edgeAttribute('fresh', 0).steps(150, (cur, next, k) => {
+    const push = force.sum(
+      force.tension(cur, { rest: 1.6 }),
+      force.separation(cur, { radius: 4, excludeConnected: true }),
+      force.relax(cur, { amount: 0.4 }),
+      wander,
+    );
+    next.move(cur.points, (p) => mul(push(p, k), 0.15));
+  }, (cur, next, k) => {
+    const stretched = cur.edges.filter((e) => e.length > 1.8 && t.chance(0.3));
+    next.setEdges(stretched, { fresh: k });
+    for (const e of stretched) next.split(e);
+  });
+  return [
+    strokes(grown.edges.filter((e) => e.attrs.fresh < 110), { pen: 'pigma-005-black' }),
+    strokes(grown.edges.filter((e) => e.attrs.fresh >= 110), { pen: 'stabilo-88-blue' }),
+  ];
+});
+```
+
+The other three forces pull toward something. `attract` pulls toward its sources. `vortex` turns around a centre. `field` reads a vector field. This field is the curl of a noise. A curl runs along the contours of the noise, and not across them. `force.sum` adds all three forces. `{ every: 1 }` keeps every state, so the sketch draws each dot's full path from `history`.
+
+```ts live
+import { sketch, stroke, circle, material, force, curl, mul } from 'occlude';
+
+export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
+  const b = t.bounds();
+  const posts = [[0.28 * b.w, 0.7 * b.h], [0.74 * b.w, 0.3 * b.h]];
+  const push = force.sum(
+    force.attract(posts, { radius: 0.3 * b.w, strength: 1 }),
+    force.vortex([0.5 * b.w, 0.5 * b.h], { strength: 1, falloff: 0.2 * b.w }),
+    force.field(curl((x, y) => t.noise(x / 50, y / 50) * 8)),
+  );
+  const seeds = material(t.grid({ cols: 34, rows: 17 }).map((c) => [c.cx, c.cy]));
+  const flown = seeds.steps(80, (cur, next) => next.move(cur.points, (p) => mul(push(p), 0.3)), { every: 1 });
+  const trail = (i) => flown.history.map((h) => [h.material.x[i], h.material.y[i]]);
+  return [
+    seeds.points.map((p) => stroke(trail(p.index))),
+    posts.map(([x, y]) => circle(x, y, 3, { pen: 'stabilo-88-blue' })),
+  ];
+});
+```
+
 ## force.sum()
 
 <include>/_sig/force.sum.mdx</include>

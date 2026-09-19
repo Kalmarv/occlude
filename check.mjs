@@ -36,6 +36,7 @@ const gates = [
   ['ts', ['pnpm', ['-r', 'test']]],
   ['types', ['pnpm', ['--filter', 'occlude', 'typecheck']]],
   ['studio', ['pnpm', ['--filter', 'occlude-studio', 'typecheck']]],
+  ['words', ['pnpm', ['--filter', 'occlude', 'docs:words']]],
   ['docs', ['pnpm', ['--filter', 'occlude', 'docs:check']]],
   ['ink', ['pnpm', ['--filter', 'occlude', 'docs:hashes', '--', '--check']]],
   ['build', ['pnpm', ['build']]],

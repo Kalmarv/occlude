@@ -34,15 +34,19 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Edge.index.mdx</include>
 <include>/_sig/Edge.attrs.mdx</include>
 
-One edge, as a view. It has its two vertex views `a` and `b` in stored order, its `length`, its row `index`, and its columns under `attrs`.
+One edge, as a view. It has its two vertex views `a` and `b` in stored order, its `length`, its row `index`, and its columns under `attrs`. Here the long edges take a pen from a column, and the rest of the path takes the default one.
 
 ```ts live
 import { sketch, curve, strokes } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const path = curve(t.times(9, (k) => [10 + k * 10, 50 + Math.sin(k * 1.3) * 32]), { closed: false });
+  const path = curve(t.times(9, (k) => [10 + k * 10, 50 + Math.sin(k * 1.3) * 32]), { closed: false }).edgeAttribute('climb', (e) => (e.b.y < e.a.y ? 1 : 0));
   const long = path.edges.filter((e) => e.length > 20);
-  return [strokes(path), strokes(long, { pen: 'pigma-05-black' })];
+  return [
+    strokes(path.edges.subtract(long)),
+    strokes(long.filter((e) => e.attrs.climb === 1), { pen: 'pigma-05-black' }),
+    strokes(long.filter((e) => e.attrs.climb === 0), { pen: 'stabilo-88-blue' }),
+  ];
 });
 ```
 
@@ -98,7 +102,12 @@ export default sketch({ aspect: [1, 1] }, (t) => {
   const left = cloud.points.filter((p) => p.x < 55);
   const low = cloud.points.filter((p) => p.y > 45);
   const both = left.intersect(low);
-  return [cloud.points.map((p) => circle(p.x, p.y, 0.7)), left.subtract(low).map((p) => circle(p.x, p.y, 1.8)), both.map((p) => circle(p.x, p.y, 1.8, { pen: 'stabilo-88-blue' }))];
+  return [
+    left.union(low).complement().map((p) => circle(p.x, p.y, 0.6)),
+    left.subtract(low).map((p) => circle(p.x, p.y, 2)),
+    low.subtract(left).map((p) => circle(p.x, p.y, 2, { pen: 'stabilo-88-blue' })),
+    both.map((p) => circle(p.x, p.y, 3.4, { pen: 'stabilo-88-blue' })),
+  ];
 });
 ```
 
@@ -134,7 +143,12 @@ import { sketch, circle, strokes, connect } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const web = connect.triangulate(t.scatter({ spacing: 12 }));
   const inner = web.points.near([50, 50], { radius: 30 });
-  return [strokes(web, { pen: 'pigma-005-black' }), strokes(inner.edges, { pen: 'pigma-05-black' })];
+  const chains = inner.edges.curves();
+  return [
+    strokes(web.edges.subtract(inner.edges), { pen: 'pigma-005-black' }),
+    strokes(chains.filter((c, i) => i % 2 === 0), { pen: 'pigma-05-black' }),
+    strokes(chains.filter((c, i) => i % 2 === 1), { pen: 'stabilo-88-blue' }),
+  ];
 });
 ```
 
@@ -186,6 +200,23 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+`connected()` reaches the whole piece that a point sits in. The far end can be a long way off. Here it starts at the left edge and spreads through everything the lattice joins to it.
+
+```ts live
+import { sketch, strokes, circle, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
+  const lattice = connect.unimpeded(t.scatter({ spacing: 9 }), { room: 3.5 });
+  const seed = lattice.points.filter((p) => p.x < 0.1 * t.bounds().w);
+  const piece = seed.connected();
+  return [
+    strokes(lattice.points.subtract(piece).edges, { pen: 'pigma-005-black' }),
+    strokes(piece.edges, { pen: 'stabilo-88-blue' }),
+    seed.map((p) => circle(p.x, p.y, 1.6)),
+  ];
+});
+```
+
 ## query.edges()
 
 <include>/_sig/query.edges.mdx</include>
@@ -209,6 +240,20 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/EdgeSelection.rows.mdx</include>
 
 The selection that holds those SOURCE rows. The rows are rows of the state, never positions inside this selection, so `sel.rows([0, 3])` means the same rows whatever `sel` holds. This is the door for a relation the sketch works out for itself. Compute the rows, hand them back, and carry on with a selection. A row that is not in the state is an error.
+
+Here the sketch ranks the edges by length and counts the neighbours of each point. The library has no word for either ranking. Both come back as selections.
+
+```ts live
+import { sketch, strokes, circle, connect } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 2 }, (t) => {
+  const web = connect.triangulate(t.scatter({ spacing: 13 }));
+  const ranked = [...web.edges].sort((a, b) => b.length - a.length);
+  const longest = web.edges.rows(ranked.slice(0, 14).map((e) => e.index));
+  const hubs = web.points.rows([...web.points].filter((p) => p.adjacent.length >= 7).map((p) => p.index));
+  return [strokes(web.edges.subtract(longest), { pen: 'pigma-005-black' }), strokes(longest, { pen: 'stabilo-88-blue' }), hubs.map((p) => circle(p.x, p.y, 2.2))];
+});
+```
 
 ## pairs()
 

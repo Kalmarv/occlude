@@ -72,6 +72,30 @@ export default sketch({ aspect: [1, 1], seed: 3, pens: { ink: pen({ width: mm(0.
 });
 ```
 
+## smooth()
+
+<include>/_sig/3d.Mesh.smooth.mdx</include>
+
+Replaces a column by the mean of itself and its neighbours, `steps` times. It finds the domain from the name. A point column averages over the points an edge joins to it. A face column averages over the faces that share an edge with it. A corner column averages over the corners of its point and of its face. The values must be numbers, or vectors of the same length.
+
+A hard edge in a column becomes a ramp, and every pass widens the ramp. Here one column holds 1 above a noise threshold and 0 below it. The black mesh lifts that column as it is, and the red mesh lifts it after four passes.
+
+```ts live
+import { sketch, pen, mm, group } from 'occlude';
+import { plane, view, orthographic } from 'occlude/3d';
+
+export default sketch({ aspect: [2, 1], seed: 4, pens: { ink: pen({ width: mm(0.25), color: '#18202A' }), shade: pen({ width: mm(0.2), color: '#A84932' }) } }, (t) => {
+  const b = t.bounds();
+  const rough = plane(4, 4).subdivide(4).attribute('h', (p) => (t.noise(p.x * 1.4, p.y * 1.4) > 0.55 ? 1 : 0));
+  const lift = (m) => m.displace((p) => [0, 0, p.h * 0.9]);
+  const camera = orthographic({ eye: [5, 7, 5], span: 9 });
+  return [
+    group({ translate: [-0.24 * b.w, 0] }, view(lift(rough), { camera, stroke: 'ink', creaseAngle: 0 })),
+    group({ translate: [0.24 * b.w, 0] }, view(lift(rough.smooth('h', { steps: 4 })), { camera, stroke: 'shade', creaseAngle: 0 })),
+  ];
+});
+```
+
 ## grid()
 
 <include>/_sig/3d.grid.mdx</include>

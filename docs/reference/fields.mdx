@@ -118,7 +118,7 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/sdf.intersect.mdx</include>
 <include>/_sig/sdf.subtract.mdx</include>
 
-These combine shapes. `union` is a **maximum**, because inside is the positive side and the union is inside wherever either field is inside. `intersect` is the minimum, and `subtract` cuts every later field out of the first. Each answer is a field again, and feeds the next operation.
+These combine shapes. `union` is a **maximum**, because inside is the positive side and the union is inside wherever either field is inside. `intersect` is the minimum, and `subtract` cuts every later field out of the first. Each answer is a field again, and feeds the next operation. Below, a disc and a box join, two discs are cut out of them, and a larger disc crops what is left: the part that survives is inside both.
 
 ```ts live
 import { sketch, polygon, strokes, sdf, fill, mm } from 'occlude';
@@ -126,7 +126,7 @@ import { sketch, polygon, strokes, sdf, fill, mm } from 'occlude';
 export default sketch({ aspect: [1, 1] }, (t) => {
   const body = sdf.union(sdf.circle(38, 38, 28), sdf.box(62, 66, 52, 30));
   const holes = sdf.union(sdf.circle(36, 36, 11), sdf.circle(72, 66, 8));
-  const plate = sdf.subtract(body, holes);
+  const plate = sdf.intersect(sdf.subtract(body, holes), sdf.circle(50, 50, 42));
   return [
     polygon(t.isolines(plate, 0), { fill: fill('hatch', { angle: 40, spacing: mm(1.4) }) }),
     strokes(t.isolines(plate, -5)),

@@ -1367,13 +1367,13 @@ export default sketch({ aspect: [2, 1], seed: 7 }, (t) => {
   const b = t.bounds();
   const anchors = [[0.22 * b.w, 0.6 * b.h], [0.54 * b.w, 0.24 * b.h], [0.82 * b.w, 0.72 * b.h]];
   const toward = force.attract(anchors, { radius: 0.34 * b.w, strength: 1 });
-  const dots = material(t.grid({ cols: 24, rows: 12 }).map((c) => [c.cx, c.cy]));
-  const gathered = dots.steps(90, (cur, next) => next.move(cur.points, (p) => mul(toward(p), 0.16)), { every: 1 });
+  const marks = material(t.grid({ cols: 24, rows: 12 }).map((c) => [c.cx, c.cy]));
+  const gathered = marks.steps(90, (cur, next) => next.move(cur.points, (p) => mul(toward(p), 0.16)), { every: 1 });
   const trail = (i) => gathered.history.map((h) => [h.material.x[i], h.material.y[i]]);
   return [
     anchors.map(([x, y]) => circle(x, y, 3.2, { pen: 'stabilo-88-blue' })),
-    dots.points.map((p) => stroke(trail(p.index))),
-    dots.points.map((p) => circle(p.x, p.y, 0.6)),
+    marks.points.map((p) => stroke(trail(p.index))),
+    marks.points.map((p) => circle(p.x, p.y, 0.6)),
   ];
 });
 ```
@@ -1386,10 +1386,10 @@ import { sketch, stroke, circle, material, force } from 'occlude';
 export default sketch({ aspect: [2, 1], seed: 9 }, (t) => {
   const b = t.bounds();
   const drifts = [0.004, 0.02, 0.12].map((frequency) => force.drift(t.noise, { amount: 0.32, frequency }));
-  const dots = material(t.grid({ cols: 18, rows: 6 }).map((c) => [c.cx, c.cy])).attribute('band', (p) => Math.min(2, Math.floor((3 * p.x) / b.w)));
-  const wandered = dots.steps(55, (cur, next, k) => next.move(cur.points, (p) => drifts[p.band](p, k)), { every: 1 });
+  const marks = material(t.grid({ cols: 18, rows: 6 }).map((c) => [c.cx, c.cy])).attribute('band', (p) => Math.min(2, Math.floor((3 * p.x) / b.w)));
+  const wandered = marks.steps(55, (cur, next, k) => next.move(cur.points, (p) => drifts[p.band](p, k)), { every: 1 });
   const trail = (i) => wandered.history.map((h) => [h.material.x[i], h.material.y[i]]);
-  return [dots.points.map((p) => stroke(trail(p.index))), dots.points.map((p) => circle(p.x, p.y, 0.6))];
+  return [marks.points.map((p) => stroke(trail(p.index))), marks.points.map((p) => circle(p.x, p.y, 0.6))];
 });
 ```
 
@@ -2079,8 +2079,8 @@ import { sketch, circle } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 6 }, (t) => {
   const disc = circle(100, 50, 34);
-  const dots = t.scatter(() => 1, { spacing: 5, within: disc });
-  return [dots.points.map((p) => circle(p.x, p.y, 0.6)), disc];
+  const marks = t.scatter(() => 1, { spacing: 5, within: disc });
+  return [marks.points.map((p) => circle(p.x, p.y, 0.6)), disc];
 });
 ```
 

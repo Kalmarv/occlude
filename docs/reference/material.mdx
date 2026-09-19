@@ -29,6 +29,17 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
+`pts` is what a `stroke` wants, and `n` is what turns a row number into a fraction of the way round.
+
+```ts live
+import { sketch, stroke, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1] }, (t) => {
+  const ring = t.sample(circle(50, 50, 38), { count: 26 });
+  return [stroke([...ring.pts, ring.pts[0]]), ring.points.map((p) => circle(p.x, p.y, 0.5 + (3.4 * p.index) / ring.n, { pen: 'stabilo-88-blue' }))];
+});
+```
+
 ## What a geometry value can say
 
 A value answers `contours()` for areas, `curves()` for chains, and `points` for positions. A consumer asks for the one it needs, and it refuses a value that cannot answer, by name.
@@ -55,6 +66,29 @@ New geometry mints new ids. A step that moves or sets keeps them. A split retire
 A selection can then outlive the state that made it. `sel.in(state)` reads a selection against a later state and drops the members that are gone. `sel.has(view)` asks by identity, so a vertex you kept from an earlier step is the same vertex. A step verb takes a selection from an earlier state and finds the rows itself.
 
 Store an id in an ordinary column and look it up later with `m.pointOf(id)` or `m.edgeOf(id)`. `m.points.at(row)` and `m.edges.at(row)` ask the same question by position in one state. An id and a row are both numbers. The two have different names, and neither guesses.
+
+Here the sketch splits a ring of twelve vertices three times, then pushes it about. The ring ends with ninety-six rows, in a new order. Three vertices held from the first state still answer in the last one. An id kept in a plain variable finds its vertex again.
+
+```ts live
+import { sketch, strokes, circle } from 'occlude';
+
+export default sketch({ aspect: [1, 1], seed: 3 }, (t) => {
+  const ring = t.sample(circle(50, 50, 34), { count: 12 });
+  const held = ring.points.filter((p) => p.index % 4 === 0);
+  const anchorId = ring.points.at(2).id;
+  const grown = ring.steps(
+    3,
+    (cur, next) => next.splitEdges(cur.edges, { at: 0.5 }),
+    (cur, next) => next.move(cur.points, (p) => [t.noise(p.x / 16, p.y / 16) * 5, t.noise(p.y / 16, p.x / 16) * 5]),
+  );
+  const anchor = grown.pointOf(anchorId);
+  return [
+    strokes(grown),
+    held.in(grown).map((p) => circle(p.x, p.y, 2.5, { pen: 'stabilo-88-blue' })),
+    circle(anchor.x, anchor.y, 4.5),
+  ];
+});
+```
 
 ## material()
 
@@ -137,14 +171,17 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 <include>/_sig/Material.attribute.mdx</include>
 <include>/_sig/Material.attributes.mdx</include>
 
-Adds a column to every vertex and returns the new material. The value is a number, or a function of the vertex. `attributes` adds several columns at once. Each function reads the material as it was, so a new column never sees another new column. `transfer` says what a column does at a new vertex, after a split or a resample. `'interpolate'` (the default) blends the two values. `'nearest'` copies the nearer one.
+Adds a column to every vertex and returns the new material. The value is a number, or a function of the vertex. `attributes` adds several columns at once. Each function reads the material as it was, so a new column never sees another new column. A second call sees the first call's columns, because by then they are part of the material. `transfer` says what a column does at a new vertex, after a split or a resample. `'interpolate'` (the default) blends the two values. `'nearest'` copies the nearer one.
 
 ```ts live
 import { sketch, strokes, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const ring = t.sample(circle(50, 50, 40), { count: 36 }).attribute('lift', (p) => (p.y < 50 ? 1 : 0));
-  return [strokes(ring), ring.points.filter((p) => p.lift === 1).map((p) => circle(p.x, p.y, 1.5, { pen: 'stabilo-88-blue' }))];
+  const ring = t
+    .sample(circle(50, 50, 40), { count: 36 })
+    .attribute('lift', (p) => (p.y < 50 ? 1 : 0))
+    .attributes({ reach: (p) => 0.6 + p.x / 40, side: (p) => (p.x < 50 ? 0 : 1) });
+  return [strokes(ring), ring.points.filter((p) => p.lift === 1).map((p) => circle(p.x, p.y, p.reach, { pen: p.side === 1 ? 'stabilo-88-blue' : undefined }))];
 });
 ```
 
@@ -159,8 +196,15 @@ The same for edges: one value for each edge, read from the edge view. `transfer`
 import { sketch, strokes, circle } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const ring = t.sample(circle(50, 50, 40), { count: 40 }).edgeAttribute('long', (e) => (e.a.x > 50 ? 1 : 0));
-  return [strokes(ring.edges.filter((e) => e.attrs.long === 1), { pen: 'pigma-05-black' }), strokes(ring.edges.filter((e) => e.attrs.long === 0))];
+  const ring = t
+    .sample(circle(50, 50, 40), { count: 40 })
+    .edgeAttribute('long', (e) => (e.a.x > 50 ? 1 : 0))
+    .edgeAttributes({ high: (e) => (e.a.y < 50 ? 1 : 0) });
+  return [
+    strokes(ring.edges.filter((e) => e.attrs.long === 1 && e.attrs.high === 1), { pen: 'pigma-05-black' }),
+    strokes(ring.edges.filter((e) => e.attrs.long === 1 && e.attrs.high === 0), { pen: 'stabilo-88-blue' }),
+    strokes(ring.edges.filter((e) => e.attrs.long === 0)),
+  ];
 });
 ```
 

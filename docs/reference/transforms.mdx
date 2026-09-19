@@ -69,7 +69,7 @@ The curve that a family of chains is tangent to: where each chain crosses the ne
 import { sketch, strokes, line, append } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
-  const chords = append(...t.times(28, (k, u) => t.sample(line(10 + u * 80, 90, 10, 90 - u * 80), { count: 2 })));
+  const chords = append(...t.times(28, (k, u) => t.material(line(10 + u * 80, 90, 10, 90 - u * 80))));
   return [strokes(chords, { pen: 'pigma-005-black' }), strokes(chords.envelope(), { pen: 'pigma-05-black' })];
 });
 ```
