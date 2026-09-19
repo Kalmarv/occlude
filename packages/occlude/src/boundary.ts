@@ -94,11 +94,23 @@ const hasCurves = (v: unknown): v is { curves(): IsoContour[] } => isObj(v) && t
 const isFaceCollection = (v: unknown): v is { map(fn: (f: unknown) => unknown): unknown[] } =>
   isObj(v) && typeof v.contours === 'function' && typeof v.curves !== 'function' && typeof v.at === 'function' && 'source' in v;
 /**
- * A topology whose highest degree it can report. Not part of the protocol:
- * it is how the area consumers refuse a branching material by name, with
- * the way out, and the refusal has to carry the consumer's own name.
+ * The highest vertex degree inside a value's own edges, or null for a
+ * value that has none. Not part of the protocol: it is how the area
+ * consumers refuse a branching material by name, with the way out, and
+ * the refusal has to carry the consumer's own name. An edge selection
+ * answers for itself; anything with an `edges` collection — a material, a
+ * point selection — answers through it.
  */
-const hasDegree = (v: unknown): v is { maxDegree(): number } => isObj(v) && typeof v.maxDegree === 'function';
+const branchingDegree = (v: unknown): number | null => {
+  if (isObj(v) && typeof v.maxDegree === 'function') return (v as { maxDegree(): number }).maxDegree();
+  // A face states its own area exactly, and its `edges` are the edges it
+  // OWNS — walls plus anything inside it. A spur in a cell is not a
+  // branching boundary, so a face never answers this question.
+  if (isObj(v) && typeof v.area === 'number' && typeof v.index === 'number') return null;
+  const edges = isObj(v) ? (v as { edges?: unknown }).edges : undefined;
+  if (isObj(edges) && typeof edges.maxDegree === 'function') return (edges as { maxDegree(): number }).maxDegree();
+  return null;
+};
 
 const loopOf = (loop: Loop, who: string): LoopPoints =>
   loop.map((p, i) => {
@@ -126,11 +138,11 @@ export function areaLoops(input: AreaInput, who: string): LoopPoints[] {
   }
   // A material or a selection that branches has no single inside. The
   // refusal names the consumer, so it belongs here and not in the value.
-  if (hasDegree(input)) {
-    const degree = input.maxDegree();
-    if (degree > 2) {
+  {
+    const degree = branchingDegree(input);
+    if (degree !== null && degree > 2) {
       throw new Error(
-        `${who}: this ${'indices' in input ? 'selection' : 'material'} branches (a vertex has ${degree} edges), so it has no single inside — ` +
+        `${who}: this ${isObj(input) && 'indices' in input ? 'selection' : 'material'} branches (a vertex has ${degree} edges), so it has no single inside — ` +
           'pick one boundary with edges.filter(…), or derive areas with planarize().faces()',
       );
     }

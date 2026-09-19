@@ -234,11 +234,76 @@ export class PointSelection<K = undefined> implements Iterable<Vertex> {
     return this;
   }
 
-  /** The highest degree among the points, counted over the edges this
-   * selection induces. The area consumers refuse a branching selection by
-   * it, exactly as they refuse a branching material. */
-  maxDegree(): number {
-    return this.edges.maxDegree();
+  /** Every vertex an edge joins to a member, members excluded. One step
+   * out from the selection: `p.adjacent` for a whole selection at once. */
+  adjacent(): PointSelection {
+    const m = this.source;
+    const out: number[] = [];
+    const seen = new Set<number>();
+    for (const i of this.indices) {
+      for (const w of m.adjacentRows(i)) {
+        if (this.holds(w) || seen.has(w)) continue;
+        seen.add(w);
+        out.push(w);
+      }
+    }
+    return new PointSelection(m, out.sort((a, b) => a - b));
+  }
+
+  /** The members plus every vertex reachable from them through edges of
+   * the state — the pieces the selection touches, whole. */
+  connected(): PointSelection {
+    const m = this.source;
+    const seen = new Set<number>(this.indices);
+    const stack = [...this.indices];
+    while (stack.length) {
+      const v = stack.pop()!;
+      for (const w of m.adjacentRows(v)) {
+        if (seen.has(w)) continue;
+        seen.add(w);
+        stack.push(w);
+      }
+    }
+    return new PointSelection(m, [...seen].sort((a, b) => a - b));
+  }
+
+  /** One selection per connected piece OF THE MEMBERS, joined by the edges
+   * among them alone: an isolated member is a piece of its own. Keyed like
+   * `groupBy`, in the order the pieces are first met by row. */
+  components(): PointSelection<number>[] {
+    const m = this.source;
+    const among = new Map<number, number[]>();
+    for (const e of this.edges.indices) {
+      const a = m.edgeList[2 * e];
+      const b = m.edgeList[2 * e + 1];
+      if (a === b) continue;
+      (among.get(a) ?? among.set(a, []).get(a)!).push(b);
+      (among.get(b) ?? among.set(b, []).get(b)!).push(a);
+    }
+    const seen = new Set<number>();
+    const out: PointSelection<number>[] = [];
+    for (const start of this.indices) {
+      if (seen.has(start)) continue;
+      const piece: number[] = [];
+      const stack = [start];
+      seen.add(start);
+      while (stack.length) {
+        const v = stack.pop()!;
+        piece.push(v);
+        for (const w of among.get(v) ?? []) {
+          if (seen.has(w)) continue;
+          seen.add(w);
+          stack.push(w);
+        }
+      }
+      out.push(new PointSelection(m, piece.sort((a, b) => a - b), out.length));
+    }
+    return out;
+  }
+
+  /** @internal Does this selection hold that source row? */
+  private holds(row: number): boolean {
+    return this.set === null || this.set.has(row);
   }
 
   /** The chains through these points: the chains of the edges among them.
@@ -453,8 +518,85 @@ export class EdgeSelection<K = undefined> implements Iterable<Edge> {
     });
   }
 
-  /** Highest vertex degree within the selected edges: 1 or 2 for chains
-   * and rings, more where the selection branches. */
+  /** Every edge that meets a member at a vertex, members excluded. */
+  adjacent(): EdgeSelection {
+    const m = this.source;
+    const out: number[] = [];
+    const seen = new Set<number>();
+    for (const e of this.indices) {
+      for (const end of [m.edgeList[2 * e], m.edgeList[2 * e + 1]]) {
+        for (const f of m.incidentEdgeRows(end)) {
+          if (this.holds(f) || seen.has(f)) continue;
+          seen.add(f);
+          out.push(f);
+        }
+      }
+    }
+    return new EdgeSelection(m, out.sort((a, b) => a - b));
+  }
+
+  /** The members plus every edge reachable from them through shared
+   * vertices — the pieces the selection touches, whole. */
+  connected(): EdgeSelection {
+    const m = this.source;
+    const seen = new Set<number>(this.indices);
+    const stack = [...this.indices];
+    while (stack.length) {
+      const e = stack.pop()!;
+      for (const end of [m.edgeList[2 * e], m.edgeList[2 * e + 1]]) {
+        for (const f of m.incidentEdgeRows(end)) {
+          if (seen.has(f)) continue;
+          seen.add(f);
+          stack.push(f);
+        }
+      }
+    }
+    return new EdgeSelection(m, [...seen].sort((a, b) => a - b));
+  }
+
+  /** One selection per connected piece OF THE MEMBERS, joined through
+   * shared vertices among them alone. Keyed like `groupBy`, in the order
+   * the pieces are first met by row. */
+  components(): EdgeSelection<number>[] {
+    const m = this.source;
+    const mine = new Set(this.indices);
+    const atVertex = new Map<number, number[]>();
+    for (const e of this.indices) {
+      for (const end of [m.edgeList[2 * e], m.edgeList[2 * e + 1]]) {
+        (atVertex.get(end) ?? atVertex.set(end, []).get(end)!).push(e);
+      }
+    }
+    const seen = new Set<number>();
+    const out: EdgeSelection<number>[] = [];
+    for (const start of this.indices) {
+      if (seen.has(start)) continue;
+      const piece: number[] = [];
+      const stack = [start];
+      seen.add(start);
+      while (stack.length) {
+        const e = stack.pop()!;
+        piece.push(e);
+        for (const end of [m.edgeList[2 * e], m.edgeList[2 * e + 1]]) {
+          for (const f of atVertex.get(end) ?? []) {
+            if (!mine.has(f) || seen.has(f)) continue;
+            seen.add(f);
+            stack.push(f);
+          }
+        }
+      }
+      out.push(new EdgeSelection(m, piece.sort((a, b) => a - b), out.length));
+    }
+    return out;
+  }
+
+  /** @internal Does this selection hold that source row? */
+  private holds(row: number): boolean {
+    return this.set === null || this.set.has(row);
+  }
+
+  /** @internal Highest vertex degree within the selected edges. The area
+   * consumers refuse a branching value by it; a sketch counts degree with
+   * `p.edges.length`. */
   maxDegree(): number {
     const m = this.source;
     const degree = degreesWithin(m.n, this.indices, (e) => [m.edgeList[2 * e], m.edgeList[2 * e + 1]]);
@@ -521,48 +663,3 @@ export function meanBy<T>(items: Iterable<T>, fn: (item: T, index: number) => nu
   return count === 0 ? 0 : total / count;
 }
 
-/** Connected components of one state, prepared once (O(V + E)). */
-export interface Components {
-  /** How many components; isolated vertices count one each. */
-  readonly count: number;
-  /** Source-aligned label per row: 0 for the component of the lowest row,
-   * then in the order components are first met scanning rows. */
-  readonly labels: Int32Array;
-  /** Label of a vertex of the source (a view or a row). */
-  label(vertex: Vertex | number): number;
-}
-
-/** Undirected connected components of `m`. Labels belong to this state
- * only; the next step may renumber them. */
-export function components(m: Material): Components {
-  const labels = new Int32Array(m.n).fill(-1);
-  let count = 0;
-  const stack: number[] = [];
-  for (let s = 0; s < m.n; s++) {
-    if (labels[s] !== -1) continue;
-    const id = count++;
-    labels[s] = id;
-    stack.push(s);
-    while (stack.length) {
-      const v = stack.pop()!;
-      for (const w of m.adjacentRows(v)) {
-        if (labels[w] === -1) {
-          labels[w] = id;
-          stack.push(w);
-        }
-      }
-    }
-  }
-  return {
-    count,
-    labels,
-    label(vertex) {
-      if (typeof vertex === 'number') {
-        if (!Number.isInteger(vertex) || vertex < 0 || vertex >= m.n) throw new Error(`components: no vertex ${vertex} in this state`);
-        return labels[vertex];
-      }
-      if (!ownedBy(vertex, m)) throw new Error('components: that vertex belongs to another state');
-      return labels[vertex.index];
-    },
-  };
-}

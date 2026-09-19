@@ -575,7 +575,7 @@ returns a new material; `steps()` freezes the current state, collects the
 batch of edits described against `next` (moves, attribute writes, splits,
 removals, connections, extensions), validates conflicts and ownership,
 and publishes one new state, optionally recording history. Forces are
-prepared per state (spatial index built once in `force.nearby`) and
+prepared per state (spatial index built once, and kept on the state by `points.near`) and
 evaluated per point. `relation.ts` is selections, extraction,
 `components` and `meanBy`; `query.ts` prepares a grid
 over a state's edges for `nearest` and `firstHit` with a wide-box fallback
@@ -617,7 +617,7 @@ nothing in a sketch may rely on it.
   the write read the columns live. Adjacency (`connected`, `degree`) is
   built lazily from the edge list only and cannot go stale on a
   coordinate write. A prepared `query.edges(m)` copied the endpoints
-  and keeps them. A prepared `neighbours(m)` (and every force built on
+  and keeps them. A prepared neighbour index (and every force built on
   it) keeps its buckets but reads distances live, so a row written away
   drops out of its old cell's answers while a row written near is never
   found. `faces()` is computed once per state and returned from the cache

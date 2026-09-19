@@ -60,7 +60,7 @@ export {
 } from './material.js';
 export { add, sub, mul, length, distance, unit, limit, perp, dot, cross, fromAngle, angleOf, sum, sumBy } from './vec.js';
 export { ownedBy } from './views.js';
-export { force, neighbours, sumForces } from './forces.js';
+export { force, sumForces } from './forces.js';
 export { query } from './query.js';
 export { inheritEdge } from './steps.js';
 export type { EdgeRef, StepRule, StepsOptions } from './steps.js';
@@ -76,8 +76,7 @@ export type { RidgeOpts, RidgeContour } from './ridges.js';
 export type { InterlaceOpts, Crossing } from './interlace.js';
 export type { SnapOpts, SnapField } from './snap.js';
 export type { OscillateOpts, OscillateAmount } from './oscillate.js';
-export { PointSelection, EdgeSelection, components, meanBy } from './relation.js';
-export type { Components } from './relation.js';
+export { PointSelection, EdgeSelection, meanBy } from './relation.js';
 export { planarize, faces, Faces, FaceSelection } from './faces.js';
 export type { Face, PlanarizeOpts, PlanarEvent, EventCandidate } from './faces.js';
 export type { EdgeQuery, NearestHit, FirstHit } from './query.js';

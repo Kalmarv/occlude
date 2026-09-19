@@ -158,7 +158,7 @@ describe('voronoi as material', () => {
       expect(l >= 0 || r >= 0).toBe(true);
     }
     expect(faces.boundaryEdges().length).toBeGreaterThanOrEqual(4);
-    expect(cells.maxDegree()).toBeLessThanOrEqual(4);
+    for (const p of cells.points) expect(p.edges.length).toBeLessThanOrEqual(4);
     // Each site owns exactly the cell containing it, in both directions.
     for (const s of sites.points) {
       const f = cells.cellOf(s)!;

@@ -61,7 +61,7 @@ import { Faces, FaceSelection, type Face } from './faces.js';
 import { voronoi } from './voronoi.js';
 import { quadtree, type QuadtreeOpts } from './quadtree.js';
 import { distanceTo, type DistanceField } from './distance.js';
-import { force, neighbours, type NeighbourStats, type Sources } from './forces.js';
+import { force, type Sources } from './forces.js';
 import {
   rotate as rotateField, scale as scaleField, translate as translateField,
   vectorField as vectorFieldMark, within as withinField, type BoundEnv, type Prepared,
@@ -1401,9 +1401,6 @@ export function bindToolkit(exec: Execution, scope?: { signal?: AbortSignal; com
       attract: (sources: Sources | ShapeValue, opts: { radius: number; strength?: number; excludeConnected?: boolean }) =>
         force.attract(pointSources(sources, 'force.attract'), opts),
     },
-    /** The neighbourhood query. A shape is not a point source: see below. */
-    neighbours: (m: Material | ShapeValue, opts: { radius: number; stats?: NeighbourStats }) =>
-      neighbours(pointSources(m, 'neighbours') as Material, opts),
     within,
     rotate: rotateField,
     /** Translate a field by lengths of this run (`mm(…)`, `w(…)` resolve). */

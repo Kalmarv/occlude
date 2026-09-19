@@ -70,7 +70,7 @@ it('compiles the graph to a sketch of its own', () => {
   // The words the code bodies reach for are imported, not only the ones the
   // built-in nodes call.
   const imports = /^import \{[^}]*\} from 'occlude';$/m.exec(source)?.[0] ?? '';
-  for (const name of ['sketch', 'add', 'circle', 'fill', 'force', 'mm', 'mul', 'neighbours', 'polygon', 'strokes']) {
+  for (const name of ['sketch', 'add', 'circle', 'fill', 'force', 'mm', 'mul', 'polygon', 'strokes']) {
     expect(imports, name).toContain(name);
   }
   expect(source).toContain('const n5 = ((ring, dish) => {');

@@ -85,7 +85,7 @@ export default sketch({ aspect: [2, 1] }, (t) => {
   const sites = material([[40, 30], [150, 26], [70, 72], [96, 50], [170, 74], [120, 86], [24, 90]]);
   const diagram = t.voronoi(sites);
   const cells = diagram.faces();
-  const chosen = diagram.edge(Math.min(wall, diagram.edgeCount - 1));
+  const chosen = diagram.edges.at(Math.min(wall, diagram.edgeCount - 1));
   const beside = chosen.faces;
   return [
     beside.map((f) => polygon(f, { fill: fill('hatch', { angle: 45, spacing: mm(1.4) }), stroke: false })),

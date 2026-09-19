@@ -82,6 +82,9 @@ export type Vertex = {
    * only: no spatial search — `cur.points.near(p, { radius })` is that. An
    * isolated vertex has none. */
   readonly adjacent: PointSelection;
+  /** The edges that meet this vertex, in edge order. `p.edges.length` is
+   * the degree; an isolated vertex has none. */
+  readonly edges: EdgeSelection;
 } & Record<string, number>;
 
 export interface Edge {
@@ -318,7 +321,7 @@ export class Material {
   /** Adjacency is built the first time it is asked for, then kept: a growth
    * step makes a state per iteration, and most never ask. The box is
    * mutable inside a frozen material. */
-  private readonly adjBox: { rows: number[][] | null };
+  private readonly adjBox: { rows: number[][] | null; edges: number[][] | null };
   /** @internal Spatial indexes for `points.near`, one per radius. The
    * state is frozen, so the cache lives in a box like the adjacency does. */
   readonly nearBox: { byRadius: Map<number, (p: XY) => number[]> } = { byRadius: new Map() };
@@ -409,7 +412,7 @@ export class Material {
       if (col.length !== x.length) {
         throw new Error(`material: attribute '${name}' has ${col.length} values for ${x.length} vertices`);
       }
-      if (name === 'x' || name === 'y' || name === 'index' || name === 'adjacent') {
+      if (name === 'x' || name === 'y' || name === 'index' || name === 'adjacent' || name === 'edges' || name === 'id') {
         throw new Error(`material: '${name}' is a reserved vertex field`);
       }
     }
@@ -430,7 +433,7 @@ export class Material {
       if (a >= this.n || b >= this.n) throw new Error(`material: edge ${a}–${b} names a vertex beyond ${this.n - 1}`);
       if (a === b) throw new Error(`material: edge ${a}–${b} joins a vertex to itself`);
     }
-    this.adjBox = { rows: null };
+    this.adjBox = { rows: null, edges: null };
     this.facesBox = { faces: null };
     const edgeCount = edgeList.length / 2;
     if (ids?.points !== undefined && ids.points.length !== this.n) {
@@ -466,6 +469,13 @@ export class Material {
       get(this: Vertex) { return self.pointIds[this.index] as PointId; },
       enumerable: false,
     });
+    // A vertex knows the edges that meet it, in edge order — the row
+    // property that pays for `m.isConnected` and `m.maxDegree`: degree is
+    // `p.edges.length`, and `p.adjacent.has(q)` is the join test.
+    Object.defineProperty(vertexProto, 'edges', {
+      get(this: Vertex) { return new EdgeSelection(self, self.incidentEdgeRows(this.index)); },
+      enumerable: false,
+    });
     this.vertexProto = Object.freeze(vertexProto);
     // An edge knows the faces on its two sides once the material's faces
     // have been read (cached on the state): the reverse of `face.edges`.
@@ -496,6 +506,20 @@ export class Material {
       rows[this.edgeList[e + 1]].push(this.edgeList[e]);
     }
     box.rows = rows;
+    return rows;
+  }
+
+  /** Edge rows meeting each row, in edge order. Lazy, like `adj`. */
+  private get edgeAdj(): number[][] {
+    const box = this.adjBox;
+    if (box.edges !== null) return box.edges;
+    const rows: number[][] = Array.from({ length: this.n }, () => []);
+    for (let e = 0; e < this.edgeCount; e++) {
+      rows[this.edgeList[2 * e]].push(e);
+      const b = this.edgeList[2 * e + 1];
+      if (b !== this.edgeList[2 * e]) rows[b].push(e);
+    }
+    box.edges = rows;
     return rows;
   }
 
@@ -554,7 +578,8 @@ export class Material {
     return row < 0 ? undefined : this.edge(row);
   }
 
-  /** The vertex at row `i` as a plain view. */
+  /** @internal The vertex at row `i` as a plain view. The engine's own
+   * door, like `adjacentRows`: a sketch says `m.points.at(i)`. */
   vertex(i: number): Vertex {
     const v: Record<string, number> = Object.create(this.vertexProto);
     v.index = i;
@@ -588,7 +613,8 @@ export class Material {
     return Object.keys(this.edgeAttrs);
   }
 
-  /** The edge at row `e` as a view (a → b in stored order, with attrs). */
+  /** @internal The edge at row `e` as a view (a → b in stored order, with
+   * attrs). A sketch says `m.edges.at(e)`. */
   edge(e: number): Edge {
     const a = this.vertex(this.edgeList[2 * e]);
     const b = this.vertex(this.edgeList[2 * e + 1]);
@@ -616,8 +642,10 @@ export class Material {
     return this.adj[this.rowOfVertex(i, 'adjacentRows')];
   }
 
-  isConnected(i: Vertex | number, j: Vertex | number): boolean {
-    return this.adj[this.rowOfVertex(i, 'isConnected')].includes(this.rowOfVertex(j, 'isConnected'));
+  /** @internal Edge rows meeting `i`, in edge order. A sketch says
+   * `p.edges`, which is a selection and composes. */
+  incidentEdgeRows(i: Vertex | number): readonly number[] {
+    return this.edgeAdj[this.rowOfVertex(i, 'incidentEdgeRows')];
   }
 
   private rowOfVertex(p: Vertex | number, what: string): number {
@@ -668,22 +696,6 @@ export class Material {
     if (!owner || owner.source !== this) throw new Error('siteOf: that face belongs to another material\'s cells');
     const s = links.siteOfFace[face.index];
     return s < 0 ? undefined : links.sites.vertex(s);
-  }
-
-  /** Chain convenience: the row before `i` along a stored edge into it,
-   * -1 at an open end. On a junction, the first such row. */
-  prev(v: Vertex | number): number {
-    const i = this.rowOfVertex(v, 'prev');
-    for (let e = 0; e < this.edgeList.length; e += 2) if (this.edgeList[e + 1] === i) return this.edgeList[e];
-    return -1;
-  }
-
-  /** Chain convenience: the row after `i` along a stored edge out of it,
-   * -1 at an open end. On a junction, the first such row. */
-  next(v: Vertex | number): number {
-    const i = this.rowOfVertex(v, 'next');
-    for (let e = 0; e < this.edgeList.length; e += 2) if (this.edgeList[e] === i) return this.edgeList[e + 1];
-    return -1;
   }
 
   /**
@@ -751,14 +763,6 @@ export class Material {
     const rows = new Uint32Array(m);
     for (let e = 0; e < m; e++) rows[e] = e;
     return rows;
-  }
-
-  /** Highest vertex degree: 1 or 2 for chains and rings, more where the
-   * material branches. */
-  maxDegree(): number {
-    let best = 0;
-    for (const row of this.adj) if (row.length > best) best = row.length;
-    return best;
   }
 
   // ---- derived material ----

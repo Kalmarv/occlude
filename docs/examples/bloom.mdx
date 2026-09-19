@@ -3,16 +3,16 @@ title: Bloom
 description: A ring that grows into a coral by differential growth, with its growth rings drawn on top.
 ---
 
-A small ring grows until it fills a dish. Four forces act on every vertex at each step. `separation` keeps a vertex away from every other part of the ring. `tension` pulls it toward its two chain neighbours. `relax` keeps the chain smooth. `boundary` keeps it inside the dish. The growth is a rule on the edges. An edge can split only when no other part of the ring is near its middle. This is the check with `neighbours` and `connected`. The check is what keeps the ring from crossing itself, so the final ring is one area. A hatch fills that area, and the area is opaque. `history` keeps the ring every forty steps. The drawing puts those rings on top as growth rings.
+A small ring grows until it fills a dish. Four forces act on every vertex at each step. `separation` keeps a vertex away from every other part of the ring. `tension` pulls it toward its two chain neighbours. `relax` keeps the chain smooth. `boundary` keeps it inside the dish. The growth is a rule on the edges. An edge can split only when no other part of the ring is near its middle. This is the check with `points.near` and `adjacent`. The check is what keeps the ring from crossing itself, so the final ring is one area. A hatch fills that area, and the area is opaque. `history` keeps the ring every forty steps. The drawing puts those rings on top as growth rings.
 
-Uses: `t.sample`, `steps` with `every`, `force.sum` of four forces, `neighbours`, `connected`, `next.splitEdges` with `t.chance`, `history`, `polygon` with `opaque` and a `fill`.
+Uses: `t.sample`, `steps` with `every`, `force.sum` of four forces, `points.near`, `adjacent`, `next.splitEdges` with `t.chance`, `history`, `polygon` with `opaque` and a `fill`.
 
 :::note
 Growth that ignores the room around an edge runs away. The vertex count doubles every few steps and the ring folds through itself. Test a growth rule with a small step count first.
 :::
 
 ```ts live
-import { sketch, strokes, circle, force, neighbours, mul, add, polygon, fill, mm } from 'occlude';
+import { sketch, strokes, circle, force, mul, add, polygon, fill, mm } from 'occlude';
 export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
   const ring = t.sample(circle(50, 50, 10), { count: 40 });
   const dish = t.material(circle(50, 50, 44));
@@ -24,10 +24,9 @@ export default sketch({ aspect: [1, 1], seed: 8 }, (t) => {
       force.boundary(dish, { radius: 8 }),
     );
     next.move(cur.points, (p) => mul(push(p), 0.2));
-    const near = neighbours(cur, { radius: 2.5 });
     const room = cur.edges.filter((e) => {
       const own = new Set([e.a.index, e.b.index, ...e.a.adjacent.indices, ...e.b.adjacent.indices]);
-      return near(mul(add(e.a, e.b), 0.5)).every((j) => own.has(j));
+      return cur.points.near(mul(add(e.a, e.b), 0.5), { radius: 2.5 }).every((q) => own.has(q.index));
     });
     next.splitEdges(room.filter(() => t.chance(0.3)));
   }, { every: 40 });

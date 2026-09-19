@@ -30,7 +30,7 @@ export interface NeighbourStats {
  * within `radius` of `p` (a vertex of THIS material is excluded from its own
  * query; a foreign point is not), in grid order — the sketch decides what
  * to do with them. Connectivity is a different concept and is NOT
- * excluded here (see `force.adjacent`). Rows are valid for this state.
+ * excluded here. Rows are valid for this state.
  */
 export function neighbours(m: Material, opts: { radius: number; stats?: NeighbourStats }): (p: XY) => number[] {
   const radius = opts.radius;
@@ -124,39 +124,6 @@ export function sourcePoints(sources: Sources): PointsLike {
   const points = (sources as Geometry).points;
   if (points === undefined || (points as unknown) === sources) return sources as PointsLike;
   return points as unknown as PointsLike;
-}
-
-/**
- * A neighbourhood interaction: the sum, over every source point `q` within
- * `radius` of `p`, of `contribution(p, q)`. The spatial index over
- * `sources` is built ONCE, here, for that frozen state; the returned
- * function evaluates at any point. `q` is a vertex view of the sources.
- *
- * Identity: a vertex of the source material never interacts with itself —
- * decided by membership in that state, not by coordinates or by an index
- * from an unrelated collection. Nothing else is skipped unless `skip(p, q)`
- * says so; connected neighbours are NOT excluded by default (see
- * `adjacent`). Contributions accumulate in a fixed grid order.
- */
-export function nearby(
-  sources: Sources,
-  opts: { radius: number; skip?: (p: Vertex, q: Vertex) => boolean; stats?: NeighbourStats },
-  contribution: (p: Vertex, q: Vertex) => XY,
-): (p: Vertex) => Vec {
-  const m = material(sourcePoints(sources));
-  const near = neighbours(m, { radius: opts.radius, stats: opts.stats });
-  const skip = opts.skip;
-  return (p) =>
-    sumBy(near(p), (j) => {
-      const q = m.vertex(j);
-      return skip && skip(p, q) ? [0, 0] : contribution(p, q);
-    });
-}
-
-/** The explicit "skip what I'm connected to" rule for `nearby`: true when
- * `p` and `q` share an edge of `m` (both must be vertices of `m`). */
-export function adjacent(m: Material): (p: Vertex, q: Vertex) => boolean {
-  return (p, q) => ownerOf(p) === m && m.isConnected(p.index, q.index);
 }
 
 /**
@@ -322,7 +289,6 @@ export function relax(m: Material, opts: { amount?: number } = {}): (p: Vertex) 
   };
 }
 
-/** The forces as one namespace: `force.nearby(...)`, `force.tension(...)`. */
 /** Prepared forces summed into one: `(p, k) => vector`. Every force gets
  * `p` and the iteration `k` (those that do not turn ignore it), so a
  * rule reads `next.move(prev.points, (p) => mul(push(p, k), speed))` with the speed
@@ -342,4 +308,4 @@ export function sumForces(...forces: readonly ((p: Vertex, k: number) => XY)[]):
 }
 
 export const force = {
-  sum: sumForces, nearby, adjacent, tension, separation, drift, attract, boundary, vortex, field, relax };
+  sum: sumForces, tension, separation, drift, attract, boundary, vortex, field, relax };

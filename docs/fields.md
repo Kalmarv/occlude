@@ -328,14 +328,14 @@ export default sketch({ aspect: [2, 1], seed: 3 }, (t) => {
 ### An island, drawn only by its own lines
 
 ```ts live paper=180x120
-import { sketch, strokes, distanceTo, components } from 'occlude';
+import { sketch, strokes, distanceTo } from 'occlude';
 
 // The coast, the crests of the ranges, and the water that runs between them.
 // No contours, no hatching, no shading — every stroke is a place where the
 // terrain does something.
 //
 // The judging is per CREST, not per point. Filtering vertices by strength
-// chops a crest into dashes wherever it dips; `components()` names each one,
+// chops a crest into dashes wherever it dips; `points.components()` gives each one,
 // so a crest is kept or dropped whole, on its best stretch and its length.
 // That is the difference between a range and a field of scratches.
 export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
@@ -348,19 +348,14 @@ export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
     Math.max(0, inland(x, y)) * 0.55 + 15 * t.noise(x / 21, y / 21) + 3.5 * t.noise(x / 8, y / 8);
 
   const keep = (m, minStrength, minRun) => {
-    const c = components(m);
-    const peak = new Float64Array(c.count);
-    const run = new Int32Array(c.count);
-    for (const p of m.points) {
-      const k = c.label(p);
-      peak[k] = Math.max(peak[k], p.strength);
-      run[k]++;
+    const crests = m.points.components();
+    const peak = (crest) => crest.map((p) => p.strength).reduce((a, b) => Math.max(a, b), 0);
+    const top = crests.map(peak).reduce((a, b) => Math.max(a, b), 0);
+    const kept = new Set();
+    for (const crest of crests) {
+      if (peak(crest) > top * minStrength && crest.length >= minRun) for (const i of crest.indices) kept.add(i);
     }
-    const top = Math.max(...peak);
-    return m.points
-      .filter((p) => peak[c.label(p)] > top * minStrength && run[c.label(p)] >= minRun)
-      .edges
-      .extract();
+    return m.points.filter((p) => kept.has(p.index)).edges.extract();
   };
 
   // Two passes at two steps. The step is the scale the derivatives are taken
@@ -382,7 +377,7 @@ export default sketch({ aspect: [3, 2], seed: 12 }, (t) => {
 ### One field, three questions
 
 ```ts live paper=180x120
-import { sketch, strokes, polygon, material, connect, append, distanceTo, components } from 'occlude';
+import { sketch, strokes, polygon, material, connect, append, distanceTo } from 'occlude';
 
 // Stones in a raked bed. One distance field does all three jobs: its level
 // sets are the ripples raked around the stones, its crests inside each stone
@@ -420,10 +415,9 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
   // two-vertex ridges, all of them real — does not reach the paper, while the
   // spine does.
   const longRuns = (m, least) => {
-    const c = components(m);
-    const run = new Int32Array(c.count);
-    for (const p of m.points) run[c.label(p)]++;
-    return (p) => run[c.label(p)] > least;
+    const long = new Set();
+    for (const run of m.points.components()) if (run.length > least) for (const i of run.indices) long.add(i);
+    return (p) => long.has(p.index);
   };
   const longChannel = longRuns(channels, 40);
   const longSpine = longRuns(spines, 6);
@@ -444,7 +438,7 @@ export default sketch({ aspect: [3, 2], seed: 6 }, (t) => {
 ### A graph drawn by the ground
 
 ```ts live
-import { sketch, strokes, circle, connect, components } from 'occlude';
+import { sketch, strokes, circle, connect } from 'occlude';
 
 // There is no landscape here. The field is the drawing itself, blurred — one
 // soft bump per point and nothing else — and the black lines are its crests.
@@ -468,13 +462,12 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
   };
 
   const crests = t.ridges(blur, { step: 1 });
-  const c = components(crests);
-  const run = new Int32Array(c.count);
-  for (const p of crests.points) run[c.label(p)]++;
+  const long = new Set();
+  for (const run of crests.points.components()) if (run.length > 10) for (const i of run.indices) long.add(i);
 
   return [
     strokes(connect.unimpeded(pts, { room: 1.4 }), { pen: 'stabilo-88-blue' }),
-    strokes(crests.points.filter((p) => run[c.label(p)] > 10 && blur(p.x, p.y) > 0.4).edges.extract()),
+    strokes(crests.points.filter((p) => long.has(p.index) && blur(p.x, p.y) > 0.4).edges.extract()),
     pts.points.map((p) => circle(p.x, p.y, 1.1)),
   ];
 });
@@ -483,7 +476,7 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
 ### The range itself
 
 ```ts live paper=180x120
-import { sketch, components, pen, mm } from 'occlude';
+import { sketch, pen, mm } from 'occlude';
 import { plane, mapSurface, view, perspective, style } from 'occlude/3d';
 
 // A landscape whose only lines are the ones the ground has: its crests, its
@@ -504,10 +497,9 @@ export default sketch({ aspect: [3, 2], seed: 17, pens: {
     t.noise(x / 48, y / 48) + 0.45 * t.noise(x / 19, y / 19) + 0.14 * t.noise(x / 8, y / 8);
 
   const longest = (m, least) => {
-    const c = components(m);
-    const run = new Int32Array(c.count);
-    for (const p of m.points) run[c.label(p)]++;
-    return m.points.filter((p) => run[c.label(p)] > least).edges.extract();
+    const long = new Set();
+    for (const run of m.points.components()) if (run.length > least) for (const i of run.indices) long.add(i);
+    return m.points.filter((p) => long.has(p.index)).edges.extract();
   };
   // the drawable rectangle onto the chart's unit square: an affine cage
   const sheet = [[0, 0], [t.width, 0], [t.width, t.height], [0, t.height]];

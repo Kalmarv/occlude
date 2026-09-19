@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { append, connect, curve, material, type Vertex } from '../src/material.js';
-import { EdgeSelection, PointSelection, components, meanBy } from '../src/relation.js';
+import { EdgeSelection, PointSelection, meanBy } from '../src/relation.js';
 
 // a Y: 0-1-2 trunk, 2-3 and 2-4 branches, plus an isolated point 5
 const Y = () =>
@@ -217,43 +217,59 @@ describe('relational attributes', () => {
     expect(Array.from(deg.attrs.degree)).toEqual([1, 2, 3, 1, 1, 0]);
   });
 
-  it('components: deterministic labels, isolated vertices, ownership, empty material', () => {
+  it('components: one selection per piece, isolated vertices, empty material', () => {
     const m = material([[0, 0], [5, 0], [9, 9], [1, 1], [2, 2]], { edges: [[3, 4], [0, 1]] });
-    const c = components(m);
-    expect(c.count).toBe(3);
-    expect(Array.from(c.labels)).toEqual([0, 0, 1, 2, 2]);
-    expect(c.label(m.vertex(4))).toBe(2);
-    expect(c.label(2)).toBe(1);
-    expect(() => c.label(material([[0, 0]]).vertex(0))).toThrow(/another state/);
-    expect(() => c.label(7)).toThrow(/no vertex/);
-    expect(components(material([])).count).toBe(0);
-    const labelled = m.attribute('piece', (p) => c.label(p), { transfer: 'nearest' });
+    const pieces = m.points.components();
+    expect(pieces.map((c) => c.indices)).toEqual([[0, 1], [2], [3, 4]]);
+    expect(pieces.map((c) => c.key)).toEqual([0, 1, 2]);
+    expect(material([]).points.components()).toEqual([]);
+    // The piece a row belongs to, as a column: what `components(m).label` was.
+    const partOf = new Map<number, number>();
+    pieces.forEach((piece, k) => { for (const i of piece.indices) partOf.set(i, k); });
+    const labelled = m.attribute('piece', (p) => partOf.get(p.index) ?? 0, { transfer: 'nearest' });
+    expect(Array.from(labelled.attrs.piece)).toEqual([0, 0, 1, 2, 2]);
     expect(labelled.transfers.piece).toBe('nearest');
-    const y = Y();
-    expect(Array.from(components(y).labels)).toEqual([0, 0, 0, 0, 0, 1]);
-  });
-});
-
-describe('p.adjacent and points.near answer different questions', () => {
-  const line3 = () => material([[0, 0], [1, 0], [2, 0]] as [number, number][], { edges: [[0, 1], [1, 2]] as [number, number][] });
-
-  it('gives a point the points an edge joins it to, and never itself', () => {
-    const m = line3();
-    const middle = m.points.at(1);
-    expect(middle.adjacent.length).toBe(2);
-    expect(middle.adjacent.map((p) => p.index).sort()).toEqual([0, 2]);
-    expect(m.points.at(0).adjacent.length).toBe(1);
-    expect(material([[0, 0]] as [number, number][]).points.at(0).adjacent.length).toBe(0);
+    expect(Y().points.components().map((c) => c.indices)).toEqual([[0, 1, 2, 3, 4], [5]]);
   });
 
-  it('finds points near one, by distance and not by topology', () => {
-    const m = material([[0, 0], [1, 0], [5, 0], [0, 1]] as [number, number][]);
-    const p = m.points.at(0);
-    expect(m.points.near(p, { radius: 1.5 }).map((q) => q.index).sort()).toEqual([1, 3]);
-    // Never the queried vertex, whatever the radius, when it is of this state.
-    expect(m.points.near(p, { radius: 100 }).map((q) => q.index)).not.toContain(0);
-    // A selection of part of the state answers with its own members only.
-    expect(m.points.filter((q) => q.index !== 1).near(p, { radius: 1.5 }).map((q) => q.index)).toEqual([3]);
-    expect(() => m.points.near(p, { radius: 0 })).toThrow(/positive distance/);
+  it('components of a selection use the edges among the members alone', () => {
+    const m = material([[0, 0], [1, 0], [2, 0], [3, 0]], { edges: [[0, 1], [1, 2], [2, 3]] });
+    const ends = m.points.filter((p) => p.index === 0 || p.index === 3);
+    expect(ends.components().map((c) => c.indices)).toEqual([[0], [3]]);
+    expect(m.points.components().map((c) => c.indices)).toEqual([[0, 1, 2, 3]]);
+  });
+
+  it('adjacent and connected: one step out, then everything reachable', () => {
+    const m = material([[0, 0], [1, 0], [2, 0], [9, 9], [10, 9]], { edges: [[0, 1], [1, 2], [3, 4]] });
+    const first = m.points.filter((p) => p.index === 0);
+    expect(first.adjacent().indices).toEqual([1]); // members are never their own neighbours
+    expect(first.connected().indices).toEqual([0, 1, 2]);
+    // A loose vertex reaches nothing and is a piece of its own.
+    const loose = material([[0, 0]]);
+    expect(loose.points.adjacent().indices).toEqual([]);
+    expect(loose.points.connected().indices).toEqual([0]);
+    expect(loose.points.components().map((c) => c.indices)).toEqual([[0]]);
+  });
+
+  it('a vertex knows its edges; degree is their count', () => {
+    const m = material([[0, 0], [1, 0], [2, 0], [1, 1]], { edges: [[0, 1], [1, 2], [1, 3]] });
+    expect(m.points.at(1).edges.indices).toEqual([0, 1, 2]);
+    expect(m.points.at(1).edges.length).toBe(3); // the degree, where `maxDegree` used to be asked
+    expect(m.points.at(0).edges.indices).toEqual([0]);
+    expect(m.points.at(0).edges.at(0).b.index).toBe(1);
+    // An `edges` column cannot shadow the word.
+    expect(() => material([[0, 0]], { edges: [] }).attribute('edges', 1)).toThrow(/reserved/);
+  });
+
+  it('edge selections say the same three words', () => {
+    const m = material([[0, 0], [1, 0], [2, 0], [9, 9], [10, 9]], { edges: [[0, 1], [1, 2], [3, 4]] });
+    const first = m.edges.filter((e) => e.index === 0);
+    expect(first.adjacent().indices).toEqual([1]);
+    expect(first.connected().indices).toEqual([0, 1]);
+    expect(m.edges.components().map((c) => c.indices)).toEqual([[0, 1], [2]]);
+    // The edges among a point selection, and the edges touching it.
+    const mid = m.points.filter((p) => p.index === 1 || p.index === 2);
+    expect(mid.edges.indices).toEqual([1]);
+    expect(mid.edges.adjacent().indices).toEqual([0]);
   });
 });

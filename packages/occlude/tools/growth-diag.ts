@@ -11,7 +11,15 @@
  * candidates examined vs actual neighbours within the radius, interval
  * ms, and points retained in history (0 without --history).
  */
-import { curve, neighbours, sub, mul, length, unit, limit, perp, sum, sumBy, type Material, type NeighbourStats, type Vertex, type Next } from '../src/index.js';
+import { curve, sub, mul, length, unit, limit, perp, sum, sumBy, type Material, type Vertex, type Next } from '../src/index.js';
+// The engine's own spatial index, with its counters: this diagnostic exists
+// to report them. A sketch says `cur.points.near(p, { radius })`.
+import { neighbours, type NeighbourStats } from '../src/forces.js';
+
+/** The row before/after `i` along a stored edge, -1 at an open end — the
+ * ring walk this tool measures, written over the vertex's own edges. */
+const prevRow = (m: Material, i: number) => { for (const e of m.points.at(i).edges) if (e.b.index === i) return e.a.index; return -1; };
+const nextRow = (m: Material, i: number) => { for (const e of m.points.at(i).edges) if (e.a.index === i) return e.b.index; return -1; };
 import { Rng } from '../src/random.js';
 
 const args = process.argv.slice(2);
@@ -70,11 +78,11 @@ const rule = ruleName === 'alt'
   ? (current: Material, next: Next) => {
       const near = neighbours(current, { radius: push, stats });
       for (const p of current.points) {
-        const prev = current.prev(p.index);
-        const nxt = current.next(p.index);
+        const prev = prevRow(current, p.index);
+        const nxt = nextRow(current, p.index);
         const force = sum(
-          sumBy([prev, nxt], (j) => pull(p, current.vertex(j))),
-          sumBy(near(p), (j) => (j === prev || j === nxt ? [0, 0] : repel(p, current.vertex(j)))),
+          sumBy([prev, nxt], (j) => pull(p, current.points.at(j))),
+          sumBy(near(p), (j) => (j === prev || j === nxt ? [0, 0] : repel(p, current.points.at(j)))),
         );
         const step = limit(mul(force, speed), splitAt / 2);
         if (length(mul(force, speed)) > splitAt / 2) capped++;
@@ -86,8 +94,8 @@ const rule = ruleName === 'alt'
   : (current: Material, next: Next, k: number) => {
       const near = neighbours(current, { radius: push, stats });
       for (const p of current.points) {
-        const prev = current.prev(p.index);
-        const nxt = current.next(p.index);
+        const prev = prevRow(current, p.index);
+        const nxt = nextRow(current, p.index);
         const a = noiseAngle(p.x, p.y, k);
         const edgeRest = (j: number) => (material ? current.attrs.rest[j] : rest);
         const pullEdge = (q: Vertex, r: number) => {
@@ -96,9 +104,9 @@ const rule = ruleName === 'alt'
         };
         const force = sum(
           material
-            ? sum(pullEdge(current.vertex(prev), edgeRest(prev)), pullEdge(current.vertex(nxt), edgeRest(p.index)))
-            : sumBy([prev, nxt], (j) => pull(p, current.vertex(j))),
-          sumBy(near(p), (j) => (j === prev || j === nxt ? [0, 0] : repel(p, current.vertex(j)))),
+            ? sum(pullEdge(current.points.at(prev), edgeRest(prev)), pullEdge(current.points.at(nxt), edgeRest(p.index)))
+            : sumBy([prev, nxt], (j) => pull(p, current.points.at(j))),
+          sumBy(near(p), (j) => (j === prev || j === nxt ? [0, 0] : repel(p, current.points.at(j)))),
           [Math.cos(a) * wander, Math.sin(a) * wander],
         );
         const step = mul(force, speed);
@@ -160,7 +168,7 @@ const pct = (xs: number[], q: number) => { const a = [...xs].sort((x, y) => x - 
 const edgeLen = cur.edges.map((e) => e.length);
 const turn: number[] = [];
 for (let i = 0; i < cur.n; i++) {
-  const a = cur.vertex(cur.prev(i)); const b = cur.vertex(i); const c = cur.vertex(cur.next(i));
+  const a = cur.points.at(prevRow(cur, i)); const b = cur.points.at(i); const c = cur.points.at(nextRow(cur, i));
   const u = unit(sub(b, a)); const v = unit(sub(c, b));
   turn.push(Math.abs(Math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1])) * 180 / Math.PI);
 }

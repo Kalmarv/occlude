@@ -388,7 +388,7 @@ A material is a set of vertices, each with `x`, `y` and any named attribute colu
 | making | `t.sample(shape)`, `material(points)`, `curve(pts)`, `connect.*`, `.attribute()`, `.resample()` |
 | vectors | `add sub mul length distance unit limit perp dot cross fromAngle angleOf sum sumBy`: tuples in either spelling, tuples out, nothing mutated; angles in radians |
 | rules | `.steps(n, (current, next, k) => …)` with the collection edits, or the shorthand `.steps(n, { move: p => [dx, dy], set })` over every point; forces prepared once and evaluated at a point |
-| collections | `.points`, `.edges`, `.faces()`: iterate, `length`, `at`, `map`, `filter` (a selection), `groupBy` (selections by key); `.extract()` for independent material; `connectedPoints`, `components`, `meanBy` |
+| collections | `.points`, `.edges`, `.faces()`: iterate, `length`, `at`, `map`, `filter` (a selection), `groupBy` (selections by key); `.adjacent()`, `.connected()`, `.components()`; `.extract()` for independent material; `meanBy` |
 | areas | `.planarize()` shares crossings on purpose; `.faces()` reads the enclosed regions; `boundaryEdges` and `contours()` outline a union as walls or as loops |
 | drawing | `.curves()`, `.along()` for stations to place things at, `strokes()`, `segmentRuns`, `extent`, `banding`, then `stroke`, `polygon`, `circle` |
 
@@ -1155,7 +1155,7 @@ export default sketch({ aspect: [3, 1], seed: 11 }, (t) => {
 
 ### Relations
 
-`p.adjacent` is adjacency as views, `meanBy(items, fn)` a scalar mean (0 of nothing), and `components(m)` one connected-components pass with `count`, a `labels` column and `label(vertex)`. Connected and nearby are different questions; nearby is a spatial query, below.
+`p.adjacent` is adjacency as views and `p.edges` the same neighbourhood as edges, so `p.edges.length` is the degree. `meanBy(items, fn)` is a scalar mean (0 of nothing). A whole selection says the same words: `sel.adjacent()` one step out, `sel.connected()` all the way out, and `sel.components()` the pieces. Connected and nearby are different questions; nearby is a spatial query, below.
 
 ```ts live
 import { sketch, strokes, circle, group, connect, meanBy } from 'occlude';
@@ -1178,11 +1178,11 @@ export default sketch({ aspect: [2, 1], seed: 21 }, (t) => {
 ```
 
 ```ts live
-import { sketch, stroke, circle, material, append, connect, components, segmentRuns } from 'occlude';
+import { sketch, stroke, circle, material, append, connect, segmentRuns } from 'occlude';
 
-// Separate chains, a ring and lone points in one material. components()
-// labels each piece once and the pen cycles by label; isolated vertices
-// are pieces too.
+// Separate chains, a ring and lone points in one material.
+// points.components() gives each piece once and the pen cycles by its key;
+// isolated vertices are pieces too.
 export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
   const chain = (x, y, n) => connect.chain(t.times(n, (k) => [x + k * 6.4, y + t.noise(x + k, y) * 12]));
   let all = append(chain(12, 20, 8), chain(80, 16, 10));
@@ -1190,8 +1190,9 @@ export default sketch({ aspect: [2, 1], seed: 14 }, (t) => {
   all = append(all, chain(20, 68, 12));
   all = append(all, connect.ring(t.times(12, (k) => [132 + Math.cos(k / 12 * Math.PI * 2) * 16, 68 + Math.sin(k / 12 * Math.PI * 2) * 16])));
   all = append(all, material([[100, 44], [176, 84], [60, 92], [184, 40]]));
-  const pieces = components(all);
-  const labelled = all.attribute('piece', (p) => pieces.label(p), { transfer: 'nearest' });
+  const pieceOf = new Map();
+  all.points.components().forEach((piece) => { for (const i of piece.indices) pieceOf.set(i, piece.key); });
+  const labelled = all.attribute('piece', (p) => pieceOf.get(p.index), { transfer: 'nearest' });
   const pens = ['pigma-01-black', 'stabilo-88-blue', 'stabilo-88-green'];
   return [
     segmentRuns(labelled, (a) => a.piece).map((r) => stroke(r, { pen: pens[r.key % 3] })),
@@ -1272,17 +1273,17 @@ By default only the final state is kept. `{ every: m }` also records the initial
 
 ### forces
 
-A force is prepared once with its sources, then evaluated at a point to give a vector; nothing moves until the rule says so. Two callback shapes: `p => vector` for a wind, drift or vector field, and `(p, q) => vector` for an interaction with another point, which goes through `force.nearby`. That finds every source `q` within a radius of `p` from an index built once for the frozen state, and sums your contributions:
+A force is prepared once with its sources, then evaluated at a point to give a vector; nothing moves until the rule says so. A force is only a function `p => vector`, so an interaction of your own is a function too: take the neighbourhood with `points.near`, and sum your contributions with `sumBy`.
 
 ```ts
-const repel = force.nearby(sources, { radius }, (p, q) => {
+const repel = (p) => sumBy(sources.points.near(p, { radius }), (q) => {
   const delta = sub(p, q);
   return mul(unit(delta), radius - length(delta));
 });
 next.move(prev.points, (p) => mul(repel(p), speed));
 ```
 
-`sources` is a material or any list of points: the material being moved, or obstacles that stay put. A vertex of the source material never interacts with itself. `excludeConnected: true` on the recipes, or `skip: force.adjacent(m)` on `nearby`, excludes connected neighbours. The named recipes are short functions on this mechanism:
+`sources` is any material: the one being moved, or obstacles that stay put. A vertex is never its own neighbour, and a point of another state is just a position. `.subtract(p.adjacent)` leaves out the points `p` is joined to; the recipes say `excludeConnected: true` for the same thing. The named recipes are short functions on this mechanism:
 
 | Recipe | Prepared with | Vector |
 |---|---|---|
@@ -1316,14 +1317,14 @@ export default sketch({ aspect: [2, 1], seed: 5 }, (t) => {
 });
 ```
 
-Sources need not be the moving geometry. Here a ring grows among six fixed posts that shove it away, with the interaction written in place through `force.nearby`.
+Sources need not be the moving geometry. Here a ring grows among six fixed posts that shove it away, with the interaction written in place over `points.near`.
 
 ```ts live
-import { sketch, stroke, circle, force, sub, unit, length, mul } from 'occlude';
+import { sketch, stroke, circle, force, material, sub, unit, length, mul, sumBy } from 'occlude';
 
 export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
-  const posts = [[40, 24], [100, 16], [160, 28], [44, 76], [104, 84], [160, 72]];
-  const shove = force.nearby(posts, { radius: 18 }, (p, q) => {
+  const posts = material([[40, 24], [100, 16], [160, 28], [44, 76], [104, 84], [160, 72]]);
+  const shove = (p) => sumBy(posts.points.near(p, { radius: 18 }), (q) => {
     const delta = sub(p, q);
     return mul(unit(delta), (18 - length(delta)) * 0.9);
   });
@@ -1334,7 +1335,7 @@ export default sketch({ aspect: [2, 1], seed: 4 }, (t) => {
   }, (cur, next, k) => {
     next.splitEdges(cur.edges.filter((e) => e.length > 2.2 && t.chance(0.3)));
   });
-  return [posts.map(([x, y]) => circle(x, y, 4)), stroke(grown.contour)];
+  return [posts.points.map((q) => circle(q.x, q.y, 4)), stroke(grown.contour)];
 });
 ```
 
@@ -3010,7 +3011,7 @@ export default sketch({ aspect: [1, 1], seed: 4 }, (t) => {
 ### The light in a dented bowl
 
 ```ts live paper=180x120
-import { sketch, strokes, append, material, connect, components, polygon } from 'occlude';
+import { sketch, strokes, append, material, connect, polygon } from 'occlude';
 
 // The light in a dented bowl.
 //
@@ -3030,12 +3031,9 @@ export default sketch({ aspect: [3, 2], seed: 14 }, (t) => {
     t.noise(x / 46, y / 46) + 0.42 -
     1.3 * Math.hypot((x - t.cx) / (t.width * 0.4), (y - t.cy) / (t.height * 0.46)) ** 2;
   const all = t.isolines(field, 0, { close: true, step: 0.6 });
-  const c = components(all);
-  const size = new Int32Array(c.count);
-  for (const p of all.points) size[c.label(p)]++;
-  let best = 0;
-  for (let k = 1; k < c.count; k++) if (size[k] > size[best]) best = k;
-  const bowl = all.points.filter((p) => c.label(p) === best).edges.extract().resample({ spacing: 0.7 });
+  const pieces = all.points.components();
+  const biggest = pieces.reduce((a, b) => (b.length > a.length ? b : a));
+  const bowl = biggest.edges.extract().resample({ spacing: 0.7 });
 
   const wall = bowl.curves()[0].pts;
   const n = wall.length;

@@ -54,7 +54,7 @@ New geometry mints new ids. A step that moves or sets keeps them. A split retire
 
 This is what lets a selection outlive the state it was made in. `sel.in(state)` reads a selection against a later state and drops the members that are gone. `sel.has(view)` asks by identity, so a vertex you kept from an earlier step is the same vertex. A step verb takes a selection from an earlier state and finds the rows itself.
 
-Store an id in an ordinary column and look it up later with `m.pointOf(id)` or `m.edgeOf(id)`. `m.vertex(row)` and `m.edge(row)` ask the same question by position in one state; an id and a row are both numbers, so the two have different names and neither guesses.
+Store an id in an ordinary column and look it up later with `m.pointOf(id)` or `m.edgeOf(id)`. `m.points.at(row)` and `m.edges.at(row)` ask the same question by position in one state; an id and a row are both numbers, so the two have different names and neither guesses.
 
 ## material()
 

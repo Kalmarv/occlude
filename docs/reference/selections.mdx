@@ -137,15 +137,15 @@ export default sketch({ aspect: [1, 1] }, (t) => {
 });
 ```
 
-## p.adjacent · points.near() · isConnected()
+## p.adjacent · p.edges · points.near()
 
 <include>/_sig/Vertex.adjacent.mdx</include>
+<include>/_sig/Vertex.edges.mdx</include>
 <include>/_sig/PointSelection.near.mdx</include>
-<include>/_sig/Material.isConnected.mdx</include>
 
-Two different questions. `p.adjacent` is topology: the points an edge joins this one to. `points.near(p, { radius })` is distance: the points closer than `radius`, joined or not. A rule wants one or the other. Name the right one and the rule stays honest. `a.adjacent.has(b)` tells you that two points share an edge. `isConnected` answers the same question by row.
+Two different questions. `p.adjacent` is topology: the points an edge joins this one to. `points.near(p, { radius })` is distance: the points closer than `radius`, joined or not. A rule wants one or the other. Name the right one and the rule stays honest. `a.adjacent.has(b)` tells you that two points share an edge.
 
-A vertex with one edge is an end. A vertex with three or more is a junction.
+`p.edges` is the same neighbourhood as edges. `p.edges.length` is the degree: a vertex with one edge is an end, and a vertex with three or more is a junction.
 
 ```ts live
 import { sketch, circle, strokes, line, connect } from 'occlude';
@@ -168,19 +168,20 @@ export default sketch({ aspect: [1, 1], seed: 5 }, (t) => {
 `near` builds one index for each radius and keeps it on the state. A whole pass of queries at one radius pays for one grid. A selection of part of a state answers with its own members only.
 :::
 
-## components()
+## adjacent() · connected() · components()
 
-<include>/_sig/components.mdx</include>
+<include>/_sig/PointSelection.adjacent.mdx</include>
+<include>/_sig/PointSelection.connected.mdx</include>
+<include>/_sig/PointSelection.components.mdx</include>
 
-The connected pieces of a material, in one pass: `count`, a `labels` column and `label(vertex)`. A loose vertex is a piece of its own.
+The same three words a whole selection says, on points and on edges. `adjacent()` is one step out: every point an edge joins to a member, members excluded. `connected()` is all the way out: the members plus everything reachable from them. `components()` partitions the MEMBERS into pieces, joined by the edges among them alone, and keys them `0, 1, 2 …` as `groupBy` does. A loose vertex is a piece of its own.
 
 ```ts live
-import { sketch, strokes, components, connect } from 'occlude';
+import { sketch, strokes, connect } from 'occlude';
 
 export default sketch({ aspect: [1, 1] }, (t) => {
   const lattice = connect.unimpeded(t.scatter({ spacing: 9 }), { room: 3.5 });
-  const pieces = components(lattice);
-  return lattice.edges.groupBy((e) => pieces.label(e.a)).map((sel) => strokes(sel, { pen: sel.key % 2 ? 'stabilo-88-blue' : 'pigma-005-black' }));
+  return lattice.points.components().map((piece) => strokes(piece.edges, { pen: piece.key % 2 ? 'stabilo-88-blue' : 'pigma-005-black' }));
 });
 ```
 

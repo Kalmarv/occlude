@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { append, components, curve, material, type Material } from '../src/index.js';
+import { append, curve, material, type Material } from '../src/index.js';
 
 const family = (members: [number, number][][]): Material =>
   members.map((pts) => curve(pts)).reduce((a, b) => append(a, b)) as unknown as Material;
@@ -38,7 +38,7 @@ describe('envelope', () => {
 
   it('is one chain along the family, carrying which members made it', () => {
     const e = family(chords(100, 60)).envelope();
-    expect(components(e).count).toBe(1);
+    expect(e.points.components()).toHaveLength(1);
     expect(e.n).toBe(e.edgeList.length / 2 + 1);
     const members = Array.from(e.attrs.member);
     // Strictly increasing: one vertex per neighbouring pair, in family order.
@@ -77,7 +77,7 @@ describe('envelope', () => {
         return [cx + 30 * Math.cos(a), 50 + 30 * Math.sin(a)] as [number, number];
       });
     const e = family(Array.from({ length: 24 }, (_, i) => ring(30 + i * 1.5))).envelope();
-    expect(components(e).count).toBe(2);
+    expect(e.points.components()).toHaveLength(2);
     const above = Array.from(e.y).filter((y) => y > 50).length;
     expect(above).toBe(e.n / 2);
   });
